@@ -1,12 +1,14 @@
-# rotom
+# 使用指南
 
-基于 Pi 的个人 coding agent，组合编码、Browser / Computer Use、按需 Subagent 和本地 metadata 观测。
+[返回首页](../README.md) · [构建与升级](agent/distribution.md)
+
+本文保留安装、模型配置与 Qoder 的详细说明。除明确标为源码的路径外，运行时路径均相对安装后的 rotom 包目录。
 
 ## 本地发行包安装
 
 项目源码位于 [bingjiang0611/rotom](https://github.com/bingjiang0611/rotom)。npm 产品仍为 private Alpha，未发布到 npm；不能直接执行 `npm install -g rotom`。
 
-要求 Node.js 24+ 和 POSIX shell。已验证 macOS 与隔离 Linux VM 的安装和本地终端场景；Windows 原生入口不受支持。
+要求 Node.js 24+ 和 POSIX shell。macOS arm64 已有随包 Pi fork 的安装验证；旧版本曾完成隔离 Linux VM smoke，新内置依赖闭包的 Linux／其他 CPU 验证仍未完成。Windows 原生入口不受支持。
 
 ```sh
 # 将占位路径替换为实际打包产物
@@ -106,4 +108,4 @@ PNG/JPEG/WebP 支持用户多图、工具返回图片与原生 session 恢复；
 
 ## 许可与发布状态
 
-本包暂为 `private: true`、`UNLICENSED`，不授权公开发布；根产品许可证、名称重名及宝可梦相关商标/IP 使用仍待确认。rotom 是独立项目，不是 Pi 或宝可梦官方产品。第三方版权与许可证见 `THIRD_PARTY_NOTICES.md` 和随依赖保留的原始许可证。
+公开仓库保留 [MIT 许可证](https://github.com/bingjiang0611/rotom/blob/main/LICENSE)；npm 产品元数据仍为 `private: true`、`UNLICENSED`，源码公开不代表 npm 发布批准。rotom 是独立项目，不是 Pi 或宝可梦官方产品；MIT 许可不授予第三方商标权，名称／IP 使用仍需独立审查。第三方版权与许可证见[第三方声明](../rotom/THIRD_PARTY_NOTICES.md)和随依赖保留的原始许可证。

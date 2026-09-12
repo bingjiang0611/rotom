@@ -1,6 +1,6 @@
 # 🎯 pi-goal — Keep Pi Working Toward a Goal
 
-> This is the rotom-maintained private fork `0.54.4-rotom.0`; see [UPSTREAM.md](UPSTREAM.md) for provenance and the stronger no-progress guard. Project: [bingjiang0611/rotom](https://github.com/bingjiang0611/rotom). For integrated use follow [rotom installation](../../rotom/README.md), not an additional upstream install. Package APIs below are not a promise that rotom exposes every standalone tool or RPC route.
+> This is the rotom-maintained private fork `0.54.4-rotom.0`; see [UPSTREAM.md](UPSTREAM.md) for provenance and the stronger no-progress guard. Project: [bingjiang0611/rotom](https://github.com/bingjiang0611/rotom). For integrated use follow [rotom installation](../../docs/usage.md), not an additional upstream install. Package APIs below are not a promise that rotom exposes every standalone tool or RPC route.
 
 [![npm](https://img.shields.io/npm/v/@narumitw/pi-goal)](https://www.npmjs.com/package/@narumitw/pi-goal) [![Pi extension](https://img.shields.io/badge/Pi-extension-blue)](https://pi.dev) [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 

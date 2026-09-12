@@ -1,6 +1,6 @@
 # Qoder Default 全模型适配（历史验收）
 
-> 本页矩阵、路由和安装产物属于本批快照；后续已增加可调 effort、三模型图片/272K 管理窗口、Ultimate 固定 COSY，并改为默认 browser 认证。当前用法见 [产品说明](../../rotom/README.md#qoder原生-provider显式启用)，后续证据见 [图片与大上下文](IMAGE-CONTEXT-VERIFICATION.md)。旧 PASS/FAIL 和请求账本不改写为当前版本验收。
+> 本页矩阵、路由和安装产物属于本批快照；后续已增加可调 effort、三模型图片/272K 管理窗口、Ultimate 固定 COSY，并改为默认 browser 认证。当前用法见 [产品说明](../../docs/usage.md#qoder原生-provider显式启用)，后续证据见 [图片与大上下文](IMAGE-CONTEXT-VERIFICATION.md)。旧 PASS/FAIL 和请求账本不改写为当前版本验收。
 
 ## 授权、范围与状态
 

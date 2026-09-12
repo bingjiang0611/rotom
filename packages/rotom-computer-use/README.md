@@ -1,6 +1,6 @@
 # pi-computer-use
 
-> rotom-maintained private fork (`0.5.1-rotom.0`), not an upstream release. See [provenance and changes](UPSTREAM.md). Project: [bingjiang0611/rotom](https://github.com/bingjiang0611/rotom). For the integrated product, follow the [rotom installation guide](../../rotom/README.md); do not overlay an upstream install onto its pinned dependencies. Platform descriptions below describe the component, not a rotom Windows support claim.
+> rotom-maintained private fork (`0.5.1-rotom.0`), not an upstream release. See [provenance and changes](UPSTREAM.md). Project: [bingjiang0611/rotom](https://github.com/bingjiang0611/rotom). For the integrated product, follow the [rotom installation guide](../../docs/usage.md); do not overlay an upstream install onto its pinned dependencies. Platform descriptions below describe the component, not a rotom Windows support claim.
 
 `pi-computer-use` lets AI agents use desktop apps on macOS, Windows, and Linux.
 

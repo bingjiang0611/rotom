@@ -1,6 +1,6 @@
 # Qoder provider：维护验证
 
-实现与 colocated 单测已迁到 `rotom/extensions/qoder/`，不保留第二份实现或旧入口。产品将其作为第五个 bundled extension 加载，只有 `ROTOM_QODER=1` 才注册 provider。用户用法与边界见 [产品说明](../../rotom/README.md#qoder原生-provider显式启用)。
+实现与 colocated 单测已迁到 `rotom/extensions/qoder/`，不保留第二份实现或旧入口。产品将其作为第五个 bundled extension 加载，只有 `ROTOM_QODER=1` 才注册 provider。用户用法与边界见 [产品说明](../../docs/usage.md#qoder原生-provider显式启用)。
 
 - 稳定身份仍为 `qoder-experimental`；原绑定 custom entry ID 不变，不自动迁移任何活跃会话。
 - `lite` / `performance` 保留离线基线；账号目录按原始 key 发现并限制为实测白名单交集。当前 Default 目录 17 项（含 `smodel` Sonus）已适配，13 条 reasoning 路由支持原生推理，其中八条的 effort 取实测白名单与当前目录交集，其余固定 enabled；Ultimate/Sonus 的不同加密 item 完整保留，十条路线（含 Ultimate）固定 COSY 单次推理，不做失败回退。仅 Ultimate/Kimi-K3/DeepSeek-V4-Flash 的 PNG/JPEG/WebP 与 272K 管理窗口按已验证能力和当前目录交集开放，输出≤4096；未知 opaque 形状和未验证 effort 仍拒绝。历史见[目录验证](CATALOG-VERIFICATION.md)、[Ultimate/Flash 续查](REASONING-VERIFICATION.md)，基线见[全模型验证](ALL-MODELS-VERIFICATION.md)，后续见[长会话与档位验证](LONG-SESSIONS-VERIFICATION.md)，最新[图片与大上下文验证](IMAGE-CONTEXT-VERIFICATION.md)。

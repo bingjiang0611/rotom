@@ -1,6 +1,6 @@
 # Qoder 长会话与 thinking controls 验收
 
-> 本页为长会话阶段的历史结果，text-only/32K 与 alpha.0 产物不代表当前能力；后续三模型图片/272K 管理窗口及 Ultimate 固定 COSY 见 [图片与大上下文](IMAGE-CONTEXT-VERIFICATION.md)，当前使用合同见 [产品说明](../../rotom/README.md)。不复用旧账本授权，也不回填历史结果。
+> 本页为长会话阶段的历史结果，text-only/32K 与 alpha.0 产物不代表当前能力；后续三模型图片/272K 管理窗口及 Ultimate 固定 COSY 见 [图片与大上下文](IMAGE-CONTEXT-VERIFICATION.md)，当前使用合同见 [产品说明](../../docs/usage.md)。不复用旧账本授权，也不回填历史结果。
 
 用户在 `f3bd84c` 全局修复后仍报告 Ultimate `invalid_tool_id`，明确要求多组长会话与真实 thinking-level 切换通过后再交付。源码及实际安装验收已完成；全局更新状态见文末，不把候选源码/短用例通过当交付。
 

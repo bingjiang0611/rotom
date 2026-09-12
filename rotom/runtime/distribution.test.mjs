@@ -154,6 +154,18 @@ test("npm bin symlink chains preserve business cwd, argv, environment and exit s
 	assert.deepEqual(JSON.parse(readFileSync(capture, "utf8")), { cwd, argv, value: "kept" });
 });
 
+test("release staging does not require or recreate a nested product README", async (t) => {
+	assert.equal(existsSync(join(SOURCE, "README.md")), false);
+	assert.ok(existsSync(join(SOURCE, "../README.md")));
+	assert.ok(existsSync(join(SOURCE, "../docs/usage.md")));
+	assert.equal(manifest.files.includes("README.md"), false);
+	const stage = join(temp(t), "product");
+	await stageRelease(SOURCE, stage);
+	assert.equal(existsSync(join(stage, "README.md")), false);
+	assert.ok(existsSync(join(stage, "bin/rotom")));
+	assert.ok(existsSync(join(stage, "THIRD_PARTY_NOTICES.md")));
+});
+
 test("staging uses an explicit file list and never copies source node_modules or private state", async (t) => {
 	const root = temp(t);
 	const source = join(root, "source");

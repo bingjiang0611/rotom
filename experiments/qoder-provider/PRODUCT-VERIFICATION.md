@@ -1,6 +1,6 @@
 # Qoder 产品接入与扩展验证
 
-> 初次产品接入的历史记录：Lite/Performance、text-only 和未开放目录等限制仅属于当时快照。当前能力与默认 browser 认证见 [产品说明](../../rotom/README.md#qoder原生-provider显式启用)，后续分批证据见 [维护索引](README.md)。保留当时产物、请求账本和失败，不冒充最新版本验收。
+> 初次产品接入的历史记录：Lite/Performance、text-only 和未开放目录等限制仅属于当时快照。当前能力与默认 browser 认证见 [产品说明](../../docs/usage.md#qoder原生-provider显式启用)，后续分批证据见 [维护索引](README.md)。保留当时产物、请求账本和失败，不冒充最新版本验收。
 
 **产品组合与本地分发 PASS；扩展能力部分通过；本轮真实请求预算证明 INCONCLUSIVE。** 保留 experimental 和显式 opt-in，不把这个结论写成全部剩余问题已解决。
 

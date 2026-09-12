@@ -25,7 +25,6 @@
   "files": [
     "bin/rotom",
     "bin/rotom-launcher",
-    "README.md",
     "THIRD_PARTY_NOTICES.md",
     "npm-shrinkwrap.json",
     "runtime/product-config.mjs",
