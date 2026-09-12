@@ -1,7 +1,7 @@
 {
-  "status": "full-run-awaiting-platform-connection",
+  "status": "full-benchmark-running",
   "product": "rotom",
-  "model": "deepseek-v4-pro-0813",
+  "model": "bailian/deepseek-v4-flash",
   "totalBudget": {
     "mode": "unlimited",
     "authorized": true
@@ -12,7 +12,7 @@
   },
   "benchmark": "terminal-bench-2.1",
   "datasetRevision": null,
-  "concurrency": 1,
+  "concurrency": 4,
   "automaticRetries": 0,
   "stabilityRepeats": false,
   "llmJudge": false,
@@ -25,10 +25,24 @@
     }
   ],
   "pending": [
-    "platform model API configuration and tool-call compatibility",
-    "independent adapter repository upload and platform agent version",
     "platform dataset, image and verifier identity",
-    "real Linux installation and full benchmark execution"
+    "full benchmark completion"
   ],
-  "adapterTimeoutSec": 0
+  "adapterTimeoutSec": 0,
+  "platformModel": "deepseek-v4-flash-0731",
+  "modelVersionObserved": "deepseek-v4-flash-0731",
+  "contextWindow": 991000,
+  "maxTokens": 64000,
+  "thinking": "off",
+  "gatewayThinkingOverrideVerified": false,
+  "platformInternalRetries": "observed sandbox operation retries; not controlled by adapter",
+  "infrastructurePreflight": {
+    "selection": "build-cython-ext",
+    "includedInBenchmarkScore": false,
+    "purpose": "verify non-stream completion bridge before full 89-case batch",
+    "taskId": "01a094c3-6534-71bf-977b-1f917551b5ef",
+    "score": 100,
+    "status": "passed"
+  },
+  "fullTaskId": "01a094d0-aff9-79ab-ac7d-a3f685ec68ed"
 }

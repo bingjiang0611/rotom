@@ -1,0 +1,4 @@
+interface:
+  display_name: "Evaluate dev-agent"
+  short_description: "Choose and run proportionate dev-agent regression evals"
+  default_prompt: "Evaluate this dev-agent change with the smallest trustworthy gate."

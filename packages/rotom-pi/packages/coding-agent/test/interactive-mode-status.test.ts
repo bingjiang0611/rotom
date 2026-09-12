@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import * as path from "node:path";
-import { type AutocompleteProvider, CombinedAutocompleteProvider } from "@earendil-works/pi-tui";
+import { type AutocompleteProvider, CombinedAutocompleteProvider, Text } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import { type Component, Container, type Focusable, type TUI } from "../../tui/src/tui.ts";
 import { TuiMainScreen } from "../../tui/src/tui-main-screen.ts";
@@ -8,6 +8,7 @@ import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
 import type { AutocompleteProviderFactory } from "../src/core/extensions/types.ts";
 import type { SourceInfo } from "../src/core/source-info.ts";
 import type { AuthSelectorProvider } from "../src/modes/interactive/components/oauth-selector.ts";
+import { RotomHeader } from "../src/modes/interactive/components/rotom-header.ts";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 
@@ -514,6 +515,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 
 	function createShowLoadedResourcesThis(options: {
 		quietStartup: boolean;
+		rotom?: boolean;
 		verbose?: boolean;
 		toolOutputExpanded?: boolean;
 		cwd?: string;
@@ -585,6 +587,17 @@ describe("InteractiveMode.showLoadedResources", () => {
 			formatDiagnostics: () => "diagnostics",
 			getBuiltInCommandConflictDiagnostics: () => [],
 		};
+
+		if (options.rotom) {
+			fakeThis.builtInHeader = new RotomHeader(
+				() => ({ version: "0.1.0-alpha.11", model: "Fixture", expandHint: "ctrl+o", expandedHelp: "fixture help" }),
+				fakeThis.getStartupExpansionState(),
+			);
+			fakeThis.headerContainer = new Container();
+			fakeThis.headerContainer.addChild(fakeThis.builtInHeader);
+			fakeThis.ui = { requestRender: vi.fn() };
+			fakeThis.showStatus = vi.fn();
+		}
 
 		if (options.useRealScopeGroups) {
 			fakeThis.getScopeGroup = (sourceInfo?: SourceInfo) =>
@@ -698,6 +711,126 @@ describe("InteractiveMode.showLoadedResources", () => {
 			},
 		];
 	}
+
+	test("routes the three real resource sections into rotom, keeping diagnostics and optional sections below", () => {
+		const fakeThis = createShowLoadedResourcesThis({
+			quietStartup: false,
+			rotom: true,
+			contextFiles: [{ path: "/tmp/project/AGENTS.md" }],
+			skills: [{ filePath: "/tmp/skill/SKILL.md", name: "fixture-skill" }],
+			extensions: [{ path: "/tmp/project/.pi/extensions/fixture.ts" }],
+			skillDiagnostics: [{ type: "warning", message: "fixture warning" }],
+		});
+		fakeThis.session.promptTemplates = [{ filePath: "/tmp/template.md", name: "fixture-template" }];
+		fakeThis.session.resourceLoader.getThemes = () => ({
+			themes: [{ name: "fixture-theme", sourcePath: "/tmp/theme.json" }],
+			diagnostics: [],
+		});
+		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis);
+		const header = normalizeRenderedOutput(fakeThis.headerContainer, 80);
+		const below = normalizeRenderedOutput(fakeThis.loadedResourcesContainer, 80);
+		for (const label of ["[Context]", "[Skills]", "[Extensions]"]) {
+			expect(header.split(label)).toHaveLength(2);
+			expect(below).not.toContain(label);
+		}
+		expect(header).toContain("fixture-skill");
+		expect(header).toContain("fixture.ts");
+		for (const label of ["[Skill conflicts]", "diagnostics", "[Prompts]", "[Themes]"]) {
+			expect(below).toContain(label);
+			expect(header).not.toContain(label);
+		}
+	});
+
+	test("keeps one listing through custom-header replacement, expansion and restoration", () => {
+		const fakeThis = createShowLoadedResourcesThis({
+			quietStartup: false,
+			rotom: true,
+			skills: [{ filePath: "/tmp/skill/SKILL.md", name: "fixture-skill" }],
+		});
+		const prototype = InteractiveMode.prototype as any;
+		prototype.showLoadedResources.call(fakeThis);
+		const output = () =>
+			`${normalizeRenderedOutput(fakeThis.headerContainer, 80)}\n${normalizeRenderedOutput(fakeThis.loadedResourcesContainer, 80)}`;
+		expect(normalizeRenderedOutput(fakeThis.loadedResourcesContainer)).toBe("");
+		prototype.setExtensionHeader.call(fakeThis, () => new Text("CUSTOM HEADER", 0, 0));
+		expect(output()).toContain("CUSTOM HEADER");
+		expect(output().split("[Skills]")).toHaveLength(2);
+		prototype.setToolsExpanded.call(fakeThis, true);
+		expect(output()).toContain("resource-list");
+		prototype.showLoadedResources.call(fakeThis);
+		expect(output()).toContain("resource-list");
+		prototype.setExtensionHeader.call(fakeThis, undefined);
+		expect(output()).not.toContain("CUSTOM HEADER");
+		expect(output()).toContain("resource-list");
+		expect(output().split("[Skills]")).toHaveLength(2);
+		expect(normalizeRenderedOutput(fakeThis.loadedResourcesContainer)).toBe("");
+		prototype.setToolsExpanded.call(fakeThis, false);
+		expect(output()).toContain("fixture-skill");
+		expect(output()).not.toContain("resource-list");
+	});
+
+	test("replaces rotom resource components on rebind instead of accumulating stale names", () => {
+		const fakeThis = createShowLoadedResourcesThis({
+			quietStartup: false,
+			rotom: true,
+			skills: [{ filePath: "/tmp/old/SKILL.md", name: "old-skill" }],
+		});
+		const show = () => (InteractiveMode as any).prototype.showLoadedResources.call(fakeThis);
+		show();
+		fakeThis.session.resourceLoader.getSkills = () => ({
+			skills: [{ filePath: "/tmp/new/SKILL.md", name: "new-skill" }],
+			diagnostics: [],
+		});
+		show();
+		show();
+		const output = normalizeRenderedOutput(fakeThis.headerContainer);
+		expect(output).not.toContain("old-skill");
+		expect(output.split("new-skill")).toHaveLength(2);
+		expect(normalizeRenderedOutput(fakeThis.loadedResourcesContainer)).toBe("");
+	});
+
+	test("does not show stale header resources while switching sessions", () => {
+		const fakeThis = createShowLoadedResourcesThis({
+			quietStartup: false,
+			rotom: true,
+			skills: [{ filePath: "/tmp/old/SKILL.md", name: "old-skill" }],
+		});
+		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis);
+		Object.assign(fakeThis, {
+			pendingMessagesContainer: new Container(),
+			pendingTools: new Map(),
+			renderInitialMessages: vi.fn(),
+		});
+		(InteractiveMode as any).prototype.renderCurrentSessionState.call(fakeThis);
+		const output = normalizeRenderedOutput(fakeThis.headerContainer);
+		expect(output).not.toContain("old-skill");
+		expect(output).toContain("Loading resources");
+	});
+
+	test("retains hidden-extension filtering and initial verbose expansion in the rotom header", () => {
+		const fakeThis = createShowLoadedResourcesThis({ quietStartup: false, rotom: true });
+		fakeThis.session.resourceLoader.getExtensions = () => ({
+			extensions: [{ path: "/tmp/visible.ts" }, { path: "/tmp/hidden.ts", hidden: true }],
+			errors: [],
+		});
+		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis);
+		const output = normalizeRenderedOutput(fakeThis.headerContainer);
+		expect(output).toContain("visible.ts");
+		expect(output).not.toContain("hidden.ts");
+		const verbose = createShowLoadedResourcesThis({
+			quietStartup: false,
+			rotom: true,
+			verbose: true,
+			skills: [{ filePath: "/tmp/skill/SKILL.md", name: "fixture-skill" }],
+		});
+		(InteractiveMode as any).prototype.showLoadedResources.call(verbose);
+		expect(normalizeRenderedOutput(verbose.headerContainer)).toContain("resource-list");
+		(InteractiveMode as any).prototype.setToolsExpanded.call(verbose, true);
+		(InteractiveMode as any).prototype.setToolsExpanded.call(verbose, false);
+		(InteractiveMode as any).prototype.showLoadedResources.call(verbose);
+		expect(normalizeRenderedOutput(verbose.headerContainer)).toContain("fixture-skill");
+		expect(normalizeRenderedOutput(verbose.headerContainer)).not.toContain("resource-list");
+	});
 
 	test("shows a compact resource listing by default", () => {
 		const fakeThis = createShowLoadedResourcesThis({

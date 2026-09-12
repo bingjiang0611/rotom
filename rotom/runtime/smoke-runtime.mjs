@@ -137,6 +137,7 @@ try {
 	for (const command of ["mcp", "bg", "lsp"]) assert.equal(loaded.extensions.some((extension) => extension.commands.has(command)), false, `removed command /${command} must not be registered by any product extension`);
 	for (const command of ["subagents", "run", "subagents-fleet", "subagents-refine", "subagents-watchdog", "prompt-workflow"]) assert.equal(thirdParty?.commands.has(command), false);
 	assert.equal(thirdParty?.shortcuts.has("ctrl+alt+f"), false);
+	assert.equal(browser?.commands.has("browser"), true, "内置 browser 扩展必须提供用户显式触发的 /browser 命令");
 	assert.equal(browser?.tools.get("browser_inspect")?.definition.executionMode, "sequential");
 	assert.equal(browser?.tools.get("browser_interact")?.definition.executionMode, "sequential");
 	assert.ok(browser?.tools.get("browser_interact")?.definition.parameters.properties.action.enum.includes("keypress"));

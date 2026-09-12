@@ -10,6 +10,6 @@
 - SHA-256：`89e9b9da249c7d50f99a7d43558ba4f6138316cc2e78359676d0e9bacd2f1dec`。
 - 来源页版权声明：Pokémon images & names © 1995–2026 Nintendo/Game Freak；网站内容与设计 © Pokémon Database。
 
-该第三方图像**不适用本仓库的 MIT 许可证**；来源可下载不等于另获使用、再分发或商标授权，本项目不宣称已获额外许可。rotom 是独立项目，与 Pokémon、Nintendo、Game Freak 或 Pokémon Database 无官方关联。
+该第三方图像的权利**不随本项目自有代码授予**；来源可下载不等于另获使用、再分发或商标授权，本项目不宣称已获额外许可。rotom 是独立项目，与 Pokémon、Nintendo、Game Freak 或 Pokémon Database 无官方关联。
 
 素材仅用于仓库 README，不加入 npm 产品运行时。需要再分发或商用时，应自行确认适用的权利与授权。

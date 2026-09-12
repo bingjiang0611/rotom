@@ -74,7 +74,7 @@ async function buildFork() {
 		// Full upstream offline build also checks development-only workspace dependencies;
 		// only the six public CLI/SDK runtime packages are distributed below.
 		console.log(run(["run", "build:offline"], tree));
-		console.log(run(["test", "--", "test/model-selector.test.ts", "test/suite/agent-session-model-extension.test.ts", "test/suite/regressions/3217-scoped-model-order.test.ts", "test/suite/regressions/7209-model-selector-filter-resets-selection.test.ts", "test/compaction.test.ts"], resolve(tree, "packages/coding-agent")));
+		console.log(run(["test", "--", "test/model-selector.test.ts", "test/suite/agent-session-model-extension.test.ts", "test/suite/regressions/3217-scoped-model-order.test.ts", "test/suite/regressions/7209-model-selector-filter-resets-selection.test.ts", "test/compaction.test.ts", "test/rotom-startup.test.ts", "test/interactive-mode-status.test.ts", "test/suite/regressions/5943-session-start-notify.test.ts", "test/rotom-product.test.ts", "test/version-check.test.ts", "test/interactive-mode-startup-input.test.ts"], resolve(tree, "packages/coding-agent")));
 		const names = new Map();
 		for (const directory of PI_PACKAGES) {
 			const pkg = JSON.parse(await readFile(resolve(tree, "packages", directory, "package.json"), "utf8"));

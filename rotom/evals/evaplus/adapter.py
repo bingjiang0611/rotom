@@ -1,7 +1,11 @@
 """Eva+ shell adapter. The platform's independent verifier owns the task score."""
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
+from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import math
 import os
@@ -9,11 +13,13 @@ from pathlib import Path
 import platform
 import re
 import selectors
+import secrets
 import signal
 import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import time
 import urllib.request
 from urllib.parse import urlsplit
@@ -67,9 +73,58 @@ def clean_env(home, node_bin):
     return env
 
 
+@contextmanager
+def product_artifact(root, config):
+    # Eva+ uploads repository files individually; keep transport pieces small
+    # while validating the exact original release before any installation.
+    parts = config.get("productParts")
+    if parts is None:
+        yield root / "release" / "rotom.tgz"
+        return
+    require(isinstance(parts, list) and 0 < len(parts) <= 128, "Invalid product parts")
+    total = 0
+    for index, part in enumerate(parts):
+        require(isinstance(part, dict), "Invalid product part")
+        encoding = part.get("encoding", "binary")
+        require(encoding in ("binary", "base64"), "Invalid product part encoding")
+        suffix = ".b64" if encoding == "base64" else ""
+        require(part.get("file") == f"rotom.tgz.part-{index:03d}{suffix}", "Invalid product part order or path")
+        size = part.get("size")
+        limit = 512 * 1024 if encoding == "base64" else 4 * 1024 * 1024
+        require(type(size) is int and 0 < size <= limit, "Invalid product part size")
+        require(re.fullmatch(r"[0-9a-f]{64}", part.get("sha256") or ""), "Missing product part SHA256")
+        total += size
+    require(total <= 64 * 1024 * 1024, "Product parts exceed archive limit")
+    with tempfile.TemporaryDirectory(prefix="rotom-artifact-") as temp:
+        artifact = Path(temp).resolve() / "rotom.tgz"
+        with artifact.open("xb") as output:
+            for part in parts:
+                encoded = part.get("encoding") == "base64"
+                # Text parts live at the repository root: do not depend on the
+                # platform uploader supporting binary payloads or subdirectories.
+                source = regular((root if encoded else root / "release") / part["file"])
+                expected_size = ((part["size"] + 2) // 3) * 4 if encoded else part["size"]
+                require(source.stat().st_size == expected_size, "Product part size mismatch")
+                data = source.read_bytes()
+                if encoded:
+                    try:
+                        data = base64.b64decode(data, validate=True)
+                    except binascii.Error:
+                        raise PreflightError("Invalid product part base64") from None
+                require(len(data) == part["size"], "Decoded product part size mismatch")
+                require(hashlib.sha256(data).hexdigest() == part["sha256"], "Product part SHA256 mismatch")
+                output.write(data)
+        require(digest(artifact) == config["productSha256"], "Product SHA256 mismatch")
+        yield artifact
+
+
 def install(root):
     config = release(root)  # Fail before creating files or using the network.
-    artifact = root / "release" / "rotom.tgz"
+    with product_artifact(root, config) as artifact:
+        install_artifact(root, config, artifact)
+
+
+def install_artifact(root, config, artifact):
     require(digest(artifact) == config["productSha256"], "Product SHA256 mismatch")
     require(platform.system() == "Linux", "Installer requires Linux")
     arch = {"x86_64": "x64", "aarch64": "arm64"}.get(platform.machine())
@@ -128,9 +183,105 @@ def model_config(env):
     require(0 < tokens <= context, "Invalid model token limits")
     thinking = env.get("THINKING", "off")
     require(thinking in ("off", "minimal", "low", "medium", "high", "xhigh"), "Invalid THINKING")
+    is_deepseek = "deepseek" in model.lower()
+    compat = ({"supportsStore": False, "supportsDeveloperRole": False,
+               "supportsReasoningEffort": False, "maxTokensField": "max_tokens",
+               "thinkingFormat": "deepseek"} if is_deepseek else {})
     return {"providers": {"evaplus": {"baseUrl": base, "api": "openai-completions",
         "apiKey": "$ROTOM_EVAL_API_KEY", "models": [{"id": model, "input": ["text"],
-        "reasoning": thinking != "off", "contextWindow": context, "maxTokens": tokens}]}}}
+        "reasoning": is_deepseek or thinking != "off", "contextWindow": context, "maxTokens": tokens,
+        **({"compat": compat} if compat else {})}]}}}
+
+
+def sse_from_completion(payload):
+    """Convert one bounded Chat Completions response to the SSE shape Pi consumes."""
+    require(isinstance(payload, dict), "Invalid completion response")
+    choices = payload.get("choices")
+    require(isinstance(choices, list) and len(choices) == 1, "Expected one completion choice")
+    choice = choices[0]
+    message = choice.get("message")
+    require(isinstance(message, dict), "Missing completion message")
+    finish = choice.get("finish_reason")
+    require(finish in ("stop", "tool_calls", "length", "content_filter"), "Invalid completion finish reason")
+    delta = {"role": message.get("role", "assistant")}
+    for field in ("content", "reasoning_content"):
+        if message.get(field) is not None:
+            require(isinstance(message[field], str), f"Invalid {field}")
+            delta[field] = message[field]
+    if message.get("tool_calls") is not None:
+        require(isinstance(message["tool_calls"], list), "Invalid tool calls")
+        delta["tool_calls"] = []
+        for index, call in enumerate(message["tool_calls"]):
+            require(isinstance(call, dict) and isinstance(call.get("function"), dict), "Invalid tool call")
+            function = call["function"]
+            require(isinstance(function.get("name"), str) and isinstance(function.get("arguments"), str), "Invalid tool function")
+            delta["tool_calls"].append({"index": index, "id": call.get("id"),
+                                        "type": call.get("type", "function"),
+                                        "function": {"name": function["name"], "arguments": function["arguments"]}})
+    chunk = {"id": payload.get("id", "chatcmpl-bridge"), "object": "chat.completion.chunk",
+             "created": payload.get("created", int(time.time())), "model": payload.get("model", ""),
+             "choices": [{"index": 0, "delta": delta, "finish_reason": finish}]}
+    lines = [f"data: {json.dumps(chunk, separators=(',', ':'))}\n\n"]
+    if isinstance(payload.get("usage"), dict):
+        usage = {"id": chunk["id"], "object": chunk["object"], "created": chunk["created"],
+                 "model": chunk["model"], "choices": [], "usage": payload["usage"]}
+        lines.append(f"data: {json.dumps(usage, separators=(',', ':'))}\n\n")
+    lines.append("data: [DONE]\n\n")
+    return "".join(lines).encode()
+
+
+@contextmanager
+def completion_bridge(base_url, api_key, model_name):
+    """Use a loopback SSE bridge when the sandbox truncates the provider stream."""
+    local_token = secrets.token_urlsafe(32)
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, _format, *_args):
+            return
+
+        def do_POST(self):
+            try:
+                require(self.path == "/v1/chat/completions", "Unexpected bridge path")
+                require(self.headers.get("Authorization") == f"Bearer {local_token}", "Bridge authentication failed")
+                length = int(self.headers.get("Content-Length", "0"))
+                require(0 < length <= 16 * 1024 * 1024, "Invalid bridge request size")
+                request_body = json.loads(self.rfile.read(length))
+                require(isinstance(request_body, dict) and request_body.get("model") == model_name,
+                        "Unexpected bridge model")
+                require(request_body.get("stream") is True, "Expected streaming bridge request")
+                request_body["stream"] = False
+                request_body.pop("stream_options", None)
+                upstream = urllib.request.Request(f"{base_url.rstrip('/')}/chat/completions",
+                    data=json.dumps(request_body).encode(), method="POST",
+                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+                with urllib.request.urlopen(upstream, timeout=120) as response:
+                    require(response.status == 200, "Upstream completion failed")
+                    raw = response.read(16 * 1024 * 1024 + 1)
+                require(len(raw) <= 16 * 1024 * 1024, "Upstream completion too large")
+                body = sse_from_completion(json.loads(raw))
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            except Exception:
+                body = b'{"error":{"message":"Completion bridge failed"}}'
+                self.send_response(502)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}/v1", local_token
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
 
 
 def execute(command, env, prompt, timeout):
@@ -138,6 +289,8 @@ def execute(command, env, prompt, timeout):
     started = time.monotonic()
     ended, stop, overflow, usage = False, None, False, None
     usage_complete = True
+    provider_error = None
+    provider_error_fingerprint = None
     child = subprocess.Popen(command, stdin=prompt, stdout=subprocess.PIPE,
                              stderr=subprocess.DEVNULL, env=env, start_new_session=True)
     selector = selectors.DefaultSelector()
@@ -169,6 +322,10 @@ def execute(command, env, prompt, timeout):
                                 message = event.get("message", {})
                                 if event.get("type") == "message_end" and message.get("role") == "assistant":
                                     stop = message.get("stopReason")
+                                    if stop == "error":
+                                        error_message = message.get("errorMessage")
+                                        provider_error = classify_provider_error(error_message)
+                                        provider_error_fingerprint = fingerprint_provider_error(error_message)
                                     current = message.get("usage")
                                     fields = ("input", "output", "cacheRead", "cacheWrite", "totalTokens")
                                     if isinstance(current, dict) and all(type(current.get(k)) in (int, float) and math.isfinite(current[k]) and current[k] >= 0 for k in fields):
@@ -213,7 +370,40 @@ def execute(command, env, prompt, timeout):
                "durationSeconds": round(time.monotonic() - started, 3),
                "usage": None if overflow or not usage_complete else usage, "cost": None, "score": None,
                "telemetryIncomplete": overflow}
+    if provider_error is not None:
+        summary["providerError"] = provider_error
+    if provider_error_fingerprint is not None:
+        summary["providerErrorFingerprint"] = provider_error_fingerprint
     return summary, 0 if ok else 130 if cancelled else 124 if timed_out else 1
+
+
+def classify_provider_error(value):
+    # Classify in memory; never copy provider error bodies or arbitrary codes.
+    text = value.lower() if isinstance(value, str) else ""
+    categories = (
+        ("authentication", ("401", "unauthorized", "invalid api key")),
+        ("permission", ("403", "forbidden", "permission denied")),
+        ("rate_limit", ("429", "rate limit")),
+        ("model_unavailable", ("model not found", "model does not exist")),
+        ("tls", ("certificate", "ssl", "tls")),
+        ("timeout", ("timeout", "timed out")),
+        ("connection", ("connection error", "fetch failed", "econn", "enotfound")),
+        ("request_rejected", ("400", "bad request", "invalid request")),
+        ("server_error", ("500", "502", "503", "504", "internal server error", "service unavailable")),
+        ("provider_finish_error", ("finish_reason: error", "finish reason: error", "error stop reason")),
+        ("incomplete_stream", ("stream ended without finish_reason", "unexpected end of json", "premature close")),
+        ("context_limit", ("context length", "maximum context", "too many tokens")),
+        ("tool_schema", ("tool schema", "invalid tool", "function schema")),
+        ("aborted", ("request was aborted", "aborterror")),
+    )
+    return next((name for name, needles in categories if any(n in text for n in needles)), "unknown")
+
+
+def fingerprint_provider_error(value):
+    if not isinstance(value, str):
+        return None
+    encoded = value.encode("utf-8", errors="replace")
+    return {"sha256": hashlib.sha256(encoded).hexdigest(), "bytes": len(encoded)}
 
 
 def run(root):
@@ -226,21 +416,25 @@ def run(root):
     regular(command)
     regular(node_bin / "node")
     models = model_config(os.environ)
+    upstream_base = models["providers"]["evaplus"]["baseUrl"]
     timeout = int(os.environ.get("TIMEOUT_SEC", "900"))
     require(0 <= timeout <= 7200, "TIMEOUT_SEC must be between 0 and 7200 (0 delegates timeout to the platform)")
     prompt_path = Path(os.environ.get("PROMPT_FILE", ""))
     require(prompt_path.is_absolute(), "PROMPT_FILE must be an absolute file path")
     regular(prompt_path)
     require(0 < prompt_path.stat().st_size <= 8 * 1024 * 1024, "Empty or oversized prompt")
-    with tempfile.TemporaryDirectory(prefix="rotom-eval-") as temp:
+    with tempfile.TemporaryDirectory(prefix="rotom-eval-") as temp, completion_bridge(
+            upstream_base, os.environ["API_KEY"], os.environ["MODEL_NAME"]) as (bridge_url, bridge_token):
+        models["providers"]["evaplus"]["baseUrl"] = bridge_url
         home = Path(temp)
         agent_dir = home / "agent"
         agent_dir.mkdir(mode=0o700)
         (agent_dir / "models.json").write_text(json.dumps(models))
         env = clean_env(home, node_bin)
         env.update(PI_CODING_AGENT_DIR=str(agent_dir), ROTOM_NODE=str(node_bin / "node"),
-                   ROTOM_EVAL_API_KEY=os.environ["API_KEY"], ROTOM_OBSERVABILITY="0")
+                   ROTOM_EVAL_API_KEY=bridge_token, ROTOM_OBSERVABILITY="0")
         argv = [str(command), "--print", "--mode", "json", "--no-session", "--no-approve",
+                "--tools", "bash,read,write,edit",
                 "--provider", "evaplus", "--model", os.environ["MODEL_NAME"],
                 "--thinking", os.environ.get("THINKING", "off")]
         with prompt_path.open("rb") as prompt:

@@ -24,22 +24,14 @@ rotom
 
 当前安装器支持 **macOS + Google Chrome 125+**，不会自动安装或加载扩展。
 
-1. **注册连接程序。** npm 全局安装可用下面的路径；若使用版本隔离安装，把 `ROTOM_DIR` 改为实际的 `node_modules/rotom` 目录。
+在 rotom 会话内输入 **`/browser`** 打开菜单，也可以直接执行：
 
-   ```sh
-   ROTOM_DIR="$(npm root -g)/rotom"
-   node "$ROTOM_DIR/extensions/browser/install-chrome-relay.mjs" install
-   ```
+1. **`/browser install`**：确认后注册当前安装的连接程序，并显示扩展目录。
+2. **加载 Chrome 扩展**：打开 `chrome://extensions`，开启「开发者模式」，点击「加载已解压的扩展」，选择上一步显示的目录。保持 Chrome 开启。
+3. **`/browser status`**：分别检查注册和连接；不调用模型、不读取网页。注册匹配不等于连接可用。
+4. **`/browser use 打开 example.com，读取页面标题`**：手动提交浏览器任务，使用当前模型。
 
-2. **加载 Chrome 扩展。** 打开 `chrome://extensions`，开启「开发者模式」，点击「加载已解压的扩展」，选择上一步输出的 `extensionDir`（即 `$ROTOM_DIR/extensions/browser/chrome-extension`）。保持 Chrome 开启。
-
-3. **检查连接。** 在同一个终端运行：
-
-   ```sh
-   node "$ROTOM_DIR/extensions/browser/install-chrome-relay.mjs" status
-   ```
-
-   `installed: true` 只表示注册正确。回到 rotom，说“用浏览器工具列出 Chrome 标签页”，确认实际连接可用。
+若安装版尚无 `/browser`，需升级到包含该入口的构建；旧版脚本配置与命令边界见[浏览器命令](docs/usage.md#浏览器命令)。
 
 仍提示 relay 不可用时，检查扩展是否启用并点击「重新加载」。切换 rotom 安装目录或 Node 路径后，用新目录重新注册并加载对应版本的扩展。
 
@@ -59,4 +51,4 @@ rotom
 
 [详细用法](docs/usage.md) · [构建与升级](docs/agent/distribution.md) · [Pi fork](docs/agent/pi-fork.md) · [许可说明](docs/usage.md#许可与发布状态)
 
-Heat Rotom 图像来自 [Pokémon Database](https://pokemondb.net/sprites/rotom)，不属于本仓库的 MIT 授权范围；见[图像来源与权利说明](assets/readme/ATTRIBUTION.md)。
+Heat Rotom 图像来自 [Pokémon Database](https://pokemondb.net/sprites/rotom)，其权利不随本项目源码授予；见[图像来源与权利说明](assets/readme/ATTRIBUTION.md)。

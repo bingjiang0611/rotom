@@ -19,6 +19,10 @@ rotom
 
 无需预先安装全局 Pi、编译源码或再次安装扩展。发行包携带锁定安装的 Pi fork 与扩展依赖；Pi 源码由 rotom 仓库的 `packages/rotom-pi/` 维护，默认仅从本包 `runtime/pi/node_modules/` 加载，不使用官方 npm Pi、PATH 或旁边的源码目录。`rotom --version` 显示 fork 版本 `0.85.1-rotom.1`；rotom 自身版本见本包 `package.json`。
 
+默认启动显示像素洛托姆与 rotom 产品版本，宽终端分栏展示常用命令和当前模型/项目，窄终端自动收成单栏。`quietStartup` 仍可隐藏启动面板，展开键（默认 Ctrl+O）保留完整帮助与资源列表；`rotom --version` 的 fork identity 探测合同不变。
+
+启动更新检查只读 [rotom Releases](https://github.com/bingjiang0611/rotom/releases) 的最近 20 条发行记录，比较 rotom 自身版本而非 Pi。Alpha 安装可提示较新的预发布/正式版，正式版不提示预发布；没有发行记录、网络失败或限流时不显示新版本提示。`ROTOM_SKIP_VERSION_CHECK=1`、`PI_SKIP_VERSION_CHECK=1` 或 `--offline` 可关闭检查。`/changelog` 也指向 rotom Releases，不再展示上游 Pi 更新历史。此功能不自动下载安装；请按下文升级本地发行包，**不要运行 `pi update` 或把 `rotom update` 当成产品升级器**。上述启动界面适用于随包 Pi fork；显式 `ROTOM_PI` 覆盖的外部 Pi 不保证实现该界面。
+
 `/model` 优先显示模型名称，保留 ID/provider；Shift+Tab 调整当前高亮模型的思考档位草稿，Enter 应用、Esc 丢弃，Ctrl+S 只保存默认模型。只开放 provider 声明支持的档位，不扩展 Qoder 能力边界。
 
 首次使用仍需自行登录模型服务或配置 API key。浏览器配置见首页的[配置浏览器](../README.md#配置浏览器)：由用户注册 native host、手动加载 Chrome 扩展并检查实际连接，不由 npm 安装脚本代办。
@@ -37,6 +41,31 @@ rotom
 - `--version` 探测不创建任何 store。
 
 scoped 执行是执行归属与资源关闭管理，**不是安全沙箱**；首个版本只接受已验证拓扑，nested/worktree/gate/fork/import/external job/独立 foreground 会在 writer 前拒绝。安装、升级或切换入口均不授权旧 unknown 工作的恢复/重放。
+
+## 浏览器命令
+
+在交互会话中输入 `/browser`，选择开始使用、安装、查看状态或帮助；Esc 可取消。也可直接输入：
+
+| 命令 | 行为 |
+|---|---|
+| `/browser use <任务>` | 提交一次浏览器任务；省略任务时弹出输入框。会调用当前模型，可能产生模型费用。 |
+| `/browser install` | macOS 上确认后注册当前安装的 native host，并只读回查；Chrome 扩展仍需手动加载。 |
+| `/browser status` | 分别显示注册匹配状态与 Chrome Relay 协议握手结果，不读取页面。 |
+| `/browser help` | 显示命令和本安装的扩展目录。 |
+
+这是会话内 slash 命令，**不是终端里的 `rotom browser` 子命令**。安装和状态信息只显示在界面，不进入模型上下文；启动和打开菜单均不安装、不连接 Chrome。不支持无 UI 的安装，正在执行任务时不接受安装或新的浏览器任务；不会自动启用被调用方排除的工具，也不是永久浏览器模式开关。
+
+`status` 的注册项只确认文件与当前安装匹配；另一个安装的 Relay 仍可能在线。连接项证明当前协议握手，不代表网页操作已经通过。超时、权限或协议错误保留 `unknown`，不自动重试或启动另一浏览器。安装结果不确定时先只读核对，不盲目重装。换安装目录或 Node 路径后，重新注册并手动加载对应扩展，不迁移活跃会话。
+
+旧版尚无该命令时，可在终端沿用脚本入口（版本隔离安装需把 `ROTOM_DIR` 改为实际 `node_modules/rotom` 目录）：
+
+```sh
+ROTOM_DIR="$(npm root -g)/rotom"
+node "$ROTOM_DIR/extensions/browser/install-chrome-relay.mjs" install
+node "$ROTOM_DIR/extensions/browser/install-chrome-relay.mjs" status
+```
+
+脚本的 `installed: true` 只表示注册匹配，不包含连接检查。Chrome 125+ 的手动加载步骤见首页[配置浏览器](../README.md#配置浏览器)。
 
 ## Qoder：原生 provider（显式启用）
 
@@ -108,4 +137,6 @@ PNG/JPEG/WebP 支持用户多图、工具返回图片与原生 session 恢复；
 
 ## 许可与发布状态
 
-公开仓库保留 [MIT 许可证](https://github.com/bingjiang0611/rotom/blob/main/LICENSE)；npm 产品元数据仍为 `private: true`、`UNLICENSED`，源码公开不代表 npm 发布批准。rotom 是独立项目，不是 Pi 或宝可梦官方产品；MIT 许可不授予第三方商标权，名称／IP 使用仍需独立审查。第三方版权与许可证见[第三方声明](../rotom/THIRD_PARTY_NOTICES.md)和随依赖保留的原始许可证。README 使用的 Heat Rotom 图像不适用仓库 MIT 许可证，见[图像来源与权利说明](../assets/readme/ATTRIBUTION.md)。
+按维护者本轮明确决定，公开仓库移除根目录 MIT LICENSE，不再提供统一的仓库 MIT 许可；此前已经授予的 MIT 权利不受影响。npm 产品元数据仍为 `private: true`、`UNLICENSED`，源码公开不代表 npm 发布或新增统一开源许可获批。
+
+rotom 是独立项目，不是 Pi 或宝可梦官方产品；名称／IP 使用仍需独立审查。上游和第三方许可证不变，见[第三方声明](../rotom/THIRD_PARTY_NOTICES.md)和随依赖保留的原始许可证。README 使用的 Heat Rotom 图像权利不随自有代码授予，见[图像来源与权利说明](../assets/readme/ATTRIBUTION.md)。

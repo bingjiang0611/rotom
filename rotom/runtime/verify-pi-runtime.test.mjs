@@ -47,7 +47,7 @@ function fakePi(options = {}) {
 	].join("\n"));
 	writeFileSync(join(dist, "cli.js"), `#!/usr/bin/env node
 import { writeFileSync } from "node:fs";
-writeFileSync(process.env.ROTOM_TEST_CAPTURE, JSON.stringify({ cwd: process.cwd(), argv: process.argv.slice(2), nodeExecutable: process.execPath, nodeVersion: process.versions.node, verifiedPiExecutable: process.env.ROTOM_VERIFIED_PI_EXECUTABLE, maxSubagentSpawnsPerSession: process.env.PI_SUBAGENT_MAX_SPAWNS_PER_SESSION, cacheRetention: process.env.PI_CACHE_RETENTION, deferredDefaultSurface: process.env.ROTOM_DEFERRED_DEFAULT_SURFACE, computerUseHeadless: process.env.PI_COMPUTER_USE_HEADLESS, executionScope: process.env.PI_SUBAGENTS_EXECUTION_SCOPE, subagentTempRoot: process.env.PI_SUBAGENTS_TEMP_ROOT }));
+writeFileSync(process.env.ROTOM_TEST_CAPTURE, JSON.stringify({ cwd: process.cwd(), argv: process.argv.slice(2), nodeExecutable: process.execPath, nodeVersion: process.versions.node, verifiedPiExecutable: process.env.ROTOM_VERIFIED_PI_EXECUTABLE, productVersion: process.env.ROTOM_PRODUCT_VERSION, maxSubagentSpawnsPerSession: process.env.PI_SUBAGENT_MAX_SPAWNS_PER_SESSION, cacheRetention: process.env.PI_CACHE_RETENTION, deferredDefaultSurface: process.env.ROTOM_DEFERRED_DEFAULT_SURFACE, computerUseHeadless: process.env.PI_COMPUTER_USE_HEADLESS, executionScope: process.env.PI_SUBAGENTS_EXECUTION_SCOPE, subagentTempRoot: process.env.PI_SUBAGENTS_TEMP_ROOT }));
 `);
 	chmodSync(join(dist, "cli.js"), 0o700);
 	symlinkSync("../lib/node_modules/fake-pi/dist/cli.js", join(bin, "pi"));
@@ -303,6 +303,7 @@ test("launcher 保留业务 cwd 与用户参数，并固定加载 bundled resour
 				ROTOM_NODE: process.execPath,
 				ROTOM_TEST_CAPTURE: capture,
 				PI_CACHE_RETENTION: "long",
+				ROTOM_PRODUCT_VERSION: "99.0.0",
 				ROTOM_DEFERRED_DEFAULT_SURFACE: "0",
 			},
 		});
@@ -311,6 +312,7 @@ test("launcher 保留业务 cwd 与用户参数，并固定加载 bundled resour
 		assert.equal(invocation.nodeExecutable, realpathSync(process.execPath));
 		assert.equal(invocation.nodeVersion, process.versions.node);
 		assert.equal(invocation.verifiedPiExecutable, realpathSync(join(root, "bin/pi")));
+		assert.equal(invocation.productVersion, JSON.parse(readFileSync(join(AGENT_DIR, "package.json"), "utf8")).version, "startup must use the launched product version, not inherited parent metadata");
 		assert.equal(invocation.maxSubagentSpawnsPerSession, "128", "launcher must provide a conservative cumulative child budget by default");
 		assert.equal(invocation.cacheRetention, "long", "launcher must preserve the user's provider cache-retention choice without making it a product default");
 		assert.equal(invocation.deferredDefaultSurface, "1", "launcher must authorize deferred narrowing only for its reviewed default tool surface");

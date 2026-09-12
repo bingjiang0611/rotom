@@ -1,6 +1,10 @@
 import { StringEnum, Type } from "@earendil-works/pi-ai";
 import { defineTool, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
+import { lstat, realpath } from "node:fs/promises";
+import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
 import {
 	BROWSER_INSPECT_OPERATIONS_V1,
 	BROWSER_INSPECT_TOOL_V1,
@@ -11,6 +15,7 @@ import {
 	BrowserArtifactStoreV1,
 	BrowserRelayClientV1,
 	BrowserRelayUnavailableErrorV1,
+	browserRelaySocketPathV1,
 	browserActionDigestV1,
 	browserInteractionExpectationOutcomeV1,
 	browserOriginV1,
@@ -48,9 +53,66 @@ type BrowserRelayTabsV1 = {
 type BrowserDiscoveredTabsV1 = { schemaVersion: 1; kind: "rotom-browser-discovered-tabs"; tabs: Array<{ tabId: number; url: string; title: string; status: "loading" | "complete"; browserActive: boolean }> };
 type SnapshotCursorV1 = { observation: BrowserObservationV1; offset: number; expiresAt: number };
 
+export interface BrowserCommandDependenciesV1 {
+	platform: NodeJS.Platform;
+	runInstaller(operation: "install" | "status", signal: AbortSignal): Promise<unknown>;
+	probeRelay(signal: AbortSignal): Promise<void>;
+}
+
 export interface BrowserRelayExtensionDependenciesV1 {
 	connectRelay(input: { sessionId: string }): Promise<Pick<BrowserRelayClientV1, "request" | "close" | "closed">>;
 	openArtifactStore(): Promise<BrowserArtifactStoreV1>;
+	commands?: Partial<BrowserCommandDependenciesV1>;
+}
+
+const BROWSER_INSTALLER = fileURLToPath(new URL("./install-chrome-relay.mjs", import.meta.url));
+const BROWSER_EXTENSION_DIR = fileURLToPath(new URL("./chrome-extension", import.meta.url));
+const BROWSER_COMMANDS = [
+	{ value: "use", label: "开始使用浏览器", description: "提交一次浏览器任务（会调用当前模型）" },
+	{ value: "install", label: "安装 / 更新 Chrome Relay", description: "确认后注册 native host，扩展仍需手动加载" },
+	{ value: "status", label: "查看状态", description: "只读检查注册与连接，不调用模型或读取页面" },
+	{ value: "help", label: "使用说明", description: "查看命令与手动加载步骤" },
+] as const;
+const BROWSER_COMMAND_HELP = [
+	"/browser — 打开操作菜单（Esc 取消）",
+	"/browser use <任务> — 用当前模型执行一次浏览器任务；不切换全局模式",
+	"/browser install — 确认后注册本安装的 Chrome Relay（macOS）",
+	"/browser status — 分别检查注册与协议连接，不读取网页",
+	"Chrome 125+：chrome://extensions → 开发者模式 → 加载已解压的扩展",
+	`扩展目录：${JSON.stringify(BROWSER_EXTENSION_DIR)}`,
+	"安装与状态信息仅在界面显示，不进入模型上下文。",
+].join("\n");
+
+function defaultCommandDependenciesV1(): BrowserCommandDependenciesV1 {
+	// Freeze the diagnostic/install coordinates before any asynchronous UI or I/O.
+	const home = homedir();
+	const socketPath = browserRelaySocketPathV1();
+	return {
+		platform: process.platform,
+		async runInstaller(operation, signal) {
+			// Fixed product-owned script and canonical current Node; never resolve a command
+			// from cwd/PATH or forward credentials/NODE_OPTIONS into this maintenance child.
+			for (const path of [BROWSER_INSTALLER, process.execPath]) {
+				const info = await lstat(path);
+				if (!info.isFile() || info.isSymbolicLink() || await realpath(path) !== path) throw new Error("Untrusted browser installer resource");
+			}
+			signal.throwIfAborted();
+			const stdout = await new Promise<string>((resolve, reject) => {
+				execFile(process.execPath, [BROWSER_INSTALLER, operation], {
+					env: { HOME: home }, signal, timeout: 10_000, maxBuffer: 16 * 1024, encoding: "utf8",
+				}, (error, stdout) => error ? reject(error) : resolve(stdout));
+			});
+			return JSON.parse(stdout);
+		},
+		async probeRelay(signal) {
+			signal.throwIfAborted();
+			// A disposable diagnostic identity must not replace/close the live session's
+			// generation, read its tabs, or grant its agent loop fallback permission.
+			const diagnostic = await BrowserRelayClientV1.connect({ sessionId: `browser-status-${randomUUID()}`, socketPath, timeoutMs: 2_500 });
+			try { signal.throwIfAborted(); }
+			finally { diagnostic.close(); }
+		},
+	};
 }
 
 const DEFAULT_DEPENDENCIES: BrowserRelayExtensionDependenciesV1 = {
@@ -186,12 +248,15 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 	let route = freshRoute();
 	let epoch = 0;
 	let shutdown = false;
+	const commandIO = { ...defaultCommandDependenciesV1(), ...dependencies.commands };
+	let activeCommand: AbortController | undefined;
 	const cursors = new Map<string, SnapshotCursorV1>();
 
 	const closeRuntime = async () => {
 		// Retire and capture *all* resources before the first await. Old cleanup must
 		// never close a store opened by a later tree/session operation.
 		epoch += 1;
+		activeCommand?.abort();
 		route = freshRoute();
 		const currentRelay = relay;
 		const currentArtifacts = artifacts;
@@ -501,6 +566,99 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			}
 		},
 	}));
+
+	pi.registerCommand("browser", {
+		description: "手动使用浏览器、安装 Chrome Relay 或查看连接状态",
+		getArgumentCompletions(prefix) {
+			if (/\s/u.test(prefix)) return null;
+			const matches = BROWSER_COMMANDS.filter((item) => item.value.startsWith(prefix));
+			return matches.length ? matches.map(({ value, description }) => ({ value, label: value, description })) : null;
+		},
+		async handler(args, ctx) {
+			if (!ctx.hasUI) throw new Error("/browser 需要交互界面；未执行任何安装或浏览器操作");
+			if (activeCommand) { ctx.ui.notify("上一条 /browser 尚未结束，请等待；不要重复安装。", "warning"); return; }
+			const ownerSession = ctx.sessionManager.getSessionId();
+			const controller = new AbortController();
+			activeCommand = controller;
+			const ownerEpoch = epoch;
+			const owns = () => !shutdown && !controller.signal.aborted && epoch === ownerEpoch && ctx.sessionManager.getSessionId() === ownerSession;
+			const assertOwner = () => { if (!owns()) throw new Error("Browser command owner retired"); };
+			let operation = "help";
+			let installDispatched = false;
+			try {
+				assertOwner();
+				const input = args.trim();
+				if (Buffer.byteLength(input, "utf8") > 4_096 || input.includes("\0")) { ctx.ui.notify("/browser 参数过长或无效。", "warning"); return; }
+				const parsed = /^(\S+)(?:\s+([\s\S]*))?$/u.exec(input);
+				operation = parsed?.[1] ?? "";
+				let task = parsed?.[2]?.trim() ?? "";
+				if (!operation) {
+					const choice = await ctx.ui.select("浏览器", BROWSER_COMMANDS.map((item) => `${item.label} — ${item.description}`), { signal: controller.signal });
+					assertOwner();
+					if (choice === undefined) return;
+					operation = BROWSER_COMMANDS.find((item) => `${item.label} — ${item.description}` === choice)?.value ?? "";
+				}
+				if (!BROWSER_COMMANDS.some((item) => item.value === operation) || (operation !== "use" && task)) {
+					ctx.ui.notify("未知命令或多余参数。请使用 /browser help；浏览器任务用 /browser use <任务>。", "warning"); return;
+				}
+				if (operation === "help") { ctx.ui.notify(BROWSER_COMMAND_HELP, "info"); return; }
+				if (operation === "use") {
+					if (!ctx.isIdle()) { ctx.ui.notify("当前任务尚未结束，请空闲后再使用 /browser use。", "warning"); return; }
+					if (!task) task = (await ctx.ui.input("浏览器任务（会调用当前模型）", "例如：打开 example.com，读取页面标题", { signal: controller.signal }))?.trim() ?? "";
+					assertOwner();
+					if (!task) return;
+					if (Buffer.byteLength(task, "utf8") > 4_096 || task.includes("\0")) { ctx.ui.notify("浏览器任务应在 4096 bytes 以内且不能包含 NUL。", "warning"); return; }
+					if (!ctx.isIdle()) { ctx.ui.notify("当前已有任务运行，未提交浏览器任务。", "warning"); return; }
+					if (!pi.getActiveTools().includes(BROWSER_INSPECT_TOOL_V1)) {
+						ctx.ui.notify("当前工具选择未启用 browser_inspect；/browser 不会绕过工具排除或运行时策略。", "warning"); return;
+					}
+					browserRouteActive = true;
+					pi.sendUserMessage(`请使用 browser_inspect，以及当前可用的 browser_interact，完成以下浏览器任务。遵守现有观测绑定、权限范围与未知写入不重放规则；不要通过 shell 或桌面输入回退。\n\n用户任务：\n${task}`, { expandPromptTemplates: false });
+					return;
+				}
+				if (commandIO.platform !== "darwin") { ctx.ui.notify("当前 Chrome Relay 安装器仅支持 macOS；未执行安装或状态探测。", "warning"); return; }
+				if (operation === "install") {
+					if (!ctx.isIdle()) { ctx.ui.notify("请等待当前任务结束后再安装，避免影响正在使用的浏览器连接。", "warning"); return; }
+					const accepted = await ctx.ui.confirm("注册 Chrome Relay？", `将为当前安装写入本机 Chrome native host 注册。它会替换现有注册路径，可能影响其他 rotom 安装；不会自动加载扩展或迁移会话。\n扩展目录：${JSON.stringify(BROWSER_EXTENSION_DIR)}`, { signal: controller.signal });
+					assertOwner();
+					if (!accepted) return;
+					if (!ctx.isIdle()) { ctx.ui.notify("当前已有任务运行，未执行安装。", "warning"); return; }
+					installDispatched = true;
+					const result = await commandIO.runInstaller("install", controller.signal);
+					assertOwner();
+					if (!record(result) || result.status !== "installed") throw new Error("Invalid installer acknowledgement");
+					const check = await commandIO.runInstaller("status", controller.signal);
+					assertOwner();
+					if (!record(check) || check.installed !== true) throw new Error("Registration readback did not match");
+					ctx.ui.notify(`Native host 注册已回读确认；Chrome 扩展仍需手动加载/重新加载。\nchrome://extensions → 开发者模式 → 加载已解压的扩展\n目录：${JSON.stringify(BROWSER_EXTENSION_DIR)}\n完成后用 /browser status 检查连接。`, "info");
+					return;
+				}
+				let registration = "unknown（检查未完成）";
+				try {
+					const result = await commandIO.runInstaller("status", controller.signal);
+					assertOwner();
+					if (!record(result) || typeof result.installed !== "boolean") throw new Error("Invalid installer status");
+					registration = result.installed ? "与当前安装匹配" : "未确认匹配（可能缺失、不匹配或不可读）";
+				} catch { assertOwner(); }
+				let connection = "unknown（超时、权限或协议检查未完成）";
+				try {
+					await commandIO.probeRelay(controller.signal);
+					assertOwner();
+					connection = "已连接（协议握手成功，未访问页面）";
+				} catch (error) {
+					assertOwner();
+					if (error instanceof BrowserRelayUnavailableErrorV1) connection = "不可用（本机 relay socket 缺失或拒绝连接）";
+				}
+				ctx.ui.notify(`Native host：${registration}\nChrome Relay：${connection}\n注册匹配不等于连接可用；其他安装的 Relay 也可能已在线。\n扩展目录：${JSON.stringify(BROWSER_EXTENSION_DIR)}\n需要时手动打开 Chrome，并在 chrome://extensions 加载/重新加载对应扩展。`, "info");
+			} catch {
+				// Never publish old-session UI, child stderr, paths from child output, or a
+				// guessed success. An interrupted installer may already have written files.
+				if (owns()) ctx.ui.notify(installDispatched
+					? "安装结果 unknown：可能已部分生效，未自动重试或回滚。请先 /browser status 只读核对注册。"
+					: "浏览器命令未完成，状态 unknown；未自动重试。", "warning");
+			} finally { if (activeCommand === controller) activeCommand = undefined; }
+		},
+	});
 
 	pi.on("before_agent_start", async () => { route = freshRoute(); });
 	pi.on("tool_call", async (event, ctx) => {

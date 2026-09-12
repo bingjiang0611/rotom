@@ -1,0 +1,24 @@
+{
+  "type": "design",
+  "designSystems": [],
+  "primaryDesignSystem": null,
+  "assets": {
+    "Rotom Trace Dashboard V2": {
+      "versions": [
+        {
+          "path": "Trace Dashboard Design Directions.html",
+          "createdAt": "2026-08-28T14:11:54.533Z",
+          "status": "approved",
+          "subtitle": "Approved direction A with per-session token and cost",
+          "viewport": {
+            "width": 1440,
+            "height": 1000
+          },
+          "section": "Dashboard directions"
+        }
+      ]
+    }
+  },
+  "createdAt": "2026-08-28T14:11:54.534Z",
+  "updatedAt": "2026-08-28T14:36:39.787Z"
+}

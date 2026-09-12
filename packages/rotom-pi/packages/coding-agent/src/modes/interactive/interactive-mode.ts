@@ -106,6 +106,12 @@ import { extensionForImageMimeType, readClipboardImage } from "../../utils/clipb
 import { parseGitUrl } from "../../utils/git.ts";
 import { getCwdRelativePath } from "../../utils/paths.ts";
 import { getPiUserAgent } from "../../utils/pi-user-agent.ts";
+import {
+	checkForNewRotomVersion,
+	getRotomVersion,
+	ROTOM_RELEASES_URL,
+	ROTOM_UPDATE_GUIDANCE,
+} from "../../utils/rotom-product.ts";
 import { killTrackedDetachedChildren } from "../../utils/shell.ts";
 import { loadAllHighlightLanguages } from "../../utils/syntax-highlight.ts";
 import { ensureTool, type ToolStatus } from "../../utils/tools-manager.ts";
@@ -135,6 +141,7 @@ import {
 	formatAuthSelectorProviderType,
 	OAuthSelectorComponent,
 } from "./components/oauth-selector.ts";
+import { RotomHeader } from "./components/rotom-header.ts";
 import { ScopedModelsSelectorComponent } from "./components/scoped-models-selector.ts";
 import { SessionSelectorComponent } from "./components/session-selector.ts";
 import { SettingsSelectorComponent } from "./components/settings-selector.ts";
@@ -959,6 +966,23 @@ export class InteractiveMode {
 				0,
 			);
 
+			const rotomVersion = getRotomVersion();
+			if (rotomVersion) {
+				this.builtInHeader = new RotomHeader(
+					() => ({
+						version: rotomVersion,
+						// Agent-core uses an explicit unknown/zero-window placeholder before model setup.
+						model:
+							this.session.model?.api === "unknown"
+								? undefined
+								: (this.session.model?.name ?? this.session.model?.id),
+						expandHint: keyText("app.tools.expand"),
+						expandedHelp: expandedInstructions,
+					}),
+					this.getStartupExpansionState(),
+				);
+			}
+
 			// Setup UI layout
 			this.headerContainer.addChild(new Spacer(1));
 			this.headerContainer.addChild(this.builtInHeader);
@@ -992,6 +1016,9 @@ export class InteractiveMode {
 
 		// Set up theme file watcher
 		onThemeChange(() => {
+			if (this.builtInHeader instanceof RotomHeader) {
+				this.showLoadedResources({ showDiagnosticsWhenQuiet: true });
+			}
 			this.ui.invalidate();
 			this.updateEditorBorderColor();
 			this.ui.requestRender();
@@ -1043,9 +1070,11 @@ export class InteractiveMode {
 				.finally(() => clearTimeout(timeout));
 		}
 
-		// Start version check asynchronously
-		checkForNewPiVersion(this.version).then((newRelease) => {
-			if (newRelease) {
+		// A bundled fork is updated as a rotom product, never by Pi's self-updater.
+		const rotomVersion = getRotomVersion();
+		const updateCheck = rotomVersion ? checkForNewRotomVersion(rotomVersion) : checkForNewPiVersion(this.version);
+		updateCheck.then((newRelease) => {
+			if (newRelease && this.isInitialized) {
 				this.showNewVersionNotification(newRelease);
 			}
 		});
@@ -1210,6 +1239,8 @@ export class InteractiveMode {
 	 * Only shows new entries since last seen version, skips for resumed sessions.
 	 */
 	private getChangelogForDisplay(): string | undefined {
+		// Do not write Pi's changelog cursor or report a rotom install as an upstream Pi update.
+		if (getRotomVersion()) return undefined;
 		// Skip changelog for resumed/continued sessions (already have messages)
 		if (this.session.state.messages.length > 0) {
 			return undefined;
@@ -1646,10 +1677,14 @@ export class InteractiveMode {
 	}): void {
 		// Resource rendering is idempotent; chat clears no longer clear this separate container.
 		this.loadedResourcesContainer.clear();
+		const rotomHeader = this.builtInHeader instanceof RotomHeader ? this.builtInHeader : undefined;
+		const headerResources: ExpandableText[] = [];
+		rotomHeader?.setResources(undefined);
 
 		const showListing = options?.force || this.options.verbose || !this.settingsManager.getQuietStartup();
 		const showDiagnostics = showListing || options?.showDiagnosticsWhenQuiet === true;
 		if (!showListing && !showDiagnostics) {
+			rotomHeader?.setResources([]);
 			return;
 		}
 
@@ -1674,8 +1709,21 @@ export class InteractiveMode {
 				0,
 				0,
 			);
-			this.loadedResourcesContainer.addChild(section);
-			this.loadedResourcesContainer.addChild(new Spacer(1));
+			if (rotomHeader && ["Context", "Skills", "Extensions"].includes(name)) {
+				headerResources.push(section);
+				// One section instance, two exclusive locations. A custom header must not hide
+				// loaded resources; restoration must not duplicate them or re-run discovery.
+				const fallback = {
+					render: (width: number) => (this.customHeader ? [...section.render(width), ""] : []),
+					invalidate: () => section.invalidate(),
+					// Keep the hidden owner's state current for subsequent resource rebinds.
+					setExpanded: (expanded: boolean) => rotomHeader.setExpanded(expanded),
+				};
+				this.loadedResourcesContainer.addChild(fallback);
+			} else {
+				this.loadedResourcesContainer.addChild(section);
+				this.loadedResourcesContainer.addChild(new Spacer(1));
+			}
 		};
 
 		const skillsResult = this.session.resourceLoader.getSkills();
@@ -1720,7 +1768,7 @@ export class InteractiveMode {
 				...this.session.resourceLoader.getAgentsFiles().agentsFiles,
 			];
 			if (contextFiles.length > 0) {
-				this.loadedResourcesContainer.addChild(new Spacer(1));
+				if (!rotomHeader) this.loadedResourcesContainer.addChild(new Spacer(1));
 				const contextList = contextFiles
 					.map((f) => theme.fg("dim", `  ${this.formatDisplayPath(f.path)}`))
 					.join("\n");
@@ -1850,6 +1898,7 @@ export class InteractiveMode {
 				this.loadedResourcesContainer.addChild(new Spacer(1));
 			}
 		}
+		rotomHeader?.setResources(headerResources);
 	}
 
 	/**
@@ -2001,6 +2050,7 @@ export class InteractiveMode {
 
 	private renderCurrentSessionState(): void {
 		this.loadedResourcesContainer.clear();
+		if (this.builtInHeader instanceof RotomHeader) this.builtInHeader.setResources(undefined);
 		this.chatContainer.clear();
 		this.pendingMessagesContainer.clear();
 		this.compactionQueuedMessages = [];
@@ -4285,19 +4335,26 @@ export class InteractiveMode {
 	}
 
 	showNewVersionNotification(release: LatestPiRelease): void {
+		const rotomVersion = getRotomVersion();
 		const action = theme.fg("accent", `${APP_NAME} update`);
-		const updateInstruction = theme.fg("muted", `New version ${release.version} is available. Run `) + action;
-		const changelogUrl = "https://pi.dev/changelog";
+		const updateInstruction = rotomVersion
+			? theme.fg("muted", `rotom ${rotomVersion} → ${release.version}\n${ROTOM_UPDATE_GUIDANCE}`)
+			: theme.fg("muted", `New version ${release.version} is available. Run `) + action;
+		const changelogUrl = rotomVersion ? ROTOM_RELEASES_URL : "https://pi.dev/changelog";
 		const changelogLink = getCapabilities().hyperlinks
 			? hyperlink(theme.fg("accent", changelogUrl), changelogUrl)
 			: theme.fg("accent", changelogUrl);
 		const changelogLine = theme.fg("muted", "Changelog: ") + changelogLink;
-		const note = release.note?.trim();
+		const note = rotomVersion ? undefined : release.note?.trim();
 
 		this.chatContainer.addChild(new Spacer(1));
 		this.chatContainer.addChild(new DynamicBorder((text) => theme.fg("warning", text)));
 		this.chatContainer.addChild(
-			new Text(`${theme.bold(theme.fg("warning", "Update Available"))}\n${updateInstruction}`, 1, 0),
+			new Text(
+				`${theme.bold(theme.fg("warning", rotomVersion ? "rotom update available" : "Update Available"))}\n${updateInstruction}`,
+				1,
+				0,
+			),
 		);
 		if (note) {
 			this.chatContainer.addChild(new Spacer(1));
@@ -6255,6 +6312,19 @@ export class InteractiveMode {
 	}
 
 	private handleChangelogCommand(): void {
+		const rotomVersion = getRotomVersion();
+		if (rotomVersion) {
+			this.chatContainer.addChild(new Spacer(1));
+			this.chatContainer.addChild(
+				new Text(
+					`${theme.bold(theme.fg("accent", `rotom v${rotomVersion}`))}\n${ROTOM_RELEASES_URL}\n${ROTOM_UPDATE_GUIDANCE}`,
+					1,
+					1,
+				),
+			);
+			this.ui.requestRender();
+			return;
+		}
 		const changelogPath = getChangelogPath();
 		const allEntries = parseChangelog(changelogPath);
 

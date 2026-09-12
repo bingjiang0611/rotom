@@ -1,4 +1,7 @@
+import base64
 import json
+import hashlib
+import http.client
 import os
 from pathlib import Path
 import signal
@@ -18,6 +21,79 @@ USAGE = {"input": 10, "output": 2, "cacheRead": 3, "cacheWrite": 0, "totalTokens
 
 
 class AdapterTests(unittest.TestCase):
+    def test_provider_error_classification_never_copies_body(self):
+        for error, expected in [("401 secret payload", "authentication"), ("Connection error. secret", "connection"), ("arbitrary secret", "unknown")]:
+            events = [{"type": "message_end", "message": {"role": "assistant", "stopReason": "error", "errorMessage": error, "usage": USAGE}}, {"type": "agent_end"}]
+            source = "\n".join(f"print({json.dumps(event)!r})" for event in events)
+            summary, code = self.execute(source)
+            self.assertEqual(code, 1)
+            self.assertEqual(summary["providerError"], expected)
+            self.assertNotIn("secret", json.dumps(summary))
+            self.assertEqual(summary["providerErrorFingerprint"]["bytes"], len(error.encode()))
+            self.assertRegex(summary["providerErrorFingerprint"]["sha256"], r"^[0-9a-f]{64}$")
+
+    def test_flat_text_parts_reconstruct_and_reject_invalid_encoding(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            payload = bytes(range(256))
+            part = {"file": "rotom.tgz.part-000.b64", "encoding": "base64", "size": len(payload),
+                    "sha256": hashlib.sha256(payload).hexdigest()}
+            source = root / part["file"]
+            source.write_bytes(base64.b64encode(payload))
+            config = {"productParts": [part], "productSha256": part["sha256"]}
+            with adapter.product_artifact(root, config) as artifact:
+                self.assertEqual(artifact.read_bytes(), payload)
+            source.write_bytes(b"!" * source.stat().st_size)
+            with self.assertRaisesRegex(adapter.PreflightError, "Invalid product part base64"):
+                with adapter.product_artifact(root, config):
+                    self.fail("Invalid encoded bytes accepted")
+            with self.assertRaisesRegex(adapter.PreflightError, "Invalid product part encoding"):
+                with adapter.product_artifact(root, config | {"productParts": [part | {"encoding": "unknown"}]}):
+                    self.fail("Unknown encoding accepted")
+
+    def test_transport_parts_restore_exact_artifact_and_cleanup(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            (root / "release").mkdir()
+            payloads = [b"first archive bytes", b"last archive bytes"]
+            parts = []
+            for index, payload in enumerate(payloads):
+                filename = f"rotom.tgz.part-{index:03d}"
+                (root / "release" / filename).write_bytes(payload)
+                parts.append({"file": filename, "size": len(payload), "sha256": hashlib.sha256(payload).hexdigest()})
+            config = {"productParts": parts, "productSha256": hashlib.sha256(b"".join(payloads)).hexdigest()}
+            with adapter.product_artifact(root, config) as artifact:
+                self.assertEqual(artifact.read_bytes(), b"".join(payloads))
+            self.assertFalse(artifact.exists())
+            self.assertFalse((root / "release" / "rotom.tgz").exists())
+            for corrupt in (b"x" * len(payloads[0]), b"short"):
+                (root / "release" / parts[0]["file"]).write_bytes(corrupt)
+                with self.assertRaises(adapter.PreflightError):
+                    with adapter.product_artifact(root, config):
+                        self.fail("Corrupt transport part accepted")
+
+    def test_transport_parts_reject_paths_symlinks_and_wrong_release_hash(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            (root / "release").mkdir()
+            part = {"file": "rotom.tgz.part-000", "size": 1, "sha256": hashlib.sha256(b"x").hexdigest()}
+            config = {"productParts": [part], "productSha256": "a" * 64}
+            (root / "outside").write_bytes(b"x")
+            source = root / "release" / part["file"]
+            source.symlink_to(root / "outside")
+            with self.assertRaises(adapter.PreflightError):
+                with adapter.product_artifact(root, config):
+                    self.fail("Symlink accepted")
+            source.unlink()
+            source.write_bytes(b"x")
+            with self.assertRaisesRegex(adapter.PreflightError, "Product SHA256 mismatch"):
+                with adapter.product_artifact(root, config):
+                    self.fail("Wrong release accepted")
+            for changes in ({"file": "../outside"}, {"file": "rotom.tgz.part-001"}, {"size": 4194305}):
+                with self.subTest(changes=changes), self.assertRaises(adapter.PreflightError):
+                    with adapter.product_artifact(root, config | {"productParts": [part | changes]}):
+                        self.fail("Invalid transport manifest accepted")
+
     def test_pending_release_has_no_side_effects(self):
         for action in (adapter.install, adapter.run):
             with patch("adapter.urllib.request.urlopen") as network, patch("adapter.subprocess.Popen") as process:
@@ -32,11 +108,64 @@ class AdapterTests(unittest.TestCase):
         provider = result["providers"]["evaplus"]
         self.assertEqual(provider["baseUrl"], "https://example.test/v1")
         self.assertEqual(provider["apiKey"], "$ROTOM_EVAL_API_KEY")
+        self.assertNotIn("compat", provider["models"][0])
         self.assertNotIn(MODEL_ENV["API_KEY"], json.dumps(result))
         for change in ({"BASE_URL": "http://example.test"}, {"BASE_URL": "https://example.test/?key=secret"},
                        {"MODEL_NAME": "test*"}, {"MAX_TOKENS": "9000"}, {"THINKING": "max"}):
             with self.assertRaises(adapter.PreflightError):
                 adapter.model_config(MODEL_ENV | change)
+
+        deepseek = adapter.model_config(MODEL_ENV | {"MODEL_NAME": "bailian/deepseek-v4-flash"})["providers"]["evaplus"]["models"][0]
+        self.assertEqual(deepseek["compat"], {"supportsStore": False, "supportsDeveloperRole": False,
+                                               "supportsReasoningEffort": False, "maxTokensField": "max_tokens",
+                                               "thinkingFormat": "deepseek"})
+        self.assertTrue(deepseek["reasoning"], "DeepSeek must remain reasoning-capable so THINKING=off emits an explicit disabled parameter")
+
+    def test_nonstream_completion_is_converted_to_bounded_sse(self):
+        completion = {"id": "c1", "created": 7, "model": "test-model", "choices": [{"index": 0,
+            "message": {"role": "assistant", "content": None, "tool_calls": [{"id": "t1", "type": "function",
+                "function": {"name": "bash", "arguments": '{"command":"pwd"}'}}]}, "finish_reason": "tool_calls"}],
+            "usage": {"prompt_tokens": 3, "completion_tokens": 4, "total_tokens": 7}}
+        frames = adapter.sse_from_completion(completion).decode().strip().split("\n\n")
+        chunk = json.loads(frames[0].removeprefix("data: "))
+        self.assertEqual(chunk["choices"][0]["finish_reason"], "tool_calls")
+        self.assertEqual(chunk["choices"][0]["delta"]["tool_calls"][0]["function"]["name"], "bash")
+        self.assertEqual(json.loads(frames[1].removeprefix("data: "))["usage"]["total_tokens"], 7)
+        self.assertEqual(frames[2], "data: [DONE]")
+
+    def test_completion_bridge_hides_upstream_key_and_disables_streaming(self):
+        completion = {"id": "c1", "model": "test-model", "choices": [{"message": {
+            "role": "assistant", "content": "done"}, "finish_reason": "stop"}]}
+
+        class Response:
+            status = 200
+            def __enter__(self): return self
+            def __exit__(self, *_args): return None
+            def read(self, _limit): return json.dumps(completion).encode()
+
+        captured = {}
+        def upstream(request, timeout):
+            captured.update(url=request.full_url, authorization=request.headers.get("Authorization"),
+                            body=json.loads(request.data), timeout=timeout)
+            return Response()
+
+        with patch("adapter.urllib.request.urlopen", side_effect=upstream):
+            with adapter.completion_bridge("https://example.test/v1", "upstream-secret", "test-model") as (url, token):
+                parsed = adapter.urlsplit(url)
+                connection = http.client.HTTPConnection(parsed.hostname, parsed.port, timeout=5)
+                request = {"model": "test-model", "stream": True, "stream_options": {"include_usage": True},
+                           "messages": [{"role": "user", "content": "hello"}]}
+                connection.request("POST", "/v1/chat/completions", json.dumps(request),
+                                   {"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+                response = connection.getresponse()
+                body = response.read().decode()
+                connection.close()
+        self.assertEqual(response.status, 200)
+        self.assertIn("data: [DONE]", body)
+        self.assertEqual(captured["authorization"], "Bearer upstream-secret")
+        self.assertEqual(captured["url"], "https://example.test/v1/chat/completions")
+        self.assertFalse(captured["body"]["stream"])
+        self.assertNotIn("stream_options", captured["body"])
 
     def test_no_host_credentials_or_product_overrides_inherit(self):
         with patch.dict(os.environ, {"OPENAI_API_KEY": "host-key", "ROTOM_PI": "/host/pi",
@@ -177,6 +306,7 @@ class AdapterTests(unittest.TestCase):
             self.assertEqual(capture["cwd"], str(case))
             self.assertEqual(capture["prompt"], prompt_text)
             self.assertEqual(capture["argv"], ["--print", "--mode", "json", "--no-session", "--no-approve",
+                                                "--tools", "bash,read,write,edit",
                                                 "--provider", "evaplus", "--model", "test-model", "--thinking", "off"])
             self.assertFalse(Path(capture["home"]).exists())
             self.assertFalse((case / "SHOULD_NOT_EXIST").exists())

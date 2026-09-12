@@ -1,0 +1,24 @@
+{
+  "type": "design",
+  "designSystems": [],
+  "primaryDesignSystem": null,
+  "assets": {
+    "Rotom Trace Dashboard V3": {
+      "versions": [
+        {
+          "path": "Trace Dashboard Session Views.html",
+          "createdAt": "2026-09-04T08:20:00.000Z",
+          "status": "draft",
+          "subtitle": "Generic session overview with fleet totals and switchable execution trace",
+          "viewport": {
+            "width": 1440,
+            "height": 1000
+          },
+          "section": "Session dual views"
+        }
+      ]
+    }
+  },
+  "createdAt": "2026-09-04T08:20:00.000Z",
+  "updatedAt": "2026-09-04T08:32:00.000Z"
+}
