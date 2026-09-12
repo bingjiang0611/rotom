@@ -2,7 +2,8 @@
 
 ## Heat Rotom
 
-- 文件：[`heat-rotom.png`](heat-rotom.png)，128 × 128 静态 PNG。
+- 原始文件：[`heat-rotom.png`](heat-rotom.png)，128 × 128 静态 PNG。
+- 首页图标：[`heat-rotom-mark.png`](heat-rotom-mark.png)，从原图坐标 `(27, 34)` 裁取 82 × 51 的非透明区域，原图像素不变；与标题同排，以 40 × 25 显示。
 - 来源页：[Pokémon Database — Rotom sprites](https://pokemondb.net/sprites/rotom)。
 - 原图：[Pokémon Bank / normal / Heat Rotom](https://img.pokemondb.net/sprites/bank/normal/rotom-heat.png)。按用户指定的 Heat Rotom 形态选取，原始字节未修改。
 - 取得日期：2026-09-12。

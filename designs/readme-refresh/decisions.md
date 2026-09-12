@@ -39,4 +39,13 @@
 - Source：采用 Pokémon Bank / normal 的 Heat Rotom，姿态与用户参考一致；未修改原始字节，来源和权利说明在 `assets/readme/ATTRIBUTION.md`。它不属于仓库 MIT 授权，不进入 npm 产品运行时。
 - Preserve：不修改启动界面、浏览器代码或用户本机注册；旧 SVG 只保留为历史设计源，不再作为首页标志。
 - Evidence：已查看源图及 128px 深/浅背景预览；安装器的 macOS 限制、install/status 参数、输出 extensionDir 与 Chrome 最低版本均按当前源码核对。未运行真实安装、扩展重载或连接验收；status 的注册状态不冒充浏览器已连通。
-- Acceptance：只确认本项目的 Heat Rotom 和配置入口需求，不提升为全局视觉偏好；成品待验收。
+- Acceptance：用户指出单独居中的图标“太突兀”；该布局由 `D-20260912-readme-inline-mark` 替代。Heat Rotom 形态与配置入口保留，不提升为全局偏好。
+
+## D-20260912-readme-inline-mark
+
+- Scope / status：README 页首局部修复；需求确认，成品待用户查看。
+- Feedback：用户提供真实 GitHub 页面截图，指出图标“太突兀”。问题是原图透明画布与独立居中段落制造空白，图标和左对齐标题脱节；不是要求更换角色。
+- Applied：裁去透明边缘，保留原像素；用 40 × 25 的图标与 `rotom` 同排、同一左对齐基线。移除独立居中区域，正文及浏览器配置完全不变。
+- Assets：保留原图用于溯源，新增 `assets/readme/heat-rotom-mark.png`（82 × 51）；版权与裁切参数写入 `assets/readme/ATTRIBUTION.md`。
+- Evidence：与原图对应裁切区域的像素比较差异为 0；查看了 900/360px、深/浅背景的头部组合预览，而不只检查孤立图标。预览是本地排版示意，不是真实 GitHub 截图；未更改或运行产品逻辑。
+- Acceptance：保留用户指定角色，否定的是孤立居中布局；新组合尚待用户验收。

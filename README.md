@@ -1,8 +1,4 @@
-<p align="center">
-  <img src="./assets/readme/heat-rotom.png" width="128" height="128" alt="Heat Rotom（加热洛托姆）">
-</p>
-
-# rotom
+# <img src="./assets/readme/heat-rotom-mark.png" width="40" height="25" alt="Heat Rotom"> rotom
 
 基于 Pi fork 的个人编程助手。在你的项目目录中读写代码、执行命令、操作浏览器，并按需委派子任务。Pi 运行时随包提供，无需另装。
 
