@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { lstat, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
 	BROWSER_INSPECT_OPERATIONS_V1,
@@ -66,9 +67,7 @@ export interface BrowserRelayExtensionDependenciesV1 {
 }
 
 const BROWSER_INSTALLER = fileURLToPath(new URL("./install-chrome-relay.mjs", import.meta.url));
-const BROWSER_EXTENSION_DIR = fileURLToPath(new URL("./chrome-extension", import.meta.url));
 const BROWSER_COMMANDS = [
-	{ value: "use", label: "开始使用浏览器", description: "提交一次浏览器任务（会调用当前模型）" },
 	{ value: "install", label: "安装 / 更新 Chrome Relay", description: "确认后注册 native host，扩展仍需手动加载" },
 	{ value: "status", label: "查看状态", description: "只读检查注册与连接，不调用模型或读取页面" },
 ] as const;
@@ -239,6 +238,10 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 	let epoch = 0;
 	let shutdown = false;
 	const commandIO = { ...defaultCommandDependenciesV1(), ...dependencies.commands };
+	const componentBase = join(homedir(), "Library", "Application Support", "rotom", "browser-relay", "components");
+	// Derive display paths from a bounded digest and our own frozen HOME, not child text.
+	const componentDirectory = (result: unknown) => record(result) && typeof result.componentDigest === "string" && /^[a-f0-9]{64}$/u.test(result.componentDigest)
+		? JSON.stringify(join(componentBase, result.componentDigest, "chrome-extension")) : "未确认";
 	let activeCommand: AbortController | undefined;
 	const cursors = new Map<string, SnapshotCursorV1>();
 
@@ -579,14 +582,11 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 				assertOwner();
 				const input = args.trim();
 				if (Buffer.byteLength(input, "utf8") > 4_096 || input.includes("\0")) { ctx.ui.notify("/browser 参数过长或无效。", "warning"); return; }
-				const parsed = /^(\S+)(?:\s+([\s\S]*))?$/u.exec(input);
-				operation = parsed?.[1] ?? "use";
-				let task = parsed?.[2]?.trim() ?? "";
-				if (!BROWSER_COMMANDS.some((item) => item.value === operation) || (operation !== "use" && task)) {
-					ctx.ui.notify("可用命令：/browser、/browser use <任务>、/browser install、/browser status。", "warning"); return;
-				}
+				// Only exact administrative commands are reserved; preserve the entire task.
+				operation = input === "install" || input === "status" ? input : "use";
+				let task = operation === "use" ? input : "";
 				if (operation === "use") {
-					if (!ctx.isIdle()) { ctx.ui.notify("当前任务尚未结束，请空闲后再使用 /browser use。", "warning"); return; }
+					if (!ctx.isIdle()) { ctx.ui.notify("当前任务尚未结束，请空闲后再使用 /browser。", "warning"); return; }
 					if (!task) task = (await ctx.ui.input("浏览器任务（会调用当前模型）", "例如：打开 example.com，读取页面标题", { signal: controller.signal }))?.trim() ?? "";
 					assertOwner();
 					if (!task) return;
@@ -602,7 +602,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 				if (commandIO.platform !== "darwin") { ctx.ui.notify("当前 Chrome Relay 安装器仅支持 macOS；未执行安装或状态探测。", "warning"); return; }
 				if (operation === "install") {
 					if (!ctx.isIdle()) { ctx.ui.notify("请等待当前任务结束后再安装，避免影响正在使用的浏览器连接。", "warning"); return; }
-					const accepted = await ctx.ui.confirm("注册 Chrome Relay？", `将为当前安装写入本机 Chrome native host 注册。它会替换现有注册路径，可能影响其他 rotom 安装；不会自动加载扩展或迁移会话。\n扩展目录：${JSON.stringify(BROWSER_EXTENSION_DIR)}`, { signal: controller.signal });
+					const accepted = await ctx.ui.confirm("注册 Chrome Relay？", "将浏览器组件保存到按内容固定的独立目录，并更新同一用户共享的 Chrome native host 注册，影响其他 rotom 安装的后续连接。相同组件不随 rotom 发行路径变化；不会覆盖旧组件、自动加载扩展或迁移会话。首次迁移或组件变化时，请待活跃任务结束后手动切换 Chrome 扩展目录。", { signal: controller.signal });
 					assertOwner();
 					if (!accepted) return;
 					if (!ctx.isIdle()) { ctx.ui.notify("当前已有任务运行，未执行安装。", "warning"); return; }
@@ -613,15 +613,17 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 					const check = await commandIO.runInstaller("status", controller.signal);
 					assertOwner();
 					if (!record(check) || check.installed !== true) throw new Error("Registration readback did not match");
-					ctx.ui.notify(`Native host 注册已回读确认；Chrome 扩展仍需手动加载/重新加载。\nchrome://extensions → 开发者模式 → 加载已解压的扩展\n目录：${JSON.stringify(BROWSER_EXTENSION_DIR)}\n完成后用 /browser status 检查连接。`, "info");
+					ctx.ui.notify(`Native host 注册已回读确认。\n固定组件目录：${componentDirectory(check)}\n若 Chrome 已加载此目录，无需因 rotom 重打包重新加载。\n首次迁移或目录变化时，仍需手动在 chrome://extensions → 开发者模式 → 加载已解压的扩展，切换到以上目录；请先结束活跃浏览器任务。\n完成后用 /browser status 检查连接。`, "info");
 					return;
 				}
 				let registration = "unknown（检查未完成）";
+				let directory = "未确认";
 				try {
 					const result = await commandIO.runInstaller("status", controller.signal);
 					assertOwner();
 					if (!record(result) || typeof result.installed !== "boolean") throw new Error("Invalid installer status");
-					registration = result.installed ? "与当前安装匹配" : "未确认匹配（可能缺失、不匹配或不可读）";
+					directory = componentDirectory(result);
+					registration = result.installed ? "与当前安装匹配（浏览器组件内容匹配）" : "未确认匹配（首次迁移、组件或 Node 变化、缺失、损坏或不可读）";
 				} catch { assertOwner(); }
 				let connection = "unknown（超时、权限或协议检查未完成）";
 				try {
@@ -632,7 +634,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 					assertOwner();
 					if (error instanceof BrowserRelayUnavailableErrorV1) connection = "不可用（本机 relay socket 缺失或拒绝连接）";
 				}
-				ctx.ui.notify(`Native host：${registration}\nChrome Relay：${connection}\n注册匹配不等于连接可用；其他安装的 Relay 也可能已在线。\n扩展目录：${JSON.stringify(BROWSER_EXTENSION_DIR)}\n需要时手动打开 Chrome，并在 chrome://extensions 加载/重新加载对应扩展。`, "info");
+				ctx.ui.notify(`Native host：${registration}\nChrome Relay：${connection}\n固定组件目录：${directory}\n注册匹配不等于连接可用，旧组件的 Relay 也可能在线。\n若 Chrome 已加载此目录，普通重打包无需重新加载；首次迁移或组件目录变化才需手动切换。\n标签 debugger 身份失效是另一问题，不应通过重复安装或重放原动作解决。`, "info");
 			} catch {
 				// Never publish old-session UI, child stderr, paths from child output, or a
 				// guessed success. An interrupted installer may already have written files.

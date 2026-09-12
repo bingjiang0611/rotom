@@ -426,9 +426,9 @@ test("/browser: explicit commands, local-only diagnostics, cancellation and owne
 	await t.test("startup, cancelled default task and invalid arguments have no IO/model effects", async () => {
 		const f = await fixture(); assert.deepEqual(f.calls, []);
 		await f.run(); assert.deepEqual(f.calls, []); assert.deepEqual(f.notices, []);
-		assert.deepEqual(f.command.getArgumentCompletions("").map((item: any) => item.value), ["use", "install", "status"]);
+		assert.deepEqual(f.command.getArgumentCompletions("").map((item: any) => item.value), ["install", "status"]);
 		assert.equal(f.command.getArgumentCompletions("help"), null);
-		for (const bad of ["help", "uninstall", "install extra", "status extra", "unknown", "x".repeat(4097), "use a\0b"]) await f.run(bad);
+		for (const bad of ["x".repeat(4097), "a\0b"]) await f.run(bad);
 		assert.deepEqual(f.calls, []); assert.deepEqual(f.messages, []);
 		assert.deepEqual(f.command.getArgumentCompletions("st").map((item: any) => item.value), ["status"]);
 		assert.equal(f.command.getArgumentCompletions("use private task"), null);
@@ -462,6 +462,15 @@ test("/browser: explicit commands, local-only diagnostics, cancellation and owne
 		assert.ok(!f.notices.join("\n").includes("page-controlled")); assert.ok(!f.notices.join("\n").includes("untrusted path"));
 		assert.deepEqual(f.messages, []);
 	});
+	await t.test("component directory display derives only from a bounded digest, never a child-supplied path", async () => {
+		for (const digest of ["a".repeat(64), "../../outside"]) {
+			const f = await fixture({ async runInstaller() { return { installed: true, componentDigest: digest, extensionDir: "untrusted directory" }; } });
+			await f.run("status");
+			assert.ok(!f.notices.join("\n").includes("untrusted directory"));
+			if (digest.length === 64) assert.ok(f.notices.at(-1)!.includes(`/components/${digest}/chrome-extension`));
+			else assert.match(f.notices.at(-1)!, /固定组件目录：未确认/u);
+		}
+	});
 	await t.test("typed missing socket is unavailable; generic timeout/old protocol is unknown", async () => {
 		for (const [error, expected] of [[new BrowserRelayUnavailableErrorV1(new Error("missing")), /不可用/u], [new Error("protocol failure secret"), /unknown/u]]) {
 			const f = await fixture({ async probeRelay() { throw error; } }); await f.run("status");
@@ -473,16 +482,24 @@ test("/browser: explicit commands, local-only diagnostics, cancellation and owne
 		assert.match(f.notices.at(-1)!, /Native host：unknown.*Chrome Relay：已连接/su);
 	});
 	await t.test("use submits exactly one bounded user task, with no template expansion or direct browser action", async () => {
-		const f = await fixture(); await f.run("use 打开 example.com，读标题");
+		const f = await fixture(); await f.run("打开 example.com，读标题");
 		assert.equal(f.messages.length, 1); assert.match(f.messages[0].text, /用户任务：\n打开 example.com，读标题/u);
 		assert.deepEqual(f.messages[0].options, { expandPromptTemplates: false }); assert.deepEqual(f.calls, []);
 		const menu = await fixture(); menu.input("/browser install"); await menu.run();
 		assert.equal(menu.messages.length, 1); assert.deepEqual(menu.calls, []);
 		assert.match(menu.messages[0].text, /用户任务：\n\/browser install/u);
 	});
+	await t.test("arbitrary task text is preserved; only exact install/status are reserved", async () => {
+		for (const task of ["看下这个网站是什么https://pokemondb.net/sprites/rotom", "install this extension", "status of this website", "help", "use this website"]) {
+			const f = await fixture(); await f.run(task);
+			assert.equal(f.messages.length, 1);
+			assert.ok(f.messages[0].text.endsWith(`用户任务：\n${task}`));
+			assert.deepEqual(f.calls, []);
+		}
+	});
 	await t.test("cancelled/oversized use, busy agent and excluded tools do not submit or enable anything", async () => {
-		const f = await fixture(); await f.run("use"); assert.deepEqual(f.messages, []);
-		f.input("文".repeat(2000)); await f.run("use"); assert.deepEqual(f.messages, []);
+		const f = await fixture(); await f.run(); assert.deepEqual(f.messages, []);
+		f.input("文".repeat(2000)); await f.run(); assert.deepEqual(f.messages, []);
 		f.selectTools(["launch_browser"]); await f.run("use read a page"); assert.deepEqual(f.messages, []);
 		f.busy(); await f.run("use read a page"); await f.run("install"); assert.deepEqual(f.calls, []);
 		f.ctx.hasUI = false; await assert.rejects(f.run("install"), /需要交互界面/u); assert.deepEqual(f.calls, []);
@@ -503,7 +520,7 @@ test("/browser: explicit commands, local-only diagnostics, cancellation and owne
 		for (const change of ["session", "busy"]) {
 			const f = await fixture(), entered = Promise.withResolvers<void>(), response = Promise.withResolvers<string>();
 			f.waitInput(() => { entered.resolve(); return response.promise; });
-			const pending = f.run("use"); await entered.promise;
+			const pending = f.run(); await entered.promise;
 			if (change === "session") f.switchId(); else f.busy();
 			response.resolve("read a page"); await pending; assert.deepEqual(f.messages, []);
 		}
@@ -521,7 +538,7 @@ test("/browser: explicit commands, local-only diagnostics, cancellation and owne
 			f.confirm(); await f.run("install"); assert.match(f.notices.at(-1)!, /注册已回读确认/u);
 			const manifestPath = join(home, "Library/Application Support/Google/Chrome/NativeMessagingHosts/dev.rotom.browser_relay.json");
 			const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
-			assert.equal(manifest.path, join(home, "Library/Application Support/rotom/browser-relay/native-host-launcher.sh"));
+			assert.equal(manifest.path, join(realpathSync(home), "Library/Application Support/rotom/browser-relay/native-host-launcher.sh"));
 			assert.deepEqual(manifest.allowed_origins, ["chrome-extension://kgadcllokaodnoknakblocmhidemimdi/"]);
 			await f.run("status"); assert.match(f.notices.at(-1)!, /与当前安装匹配.*不可用/su);
 			assert.deepEqual(f.messages, []);

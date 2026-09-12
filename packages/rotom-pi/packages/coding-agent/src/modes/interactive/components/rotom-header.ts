@@ -2,28 +2,35 @@ import { type Component, Text, truncateToWidth, visibleWidth } from "@earendil-w
 import { Chalk } from "chalk";
 import { theme } from "../theme/theme.ts";
 
-// Compact Heat Rotom badge, selected in D-ROTOM-STARTUP-03/B: a flat oven and plasma arms.
-// Two pixel rows share one terminal cell; no image protocol, download or animation.
+// Heat Rotom badge (D-ROTOM-STARTUP-06): traced from the official Gen9 sprite with saturated
+// colors — two large red plasma arms rising from the shoulders and flanking a pointed orange
+// nub, each with a white flame streak; a rich-orange oven body with two cream eyes; a wide dark
+// oven window with a lit gray screen; little legs. 21×14 pixels / 21×7 cells; two pixel rows
+// share one terminal cell; no image protocol, download or animation. Palette keys ([.robwg]).
 export const ROTOM_PIXELS = [
-	".....r.....",
-	".r..ror..r.",
-	"rwrrooorrwr",
-	".rrooooorr.",
-	"..rowowor..",
-	"..rooooor..",
-	"..robbbor..",
-	"..robgbor..",
-	"...rooor...",
-	"...rr.rr...",
+	".........ror.........",
+	"..rr...rrrorrr...rr..",
+	"..rrr.rooooooor.rrr..",
+	"..rwrrooooooooorrwr..",
+	"...wrrooooooooorrw...",
+	"...rwrrooooooorrwr...",
+	"....rrrowoooworrr....",
+	".....rrooooooorr.....",
+	".....robbbbbbbor.....",
+	".....robgggggbor.....",
+	"......rbgggggbr......",
+	".......rooooor.......",
+	".......rooroor.......",
+	".......ror.ror.......",
 ] as const;
 
 export function renderRotomSprite(): string[] {
 	const color = new Chalk({ level: theme.getColorMode() === "truecolor" ? 3 : 2 });
 	const palette: Record<string, string> = {
-		r: "#ef7058", // plasma / outline
-		o: "#f8ab59", // oven shell
-		w: "#fff1d8", // eyes / flame cores
-		b: "#30404c", // oven window
+		r: "#d83a22", // red plasma arms / outline
+		o: "#f28a2b", // oven shell
+		w: "#fff1d8", // eyes / flame streaks
+		b: "#242228", // oven window
 		g: "#8dabb4", // window reflection
 	};
 	const lines: string[] = [];
@@ -102,8 +109,10 @@ export class RotomHeader implements Component {
 		const state = this.getState();
 		const title = `${theme.bold(theme.fg("accent", "rotom"))} ${theme.fg("muted", `v${oneLine(state.version)}`)}`;
 		const lines = [title, ""];
-		if (width >= 40 && !this.expanded) {
-			const leftWidth = 13;
+		// The 21-wide badge needs room for a readable resource column, so it appears a little
+		// wider than the bare two-column threshold; narrower panes fall back to text only.
+		if (width >= 46 && !this.expanded) {
+			const leftWidth = 22;
 			const left = ["", ...renderRotomSprite().map((line) => ` ${line}`)];
 			const right = this.renderResources(Math.min(width, 104) - leftWidth - 2);
 			for (let i = 0; i < Math.max(left.length, right.length); i++) {

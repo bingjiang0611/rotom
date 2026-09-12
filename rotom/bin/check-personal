@@ -39,6 +39,7 @@ ROTOM_PI="$pi_command" PATH="$test_pi_bin:$PATH" "$node_command" --experimental-
 	rotom/extensions/observability/index.test.ts \
 	rotom/extensions/observability/dashboard.test.mjs \
 	rotom/extensions/browser/index.test.ts \
+	rotom/extensions/browser/component-storage.test.mjs \
 	rotom/extensions/browser/artifact-ownership.test.ts \
 	rotom/extensions/browser/runtime-ownership.test.ts \
 	rotom/extensions/browser/ownership.test.mjs \

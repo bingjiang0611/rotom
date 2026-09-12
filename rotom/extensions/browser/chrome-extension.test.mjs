@@ -470,7 +470,7 @@ test("scroll target 优先选择 anchor 最近的纵向滚动祖先并保留 doc
 	assert.equal(interactionScrollTarget.call(shadowRow), shadowScroller);
 });
 
-test("installer 只写 exact native manifest/launcher，status 校验内容且 uninstall 不跟随 symlink", async (t) => {
+test("installer 固定组件存储与 exact 注册，status 校验内容且 uninstall 不跟随 symlink", async (t) => {
 	const home = await mkdtemp(join(tmpdir(), "pi-browser-installer-home-"));
 	t.after(() => rm(home, { recursive: true, force: true }));
 	await mkdir(join(home, "Library", "Application Support"), { recursive: true });
@@ -479,7 +479,9 @@ test("installer 只写 exact native manifest/launcher，status 校验内容且 u
 	assert.equal(installed.status, 0, installed.stderr);
 	const details = JSON.parse(installed.stdout);
 	assert.equal(details.extensionId, extensionId);
-	assert.equal(details.extensionDir, extensionDir);
+	assert.match(details.extensionDir, /\/components\/[a-f0-9]{64}\/chrome-extension$/u);
+	assert.notEqual(details.extensionDir, extensionDir);
+	assert.equal(await readFile(join(details.extensionDir, "service-worker.js"), "utf8"), await readFile(join(extensionDir, "service-worker.js"), "utf8"));
 	const manifestInfo = await lstat(details.nativeHostManifest);
 	assert.equal(manifestInfo.isFile() && !manifestInfo.isSymbolicLink() && manifestInfo.nlink === 1, true);
 	assert.equal(manifestInfo.mode & 0o077, 0);
@@ -494,6 +496,7 @@ test("installer 只写 exact native manifest/launcher，status 校验内容且 u
 	assert.equal(run("install").status, 0, "installer 应可原子修复普通文件内容漂移");
 	assert.equal(run("uninstall").status, 0);
 	assert.equal(JSON.parse(run("status").stdout).installed, false);
+	assert.equal((await lstat(details.extensionDir)).isDirectory(), true, "uninstall 必须保留可能仍在使用的组件");
 	await mkdir(join(home, "outside"));
 	const outside = join(home, "outside", "sentinel");
 	await writeFile(outside, "keep", { mode: 0o600 });

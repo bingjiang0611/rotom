@@ -36,17 +36,17 @@ function resource(compact: string, expanded = compact) {
 }
 
 describe("rotom startup header", () => {
-	it("keeps the selected Heat Rotom badge at 11 columns by 5 rows", () => {
-		expect(ROTOM_PIXELS).toHaveLength(10);
+	it("keeps the Heat Rotom badge at 21 columns by 7 rows", () => {
+		expect(ROTOM_PIXELS).toHaveLength(14);
 		for (const row of ROTOM_PIXELS) {
-			expect(row).toHaveLength(11);
+			expect(row).toHaveLength(21);
 			expect(row).toMatch(/^[.robwg]+$/);
 		}
 		for (const name of ["dark", "light"]) {
 			setTheme(name);
 			const sprite = renderRotomSprite();
-			expect(sprite).toHaveLength(5);
-			expect(sprite.every((line) => visibleWidth(line) === 11)).toBe(true);
+			expect(sprite).toHaveLength(7);
+			expect(sprite.every((line) => visibleWidth(line) === 21)).toBe(true);
 		}
 	});
 
@@ -77,7 +77,7 @@ describe("rotom startup header", () => {
 		},
 	);
 
-	it.each([40, 52, 80, 100])("keeps resources on the right at %i columns without duplicate session/tips", (width) => {
+	it.each([46, 52, 80, 100])("keeps resources on the right at %i columns without duplicate session/tips", (width) => {
 		const header = new RotomHeader(state);
 		header.setResources([
 			resource("[Context]\nAGENTS.md"),
@@ -89,9 +89,9 @@ describe("rotom startup header", () => {
 		expect(output).toContain("rotom v0.1.0-alpha.11");
 		expect(output).toContain("ctrl+o details");
 		expect(output).toContain("▀");
-		expect(lines.filter((line) => /[▀▄]/.test(line))).toHaveLength(5);
+		expect(lines.filter((line) => /[▀▄]/.test(line))).toHaveLength(7);
 		for (const label of ["[Context]", "[Skills]", "[Extensions]"]) {
-			expect(lines.find((line) => line.includes(label))?.indexOf(label)).toBe(15);
+			expect(lines.find((line) => line.includes(label))?.indexOf(label)).toBe(24);
 		}
 		expect(output).not.toMatch(/Quick start|Session|Example Model|╭|│/);
 		expect(lines).toHaveLength(11);

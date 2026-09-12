@@ -25,17 +25,22 @@ SPRITE = [
     '......rooooor......',
     '......rr...rr......',
 ]
+# Kept in sync with production ROTOM_PIXELS (rotom-header.ts), traced in D-ROTOM-STARTUP-06.
 MINI = [
-    '.....r.....',
-    '.r..ror..r.',
-    'rwrrooorrwr',
-    '.rrooooorr.',
-    '..rowowor..',
-    '..rooooor..',
-    '..robbbor..',
-    '..robgbor..',
-    '...rooor...',
-    '...rr.rr...',
+    '.........ror.........',
+    '..rr...rrrorrr...rr..',
+    '..rrr.rooooooor.rrr..',
+    '..rwrrooooooooorrwr..',
+    '...wrrooooooooorrw...',
+    '...rwrrooooooorrwr...',
+    '....rrrowoooworrr....',
+    '.....rrooooooorr.....',
+    '.....robbbbbbbor.....',
+    '.....robgggggbor.....',
+    '......rbgggggbr......',
+    '.......rooooor.......',
+    '.......rooroor.......',
+    '.......ror.ror.......',
 ]
 # Example labels copied from the requested categories, not a live resource query.
 SECTIONS = [

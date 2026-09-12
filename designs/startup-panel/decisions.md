@@ -1,5 +1,29 @@
 # rotom startup panel
 
+## D-ROTOM-STARTUP-06 · Heat Rotom 描摩版 + 饱和调色（用户已看预览图并确认）
+- Scope / status：用户看到 D-05 的 19×14 实渲染后仍“不像”，并提供 Frost Rotom 参考图提醒“电器形态的辨识结构”。递交前将候选保存为 `~/Desktop/heat-rotom-proposed.png`（官方 vs 终端渲染对照），用户确认“可以,装上去”。本条取代 D-05。
+- Root cause：（1）旧版把身体画成圆形橙色球、手臂成了小侧翅，而 Heat Rotom 的辨识主体是**顶部两大红色等离子手臂（带白色火焰）+ 中心橙色脸部**；（2）旧调色板 `#ef7058/#f8ab59` 偏粉偏淡，与官方饱和红橙差距大。
+- Reference：R-HEAT-ROTOM，https://pokemondb.net/sprites/rotom ，按 https://img.pokemondb.net/sprites/scarlet-violet/normal/rotom-heat.png 的轮廓/比例/配色逐像素重描（先将官方图降采样到调色板作参照，再手工清理）。终端像素为原创手绘，不把图片带入运行时；宝可梦 IP 未授权，private/UNLICENSED 不变。
+- Applied：`ROTOM_PIXELS` 改为 **21×14 像素 / 21×7 字符**（调色板键仍 `[.robwg]`）；`renderRotomSprite` 的 hex 改为饱和版 r=#d83a22、o=#f28a2b、w=#fff1d8、b=#242228、g=#8dabb4。`rotom-header.ts` 的 `leftWidth` 20→22，分栏阈值 40→46 列（21 宽徽标无法与资源列共享 40 列行；<46 列回退纯文本），右栏起始列 22→24。`compact-preview/render.py` 的 `MINI` 同步。对应更新 `test/rotom-startup.test.ts`（列宽 21、分栏宽度用例 40→46、label indexOf 24；行数 14 / 渲染 7 行 / ▀▄ 7 / 总行数 11 不变）。
+- 验证/安装：见下文提交与安装记录。旧版 heatv2/heatv3/integrated 保留可回滚；未迁移会话/凭据/浏览器绑定。桌面目视验收：用户已对预览图确认；实际终端字体/主题下的最终观感仍依启动后为准。
+
+## D-ROTOM-STARTUP-05 · Heat Rotom 像素加宽加大（已被 D-06 取代：19×14 仍被用户判“不像”）
+- Scope / status：用户看到 D-04 的 11×10 实渲染后反馈“差得很多”；在方向选择中明确选“加宽加大像素吉祥物（推荐）”，接受启动面板变高。本条取代 D-04（不再以 D-03/B 的“尽量小”为硬约束）。
+- Root cause：11 像素宽下，身体占据中间，手臂无法向两侧横张——Heat Rotom 最关键的辨识点（两条向两侧张开的红色等离子手臂 + 扁圆烤箱体）在该尺寸下本质上画不出来。
+- Reference：R-HEAT-ROTOM，https://pokemondb.net/sprites/rotom ，核对 https://img.pokemondb.net/sprites/scarlet-violet/normal/rotom-heat.png 。终端像素为原创手绘，不把网页/图片带入运行时；宝可梦 IP 未授权，private/UNLICENSED 边界不变。
+- Applied：`ROTOM_PIXELS` 改为 **19×14 像素 / 19×7 字符**（调色板仍 `[.robwg]`）：尖角、自动红描边的圆润烤箱体、两只奶白眼睛、宽炉门+浅灰屏、小脚，以及两侧向外张开、内嵌白色火焰高光的红色等离子手臂。`rotom-header.ts` 的 `leftWidth` 13→20（分栏阈值仍 40 列，右栏起始列 15→22）；`compact-preview/render.py` 的 `MINI` 同步。对应更新 `test/rotom-startup.test.ts`（行数 14、列宽 19、渲染 7 行、▀▄ 行数 7、label indexOf 22；总行数仍 11）。
+- 验证：`build:pi` 完整离线构建，11 个 focused 文件 **153 passed / 2 skipped**（含 `rotom-startup.test.ts`）；fork source SHA-256 `3e1df5fe4ccc28a217d695361aa98c4800780134f8da5fcb5fcc7c5f36443bf8`，各 attestation/vendor/`product-config.mjs` 随之更新；`check:pi` 通过。`pack:release` 产出 tgz（integrity `sha512-mAWsAmkWEEXv7C1ohdLWFHsOWQ6JTcP3CQ5lpl8q3G0ZqyYzpRq+OgWvieLcMO/EgemVnDDyr+KmT0YWxsHXKg==`，53,343,751 bytes / 17,915 files，隐私审计通过）。
+- 安装/切换：离线装入新隔离目录 `0.1.0-alpha.11-heatv3-3e1df5fe`，校验新 19×14 网格已进编译 dist、旧 11 宽网格已消失；原子切换默认 `rotom` symlink 为该目录。旧版 `...-heatv2-12d30486` 与 `...-integrated-6188c3d` 保留可回滚；未迁移会话/凭据/浏览器绑定。桌面目视验收仍待用户；构建/单测 PASS ≠ 目视验收。
+- 边界：19 宽吉祥物在 40 列终端会占揉一半宽度（右栏 18 列），属可接受边缘情形；<40 列仍单栏、不显吉祥物。不加载图片协议/不下载素材的约束不变。
+
+## D-ROTOM-STARTUP-04 · Heat Rotom 像素高度还原（已被 D-05 取代：11×10 终端实渲染被用户否定）
+- Scope / status：用户要求“在 rotom 中高度还原 Heat Rotom”，附 pokemondb 截图（Gen9/Scarlet-Violet 形态）。沿用 D-03/B 选定的紧凑 11×10 像素 / 11×5 字符尺寸与既有调色板（`[.robwg]`），只重绘像素网格，不放大吉祥物、不加载图片协议、不下载素材、不改工具/模型/会话合同。
+- Reference：R-HEAT-ROTOM，https://pokemondb.net/sprites/rotom，核对 https://img.pokemondb.net/sprites/scarlet-violet/normal/rotom-heat.png 。仅借鉴橙色烤箱体、深色炉门+浅色屏、短尖角、红色等离子手臂与白色火焰；终端像素为原创手绘，不把网页/图片带入运行时。宝可梦 IP 未获授权，private/UNLICENSED 边界不变。
+- Rule/reason：旧网格的手臂读作四角悬浮红/白方块（白色像误画的第二对眼睛）。新网格改为：中央尖角、两侧红色等离子手臂向上外张并带白色火焰高光、圆润红描边烤箱体、奶白色眼睛、更宽的深色炉门+浅色屏、底部小脚。silhouette 与官方 SV sprite 明显更接近。
+- Applied：`rotom-header.ts` 的 `ROTOM_PIXELS` 替换为 v3 网格并更新注释；`compact-preview/render.py` 的 `MINI` 同步为同一网格（设计预览工具，非产品）。未重写 D-03 已冻结的 `b-52.png`/对照图或其 SHA，不冒充新的用户验收。
+- 验证：`npm --prefix rotom run build:pi` 完整离线 workspace 构建通过，11 个 focused 文件 **153 passed / 2 skipped**（含 `test/rotom-startup.test.ts`；测试仍只断言 10 行×11 列、`[.robwg]` 调色板与 5 行渲染宽度，未锁定精确 silhouette）。fork source SHA-256 重生成为 `12d304866c9292567457b3a084d4b33548a3fa9ad1465446b178444e902a5ea3`，`fork-build.json`/`package-lock.json`/vendor tgz/`product-config.mjs`（`DISTRIBUTION_PI_BUILD_SHA256=a2d5c1c8…`）随之更新；`npm --prefix rotom run check:pi` 通过。
+- 边界：**未重打包、未安装、未切换 live release**，也未迁移活跃会话/凭据/浏览器绑定。当前 `$HOME/.local/share/rotom/releases/0.1.0-alpha.11-integrated-6188c3d` 仍是旧网格；新造型需重新 `pack:release` + 安装或用户本机重建后才可见。桌面视觉验收仍待用户确认；构建/单测 PASS 不等于用户目视验收。
+
 ## D-ROTOM-STARTUP-03 · Compact resources / B（已实现、已安装）
 - Scope / status：本项目需求与 B 方向 confirmed；D-02 成品被明确否定。B 已实现并安装，生产成品仍待用户本机体验。
 - Feedback：2026-09-12 用户：“这太丑了吧 优化下 并且小一点”“右侧换成这些”，配图指向巨大字符 Heat Rotom 和 Context / Skills / Extensions 三组真实资源；随后在 A/B 对照中明确选择“B · 极简侧栏 (Recommended)”。不是授权更换终端，也不升级为跨项目偏好。
