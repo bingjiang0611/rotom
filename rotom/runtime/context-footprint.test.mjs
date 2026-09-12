@@ -109,6 +109,20 @@ test("explicit opt-out full tool surface has an independent reviewed contract", 
 	assert.equal(report.referenceObservationGate, "DRIFT");
 });
 
+test("omitting the three stable Goal schemas fails both startup contracts", () => {
+	for (const [deferredToolsEnabled, contract] of [[true, CURRENT_RUNTIME_CONTEXT_CONTRACT_V1], [false, FULL_TOOL_CONTEXT_CONTRACT_V1]]) {
+		const contextFootprint = {
+			...measurement(["read"]),
+			activeToolCount: contract.activeToolCount - 3,
+			activeToolSchemaBytes: contract.activeToolSchemaBytes - 2_951,
+			activeToolGuidelineBytes: contract.activeToolGuidelineBytes - 6,
+		};
+		const report = buildContextFootprintReport({ runtime: { contextFootprint, deferredToolsEnabled }, identity: {}, elapsedMs: 0 });
+		assert.equal(report.runtimeContractGate, "REGRESSION");
+		assert.deepEqual(report.contract, { activeToolCount: false, activeToolSchemaBytes: false, activeToolGuidelineBytes: false });
+	}
+});
+
 test("unreviewed guideline drift remains visible and fails the current runtime contract", () => {
 	const current = {
 		...measurement(["read"]),

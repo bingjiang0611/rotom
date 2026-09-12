@@ -75,4 +75,4 @@ node --experimental-strip-types --import ./test/support/register-loader.mjs \
 
 ## 剩余采用门
 
-[采用合同](README.md#历史采用合同)仍适用：nested/imported-root/external-job、worktree/gate 等 coverage；旧 reader 存储隔离；完整 recovery/attach/steer 与并发 release/transfer；用户可见 scope 披露；Linux 真实进程验证。未通过前不生成新发行 archive、不更新 version/lock/integrity、不切换当前安装。
+[采用合同](../../../../docs/agent/subagent-external-adoption-contract.md)仍适用：nested/imported-root/external-job、worktree/gate 等 coverage；旧 reader 存储隔离；完整 recovery/attach/steer 与并发 release/transfer；用户可见 scope 披露；Linux 真实进程验证。未通过前不生成新发行 archive、不更新 version/lock/integrity、不切换当前安装。

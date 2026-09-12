@@ -18,8 +18,12 @@ import {
 const DEFAULT_DEFERRED_ENV = { [DEFERRED_DEFAULT_SURFACE_ENV]: "1" };
 const registerDeferredTools = (api: any, environment: NodeJS.ProcessEnv = {}) => registerDeferredToolsBase(api, { ...DEFAULT_DEFERRED_ENV, ...environment });
 
+// Goal 0.54.4 registers stable schemas even when no Goal is active. Keep the
+// fixture faithful to the real loader rather than silently omitting these tools.
+const GOAL_TOOL_NAMES = ["goal_complete", "goal_blocked", "goal_wait"];
+const RESIDENT_PRODUCT_TOOLS = [...DEFERRED_INITIAL_TOOL_NAMES, ...GOAL_TOOL_NAMES];
 const ALL_PRODUCT_TOOLS = [
-	...DEFERRED_INITIAL_TOOL_NAMES,
+	...RESIDENT_PRODUCT_TOOLS,
 	...DEFERRED_CAPABILITY_GROUPS.flatMap((group) => [...group.toolNames]),
 ];
 
@@ -101,11 +105,11 @@ test("中英文 capability map 只命中保留的 deferred groups", () => {
 	]) assert.deepEqual(matchDeferredCapabilityGroups(unrelated), [], `普通工程 query 不得误加载 specialized tools: ${unrelated}`);
 });
 
-test("默认全工具面在 session_start 收敛为 core + Ask + Browser/Computer Use + loader", async () => {
+test("默认全工具面在 session_start 保留 core + Ask + Browser/Computer Use + Goal + loader", async () => {
 	const runtime = fakeRuntime();
 	registerDeferredTools(runtime.api, {});
 	await runtime.start();
-	assert.deepEqual(new Set(runtime.active()), new Set([...DEFERRED_INITIAL_TOOL_NAMES, DEFERRED_TOOL_SEARCH_NAME]));
+	assert.deepEqual(new Set(runtime.active()), new Set([...RESIDENT_PRODUCT_TOOLS, DEFERRED_TOOL_SEARCH_NAME]));
 	for (const tool of RESIDENT_BROWSER_TOOL_NAMES) assert.ok(runtime.active().includes(tool), `Browser/Computer Use 常驻工具缺失：${tool}`);
 	const search = runtime.tools.get(DEFERRED_TOOL_SEARCH_NAME);
 	assert.deepEqual(search.promptGuidelines, [...DEFERRED_TOOL_ROUTING_GUIDELINES]);
@@ -163,7 +167,7 @@ test("旧会话丢弃退出产品的 groups，resume/fork 仍恢复 Subagent", a
 			const legacy = fakeRuntime([{ type: "custom", customType: DEFERRED_TOOL_STATE_ENTRY, data: { v: 1, groups: ["mcp", "legacy-tracker", "legacy-config", "browser-ui", "unavailable-future-group", ...retained] } }]);
 			registerDeferredTools(legacy.api, {});
 			await legacy.start(reason);
-			assert.deepEqual(legacy.active(), [...DEFERRED_INITIAL_TOOL_NAMES, DEFERRED_TOOL_SEARCH_NAME, ...(retained.length ? ["subagent", "subagent_wait"] : [])]);
+			assert.deepEqual(legacy.active(), [...RESIDENT_PRODUCT_TOOLS, DEFERRED_TOOL_SEARCH_NAME, ...(retained.length ? ["subagent", "subagent_wait"] : [])]);
 			const before = legacy.active();
 			const result = await legacy.tools.get(DEFERRED_TOOL_SEARCH_NAME).execute("retired", { query: "legacy platform" });
 			assert.deepEqual(result.details, { matches: [], added: [] });
@@ -207,7 +211,7 @@ test("中英文重复加载产生字节一致的 active tools 与持久化 state
 	assert.equal(forward.activeBytes, reverse.activeBytes);
 	assert.equal(forward.stateBytes, reverse.stateBytes);
 	assert.deepEqual(JSON.parse(forward.activeBytes), [
-		...DEFERRED_INITIAL_TOOL_NAMES,
+		...RESIDENT_PRODUCT_TOOLS,
 		DEFERRED_TOOL_SEARCH_NAME,
 		"subagent",
 		"subagent_wait",
@@ -218,6 +222,15 @@ test("中英文重复加载产生字节一致的 active tools 与持久化 state
 	registerDeferredTools(resumed.api, {});
 	await resumed.start("resume");
 	assert.equal(JSON.stringify(resumed.active()), forward.activeBytes);
+});
+
+test("loader 不重新激活被显式排除的 Goal 工具", async () => {
+	const runtime = fakeRuntime();
+	registerDeferredTools(runtime.api);
+	runtime.setActive(runtime.active().filter((name) => !GOAL_TOOL_NAMES.includes(name)));
+	await runtime.start();
+	await runtime.tools.get(DEFERRED_TOOL_SEARCH_NAME).execute("discover", { query: "subagent" });
+	for (const name of GOAL_TOOL_NAMES) assert.equal(runtime.active().includes(name), false, name);
 });
 
 test("显式 full allowlist 与 narrowed runtime policy 都优先于默认 deferred", async () => {

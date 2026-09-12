@@ -1,0 +1,116 @@
+{
+  "description": "Exact reviewed public dependency examples in the Pi fork runtime. No package-wide exemption; changed lines and unrelated credentials remain blocked. Provenance is the integrity-locked public registry artifact installed by pack:release.",
+  "packages": {
+    "diff": {
+      "version": "8.0.4",
+      "resolved": "https://registry.npmjs.org/diff/-/diff-8.0.4.tgz",
+      "integrity": "sha512-DPi0FmjiSU5EvQV0++GFDOJ9ASQUVFh5kD+OzOnYdi7n3Wpm9hWWGfB/O2blfHcMVTL5WkQXSnRiK9makhrcnw=="
+    },
+    "openai": {
+      "version": "6.40.0",
+      "resolved": "https://registry.npmjs.org/openai/-/openai-6.40.0.tgz",
+      "integrity": "sha512-MWtTjd/gQt4jpbji61NTgFWJLoY/PdRJ6wG9/ZDRMYNMlBKrCrSlkLI+KgHP1vR1qT6LKSAyAqIxno6lcK9JiA=="
+    },
+    "formdata-polyfill": {
+      "version": "4.0.10",
+      "resolved": "https://registry.npmjs.org/formdata-polyfill/-/formdata-polyfill-4.0.10.tgz",
+      "integrity": "sha512-buewHzMvYL29jdeQTVILecSaZKnt/RJWjoZCF5OW60Z67/GmSLBkOFM7qh1PI3zFNtJbaZL5eQu1vLfazOwj4g=="
+    },
+    "undici": {
+      "version": "8.9.0",
+      "resolved": "https://registry.npmjs.org/undici/-/undici-8.9.0.tgz",
+      "integrity": "sha512-aWZpUj7XoGonMClx4gdDRfgBjqeA+F473aDmROQQbM9n6PRfK/u1q/a0X4wMTgcHfT8H6fpbt98PFuDUwFg2YA=="
+    },
+    "@mariozechner/clipboard": {
+      "version": "0.3.9",
+      "resolved": "https://registry.npmjs.org/@mariozechner/clipboard/-/clipboard-0.3.9.tgz",
+      "integrity": "sha512-ABnA53mdfkGZwOFUdZNv2S0CWGO/EIuPj8Vv9xmBFmSYg/qFc7ihO6q5FcQjvoE67kZpWkEc4AhD6B/os04yuA=="
+    },
+    "@aws-sdk/nested-clients": {
+      "version": "3.997.45",
+      "resolved": "https://registry.npmjs.org/@aws-sdk/nested-clients/-/nested-clients-3.997.45.tgz",
+      "integrity": "sha512-mooq9Q+jLa18VoM7HouczmslZU60iiB0aKc/Ztnq/luIL1ud0z4DnYprLR/ZO1gp331S9tJctM1HZr7u6YKBXQ=="
+    },
+    "@types/node": {
+      "version": "22.20.2",
+      "resolved": "https://registry.npmjs.org/@types/node/-/node-22.20.2.tgz",
+      "integrity": "sha512-xlvWf4Vs9n1PEVYwP1n4vvG07M6y8WgvJ2t0vbrWTmijsIHp1cS+uJ2kMIRdY3nHZK0nCYKrPeD171+SzF4/zw=="
+    }
+  },
+  "examples": {
+    "2440eaac08043af4af9649b134a85f562b8918a465218c3d0554fecef60be28e": [
+      "/runtime/pi/node_modules/diff/libcjs/index.js",
+      "/runtime/pi/node_modules/diff/libesm/index.js"
+    ],
+    "aac5308acf9dc8ba4f649b7861744fdf01b53b4023d7586b0022bc5752b62641": [
+      "/runtime/pi/node_modules/openai/auth/subject-token-providers.js",
+      "/runtime/pi/node_modules/openai/auth/subject-token-providers.mjs"
+    ],
+    "489666fc0d2dff881649a97ee5c3da56a484c7d4c24fb754fe1fb2274f1fad04": [
+      "/runtime/pi/node_modules/formdata-polyfill/package.json"
+    ],
+    "bb1944059da39b336fa9e9be02a704a3825d4753dbddac6a3510200744d458b8": [
+      "/runtime/pi/node_modules/undici/docs/docs/getting-started.md"
+    ],
+    "ad5a26694ec4f6fee0afb5226c37effa3274ae376104a4d808ba20bfd8976b74": [
+      "/runtime/pi/node_modules/@mariozechner/clipboard/src/clipboard_rs/platform/x11.rs"
+    ],
+    "e7e6357f07e2a8d95606858a68c2dc873a8bed698dbe296e89cd571f2b23aa13": [
+      "/runtime/pi/node_modules/@types/node/dgram.d.ts"
+    ],
+    "f1cf64523fef5a9d84ae2407498562991cd4da1fa823eebf9c173cd7d19fd7a7": [
+      "/runtime/pi/node_modules/@types/node/net.d.ts"
+    ],
+    "63de6b1f41f8aa8972443549e77e746d2d3abafdc3c9418832877d6308d37244": [
+      "/runtime/pi/node_modules/@types/node/net.d.ts"
+    ],
+    "d65eff7b070d10d401e0ef42dbf4eea045e40e11808e40928f39f116e77bdb6d": [
+      "/runtime/pi/node_modules/@types/node/net.d.ts"
+    ],
+    "bbbfb91f843674bae2acc3302bff0bb4f33e30c3735dc247a0a89aa3242415ca": [
+      "/runtime/pi/node_modules/@types/node/net.d.ts"
+    ],
+    "90e4165277c4d58b69b3f4670376fd1853bf543801a32738ecfddc754be7be51": [
+      "/runtime/pi/node_modules/@types/node/net.d.ts"
+    ],
+    "e58d8a1fe26c3244d4474f14bac335e47518a31dab035c1e6dcf709c63f69bcd": [
+      "/runtime/pi/node_modules/@types/node/net.d.ts"
+    ],
+    "44ca4e941a515e17f7e8d36a70eabb5784886b4a38830eb6e942d0b5af28eaf2": [
+      "/runtime/pi/node_modules/@types/node/net.d.ts"
+    ],
+    "afbdc74cc25cf29e16d800850b1600d7d91d9d4e8491815ea5effa13b92484ba": [
+      "/runtime/pi/node_modules/@types/node/os.d.ts"
+    ],
+    "c5be3cf12de2248ab8495f1cd839bd4f811249ee015288537693f8a1f905193a": [
+      "/runtime/pi/node_modules/@types/node/os.d.ts"
+    ],
+    "06005fb7143dd86c83a6de238819ab8729139302377889c87384a3e5de3dd20a": [
+      "/runtime/pi/node_modules/@types/node/process.d.ts"
+    ],
+    "ec62cc8766094105543abcb51daa1cf5e2c9f287b420ce2b95171e46fe7a9641": [
+      "/runtime/pi/node_modules/@types/node/process.d.ts"
+    ],
+    "8ea42c1a290426189f33a49ffce5bb56d9ff35b60bff7afaf7e5e769b20d7b4d": [
+      "/runtime/pi/node_modules/@types/node/process.d.ts"
+    ],
+    "f12d38bd01a3a995ab8fe770d6e9f07c06c58a77cfa01976743947696365d6b1": [
+      "/runtime/pi/node_modules/openai/src/auth/subject-token-providers.ts"
+    ],
+    "8ca4e267995ab2cbe6614e5ca64eea688c392c5977da15e4e4bcac731675da94": [
+      "/runtime/pi/node_modules/@types/node/url.d.ts"
+    ],
+    "b3993b5162df5284a2270e9b8faa5c08929d73da441b7721aeb826ad6616fd40": [
+      "/runtime/pi/node_modules/@types/node/url.d.ts"
+    ],
+    "0f6c824fee875926e2d4af09a512e5be89ef1cdffbb4dfcf71d8ffd5191939a6": [
+      "/runtime/pi/node_modules/@types/node/util.d.ts"
+    ]
+  },
+  "credentialExamples": {
+    "aaf2c5a9517791c8957ca68dca82630e9a9d4490977a870753dc7c7f7c4451fc": [
+      "/runtime/pi/node_modules/@aws-sdk/nested-clients/dist-types/submodules/sts/commands/AssumeRoleCommand.d.ts",
+      "/runtime/pi/node_modules/@aws-sdk/nested-clients/dist-types/submodules/sts/commands/AssumeRoleWithWebIdentityCommand.d.ts"
+    ]
+  }
+}

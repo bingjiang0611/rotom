@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="400" viewBox="0 0 1200 400" role="img" aria-labelledby="title desc">
+  <title id="title">rotom — 你的终端，完整的工作流</title>
+  <desc id="desc">个人 coding agent：编码、浏览器操作与按需任务委派。Pi fork 源码在 packages/rotom-pi，构建后的运行时随 rotom 一起交付。右侧是实际目录结构示意，不是真实终端截图。</desc>
+  <rect width="1200" height="400" rx="20" fill="#101820"/>
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif">
+    <text x="64" y="62" font-size="22" font-weight="600" letter-spacing="3" fill="#aab9c2">PERSONAL CODING AGENT</text>
+    <g id="wordmark">
+      <path d="M66 128 L99 159 L66 190" fill="none" stroke="#79e2cf" stroke-width="10" stroke-linecap="square" stroke-linejoin="miter"/>
+      <text x="123" y="222" font-size="164" font-weight="650" letter-spacing="-9" fill="#eef5f7">rotom</text>
+    </g>
+    <text x="64" y="279" font-size="34" font-weight="500" fill="#eef5f7">你的终端，完整的工作流。</text>
+    <path d="M64 316 H1136" stroke="#344853" stroke-width="2"/>
+    <text x="64" y="361" font-size="24" fill="#aab9c2">编码 · 浏览器操作 · 按需任务委派</text>
+    <text x="1136" y="361" text-anchor="end" font-size="20" letter-spacing="2" fill="#79e2cf">PRIVATE ALPHA</text>
+  </g>
+  <g id="source-to-runtime" font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace">
+    <path d="M706 104 V278" stroke="#344853" stroke-width="2"/>
+    <text x="750" y="126" font-size="20" fill="#aab9c2">SOURCE / IN THIS REPO</text>
+    <text x="750" y="169" font-size="27" fill="#eef5f7">packages/rotom-pi/</text>
+    <path d="M762 188 V217 M755 210 L762 217 L769 210" fill="none" stroke="#79e2cf" stroke-width="2"/>
+    <text x="788" y="210" font-size="18" fill="#aab9c2">build + bundle</text>
+    <text x="750" y="256" font-size="27" fill="#79e2cf">rotom/runtime/pi/</text>
+  </g>
+</svg>

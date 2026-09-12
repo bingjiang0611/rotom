@@ -1,6 +1,6 @@
 # Scoped owned execution — first release boundary
 
-This is an execution-ownership contract, not active-session migration or a filesystem sandbox. Standalone package loading with `PI_SUBAGENTS_EXECUTION_SCOPE` unset preserves legacy behavior. The rotom product pins this maintained component and its launcher selects owned scope by default (`alpha.3` onward); an explicitly empty scope opts out. See the product [default-scope documentation](../../../rotom/README.md). Existing sessions are not upgraded.
+This is an execution-ownership contract, not active-session migration or a filesystem sandbox. Standalone package loading with `PI_SUBAGENTS_EXECUTION_SCOPE` unset preserves legacy behavior. The rotom product pins this maintained component and its launcher selects owned scope by default (`alpha.3` onward); an explicitly empty scope opts out. See the product [default-scope contract](../../../docs/agent/subagent-owned-default.md). Existing sessions are not upgraded.
 
 ## Initialize metadata, then start a new session
 

@@ -5,7 +5,7 @@ script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 agent_dir=$(CDPATH= cd -- "$script_dir/.." && pwd -P)
 repository_dir=$(CDPATH= cd -- "$agent_dir/.." && pwd -P)
 node_command=${ROTOM_NODE:-$(command -v node)}
-pi_command=${ROTOM_PI:-$(command -v pi)}
+pi_command=${ROTOM_PI:-$("$node_command" "$agent_dir/runtime/resolve-installed-pi.mjs" "$agent_dir")}
 
 cd "$repository_dir"
 
@@ -32,6 +32,7 @@ ROTOM_PI="$pi_command" PATH="$test_pi_bin:$PATH" "$node_command" --experimental-
 	rotom/extensions/qoder/*.test.mjs \
 	rotom/runtime/process-tree.test.ts \
 	rotom/runtime/distribution.test.mjs \
+	rotom/scripts/build-pi-fork.test.mjs \
 	rotom/runtime/third-party-archive.test.mjs \
 	rotom/runtime/context-footprint.test.mjs \
 	rotom/runtime/context-discovery.test.mjs \
@@ -43,12 +44,12 @@ ROTOM_PI="$pi_command" PATH="$test_pi_bin:$PATH" "$node_command" --experimental-
 	rotom/extensions/browser/ownership.test.mjs \
 	rotom/extensions/coding-policy/index.test.ts \
 	rotom/extensions/coding-policy/repair-hints.test.ts \
-	rotom/extensions/third-party/deferred-tools.test.ts \
-	rotom/extensions/third-party/subagent-skill.test.ts \
+	rotom/extensions/third-party/deferred-tools/register.test.ts \
+	rotom/extensions/third-party/subagent/skill.test.ts \
 	rotom/extensions/third-party/index.test.ts \
-	rotom/extensions/third-party/subagent-publication.test.ts \
-	rotom/extensions/third-party/subagent-runtime-ownership.test.ts \
-	rotom/extensions/third-party/subagent-external-cli-evidence.test.mjs \
-	rotom/extensions/third-party/subagent-lifeline-regression.test.mjs
+	rotom/extensions/third-party/subagent/publication.test.ts \
+	rotom/extensions/third-party/subagent/runtime-ownership.test.ts \
+	rotom/extensions/third-party/subagent/external-cli-evidence.test.mjs \
+	rotom/extensions/third-party/subagent/lifeline-regression.test.mjs
 
 "$node_command" rotom/runtime/report-context-footprint.mjs "$pi_command" "$agent_dir"

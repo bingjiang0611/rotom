@@ -5,16 +5,18 @@ import { tmpdir } from "node:os";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { RESOURCE_DESCRIPTORS_V1, VERIFIED_THIRD_PARTY_PACKAGES } from "../runtime/product-config.mjs";
-import { resolveInstalledPi, verifyDistributionContract } from "../runtime/resolve-installed-pi.mjs";
+import { PI_MODULES, PI_RUNTIME, resolveInstalledPi, verifyDistributionContract } from "../runtime/resolve-installed-pi.mjs";
+import { verifyForkSource } from "./build-pi-fork.mjs";
 
 export const EMBEDDED_MODULES = "extensions/third-party/node_modules";
+const embedded = new Set([EMBEDDED_MODULES, PI_MODULES]);
 
 export function releaseFiles(manifest) {
 	if (!Array.isArray(manifest.files) || new Set(manifest.files).size !== manifest.files.length || !manifest.files.includes(EMBEDDED_MODULES)) throw new Error("Invalid release files declaration");
 	const files = ["package.json", ...manifest.files];
 	for (const file of files) {
 		if (typeof file !== "string" || isAbsolute(file) || file.split("/").some((part) => !part || part === "." || part === "..") || /[\\*?!]/u.test(file)) throw new Error(`Unsafe release file: ${file}`);
-		if (file !== EMBEDDED_MODULES && (file.split("/").some((part) => part.startsWith(".") || ["node_modules", "evals", "fixtures", "designs"].includes(part)) || /(?:\.test\.|\.eval\.|\.patch$|results\.json$)/u.test(file))) throw new Error(`Non-product release file: ${file}`);
+		if (!embedded.has(file) && (file.split("/").some((part) => part.startsWith(".") || ["node_modules", "evals", "fixtures", "designs"].includes(part)) || /(?:\.test\.|\.eval\.|\.patch$|results\.json$)/u.test(file))) throw new Error(`Non-product release file: ${file}`);
 	}
 	return files;
 }
@@ -24,7 +26,7 @@ export async function stageRelease(source, target) {
 	const manifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
 	for (const file of releaseFiles(manifest)) {
 		// Installed dependencies must come from a new npm ci, never a maintainer's tree.
-		if (file === EMBEDDED_MODULES) continue;
+		if (embedded.has(file)) continue;
 		const from = resolve(root, file);
 		const info = await lstat(from);
 		if (!info.isFile() || info.isSymbolicLink() || await realpath(from) !== from) throw new Error(`Untrusted release source: ${file}`);
@@ -48,10 +50,10 @@ export function verifyPackList(manifest, packed) {
 	const paths = new Set(packed.files.map((entry) => entry.path));
 	for (const path of paths) {
 		if (path.split("/").some((part) => part === ".." || part === ".npmrc" || part === ".git" || part === ".pi") || isAbsolute(path)) throw new Error(`Private/unsafe packed path: ${path}`);
-		if (!allowed.has(path) && !path.startsWith(`${EMBEDDED_MODULES}/`)) throw new Error(`Unexpected packed file: ${path}`);
+		if (!allowed.has(path) && ![...embedded].some((directory) => path.startsWith(`${directory}/`))) throw new Error(`Unexpected packed file: ${path}`);
 	}
 	for (const path of allowed) {
-		if (path !== EMBEDDED_MODULES && !paths.has(path)) throw new Error(`Missing packed file: ${path}`);
+		if (!embedded.has(path) && !paths.has(path)) throw new Error(`Missing packed file: ${path}`);
 	}
 	for (const resource of RESOURCE_DESCRIPTORS_V1) {
 		for (const file of resource.requiredFiles) {
@@ -60,6 +62,11 @@ export function verifyPackList(manifest, packed) {
 	}
 	for (const name of Object.keys(VERIFIED_THIRD_PARTY_PACKAGES)) {
 		if (!paths.has(`${EMBEDDED_MODULES}/${name}/LICENSE`)) throw new Error(`Missing license: ${name}`);
+	}
+	for (const name of ["chord", "pi-telemetry", "pi-ai", "pi-tui", "pi-agent-core", "pi-coding-agent"]) {
+		for (const file of ["LICENSE", "package.json"]) {
+			if (!paths.has(`${PI_MODULES}/@earendil-works/${name}/${file}`)) throw new Error(`Missing packed Pi fork: ${name}/${file}`);
+		}
 	}
 }
 
@@ -83,6 +90,7 @@ async function main() {
 	};
 	audit(["--root", resolve(source, "..")]);
 	await verifyDistributionContract(source);
+	await verifyForkSource();
 	await mkdir(output, { recursive: true });
 	const work = await mkdtemp(resolve(tmpdir(), "rotom-release-"));
 	try {
@@ -103,7 +111,8 @@ async function main() {
 		const flags = ["--ignore-scripts", "--no-audit", "--no-fund", "--registry=https://registry.npmjs.org", "--replace-registry-host=never"];
 		npm(["ci", ...flags, "--legacy-peer-deps", "--omit=optional", "--bin-links=false"], resolve(stage, "extensions/third-party"));
 		await rejectLinks(resolve(stage, EMBEDDED_MODULES));
-		npm(["ci", ...flags], stage);
+		npm(["ci", ...flags, "--bin-links=false"], resolve(stage, PI_RUNTIME));
+		await rejectLinks(resolve(stage, PI_MODULES));
 		const executable = await resolveInstalledPi(stage);
 		// Even the SDK capability import runs with the staging HOME/environment,
 		// not the maintainer's credentials or optional integrations.
@@ -120,7 +129,7 @@ async function main() {
 		const [packed] = JSON.parse(npm(["pack", "--json", "--ignore-scripts", "--pack-destination", output], stage));
 		verifyPackList(manifest, packed);
 		audit(["--artifact", target]);
-		console.log(JSON.stringify({ artifact: target, integrity: packed.integrity, size: packed.size, fileCount: packed.files.length, piVersion: manifest.dependencies["@earendil-works/pi-coding-agent"], published: false }, null, 2));
+		console.log(JSON.stringify({ artifact: target, integrity: packed.integrity, size: packed.size, fileCount: packed.files.length, piVersion: JSON.parse(await readFile(resolve(stage, PI_RUNTIME, "fork-build.json"), "utf8")).version, published: false }, null, 2));
 	} finally {
 		// Only our own unique build staging area; never project runtime state.
 		await rm(work, { recursive: true, force: true });

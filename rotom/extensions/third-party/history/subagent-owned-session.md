@@ -65,4 +65,4 @@ node --experimental-strip-types --test --test-concurrency=1 \
 
 同候选回归把前序 source overrides 和 `SUBAGENT_OWNED_SESSION_SOURCE` 指向第六层 candidate；不设置则独立重建历史层。上游沿用[第七批准备器和命令](subagent-owned-foreground.md#重放)，清空凭据环境并传播公开 runtime loader，不使用 PATH/global Pi。
 
-仍需完成[采用矩阵](README.md#历史采用合同)：nested/imported-root/external-job/worktree/gate 正面 ownership、完整 recovery/attach/steer/并发 release-transfer 与披露、公开入口及 Linux 真实进程验证。当前结果不授权打发行归档、切换安装或宣布可采用。
+仍需完成[采用矩阵](../../../../docs/agent/subagent-external-adoption-contract.md)：nested/imported-root/external-job/worktree/gate 正面 ownership、完整 recovery/attach/steer/并发 release-transfer 与披露、公开入口及 Linux 真实进程验证。当前结果不授权打发行归档、切换安装或宣布可采用。

@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { DISTRIBUTION_PI_INTEGRITY, DISTRIBUTION_PI_VERSION, RESOURCE_DESCRIPTORS_V1, VERIFIED_PI_PACKAGE, VERIFIED_THIRD_PARTY_PACKAGES } from "./product-config.mjs";
-import { resolveInstalledPi, verifyDistributionContract } from "./resolve-installed-pi.mjs";
+import { DISTRIBUTION_PI_VERSION, RESOURCE_DESCRIPTORS_V1, VERIFIED_PI_PACKAGE, VERIFIED_THIRD_PARTY_PACKAGES } from "./product-config.mjs";
+import { PI_MODULES, PI_RUNTIME, resolveInstalledPi, verifyDistributionContract } from "./resolve-installed-pi.mjs";
 import { EMBEDDED_MODULES, releaseFiles, stageRelease, verifyPackList } from "../scripts/pack-release.mjs";
 
 const SOURCE = resolve(import.meta.dirname, "..");
@@ -19,13 +19,21 @@ function put(path, value) {
 	mkdirSync(dirname(path), { recursive: true });
 	writeFileSync(path, typeof value === "string" ? value : JSON.stringify(value));
 }
-function fixture(t, hoisted = false) {
+function fixture(t) {
 	const work = temp(t);
 	const root = join(work, "node_modules/rotom");
 	put(join(root, "package.json"), manifest);
 	cpSync(join(SOURCE, "npm-shrinkwrap.json"), join(root, "npm-shrinkwrap.json"));
-	const pi = join(hoisted ? work : root, "node_modules", VERIFIED_PI_PACKAGE);
-	const pkg = { name: VERIFIED_PI_PACKAGE, version: DISTRIBUTION_PI_VERSION, type: "module", bin: { pi: "cli.js" }, exports: { ".": { import: "./index.js" } } };
+	const build = JSON.parse(readFileSync(join(SOURCE, PI_RUNTIME, "fork-build.json"), "utf8"));
+	for (const file of ["package.json", "package-lock.json", "fork-build.json", ...Object.values(build.artifacts).map((a) => a.file)]) {
+		const target = join(root, PI_RUNTIME, file);
+		mkdirSync(dirname(target), { recursive: true });
+		cpSync(join(SOURCE, PI_RUNTIME, file), target);
+	}
+	const rotomFork = { sourceSha256: build.sourceSha256, revision: build.upstreamRevision };
+	for (const name of Object.keys(build.artifacts)) put(join(root, PI_MODULES, name, "package.json"), { name, version: build.version, rotomFork });
+	const pi = join(root, PI_MODULES, VERIFIED_PI_PACKAGE);
+	const pkg = { name: VERIFIED_PI_PACKAGE, version: DISTRIBUTION_PI_VERSION, rotomFork, type: "module", bin: { pi: "cli.js" }, exports: { ".": { import: "./index.js" } } };
 	put(join(pi, "package.json"), pkg);
 	put(join(pi, "cli.js"), "#!/bin/sh\nexit 99\n");
 	chmodSync(join(pi, "cli.js"), 0o755);
@@ -33,21 +41,27 @@ function fixture(t, hoisted = false) {
 	return { work, root, pi, pkg };
 }
 
-test("distribution is private, pins official Pi, has no installation hooks and declares the public bin", async () => {
+test("distribution is private, owns its Pi fork, has no installation hooks and declares the public bin", async () => {
 	assert.equal(manifest.private, true);
 	assert.equal(manifest.license, "UNLICENSED");
-	assert.deepEqual(manifest.dependencies, { [VERIFIED_PI_PACKAGE]: DISTRIBUTION_PI_VERSION });
+	assert.equal(manifest.dependencies, undefined);
+	assert.ok(manifest.files.includes(PI_MODULES));
 	assert.deepEqual(manifest.bin, { rotom: "bin/rotom" });
 	for (const hook of ["preinstall", "install", "postinstall", "prepare"]) assert.equal(manifest.scripts[hook], undefined);
 	await verifyDistributionContract(SOURCE);
 });
 
-for (const hoisted of [false, true]) {
-	test(`resolves ${hoisted ? "hoisted local" : "nested/global"} dependency using bin.pi without importing SDK`, async (t) => {
-		const { root, pi } = fixture(t, hoisted);
-		assert.equal(await resolveInstalledPi(root), join(pi, "cli.js"));
-	});
-}
+test("resolves product-owned Pi using bin.pi without importing SDK", async (t) => {
+	const { root, pi } = fixture(t);
+	assert.equal(await resolveInstalledPi(root), join(pi, "cli.js"));
+});
+
+test("does not use an ancestor/official Pi when its bundled fork is missing", async (t) => {
+	const { root, pi, work } = fixture(t);
+	cpSync(pi, join(work, "node_modules", VERIFIED_PI_PACKAGE), { recursive: true });
+	rmSync(pi, { recursive: true });
+	await assert.rejects(resolveInstalledPi(root), /缺少/);
+});
 
 for (const change of ["version", "name", "bin-escape", "bin-symlink", "parent-symlink", "metadata-symlink", "public-escape", "public-symlink"]) {
 	test(`rejects installed Pi ${change}`, async (t) => {
@@ -73,32 +87,52 @@ test("missing installed dependency fails closed despite PATH and NODE_PATH", asy
 	chmodSync(join(bin, "pi"), 0o755);
 	const result = spawnSync(process.execPath, [join(SOURCE, "runtime/resolve-installed-pi.mjs"), root], { env: { PATH: bin, NODE_PATH: bin }, encoding: "utf8" });
 	assert.notEqual(result.status, 0);
-	assert.match(result.stderr, /缺少 rotom 随附的 Pi 依赖/);
+	assert.match(result.stderr, /缺少 rotom 随附的 Pi fork/);
 	assert.equal(existsSync(join(work, "executed")), false);
 });
 
 test("rejects manifest and shrinkwrap drift, not just installed version", async (t) => {
 	const { root } = fixture(t);
-	const lockPath = join(root, "npm-shrinkwrap.json");
+	const lockPath = join(root, PI_RUNTIME, "package-lock.json");
 	const lock = JSON.parse(readFileSync(lockPath, "utf8"));
-	assert.equal(lock.packages[`node_modules/${VERIFIED_PI_PACKAGE}`].integrity, DISTRIBUTION_PI_INTEGRITY);
+	const integrity = lock.packages[`node_modules/${VERIFIED_PI_PACKAGE}`].integrity;
+	assert.match(integrity, /^sha512-/);
 	lock.packages[`node_modules/${VERIFIED_PI_PACKAGE}`].integrity = "sha512-wrong";
 	put(lockPath, lock);
 	await assert.rejects(resolveInstalledPi(root), /shrinkwrap integrity/);
-	cpSync(join(SOURCE, "npm-shrinkwrap.json"), lockPath);
+	cpSync(join(SOURCE, PI_RUNTIME, "package-lock.json"), lockPath);
 	put(join(root, "package.json"), { ...manifest, dependencies: { [VERIFIED_PI_PACKAGE]: "^0.85.1" } });
 	await assert.rejects(resolveInstalledPi(root), /dependency/);
 	put(join(root, "package.json"), manifest);
-	const original = JSON.parse(readFileSync(join(SOURCE, "npm-shrinkwrap.json"), "utf8"));
-	const transitive = `node_modules/${VERIFIED_PI_PACKAGE}/node_modules/@earendil-works/chord`;
+	const original = JSON.parse(readFileSync(join(SOURCE, PI_RUNTIME, "package-lock.json"), "utf8"));
+	const transitive = "node_modules/chalk";
 	delete original.packages[transitive].integrity;
 	put(lockPath, original);
 	await assert.rejects(resolveInstalledPi(root), /transitive source\/integrity/);
-	original.packages[transitive].integrity = DISTRIBUTION_PI_INTEGRITY;
+	original.packages[transitive].integrity = integrity;
 	original.packages[transitive].resolved = "https://example.invalid/untrusted.tgz";
 	put(lockPath, original);
 	await assert.rejects(resolveInstalledPi(root), /transitive source\/integrity/);
 });
+
+for (const drift of ["archive", "build-metadata", "installed-source", "sibling-package", "hidden-official", "local-url"]) {
+	test(`rejects fork ${drift} drift`, async (t) => {
+		const { root, pi, pkg } = fixture(t);
+		const build = JSON.parse(readFileSync(join(root, PI_RUNTIME, "fork-build.json"), "utf8"));
+		if (drift === "archive") put(join(root, PI_RUNTIME, build.artifacts[VERIFIED_PI_PACKAGE].file), "bad archive");
+		if (drift === "build-metadata") put(join(root, PI_RUNTIME, "fork-build.json"), { ...build, sourceSha256: "wrong" });
+		if (drift === "installed-source") { pkg.rotomFork.sourceSha256 = "wrong"; put(join(pi, "package.json"), pkg); }
+		if (drift === "sibling-package") put(join(root, PI_MODULES, "@earendil-works/pi-ai/package.json"), { name: "@earendil-works/pi-ai", version: "0.85.1" });
+		if (drift === "hidden-official" || drift === "local-url") {
+			const path = join(root, PI_RUNTIME, "package-lock.json");
+			const lock = JSON.parse(readFileSync(path, "utf8"));
+			if (drift === "hidden-official") lock.packages["node_modules/example/node_modules/@earendil-works/pi-ai"] = { ...lock.packages["node_modules/chalk"] };
+			else lock.packages["node_modules/chalk"].resolved = "file:vendor/unreviewed.tgz";
+			put(path, lock);
+		}
+		await assert.rejects(resolveInstalledPi(root));
+	});
+}
 
 test("npm bin symlink chains preserve business cwd, argv, environment and exit status", (t) => {
 	const root = temp(t);
@@ -107,8 +141,8 @@ test("npm bin symlink chains preserve business cwd, argv, environment and exit s
 	cpSync(join(SOURCE, "bin/rotom"), join(bin, "rotom"));
 	const capture = join(root, "capture.json");
 	const script = "require('node:fs').writeFileSync(process.env.CAPTURE,JSON.stringify({cwd:process.cwd(),argv:process.argv.slice(1),value:process.env.MARKER}));process.exit(37)";
-	put(join(bin, "rotom"), `#!/bin/sh\nexec "$FIXTURE_NODE" -e "${script}" -- "$@"\n`);
-	chmodSync(join(bin, "rotom"), 0o755);
+	put(join(bin, "rotom-launcher"), `#!/bin/sh\nexec "$FIXTURE_NODE" -e "${script}" -- "$@"\n`);
+	chmodSync(join(bin, "rotom-launcher"), 0o755);
 	mkdirSync(join(root, "bin"));
 	symlinkSync("../lib/node_modules/rotom/bin/rotom", join(root, "bin/rotom-real"));
 	symlinkSync("rotom-real", join(root, "bin/rotom"));
@@ -140,7 +174,8 @@ test("staging uses an explicit file list and never copies source node_modules or
 });
 
 test("packed inventory requires every runtime resource and license and excludes unexpected source artifacts", () => {
-	const paths = new Set(releaseFiles(manifest).filter((file) => file !== EMBEDDED_MODULES));
+	const paths = new Set(releaseFiles(manifest).filter((file) => file !== EMBEDDED_MODULES && file !== PI_MODULES));
+	for (const name of ["chord", "pi-telemetry", "pi-ai", "pi-tui", "pi-agent-core", "pi-coding-agent"]) for (const file of ["LICENSE", "package.json"]) paths.add(`${PI_MODULES}/@earendil-works/${name}/${file}`);
 	for (const r of RESOURCE_DESCRIPTORS_V1) for (const file of r.requiredFiles) paths.add(`${r.path}/${file}`);
 	for (const name of Object.keys(VERIFIED_THIRD_PARTY_PACKAGES)) paths.add(`${EMBEDDED_MODULES}/${name}/LICENSE`);
 	const packed = { files: [...paths].map((path) => ({ path })) };

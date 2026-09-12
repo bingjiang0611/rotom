@@ -1,0 +1,10 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtempSync,realpathSync,writeFileSync,readFileSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {randomUUID} from 'node:crypto';
+import {spawnSync} from 'node:child_process';
+function setup(t){const root=realpathSync(mkdtempSync(join(tmpdir(),'qoder-tui-observer-'))),events=join(root,`tui-events-${randomUUID()}.jsonl`),ledger=join(root,'ledger');writeFileSync(events,'',{mode:0o600});writeFileSync(ledger,'0',{mode:0o600});t.after(()=>rmSync(root,{recursive:true,force:true}));return{events,run:(env={})=>spawnSync(process.execPath,['--import',join(import.meta.dirname,'tui-net-observer.mjs'),'--input-type=module','-e',`import{channel}from'node:diagnostics_channel';const request={origin:'https://openapi.qoder.sh',path:'/api/v2/quota/usage',headers:'fixture-sensitive-header',body:'fixture-sensitive-body'};channel('undici:request:create').publish({request});channel('undici:request:trailers').publish({request,trailers:['fixture-sensitive-trailer']});channel('undici:request:error').publish({request,error:new Error('fixture-sensitive-error')});`],{encoding:'utf8',env:{ROTOM_QODER_PROBE_NO_MODELS:'1',ROTOM_QODER_PROBE_LEDGER:ledger,ROTOM_QODER_PROBE_TUI_EVENTS:events,...env}})};}
+test('PTY journal correlates terminal events without bodies, URLs, headers or repeated terminal events',t=>{const f=setup(t),r=f.run();assert.equal(r.status,0);const text=readFileSync(f.events,'utf8'),rows=text.trim().split('\n').map(JSON.parse);assert.equal(rows.length,2);assert.equal(rows[0].id,rows[1].id);assert.deepEqual(rows.map(({id,...x})=>x),[{kind:'quota',event:'start'},{kind:'quota',event:'end'}]);assert(!text.includes('sensitive'));assert(!text.includes('https:'));});
+test('PTY journal requires model denial and refuses unbounded append',t=>{const f=setup(t);assert.equal(f.run({ROTOM_QODER_PROBE_NO_MODELS:'0'}).status,87);writeFileSync(f.events,'x'.repeat(65537));assert.equal(f.run().status,87);assert.equal(readFileSync(f.events).length,65537);});

@@ -17,6 +17,7 @@ if (!piExecutable || !agentDirInput) {
 }
 
 const agentDir = resolve(agentDirInput);
+const goalToolNames = ["goal_complete", "goal_blocked", "goal_wait"];
 const deferredToolsActive = deferredToolsEnabled(process.env);
 process.env[DEFERRED_DEFAULT_SURFACE_ENV] = "1";
 const declarations = RESOURCE_DESCRIPTORS_V1.map((resource) => `${resource.kind}:${resolve(agentDir, resource.path)}`);
@@ -129,7 +130,7 @@ try {
 	for (const tool of ["find_roots", "observe_ui", "act_ui", "subagent", "goal_complete", "goal_blocked", "goal_wait"]) assert.equal(thirdParty?.tools.has(tool), true);
 	assert.deepEqual(new Set(extensionToolNames), new Set([
 		...RESIDENT_BROWSER_TOOL_NAMES, "ask_user_question", ...DEFERRED_CAPABILITY_GROUPS.flatMap((group) => [...group.toolNames]),
-		"goal_complete", "goal_blocked", "goal_wait", ...(deferredToolsActive ? [DEFERRED_TOOL_SEARCH_NAME] : []),
+		...goalToolNames, ...(deferredToolsActive ? [DEFERRED_TOOL_SEARCH_NAME] : []),
 	]), "公开工具面必须精确匹配保留的能力，不得加载未声明的业务平台工具");
 	assert.equal(thirdParty?.tools.has(DEFERRED_TOOL_SEARCH_NAME), deferredToolsActive, "deferred loader 默认注册且必须可显式关闭");
 	for (const command of ["computer-use", "goal", ...PRODUCT_SUBAGENT_ALLOWED_COMMANDS]) assert.equal(thirdParty?.commands.has(command), true);
@@ -154,17 +155,17 @@ try {
 		contextFiles: loader.getAgentsFiles().agentsFiles,
 		skills: loader.getSkills().skills,
 	});
-	// pi-goal intentionally hides its completion tools until a goal exists. Its
-	// load-time registration and /goal command are asserted above; startup active
-	// tools only include capabilities that the packages expose immediately.
+	// pi-goal 0.54.4 keeps all three schemas stable from startup. Visibility is
+	// not Goal activation: the inactive-call rejection is checked below.
 	if (deferredToolsActive) {
-		assert.deepEqual(new Set(activeTools), new Set([...DEFERRED_INITIAL_TOOL_NAMES, DEFERRED_TOOL_SEARCH_NAME]), "默认初始工具面必须保留 core + Ask + Browser/Computer Use + loader");
+		assert.deepEqual(new Set(activeTools), new Set([...DEFERRED_INITIAL_TOOL_NAMES, ...goalToolNames, DEFERRED_TOOL_SEARCH_NAME]), "默认初始工具面必须保留 core + Ask + Browser/Computer Use + Goal + loader");
 		for (const tool of RESIDENT_BROWSER_TOOL_NAMES) assert.equal(activeTools.includes(tool), true, `默认必须预加载 ${tool}`);
 		for (const tool of DEFERRED_CAPABILITY_GROUPS.flatMap((group) => [...group.toolNames])) assert.equal(activeTools.includes(tool), false, `默认不得预加载 ${tool}`);
 	} else {
-		for (const tool of ["find_roots", "observe_ui", "act_ui", "subagent", "browser_inspect", "browser_interact", "edit", "write", "bash"]) {
-			assert.equal(activeTools.includes(tool), true, `真实 bindExtensions 不得意外禁用 ${tool}`);
-		}
+		assert.deepEqual(new Set(activeTools), new Set([
+			...DEFERRED_INITIAL_TOOL_NAMES, ...goalToolNames,
+			...DEFERRED_CAPABILITY_GROUPS.flatMap((group) => [...group.toolNames]),
+		]), "full opt-out 必须保留 Goal 与 Subagent，且不注册 loader");
 	}
 	const shutdownContext = {
 		cwd: businessCwd,
@@ -175,6 +176,22 @@ try {
 		isProjectTrusted: () => false,
 		ui: { notify() {}, setStatus() {}, theme: { fg: (_color, value) => value } },
 	};
+	for (const name of goalToolNames) {
+		assert.ok(activeTools.includes(name), `${name} schema must remain active without a Goal`);
+		const definition = thirdParty.tools.get(name).definition;
+		assert.match(definition.description, /Tool visibility alone does not activate Goal mode/u);
+		const branchBefore = JSON.stringify(session.getBranch());
+		const params = {
+			goal_complete: { goal_id: "inactive-smoke-goal", summary: "Fixture completion evidence" },
+			goal_blocked: { goal_id: "inactive-smoke-goal", reason: "Fixture blocker", evidence: "Fixture evidence", repeated_turns: 3 },
+			goal_wait: { goal_id: "inactive-smoke-goal", reason: "Fixture external wait" },
+		}[name];
+		const rejected = await definition.execute(`inactive-${name}`, params, undefined, undefined, shutdownContext);
+		assert.match(rejected.content.filter((block) => block.type === "text").map((block) => block.text).join("\n"), /rejected: no active goal/u);
+		assert.notEqual(rejected.terminate, true, "inactive Goal tools must not terminate ordinary work");
+		assert.equal(JSON.stringify(session.getBranch()), branchBefore, "inactive calls must not persist Goal transitions");
+		assert.deepEqual(created.session.getActiveToolNames(), activeTools, "inactive calls must not change the tool policy");
+	}
 	for (const handler of observability?.handlers.get("session_shutdown") ?? []) await handler({ type: "session_shutdown", reason: "quit" }, shutdownContext);
 	await browser.handlers.get("session_shutdown")[0]({ type: "session_shutdown", reason: "quit" }, shutdownContext);
 	for (const handler of thirdParty.handlers.get("session_shutdown") ?? []) await handler({ type: "session_shutdown", reason: "quit" }, shutdownContext);

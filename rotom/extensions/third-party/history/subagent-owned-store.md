@@ -72,4 +72,4 @@ node --experimental-strip-types --test --test-concurrency=1 \
 
 上游使用[第七批准备器及命令](subagent-owned-foreground.md#重放)，本批在清空凭据环境的 legacy 模式执行。新层 SDK 则在初始化后设置 scope，再启动独立进程。
 
-仍需[采用合同](README.md#历史采用合同)的 nested/controller 正面覆盖、worktree/gate/imported-root/external-job 路由、完整恢复/steer/attach 与并发组合、session-root 和公开初始化/披露接入，以及 Linux 真实进程验证。跨版本 lease 目前只验证所列互斥路径；旧 reader 的 stale-lease 回收与 owner-loss/存活组后代组合仍需审查，不能以 v1 格式共享就宣称未知资源无法被旧 reader 回收。完成前不生成发行 archive、不更新依赖、不升级活跃会话。
+仍需[采用合同](../../../../docs/agent/subagent-external-adoption-contract.md)的 nested/controller 正面覆盖、worktree/gate/imported-root/external-job 路由、完整恢复/steer/attach 与并发组合、session-root 和公开初始化/披露接入，以及 Linux 真实进程验证。跨版本 lease 目前只验证所列互斥路径；旧 reader 的 stale-lease 回收与 owner-loss/存活组后代组合仍需审查，不能以 v1 格式共享就宣称未知资源无法被旧 reader 回收。完成前不生成发行 archive、不更新依赖、不升级活跃会话。

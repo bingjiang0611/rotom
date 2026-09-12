@@ -151,7 +151,7 @@ def execute(command, env, prompt, timeout):
     handlers = {sig: signal.signal(sig, cancel) for sig in (signal.SIGTERM, signal.SIGINT)}
     try:
         while selector.get_map():
-            if time.monotonic() - started >= timeout:
+            if timeout and time.monotonic() - started >= timeout:
                 timed_out = True
                 break
             for key, _ in selector.select(0.1):
@@ -187,7 +187,7 @@ def execute(command, env, prompt, timeout):
                             buffer, dropping, overflow = b"", True, True
         if not timed_out:
             try:
-                child.wait(timeout=max(0.01, timeout - (time.monotonic() - started)))
+                child.wait(timeout=max(0.01, timeout - (time.monotonic() - started)) if timeout else None)
             except subprocess.TimeoutExpired:
                 timed_out = True
     except RunCancelled:
@@ -227,7 +227,7 @@ def run(root):
     regular(node_bin / "node")
     models = model_config(os.environ)
     timeout = int(os.environ.get("TIMEOUT_SEC", "900"))
-    require(1 <= timeout <= 7200, "TIMEOUT_SEC must be between 1 and 7200")
+    require(0 <= timeout <= 7200, "TIMEOUT_SEC must be between 0 and 7200 (0 delegates timeout to the platform)")
     prompt_path = Path(os.environ.get("PROMPT_FILE", ""))
     require(prompt_path.is_absolute(), "PROMPT_FILE must be an absolute file path")
     regular(prompt_path)

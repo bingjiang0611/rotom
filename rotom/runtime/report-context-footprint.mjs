@@ -13,17 +13,19 @@ export const REFERENCE_CONTEXT_FOOTPRINT_V1 = {
 };
 
 export const CURRENT_RUNTIME_CONTEXT_CONTRACT_V1 = {
-	activeToolCount: 19,
-	activeToolSchemaBytes: 16_882,
-	activeToolGuidelineBytes: 8_804,
-	note: "The default product surface keeps core, Ask, Browser/Computer Use, and search_tools active while deferring only the retained Subagent group. Guideline bytes include the product's observe_ui/read_text/act_ui/wait_for/search_ui contract guidelines, which state the real per-call focus scope, condition combinations, observe-first requirement, untrusted status of observed screen text, structured-interface-first routing, and the dispatch-versus-effect evidence ladder of the Computer Use package, plus the browser relay's ref-bound Enter/Tab/Escape keypress, target-state/page-alert evidence and no-replay boundary for unknown writes. Includes Relay-first launch_browser fallback metadata, isolated-login disclosure and pre-dispatch/no-replay boundaries; measured static bytes are not provider tokens.",
+	// Goal 0.54.4 adds 3 stable schemas: 2,951 schema bytes and 6 guideline
+	// bytes (three serialized empty arrays), measured by the real SDK smoke.
+	activeToolCount: 22,
+	activeToolSchemaBytes: 19_833,
+	activeToolGuidelineBytes: 8_810,
+	note: "The default product surface keeps core, Ask, Browser/Computer Use, the three stable Goal schemas, and search_tools active while deferring only the retained Subagent group. Visible Goal schemas do not authorize Goal execution without an active Goal. Guideline bytes include the product's observe_ui/read_text/act_ui/wait_for/search_ui contract guidelines, which state the real per-call focus scope, condition combinations, observe-first requirement, untrusted status of observed screen text, structured-interface-first routing, and the dispatch-versus-effect evidence ladder of the Computer Use package, plus the browser relay's ref-bound Enter/Tab/Escape keypress, target-state/page-alert evidence and no-replay boundary for unknown writes. Includes Relay-first launch_browser fallback metadata, isolated-login disclosure and pre-dispatch/no-replay boundaries; measured static bytes are not provider tokens.",
 };
 
 export const FULL_TOOL_CONTEXT_CONTRACT_V1 = {
-	activeToolCount: 20,
-	activeToolSchemaBytes: 31_536,
-	activeToolGuidelineBytes: 10_733,
-	note: "ROTOM_DEFERRED_TOOLS=0 restores the reviewed full startup surface for retained product tools. Measured with the Browser keypress schema, Relay-first isolated-browser fallback metadata and compact descriptions, after removing the enterprise platform extensions and bundled skills; the default deferred surface only routes Subagent. These are static bytes, not provider tokens. Retired capabilities stay absent even with deferred loading disabled.",
+	activeToolCount: 23,
+	activeToolSchemaBytes: 34_487,
+	activeToolGuidelineBytes: 10_739,
+	note: "ROTOM_DEFERRED_TOOLS=0 restores the reviewed full startup surface for retained product tools, including the three stable Goal schemas. Measured with the Browser keypress schema, Relay-first isolated-browser fallback metadata and compact descriptions, after removing the enterprise platform extensions and bundled skills; the default deferred surface only routes Subagent. These are static bytes, not provider tokens. Retired capabilities stay absent even with deferred loading disabled.",
 };
 
 function runSmoke(piExecutable, agentDir) {

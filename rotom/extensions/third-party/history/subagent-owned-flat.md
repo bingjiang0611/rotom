@@ -2,7 +2,7 @@
 
 > 历史报告；下文安装状态与采用结论仅指该批。当前默认及旧命令的重放限制见 [历史索引](README.md)。
 
-**状态：隔离候选，尚不可宣称采用完成。** installed 仍是 `pi-subagents@0.52.1-dev-agent-followthrough.2`；未切换依赖、推送或迁移会话；本批未修复/新建 VM，后续独立授权的 Linux 验证见[第十一批](subagent-owned-linux.md)。承接[采用合同](README.md#历史采用合同)中用户确认的首版收窄，以及[第九批](subagent-owned-session.md)的 v3 store / v2 opaque lease。Linux 真进程 gate 已在后续完成，独立发行身份和产品接入验收仍待完成。
+**状态：隔离候选，尚不可宣称采用完成。** installed 仍是 `pi-subagents@0.52.1-dev-agent-followthrough.2`；未切换依赖、推送或迁移会话；本批未修复/新建 VM，后续独立授权的 Linux 验证见[第十一批](subagent-owned-linux.md)。承接[采用合同](../../../../docs/agent/subagent-external-adoption-contract.md)中用户确认的首版收窄，以及[第九批](subagent-owned-session.md)的 v3 store / v2 opaque lease。Linux 真进程 gate 已在后续完成，独立发行身份和产品接入验收仍待完成。
 
 ## 实现与边界
 

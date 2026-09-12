@@ -2,7 +2,7 @@
 
 > 历史报告；下文安装状态与采用结论仅指该批。当前默认及旧命令的重放限制见 [历史索引](README.md)。
 
-**仍是隔离候选，不是已采用的产品。** 用户在第十批后明确授权新建独立验证 VM；未修改旧 VM、切换 installed `.2`、迁移会话、推送或调用付费模型。唯一发行身份、archive/lock/integrity 与新产品会话接入仍待完成，见[采用合同](README.md#历史采用合同)。
+**仍是隔离候选，不是已采用的产品。** 用户在第十批后明确授权新建独立验证 VM；未修改旧 VM、切换 installed `.2`、迁移会话、推送或调用付费模型。唯一发行身份、archive/lock/integrity 与新产品会话接入仍待完成，见[采用合同](../../../../docs/agent/subagent-external-adoption-contract.md)。
 
 ## 环境和输入
 

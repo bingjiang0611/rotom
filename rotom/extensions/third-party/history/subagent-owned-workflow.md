@@ -76,4 +76,4 @@ node --experimental-strip-types --test --test-concurrency=1 \
   rotom/extensions/third-party/subagent/lifeline-regression.test.mjs
 ```
 
-下一步是 foreground/nested 关闭证据、旧 reader 存储边界、并发/revive 扩大验证和经授权的 Linux 环境。没有运行当前产品 check-personal、完整/deferred footprint 或发布包 gate；并行 Qoder 的改动与检查不计入本批。完整完成线仍以 [采用合同](README.md#历史采用合同) 为准。
+下一步是 foreground/nested 关闭证据、旧 reader 存储边界、并发/revive 扩大验证和经授权的 Linux 环境。没有运行当前产品 check-personal、完整/deferred footprint 或发布包 gate；并行 Qoder 的改动与检查不计入本批。完整完成线仍以 [采用合同](../../../../docs/agent/subagent-external-adoption-contract.md) 为准。

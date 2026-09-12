@@ -93,6 +93,14 @@ class AdapterTests(unittest.TestCase):
             self.assertNotEqual(code, 0)
             self.assertEqual(summary["status"], "unknown")
 
+    def test_platform_owned_timeout_allows_agent_completion(self):
+        source = ('import time\ntime.sleep(0.05)\n'
+                  'print(\'{"type":"message_end","message":{"role":"assistant","stopReason":"stop"}}\')\n'
+                  'print(\'{"type":"agent_end"}\')')
+        summary, code = self.execute(source, timeout=0)
+        self.assertEqual(code, 0)
+        self.assertFalse(summary["timedOut"])
+
     def test_provider_failure_is_not_completion(self):
         event = {"type": "message_end", "message": {"role": "assistant", "stopReason": "error"}}
         summary, code = self.execute(f"print({json.dumps(event)!r})\nprint('{{\"type\":\"agent_end\"}}')")
@@ -105,7 +113,7 @@ class AdapterTests(unittest.TestCase):
             marker = Path(temp).resolve() / "child.pid"
             child_source = f"import os,time\nfrom pathlib import Path\nPath({str(marker)!r}).write_text(str(os.getpid()))\ntime.sleep(30)"
             runner = ("import adapter,sys,os,json\n"
-                      f"summary,code=adapter.execute([sys.executable,'-c',{child_source!r}],dict(os.environ),None,20)\n"
+                      f"summary,code=adapter.execute([sys.executable,'-c',{child_source!r}],dict(os.environ),None,0)\n"
                       "print(json.dumps(summary));sys.exit(code)")
             process = subprocess.Popen([sys.executable, "-c", runner], cwd=adapter.ROOT,
                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)

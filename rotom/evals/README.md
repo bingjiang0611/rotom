@@ -38,7 +38,7 @@ for arm in native-pi dev-agent; do
 done
 ```
 
-发布准备的完整历史记录未随此精简公开快照提供；上述 dry-run 不是模型评测通过或批量执行授权。
+发布准备的实际验证、阻塞项与命名候选见 [发布准备记录](../../docs/agent/release-preparation.md)。
 
 ## 安装与基础设施验证
 
@@ -76,7 +76,7 @@ npm run eval -- \
 ```
 
 三个 npm script 都通过 `ROTOM_NODE` 选择 Node；未设置时只使用 `command -v node`。实际 runtime 仍会由
-rotom verifier 拒绝低于 `23.6.0` 的版本。
+dev-agent verifier 拒绝低于 `23.6.0` 的版本。
 
 也可以使用 `ROTOM_PI`、`ROTOM_EVAL_PROVIDER` 和 `ROTOM_EVAL_MODEL`。
 
@@ -84,7 +84,7 @@ rotom verifier 拒绝低于 `23.6.0` 的版本。
 
 `lane-stale-recovery.eval.ts` 是无工具、无宿主副作用的决策微型 A/B：`single lane reuse` 检查同一 validation lane 是否使用单 worker、fresh context、`steer/resume`、compact handoff 和有界 replacement；`stale UI recovery` 检查 stale 后是否先 `observe_ui`、绑定新 state/ref、禁用旧 ref 并只重试一次。paired 运行还需设置 `ROTOM_EVAL_BASELINE_PRODUCT`，并通过 `ROTOM_EVAL_BASELINE_POLICY_FILE` / `ROTOM_EVAL_CANDIDATE_POLICY_FILE` 传入待比较的精确 policy 投影。case 只证明模型对固定决策题的响应，不代替真实 Subagent 调度或桌面 Computer Use L3；硬 stale gate 另由组合层确定性测试覆盖。
 
-`ownership-handoff.eval.ts` 是显式启用的八题 ownership/evidence-handoff 决策 A/B（其中两题是 canary）。使用 `ROTOM_EVAL_OWNERSHIP_HANDOFF=1`、`ROTOM_EVAL_BASELINE_PRODUCT` 和 `ROTOM_EVAL_CANDIDATE_PRODUCT` 指向冻结产品；可用 `ROTOM_EVAL_OWNERSHIP_CASE=<fixed-id>` 逐组控制预算。两臂固定 medium、无工具，并投影各自产品的 Subagent/handoff guideline。`src/ownership-handoff-cases.ts` 冻结题目和严格判分；literal anchors 与下一步 enum 有已知语义局限，必须保留原分数并另作人工解释，不把它当真实 Chrome/子进程隔离或完整 coding benchmark。完整历史报告保留在未公开的维护文档中，本公开快照不提供报告链接，也不据此宣称当前版本模型效果。
+`ownership-handoff.eval.ts` 是显式启用的八题 ownership/evidence-handoff 决策 A/B（其中两题是 canary）。使用 `ROTOM_EVAL_OWNERSHIP_HANDOFF=1`、`ROTOM_EVAL_BASELINE_PRODUCT` 和 `ROTOM_EVAL_CANDIDATE_PRODUCT` 指向冻结产品；可用 `ROTOM_EVAL_OWNERSHIP_CASE=<fixed-id>` 逐组控制预算。两臂固定 medium、无工具，并投影各自产品的 Subagent/handoff guideline。`src/ownership-handoff-cases.ts` 冻结题目和严格判分；literal anchors 与下一步 enum 有已知语义局限，必须保留原分数并另作人工解释，不把它当真实 Chrome/子进程隔离或完整 coding benchmark。详见 [`maka-234-report.md`](../../docs/agent/maka-234-report.md)。
 
 `coding-execution-hygiene.eval.ts` 使用真实 baseline/candidate 产品资源和最小 `bash/edit` 工具面，固定评估目标 Git root/cwd、package script preflight、rename 后验证路径、`rg` exit 1、唯一 edit 上下文和 timeout 诊断六个维度，并检查用户排除的分层验证建议没有被引入。`browser-coordinate-click.eval.ts` 使用最小 Browser 工具面，固定评估 Canvas 坐标 fallback、stale screenshot、ref 优先和 hit-test mismatch fail-closed。两者默认各 2 次 paired、交替顺序；只证明固定决策题，不代替 Chrome relay 确定性 guard 或真实 Canvas L2/L3。
 

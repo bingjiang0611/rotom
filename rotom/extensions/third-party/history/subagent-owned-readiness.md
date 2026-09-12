@@ -4,9 +4,9 @@
 
 **结论：隔离首版 `rotom@0.1.0-owned-flat.7` / `pi-subagents@0.52.1-dev-agent-owned-flat.7` 通过本批采用门，可供显式 opt-in 的新隔离会话使用。当前维护安装仍为 `followthrough.2`，未切换默认 scope、迁移会话、发布或推送。**
 
-产品输入固定为 `fe95d07` 的 tracked tree；后续并行 Qoder WIP 没有混入。首版拓扑与风险仍以[采用合同](README.md#历史采用合同)为准：组外后代和业务效果保持 unverified，释放受控容量不是 replay 许可。本批是实际 npm 安装、真实本机进程与本地 SSE/faux provider，不是远端模型、生产业务或 GUI 的 L3。
+产品输入固定为 `fe95d07` 的 tracked tree；后续并行 Qoder WIP 没有混入。首版拓扑与风险仍以[采用合同](../../../../docs/agent/subagent-external-adoption-contract.md)为准：组外后代和业务效果保持 unverified，释放受控容量不是 replay 许可。本批是实际 npm 安装、真实本机进程与本地 SSE/faux provider，不是远端模型、生产业务或 GUI 的 L3。
 
-当前开发单源已内化到 [`packages/rotom-subagents`](../../../../packages/rotom-subagents/README.md)，不再叠加本批 patch 生成新实现；本文及 `.7` 归档保留为历史验证基线。[当前源码维护说明](../../../../packages/rotom-subagents/README.md)说明独立版本、构建与不迁移当前安装的边界。
+当前开发单源已内化到 [`packages/rotom-subagents`](../../../../packages/rotom-subagents/README.md)，不再叠加本批 patch 生成新实现；本文及 `.7` 归档保留为历史验证基线。[内化交付记录](../../../../docs/agent/subagent-source-maintenance.md)说明独立版本、构建与不迁移当前安装的边界。
 
 ## 产品入口找到的缺陷
 

@@ -185,7 +185,8 @@ test("资源缺失或 launcher 声明漂移时 fail closed", () => withFakePi({}
 test("required runtime resources reject internal and external symlink targets", () => withFakePi({}, async ({ executable }) => {
 	const parent = mkdtempSync(join(tmpdir(), "rotom-resource-symlink-"));
 	const agentDir = join(parent, "rotom");
-	cpSync(AGENT_DIR, agentDir, { recursive: true });
+	// evals may contain gigabytes of local state; it is not part of the product fixture.
+	cpSync(AGENT_DIR, agentDir, { recursive: true, filter: (path) => path !== join(AGENT_DIR, "evals") });
 	const resource = join(agentDir, "extensions/third-party/subagent/policy.ts");
 	const original = readFileSync(resource, "utf8");
 	try {
@@ -227,7 +228,7 @@ test("resource verifier 与 launcher bootstrap 均 fail closed", () => withFakeP
 	const parent = mkdtempSync(join(tmpdir(), "rotom-resource-bootstrap-"));
 	const agentDir = join(parent, "rotom");
 	const thirdPartyEntry = join(agentDir, "extensions/third-party/node_modules/pi-subagents/index.ts");
-	cpSync(AGENT_DIR, agentDir, { recursive: true });
+	cpSync(AGENT_DIR, agentDir, { recursive: true, filter: (path) => path !== join(AGENT_DIR, "evals") });
 	rmSync(thirdPartyEntry);
 	try {
 		await assert.rejects(

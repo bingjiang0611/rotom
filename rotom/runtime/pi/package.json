@@ -1,0 +1,27 @@
+{
+  "name": "rotom-pi-runtime",
+  "version": "0.85.1-rotom.1",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@earendil-works/chord": "file:vendor/earendil-works-chord-0.85.1-rotom.1.tgz",
+    "@earendil-works/pi-telemetry": "file:vendor/earendil-works-pi-telemetry-0.85.1-rotom.1.tgz",
+    "@earendil-works/pi-ai": "file:vendor/earendil-works-pi-ai-0.85.1-rotom.1.tgz",
+    "@earendil-works/pi-tui": "file:vendor/earendil-works-pi-tui-0.85.1-rotom.1.tgz",
+    "@earendil-works/pi-agent-core": "file:vendor/earendil-works-pi-agent-core-0.85.1-rotom.1.tgz",
+    "@earendil-works/pi-coding-agent": "file:vendor/earendil-works-pi-coding-agent-0.85.1-rotom.1.tgz"
+  },
+  "overrides": {
+    "@earendil-works/chord": "file:vendor/earendil-works-chord-0.85.1-rotom.1.tgz",
+    "@earendil-works/pi-telemetry": "file:vendor/earendil-works-pi-telemetry-0.85.1-rotom.1.tgz",
+    "@earendil-works/pi-ai": "file:vendor/earendil-works-pi-ai-0.85.1-rotom.1.tgz",
+    "@earendil-works/pi-tui": "file:vendor/earendil-works-pi-tui-0.85.1-rotom.1.tgz",
+    "@earendil-works/pi-agent-core": "file:vendor/earendil-works-pi-agent-core-0.85.1-rotom.1.tgz",
+    "@earendil-works/pi-coding-agent": "file:vendor/earendil-works-pi-coding-agent-0.85.1-rotom.1.tgz",
+    "protobufjs": "7.6.5",
+    "rimraf": "6.1.2",
+    "gaxios": {
+      "rimraf": "6.1.2"
+    }
+  }
+}

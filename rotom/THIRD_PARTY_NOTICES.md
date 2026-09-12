@@ -6,7 +6,7 @@ rotom 的根产品许可证尚未确定（当前 `UNLICENSED`）；此状态不�
 
 | Package | Version | Declared license | Distribution |
 |---|---|---|---|
-| `@earendil-works/pi-coding-agent` | `0.85.1` | MIT | npm dependency, pinned by `npm-shrinkwrap.json` |
+| `@earendil-works/pi-coding-agent`, `pi-agent-core`, `pi-ai`, `pi-tui`, `pi-telemetry`, `chord` (all under `@earendil-works`) | `0.85.1-rotom.1` | MIT | In-repository Pi fork (`packages/rotom-pi/`), built into integrity-pinned archives and installed under `runtime/pi/node_modules/` |
 | `@injaneity/pi-computer-use` | `0.5.1-rotom.0` | MIT | Independently maintained fork (`packages/rotom-computer-use/`), included from its integrity-pinned vendor archive |
 | `@juicesharp/rpiv-ask-user-question` | `2.6.2` | MIT | Included under `extensions/third-party/node_modules/` |
 | `@narumitw/pi-goal` | `0.54.4-rotom.0` | MIT | Independently maintained fork (`packages/rotom-goal/`), included from its integrity-pinned vendor archive |
@@ -44,7 +44,7 @@ SOFTWARE.
 
 ## Pi license
 
-Source: [Pi repository LICENSE](https://github.com/earendil-works/pi/blob/main/LICENSE). Included here because the inspected Pi npm artifact declares MIT but does not contain a root LICENSE file.
+Source: [Pi repository LICENSE](https://github.com/earendil-works/pi/blob/da840b6216578c2a571d0374ac6a2091a83f9d91/LICENSE). All six fork archives retain this LICENSE and upstream metadata. `runtime/pi/fork-build.json` records the upstream revision, maintained source/builder digests and archive integrities. The fork changes native model-picker behavior; it is not an official Pi release. Source provenance and maintenance instructions are in `packages/rotom-pi/FORK.json` and `ROTOM-FORK.md` in the source repository.
 
 ```text
 MIT License

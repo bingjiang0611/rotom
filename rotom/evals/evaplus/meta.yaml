@@ -27,9 +27,10 @@ settings:
     description: off, minimal, low, medium, high, xhigh; requires gateway support
     type: string
     required: false
-    default: off
+    default: "off"
   TIMEOUT_SEC:
     title: Agent wall time limit in seconds
+    description: 0 disables the adapter deadline; the platform still enforces benchmark case limits
     type: number
     required: false
     default: 900

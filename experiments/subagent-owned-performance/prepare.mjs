@@ -1,0 +1,21 @@
+// Read-only public runtime/model preflight. Never print or copy credentials.
+import fs from 'node:fs';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import {pathToFileURL} from 'node:url';
+const [productArg,rootArg]=process.argv.slice(2);
+assert.ok(path.isAbsolute(productArg??'')&&path.isAbsolute(rootArg??''));
+const product=fs.realpathSync(productArg),root=fs.realpathSync(rootArg),stat=fs.lstatSync(rootArg);
+assert.ok(stat.isDirectory()&&!stat.isSymbolicLink()&&(stat.mode&0o077)===0&&stat.uid===process.getuid());
+assert.deepEqual(fs.readdirSync(root),[]);
+assert.equal(JSON.parse(fs.readFileSync(path.join(product,'package.json'))).version,'0.1.0-alpha.1');
+const {resolveInstalledPi}=await import(pathToFileURL(path.join(product,'runtime/resolve-installed-pi.mjs')));
+const {probePiVersion}=await import(pathToFileURL(path.join(product,'runtime/verify-pi-runtime.mjs')));
+const piExecutable=await resolveInstalledPi(product),verified=await probePiVersion({executable:piExecutable});
+globalThis.fetch=()=>{throw Error('No network authorized during metadata preflight');};
+const pi=await import(pathToFileURL(verified.publicEntry));
+const runtime=await pi.ModelRuntime.create({allowModelNetwork:false}),model=runtime.getModel('cc-switch','claude-opus-5');
+assert.ok(model,'Configured Opus route unavailable; do not substitute another model');
+const result={product,piExecutable,piEntry:verified.publicEntry,piPackageRoot:verified.packageRoot,piVersion:JSON.parse(fs.readFileSync(path.join(verified.packageRoot,'package.json'))).version,model:{provider:model.provider,id:model.id,api:model.api,reasoning:model.reasoning,contextWindow:model.contextWindow,maxTokens:model.maxTokens}};
+fs.writeFileSync(path.join(root,'preflight.json'),JSON.stringify(result,null,2),{mode:0o600,flag:'wx'});
+console.log(JSON.stringify({ready:true,model:result.model,piVersion:result.piVersion,modelRequests:0}));

@@ -1,9 +1,15 @@
 {
-  "status": "prepared-awaiting-release",
+  "status": "full-run-awaiting-platform-connection",
   "product": "rotom",
-  "model": null,
-  "totalBudget": null,
-  "totalWallTimeLimit": null,
+  "model": "deepseek-v4-pro-0813",
+  "totalBudget": {
+    "mode": "unlimited",
+    "authorized": true
+  },
+  "totalWallTimeLimit": {
+    "mode": "unlimited",
+    "authorized": true
+  },
   "benchmark": "terminal-bench-2.1",
   "datasetRevision": null,
   "concurrency": 1,
@@ -11,16 +17,18 @@
   "stabilityRepeats": false,
   "llmJudge": false,
   "phases": [
-    {"name": "platform-smoke", "tasks": ["build-cython-ext"], "attemptsPerTask": 1},
-    {"name": "coding-smoke", "taskList": "../profiles/release-smoke.txt", "attemptsPerTask": 1,
-     "condition": "platform smoke completed and batch fits the confirmed budget"}
+    {
+      "name": "full",
+      "selection": "all",
+      "expectedTaskCount": 89,
+      "attemptsPerTask": 1
+    }
   ],
   "pending": [
-    "final product artifact and source identity",
-    "model, gateway configuration and tool-call compatibility",
-    "total budget and enforceable run limits",
-    "independent adapter repository and platform agent version",
+    "platform model API configuration and tool-call compatibility",
+    "independent adapter repository upload and platform agent version",
     "platform dataset, image and verifier identity",
-    "real Linux installation and end-to-end smoke"
-  ]
+    "real Linux installation and full benchmark execution"
+  ],
+  "adapterTimeoutSec": 0
 }

@@ -33,7 +33,7 @@ npm test
 
 This runs the tracked `test/*.test.ts` regressions, currently the speculative foreground-retry gate. It does **not** run a full typecheck, schema/invariant suite or native desktop acceptance.
 
-The inherited `typecheck` script references an absent `tsconfig.json`. The inherited `test:*` scripts reference upstream `scripts/check-*.mjs` files not included in this maintenance copy. Do not treat their presence in `package.json` as runnable validation or restore them merely to make a documentation command pass. The public snapshot retains the product composition tests in [`rotom/extensions/third-party/`](../../../rotom/extensions/third-party/); preflight their dependencies before running them.
+The inherited `typecheck` script references an absent `tsconfig.json`. The inherited `test:*` scripts reference upstream `scripts/check-*.mjs` files not included in this maintenance copy. Do not treat their presence in `package.json` as runnable validation or restore them merely to make a documentation command pass. Product composition checks are documented in [verification](../../../docs/agent/verification.md).
 
 ## Architecture rules
 
@@ -51,4 +51,4 @@ The fork preserves upstream prebuilt binaries byte-for-byte; ordinary TypeScript
 
 The tracked builder is exposed as `npm run build:native`, `npm run build:windows`, and `npm run build:linux`. These require the respective platform toolchain; their existence is not native validation evidence. Helper installation, OS permissions and live desktop tests need separate authorization. macOS requires macOS 14+; ad-hoc signing does not preserve a release signing identity.
 
-Upstream Cubench adapters, live-check scripts, signing-certificate scripts and GitHub release workflows are **not included here**. There is no supported local `test:linux-live`/Cubench or tag-to-npm release procedure in this copy. Do not publish this private package or claim cross-platform acceptance from the focused Node tests. See [product installation](../../../rotom/README.md) for the current entrypoint. The public snapshot omits the root release-audit scripts required by the product packer; it is not a self-contained release workspace.
+Upstream Cubench adapters, live-check scripts, signing-certificate scripts and GitHub release workflows are **not included here**. There is no supported local `test:linux-live`/Cubench or tag-to-npm release procedure in this copy. Do not publish this private package or claim cross-platform acceptance from the focused Node tests. Root product packing and distribution remain governed by [rotom distribution](../../../docs/agent/distribution.md).

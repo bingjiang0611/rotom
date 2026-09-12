@@ -4,7 +4,7 @@
 
 ## 本地发行包安装
 
-项目源码位于 [bingjiang0611/rotom](https://github.com/bingjiang0611/rotom)。本快照的 npm 产品仍声明 `private: true`；源码公开不证明该快照已发布，不能直接执行 `npm install -g rotom`。
+项目源码位于 [bingjiang0611/rotom](https://github.com/bingjiang0611/rotom)。npm 产品仍为 private Alpha，未发布到 npm；不能直接执行 `npm install -g rotom`。
 
 要求 Node.js 24+ 和 POSIX shell。已验证 macOS 与隔离 Linux VM 的安装和本地终端场景；Windows 原生入口不受支持。
 
@@ -15,7 +15,9 @@ cd /path/to/your/project
 rotom
 ```
 
-无需预先安装全局 Pi，也无需再次安装第三方扩展。发行包内携带锁定安装的扩展依赖，npm 自动安装固定版本的官方 Pi。默认仅从产品的 npm 依赖布局解析 Pi，不读取 PATH 中的 `pi`。`rotom --version` 显示所用 Pi 版本；rotom 自身版本见本包 `package.json`。
+无需预先安装全局 Pi、编译源码或再次安装扩展。发行包携带锁定安装的 Pi fork 与扩展依赖；Pi 源码由 rotom 仓库的 `packages/rotom-pi/` 维护，默认仅从本包 `runtime/pi/node_modules/` 加载，不使用官方 npm Pi、PATH 或旁边的源码目录。`rotom --version` 显示 fork 版本 `0.85.1-rotom.1`；rotom 自身版本见本包 `package.json`。
+
+`/model` 优先显示模型名称，保留 ID/provider；Shift+Tab 调整当前高亮模型的思考档位草稿，Enter 应用、Esc 丢弃，Ctrl+S 只保存默认模型。只开放 provider 声明支持的档位，不扩展 Qoder 能力边界。
 
 首次使用仍需自行登录模型服务或配置 API key。Chrome relay 安装、Chrome 扩展加载/重载及系统权限需用户明确操作，不由 npm 安装脚本执行。入口为安装目录内 `extensions/browser/install-chrome-relay.mjs`。
 

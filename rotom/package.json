@@ -1,20 +1,26 @@
 {
   "name": "rotom",
-  "version": "0.1.0-alpha.8",
+  "version": "0.1.0-alpha.11",
   "private": true,
   "description": "Personal coding agent built on Pi, with explicit tools and runtime contracts",
   "license": "UNLICENSED",
   "type": "module",
-  "engines": { "node": ">=24.0.0" },
-  "os": ["darwin", "linux"],
-  "bin": { "rotom": "bin/rotom" },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "bin": {
+    "rotom": "bin/rotom"
+  },
   "scripts": {
     "pack:release": "node scripts/pack-release.mjs",
     "audit:public": "python3 ../scripts/audit-public.py --root ..",
-    "test:distribution": "node --test --test-concurrency=1 runtime/distribution.test.mjs"
-  },
-  "dependencies": {
-    "@earendil-works/pi-coding-agent": "0.85.1"
+    "test:distribution": "node --test --test-concurrency=1 runtime/distribution.test.mjs",
+    "build:pi": "node scripts/build-pi-fork.mjs",
+    "check:pi": "node scripts/build-pi-fork.mjs --check"
   },
   "files": [
     "bin/rotom",
@@ -76,6 +82,16 @@
     "extensions/third-party/vendor/narumitw-pi-goal-0.54.4-rotom.0.tgz",
     "extensions/third-party/vendor/injaneity-pi-computer-use-0.5.1-rotom.0.tgz",
     "extensions/third-party/node_modules",
-    "skills/pi-subagents/SKILL.md"
+    "skills/pi-subagents/SKILL.md",
+    "runtime/pi/package.json",
+    "runtime/pi/package-lock.json",
+    "runtime/pi/fork-build.json",
+    "runtime/pi/vendor/earendil-works-chord-0.85.1-rotom.1.tgz",
+    "runtime/pi/vendor/earendil-works-pi-telemetry-0.85.1-rotom.1.tgz",
+    "runtime/pi/vendor/earendil-works-pi-ai-0.85.1-rotom.1.tgz",
+    "runtime/pi/vendor/earendil-works-pi-tui-0.85.1-rotom.1.tgz",
+    "runtime/pi/vendor/earendil-works-pi-agent-core-0.85.1-rotom.1.tgz",
+    "runtime/pi/vendor/earendil-works-pi-coding-agent-0.85.1-rotom.1.tgz",
+    "runtime/pi/node_modules"
   ]
 }
