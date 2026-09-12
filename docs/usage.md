@@ -50,21 +50,22 @@ scoped 执行是执行归属与资源关闭管理，**不是安全沙箱**；首
 |---|---|
 | `/browser` | 直接打开浏览器任务输入框，确认后使用当前模型执行。 |
 | `/browser <任务>` | 直接提交后面的完整任务，不需要 `use`。会调用当前模型，可能产生模型费用。 |
-| `/browser install` | macOS 上确认后保存不可变浏览器组件、注册 native host 并回查；首次迁移或组件变化时手动加载显示的目录。 |
+| `/browser install` | macOS 上确认后把浏览器组件写入固定目录、注册 native host 并回查；首次需手动加载该目录，此后组件变化只需在 Chrome 点刷新（↻）。 |
 | `/browser status` | 分别显示注册匹配状态与 Chrome Relay 协议握手结果，不读取页面。 |
 
 这是会话内 slash 命令，**不是终端里的 `rotom browser` 子命令**。安装和状态信息只显示在界面，不进入模型上下文；启动和打开任务输入框均不安装、不连接 Chrome。不支持无 UI 的安装，正在执行任务时不接受安装或新的浏览器任务；不会自动启用被调用方排除的工具，也不是永久浏览器模式开关。
 
-浏览器组件独立存放在 `~/Library/Application Support/rotom/browser-relay/components/<内容摘要>/`，其中 `chrome-extension/` 是 Chrome 加载目录，native host 也从该快照运行，不再依赖某次 rotom 发行目录。摘要只包含浏览器扩展与 native host 的实际内容；产品版本、安装路径和命令界面变化不会改变它。
+浏览器组件存放在**固定目录** `~/Library/Application Support/rotom/browser-relay/current/`，其中 `chrome-extension/` 是 Chrome 加载目录，native host 从同目录的 `native-host.mjs` 运行。这个路径跨 rotom 发行版本不变，所以内容升级只是一次 Chrome 刷新，不需要重新选择解压目录，也不需要重新注册 native host。
 
-- **首次迁移**：升级到含固定组件存储的构建，执行 `/browser install`，结束活跃浏览器任务后在 `chrome://extensions` 将旧扩展切换到显示的新目录一次。单纯重载旧目录不会完成迁移。
-- **普通重新打包/切换发行目录**：相同组件继续匹配注册，无需重新注册或重载 Chrome 扩展；删除旧 rotom 发行目录也不会删除独立组件。
-- **浏览器组件更新**：生成新摘要目录，手动安装并切换 Chrome 扩展目录；不覆盖旧组件、不自动重载、不迁移现有标签。Node 路径变化只影响 native host 注册，同一扩展目录无需重载。
-- **存储边界**：目录与文件必须为本人私有资源，拒绝 symlink、内容漂移与未知安装锁；不自动修复损坏的已发布组件，不自动清理旧快照。卸载注册也保留快照，避免破坏活跃 Chrome/native host；存储项达到上限会拒绝新增，需人工核实后维护。
+- **首次安装**：执行 `/browser install`，结束活跃浏览器任务后在 `chrome://extensions` → 开发者模式 → 加载已解压的扩展，选择显示的固定目录一次。
+- **组件内容更新**：`/browser install` 原子替换固定目录内容并回报 `reloadNeeded=true`；随后到 `chrome://extensions` 点该扩展卡片的**刷新（↻）**即可，无需 Remove 或重新选目录。运行中的 native host 已把代码载入内存，替换文件不影响它，新连接会读到新代码。
+- **内容无变化的重打包/切换发行目录**：`/browser install` 回报 `reloadNeeded=false`，Chrome 端零操作；删除旧 rotom 发行目录也不影响，因为固定目录与 launcher 都不指向发行目录。
+- **Node 路径变化**：只影响 launcher/native host 注册，需重跑 `/browser install`；扩展目录内容不变则无需刷新。
+- **存储边界**：固定目录与文件必须为本人私有资源，拒绝 symlink、内容漂移与未知安装锁。替换采用暂存目录 + rename 原子切换，切换窗口极短，只有此刻 Chrome 刷新或新建 native 连接才可能读到过渡态；卸载注册仍保留固定目录，避免破坏活跃 Chrome/native host。
 
-`status` 的注册项只确认文件与当前浏览器组件及 Node 匹配；旧组件的 Relay 仍可能在线。连接项证明当前协议握手，不代表 Chrome 已加载所显示目录或网页操作已经通过。超时、权限或协议错误保留 `unknown`，不自动重试或启动另一浏览器。安装结果不确定时先只读核对，不盲目重装。
+`status` 的注册项确认 launcher/manifest 与当前 Node 匹配，并区分固定目录内容是否已是当前 rotom（`upToDate`）；连接项证明当前协议握手，不代表 Chrome 已加载所显示目录或网页操作已经通过。超时、权限或协议错误保留 `unknown`，不自动重试或启动另一浏览器。安装结果不确定时先只读核对，不盲目重装。
 
-`owned debugger target identity changed` 表示原标签的 debugger 身份已失效，与发行目录变化不是同一结论。不要靠重装、接受新 targetId 或重放原操作绕过校验；停止原动作，按原标签的只读恢复规则核查。固定存储不能保证消除所有 Chrome 导航、关闭或重启导致的身份变化。
+`owned debugger target identity changed` 表示原标签的 debugger 身份已失效，与固定目录内容变化不是同一结论。不要靠重装、接受新 targetId 或重放原操作绕过校验；停止原动作，按原标签的只读恢复规则核查。固定目录不能保证消除所有 Chrome 导航、关闭或重启导致的身份变化。
 
 旧版尚无该命令时，可在终端沿用脚本入口（版本隔离安装需把 `ROTOM_DIR` 改为实际 `node_modules/rotom` 目录）：
 
@@ -76,18 +77,18 @@ node "$ROTOM_DIR/extensions/browser/install-chrome-relay.mjs" status
 
 脚本的 `installed: true` 只表示注册匹配，不包含连接检查。Chrome 125+ 的手动加载步骤见首页[配置浏览器](../README.md#配置浏览器)。
 
-## Qoder：原生 provider（显式启用）
+## Qoder：原生 provider（默认启用）
 
-**独立浏览器登录（已在隔离原生凭据存储中完成真实登录与串行刷新；刷新测试仅强制隔离凭据的本地到期时间，未等待自然到期）**，无需安装或登录 Qoder CLI。从业务目录启动：
+**独立浏览器登录（已在隔离原生凭据存储中完成真实登录与串行刷新；刷新测试仅强制隔离凭据的本地到期时间，未等待自然到期）**，无需安装或登录 Qoder CLI。Qoder provider 与浏览器认证模式均默认启用，从业务目录直接启动：
 
 ```sh
-ROTOM_QODER=1 ROTOM_QODER_AUTH=browser rotom
+rotom
 ```
 
 在 rotom 内执行 `/login qoder-experimental`，打开显示的链接并在 Qoder 网页确认账号授权；成功后执行 `/new`，启动时会尝试读取账号模型目录；也可用 `/qoder-models` 手动刷新并查看每项状态，再用 `/model` 选择已通过验证的模型。以后可直接启动：
 
 ```sh
-ROTOM_QODER=1 ROTOM_QODER_AUTH=browser rotom --provider qoder-experimental --model lite
+rotom --provider qoder-experimental --model lite
 ```
 
 - 浏览器模式由 Pi 原生 `/login`、`/logout` 和凭据存储管理，默认保存到 `~/.pi/agent/auth.json`（可通过 Pi 原生 `PI_CODING_AGENT_DIR` 改变用户目录）；令牌按 Pi 凭据文件方式落盘，不是系统钥匙串。不会读取或写入 `~/.qoder`，也不使用 `ROTOM_QODER_AUTH_DIR`。
@@ -98,12 +99,12 @@ ROTOM_QODER=1 ROTOM_QODER_AUTH=browser rotom --provider qoder-experimental --mod
 **默认即浏览器模式**：未设置 `ROTOM_QODER_AUTH` 时默认走上面的 `browser`（Pi 原生登录），不再依赖 Qoder CLI。**原只读 CLI 兼容路径改为显式 opt-in**——依赖 `~/.qoder` 登录态的旧用法在升级后默认行为会改变，需显式设置 `ROTOM_QODER_AUTH=qodercli` 才能保持原只读行为。先自行登录 Qoder CLI，再启动：
 
 ```sh
-ROTOM_QODER=1 ROTOM_QODER_AUTH=qodercli rotom --provider qoder-experimental --model lite
+ROTOM_QODER_AUTH=qodercli rotom --provider qoder-experimental --model lite
 ```
 
 `ROTOM_QODER_AUTH` 只接受 `browser` / `qodercli`。
 
-扩展随包加载，但默认不注册 provider、不读取 Qoder 凭据、不外呼；不会更改默认模型或迁移活跃会话。`ROTOM_QODER` 只接受 `0` / `1`，其他值报配置错误。
+扩展随包加载并默认注册 provider，但不会更改默认模型或迁移活跃会话；登录后启动会尝试读取当前账号的 Qoder 模型目录。设置 `ROTOM_QODER=0` 可完全停用 provider；`ROTOM_QODER` 只接受 `0` / `1`，其他值报配置错误。
 
 - 直接调用模型 HTTP 接口，不启动 qodercli，不嵌套 agent 循环；工具、上下文、分支和压缩仍由 Pi 管理。
 - `qodercli` 模式只读 `~/.qoder/.auth`，可用绝对 canonical `ROTOM_QODER_AUTH_DIR` 覆盖；拒绝 symlink、非私有/非本人文件。此模式不会刷新或写回 CLI 登录态；到期需用同账号正常登录后自行提交。两种模式都不能保证服务器在本地取消后停止计费。
@@ -138,7 +139,7 @@ ROTOM_QODER=1 ROTOM_QODER_AUTH=qodercli rotom --provider qoder-experimental --mo
 
 PNG/JPEG/WebP 支持用户多图、工具返回图片与原生 session 恢复；只接受内联 base64，单图 ≤4 MiB、当前历史图片合计 ≤6 MiB、≤32 张，COSY body ≤24 MiB。远程图片 URL 和其他格式不自动转换/抓取。目录收窄、未知 signature 或不合法图片会明确拒绝，不静默降级或切路由。模型视觉/检索并不保证每次正确；Credit 缺失仍为 unknown，Ultimate 的新路由不假定与旧 direct 同价。
 
-关闭用 `ROTOM_QODER=0` 或不设置该变量；不要向 launcher 追加 `-e` 绕过资源合同。模型/API、账号和网络边界未验证时会失败关闭，不自动重放。
+关闭用 `ROTOM_QODER=0`；不设置该变量时保持默认开启。不要向 launcher 追加 `-e` 绕过资源合同。模型/API、账号和网络边界未验证时会失败关闭，不自动重放。
 
 ## 边界
 

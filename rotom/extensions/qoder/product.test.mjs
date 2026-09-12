@@ -4,9 +4,9 @@ import { MODELS, createQoderProvider } from './provider.mjs';
 import { qoderEnabled } from './session-policy.mjs';
 import { CHAT_URL, createQoderFetch } from './transport.mjs';
 
-test('bundled provider is opt-in and rejects ambiguous opt-in values', () => {
-  for (const env of [{}, {ROTOM_QODER:'0'}]) assert.equal(qoderEnabled(env),false);
-  assert.equal(qoderEnabled({ROTOM_QODER:'1'}),true);
+test('bundled provider is enabled by default, supports explicit opt-out, and rejects ambiguous values', () => {
+  for (const env of [{}, {ROTOM_QODER:'1'}]) assert.equal(qoderEnabled(env),true);
+  assert.equal(qoderEnabled({ROTOM_QODER:'0'}),false);
   for (const value of ['', 'true', 'yes', '2']) assert.throws(() => qoderEnabled({ROTOM_QODER:value}), /invalid_opt_in/);
 });
 test('reviewed catalog is text-only, reasoning off, with stable existing identity', () => {

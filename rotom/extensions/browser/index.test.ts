@@ -437,7 +437,8 @@ test("/browser: explicit commands, local-only diagnostics, cancellation and owne
 		const f = await fixture(); await f.run("install"); assert.deepEqual(f.calls, ["confirm"]);
 		f.calls.length = 0; f.confirm(); await f.run("install");
 		assert.deepEqual(f.calls, ["confirm", "install", "status"]);
-		assert.match(f.notices.at(-1)!, /注册已回读确认.*仍需手动/su);
+		assert.match(f.notices.at(-1)!, /注册已回读确认[\s\S]*无变化/u);
+		assert.ok(f.notices.at(-1)!.includes("/current/chrome-extension"));
 		assert.deepEqual(f.messages, []);
 	});
 	for (const failure of ["timeout after write", "permission denied", "cancelled", "secret child stderr"]) {
@@ -462,13 +463,12 @@ test("/browser: explicit commands, local-only diagnostics, cancellation and owne
 		assert.ok(!f.notices.join("\n").includes("page-controlled")); assert.ok(!f.notices.join("\n").includes("untrusted path"));
 		assert.deepEqual(f.messages, []);
 	});
-	await t.test("component directory display derives only from a bounded digest, never a child-supplied path", async () => {
-		for (const digest of ["a".repeat(64), "../../outside"]) {
-			const f = await fixture({ async runInstaller() { return { installed: true, componentDigest: digest, extensionDir: "untrusted directory" }; } });
+	await t.test("extension directory display is a fixed HOME-derived path, never a child-supplied path", async () => {
+		for (const injected of ["../../outside", "/tmp/attacker"]) {
+			const f = await fixture({ async runInstaller() { return { installed: true, componentDigest: "a".repeat(64), extensionDir: injected }; } });
 			await f.run("status");
-			assert.ok(!f.notices.join("\n").includes("untrusted directory"));
-			if (digest.length === 64) assert.ok(f.notices.at(-1)!.includes(`/components/${digest}/chrome-extension`));
-			else assert.match(f.notices.at(-1)!, /固定组件目录：未确认/u);
+			assert.ok(!f.notices.join("\n").includes(injected));
+			assert.ok(f.notices.at(-1)!.includes("/browser-relay/current/chrome-extension"));
 		}
 	});
 	await t.test("typed missing socket is unavailable; generic timeout/old protocol is unknown", async () => {
@@ -540,7 +540,7 @@ test("/browser: explicit commands, local-only diagnostics, cancellation and owne
 			const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
 			assert.equal(manifest.path, join(realpathSync(home), "Library/Application Support/rotom/browser-relay/native-host-launcher.sh"));
 			assert.deepEqual(manifest.allowed_origins, ["chrome-extension://kgadcllokaodnoknakblocmhidemimdi/"]);
-			await f.run("status"); assert.match(f.notices.at(-1)!, /与当前安装匹配.*不可用/su);
+			await f.run("status"); assert.match(f.notices.at(-1)!, /与当前 rotom 匹配.*不可用/su);
 			assert.deepEqual(f.messages, []);
 		} finally { await rm(home, { recursive: true, force: true }); }
 	});

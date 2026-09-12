@@ -1,6 +1,6 @@
 {
   "name": "rotom",
-  "version": "0.1.0-alpha.11",
+  "version": "0.1.0-alpha.12",
   "private": true,
   "description": "Personal coding agent built on Pi, with explicit tools and runtime contracts",
   "license": "UNLICENSED",

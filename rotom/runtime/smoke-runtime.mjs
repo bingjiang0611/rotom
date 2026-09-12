@@ -112,11 +112,13 @@ try {
 	const thirdParty = created.extensionsResult.extensions.find((extension) => extension.path.endsWith("/third-party"));
 	const qoder = created.extensionsResult.extensions.find((extension) => extension.path === resolve(agentDir, "extensions/qoder/index.ts"));
 	assert.equal(qoder?.tools.size, 0, "Qoder provider must not change the tool surface");
-	assert.equal(Boolean(modelRuntime.getModel("qoder-experimental", "lite")), process.env.ROTOM_QODER === "1", "Qoder registration must be opt-in");
-	if (process.env.ROTOM_QODER === "1") {
+	const qoderEnabled = process.env.ROTOM_QODER !== "0";
+	assert.equal(Boolean(modelRuntime.getModel("qoder-experimental", "lite")), qoderEnabled, "Qoder registration must default on with an explicit opt-out");
+	if (qoderEnabled) {
 		const auth = modelRuntime.getProvider("qoder-experimental").auth;
-		assert.equal(Boolean(auth.oauth), process.env.ROTOM_QODER_AUTH === "browser");
-		assert.equal(Boolean(auth.apiKey), process.env.ROTOM_QODER_AUTH !== "browser");
+		const browserAuth = (process.env.ROTOM_QODER_AUTH ?? "browser") === "browser";
+		assert.equal(Boolean(auth.oauth), browserAuth);
+		assert.equal(Boolean(auth.apiKey), !browserAuth);
 		assert.equal(modelRuntime.getModel("qoder-experimental", "gmodel")?.reasoning, true, "validated IDs must resolve before account discovery for explicit selection/resume");
 		assert.equal(qoder.commands.has("qoder-models"), true);
 		assert.equal(qoder.commands.has("qoder-credits"), true);

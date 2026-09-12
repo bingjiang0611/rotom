@@ -50,6 +50,36 @@ describe("rotom startup header", () => {
 		}
 	});
 
+	it("keeps the square legless silhouette, slanted eyes, one crest and two fan-shaped hands", () => {
+		expect(ROTOM_PIXELS[0]).toBe("..........r..........");
+		expect([...ROTOM_PIXELS[6].matchAll(/w/g)].map((match) => match.index)).toEqual([8, 12]);
+		expect([...ROTOM_PIXELS[7].matchAll(/w/g)].map((match) => match.index)).toEqual([7, 11]);
+		expect(ROTOM_PIXELS[11]).toBe(".....rrrrrrrrrrr.....");
+		expect(ROTOM_PIXELS[12]).toBe(".....................");
+		expect(ROTOM_PIXELS[13]).toBe(".....................");
+		expect(stripAnsi(renderRotomSprite()[6])).toBe("                     ");
+		for (const row of ROTOM_PIXELS.slice(4, 12)) {
+			expect(row[5]).toBe("r");
+			expect(row[15]).toBe("r");
+		}
+		expect(ROTOM_PIXELS.slice(2, 8).map((row) => row.slice(0, 6))).toEqual([
+			".rr...",
+			"rwrr..",
+			"rwwrrr",
+			".rwrrr",
+			"..rrrr",
+			"...rrr",
+		]);
+		expect(ROTOM_PIXELS.slice(2, 8).map((row) => row.slice(15).split("").reverse().join(""))).toEqual([
+			".rr...",
+			"rwrr..",
+			"rwwrrr",
+			".rwrrr",
+			"..rrrr",
+			"...rrr",
+		]);
+	});
+
 	it("uses ANSI-256 sprite colors without changing the silhouette", () => {
 		const mode = vi.spyOn(Theme.prototype, "getColorMode").mockReturnValue("truecolor");
 		const truecolor = renderRotomSprite();
@@ -89,7 +119,7 @@ describe("rotom startup header", () => {
 		expect(output).toContain("rotom v0.1.0-alpha.11");
 		expect(output).toContain("ctrl+o details");
 		expect(output).toContain("▀");
-		expect(lines.filter((line) => /[▀▄]/.test(line))).toHaveLength(7);
+		expect(lines.filter((line) => /[▀▄]/.test(line))).toHaveLength(6);
 		for (const label of ["[Context]", "[Skills]", "[Extensions]"]) {
 			expect(lines.find((line) => line.includes(label))?.indexOf(label)).toBe(24);
 		}

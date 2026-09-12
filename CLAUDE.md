@@ -37,7 +37,7 @@ rotom 当前通过仓内 `packages/rotom-pi/` 的 Pi fork 接入 `@earendil-work
 extension、bundled skill 与第三方 package 是产品合同，不是“目录里碰巧存在的文件”。产品不再加载 bundled prompt template；用户自己的模板仍走 Pi 原生发现。
 
 - 资源列表以 `rotom/runtime/product-config.mjs` 和 launcher 的显式声明为准。
-- Qoder 为 bundled opt-in provider（`ROTOM_QODER=1`），保留 `qoder-experimental` 身份与 `lite`/`performance` 离线基线；账号目录按原始 key 发现，只注册实测白名单 ∩ 当前账号 enabled 的交集，不改默认模型；未验证的 opaque 形状、档位与路由不启用。目录只在账号隔离内存中、过期需刷新，可见不等于 direct endpoint 可调用。具体目录项、路由数、版本头与窗口大小随上游变动，不写进本文件。
+- Qoder 为 bundled、默认启用的 provider（`ROTOM_QODER=0` 可关闭），保留 `qoder-experimental` 身份与 `lite`/`performance` 离线基线；账号目录按原始 key 发现，只注册实测白名单 ∩ 当前账号 enabled 的交集，不改默认模型；未验证的 opaque 形状、档位与路由不启用。目录只在账号隔离内存中、过期需刷新，可见不等于 direct endpoint 可调用。具体目录项、路由数、版本头与窗口大小随上游变动，不写进本文件。
 - 凭据默认走 `browser`（Pi 原生登录/存储/串行刷新、复用公开客户端 ID，非官方支持），不读写 CLI 凭据；显式 `ROTOM_QODER_AUTH=qodercli` 回到只读 CLI 兼容模式。刷新前持久记录一次性尝试、unknown 不重放、只强制隔离凭据的本地到期（不冒充自然到期）；重新登录或认证来源变化须新会话。opaque signature 字段按各自 Pi signature 原样存回，不解密、不跨模型丢弃。
 - 每条路由固定走 COSY 单次推理或 direct，不失败回退、不嵌套 agent；只按实测交集开放 effort，其余固定 enabled，不伪造关闭/强度支持。服务尾帧仅在 finish、usage 与精确 metrics 同时成立时映射终止，不以 EOF 补成功。
 - 仅图片档模型开放 PNG/JPEG/WebP 与受管上下文窗口，其余仅文本、上下文与输出均有界；单图与历史图片总量有预算，拒绝远程 URL，不宣称完整 400K/1M。

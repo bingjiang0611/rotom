@@ -17,9 +17,9 @@ async function refreshRegistry(ctx, { force = false, signal } = {}) {
 }
 
 export function qoderEnabled(env = process.env) {
-  if (env.ROTOM_QODER === undefined || env.ROTOM_QODER === '0') return false;
-  if (env.ROTOM_QODER !== '1') throw new QoderError('invalid_opt_in');
-  return true;
+  if (env.ROTOM_QODER === undefined || env.ROTOM_QODER === '1') return true;
+  if (env.ROTOM_QODER !== '0') throw new QoderError('invalid_opt_in');
+  return false;
 }
 
 export const BINDING_TYPE = 'qoder-experimental-account-v1';

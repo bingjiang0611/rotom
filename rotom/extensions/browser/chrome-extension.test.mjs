@@ -479,8 +479,8 @@ test("installer 固定组件存储与 exact 注册，status 校验内容且 unin
 	assert.equal(installed.status, 0, installed.stderr);
 	const details = JSON.parse(installed.stdout);
 	assert.equal(details.extensionId, extensionId);
-	assert.match(details.extensionDir, /\/components\/[a-f0-9]{64}\/chrome-extension$/u);
-	assert.notEqual(details.extensionDir, extensionDir);
+	assert.match(details.extensionDir, /\/browser-relay\/current\/chrome-extension$/u);
+	assert.equal(details.firstInstall, true);
 	assert.equal(await readFile(join(details.extensionDir, "service-worker.js"), "utf8"), await readFile(join(extensionDir, "service-worker.js"), "utf8"));
 	const manifestInfo = await lstat(details.nativeHostManifest);
 	assert.equal(manifestInfo.isFile() && !manifestInfo.isSymbolicLink() && manifestInfo.nlink === 1, true);
@@ -494,6 +494,7 @@ test("installer 固定组件存储与 exact 注册，status 校验内容且 unin
 	await writeFile(nativeManifest.path, "tampered\n", { mode: 0o700 });
 	assert.equal(JSON.parse(run("status").stdout).installed, false);
 	assert.equal(run("install").status, 0, "installer 应可原子修复普通文件内容漂移");
+	assert.equal(JSON.parse(run("install").stdout).reloadNeeded, false, "内容未变时重装不要求重新加载");
 	assert.equal(run("uninstall").status, 0);
 	assert.equal(JSON.parse(run("status").stdout).installed, false);
 	assert.equal((await lstat(details.extensionDir)).isDirectory(), true, "uninstall 必须保留可能仍在使用的组件");

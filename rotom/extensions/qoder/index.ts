@@ -6,7 +6,7 @@ import { installQoderExtension, qoderEnabled } from './session-policy.mjs';
 // Pi's extension loader explicitly aliases this public compatibility export.
 // Inject it so the ESM helper never relies on the maintenance cwd's packages.
 export default async function qoderProvider(pi: ExtensionAPI) {
-  // Bundled, but opt-in: unrelated sessions must not discover ambient Qoder auth.
+  // Bundled and enabled by default; ROTOM_QODER=0 is the explicit opt-out.
   if (!qoderEnabled(process.env)) return;
   await installQoderExtension(pi, {
     piAI,

@@ -2,7 +2,7 @@
 
 > 本页的验证表保留首次分发接入时的结果；安装命令与当前元数据已同步源码。项目仓库为 [bingjiang0611/rotom](https://github.com/bingjiang0611/rotom)，源码公开不等于 npm 发布。后续默认组件与 macOS/Linux 安装验证见 [Subagent 默认接入](subagent-default-integration.md)，发行包默认 scope 及其未复验项见 [scoped 默认](subagent-owned-default.md)。
 
-当前 alpha.11 已切换仓内 Pi fork；构建、隔离安装、本机切换及未验证项见 [Pi fork 接入](pi-fork.md)。本页底部“首次分发”表仍是历史上游 Pi 基线，不代表新 fork 的跨平台验收。
+当前 alpha.12 使用仓内 Pi fork；构建、隔离安装、本机切换及未验证项见 [Pi fork 接入](pi-fork.md)。本页底部“首次分发”表仍是历史上游 Pi 基线，不代表新 fork 的跨平台验收。
 
 ## 范围与结论
 
@@ -10,7 +10,7 @@
 
 **PASS：本地打包、隔离安装和 L1/L2 验证。BLOCKED：公开发布及完整跨平台/真实业务验收。**
 
-当前产品元数据位于 `rotom/package.json`：`rotom@0.1.0-alpha.11`、`private: true`、`UNLICENSED`。这是本地 Alpha 产物版本，不是 Git release 或 npm 公告；保留 private，直到名称/商标/IP、根产品许可证、第三方分发通知和发布授权完成。
+当前产品元数据位于 `rotom/package.json`：`rotom@0.1.0-alpha.12`、`private: true`、`UNLICENSED`。该版本通过 GitHub Release 分发完整 `.tgz`，不发布到 npm registry。
 
 ## 分发与启动
 
@@ -34,7 +34,7 @@ npm install <rotom.tgz>
        仅产品自有路径；不查 ancestor / PATH / NODE_PATH / 全局 module 目录
   -> 原有 resource / package / capability gate
   -> 仓内 fork Pi CLI + 5 extensions + 1 bundled skill
-       Qoder 默认 inert；ROTOM_QODER=1 显式启用
+       Qoder provider 默认注册；ROTOM_QODER=0 显式关闭
 ```
 
 - 当前分发基线是仓内 Pi fork；源码、上游 revision 与维护说明位于 `packages/rotom-pi/`。六个包保留 upstream identity，归档使用 `0.85.1-rotom.1` 后缀和来源摘要，不冒充官方发行。
@@ -75,12 +75,13 @@ npm run pack:release -- /absolute/output-directory
 ## 用户本地安装
 
 ```sh
-npm install -g --ignore-scripts '/absolute/path/to/rotom-<version>.tgz'
+npm install -g --ignore-scripts \
+  https://github.com/bingjiang0611/rotom/releases/download/v0.1.0-alpha.12/rotom-0.1.0-alpha.12.tgz
 cd /path/to/business-project
 rotom
 ```
 
-当前未发布到 registry，不能直接执行 `npm install -g rotom`。用户不需预装 Pi，也不需二次 npm ci。模型登录/API key、Chrome 扩展安装与重载、系统权限仍需用户明确完成。
+当前未发布到 npm registry，不能直接执行 `npm install -g rotom`。用户不需预装 Pi，也不需二次 npm ci。模型登录/API key、Chrome 扩展安装与重载、系统权限仍需用户明确完成。
 
 ### 可复现的多版本安装（维护标准）
 

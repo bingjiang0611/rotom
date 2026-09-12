@@ -38,7 +38,7 @@
 
 ### Qoder provider
 
-- `ROTOM_QODER` opt-in 是否默认无 provider/凭据读取/网络/默认模型变更？
+- Qoder provider 是否默认注册、`ROTOM_QODER=0` 是否能完整关闭，且默认启用仍不改变默认模型？
 - `qoder-experimental` 和账号绑定 ID 是否保持稳定，resource/package 是否与 `product-config.mjs` 的 Qoder `requiredFiles` 完整同步（当前 13 个文件，含 `credits.mjs`、`messages.mjs`、`session-policy.mjs`）？
 - 目录是否只从固定 COSY endpoint 读取 `assistant` 的 system 条目，按原始 key 映射而非显示名造 ID？只将实测白名单与当前账号 enabled 目录的交集注册；目录仅内存、账号隔离、过期/代际检查、取消和失败不重试是否覆盖？过期前置刷新是否走同会话原生 registry、有界且同作用域合并，工具续轮/压缩均覆盖；是否按刷新后的目录重新验证模型/上下文/effort，失效作用域与迟到结果不能继续推理，且不以路由 sessionId 冒充 SessionManager 身份？
 - 模型声明与 onPayload 后检查是否同时拒绝未验证图片、effort、opaque 形状、BYOK/custom 路由与 endpoint 漂移？图片/272K 管理窗口是否仅限 Ultimate/Kimi-K3/DeepSeek-V4-Flash 与当前目录交集，固定400K selector、输出≤4096，覆盖原生≥272K历史后的回答预算、用户多图/工具图片/磁盘恢复及 base64/格式/数量/大小/角色/别名拒绝？13 条 reasoning 路由中的可调档位是否严格取实测白名单与当前目录交集，并核对 simple/raw API、post-hook 与 COSY 的同一选中 effort/enable_thinking？其余仍固定 enabled，能力标记不替代选中模式；Ultimate/Sonus 的不同加密 item 经原生 signature 完整保存/回传并检查模型 provenance；十条 legacy key（含 Ultimate）固定 endpoint，认证元数据来自同一次账号绑定凭据读取，不作回退重试。不把目录的容量/模态声明直接启用。Sonus 与 Ultimate COSY 的 `target_hash` 是否按独立格式完整保留，并验证旧 Ultimate 双字段会话兼容？MiniMax/Sonus/Ultimate 的 metrics 终止桥接是否同时要求 finish、usage、合法工具和精确尾帧，且不按 EOF 补成功？Ultimate 旧 direct 串行工具 index 重用是否只在完整参数/新且非碎片 ID/已声明函数边界规范化，不改变工具 ID 或放过冲突？SSE 前缀续行是否只恢复同 frame 内已有字节，不跨空行或吞迟到错误？

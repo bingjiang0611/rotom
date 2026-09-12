@@ -2,26 +2,25 @@ import { type Component, Text, truncateToWidth, visibleWidth } from "@earendil-w
 import { Chalk } from "chalk";
 import { theme } from "../theme/theme.ts";
 
-// Heat Rotom badge (D-ROTOM-STARTUP-06): traced from the official Gen9 sprite with saturated
-// colors — two large red plasma arms rising from the shoulders and flanking a pointed orange
-// nub, each with a white flame streak; a rich-orange oven body with two cream eyes; a wide dark
-// oven window with a lit gray screen; little legs. 21×14 pixels / 21×7 cells; two pixel rows
-// share one terminal cell; no image protocol, download or animation. Palette keys ([.robwg]).
+// Heat Rotom badge (D-ROTOM-STARTUP-06): a square orange oven with a single pointed
+// crest, two broad fan-shaped plasma hands (and their white heat streaks), two slanted cream
+// eyes and a wide dark window. The body has no legs. 21×14 pixels / 21×7 cells; two pixel
+// rows share one terminal cell; no image protocol, download or animation. Palette keys ([.robwg]).
 export const ROTOM_PIXELS = [
+	"..........r..........",
 	".........ror.........",
-	"..rr...rrrorrr...rr..",
-	"..rrr.rooooooor.rrr..",
-	"..rwrrooooooooorrwr..",
-	"...wrrooooooooorrw...",
-	"...rwrrooooooorrwr...",
-	"....rrrowoooworrr....",
-	".....rrooooooorr.....",
-	".....robbbbbbbor.....",
-	".....robgggggbor.....",
-	"......rbgggggbr......",
-	".......rooooor.......",
-	".......rooroor.......",
-	".......ror.ror.......",
+	".rr.....rooor.....rr.",
+	"rwrr..rooooooor..rrwr",
+	"rwwrrrooooooooorrrwwr",
+	".rwrrrooooooooorrrwr.",
+	"..rrrroowooowoorrrr..",
+	"...rrrowooowooorrr...",
+	".....rbbbbbbbbbr.....",
+	".....rbbgggggbbr.....",
+	".....rbbgggggbbr.....",
+	".....rrrrrrrrrrr.....",
+	".....................",
+	".....................",
 ] as const;
 
 export function renderRotomSprite(): string[] {

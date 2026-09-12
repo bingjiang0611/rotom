@@ -27,7 +27,7 @@
        -> resource path/no-symlink contract
        -> exact third-party package/lock/installed identity
   -> 按固定顺序加载 extension
-       observability -> browser -> coding-policy -> third-party -> qoder（provider opt-in）
+       observability -> browser -> coding-policy -> third-party -> qoder（provider 默认启用，可 opt-out）
   -> 加载 1 skill + Claude Code skill bridge（不加载 bundled prompt templates）
   -> Pi session（仍以业务 cwd 为项目上下文）
   -> deferred loader 按需 additive 激活 specialized tools
@@ -101,7 +101,7 @@ Browser 源码新增 ref-bound `keypress`（protocol 17 / `targeted-keypress`）
 - `rotom/extensions/observability/`：metadata trace、dashboard 与测试；公开工具 metadata 的有界 digest/bytes 采样、独立 dispatch/verification/business/process/content 证据，不把 absent 当 false 或 public metadata 当 provider wire。
 - `rotom/extensions/browser/`：Pi tools、relay、Chrome MV3、Native Host、installer 与 smoke。
 - `rotom/extensions/coding-policy/`：只在 coding tools 激活时追加执行卫生约束；另外为 `read`/`edit` 错误追加证据式修复线索（`repair-hints.ts`），并把会话运行期间 pi bundle 被重建导致的 lazy chunk 缺失改写为可归因结论（`pi-runtime-drift.ts`）。两者都只附加信息，不改变成功/失败判定。
-- `rotom/extensions/qoder/`：`ROTOM_QODER=1` 显式启用的原生直连 provider；默认不注册、不读凭据、不外呼。启用后默认 `browser`，接入 Pi 原生 OAuth 与独立凭据存储，不读写 CLI 凭据；显式 `ROTOM_QODER_AUTH=qodercli` 才使用只读 CLI 兼容模式。browser 的一次性刷新摘要记录防止 unknown 重放（隔离独立登录与串行真实刷新已通过，未等待自然到期）。`catalog.mjs` / `catalog-auth.mjs` 通过固定 COSY 目录和 Pi 公开 refresh/publication 合同提供账号隔离、仅内存的模型发现；只注册已验证 key 与 enabled 目录交集。会话绑定不迁移，当前 Default 目录 17 条路线已分项实测，13 条 reasoning，其中八条按实测白名单与当前目录交集开放 effort，其余固定 enabled；兼容版本头 1.1.45 获取 Sonus 的真实 key。Ultimate 旧双字段与新 COSY 三字段、Sonus 的不同加密 item 通过独立 Pi signature 保留；`legacy.mjs` 为十条 key（含 Ultimate）明确选择 COSY 单次推理，不作自动回退。仅 Ultimate/Kimi-K3/DeepSeek-V4-Flash 的图片与 272K 管理窗口（与 Codex 声明对齐）取实测白名单和当前目录交集，固定 400K selector，输出≤4096；其余保持文本/≤32K。`transport.mjs` 统一原生图片与 post-hook 的编码/大小边界；不通过绕过 Pi 原生预算来增加容量。`credits.mjs` 收集完整流的 allowlisted Credit，按原会话归属持久化非上下文观察；无计量/未完成保持 unknown。额度命令仅 UI 通知，不把账户余额带入正常、压缩或分支上下文；Credit、余额与 USD 分开。不是未来任意目录、Enterprise 或 Qoder 官方支持承诺。
+- `rotom/extensions/qoder/`：默认启用的原生直连 provider，`ROTOM_QODER=0` 可显式关闭；默认认证模式为 `browser`，接入 Pi 原生 OAuth 与独立凭据存储，不读写 CLI 凭据；显式 `ROTOM_QODER_AUTH=qodercli` 才使用只读 CLI 兼容模式。browser 的一次性刷新摘要记录防止 unknown 重放（隔离独立登录与串行真实刷新已通过，未等待自然到期）。`catalog.mjs` / `catalog-auth.mjs` 通过固定 COSY 目录和 Pi 公开 refresh/publication 合同提供账号隔离、仅内存的模型发现；只注册已验证 key 与 enabled 目录交集。会话绑定不迁移，当前 Default 目录 17 条路线已分项实测，13 条 reasoning，其中八条按实测白名单与当前目录交集开放 effort，其余固定 enabled；兼容版本头 1.1.45 获取 Sonus 的真实 key。Ultimate 旧双字段与新 COSY 三字段、Sonus 的不同加密 item 通过独立 Pi signature 保留；`legacy.mjs` 为十条 key（含 Ultimate）明确选择 COSY 单次推理，不作自动回退。仅 Ultimate/Kimi-K3/DeepSeek-V4-Flash 的图片与 272K 管理窗口（与 Codex 声明对齐）取实测白名单和当前目录交集，固定 400K selector，输出≤4096；其余保持文本/≤32K。`transport.mjs` 统一原生图片与 post-hook 的编码/大小边界；不通过绕过 Pi 原生预算来增加容量。`credits.mjs` 收集完整流的 allowlisted Credit，按原会话归属持久化非上下文观察；无计量/未完成保持 unknown。额度命令仅 UI 通知，不把账户余额带入正常、压缩或分支上下文；Credit、余额与 USD 分开。不是未来任意目录、Enterprise 或 Qoder 官方支持承诺。
 - `rotom/extensions/third-party/index.ts`：四个 package 的唯一 composition root。
 - `rotom/extensions/third-party/deferred-tools/register.ts`：capability map、additive activation 和 session state。
 - `rotom/extensions/third-party/subagent/policy.ts`：model-visible action/command 收窄、`mission:false`、publication lease 与结果证据投影；启动回执/任务结果不证明所有 child 或远端副作用已完成。

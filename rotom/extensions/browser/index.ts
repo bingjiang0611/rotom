@@ -238,10 +238,11 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 	let epoch = 0;
 	let shutdown = false;
 	const commandIO = { ...defaultCommandDependenciesV1(), ...dependencies.commands };
-	const componentBase = join(homedir(), "Library", "Application Support", "rotom", "browser-relay", "components");
-	// Derive display paths from a bounded digest and our own frozen HOME, not child text.
-	const componentDirectory = (result: unknown) => record(result) && typeof result.componentDigest === "string" && /^[a-f0-9]{64}$/u.test(result.componentDigest)
-		? JSON.stringify(join(componentBase, result.componentDigest, "chrome-extension")) : "未确认";
+	// Chrome loads from one stable, content-independent directory. Derive its display
+	// from our own frozen HOME, never from child output, so no path can be injected.
+	const extensionDir = join(homedir(), "Library", "Application Support", "rotom", "browser-relay", "current", "chrome-extension");
+	const extensionDirDisplay = JSON.stringify(extensionDir);
+	const flag = (result: unknown, name: string) => record(result) && result[name] === true;
 	let activeCommand: AbortController | undefined;
 	const cursors = new Map<string, SnapshotCursorV1>();
 
@@ -602,7 +603,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 				if (commandIO.platform !== "darwin") { ctx.ui.notify("当前 Chrome Relay 安装器仅支持 macOS；未执行安装或状态探测。", "warning"); return; }
 				if (operation === "install") {
 					if (!ctx.isIdle()) { ctx.ui.notify("请等待当前任务结束后再安装，避免影响正在使用的浏览器连接。", "warning"); return; }
-					const accepted = await ctx.ui.confirm("注册 Chrome Relay？", "将浏览器组件保存到按内容固定的独立目录，并更新同一用户共享的 Chrome native host 注册，影响其他 rotom 安装的后续连接。相同组件不随 rotom 发行路径变化；不会覆盖旧组件、自动加载扩展或迁移会话。首次迁移或组件变化时，请待活跃任务结束后手动切换 Chrome 扩展目录。", { signal: controller.signal });
+					const accepted = await ctx.ui.confirm("注册 Chrome Relay？", "将浏览器组件写入一个固定目录（跨 rotom 发行版本不变），并更新同一用户共享的 Chrome native host 注册，影响其他 rotom 安装的后续连接。组件内容变化时会原子替换该目录；不会自动重载 Chrome 扩展或打断活跃标签。首次需手动加载该目录，此后升级只需在 chrome://extensions 点扩展刷新（↻）；请先结束活跃浏览器任务。", { signal: controller.signal });
 					assertOwner();
 					if (!accepted) return;
 					if (!ctx.isIdle()) { ctx.ui.notify("当前已有任务运行，未执行安装。", "warning"); return; }
@@ -610,20 +611,28 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 					const result = await commandIO.runInstaller("install", controller.signal);
 					assertOwner();
 					if (!record(result) || result.status !== "installed") throw new Error("Invalid installer acknowledgement");
+					const first = flag(result, "firstInstall");
+					const reloadNeeded = flag(result, "reloadNeeded");
 					const check = await commandIO.runInstaller("status", controller.signal);
 					assertOwner();
 					if (!record(check) || check.installed !== true) throw new Error("Registration readback did not match");
-					ctx.ui.notify(`Native host 注册已回读确认。\n固定组件目录：${componentDirectory(check)}\n若 Chrome 已加载此目录，无需因 rotom 重打包重新加载。\n首次迁移或目录变化时，仍需手动在 chrome://extensions → 开发者模式 → 加载已解压的扩展，切换到以上目录；请先结束活跃浏览器任务。\n完成后用 /browser status 检查连接。`, "info");
+					const next = first
+						? `首次安装：在 chrome://extensions → 开发者模式 → 加载已解压的扩展，选择上面的目录（请先结束活跃浏览器任务）。此后升级只需按刷新，无需重新选目录。`
+						: reloadNeeded
+							? `浏览器组件内容已更新。请到 chrome://extensions，点该扩展卡片的刷新按钮（↻）即可，无需 Remove 或重新选目录。`
+							: `浏览器组件无变化，无需在 Chrome 端做任何操作。`;
+					ctx.ui.notify(`Native host 注册已回读确认。\n固定扩展目录：${extensionDirDisplay}\n${next}\n完成后用 /browser status 检查连接。`, "info");
 					return;
 				}
 				let registration = "unknown（检查未完成）";
-				let directory = "未确认";
+				let reloadHint = "";
 				try {
 					const result = await commandIO.runInstaller("status", controller.signal);
 					assertOwner();
 					if (!record(result) || typeof result.installed !== "boolean") throw new Error("Invalid installer status");
-					directory = componentDirectory(result);
-					registration = result.installed ? "与当前安装匹配（浏览器组件内容匹配）" : "未确认匹配（首次迁移、组件或 Node 变化、缺失、损坏或不可读）";
+					if (result.installed === true) { registration = "与当前 rotom 匹配（组件已是最新）"; reloadHint = "固定目录已是最新；若刚升级请点扩展刷新（↻）一次。"; }
+					else if (flag(result, "registrationValid")) { registration = "已注册，但组件与当前 rotom 不一致"; reloadHint = "请运行 /browser install 更新固定目录，再点扩展刷新（↻）。"; }
+					else { registration = "未确认匹配（首次安装、Node 变化、缺失、损坏或不可读）"; reloadHint = "请运行 /browser install。"; }
 				} catch { assertOwner(); }
 				let connection = "unknown（超时、权限或协议检查未完成）";
 				try {
@@ -634,7 +643,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 					assertOwner();
 					if (error instanceof BrowserRelayUnavailableErrorV1) connection = "不可用（本机 relay socket 缺失或拒绝连接）";
 				}
-				ctx.ui.notify(`Native host：${registration}\nChrome Relay：${connection}\n固定组件目录：${directory}\n注册匹配不等于连接可用，旧组件的 Relay 也可能在线。\n若 Chrome 已加载此目录，普通重打包无需重新加载；首次迁移或组件目录变化才需手动切换。\n标签 debugger 身份失效是另一问题，不应通过重复安装或重放原动作解决。`, "info");
+				ctx.ui.notify(`Native host：${registration}\nChrome Relay：${connection}\n固定扩展目录：${extensionDirDisplay}\n${reloadHint}\n注册匹配不等于连接可用，旧组件的 Relay 也可能在线。\n标签 debugger 身份失效是另一问题，不应通过重复安装或重放原动作解决。`, "info");
 			} catch {
 				// Never publish old-session UI, child stderr, paths from child output, or a
 				// guessed success. An interrupted installer may already have written files.

@@ -12,8 +12,14 @@ const EXTENSION_ID = "kgadcllokaodnoknakblocmhidemimdi";
 const root = dirname(fileURLToPath(import.meta.url));
 const home = await realpath(homedir());
 const supportDir = join(home, "Library", "Application Support", "rotom", "browser-relay");
-const componentsDir = join(supportDir, "components");
+// A single stable directory is what Chrome loads and what the launcher execs. Its
+// path never changes across product releases, so a content upgrade is one Chrome
+// reload (↻) with no re-selecting an unpacked directory or re-registering the host.
+const currentDir = join(supportDir, "current");
+const extensionDir = join(currentDir, "chrome-extension");
+const nativeHostPath = join(currentDir, "native-host.mjs");
 const launcherPath = join(supportDir, "native-host-launcher.sh");
+const installLock = join(supportDir, ".install.lock");
 const chromeManifestDir = join(home, "Library", "Application Support", "Google", "Chrome", "NativeMessagingHosts");
 const chromeManifestPath = join(chromeManifestDir, `${HOST_NAME}.json`);
 
@@ -98,75 +104,92 @@ function digestFiles(files) {
 	return hash.digest("hex");
 }
 
-async function componentState(component) {
+// The content currently materialized in the stable directory Chrome loads from.
+async function installedState() {
 	let directoryExists = false;
 	try {
-		for (const path of [supportDir, componentsDir, component.directory]) {
+		for (const path of [supportDir, currentDir]) {
 			const info = await lstat(path);
-			if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== process.getuid() || (info.mode & 0o077) !== 0 || await realpath(path) !== path) return "invalid";
+			if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== process.getuid() || (info.mode & 0o077) !== 0 || await realpath(path) !== path) return { state: "invalid" };
 		}
 		directoryExists = true;
-		const names = (await readdir(component.directory)).sort();
-		if (JSON.stringify(names) !== JSON.stringify(["chrome-extension", "native-host.mjs"])) return "invalid";
-		return digestFiles(await componentFiles(component.directory, true)) === component.digest ? "ready" : "invalid";
+		const names = (await readdir(currentDir)).sort();
+		if (JSON.stringify(names) !== JSON.stringify(["chrome-extension", "native-host.mjs"])) return { state: "invalid" };
+		return { state: "ready", digest: digestFiles(await componentFiles(currentDir, true)) };
 	} catch (error) {
-		if (error instanceof ComponentIdentityError) return "invalid";
-		return error?.code === "ENOENT" ? (directoryExists ? "invalid" : "missing") : "unavailable";
+		if (error instanceof ComponentIdentityError) return { state: "invalid" };
+		return error?.code === "ENOENT" ? { state: directoryExists ? "invalid" : "missing" } : { state: "unavailable" };
 	}
 }
 
 async function describeComponent() {
 	if (await realpath(root) !== root || await realpath(process.execPath) !== process.execPath) throw new Error("installer 必须使用 canonical 资源与 Node");
 	const files = await componentFiles(root);
-	const digest = digestFiles(files);
-	return { files, digest, directory: join(componentsDir, digest) };
+	return { files, digest: digestFiles(files) };
 }
 
+async function removeCurrentAside(previous) {
+	const info = await lstat(previous).catch((error) => { if (error?.code === "ENOENT") return undefined; throw error; });
+	if (!info) return;
+	if (info.isSymbolicLink() || !info.isDirectory()) await unlink(previous);
+	else await rm(previous, { recursive: true });
+}
+
+// Atomically replace the stable directory's contents to match the packaged component.
+// The running native host already holds its code in memory; Chrome does not auto-reload
+// an unpacked extension, so a user reload (↻) picks up the swapped files. Returns whether
+// the content actually changed so the UI can ask for exactly one reload when needed.
 async function materialize(component) {
-	const state = await componentState(component);
-	if (state === "ready") return;
-	// Never repair/overwrite a published component: an existing Chrome or host may
-	// still be using it. A crashed install is diagnosed, not replayed automatically.
-	try { await lstat(component.directory); throw new Error("已有 browser component 未通过校验；拒绝覆盖"); }
-	catch (error) { if (error?.code !== "ENOENT") throw error; }
-	if ((await readdir(componentsDir)).length >= 128) throw new Error("browser component 存储已满；不自动清理旧版本");
-	const lock = join(componentsDir, `${component.digest}.lock`);
-	await mkdir(lock, { mode: 0o700 }); // exclusive; no stale-lock stealing or retry
-	const lockIdentity = await lstat(lock);
-	let staging; let stagingIdentity;
+	const before = await installedState();
+	if (before.state === "unavailable") throw new Error("browser component 状态不可确定；未改动");
+	if (before.state === "ready" && before.digest === component.digest) return "unchanged";
+	await mkdir(installLock, { mode: 0o700 }); // exclusive; no stale-lock stealing or retry
+	const lockIdentity = await lstat(installLock);
+	let staging; let stagingIdentity; let previous;
 	try {
-		staging = await mkdtemp(join(componentsDir, ".stage-"));
+		staging = await mkdtemp(join(supportDir, ".stage-"));
 		stagingIdentity = await lstat(staging);
 		for (const [name, data] of component.files) {
 			await mkdir(dirname(join(staging, name)), { recursive: true, mode: 0o700 });
 			await atomicPrivateWrite(join(staging, name), data, 0o600);
 		}
 		if (digestFiles(await componentFiles(staging, true)) !== component.digest) throw new Error("browser component 暂存校验失败");
-		// The lock serializes cooperating installers; reject unexpected publication.
-		try { await lstat(component.directory); throw new Error("browser component 发布目标已存在"); }
-		catch (error) { if (error?.code !== "ENOENT") throw error; }
-		await rename(staging, component.directory);
+		const existing = await lstat(currentDir).catch((error) => { if (error?.code === "ENOENT") return undefined; throw error; });
+		if (existing) {
+			previous = join(supportDir, `.previous-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+			await rename(currentDir, previous); // brief window: only Chrome ↻ or a new native connection reads currentDir
+		}
+		await rename(staging, currentDir);
 		staging = undefined;
-		const directory = await open(componentsDir, constants.O_RDONLY);
+		const directory = await open(supportDir, constants.O_RDONLY);
 		try { await directory.sync(); } finally { await directory.close(); }
 	} finally {
 		if (staging) {
 			const current = await lstat(staging).catch(() => undefined);
 			if (stagingIdentity && current?.ino === stagingIdentity.ino && current?.dev === stagingIdentity.dev && current.isDirectory() && !current.isSymbolicLink()) await rm(staging, { recursive: true });
 		}
-		const current = await lstat(lock).catch(() => undefined);
-		if (current?.ino === lockIdentity.ino && current?.dev === lockIdentity.dev && current.isDirectory() && !current.isSymbolicLink()) await rmdir(lock);
+		if (previous) await removeCurrentAside(previous).catch(() => {});
+		const current = await lstat(installLock).catch(() => undefined);
+		if (current?.ino === lockIdentity.ino && current?.dev === lockIdentity.dev && current.isDirectory() && !current.isSymbolicLink()) await rmdir(installLock);
 	}
+	return before.state === "missing" ? "created" : "updated";
 }
 
-function expectedInstallContent(component) {
-	const launcher = `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(join(component.directory, "native-host.mjs"))}\n`;
+function expectedInstallContent() {
+	// Launcher references the stable native-host path, so its bytes depend only on the
+	// Node executable — component content changes never re-register the host.
+	const launcher = `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(nativeHostPath)}\n`;
 	const manifest = `${JSON.stringify({ name: HOST_NAME, description: "Rotom Browser Relay Native Messaging Host", path: launcherPath, type: "stdio", allowed_origins: [`chrome-extension://${EXTENSION_ID}/`] }, null, 2)}\n`;
 	return { launcher, manifest };
 }
 
-function details(component) {
-	return { extensionId: EXTENSION_ID, componentDigest: component.digest, extensionDir: join(component.directory, "chrome-extension"), nativeHostManifest: chromeManifestPath, launcherPath };
+function details(component, installed) {
+	return {
+		extensionId: EXTENSION_ID,
+		componentDigest: component.digest,
+		installedDigest: installed?.state === "ready" ? installed.digest : null,
+		extensionDir, nativeHostManifest: chromeManifestPath, launcherPath,
+	};
 }
 
 async function install() {
@@ -174,13 +197,18 @@ async function install() {
 	const component = await describeComponent();
 	await ensureDirectory(join(home, "Library", "Application Support", "rotom"), 0o700, true);
 	await ensureDirectory(supportDir, 0o700, true);
-	await ensureDirectory(componentsDir, 0o700, true);
 	await ensureDirectory(chromeManifestDir, 0o700, false, true);
-	await materialize(component);
-	const { launcher, manifest } = expectedInstallContent(component);
+	const change = await materialize(component);
+	const { launcher, manifest } = expectedInstallContent();
 	await atomicPrivateWrite(launcherPath, launcher, 0o700);
 	await atomicPrivateWrite(chromeManifestPath, manifest, 0o600);
-	console.log(JSON.stringify({ status: "installed", ...details(component) }, null, 2));
+	const installed = await installedState();
+	console.log(JSON.stringify({
+		status: "installed",
+		firstInstall: change === "created",
+		reloadNeeded: change === "updated",
+		...details(component, installed),
+	}, null, 2));
 }
 
 async function matchesExpectedFile(path, identity, expected) {
@@ -202,13 +230,17 @@ async function matchesExpectedFile(path, identity, expected) {
 
 async function status() {
 	const component = await describeComponent();
-	const state = await componentState(component);
-	const result = { ...details(component), componentState: state, installed: false };
+	const installed = await installedState();
+	const upToDate = installed.state === "ready" && installed.digest === component.digest;
+	const result = { ...details(component, installed), componentState: installed.state, upToDate, registrationValid: false, installed: false };
 	try {
 		const [manifestInfo, launcherInfo] = await Promise.all([lstat(chromeManifestPath), lstat(launcherPath)]);
-		const expected = expectedInstallContent(component);
-		result.installed = state === "ready" && manifestInfo.uid === process.getuid() && launcherInfo.uid === process.getuid() && manifestInfo.isFile() && !manifestInfo.isSymbolicLink() && manifestInfo.nlink === 1 && launcherInfo.isFile() && !launcherInfo.isSymbolicLink() && launcherInfo.nlink === 1 && (manifestInfo.mode & 0o077) === 0 && (launcherInfo.mode & 0o077) === 0 && await matchesExpectedFile(chromeManifestPath, manifestInfo, expected.manifest) && await matchesExpectedFile(launcherPath, launcherInfo, expected.launcher);
+		const expected = expectedInstallContent();
+		result.registrationValid = manifestInfo.uid === process.getuid() && launcherInfo.uid === process.getuid() && manifestInfo.isFile() && !manifestInfo.isSymbolicLink() && manifestInfo.nlink === 1 && launcherInfo.isFile() && !launcherInfo.isSymbolicLink() && launcherInfo.nlink === 1 && (manifestInfo.mode & 0o077) === 0 && (launcherInfo.mode & 0o077) === 0 && await matchesExpectedFile(chromeManifestPath, manifestInfo, expected.manifest) && await matchesExpectedFile(launcherPath, launcherInfo, expected.launcher);
 	} catch { /* unconfirmed registration; not a Chrome connection conclusion */ }
+	// installed means a working, current relay: registration valid and the loaded
+	// directory already matches this rotom (so no reload is pending).
+	result.installed = result.registrationValid && upToDate;
 	console.log(JSON.stringify(result, null, 2));
 }
 
@@ -223,8 +255,9 @@ async function removeExact(path) {
 async function uninstall() {
 	await removeExact(chromeManifestPath);
 	await removeExact(launcherPath);
-	// Retain immutable snapshots: Chrome/live native hosts may still reference them.
-	console.log(JSON.stringify({ status: "uninstalled", componentsRetained: true, extensionId: EXTENSION_ID }));
+	// Retain the stable directory: Chrome may still have it loaded and a running native
+	// host may still reference it. Removing it is a user action in chrome://extensions.
+	console.log(JSON.stringify({ status: "uninstalled", componentRetained: true, extensionId: EXTENSION_ID }));
 }
 
 const operation = process.argv[2] ?? "status";
