@@ -71,17 +71,7 @@ const BROWSER_COMMANDS = [
 	{ value: "use", label: "开始使用浏览器", description: "提交一次浏览器任务（会调用当前模型）" },
 	{ value: "install", label: "安装 / 更新 Chrome Relay", description: "确认后注册 native host，扩展仍需手动加载" },
 	{ value: "status", label: "查看状态", description: "只读检查注册与连接，不调用模型或读取页面" },
-	{ value: "help", label: "使用说明", description: "查看命令与手动加载步骤" },
 ] as const;
-const BROWSER_COMMAND_HELP = [
-	"/browser — 打开操作菜单（Esc 取消）",
-	"/browser use <任务> — 用当前模型执行一次浏览器任务；不切换全局模式",
-	"/browser install — 确认后注册本安装的 Chrome Relay（macOS）",
-	"/browser status — 分别检查注册与协议连接，不读取网页",
-	"Chrome 125+：chrome://extensions → 开发者模式 → 加载已解压的扩展",
-	`扩展目录：${JSON.stringify(BROWSER_EXTENSION_DIR)}`,
-	"安装与状态信息仅在界面显示，不进入模型上下文。",
-].join("\n");
 
 function defaultCommandDependenciesV1(): BrowserCommandDependenciesV1 {
 	// Freeze the diagnostic/install coordinates before any asynchronous UI or I/O.
@@ -568,7 +558,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 	}));
 
 	pi.registerCommand("browser", {
-		description: "手动使用浏览器、安装 Chrome Relay 或查看连接状态",
+		description: "手动使用浏览器；install 安装连接程序，status 查看状态",
 		getArgumentCompletions(prefix) {
 			if (/\s/u.test(prefix)) return null;
 			const matches = BROWSER_COMMANDS.filter((item) => item.value.startsWith(prefix));
@@ -583,25 +573,18 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			const ownerEpoch = epoch;
 			const owns = () => !shutdown && !controller.signal.aborted && epoch === ownerEpoch && ctx.sessionManager.getSessionId() === ownerSession;
 			const assertOwner = () => { if (!owns()) throw new Error("Browser command owner retired"); };
-			let operation = "help";
+			let operation = "use";
 			let installDispatched = false;
 			try {
 				assertOwner();
 				const input = args.trim();
 				if (Buffer.byteLength(input, "utf8") > 4_096 || input.includes("\0")) { ctx.ui.notify("/browser 参数过长或无效。", "warning"); return; }
 				const parsed = /^(\S+)(?:\s+([\s\S]*))?$/u.exec(input);
-				operation = parsed?.[1] ?? "";
+				operation = parsed?.[1] ?? "use";
 				let task = parsed?.[2]?.trim() ?? "";
-				if (!operation) {
-					const choice = await ctx.ui.select("浏览器", BROWSER_COMMANDS.map((item) => `${item.label} — ${item.description}`), { signal: controller.signal });
-					assertOwner();
-					if (choice === undefined) return;
-					operation = BROWSER_COMMANDS.find((item) => `${item.label} — ${item.description}` === choice)?.value ?? "";
-				}
 				if (!BROWSER_COMMANDS.some((item) => item.value === operation) || (operation !== "use" && task)) {
-					ctx.ui.notify("未知命令或多余参数。请使用 /browser help；浏览器任务用 /browser use <任务>。", "warning"); return;
+					ctx.ui.notify("可用命令：/browser、/browser use <任务>、/browser install、/browser status。", "warning"); return;
 				}
-				if (operation === "help") { ctx.ui.notify(BROWSER_COMMAND_HELP, "info"); return; }
 				if (operation === "use") {
 					if (!ctx.isIdle()) { ctx.ui.notify("当前任务尚未结束，请空闲后再使用 /browser use。", "warning"); return; }
 					if (!task) task = (await ctx.ui.input("浏览器任务（会调用当前模型）", "例如：打开 example.com，读取页面标题", { signal: controller.signal }))?.trim() ?? "";

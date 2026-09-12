@@ -24,7 +24,7 @@ rotom
 
 当前安装器支持 **macOS + Google Chrome 125+**，不会自动安装或加载扩展。
 
-在 rotom 会话内输入 **`/browser`** 打开菜单，也可以直接执行：
+在 rotom 会话内输入 **`/browser`** 并回车，直接填写浏览器任务；输入 `/browser `（尾随空格）可补全子命令。首次配置：
 
 1. **`/browser install`**：确认后注册当前安装的连接程序，并显示扩展目录。
 2. **加载 Chrome 扩展**：打开 `chrome://extensions`，开启「开发者模式」，点击「加载已解压的扩展」，选择上一步显示的目录。保持 Chrome 开启。

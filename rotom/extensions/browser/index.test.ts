@@ -379,7 +379,7 @@ test("/browser: explicit commands, local-only diagnostics, cancellation and owne
 	async function fixture(overrides: Record<string, unknown> = {}, realIO = false) {
 		const commands = new Map<string, any>(), handlers = new Map<string, any>();
 		const notices: string[] = [], messages: Array<{ text: string; options: unknown }> = [], calls: string[] = [];
-		let confirmed = false, choice: string | undefined, input: string | undefined;
+		let confirmed = false, input: string | undefined;
 		let active = ["browser_inspect", "browser_interact"], idle = true, sessionId = "command-session";
 		let resolveConfirm: (() => Promise<boolean>) | undefined;
 		let resolveInput: (() => Promise<string | undefined>) | undefined;
@@ -387,7 +387,7 @@ test("/browser: explicit commands, local-only diagnostics, cancellation and owne
 			sessionManager: { getSessionId: () => sessionId, getBranch: () => [] },
 			ui: {
 				notify(message: string) { notices.push(message); },
-				async select(_title: string, options: string[]) { return options.find((option) => option.startsWith(choice ?? "absent")); },
+				async select() { throw new Error("/browser must not open an action menu"); },
 				async confirm() { calls.push("confirm"); return resolveConfirm ? resolveConfirm() : confirmed; },
 				async input() { return resolveInput ? resolveInput() : input; },
 			},
@@ -416,18 +416,19 @@ test("/browser: explicit commands, local-only diagnostics, cancellation and owne
 		return { command, ctx, calls, notices, messages,
 			run: (args = "") => command.handler(args, ctx),
 			emit: (event: string, payload: unknown = {}) => handlers.get(event)(payload, ctx),
-			confirm(value = true) { confirmed = value; }, pick(value: string) { choice = value; },
+			confirm(value = true) { confirmed = value; },
 			input(value: string) { input = value; }, selectTools(value: string[]) { active = value; },
 			busy() { idle = false; }, switchId() { sessionId = "replacement-session"; },
 			waitConfirm(fn: () => Promise<boolean>) { resolveConfirm = fn; },
 			waitInput(fn: () => Promise<string | undefined>) { resolveInput = fn; },
 		};
 	}
-	await t.test("startup, menu cancellation, help and invalid arguments have no IO/model effects", async () => {
+	await t.test("startup, cancelled default task and invalid arguments have no IO/model effects", async () => {
 		const f = await fixture(); assert.deepEqual(f.calls, []);
 		await f.run(); assert.deepEqual(f.calls, []); assert.deepEqual(f.notices, []);
-		await f.run("help"); assert.match(f.notices.at(-1)!, /chrome:\/\/extensions/u);
-		for (const bad of ["uninstall", "install extra", "status extra", "unknown", "x".repeat(4097), "use a\0b"]) await f.run(bad);
+		assert.deepEqual(f.command.getArgumentCompletions("").map((item: any) => item.value), ["use", "install", "status"]);
+		assert.equal(f.command.getArgumentCompletions("help"), null);
+		for (const bad of ["help", "uninstall", "install extra", "status extra", "unknown", "x".repeat(4097), "use a\0b"]) await f.run(bad);
 		assert.deepEqual(f.calls, []); assert.deepEqual(f.messages, []);
 		assert.deepEqual(f.command.getArgumentCompletions("st").map((item: any) => item.value), ["status"]);
 		assert.equal(f.command.getArgumentCompletions("use private task"), null);
@@ -438,8 +439,6 @@ test("/browser: explicit commands, local-only diagnostics, cancellation and owne
 		assert.deepEqual(f.calls, ["confirm", "install", "status"]);
 		assert.match(f.notices.at(-1)!, /注册已回读确认.*仍需手动/su);
 		assert.deepEqual(f.messages, []);
-		const menu = await fixture(); menu.pick("安装 / 更新"); menu.confirm(); await menu.run();
-		assert.deepEqual(menu.calls, ["confirm", "install", "status"]);
 	});
 	for (const failure of ["timeout after write", "permission denied", "cancelled", "secret child stderr"]) {
 		await t.test(`installer error stays unknown without retry: ${failure}`, async () => {
@@ -477,7 +476,7 @@ test("/browser: explicit commands, local-only diagnostics, cancellation and owne
 		const f = await fixture(); await f.run("use 打开 example.com，读标题");
 		assert.equal(f.messages.length, 1); assert.match(f.messages[0].text, /用户任务：\n打开 example.com，读标题/u);
 		assert.deepEqual(f.messages[0].options, { expandPromptTemplates: false }); assert.deepEqual(f.calls, []);
-		const menu = await fixture(); menu.pick("开始使用"); menu.input("/browser install"); await menu.run();
+		const menu = await fixture(); menu.input("/browser install"); await menu.run();
 		assert.equal(menu.messages.length, 1); assert.deepEqual(menu.calls, []);
 		assert.match(menu.messages[0].text, /用户任务：\n\/browser install/u);
 	});
