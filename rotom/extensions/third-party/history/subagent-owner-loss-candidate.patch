@@ -1,0 +1,46 @@
+--- a/src/runs/background/stale-run-reconciler.ts
++++ b/src/runs/background/stale-run-reconciler.ts
+@@ -272,0 +273,10 @@
++export class StaleWorkflowExecutionUnknownError extends Error {
++	readonly code = "WORKFLOW_EXECUTION_UNKNOWN";
++	readonly runId: string;
++	constructor(runId: string) {
++		super(`Workflow '${runId}' owner cannot be verified. Descendant execution and side effects remain unknown. Do not resume or retry until writer termination is independently verified.`);
++		this.name = "StaleWorkflowExecutionUnknownError";
++		this.runId = runId;
++	}
++}
++
+@@ -273,0 +284,5 @@
++	// Script workflows execute in their owner process. Its disappearance (or an
++	// unverified stale PID) says nothing about already spawned Pi/tool writers.
++	// Do not manufacture a terminal status/result that authorizes a second writer.
++	// A result already persisted by the workflow is handled before this path.
++	if (status.mode === "workflow") throw new StaleWorkflowExecutionUnknownError(status.runId);
+--- a/src/runs/background/async-status.ts
++++ b/src/runs/background/async-status.ts
+@@ -13 +13 @@
+-import { reconcileAsyncRun, reconcileNestedAsyncDescendants } from "./stale-run-reconciler.ts";
++import { reconcileAsyncRun, reconcileNestedAsyncDescendants, StaleWorkflowExecutionUnknownError } from "./stale-run-reconciler.ts";
+@@ -443,4 +443,14 @@
+-		const reconciliation = options.reconcile === false
+-			? undefined
+-			: reconcileAsyncRun(asyncDir, { resultsDir: options.resultsDir, kill: options.kill, now: options.now });
+-		const status = (reconciliation?.status ?? readStatus(asyncDir)) as (AsyncStatus & { cwd?: string }) | null;
++		let reconciliation: ReturnType<typeof reconcileAsyncRun> | undefined;
++		let executionUnknown: StaleWorkflowExecutionUnknownError | undefined;
++		try {
++			if (options.reconcile !== false) reconciliation = reconcileAsyncRun(asyncDir, { resultsDir: options.resultsDir, kill: options.kill, now: options.now });
++		} catch (error) {
++			if (!(error instanceof StaleWorkflowExecutionUnknownError)) throw error;
++			executionUnknown = error;
++		}
++		const persisted = reconciliation?.status ?? readStatus(asyncDir);
++		// Read-only projection: one unknown owner must not hide healthy runs or
++		// persist a made-up terminal result. Direct resume/stop still fail closed.
++		const status = (executionUnknown && persisted
++			? { ...persisted, activityState: "needs_attention", error: executionUnknown.message }
++			: persisted) as (AsyncStatus & { cwd?: string }) | null;
+@@ -464 +474 @@
+-		if (options.reconcile !== false && includeNested) {
++		if (options.reconcile !== false && includeNested && !executionUnknown) {

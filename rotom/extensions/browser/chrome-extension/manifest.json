@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Rotom Browser Relay",
+	"version": "0.9.0",
+  "description": "Connects Rotom to Chrome tabs with direct trusted-local inspection and interaction.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArCtbXZfW6PA0XsZFuZcFOxDP3k5PgUj5OnXjcsFQlkal7dq4g/FTg99qoiFj1d60bnGOtFrlPzkSImwREFz3R1ax9xwtSK8yAI8aUSqbY3UMoLoDSuD4gQ/eLBskCJju4b1UJ6aBH+047GEYPhC7532lrEuIeFoReXkkCJP4GPWmU2Ac0TrcYVni7nfet4LlnfbVnp7Sp2IRH0/WNpGUCHlGFvYwHqm9Kw4AzI9FcBe08cPPkNaCUr+bjpnkPkvi1/gQz2wDNPJlCTXzPsdYDog0BsWHn69Pm6y7N40TkNtj2jPZsmcd6KciZQpUkPAl895q/3f6hZnDovDOGJs4NQIDAQAB",
+  "minimum_chrome_version": "125",
+  "permissions": [
+    "alarms",
+    "debugger",
+    "nativeMessaging",
+    "storage",
+    "tabs",
+    "tabGroups"
+  ],
+  "background": {
+    "service_worker": "service-worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Rotom Browser Relay"
+  }
+}

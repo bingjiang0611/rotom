@@ -1,0 +1,5 @@
+# dev-agent-benchmark-profile/v1
+# This is a fixed smoke canary, not a representative benchmark sample.
+# Format: <benchmark> <explicit task id>
+swe-bench-multilingual apache__druid-13704
+terminal-bench-2 terminal-bench/make-mips-interpreter

@@ -1,0 +1,13 @@
+# The prebuilt native bridge binaries (~14MB) are copied verbatim from the
+# upstream 0.5.1 tarball and are ALSO carried, byte-for-byte, inside the
+# integrity-pinned vendored artifact that the product actually ships:
+#   rotom/extensions/third-party/vendor/injaneity-pi-computer-use-0.5.1-rotom.0.tgz
+# The product is built from that committed tgz (via pack:release + the lockfile
+# `file:vendor/...` resolution), never by repacking this source tree, so keeping
+# the binaries out of git avoids duplicating them in history.
+#
+# To re-pack this fork after a TypeScript change, first restore the binaries
+# from the committed artifact (fully reproducible), then `npm pack`:
+#   tar xzf ../../rotom/extensions/third-party/vendor/injaneity-pi-computer-use-0.5.1-rotom.0.tgz \
+#     --strip-components=1 -C . package/prebuilt
+prebuilt/

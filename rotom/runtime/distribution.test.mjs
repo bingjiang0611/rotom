@@ -1,0 +1,152 @@
+import assert from "node:assert/strict";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { spawnSync } from "node:child_process";
+import test from "node:test";
+import { DISTRIBUTION_PI_INTEGRITY, DISTRIBUTION_PI_VERSION, RESOURCE_DESCRIPTORS_V1, VERIFIED_PI_PACKAGE, VERIFIED_THIRD_PARTY_PACKAGES } from "./product-config.mjs";
+import { resolveInstalledPi, verifyDistributionContract } from "./resolve-installed-pi.mjs";
+import { EMBEDDED_MODULES, releaseFiles, stageRelease, verifyPackList } from "../scripts/pack-release.mjs";
+
+const SOURCE = resolve(import.meta.dirname, "..");
+const manifest = JSON.parse(readFileSync(join(SOURCE, "package.json"), "utf8"));
+function temp(t) {
+	const path = realpathSync(mkdtempSync(join(tmpdir(), "rotom-distribution-test-")));
+	t.after(() => rmSync(path, { recursive: true, force: true }));
+	return path;
+}
+function put(path, value) {
+	mkdirSync(dirname(path), { recursive: true });
+	writeFileSync(path, typeof value === "string" ? value : JSON.stringify(value));
+}
+function fixture(t, hoisted = false) {
+	const work = temp(t);
+	const root = join(work, "node_modules/rotom");
+	put(join(root, "package.json"), manifest);
+	cpSync(join(SOURCE, "npm-shrinkwrap.json"), join(root, "npm-shrinkwrap.json"));
+	const pi = join(hoisted ? work : root, "node_modules", VERIFIED_PI_PACKAGE);
+	const pkg = { name: VERIFIED_PI_PACKAGE, version: DISTRIBUTION_PI_VERSION, type: "module", bin: { pi: "cli.js" }, exports: { ".": { import: "./index.js" } } };
+	put(join(pi, "package.json"), pkg);
+	put(join(pi, "cli.js"), "#!/bin/sh\nexit 99\n");
+	chmodSync(join(pi, "cli.js"), 0o755);
+	put(join(pi, "index.js"), "throw new Error('resolver must not import SDK');\n");
+	return { work, root, pi, pkg };
+}
+
+test("distribution is private, pins official Pi, has no installation hooks and declares the public bin", async () => {
+	assert.equal(manifest.private, true);
+	assert.equal(manifest.license, "UNLICENSED");
+	assert.deepEqual(manifest.dependencies, { [VERIFIED_PI_PACKAGE]: DISTRIBUTION_PI_VERSION });
+	assert.deepEqual(manifest.bin, { rotom: "bin/rotom" });
+	for (const hook of ["preinstall", "install", "postinstall", "prepare"]) assert.equal(manifest.scripts[hook], undefined);
+	await verifyDistributionContract(SOURCE);
+});
+
+for (const hoisted of [false, true]) {
+	test(`resolves ${hoisted ? "hoisted local" : "nested/global"} dependency using bin.pi without importing SDK`, async (t) => {
+		const { root, pi } = fixture(t, hoisted);
+		assert.equal(await resolveInstalledPi(root), join(pi, "cli.js"));
+	});
+}
+
+for (const change of ["version", "name", "bin-escape", "bin-symlink", "parent-symlink", "metadata-symlink", "public-escape", "public-symlink"]) {
+	test(`rejects installed Pi ${change}`, async (t) => {
+		const { work, root, pi, pkg } = fixture(t);
+		if (change === "version") pkg.version = "0.85.2";
+		if (change === "name") pkg.name = "fake-pi";
+		if (change === "bin-escape") pkg.bin.pi = "../escape.js";
+		if (change === "public-escape") { pkg.exports["."].import = "../escape.js"; put(join(pi, "../escape.js"), ""); }
+		put(join(pi, "package.json"), pkg);
+		if (change === "bin-symlink") { rmSync(join(pi, "cli.js")); symlinkSync("index.js", join(pi, "cli.js")); }
+		if (change === "public-symlink") { put(join(pi, "entry.js"), ""); rmSync(join(pi, "index.js")); symlinkSync("entry.js", join(pi, "index.js")); }
+		if (change === "metadata-symlink") { put(join(work, "package.json"), pkg); rmSync(join(pi, "package.json")); symlinkSync(join(work, "package.json"), join(pi, "package.json")); }
+		if (change === "parent-symlink") { cpSync(pi, join(work, "external"), { recursive: true }); rmSync(pi, { recursive: true }); symlinkSync(join(work, "external"), pi); }
+		await assert.rejects(resolveInstalledPi(root));
+	});
+}
+
+test("missing installed dependency fails closed despite PATH and NODE_PATH", async (t) => {
+	const { root, pi, work } = fixture(t);
+	rmSync(pi, { recursive: true });
+	const bin = join(work, "bin");
+	put(join(bin, "pi"), `#!/bin/sh\ntouch '${join(work, "executed")}'\n`);
+	chmodSync(join(bin, "pi"), 0o755);
+	const result = spawnSync(process.execPath, [join(SOURCE, "runtime/resolve-installed-pi.mjs"), root], { env: { PATH: bin, NODE_PATH: bin }, encoding: "utf8" });
+	assert.notEqual(result.status, 0);
+	assert.match(result.stderr, /缺少 rotom 随附的 Pi 依赖/);
+	assert.equal(existsSync(join(work, "executed")), false);
+});
+
+test("rejects manifest and shrinkwrap drift, not just installed version", async (t) => {
+	const { root } = fixture(t);
+	const lockPath = join(root, "npm-shrinkwrap.json");
+	const lock = JSON.parse(readFileSync(lockPath, "utf8"));
+	assert.equal(lock.packages[`node_modules/${VERIFIED_PI_PACKAGE}`].integrity, DISTRIBUTION_PI_INTEGRITY);
+	lock.packages[`node_modules/${VERIFIED_PI_PACKAGE}`].integrity = "sha512-wrong";
+	put(lockPath, lock);
+	await assert.rejects(resolveInstalledPi(root), /shrinkwrap integrity/);
+	cpSync(join(SOURCE, "npm-shrinkwrap.json"), lockPath);
+	put(join(root, "package.json"), { ...manifest, dependencies: { [VERIFIED_PI_PACKAGE]: "^0.85.1" } });
+	await assert.rejects(resolveInstalledPi(root), /dependency/);
+	put(join(root, "package.json"), manifest);
+	const original = JSON.parse(readFileSync(join(SOURCE, "npm-shrinkwrap.json"), "utf8"));
+	const transitive = `node_modules/${VERIFIED_PI_PACKAGE}/node_modules/@earendil-works/chord`;
+	delete original.packages[transitive].integrity;
+	put(lockPath, original);
+	await assert.rejects(resolveInstalledPi(root), /transitive source\/integrity/);
+	original.packages[transitive].integrity = DISTRIBUTION_PI_INTEGRITY;
+	original.packages[transitive].resolved = "https://example.invalid/untrusted.tgz";
+	put(lockPath, original);
+	await assert.rejects(resolveInstalledPi(root), /transitive source\/integrity/);
+});
+
+test("npm bin symlink chains preserve business cwd, argv, environment and exit status", (t) => {
+	const root = temp(t);
+	const bin = join(root, "lib/node_modules/rotom/bin");
+	mkdirSync(bin, { recursive: true });
+	cpSync(join(SOURCE, "bin/rotom"), join(bin, "rotom"));
+	const capture = join(root, "capture.json");
+	const script = "require('node:fs').writeFileSync(process.env.CAPTURE,JSON.stringify({cwd:process.cwd(),argv:process.argv.slice(1),value:process.env.MARKER}));process.exit(37)";
+	put(join(bin, "rotom"), `#!/bin/sh\nexec "$FIXTURE_NODE" -e "${script}" -- "$@"\n`);
+	chmodSync(join(bin, "rotom"), 0o755);
+	mkdirSync(join(root, "bin"));
+	symlinkSync("../lib/node_modules/rotom/bin/rotom", join(root, "bin/rotom-real"));
+	symlinkSync("rotom-real", join(root, "bin/rotom"));
+	const cwd = join(root, "business space");
+	mkdirSync(cwd);
+	const argv = ["--model", "test/model", "Unicode 洛托姆", "line1\nline2", "$(not-a-command)", ""];
+	const result = spawnSync(join(root, "bin/rotom"), argv, { cwd, env: { PATH: "/usr/bin:/bin", FIXTURE_NODE: process.execPath, CAPTURE: capture, MARKER: "kept" }, encoding: "utf8" });
+	assert.equal(result.status, 37, result.stderr);
+	assert.deepEqual(JSON.parse(readFileSync(capture, "utf8")), { cwd, argv, value: "kept" });
+});
+
+test("staging uses an explicit file list and never copies source node_modules or private state", async (t) => {
+	const root = temp(t);
+	const source = join(root, "source");
+	put(join(source, "package.json"), { files: ["bin/rotom", EMBEDDED_MODULES] });
+	put(join(source, "bin/rotom"), "example");
+	put(join(source, EMBEDDED_MODULES, "private.txt"), "do not copy");
+	put(join(source, ".pi/tasks/private.txt"), "do not copy");
+	const stage = join(root, "stage");
+	await stageRelease(source, stage);
+	assert.equal(existsSync(join(stage, EMBEDDED_MODULES)), false);
+	assert.equal(existsSync(join(stage, ".pi")), false);
+	rmSync(join(source, "bin/rotom"));
+	symlinkSync(join(source, EMBEDDED_MODULES, "private.txt"), join(source, "bin/rotom"));
+	await assert.rejects(stageRelease(source, join(root, "bad")), /Untrusted release source/);
+	for (const file of ["../secret", ".pi/tasks/a", "evals/data.json", "extensions/test.test.ts"]) {
+		assert.throws(() => releaseFiles({ files: [file, EMBEDDED_MODULES] }));
+	}
+});
+
+test("packed inventory requires every runtime resource and license and excludes unexpected source artifacts", () => {
+	const paths = new Set(releaseFiles(manifest).filter((file) => file !== EMBEDDED_MODULES));
+	for (const r of RESOURCE_DESCRIPTORS_V1) for (const file of r.requiredFiles) paths.add(`${r.path}/${file}`);
+	for (const name of Object.keys(VERIFIED_THIRD_PARTY_PACKAGES)) paths.add(`${EMBEDDED_MODULES}/${name}/LICENSE`);
+	const packed = { files: [...paths].map((path) => ({ path })) };
+	verifyPackList(manifest, packed);
+	for (const path of [".pi/tasks/state.json", "extensions/third-party/subagent-results.json", "evals/trajectory.json"]) {
+		assert.throws(() => verifyPackList(manifest, { files: [...packed.files, { path }] }));
+	}
+	assert.throws(() => verifyPackList(manifest, { files: packed.files.filter((f) => !f.path.endsWith("native-host.mjs")) }), /Missing packed/);
+});

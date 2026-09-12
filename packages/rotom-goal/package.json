@@ -1,0 +1,43 @@
+{
+	"name": "@narumitw/pi-goal",
+	"version": "0.54.4-rotom.0",
+	"description": "rotom-maintained fork of @narumitw/pi-goal: autonomous single-objective /goal completion with a stronger no-progress guard.",
+	"type": "module",
+	"license": "MIT",
+	"private": true,
+	"keywords": [
+		"pi-package",
+		"pi-extension",
+		"pi",
+		"goal",
+		"automation"
+	],
+	"files": [
+		"src",
+		"README.md",
+		"LICENSE",
+		"UPSTREAM.md"
+	],
+	"pi": {
+		"extensions": [
+			"./src/index.ts"
+		]
+	},
+	"scripts": {
+		"test": "node --test --experimental-strip-types \"test/*.test.ts\""
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-ai": "*",
+		"@earendil-works/pi-coding-agent": "*",
+		"@earendil-works/pi-tui": "*",
+		"typebox": "*"
+	},
+	"dependencies": {
+		"@narumitw/pi-tui-kit": "^0.56.0"
+	},
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/narumiruna/pi-extensions",
+		"directory": "packages/pi-goal"
+	}
+}

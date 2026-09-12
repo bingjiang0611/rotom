@@ -1,0 +1,24 @@
+#!/bin/sh
+set -eu
+
+# npm exposes bins through symlinks. Resolve only this public entry, never cwd.
+entry=$0
+links=0
+while [ -L "$entry" ]; do
+	links=$((links + 1))
+	if [ "$links" -gt 40 ]; then
+		echo "rotom: launcher symlink loop" >&2
+		exit 2
+	fi
+	target=$(readlink "$entry")
+	case "$target" in
+		/*) entry=$target ;;
+		*) entry=$(dirname -- "$entry")/$target ;;
+	esac
+done
+script_dir=$(CDPATH= cd -- "$(dirname -- "$entry")" && pwd -P)
+if [ ! -f "$script_dir/rotom-launcher" ] || [ -L "$script_dir/rotom-launcher" ]; then
+	echo "rotom: missing or untrusted product launcher" >&2
+	exit 2
+fi
+exec "$script_dir/rotom-launcher" "$@"

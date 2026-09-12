@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "status": "preparation-only",
+  "liveExecutionAuthorized": false,
+  "publicName": "rotom",
+  "repositoryName": "rotom",
+  "internalProductId": "dev-agent",
+  "requestedModel": "luna",
+  "resolvedProvider": "openai-codex",
+  "resolvedModelId": "gpt-5.6-luna",
+  "thinking": "high",
+  "futureRunLimits": {
+    "maxUsd": 20,
+    "maxWallClockSeconds": 7200,
+    "note": "Planning limits only; not an implemented spend governor or permission to run. Renew authorization after preparation."
+  },
+  "comparison": {
+    "arms": ["native-pi", "dev-agent"],
+    "piVersion": "0.85.1",
+    "observedPiPackageIntegrity": "sha512-FGRN+OHbWaefBPGaTggAdLjrIHW+s2PzLyglz/5dfLzb9of7uuXMXYC0fJIeZTw+shS32o2cuQ9jF7YSDuL/oQ==",
+    "candidateSourceFingerprint": null,
+    "benchmark": "terminal-bench-2.1",
+    "benchmarkRevision": "d49e28f1e4ddd13d289e85a5f312a66750951932",
+    "registry": "terminal-bench-2.1.registry.json",
+    "smokeProfile": "release-smoke.txt",
+    "repetitions": 1,
+    "concurrentCells": 1,
+    "metric": "official-verifier pass@1",
+    "retryPolicy": "No model retries based on failure scores. Infrastructure replacement requires evidence and explicit admission."
+  },
+  "remainingAdmissions": [
+    "verify high and the openai-codex transport on the actual evaluation runtime; listing a model does not prove request success",
+    "freeze candidate and native Pi package identities, task images, Node version and verifier environment",
+    "verify model transport and metering without publishing credentials",
+    "implement and test aggregate cost/time enforcement before accepting a paid batch",
+    "verify benchmark egress/contamination policy; current network access is not benchmark isolation",
+    "replay new Browser keypress in user-reloaded Chrome with a local fixture",
+    "review rotom name collisions and trademark/IP use, root product license and all redistribution notices",
+    "obtain explicit authorization for the next live phase"
+  ]
+}

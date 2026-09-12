@@ -1,0 +1,146 @@
+--- /dev/null
++++ b/src/runs/shared/owner-lifeline.ts
+@@ -0,0 +1,103 @@
++import { Socket } from "node:net";
++import type { ChildProcess } from "node:child_process";
++import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
++
++export const OWNER_LIFELINE_ENV = "PI_SUBAGENT_OWNER_LIFELINE_FD";
++const LOST_REASON = "Owner lifeline unavailable; abort requested, side effects remain unconfirmed. Do not retry automatically.";
++
++// This is process-local ownership of open descriptors, not a PID registry. A
++// nested owner losing its own lifeline also disconnects its linked children.
++// Separate extension loaders may evaluate this module more than once. Share
++// only process-local handles, so the runtime guard can reach execution's pipes.
++const channelKey = Symbol.for("pi-subagents.owner-lifelines.v1");
++const processState = globalThis as unknown as Record<symbol, Set<{ destroy(): unknown }> | undefined>;
++const ownedChannels = processState[channelKey] ??= new Set<{ destroy(): unknown }>();
++export function trackOwnedLifeline(child: ChildProcess): void {
++	const channel = child.stdio[3];
++	if (!channel) return;
++	ownedChannels.add(channel);
++	let released = false;
++	const release = () => {
++		if (released) return;
++		released = true;
++		ownedChannels.delete(channel);
++		channel.destroy();
++	};
++	// No writes are made; EOF is the sole signal. Consume transport errors so a
++	// child closing its reader cannot crash the owning coordinator.
++	channel.on("error", release);
++	// Waiting for close can deadlock if a descendant inherited the reader.
++	// Exit proves this child is gone; no remaining protocol data uses fd 3.
++	child.once("exit", release);
++	child.once("close", release);
++	child.once("error", release);
++}
++
++export function disconnectOwnedLifelines(): void {
++	for (const channel of ownedChannels) channel.destroy();
++	ownedChannels.clear();
++}
++
++type LifelineChannel = Pick<Socket, "on" | "resume" | "unref" | "destroy">;
++export function registerOwnerLifeline(pi: ExtensionAPI, options: {
++	fd?: string;
++	required?: boolean;
++	open?: (fd: number) => LifelineChannel;
++	disconnectChildren?: () => void;
++} = {}): void {
++	const configured = options.fd ?? process.env[OWNER_LIFELINE_ENV];
++	if (configured === undefined && !options.required) return;
++	// A managed POSIX Pi child must not silently downgrade when its transport
++	// configuration is missing. Standalone runtime users remain opt-in.
++	let context: ExtensionContext | undefined;
++	let channel: LifelineChannel | undefined;
++	let started = false;
++	let disposed = false;
++	let lost = false;
++	const requestAbort = () => {
++		// Abort is requested through Pi's public API, not by signalling old PIDs.
++		// It is not proof that a tool honored cancellation or descendants exited.
++		try { context?.abort(); } catch { /* Remain blocked when context is no longer usable. */ }
++		try { context?.shutdown(); } catch { /* No automatic retry or forced exit. */ }
++	};
++	const loseOwner = () => {
++		if (disposed || lost) return;
++		lost = true;
++		try { (options.disconnectChildren ?? disconnectOwnedLifelines)(); }
++		catch { /* Descendant convergence stays unconfirmed; still abort locally. */ }
++		requestAbort();
++	};
++	pi.on("session_start", (_event, ctx) => {
++		context = ctx;
++		if (started || disposed) return;
++		started = true;
++		if (configured !== "3") { loseOwner(); return; }
++		try {
++			channel = (options.open ?? ((fd) => new Socket({ fd, readable: true, writable: false })))(3);
++			channel.on("end", loseOwner);
++			channel.on("error", loseOwner);
++			channel.on("close", loseOwner);
++			channel.resume();
++			channel.unref(); // A healthy lifeline must not keep a finished child alive.
++		} catch { loseOwner(); }
++	});
++	pi.on("agent_start", (_event, ctx) => {
++		context = ctx;
++		if (lost) requestAbort();
++	});
++	pi.on("before_provider_request", (_event, ctx) => {
++		context = ctx;
++		if (lost) requestAbort();
++	});
++	pi.on("tool_call", (_event, ctx) => {
++		context = ctx;
++		if (!lost) return;
++		requestAbort();
++		return { block: true, reason: LOST_REASON };
++	});
++	pi.on("session_shutdown", () => {
++		disposed = true;
++		context = undefined;
++		channel?.destroy();
++	});
++}
+--- a/src/runs/shared/pi-args.ts
++++ b/src/runs/shared/pi-args.ts
+@@ -15,0 +16 @@
++import { OWNER_LIFELINE_ENV } from "./owner-lifeline.ts";
+@@ -646,0 +648,3 @@
++	// Each foreground spawn establishes its own descriptor. A detached runner
++	// must never inherit an ancestor's descriptor number as proof of ownership.
++	if (OWNER_LIFELINE_ENV in process.env) env[OWNER_LIFELINE_ENV] = undefined;
+--- a/src/runs/shared/subagent-prompt-runtime.ts
++++ b/src/runs/shared/subagent-prompt-runtime.ts
+@@ -9 +9 @@
+-import { SUBAGENT_CHILD_AGENT_ENV, SUBAGENT_CHILD_INDEX_ENV, SUBAGENT_FANOUT_CHILD_ENV, SUBAGENT_STEER_ACK_DIR_ENV, SUBAGENT_STEER_CAPABILITY_ENV, SUBAGENT_STEER_INBOX_ENV } from "./pi-args.ts";
++import { SUBAGENT_CHILD_ENV, SUBAGENT_CHILD_AGENT_ENV, SUBAGENT_CHILD_INDEX_ENV, SUBAGENT_FANOUT_CHILD_ENV, SUBAGENT_STEER_ACK_DIR_ENV, SUBAGENT_STEER_CAPABILITY_ENV, SUBAGENT_STEER_INBOX_ENV } from "./pi-args.ts";
+@@ -29,0 +30 @@
++import { registerOwnerLifeline } from "./owner-lifeline.ts";
+@@ -566,0 +568 @@
++	registerOwnerLifeline(pi, { required: process.platform !== "win32" && process.env[SUBAGENT_CHILD_ENV] === "1" });
+--- a/src/runs/foreground/execution.ts
++++ b/src/runs/foreground/execution.ts
+@@ -60,0 +61 @@
++import { OWNER_LIFELINE_ENV, trackOwnedLifeline } from "../shared/owner-lifeline.ts";
+@@ -481 +482,3 @@
+-	const spawnEnv = { ...process.env, ...sharedEnv, ...getSubagentDepthEnv(options.maxSubagentDepth) };
++	// The pipe is owned by this coordinator, never inferred from a reusable PID.
++	const ownerLinked = process.platform !== "win32";
++	const spawnEnv = { ...process.env, ...sharedEnv, ...getSubagentDepthEnv(options.maxSubagentDepth), [OWNER_LIFELINE_ENV]: ownerLinked ? "3" : undefined };
+@@ -491 +494 @@
+-			stdio: ["ignore", "pipe", "pipe"],
++			stdio: ownerLinked ? ["ignore", "pipe", "pipe", "pipe"] : ["ignore", "pipe", "pipe"],
+@@ -494 +497,4 @@
+-		const jsonlWriter = createJsonlWriter(shared.jsonlPath, proc.stdout);
++		if (ownerLinked) trackOwnedLifeline(proc);
++		// Both stdio variants explicitly allocate stdout/stderr pipes; the extra
++		// descriptor selects Node's less-specific ChildProcess type overload.
++		const jsonlWriter = createJsonlWriter(shared.jsonlPath, proc.stdout!);
+@@ -1228,2 +1234,2 @@
+-		proc.stdout.on("data", (chunk: Buffer) => stdoutReader.push(chunk));
+-		proc.stderr.on("data", (chunk: Buffer) => {
++		proc.stdout!.on("data", (chunk: Buffer) => stdoutReader.push(chunk));
++		proc.stderr!.on("data", (chunk: Buffer) => {

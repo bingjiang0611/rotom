@@ -1,0 +1,198 @@
+--- a/src/runs/background/active-async-capacity.ts
++++ b/src/runs/background/active-async-capacity.ts
+@@ -216,0 +217,37 @@
++// A read-only closure predicate shared by capacity and headless waiting. The
++// caller's capacity binding is optional only for runs launched without a limit;
++// absence of a slot is never used as positive closure evidence.
++export function inspectOwnedWorkflowClosure(asyncDir: string, expected: {
++	runId: string; ownerSessionId: string; controllerInstanceId?: string;
++	capacity?: { ownerSessionId: string; reservationToken: string; generation: number };
++}, liveWorkflowRunIds: ReadonlySet<string> = new Set()): ActiveAsyncCapacityReleaseVerdict {
++	try {
++		assertExecutionStore(EXECUTION_STORE);
++		const status = readStatus(asyncDir);
++		if (!status || status.runId !== expected.runId || status.sessionId !== expected.ownerSessionId
++			|| status.mode !== "workflow" || !terminalState(status.state) || liveWorkflowRunIds.has(expected.runId)) return { state: "retained", reason: "workflow status/controller is incomplete or mismatched" };
++		const workflow = readOwnedWorkflow(asyncDir);
++		if (!workflow?.sealed || !workflow.controllerClosedAt || workflow.controllerClosedAt > Date.now() || workflow.runId !== expected.runId
++			|| workflow.ownerSessionId !== expected.ownerSessionId
++			|| (expected.controllerInstanceId !== undefined && workflow.controllerInstanceId !== expected.controllerInstanceId)
++			|| (expected.capacity && (workflow.capacity?.ownerSessionId !== expected.capacity.ownerSessionId
++				|| workflow.capacity.reservationToken !== expected.capacity.reservationToken || workflow.capacity.generation !== expected.capacity.generation))) return { state: "retained", reason: "workflow controller closure is missing or mismatched" };
++		for (const admission of workflow.admissions) {
++			if (!admission.childRunId) return { state: "retained", reason: "workflow admission has no supported pre-spawn child binding" };
++			const root = path.dirname(asyncDir), childDir = path.join(root, admission.childRunId);
++			if (fs.realpathSync(childDir) !== path.join(fs.realpathSync(root), admission.childRunId)) return { state: "retained", reason: "workflow child canonical directory drift" };
++			if (admission.kind === "foreground") {
++				if (!foregroundClosureObserved(childDir, { kind: "foreground", workflowRunId: workflow.runId, controllerInstanceId: workflow.controllerInstanceId, admissionId: admission.admissionId, childRunId: admission.childRunId })) return { state: "retained", reason: "foreground child controller/writer closure unavailable" };
++				continue;
++			}
++			const child = readStatus(childDir);
++			if (!child || child.runId !== admission.childRunId || child.sessionId !== expected.ownerSessionId || child.parentWorkflowRunId !== expected.runId
++				|| !terminalState(child.state) || !child.processTerminal?.runnerProcessInstanceId) return { state: "retained", reason: "workflow child status is incomplete or mismatched" };
++			const proof = readProcessTerminal(childDir, { runId: admission.childRunId, runnerProcessInstanceId: child.processTerminal.runnerProcessInstanceId });
++			if (!ownedClosureObserved(proof?.ownedClosure, { runId: admission.childRunId, runnerProcessInstanceId: child.processTerminal.runnerProcessInstanceId,
++				workflowParent: { workflowRunId: workflow.runId, controllerInstanceId: workflow.controllerInstanceId, admissionId: admission.admissionId, childRunId: admission.childRunId } })) return { state: "retained", reason: "workflow child scoped closure/lineage is unavailable" };
++		}
++		return { state: "releasable", reason: "durable sealed controller roster and all bound child closures observed; recovery remains fenced" };
++	} catch { return { state: "retained", reason: "workflow scoped closure evidence unavailable" }; }
++}
++
+@@ -225,23 +262,3 @@
+-		try {
+-			const workflow = readOwnedWorkflow(owner.asyncDir);
+-			if (!workflow?.sealed || !workflow.controllerClosedAt || workflow.controllerClosedAt > Date.now() || workflow.runId !== owner.runId
+-				|| workflow.controllerInstanceId !== owner.controllerInstanceId || workflow.ownerSessionId !== owner.ownerSessionId
+-				|| workflow.capacity?.ownerSessionId !== owner.ownerSessionId || workflow.capacity.reservationToken !== owner.reservationToken
+-				|| workflow.capacity.generation !== owner.generation) return { state: "retained", reason: "workflow controller closure is missing or mismatched" };
+-			for (const admission of workflow.admissions) {
+-				if (!admission.childRunId) return { state: "retained", reason: "workflow admission has no supported pre-spawn child binding" };
+-				const root = path.dirname(owner.asyncDir), childDir = path.join(root, admission.childRunId);
+-				if (fs.realpathSync(childDir) !== path.join(fs.realpathSync(root), admission.childRunId)) return { state: "retained", reason: "workflow child canonical directory drift" };
+-				if (admission.kind === "foreground") {
+-					if (!foregroundClosureObserved(childDir, { kind: "foreground", workflowRunId: workflow.runId, controllerInstanceId: workflow.controllerInstanceId, admissionId: admission.admissionId, childRunId: admission.childRunId })) return { state: "retained", reason: "foreground child controller/writer closure unavailable" };
+-					continue;
+-				}
+-				const child = readStatus(childDir);
+-				if (!child || child.runId !== admission.childRunId || child.sessionId !== owner.ownerSessionId || child.parentWorkflowRunId !== owner.runId
+-					|| !terminalState(child.state) || !child.processTerminal?.runnerProcessInstanceId) return { state: "retained", reason: "workflow child status is incomplete or mismatched" };
+-				const proof = readProcessTerminal(childDir, { runId: admission.childRunId, runnerProcessInstanceId: child.processTerminal.runnerProcessInstanceId });
+-				if (!ownedClosureObserved(proof?.ownedClosure, { runId: admission.childRunId, runnerProcessInstanceId: child.processTerminal.runnerProcessInstanceId,
+-					workflowParent: { workflowRunId: workflow.runId, controllerInstanceId: workflow.controllerInstanceId, admissionId: admission.admissionId, childRunId: admission.childRunId } })) return { state: "retained", reason: "workflow child scoped closure/lineage is unavailable" };
+-			}
+-			return { state: "releasable", reason: "durable sealed controller roster and all bound child closures observed; recovery remains fenced" };
+-		} catch { return { state: "retained", reason: "workflow scoped closure evidence unavailable" }; }
++		if (!owner.controllerInstanceId) return { state: "retained", reason: "workflow controller identity is missing" };
++		return inspectOwnedWorkflowClosure(owner.asyncDir, { runId: owner.runId, ownerSessionId: owner.ownerSessionId,
++			controllerInstanceId: owner.controllerInstanceId, capacity: owner }, liveWorkflowRunIds);
+--- a/src/runs/background/subagent-wait.ts
++++ b/src/runs/background/subagent-wait.ts
+@@ -41,0 +42 @@
++import * as path from "node:path";
+@@ -49 +50 @@
+-import { formatAsyncRunList, listAsyncRuns, type AsyncRunSummary } from "./async-status.ts";
++import { formatAsyncRunList, listAsyncRuns, summarizeAsyncStatus, type AsyncRunSummary } from "./async-status.ts";
+@@ -51,0 +53,2 @@
++	EXECUTION_STORE,
++	SUBAGENT_PROCESS_TERMINAL_EVENT,
+@@ -65,0 +69,4 @@
++import { assertExecutionStore } from "../../shared/execution-store.ts";
++import { readStatus } from "../../shared/utils.ts";
++import { ownedClosureWasObserved } from "./owned-execution.ts";
++import { inspectActiveAsyncCapacityOwner, inspectOwnedWorkflowClosure } from "./active-async-capacity.ts";
+@@ -134,0 +142 @@
++	SUBAGENT_PROCESS_TERMINAL_EVENT,
+@@ -265,2 +273,35 @@
+-/** Queued/running runs from this session, including runs that need attention. */
+-function activeRunsForSession(params: SubagentWaitParams, deps: SubagentWaitDeps): AsyncRunSummary[] {
++function scopedClosurePending(run: AsyncRunSummary, deps: SubagentWaitDeps): boolean {
++	assertExecutionStore(EXECUTION_STORE);
++	if (ACTIVE_STATES.includes(run.state)) return true;
++	const tracked = deps.state.asyncJobs.get(run.id);
++	// A native revival can temporarily retain the preceding attempt's status.
++	// Its old close proof must not finish the newly admitted runner's wait.
++	if (run.mode !== "workflow" && tracked && (tracked.status === "queued" || tracked.status === "running") && tracked.pid && readStatus(run.asyncDir)?.pid !== tracked.pid) return true;
++	const inspected = inspectActiveAsyncCapacityOwner({ runId: run.id, sessionId: deps.state.currentSessionId!, asyncDir: run.asyncDir },
++		{ liveWorkflowRunIds: new Set(deps.state.workflowControllers?.keys() ?? []) });
++	const owner = inspected.owner, terminal = run.processTerminal;
++	if (owner && (owner.scope !== EXECUTION_STORE.scope || owner.storeId !== EXECUTION_STORE.storeId)) {
++		throw new Error("Scoped wait ownership is unavailable; do not replay or replace this run.");
++	}
++	// Numeric PIDs can repeat. Check a current run's admission identity before
++	// consuming history; a transferred source is a different, preceding run.
++	if (run.mode !== "workflow" && inspected.relation !== "source" && terminal && owner?.runnerProcessInstanceId
++		&& terminal.runnerProcessInstanceId !== owner.runnerProcessInstanceId) {
++		if (tracked?.status === "running" || tracked?.status === "queued") return true;
++		throw new Error("Scoped wait runner identity changed; closure is unconfirmed and replay is not authorized.");
++	}
++	if (run.mode !== "workflow" && terminal && ["observed", "unknown"].includes(terminal.state) && ownedClosureWasObserved(terminal.ownedClosure,
++		{ runId: run.id, runnerProcessInstanceId: terminal.runnerProcessInstanceId,
++			...(owner && inspected.relation !== "source" ? { capacity: owner } : {}) })) return false;
++	if (inspected.relation === "source") throw new Error("Scoped wait ownership is unavailable; do not replay or replace this run.");
++	if (run.mode === "workflow") {
++		return inspectOwnedWorkflowClosure(run.asyncDir, { runId: run.id, ownerSessionId: deps.state.currentSessionId!,
++			...(owner ? { controllerInstanceId: owner.controllerInstanceId, capacity: owner } : {}) },
++			new Set(deps.state.workflowControllers?.keys() ?? [])).state !== "releasable";
++	}
++	if (!terminal || terminal.state === "pending") return true;
++	throw new Error("Owned execution closure unavailable: task completion is not resource closure. Do not resume, retry or replace its writer.");
++}
++
++/** Queued/running runs plus scoped tasks still awaiting genuine resource close. */
++export function activeRunsForSession(params: SubagentWaitParams, deps: SubagentWaitDeps): AsyncRunSummary[] {
+@@ -270 +311 @@
+-		states: [...ACTIVE_STATES],
++		...(EXECUTION_STORE.scope ? {} : { states: [...ACTIVE_STATES] }),
+@@ -278 +319,29 @@
+-	return params.id ? runs.filter((run) => matchesId(run, params.id!)) : runs;
++	if (EXECUTION_STORE.scope) {
++		// The existing started-event roster is populated before a launch receipt,
++		// while the detached runner may still be loading and have no disk status.
++		// Missing index/status is not completion. Use this roster only to retain
++		// the wait, never to manufacture a terminal record or release capacity.
++		const seen = new Set(runs.map((run) => run.id));
++		for (const job of deps.state.asyncJobs.values()) {
++			if (job.sessionId !== deps.state.currentSessionId || job.parentWorkflowRunId
++				|| path.resolve(job.asyncDir) !== path.resolve(asyncDirRoot, job.asyncId)
++				|| seen.has(job.asyncId) || (params.id && !job.asyncId.startsWith(params.id))) continue;
++			const persisted = runsForIds([job.asyncId], deps)[0];
++			if (persisted) {
++				runs.push(persisted);
++				continue;
++			}
++			if (job.status !== "queued" && job.status !== "running") {
++				throw new Error("Scoped wait records unavailable for a retained task; completion is unconfirmed. Do not retry or replace its writer.");
++			}
++			runs.push(summarizeAsyncStatus(job.asyncDir, {
++				runId: job.asyncId, sessionId: job.sessionId, mode: job.mode ?? "single",
++				state: "queued", startedAt: job.startedAt ?? (deps.now?.() ?? Date.now()),
++				...(job.pid !== undefined ? { pid: job.pid } : {}),
++				...(job.cwd ? { cwd: job.cwd } : {}),
++				...(job.steps ? { steps: job.steps } : {}),
++			}));
++		}
++	}
++	const scoped = EXECUTION_STORE.scope ? runs.filter((run) => scopedClosurePending(run, deps)) : runs;
++	return params.id ? scoped.filter((run) => matchesId(run, params.id!)) : scoped;
+--- a/src/runs/background/auto-drain.ts
++++ b/src/runs/background/auto-drain.ts
+@@ -3 +3 @@
+-import { DIRS, type Details, type SubagentState } from "../../shared/types.ts";
++import { DIRS, EXECUTION_STORE, type Details, type SubagentState } from "../../shared/types.ts";
+@@ -5 +5 @@
+-import { waitForSubagents, type SubagentWaitDeps, type SubagentWaitParams, type WaitEventBus } from "./subagent-wait.ts";
++import { activeRunsForSession, waitForSubagents, type SubagentWaitDeps, type SubagentWaitParams, type WaitEventBus } from "./subagent-wait.ts";
+@@ -26,2 +26,6 @@
+-function hasOutstandingWork(sessionId: string, nowMs: number): boolean {
+-	const asyncRuns = listAsyncRuns(DIRS.async, {
++function hasOutstandingWork(sessionId: string, nowMs: number, state: SubagentState): boolean {
++	// Headless admission and explicit wait must use the same startup/closure
++	// predicate; an empty on-disk active index cannot bypass the wait entirely.
++	const asyncRuns = EXECUTION_STORE.scope
++		? activeRunsForSession({}, { state, now: () => nowMs })
++		: listAsyncRuns(DIRS.async, {
+@@ -44 +48 @@
+-	const hasWork = deps.hasWork ?? hasOutstandingWork;
++	const hasWork = deps.hasWork ?? ((id: string, time: number) => hasOutstandingWork(id, time, deps.state));
+--- a/src/runs/background/owned-execution.ts
++++ b/src/runs/background/owned-execution.ts
+@@ -209 +209,2 @@
+-export function ownedClosureObserved(proof: unknown, expected: { runId: string; runnerProcessInstanceId: string; capacity?: OwnedCapacityBinding; workflowParent?: OwnedWorkflowParent }): boolean {
++type OwnedClosureExpectation = { runId: string; runnerProcessInstanceId: string; capacity?: OwnedCapacityBinding; workflowParent?: OwnedWorkflowParent };
++function ownedClosureMatches(proof: unknown, expected: OwnedClosureExpectation, leaseReleased: (writer: OwnedWriter) => boolean): boolean {
+@@ -214 +215 @@
+-		|| !writers(proof.writers) || !proof.writers.every((entry) => writerLeaseReleased(entry) && entry.close && groupObserved(entry.close.processTree) && entry.close.closeObservedAt <= (proof.observedAt as number) && entry.close.processTree.state === "observed" && entry.close.processTree.verifiedAt <= (proof.observedAt as number))) return false;
++		|| !writers(proof.writers) || !proof.writers.every((entry) => leaseReleased(entry) && entry.close && groupObserved(entry.close.processTree) && entry.close.closeObservedAt <= (proof.observedAt as number) && entry.close.processTree.state === "observed" && entry.close.processTree.verifiedAt <= (proof.observedAt as number))) return false;
+@@ -220,0 +222,12 @@
++
++// Historical observation only. A separately authorized native continuation can
++// hold the same session lease without reopening the preceding writer's close.
++// Never use this predicate to release capacity or authorize recovery/transfer.
++export function ownedClosureWasObserved(proof: unknown, expected: OwnedClosureExpectation): boolean {
++	return ownedClosureMatches(proof, expected, (writer) => writer.kind !== "pi-writer"
++		|| (validWriterLease(writer.sessionLease) && (writer.sessionLease.state === "not-held" || writer.sessionLease.released === true)));
++}
++
++export function ownedClosureObserved(proof: unknown, expected: OwnedClosureExpectation): boolean {
++	return ownedClosureMatches(proof, expected, writerLeaseReleased);
++}

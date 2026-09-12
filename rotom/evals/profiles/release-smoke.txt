@@ -1,0 +1,14 @@
+# dev-agent-benchmark-profile/v1
+# Preparation-only selection, before any candidate results. Not a representative score.
+# Build, async repair, service setup, crash debugging, recovery, security repair,
+# Git workflow, large edits, polyglot execution, and query optimization.
+terminal-bench-2.1 build-cython-ext
+terminal-bench-2.1 cancel-async-tasks
+terminal-bench-2.1 configure-git-webserver
+terminal-bench-2.1 custom-memory-heap-crash
+terminal-bench-2.1 db-wal-recovery
+terminal-bench-2.1 fix-code-vulnerability
+terminal-bench-2.1 git-multibranch
+terminal-bench-2.1 large-scale-text-editing
+terminal-bench-2.1 polyglot-c-py
+terminal-bench-2.1 query-optimize

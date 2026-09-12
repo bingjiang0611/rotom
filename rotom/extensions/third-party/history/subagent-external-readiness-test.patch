@@ -1,0 +1,25 @@
+diff --git a/test/integration/single-execution.test.ts b/test/integration/single-execution.test.ts
+--- a/test/integration/single-execution.test.ts
++++ b/test/integration/single-execution.test.ts
+@@ -728,4 +728,17 @@
+-		for (let attempt = 0; attempt < 100 && !fs.existsSync(markerPath); attempt++) {
+-			await new Promise((resolve) => setTimeout(resolve, 20));
+-		}
+-		assert.equal(fs.readFileSync(markerPath, "utf-8"), "started");
++		// The workflow receipt may precede cold child startup. File existence can
++		// precede its write too: inspect marker bytes only after actual runner close.
++		const waitForFile = (file: string) => new Promise<void>((resolve, reject) => {
++			let watcher: fs.FSWatcher | undefined;
++			const timer = setTimeout(() => { watcher?.close(); reject(new Error(`Fixture readiness deadline: ${file}`)); }, 10_000);
++			const done = () => { if (fs.existsSync(file)) { clearTimeout(timer); watcher?.close(); resolve(); } };
++			try {
++				watcher = fs.watch(path.dirname(file), done);
++				watcher.once("error", (error) => { clearTimeout(timer); watcher?.close(); reject(error); });
++				done();
++			} catch (error) { clearTimeout(timer); watcher?.close(); reject(error); }
++		});
++		await waitForFile(markerPath);
++		const childRunId = workflowResult.results?.[0]?.runId;
++		assert.ok(childRunId);
++		await waitForFile(path.join(DIRS.async, childRunId, "process-terminal.json"));
++		assert.equal(fs.readFileSync(markerPath, "utf-8"), "started");

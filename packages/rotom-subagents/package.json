@@ -1,0 +1,103 @@
+{
+  "name": "pi-subagents",
+  "version": "0.52.1-rotom.1",
+  "description": "Rotom-maintained private Subagent component; derived from pi-subagents",
+  "author": "Nico Bailon",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./background-work": "./src/api/background-work.ts",
+    "./external-job-provider": "./src/api/external-job-provider.ts",
+    "./external-runs": "./src/api/external-runs.ts",
+    "./delegation": "./src/api/delegation.ts",
+    "./capability-ceiling": "./src/api/capability-ceiling.ts",
+    "./preflight": "./src/api/preflight.ts",
+    "./control-channel": "./src/api/control-channel.ts",
+    "./intercom-bridge": "./src/api/intercom-bridge.ts",
+    "./pi-args": "./src/api/pi-args.ts",
+    "./shared-types": "./src/api/shared-types.ts",
+    "./project-panes": "./src/api/project-panes.ts"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-coding-agent",
+    "subagents",
+    "ai",
+    "agents",
+    "cli"
+  ],
+  "bin": {
+    "pi-subagents": "install.mjs"
+  },
+  "files": [
+    "index.ts",
+    "src",
+    "async-retention-discovery-worker.mjs",
+    "inspector-runner.mjs",
+    "install.mjs",
+    "owned-store.mjs",
+    "agents",
+    "skills",
+    "prompts",
+    "docs",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "UPSTREAM.md"
+  ],
+  "scripts": {
+    "test": "node scripts/check.mjs unit",
+    "test:sdk": "node scripts/check.mjs sdk",
+    "test:compat": "node scripts/check.mjs compat",
+    "test:all": "npm test && npm run test:sdk && npm run test:compat && npm run typecheck",
+    "typecheck": "node scripts/check.mjs types",
+    "pack:release": "node scripts/pack.mjs",
+    "stage:product": "python3 scripts/stage-product.py",
+    "test:product": "node scripts/check-product.mjs"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "skills": [
+      "./skills"
+    ],
+    "prompts": [
+      "./prompts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-agent-core": "*",
+    "@earendil-works/pi-ai": ">=0.80.0",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-agent-core": {
+      "optional": true
+    },
+    "@earendil-works/pi-ai": {
+      "optional": true
+    },
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "@earendil-works/pi-tui": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "acorn": "8.18.0",
+    "jiti": "2.7.0",
+    "typebox": "1.1.38",
+    "yaml": "2.8.3"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.85.1",
+    "@types/node": "22.19.19",
+    "typescript": "5.9.3"
+  },
+  "private": true
+}

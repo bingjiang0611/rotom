@@ -1,0 +1,8 @@
+# Preserve the validated import byte-for-byte. These five upstream files have
+# known trailing blanks. Keep all other whitespace checks; remove each exception
+# when that file is deliberately normalized in a subsequent source revision.
+/CHANGELOG.md whitespace=-blank-at-eol
+/install.mjs whitespace=-blank-at-eol
+/src/shared/settings.ts whitespace=-blank-at-eol
+/src/shared/types.ts whitespace=-blank-at-eol
+/src/tui/render.ts whitespace=-blank-at-eol

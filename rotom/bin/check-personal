@@ -1,0 +1,54 @@
+#!/bin/sh
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+agent_dir=$(CDPATH= cd -- "$script_dir/.." && pwd -P)
+repository_dir=$(CDPATH= cd -- "$agent_dir/.." && pwd -P)
+node_command=${ROTOM_NODE:-$(command -v node)}
+pi_command=${ROTOM_PI:-$(command -v pi)}
+
+cd "$repository_dir"
+
+# Legacy extension tests locate dist/core through `command -v pi`. The supported
+# launcher may itself be a wrapper or use dist/bundle/cli.js, so provide a private
+# PATH shim whose realpath is the verified package's dist/cli.js for this test run.
+pi_dist_cli=$("$node_command" -e '
+const fs = require("node:fs"); const path = require("node:path");
+let directory = path.dirname(fs.realpathSync(process.argv[1]));
+for (;;) {
+  const packagePath = path.join(directory, "package.json");
+  if (fs.existsSync(packagePath)) {
+    const pkg = JSON.parse(fs.readFileSync(packagePath, "utf8"));
+    if (pkg.name === "@earendil-works/pi-coding-agent") { process.stdout.write(path.join(directory, "dist/cli.js")); break; }
+  }
+  const parent = path.dirname(directory); if (parent === directory) process.exit(2); directory = parent;
+}' "$pi_command")
+test_pi_bin=$(mktemp -d "${TMPDIR:-/tmp}/rotom-check-bin.XXXXXX")
+ln -s "$pi_dist_cli" "$test_pi_bin/pi"
+cleanup_test_pi_bin() { rm -f "$test_pi_bin/pi"; rmdir "$test_pi_bin" 2>/dev/null || true; }
+trap cleanup_test_pi_bin EXIT HUP INT TERM
+
+ROTOM_PI="$pi_command" PATH="$test_pi_bin:$PATH" "$node_command" --experimental-strip-types --test --test-concurrency=1 \
+	rotom/extensions/qoder/*.test.mjs \
+	rotom/runtime/process-tree.test.ts \
+	rotom/runtime/distribution.test.mjs \
+	rotom/runtime/third-party-archive.test.mjs \
+	rotom/runtime/context-footprint.test.mjs \
+	rotom/runtime/context-discovery.test.mjs \
+	rotom/extensions/observability/index.test.ts \
+	rotom/extensions/observability/dashboard.test.mjs \
+	rotom/extensions/browser/index.test.ts \
+	rotom/extensions/browser/artifact-ownership.test.ts \
+	rotom/extensions/browser/runtime-ownership.test.ts \
+	rotom/extensions/browser/ownership.test.mjs \
+	rotom/extensions/coding-policy/index.test.ts \
+	rotom/extensions/coding-policy/repair-hints.test.ts \
+	rotom/extensions/third-party/deferred-tools.test.ts \
+	rotom/extensions/third-party/subagent-skill.test.ts \
+	rotom/extensions/third-party/index.test.ts \
+	rotom/extensions/third-party/subagent-publication.test.ts \
+	rotom/extensions/third-party/subagent-runtime-ownership.test.ts \
+	rotom/extensions/third-party/subagent-external-cli-evidence.test.mjs \
+	rotom/extensions/third-party/subagent-lifeline-regression.test.mjs
+
+"$node_command" rotom/runtime/report-context-footprint.mjs "$pi_command" "$agent_dir"

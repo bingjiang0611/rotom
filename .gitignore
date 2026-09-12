@@ -1,0 +1,38 @@
+.DS_Store
+**/.DS_Store
+
+# Local agent sessions, delegation state, credentials and evaluation artifacts.
+# Ignore only: these directories may belong to live sessions and must not be deleted.
+.pi/
+.eval/
+
+# Reserved for local user customization.
+AGENTS.md
+**/AGENTS.md
+
+node_modules/
+dist/
+build/
+coverage/
+*.log
+__pycache__/
+*.pyc
+auth.json
+credentials*.json
+secrets*.json
+settings.local.json
+*.pem
+*.key
+
+.env
+.env.*
+!.env.example
+
+*.sqlite*
+*.db
+*.swp
+*.bak
+*.bak.*
+
+# External repositories kept locally as read-only references.
+references/agent-projects/

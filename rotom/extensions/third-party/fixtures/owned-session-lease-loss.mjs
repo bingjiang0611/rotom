@@ -1,0 +1,28 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import {spawn,spawnSync} from 'node:child_process';
+import {pathToFileURL} from 'node:url';
+const source=path.resolve(process.argv[2]),legacy=path.resolve(process.argv[3]);
+globalThis.fetch=()=>{throw Error('Network forbidden in lease-loss fixture')};
+const root=fs.mkdtempSync(path.join(os.tmpdir(),'rotom-lease-loss-')),base=path.join(root,'runtime'),session=path.join(root,'session.jsonl');
+const store=await import(pathToFileURL(path.join(source,'src/shared/execution-store.ts')));store.initializeExecutionStore(base);fs.writeFileSync(session,'');
+const descendant=path.join(root,'descendant.mjs'),writer=path.join(root,'writer.mjs'),owner=path.join(root,'owner.mjs');
+fs.writeFileSync(descendant,`import fs from 'node:fs';const root=${JSON.stringify(root)};const timer=setTimeout(()=>process.exit(3),20000);fs.writeFileSync(root+'/descendant',String(process.pid));const check=()=>{if(fs.existsSync(root+'/release')){fs.writeFileSync(root+'/effect','observed');w.close();clearTimeout(timer);}};const w=fs.watch(root,check);check();`);
+fs.writeFileSync(writer,`import {spawn} from 'node:child_process';spawn(process.execPath,[${JSON.stringify(descendant)}],{stdio:'ignore'});setTimeout(()=>process.exit(3),20000);`);
+fs.writeFileSync(owner,`import fs from 'node:fs';import {spawn} from 'node:child_process';const m=await import(${JSON.stringify(pathToFileURL(path.join(source,'src/runs/shared/session-lease.ts')).href)});const h=m.acquireSessionLease({sessionFile:${JSON.stringify(session)},runId:'owner',sourceRunId:'fixture'});const p=spawn(process.execPath,[${JSON.stringify(writer)}],{stdio:'ignore'});h.updateWriter({state:'running',pid:p.pid});fs.writeFileSync(${JSON.stringify(path.join(root,'ready'))},JSON.stringify({writerPid:p.pid}));setTimeout(()=>process.exit(3),20000);`);
+const env={PATH:process.env.PATH,HOME:root,TMPDIR:root,PI_SUBAGENTS_TEMP_ROOT:base,PI_SUBAGENTS_EXECUTION_SCOPE:store.OWNED_EXECUTION_SCOPE};
+const child=spawn(process.execPath,['--experimental-strip-types',owner],{cwd:root,env,detached:true,stdio:'ignore'});const closed=new Promise(resolve=>child.once('close',resolve));
+async function until(fn,label){const deadline=Date.now()+12000;while(Date.now()<deadline){if(fn())return;await new Promise(r=>setTimeout(r,25));}throw Error(label+'; retained '+root);}
+await until(()=>fs.existsSync(path.join(root,'ready'))&&fs.existsSync(path.join(root,'descendant')),'startup');
+const writerPid=JSON.parse(fs.readFileSync(path.join(root,'ready'))).writerPid,descendantPid=Number(fs.readFileSync(path.join(root,'descendant')));
+const command=spawnSync('ps',['-p',String(writerPid),'-o','command='],{encoding:'utf8',timeout:1000});assert.ifError(command.error);assert.equal(command.status,0);assert.ok(command.stdout.includes(writer));
+const group=spawnSync('ps',['-p',String(descendantPid),'-o','pgid='],{encoding:'utf8',timeout:1000});assert.ifError(group.error);assert.equal(group.status,0);assert.equal(Number(group.stdout.trim()),child.pid);
+process.kill(writerPid,'SIGKILL');child.kill('SIGKILL');await closed;
+await until(()=>{try{process.kill(writerPid,0);return false;}catch(e){if(e.code==='ESRCH')return true;throw e;}},'direct writer reaped');
+process.kill(descendantPid,0);
+const reader=path.join(root,'old-reader.mjs');fs.writeFileSync(reader,`const m=await import(${JSON.stringify(pathToFileURL(path.join(legacy,'src/runs/shared/session-lease.ts')).href)});let acquired=false;try{const h=m.acquireSessionLease({sessionFile:${JSON.stringify(session)},runId:'old-reader',sourceRunId:'fixture'});acquired=true;if(!h.release())throw Error('Fixture lease release unavailable');}catch(e){if(!/existing lease|already owned/.test(e.message))throw e;}console.log(JSON.stringify({acquired}));`);
+const result=spawnSync(process.execPath,['--experimental-strip-types',reader],{cwd:root,env:{...env,PI_SUBAGENTS_EXECUTION_SCOPE:''},encoding:'utf8',timeout:10000});assert.ifError(result.error);assert.equal(result.status,0,result.stderr);
+const acquired=JSON.parse(result.stdout).acquired;fs.writeFileSync(path.join(root,'release'),'go');await until(()=>fs.existsSync(path.join(root,'effect')),'late effect');await until(()=>{const p=spawnSync('ps',['-p',String(descendantPid),'-o','stat='],{encoding:'utf8',timeout:1000});assert.ifError(p.error);return (p.status===1&&!p.stdout.trim()&&!p.stderr.trim())||(p.status===0&&p.stdout.trim().startsWith('Z'));},'descendant exit');
+console.log(JSON.stringify({oldReaderAcquired:acquired,sameGroupDescendantSurvivedOwnerAndWriter:true,lateEffectObserved:true,root}));

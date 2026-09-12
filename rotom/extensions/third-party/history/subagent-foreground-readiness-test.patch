@@ -1,0 +1,42 @@
+diff --git a/test/integration/single-execution.test.ts b/test/integration/single-execution.test.ts
+--- a/test/integration/single-execution.test.ts
++++ b/test/integration/single-execution.test.ts
+@@ -3999 +3999 @@
+-		assert.equal(result.modelAttempts?.length, 4);
++		assert.equal(result.modelAttempts?.length, 4, JSON.stringify({ error: result.error, modelAttempts: result.modelAttempts }));
+@@ -4174 +4174 @@
+-		assert.equal(result.exitCode, 0);
++		assert.equal(result.exitCode, 0, JSON.stringify({ error: result.error, modelAttempts: result.modelAttempts }));
+@@ -6689 +6689,2 @@
+-		mockPi.onCall({ delay: 500, output: "quiet child done" });
++		const quietRelease = path.join(tempDir, "quiet-release");
++		mockPi.onCall({ waitForPath: quietRelease, output: "quiet child done" });
+@@ -6693,0 +6695 @@
++			timeoutMs: 10000,
+@@ -6697,3 +6699,12 @@
+-		for (let attempt = 0; attempt < 50 && mockPi.callCount() < 1; attempt++) {
+-			await new Promise((resolve) => setTimeout(resolve, 10));
+-		}
++		await new Promise<void>((resolve, reject) => {
++			let settled = false;
++			const watch = fs.watch(mockPi.dir, { recursive: true }, check);
++			const timer = setTimeout(() => finish(new Error("Quiet fixture never reported startup")), 5000);
++			function finish(error?: unknown) {
++				if (settled) return; settled = true; clearTimeout(timer); watch.close();
++				if (error) { try { fs.writeFileSync(quietRelease, "go"); } catch {} reject(error); } else resolve();
++			}
++			function check() { if (mockPi.callCount() >= 1) finish(); }
++			void quietRun.then(() => { if (mockPi.callCount() < 1) finish(new Error("Quiet fixture exited before startup")); }, finish);
++			check();
++		});
+@@ -6708,0 +6720,2 @@
++		let closed!: () => void;
++		const intercomClosed = new Promise<void>(resolve => { closed = resolve; });
+@@ -6710,0 +6724,2 @@
++			timeoutMs: 5000,
++			onDetachedExit: () => closed(),
+@@ -6723 +6738,3 @@
+-		const [quietResult, intercomResult] = await Promise.all([quietRun, intercomRun]);
++		const intercomResult = await intercomRun.finally(() => fs.writeFileSync(quietRelease, "go"));
++		const quietResult = await quietRun;
++		if (intercomResult.detached) await intercomClosed;

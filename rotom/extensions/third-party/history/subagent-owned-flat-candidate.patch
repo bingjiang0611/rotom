@@ -1,0 +1,207 @@
+diff --git a/docs/owned-execution.md b/docs/owned-execution.md
+new file mode 100644
+--- /dev/null
++++ b/docs/owned-execution.md
+@@ -0,0 +1,48 @@
++# Scoped owned execution — first release boundary
++
++This is an explicit opt-in contract, not a migration of active sessions or a filesystem sandbox. Unset `PI_SUBAGENTS_EXECUTION_SCOPE` preserves legacy behavior. The isolated candidate is not the currently installed rotom dependency.
++
++## Initialize metadata, then start a new session
++
++Using the candidate package directory (not the old installed `.2`):
++
++```sh
++node /absolute/candidate/owned-store.mjs init --base /absolute/private-base --accept-unverified-descendants
++node /absolute/candidate/owned-store.mjs inspect --base /absolute/private-base
++```
++
++The command only initializes/inspects private metadata. It never launches Pi, changes cwd, migrates sessions, acquires writers, releases unknown locks or authorizes replay. JSON output supplies `PI_SUBAGENTS_TEMP_ROOT` and `PI_SUBAGENTS_EXECUTION_SCOPE=owned-process-groups-v2` for an explicitly new session. Do not set scope only in configuration: startup selection is required. Runtime opening is read-only; absent or changed directories/identity fail closed. A prior v2 store cannot be upgraded to the v3 store by rerunning init. Do not delete/rebind a base or marker to reset occupied capacity.
++
++## Supported entrypoints
++
++Pi agents must declare an explicit `tools` list of names (no nested tools, wildcards or extension paths) and an explicit `extensions` list (`[]` disables ambient discovery). Providers/tools can still be supplied through explicitly configured extensions and `subagentOnlyExtensions`. These are trusted local code, not a capability certification or sandbox; this contract does not make arbitrary extension code safe. Existing agents that rely on ambient resources are rejected before writer launch until their configuration is made explicit.
++
++The agent Markdown parser uses comma/block lists, not YAML flow arrays. In a Markdown definition use a blank `extensions:` value for an empty list (do not write `extensions: []`); JSON/SDK agent configuration uses `extensions: []` normally. Example:
++
++```markdown
++---
++name: scoped-worker
++description: Explicit scoped worker
++tools: read, write, edit, bash
++extensions:
++---
++Complete the assigned independent task. Do not delegate.
++```
++
++Declare any required provider extension explicitly; an empty extension list does not load an ambient custom provider.
++
++- Public `{agent, task, async:true}` owns one actual async Pi/external CLI runner and returns that runner's identity, not an extra workflow receipt. Public validation still runs first. Legacy mode retains its existing structured-to-workflow conversion.
++- An `async:true` workflowScript controller supports independent async Pi/external CLI children and fresh single foreground Pi children. Foreground tasks are not converted into early async receipts to manufacture closure.
++- Native `action:"resume"` for an original Pi-only async run requires its real closure, store/session identity and canonical lease fences. It is not permission to replay unknown effects. Workflow/external/retained-child recovery remains unavailable.
++
++Explicitly unsupported: nested delegation, chains/task batches, worktrees, host gates/verification/review execution, fork/imported roots, external-job providers, standalone foreground execution and foreground workflow controllers. Relevant request/agent defaults and dynamic workflow children are checked before writer setup. Clarification/foreground-only routing, malformed async/worktree flags and caller-supplied workflow identities cannot bypass these checks. Known rejected children do not create unbound ownership rows and do not strand the controller's slot. Unexpected missing closure after real admission remains occupied.
++
++The active scoped tool description takes precedence over custom/full/compact descriptions that advertise unsupported routes. `guide` marks the full upstream guide as legacy reference. `children.list` does not advertise scoped workflow children as resumable or advise fallback replay.
++
++## What capacity release means
++
++Only the registered owned resources are proved closed. A slot becoming free, task result, stopped state, receipt, empty controller Map, missing index or human acknowledgment does not prove descendant closure or business-effect verification. Escaped descendants can still write. Do not retry unknown work under another ID, directory, session, scope or base. Separately authorized independent tasks are distinct from retries.
++
++A real direct close and controlled group closure must precede canonical lease release. Forced pipe destruction is not actual close; owner loss, malformed/missing evidence or active/unreadable leases retain occupancy. Scoped v2 leases remain in the shared lease root but are unreadable to old readers, so old PID-staleness checks cannot reclaim them. The v3 store binds the lease/session directory identities; replacing those directories cannot create a fresh pool.
++
++All tooling runs with the local user's permissions. This does not prevent deliberate filesystem edits or arbitrary external tools from escaping a process group. It does not promise rollback, exact token/cost savings, Linux validation from macOS evidence, or support for an untested topology.
+diff --git a/owned-store.mjs b/owned-store.mjs
+new file mode 100644
+--- /dev/null
++++ b/owned-store.mjs
+@@ -0,0 +1,25 @@
++// Explicit metadata initialization only. Never starts Pi, migrates sessions or replays work.
++import path from 'node:path';
++import { createJiti } from 'jiti';
++const [operation, baseFlag, base, ...flags] = process.argv.slice(2);
++const accepted = operation === 'init' && flags.length === 1 && flags[0] === '--accept-unverified-descendants';
++if (!['init', 'inspect'].includes(operation) || baseFlag !== '--base' || !base || !path.isAbsolute(base)
++	|| (operation === 'init' ? !accepted : flags.length !== 0)) {
++	console.error('Usage: node owned-store.mjs init --base /absolute/base --accept-unverified-descendants\n       node owned-store.mjs inspect --base /absolute/base');
++	process.exitCode = 2;
++} else {
++	try {
++		const jiti = createJiti(import.meta.url, { fsCache: false, moduleCache: false });
++		const { initializeExecutionStore, resolveExecutionStore, OWNED_EXECUTION_SCOPE } = await jiti.import('./src/shared/execution-store.ts');
++		const store = operation === 'init' ? initializeExecutionStore(base) : resolveExecutionStore(base, OWNED_EXECUTION_SCOPE);
++		console.log(JSON.stringify({ operation, scope: store.scope, root: store.root,
++			environmentForNewSessionOnly: { PI_SUBAGENTS_TEMP_ROOT: store.baseRoot, PI_SUBAGENTS_EXECUTION_SCOPE: store.scope },
++			descendants: 'unverified', effects: 'unverified', recoveryAuthorized: false, liveSessionMigration: false,
++			limits: 'single async Pi/external CLI or async workflow; no nested/worktree/gate/fork/import/external-job/standalone foreground',
++			warning: 'Acknowledgment is not closure. Do not change IDs, sessions, scopes or bases to retry unknown work.' }));
++	} catch (error) {
++		console.error(JSON.stringify({ error: 'Execution store unavailable; no migration, replay or reset is authorized.',
++			...(typeof error?.code === 'string' && /^[A-Z0-9_]+$/.test(error.code) ? { code: error.code } : {}) }));
++		process.exitCode = 1;
++	}
++}
+diff --git a/src/extension/tool-description.ts b/src/extension/tool-description.ts
+--- a/src/extension/tool-description.ts
++++ b/src/extension/tool-description.ts
+@@ -3 +3 @@
+-import type { ExtensionConfig, ToolDescriptionMode } from "../shared/types.ts";
++import { EXECUTION_STORE, type ExtensionConfig, type ToolDescriptionMode } from "../shared/types.ts";
+@@ -9,0 +10,2 @@
++
++export const SCOPED_SUBAGENT_GUIDANCE = `Scoped first release (owned-process-groups-v2): use explicit async:true for one Pi/external CLI task or a workflowScript controller. Workflow children may be independent async Pi/external CLI tasks or fresh single foreground Pi tasks. Pi agents must declare explicit tool names (no nested tools/wildcards/extension paths) and extensions (an empty array is allowed); ambient discovery is not admitted. Explicit extensions remain trusted local code, not sandboxed or certified safe. Chains/task batches, nested delegation, worktrees, host gates/verification/review, fork/import, external jobs, standalone foreground execution and foreground workflow controllers are unavailable and must be rejected before any writer starts. Capacity release proves only the registered owned resources closed; it never verifies escaped descendants or business effects and never authorizes replay. Do not retry unknown work under another ID, directory, session, scope or storage base. Native async Pi resume is allowed only when the original run passes its closure and canonical lease fences; workflow/child/external recovery remains fenced. Keep one writer per cwd. Scoped mode uses this fixed guidance rather than custom descriptions that may advertise unsupported execution.`;
+@@ -88,0 +91 @@
++	if (EXECUTION_STORE.scope) return { promptSnippet: SUBAGENT_TOOL_PROMPT_SNIPPET, promptGuidelines: [SUBAGENT_TOOL_PROMPT_GUIDELINES[0]!, SCOPED_SUBAGENT_GUIDANCE] };
+@@ -183,0 +187 @@
++	if (EXECUTION_STORE.scope) return `${DEFAULT_SUBAGENT_TOOL_DESCRIPTION}\n\n${SCOPED_SUBAGENT_GUIDANCE}`;
+diff --git a/src/runs/background/retained-children.ts b/src/runs/background/retained-children.ts
+--- a/src/runs/background/retained-children.ts
++++ b/src/runs/background/retained-children.ts
+@@ -4 +4 @@
+-import type { TokenUsage } from "../../shared/types.ts";
++import { EXECUTION_STORE, type TokenUsage } from "../../shared/types.ts";
+@@ -52,0 +53 @@
++	if (EXECUTION_STORE.scope) return { state: "not-resumable", reason: "Scoped workflow child recovery is unavailable; capacity release does not authorize replay" };
+@@ -110,0 +112 @@
++	if (children.length === 0 && EXECUTION_STORE.scope) return "No retained workflow children are listed. Absence is not closure and does not authorize replacement or replay of unknown work.";
+@@ -133 +135 @@
+-		...(hasResumableChild ? [] : ["No resumable retained child is listed. Launch a same-role fallback challenge and label it as fallback."]),
++		...(hasResumableChild ? [] : [EXECUTION_STORE.scope ? "Scoped retained children cannot be resumed or replaced to replay unknown work. Only separately authorized independent tasks may start." : "No resumable retained child is listed. Launch a same-role fallback challenge and label it as fallback."]),
+diff --git a/src/runs/foreground/subagent-executor.ts b/src/runs/foreground/subagent-executor.ts
+--- a/src/runs/foreground/subagent-executor.ts
++++ b/src/runs/foreground/subagent-executor.ts
+@@ -26,0 +27 @@
++import { SCOPED_SUBAGENT_GUIDANCE } from "../../extension/tool-description.ts";
+@@ -1609,0 +1611,7 @@
++	if (EXECUTION_STORE.scope) {
++		const recoveredAgent = recoveryDescriptor ? applySteeringRecoveryAgentConfig(baseAgentConfig, recoveryDescriptor) : baseAgentConfig;
++		if (attachChain || recoveredAgent.runner || scopedAgentRoutingError(recoveredAgent)
++			|| scopedAcceptanceExecutes(recoveryDescriptor?.acceptance ?? recoveredAgent.defaultAcceptance)) {
++			return buildRequestedModeError(input.params, "Scoped first release rejects unsupported recovered execution before transfer; no writer is authorized.");
++		}
++	}
+@@ -3535,0 +3544,51 @@
++function scopedAgentRoutingError(agent: AgentConfig): string | undefined {
++	if (agent.runner) return agent.runner.type === "external-cli" ? undefined : "external jobs or unknown runners";
++	// Declare the child tool/extension surface rather than inheriting ambient
++	// resources that can silently reintroduce unsupported nested execution.
++	if (!Array.isArray(agent.tools) || agent.tools.some(t => typeof t !== "string" || !t || /[\\/*?\[\]]/.test(t) || /\.[cm]?[jt]s$/.test(t))) return "implicit, wildcard or extension-path tools; declare tool names explicitly";
++	if (agent.tools.some(t => ["subagent", "subagent_wait", "subagent_supervisor"].includes(t))) return "nested subagent tools";
++	if (!Array.isArray(agent.extensions)) return "ambient extensions; declare extensions explicitly (empty is allowed)";
++	return undefined;
++}
++function scopedAcceptanceExecutes(value: unknown): boolean {
++	return !!value && typeof value === "object" && (("verify" in value && value.verify !== undefined)
++		|| ("review" in value && !!value.review && typeof value.review === "object" && (!("required" in value.review) || value.review.required !== false)));
++}
++/** First scoped release deliberately admits only the validated topologies.
++ * This preflight is read-only and runs before controller admission or writer
++ * setup; a rejected workflow child must not strand an unbound admission. */
++function scopedAdmissionError(params: SubagentParamsLike, deps: ExecutorDeps, ctx: ExtensionContext, workflowChild = false, ownedIdentity = workflowLaunchObservers.has(params)): string | undefined {
++	if (!EXECUTION_STORE.scope) return undefined;
++	const deny = (feature: string) => `Scoped first release does not support ${feature}; no writer is authorized.`;
++	const action = typeof params.action === "string" ? params.action.trim() : undefined;
++	if (action && !["resume", "steer", "append-step"].includes(action)) return undefined;
++	const depth = Number(process.env.PI_SUBAGENT_DEPTH ?? "0");
++	if (!Number.isSafeInteger(depth) || depth !== 0 || resolveInheritedNestedRouteFromEnv()) return deny("nested execution");
++	if (params.async !== undefined && typeof params.async !== "boolean") return deny("invalid async selection");
++	if (params.clarify !== undefined || params.foregroundOnly === true) return deny("clarification or foreground-only routing");
++	if (!ownedIdentity && (params.workflowChildAsyncId !== undefined || params.workflowKey !== undefined || params.workflowParentRunId !== undefined)) return deny("caller-supplied workflow child identity");
++	if ((params.worktree !== undefined && params.worktree !== false) || (params.isolation !== undefined && params.isolation !== "none")) return deny("worktree execution");
++	if (params.gate !== undefined) return deny("host gates");
++	if (params.chain !== undefined || params.tasks !== undefined || params.chainDir !== undefined || action === "append-step") return deny("chains, task batches or imported roots");
++	if (params.resume !== undefined) return deny("foreground resume; use native async action=resume for an eligible original run");
++	if (params.context === "fork") return deny("forked/imported sessions");
++	if (scopedAcceptanceExecutes(params.acceptance)) return deny("verification/review execution");
++	if (action) return undefined; // Target-specific native recovery fences run separately.
++	if (params.workflowScript !== undefined) return params.async === false ? deny("foreground workflow controllers") : undefined;
++	if (!params.agent) return deny("non-single launches");
++	const cwd = resolveRequestedCwd(ctx.cwd, params.cwd), discovered = deps.discoverAgents(cwd, resolveExecutionAgentScope(params.agentScope));
++	const canonical = canonicalizeExecutionParams(params, discovered.agents, discovered.agentDiagnostics);
++	if (canonical.error) return canonical.error;
++	const effective = applySingleAgentLaunchDefaults(canonical.params!, discovered.agents);
++	const agent = discovered.agents.find(a => a.name === effective.agent);
++	if (!agent || agent.disabled) return deny("an unavailable agent");
++	const routingError = scopedAgentRoutingError(agent);
++	if (routingError) return deny(routingError);
++	if (scopedAcceptanceExecutes(effective.acceptance ?? agent.defaultAcceptance)) return deny("agent verification/review execution");
++	const context = resolveAgentDefaultContextPolicy(effective, discovered.agents, deps.config.defaultSubagentContext, canPreferFork(ctx.sessionManager));
++	if (context.usesFork || context.params.context === "fork") return deny("forked/imported sessions");
++	const requestedAsync = effective.async ?? deps.asyncByDefault;
++	if (typeof requestedAsync !== "boolean") return deny("invalid effective async selection");
++	if (!requestedAsync && (!workflowChild || agent.runner)) return deny("standalone foreground or foreground external execution");
++	return undefined;
++}
+@@ -3905,0 +3965,2 @@
++		try { const unsupported = scopedAdmissionError(params, deps, ctx, !!workflowLaunchObserver); if (unsupported) return buildRequestedModeError(params, unsupported); }
++		catch (error) { return buildRequestedModeError(params, error instanceof Error ? error.message : "Scoped admission unavailable."); }
+@@ -4282,0 +4344,3 @@
++								// The generic workflow engine defaults nullish async to false.
++								// Reject malformed input before that normalization erases it.
++								if (EXECUTION_STORE.scope && calls.some(({ params }) => params.async !== undefined && typeof params.async !== "boolean")) throw new Error("Scoped first release does not support invalid async selection; no writer is authorized.");
+@@ -4297 +4361,3 @@
+-								const ownedAdmission = ownedWorkflow ? registerWorkflowAdmission(asyncDir, ownedWorkflow, key) : undefined;
++								const unsupported = scopedAdmissionError({ ...workflowChildDefaults, ...childParams } as SubagentParamsLike, deps, ctx, true);
++								if (unsupported) throw new Error(unsupported);
++								let ownedAdmission: string | undefined;
+@@ -4317,0 +4384,4 @@
++										// Supported paths invoke this before writer setup. Validation
++										// failures before it have not admitted a writer; after it, any
++										// missing binding/close remains conservatively occupied.
++										if (ownedWorkflow && !ownedAdmission) ownedAdmission = registerWorkflowAdmission(asyncDir, ownedWorkflow, key);
+@@ -4769 +4839 @@
+-						content: [{ type: "text", text: readSubagentGuide(paramsWithResolvedCwd.topic) }],
++						content: [{ type: "text", text: EXECUTION_STORE.scope ? `${SCOPED_SUBAGENT_GUIDANCE}\n\nLegacy reference only; unavailable routes below are not enabled in the active scope:\n${readSubagentGuide(paramsWithResolvedCwd.topic)}` : readSubagentGuide(paramsWithResolvedCwd.topic) }],
+@@ -5192,0 +5263,4 @@
++		// Recheck the exact discovery snapshot used below, not a prior read that
++		// may have raced with an agent/config edit during preflight.
++		const scopedResolvedError = scopedAdmissionError(effectiveParams, { ...deps, discoverAgents: () => discovered }, ctx, !!workflowLaunchObserver, !!workflowLaunchObserver);
++		if (scopedResolvedError) return buildRequestedModeError(effectiveParams, scopedResolvedError);
+@@ -5753,0 +5828,7 @@
++		// The scoped public single form owns exactly one async runner. The legacy
++		// conversion defaults its child to foreground, which external CLI cannot
++		// support; changing that child to an async receipt would finish the parent
++		// result prematurely. Preserve the actual single runner/result identity.
++		if (EXECUTION_STORE.scope && params.action === undefined && params.agent !== undefined && params.workflowScript === undefined) {
++			return executeWithSingleDispatchGuard(id, params, signal, onUpdate, ctx);
++		}

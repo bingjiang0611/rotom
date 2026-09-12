@@ -1,0 +1,249 @@
+--- a/src/runs/background/wait-subscriptions.ts
++++ b/src/runs/background/wait-subscriptions.ts
+@@ -3 +3 @@
+-import { randomUUID } from "node:crypto";
++import { createHash, randomUUID } from "node:crypto";
+@@ -8 +8,2 @@
+-import { writeAtomicJson } from "../../shared/atomic-json.ts";
++import { writePrivateAtomicJson as writeAtomicJson } from "../../shared/atomic-json.ts";
++import { resolveCurrentSessionId } from "../../shared/session-identity.ts";
+@@ -22 +23,6 @@
+-const SUBSCRIPTION_VERSION = 1;
++const SUBSCRIPTION_VERSION = 2;
++const MAX_CONTROL_KEYS = 64;
++const HEX_KEY = /^[a-f0-9]{64}$/;
++const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
++const OUTCOMES = new Set(["needs attention", "completed", "failed", "paused", "stopped", "rejected", "timed out", "could not be reconciled", "reconciliation failed"]);
++const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value) ?? "null").digest("hex");
+@@ -69 +75 @@
+-	if (record.version !== SUBSCRIPTION_VERSION
++	if ((record.version !== 1 && record.version !== SUBSCRIPTION_VERSION)
+@@ -77 +83,13 @@
+-		|| typeof record.expiresAt !== "number") return undefined;
++		|| typeof record.expiresAt !== "number"
++		|| !Number.isFinite(record.createdAt) || !Number.isFinite(record.expiresAt)) return undefined;
++	// Unknown/corrupt delivery state must not fall back to a fresh send.
++	if (record.lastAttentionKey !== undefined && !HEX_KEY.test(record.lastAttentionKey)) return undefined;
++	if (record.controlKey !== undefined && !HEX_KEY.test(record.controlKey)) return undefined;
++	if (record.seenControlKeys !== undefined && (!Array.isArray(record.seenControlKeys)
++		|| record.seenControlKeys.length > MAX_CONTROL_KEYS || !record.seenControlKeys.every((key) => typeof key === "string" && HEX_KEY.test(key)))) return undefined;
++	if (record.delivery !== undefined) {
++		const d = record.delivery;
++		if (!d || typeof d !== "object" || typeof d.attemptId !== "string" || !UUID.test(d.attemptId)
++			|| !OUTCOMES.has(d.outcome) || (d.state !== "unknown" && d.state !== "accepted")
++			|| !Number.isFinite(d.attemptedAt)) return undefined;
++	}
+@@ -82 +100,2 @@
+-	return run.activityState === "needs_attention" || run.steps.some((step) => step.activityState === "needs_attention");
++	return run.activityState === "needs_attention" || run.steps.some((step) =>
++		step.status === "running" && step.activityState === "needs_attention");
+@@ -94 +113,3 @@
+-		lines.push(`- ${record.token}: ${record.targetKind} run ${record.runId}, timeout in ${Math.max(0, record.expiresAt - now)}ms`);
++		lines.push(`- ${record.token}: ${record.targetKind} run ${record.runId}, ${record.delivery
++			? `delivery ${record.delivery.state} (${record.delivery.outcome}); awaiting session receipt; no automatic resend; inspect session/status`
++			: `timeout in ${Math.max(0, record.expiresAt - now)}ms`}`);
+@@ -110,0 +132,8 @@
++	const inFlight = new Set<string>();
++	const quarantinedTargets = new Set<string>();
++	const targetKey = (sessionId: string, targetKind: string, runId: string) => digest([sessionId, targetKind, runId]);
++	const save = (record: WaitSubscriptionRecord, changes: Partial<WaitSubscriptionRecord>) => {
++		const next = { ...record, ...changes, version: SUBSCRIPTION_VERSION } as WaitSubscriptionRecord;
++		writeAtomicJson(subscriptionFile(subscriptionsDir, record.token), next);
++		Object.assign(record, next);
++	};
+@@ -157,0 +187,2 @@
++			// An unresolved attempt is evidence, not an expired subscription to sweep.
++			if (record.delivery) continue;
+@@ -180,2 +211,32 @@
+-	const settle = (record: WaitSubscriptionRecord, outcome: string, detail: string, completion?: WaitCompletion) => {
+-		if (disposed || state.currentSessionId !== record.sessionId) return;
++	const finishAccepted = (record: WaitSubscriptionRecord) => {
++		if (record.delivery?.outcome === "needs attention") save(record, { delivery: undefined });
++		else remove(record);
++	};
++
++	const hasReceipt = (record: WaitSubscriptionRecord): boolean => {
++		// Queue acceptance is not session visibility. This public readback proves
++		// presence, not fsync or model consumption. Missing/truncated/other-branch
++		// history never permits retry.
++		const ctx = state.lastUiContext;
++		const attempt = record.delivery;
++		// Match the package's file-first owner identity, not Pi's distinct native UUID.
++		if (!attempt || !ctx || resolveCurrentSessionId(ctx.sessionManager) !== record.sessionId) return false;
++		return ctx.sessionManager.getBranch().slice(-4096).some((entry) => {
++			if (entry.type !== "custom_message" || entry.customType !== "subagent-wait-subscription") return false;
++			const d = entry.details as Record<string, unknown> | undefined;
++			return d?.sessionId === record.sessionId && d.token === record.token && d.runId === record.runId
++				&& d.attemptId === attempt.attemptId && d.outcome === attempt.outcome;
++		});
++	};
++
++	const reconcileDelivery = (record: WaitSubscriptionRecord) => {
++		if (!record.delivery || inFlight.has(record.token) || !hasReceipt(record)) return;
++		if (record.delivery.state === "unknown") save(record, { delivery: { ...record.delivery, state: "accepted" } });
++		finishAccepted(record);
++	};
++
++	const settle = (record: WaitSubscriptionRecord, outcome: string, detail: string, completion?: WaitCompletion, attentionKey?: string) => {
++		if (disposed || state.currentSessionId !== record.sessionId || record.delivery || inFlight.has(record.token)) return;
++		// Persist the attempt BEFORE dispatch. Crashes on either side of sendMessage
++		// cannot prove whether Pi accepted it; recovery never blindly resends it.
++		inFlight.add(record.token);
+@@ -183,6 +244,4 @@
+-			remove(record);
+-		} catch (error) {
+-			console.error(`Failed to clear wait subscription '${record.token}'; it remains armed:`, error);
+-			return;
+-		}
+-		try {
++			save(record, {
++				delivery: { attemptId: randomUUID(), outcome, state: "unknown", attemptedAt: now() },
++				...(attentionKey ? { lastAttentionKey: attentionKey } : {}),
++			});
+@@ -194,0 +254,2 @@
++					sessionId: record.sessionId,
++					attemptId: record.delivery!.attemptId,
+@@ -200,3 +261,18 @@
+-		} catch (error) {
+-			console.error(`Failed to deliver wait subscription '${record.token}' after clearing it:`, error);
+-		}
++			save(record, { delivery: { ...record.delivery!, state: "accepted" } });
++			if (hasReceipt(record)) finishAccepted(record);
++		} catch {
++			// No error body: dispatch failures may contain message or provider content.
++			console.error(`Wait subscription '${record.token}' delivery/settlement unconfirmed; inspect persisted state. No automatic resend.`);
++		} finally {
++			inFlight.delete(record.token);
++		}
++	};
++
++	const observeAttention = (record: WaitSubscriptionRecord, shape?: unknown) => {
++		if (shape === undefined) {
++			if (record.lastAttentionKey || record.controlKey) save(record, { lastAttentionKey: undefined, controlKey: undefined });
++			return;
++		}
++		const key = digest([shape, record.controlKey]);
++		if (record.lastAttentionKey === key) return;
++		settle(record, "needs attention", "Inspect status and native/external supervisor requests. This subscription remains armed for new attention or completion.", undefined, key);
+@@ -206 +282,5 @@
+-		if (record.sessionId !== state.currentSessionId) return;
++		if (record.sessionId !== state.currentSessionId || inFlight.has(record.token)) return;
++		if (record.delivery) {
++			reconcileDelivery(record);
++			if (record.delivery || !subscriptions.has(record.token)) return;
++		}
+@@ -220,4 +300,4 @@
+-			if (detached.some((child) => child.activityState === "needs_attention" && child.currentTool === "contact_supervisor")) {
+-				settle(record, "needs attention", "Reply to the pending supervisor request or inspect the run status.");
+-				return;
+-			}
++			const attention = run.children.flatMap((child, index) => child.status === "detached"
++				&& child.activityState === "needs_attention" && child.currentTool === "contact_supervisor"
++				? [[index, child.currentToolStartedAt]] : []);
++			observeAttention(record, attention.length ? attention : undefined);
+@@ -244,15 +324,18 @@
+-		if (needsAttention(run)) {
+-			settle(record, "needs attention", "Inspect the run status and answer any pending supervisor request.");
+-			return;
+-		}
+-		if (run.state !== "queued" && run.state !== "running") {
+-			let completion: WaitCompletion | undefined;
+-			try {
+-				completion = readCompletionReplay(resultsDir, record.runId, { sessionId: record.sessionId, now: now() })?.completion;
+-			} catch (error) {
+-				console.error(`Failed to read completion replay for wait subscription '${record.token}':`, error);
+-			}
+-			const detail = formatResumeFirstFailedRunDetail(run) ?? "Inspect the run status for its final output.";
+-			const archiveDetail = completion?.archivePath ? ` Completion archive: ${completion.archivePath}.` : "";
+-			settle(record, run.state === "complete" ? "completed" : run.state, `${detail}${archiveDetail}`, completion);
+-		}
++		if (run.state === "queued" || run.state === "running") {
++			// Ignore counters, tool text and lastUpdate: progress alone is not a new block.
++			observeAttention(record, needsAttention(run) ? [run.startedAt, run.currentStep,
++				run.activityState === "needs_attention", run.currentTool === "contact_supervisor" ? run.currentToolStartedAt : undefined,
++				run.steps.filter((step) => step.status === "running").map((step) => [step.index,
++					step.activityState === "needs_attention", step.currentTool === "contact_supervisor" ? step.currentToolStartedAt : undefined]),
++			] : undefined);
++			return;
++		}
++		let completion: WaitCompletion | undefined;
++		try {
++			completion = readCompletionReplay(resultsDir, record.runId, { sessionId: record.sessionId, now: now() })?.completion;
++		} catch {
++			console.error(`Completion replay unavailable for wait subscription '${record.token}'.`);
++		}
++		const detail = formatResumeFirstFailedRunDetail(run) ?? "Inspect the run status for its final output.";
++		const archiveDetail = completion?.archivePath ? ` Completion archive: ${completion.archivePath}.` : "";
++		settle(record, run.state === "complete" ? "completed" : run.state, `${detail}${archiveDetail}`, completion);
+@@ -271 +354 @@
+-				console.error(`Failed to reconcile wait subscription '${record.token}':`, error);
++				console.error(`Failed to reconcile wait subscription '${record.token}'; inspect persisted state.`);
+@@ -285 +368,18 @@
+-	const unsubscribes = wakeChannels.map((channel) => pi.events.on(channel, reconcile));
++	const unsubscribes = wakeChannels.map((channel) => pi.events.on(channel, (data: unknown) => {
++		// The same immutable control event may arrive over two channels or be replayed.
++		// Hash only metadata; keep a bounded replay window per existing subscription.
++		if ((channel === SUBAGENT_CONTROL_EVENT || channel === SUBAGENT_CONTROL_INTERCOM_EVENT)
++			&& data && typeof data === "object" && "event" in data) {
++			const event = (data as { event?: import("../../shared/types.ts").ControlEvent }).event;
++			if (event?.type === "needs_attention" && typeof event.runId === "string" && Number.isFinite(event.ts)) {
++				const key = digest([event.id, event.runId, event.index, event.nestedRunId, event.nestingPath, event.ts, event.reason]);
++				for (const record of subscriptions.values()) {
++					if (record.sessionId !== state.currentSessionId || record.runId !== event.runId
++						|| record.seenControlKeys?.includes(key)) continue;
++					try { save(record, { controlKey: key, seenControlKeys: [...(record.seenControlKeys ?? []), key].slice(-MAX_CONTROL_KEYS) }); }
++					catch { /* No acknowledgment on failed persistence; reconciliation stays conservative. */ }
++				}
++			}
++		}
++		reconcile();
++	}));
+@@ -292,0 +393,8 @@
++			if (disposed) throw new Error("Wait subscription manager is disposed.");
++			if (quarantinedTargets.has(targetKey(sessionId, input.targetKind, input.runId))) throw new Error("Invalid persisted wait state for this target; inspect it before re-arming.");
++			const existing = [...subscriptions.values()].find((record) => record.sessionId === sessionId
++				&& record.targetKind === input.targetKind && record.runId === input.runId);
++			if (existing?.delivery) throw new Error("Wait delivery is unconfirmed or awaiting settlement. Inspect subscription status/session readback; do not re-arm to replay it.");
++			// Re-arm is idempotent, including its original deadline. Attention is an
++			// intermediate signal, not consumption of the terminal subscription.
++			if (existing) return existing;
+@@ -310,0 +419 @@
++			quarantinedTargets.clear();
+@@ -325,2 +434,9 @@
+-					const record = parseRecord(JSON.parse(fs.readFileSync(path.join(subscriptionsDir, file), "utf-8")));
+-					if (!record || file !== `${record.token}.json`) continue;
++					const raw = JSON.parse(fs.readFileSync(path.join(subscriptionsDir, file), "utf-8"));
++					const record = parseRecord(raw);
++					if (!record || file !== `${record.token}.json`) {
++						if (raw?.sessionId === state.currentSessionId && typeof raw.runId === "string"
++							&& (raw.targetKind === "async" || raw.targetKind === "foreground")) {
++							quarantinedTargets.add(targetKey(raw.sessionId, raw.targetKind, raw.runId));
++						}
++						continue;
++					}
+--- a/src/shared/types.ts
++++ b/src/shared/types.ts
+@@ -197,0 +198,2 @@
++	/** Stable across delivery channels and replay; not a supervisor request ID. */
++	id?: string;
+@@ -1685 +1687,2 @@
+-	version: 1;
++	/** v1 is read-only migration input; old runtimes reject v2 rather than replay it. */
++	version: 1 | 2;
+@@ -1692,0 +1696,9 @@
++	lastAttentionKey?: string;
++	controlKey?: string;
++	seenControlKeys?: string[];
++	delivery?: {
++		attemptId: string;
++		outcome: string;
++		state: "unknown" | "accepted";
++		attemptedAt: number;
++	};
+--- a/src/runs/shared/subagent-control.ts
++++ b/src/runs/shared/subagent-control.ts
+@@ -10 +10 @@
+-import { createHash } from "node:crypto";
++import { createHash, randomUUID } from "node:crypto";
+@@ -135,0 +136 @@
++		id: randomUUID(),

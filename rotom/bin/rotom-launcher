@@ -1,0 +1,394 @@
+#!/bin/sh
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+agent_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
+observability_extension_dir="$agent_dir/extensions/observability"
+trace_dashboard="$observability_extension_dir/dashboard.mjs"
+browser_extension_dir="$agent_dir/extensions/browser"
+coding_policy_extension_dir="$agent_dir/extensions/coding-policy"
+third_party_extension_dir="$agent_dir/extensions/third-party"
+qoder_extension_dir="$agent_dir/extensions/qoder"
+third_party_subagents_skill_dir="$agent_dir/skills/pi-subagents"
+runtime_verifier="$agent_dir/runtime/verify-pi-runtime.mjs"
+herdr_extension=
+if [ "${HOME+x}" = x ] && [ "${HERDR_ENV:-}" = 1 ] && [ -n "${HERDR_SOCKET_PATH:-}" ] && [ -n "${HERDR_PANE_ID:-}" ]; then
+	herdr_candidate="$HOME/.pi/agent/extensions/herdr-agent-state.ts"
+	if [ -f "$herdr_candidate" ] && [ ! -L "$herdr_candidate" ]; then
+		herdr_extension=$herdr_candidate
+	fi
+fi
+
+version_probe=0
+if [ "$#" -eq 1 ] && [ "$1" = "--version" ]; then
+	version_probe=1
+fi
+
+if [ "${ROTOM_NODE+x}" = x ]; then
+	node_candidate=$ROTOM_NODE
+	case "$node_candidate" in
+		/*) ;;
+		*)
+			echo "rotom: ROTOM_NODE 必须是绝对 Node 可执行文件路径" >&2
+			exit 2
+			;;
+	esac
+else
+	node_candidate=
+	if command -v node >/dev/null 2>&1; then
+		path_node=$(command -v node)
+		if [ "$version_probe" -eq 1 ] || "$path_node" -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major > 23 || (major === 23 && minor >= 6) ? 0 : 1)' >/dev/null 2>&1; then
+			node_candidate=$path_node
+		fi
+	fi
+	if [ -z "$node_candidate" ]; then
+		echo "rotom: 找不到兼容的 Node；请安装 Node >=23.6.0 或设置 ROTOM_NODE=/absolute/path/to/node" >&2
+		exit 127
+	fi
+	case "$node_candidate" in
+		/*) ;;
+		*)
+			echo "rotom: PATH 中的 node 不是绝对文件路径：$node_candidate" >&2
+			exit 2
+			;;
+	esac
+fi
+
+if [ ! -f "$node_candidate" ] || [ ! -x "$node_candidate" ]; then
+	echo "rotom: Node 路径不存在、不是普通文件或不可执行：$node_candidate" >&2
+	exit 2
+fi
+
+# argv never evaluate ROTOM_NODE as a command string. Prefer a fixed platform
+# realpath utility so a read-only version probe starts Node only once.
+realpath_command=
+for candidate in /bin/realpath /usr/bin/realpath; do
+	if [ -x "$candidate" ]; then
+		realpath_command=$candidate
+		break
+	fi
+done
+if [ -n "$realpath_command" ]; then
+	node_command=$("$realpath_command" "$node_candidate" 2>/dev/null) || node_command=
+else
+	node_command=$("$node_candidate" -e 'process.stdout.write(require("node:fs").realpathSync(process.argv[1]))' "$node_candidate" 2>/dev/null) || node_command=
+fi
+if [ -z "$node_command" ]; then
+	echo "rotom: ROTOM_NODE/PATH node 无法解析 realpath：$node_candidate" >&2
+	exit 2
+fi
+case "$node_command" in
+	/*) ;;
+	*)
+		echo "rotom: Node realpath 不是绝对路径" >&2
+		exit 2
+		;;
+esac
+if [ ! -f "$node_command" ] || [ ! -x "$node_command" ]; then
+	echo "rotom: Node realpath 不是可执行普通文件：$node_command" >&2
+	exit 2
+fi
+
+if [ "${ROTOM_PI+x}" = x ]; then
+	pi_candidate=$ROTOM_PI
+	case "$pi_candidate" in
+		/*) ;;
+		*)
+			echo "rotom: ROTOM_PI 必须是绝对 Pi 可执行文件路径" >&2
+			exit 2
+			;;
+	esac
+else
+	installed_pi_resolver="$agent_dir/runtime/resolve-installed-pi.mjs"
+	for bootstrap_path in "$agent_dir/runtime" "$installed_pi_resolver" "$runtime_verifier" "$agent_dir/runtime/product-config.mjs"; do
+		if [ ! -e "$bootstrap_path" ] || [ -L "$bootstrap_path" ]; then
+			echo "rotom: 缺少可信 bundled Pi resolver 资源：$bootstrap_path" >&2
+			exit 2
+		fi
+	done
+	pi_candidate=$("$node_command" "$installed_pi_resolver" "$agent_dir")
+fi
+if [ ! -f "$pi_candidate" ] || [ ! -x "$pi_candidate" ]; then
+	echo "rotom: Pi 路径不存在、不是普通文件或不可执行：$pi_candidate" >&2
+	exit 2
+fi
+
+if [ "$#" -eq 1 ] && [ "$1" = "--trace" ]; then
+	if [ ! -f "$trace_dashboard" ] || [ -L "$trace_dashboard" ]; then
+		echo "rotom: 缺少可信 trace dashboard：$trace_dashboard" >&2
+		exit 1
+	fi
+	exec "$node_command" "$trace_dashboard"
+fi
+
+for argument in "$@"; do
+	if [ "$argument" = "--trace" ]; then
+		echo "rotom: --trace 必须单独使用" >&2
+		exit 2
+	fi
+	case "$argument" in
+		--extension|-e|--extension=*|-e?*|--no-extensions|-ne|--skill|--skill=*|--no-skills|-ns|--prompt-template|--prompt-template=*|--no-prompt-templates|-np)
+			echo "rotom: 不允许覆盖或追加 extension/skill/prompt 资源：$argument" >&2
+			exit 2
+			;;
+		--no-approve|-na)
+			load_claude_project_skills=0
+			;;
+		--approve|-a)
+			load_claude_project_skills=1
+			;;
+	esac
+done
+
+# Deferred loading may narrow only the launcher's reviewed default surface. Any
+# explicit Pi tool-selection flag remains authoritative, even if it names every
+# currently registered product tool. Stop at `--` because later values are messages.
+deferred_default_surface=1
+for argument in "$@"; do
+	if [ "$argument" = "--" ]; then
+		break
+	fi
+	case "$argument" in
+		--tools|-t|--exclude-tools|-xt|--no-tools|-nt|--no-builtin-tools|-nbt)
+			deferred_default_surface=0
+			break
+			;;
+	esac
+done
+ROTOM_DEFERRED_DEFAULT_SURFACE=$deferred_default_surface
+export ROTOM_DEFERRED_DEFAULT_SURFACE
+
+# Reuse Claude Code skills without copying or generating a second catalog. Project skills follow
+# Claude Code's startup discovery boundary: cwd and its ancestors through the nearest Git root.
+# An explicit --no-approve keeps user skills but suppresses all project-local Claude resources.
+load_claude_project_skills=${load_claude_project_skills:-1}
+claude_user_skill_dir=
+if [ "${HOME+x}" = x ]; then
+	claude_user_skill_dir="$HOME/.claude/skills"
+fi
+if [ "$load_claude_project_skills" -eq 1 ]; then
+	claude_repo_root=
+	claude_probe_dir=$PWD
+	while :; do
+		if [ -e "$claude_probe_dir/.git" ]; then
+			claude_repo_root=$claude_probe_dir
+			break
+		fi
+		claude_parent_dir=$(dirname "$claude_probe_dir")
+		if [ "$claude_parent_dir" = "$claude_probe_dir" ]; then
+			break
+		fi
+		claude_probe_dir=$claude_parent_dir
+	done
+	claude_scan_dir=$PWD
+	while :; do
+		claude_project_skill_dir="$claude_scan_dir/.claude/skills"
+		if [ -d "$claude_project_skill_dir" ] && [ "$claude_project_skill_dir" != "$claude_user_skill_dir" ]; then
+			set -- --skill "$claude_project_skill_dir" "$@"
+		fi
+		if [ -z "$claude_repo_root" ] || [ "$claude_scan_dir" = "$claude_repo_root" ]; then
+			break
+		fi
+		claude_parent_dir=$(dirname "$claude_scan_dir")
+		if [ "$claude_parent_dir" = "$claude_scan_dir" ]; then
+			break
+		fi
+		claude_scan_dir=$claude_parent_dir
+	done
+fi
+if [ -n "$claude_user_skill_dir" ] && [ -d "$claude_user_skill_dir" ]; then
+	set -- --skill "$claude_user_skill_dir" "$@"
+fi
+
+# These two files establish the resource verifier's own trust root. All product
+# resources loaded after bootstrap are checked by RESOURCE_DESCRIPTORS_V1.
+for bootstrap_path in "$runtime_verifier" "$agent_dir/runtime/product-config.mjs"; do
+	if [ ! -f "$bootstrap_path" ] || [ -L "$bootstrap_path" ]; then
+		echo "rotom: 缺少可信 bootstrap 资源：$bootstrap_path" >&2
+		exit 1
+	fi
+done
+
+verification_mode=--runtime
+if [ "$version_probe" -eq 1 ]; then
+	verification_mode=--version-only
+fi
+if [ -n "$herdr_extension" ]; then
+	verified_runtime=$("$node_command" "$runtime_verifier" "$verification_mode" \
+		"$pi_candidate" "$agent_dir" \
+		"extension:$observability_extension_dir" "extension:$browser_extension_dir" "extension:$coding_policy_extension_dir" "extension:$third_party_extension_dir" \
+		"extension:$qoder_extension_dir" "skill:$third_party_subagents_skill_dir" "herdr-extension:$herdr_extension")
+	set -- --extension "$herdr_extension" "$@"
+else
+	verified_runtime=$("$node_command" "$runtime_verifier" "$verification_mode" \
+		"$pi_candidate" "$agent_dir" \
+		"extension:$observability_extension_dir" "extension:$browser_extension_dir" "extension:$coding_policy_extension_dir" "extension:$third_party_extension_dir" \
+		"extension:$qoder_extension_dir" "skill:$third_party_subagents_skill_dir")
+fi
+
+if [ "$version_probe" -eq 0 ]; then
+	# Pin the exact canonical Pi executable that passed verify-pi-runtime. Runtime
+	# components must not search PATH again, because PATH may resolve to a different
+	# installation after the launcher has established trust.
+	ROTOM_VERIFIED_PI_EXECUTABLE=$verified_runtime
+	export ROTOM_VERIFIED_PI_EXECUTABLE
+fi
+
+# Package user configs live under the Pi agent directory, whose environment
+# override may carry a literal `~` that the shell never expands inside a
+# variable. Resolve it once for every user-config lookup below.
+product_user_agent_dir=${PI_CODING_AGENT_DIR:-${HOME:+$HOME/.pi/agent}}
+case "$product_user_agent_dir" in
+	'~'|'~/'*)
+		product_user_agent_dir=$("$node_command" -e '
+const os = require("node:os");
+const value = process.argv[1];
+process.stdout.write(value === "~" ? os.homedir() : require("node:path").join(os.homedir(), value.slice(2)));
+' "$product_user_agent_dir")
+		;;
+esac
+
+# Bound cumulative child fan-out only when neither an environment override nor
+# the package's user config selected a value. 128 is twice the pinned package's
+# per-run 64-child ceiling, so two maximal workflows fit before an explicit
+# user grant; this is a capacity bound, not a quality or workload claim. Empty,
+# malformed, or invalid limits fail closed instead of
+# silently becoming the package's unlimited default.
+if [ "${PI_SUBAGENT_MAX_SPAWNS_PER_SESSION+x}" = x ]; then
+	case "$PI_SUBAGENT_MAX_SPAWNS_PER_SESSION" in
+		''|*[!0-9]*)
+			echo "rotom: PI_SUBAGENT_MAX_SPAWNS_PER_SESSION 必须是非负整数" >&2
+			exit 2
+			;;
+	esac
+else
+	subagent_budget_configured=0
+	subagent_agent_dir=$product_user_agent_dir
+	if [ -n "$subagent_agent_dir" ] && [ -f "$subagent_agent_dir/extensions/subagent/config.json" ]; then
+		if "$node_command" -e '
+const fs = require("node:fs");
+try {
+  const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  if (!value || typeof value !== "object" || !Object.hasOwn(value, "maxSubagentSpawnsPerSession")) process.exit(1);
+  const limit = value.maxSubagentSpawnsPerSession;
+  process.exit(typeof limit === "number" && Number.isInteger(limit) && limit >= 0 ? 0 : 2);
+} catch { process.exit(2); }
+' "$subagent_agent_dir/extensions/subagent/config.json"; then
+			subagent_budget_configured=1
+		else
+			subagent_budget_status=$?
+			if [ "$subagent_budget_status" -eq 2 ]; then
+				echo "rotom: Subagent user config 的 maxSubagentSpawnsPerSession 必须是非负整数" >&2
+				exit 2
+			fi
+		fi
+	fi
+	if [ "$subagent_budget_configured" -eq 0 ]; then
+		PI_SUBAGENT_MAX_SPAWNS_PER_SESSION=128
+		export PI_SUBAGENT_MAX_SPAWNS_PER_SESSION
+	fi
+fi
+
+# Keep desktop Computer Use writes in the background by default. The package's
+# non-headless path activates the target app and posts events at the global HID
+# tap whenever a click resolves to coordinates, lands inside web content, or
+# keyboard input relies on established focus — so it takes the machine-wide
+# foreground away from whatever the user is doing, and parallel agents fight
+# over it with no cross-process lock or presence check. Headless delivery keeps
+# reads and pid-targeted writes working and reports `unknown` instead of seizing
+# the screen. An explicit environment value or an explicit `headless` key in
+# either package user config stays authoritative; an unreadable config carries
+# no effective user intent, because the package ignores it too.
+if [ "${PI_COMPUTER_USE_HEADLESS+x}" != x ]; then
+	computer_use_headless_configured=0
+	for computer_use_config in "${product_user_agent_dir:+$product_user_agent_dir/extensions/pi-computer-use.json}" "$PWD/.pi/computer-use.json"; do
+		if [ -n "$computer_use_config" ] && [ -f "$computer_use_config" ] && "$node_command" -e '
+const fs = require("node:fs");
+try {
+  const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  if (!value || typeof value !== "object") process.exit(1);
+  const scope = value.computer_use && typeof value.computer_use === "object" ? value.computer_use : value;
+  process.exit(Object.hasOwn(scope, "headless") ? 0 : 1);
+} catch { process.exit(1); }
+' "$computer_use_config"; then
+			computer_use_headless_configured=1
+			break
+		fi
+	done
+	if [ "$computer_use_headless_configured" -eq 0 ]; then
+		PI_COMPUTER_USE_HEADLESS=1
+		export PI_COMPUTER_USE_HEADLESS
+	fi
+fi
+
+# Scoped Subagent execution is the product default for NEW sessions: writers,
+# controllers and their process groups must prove real closure instead of
+# inferring it from task results. The scope and its store are selected here,
+# before Pi starts, because the package binds them at process startup.
+#
+# An explicit empty value keeps the legacy scope; any other value fails closed.
+# The store anchor is created once per base and is never replaced, so a drifted,
+# unreadable or foreign store aborts startup instead of silently adopting,
+# resetting or replaying unknown work. Deleting the base is a user action that
+# fences off its old records; it never authorizes recovery of them.
+if [ "$version_probe" -eq 0 ]; then
+	if [ "${PI_SUBAGENTS_EXECUTION_SCOPE+x}" != x ]; then
+		PI_SUBAGENTS_EXECUTION_SCOPE=owned-process-groups-v2
+	fi
+	export PI_SUBAGENTS_EXECUTION_SCOPE
+	case "$PI_SUBAGENTS_EXECUTION_SCOPE" in
+		owned-process-groups-v2)
+			if [ "${PI_SUBAGENTS_TEMP_ROOT+x}" != x ]; then
+				if [ -z "${HOME:-}" ]; then
+					echo "rotom: 默认 scoped 执行需要 HOME；请显式设置 PI_SUBAGENTS_TEMP_ROOT 或 PI_SUBAGENTS_EXECUTION_SCOPE=" >&2
+					exit 2
+				fi
+				# Persistent state, not a temp path: a tmp cleaner must not be able to
+				# delete a live store anchor and make running work unprovable.
+				PI_SUBAGENTS_TEMP_ROOT="$HOME/.local/state/rotom/subagent-store"
+			fi
+			case "$PI_SUBAGENTS_TEMP_ROOT" in
+				/*) ;;
+				*)
+					echo "rotom: PI_SUBAGENTS_TEMP_ROOT 必须是绝对目录路径" >&2
+					exit 2
+					;;
+			esac
+			export PI_SUBAGENTS_TEMP_ROOT
+			owned_store_cli="$third_party_extension_dir/node_modules/pi-subagents/owned-store.mjs"
+			if [ ! -f "$owned_store_cli" ] || [ -L "$owned_store_cli" ]; then
+				echo "rotom: 缺少可信 scoped execution store 工具：$owned_store_cli" >&2
+				exit 1
+			fi
+			if ! "$node_command" "$owned_store_cli" init --base "$PI_SUBAGENTS_TEMP_ROOT" --accept-unverified-descendants >/dev/null; then
+				echo "rotom: scoped execution store 不可用；未启动会话，也不授权恢复或重放既有工作：$PI_SUBAGENTS_TEMP_ROOT" >&2
+				exit 1
+			fi
+			;;
+		"")
+			;;
+		*)
+			echo "rotom: 不支持的 PI_SUBAGENTS_EXECUTION_SCOPE；仅接受 owned-process-groups-v2 或显式空值" >&2
+			exit 2
+			;;
+	esac
+fi
+
+# A version probe validates Pi/package identity, product resources, locked
+# third-party packages, Node compatibility, and budget without importing the
+# full SDK or starting a second Node process. Runtime starts additionally check
+# public SDK capabilities.
+if [ "$version_probe" -eq 1 ]; then
+	printf '%s\n' "$verified_runtime"
+	exit 0
+fi
+
+exec "$node_command" "$verified_runtime" \
+	--no-extensions \
+	--extension "$observability_extension_dir" \
+	--extension "$browser_extension_dir/index.ts" \
+	--extension "$coding_policy_extension_dir/index.ts" \
+	--extension "$third_party_extension_dir" \
+	--extension "$qoder_extension_dir/index.ts" \
+	--skill "$third_party_subagents_skill_dir" \
+	"$@"

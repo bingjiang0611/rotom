@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+
+node_command=${ROTOM_NODE:-$(command -v node)}
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+exec "$node_command" "$script_dir/../scripts/run-benchmark.mjs" "$@"

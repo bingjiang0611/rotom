@@ -1,0 +1,21 @@
+FROM docker.io/library/node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d
+
+WORKDIR /opt/dev-agent-evals
+
+COPY package.json package-lock.json ./
+RUN npm ci --ignore-scripts --registry=https://registry.npmjs.org --replace-registry-host=always \
+	&& npm cache clean --force
+
+COPY . ./
+RUN chmod 0755 bin/eval bin/test bin/typecheck bin/eval-container scripts/container-entrypoint.sh \
+	&& mkdir -p node_modules/.vite-temp
+
+ENV HOME=/tmp/home \
+	ROTOM_NODE=/usr/local/bin/node \
+	ROTOM_PI=/opt/dev-agent-evals/node_modules/.bin/pi \
+	ROTOM_PRODUCT_AGENT_DIR=/workspace/product \
+	PI_CODING_AGENT_DIR=/tmp/rotom-auth \
+	TMPDIR=/tmp \
+	XDG_CACHE_HOME=/tmp/cache
+
+ENTRYPOINT ["/opt/dev-agent-evals/scripts/container-entrypoint.sh"]

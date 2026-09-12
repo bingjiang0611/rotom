@@ -1,0 +1,35 @@
+name: rotom
+description: rotom coding agent; release artifact must be frozen before evaluation
+settings:
+  API_KEY:
+    title: Model API key
+    type: string
+    required: true
+  BASE_URL:
+    title: OpenAI-compatible base URL
+    description: API root, for example https://gateway.example/v1
+    type: string
+    required: true
+  MODEL_NAME:
+    title: Exact model ID
+    type: string
+    required: true
+  CONTEXT_WINDOW:
+    title: Model context window
+    type: number
+    required: true
+  MAX_TOKENS:
+    title: Maximum output tokens per model request
+    type: number
+    required: true
+  THINKING:
+    title: Reasoning effort
+    description: off, minimal, low, medium, high, xhigh; requires gateway support
+    type: string
+    required: false
+    default: off
+  TIMEOUT_SEC:
+    title: Agent wall time limit in seconds
+    type: number
+    required: false
+    default: 900

@@ -1,0 +1,21 @@
+#!/bin/sh
+set -eu
+
+harbor_command=${ROTOM_HARBOR:-$(command -v harbor)}
+case "$harbor_command" in
+	/*) ;;
+	*) harbor_command=$(command -v "$harbor_command") ;;
+esac
+python_command=$(sed -n '1s/^#!//p' "$harbor_command")
+case "$python_command" in
+	/*) ;;
+	*)
+		echo "test-benchmark-adapters: Harbor launcher does not expose an absolute Python interpreter" >&2
+		exit 2
+		;;
+esac
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+package_root=$(CDPATH= cd -- "$script_dir/.." && pwd -P)
+PYTHONPATH="$package_root${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH
+exec "$python_command" -m unittest discover -s "$package_root/benchmark_adapters" -p 'test_*.py'
