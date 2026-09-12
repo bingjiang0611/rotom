@@ -4,7 +4,7 @@
 
 ## 术语
 
-- **公开名称**：产品与仓库名均为全小写 `rotom`，项目仓库为 [bingjiang0611/rotom](https://github.com/bingjiang0611/rotom)；路径以实际 checkout 为准，运行时目录为 `rotom/`，npm 公开入口为 `rotom`。源码已公开，npm 仍为 private alpha；兼容性标识的保留项见根指南。
+- **公开名称**：产品与仓库名均为全小写 `rotom`，项目仓库为 [bingjiang0611/rotom](https://github.com/bingjiang0611/rotom)；路径以实际 checkout 为准，运行时目录为 `rotom/`，npm 包为 `@bingjiang0611/rotom`，公开命令为 `rotom`；兼容性标识的保留项见根指南。
 - **维护面**：仓库根的 `CLAUDE.md`、eval 和设计资源；不随 launcher 注入业务 session。
 - **运行时产品**：`rotom/` 下 launcher、runtime contract、extensions 和 skills；不包含 bundled prompt templates。
 - **launcher**：公开 `rotom/bin/rotom` 只解析 npm bin symlink 并 exec 内部 `rotom/bin/rotom-launcher`；后者解析 Node/Pi、验证资源并启动 Pi。
@@ -86,7 +86,7 @@ Browser 源码新增 ref-bound `keypress`（protocol 17 / `targeted-keypress`）
 
 ## 代码地图
 
-- `rotom/package.json` / `npm-shrinkwrap.json`：npm 产品元数据、公开 bin 和显式发行文件清单；不再声明官方 Pi dependency，`private: true` 防止未授权发布。
+- `rotom/package.json` / `npm-shrinkwrap.json`：npm 产品元数据、公开 bin 和显式发行文件清单；不再声明官方 Pi dependency，固定通过公开作用域包 `@bingjiang0611/rotom` 分发。
 - `packages/rotom-pi/`：仓内 Pi 源码 fork、上游来源与 MIT 许可证、锁定公开模型目录；`rotom/scripts/build-pi-fork.mjs` 隔离构建六个 CLI/SDK runtime 归档。
 - `rotom/runtime/pi/`：fork package/lock、源码/构建器摘要和归档；发行包中按锁新安装 node_modules，不依赖维护 checkout。
 - `rotom/scripts/pack-release.mjs`：隔离 staging、锁定 npm ci、资源验证、打包清单检查；不使用维护者 node_modules、不运行 install hooks。

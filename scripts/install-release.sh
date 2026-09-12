@@ -46,8 +46,8 @@ case "$tgz" in /*) : ;; *) tgz="$(pwd)/$tgz" ;; esac
 [ -L "$tgz" ] && { echo "install-release: refusing symlinked artifact: $tgz" >&2; exit 1; }
 
 # The packed package.json is the authoritative version, never the file name.
-version=$(tar -xzOf "$tgz" package/package.json 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const v=JSON.parse(s);if(v.name!=="rotom")throw 0;process.stdout.write(String(v.version))}catch{process.exit(3)}})') || {
-	echo "install-release: artifact is not a rotom package (no package/package.json with name rotom)" >&2; exit 1;
+version=$(tar -xzOf "$tgz" package/package.json 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const v=JSON.parse(s);if(v.name!=="@bingjiang0611/rotom")throw 0;process.stdout.write(String(v.version))}catch{process.exit(3)}})') || {
+	echo "install-release: artifact is not @bingjiang0611/rotom" >&2; exit 1;
 }
 case "$version" in
 	[0-9]*.[0-9]*.[0-9]*) : ;;

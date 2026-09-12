@@ -25,7 +25,7 @@ rotom 当前通过仓内 `packages/rotom-pi/` 的 Pi fork 接入 `@earendil-work
 
 - `rotom/bin/rotom` 是 npm 公开入口，只解析 bin symlink 并 exec 唯一内部 launcher `rotom/bin/rotom-launcher`。
 - 默认仅从产品 `runtime/pi/node_modules/` 解析固定 Pi fork；六个运行时包由仓内源码构建，归档、lock、源码/构建器摘要和 installed identity 必须匹配，不查 ancestor hoisting、不回退 PATH/global/旁路 Pi。`ROTOM_PI` 是显式维护覆盖，仍过原有 identity/capability gate，不代表默认发行版本。
-- Pi 源码或构建器改动后先 `cd rotom && npm run build:pi`；发布维护命令为 `npm run pack:release -- /absolute/output-dir`：拒绝陈旧 fork 归档，隔离 HOME/cache、按锁文件新安装 Pi fork 与第三方依赖后打包；禁止复制维护者 node_modules 或把评测、会话、凭据带入发行包。保持 `private: true`，直到发布与许可证另获批准。
+- Pi 源码或构建器改动后先 `cd rotom && npm run build:pi`；发布维护命令为 `npm run pack:release -- /absolute/output-dir`：拒绝陈旧 fork 归档，隔离 HOME/cache、按锁文件新安装 Pi fork 与第三方依赖后打包；禁止复制维护者 node_modules 或把评测、会话、凭据带入发行包。npm 发布固定使用公开作用域包 `@bingjiang0611/rotom`；许可证仍为 `UNLICENSED`。
 - `pack:release` 偶发 `spawnSync npm ETIMEDOUT` 先排查是不是自己造成的资源/网络争用（把多次 pack 塞进循环、同时跑重度任务、残留 staging 堆积），不是脚本 300s/单调用 cap 太紧或基础设施故障：隔离单次 `npm ci` 实测远低于该 cap（根与第三方各数十秒）。清掉 `$TMPDIR/rotom-release-*` 残留后单次干净重跑即可，不要为此放宽 timeout 或改发布脚本。
 - launcher 保留业务 cwd 和用户 argv；仓库根不能冒充用户项目。
 - `ROTOM_PI`、`ROTOM_NODE` 只接受绝对、存在、可执行的普通文件；解析 realpath 后固定同一 executable。

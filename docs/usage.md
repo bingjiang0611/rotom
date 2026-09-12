@@ -6,7 +6,7 @@
 
 ## 本地发行包安装
 
-项目源码位于 [bingjiang0611/rotom](https://github.com/bingjiang0611/rotom)。npm 产品仍为 private Alpha，未发布到 npm；不能直接执行 `npm install -g rotom`。
+项目源码位于 [bingjiang0611/rotom](https://github.com/bingjiang0611/rotom)。npm 包为 `@bingjiang0611/rotom`，安装命令：`npm install -g --ignore-scripts @bingjiang0611/rotom`。
 
 要求 Node.js 24+ 和 POSIX shell。macOS arm64 已有随包 Pi fork 的安装验证；旧版本曾完成隔离 Linux VM smoke，新内置依赖闭包的 Linux／其他 CPU 验证仍未完成。Windows 原生入口不受支持。
 
@@ -148,6 +148,6 @@ PNG/JPEG/WebP 支持用户多图、工具返回图片与原生 session 恢复；
 
 ## 许可与发布状态
 
-按维护者本轮明确决定，公开仓库移除根目录 MIT LICENSE，不再提供统一的仓库 MIT 许可；此前已经授予的 MIT 权利不受影响。npm 产品元数据仍为 `private: true`、`UNLICENSED`，源码公开不代表 npm 发布或新增统一开源许可获批。
+按维护者明确决定，公开仓库移除根目录 MIT LICENSE，不再提供统一的仓库 MIT 许可；此前已经授予的 MIT 权利不受影响。npm 包仍标记为 `UNLICENSED`；源码和安装包公开不代表新增统一开源许可。
 
 rotom 是独立项目，不是 Pi 或宝可梦官方产品；名称／IP 使用仍需独立审查。上游和第三方许可证不变，见[第三方声明](../rotom/THIRD_PARTY_NOTICES.md)和随依赖保留的原始许可证。README 使用的 Heat Rotom 图像权利不随自有代码授予，见[图像来源与权利说明](../assets/readme/ATTRIBUTION.md)。

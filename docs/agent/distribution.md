@@ -10,7 +10,7 @@
 
 **PASS：本地打包、隔离安装和 L1/L2 验证。BLOCKED：公开发布及完整跨平台/真实业务验收。**
 
-当前产品元数据位于 `rotom/package.json`：`rotom@0.1.0-alpha.12`、`private: true`、`UNLICENSED`。该版本通过 GitHub Release 分发完整 `.tgz`，不发布到 npm registry。
+当前产品元数据位于 `rotom/package.json`：`@bingjiang0611/rotom@0.1.0-alpha.12`、公开 npm 包、`UNLICENSED`。包内包含完整 Pi 运行时。
 
 ## 分发与启动
 
@@ -75,13 +75,12 @@ npm run pack:release -- /absolute/output-directory
 ## 用户本地安装
 
 ```sh
-npm install -g --ignore-scripts \
-  https://github.com/bingjiang0611/rotom/releases/download/v0.1.0-alpha.12/rotom-0.1.0-alpha.12.tgz
+npm install -g --ignore-scripts @bingjiang0611/rotom
 cd /path/to/business-project
 rotom
 ```
 
-当前未发布到 npm registry，不能直接执行 `npm install -g rotom`。用户不需预装 Pi，也不需二次 npm ci。模型登录/API key、Chrome 扩展安装与重载、系统权限仍需用户明确完成。
+用户不需预装 Pi，也不需二次 npm ci。模型登录/API key、Chrome 扩展安装与重载、系统权限仍需用户明确完成。
 
 ### 可复现的多版本安装（维护标准）
 
@@ -129,4 +128,4 @@ Qoder 增量产品接入的验证另见 [Qoder 产品验收](../../experiments/q
 - 未调用模型、未验证登录/计费/预算熔断，未启动 benchmark 容器或运行 89 题。
 - 未安装/重载 Chrome relay、未操作真实业务页面；Browser 新按键仍需真实 Chrome 验收。
 - 根许可证、宝可梦名称 IP、npm 名称可用性、全量传递依赖分发通知和最终公开支持矩阵仍待确认。
-- `private: true` 不可在未经明确授权时移除；不推送、不自动发布，不宣传安全沙箱或统一权限确认层。
+- npm 发布必须使用 `@bingjiang0611/rotom` 作用域、公开 access 与精确版本；不宣传安全沙箱或统一权限确认层。

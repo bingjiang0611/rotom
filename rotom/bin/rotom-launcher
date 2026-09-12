@@ -390,7 +390,7 @@ const fs = require("node:fs");
 const path = process.argv[1];
 if (fs.lstatSync(path).isSymbolicLink()) throw new Error("Untrusted rotom package manifest");
 const pkg = JSON.parse(fs.readFileSync(path, "utf8"));
-if (pkg.name !== "rotom" || typeof pkg.version !== "string" || !/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/.test(pkg.version)) throw new Error("Invalid rotom product version");
+if (pkg.name !== "@bingjiang0611/rotom" || typeof pkg.version !== "string" || !/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/.test(pkg.version)) throw new Error("Invalid rotom product version");
 process.stdout.write(pkg.version);
 ' "$agent_dir/package.json")
 export ROTOM_PRODUCT_VERSION

@@ -4,11 +4,10 @@
 
 ## 怎么用
 
-需要 **Node.js 24+**。当前为 alpha 版本，可直接安装 GitHub Release 中的完整运行包（无需另装 Pi）：
+需要 **Node.js 24+**。直接通过 npm 安装（已包含 Pi 运行时）：
 
 ```sh
-npm install -g --ignore-scripts \
-  https://github.com/bingjiang0611/rotom/releases/download/v0.1.0-alpha.12/rotom-0.1.0-alpha.12.tgz
+npm install -g --ignore-scripts @bingjiang0611/rotom
 ```
 
 安装后进入任意项目目录运行 `rotom`。
@@ -46,6 +45,6 @@ npm install -g --ignore-scripts \
 
 ## 许可说明
 
-本仓库不提供统一的开源许可。此前已经授予的 MIT 权利不受影响；npm 产品元数据仍为 `private: true`、`UNLICENSED`，源码公开不代表获准发布 npm 包或获得新的统一开源许可。
+本仓库及 npm 包不提供统一的开源许可，当前标记为 `UNLICENSED`。此前已经授予的 MIT 权利不受影响；源码和安装包公开不代表获得新的统一开源许可。
 
 Heat Rotom 图像来自 Pokémon Database，其相关权利不随本项目源码授予。

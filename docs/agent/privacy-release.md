@@ -1,6 +1,6 @@
 # 公开前隐私检查
 
-> 以下“本轮”记录首次隐私清理与隔离验证，不是对当前公开版本重新审计的声明。项目仓库现为 [bingjiang0611/rotom](https://github.com/bingjiang0611/rotom)；源码公开与 npm `private: true` 是两回事。后续上传/打包仍须对实际目标重新执行本页门禁，不能复用旧 PASS。
+> 以下“本轮”记录首次隐私清理与隔离验证，不是对当前公开版本重新审计的声明。项目仓库现为 [bingjiang0611/rotom](https://github.com/bingjiang0611/rotom)，npm 包现通过 `@bingjiang0611/rotom` 公开分发。后续上传/打包仍须对实际目标重新执行本页门禁，不能复用旧 PASS。
 
 ## 范围与清理策略
 

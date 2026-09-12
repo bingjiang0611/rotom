@@ -41,8 +41,10 @@ function fixture(t) {
 	return { work, root, pi, pkg };
 }
 
-test("distribution is private, owns its Pi fork, has no installation hooks and declares the public bin", async () => {
-	assert.equal(manifest.private, true);
+test("distribution is public-scoped, owns its Pi fork, has no installation hooks and declares the public bin", async () => {
+	assert.equal(manifest.name, "@bingjiang0611/rotom");
+	assert.equal(manifest.private, false);
+	assert.deepEqual(manifest.publishConfig, { access: "public", registry: "https://registry.npmjs.org" });
 	assert.equal(manifest.license, "UNLICENSED");
 	assert.equal(manifest.dependencies, undefined);
 	assert.ok(manifest.files.includes(PI_MODULES));

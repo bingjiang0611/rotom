@@ -1,11 +1,11 @@
 {
-  "name": "rotom",
+  "name": "@bingjiang0611/rotom",
   "version": "0.1.0-alpha.12",
   "lockfileVersion": 3,
   "requires": true,
   "packages": {
     "": {
-      "name": "rotom",
+      "name": "@bingjiang0611/rotom",
       "version": "0.1.0-alpha.12",
       "license": "UNLICENSED",
       "os": [

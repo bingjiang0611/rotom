@@ -1,6 +1,6 @@
 # rotom 发布评测：零模型准备记录
 
-> **历史准备记录**：以下“本轮/当前”和未发布结论属于该次零模型准备，不代表现有安装。项目仓库现为 [bingjiang0611/rotom](https://github.com/bingjiang0611/rotom)；源码已公开，npm 仍为 private alpha。后续产品身份/Browser 协议已改名，内化组件和 scoped 默认见 [当前默认](subagent-owned-default.md)，版本与资源以 `rotom/package.json` / `rotom/runtime/product-config.mjs` 为准。保留旧归档、arm 与测试结果，不将历史证据改写成当前版本验收。
+> **历史准备记录**：以下“本轮/当前”和未发布结论属于该次零模型准备，不代表现有安装。项目仓库现为 [bingjiang0611/rotom](https://github.com/bingjiang0611/rotom)，npm 包现通过 `@bingjiang0611/rotom` 公开分发。后续产品身份/Browser 协议已改名，内化组件和 scoped 默认见 [当前默认](subagent-owned-default.md)，版本与资源以 `rotom/package.json` / `rotom/runtime/product-config.mjs` 为准。保留旧归档、arm 与测试结果，不将历史证据改写成当前版本验收。
 
 ## 范围与结论
 

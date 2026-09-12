@@ -1,9 +1,17 @@
 {
-  "name": "rotom",
+  "name": "@bingjiang0611/rotom",
   "version": "0.1.0-alpha.12",
-  "private": true,
+  "private": false,
   "description": "Personal coding agent built on Pi, with explicit tools and runtime contracts",
   "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bingjiang0611/rotom.git"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
   "type": "module",
   "engines": {
     "node": ">=24.0.0"
