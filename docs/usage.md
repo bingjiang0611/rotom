@@ -21,7 +21,7 @@ rotom
 
 `/model` 优先显示模型名称，保留 ID/provider；Shift+Tab 调整当前高亮模型的思考档位草稿，Enter 应用、Esc 丢弃，Ctrl+S 只保存默认模型。只开放 provider 声明支持的档位，不扩展 Qoder 能力边界。
 
-首次使用仍需自行登录模型服务或配置 API key。Chrome relay 安装、Chrome 扩展加载/重载及系统权限需用户明确操作，不由 npm 安装脚本执行。入口为安装目录内 `extensions/browser/install-chrome-relay.mjs`。
+首次使用仍需自行登录模型服务或配置 API key。浏览器配置见首页的[配置浏览器](../README.md#配置浏览器)：由用户注册 native host、手动加载 Chrome 扩展并检查实际连接，不由 npm 安装脚本代办。
 
 `ROTOM_PI=/absolute/path/to/pi` 是维护者显式覆盖入口，仍验证 executable、package identity、公开 exports 与能力；它可以选择不同的兼容 Pi，因而不再代表默认固定版本的发行配置。`ROTOM_NODE` 仍只接受绝对、存在、可执行的普通文件路径。
 
@@ -108,4 +108,4 @@ PNG/JPEG/WebP 支持用户多图、工具返回图片与原生 session 恢复；
 
 ## 许可与发布状态
 
-公开仓库保留 [MIT 许可证](https://github.com/bingjiang0611/rotom/blob/main/LICENSE)；npm 产品元数据仍为 `private: true`、`UNLICENSED`，源码公开不代表 npm 发布批准。rotom 是独立项目，不是 Pi 或宝可梦官方产品；MIT 许可不授予第三方商标权，名称／IP 使用仍需独立审查。第三方版权与许可证见[第三方声明](../rotom/THIRD_PARTY_NOTICES.md)和随依赖保留的原始许可证。
+公开仓库保留 [MIT 许可证](https://github.com/bingjiang0611/rotom/blob/main/LICENSE)；npm 产品元数据仍为 `private: true`、`UNLICENSED`，源码公开不代表 npm 发布批准。rotom 是独立项目，不是 Pi 或宝可梦官方产品；MIT 许可不授予第三方商标权，名称／IP 使用仍需独立审查。第三方版权与许可证见[第三方声明](../rotom/THIRD_PARTY_NOTICES.md)和随依赖保留的原始许可证。README 使用的 Heat Rotom 图像不适用仓库 MIT 许可证，见[图像来源与权利说明](../assets/readme/ATTRIBUTION.md)。

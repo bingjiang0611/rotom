@@ -2,7 +2,7 @@
 
 ## D-20260912-readme-svg
 
-- Scope / status：仓库首页 `README.md` 首版；入口与信息结构已由 `D-20260912-readme-single-entry` 替代，SVG 封面保留。
+- Scope / status：仓库首页 `README.md` 首版；入口与信息结构已由 `D-20260912-readme-single-entry` 替代，封面进一步由 `D-20260912-readme-heat-browser` 替代。
 - Feedback：用户要求使用工作区 `beautify-github-readme` 优化 README，并选择“纯 SVG 技术风”。这是项目选择，不是全局视觉偏好。
 - Route：现有首页的视觉刷新与内容减法，不做交互原型或新产品结构设计。保留身份、能力、上手、文档和许可信息；将长 Qoder 说明交给已有产品文档。
 - Audience：希望在自己的代码仓库中使用本地终端 coding agent 的开发者。
@@ -30,3 +30,13 @@
 - Evidence：分发测试 23 passed，新增回归实际执行 release staging，确认不需要或重新生成内层 README；9 份改动文档的 41 个本地链接/锚点通过，README audit 通过（1 张既有 SVG）。未构建新版发行包、未更改启动逻辑。SVG 未变，原素材渲染证据不冒充本轮整页视觉验收。
 - Acceptance：用户明确要求单入口与简明内容；新成品尚未获视觉认可。
 - Revisit：首次使用路径或产品能力变化时复核；替代首版的双入口和长首页结构。
+
+## D-20260912-readme-heat-browser
+
+- Scope / status：README 局部更新；confirmed（需求），成品待用户查看。
+- Feedback：用户要求把浏览器配置加入 README，并指定 Pokémon Database 的 Heat Rotom 形态作为标志。
+- Applied：用 128px 静态 PNG 替换页首 SVG 横幅，保持单入口和简明结构；新增 macOS / Chrome 125+ 的注册、加载扩展、连通检查与升级路径说明。详细指南回链到首页，不另维护第二套配置步骤。
+- Source：采用 Pokémon Bank / normal 的 Heat Rotom，姿态与用户参考一致；未修改原始字节，来源和权利说明在 `assets/readme/ATTRIBUTION.md`。它不属于仓库 MIT 授权，不进入 npm 产品运行时。
+- Preserve：不修改启动界面、浏览器代码或用户本机注册；旧 SVG 只保留为历史设计源，不再作为首页标志。
+- Evidence：已查看源图及 128px 深/浅背景预览；安装器的 macOS 限制、install/status 参数、输出 extensionDir 与 Chrome 最低版本均按当前源码核对。未运行真实安装、扩展重载或连接验收；status 的注册状态不冒充浏览器已连通。
+- Acceptance：只确认本项目的 Heat Rotom 和配置入口需求，不提升为全局视觉偏好；成品待验收。
