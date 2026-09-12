@@ -55,8 +55,8 @@ act_ui({ stateId, actions: [{ action: "press", ref: "@e12" }] })
 
 When an action has an observable completion signal, attach it to the same
 transaction. Pi waits through the platform change-notification path and marks
-the execution `didnt` with `postcondition_failed` if the application swallowed
-the delivered event:
+the execution `didnt` with `postcondition_failed` when the condition was not
+observed by the deadline. This does not prove that the delivered event had no effect:
 
 ```js
 act_ui({
@@ -98,7 +98,7 @@ act_ui({
 })
 ```
 
-The runtime prefers background semantics when they are credible, verifies the result, and escalates side-effect-free failed keyboard input to foreground delivery automatically. Ambiguous pointer actions are never replayed blindly.
+The runtime prefers credible background semantics and verifies the result. This fork does not automatically replay dispatched `typeText`/`keypress` after `didnt`; delayed input may already have taken effect. Re-observe rather than replay an unknown write. Only a separately proven not-applied `foreground_required` path may escalate when policy permits; the risky upstream speculative retry is maintenance opt-in (see [configuration](configuration.md#environment-variables)). Ambiguous pointer actions are never replayed blindly.
 
 ### Successor views
 

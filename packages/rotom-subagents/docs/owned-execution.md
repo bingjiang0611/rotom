@@ -1,14 +1,14 @@
 # Scoped owned execution — first release boundary
 
-This is an explicit opt-in contract, not a migration of active sessions or a filesystem sandbox. Unset `PI_SUBAGENTS_EXECUTION_SCOPE` preserves legacy behavior. The isolated candidate is not the currently installed rotom dependency.
+This is an execution-ownership contract, not active-session migration or a filesystem sandbox. Standalone package loading with `PI_SUBAGENTS_EXECUTION_SCOPE` unset preserves legacy behavior. The rotom product pins this maintained component and its launcher selects owned scope by default (`alpha.3` onward); an explicitly empty scope opts out. See the product [default-scope documentation](../../../rotom/README.md). Existing sessions are not upgraded.
 
 ## Initialize metadata, then start a new session
 
-Using the candidate package directory (not the old installed `.2`):
+For explicit standalone setup, use the maintained package directory. The rotom launcher normally initializes/reuses its configured store before starting Pi:
 
 ```sh
-node /absolute/candidate/owned-store.mjs init --base /absolute/private-base --accept-unverified-descendants
-node /absolute/candidate/owned-store.mjs inspect --base /absolute/private-base
+node /absolute/package/owned-store.mjs init --base /absolute/private-base --accept-unverified-descendants
+node /absolute/package/owned-store.mjs inspect --base /absolute/private-base
 ```
 
 The command only initializes/inspects private metadata. It never launches Pi, changes cwd, migrates sessions, acquires writers, releases unknown locks or authorizes replay. JSON output supplies `PI_SUBAGENTS_TEMP_ROOT` and `PI_SUBAGENTS_EXECUTION_SCOPE=owned-process-groups-v2` for an explicitly new session. Do not set scope only in configuration: startup selection is required. Runtime opening is read-only; absent or changed directories/identity fail closed. A prior v2 store cannot be upgraded to the v3 store by rerunning init. Do not delete/rebind a base or marker to reset occupied capacity.

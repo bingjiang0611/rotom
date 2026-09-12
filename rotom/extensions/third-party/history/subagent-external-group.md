@@ -1,5 +1,7 @@
 # External CLI 进程组：第三批隔离候选
 
+> 历史报告；下文安装状态与采用结论仅指该批。当前默认及旧命令的重放限制见 [历史索引](README.md)。
+
 **Decision：macOS 扩大候选回归 PASS；采用仍 BLOCKED。** 当前产品仍为 `0.52.1-dev-agent-followthrough.2`。本页不是“运行时已启用”的声明；没有改 installed source、archive、package/lock、默认工具面或发布包。
 
 ## 已实现的修复
@@ -102,4 +104,4 @@ node --experimental-strip-types --test --test-concurrency=1 \
 - **Linux 尚未验证**：本机 Docker daemon 不可用；尝试以不切换 context、不保存配置方式启动已有 Colima，发现既有磁盘布局与配置冲突（实际 100 GiB / 请求 60 GiB，拒绝 shrink）。第二次显式指定现有大小仍失败并报告旧 data disk 布局缺失。未删除/重建磁盘，未进入容器，停止扩大环境修复。
 - 真实共享 Pi writer 的并发/混合/revive 全图组合仍需扩大验证；本批原控制器真实进程测试和合成生命周期矩阵不替代它。
 
-采用审查后，用户选择先重设合同。设计与未来验收矩阵见 [External CLI 采用合同](../../../docs/agent/subagent-external-adoption-contract.md)：区分受控资源容量与原任务恢复授权，保留组外 unknown；其首批实现和证据见 [第五批 owned-execution 候选](subagent-owned-execution.md)，以第二层 patch 独立存在，不改变本页第四批候选的保守行为。第五批只对有完整证明的 runner 释放，workflow/controller roster 尚未完成，采用仍阻塞。Linux 应使用明确授权的新隔离环境或修复已有环境后验证；当前不更新包、lock、integrity 或活跃会话。
+采用审查后，用户选择先重设合同。设计与未来验收矩阵见 [External CLI 采用合同](README.md#历史采用合同)：区分受控资源容量与原任务恢复授权，保留组外 unknown；其首批实现和证据见 [第五批 owned-execution 候选](subagent-owned-execution.md)，以第二层 patch 独立存在，不改变本页第四批候选的保守行为。第五批只对有完整证明的 runner 释放，workflow/controller roster 尚未完成，采用仍阻塞。Linux 应使用明确授权的新隔离环境或修复已有环境后验证；当前不更新包、lock、integrity 或活跃会话。

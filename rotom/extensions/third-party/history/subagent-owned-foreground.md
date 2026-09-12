@@ -1,5 +1,7 @@
 # 第七批：foreground workflow 的独立关闭证明
 
+> 历史报告；下文安装状态与采用结论仅指该批。当前默认及旧命令的重放限制见 [历史索引](README.md)。
+
 **隔离候选验证通过；完整采用仍未完成，产品继续安装 `.2`。** 本批接在[第六批](subagent-owned-workflow.md)后，不改 installed source、不迁移存活会话、不推送、不调用远端模型。用户本轮选择先完成本地实现，未授权创建 Linux VM。
 
 后续[第八批存储候选](subagent-owned-store.md)补了显式初始化、只读打开与跨版本 lease；本文仍保留第七批的独立合同和验证结果。
@@ -73,4 +75,4 @@ node --experimental-strip-types --import ./test/support/register-loader.mjs \
 
 ## 剩余采用门
 
-[采用合同](../../../docs/agent/subagent-external-adoption-contract.md)仍适用：nested/imported-root/external-job、worktree/gate 等 coverage；旧 reader 存储隔离；完整 recovery/attach/steer 与并发 release/transfer；用户可见 scope 披露；Linux 真实进程验证。未通过前不生成新发行 archive、不更新 version/lock/integrity、不切换当前安装。
+[采用合同](README.md#历史采用合同)仍适用：nested/imported-root/external-job、worktree/gate 等 coverage；旧 reader 存储隔离；完整 recovery/attach/steer 与并发 release/transfer；用户可见 scope 披露；Linux 真实进程验证。未通过前不生成新发行 archive、不更新 version/lock/integrity、不切换当前安装。

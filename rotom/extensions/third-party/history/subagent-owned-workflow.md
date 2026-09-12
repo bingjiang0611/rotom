@@ -1,5 +1,7 @@
 # Owned workflow：第六批隔离候选
 
+> 历史报告；下文安装状态与采用结论仅指该批。当前默认及旧命令的重放限制见 [历史索引](README.md)。
+
 **状态：受支持的 async 子路径验证 PASS；完整采用仍 BLOCKED。** 第三层 `subagent-owned-workflow-candidate.patch` 基于 [第五批](subagent-owned-execution.md)，不改 `.2` 安装、vendor archive、依赖或活跃会话。无付费模型、发布、push 或 VM 修复。
 
 后续[第七批 foreground 候选](subagent-owned-foreground.md)补了 fresh single Pi 的 foreground writer/group/lease 与双屏障。本文仍记录第六批及其独立历史测试，不把后续能力回填为当时已支持。
@@ -71,7 +73,7 @@ node --experimental-strip-types --test --test-concurrency=1 \
   rotom/extensions/third-party/history/subagent-external-group.test.mjs \
   rotom/extensions/third-party/history/subagent-external-lifecycle.test.mjs \
   rotom/extensions/third-party/history/subagent-followthrough-regression.test.mjs \
-  rotom/extensions/third-party/subagent-lifeline-regression.test.mjs
+  rotom/extensions/third-party/subagent/lifeline-regression.test.mjs
 ```
 
-下一步是 foreground/nested 关闭证据、旧 reader 存储边界、并发/revive 扩大验证和经授权的 Linux 环境。没有运行当前产品 check-personal、完整/deferred footprint 或发布包 gate；并行 Qoder 的改动与检查不计入本批。完整完成线仍以 [采用合同](../../../docs/agent/subagent-external-adoption-contract.md) 为准。
+下一步是 foreground/nested 关闭证据、旧 reader 存储边界、并发/revive 扩大验证和经授权的 Linux 环境。没有运行当前产品 check-personal、完整/deferred footprint 或发布包 gate；并行 Qoder 的改动与检查不计入本批。完整完成线仍以 [采用合同](README.md#历史采用合同) 为准。

@@ -1,5 +1,7 @@
 # Tool reference
 
+> Full standalone/legacy package reference, not rotom's active tool allowlist. The [owned scope](owned-execution.md) and product wrapper reject unsupported execution modes and retired management actions before writes. Current product usage: [bundled guide](../../../rotom/skills/pi-subagents/SKILL.md).
+
 Parameters and actions for the `subagent` tool. These are what the LLM passes when it calls the tool; most users ask naturally or use slash commands instead.
 
 ## Execution examples
@@ -34,7 +36,7 @@ Chaining is code-driven through `workflowScript`. Use `await runs.run(...)` for 
 | `action` | string | - | Agent management (including `guide`, `children.list`, and `refine`/`refine.show`/`refine.rollback`), mission (`mission.create/list/show/update/resolve-decision/attach-run/close`), Herdr inspector (`inspector.open/status/close`), status/control, schedule, watchdog, or doctor action. |
 | `topic` | `overview \| workflows \| agents \| missions \| observability \| tool-reference \| configuration \| models \| watchdog \| extension-api` | `overview` | Packaged guide topic for `action: "guide"`. |
 | `config` | object/string | - | Agent config for management create/update. |
-| `context` | `fresh \| fork` | global or per-agent default, else `fresh` | Explicit `fresh` or `fork` overrides every workflow child. When omitted, [`defaultSubagentContext`](configuration.md#defaultsubagentcontext) wins over each agent's `defaultContext`; `"fork"` creates a real branched session when the parent session file and current leaf exist, otherwise it falls back to `fresh`. Packaged `worker`, `oracle`, and `advisor` default to `fork`. |
+| `context` | `fresh \| fork` | global or per-agent default, else `fresh` | Explicit `fresh` or `fork` overrides every workflow child. When omitted, [`defaultSubagentContext`](configuration.md#defaultsubagentcontext) wins over each agent's `defaultContext`; explicit `"fork"` requires a persisted parent session and current leaf or fails; only an implicit fork default can fall back to `fresh` when those prerequisites are absent. Packaged `worker`, `scout`, and `reviewer` default to `fresh`; `oracle` and its `advisor` alias default to `fork` (unsupported in owned scope). |
 | `missionId` | string | - | Attach a workflow to an existing project mission instead of creating its default enclosing mission. |
 | `mission` | object/false | auto-create | Override the default enclosing mission with `{ title \| summary, objective?, goal?, budget?, labels? }`. Set exactly one non-empty `title` or `summary`; `objective` and `labels` are optional. `goal` may only be `true`, requires `budget.tokens`, and enables continuation notices. Pass `false` for an intentionally ephemeral workflow with no mission for it or its children and no `state` global. Explicit mission persistence failures are strict. |
 | `handoffPath` | string | - | Aggregate handoff manifest required by `action: "worktree.discard"`. |
@@ -71,7 +73,7 @@ Explicit `context: "fork"` fails fast when the parent session is not persisted, 
 
 When the inherited transcript contains signed Anthropic `thinking` / `redacted_thinking` blocks, `pi-subagents` strips those provider-private blocks from the forked child session. It forces thinking `off` only when the child's effective primary or fallback model resolves through the model registry to the Anthropic provider or `anthropic-messages` API; unresolved models are treated conservatively. The result reports every affected child, including on failed runs. Use `context: "fresh"` when an Anthropic child needs thinking. Explicit `context: "fork"` never silently downgrades to `fresh`.
 
-In workflow runs that omit `context`, each `runs.run` child follows the global `defaultSubagentContext` when set, then its own `defaultContext`. Without the global setting, a fresh-default scout can run fresh beside a fork-default worker. If the parent session file or current leaf is not available yet, implicit fork-default children run fresh. Pass explicit `context: "fork"` or `context: "fresh"` when you intentionally want one context for every child.
+In workflow runs that omit `context`, each `runs.run` child follows the global `defaultSubagentContext` when set, then its own `defaultContext`. Without the global setting, a fresh-default scout can run fresh beside a fork-default oracle in legacy scope. If the parent session file or current leaf is not available yet, implicit fork-default children run fresh. Pass explicit `context: "fork"` or `context: "fresh"` when you intentionally want one context for every child.
 
 ### Workflow steering
 
@@ -184,11 +186,11 @@ Rules:
 - `update` and `delete` use the runtime name and `agentScope` only when the same runtime name exists in multiple scopes.
 - To clear optional string fields, including `package`, set them to `false` or `""`.
 
-`eject`, `disable`, `enable`, and `reset` are described in [agents.md](agents.md#overriding-builtins).
+`eject`, `disable`, `enable`, and `reset` are described in the [upstream agent reference](https://github.com/nicobailon/pi-subagents/blob/v0.52.1/docs/agents.md#overriding-builtins) (legacy management, not rotom's active allowlist).
 
 ### Refinement overlays
 
-`refine`, `refine.show`, and `refine.rollback` manage project-local refinement overlays for one agent. `/subagents-refine <agent>` is the slash equivalent of `refine`. See [agents.md](agents.md#refinement-overlays) for behavior and storage.
+`refine`, `refine.show`, and `refine.rollback` manage project-local refinement overlays for one agent. `/subagents-refine <agent>` is the slash equivalent of `refine`. See the [upstream agent reference](https://github.com/nicobailon/pi-subagents/blob/v0.52.1/docs/agents.md#refinement-overlays) (refinement is not enabled by rotom) for behavior and storage.
 
 ## Status and control actions
 

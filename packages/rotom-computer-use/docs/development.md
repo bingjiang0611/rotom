@@ -1,123 +1,54 @@
-# Development
+# Development — rotom maintenance copy
+
+This is the private rotom fork, not a complete checkout of the upstream development repository. See [UPSTREAM.md](../UPSTREAM.md) for provenance, preserved native binaries, repacking and verification boundaries. Product delivery uses the pinned vendor archive; editing this directory does not update an installed rotom session.
 
 ## Repository layout
 
+Paths below are relative to `packages/rotom-computer-use/`:
+
 ```text
 extensions/computer-use.ts       Public Pi tool registration
-src/bridge.ts                    TypeScript runtime and tool implementation
+src/bridge.ts                    Tool coordination and resource scheduling
 src/actions.ts                   Action preparation and result reconciliation
-src/runtime.ts                   Immutable state store and resource scheduler
+src/runtime.ts                   Immutable state store and scheduler
 src/state.ts                     Saved UI state ownership and restoration
-src/view.ts                      Stable refs and resulting-state change views
-src/outline.ts                   Outline parsing, folding, search, and ref mapping
+src/view.ts                      Stable refs and successor views
+src/outline.ts                   Outline queries and ref mapping
 src/note.ts                      Disposable running-note generation
-native/macos/bridge.swift        macOS helper for AX, capture, permissions, and input
-native/windows/                 Windows backend/helper code when developing on Windows
-native/linux/bridge-rs/         Linux AT-SPI2 helper (Rust)
-scripts/build-native.mjs         macOS helper build script
-scripts/setup-helper.mjs         macOS helper install script
-scripts/check-invariants.mjs     Architecture invariant checks
-scripts/check-runtime-concurrency.mjs Scheduler/state concurrency checks
-scripts/pi-cubench-agent.mjs     Cubench gateway adapter using registered Pi tools
+native/macos/bridge.swift        macOS helper source
+native/windows/bridge-rs/        Windows helper source
+native/linux/bridge-rs/          Linux helper source
+scripts/build-native.mjs         Platform helper builder
+scripts/setup-helper.mjs         Helper setup
+test/                           Fork regression tests
 ```
 
-The public tool surface lives in `extensions/computer-use.ts`. Keep it small. Internal complexity belongs in `src/bridge.ts`, `src/outline.ts`, `src/note.ts`, and the native helper.
+## Available checks
 
-## Checks
+From this package directory, with a Node version supporting native TypeScript stripping:
 
-Run all static checks:
-
-```bash
+```sh
 npm test
 ```
 
-This runs TypeScript, tool-schema compatibility checks, architecture invariants, and native helper checks available on the current platform.
+This runs the tracked `test/*.test.ts` regressions, currently the speculative foreground-retry gate. It does **not** run a full typecheck, schema/invariant suite or native desktop acceptance.
 
-On macOS, rebuild the native helper after Swift changes:
-
-```bash
-npm run build:native
-```
+The inherited `typecheck` script references an absent `tsconfig.json`. The inherited `test:*` scripts reference upstream `scripts/check-*.mjs` files not included in this maintenance copy. Do not treat their presence in `package.json` as runnable validation or restore them merely to make a documentation command pass. The public snapshot retains the product composition tests in [`rotom/extensions/third-party/`](../../../rotom/extensions/third-party/); preflight their dependencies before running them.
 
 ## Architecture rules
 
-The runtime is state-scoped and outline-first:
-
-- `observe_ui` returns a folded UI outline and running note.
-- `search_ui`, `expand_ui`, and `inspect_ui` provide progressive disclosure.
-- `act_ui` is the only public desktop action entrypoint.
-- UI observations are immutable records; request-local hydration replaces global current state.
+- Keep the public tool surface small and state-scoped: observe, progressively query, then act from the same state.
 - Cached queries bypass scheduling; live work is ordered per physical resource.
-- Browser pages and desktop surfaces share the `@r` root forest and `@e` outline contract.
-- The helper owns grounding, preflight, execution, and verification.
-- Removed direct tools such as `screenshot`, `click`, `set_text`, and `computer_actions` should not reappear as public extension tools.
+- Native helpers own grounding, preflight, delivery and verification.
+- A dispatched write with `didnt` or `unknown` is not proven side-effect-free; the fork defaults to no speculative keyboard replay.
+- Do not restore removed direct tools or use a second execution framework.
 
-Run invariants after architecture changes:
+See [architecture](architecture.md) for the detailed contract.
 
-```bash
-npm run test:invariants
-```
+## Native changes and release boundary
 
-Set `PI_CU_LIVE=1` only when you want live helper checks in addition to static checks.
+The fork preserves upstream prebuilt binaries byte-for-byte; ordinary TypeScript maintenance does not rebuild or re-sign them. Repacking instructions restore those binaries from the committed archive, not an arbitrary local build.
 
-## Cubench
+The tracked builder is exposed as `npm run build:native`, `npm run build:windows`, and `npm run build:linux`. These require the respective platform toolchain; their existence is not native validation evidence. Helper installation, OS permissions and live desktop tests need separate authorization. macOS requires macOS 14+; ad-hoc signing does not preserve a release signing identity.
 
-`scripts/pi-cubench-agent.mjs` drives a headed Cubench Chromium window through the same registered Pi tools used by the extension. Cubench must launch its web driver headed (the current development tree accepts `CUBENCH_HEADLESS=0`):
-
-```bash
-CUBENCH_HEADLESS=0 node ../cubench/bin/cubench.mjs suite run \
-  --suite ../cubench/suites/core.json \
-  --agent "node --experimental-transform-types $PWD/scripts/pi-cubench-agent.mjs" \
-  --driver web \
-  --trials 3 \
-  --label picu
-```
-
-The adapter uses Cubench only for the instruction and final oracle; UI observation and action go through `pi-computer-use`. Gateway action/observation counters therefore do not trigger Cubench interference hooks, so stale/reorder cases need a native-driver integration before their interference timing can be treated as benchmark evidence.
-
-## Native platform helpers
-
-On macOS, the helper installed for permissions is normally:
-
-```text
-~/Applications/pi-computer-use.app
-```
-
-Existing writable system-wide installs remain at `/Applications/pi-computer-use.app`. The macOS helper targets macOS 14+ and uses ScreenCaptureKit. Local development can use ad-hoc signing. Release builds must use the release workflow so the helper app is signed with the stable release certificate.
-
-On Windows, development uses the Windows platform backend/helper and the active desktop session rather than the macOS app bundle or TCC permission model.
-
-On Linux, install Rust/Cargo and run `npm run build:linux`, `npm run test:linux`, and `npm run test:linux-scripts`. Live checks must run inside the target user's graphical D-Bus session. The helper installs to `~/.pi/agent/helpers/pi-computer-use/linux-bridge`.
-
-## Release signing
-
-This section applies to macOS releases. macOS TCC keys Accessibility and Screen Recording grants to an app's code-signing identity. Ad-hoc and locally self-signed development builds may require permission review whenever their native code changes. Only Developer ID-signed release bundles should be treated as having a stable update identity.
-
-Release setup:
-
-1. Run `./scripts/make-signing-cert.sh` once, or use a Developer ID Application certificate.
-2. Add repository secrets:
-   - `APPLICATION_CERT_BASE64`
-   - `CERT_PASSWORD`
-   - `SIGN_IDENTITY`
-3. For Developer ID notarization, set repository variable `NOTARIZE=true` and add:
-   - `TEAM_ID`
-   - `APPLE_ID`
-   - `APP_SPECIFIC_PASSWORD`
-4. Push a `v*` tag or run the `Release` workflow manually.
-
-For macOS, `.github/workflows/publish-npm.yml` builds the universal helper, signs it, optionally notarizes it, stages a draft GitHub Release, injects the same signed helper app into the npm package, publishes npm, and only then publishes the GitHub Release.
-
-For an isolated X11 acceptance run, install Xvfb, xfwm4, the AT-SPI2 runtime,
-xfce4-appfinder, and xfce4-terminal, then build and install the helper before
-running the explicitly gated live suite:
-
-```bash
-npm run build:linux
-node scripts/setup-helper.mjs --platform linux
-npm run test:linux-live
-```
-
-The harness creates its own D-Bus and Xvfb session. It fails rather than
-silently passing when the live flag, helper, accessibility bridge, or required
-X11 applications are unavailable.
+Upstream Cubench adapters, live-check scripts, signing-certificate scripts and GitHub release workflows are **not included here**. There is no supported local `test:linux-live`/Cubench or tag-to-npm release procedure in this copy. Do not publish this private package or claim cross-platform acceptance from the focused Node tests. See [product installation](../../../rotom/README.md) for the current entrypoint. The public snapshot omits the root release-audit scripts required by the product packer; it is not a self-contained release workspace.

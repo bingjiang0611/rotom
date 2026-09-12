@@ -1,5 +1,7 @@
 # Pi Subagents: Execution Controls
 
+> Full standalone/legacy reference. rotom's default [owned scope](../../../docs/owned-execution.md) rejects fork, worktrees, nested and host gates; schema presence is not execution permission.
+
 This file is a detailed reference loaded from `skills/pi-subagents/SKILL.md`.
 
 ## Discovery and Scope Rules
@@ -378,7 +380,7 @@ subagent({
   workflowScript: `return runs.run("oracle-check", { agent: "oracle", task: "Review my current direction, challenge assumptions, and propose the best next move." })`
 })
 
-// Implementation only after explicit approval. Worker defaults to forked context.
+// Implementation only after explicit approval. Worker defaults to fresh context.
 subagent({
   workflowScript: `return runs.run("implementation", { agent: "worker", task: "Implement the approved approach: ..." })`
 })

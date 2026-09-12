@@ -2,7 +2,9 @@
 
 `pi-subagents` reads optional JSON config from `~/.pi/agent/extensions/subagent/config.json`. This page lists every key, plus the environment variables and the settings-file keys that affect config resolution.
 
-Settings-level keys (`subagents.defaultModel`, `defaultThinking`, `defaultExtensions`, `agentOverrides`, `modelScope`, `disableThinking`, `disableBuiltins`, watchdog settings) live in Pi settings files, not this config file. See [models.md](models.md), [agents.md](agents.md), and [watchdog.md](watchdog.md).
+Settings-level keys (`subagents.defaultModel`, `defaultThinking`, `defaultExtensions`, `agentOverrides`, `modelScope`, `disableThinking`, `disableBuiltins`, watchdog settings) live in Pi settings files, not this config file. See [models.md](models.md), [upstream agent syntax](https://github.com/nicobailon/pi-subagents/blob/v0.52.1/docs/agents.md), and [watchdog.md](watchdog.md).
+
+The upstream reference is not shipped as a local `docs/agents.md` in this checkout. Current builtin defaults are in the tracked [`agents/`](../agents/) profiles; owned-scope requirements are in [owned execution](owned-execution.md). Product policy does not expose every standalone management option below.
 
 ## Project root resolution (settings)
 

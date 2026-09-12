@@ -1,5 +1,7 @@
 # Workflow owner 丢失：第一阶段止损候选
 
+> 历史报告；下文安装状态与采用结论仅指该批。当前默认及旧命令的重放限制见 [历史索引](README.md)。
+
 ## 结论与边界
 
 Decision：**PASS（定向止损合同）；整体可靠性仍 INCONCLUSIVE**。Profile：fast + 无模型 host-process smoke。配置：macOS / Node 24.18.0，固定 10 题，模型/thinking 不适用。

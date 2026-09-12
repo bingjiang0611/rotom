@@ -1,5 +1,7 @@
 # Owner loss：先确认 runtime，再投递任务
 
+> 历史报告；下文安装状态与采用结论仅指该批。当前默认及旧命令的重放限制见 [历史索引](README.md)。
+
 ## 结论
 
 **隔离启动门 PASS；整体采用仍 BLOCKED，不部署。**
@@ -88,7 +90,7 @@ OWNER_WORKFLOW_STARTUP=0 OWNER_WORKFLOW_PI="$PI" OWNER_WORKFLOW_SOURCE="$SOURCE"
 
 SUBAGENT_STARTUP_CANDIDATE=1 SUBAGENT_LIFELINE_CANDIDATE=1 OWNER_LIFELINE_PI="$PI" \
   node --experimental-strip-types --test --test-concurrency=1 \
-  rotom/extensions/third-party/subagent-lifeline-regression.test.mjs
+  rotom/extensions/third-party/subagent/lifeline-regression.test.mjs
 
 SUBAGENT_WAIT_CANDIDATE=1 SUBAGENT_OWNER_LOSS_CANDIDATE=1 \
 SUBAGENT_LIFELINE_CANDIDATE=1 SUBAGENT_STARTUP_CANDIDATE=1 SUBAGENT_WAIT_STRICT=1 \

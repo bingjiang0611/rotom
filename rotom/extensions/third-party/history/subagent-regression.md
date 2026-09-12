@@ -1,5 +1,7 @@
 # Subagent 故障归因与定向回归（2026-09-05）
 
+> 历史报告；下文安装状态与采用结论仅指该批。当前默认及旧命令的重放限制见 [历史索引](README.md)。
+
 ## 当前结论
 
 **继续修上游核心，不全量重写，也不在产品 wrapper 中吞通知。** 当前上游候选已通过本文件限定的 L1，尚未启用，不能宣布 Subagent 整体稳定或候选可上线。
@@ -108,7 +110,7 @@ SUBAGENT_WAIT_STRICT=1 SUBAGENT_WAIT_CANDIDATE=1 \
   rotom/extensions/third-party/history/subagent-wait-regression.test.mjs
 ```
 
-这些维护资源不进入 `product-config.mts`、launcher 或日常产品组合。候选为 zero-context diff，测试用 `git apply --unidiff-zero` 只作用于临时副本。版本升级时必须重新分类 TODO，不自动放宽基线版本断言。不要把候选 patch 应用到 installed `node_modules`。
+这些维护资源不进入 `rotom/runtime/product-config.mjs`、launcher 或日常产品组合。候选为 zero-context diff，测试用 `git apply --unidiff-zero` 只作用于临时副本。版本升级时必须重新分类 TODO，不自动放宽基线版本断言。不要把候选 patch 应用到 installed `node_modules`。
 
 ## 限制、下一步与替换条件
 

@@ -1,5 +1,7 @@
 # Workflows and orchestration
 
+> Full standalone/legacy package reference. The rotom default scope rejects fork, worktrees, nested delegation and host gates; see [owned execution](owned-execution.md) before using these examples. Product policy also narrows actions independently.
+
 How to compose subagents: the recommended pattern, packaged prompt shortcuts, scripted workflows, direct commands, worktree isolation, and child-to-parent coordination.
 
 ## Recommended orchestration pattern
@@ -10,7 +12,7 @@ Use orchestration as parent-agent guidance, not as a runtime workflow mode. For 
 clarify → scout → worker → fresh reviewers → worker
 ```
 
-Packaged `worker`, `oracle`, and `advisor` default to forked context when a launch omits `context`. If the parent has no persisted session file or current leaf yet, that implicit default falls back to `fresh`. Pass `context: "fresh"` when you intentionally want a fresh child run, or `context: "fork"` when fork must remain strict.
+Packaged `worker`, `scout`, and `reviewer` default to fresh context. `oracle` and its `advisor` alias default to forked context when a launch omits `context`. If the parent has no persisted session file or current leaf yet, that implicit default falls back to `fresh`. Pass `context: "fresh"` when you intentionally want a fresh child run, or `context: "fork"` when fork must remain strict.
 
 Child-safety boundaries are enforced at runtime:
 

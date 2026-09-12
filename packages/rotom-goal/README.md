@@ -1,5 +1,7 @@
 # 🎯 pi-goal — Keep Pi Working Toward a Goal
 
+> This is the rotom-maintained private fork `0.54.4-rotom.0`; see [UPSTREAM.md](UPSTREAM.md) for provenance and the stronger no-progress guard. Project: [bingjiang0611/rotom](https://github.com/bingjiang0611/rotom). For integrated use follow [rotom installation](../../rotom/README.md), not an additional upstream install. Package APIs below are not a promise that rotom exposes every standalone tool or RPC route.
+
 [![npm](https://img.shields.io/npm/v/@narumitw/pi-goal)](https://www.npmjs.com/package/@narumitw/pi-goal) [![Pi extension](https://img.shields.io/badge/Pi-extension-blue)](https://pi.dev) [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 
 Give Pi one session-scoped objective and let it continue after Pi becomes fully idle.
@@ -26,6 +28,8 @@ Explicit completion, blocker, and wait tools give each managed run a clear stopp
 
 Requires Pi `0.80.6` or newer for the `agent_settled` lifecycle event.
 
+These npm commands install the upstream release, not this private fork:
+
 ```bash
 pi install npm:@narumitw/pi-goal
 ```
@@ -36,14 +40,13 @@ Try without installing permanently:
 pi -e npm:@narumitw/pi-goal
 ```
 
-Build and try this package locally from the repository root:
+For standalone development, install the declared dependencies in `packages/rotom-goal`, then load from the repository root with a compatible Pi:
 
 ```bash
-npm --workspace @narumitw/pi-goal run build
-pi -e ./packages/pi-goal
+pi -e ./packages/rotom-goal
 ```
 
-The package declares `dist/index.ts`, so Pi cannot load an unbuilt local checkout.
+The package declares `src/index.ts` and has no build script or `dist` step. This does not update the product's pinned archive or any active installation.
 Pi extensions run with your user permissions.
 Goal mode can start repeated paid model turns and edit the current workspace, so review its limits and source before installing it.
 
@@ -114,10 +117,10 @@ Reload, replacement, and shutdown clear that in-memory ownership.
   Pi may invoke a provider adapter once more with an already-aborted signal to produce its synthetic terminal event; that event is not counted and cannot resume Goal work.
   Set this field explicitly to `null` to opt into Unlimited mode; existing explicit `null` values remain compatible.
 - `noProgressTurns` is a positive safe integer and defaults to `3`.
-  At the end of an automatic run, pi-goal compares visible assistant text after Unicode normalization, lowercase conversion, control-character removal, and whitespace collapse.
-  Thinking and tool blocks are excluded; empty and punctuation-only output are equivalent.
-  Consecutive empty or identical tool-free outputs increment the repeat count.
-  Different non-empty output starts a new run at one, and any attempted tool call resets it.
+  At the end of an automatic run, this fork fingerprints normalized visible assistant text together with the ordered tool names and stably serialized arguments.
+  Thinking is excluded; empty and punctuation-only text are equivalent. A reported tool attempt with no visible tool blocks contributes an opaque marker.
+  Consecutive identical fingerprints increment the repeat count; a changed fingerprint starts at one.
+  A tool call alone no longer resets the guard, so repeated identical calls can pause the goal.
   Set this field to `null` to disable only this heuristic.
 
 Settings are reread at Pi startup, session replacement, and `/reload`.
@@ -529,10 +532,7 @@ No compatibility aliases are registered.
 ## 🗂️ Package layout
 
 ```txt
-packages/pi-goal/
-├── dist/                  # Generated TypeScript runtime loaded by Jiti
-├── scripts/
-│   └── build-runtime.mjs  # Deterministic runtime builder and boundary validator
+packages/rotom-goal/
 ├── src/
 │   ├── index.ts      # Pi package entrypoint
 │   ├── goal.ts       # Order-explicit extension composition root
@@ -552,7 +552,6 @@ packages/pi-goal/
 ├── test/
 ├── README.md
 ├── LICENSE
-├── tsconfig.json
 └── package.json
 ```
 
@@ -562,12 +561,12 @@ The package exposes its Pi extension through `package.json`:
 ```json
 {
   "pi": {
-    "extensions": ["./dist/index.ts"]
+    "extensions": ["./src/index.ts"]
   }
 }
 ```
 
-The generated runtime is built from the authoritative `src/index.ts` graph and does not import back into `src`.
+Pi loads the authoritative `src/index.ts` graph directly. `npm test` runs the tracked `test/*.test.ts` regressions; no workspace build or separate generated runtime is provided.
 
 ## 🔎 Keywords
 

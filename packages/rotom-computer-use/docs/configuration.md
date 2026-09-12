@@ -51,7 +51,9 @@ Selects `"helium"` or `"chrome"` for `launch_browser`. The debugging port is alw
 
 Default: `false`
 
-When `true`, actions must remain in the background. Raw pointer events, raw keyboard events, foreground focus fallback, cursor takeover, and the agent cursor overlay are blocked. When `false` (the default), Pi prefers verified semantic activation when it is credible, preserves the focus established by editable clicks for dependent keyboard input, and may retry keyboard input in the foreground when a background attempt conclusively produced no value change. Ambiguous pointer actions are never replayed blindly.
+When `true`, actions must remain in the background. Raw pointer events, raw keyboard events, foreground focus fallback, cursor takeover, and the agent cursor overlay are blocked. When `false` (the component default), Pi prefers credible semantic activation and preserves click-established focus for dependent input. This fork does not automatically replay dispatched keyboard input after `didnt`: no observed value change is not proof of no side effect. The separately proven pre-dispatch `foreground_required` path remains available when policy permits.
+
+The rotom launcher defaults to `PI_COMPUTER_USE_HEADLESS=1` only when neither the environment nor user/project configuration explicitly selects `headless`.
 
 ### `cursor_overlay`
 
@@ -76,6 +78,8 @@ PI_COMPUTER_USE_DELIVERY_POLICY=default
 PI_COMPUTER_USE_DELIVERY_POLICY=foreground
 PI_COMPUTER_USE_CDP_PORT=9222
 ```
+
+`ROTOM_CU_SPECULATIVE_FOREGROUND_RETRY=1` (also `true` / `yes`) is a maintenance opt-in that restores upstream speculative keyboard retry. It is off by default and can duplicate delayed input; do not enable it to recover an unknown write. It does not override headless policy.
 
 `PI_COMPUTER_USE_HEADLESS=1` prohibits foreground fallback. `PI_COMPUTER_USE_DELIVERY_POLICY` is a debugging input; normal policy belongs in configuration rather than individual model calls.
 

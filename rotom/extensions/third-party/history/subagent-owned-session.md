@@ -1,5 +1,7 @@
 # 第九批：scoped session 路由与不可 stale-reclaim 的 lease
 
+> 历史报告；下文安装状态与采用结论仅指该批。当前默认及旧命令的重放限制见 [历史索引](README.md)。
+
 **隔离候选；仍未完成采用。** 当前 installed Subagent 仍为 `.2`，不改 archive、依赖、lock/integrity，不迁移活跃会话、不推送、不调用远端模型，本批未创建或修复 Linux VM；后续单独授权的 Linux 验证及类型门补正见[第十一批](subagent-owned-linux.md)。
 
 接在[第八批](subagent-owned-store.md)之后，第六层 `subagent-owned-session-candidate.patch` 修改九个精确 preimage；`fixtures/prepare-owned-session.mjs` 只在私有副本校验并应用，保留历史层的独立重放。
@@ -63,4 +65,4 @@ node --experimental-strip-types --test --test-concurrency=1 \
 
 同候选回归把前序 source overrides 和 `SUBAGENT_OWNED_SESSION_SOURCE` 指向第六层 candidate；不设置则独立重建历史层。上游沿用[第七批准备器和命令](subagent-owned-foreground.md#重放)，清空凭据环境并传播公开 runtime loader，不使用 PATH/global Pi。
 
-仍需完成[采用矩阵](../../../docs/agent/subagent-external-adoption-contract.md)：nested/imported-root/external-job/worktree/gate 正面 ownership、完整 recovery/attach/steer/并发 release-transfer 与披露、公开入口及 Linux 真实进程验证。当前结果不授权打发行归档、切换安装或宣布可采用。
+仍需完成[采用矩阵](README.md#历史采用合同)：nested/imported-root/external-job/worktree/gate 正面 ownership、完整 recovery/attach/steer/并发 release-transfer 与披露、公开入口及 Linux 真实进程验证。当前结果不授权打发行归档、切换安装或宣布可采用。

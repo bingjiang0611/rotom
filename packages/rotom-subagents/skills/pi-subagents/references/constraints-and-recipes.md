@@ -1,13 +1,15 @@
 # Pi Subagents: Constraints And Recipes
 
+> Full standalone/legacy recipes. Fork, worktrees, nested and host gates below are unavailable in rotom's default [owned scope](../../../docs/owned-execution.md); do not switch scope to replay rejected or unknown work. Use the product's narrower bundled guide for integrated operation.
+
 This file is a detailed reference loaded from `skills/pi-subagents/SKILL.md`.
 
 ## Important Constraints
 
 - **Explicit forking requires a persisted parent session.** If the current session
   does not have a persisted session file or current leaf, explicit `context: "fork"`
-  fails. An agent-level `defaultContext: fork` is a preference: packaged `worker`,
-  `oracle`, and `advisor` fall back to `fresh` when those fork preconditions are not
+  fails. An agent-level `defaultContext: fork` is a preference: packaged `oracle`
+  and its `advisor` alias fall back to `fresh` when those fork preconditions are not
   met yet. Use `context: "fresh"` when you do not want a fork even after the parent
   session exists.
 - **Forked runs inherit parent history.** They are branched threads, not fresh
@@ -106,7 +108,7 @@ Run the work through seven gated phases:
 
 For straightforward non-trivial work, this sequence is the lightweight version of the parent-owned loop. When the task is complex, use Fable mode above. In either case, factor in the packaged prompt workflows without literally invoking slash commands. Use the same patterns through tools and subagents.
 
-Keep builtin agent defaults unless the user explicitly asks for a different model, thinking level, skills, output behavior, context mode, or other override. Do not add overrides just because you are orchestrating; the defaults encode the intended role behavior. In particular, packaged `worker`, `oracle`, and `advisor` default to forked context.
+Keep builtin agent defaults unless the user explicitly asks for a different model, thinking level, skills, output behavior, context mode, or other override. Do not add overrides just because you are orchestrating; the defaults encode the intended role behavior. In particular, packaged `worker`, `scout`, and `reviewer` default to fresh context; `oracle` and its `advisor` alias default to fork in legacy scope.
 
 When the user approves launching a subagent to carry out a plan or workflow, treat that as approval to generate a proper role-specific meta prompt for that subagent. Include the approved plan path or summary, clarified requirements, non-goals, relevant context, role boundaries, files or areas to inspect, acceptance criteria, expected output, and validation expectations. Do not pass vague instructions like “implement the plan fully” or “review this” by themselves.
 
@@ -139,7 +141,7 @@ Keep orchestration authority in the parent session. Child subagents should not l
 1. Clarify first. This is mandatory. Gather code context with `scout`, add `researcher` only when external evidence matters, then ask the user clarifying questions with `interview` until scope, acceptance criteria, constraints, and non-goals are clear.
 2. Define the validation contract. State acceptance before implementation: expected behavior, checks to run, user flows to exercise, and evidence required in the worker handoff. For UI, CLI, integration, or workflow changes, include at least one validator angle that uses the product the way a user would rather than only reading code.
 3. Plan when useful. For complex work, write a plan doc yourself and get approval before implementation. For simple work, confirm shared understanding and explicitly note why planning is skipped.
-4. Implement with one writer. After approval, launch `worker` asynchronously with a proper meta prompt that includes clarified requirements, relevant context, plan path or summary, the validation contract, and output expectations. Packaged `worker` defaults to forked context; pass `context: "fresh"` only when you intentionally want a fresh child. While it runs, prepare validation or inspect adjacent code instead of editing the same worktree.
+4. Implement with one writer. After approval, launch `worker` asynchronously with a proper meta prompt that includes clarified requirements, relevant context, plan path or summary, the validation contract, and output expectations. Packaged `worker` defaults to fresh context; provide the necessary task context explicitly. Fork is only available in an explicitly selected legacy scope. While it runs, prepare validation or inspect adjacent code instead of editing the same worktree.
 5. Require a useful worker handoff. Ask the worker to report changed files, what was implemented, what was left undone, commands run with exit codes, validation evidence, surprises or new risks, decisions made inside approved scope, and decisions needing parent approval.
 6. Review after implementation. After the worker completes, launch parallel async fresh-context `reviewer` agents for correctness/regressions, tests/validation, and simplicity/maintainability. Add security, performance, docs/API, domain-specific, or user-flow validators for complex work, risky changes, broad refactors, or many changed lines. Use `output: false` unless review artifacts are explicitly needed.
 7. Synthesize, then run the fix worker. Separate blockers, fixes worth doing now, optional improvements, and feedback to ignore/defer, then launch an async forked `worker` to apply fixes worth doing now when the workflow is implementation-authorized. If reviewers found scope/product/architecture choices that were not approved, ask the user first instead of applying them.

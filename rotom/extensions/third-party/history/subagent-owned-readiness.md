@@ -1,10 +1,12 @@
 # 第十二批：真实产品入口的 startup / wait / drain 收敛
 
+> 历史报告；下文安装状态与采用结论仅指该批。当前默认及旧命令的重放限制见 [历史索引](README.md)。
+
 **结论：隔离首版 `rotom@0.1.0-owned-flat.7` / `pi-subagents@0.52.1-dev-agent-owned-flat.7` 通过本批采用门，可供显式 opt-in 的新隔离会话使用。当前维护安装仍为 `followthrough.2`，未切换默认 scope、迁移会话、发布或推送。**
 
-产品输入固定为 `fe95d07` 的 tracked tree；后续并行 Qoder WIP 没有混入。首版拓扑与风险仍以[采用合同](../../../docs/agent/subagent-external-adoption-contract.md)为准：组外后代和业务效果保持 unverified，释放受控容量不是 replay 许可。本批是实际 npm 安装、真实本机进程与本地 SSE/faux provider，不是远端模型、生产业务或 GUI 的 L3。
+产品输入固定为 `fe95d07` 的 tracked tree；后续并行 Qoder WIP 没有混入。首版拓扑与风险仍以[采用合同](README.md#历史采用合同)为准：组外后代和业务效果保持 unverified，释放受控容量不是 replay 许可。本批是实际 npm 安装、真实本机进程与本地 SSE/faux provider，不是远端模型、生产业务或 GUI 的 L3。
 
-当前开发单源已内化到 [`packages/rotom-subagents`](../../../packages/rotom-subagents/README.md)，不再叠加本批 patch 生成新实现；本文及 `.7` 归档保留为历史验证基线。[内化交付记录](../../../docs/agent/subagent-source-maintenance.md)说明独立版本、构建与不迁移当前安装的边界。
+当前开发单源已内化到 [`packages/rotom-subagents`](../../../../packages/rotom-subagents/README.md)，不再叠加本批 patch 生成新实现；本文及 `.7` 归档保留为历史验证基线。[当前源码维护说明](../../../../packages/rotom-subagents/README.md)说明独立版本、构建与不迁移当前安装的边界。
 
 ## 产品入口找到的缺陷
 
@@ -18,7 +20,7 @@ SDK 的显式等待磁盘状态曾掩盖真实 CLI 间隙：launch receipt 已�
 
 ## 最小 seam
 
-[readiness patch](subagent-owned-readiness-candidate.patch) 是第八层维护补丁，叠加在 flat 候选上；[preparer](fixtures/prepare-owned-readiness.mjs) 检查四个精确 preimage，在现有私有临时根内生成候选，拒绝 installed source。
+[readiness patch](subagent-owned-readiness-candidate.patch) 是第八层维护补丁，叠加在 flat 候选上；[preparer](../fixtures/prepare-owned-readiness.mjs) 检查四个精确 preimage，在现有私有临时根内生成候选，拒绝 installed source。
 
 1. `activeRunsForSession` 复用既有 started-event roster，补偿未发布 status/index 的已接收任务；只处理当前 session / 本 namespace，区分 transport root 和实际 run dir。内存 terminal、磁盘记录缺失返回 unconfirmed，不当作空等待。
 2. scoped wait 不把 task complete 当作资源关闭；workflow 与 capacity 共享同一个只读 controller/child closure predicate，保留 sealed roster、lineage、真实 foreground 双屏障与 child close 要求。无 capacity slot 不是关闭证明。
@@ -41,13 +43,13 @@ Node 24.18.0，公开 Pi 0.85.1；TypeScript 5.9.3。完整候选 **213 TS**，m
 | 真实输入集 strict/noEmit | PASS | PASS |
 | 实际 npm bin 六种模式 | PASS | PASS |
 
-combined 中原 flat SDK 仍独立重建历史 flat；**不能**仅凭 source override 把这些结果归给新源。因此另有 [readiness-sdk](subagent-owned-readiness-sdk.test.mjs)，明确调用新 preparer：真实正常/stop/timeout/escape、Pi native resume、mixed workflow、foreground/stop/timeout、三类 pipe escape、owner-loss，以及 54 类 admission 拒绝/零 writer、SIGKILL 后未封存占用和 acknowledgment 不解锁。独立任务重复超过容量上限后可释放；unknown writer/lease 仍占用，旧未知工作不能恢复。
+combined 中原 flat SDK 仍独立重建历史 flat；**不能**仅凭 source override 把这些结果归给新源。因此另有 历史 `subagent-owned-readiness-sdk.test.mjs`（已移除，仅历史 checkout 可用），明确调用新 preparer：真实正常/stop/timeout/escape、Pi native resume、mixed workflow、foreground/stop/timeout、三类 pipe escape、owner-loss，以及 54 类 admission 拒绝/零 writer、SIGKILL 后未封存占用和 acknowledgment 不解锁。独立任务重复超过容量上限后可释放；unknown writer/lease 仍占用，旧未知工作不能恢复。
 
-上游仍使用已注明的 readiness adaptations，不叫“未修改 upstream”。补充 wait/drain 两份 unit 以 [preparer](fixtures/prepare-readiness-upstream.mjs) 中 SHA256 固定；原 199 文件 pin 的范围不因此扩大。Linux 两个 skip 分别为 Windows-only 和无 native start probe 的平台用例；Linux 有 `/proc`。
+上游仍使用已注明的 readiness adaptations，不叫“未修改 upstream”。补充 wait/drain 两份 unit 以 [preparer](../fixtures/prepare-readiness-upstream.mjs) 中 SHA256 固定；原 199 文件 pin 的范围不因此扩大。Linux 两个 skip 分别为 Windows-only 和无 native start probe 的平台用例；Linux 有 `/proc`。
 
 ### 实际产品而非 SDK 的验收
 
-[owned-product-cli](fixtures/owned-product-cli.mjs) 只运行安装后的 npm `rotom` bin，通过隔离 HOME 的 `models.json` 注册 loopback SSE；不注入额外 Pi extension、不改 installed source。每次独立私有 store、业务 Git cwd、PATH 无全局 Pi、无真实账号/key，观测不落产品 trace。
+[owned-product-cli](../fixtures/owned-product-cli.mjs) 只运行安装后的 npm `rotom` bin，通过隔离 HOME 的 `models.json` 注册 loopback SSE；不注入额外 Pi extension、不改 installed source。每次独立私有 store、业务 Git cwd、PATH 无全局 Pi、无真实账号/key，观测不落产品 trace。
 
 六种模式：full immediate wait；full persistent parent；headless auto-drain；deferred + `search_tools`；Pi fresh + 已关闭 session 的 native resume；后台 controller 的 async Pi/external + fresh foreground Pi。断言包括 Unicode argv、业务 cwd（Pi 使用相对 read）、拒绝在 writer 前发生、真实 owned close/lineage、session 原字节保留并追加、lease release acknowledgment。每种 OS 都实际执行；全部 remote model calls 为 0。
 

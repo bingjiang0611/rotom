@@ -1,6 +1,8 @@
 # Owned execution：第五批隔离候选
 
-**状态：本机候选验证 PASS，完整采用仍 BLOCKED。** 这是 [采用合同](../../../docs/agent/subagent-external-adoption-contract.md) 的首批实现，不是运行时升级；当前安装仍为 `pi-subagents@0.52.1-dev-agent-followthrough.2`，无付费调用、发布、push 或活跃会话迁移。
+> 历史报告；下文安装状态与采用结论仅指该批。当前默认及旧命令的重放限制见 [历史索引](README.md)。
+
+**状态：本机候选验证 PASS，完整采用仍 BLOCKED。** 这是 [采用合同](README.md#历史采用合同) 的首批实现，不是运行时升级；当前安装仍为 `pi-subagents@0.52.1-dev-agent-followthrough.2`，无付费调用、发布、push 或活跃会话迁移。
 
 第六批已在独立第三层补入受支持的 async workflow/controller 证据，见 [owned-workflow 候选](subagent-owned-workflow.md)。本页及第二层 patch 保留第五批合同，默认 foreground/nested 与完整采用仍未完成。
 
@@ -69,7 +71,7 @@ node --experimental-strip-types --test --test-concurrency=1 \
   rotom/extensions/third-party/history/subagent-external-group.test.mjs \
   rotom/extensions/third-party/history/subagent-external-lifecycle.test.mjs \
   rotom/extensions/third-party/history/subagent-followthrough-regression.test.mjs \
-  rotom/extensions/third-party/subagent-lifeline-regression.test.mjs
+  rotom/extensions/third-party/subagent/lifeline-regression.test.mjs
 ```
 
 ## 下一道采用门

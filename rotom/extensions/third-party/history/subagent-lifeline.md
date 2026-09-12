@@ -1,5 +1,7 @@
 # Owner lifeline：第二阶段隔离候选
 
+> 历史报告；下文安装状态与采用结论仅指该批。当前默认及旧命令的重放限制见 [历史索引](README.md)。
+
 ## 结论
 
 **Decision: PASS（有界失联/取消合同）；整体可靠性仍 INCONCLUSIVE，不部署。**
@@ -75,21 +77,23 @@ leaf 故意忽略 SIGTERM；写入使用 ready/release 文件握手，不靠固�
 - SDK smoke 通过公开 loader 加载同一个 guard helper，但 parent spawn 是夹具，cascade 的中间 owner context 也是夹具。不是完整 `subagent` 工具、script workflow 或六个产品 extensions 的端到端验收。
 - 仅观察了已知 fixture writer；不是任意 escaped process、远端副作用或全机器收敛证明。
 
-## 重跑
+## 历史重跑设置
 
-```bash
-# 当前默认在私有副本中应用 candidate；14 个本地断言，未配置的 SDK 场景跳过。
+以下变量与计数仅适用于当时 harness，**不能在当前树据此重跑 baseline/candidate**。现有文件已迁至 `rotom/extensions/third-party/subagent/lifeline-regression.test.mjs`，默认测试 installed product；精确候选输入要求见历史索引。
+
+```text
+# 当时默认在私有副本中应用 candidate；14 个本地断言，未配置的 SDK 场景跳过。
 node --experimental-strip-types --test --test-concurrency=1 \
-  rotom/extensions/third-party/subagent-lifeline-regression.test.mjs
+  rotom/extensions/third-party/subagent/lifeline-regression.test.mjs
 
-# 固定 5 个无网络 SDK 场景；baseline 的三个失联正例预期失败。
+# 当时固定 5 个无网络 SDK 场景；baseline 的三个失联正例预期失败。
 SUBAGENT_LIFELINE_CANDIDATE=0 OWNER_LIFELINE_PI=/absolute/path/to/pi \
   node --experimental-strip-types --test --test-concurrency=1 \
-  rotom/extensions/third-party/subagent-lifeline-regression.test.mjs
+  rotom/extensions/third-party/subagent/lifeline-regression.test.mjs
 
 SUBAGENT_LIFELINE_CANDIDATE=1 OWNER_LIFELINE_PI=/absolute/path/to/pi \
   node --experimental-strip-types --test --test-concurrency=1 \
-  rotom/extensions/third-party/subagent-lifeline-regression.test.mjs
+  rotom/extensions/third-party/subagent/lifeline-regression.test.mjs
 
 SUBAGENT_WAIT_CANDIDATE=1 SUBAGENT_OWNER_LOSS_CANDIDATE=1 \
 SUBAGENT_LIFELINE_CANDIDATE=1 SUBAGENT_WAIT_STRICT=1 \

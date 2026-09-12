@@ -1,5 +1,7 @@
 # Owner loss：完整 package workflow 验收
 
+> 历史报告；下文安装状态与采用结论仅指该批。当前默认及旧命令的重放限制见 [历史索引](README.md)。
+
 > 历史快照：`6b22cc0`，以下结果与摘要哈希对应当时文件。后续 harness 增加了启动门及 metadata 断言；当前第四候选与最新验证见 [启动确认实验](subagent-startup.md)。未开启实验门时，runtime omission 的继续写入反例仍成立。
 
 ## 结论

@@ -4,12 +4,13 @@
 
 ## 本地发行包安装
 
-当前为未公开发布的 Alpha 安装产物；npm 名称尚未注册，不能直接执行 `npm install -g rotom`。
+项目源码位于 [bingjiang0611/rotom](https://github.com/bingjiang0611/rotom)。本快照的 npm 产品仍声明 `private: true`；源码公开不证明该快照已发布，不能直接执行 `npm install -g rotom`。
 
 要求 Node.js 24+ 和 POSIX shell。已验证 macOS 与隔离 Linux VM 的安装和本地终端场景；Windows 原生入口不受支持。
 
 ```sh
-npm install -g --ignore-scripts /absolute/path/to/rotom-0.1.0-alpha.5.tgz
+# 将占位路径替换为实际打包产物
+npm install -g --ignore-scripts '/absolute/path/to/rotom-<version>.tgz'
 cd /path/to/your/project
 rotom
 ```

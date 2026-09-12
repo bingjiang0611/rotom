@@ -1,10 +1,12 @@
 # 第十批：首版 admission、公开入口与显式初始化
 
-**状态：隔离候选，尚不可宣称采用完成。** installed 仍是 `pi-subagents@0.52.1-dev-agent-followthrough.2`；未切换依赖、推送或迁移会话；本批未修复/新建 VM，后续独立授权的 Linux 验证见[第十一批](subagent-owned-linux.md)。承接[采用合同](../../../docs/agent/subagent-external-adoption-contract.md)中用户确认的首版收窄，以及[第九批](subagent-owned-session.md)的 v3 store / v2 opaque lease。Linux 真进程 gate 已在后续完成，独立发行身份和产品接入验收仍待完成。
+> 历史报告；下文安装状态与采用结论仅指该批。当前默认及旧命令的重放限制见 [历史索引](README.md)。
+
+**状态：隔离候选，尚不可宣称采用完成。** installed 仍是 `pi-subagents@0.52.1-dev-agent-followthrough.2`；未切换依赖、推送或迁移会话；本批未修复/新建 VM，后续独立授权的 Linux 验证见[第十一批](subagent-owned-linux.md)。承接[采用合同](README.md#历史采用合同)中用户确认的首版收窄，以及[第九批](subagent-owned-session.md)的 v3 store / v2 opaque lease。Linux 真进程 gate 已在后续完成，独立发行身份和产品接入验收仍待完成。
 
 ## 实现与边界
 
-- 第七层维护 patch：[subagent-owned-flat-candidate.patch](subagent-owned-flat-candidate.patch)，由 [prepare-owned-flat.mjs](fixtures/prepare-owned-flat.mjs)核验第九层精确 preimage 后，仅应用于私有源码副本。不修改 installed source。
+- 第七层维护 patch：[subagent-owned-flat-candidate.patch](subagent-owned-flat-candidate.patch)，由 [prepare-owned-flat.mjs](../fixtures/prepare-owned-flat.mjs)核验第九层精确 preimage 后，仅应用于私有源码副本。不修改 installed source。
 - 在 executor 初始请求、原始 workflow admission、动态 child launch、最终 agent discovery snapshot 和恢复目标上核验首版路由。拒绝 nested、chains/tasks、managed worktree、gate/verify/review、fork/import、external-job、独立 foreground、foreground controller，以及非法 async/worktree 值、clarify/foregroundOnly 和伪造 child identity。workflow engine 会把 `async:null` 变成 false，因此类型检查必须早于该转换。
 - Pi agent 须显式列出工具名称和 extensions，拒绝隐式工具、wildcard、工具扩展路径及 ambient discovery；native recovery 也检查这份合同。扩展仍是受信任的本机代码，不是经过能力认证的 sandbox。
 - ownership admission 延迟至最后验证之后、writer setup 之前的已有 launch observer。明确拒绝没有悬空 admission；已经 admission 后的失联/缺证据仍保留容量，不伪造闭合。
@@ -33,12 +35,12 @@
 1. 扩大到 executePublic 后，single external 正例暴露默认 foreground 转换问题；已修复并核验实际 single 身份，未使用提前完成的 workflow receipt 绕过。
 2. 新增 malformed async 负例曾实际启动 foreground Pi：workflow engine 已把 null 归一为 false，后置检查来不及。已在原始 admission 回调拒绝；最终 54 个拒绝用例均无 writer。两个测试期望还需区分既有 `Scoped workflow child requires an in-process admission owner` 错误，不是放松运行时 guard。
 3. 本批未适配 external readiness 的 upstream 首跑 **218/219**。保留的 runner stderr 证明：workflow receipt 完成后，约两秒的测试等待先到期并删除 fixture cwd；随后 external 子进程写 `external-started` 得到 ENOENT。该次有直接证据，不外推解释此前所有波动。
-4. [subagent-external-readiness-test.patch](subagent-external-readiness-test.patch)等待真实 marker 和 runner terminal sidecar，再清理，使用有界事件观察。第九层基线与 flat 候选各 **3/3** focused 通过。与既有 [foreground readiness 适配](subagent-foreground-readiness-test.patch)一起由 [prepare-flat-upstream.mjs](fixtures/prepare-flat-upstream.mjs)应用；最终完整 219/219 不冒充原始上游未改测试。历史 7/12 vs 2/12 等其他原因仍未归因。
+4. [subagent-external-readiness-test.patch](subagent-external-readiness-test.patch)等待真实 marker 和 runner terminal sidecar，再清理，使用有界事件观察。第九层基线与 flat 候选各 **3/3** focused 通过。与既有 [foreground readiness 适配](subagent-foreground-readiness-test.patch)一起由 [prepare-flat-upstream.mjs](../fixtures/prepare-flat-upstream.mjs)应用；最终完整 219/219 不冒充原始上游未改测试。历史 7/12 vs 2/12 等其他原因仍未归因。
 5. 打包准备曾因传错 preparer 目录层级及 npm 将同一 `/dev/null` 同时当 user/global config 拒绝而退出；修正为既有私有 root 和两个独立空配置后才生成包，未发生 install/publish。
 
 ## 复验与采用剩余门
 
-主要测试入口：[flat unit](subagent-owned-flat.test.mjs)、[flat SDK](subagent-owned-flat-sdk.test.mjs)、[共享 SDK harness](fixtures/run-owned-execution-sdk.mjs)。同候选运行时，将各 `SUBAGENT_*_SOURCE` 指向 flat 私有 candidate；历史 SDK 去掉覆盖并使用各自 preparer。SDK 需预先验证的绝对 `ROTOM_PI`，不得回退 PATH/global Pi。
+当时的主要测试入口：`subagent-owned-flat.test.mjs`、`subagent-owned-flat-sdk.test.mjs`（已移除，仅历史 checkout 可用）；保留的[共享 SDK harness](../fixtures/run-owned-execution-sdk.mjs)不是这两个历史测试的替代验收。同候选运行时，将各 `SUBAGENT_*_SOURCE` 指向 flat 私有 candidate；历史 SDK 去掉覆盖并使用各自 preparer。SDK 需预先验证的绝对 `ROTOM_PI`，不得回退 PATH/global Pi。
 
 证据日志保存在本机 `/tmp/rotom-flat-*`：combined、historical-sdk、upstream-unit、upstream-integration、sdk-declared-agent；临时包指针为 `/tmp/rotom-flat-pack-artifact`。包仅用于 inventory/加载审计：当前仍沿用 seed `.2` identity，**不是可安装发行版本，不能复制进 vendor 或替换运行时**；实际 tgz 包含 CLI/docs、213 TS，不含测试、public loader、node_modules 或会话。审计不是任意秘密或所有权保证。
 

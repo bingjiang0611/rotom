@@ -50,7 +50,7 @@ For a persistent role override with a backup model for provider failures:
 }
 ```
 
-`subagents.defaultModel` applies to builtin, package, user, and project agents that do not set `model` in frontmatter. Per-run model overrides and `agentOverrides.<name>.model` still win, and explicit agent frontmatter still wins over the global default. The same `agentOverrides` block can change `tools`, `skills`, inherited context, prompt text, or disable a builtin (see [agents.md](agents.md)). Matching user and project agents also receive override fields that their frontmatter leaves unset, so a shared project config agent can keep the persona while local settings choose the model.
+`subagents.defaultModel` applies to builtin, package, user, and project agents that do not set `model` in frontmatter. Per-run model overrides and `agentOverrides.<name>.model` still win, and explicit agent frontmatter still wins over the global default. The same `agentOverrides` block can change `tools`, `skills`, inherited context, prompt text, or disable a builtin (see [upstream agent syntax](https://github.com/nicobailon/pi-subagents/blob/v0.52.1/docs/agents.md); current builtin defaults are in [`agents/`](../agents/)). Matching user and project agents also receive override fields that their frontmatter leaves unset, so a shared project config agent can keep the persona while local settings choose the model.
 
 ## Recommended model tiering (optional)
 
