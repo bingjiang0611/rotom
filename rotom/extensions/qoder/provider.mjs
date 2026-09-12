@@ -1,6 +1,6 @@
 import { readLocalCredential, createCredentialAccess, QoderError } from './auth.mjs';
 import { BASE_URL, SUPPORTED_MODEL_IDS, REASONING_MODEL_IDS, openQoderStream, abortable, validateReasoningSignature, OPAQUE_MODEL_IDS, VERIFIED_THINKING_LEVELS, EXPANDED_INPUT_MODEL_IDS, inputCapabilities, imageByteLength, checkImageTotal } from './transport.mjs';
-import { buildQoderPayload } from './messages.mjs';
+import { buildQoderPayload, isSameModelAssistant } from './messages.mjs';
 import { translateQoderStream } from './translate.mjs';
 import { fetchCatalog, CATALOG_TTL_MS } from './catalog.mjs';
 import { createBrowserOAuth, createOAuthEnvelope } from './oauth.mjs';
@@ -53,7 +53,7 @@ function catalogModel(entry, declared = false) {
 const DECLARED_MODELS = Object.freeze(SUPPORTED_MODEL_IDS.map(id => MODELS.find(m => m.id === id) ?? catalogModel({ id, name: `${id} [catalog required]` }, true)));
 
 export async function createQoderProvider({ piAI, getToken, getCredential, captureBinding, captureMetering, fetchImpl, onDiagnostic, onMetering,
-  authMode = process.env.ROTOM_QODER_AUTH ?? 'browser', oauthOptions = {} } = {}) {
+  authMode = process.env.ROTOM_QODER_AUTH ?? 'browser', oauthOptions = {}, refreshCatalog } = {}) {
   if (!['browser', 'qodercli'].includes(authMode)) throw new QoderError('invalid_auth_mode');
   const envelope = authMode === 'browser' ? createOAuthEnvelope() : undefined;
   let browserFingerprint;
@@ -80,13 +80,26 @@ export async function createQoderProvider({ piAI, getToken, getCredential, captu
     const access = createCredentialAccess({ readCredential: readCLI, captureBinding: browserBinding });
     getToken = access.getToken; checkAuth = access.check;
   }
-  const wrap = (method) => (model, context, options = {}) => piAI.lazyStream(model, async () => {
-    const reasoning = REASONING_MODEL_IDS.includes(model.id), snapshot = catalogState;
+  const prepare = async (method, model, context, options) => {
+    const reasoning = REASONING_MODEL_IDS.includes(model.id);
     if (!SUPPORTED_MODEL_IDS.includes(model.id) || model.provider !== PROVIDER_ID || model.baseUrl !== BASE_URL || model.api !== MODEL.api || model.reasoning !== reasoning || !Number.isSafeInteger(model.contextWindow) || model.contextWindow < 4096 || model.contextWindow > (EXPANDED_INPUT_MODEL_IDS.includes(model.id) ? 272000 : 32000) || model.maxTokens > 4096) throw new QoderError('model_scope_rejected');
-    if (!baseline(model.id) && !snapshot) throw new QoderError('catalog_refresh_required');
+    if (options.signal?.aborted) throw new QoderError('aborted');
+    // Refresh through the session's native registry before building any payload,
+    // including tool continuations and compaction. Never retry an inference.
+    // Standalone/offline providers without this seam retain explicit discovery.
+    if (refreshCatalog && (catalogState ? catalogState.expiresAt <= Date.now() : !baseline(model.id))) {
+      await refreshCatalog({ signal: options.signal });
+    }
+    if (options.signal?.aborted) throw new QoderError('aborted');
+    const snapshot = catalogState;
+    if ((!baseline(model.id) && !snapshot) || snapshot?.expiresAt <= Date.now()) throw new QoderError('catalog_refresh_required');
+    if (snapshot && !snapshot.models.some(m => m.id === model.id)) throw new QoderError('catalog_model_unavailable');
     const entry = snapshot?.entries.find(e => e.id === model.id), controls = controlsFor(entry), input = inputCapabilities(entry);
     if (model.contextWindow > input.contextWindow) throw new QoderError('catalog_changed_select_again');
     let reasoningMode;
+    // Simple API encodes a selected off as an omitted option. If refreshed
+    // capabilities remove off, do not reinterpret it as the server default/on.
+    if (reasoning && model.thinkingLevelMap?.off != null && options.reasoning === undefined && options.reasoningEffort === undefined && !controls?.levels.includes('off')) throw new QoderError('catalog_changed_select_again');
     if (controls) {
       const key = method === 'streamSimple' ? 'reasoning' : 'reasoningEffort', other = method === 'streamSimple' ? 'reasoningEffort' : 'reasoning';
       if (options[other] !== undefined || options.thinkingBudgets !== undefined) throw new QoderError('reasoning_controls_not_validated');
@@ -103,9 +116,15 @@ export async function createQoderProvider({ piAI, getToken, getCredential, captu
           if (!input.images || !['user', 'toolResult'].includes(message.role)) throw new QoderError('images_not_validated');
           imageBytes += imageByteLength(block.data, block.mimeType); checkImageTotal(++imageCount, imageBytes);
         }
+        // The builder removes foreign assistant signatures, retaining visible
+        // text and tool/result pairing. Validate only signatures it can replay;
+        // image gates above and post-hook wire validation are never bypassed.
+        if (message.role === 'assistant' && !isSameModelAssistant(message, model)) continue;
         if (block.type === 'toolCall' && block.thoughtSignature) throw new QoderError('opaque_reasoning_replay_unsupported');
-        if (block.type !== 'thinking' || !block.thinkingSignature || (reasoning && block.thinkingSignature === 'reasoning_content')) continue;
-        if (!OPAQUE_MODEL_IDS.includes(model.id) || message.provider !== PROVIDER_ID || message.model !== model.id || message.api !== MODEL.api) throw new QoderError('opaque_reasoning_replay_unsupported');
+        if (block.type !== 'thinking' || !block.thinkingSignature) continue;
+        if (message.role !== 'assistant') throw new QoderError('opaque_reasoning_replay_unsupported');
+        if (reasoning && block.thinkingSignature === 'reasoning_content') continue;
+        if (!OPAQUE_MODEL_IDS.includes(model.id)) throw new QoderError('opaque_reasoning_replay_unsupported');
         validateReasoningSignature(block.thinkingSignature, model.id);
       }
     }
@@ -140,12 +159,21 @@ export async function createQoderProvider({ piAI, getToken, getCredential, captu
     // encoding and HTTP dispatch, then yields validated chunk records; a
     // pre-stream failure rejects here and lazyStream turns it into an error
     // event carrying the stable "Qoder: <code>" message the session-policy reads.
-    const { chunks } = await openQoderStream({ payload, getToken: requestToken, getLegacyCredential: () => requestCredential, legacyModel: entry, reasoningMode, fetchImpl, modelId: model.id, timeoutMs: reasoning ? 180000 : 60000, onDiagnostic, sessionId: options.sessionId, onMetering(data) {
+    const { chunks } = await openQoderStream({ payload, getToken: requestToken, getLegacyCredential: () => requestCredential, legacyModel: entry, reasoningMode, fetchImpl, signal: options.signal, modelId: model.id, timeoutMs: reasoning ? 180000 : 60000, onDiagnostic, sessionId: options.sessionId, onMetering(data) {
       for (const notify of [() => recordMetering?.({ ...data, fingerprint: requestCredential?.fingerprint }), () => onMetering?.(data)]) {
         try { void Promise.resolve(notify()).catch(() => {}); } catch { /* Scoped metadata only; never retry a model request. */ }
       }
     } });
     return translateQoderStream(chunks, model);
+  };
+  const wrap = method => (model, context, options = {}) => piAI.lazyStream(model, async () => {
+    try { return await prepare(method, model, context, options); }
+    catch (error) {
+      // Pi lazyStream labels setup exceptions as errors. Cancellation during
+      // pre-dispatch discovery/auth must instead remain a native aborted event.
+      if (!(error instanceof QoderError) || error.code !== 'aborted') throw error;
+      return translateQoderStream((async function* () { throw error; })(), model);
+    }
   });
   const provider = piAI.createProvider({
     id: PROVIDER_ID, name: 'Qoder (experimental account)', baseUrl: BASE_URL,

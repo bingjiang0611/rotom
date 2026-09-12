@@ -56,6 +56,12 @@ function downgradeUnsupportedImages(messages, model) {
   });
 }
 
+// Shared with the provider preflight: only this exact identity can retain
+// signatures on the wire. Cross-model conversion never edits persisted history.
+export function isSameModelAssistant(message, model) {
+  return message.role === 'assistant' && message.provider === model.provider && message.api === model.api && message.model === model.id;
+}
+
 // First/second-pass history normalization, ported from pi-ai transformMessages
 // for the Qoder subset. Qoder tool-call ids are the service's own opaque ids and
 // need no cross-provider rewriting, so id normalization is identity here; the
@@ -67,7 +73,7 @@ function transformMessages(messages, model) {
   const imageAware = downgradeUnsupportedImages(normalized, model);
   const transformed = imageAware.map(msg => {
     if (msg.role !== 'assistant') return msg;
-    const isSameModel = msg.provider === model.provider && msg.api === model.api && msg.model === model.id;
+    const isSameModel = isSameModelAssistant(msg, model);
     const content = msg.content.flatMap(block => {
       if (block.type === 'thinking') {
         if (block.redacted) return isSameModel ? block : [];

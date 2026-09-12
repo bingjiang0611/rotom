@@ -1,7 +1,20 @@
 import { QoderError } from './auth.mjs';
 import { MODEL, PROVIDER_ID, createQoderProvider } from './provider.mjs';
 import { CREDIT_ENTRY } from './credits.mjs';
-import { SUPPORTED_MODEL_IDS } from './transport.mjs';
+import { abortable, SUPPORTED_MODEL_IDS } from './transport.mjs';
+
+async function refreshRegistry(ctx, { force = false, signal } = {}) {
+  const deadline = AbortSignal.timeout(30000);
+  const bounded = signal ? AbortSignal.any([signal, deadline]) : deadline;
+  try {
+    const result = await abortable(() => ctx.modelRegistry.refresh({ providers: [PROVIDER_ID], allowNetwork: true, force, signal: bounded }), bounded);
+    if (result.aborted || result.errors.has(PROVIDER_ID)) throw new QoderError('catalog_refresh_failed');
+  } catch {
+    // Registry/provider errors can contain private upstream bodies. Keep the
+    // stream error stable and non-retryable, with actionable help in the UI.
+    throw new QoderError(signal?.aborted ? 'aborted' : 'catalog_refresh_failed');
+  }
+}
 
 export function qoderEnabled(env = process.env) {
   if (env.ROTOM_QODER === undefined || env.ROTOM_QODER === '0') return false;
@@ -29,7 +42,7 @@ export function bindSessionAccount(manager, append, fingerprint) {
 }
 
 export function installSessionPolicy(pi) {
-  let current, epoch = 0;
+  let current, catalogRefresh, epoch = 0;
   // Per an explicit maintainer choice there is no always-on Qoder footer status
   // line. Pi's TUI footer renders extension statuses as their own undimmed line
   // (layout owned by Pi, not exposable to extensions), so a merged/same-font line
@@ -44,6 +57,12 @@ export function installSessionPolicy(pi) {
     if (!ctx.hasUI || event.message?.provider !== PROVIDER_ID) return;
     const code = event.message.errorMessage?.match(/Qoder: ([a-z0-9_]+)/)?.[1];
     const help = {
+      catalog_refresh_required: 'Qoder 模型目录尚未就绪。请运行 /qoder-models 刷新后再发送；本次未发送推理请求。',
+      catalog_refresh_failed: 'Qoder 模型目录自动刷新未完成，本次未发送推理请求。请检查网络，用 /qoder-models 手动刷新；仅登录失效时重新登录并开启新会话。',
+      catalog_changed_select_again: 'Qoder 模型目录或上下文能力已变化，本次未发送推理请求。请用 /model 重新选择模型。',
+      catalog_model_unavailable: '当前 Qoder 模型已不在可用目录中，本次未发送推理请求。请用 /qoder-models 查看目录，再用 /model 选择可用模型。',
+      catalog_account_mismatch: 'Qoder 目录与请求账号不一致，本次未发送推理请求。请恢复原账号；切换账号须开启新会话。',
+      reasoning_controls_not_validated: '当前 Qoder 目录不支持所选思考档位，本次未发送推理请求。请用 /model 核对模型并选择受支持的思考档位。',
       credential_expired_login_with_qodercli: 'Qoder login expired. Log in normally with Qoder CLI using the SAME account, then submit again. No automatic refresh or replay occurred.',
       oauth_login_required: 'Qoder browser login expired. Use /login qoder-experimental, then start a new session.',
       oauth_refresh_unproven_login_required: 'Qoder refresh outcome is unproven. It will not be replayed. Use /login qoder-experimental, then start a new session.',
@@ -78,17 +97,37 @@ export function installSessionPolicy(pi) {
       pi.appendEntry(CREDIT_ENTRY, { version: 1, sessionId, ...selected });
     };
   };
-  return { captureBinding, captureMetering, captureScope };
+  const refreshCatalog = async ({ signal } = {}) => {
+    // Stream sessionId is a routing ID (compaction can mint its own), not the
+    // session owner. Bind to lifecycle epoch + SessionManager identity instead.
+    const ctx = current, valid = captureScope();
+    if (!valid()) throw new QoderError('account_binding_stale');
+    if (signal?.aborted) throw new QoderError('aborted');
+    // Same-scope concurrent callers share one read. Cancellation of its owner
+    // stops all waiters; none silently starts a replacement refresh or inference.
+    if (!catalogRefresh || !catalogRefresh.valid()) {
+      const pending = { valid, promise: refreshRegistry(ctx, { signal }) };
+      catalogRefresh = pending;
+      void pending.promise.finally(() => {
+        if (catalogRefresh === pending) catalogRefresh = undefined;
+      }).catch(() => {});
+    }
+    const pending = catalogRefresh.promise;
+    if (signal) await abortable(() => pending, signal);
+    else await pending;
+    if (!valid()) throw new QoderError('account_binding_stale');
+    if (signal?.aborted) throw new QoderError('aborted');
+  };
+  return { captureBinding, captureMetering, captureScope, refreshCatalog };
 }
 
 export async function installQoderExtension(pi, options = {}) {
   const policy = installSessionPolicy(pi);
-  const provider = await createQoderProvider({ ...options, captureBinding: policy.captureBinding, captureMetering: policy.captureMetering });
+  const provider = await createQoderProvider({ ...options, captureBinding: policy.captureBinding, captureMetering: policy.captureMetering, refreshCatalog: policy.refreshCatalog });
   pi.registerProvider(provider);
   const refresh = async (ctx, force = false) => {
     try {
-      const result = await ctx.modelRegistry.refresh({ providers: [PROVIDER_ID], allowNetwork: true, force, signal: AbortSignal.timeout(30000) });
-      if (result.aborted || result.errors.has(PROVIDER_ID)) throw new QoderError('catalog_refresh_failed');
+      await refreshRegistry(ctx, { force });
       if (force && ctx.hasUI) {
         const entries = provider.getCatalogStatus();
         ctx.ui.notify(entries.map(e => `${e.name} [${e.id}] — ${e.enabled && e.reviewed && e.format === 'openai' ? 'available (adapter limits apply)' : 'not enabled in adapter'}`).join('\n') || 'Qoder: log in before loading the catalog.', 'info');

@@ -110,15 +110,14 @@ test('native details are converted back only on Ultimate assistant turns before 
   for(const [model,message] of [['gmodel',{role:'assistant',reasoning_details:details}],['ultimate',{role:'user',reasoning_details:details}],['ultimate',{role:'assistant',reasoning_item:item}],['ultimate',{role:'assistant',reasoning_details:[{...details[0],format:'foreign'}]}]])await assert.rejects(request(model,[message]));
   assert.equal(reads,1);
 });
-test('signature provenance is checked before Pi can transform cross-model histories',async()=>{
-  // A provenance-valid same-model replay proceeds to dispatch (surfaced here as
-  // an eager http_403); a cross-provider/model/api history is rejected before
-  // any request leaves the extension. The self-owned api identity means valid
-  // replay now requires api:'qoder', never the retired 'openai-completions'.
+test('same-model signatures are validated while foreign history is converted before dispatch',async()=>{
+  // Same-model opaque replay remains strict; foreign signatures cannot replay
+  // and are removed by the builder, rather than blocking the entire handoff.
   let dispatches=0;const p=await createQoderProvider({authMode:'qodercli',getCredential:async()=>({accessToken:'fixture',uid:'fixture',machineId:'fixture-machine',org:'',fingerprint:'a'.repeat(64)}),piAI:{createProvider:x=>x,lazyStream:(_m,fn)=>fn()},fetchImpl:async url=>{if(url===CATALOG_URL)return new Response(JSON.stringify({assistant:[{key:'ultimate',display_name:'Ultimate',source:'system',enable:true,format:'openai',max_input_tokens:200000}]}));dispatches++;return new Response('',{status:403});}});
   await p.refreshModels({allowNetwork:true,signal:new AbortController().signal,publish:async p=>{p.update?.();return true;}});
   const model=p.getModels()[0];const message={role:'assistant',provider:'qoder-experimental',model:'ultimate',api:'qoder',content:[{type:'thinking',thinking:'text',thinkingSignature:JSON.stringify(details)}]};
   await assert.rejects(p.api.streamSimple(model,{messages:[message]},{}),{code:'http_403'});assert.equal(dispatches,1);
-  for(const patch of [{provider:'foreign'},{model:'gmodel'},{api:'other'},{content:[{type:'toolCall',thoughtSignature:JSON.stringify(details[0])}]}])await assert.rejects(p.api.streamSimple(model,{messages:[{...message,...patch}]},{}),/opaque_reasoning_replay_unsupported/);
-  assert.equal(dispatches,1);
+  for(const patch of [{provider:'foreign'},{model:'gmodel'},{api:'other'}])await assert.rejects(p.api.streamSimple(model,{messages:[{...message,...patch}]},{}),{code:'http_403'});
+  for(const content of [[{type:'toolCall',thoughtSignature:JSON.stringify(details[0])}],[{type:'thinking',thinking:'text',thinkingSignature:'invalid'}]])await assert.rejects(p.api.streamSimple(model,{messages:[{...message,content}]},{}),/opaque_reasoning_replay_unsupported/);
+  assert.equal(dispatches,4);
 });
