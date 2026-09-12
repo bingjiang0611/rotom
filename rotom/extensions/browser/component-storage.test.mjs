@@ -48,18 +48,32 @@ test("stable component directory upgrades in place across releases and rejects c
 	assert.equal(status.componentState, "ready"); assert.equal(status.installed, true);
 	assert.deepEqual(await readFile(join(first.extensionDir, "service-worker.js")), swBytes);
 
-	// A real component content change updates the stable directory in place: one Chrome
-	// reload (↻) suffices, the path is unchanged, and no re-registration is required.
+	// A native-host-only change updates the stable directory but needs NO Chrome reload:
+	// Chrome relaunches the host per connection, so new code is picked up automatically.
 	const host = join(releaseB, "native-host.mjs");
-	await writeFile(host, `${await readFile(host, "utf8")}\n// new browser component\n`);
+	await writeFile(host, `${await readFile(host, "utf8")}\n// new native host only\n`);
 	status = JSON.parse(run(releaseB, "status").stdout);
-	assert.equal(status.installed, false); assert.equal(status.upToDate, false);
+	assert.equal(status.upToDate, false); assert.equal(status.extensionUpToDate, true);
 	assert.notEqual(status.componentDigest, first.componentDigest);
-	assert.equal(status.installedDigest, first.componentDigest);
-	const upgraded = JSON.parse(run(releaseB, "install").stdout);
-	assert.equal(upgraded.reloadNeeded, true); assert.equal(upgraded.firstInstall, false);
+	assert.equal(status.extensionDigest, first.extensionDigest, "扩展摘要不随 native host 变化");
+	let upgraded = JSON.parse(run(releaseB, "install").stdout);
+	assert.equal(upgraded.reloadNeeded, false, "native host 变化不要求 ↻");
+	assert.equal(upgraded.hostOnlyUpdate, true);
+	assert.equal(upgraded.extensionDir, first.extensionDir);
+	assert.match(await readFile(join(relayDir, "current", "native-host.mjs"), "utf8"), /new native host only/);
+	assert.equal(JSON.parse(run(releaseB, "status").stdout).installed, true);
+
+	// A chrome-extension content change is the only case that needs one Chrome reload (↻).
+	const sw = join(releaseB, "chrome-extension", "service-worker.js");
+	await writeFile(sw, `${await readFile(sw, "utf8")}\n// new extension code\n`);
+	status = JSON.parse(run(releaseB, "status").stdout);
+	assert.equal(status.extensionUpToDate, false); assert.equal(status.upToDate, false);
+	assert.notEqual(status.extensionDigest, first.extensionDigest);
+	upgraded = JSON.parse(run(releaseB, "install").stdout);
+	assert.equal(upgraded.reloadNeeded, true, "扩展内容变化需要一次 ↻");
+	assert.equal(upgraded.hostOnlyUpdate, false);
 	assert.equal(upgraded.extensionDir, first.extensionDir, "升级后 Chrome 加载路径不变");
-	assert.match(await readFile(join(relayDir, "current", "native-host.mjs"), "utf8"), /new browser component/);
+	assert.match(await readFile(join(first.extensionDir, "service-worker.js"), "utf8"), /new extension code/);
 	assert.equal(JSON.parse(run(releaseB, "status").stdout).installed, true);
 
 	// The exclusive install lock is never stolen from an unknown concurrent installer.

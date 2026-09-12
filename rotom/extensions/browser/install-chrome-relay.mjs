@@ -104,6 +104,16 @@ function digestFiles(files) {
 	return hash.digest("hex");
 }
 
+// Only chrome-extension/ bytes are loaded into Chrome, so only they need a reload (↻).
+// native-host.mjs is relaunched by Chrome per connection and upgrades automatically, so
+// splitting the identity lets install ask for a reload strictly when the in-Chrome part
+// changed instead of on every host-side update.
+function componentDigests(files) {
+	const ext = new Map(), host = new Map();
+	for (const [name, data] of files) (name.startsWith("chrome-extension/") ? ext : host).set(name, data);
+	return { componentDigest: digestFiles(files), extensionDigest: digestFiles(ext), hostDigest: digestFiles(host) };
+}
+
 // The content currently materialized in the stable directory Chrome loads from.
 async function installedState() {
 	let directoryExists = false;
@@ -115,7 +125,7 @@ async function installedState() {
 		directoryExists = true;
 		const names = (await readdir(currentDir)).sort();
 		if (JSON.stringify(names) !== JSON.stringify(["chrome-extension", "native-host.mjs"])) return { state: "invalid" };
-		return { state: "ready", digest: digestFiles(await componentFiles(currentDir, true)) };
+		return { state: "ready", ...componentDigests(await componentFiles(currentDir, true)) };
 	} catch (error) {
 		if (error instanceof ComponentIdentityError) return { state: "invalid" };
 		return error?.code === "ENOENT" ? { state: directoryExists ? "invalid" : "missing" } : { state: "unavailable" };
@@ -125,7 +135,7 @@ async function installedState() {
 async function describeComponent() {
 	if (await realpath(root) !== root || await realpath(process.execPath) !== process.execPath) throw new Error("installer 必须使用 canonical 资源与 Node");
 	const files = await componentFiles(root);
-	return { files, digest: digestFiles(files) };
+	return { files, ...componentDigests(files) };
 }
 
 async function removeCurrentAside(previous) {
@@ -142,7 +152,7 @@ async function removeCurrentAside(previous) {
 async function materialize(component) {
 	const before = await installedState();
 	if (before.state === "unavailable") throw new Error("browser component 状态不可确定；未改动");
-	if (before.state === "ready" && before.digest === component.digest) return "unchanged";
+	if (before.state === "ready" && before.componentDigest === component.componentDigest) return { change: "unchanged", extensionChanged: false };
 	await mkdir(installLock, { mode: 0o700 }); // exclusive; no stale-lock stealing or retry
 	const lockIdentity = await lstat(installLock);
 	let staging; let stagingIdentity; let previous;
@@ -153,7 +163,7 @@ async function materialize(component) {
 			await mkdir(dirname(join(staging, name)), { recursive: true, mode: 0o700 });
 			await atomicPrivateWrite(join(staging, name), data, 0o600);
 		}
-		if (digestFiles(await componentFiles(staging, true)) !== component.digest) throw new Error("browser component 暂存校验失败");
+		if (digestFiles(await componentFiles(staging, true)) !== component.componentDigest) throw new Error("browser component 暂存校验失败");
 		const existing = await lstat(currentDir).catch((error) => { if (error?.code === "ENOENT") return undefined; throw error; });
 		if (existing) {
 			previous = join(supportDir, `.previous-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`);
@@ -172,7 +182,8 @@ async function materialize(component) {
 		const current = await lstat(installLock).catch(() => undefined);
 		if (current?.ino === lockIdentity.ino && current?.dev === lockIdentity.dev && current.isDirectory() && !current.isSymbolicLink()) await rmdir(installLock);
 	}
-	return before.state === "missing" ? "created" : "updated";
+	const extensionChanged = before.state !== "ready" || before.extensionDigest !== component.extensionDigest;
+	return { change: before.state === "missing" ? "created" : "updated", extensionChanged };
 }
 
 function expectedInstallContent() {
@@ -186,8 +197,10 @@ function expectedInstallContent() {
 function details(component, installed) {
 	return {
 		extensionId: EXTENSION_ID,
-		componentDigest: component.digest,
-		installedDigest: installed?.state === "ready" ? installed.digest : null,
+		componentDigest: component.componentDigest,
+		extensionDigest: component.extensionDigest,
+		hostDigest: component.hostDigest,
+		installedDigest: installed?.state === "ready" ? installed.componentDigest : null,
 		extensionDir, nativeHostManifest: chromeManifestPath, launcherPath,
 	};
 }
@@ -205,8 +218,9 @@ async function install() {
 	const installed = await installedState();
 	console.log(JSON.stringify({
 		status: "installed",
-		firstInstall: change === "created",
-		reloadNeeded: change === "updated",
+		firstInstall: change.change === "created",
+		reloadNeeded: change.change === "updated" && change.extensionChanged,
+		hostOnlyUpdate: change.change === "updated" && !change.extensionChanged,
 		...details(component, installed),
 	}, null, 2));
 }
@@ -231,8 +245,9 @@ async function matchesExpectedFile(path, identity, expected) {
 async function status() {
 	const component = await describeComponent();
 	const installed = await installedState();
-	const upToDate = installed.state === "ready" && installed.digest === component.digest;
-	const result = { ...details(component, installed), componentState: installed.state, upToDate, registrationValid: false, installed: false };
+	const upToDate = installed.state === "ready" && installed.componentDigest === component.componentDigest;
+	const extensionUpToDate = installed.state === "ready" && installed.extensionDigest === component.extensionDigest;
+	const result = { ...details(component, installed), componentState: installed.state, upToDate, extensionUpToDate, registrationValid: false, installed: false };
 	try {
 		const [manifestInfo, launcherInfo] = await Promise.all([lstat(chromeManifestPath), lstat(launcherPath)]);
 		const expected = expectedInstallContent();

@@ -613,14 +613,17 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 					if (!record(result) || result.status !== "installed") throw new Error("Invalid installer acknowledgement");
 					const first = flag(result, "firstInstall");
 					const reloadNeeded = flag(result, "reloadNeeded");
+					const hostOnly = flag(result, "hostOnlyUpdate");
 					const check = await commandIO.runInstaller("status", controller.signal);
 					assertOwner();
 					if (!record(check) || check.installed !== true) throw new Error("Registration readback did not match");
 					const next = first
 						? `首次安装：在 chrome://extensions → 开发者模式 → 加载已解压的扩展，选择上面的目录（请先结束活跃浏览器任务）。此后升级只需按刷新，无需重新选目录。`
 						: reloadNeeded
-							? `浏览器组件内容已更新。请到 chrome://extensions，点该扩展卡片的刷新按钮（↻）即可，无需 Remove 或重新选目录。`
-							: `浏览器组件无变化，无需在 Chrome 端做任何操作。`;
+							? `浏览器扩展内容已更新。请到 chrome://extensions，点该扩展卡片的刷新按钮（↻）一次即可，无需 Remove 或重新选目录。`
+							: hostOnly
+								? `已更新 native host（下次浏览器连接自动生效）；扩展内容未变，无需在 Chrome 端点刷新。`
+								: `组件无变化，无需在 Chrome 端做任何操作。`;
 					ctx.ui.notify(`Native host 注册已回读确认。\n固定扩展目录：${extensionDirDisplay}\n${next}\n完成后用 /browser status 检查连接。`, "info");
 					return;
 				}
@@ -630,8 +633,13 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 					const result = await commandIO.runInstaller("status", controller.signal);
 					assertOwner();
 					if (!record(result) || typeof result.installed !== "boolean") throw new Error("Invalid installer status");
-					if (result.installed === true) { registration = "与当前 rotom 匹配（组件已是最新）"; reloadHint = "固定目录已是最新；若刚升级请点扩展刷新（↻）一次。"; }
-					else if (flag(result, "registrationValid")) { registration = "已注册，但组件与当前 rotom 不一致"; reloadHint = "请运行 /browser install 更新固定目录，再点扩展刷新（↻）。"; }
+					if (result.installed === true) { registration = "与当前 rotom 匹配（组件已是最新）"; reloadHint = "固定目录已是最新；若刚升级过扩展请点刷新（↻）一次。"; }
+					else if (flag(result, "registrationValid")) {
+						registration = "已注册，但组件与当前 rotom 不一致";
+						reloadHint = flag(result, "extensionUpToDate")
+							? "扩展内容已是最新；运行 /browser install 更新 native host 即可，无需 ↻。"
+							: "扩展内容有更新；运行 /browser install 后点扩展刷新（↻）一次。";
+					}
 					else { registration = "未确认匹配（首次安装、Node 变化、缺失、损坏或不可读）"; reloadHint = "请运行 /browser install。"; }
 				} catch { assertOwner(); }
 				let connection = "unknown（超时、权限或协议检查未完成）";

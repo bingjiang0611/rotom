@@ -59,11 +59,12 @@ scoped 执行是执行归属与资源关闭管理，**不是安全沙箱**；首
 
 - **首次安装**：执行 `/browser install`，结束活跃浏览器任务后在 `chrome://extensions` → 开发者模式 → 加载已解压的扩展，选择显示的固定目录一次。
 - **组件内容更新**：`/browser install` 原子替换固定目录内容并回报 `reloadNeeded=true`；随后到 `chrome://extensions` 点该扩展卡片的**刷新（↻）**即可，无需 Remove 或重新选目录。运行中的 native host 已把代码载入内存，替换文件不影响它，新连接会读到新代码。
+- **仅 native host 更新**：摘要分为 `extensionDigest`（`chrome-extension/`，真正被 Chrome 加载）与 `hostDigest`（`native-host.mjs`）。若只有 native host 变化，`/browser install` 原子更新固定目录并回报 `reloadNeeded=false`、`hostOnlyUpdate=true`；Chrome 每次新连接重新拉起 native host，**无需 ↻**。
 - **内容无变化的重打包/切换发行目录**：`/browser install` 回报 `reloadNeeded=false`，Chrome 端零操作；删除旧 rotom 发行目录也不影响，因为固定目录与 launcher 都不指向发行目录。
 - **Node 路径变化**：只影响 launcher/native host 注册，需重跑 `/browser install`；扩展目录内容不变则无需刷新。
 - **存储边界**：固定目录与文件必须为本人私有资源，拒绝 symlink、内容漂移与未知安装锁。替换采用暂存目录 + rename 原子切换，切换窗口极短，只有此刻 Chrome 刷新或新建 native 连接才可能读到过渡态；卸载注册仍保留固定目录，避免破坏活跃 Chrome/native host。
 
-`status` 的注册项确认 launcher/manifest 与当前 Node 匹配，并区分固定目录内容是否已是当前 rotom（`upToDate`）；连接项证明当前协议握手，不代表 Chrome 已加载所显示目录或网页操作已经通过。超时、权限或协议错误保留 `unknown`，不自动重试或启动另一浏览器。安装结果不确定时先只读核对，不盲目重装。
+`status` 的注册项确认 launcher/manifest 与当前 Node 匹配，并区分固定目录内容是否已是当前 rotom（`upToDate`）以及仅扩展部分是否一致（`extensionUpToDate`）——后者为真时区分“需不需要 ↻”；连接项证明当前协议握手，不代表 Chrome 已加载所显示目录或网页操作已经通过。超时、权限或协议错误保留 `unknown`，不自动重试或启动另一浏览器。安装结果不确定时先只读核对，不盲目重装。
 
 `owned debugger target identity changed` 表示原标签的 debugger 身份已失效，与固定目录内容变化不是同一结论。不要靠重装、接受新 targetId 或重放原操作绕过校验；停止原动作，按原标签的只读恢复规则核查。固定目录不能保证消除所有 Chrome 导航、关闭或重启导致的身份变化。
 
