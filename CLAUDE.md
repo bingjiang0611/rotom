@@ -42,7 +42,7 @@ extension、bundled skill 与第三方 package 是产品合同，不是“目录
 - 凭据默认走 `browser`（Pi 原生登录/存储/串行刷新、复用公开客户端 ID，非官方支持），不读写 CLI 凭据；显式 `ROTOM_QODER_AUTH=qodercli` 回到只读 CLI 兼容模式。刷新前持久记录一次性尝试、unknown 不重放、只强制隔离凭据的本地到期（不冒充自然到期）；重新登录或认证来源变化须新会话。opaque signature 字段按各自 Pi signature 原样存回，不解密、不跨模型丢弃。
 - 每条路由固定走 COSY 单次推理或 direct，不失败回退、不嵌套 agent；只按实测交集开放 effort，其余固定 enabled，不伪造关闭/强度支持。服务尾帧仅在 finish、usage 与精确 metrics 同时成立时映射终止，不以 EOF 补成功。
 - 仅图片档模型开放 PNG/JPEG/WebP 与受管上下文窗口，其余仅文本、上下文与输出均有界；单图与历史图片总量有预算，拒绝远程 URL，不宣称完整 400K/1M。
-- Credit 只记录完整流中有效的服务端 credits/billable，缺失/错误/取消/冲突保持 unknown；会话 subtotal 为 partial、billable-reported，不是完整账本或 USD。`/qoder-credits` 只读账号快照，不进对话/压缩/摘要，不由余额差值推断单次费用。美元费用未知、Pi $0 占位与上游支持/许可未确认必须显式披露。
+- Credit 只记录完整流中有效的服务端 credits/billable，缺失/错误/取消/冲突保持 unknown；会话 subtotal 为 partial、billable-reported，不是完整账本或 USD。选中 Qoder 时，内置 Pi footer 的普通 usage 行用三位小数 `Cr` 显示已记录小计，并显式保留 unknown/partial；不显示 Pi 的 $0 占位。`/qoder-credits` 只读账号快照，不进对话/压缩/摘要，不由余额差值推断单次费用。美元费用未知与上游支持/许可未确认必须显式披露。
 - 第三方 package 使用精确版本、lockfile integrity 和 installed package identity；`package.json`、`package-lock.json`、`product-config.mjs` 必须同步。发行包的 Pi fork 另由 `rotom/runtime/pi/package.json`、`package-lock.json`、`fork-build.json` 和 product config 固定版本/integrity；顶层 `npm-shrinkwrap.json` 不再声明外部 Pi。
 - 运行时资源拒绝 symlink、越界路径和 canonical 漂移。
 - `node_modules/` 可用于本地调试和验证修改，但重装会覆盖；交付时将改动固化到受版本管理的源码或可复现 patch，并同步依赖与 identity 合同。不要原地覆盖存活会话使用的安装。

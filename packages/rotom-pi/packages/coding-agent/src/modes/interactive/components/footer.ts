@@ -3,6 +3,7 @@ import { type Component, truncateToWidth, visibleWidth } from "@earendil-works/p
 import type { AgentSession } from "../../../core/agent-session.ts";
 import { areExperimentalFeaturesEnabled } from "../../../core/experimental.ts";
 import type { ReadonlyFooterDataProvider } from "../../../core/footer-data-provider.ts";
+import type { SessionEntry } from "../../../core/session-manager.ts";
 import { addUsageToTotals, createUsageTotals } from "../../../core/usage-totals.ts";
 import { theme } from "../theme/theme.ts";
 
@@ -41,6 +42,79 @@ export function formatCwdForFooter(cwd: string, home: string | undefined): strin
 
 	if (!isInsideHome) return cwd;
 	return relativeToHome === "" ? "~" : `~${sep}${relativeToHome}`;
+}
+
+const QODER_CREDIT_ENTRY = "qoder-credit-observation-v1";
+
+interface QoderCreditSummary {
+	credits: number | null;
+	reported: number;
+	unknown: number;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isFiniteCredit(value: unknown): value is number {
+	return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+/**
+ * Read Qoder's persisted per-request metering without treating Credits as USD.
+ * This mirrors the extension's fail-closed summary contract: conflicting or
+ * malformed observations stay unknown and only reported billable Credits sum.
+ */
+export function summarizeQoderCredits(entries: readonly SessionEntry[], sessionId: string): QoderCreditSummary {
+	const seen = new Map<string, { data: Record<string, unknown>; signature: string; conflict: boolean }>();
+	let credits = 0;
+	let reported = 0;
+	let unknown = 0;
+
+	for (const entry of entries) {
+		if (entry.type !== "custom" || entry.customType !== QODER_CREDIT_ENTRY || !isRecord(entry.data)) continue;
+		const data = entry.data;
+		if (data.sessionId !== sessionId) continue;
+		if (data.version !== 1 || typeof data.requestId !== "string" || !data.requestId || data.requestId.length > 128) {
+			unknown++;
+			continue;
+		}
+
+		const signature = JSON.stringify([
+			typeof data.modelId === "string" && data.modelId.length <= 96 ? data.modelId : null,
+			data.status === "reported",
+			data.outcome === "complete",
+			isFiniteCredit(data.credits) ? data.credits : null,
+			typeof data.billable === "boolean" ? data.billable : null,
+		]);
+		const prior = seen.get(data.requestId);
+		if (prior) {
+			if (prior.signature !== signature) prior.conflict = true;
+			continue;
+		}
+		seen.set(data.requestId, { data, signature, conflict: false });
+	}
+
+	for (const observation of seen.values()) {
+		const { data } = observation;
+		const valid =
+			!observation.conflict &&
+			typeof data.modelId === "string" &&
+			data.modelId.length > 0 &&
+			data.modelId.length <= 96 &&
+			data.status === "reported" &&
+			data.outcome === "complete" &&
+			isFiniteCredit(data.credits) &&
+			typeof data.billable === "boolean";
+		if (!valid) {
+			unknown++;
+			continue;
+		}
+		if (data.billable) credits += data.credits as number;
+		reported++;
+	}
+
+	return { credits: reported > 0 && Number.isFinite(credits) ? credits : null, reported, unknown };
 }
 
 /**
@@ -135,13 +209,28 @@ export class FooterComponent implements Component {
 			statsParts.push(`CH${latestCacheHitRate.toFixed(1)}%`);
 		}
 
-		// Kimi Coding is subscription-backed despite using API-key authentication.
-		const usingSubscription = state.model
-			? state.model.provider === "kimi-coding" || this.session.modelRuntime.isUsingSubscription(state.model.provider)
-			: false;
-		if (usageTotals.cost || usingSubscription) {
-			const costStr = `$${usageTotals.cost.toFixed(3)}${usingSubscription ? " (sub)" : ""}`;
-			statsParts.push(costStr);
+		const usingQoder = state.model?.provider === "qoder";
+		if (usingQoder) {
+			const creditSummary = summarizeQoderCredits(
+				this.session.sessionManager.getEntries(),
+				this.session.sessionManager.getSessionId(),
+			);
+			if (creditSummary.credits !== null) {
+				statsParts.push(`Cr${creditSummary.credits.toFixed(3)}${creditSummary.unknown > 0 ? "+?" : ""}`);
+			} else {
+				const hasObservations = creditSummary.reported > 0 || creditSummary.unknown > 0;
+				statsParts.push(hasObservations ? "Cr?" : "Cr0.000");
+			}
+		} else {
+			// Kimi Coding is subscription-backed despite using API-key authentication.
+			const usingSubscription = state.model
+				? state.model.provider === "kimi-coding" ||
+					this.session.modelRuntime.isUsingSubscription(state.model.provider)
+				: false;
+			if (usageTotals.cost || usingSubscription) {
+				const costStr = `$${usageTotals.cost.toFixed(3)}${usingSubscription ? " (sub)" : ""}`;
+				statsParts.push(costStr);
+			}
 		}
 
 		// Colorize context percentage based on usage

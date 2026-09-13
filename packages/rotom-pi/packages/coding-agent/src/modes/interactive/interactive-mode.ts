@@ -3384,6 +3384,19 @@ export class InteractiveMode {
 				if (event.message.role === "user") break;
 				if (this.streamingComponent && event.message.role === "assistant") {
 					this.streamingMessage = event.message;
+					if (
+						this.session.isManualCompactionPending &&
+						this.streamingMessage.stopReason === "aborted" &&
+						this.streamingMessage.content.length === 0
+					) {
+						// The manual compaction status replaces this empty, expected
+						// cancellation; there is no assistant output to retain.
+						this.chatContainer.removeChild(this.streamingComponent);
+						this.streamingComponent = undefined;
+						this.streamingMessage = undefined;
+						this.ui.requestRender();
+						break;
+					}
 					let errorMessage: string | undefined;
 					if (this.streamingMessage.stopReason === "aborted") {
 						const retryAttempt = this.session.retryAttempt;

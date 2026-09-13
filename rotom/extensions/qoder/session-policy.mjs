@@ -46,12 +46,10 @@ export function bindSessionAccount(manager, append, fingerprint) {
 
 export function installSessionPolicy(pi) {
   let current, catalogRefresh, epoch = 0;
-  // Per an explicit maintainer choice there is no always-on Qoder footer status
-  // line. Pi's TUI footer renders extension statuses as their own undimmed line
-  // (layout owned by Pi, not exposable to extensions), so a merged/same-font line
-  // is not achievable without forking Pi. Credits are still recorded in session
-  // entries; /qoder-credits remains the explicit account-credit snapshot, while
-  // the numeric $0 model costs remain implementation placeholders, not pricing.
+  // Credits stay in persisted session entries rather than extension status UI.
+  // The bundled Pi fork reads those entries into its normal usage row, while
+  // /qoder-credits remains the explicit account snapshot. Numeric $0 model costs
+  // are still implementation placeholders and are never displayed as Qoder USD.
   const attach = (_event, ctx) => { current = ctx; epoch++; };
   for (const event of ['session_start', 'before_agent_start', 'session_before_compact', 'session_before_tree']) pi.on(event, attach);
   pi.on('model_select', attach);

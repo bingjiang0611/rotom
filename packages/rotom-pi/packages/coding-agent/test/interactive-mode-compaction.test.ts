@@ -1,4 +1,4 @@
-import type { Usage } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, type Usage } from "@earendil-works/pi-ai";
 import { Container } from "@earendil-works/pi-tui";
 import { describe, expect, test, vi } from "vitest";
 import type { SessionEntry } from "../src/core/session-manager.ts";
@@ -195,6 +195,63 @@ describe("InteractiveMode compaction events", () => {
 			usage,
 		});
 		expect(fakeThis.flushCompactionQueue).toHaveBeenCalledWith({ willRetry: false });
+	});
+
+	test("hides an empty assistant cancellation caused by manual compaction", async () => {
+		const streamingComponent = { updateContent: vi.fn() };
+		const fakeThis = {
+			isInitialized: true,
+			streamingComponent,
+			streamingMessage: undefined,
+			session: { isManualCompactionPending: true, retryAttempt: 0 },
+			chatContainer: { removeChild: vi.fn() },
+			footer: { invalidate: vi.fn() },
+			ui: { requestRender: vi.fn() },
+		};
+		const message = {
+			...fauxAssistantMessage("ignored", { stopReason: "aborted" }),
+			content: [],
+		};
+		const handleEvent = Reflect.get(InteractiveMode.prototype, "handleEvent") as (
+			this: typeof fakeThis,
+			event: { type: "message_end"; message: typeof message },
+		) => Promise<void>;
+
+		await handleEvent.call(fakeThis, { type: "message_end", message });
+
+		expect(fakeThis.chatContainer.removeChild).toHaveBeenCalledWith(streamingComponent);
+		expect(streamingComponent.updateContent).not.toHaveBeenCalled();
+		expect(fakeThis.streamingComponent).toBeUndefined();
+		expect(fakeThis.footer.invalidate).toHaveBeenCalledTimes(1);
+		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
+	});
+
+	test("retains partial assistant output interrupted by manual compaction", async () => {
+		const streamingComponent = { updateContent: vi.fn() };
+		const fakeThis = {
+			isInitialized: true,
+			streamingComponent,
+			streamingMessage: undefined,
+			session: { isManualCompactionPending: true, retryAttempt: 0 },
+			chatContainer: { removeChild: vi.fn() },
+			pendingTools: new Map(),
+			footer: { invalidate: vi.fn() },
+			ui: { requestRender: vi.fn() },
+		};
+		const message = fauxAssistantMessage("partial output", { stopReason: "aborted" });
+		const handleEvent = Reflect.get(InteractiveMode.prototype, "handleEvent") as (
+			this: typeof fakeThis,
+			event: { type: "message_end"; message: typeof message },
+		) => Promise<void>;
+
+		await handleEvent.call(fakeThis, { type: "message_end", message });
+
+		expect(fakeThis.chatContainer.removeChild).not.toHaveBeenCalled();
+		expect(streamingComponent.updateContent).toHaveBeenCalledWith(
+			expect.objectContaining({ errorMessage: "Operation aborted" }),
+			false,
+		);
+		expect(fakeThis.streamingComponent).toBeUndefined();
 	});
 
 	test("updates the working state when the same agent run resumes after compaction", async () => {

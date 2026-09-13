@@ -191,6 +191,10 @@ export type AgentSessionEventListener = (event: AgentSessionEvent) => void;
 // Types
 // ============================================================================
 
+function isAbortErrorMessage(message: string | undefined): boolean {
+	return message === "This operation was aborted" || message === "The operation was aborted" || message === "aborted";
+}
+
 function withoutDeletedHeaders(headers: ProviderHeaders | undefined): Record<string, string> | undefined {
 	return headers
 		? Object.fromEntries(Object.entries(headers).filter((entry): entry is [string, string] => entry[1] !== null))
@@ -331,6 +335,7 @@ export class AgentSession {
 	private _pendingCustomMessages: CustomMessage[] = [];
 
 	// Compaction state
+	private _manualCompactionPending = false;
 	private _compactionAbortController: AbortController | undefined = undefined;
 	private _autoCompactionAbortController: AbortController | undefined = undefined;
 	private _overflowRecoveryAttempted = false;
@@ -641,6 +646,20 @@ export class AgentSession {
 
 	/** Internal handler for agent events - shared by subscribe and reconnect */
 	private _handleAgentEvent = async (event: AgentEvent): Promise<void> => {
+		// Manual compaction intentionally aborts the active provider request. Some
+		// providers surface that cancellation as a generic error, which would make
+		// the session retry it and present a false provider failure to the user.
+		if (
+			event.type === "message_end" &&
+			event.message.role === "assistant" &&
+			event.message.stopReason === "error" &&
+			isAbortErrorMessage(event.message.errorMessage) &&
+			this._manualCompactionPending &&
+			this.agent.signal?.aborted
+		) {
+			event.message.stopReason = "aborted";
+		}
+
 		// When a user message starts, check if it's from either queue and remove it BEFORE emitting
 		// This ensures the UI sees the updated queue state
 		if (event.type === "message_start" && event.message.role === "user") {
@@ -982,6 +1001,11 @@ export class AgentSession {
 		// Rebuild base system prompt with new tool set
 		this._baseSystemPrompt = this._rebuildSystemPrompt(validToolNames);
 		this.agent.state.systemPrompt = this._systemPromptOverride ?? this._baseSystemPrompt;
+	}
+
+	/** Whether manual compaction is pending or running. */
+	get isManualCompactionPending(): boolean {
+		return this._manualCompactionPending;
 	}
 
 	/** Whether compaction or branch summarization is currently running */
@@ -1937,6 +1961,7 @@ export class AgentSession {
 	}
 
 	private _clearManualCompactionState(): void {
+		this._manualCompactionPending = false;
 		this._compactionAbortController = undefined;
 		this._resolveIdleWaitIfIdle();
 	}
@@ -1957,7 +1982,13 @@ export class AgentSession {
 	 * @param customInstructions Optional instructions for the compaction summary
 	 */
 	async compact(customInstructions?: string): Promise<CompactionResult> {
-		await this.abort();
+		this._manualCompactionPending = true;
+		try {
+			await this.abort();
+		} catch (error) {
+			this._clearManualCompactionState();
+			throw error;
+		}
 		this._compactionAbortController = new AbortController();
 		this._emit({ type: "compaction_start", reason: "manual" });
 		let fromExtension = false;

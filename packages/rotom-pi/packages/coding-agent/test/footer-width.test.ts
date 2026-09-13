@@ -25,6 +25,8 @@ function createSession(options: {
 	compactionUsage?: AssistantUsage;
 	toolUsage?: AssistantUsage;
 	usingSubscription?: boolean;
+	customEntries?: Array<Record<string, unknown>>;
+	sessionId?: string;
 }): AgentSession {
 	const usage = options.usage;
 	const entries: Array<Record<string, unknown>> = [];
@@ -63,6 +65,8 @@ function createSession(options: {
 		});
 	}
 
+	entries.push(...(options.customEntries ?? []));
+
 	const session = {
 		state: {
 			model: {
@@ -75,6 +79,7 @@ function createSession(options: {
 		},
 		sessionManager: {
 			getEntries: () => entries,
+			getSessionId: () => options.sessionId ?? "test-session",
 			getSessionName: () => options.sessionName,
 			getCwd: () => "/tmp/project",
 		},
@@ -205,6 +210,65 @@ describe("FooterComponent width handling", () => {
 
 		const statsLine = stripAnsi(footer.render(120)[1]);
 		expect(statsLine).toContain("CH25.0%");
+	});
+
+	it("shows Qoder Credits to three decimal places instead of USD", () => {
+		const session = createSession({
+			sessionName: "",
+			provider: "qoder",
+			usage: {
+				input: 100,
+				output: 10,
+				cacheRead: 0,
+				cacheWrite: 0,
+				cost: { total: 9.999 },
+			},
+			customEntries: [
+				{
+					type: "custom",
+					customType: "qoder-credit-observation-v1",
+					data: {
+						version: 1,
+						sessionId: "test-session",
+						requestId: "request-1",
+						modelId: "ultimate",
+						status: "reported",
+						outcome: "complete",
+						credits: 1.23456,
+						billable: true,
+					},
+				},
+			],
+		});
+		const footer = new FooterComponent(session, createFooterData(1));
+		const stats = stripAnsi(footer.render(120)[1]);
+
+		expect(stats).toContain("Cr1.235");
+		expect(stats).not.toContain("$");
+	});
+
+	it("keeps unknown Qoder metering explicit", () => {
+		const session = createSession({
+			sessionName: "",
+			provider: "qoder",
+			customEntries: [
+				{
+					type: "custom",
+					customType: "qoder-credit-observation-v1",
+					data: {
+						version: 1,
+						sessionId: "test-session",
+						requestId: "request-1",
+						modelId: "ultimate",
+						status: "unknown",
+						outcome: "complete",
+					},
+				},
+			],
+		});
+		const footer = new FooterComponent(session, createFooterData(1));
+
+		expect(stripAnsi(footer.render(120)[1])).toContain("Cr?");
 	});
 
 	it("marks Kimi Coding costs as subscription estimates", () => {

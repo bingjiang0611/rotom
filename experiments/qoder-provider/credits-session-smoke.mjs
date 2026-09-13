@@ -73,7 +73,7 @@ try{
  const manager=session.sessionManager,file=session.sessionFile,sessionId=manager.getSessionId();assert(file&&existsSync(file));
  const base=manager.getLeafId();phase='branch';await session.prompt(`Temporary branch only: reply exactly ${branchMarker}, no tools.`);assert.equal(answer(),branchMarker);
  const navigation=await session.navigateTree(base,{summarize:false});assert.equal(navigation.cancelled,false);assert(!JSON.stringify(session.messages).includes(branchMarker));summary.branchIsolated=true;
- const observed=creditSummary(manager.getEntries(),sessionId);assert.equal(observed.reported+observed.unknown,summary.modelRequests);assert(status.get('qoder-credit-usage'));
+ const observed=creditSummary(manager.getEntries(),sessionId);assert.equal(observed.reported+observed.unknown,summary.modelRequests);assert.equal(status.size,0); // The Pi fork renders persisted entries in its normal footer row.
  assert(!JSON.stringify(session.messages).includes(CREDIT_ENTRY));assert(!JSON.stringify(manager.getEntries()).includes('Qoder Credit snapshot'));
  session.dispose();session=await open(sdk.SessionManager.open(file,dir));assert.deepEqual(creditSummary(session.sessionManager.getEntries(),sessionId),observed);summary.creditDiskResume=true;
  phase='resume';await session.prompt(`The repair is already verified. Do not run any tool; reply only ${resumeMarker}.`);assert.equal(answer(),resumeMarker);assert.equal(summary.patches,1);assert.equal(summary.tests,2);

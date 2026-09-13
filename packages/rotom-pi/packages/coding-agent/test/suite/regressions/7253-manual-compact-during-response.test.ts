@@ -80,4 +80,123 @@ describe("issue #7253: manual compaction during an active response", () => {
 		expect(compactionIndex).toBeGreaterThan(abortedResponseIndex);
 		expect(entries.filter((entry) => entry.type === "compaction")).toHaveLength(1);
 	});
+
+	it("normalizes a provider error caused by the compaction abort without retrying it", async () => {
+		let markSecondResponseStarted = () => {};
+		const secondResponseStarted = new Promise<void>((resolve) => {
+			markSecondResponseStarted = resolve;
+		});
+
+		const harness = await createHarness({
+			models: [{ id: "faux-1", contextWindow: 1000, maxTokens: 1000 }],
+			settings: {
+				compaction: { enabled: true, reserveTokens: 200, keepRecentTokens: 2 },
+				retry: { enabled: true, maxRetries: 1, baseDelayMs: 1 },
+			},
+			tools: [createNoopTool()],
+			extensionFactories: [
+				(pi) => {
+					pi.on("session_before_compact", async (event) => ({
+						compaction: {
+							summary: `${event.reason} summary`,
+							firstKeptEntryId: event.preparation.firstKeptEntryId,
+							tokensBefore: event.preparation.tokensBefore,
+							details: {},
+						},
+					}));
+				},
+			],
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage(fauxToolCall("noop", {}), { stopReason: "toolUse" }),
+			async (_context, options) => {
+				markSecondResponseStarted();
+				await new Promise<never>((_resolve, reject) => {
+					const abort = () => reject(new DOMException("This operation was aborted", "AbortError"));
+					if (options?.signal?.aborted) abort();
+					else options?.signal?.addEventListener("abort", abort, { once: true });
+				});
+				throw new Error("unreachable");
+			},
+		]);
+
+		const promptPromise = harness.session.prompt("Run the tool, then continue responding.");
+		await secondResponseStarted;
+		await expect(harness.session.compact()).resolves.toMatchObject({ summary: "manual summary" });
+		await promptPromise;
+
+		expect(harness.faux.state.callCount).toBe(2);
+		const abortedResponse = harness.sessionManager
+			.getEntries()
+			.find(
+				(entry) =>
+					entry.type === "message" &&
+					entry.message.role === "assistant" &&
+					entry.message.errorMessage?.includes("aborted"),
+			);
+		expect(abortedResponse).toMatchObject({
+			type: "message",
+			message: { stopReason: "aborted" },
+		});
+	});
+
+	it("does not hide an unrelated provider error that races with the compaction abort", async () => {
+		let markSecondResponseStarted = () => {};
+		const secondResponseStarted = new Promise<void>((resolve) => {
+			markSecondResponseStarted = resolve;
+		});
+
+		const harness = await createHarness({
+			models: [{ id: "faux-1", contextWindow: 1000, maxTokens: 1000 }],
+			settings: {
+				compaction: { enabled: true, reserveTokens: 200, keepRecentTokens: 2 },
+				retry: { enabled: false, maxRetries: 0, baseDelayMs: 1 },
+			},
+			tools: [createNoopTool()],
+			extensionFactories: [
+				(pi) => {
+					pi.on("session_before_compact", async (event) => ({
+						compaction: {
+							summary: `${event.reason} summary`,
+							firstKeptEntryId: event.preparation.firstKeptEntryId,
+							tokensBefore: event.preparation.tokensBefore,
+							details: {},
+						},
+					}));
+				},
+			],
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage(fauxToolCall("noop", {}), { stopReason: "toolUse" }),
+			async (_context, options) => {
+				markSecondResponseStarted();
+				await new Promise<never>((_resolve, reject) => {
+					const abort = () => reject(new Error("provider failed independently"));
+					if (options?.signal?.aborted) abort();
+					else options?.signal?.addEventListener("abort", abort, { once: true });
+				});
+				throw new Error("unreachable");
+			},
+		]);
+
+		const promptPromise = harness.session.prompt("Run the tool, then continue responding.");
+		await secondResponseStarted;
+		await expect(harness.session.compact()).resolves.toMatchObject({ summary: "manual summary" });
+		await promptPromise;
+
+		const providerError = harness.sessionManager
+			.getEntries()
+			.find(
+				(entry) =>
+					entry.type === "message" &&
+					entry.message.role === "assistant" &&
+					entry.message.errorMessage === "provider failed independently",
+			);
+		expect(providerError).toMatchObject({
+			type: "message",
+			message: { stopReason: "error" },
+		});
+	});
 });
