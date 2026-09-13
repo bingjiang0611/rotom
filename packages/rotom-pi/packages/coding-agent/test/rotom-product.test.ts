@@ -1,4 +1,8 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { SessionManager } from "../src/core/session-manager.ts";
 import { checkForNewRotomVersion, getRotomVersion, selectRotomRelease } from "../src/utils/rotom-product.ts";
 
 const release = (tag_name: string, draft = false) => ({ tag_name, draft });
@@ -8,6 +12,7 @@ beforeEach(() => {
 afterEach(() => {
 	vi.unstubAllGlobals();
 	vi.unstubAllEnvs();
+	vi.restoreAllMocks();
 });
 
 describe("rotom product metadata", () => {
@@ -40,6 +45,41 @@ describe("rotom product metadata", () => {
 		expect(selectRotomRelease(releases, "0.1.0")).toBeUndefined();
 		expect(selectRotomRelease([{ ...release("v0.2.0"), prerelease: true }], "0.1.0")).toBeUndefined();
 		expect(selectRotomRelease([release("v0.1.0")], "0.1.0-alpha.11")).toEqual({ version: "0.1.0" });
+	});
+});
+
+describe("rotom runtime branding", () => {
+	it("uses the public rotom command while preserving Pi configuration environment names", async () => {
+		vi.stubEnv("ROTOM_PRODUCT_VERSION", "0.1.0-alpha.11");
+		vi.resetModules();
+		const { APP_NAME, APP_TITLE, CONFIG_DIR_NAME, ENV_AGENT_DIR, ENV_SESSION_DIR } = await import("../src/config.ts");
+		expect({ APP_NAME, APP_TITLE, CONFIG_DIR_NAME, ENV_AGENT_DIR, ENV_SESSION_DIR }).toEqual({
+			APP_NAME: "rotom",
+			APP_TITLE: "rotom",
+			CONFIG_DIR_NAME: ".pi",
+			ENV_AGENT_DIR: "PI_CODING_AGENT_DIR",
+			ENV_SESSION_DIR: "PI_CODING_AGENT_SESSION_DIR",
+		});
+
+		const root = mkdtempSync(join(tmpdir(), "rotom-resume-command-"));
+		const sessionFile = join(root, "session.jsonl");
+		writeFileSync(sessionFile, "\n");
+		const stdoutDescriptor = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
+		Object.defineProperty(process.stdout, "isTTY", { configurable: true, value: true });
+		try {
+			const { formatResumeCommand } = await import("../src/modes/interactive/interactive-mode.ts");
+			const sessionManager = {
+				isPersisted: () => true,
+				getSessionFile: () => sessionFile,
+				getSessionId: () => "test-session",
+				usesDefaultSessionDir: () => true,
+			} as unknown as SessionManager;
+			expect(formatResumeCommand(sessionManager)).toBe("rotom --session test-session");
+		} finally {
+			if (stdoutDescriptor) Object.defineProperty(process.stdout, "isTTY", stdoutDescriptor);
+			else Reflect.deleteProperty(process.stdout, "isTTY");
+			rmSync(root, { recursive: true, force: true });
+		}
 	});
 });
 

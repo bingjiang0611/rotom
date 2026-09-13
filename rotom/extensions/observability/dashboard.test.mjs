@@ -488,7 +488,9 @@ test("dashboard binds loopback, requires bearer auth, and serves trace details",
 	assert.match(page.headers.get("content-security-policy") ?? "", /default-src 'none'/u);
 	const pageBody = await page.text();
 	assert.match(pageBody, /Rotom Trace Dashboard/u);
-	assert.match(pageBody, /PI TRACE/u);
+	assert.match(pageBody, /ROTOM TRACE/u);
+	assert.match(pageBody, /ROTOM \/ OBSERVABILITY/u);
+	assert.doesNotMatch(pageBody, />PI<|PI TRACE|PI-AGENT/u);
 	assert.match(pageBody, /id="view-stats"[^>]+aria-pressed="true"[^>]*>SESSION STATS/u);
 	assert.match(pageBody, /id="view-trace"[^>]+aria-pressed="false"[^>]*>EXECUTION TRACE/u);
 	assert.match(pageBody, /Session overview/u, "the session title must stay generic");

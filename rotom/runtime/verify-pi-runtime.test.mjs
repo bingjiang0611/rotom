@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import test from "node:test";
-import { RESOURCE_DESCRIPTORS_V1 } from "./product-config.mjs";
+import { DISTRIBUTION_PI_VERSION, RESOURCE_DESCRIPTORS_V1 } from "./product-config.mjs";
 import { verifyPiRuntime, verifyThirdPartyPackageContract } from "./verify-pi-runtime.mjs";
 
 const REPOSITORY = resolve(import.meta.dirname, "../..");
@@ -262,6 +262,19 @@ test("resource verifier 与 launcher bootstrap 均 fail closed", () => withFakeP
 		rmSync(parent, { recursive: true, force: true });
 	}
 }));
+
+test("launcher 默认在同一 preflight 进程解析并验证 bundled Pi", () => {
+	const home = mkdtempSync(join(tmpdir(), "rotom-bundled-preflight-"));
+	try {
+		const env = { ...process.env, HOME: home, ROTOM_NODE: process.execPath, HERDR_ENV: "0" };
+		delete env.ROTOM_PI;
+		const result = spawnSync(LAUNCHER, ["--version"], { encoding: "utf8", env });
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(result.stdout, `${DISTRIBUTION_PI_VERSION}\n`);
+	} finally {
+		rmSync(home, { recursive: true, force: true });
+	}
+});
 
 test("launcher 的 version probe 验证 package identity 且不启动 Pi runtime", () => withFakePi({}, async ({ root }) => {
 	const capture = join(root, "version-capture.json");

@@ -498,15 +498,21 @@ try {
 }
 
 const piConfigName: string | undefined = pkg.piConfig?.name;
+const configuredAppName = piConfigName || "pi";
+// The rotom launcher overwrites this metadata before importing the Pi runtime.
+// Keep branding detection dependency-free because config.ts is on every startup path.
+const isRotomProduct = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(process.env.ROTOM_PRODUCT_VERSION ?? "");
 export const PACKAGE_NAME: string = pkg.name || "@earendil-works/pi-coding-agent";
-export const APP_NAME: string = piConfigName || "pi";
-export const APP_TITLE: string = piConfigName ? APP_NAME : "π";
+export const APP_NAME: string = isRotomProduct ? "rotom" : configuredAppName;
+export const APP_TITLE: string = isRotomProduct || piConfigName ? APP_NAME : "π";
 export const CONFIG_DIR_NAME: string = pkg.piConfig?.configDir || ".pi";
 export const VERSION: string = pkg.version || "0.0.0";
 
-// e.g., PI_CODING_AGENT_DIR or TAU_CODING_AGENT_DIR
-export const ENV_AGENT_DIR = `${APP_NAME.toUpperCase()}_CODING_AGENT_DIR`;
-export const ENV_SESSION_DIR = `${APP_NAME.toUpperCase()}_CODING_AGENT_SESSION_DIR`;
+// Product branding must not rename the upstream-compatible configuration
+// environment contract. A package-level piConfig.name still can (for example,
+// PI_CODING_AGENT_DIR or TAU_CODING_AGENT_DIR).
+export const ENV_AGENT_DIR = `${configuredAppName.toUpperCase()}_CODING_AGENT_DIR`;
+export const ENV_SESSION_DIR = `${configuredAppName.toUpperCase()}_CODING_AGENT_SESSION_DIR`;
 
 export function expandTildePath(path: string): string {
 	return normalizePath(path);

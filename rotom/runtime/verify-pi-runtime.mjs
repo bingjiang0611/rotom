@@ -236,12 +236,29 @@ export async function verifyPiRuntime(options) {
 
 async function main() {
 	const args = process.argv.slice(2);
-	const mode = args[0] === "--version-only" || args[0] === "--runtime" ? args.shift() : "--runtime";
-	const [executable, agentDir, ...resourceDeclarations] = args;
-	if (!executable || !agentDir) {
-		throw new Error("用法：verify-pi-runtime.mjs [--runtime|--version-only] <pi-executable> <agent-dir> <kind:absolute-path>...");
+	const supportedModes = new Set(["--runtime", "--version-only", "--bundled-runtime", "--bundled-version-only"]);
+	const mode = supportedModes.has(args[0]) ? args.shift() : "--runtime";
+	const bundled = mode === "--bundled-runtime" || mode === "--bundled-version-only";
+	let executable;
+	let agentDir;
+	let resourceDeclarations;
+	if (bundled) {
+		[agentDir, ...resourceDeclarations] = args;
+		if (!agentDir) {
+			throw new Error("用法：verify-pi-runtime.mjs --bundled-runtime <agent-dir> <kind:absolute-path>...");
+		}
+		// Keep bundled Pi resolution and runtime verification in one Node process. The
+		// resolver still verifies every archive/lock/installed identity before this
+		// module imports the SDK; this only removes a redundant process startup.
+		const { resolveInstalledPi } = await import("./resolve-installed-pi.mjs");
+		executable = await resolveInstalledPi(agentDir);
+	} else {
+		[executable, agentDir, ...resourceDeclarations] = args;
+		if (!executable || !agentDir) {
+			throw new Error("用法：verify-pi-runtime.mjs [--runtime|--version-only] <pi-executable> <agent-dir> <kind:absolute-path>...");
+		}
 	}
-	const versionOnly = mode === "--version-only";
+	const versionOnly = mode === "--version-only" || mode === "--bundled-version-only";
 	const verified = await (versionOnly
 		? verifyPiRuntimeIdentity({ executable, agentDir, resourceDeclarations })
 		: verifyPiRuntime({ executable, agentDir, resourceDeclarations }));

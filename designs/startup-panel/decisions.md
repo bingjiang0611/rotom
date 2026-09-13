@@ -1,5 +1,15 @@
 # rotom startup panel
 
+## D-ROTOM-STARTUP-07 · 启动关键路径与 resources 首屏（需求确认；成品待审）
+- Scope / status：project:`dev-agent` / confirmed（用户要求优化 rotom 启动速度，并指出右栏 `Loading resources…` 长时间不消失）；保留 D-06 已确认的 Heat Rotom 造型、分栏尺寸和三组资源信息结构。
+- Root cause：资源主发现其实在 TUI 创建前已完成，但 `RotomHeader` 仍以 `undefined` 首绘，并把后续 fd/rg 与 extension `session_start` 等待统称为 “Loading resources”；实测主要阻塞来自 Qoder TUI `session_start` 的账号目录网络刷新。launcher 默认路径还用独立 Node 进程先解析 bundled Pi，再起 verifier，形成一次可消除的进程冷启动。
+- Applied：`interactive-mode.ts` 首屏直接绑定已完成的 resource-loader 快照，extension `resources_discover` 完成后仍做 authoritative refresh，并为 header rebind 主动请求 render；新增 opt-in `PI_TIMING=1` 的首屏、资源快照、managed tools、session bind、ready 阶段记录。Qoder TUI 改为首屏完成后沿用 Pi 既有后台 provider refresh，`PI_OFFLINE=1` 不联网；print/RPC 仍同步发现，推理前的目录过期、账号、模型、上下文和 effort gate 不放松。launcher 的 bundled resolve + runtime verify 合并进同一 Node preflight，仍完整校验 archive/lock/installed identity、资源和公开 SDK capability。
+- Evidence：2026-09-13 在同一机器、同一 cwd、`PI_STARTUP_BENCHMARK=1 PI_TIMING=1 PI_OFFLINE=1 ROTOM_OBSERVABILITY=0 HERDR_ENV=0 --no-session --no-approve` 下交替运行已安装 alpha.13 与源码候选各 3 次；总启动中位数 **6094ms → 3748ms（约 -38%）**，候选 `interactive.sessionBind` 为 8–9ms，首屏不再出现 `Loading resources`。独立正常 PTY smoke 在 4.048s 看到 Context / Skills / Extensions，未出现 loading，单次 `/quit` 正常退出。`--version` 交替各 5 次中位数 **1273ms → 869ms（约 -32%）**。这些是本机相对样本，不外推为所有设备的固定收益。
+- Verification / install：Pi fork 完整 offline build 的 11 个 focused 文件 **154 passed / 2 skipped**；Qoder **237 passed**，6 组 offline maintenance smoke 与全部 **17** 个 catalog key 通过，runtime verifier **34 passed**，distribution **23 passed**，builder attestation、`check:pi`、`check-personal` 和 `git diff --check` 通过。`pack:release` 产物为 53,354,416 bytes / 17,915 files，SRI `sha512-c+mKJ5jIBuErSoOnsnPXPAObtpfIgho+Xr2wSBXSlKFIg5DhzMrcMnyePXmfl9a+vMJ5KzznaDt3ugHuPJsF8g==`，未发布。隔离安装并切换到 `~/.local/share/rotom/releases/0.1.0-alpha.13-startup-optimized`；installed default/full smoke 均为 5 extensions / 0 lifecycle errors，最终 installed PTY 在 3.847s 显示三组资源、无 loading，`/quit` exit 0。旧 alpha.13 目录保留，未覆盖存活会话。
+- Preserve / boundary：不延迟 runtime trust verifier、不允许未绑定 extension 时提交请求、不改变工具面、默认模型、会话格式、Qoder 单次推理/不回退与 unknown 边界；后台目录刷新不代表网络成功，真实账号/模型请求未执行。自动测试、PTY 与用户桌面视觉验收分开。
+- Acceptance：代码、发行包与真实 PTY 已验证并安装；用户当前终端中的最终体感/视觉仍待确认。没有新增跨项目审美偏好或可复用 UI 组件。
+- Revisit：若后台 refresh 与首条 Qoder 请求竞态、print/RPC 目录时序、非 baseline 模型选择或真实终端 loading 回归，则回到本条并核对 timing 阶段，不以放松 pre-dispatch gate 换取速度。
+
 ## D-ROTOM-STARTUP-06 · Heat Rotom 描摩版 + 饱和调色（用户已看预览图并确认）
 - Scope / status：用户看到 D-05 的 19×14 实渲染后仍“不像”，并提供 Frost Rotom 参考图提醒“电器形态的辨识结构”。递交前将候选保存为 `~/Desktop/heat-rotom-proposed.png`（官方 vs 终端渲染对照），用户确认“可以,装上去”。本条取代 D-05。
 - Root cause：（1）旧版把身体画成圆形橙色球、手臂成了小侧翅，而 Heat Rotom 的辨识主体是**顶部两大红色等离子手臂（带白色火焰）+ 中心橙色脸部**；（2）旧调色板 `#ef7058/#f8ab59` 偏粉偏淡，与官方饱和红橙差距大。

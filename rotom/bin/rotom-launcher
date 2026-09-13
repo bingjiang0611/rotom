@@ -89,6 +89,7 @@ if [ ! -f "$node_command" ] || [ ! -x "$node_command" ]; then
 	exit 2
 fi
 
+bundled_pi=0
 if [ "${ROTOM_PI+x}" = x ]; then
 	pi_candidate=$ROTOM_PI
 	case "$pi_candidate" in
@@ -98,7 +99,12 @@ if [ "${ROTOM_PI+x}" = x ]; then
 			exit 2
 			;;
 	esac
+	if [ ! -f "$pi_candidate" ] || [ ! -x "$pi_candidate" ]; then
+		echo "rotom: Pi 路径不存在、不是普通文件或不可执行：$pi_candidate" >&2
+		exit 2
+	fi
 else
+	bundled_pi=1
 	installed_pi_resolver="$agent_dir/runtime/resolve-installed-pi.mjs"
 	for bootstrap_path in "$agent_dir/runtime" "$installed_pi_resolver" "$runtime_verifier" "$agent_dir/runtime/product-config.mjs"; do
 		if [ ! -e "$bootstrap_path" ] || [ -L "$bootstrap_path" ]; then
@@ -106,11 +112,6 @@ else
 			exit 2
 		fi
 	done
-	pi_candidate=$("$node_command" "$installed_pi_resolver" "$agent_dir")
-fi
-if [ ! -f "$pi_candidate" ] || [ ! -x "$pi_candidate" ]; then
-	echo "rotom: Pi 路径不存在、不是普通文件或不可执行：$pi_candidate" >&2
-	exit 2
 fi
 
 if [ "$#" -eq 1 ] && [ "$1" = "--trace" ]; then
@@ -213,15 +214,21 @@ verification_mode=--runtime
 if [ "$version_probe" -eq 1 ]; then
 	verification_mode=--version-only
 fi
+if [ "$bundled_pi" -eq 1 ]; then
+	verification_mode="--bundled-${verification_mode#--}"
+	verification_pi_args=
+else
+	verification_pi_args=$pi_candidate
+fi
 if [ -n "$herdr_extension" ]; then
 	verified_runtime=$("$node_command" "$runtime_verifier" "$verification_mode" \
-		"$pi_candidate" "$agent_dir" \
+		${verification_pi_args:+"$verification_pi_args"} "$agent_dir" \
 		"extension:$observability_extension_dir" "extension:$browser_extension_dir" "extension:$coding_policy_extension_dir" "extension:$third_party_extension_dir" \
 		"extension:$qoder_extension_dir" "skill:$third_party_subagents_skill_dir" "herdr-extension:$herdr_extension")
 	set -- --extension "$herdr_extension" "$@"
 else
 	verified_runtime=$("$node_command" "$runtime_verifier" "$verification_mode" \
-		"$pi_candidate" "$agent_dir" \
+		${verification_pi_args:+"$verification_pi_args"} "$agent_dir" \
 		"extension:$observability_extension_dir" "extension:$browser_extension_dir" "extension:$coding_policy_extension_dir" "extension:$third_party_extension_dir" \
 		"extension:$qoder_extension_dir" "skill:$third_party_subagents_skill_dir")
 fi

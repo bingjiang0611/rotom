@@ -21,6 +21,7 @@
 // Anything outside this contract is rejected upstream by openQoderStream, which
 // remains the single authoritative request gate; this module must not widen it.
 
+import { createHash } from 'node:crypto';
 import { QoderError } from './auth.mjs';
 
 // Drop unpaired UTF-16 surrogates before they reach the wire, matching pi-ai's
@@ -62,16 +63,35 @@ export function isSameModelAssistant(message, model) {
   return message.role === 'assistant' && message.provider === model.provider && message.api === model.api && message.model === model.id;
 }
 
+// OpenAI Responses persists `{call_id}|{item_id}` identifiers. Qoder's
+// OpenAI-shaped replay accepts only the compact identifier form, so normalize
+// foreign IDs request-locally and apply the same mapping to their tool results.
+// The item-derived hash preserves uniqueness when one call_id owns multiple
+// response items; same-model Qoder IDs always remain byte-for-byte unchanged.
+function normalizeForeignToolCallId(id) {
+  if (typeof id !== 'string' || !id.includes('|')) return id;
+  const separator = id.indexOf('|');
+  const callId = id.slice(0, separator).replace(/[^a-zA-Z0-9_-]/g, '_') || 'call';
+  const itemId = id.slice(separator + 1).replace(/[^a-zA-Z0-9_-]/g, '_');
+  const combined = itemId ? `${callId}_${itemId}` : callId;
+  if (combined.length <= 40) return combined;
+  const hash = createHash('sha256').update(id).digest('hex').slice(0, 8);
+  return `${callId.slice(0, Math.max(1, 39 - hash.length))}_${hash}`;
+}
+
 // First/second-pass history normalization, ported from pi-ai transformMessages
-// for the Qoder subset. Qoder tool-call ids are the service's own opaque ids and
-// need no cross-provider rewriting, so id normalization is identity here; the
-// meaningful work is same-model detection (keep encrypted/signed thinking only
-// for the same model), skipping errored/aborted assistant turns, and inserting
-// synthetic results for orphaned tool calls so signatures stay replayable.
+// for the Qoder subset. It keeps encrypted/signed thinking only for the same
+// model, normalizes foreign OpenAI Responses tool IDs, skips errored/aborted
+// assistant turns, and inserts synthetic results for orphaned tool calls.
 function transformMessages(messages, model) {
   const normalized = messages.map(msg => (msg.content == null ? { ...msg, content: [] } : msg));
   const imageAware = downgradeUnsupportedImages(normalized, model);
+  const toolCallIdMap = new Map();
   const transformed = imageAware.map(msg => {
+    if (msg.role === 'toolResult') {
+      const id = toolCallIdMap.get(msg.toolCallId);
+      return id && id !== msg.toolCallId ? { ...msg, toolCallId: id } : msg;
+    }
     if (msg.role !== 'assistant') return msg;
     const isSameModel = isSameModelAssistant(msg, model);
     const content = msg.content.flatMap(block => {
@@ -83,8 +103,13 @@ function transformMessages(messages, model) {
       }
       if (block.type === 'text') return isSameModel ? block : { type: 'text', text: block.text };
       if (block.type === 'toolCall') {
-        if (!isSameModel && block.thoughtSignature) { const copy = { ...block }; delete copy.thoughtSignature; return copy; }
-        return block;
+        let copy = block;
+        if (!isSameModel && block.thoughtSignature) { copy = { ...copy }; delete copy.thoughtSignature; }
+        if (!isSameModel) {
+          const id = normalizeForeignToolCallId(block.id);
+          if (id !== block.id) { toolCallIdMap.set(block.id, id); copy = { ...copy, id }; }
+        }
+        return copy;
       }
       return block;
     });

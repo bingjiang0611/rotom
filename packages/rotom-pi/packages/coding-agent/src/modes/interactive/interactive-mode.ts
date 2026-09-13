@@ -96,6 +96,7 @@ import type { FullscreenExitOutput, TuiMode } from "../../core/settings-manager.
 import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.ts";
 import type { SourceInfo } from "../../core/source-info.ts";
 import { isInstallTelemetryEnabled } from "../../core/telemetry.ts";
+import { time } from "../../core/timings.ts";
 import { withBuiltInRenderers } from "../../core/tools/renderers/index.ts";
 import type { TruncationResult } from "../../core/tools/truncate.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "../../core/trust-manager.ts";
@@ -912,6 +913,7 @@ export class InteractiveMode {
 		// Start the UI before initializing extensions so session_start handlers can use interactive dialogs
 		this.ui.start();
 		this.isInitialized = true;
+		time("interactive.ui.start");
 
 		await this.themeController.applyFromSettings();
 
@@ -992,7 +994,14 @@ export class InteractiveMode {
 			this.builtInHeader = new Text("", 0, 0);
 			this.headerContainer.addChild(this.builtInHeader);
 		}
+		// Resource discovery completed before InteractiveMode was created. Paint that cached snapshot now
+		// instead of calling unrelated managed-tool and extension lifecycle work "Loading resources".
+		// bindCurrentSessionExtensions() refreshes this authoritative view after resources_discover hooks run.
+		if (this.builtInHeader instanceof RotomHeader) {
+			this.showLoadedResources({ showDiagnosticsWhenQuiet: true });
+		}
 		this.ui.requestRender();
+		time("interactive.resourceSnapshot");
 
 		// Ensure fd and rg are available after mounting the TUI (downloads if missing, adds to PATH via getBinDir)
 		// so slow downloads do not make startup appear frozen.
@@ -1002,6 +1011,7 @@ export class InteractiveMode {
 			ensureTool("rg", (status) => this.showManagedToolStatus(status)),
 		]);
 		this.fdPath = fdPath;
+		time("interactive.managedTools");
 
 		// Enable the remaining input handlers only after managed-tool setup completes.
 		this.setupKeyHandlers();
@@ -1010,6 +1020,7 @@ export class InteractiveMode {
 
 		// Initialize extensions first so resources are shown before messages
 		await this.rebindCurrentSession();
+		time("interactive.sessionBind");
 
 		// Render initial messages AFTER showing loaded resources
 		this.renderInitialMessages();
@@ -1034,6 +1045,7 @@ export class InteractiveMode {
 
 		// Flush the completed startup state before loading the remaining syntax grammars.
 		this.ui.renderNow();
+		time("interactive.ready");
 		void loadAllHighlightLanguages().then(() => {
 			if (!this.isInitialized) return;
 			this.ui.invalidate();
@@ -1899,6 +1911,9 @@ export class InteractiveMode {
 			}
 		}
 		rotomHeader?.setResources(headerResources);
+		// Header resources live outside loadedResourcesContainer, so their synchronous rebind needs
+		// its own paint request (especially when extension session_start work is still completing).
+		if (rotomHeader) this.ui.requestRender();
 	}
 
 	/**
@@ -3947,7 +3962,7 @@ export class InteractiveMode {
 			new Text(
 				theme.fg(
 					"warning",
-					`This project is not trusted. Project ${CONFIG_DIR_NAME} resources and packages are ignored. Use /trust to save a trust decision, then restart pi.`,
+					`This project is not trusted. Project ${CONFIG_DIR_NAME} resources and packages are ignored. Use /trust to save a trust decision, then restart ${APP_NAME}.`,
 				),
 				1,
 				0,

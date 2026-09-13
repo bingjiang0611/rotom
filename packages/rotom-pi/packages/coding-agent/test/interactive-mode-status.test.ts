@@ -735,6 +735,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 		}
 		expect(header).toContain("fixture-skill");
 		expect(header).toContain("fixture.ts");
+		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
 		for (const label of ["[Skill conflicts]", "diagnostics", "[Prompts]", "[Themes]"]) {
 			expect(below).toContain(label);
 			expect(header).not.toContain(label);

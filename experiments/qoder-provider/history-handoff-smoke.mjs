@@ -20,6 +20,7 @@ const dir = await realpath(await mkdtemp(join(tmpdir(), 'rotom-qoder-handoff-'))
 const summary = { mode: 'offline', pass: false, dispatches: 0, toolExecutions: 0, checks: [] };
 let session, provider;
 const item = { id: 'own-reasoning', encrypted_content: 'own-ciphertext', target_hash: 'a'.repeat(64) };
+const foreignToolId = 'call_handoff_source|fc_00dee2ba93c7a93e016aa64a02594487d2998ed2dec050c6ca';
 try {
   const runtime = await sdk.ModelRuntime.create({ credentials: new piAI.InMemoryCredentialStore(), modelsPath: null, modelsStore: new piAI.InMemoryModelsStore(), refreshOnCreate: false, allowModelNetwork: false });
   const faux = piAI.fauxProvider({ provider: 'handoff-fixture', models: [{ id: 'source', contextWindow: 32000, maxTokens: 4096 }] });
@@ -36,10 +37,12 @@ try {
         const wire = decodeProbeBody(init.body);
         assert.equal(wire.parameters.reasoning_effort, 'high');
         assert.doesNotMatch(JSON.stringify(wire), /FOREIGN_OPAQUE|FOREIGN_TOOL|FOREIGN_REDACTED/);
-        const foreign = wire.messages.find(m => m.role === 'assistant' && m.tool_calls?.some(t => t.id === 'foreign-call'));
+        const foreign = wire.messages.find(m => m.role === 'assistant' && m.tool_calls?.some(t => /^[a-zA-Z0-9_-]{1,40}$/.test(t.id)));
         assert(foreign); assert(foreign.content.includes('Visible previous answer'));
         assert.equal(foreign.reasoning_item, undefined);
-        assert.equal(wire.messages.find(m => m.role === 'tool' && m.tool_call_id === 'foreign-call')?.content, 'Previous result');
+        const normalizedForeignToolId = foreign.tool_calls[0].id;
+        assert.notEqual(normalizedForeignToolId, foreignToolId);
+        assert.equal(wire.messages.find(m => m.role === 'tool' && m.tool_call_id === normalizedForeignToolId)?.content, 'Previous result');
         if (summary.dispatches > 1) {
           const own = wire.messages.find(m => m.role === 'assistant' && m.tool_calls?.some(t => t.id === 'own-call'));
           assert.deepEqual(own.reasoning_item, item);
@@ -58,12 +61,12 @@ try {
   const foreign = { role: 'assistant', provider: source.provider, model: source.id, api: source.api, stopReason: 'toolUse', timestamp: Date.now(),
     usage: { input: 0, output: 0, totalTokens: 0, cacheRead: 0, cacheWrite: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
     content: [{ type: 'thinking', thinking: '', thinkingSignature: 'FOREIGN_OPAQUE' }, { type: 'thinking', thinking: 'FOREIGN_REDACTED', redacted: true, thinkingSignature: 'FOREIGN_OPAQUE' },
-      { type: 'text', text: 'Visible previous answer' }, { type: 'toolCall', id: 'foreign-call', name: tool.name, arguments: {}, thoughtSignature: 'FOREIGN_TOOL' }],
+      { type: 'text', text: 'Visible previous answer' }, { type: 'toolCall', id: foreignToolId, name: tool.name, arguments: {}, thoughtSignature: 'FOREIGN_TOOL' }],
   };
   manager.appendModelChange(source.provider, source.id);
   manager.appendMessage({ role: 'user', content: 'Previous task', timestamp: Date.now() });
   manager.appendMessage(foreign);
-  manager.appendMessage({ role: 'toolResult', toolCallId: 'foreign-call', toolName: tool.name, content: [{ type: 'text', text: 'Previous result' }], isError: false, timestamp: Date.now() });
+  manager.appendMessage({ role: 'toolResult', toolCallId: foreignToolId, toolName: tool.name, content: [{ type: 'text', text: 'Previous result' }], isError: false, timestamp: Date.now() });
   const original = JSON.stringify(foreign);
   const open = async (manager, model) => {
     await loader.reload(); assert.equal(loader.getExtensions().errors.length, 0);
@@ -79,7 +82,7 @@ try {
   assert.equal(summary.dispatches, 2); assert.equal(summary.toolExecutions, 1);
   const unchanged = manager.getEntries().find(e => e.type === 'message' && e.message.role === 'assistant' && e.message.provider === source.provider).message;
   assert.equal(JSON.stringify(unchanged), original);
-  summary.checks.push('native switch to Ultimate high', 'foreign signatures absent on COSY wire', 'own opaque signature and tool pairing preserved', 'source history unchanged');
+  summary.checks.push('native switch to Ultimate high', 'foreign signatures absent on COSY wire', 'foreign OpenAI Responses tool ID normalized with result pairing', 'own opaque signature and tool pairing preserved', 'source history unchanged');
   const file = manager.getSessionFile(); assert(file);
   assert((await readFile(file, 'utf8')).includes('FOREIGN_TOOL'));
   session.dispose(); session = await open(sdk.SessionManager.open(file, dir));

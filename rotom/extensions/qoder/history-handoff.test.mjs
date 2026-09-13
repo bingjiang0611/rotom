@@ -57,6 +57,41 @@ for (const method of ['streamSimple', 'stream']) test(`${method}: mixed foreign 
   assert.doesNotMatch(JSON.stringify(f.wires), /FOREIGN_SECRET/);
 });
 
+test('OpenAI Responses handoff compacts pipe-delimited tool IDs and keeps result pairing', async () => {
+  const f = await fixture();
+  const callId = 'call_w8rZ1w1D2GVU32ux6LgoTtzA';
+  const firstId = `${callId}|fc_00dee2ba93c7a93e016aa64a02594487d2998ed2dec050c6ca`;
+  const secondId = `${callId}|fc_00dee2ba93c7a93e016aa64a02595c87d2beb24491688c4f72`;
+  const prior = assistant({
+    provider: 'openai-codex', model: 'gpt-5.6-sol', api: 'openai-codex-responses',
+    content: [
+      { type: 'toolCall', id: firstId, name: 'probe', arguments: { n: 1 } },
+      { type: 'toolCall', id: secondId, name: 'probe', arguments: { n: 2 } },
+    ],
+  });
+  const messages = freeze([
+    prior,
+    { ...structuredClone(result), toolCallId: firstId },
+    { ...structuredClone(result), toolCallId: secondId },
+  ]);
+  const before = JSON.stringify(messages);
+  await assert.rejects(f.run(messages), { code: 'http_403' });
+  assert.equal(JSON.stringify(messages), before);
+  const sent = f.wires[0].messages.find(m => m.role === 'assistant');
+  const ids = sent.tool_calls.map(call => call.id);
+  assert.equal(new Set(ids).size, 2);
+  for (const id of ids) assert.match(id, /^[a-zA-Z0-9_-]{1,40}$/);
+  assert.deepEqual(f.wires[0].messages.filter(m => m.role === 'tool').map(m => m.tool_call_id), ids);
+});
+
+test('same-model Qoder tool IDs remain opaque during replay', async () => {
+  const f = await fixture();
+  const ownId = 'qoder|opaque-service-id';
+  await assert.rejects(f.run([assistant({ content: [{ type: 'toolCall', id: ownId, name: 'probe', arguments: {} }] }), { ...result, toolCallId: ownId }]), { code: 'http_403' });
+  assert.equal(f.wires[0].messages.find(m => m.role === 'assistant').tool_calls[0].id, ownId);
+  assert.equal(f.wires[0].messages.find(m => m.role === 'tool').tool_call_id, ownId);
+});
+
 for (const content of [
   [{ type: 'thinking', thinking: '', thinkingSignature: 'INVALID' }],
   [{ type: 'thinking', thinking: '', thinkingSignature: JSON.stringify([{ ...opaque[0], format: SONUS_REASONING_FORMAT }]) }],

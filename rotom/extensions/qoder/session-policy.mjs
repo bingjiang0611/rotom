@@ -136,7 +136,13 @@ export async function installQoderExtension(pi, options = {}) {
       if (ctx.hasUI) ctx.ui.notify('Qoder catalog refresh unavailable. No model request or retry was made. Log in, then use /qoder-models; existing catalog state was retained.', 'warning');
     }
   };
-  pi.on('session_start', (_event, ctx) => refresh(ctx));
+  pi.on('session_start', (_event, ctx) => {
+    // Interactive mode starts the same provider-scoped refresh in the background
+    // after the TUI is ready. Do not hold the editor and startup resources behind
+    // account/network I/O; print/RPC still complete discovery before continuing.
+    if (ctx.mode === 'tui') return;
+    return refresh(ctx);
+  });
   pi.registerCommand('qoder-models', { description: 'Refresh account Qoder model catalog; show exact IDs and adapter availability', handler: (_args, ctx) => refresh(ctx, true) });
   // UI notification only, never a conversation message: account balances must
   // not enter normal prompts, compaction, branch summaries or resumed history.
