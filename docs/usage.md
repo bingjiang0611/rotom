@@ -31,7 +31,7 @@ rotom
 
 上述全局安装方式升级前，应先退出使用该安装目录的全部会话，再重新安装本地归档；卸载用 `npm uninstall -g rotom`。有存活会话时，改用全新 prefix 安装、验收后只切换命令链接，保留旧目录，不原地覆盖或迁移会话。旁路 prefix 是独立安装，后续全局 npm 安装可能重新接管命令链接。不会自动删除凭据、会话或 Chrome relay 注册，后者需单独显式卸载。
 
-默认 Subagent 为独立维护的 `pi-subagents@0.52.1-rotom.1`，不再依赖维护 patch 堆栈。worker/scout/reviewer 使用显式工具/扩展声明和 fresh 默认上下文，仍尊重用户/项目 overrides。源码修改须重新打包安装，不热加载。
+默认 Subagent 为独立维护的 `pi-subagents@0.52.1-rotom.2`，不再依赖维护 patch 堆栈。worker/scout/reviewer 使用显式工具/扩展声明和 fresh 默认上下文，仍尊重用户/项目 overrides。Darwin 上 scoped store 可在 mount device ID 重编号后只读复用，仍精确校验路径、inode、owner 与权限；源码修改须重新打包安装，不热加载。
 
 **新会话默认使用 scoped 执行** `owned-process-groups-v2`：launcher 在启动前选定 scope，并在 `~/.local/state/rotom/subagent-store` 创建一次性 store 锚点（已存在则直接复用，不替换）。详细限制见 `extensions/third-party/node_modules/pi-subagents/docs/owned-execution.md`。
 

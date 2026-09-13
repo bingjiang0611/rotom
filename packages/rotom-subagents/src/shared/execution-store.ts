@@ -25,6 +25,20 @@ function directoryIdentity(dir: string, privateDirectory = false): { device: str
 	if (!stat.isDirectory() || stat.isSymbolicLink() || (stat.mode & (privateDirectory ? 0o077n : 0o022n)) !== 0n || (typeof process.getuid === "function" && stat.uid !== BigInt(process.getuid()))) throw new Error("Execution store directory identity unavailable.");
 	return { device: String(stat.dev), inode: String(stat.ino) };
 }
+function persistedDevicesMatch(value: Record<string, unknown>, actual: ReadonlyArray<readonly [string, string]>): boolean {
+	const pairs = actual.map(([field, device]) => [value[field], device] as const);
+	if (pairs.some(([stored]) => typeof stored !== "string" || !/^\d+$/.test(stored))) return false;
+	if (process.platform !== "darwin") return pairs.every(([stored, device]) => stored === device);
+	// Darwin's st_dev identifies the current mount and can be renumbered across a
+	// reboot. Preserve the volume topology instead of accepting independent field
+	// drift: every persisted device must map bijectively to one current device.
+	const forward = new Map<string, string>(), reverse = new Map<string, string>();
+	for (const [stored, device] of pairs as ReadonlyArray<readonly [string, string]>) {
+		if ((forward.has(stored) && forward.get(stored) !== device) || (reverse.has(device) && reverse.get(device) !== stored)) return false;
+		forward.set(stored, device); reverse.set(device, stored);
+	}
+	return true;
+}
 function marker(baseRoot: string): Record<string, unknown> {
 	const file = path.join(baseRoot, EXECUTION_STORE_MARKER), stat = fs.lstatSync(file);
 	if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 4096 || (stat.mode & 0o077) || (typeof process.getuid === "function" && stat.uid !== process.getuid())) throw new Error("Execution store marker identity unavailable.");
@@ -38,15 +52,15 @@ export function assertExecutionStore(store: ExecutionStore): void {
 	const leaseRoot = path.join(store.baseRoot, "session-leases"), sessionRoot = path.join(store.root, "sessions");
 	const lease = directoryIdentity(leaseRoot, true), session = directoryIdentity(sessionRoot, true);
 	if (store.leaseRoot !== leaseRoot || store.sessionRoot !== sessionRoot || value.leaseRoot !== leaseRoot || value.sessionRoot !== sessionRoot
-		|| store.leaseDevice !== lease.device || store.leaseInode !== lease.inode || value.leaseDevice !== lease.device || value.leaseInode !== lease.inode
-		|| store.sessionDevice !== session.device || store.sessionInode !== session.inode || value.sessionDevice !== session.device || value.sessionInode !== session.inode
+		|| store.leaseDevice !== lease.device || store.leaseInode !== lease.inode || value.leaseInode !== lease.inode
+		|| store.sessionDevice !== session.device || store.sessionInode !== session.inode || value.sessionInode !== session.inode
 		|| fs.realpathSync(store.baseRoot) !== store.baseRoot || fs.realpathSync(store.root) !== store.root
 		|| value.version !== 3 || value.scope !== store.scope || value.storeId !== store.storeId
 		|| value.root !== store.root || value.baseRoot !== store.baseRoot
 		|| identity.device !== store.device || identity.inode !== store.inode
-		|| value.device !== store.device || value.inode !== store.inode
-		|| value.baseDevice !== store.baseDevice || value.baseInode !== store.baseInode
-		|| base.device !== store.baseDevice || base.inode !== store.baseInode) throw new Error("Execution store identity drift; no adoption, replay or new writer is authorized.");
+		|| value.inode !== store.inode || value.baseInode !== store.baseInode
+		|| base.device !== store.baseDevice || base.inode !== store.baseInode
+		|| !persistedDevicesMatch(value, [["device", identity.device], ["baseDevice", base.device], ["leaseDevice", lease.device], ["sessionDevice", session.device]])) throw new Error("Execution store identity drift; no adoption, replay or new writer is authorized.");
 }
 function supportedPlatform(): void {
 	if (process.platform !== "darwin" && process.platform !== "linux") throw new Error("Scoped execution store requires a supported POSIX platform.");

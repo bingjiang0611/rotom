@@ -11,7 +11,7 @@ node /absolute/package/owned-store.mjs init --base /absolute/private-base --acce
 node /absolute/package/owned-store.mjs inspect --base /absolute/private-base
 ```
 
-The command only initializes/inspects private metadata. It never launches Pi, changes cwd, migrates sessions, acquires writers, releases unknown locks or authorizes replay. JSON output supplies `PI_SUBAGENTS_TEMP_ROOT` and `PI_SUBAGENTS_EXECUTION_SCOPE=owned-process-groups-v2` for an explicitly new session. Do not set scope only in configuration: startup selection is required. Runtime opening is read-only; absent or changed directories/identity fail closed. A prior v2 store cannot be upgraded to the v3 store by rerunning init. Do not delete/rebind a base or marker to reset occupied capacity.
+The command only initializes/inspects private metadata. It never launches Pi, changes cwd, migrates sessions, acquires writers, releases unknown locks or authorizes replay. JSON output supplies `PI_SUBAGENTS_TEMP_ROOT` and `PI_SUBAGENTS_EXECUTION_SCOPE=owned-process-groups-v2` for an explicitly new session. Do not set scope only in configuration: startup selection is required. Runtime opening is read-only; absent or changed directories/identity fail closed. On Darwin, a reboot may renumber mount device IDs; v3 stores accept only a consistent device-topology remap while retaining exact path/inode/owner/permission checks. The marker is not rewritten. Linux retains exact persisted device matching. A prior v2 store cannot be upgraded to the v3 store by rerunning init. Do not delete/rebind a base or marker to reset occupied capacity.
 
 ## Supported entrypoints
 

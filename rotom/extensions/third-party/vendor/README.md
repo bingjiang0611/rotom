@@ -1,8 +1,8 @@
 # Locked Subagent distribution
 
-The default product selects **`pi-subagents@0.52.1-rotom.1`**, independently maintained in the repository's `packages/rotom-subagents/`. New builds consume its reviewed archive, not installed source or a patch stack. This is a Subagent fork, not a Pi fork.
+The default product selects **`pi-subagents@0.52.1-rotom.2`**, independently maintained in the repository's `packages/rotom-subagents/`. New builds consume its reviewed archive, not installed source or a patch stack. This is a Subagent fork, not a Pi fork.
 
-- Archive: `pi-subagents-0.52.1-rotom.1.tgz`
+- Archive: `pi-subagents-0.52.1-rotom.2.tgz`
 - SHA256: `23c92eeaf0d4c7a3be7d3ce925e542f5c413f3c162778de855bb90a33ff3727f`
 - SHA512 SRI: `sha512-rwGayYsZUxd/IY/G7nfU29IicL5RJGVeFcBd6UJoukb6cHI3XZBPPE+Iyft6vlj+J3JuD/HjCjuwGIS2ZB++KA==`
 - Upstream: <https://github.com/nicobailon/pi-subagents>

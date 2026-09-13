@@ -1,6 +1,6 @@
 {
   "name": "@bingjiang0611/rotom",
-  "version": "0.1.0-alpha.12",
+  "version": "0.1.0-alpha.13",
   "private": false,
   "description": "Personal coding agent built on Pi, with explicit tools and runtime contracts",
   "license": "UNLICENSED",
@@ -85,7 +85,7 @@
     "extensions/third-party/package.json",
     "extensions/third-party/package-lock.json",
     "extensions/third-party/vendor/README.md",
-    "extensions/third-party/vendor/pi-subagents-0.52.1-rotom.1.tgz",
+    "extensions/third-party/vendor/pi-subagents-0.52.1-rotom.2.tgz",
     "extensions/third-party/vendor/narumitw-pi-goal-0.54.4-rotom.0.tgz",
     "extensions/third-party/vendor/injaneity-pi-computer-use-0.5.1-rotom.0.tgz",
     "extensions/third-party/node_modules",

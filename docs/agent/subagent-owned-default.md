@@ -8,7 +8,7 @@
 
 - launcher 在启动 Pi 前选定 `PI_SUBAGENTS_EXECUTION_SCOPE=owned-process-groups-v2`，并在 `~/.local/state/rotom/subagent-store` 锚定 store。已存在的锚点直接复用，绝不替换。
 - store 放在持久 state 目录而不是临时目录，避免 tmp 清理删掉活跃 store 锚点后使运行中的工作无法证明。
-- 组件仍是 `pi-subagents@0.52.1-rotom.1`，213 个 TS 执行源码与已验证导入逐字节一致；本批只改 launcher 默认、启动测试、实际 CLI fixture 与文档。
+- 当前组件是 `pi-subagents@0.52.1-rotom.2`；本节其余证据记录 scoped 默认首次发布批次，不冒充 `.2` 的重新验收。
 - 之前的个人 wrapper（`~/.local/share/rotom/owned-default-1/rotom`）与仓库内 `scripts/owned-default-launcher.mjs` 已删除；`rotom` 命令直接指向产品 `bin/rotom`。旧 profile 目录只留 `RETIRED.md` 与旧 store 作为证据，不再使用。
 - **切换默认不迁移、不升级、不回放任何既有会话或未知任务。** 存活进程保持原路径与原语义。
 
@@ -23,7 +23,7 @@ PI_SUBAGENTS_TEMP_ROOT=/absolute/path rotom # 自定 store 位置（绝对路径
 
 其他值、相对路径、空 store 路径、缺少 HOME、store 身份漂移或不可读，都在启动 Pi 前失败退出：不回退旧 scope、不重建锚点、不启动 writer。`--version` 探测不创建任何 store。
 
-注意 store 锚点自身定义 store 身份，因此**改写锚点里的 `storeId` 不会被识别为漂移**；能被检测的是路径、device/inode 与解析失败。删除整个 base 是用户行为，会把旧记录围栏在外，但同样不授权恢复它们。
+注意 store 锚点自身定义 store 身份，因此**改写锚点里的 `storeId` 不会被识别为漂移**；能被检测的是路径、inode、device topology 与解析失败。Darwin 的 mount device ID 可能在重启后重新编号，`.2` 只允许四个目录的旧→新 device 保持一致双射，不改 marker；Linux 仍精确匹配 device。删除整个 base 是用户行为，会把旧记录围栏在外，但同样不授权恢复它们。
 
 ### 三个内置 agent
 

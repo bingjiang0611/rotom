@@ -1,6 +1,6 @@
 {
   "name": "pi-subagents",
-  "version": "0.52.1-rotom.1",
+  "version": "0.52.1-rotom.2",
   "description": "Rotom-maintained private Subagent component; derived from pi-subagents",
   "author": "Nico Bailon",
   "license": "MIT",

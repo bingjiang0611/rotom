@@ -5,6 +5,7 @@ import http.client
 import os
 from pathlib import Path
 import signal
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -21,6 +22,46 @@ USAGE = {"input": 10, "output": 2, "cacheRead": 3, "cacheWrite": 0, "totalTokens
 
 
 class AdapterTests(unittest.TestCase):
+    def test_install_shell_accepts_usable_python_after_apt_postinstall_failure(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            binary_dir = root / "bin"
+            binary_dir.mkdir()
+            for name, source in (("bash", "/bin/bash"), ("dirname", "/usr/bin/dirname"),
+                                 ("env", "/usr/bin/env")):
+                (binary_dir / name).symlink_to(source)
+            marker = root / "python-invocation"
+            package_log = root / "package-log"
+            (binary_dir / "id").write_text("#!/bin/bash\nprintf '0\\n'\n")
+            (binary_dir / "apt-get").write_text(
+                "#!/bin/bash\n"
+                "printf 'apt %s %s %s %s\\n' \"$DEBIAN_FRONTEND\" \"$DEBCONF_NONINTERACTIVE_SEEN\" \"$TZ\" \"$*\" >>\"$PACKAGE_LOG\"\n"
+                "[[ $* == 'install -y -qq python3' ]] || exit 0\n"
+                "/bin/cat >\"$FAKE_BIN/python3\" <<'PYTHON'\n"
+                "#!/bin/bash\n"
+                "if [[ ${1-} == - ]]; then\n"
+                "  while IFS= read -r _; do :; done\n"
+                "  exit 0\n"
+                "fi\n"
+                "printf '%s\\n' \"$*\" >\"$PYTHON_MARKER\"\n"
+                "PYTHON\n"
+                "/bin/chmod +x \"$FAKE_BIN/python3\"\n"
+                "exit 42\n")
+            for executable in (binary_dir / "id", binary_dir / "apt-get"):
+                executable.chmod(0o755)
+            shutil.copy(adapter.ROOT / "install.sh", root / "install.sh")
+            (root / "adapter.py").write_text("raise SystemExit('fake python should not execute this')\n")
+            environment = {"PATH": str(binary_dir), "FAKE_BIN": str(binary_dir),
+                           "PACKAGE_LOG": str(package_log), "PYTHON_MARKER": str(marker)}
+            result = subprocess.run([str(binary_dir / "bash"), str(root / "install.sh")], env=environment,
+                                    text=True, capture_output=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(package_log.read_text().splitlines(),
+                             ["apt noninteractive true Etc/UTC update -qq",
+                              "apt noninteractive true Etc/UTC install -y -qq python3"])
+            self.assertIn("apt returned nonzero after Python became usable", result.stderr)
+            self.assertEqual(marker.read_text().strip(), f"{root / 'adapter.py'} install")
+
     def test_provider_error_classification_never_copies_body(self):
         for error, expected in [("401 secret payload", "authentication"), ("Connection error. secret", "connection"), ("arbitrary secret", "unknown")]:
             events = [{"type": "message_end", "message": {"role": "assistant", "stopReason": "error", "errorMessage": error, "usage": USAGE}}, {"type": "agent_end"}]

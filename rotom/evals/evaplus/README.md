@@ -1,13 +1,13 @@
-# rotom · Eva+ 评测接入准备
+# rotom · Eva+ 评测接入与结果
 
-当前状态：**PREPARED / 未在 Eva+ 沙箱验证**。此目录是维护适配器，不进入 npm 产品包。
-`release.json` 的 `ready: false` 会使安装和运行都在外部动作之前退出；最终版本确定后再冻结产物。
+当前状态：**FULL BENCHMARK COMPLETED**。此目录是维护适配器，不进入 npm 产品包。
+仓内 `release.json` 继续以 `ready: false` 保持维护模板 fail closed；正式评测使用独立交付仓的冻结版本。
 
 ## 接入合同
 
 - 平台解析 `meta.yaml`，将 settings 作为环境变量传给 `install.sh` / `start.sh`。
 - `install.sh` 安装经过 SHA256 校验的 Node 24.18.0 Linux x64/arm64 官方归档，以及 `release/rotom.tgz`（也可按 `release.json.productParts` 清单由最多 4 MiB 的分片重组，逐片和整包 SHA256 校验后安装）。使用产品 runtime/pi 独立锁文件及源码摘要固定的 Pi fork，不安装 stock Pi 代替 rotom。
-- 脚本要求 Python >=3.11 且支持 `tarfile` 的 `data` extraction filter；目标首先是 Ubuntu 24.04 / Python 3.12。安装目录必须全新，重复或未知安装不会自动覆盖。
+- 适配器要求 Python >=3.11 且支持 `tarfile` 的 `data` extraction filter。`install.sh` 在镜像缺少 `python3` 时通过受支持的系统包管理器（apt/apk/dnf/microdnf/yum）安装，并在继续前验证版本和安全解包能力；Debian/Ubuntu 固定使用非交互式 UTC 配置。若 `tzdata` 因平台挂载的 `/etc/localtime` 无法原子替换而令 apt 返回非零，但 Python 和标准库已完整解包且通过能力检查，适配器继续运行；Python 不可用时才执行一次有界的 `dpkg`/依赖修复。无受支持包管理器、无 root/sudo 或版本过旧时明确失败。目标首先是 Ubuntu 24.04 / Python 3.12。安装目录必须全新，重复或未知安装不会自动覆盖。
 - `start.sh` 从绝对路径 `PROMPT_FILE` 读取原始任务，以 stdin 传给 `rotom --print --mode json`，不改变 case cwd、不将任务拼进 shell 命令。
 - 模型仅使用显式 `API_KEY` / `BASE_URL` / `MODEL_NAME`；兼容 Chat Completions API。`CONTEXT_WINDOW` 和 `MAX_TOKENS` 必填，须按真实模型能力配置。`MAX_TOKENS` 是单次响应上限，不是整个任务 token 预算。
 - `deepseek` 模型显式使用兼容端点的 `system` 角色、`max_tokens` 字段和 DeepSeek thinking 格式，不让 Idealab URL 被误识别为标准 OpenAI 端点。模型保持 reasoning-capable，使 `THINKING=off` 能向服务端发送 `thinking: {type: disabled}`，而不是只在客户端省略参数。
@@ -42,7 +42,7 @@ python3 -m unittest discover -s rotom/evals/evaplus -p 'test_*.py' -v
 bash -n rotom/evals/evaplus/install.sh rotom/evals/evaplus/start.sh
 ```
 
-离线测试使用 fake Agent，只证明 adapter 的输入、配置、进程和结果合同。实际 tgz 安装检查单独记录，不由 fake Agent 测试代替；尚未执行真实模型请求或 Eva+ 沙箱评测。
+离线测试使用 fake Agent，只证明 adapter 的输入、配置、进程和结果合同。实际 tgz 安装、真实模型请求及 Eva+ 沙箱评测结果单独记录，不由 fake Agent 测试代替。
 
 2026-09-10 实际检查：adapter 11 项测试通过，shell 语法与 JSON 检查通过；eval harness typecheck 通过。现有 eval suite 在显式 Node 24 下为 86 通过、1 跳过、1 失败：`test/product-runtime.test.ts` 的预期资源列表未包含当前 `extension:qoder`。此次只新增独立适配目录，未修改该资源合同或测试；此失败单列，未扩大修复范围。
 
@@ -55,3 +55,9 @@ bash -n rotom/evals/evaplus/install.sh rotom/evals/evaplus/start.sh
 2026-09-12：文本分片单题验证已通过 Linux 安装，随后 Agent 模型调用失败、usage 为 0。适配器新增固定枚举错误分类，不保存响应正文。独立诊断版本额外执行一次最小模型请求，仅报告 HTTP 状态、固定枚举网络错误与耗时；该版本不用于正式全量评分。
 
 2026-09-12：进一步确认沙箱直连非流式请求成功，而 Pi 的流式请求约 35 秒后缺少 `finish_reason`。新增本机非流式桥接；18 项适配器测试通过，冻结 alpha.10 经桥接真实调用完成，usage 为 6124 tokens。Eva+ `build-cython-ext` 预检任务 `01a094c3-6534-71bf-977b-1f917551b5ef` 得分 100，含 52 轮交互和 72 次工具调用。全量 89 题任务 `01a094d0-aff9-79ab-ac7d-a3f685ec68ed` 已按并发 4 启动，最终结果待平台完成。
+
+2026-09-13：全量任务于 05:45:27 完成，墙钟耗时 12 小时 53 分 48 秒；89 题中 45 个执行成功、44 个执行失败。Eva+ 显示 Agent 评测 82.22、输入 173.58M tokens、输出 3.43M tokens、合计 177.01M tokens，平均单 case 合计耗时 1601.94 秒。平台费用显示 $0 只表示适配器没有上报模型定价，实际费用未知。82.22 是成功执行并进入评分的 45 题上的平台分数，可推得其中 37 题通过 verifier、8 题未通过；若将 44 个执行失败都计为 0，则完整 89 题通过率为 37/89 = 41.57%，该值是据平台数据推算，不是平台另行展示的指标。
+
+平台评测诊断停留在完成前的 14 个失败样本，无法诚实给出最终 44 个执行失败的完整分类计数。已确认的主要类别包括：沙箱镜像缺少 `python3` 导致依赖安装失败（`build-pov-ray`、`caffe-cifar-10`），适配器预检 `AttributeError`（`qemu-alpine-ssh`），以及百炼上游 `server_error`（`make-doom-for-mips`）。本轮没有重跑失败题。
+
+2026-09-13 复盘：平台最终诊断确认 44 个执行失败中有 30 个（68%）在 `install.sh` 启动时因 `python3: not found` 退出，尚未进入 Agent 推理或 verifier。安装入口现会在缺少 Python 时使用镜像已有的系统包管理器自举并验证 Python；该修复只证明消除了已知安装前置缺口，须以新 Code Agent 版本重新跑平台任务后才能给出新的全量成绩。

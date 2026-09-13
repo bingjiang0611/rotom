@@ -17,6 +17,10 @@ rotom 独立维护的 Subagent 组件，源码单源是本目录。它是 `pi-su
 
 `worker`、`scout`、`reviewer` 现在明确声明空 ambient extensions 与 `defaultContext: fresh`，工具白名单不扩大，仍保留模型/工具的原生用户与项目 overrides。只改这三个内置 profile，不自动修补自定义 agent、不替换显式 fork 请求、不移除 admission 拒绝规则。其他未适配 agent 在 owned scope 下可能拒绝启动。213 TS 执行代码保持原样。
 
+## `0.52.1-rotom.2`：macOS 跨重启 store 身份
+
+macOS 的 mount device ID 可能在重启后重新编号。store 现在只在 Darwin 上接受四个持久化 device ID 到当前 device ID 的一致双射；路径、四个 inode、owner、权限、store ID，以及进程存活期间的实际 device 仍精确校验。Linux 继续要求持久化 device ID 精确一致。既有 v3 marker 只读复用，不迁移、不重写，也不授权恢复或重放旧工作。
+
 ## 开发
 
 在本目录运行；依赖是固定版本及本目录 lockfile，勿复制维护者 node_modules：

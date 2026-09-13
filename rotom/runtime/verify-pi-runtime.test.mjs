@@ -769,9 +769,22 @@ test("launcher 默认选择 scoped execution store，并对 opt-out、非法值�
 		assert.equal(existsSync(rejectedCapture), false, `${label} must fail before Pi starts`);
 	}
 
+	// Darwin can renumber mount device IDs across a reboot. A consistent
+	// topology remap is accepted without rewriting the persistent anchor.
+	if (process.platform === "darwin") {
+		const remapped = { ...created };
+		for (const field of ["device", "baseDevice", "leaseDevice", "sessionDevice"]) remapped[field] = String(BigInt(remapped[field]) + 2n);
+		writeFileSync(marker, JSON.stringify(remapped));
+		const remapCapture = join(root, "scope-device-remap-capture.json");
+		execFileSync(LAUNCHER, ["--print"], { env: { ...base, ROTOM_TEST_CAPTURE: remapCapture } });
+		assert.equal(JSON.parse(readFileSync(remapCapture, "utf8")).subagentTempRoot, store);
+		assert.deepEqual(JSON.parse(readFileSync(marker, "utf8")), remapped);
+	}
+
 	// Drifted, foreign or unreadable store identity aborts startup; it is never rebuilt.
-	// The anchor itself defines the store id, so only path/inode/parse drift is detectable here.
-	for (const contents of [JSON.stringify({ ...created, root: join(store, "other") }), JSON.stringify({ ...created, inode: "1" }), JSON.stringify({ ...created, sessionRoot: join(store, "sessions-copy") }), "{ not json"]) {
+	// The anchor itself defines the store id. Darwin accepts only a consistent
+	// device topology remap; a single device field still fails closed.
+	for (const contents of [JSON.stringify({ ...created, root: join(store, "other") }), JSON.stringify({ ...created, inode: "1" }), JSON.stringify({ ...created, device: String(BigInt(created.device) + 1n) }), JSON.stringify({ ...created, sessionRoot: join(store, "sessions-copy") }), "{ not json"]) {
 		writeFileSync(marker, contents);
 		const drift = spawnSync(LAUNCHER, ["--print"], { encoding: "utf8", env: { ...base, ROTOM_TEST_CAPTURE: rejectedCapture } });
 		assert.equal(drift.status, 1, drift.stderr);

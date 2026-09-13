@@ -49,7 +49,7 @@
 
 ### Third-party / deferred tools
 
-- package、lock、integrity、installed identity 和 `product-config.mjs` 是否同步？Subagent 当前默认为内化组件 `0.52.1-rotom.1`；源码在 `packages/rotom-subagents`，旧归档仅用于历史比较。不要原地覆盖存活会话的安装目录；默认命令切换仅影响新启动。**scoped 执行现为发行包默认**（launcher 选定 scope 并锚定 `~/.local/state/rotom/subagent-store`）；改 launcher 这段默认时必须同步 `verify-pi-runtime.test.mjs` 的 scope/store/opt-out/漂移断言与实际 CLI fixture，且不得在运行时重建或回退。worker/scout/reviewer 的 fresh/空 extensions 声明不覆盖用户或项目显式配置。
+- package、lock、integrity、installed identity 和 `product-config.mjs` 是否同步？Subagent 当前默认为内化组件 `0.52.1-rotom.2`；源码在 `packages/rotom-subagents`，旧归档仅用于历史比较。不要原地覆盖存活会话的安装目录；默认命令切换仅影响新启动。**scoped 执行现为发行包默认**（launcher 选定 scope 并锚定 `~/.local/state/rotom/subagent-store`）；改 launcher 这段默认时必须同步 `verify-pi-runtime.test.mjs` 的 scope/store/opt-out/漂移断言与实际 CLI fixture，且不得在运行时重建或回退。Darwin 只允许 v3 marker 的 device topology 在重启后整体双射重映射，路径/inode/owner/权限仍精确校验；Linux device 仍精确匹配。worker/scout/reviewer 的 fresh/空 extensions 声明不覆盖用户或项目显式配置。
 - full-tool opt-out 与用户 tools policy 是否保持优先？
 - 中英文 capability map、group allowlist、canonical active/state order、additive/resume/fork 是否有测试？live tree 不卸载工具；replacement/reload 只从选中分支恢复，不将 abandoned discovery 静默写回新分支，见 [状态合同](harness-hardening.md)。
 - Subagent action/command schema 是否仍收窄，普通执行是否固定 `mission:false`？

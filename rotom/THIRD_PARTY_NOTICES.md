@@ -10,7 +10,7 @@ rotom 的根产品许可证尚未确定（当前 `UNLICENSED`）；此状态不�
 | `@injaneity/pi-computer-use` | `0.5.1-rotom.0` | MIT | Independently maintained fork (`packages/rotom-computer-use/`), included from its integrity-pinned vendor archive |
 | `@juicesharp/rpiv-ask-user-question` | `2.6.2` | MIT | Included under `extensions/third-party/node_modules/` |
 | `@narumitw/pi-goal` | `0.54.4-rotom.0` | MIT | Independently maintained fork (`packages/rotom-goal/`), included from its integrity-pinned vendor archive |
-| `pi-subagents` | `0.52.1-rotom.1` | MIT | Independently maintained Subagent source, included from its integrity-pinned vendor archive |
+| `pi-subagents` | `0.52.1-rotom.2` | MIT | Independently maintained Subagent source, included from its integrity-pinned vendor archive |
 
 Each included extension retains its original `LICENSE` and package metadata; transitive dependency notices remain in their installed package directories. The modified Subagent, Computer Use and Goal archives' origin and scope are documented in `extensions/third-party/vendor/README.md` and each fork's `package/UPSTREAM.md`. Shipping the complete dependency does not enable its unselected tools, templates, or skills.
 

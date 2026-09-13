@@ -26,7 +26,7 @@ if (mode === 'types') {
  args = [path.join(fixtures, 'fixtures/typecheck-owned-candidate.mjs'), source, packageRoot];
 } else {
  let files;
- if (mode === 'unit') files = ['source.test.mjs','wait.test.mjs'].map(n => path.join(packageRoot, 'test', n));
+ if (mode === 'unit') files = ['source.test.mjs','execution-store.test.mjs','wait.test.mjs'].map(n => path.join(packageRoot, 'test', n));
  if (mode === 'sdk') files = [path.join(packageRoot, 'test/sdk.test.mjs')];
  if (mode === 'compat') {
   const source = snapshot(work);

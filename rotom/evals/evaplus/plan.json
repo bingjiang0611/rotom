@@ -1,5 +1,5 @@
 {
-  "status": "full-benchmark-running",
+  "status": "full-benchmark-completed",
   "product": "rotom",
   "model": "bailian/deepseek-v4-flash",
   "totalBudget": {
@@ -26,7 +26,7 @@
   ],
   "pending": [
     "platform dataset, image and verifier identity",
-    "full benchmark completion"
+    "complete per-category counts for the 44 execution failures"
   ],
   "adapterTimeoutSec": 0,
   "platformModel": "deepseek-v4-flash-0731",
@@ -44,5 +44,27 @@
     "score": 100,
     "status": "passed"
   },
-  "fullTaskId": "01a094d0-aff9-79ab-ac7d-a3f685ec68ed"
+  "fullTaskId": "01a094d0-aff9-79ab-ac7d-a3f685ec68ed",
+  "result": {
+    "startedAt": "2026-09-12 16:51:39 +08:00",
+    "endedAt": "2026-09-13 05:45:27 +08:00",
+    "wallTimeSeconds": 46428,
+    "executionSuccesses": 45,
+    "executionFailures": 44,
+    "platformReportedAgentScore": 82.22,
+    "inputTokens": 173580000,
+    "outputTokens": 3430000,
+    "totalTokens": 177010000,
+    "platformReportedCostUsd": 0,
+    "actualCostUsd": null,
+    "averageCaseTotalSeconds": 1601.94,
+    "inferredVerifierPassesAmongScoredCases": 37,
+    "inferredFullScheduledSetPassRate": 41.57,
+    "failureClassificationScope": "Eva+ diagnosis sampled 14 failures before completion; final per-category counts for all 44 execution failures are unavailable",
+    "confirmedFailureCategories": [
+      "sandbox dependency installation: python3 missing",
+      "adapter preflight AttributeError",
+      "Bailian upstream server_error"
+    ]
+  }
 }

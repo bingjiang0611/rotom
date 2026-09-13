@@ -2,7 +2,7 @@
 
 > 本页的验证表保留首次分发接入时的结果；安装命令与当前元数据已同步源码。项目仓库为 [bingjiang0611/rotom](https://github.com/bingjiang0611/rotom)，源码公开不等于 npm 发布。后续默认组件与 macOS/Linux 安装验证见 [Subagent 默认接入](subagent-default-integration.md)，发行包默认 scope 及其未复验项见 [scoped 默认](subagent-owned-default.md)。
 
-当前 alpha.12 使用仓内 Pi fork；构建、隔离安装、本机切换及未验证项见 [Pi fork 接入](pi-fork.md)。本页底部“首次分发”表仍是历史上游 Pi 基线，不代表新 fork 的跨平台验收。
+当前 alpha.13 使用仓内 Pi fork；构建、隔离安装、本机切换及未验证项见 [Pi fork 接入](pi-fork.md)。本页底部“首次分发”表仍是历史上游 Pi 基线，不代表新 fork 的跨平台验收。
 
 ## 范围与结论
 
@@ -10,7 +10,7 @@
 
 **PASS：本地打包、隔离安装和 L1/L2 验证。BLOCKED：公开发布及完整跨平台/真实业务验收。**
 
-当前产品元数据位于 `rotom/package.json`：`@bingjiang0611/rotom@0.1.0-alpha.12`、公开 npm 包、`UNLICENSED`。包内包含完整 Pi 运行时。
+当前产品元数据位于 `rotom/package.json`：`@bingjiang0611/rotom@0.1.0-alpha.13`、公开 npm 包、`UNLICENSED`。包内包含完整 Pi 运行时。
 
 ## 分发与启动
 
