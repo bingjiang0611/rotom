@@ -307,10 +307,13 @@ test("launcher 保留业务 cwd 与用户参数，并固定加载 bundled resour
 	const businessCwd = mkdtempSync(join(tmpdir(), "rotom-business-"));
 	const capture = join(root, "capture.json");
 	try {
+		const cleanEnvironment = { ...process.env };
+		delete cleanEnvironment.PI_SUBAGENTS_EXECUTION_SCOPE;
+		delete cleanEnvironment.PI_SUBAGENTS_TEMP_ROOT;
 		execFileSync(LAUNCHER, ["--print", "argument with spaces", "--", "tail"], {
 			cwd: businessCwd,
 			env: {
-				...process.env,
+				...cleanEnvironment,
 				HOME: join(root, "home"),
 				PATH: `${join(root, "bin")}:${process.env.PATH ?? ""}`,
 				ROTOM_NODE: process.execPath,
@@ -333,7 +336,6 @@ test("launcher 保留业务 cwd 与用户参数，并固定加载 bundled resour
 		assert.equal(invocation.executionScope, "owned-process-groups-v2", "new sessions must default to scoped owned execution");
 		assert.equal(invocation.subagentTempRoot, join(root, "home/.local/state/rotom/subagent-store"), "the default store must be persistent per-user state, not a temp path");
 		assert.deepEqual(invocation.argv, [
-			"--no-extensions",
 			"--extension", resolve(AGENT_DIR, "extensions/observability"),
 			"--extension", resolve(AGENT_DIR, "extensions/browser/index.ts"),
 			"--extension", resolve(AGENT_DIR, "extensions/coding-policy/index.ts"),
@@ -698,28 +700,81 @@ test("launcher 拒绝非绝对、不存在或夹带参数的 ROTOM_PI", () => wi
 	}
 }));
 
-test("launcher 拒绝覆盖或追加 extension/skill 资源参数", () => withFakePi({}, async ({ root }) => {
-	for (const args of [
-		["--extension", "/tmp/other.ts"],
-		["-e", "/tmp/other.ts"],
-		["--extension=/tmp/other.ts"],
-		["--no-extensions"],
-		["-ne"],
-		["--skill", "/tmp/other-skill"],
-		["--skill=/tmp/other-skill"],
-		["--no-skills"],
-		["-ns"],
-		["--prompt-template", "/tmp/other-prompt"],
-		["--prompt-template=/tmp/other-prompt"],
-		["--no-prompt-templates"],
-		["-np"],
-	]) {
-		const result = spawnSync(LAUNCHER, [...args], {
+test("launcher 保留 Pi 原生 resource 参数并继续固定加载产品资源", () => withFakePi({}, async ({ root }) => {
+	const capture = join(root, "resource-args-capture.json");
+	const userArgs = [
+		"--extension", "/tmp/other.ts",
+		"--no-extensions",
+		"--skill", "/tmp/other-skill",
+		"--no-skills",
+		"--prompt-template", "/tmp/other-prompt",
+		"--no-prompt-templates",
+		"--print", "resource args",
+	];
+	execFileSync(LAUNCHER, userArgs, {
+		env: {
+			...process.env,
+			HOME: join(root, "home"),
+			PATH: `${join(root, "bin")}:${process.env.PATH ?? ""}`,
+			ROTOM_NODE: process.execPath,
+			ROTOM_TEST_CAPTURE: capture,
+		},
+	});
+	const invocation = JSON.parse(readFileSync(capture, "utf8"));
+	assert.deepEqual(invocation.argv.slice(-userArgs.length), userArgs);
+	assert.deepEqual(invocation.argv.slice(0, 10), [
+		"--extension", resolve(AGENT_DIR, "extensions/observability"),
+		"--extension", resolve(AGENT_DIR, "extensions/browser/index.ts"),
+		"--extension", resolve(AGENT_DIR, "extensions/coding-policy/index.ts"),
+		"--extension", resolve(AGENT_DIR, "extensions/third-party"),
+		"--extension", resolve(AGENT_DIR, "extensions/qoder/index.ts"),
+	]);
+}));
+
+test("launcher 将 Pi package 管理命令原样交给运行时且不创建会话 store", () => withFakePi({}, async ({ root }) => {
+	const home = join(root, "package-home");
+	const cleanEnvironment = { ...process.env };
+	delete cleanEnvironment.PI_SUBAGENTS_EXECUTION_SCOPE;
+	delete cleanEnvironment.PI_SUBAGENTS_TEMP_ROOT;
+	const packageCommands = [
+		["install", "npm:@foo/bar@1.0.0"],
+		["remove", "npm:@foo/bar"],
+		["list"],
+		["config"],
+		["update", "--extensions"],
+		["update", "--extension", "npm:@foo/bar"],
+	];
+	for (const [index, args] of packageCommands.entries()) {
+		const capture = join(root, `package-command-${index}.json`);
+		execFileSync(LAUNCHER, args, {
+			env: {
+				...cleanEnvironment,
+				HOME: home,
+				PATH: `${join(root, "bin")}:${process.env.PATH ?? ""}`,
+				ROTOM_NODE: process.execPath,
+				ROTOM_TEST_CAPTURE: capture,
+			},
+		});
+		const invocation = JSON.parse(readFileSync(capture, "utf8"));
+		assert.deepEqual(invocation.argv, args);
+		assert.equal(invocation.productVersion, JSON.parse(readFileSync(join(AGENT_DIR, "package.json"), "utf8")).version);
+		assert.equal(invocation.subagentTempRoot, undefined);
+	}
+	assert.equal(existsSync(join(home, ".local/state/rotom/subagent-store")), false);
+}));
+
+test("launcher 拒绝让 Pi package manager 自行升级内置 runtime", () => withFakePi({}, async ({ root }) => {
+	const help = spawnSync(LAUNCHER, ["update", "--help"], { encoding: "utf8" });
+	assert.equal(help.status, 0, help.stderr);
+	assert.match(help.stdout, /rotom update --extensions/u);
+	assert.doesNotMatch(help.stdout, /--self|--all/u);
+	for (const args of [["update"], ["update", "--self"], ["update", "--all"], ["update", "pi"]]) {
+		const result = spawnSync(LAUNCHER, args, {
 			encoding: "utf8",
 			env: { ...process.env, PATH: `${join(root, "bin")}:${process.env.PATH ?? ""}`, ROTOM_NODE: process.execPath },
 		});
 		assert.equal(result.status, 2, args.join(" "));
-		assert.match(result.stderr, /不允许覆盖或追加 extension\/skill/);
+		assert.match(result.stderr, /内置 Pi 只能随 rotom 升级/u);
 	}
 }));
 

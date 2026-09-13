@@ -24,6 +24,66 @@ if [ "$#" -eq 1 ] && [ "$1" = "--version" ]; then
 	version_probe=1
 fi
 
+# Pi package commands must remain the first argv item, so they cannot be
+# decorated with the product's explicitly loaded runtime resources. User and
+# project packages are managed by the pinned Pi package manager, while rotom's
+# bundled Pi fork remains upgradeable only as part of a rotom release.
+package_management_command=0
+case "${1-}" in
+	install|remove|uninstall|list|config)
+		package_management_command=1
+		;;
+	update)
+		package_update_target=0
+		package_update_self=0
+		package_update_help=0
+		package_update_first=1
+		for argument in "$@"; do
+			if [ "$package_update_first" -eq 1 ]; then
+				package_update_first=0
+				continue
+			fi
+			case "$argument" in
+				--extensions|--extension|--models)
+					package_update_target=1
+					;;
+				-h|--help)
+					package_update_help=1
+					;;
+				--all|--self|self|pi)
+					package_update_self=1
+					;;
+				-a|--approve|-na|--no-approve|--force)
+					;;
+				-*)
+					# Let Pi report unsupported package-manager options when an
+					# otherwise explicit extension/model update was requested.
+					;;
+				*)
+					package_update_target=1
+					;;
+			esac
+		done
+		if [ "$package_update_help" -eq 1 ]; then
+			cat <<'EOF'
+Usage:
+  rotom update --extensions
+  rotom update --extension <source>
+  rotom update <source>
+  rotom update --models
+
+Update installed Pi packages or model catalogs. The bundled Pi fork is updated only with rotom itself; use npm to upgrade @bingjiang0611/rotom.
+EOF
+			exit 0
+		fi
+		if [ "$package_update_self" -eq 1 ] || [ "$package_update_target" -eq 0 ]; then
+			echo "rotom: 内置 Pi 只能随 rotom 升级；请用 rotom update --extensions 更新已安装扩展" >&2
+			exit 2
+		fi
+		package_management_command=1
+		;;
+esac
+
 if [ "${ROTOM_NODE+x}" = x ]; then
 	node_candidate=$ROTOM_NODE
 	case "$node_candidate" in
@@ -128,10 +188,6 @@ for argument in "$@"; do
 		exit 2
 	fi
 	case "$argument" in
-		--extension|-e|--extension=*|-e?*|--no-extensions|-ne|--skill|--skill=*|--no-skills|-ns|--prompt-template|--prompt-template=*|--no-prompt-templates|-np)
-			echo "rotom: 不允许覆盖或追加 extension/skill/prompt 资源：$argument" >&2
-			exit 2
-			;;
 		--no-approve|-na)
 			load_claude_project_skills=0
 			;;
@@ -167,7 +223,7 @@ claude_user_skill_dir=
 if [ "${HOME+x}" = x ]; then
 	claude_user_skill_dir="$HOME/.claude/skills"
 fi
-if [ "$load_claude_project_skills" -eq 1 ]; then
+if [ "$package_management_command" -eq 0 ] && [ "$load_claude_project_skills" -eq 1 ]; then
 	claude_repo_root=
 	claude_probe_dir=$PWD
 	while :; do
@@ -197,7 +253,7 @@ if [ "$load_claude_project_skills" -eq 1 ]; then
 		claude_scan_dir=$claude_parent_dir
 	done
 fi
-if [ -n "$claude_user_skill_dir" ] && [ -d "$claude_user_skill_dir" ]; then
+if [ "$package_management_command" -eq 0 ] && [ -n "$claude_user_skill_dir" ] && [ -d "$claude_user_skill_dir" ]; then
 	set -- --skill "$claude_user_skill_dir" "$@"
 fi
 
@@ -220,7 +276,7 @@ if [ "$bundled_pi" -eq 1 ]; then
 else
 	verification_pi_args=$pi_candidate
 fi
-if [ -n "$herdr_extension" ]; then
+if [ -n "$herdr_extension" ] && [ "$package_management_command" -eq 0 ]; then
 	verified_runtime=$("$node_command" "$runtime_verifier" "$verification_mode" \
 		${verification_pi_args:+"$verification_pi_args"} "$agent_dir" \
 		"extension:$observability_extension_dir" "extension:$browser_extension_dir" "extension:$coding_policy_extension_dir" "extension:$third_party_extension_dir" \
@@ -239,6 +295,22 @@ if [ "$version_probe" -eq 0 ]; then
 	# installation after the launcher has established trust.
 	ROTOM_VERIFIED_PI_EXECUTABLE=$verified_runtime
 	export ROTOM_VERIFIED_PI_EXECUTABLE
+fi
+
+# Startup branding uses this product's version, not the embedded Pi fork version.
+# Never inherit metadata from a parent rotom session running a different release.
+ROTOM_PRODUCT_VERSION=$("$node_command" -e '
+const fs = require("node:fs");
+const path = process.argv[1];
+if (fs.lstatSync(path).isSymbolicLink()) throw new Error("Untrusted rotom package manifest");
+const pkg = JSON.parse(fs.readFileSync(path, "utf8"));
+if (pkg.name !== "@bingjiang0611/rotom" || typeof pkg.version !== "string" || !/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/.test(pkg.version)) throw new Error("Invalid rotom product version");
+process.stdout.write(pkg.version);
+' "$agent_dir/package.json")
+export ROTOM_PRODUCT_VERSION
+
+if [ "$package_management_command" -eq 1 ]; then
+	exec "$node_command" "$verified_runtime" "$@"
 fi
 
 # Package user configs live under the Pi agent directory, whose environment
@@ -390,20 +462,7 @@ if [ "$version_probe" -eq 1 ]; then
 	exit 0
 fi
 
-# Startup branding uses this product's version, not the embedded Pi fork version.
-# Never inherit metadata from a parent rotom session running a different release.
-ROTOM_PRODUCT_VERSION=$("$node_command" -e '
-const fs = require("node:fs");
-const path = process.argv[1];
-if (fs.lstatSync(path).isSymbolicLink()) throw new Error("Untrusted rotom package manifest");
-const pkg = JSON.parse(fs.readFileSync(path, "utf8"));
-if (pkg.name !== "@bingjiang0611/rotom" || typeof pkg.version !== "string" || !/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/.test(pkg.version)) throw new Error("Invalid rotom product version");
-process.stdout.write(pkg.version);
-' "$agent_dir/package.json")
-export ROTOM_PRODUCT_VERSION
-
 exec "$node_command" "$verified_runtime" \
-	--no-extensions \
 	--extension "$observability_extension_dir" \
 	--extension "$browser_extension_dir/index.ts" \
 	--extension "$coding_policy_extension_dir/index.ts" \

@@ -8,7 +8,7 @@
 - **维护面**：仓库根的 `CLAUDE.md`、eval 和设计资源；不随 launcher 注入业务 session。
 - **运行时产品**：`rotom/` 下 launcher、runtime contract、extensions 和 skills；不包含 bundled prompt templates。
 - **launcher**：公开 `rotom/bin/rotom` 只解析 npm bin symlink 并 exec 内部 `rotom/bin/rotom-launcher`；后者解析 Node/Pi、验证资源并启动 Pi。
-- **resource contract**：`product-config.mjs` 中 extension/skill/prompt 的声明、必需文件和第三方 identity。
+- **resource contract**：`product-config.mjs` 中产品内置 extension/skill/prompt 的声明、必需文件和第三方 identity；用户安装的 Pi package 不属于产品资源合同。
 - **composition root**：把锁定第三方能力组合成产品工具面的 `extensions/third-party/index.ts`。
 - **deferred tools**：通过 `search_tools` 按 capability group additive 激活的 specialized 工具。
 - **reviewed startup set**：默认启动工具合同；headless Ask 或用户 tools policy 可能进一步改变实际 active set。
@@ -26,16 +26,17 @@
        -> Pi package/exports/bin identity
        -> resource path/no-symlink contract
        -> exact third-party package/lock/installed identity
-  -> 按固定顺序加载 extension
+  -> 按固定顺序加载产品 extension
        observability -> browser -> coding-policy -> third-party -> qoder（provider 默认启用，可 opt-out）
-  -> 加载 1 skill + Claude Code skill bridge（不加载 bundled prompt templates）
+  -> Pi 原生发现用户/受信项目 package 与 extension（也可用 -e 临时追加）
+  -> 加载 1 个产品 skill + Pi 用户/项目资源 + Claude Code skill bridge（不加载产品 bundled prompt templates）
   -> Pi session（仍以业务 cwd 为项目上下文）
   -> deferred loader 按需 additive 激活 specialized tools
 ```
 
 运行时复杂度应停留在边界：
 
-- launcher 只做 executable/resource trust、参数透传和资源声明；
+- launcher 只做 executable/产品 resource trust、参数透传和资源声明；`install/remove/list/config` 与 extension-only update 原样交给 Pi package manager，用户资源不冒充已审核产品资源；
 - runtime 提供跨 extension 的小而稳定合同，不成为第二个 framework；
 - extension 提供确定性工具与生命周期接入；
 - skill 提供领域知识与多步编排，不复制工具实现；

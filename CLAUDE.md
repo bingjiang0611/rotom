@@ -36,7 +36,7 @@ rotom 当前通过仓内 `packages/rotom-pi/` 的 Pi fork 接入 `@earendil-work
 
 extension、bundled skill 与第三方 package 是产品合同，不是“目录里碰巧存在的文件”。产品不再加载 bundled prompt template；用户自己的模板仍走 Pi 原生发现。
 
-- 资源列表以 `rotom/runtime/product-config.mjs` 和 launcher 的显式声明为准。
+- 产品内置资源列表以 `rotom/runtime/product-config.mjs` 和 launcher 的显式声明为准；用户通过 Pi 原生 package、用户目录、受信项目目录或 `-e` 加载的资源不冒充产品资源，也不经过产品 identity gate。
 - Qoder 为 bundled、默认启用的 provider（`ROTOM_QODER=0` 可关闭），保留 `qoder-experimental` 身份与 `lite`/`performance` 离线基线；账号目录按原始 key 发现，只注册实测白名单 ∩ 当前账号 enabled 的交集，不改默认模型；未验证的 opaque 形状、档位与路由不启用。目录只在账号隔离内存中、过期需刷新，可见不等于 direct endpoint 可调用。具体目录项、路由数、版本头与窗口大小随上游变动，不写进本文件。
 - 凭据默认走 `browser`（Pi 原生登录/存储/串行刷新、复用公开客户端 ID，非官方支持），不读写 CLI 凭据；显式 `ROTOM_QODER_AUTH=qodercli` 回到只读 CLI 兼容模式。刷新前持久记录一次性尝试、unknown 不重放、只强制隔离凭据的本地到期（不冒充自然到期）；重新登录或认证来源变化须新会话。opaque signature 字段按各自 Pi signature 原样存回，不解密、不跨模型丢弃。
 - 每条路由固定走 COSY 单次推理或 direct，不失败回退、不嵌套 agent；只按实测交集开放 effort，其余固定 enabled，不伪造关闭/强度支持。服务尾帧仅在 finish、usage 与精确 metrics 同时成立时映射终止，不以 EOF 补成功。
@@ -52,7 +52,7 @@ extension、bundled skill 与第三方 package 是产品合同，不是“目录
 默认 deferred-tool loading 常驻 core、Ask、Browser/Computer Use、Goal 三工具与 `search_tools`，只把 Subagent 按需 additive 激活。Goal `0.54.4-rotom.0` 从启动起保持稳定 schema；工具可见不等于 Goal 模式启用，无 active goal 时拒绝执行，也不覆盖显式工具限制。它是 context-footprint 优化，不是安全沙箱。
 
 - `ROTOM_DEFERRED_TOOLS=0` 必须恢复完整工具面。
-- 用户显式 `--tools`、`--exclude-tools` 或 runtime policy 优先；launcher 仅在没有 tool-selection flag 时授权 loader 收窄 reviewed default，extension/SDK 直载默认保留调用方 active set。
+- 用户显式 `--tools`、`--exclude-tools` 或 runtime policy 优先；launcher 仅在没有 tool-selection flag 时授权 loader 收窄 reviewed default，extension/SDK 直载默认保留调用方 active set；用户 extension 新增的非 deferred 工具同样保留。
 - 已加载 specialized tools 在当前 session 内不主动移除；group state 与 active tool 子序列按 product declaration order canonicalize，相同 group 集合不因加载顺序产生不同最终 identity。
 - resume/fork 必须恢复 capability state；升级前无 deferred state 的旧 session 允许首次多一次 `search_tools`。
 - 不把静态 bytes、byte/4 或固定 canary 写成 provider 精确 token、成本或全局延迟收益。

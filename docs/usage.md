@@ -17,7 +17,7 @@ cd /path/to/your/project
 rotom
 ```
 
-无需预先安装全局 Pi、编译源码或再次安装扩展。发行包携带锁定安装的 Pi fork 与扩展依赖；Pi 源码由 rotom 仓库的 `packages/rotom-pi/` 维护，默认仅从本包 `runtime/pi/node_modules/` 加载，不使用官方 npm Pi、PATH 或旁边的源码目录。`rotom --version` 显示 fork 版本 `0.85.1-rotom.1`；rotom 自身版本见本包 `package.json`。
+无需预先安装全局 Pi、编译源码或再次安装产品内置扩展。发行包携带锁定安装的 Pi fork 与内置扩展依赖；Pi 源码由 rotom 仓库的 `packages/rotom-pi/` 维护，默认仅从本包 `runtime/pi/node_modules/` 加载，不使用官方 npm Pi、PATH 或旁边的源码目录。`rotom --version` 显示 fork 版本 `0.85.1-rotom.1`；rotom 自身版本见本包 `package.json`。
 
 默认启动显示像素洛托姆与 rotom 产品版本，宽终端分栏展示常用命令和当前模型/项目，窄终端自动收成单栏。`quietStartup` 仍可隐藏启动面板，展开键（默认 Ctrl+O）保留完整帮助与资源列表；`rotom --version` 的 fork identity 探测合同不变。
 
@@ -26,6 +26,33 @@ rotom
 `/model` 优先显示模型名称，保留 ID/provider；Shift+Tab 调整当前高亮模型的思考档位草稿，Enter 应用、Esc 丢弃，Ctrl+S 只保存默认模型。只开放 provider 声明支持的档位，不扩展 Qoder 能力边界。
 
 首次使用仍需自行登录模型服务或配置 API key。浏览器配置见首页的[配置浏览器](../README.md#配置浏览器)：由用户注册 native host、手动加载 Chrome 扩展并检查实际连接，不由 npm 安装脚本代办。
+
+## 用户扩展与 Pi package
+
+rotom 保留 Pi 原生的用户级、项目级和临时资源机制。第三方 package 中的 extension 会在 rotom 进程内执行任意代码，skill 也可指示模型执行本机操作；它们不是经 rotom 审核或锁定的产品资源，安装前必须自行审查。
+
+```sh
+# 安装、查看和删除用户级 package
+rotom install npm:@foo/bar@1.0.0
+rotom list
+rotom remove npm:@foo/bar
+
+# 项目级安装；项目必须已信任，也可在命令上显式批准
+rotom install -l --approve ./local-package
+
+# 更新所有已安装 package，或只更新一个
+rotom update --extensions
+rotom update --extension npm:@foo/bar
+
+# 当前运行临时加载，不写 settings
+rotom -e ./extension.ts
+```
+
+安装源、package manifest、过滤和配置行为与 Pi 一致：用户配置写入 `~/.pi/agent/settings.json`，项目配置写入 `.pi/settings.json`；用户扩展目录为 `~/.pi/agent/extensions/`，受信项目扩展目录为 `.pi/extensions/`。package 可以同时声明 extension、skill、prompt template 和 theme，使用 `rotom config` 启用或禁用其资源。项目资源只有在项目通过 Pi trust 检查后才会安装或执行。
+
+产品内置的 observability、browser、coding-policy、third-party 和 qoder 扩展仍由 launcher 显式加载并经过产品资源校验；用户 `--no-extensions` 只关闭自动发现的 extension，不移除这些内置资源。用户扩展新增的工具不会被 rotom 的 deferred-tool 默认策略误删，但工具重名或扩展行为冲突由用户自行负责。
+
+内置 Pi fork 只能随 rotom 发行包升级，因此 `rotom update`、`rotom update --self` 和 `rotom update --all` 会被拒绝。使用 `rotom update --extensions` 更新 package；升级产品本身仍使用 npm 安装新的 `@bingjiang0611/rotom` 版本。
 
 `ROTOM_PI=/absolute/path/to/pi` 是维护者显式覆盖入口，仍验证 executable、package identity、公开 exports 与能力；它可以选择不同的兼容 Pi，因而不再代表默认固定版本的发行配置。`ROTOM_NODE` 仍只接受绝对、存在、可执行的普通文件路径。
 

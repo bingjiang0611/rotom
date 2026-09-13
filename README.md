@@ -18,6 +18,22 @@ npm install -g --ignore-scripts @bingjiang0611/rotom
 2. 用 `/model` 选择模型和支持的思考档位。
 3. 直接描述任务，例如：“检查这个项目，修复失败的测试，并说明修改。”
 
+## 安装扩展
+
+rotom 支持 Pi 原生 package 与 extension 发现机制。第三方 package 会以当前用户权限执行任意代码，安装前请先审查来源：
+
+```sh
+rotom install npm:@foo/bar@1.0.0       # 用户级
+rotom install -l ./local-package       # 当前项目；需信任项目
+rotom list
+rotom update --extensions
+rotom remove npm:@foo/bar
+```
+
+package 可包含 extension、skill、prompt template 和 theme；使用 `rotom config` 调整已安装资源。临时试用单个扩展可运行 `rotom -e ./extension.ts`，也可以使用 Pi 的 `~/.pi/agent/extensions/` 和受信项目 `.pi/extensions/` 目录。rotom 自带的五个产品扩展仍固定加载，不能通过 `--no-extensions` 移除。
+
+`rotom update` 不负责升级产品内置 Pi；升级 rotom 仍使用 npm。只更新扩展时使用 `rotom update --extensions` 或 `rotom update --extension <source>`。
+
 ## 配置浏览器
 
 当前安装器支持 **macOS + Google Chrome 125+**，不会自动安装或加载扩展。

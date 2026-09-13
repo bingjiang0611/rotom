@@ -50,7 +50,18 @@ python3 scripts/audit-public.py --root . --history
 ### 扩大验证的条件
 
 - launcher、resource、public contract：追加 `verify-pi-runtime.test.mjs` 与 `smoke-runtime.mjs`。
-- Qoder：追加 `node --test --test-concurrency=1 rotom/extensions/qoder/*.test.mjs` 和维护面 `smoke.mjs`、`session-smoke.mjs`、`stream-smoke.mjs`、`oauth-smoke.mjs`、`catalog-refresh-smoke.mjs`（真实 AgentSession/registry + 假上游，覆盖 browser/qodercli 的目录过期、工具续轮、压缩和失败不重试）、`history-handoff-smoke.mjs`（真实 SDK 切到 Ultimate high、异源签名出站移除、同模型签名回放、磁盘恢复；仅假上游）、`catalog-sdk-smoke.mjs --offline <受影响的已声明 key>`（本次覆盖全部 17 key，含 Sonus/MiniMax 的特殊帧） 离线 smoke；产品 smoke 覆盖 `ROTOM_QODER` 未设置/`1` 的默认启用与 `0` 的显式关闭，以及认证默认 browser、显式 browser / qodercli，真实请求需单独授权并共享有界 ledger。Credit/额度还需 `credits-session-smoke.mjs --offline` 与维护面的 `live-budget` / `probe-wire` / `tui-net-observer` 单测；真实 AgentSession 和 `credits-tui-smoke.py` 的 CLI/PTY 内容验证另需授权，后者强制禁止模型 dispatch，不能写成桌面视觉验收。可调 effort/长会话修复还需维护面的 `stream-shape.test.mjs`、`long-session-smoke.mjs --offline ultimate`；已授权的真实档位可用 `effort-probe.mjs <key> all --product`，长测用 `long-session-smoke.mjs --live <key> 20 <逗号分隔档位>`，源码与实际安装分别记录。长测保留 Pi 原生 reserve 默认、根据实测 tokenizer 提前压缩，不通过抬高容量掩盖溢出。只有显式授权才执行付费路径。历史与新验证报告见 `experiments/qoder-provider/`。
+- Qoder：按本次受影响合同选择下表中的定向测试和离线 smoke；仅跨多个合同、高风险合入或发布时运行完整矩阵。当前模型 key 从产品声明读取；历史覆盖数量留在 `experiments/qoder-provider/` 报告，不作为每次任务的固定配额。真实请求须已有目标、档位、预算和外部权限的明确授权，并共享有界 ledger。
+
+| Qoder 改动范围 | 对应检查 |
+|---|---|
+| 目录 / 认证 / 注册 | 受影响的 `rotom/extensions/qoder/*.test.mjs`；`oauth-smoke.mjs`、`catalog-refresh-smoke.mjs`、`catalog-sdk-smoke.mjs --offline <受影响 key>`；启用开关变化才检查默认/`1`/`0` |
+| 流式输出 / 工具续轮 | 受影响单测及 `smoke.mjs`、`session-smoke.mjs`、`stream-smoke.mjs` |
+| 历史 / 压缩 / effort | `history-handoff-smoke.mjs`、`stream-shape.test.mjs`、`long-session-smoke.mjs --offline ultimate` 中的受影响路径 |
+| Credit / 额度 | `credits-session-smoke.mjs --offline` 及 `live-budget`、`probe-wire`、`tui-net-observer` 相关单测；真实 AgentSession/CLI-PTY 验收另按已有授权执行，`credits-tui-smoke.py` 保持禁止模型 dispatch |
+| 图片 / 大上下文 | 下述图片与上下文专项检查，仅在对应改动时运行 |
+
+维护面 smoke 位于 `experiments/qoder-provider/`，执行前核对脚本及参数。CLI/PTY 检查不冒充桌面视觉验收；长测保留 Pi 原生 reserve 与管理窗口，不通过抬高容量掩盖溢出。已授权真实 effort/长测及源码/安装分别验收的命令按该目录现有说明执行。
+
 - Qoder 三模型图片/大上下文：另跑 `input-budget-smoke.mjs`（真实 SDK/假上游）、`vision-capacity-smoke.mjs --offline <key>`；已授权的源码/实际安装均跑 `vision-capacity-smoke.mjs --product <key>`，可用 `ROTOM_QODER_VISION_ROWS=12600` 验证大输入与四张图片共存，以及 `large-context-probe.mjs --live <key> 12600 250000`。后者设置 `ROTOM_QODER_PROBE_PRODUCT_ROOT` 才是产品路径；断言真实 input≥250K、400K selector、线上的4096，并保留原生272K管理窗口/安全和压缩余量；≥272K 单请求输入是上游能力记录，不再是产品窗口断言。Ultimate固定COSY还须旧版双字段→新Provider三字段同历史兼容、五档和真实长会话；不把raw adapter替代安装验收。见 `experiments/qoder-provider/IMAGE-CONTEXT-VERIFICATION.md`。
 - Pi fork：源码/构建器改动先 `cd rotom && npm run build:pi`、`npm run check:pi`；构建器执行 offline workspace build 和 focused 回归。追加 `node --test rotom/scripts/build-pi-fork.test.mjs`（仓库根），再走下述 runtime/发行 gate。源码、运行时合同、当前验证与 PTY 未完成项见 [Pi fork](pi-fork.md)。
 - npm 分发：追加 `cd rotom && npm run test:distribution`、`pack:release`，从实际 tgz 在隔离 HOME/prefix 安装（PATH 无全局 Pi），验证 `rotom --version`、default/full public-runtime smoke、升级/卸载及产物文件清单。不得用源码目录运行代替 node_modules 内真实安装，Node 不支持对 node_modules 中的 `.mts` 原生剥离类型。
