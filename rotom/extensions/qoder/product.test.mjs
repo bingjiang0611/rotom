@@ -11,10 +11,10 @@ test('bundled provider is enabled by default, supports explicit opt-out, and rej
 });
 test('reviewed catalog is text-only, reasoning off, with stable existing identity', () => {
   assert.deepEqual(MODELS.map(m=>m.id), ['lite','performance']);
+  assert.deepEqual(MODELS.map(m=>m.name), ['Qoder Lite','Qoder Performance']);
   for (const model of MODELS) {
-    assert.equal(model.provider,'qoder-experimental'); assert.equal(model.reasoning,false);
+    assert.equal(model.provider,'qoder'); assert.equal(model.reasoning,false);
     assert.deepEqual(model.input,['text']); assert.equal(model.maxTokens,4096);
-    assert.match(model.name,/experimental; price unknown/);
   }
 });
 for (const [name, patch] of [

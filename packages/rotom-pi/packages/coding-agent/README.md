@@ -180,7 +180,7 @@ Type `/` in the editor to trigger commands. [Extensions](#extensions) can regist
 | [`/llama`](docs/llama-cpp.md) | Download, load, and unload llama.cpp router models |
 | `/model` | Select by name or ID; Shift+Tab drafts thinking level, Enter applies, Ctrl+S saves the model default |
 | `/thinking` | Switch thinking level; Ctrl+S in the picker saves the startup default |
-| `/scoped-models` | Enable/disable models for Ctrl+P cycling |
+| `/scoped-models` | Enable/disable models for Ctrl+P cycling; uses the same name-first labels as `/model` |
 | `/settings` | Theme, message delivery, transport, and other preferences |
 | `/resume` | Pick from previous sessions |
 | `/new` | Start a new session |

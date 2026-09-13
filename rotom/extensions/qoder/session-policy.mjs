@@ -22,21 +22,24 @@ export function qoderEnabled(env = process.env) {
   return false;
 }
 
-export const BINDING_TYPE = 'qoder-experimental-account-v1';
+export const BINDING_TYPE = 'qoder-account-v1';
+const LEGACY_BINDING_TYPE = 'qoder-experimental-account-v1';
+const LEGACY_PROVIDER_ID = 'qoder-experimental';
 const fingerprintValid = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+const accountBindings = entries => entries.filter(e => e.type === 'custom' && [BINDING_TYPE, LEGACY_BINDING_TYPE].includes(e.customType));
 
 // Account ownership covers the whole session tree, not just the active branch.
 // A custom entry survives compaction without entering model context.
 export function bindSessionAccount(manager, append, fingerprint) {
   if (!fingerprintValid(fingerprint)) throw new QoderError('credential_identity_unavailable');
   const entries = manager.getEntries();
-  const bindings = entries.filter(e => e.type === 'custom' && e.customType === BINDING_TYPE);
+  const bindings = accountBindings(entries);
   if (bindings.some(e => e.data?.version !== 1 || !fingerprintValid(e.data?.fingerprint))) throw new QoderError('account_binding_invalid');
   if (bindings.some(e => e.data.fingerprint !== fingerprint)) throw new QoderError('account_changed_start_new_session');
   if (bindings.length) return;
   // Never silently assign an old, unbound Qoder transcript to today's account.
   // Compacted legacy histories can hide provenance, so those fail closed too.
-  if (entries.some(e => e.type === 'compaction' || (e.type === 'message' && e.message?.role === 'assistant' && e.message.provider === PROVIDER_ID && !['error', 'aborted'].includes(e.message.stopReason)))) throw new QoderError('legacy_session_unbound_start_new_session');
+  if (entries.some(e => e.type === 'compaction' || (e.type === 'message' && e.message?.role === 'assistant' && [PROVIDER_ID, LEGACY_PROVIDER_ID].includes(e.message.provider) && !['error', 'aborted'].includes(e.message.stopReason)))) throw new QoderError('legacy_session_unbound_start_new_session');
   append(BINDING_TYPE, { version: 1, fingerprint, pricing: 'unknown' });
   if (!manager.getEntries().some(e => e.type === 'custom' && e.customType === BINDING_TYPE && e.data?.fingerprint === fingerprint)) throw new QoderError('account_binding_not_saved');
 }
@@ -47,8 +50,8 @@ export function installSessionPolicy(pi) {
   // line. Pi's TUI footer renders extension statuses as their own undimmed line
   // (layout owned by Pi, not exposable to extensions), so a merged/same-font line
   // is not achievable without forking Pi. Credits are still recorded in session
-  // entries; the USD-unknown / $0-placeholder disclosure stays on the model name
-  // ("(experimental; price unknown)") and the /qoder-credits snapshot.
+  // entries; /qoder-credits remains the explicit account-credit snapshot, while
+  // the numeric $0 model costs remain implementation placeholders, not pricing.
   const attach = (_event, ctx) => { current = ctx; epoch++; };
   for (const event of ['session_start', 'before_agent_start', 'session_before_compact', 'session_before_tree']) pi.on(event, attach);
   pi.on('model_select', attach);
@@ -64,8 +67,8 @@ export function installSessionPolicy(pi) {
       catalog_account_mismatch: 'Qoder 目录与请求账号不一致，本次未发送推理请求。请恢复原账号；切换账号须开启新会话。',
       reasoning_controls_not_validated: '当前 Qoder 目录不支持所选思考档位，本次未发送推理请求。请用 /model 核对模型并选择受支持的思考档位。',
       credential_expired_login_with_qodercli: 'Qoder login expired. Log in normally with Qoder CLI using the SAME account, then submit again. No automatic refresh or replay occurred.',
-      oauth_login_required: 'Qoder browser login expired. Use /login qoder-experimental, then start a new session.',
-      oauth_refresh_unproven_login_required: 'Qoder refresh outcome is unproven. It will not be replayed. Use /login qoder-experimental, then start a new session.',
+      oauth_login_required: 'Qoder browser login expired. Use /login qoder, then start a new session.',
+      oauth_refresh_unproven_login_required: 'Qoder refresh outcome is unproven. It will not be replayed. Use /login qoder, then start a new session.',
       oauth_refresh_already_attempted_login_required: 'This Qoder refresh token was already attempted. Re-login and start a new session; do not delete refresh-attempt guards to retry.',
       account_changed_start_new_session: 'Qoder account changed. Restore the original account or start a new session; existing history was not dispatched.',
       legacy_session_unbound_start_new_session: 'This legacy session has no Qoder account binding. Start a new session; do not silently attach old history to the current account.',
@@ -88,7 +91,7 @@ export function installSessionPolicy(pi) {
     const ctx = current, valid = captureScope();
     return data => {
       if (!valid()) return;
-      const entries = ctx.sessionManager.getEntries(), bindings = entries.filter(e => e.type === 'custom' && e.customType === BINDING_TYPE);
+      const entries = ctx.sessionManager.getEntries(), bindings = accountBindings(entries);
       if (!fingerprintValid(data.fingerprint) || !bindings.length || bindings.some(e => e.data?.version !== 1 || e.data?.fingerprint !== data.fingerprint)) return;
       if (!SUPPORTED_MODEL_IDS.includes(data.modelId) || !/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(data.requestId ?? '')) return;
       const sessionId = ctx.sessionManager.getSessionId();
@@ -154,7 +157,7 @@ export async function installQoderExtension(pi, options = {}) {
       // Auth resolution is provider-owned; quota does not require an enabled
       // model or change the user's current selection.
       const model = MODEL;
-      const bindings = ctx.sessionManager.getEntries().filter(e => e.type === 'custom' && e.customType === BINDING_TYPE);
+      const bindings = accountBindings(ctx.sessionManager.getEntries());
       if (bindings.some(e => e.data?.version !== 1 || !fingerprintValid(e.data?.fingerprint) || e.data.fingerprint !== bindings[0].data.fingerprint)) throw new QoderError('account_binding_invalid');
       const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
       if (!valid()) return;

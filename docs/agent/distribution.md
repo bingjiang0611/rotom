@@ -16,7 +16,7 @@
 
 ```text
 packages/rotom-pi/ -> npm run build:pi
-  -> 六个 0.85.1-rotom.1 运行时归档 + 来源/源码/构建器摘要
+  -> 六个 0.85.1-rotom.2 运行时归档 + 来源/源码/构建器摘要
 npm run pack:release
   -> 按独立 lockfile 新安装 Pi fork 和扩展，随包携带
 npm install <rotom.tgz>
@@ -37,11 +37,11 @@ npm install <rotom.tgz>
        Qoder provider 默认注册；ROTOM_QODER=0 显式关闭
 ```
 
-- 当前分发基线是仓内 Pi fork；源码、上游 revision 与维护说明位于 `packages/rotom-pi/`。六个包保留 upstream identity，归档使用 `0.85.1-rotom.1` 后缀和来源摘要，不冒充官方发行。
+- 当前分发基线是仓内 Pi fork；源码、上游 revision 与维护说明位于 `packages/rotom-pi/`。六个包保留 upstream identity，归档使用 `0.85.1-rotom.2` 后缀和来源摘要，不冒充官方发行。
 - `runtime/pi/package-lock.json` 只允许六个明确声明的本地归档，其余传递依赖必须是公共 registry 且带 SHA-512；拒绝链接、隐藏的官方 Pi 副本和未知本地 URL。源码或构建器改动后须重建，pack gate 拒绝陈旧归档。
 - 默认仅加载 `runtime/pi/node_modules/`；缺失、错误版本、symlink、来源或路径漂移即停止，不搜索全局 Pi、旁边的源码树或旧安装。
 - `ROTOM_PI` 保留为显式维护覆盖；允许选择通过原有 capability gate 的兼容版本。这是非默认发行配置，评测时必须披露。
-- `rotom --version` 保留 Pi 的版本输出（0.85.1-rotom.1），rotom 自身版本见产品 package.json。
+- `rotom --version` 保留 Pi 的版本输出（0.85.1-rotom.2），rotom 自身版本见产品 package.json。
 - npm 首次接入未迁移内部身份；后续品牌改名已将 Browser 协议与 native host 统一为 rotom。旧 Chrome relay 须由用户重装/重载并重跑 installer；活跃会话不迁移。上游配置、eval arm 与兼容性 schema 的保留项见 [CLAUDE.md](../../CLAUDE.md)。
 
 ### 为什么 runtime config 改为 `.mjs`

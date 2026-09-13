@@ -101,7 +101,7 @@ test('TUI startup defers native refresh while print startup and explicit command
   const handlers=new Map(),commands=new Map(),notices=[];let calls=0,bindings=0;
   const pi={on:(name,fn)=>handlers.set(name,[...(handlers.get(name)??[]),fn]),registerProvider(){},registerCommand:(name,c)=>commands.set(name,c),appendEntry(){bindings++;}};
   await installQoderExtension(pi,{piAI:{createProvider:x=>x},authMode:'qodercli',getToken:async()=> 'fixture'});
-  const ctx={mode:'tui',hasUI:true,sessionManager:{getEntries:()=>[]},ui:{setStatus(){},notify:text=>notices.push(text)},modelRegistry:{refresh:async options=>{calls++;assert.deepEqual(options.providers,['qoder-experimental']);assert.equal(options.allowNetwork,true);return{aborted:false,errors:new Map()};}}};
+  const ctx={mode:'tui',hasUI:true,sessionManager:{getEntries:()=>[]},ui:{setStatus(){},notify:text=>notices.push(text)},modelRegistry:{refresh:async options=>{calls++;assert.deepEqual(options.providers,['qoder']);assert.equal(options.allowNetwork,true);return{aborted:false,errors:new Map()};}}};
   for(const handler of handlers.get('session_start'))await handler({},ctx);assert.equal(calls,0);assert.equal(bindings,0);
   for(const handler of handlers.get('session_start'))await handler({}, {...ctx,mode:'print'});assert.equal(calls,1);
   await commands.get('qoder-models').handler('',ctx);assert.equal(calls,2);

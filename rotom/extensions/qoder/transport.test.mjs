@@ -124,7 +124,7 @@ test('HTTP failures are sanitized, never retried, never refresh credentials', as
   assert.equal(calls, 1); assert.equal(authCalls, 1);
 });
 
-test('onPayload cannot bypass the experiment output bound', async () => {
+test('onPayload cannot bypass the adapter output bound', async () => {
   const fetch = createQoderFetch({ getToken: () => assert.fail('auth called'), fetchImpl: () => assert.fail('network called') });
   for (const max_tokens of [-1, 0, 4097, 1.5]) {
     const init = request(); init.body = JSON.stringify({ ...JSON.parse(init.body), max_tokens });

@@ -22,7 +22,7 @@ for(const model of ['lite','performance']) {
   const marker=`INSTALLED_${randomUUID()}`;
   await writeFile(join(cwd,'synthetic-marker.txt'),marker,{mode:0o600});
   const before=Number(await readFile(ledger,'utf8'));
-  const result=spawnSync(launcher,['--no-session','--no-context-files','--no-approve','--system-prompt','You are a synthetic protocol test assistant. Follow instructions exactly.','--provider','qoder-experimental','--model',model,'--thinking','off','--tools','read','--mode','json','--print','Use read exactly once to read synthetic-marker.txt in the current directory. Then reply with exactly the file contents. Do not use another tool.'],{cwd,env,encoding:'utf8',timeout:150000,maxBuffer:2*1024*1024});
+  const result=spawnSync(launcher,['--no-session','--no-context-files','--no-approve','--system-prompt','You are a synthetic protocol test assistant. Follow instructions exactly.','--provider','qoder','--model',model,'--thinking','off','--tools','read','--mode','json','--print','Use read exactly once to read synthetic-marker.txt in the current directory. Then reply with exactly the file contents. Do not use another tool.'],{cwd,env,encoding:'utf8',timeout:150000,maxBuffer:2*1024*1024});
   const summary={model,installedBin:true,exit:result.status,dispatches:Number(await readFile(ledger,'utf8'))-before,cost:'unknown'};
   // Stable codes only; never persist stdout/stderr or model/tool contents.
   summary.qoderErrors=[...new Set([...result.stdout.matchAll(/Qoder: ([a-z0-9_]+)/g)].map(m=>m[1]))];

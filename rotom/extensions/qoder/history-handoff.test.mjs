@@ -7,7 +7,7 @@ import { LEGACY_URL } from './legacy.mjs';
 import { decodeProbeBody } from '../../../experiments/qoder-provider/probe-wire.mjs';
 
 const opaque = [{ type: 'reasoning.encrypted', format: QODER_REASONING_FORMAT, id: 'own-id', data: 'own-ciphertext' }];
-const assistant = (patch = {}) => ({ role: 'assistant', provider: 'qoder-experimental', model: 'ultimate', api: 'qoder', stopReason: 'toolUse',
+const assistant = (patch = {}) => ({ role: 'assistant', provider: 'qoder', model: 'ultimate', api: 'qoder', stopReason: 'toolUse',
   content: [{ type: 'thinking', thinking: '', thinkingSignature: JSON.stringify(opaque) }, { type: 'text', text: 'Visible answer' }, { type: 'toolCall', id: 'call_history', name: 'probe', arguments: { n: 7 } }], ...patch });
 const result = { role: 'toolResult', toolCallId: 'call_history', toolName: 'probe', content: [{ type: 'text', text: 'Saved result' }], isError: false };
 function freeze(value) { if (value && typeof value === 'object') { Object.values(value).forEach(freeze); Object.freeze(value); } return value; }

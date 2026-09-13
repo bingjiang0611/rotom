@@ -93,12 +93,12 @@
     "runtime/pi/package.json",
     "runtime/pi/package-lock.json",
     "runtime/pi/fork-build.json",
-    "runtime/pi/vendor/earendil-works-chord-0.85.1-rotom.1.tgz",
-    "runtime/pi/vendor/earendil-works-pi-telemetry-0.85.1-rotom.1.tgz",
-    "runtime/pi/vendor/earendil-works-pi-ai-0.85.1-rotom.1.tgz",
-    "runtime/pi/vendor/earendil-works-pi-tui-0.85.1-rotom.1.tgz",
-    "runtime/pi/vendor/earendil-works-pi-agent-core-0.85.1-rotom.1.tgz",
-    "runtime/pi/vendor/earendil-works-pi-coding-agent-0.85.1-rotom.1.tgz",
+    "runtime/pi/vendor/earendil-works-chord-0.85.1-rotom.2.tgz",
+    "runtime/pi/vendor/earendil-works-pi-telemetry-0.85.1-rotom.2.tgz",
+    "runtime/pi/vendor/earendil-works-pi-ai-0.85.1-rotom.2.tgz",
+    "runtime/pi/vendor/earendil-works-pi-tui-0.85.1-rotom.2.tgz",
+    "runtime/pi/vendor/earendil-works-pi-agent-core-0.85.1-rotom.2.tgz",
+    "runtime/pi/vendor/earendil-works-pi-coding-agent-0.85.1-rotom.2.tgz",
     "runtime/pi/node_modules"
   ]
 }

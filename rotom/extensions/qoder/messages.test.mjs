@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { buildQoderPayload } from './messages.mjs';
 import { translateQoderStream } from './translate.mjs';
 
-const MODEL = { id: 'lite', api: 'qoder', provider: 'qoder-experimental', input: ['text', 'image'] };
+const MODEL = { id: 'lite', api: 'qoder', provider: 'qoder', input: ['text', 'image'] };
 const TEXT_ONLY = { ...MODEL, input: ['text'] };
 const delta = (d, finish = null) => ({ choices: [{ index: 0, delta: d, finish_reason: finish }] });
 async function* source(chunks) { for (const c of chunks) yield c; }

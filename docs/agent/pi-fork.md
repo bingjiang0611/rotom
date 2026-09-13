@@ -3,7 +3,7 @@
 ## 当前合同
 
 - 源码：`packages/rotom-pi/`，上游 revision 和导入差异见 `FORK.json`，维护流程见 `ROTOM-FORK.md`。不复制上游 Git 历史或维护者安装；录制会话 fixture 已替换/省略。
-- runtime：`rotom/runtime/pi/`，六包版本 `0.85.1-rotom.1`，来源摘要与各归档 integrity 见 `fork-build.json`，由 product config 锚定。保留上游包名、公开 API、配置/会话格式与 MIT 许可证。
+- runtime：`rotom/runtime/pi/`，六包版本 `0.85.1-rotom.2`，来源摘要与各归档 integrity 见 `fork-build.json`，由 product config 锚定。保留上游包名、公开 API、配置/会话格式与 MIT 许可证。
 - 构建：`cd rotom && npm run build:pi`，从 Git 可见源码清单复制到隔离 staging，按 lock 新安装并 offline build；不复制 ignored state、node_modules 或旁边的 Pi checkout。fork 内部包从本地归档安装，其他依赖锁定公共 registry。
 - 打包：`npm run check:pi && npm run test:distribution`，再 `npm run pack:release -- /absolute/output-directory`。源码/构建器漂移需重建；archive/lock/source/version/installed identity 或 canonical 路径漂移均阻断，不回退官方/全局/旁路 Pi。
 - 安装：用 `scripts/install-release.sh` 安装新版本目录并只切换命令链接。升级走新的 rotom 发行包；不要用 Pi 自更新命令替换内置 fork。`ROTOM_PI` 仍为显式维护覆盖。
@@ -22,7 +22,7 @@
 | privacy auditor | 13 passed；tracked tree 与实际 tgz 递归扫描通过，公开上游误报精确绑定，详见 `privacy-release.md` |
 | 最终 `pack:release` | PASS；17,908 个文件，53,319,370 bytes；无 npm publish |
 | 实际 tgz，空 HOME/cache、PATH 无全局 Pi、`npm install --offline --ignore-scripts` | PASS，仅安装 1 个产品包；证明无需从 registry 拉取官方 Pi |
-| installed CLI/API | `--version` = `0.85.1-rotom.1`，`--help`、fork 的 `AgentSession.getThinkingLevelForModel` 存在；resolver 指向安装包内部 |
+| installed CLI/API | `--version` = `0.85.1-rotom.2`，`--help`、fork 的 `AgentSession.getThinkingLevelForModel` 存在；resolver 指向安装包内部 |
 | installed default/full public-runtime smoke | 均 PASS；真实 SDK/extension loader，无真实 provider 推理 |
 | 本机版本目录安装与 fresh zsh | alpha.11 链接、包内 resolver 和 `rotom --version` 回读通过；`rotom()` 不再设置旧 `PI_AGENT_PI`，保留 Qoder opt-in 偏好 |
 

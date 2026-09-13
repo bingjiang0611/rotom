@@ -144,10 +144,13 @@ test('whole-tree binding survives compaction and detects conflicting abandoned b
 });
 
 test('legacy, corrupt and unproven writes fail closed', () => {
-  for (const entry of [{ type: 'compaction' }, { type: 'message', message: { role: 'assistant', provider: 'qoder-experimental', stopReason: 'stop' } }]) {
+  for (const entry of [{ type: 'compaction' }, { type: 'message', message: { role: 'assistant', provider: 'qoder', stopReason: 'stop' } }, { type: 'message', message: { role: 'assistant', provider: 'qoder-experimental', stopReason: 'stop' } }]) {
     const manager = memory([entry]);
     assert.throws(() => bindSessionAccount(manager, manager.append, A), { code: 'legacy_session_unbound_start_new_session' });
   }
+  const legacyBound = memory([{ type: 'custom', customType: 'qoder-experimental-account-v1', data: { version: 1, fingerprint: A } }]);
+  bindSessionAccount(legacyBound, legacyBound.append, A);
+  assert.equal(legacyBound.getEntries().length, 1);
   const manager = memory([{ type: 'custom', customType: BINDING_TYPE, data: { version: 99, fingerprint: A } }]);
   assert.throws(() => bindSessionAccount(manager, manager.append, A), { code: 'account_binding_invalid' });
   assert.throws(() => bindSessionAccount(memory(), () => {}, A), { code: 'account_binding_not_saved' });
@@ -159,7 +162,7 @@ test('session hooks invalidate outstanding credential leases on shutdown/switch'
   const pi = { on: (name, fn) => events.set(name, fn), appendEntry: (type, data) => manager.append(type, data) };
   const { captureBinding: capture } = installSessionPolicy(pi);
   assert.throws(capture, { code: 'account_binding_unavailable' });
-  const ctx = { sessionManager: manager, hasUI: true, model: { provider: 'qoder-experimental' }, ui: { setStatus: (...args) => status.push(args) } };
+  const ctx = { sessionManager: manager, hasUI: true, model: { provider: 'qoder' }, ui: { setStatus: (...args) => status.push(args) } };
   events.get('session_start')({}, ctx);
   assert.equal(status.length, 0);
   const lease = capture();

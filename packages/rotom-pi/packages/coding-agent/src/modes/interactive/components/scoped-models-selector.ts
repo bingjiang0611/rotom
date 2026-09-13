@@ -9,6 +9,7 @@ import {
 	matchesKey,
 	Spacer,
 	Text,
+	TruncatedText,
 } from "@earendil-works/pi-tui";
 import { getModelSearchText } from "../model-search.ts";
 import { theme } from "../theme/theme.ts";
@@ -250,11 +251,13 @@ export class ScopedModelsSelectorComponent extends Container implements Focusabl
 			const isSelected = i === this.selectedIndex;
 			const prefix = isSelected ? theme.fg("accent", "→ ") : "  ";
 			const id = item.model?.id ?? item.fullId;
-			const styledId = item.model ? id : theme.strikethrough(id);
-			const modelText = isSelected ? theme.fg("accent", styledId) : styledId;
+			const name = item.model?.name.trim() || id;
+			const styledName = item.model ? name : theme.strikethrough(name);
+			const modelText = isSelected ? theme.fg("accent", styledName) : styledName;
+			const idBadge = item.model && name !== id ? theme.fg("muted", ` · ${id}`) : "";
 			const providerBadge = theme.fg("muted", item.model ? ` [${item.model.provider}]` : " [unavailable]");
 			const status = item.model && item.enabled ? theme.fg("accent", "✓ ") : "  ";
-			this.listContainer.addChild(new Text(`${prefix}${status}${modelText}${providerBadge}`, 0, 0));
+			this.listContainer.addChild(new TruncatedText(`${prefix}${status}${modelText}${idBadge}${providerBadge}`));
 		}
 
 		// Add scroll indicator if needed

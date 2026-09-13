@@ -6,7 +6,7 @@ rotom 的根产品许可证尚未确定（当前 `UNLICENSED`）；此状态不�
 
 | Package | Version | Declared license | Distribution |
 |---|---|---|---|
-| `@earendil-works/pi-coding-agent`, `pi-agent-core`, `pi-ai`, `pi-tui`, `pi-telemetry`, `chord` (all under `@earendil-works`) | `0.85.1-rotom.1` | MIT | In-repository Pi fork (`packages/rotom-pi/`), built into integrity-pinned archives and installed under `runtime/pi/node_modules/` |
+| `@earendil-works/pi-coding-agent`, `pi-agent-core`, `pi-ai`, `pi-tui`, `pi-telemetry`, `chord` (all under `@earendil-works`) | `0.85.1-rotom.2` | MIT | In-repository Pi fork (`packages/rotom-pi/`), built into integrity-pinned archives and installed under `runtime/pi/node_modules/` |
 | `@injaneity/pi-computer-use` | `0.5.1-rotom.0` | MIT | Independently maintained fork (`packages/rotom-computer-use/`), included from its integrity-pinned vendor archive |
 | `@juicesharp/rpiv-ask-user-question` | `2.6.2` | MIT | Included under `extensions/third-party/node_modules/` |
 | `@narumitw/pi-goal` | `0.54.4-rotom.0` | MIT | Independently maintained fork (`packages/rotom-goal/`), included from its integrity-pinned vendor archive |

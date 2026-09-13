@@ -17,13 +17,13 @@ cd /path/to/your/project
 rotom
 ```
 
-无需预先安装全局 Pi、编译源码或再次安装产品内置扩展。发行包携带锁定安装的 Pi fork 与内置扩展依赖；Pi 源码由 rotom 仓库的 `packages/rotom-pi/` 维护，默认仅从本包 `runtime/pi/node_modules/` 加载，不使用官方 npm Pi、PATH 或旁边的源码目录。`rotom --version` 显示 fork 版本 `0.85.1-rotom.1`；rotom 自身版本见本包 `package.json`。
+无需预先安装全局 Pi、编译源码或再次安装产品内置扩展。发行包携带锁定安装的 Pi fork 与内置扩展依赖；Pi 源码由 rotom 仓库的 `packages/rotom-pi/` 维护，默认仅从本包 `runtime/pi/node_modules/` 加载，不使用官方 npm Pi、PATH 或旁边的源码目录。`rotom --version` 显示 fork 版本 `0.85.1-rotom.2`；rotom 自身版本见本包 `package.json`。
 
 默认启动显示像素洛托姆与 rotom 产品版本，宽终端分栏展示常用命令和当前模型/项目，窄终端自动收成单栏。`quietStartup` 仍可隐藏启动面板，展开键（默认 Ctrl+O）保留完整帮助与资源列表；`rotom --version` 的 fork identity 探测合同不变。
 
 启动更新检查只读 [rotom Releases](https://github.com/bingjiang0611/rotom/releases) 的最近 20 条发行记录，比较 rotom 自身版本而非 Pi。Alpha 安装可提示较新的预发布/正式版，正式版不提示预发布；没有发行记录、网络失败或限流时不显示新版本提示。`ROTOM_SKIP_VERSION_CHECK=1`、`PI_SKIP_VERSION_CHECK=1` 或 `--offline` 可关闭检查。`/changelog` 也指向 rotom Releases，不再展示上游 Pi 更新历史。此功能不自动下载安装；请按下文升级本地发行包，**不要运行 `pi update` 或把 `rotom update` 当成产品升级器**。上述启动界面适用于随包 Pi fork；显式 `ROTOM_PI` 覆盖的外部 Pi 不保证实现该界面。
 
-`/model` 优先显示模型名称，保留 ID/provider；Shift+Tab 调整当前高亮模型的思考档位草稿，Enter 应用、Esc 丢弃，Ctrl+S 只保存默认模型。只开放 provider 声明支持的档位，不扩展 Qoder 能力边界。
+`/model` 与 `/scoped-models` 都优先显示模型名称，并保留 ID/provider；Shift+Tab 调整当前高亮模型的思考档位草稿，Enter 应用、Esc 丢弃，Ctrl+S 只保存默认模型。只开放 provider 声明支持的档位，不扩展 Qoder 能力边界。
 
 首次使用仍需自行登录模型服务或配置 API key。浏览器配置见首页的[配置浏览器](../README.md#配置浏览器)：由用户注册 native host、手动加载 Chrome 扩展并检查实际连接，不由 npm 安装脚本代办。
 
@@ -113,10 +113,10 @@ node "$ROTOM_DIR/extensions/browser/install-chrome-relay.mjs" status
 rotom
 ```
 
-在 rotom 内执行 `/login qoder-experimental`，打开显示的链接并在 Qoder 网页确认账号授权；成功后执行 `/new`，启动时会尝试读取账号模型目录；也可用 `/qoder-models` 手动刷新并查看每项状态，再用 `/model` 选择已通过验证的模型。以后可直接启动：
+在 rotom 内执行 `/login qoder`，打开显示的链接并在 Qoder 网页确认账号授权；成功后执行 `/new`，启动时会尝试读取账号模型目录；也可用 `/qoder-models` 手动刷新并查看每项状态，再用 `/model` 选择已通过验证的模型。以后可直接启动：
 
 ```sh
-rotom --provider qoder-experimental --model lite
+rotom --provider qoder --model lite
 ```
 
 - 浏览器模式由 Pi 原生 `/login`、`/logout` 和凭据存储管理，默认保存到 `~/.pi/agent/auth.json`（可通过 Pi 原生 `PI_CODING_AGENT_DIR` 改变用户目录）；令牌按 Pi 凭据文件方式落盘，不是系统钥匙串。不会读取或写入 `~/.qoder`，也不使用 `ROTOM_QODER_AUTH_DIR`。
@@ -127,7 +127,7 @@ rotom --provider qoder-experimental --model lite
 **默认即浏览器模式**：未设置 `ROTOM_QODER_AUTH` 时默认走上面的 `browser`（Pi 原生登录），不再依赖 Qoder CLI。**原只读 CLI 兼容路径改为显式 opt-in**——依赖 `~/.qoder` 登录态的旧用法在升级后默认行为会改变，需显式设置 `ROTOM_QODER_AUTH=qodercli` 才能保持原只读行为。先自行登录 Qoder CLI，再启动：
 
 ```sh
-ROTOM_QODER_AUTH=qodercli rotom --provider qoder-experimental --model lite
+ROTOM_QODER_AUTH=qodercli rotom --provider qoder --model lite
 ```
 
 `ROTOM_QODER_AUTH` 只接受 `browser` / `qodercli`。
@@ -136,7 +136,7 @@ ROTOM_QODER_AUTH=qodercli rotom --provider qoder-experimental --model lite
 
 - 直接调用模型 HTTP 接口，不启动 qodercli，不嵌套 agent 循环；工具、上下文、分支和压缩仍由 Pi 管理。
 - `qodercli` 模式只读 `~/.qoder/.auth`，可用绝对 canonical `ROTOM_QODER_AUTH_DIR` 覆盖；拒绝 symlink、非私有/非本人文件。此模式不会刷新或写回 CLI 登录态；到期需用同账号正常登录后自行提交。两种模式都不能保证服务器在本地取消后停止计费。
-- 保留 `qoder-experimental` 和原绑定 ID；会话绑定账号/组织/机器摘要，同账号 token 更新可继续，换账号或旧未绑定 Qoder 历史须新会话。摘要不进入模型上下文。
+- provider ID 为 `qoder`；升级前保存在 `qoder-experimental` 下的浏览器登录凭据不会自动迁移，请执行 `/login qoder` 并开启新会话。旧会话的账号绑定记录仍兼容；会话绑定账号/组织/机器摘要，同账号 token 更新可继续，换账号或旧未绑定 Qoder 历史须新会话。摘要不进入模型上下文。
 - 使用服务端原始 key，不根据截图猜 ID。当前 Default 目录的 **17 项**已适配：`auto`、`ultimate`、`performance`、`efficient`、`lite`；`smodel`（Sonus）；`qmodel_38max` / `qfmodel`（Qwen3.8-Max / Flash）；`qmodel_latest` / `qmodel`（Qwen3.7-Max / Plus）；`kmodel_latest` / `kmodel`（Kimi-K3 / K2.7-Code）；`gmodel` / `gfmodel`（GLM-5.3 / Flash）；`dmodel` / `dfmodel`（DeepSeek-V4-Pro / Flash）；`mmodel`（MiniMax-M3）。仍需出现在当前账号 enabled 目录；离线仅保留 Lite/Performance 基线。
 - 除 Lite/Performance/Auto/Efficient 外，13 条路由支持原生推理与工具往返，其中八条按实测白名单与当前目录交集开放 thinking 档位（见下表）；其余仍固定 enabled，单一 medium 不代表测得的中等强度。Ultimate 旧双字段、新 COSY 三字段 item（含 `target_hash`）与 Sonus item 使用不同 Pi signature 格式完整保存，并在同模型回传时严格校验；不解密、不丢字段、不跨模型迁移签名。切换模型时，仅在出站请求副本中移除其他 provider/model/api 的推理与工具签名，保留可见文本和工具调用/结果配对；空白或 redacted 推理不发送，不改写已保存的历史。同模型签名损坏仍报错，不以兼容转换掩盖。仅 Ultimate、Kimi-K3、DeepSeek-V4-Flash 开放图片和 272K 管理窗口（与 Codex 声明一致；已实测上游可吃超过 272K 输入）；其余仍为文本、≤32K。所有输出上限仍为 4096，不将目录的 1M 当成已验证容量。
 - Efficient、Qwen3.8 两项、Qwen3.7-Max、Kimi-K3、GLM-5.3-Flash、DeepSeek-V4-Flash、MiniMax-M3、Sonus、Ultimate 明确选择固定 COSY 单次推理协议；其余七项使用原 direct endpoint。推理选中状态不照搬目录能力标记；没有 CLI 子进程、远程 agent 循环或失败后回退重试。
@@ -145,7 +145,7 @@ ROTOM_QODER_AUTH=qodercli rotom --provider qoder-experimental --model lite
 - **Credit 不等于 USD 或最终账单**：完整流同时返回有效 `credits` / `billable` 才记为服务端 reported；缺失、畸形、错误或取消保持 unknown。本轮 Sonus 有明确 Credit，Lite 未返回该字段，不能据此说免费。状态栏显示 `USD cost unknown` 与本会话 **partial、billable-reported** 小计及 metered/unknown 数；记录包含整个会话树，但不归入继承自另一会话的费用。丢失作用域的迟到回调不写入新会话，计量不是完整审计账本或预算熔断。
 - `/qoder-credits` 需要交互 UI，无 UI 不查询；仅请求当前账号的只读额度快照，分列 plan / addon / shared；不消费模型、不改变选中模型，不把快照差值归因到某次请求。余额只作 UI 通知，不写入对话、压缩或分支摘要。会话 Credit 观察单独落在非模型上下文的 custom entries；原始余额、模型倍率和 USD 不混算。Pi 的数字价格仍是零占位；headless/SDK 的 `usage.cost` 不能当账单。
 - 本轮另通过 Lite/Sonus 的原生 AgentSession 合成文件修复、固定测试、分支隔离、磁盘恢复及手动压缩；真实 launcher 的 PTY 验证了额度命令和 80 列下的 Credit/USD 提示，不代表桌面终端视觉或任意业务验收。见维护面 `experiments/qoder-provider/CAPABILITIES-VERIFICATION.md`。
-- 仍标记 experimental：未确认独立模型接口的长期支持与第三方使用许可，不适合公开代理、凭据池或宣称官方支持。产品集成不等于上游授权。
+- Qoder 已作为正式内置功能启用，不再显示 experimental 标签；但产品集成不等于 Qoder 官方背书，也不改变第三方接口及许可边界。
 
 ### Thinking 档位
 

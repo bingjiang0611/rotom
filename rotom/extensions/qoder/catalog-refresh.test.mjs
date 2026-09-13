@@ -37,10 +37,10 @@ async function fixture(t, { authMode = 'qodercli', modelId = 'auto', modelPatch 
   });
   const ctx = { hasUI: true, sessionManager: { getSessionId: () => sessionId, getEntries: () => entries }, ui: { notify: text => notices.push(text) },
     modelRegistry: { async refresh(options) {
-      refreshCalls++; assert.deepEqual(options.providers, ['qoder-experimental']); assert.equal(options.allowNetwork, true);
+      refreshCalls++; assert.deepEqual(options.providers, ['qoder']); assert.equal(options.allowNetwork, true);
       const errors = new Map();
       try { await provider.refreshModels({ ...options, credential: oauth, publish: async p => { if (options.signal.aborted) return false; p.update?.(); return true; } }); }
-      catch (error) { errors.set('qoder-experimental', error); }
+      catch (error) { errors.set('qoder', error); }
       return { errors, aborted: options.signal.aborted };
     } },
   };
@@ -80,7 +80,7 @@ test('refresh failure keeps stale catalog but blocks inference without retry or 
   await assert.rejects(f.run(), /^QoderError: Qoder: catalog_refresh_failed$/);
   assert.equal(f.provider.getModels()[0].id, 'auto');
   assert.deepEqual(f.counts(), { catalogReads: 2, dispatches: 0, refreshCalls: 2 });
-  await f.emit('message_end', { message: { provider: 'qoder-experimental', errorMessage: 'Qoder: catalog_refresh_failed' } });
+  await f.emit('message_end', { message: { provider: 'qoder', errorMessage: 'Qoder: catalog_refresh_failed' } });
   assert.match(f.notices.at(-1), /\/qoder-models/); assert.doesNotMatch(JSON.stringify(f.notices), /PRIVATE/);
   f.setCatalogHook(undefined);
   await f.commands.get('qoder-models').handler('', f.ctx);

@@ -13,7 +13,7 @@ const request={method:'POST',body:JSON.stringify({model:'lite',stream:true,messa
 const response=body=>new Response(body,{headers:{'content-type':'text/event-stream'}});
 function setupPolicy(){
  const events=new Map(),commands=new Map(),entries=[],display=[],status=new Map();let sessionId=randomUUID();
- const ctx={hasUI:true,model:{provider:'qoder-experimental'},sessionManager:{getEntries:()=>entries,getSessionId:()=>sessionId},ui:{setStatus:(k,v)=>status.set(k,v),notify:(content,level)=>display.push({content,level})},modelRegistry:{find:()=>({provider:'qoder-experimental',id:'lite'}),getApiKeyAndHeaders:async()=>({ok:true,apiKey:'fixture'}),refresh:async()=>({aborted:false,errors:new Map()})}};
+ const ctx={hasUI:true,model:{provider:'qoder'},sessionManager:{getEntries:()=>entries,getSessionId:()=>sessionId},ui:{setStatus:(k,v)=>status.set(k,v),notify:(content,level)=>display.push({content,level})},modelRegistry:{find:()=>({provider:'qoder',id:'lite'}),getApiKeyAndHeaders:async()=>({ok:true,apiKey:'fixture'}),refresh:async()=>({aborted:false,errors:new Map()})}};
  const pi={on:(k,f)=>{const list=events.get(k)??[];list.push(f);events.set(k,list);},appendEntry:(customType,data)=>entries.push({type:'custom',customType,data}),registerProvider:()=>{},registerCommand:(k,c)=>commands.set(k,c),sendMessage:m=>display.push(m)};
  return{pi,ctx,entries,display,status,commands,emit:async(k,e={},c=ctx)=>{let result;for(const f of events.get(k)??[])result=await f(e,c);return result;},switchId:()=>{sessionId=randomUUID();}};
 }
@@ -88,7 +88,7 @@ test('pre-dispatch failures create no meter event; dispatched HTTP failures are 
 test('meter persistence is bound to original account/session and not copied to a switched session',async()=>{
  const s=setupPolicy(),p=installSessionPolicy(s.pi);await s.emit('session_start');p.captureBinding()(fingerprint);const record=p.captureMetering(),data={fingerprint,modelId:'lite',requestId:randomUUID(),status:'reported',outcome:'complete',credits:.2,billable:true,secret:'not persisted'};
  record(data);record(data);assert.equal(s.entries.filter(e=>e.customType===CREDIT_ENTRY).length,1);assert(!JSON.stringify(s.entries).includes('secret'));
- assert.equal(s.status.get('qoder-credit-usage'),undefined);assert.equal(s.status.get('qoder-experimental'),undefined);
+ assert.equal(s.status.get('qoder-credit-usage'),undefined);assert.equal(s.status.get('qoder'),undefined);
  s.switchId();await s.emit('session_start',{}, {...s.ctx});record({...data,requestId:randomUUID()});assert.equal(s.entries.filter(e=>e.customType===CREDIT_ENTRY).length,1);assert.equal(s.status.get('qoder-credit-usage'),undefined);
 });
 test('reused context objects and in-place session changes invalidate old captures',async()=>{

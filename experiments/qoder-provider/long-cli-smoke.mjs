@@ -15,7 +15,7 @@ const count=()=>Number(readFileSync(ledger,'utf8')),before=count(),digest=p=>cre
 const original=digest(process.env.ROTOM_QODER_PROBE_AUTH_FILE),dir=realpathSync(mkdtempSync(join(dirname(ledger),'qoder-long-cli-')));chmodSync(dir,0o700);
 const home=join(dir,'home'),agent=join(dir,'agent'),project=join(dir,'project');for(const p of [home,agent,project])mkdirSync(p,{mode:0o700});
 execFileSync('git',['init','-q'],{cwd:project});const credential=(await readProbeCredential()).oauthCredential;
-const auth=join(agent,'auth.json');writeFileSync(auth,JSON.stringify({'qoder-experimental':credential}),{mode:0o600});const initialAuth=digest(auth);
+const auth=join(agent,'auth.json');writeFileSync(auth,JSON.stringify({'qoder':credential}),{mode:0o600});const initialAuth=digest(auth);
 writeFileSync(join(agent,'settings.json'),JSON.stringify({retry:{enabled:false},compaction:{enabled:false,keepRecentTokens:1024}}),{mode:0o600});
 const levels=['low','medium','high','xhigh','max'],anchor='ANCHOR_'+randomUUID();
 const summary={pass:false,preflight,capacity,keepRecentTokens:1024,kind:'actual rotom launcher/RPC, no model tools',directory:dir,productRoot:root,launcherSha256:digest(launcher),turns:0,compactions:0,restarts:0,peakInputTokens:0,assistantMessages:0,toolEvents:0,levels:[],terminations:[],errors:[]};
@@ -24,7 +24,7 @@ let client,serial=0,lastAssistant,agentWait,agentReject;
 const safeError=e=>e?.match?.(/Qoder: ([a-z0-9_]+)/)?.[1]??(/nothing to compact|already compacted|not enough messages/i.test(e??'')?'compaction_not_eligible':/token cap/i.test(e??'')?'summary_token_cap':'rpc_failed');
 function start(sessionFile){
  const env={PATH:dirname(process.execPath)+':/usr/bin:/bin:/usr/sbin:/sbin',HOME:home,LANG:'en_US.UTF-8',TERM:'dumb',ROTOM_NODE:process.execPath,PI_CODING_AGENT_DIR:agent,ROTOM_OBSERVABILITY:'0',PI_OFFLINE:'1',PI_SKIP_VERSION_CHECK:'1',PI_TELEMETRY:'0',PI_IMAGE_PROTOCOL:'none',ROTOM_QODER:'1',ROTOM_QODER_AUTH:'browser',ROTOM_QODER_PROBE_LIMIT:process.env.ROTOM_QODER_PROBE_LIMIT,ROTOM_QODER_PROBE_LEDGER:ledger,ROTOM_QODER_PROBE_ISOLATED_AUTH_DIR:agent,ROTOM_QODER_PROBE_CATALOG:'1',ROTOM_QODER_PROBE_LEGACY:'1',ROTOM_QODER_PROBE_NO_MODELS:preflight?'1':'0',NODE_OPTIONS:'--import '+join(import.meta.dirname,'live-budget.mjs')};
- const args=['--mode','rpc','--provider','qoder-experimental','--model','ultimate','--no-tools','--tools','',...(sessionFile?['--session',sessionFile]:['--thinking','low'])];
+ const args=['--mode','rpc','--provider','qoder','--model','ultimate','--no-tools','--tools','',...(sessionFile?['--session',sessionFile]:['--thinking','low'])];
  const child=spawn(launcher,args,{cwd:project,env,stdio:['pipe','pipe','pipe'],detached:true}),pending=new Map();let buffer='',exited=false,exitInfo,stderrBytes=0;
  const closed=new Promise(resolve=>child.on('exit',(code,signal)=>{exited=true;exitInfo={code,signal};for(const p of pending.values())p.reject(new Error('cli_exited'));pending.clear();agentReject?.(new Error('cli_exited'));resolve();}));
  const fail=e=>{for(const p of pending.values())p.reject(e);pending.clear();agentReject?.(e);};child.on('error',fail);child.stderr.on('data',b=>{stderrBytes+=b.length;if(stderrBytes>1024*1024)fail(new Error('stderr_oversized'));});

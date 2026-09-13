@@ -2,8 +2,10 @@
   "upstream": "https://github.com/earendil-works/pi",
   "revision": "da840b6216578c2a571d0374ac6a2091a83f9d91",
   "upstreamVersion": "0.85.1",
-  "forkVersion": "0.85.1-rotom.1",
+  "forkVersion": "0.85.1-rotom.2",
   "importedChanges": [
+    "Retain the Pi process identity for process-based integrations while keeping Rotom command and UI branding",
+    "model picker and scoped-model configuration use consistent name-first labels (source, tests, docs)",
     "model picker display names and picker-local thinking level selection (source, tests, docs)",
     "Replace recorded session fixtures with synthetic compaction input; omit unused before-compaction transcript"
   ],

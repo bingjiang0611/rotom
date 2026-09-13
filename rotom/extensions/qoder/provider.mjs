@@ -6,16 +6,16 @@ import { fetchCatalog, CATALOG_TTL_MS } from './catalog.mjs';
 import { createBrowserOAuth, createOAuthEnvelope } from './oauth.mjs';
 import { fetchQuota } from './credits.mjs';
 
-export const PROVIDER_ID = 'qoder-experimental';
+export const PROVIDER_ID = 'qoder';
 export const MODEL = {
-  id: 'lite', name: 'Qoder Lite (experimental; price unknown)',
+  id: 'lite', name: 'Qoder Lite',
   // Self-owned api identity: the extension builds the request payload and
   // translates the response itself (messages.mjs + translate.mjs), so sessions
   // are pinned to "qoder" and never share replay history with the former
   // "openai-completions" identity. Older sessions fail model_scope by design.
   api: 'qoder', provider: PROVIDER_ID, baseUrl: BASE_URL,
   reasoning: false, input: ['text'],
-  // Conservative experiment limits, not a claim about the service's capacity.
+  // Conservative adapter limits, not a claim about the service's capacity.
   contextWindow: 32000, maxTokens: 4096,
   // Pi requires numeric prices. These placeholders are NOT zero-cost evidence.
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -24,7 +24,7 @@ export const MODEL = {
 
 // Offline baseline retains the two historical identities; named labels come from discovery.
 export const MODELS = Object.freeze(['lite', 'performance'].map(id => Object.freeze({
-  ...MODEL, id, name: `Qoder ${id === 'lite' ? 'Lite' : 'Performance'} (experimental; price unknown)`,
+  ...MODEL, id, name: `Qoder ${id === 'lite' ? 'Lite' : 'Performance'}`,
 })));
 
 const THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
@@ -39,7 +39,7 @@ const thinkingMap = levels => Object.freeze(Object.fromEntries(THINKING_LEVELS.m
 function catalogModel(entry, declared = false) {
   const declaredExpanded = declared && EXPANDED_INPUT_MODEL_IDS.includes(entry.id);
   const { id, name, contextWindow = declaredExpanded ? 272000 : 32000 } = entry, reasoning = REASONING_MODEL_IDS.includes(id), controls = controlsFor(entry, declared);
-  return Object.freeze({ ...MODEL, id, name: `Qoder ${name} (experimental; price unknown)`, contextWindow, reasoning, input: Object.freeze(declaredExpanded || inputCapabilities(entry).images ? ['text', 'image'] : ['text']),
+  return Object.freeze({ ...MODEL, id, name: `Qoder ${name}`, contextWindow, reasoning, input: Object.freeze(declaredExpanded || inputCapabilities(entry).images ? ['text', 'image'] : ['text']),
     ...(reasoning ? { thinkingLevelMap: controls ? thinkingMap(controls.levels) : { off: null, minimal: null, low: null, medium: 'enabled', high: null, xhigh: null, max: null } } : {}),
     ...(controls ? { compat: { ...MODEL.compat, supportsReasoningEffort: true } } : {}),
   });
@@ -176,7 +176,7 @@ export async function createQoderProvider({ piAI, getToken, getCredential, captu
     }
   });
   const provider = piAI.createProvider({
-    id: PROVIDER_ID, name: 'Qoder (experimental account)', baseUrl: BASE_URL,
+    id: PROVIDER_ID, name: 'Qoder', baseUrl: BASE_URL,
     models: DECLARED_MODELS,
     auth: envelope ? { oauth: { ...createBrowserOAuth(oauthOptions), toAuth: envelope.toAuth } } : { apiKey: {
       name: 'Read-only Qoder CLI login (no automatic refresh)',

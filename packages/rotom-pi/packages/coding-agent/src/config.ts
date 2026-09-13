@@ -505,6 +505,10 @@ const isRotomProduct = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(process.env.RO
 export const PACKAGE_NAME: string = pkg.name || "@earendil-works/pi-coding-agent";
 export const APP_NAME: string = isRotomProduct ? "rotom" : configuredAppName;
 export const APP_TITLE: string = isRotomProduct || piConfigName ? APP_NAME : "π";
+// Product branding must not hide the Pi-compatible runtime from process-based
+// integrations. Rotom keeps its public command/UI name while retaining the
+// embedded runtime's configured process identity (normally "pi").
+export const PROCESS_NAME: string = configuredAppName;
 export const CONFIG_DIR_NAME: string = pkg.piConfig?.configDir || ".pi";
 export const VERSION: string = pkg.version || "0.0.0";
 

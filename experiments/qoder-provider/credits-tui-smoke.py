@@ -29,7 +29,7 @@ ansi=re.compile(r'\x1b\].*?(?:\x07|\x1b\\)|\x1b\[[0-?]*[ -/]*[@-~]',re.S)
 def records():return [json.loads(x) for x in events.read_text().splitlines()]
 def plain(data):return ansi.sub('',data.decode('utf-8','replace'))
 try:
- proc=subprocess.Popen([str(launcher),*session_args,'--provider','qoder-experimental','--model',a.model],cwd=cwd,env=env,stdin=slave,stdout=slave,stderr=slave,start_new_session=True);os.close(slave);slave=None;deadline=time.monotonic()+100
+ proc=subprocess.Popen([str(launcher),*session_args,'--provider','qoder','--model',a.model],cwd=cwd,env=env,stdin=slave,stdout=slave,stderr=slave,start_new_session=True);os.close(slave);slave=None;deadline=time.monotonic()+100
  with output.open('wb') as capture:
   while time.monotonic()<deadline:
    if select.select([master],[],[],0.15)[0]:

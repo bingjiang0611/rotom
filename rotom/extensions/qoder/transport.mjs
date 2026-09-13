@@ -476,7 +476,7 @@ export async function openQoderStream({ payload, getToken, getLegacyCredential, 
     if (controller.signal.aborted) fail('aborted');
     const token = await abortable(getToken, controller.signal);
     if (controller.signal.aborted) fail('aborted');
-    let headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'text/event-stream', 'User-Agent': 'rotom-qoder-experiment/0.1', 'X-Request-ID': requestId, 'X-Session-ID': sessionId };
+    let headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'text/event-stream', 'User-Agent': 'rotom-qoder/1.0', 'X-Request-ID': requestId, 'X-Session-ID': sessionId };
     if (legacy) {
       // Request-local credential captured by the same bound token lookup;
       // never consult a mutable current-user record after authentication.

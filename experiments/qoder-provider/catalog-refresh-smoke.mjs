@@ -30,7 +30,7 @@ try {
     const fingerprint = createHmac('sha256', machineId).update(JSON.stringify(['rotom-qoder-browser-v1', uid, org])).digest('hex');
     const credential = { type: 'oauth', qoderAuthVersion: 1, access: 'fixture', refresh: 'fixture-refresh', expires: Date.now() + 86400000, refreshExpires: Date.now() + 172800000, machineId, uid, org, fingerprint };
     const credentials = new piAI.InMemoryCredentialStore();
-    if (authMode === 'browser') await credentials.modify('qoder-experimental', async () => credential);
+    if (authMode === 'browser') await credentials.modify('qoder', async () => credential);
     const modelRuntime = await sdk.ModelRuntime.create({ credentials, modelsPath: null, modelsStore: new piAI.InMemoryModelsStore(), refreshOnCreate: false, allowModelNetwork: false });
     // Leave native retry enabled: catalog errors must not be treated as retryable.
     const settingsManager = sdk.SettingsManager.inMemory({ compaction: { enabled: false, reserveTokens: 1024, keepRecentTokens: 64 } });

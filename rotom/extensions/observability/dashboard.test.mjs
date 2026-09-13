@@ -663,7 +663,7 @@ test("CLI prints a local URL and exits cleanly on SIGINT", async (t) => {
 const OP = "op".padEnd(16, "0");
 const OP2 = "op2".padEnd(16, "0");
 
-function opRecords(spanId, { status = "ok", provider = "qoder-experimental", model = "ultimate", thinking = "low", cost = 0.02, totalTokens = 1000, tools = [], groups } = {}) {
+function opRecords(spanId, { status = "ok", provider = "qoder", model = "ultimate", thinking = "low", cost = 0.02, totalTokens = 1000, tools = [], groups } = {}) {
 	const requestId = `req${spanId}`.slice(0, 16).padEnd(16, "r");
 	const providerAttrs = {
 		"pi.ai.provider": provider, "pi.ai.model": model, "pi.ai.thinking_level": thinking,
@@ -684,12 +684,13 @@ function opRecords(spanId, { status = "ok", provider = "qoder-experimental", mod
 }
 
 test("route derives from qoder catalog model id, not a copied list", () => {
-	assert.equal(dashboardRoute("qoder-experimental", "ultimate"), "qoder-cosy");
-	assert.equal(dashboardRoute("qoder-experimental", "smodel"), "qoder-cosy");
-	assert.equal(dashboardRoute("qoder-experimental", "claude-sonnet"), "qoder-direct");
+	assert.equal(dashboardRoute("qoder", "ultimate"), "qoder-cosy");
+	assert.equal(dashboardRoute("qoder", "smodel"), "qoder-cosy");
+	assert.equal(dashboardRoute("qoder", "claude-sonnet"), "qoder-direct");
+	assert.equal(dashboardRoute("qoder-experimental", "ultimate"), "qoder-cosy", "historical traces retain their route");
 	assert.equal(dashboardRoute("cc-switch", "claude-opus-5"), "n/a");
 	assert.equal(dashboardRoute("", "x"), "unknown");
-	assert.equal(dashboardRoute("qoder-experimental", ""), "unknown");
+	assert.equal(dashboardRoute("qoder", ""), "unknown");
 });
 
 test("efficiency splits successes by provider/model/route/thinking and attributes subagent use", () => {
@@ -741,7 +742,7 @@ test("mixed provider/model within one operation is labelled mixed, not last-writ
 	const mixedRequestId = "reqMIXED00000000";
 	const { buckets } = summarizeEfficiency([
 		span("span_start", { spanId: OP, name: "pi.agent.operation" }),
-		span("span_end", { spanId: "reqA0000000000000", parentSpanId: OP, name: "pi.ai.request", status: "ok", attributes: { "pi.ai.provider": "qoder-experimental", "pi.ai.model": "ultimate" } }),
+		span("span_end", { spanId: "reqA0000000000000", parentSpanId: OP, name: "pi.ai.request", status: "ok", attributes: { "pi.ai.provider": "qoder", "pi.ai.model": "ultimate" } }),
 		span("span_end", { spanId: mixedRequestId, parentSpanId: OP, name: "pi.ai.request", status: "ok", attributes: { "pi.ai.provider": "cc-switch", "pi.ai.model": "claude-opus-5" } }),
 		span("span_end", { spanId: OP, name: "pi.agent.operation", status: "ok" }),
 	]);

@@ -50,7 +50,7 @@ if(layout==='split'){
 }
 const oldRoot=process.env.ROTOM_QODER_OLD_PRODUCT_ROOT;if(oldRoot)assert(live&&id==='ultimate'&&rows<=1024&&isAbsolute(oldRoot)&&realpathSync(oldRoot)===oldRoot&&process.env.ROTOM_QODER_CONTEXT_ROUTE==='legacy');
 const productRoot=process.env.ROTOM_QODER_PROBE_PRODUCT_ROOT;if(productRoot)assert(live&&productRoot!==oldRoot&&selector===400000&&isAbsolute(productRoot)&&realpathSync(productRoot)===productRoot);
-let model={...MODEL,id,provider:oldRoot||productRoot?'qoder-experimental':'qoder-context-research',reasoning:true,contextWindow:selector},provider,auth;
+let model={...MODEL,id,provider:oldRoot||productRoot?'qoder':'qoder-context-research',reasoning:true,contextWindow:selector},provider,auth;
 const dir=realpathSync(mkdtempSync(join(live?dirname(ledger):tmpdir(),'qoder-large-context-')));chmodSync(dir,0o700);
 const summary={pass:false,scope:'maintenance native SDK, not product capacity',directory:dir,mode,id,rows,layout,padBytes,minimumInputTokens:minimum,selector,reportedBaseLimit:row.max_input_tokens,sourceBytes:Buffer.byteLength(data),piEntry:entry,piEntrySha256:createHash('sha256').update(readFileSync(entry)).digest('hex'),rounds:[],wire:[],diagnostics:{}};
 const save=()=>writeFileSync(join(dir,'result.json'),JSON.stringify(summary,null,2),{mode:0o600});save();console.error('Evidence: '+dir);

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { translateQoderStream } from './translate.mjs';
 import { QoderError } from './auth.mjs';
 
-const MODEL = { id: 'lite', api: 'qoder', provider: 'qoder-experimental' };
+const MODEL = { id: 'lite', api: 'qoder', provider: 'qoder' };
 
 // Build an async iterable of validated chunk records, exactly the shape
 // openQoderStream yields (STREAM_DONE is already swallowed there).

@@ -3,7 +3,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { QoderError } from './auth.mjs';
 import { abortable } from './transport.mjs';
 
-// Public CLI client identity, explicitly accepted for this experimental adapter.
+// Public CLI client identity used by the Qoder provider adapter.
 // This is not a rotom registration, client secret, or evidence of upstream support.
 export const DEVICE_CLIENT_ID = 'e883ade2-e6e3-4d6d-adf7-f92ceff5fdcb';
 export const LOGIN_URL = 'https://qoder.com/device/selectAccounts';
@@ -75,7 +75,7 @@ export function createBrowserOAuth({ fetchImpl = globalThis.fetch, now = Date.no
       const response = await abortable(async () => {
         const result = await fetchImpl(AUTH_ORIGIN + path, {
           method: body ? 'POST' : 'GET', redirect: 'error', signal: combined,
-          headers: { Accept: 'application/json', 'User-Agent': 'rotom/qoder-experimental',
+          headers: { Accept: 'application/json', 'User-Agent': 'rotom/qoder',
             ...(body ? { 'Content-Type': 'application/json' } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
           ...(body ? { body: JSON.stringify(body) } : {}),
         });
@@ -131,7 +131,7 @@ export function createBrowserOAuth({ fetchImpl = globalThis.fetch, now = Date.no
       machineId, ...user, fingerprint: fingerprint(machineId, user.uid, user.org) };
   }
   return {
-    name: 'Qoder browser login (experimental, unofficial client compatibility)',
+    name: 'Qoder browser login',
     async login(interaction) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 300000);
@@ -142,7 +142,7 @@ export function createBrowserOAuth({ fetchImpl = globalThis.fetch, now = Date.no
         const challenge = createHash('sha256').update(verifier).digest('base64url');
         const nonce = randomUUID(), machineId = randomUUID();
         const query = new URLSearchParams({ challenge, challenge_method: 'S256', nonce, machine_id: machineId, client_id: DEVICE_CLIENT_ID });
-        interaction.notify({ type: 'info', message: 'Experimental Qoder client compatibility; not officially supported. Credentials are stored by rotom/Pi, never in Qoder CLI. A fresh login requires a new Qoder session; refresh preserves binding.' });
+        interaction.notify({ type: 'info', message: 'Qoder browser login credentials are stored by rotom/Pi, never in Qoder CLI. A fresh login requires a new Qoder session; refresh preserves binding.' });
         interaction.notify({ type: 'auth_url', url: `${LOGIN_URL}?${query}`, instructions: 'Complete Qoder account authorization in your browser. This link expires in five minutes.' });
         const poll = '/api/v1/deviceToken/poll?' + new URLSearchParams({ nonce, verifier, challenge_method: 'S256' });
         for (;;) {

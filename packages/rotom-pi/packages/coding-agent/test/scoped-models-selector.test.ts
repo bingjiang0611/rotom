@@ -58,6 +58,19 @@ describe("scoped models selector", () => {
 		return selector;
 	}
 
+	it("uses the same name-first labels as the model selector", async () => {
+		const models = [
+			{ id: "model-a", name: "Model Alpha", enabled: true },
+			{ id: "model-b", name: "model-b", enabled: true },
+		];
+		const selector = await createSelector(models);
+		const rendered = stripAnsi(selector.render(120).join("\n"));
+
+		expect(rendered).toContain("Model Alpha · model-a");
+		expect(rendered).toContain("model-b");
+		expect(rendered).not.toContain("model-b · model-b");
+	});
+
 	it("marks every model after enabling all", async () => {
 		const models = [
 			{ id: "model-a", name: "Model A", enabled: true },

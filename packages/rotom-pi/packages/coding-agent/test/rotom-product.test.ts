@@ -49,13 +49,37 @@ describe("rotom product metadata", () => {
 });
 
 describe("rotom runtime branding", () => {
+	it("keeps the Pi process identity for process-based integrations", async () => {
+		vi.stubEnv("ROTOM_PRODUCT_VERSION", "0.1.0-alpha.11");
+		vi.resetModules();
+		const originalTitle = process.title;
+		const originalEmitWarning = process.emitWarning;
+		const originalPiCodingAgent = process.env.PI_CODING_AGENT;
+		const originalAiAgent = process.env.AI_AGENT;
+		try {
+			const { setupCli } = await import("../src/cli/setup.ts");
+			setupCli();
+			expect(process.title).toBe("pi");
+			expect(process.env.PI_CODING_AGENT).toBe("true");
+			expect(process.env.AI_AGENT).toBe("pi");
+		} finally {
+			process.title = originalTitle;
+			process.emitWarning = originalEmitWarning;
+			if (originalPiCodingAgent === undefined) delete process.env.PI_CODING_AGENT;
+			else process.env.PI_CODING_AGENT = originalPiCodingAgent;
+			if (originalAiAgent === undefined) delete process.env.AI_AGENT;
+			else process.env.AI_AGENT = originalAiAgent;
+		}
+	});
+
 	it("uses the public rotom command while preserving Pi configuration environment names", async () => {
 		vi.stubEnv("ROTOM_PRODUCT_VERSION", "0.1.0-alpha.11");
 		vi.resetModules();
-		const { APP_NAME, APP_TITLE, CONFIG_DIR_NAME, ENV_AGENT_DIR, ENV_SESSION_DIR } = await import("../src/config.ts");
-		expect({ APP_NAME, APP_TITLE, CONFIG_DIR_NAME, ENV_AGENT_DIR, ENV_SESSION_DIR }).toEqual({
+		const { APP_NAME, APP_TITLE, PROCESS_NAME, CONFIG_DIR_NAME, ENV_AGENT_DIR, ENV_SESSION_DIR } = await import("../src/config.ts");
+		expect({ APP_NAME, APP_TITLE, PROCESS_NAME, CONFIG_DIR_NAME, ENV_AGENT_DIR, ENV_SESSION_DIR }).toEqual({
 			APP_NAME: "rotom",
 			APP_TITLE: "rotom",
+			PROCESS_NAME: "pi",
 			CONFIG_DIR_NAME: ".pi",
 			ENV_AGENT_DIR: "PI_CODING_AGENT_DIR",
 			ENV_SESSION_DIR: "PI_CODING_AGENT_SESSION_DIR",

@@ -26,7 +26,7 @@ export async function readProbeCredential(file = process.env.ROTOM_QODER_PROBE_A
       content = JSON.parse(bytes.subarray(0, size).toString('utf8'));
       bytes.fill(0);
     } finally { await handle.close(); }
-    const c = content['qoder-experimental'];
+    const c = content['qoder'];
     await createOAuthEnvelope().toAuth(c);
     return { accessToken: c.access, fingerprint: c.fingerprint, expiresAt: c.expires, uid: c.uid, org: c.org, machineId: c.machineId, oauthCredential: c };
   } catch { throw new QoderError('probe_credential_unavailable_or_expired'); }
