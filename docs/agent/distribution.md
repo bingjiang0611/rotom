@@ -10,7 +10,7 @@
 
 **PASS：本地打包、隔离安装和 L1/L2 验证。BLOCKED：公开发布及完整跨平台/真实业务验收。**
 
-当前产品元数据位于 `rotom/package.json`：`@bingjiang0611/rotom@0.1.0-alpha.15`、公开 npm 包、`UNLICENSED`。包内包含完整 Pi 运行时。
+当前产品元数据位于 `rotom/package.json`：`@bingjiang0611/rotom@0.1.0-alpha.16`、公开 npm 包、`UNLICENSED`。包内包含完整 Pi 运行时。
 
 ## 分发与启动
 

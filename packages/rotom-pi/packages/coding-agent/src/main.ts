@@ -45,7 +45,12 @@ import { AuthStorage, ReadOnlyAuthStorage } from "./core/auth-storage.ts";
 import { exportFromFile } from "./core/export-html/index.ts";
 import type { InlineExtension } from "./core/extensions/types.ts";
 import { applyHttpProxySettings, configureHttpDispatcher } from "./core/http-dispatcher.ts";
-import { resolveCliModel, resolveModelScope, type ScopedModel } from "./core/model-resolver.ts";
+import {
+	resolveCliModel,
+	resolveModelScope,
+	resolveModelScopeWithDiagnostics,
+	type ScopedModel,
+} from "./core/model-resolver.ts";
 import { ModelRuntime } from "./core/model-runtime.ts";
 import { restoreStdout, takeOverStdout } from "./core/output-guard.ts";
 import { type AppMode, resolveProjectTrusted } from "./core/project-trust.ts";
@@ -786,10 +791,24 @@ export async function main(args: string[], options?: MainOptions) {
 		];
 
 		const modelPatterns = parsed.models ?? settingsManager.getEnabledModels();
-		const scopedModels =
-			modelPatterns && modelPatterns.length > 0
-				? await resolveModelScope(modelPatterns, modelRuntime, { signal: AbortSignal.timeout(15_000) })
-				: [];
+		let scopedModels: ScopedModel[] = [];
+		if (modelPatterns && modelPatterns.length > 0) {
+			if (appMode === "interactive" && isInitialRuntime && !offlineMode) {
+				const resolution = await resolveModelScopeWithDiagnostics(modelPatterns, modelRuntime, {
+					signal: AbortSignal.timeout(15_000),
+				});
+				scopedModels = resolution.scopedModels;
+				for (const diagnostic of resolution.diagnostics) {
+					if (diagnostic.code !== "no-match") {
+						diagnostics.push({ type: diagnostic.type, message: diagnostic.message });
+					}
+				}
+			} else {
+				scopedModels = await resolveModelScope(modelPatterns, modelRuntime, {
+					signal: AbortSignal.timeout(15_000),
+				});
+			}
+		}
 		const {
 			options: sessionOptions,
 			cliThinkingFromModel,
@@ -931,9 +950,17 @@ export async function main(args: string[], options?: MainOptions) {
 		printTimings();
 		await runRpcMode(runtime);
 	} else if (appMode === "interactive") {
+		const configuredModelScope = parsed.models ?? settingsManager.getEnabledModels();
 		const interactiveMode = new InteractiveMode(runtime, {
 			migratedProviders,
 			startupDiagnostics,
+			startupModelScope:
+				configuredModelScope && configuredModelScope.length > 0
+					? {
+							patterns: [...configuredModelScope],
+							source: parsed.models === undefined ? "settings" : "cli",
+						}
+					: undefined,
 			modelFallbackMessage,
 			autoTrustOnReloadCwd,
 			initialMessage,

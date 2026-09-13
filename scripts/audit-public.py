@@ -16,10 +16,11 @@ import tarfile
 from urllib.parse import urlsplit
 
 MAX_FILE = 32 * 1024 * 1024
-# The product now embeds Pi's CLI + SDK dependency closure (about 51 MiB tgz).
-# Increase only archive input/aggregate coverage; ordinary members stay bounded.
+# The product embeds Pi's CLI + SDK dependency closure (about 51 MiB tgz),
+# while public history retains multiple reviewed releases. Increase only archive
+# input/aggregate coverage; ordinary members and nesting stay bounded.
 MAX_ARCHIVE = 64 * 1024 * 1024
-MAX_EXPANDED = 384 * 1024 * 1024
+MAX_EXPANDED = 512 * 1024 * 1024
 CREDENTIAL = re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|sk-(?:proj-|ant-)?[A-Za-z0-9_-]{25,}|AKIA[A-Z0-9]{16}|LTAI[A-Za-z0-9]{16,}|xox[baprs]-[A-Za-z0-9-]{20,})\b")
 PRIVATE_KEY = re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[A-Za-z0-9+/=\s]{64,}-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----")
 HOME_PATH = re.compile(r"(?:/Users/|/home/|[A-Z]:\\Users\\)([A-Za-z0-9_.-]+)")

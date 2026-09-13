@@ -362,6 +362,11 @@ export interface InteractiveModeOptions {
 	migratedProviders?: string[];
 	/** Diagnostics collected before the interactive TUI was initialized. */
 	startupDiagnostics?: AgentSessionRuntimeDiagnostic[];
+	/** Model patterns to re-resolve after the initial background catalog refresh. */
+	startupModelScope?: {
+		patterns: string[];
+		source: "cli" | "settings";
+	};
 	/** Warning message if session model couldn't be restored */
 	modelFallbackMessage?: string;
 	/** Cwd to trust after reload if it gained a .pi directory during this implicitly trusted session. */
@@ -425,6 +430,7 @@ export class InteractiveMode {
 	private changelogMarkdown: string | undefined = undefined;
 	private startupNoticesShown = false;
 	private anthropicSubscriptionWarningShown = false;
+	private modelScopeSelectionChanged = false;
 
 	// Status line tracking (for mutating immediately-sequential status updates)
 	private lastStatusSpacer: Spacer | undefined = undefined;
@@ -1066,6 +1072,34 @@ export class InteractiveMode {
 		}
 	}
 
+	private reconcileStartupModelScope(reportDiagnostics = true): void {
+		const scope = this.options.startupModelScope;
+		if (!scope || this.modelScopeSelectionChanged) return;
+		if (scope.source === "settings") {
+			const currentPatterns = this.settingsManager.getEnabledModels();
+			if (
+				!currentPatterns ||
+				currentPatterns.length !== scope.patterns.length ||
+				currentPatterns.some((pattern, index) => pattern !== scope.patterns[index])
+			) {
+				return;
+			}
+		}
+
+		const resolution = resolveModelScopeFromModels(
+			scope.patterns,
+			this.session.modelRuntime.getAvailableSnapshot(),
+		);
+		if (resolution.scopedModels.length > 0) {
+			this.session.setScopedModels(resolution.scopedModels);
+		}
+		if (reportDiagnostics) {
+			for (const diagnostic of resolution.diagnostics) {
+				this.showWarning(diagnostic.message);
+			}
+		}
+	}
+
 	/**
 	 * Run the interactive mode. This is the main entry point.
 	 * Initializes the UI, shows warnings, processes initial messages, and starts the interactive loop.
@@ -1077,7 +1111,12 @@ export class InteractiveMode {
 			const controller = new AbortController();
 			const timeout = setTimeout(() => controller.abort(), 15_000);
 			void refreshModelCatalogs(this.session.modelRuntime, controller.signal)
-				.then(() => this.updateAvailableProviderCount())
+				.then((result) => {
+					if (!result.aborted) {
+						this.reconcileStartupModelScope(result.errors.size === 0);
+					}
+					this.updateAvailableProviderCount();
+				})
 				.catch(() => {})
 				.finally(() => clearTimeout(timeout));
 		}
@@ -5158,6 +5197,7 @@ export class InteractiveMode {
 				{
 					onChange: (enabledIds) => {
 						selectionChanged = true;
+						this.modelScopeSelectionChanged = true;
 						updateSessionModels(enabledIds);
 					},
 					onPersist: (enabledIds) => {

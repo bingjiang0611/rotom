@@ -9,6 +9,9 @@ import { stripAnsi } from "../../../src/utils/ansi.ts";
 import { createHarness, type Harness } from "../harness.ts";
 
 const showModelsSelector = Reflect.get(InteractiveMode.prototype, "showModelsSelector") as (this: object) => void;
+const reconcileStartupModelScope = Reflect.get(InteractiveMode.prototype, "reconcileStartupModelScope") as (
+	this: object,
+) => void;
 
 function openSelector(harness: Harness, initialModels: readonly Model<Api>[]) {
 	let snapshot = initialModels;
@@ -103,5 +106,56 @@ describe("issue #7153 scoped models refresh", () => {
 		refresh.selector.handleInput("\x1b");
 		await vi.waitFor(() => expect(refresh.refreshSignal?.aborted).toBe(true));
 		expect(refresh.done).toHaveBeenCalledOnce();
+	});
+
+	it("rebuilds a persisted scope after dynamic models become available", async () => {
+		harness = await createHarness({
+			models: [
+				{ id: "cached", name: "Cached" },
+				{ id: "dynamic", name: "Dynamic" },
+			],
+		});
+		const patterns = harness.models.map((model) => `${model.provider}/${model.id}`);
+		const setScopedModels = vi.fn();
+		const showWarning = vi.fn();
+		const context = {
+			options: { startupModelScope: { patterns, source: "settings" } },
+			modelScopeSelectionChanged: false,
+			settingsManager: { getEnabledModels: () => patterns },
+			session: {
+				modelRuntime: { getAvailableSnapshot: () => harness?.models ?? [] },
+				setScopedModels,
+			},
+			showWarning,
+		};
+
+		reconcileStartupModelScope.call(context);
+
+		expect(setScopedModels).toHaveBeenCalledOnce();
+		expect(setScopedModels.mock.calls[0][0].map(({ model }: { model: Model<Api> }) => model.id)).toEqual([
+			"cached",
+			"dynamic",
+		]);
+		expect(showWarning).not.toHaveBeenCalled();
+	});
+
+	it("does not overwrite model-scope edits made during startup refresh", async () => {
+		harness = await createHarness({ models: [{ id: "dynamic", name: "Dynamic" }] });
+		const pattern = `${harness.models[0].provider}/${harness.models[0].id}`;
+		const setScopedModels = vi.fn();
+		const context = {
+			options: { startupModelScope: { patterns: [pattern], source: "settings" } },
+			modelScopeSelectionChanged: true,
+			settingsManager: { getEnabledModels: () => [pattern] },
+			session: {
+				modelRuntime: { getAvailableSnapshot: () => harness?.models ?? [] },
+				setScopedModels,
+			},
+			showWarning: vi.fn(),
+		};
+
+		reconcileStartupModelScope.call(context);
+
+		expect(setScopedModels).not.toHaveBeenCalled();
 	});
 });

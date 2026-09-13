@@ -28,7 +28,9 @@ ln -s "$pi_dist_cli" "$test_pi_bin/pi"
 cleanup_test_pi_bin() { rm -f "$test_pi_bin/pi"; rmdir "$test_pi_bin" 2>/dev/null || true; }
 trap cleanup_test_pi_bin EXIT HUP INT TERM
 
-ROTOM_PI="$pi_command" PATH="$test_pi_bin:$PATH" "$node_command" --experimental-strip-types --test --test-concurrency=1 \
+# Maintenance tests must not inherit scoped writer authority from the rotom session
+# that invoked this gate; owned-store fixtures establish their own explicit scope.
+PI_SUBAGENTS_EXECUTION_SCOPE= PI_SUBAGENTS_TEMP_ROOT= ROTOM_PI="$pi_command" PATH="$test_pi_bin:$PATH" "$node_command" --experimental-strip-types --test --test-concurrency=1 \
 	rotom/extensions/qoder/*.test.mjs \
 	rotom/runtime/process-tree.test.ts \
 	rotom/runtime/distribution.test.mjs \
