@@ -4,6 +4,12 @@
 
 当前版本使用仓内 Pi fork；构建、隔离安装、本机切换及未验证项见 [Pi fork 接入](pi-fork.md)。本页底部“首次分发”表仍是历史上游 Pi 基线，不代表新 fork 的跨平台验收。
 
+## 0.1.3 发布候选
+
+`0.1.3` 已获授权以 `latest` 发布。本次加入仅支持常规全局 npm 安装的 `rotom update` 产品升级命令，固定 npm 官方 registry 返回的精确 latest 版本，写入前要求确认其他会话已退出，并拒绝 npm link、错误 prefix、降级和 Node 24 以下运行时；扩展更新仍独立执行。footer 的 Qoder Credit 已知小计只显示三位数字，不追加 partial 后缀，统计行末显示 `sid:<sessionId>`。
+
+最终构建来源、tgz 摘要、registry 回读及验证结果仅在发布完成并逐项复核后补录；候选状态不代表 npm 已公开。
+
 ## 0.1.2 正式发布
 
 `0.1.2` 于 2026-09-14 从公开 `main` 的 `7606055` 构建并发布。registry 回读确认 `latest=0.1.2`，下载 tarball 与发布前最终产物逐字节一致：17,915 个文件，压缩后 53,378,708 bytes，解包后 168,644,009 bytes，SHA-256 为 `43270cd0a8a4be21a1d32382fa45ea8a40c1b5fbe21487600a99cd16f158e188`，npm shasum 为 `f227fd210bb8c214c2654a99e5792ca5e1f9051d`，SRI 为 `sha512-jfKywQCu8fO38tchU7xyj02ReBUCuDaB6fY30Fe3t2qcadmFhFs2q8gfSK38VpADh0i6qzQ138Rulbbx1UkdkA==`。
@@ -22,7 +28,7 @@
 
 **PASS：首次安装产物的本地打包、隔离安装与 L1/L2 验证。保留：完整跨平台/真实业务验收未执行。**
 
-当前产品元数据位于 `rotom/package.json`：`@bingjiang0611/rotom@0.1.2`、公开 npm 包、`UNLICENSED`。包内包含完整 Pi 运行时。
+当前产品元数据位于 `rotom/package.json`：`@bingjiang0611/rotom@0.1.3`、公开 npm 包、`UNLICENSED`。包内包含完整 Pi 运行时。
 
 ## 分发与启动
 
