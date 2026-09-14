@@ -10,6 +10,21 @@ import { verifyForkSource } from "./build-pi-fork.mjs";
 
 export const EMBEDDED_MODULES = "extensions/third-party/node_modules";
 const embedded = new Set([EMBEDDED_MODULES, PI_MODULES]);
+const PROXY_ENVIRONMENT = ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"];
+
+export function releaseNpmEnvironment(work, home, parent = process.env) {
+	const env = {
+		PATH: parent.PATH,
+		HOME: home,
+		NPM_CONFIG_USERCONFIG: resolve(home, "user.npmrc"),
+		NPM_CONFIG_GLOBALCONFIG: resolve(home, "global.npmrc"),
+		NPM_CONFIG_CACHE: resolve(work, "cache"),
+	};
+	for (const name of PROXY_ENVIRONMENT) {
+		if (typeof parent[name] === "string") env[name] = parent[name];
+	}
+	return env;
+}
 
 export function releaseFiles(manifest) {
 	if (!Array.isArray(manifest.files) || new Set(manifest.files).size !== manifest.files.length || !manifest.files.includes(EMBEDDED_MODULES)) throw new Error("Invalid release files declaration");
@@ -100,13 +115,7 @@ async function main() {
 		await mkdir(home);
 		await writeFile(resolve(home, "user.npmrc"), "", { mode: 0o600 });
 		await writeFile(resolve(home, "global.npmrc"), "", { mode: 0o600 });
-		const env = {
-			PATH: process.env.PATH,
-			HOME: home,
-			NPM_CONFIG_USERCONFIG: resolve(home, "user.npmrc"),
-			NPM_CONFIG_GLOBALCONFIG: resolve(home, "global.npmrc"),
-			NPM_CONFIG_CACHE: resolve(work, "cache"),
-		};
+		const env = releaseNpmEnvironment(work, home);
 		const npm = (args, cwd) => execFileSync("npm", args, { cwd, env, encoding: "utf8", timeout: 300_000, maxBuffer: 32 * 1024 * 1024 });
 		const flags = ["--ignore-scripts", "--no-audit", "--no-fund", "--registry=https://registry.npmjs.org", "--replace-registry-host=never"];
 		npm(["ci", ...flags, "--legacy-peer-deps", "--omit=optional", "--bin-links=false"], resolve(stage, "extensions/third-party"));

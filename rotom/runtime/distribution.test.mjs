@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { DISTRIBUTION_PI_VERSION, RESOURCE_DESCRIPTORS_V1, VERIFIED_PI_PACKAGE, VERIFIED_THIRD_PARTY_PACKAGES } from "./product-config.mjs";
 import { PI_MODULES, PI_RUNTIME, resolveInstalledPi, verifyDistributionContract } from "./resolve-installed-pi.mjs";
-import { EMBEDDED_MODULES, releaseFiles, stageRelease, verifyPackList } from "../scripts/pack-release.mjs";
+import { EMBEDDED_MODULES, releaseFiles, releaseNpmEnvironment, stageRelease, verifyPackList } from "../scripts/pack-release.mjs";
 
 const SOURCE = resolve(import.meta.dirname, "..");
 const manifest = JSON.parse(readFileSync(join(SOURCE, "package.json"), "utf8"));
@@ -51,6 +51,30 @@ test("distribution is public-scoped, owns its Pi fork, has no installation hooks
 	assert.deepEqual(manifest.bin, { rotom: "bin/rotom" });
 	for (const hook of ["preinstall", "install", "postinstall", "prepare"]) assert.equal(manifest.scripts[hook], undefined);
 	await verifyDistributionContract(SOURCE);
+});
+
+test("release npm environment preserves proxy routing without inheriting credentials", () => {
+	const env = releaseNpmEnvironment("/release", "/release/isolated", {
+		PATH: "/usr/bin",
+		HOME: "/source-root",
+		HTTP_PROXY: "http://proxy.example",
+		HTTPS_PROXY: "https://proxy.example",
+		ALL_PROXY: "socks5://proxy.example",
+		NO_PROXY: "localhost",
+		NPM_TOKEN: "private-token",
+		NPM_CONFIG_USERCONFIG: "/source-root/user.npmrc",
+	});
+	assert.deepEqual(env, {
+		PATH: "/usr/bin",
+		HOME: "/release/isolated",
+		NPM_CONFIG_USERCONFIG: "/release/isolated/user.npmrc",
+		NPM_CONFIG_GLOBALCONFIG: "/release/isolated/global.npmrc",
+		NPM_CONFIG_CACHE: "/release/cache",
+		HTTP_PROXY: "http://proxy.example",
+		HTTPS_PROXY: "https://proxy.example",
+		ALL_PROXY: "socks5://proxy.example",
+		NO_PROXY: "localhost",
+	});
 });
 
 test("resolves product-owned Pi using bin.pi without importing SDK", async (t) => {
