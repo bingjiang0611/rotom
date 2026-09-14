@@ -1,14 +1,20 @@
-# rotom · npm 分发准备
+# rotom · npm 分发
 
-> 本页的验证表保留首次分发接入时的结果；安装命令与当前元数据已同步源码。项目仓库为 [bingjiang0611/rotom](https://github.com/bingjiang0611/rotom)，源码公开不等于 npm 发布。后续默认组件与 macOS/Linux 安装验证见 [Subagent 默认接入](subagent-default-integration.md)，发行包默认 scope 及其未复验项见 [scoped 默认](subagent-owned-default.md)。
+> 当前稳定版是 [`@bingjiang0611/rotom@0.1.0`](https://www.npmjs.com/package/@bingjiang0611/rotom/v/0.1.0)，npm dist-tag 为 `latest`。后续默认组件与 macOS/Linux 安装验证见 [Subagent 默认接入](subagent-default-integration.md)，发行包默认 scope 及其未复验项见 [scoped 默认](subagent-owned-default.md)。
 
-当前 alpha.15 使用仓内 Pi fork；构建、隔离安装、本机切换及未验证项见 [Pi fork 接入](pi-fork.md)。本页底部“首次分发”表仍是历史上游 Pi 基线，不代表新 fork 的跨平台验收。
+当前版本使用仓内 Pi fork；构建、隔离安装、本机切换及未验证项见 [Pi fork 接入](pi-fork.md)。本页底部“首次分发”表仍是历史上游 Pi 基线，不代表新 fork 的跨平台验收。
 
-## 范围与结论
+## 0.1.0 正式发布
 
-用户授权实现“安装 rotom 即自动获得 Pi 和产品扩展”的 npm 安装产物。本轮没有公开发布、推送、真实模型调用、Chrome 安装/重载或业务页面操作，也没有更改维护者全局 CLI 与本地仓库目录。
+`0.1.0` 于 2026-09-14 从公开 `main` 的 `e121a6b` 构建并发布。registry 回读确认 `latest=0.1.0`，下载的 tarball 与发布前验证产物逐字节一致：17,915 个文件，压缩后 53,376,860 bytes，解包后 168,628,696 bytes，SHA-256 为 `4b9c47ee967e26b454a59ed684559dd23535f67d7cadcd80f3571e9a05f011aa`，SRI 为 `sha512-SacawKCkqOsayWV0Brvom6AKt+EpWdfaEH5U2l6Ff86rjbvY5KijkyC48LknMxiYqVxyImFjKZ+7ECcyaRH3XQ==`。
 
-**PASS：alpha.17 本地打包、隔离安装、L1/L2 验证、npm 公开发布与 Git 推送。保留：完整跨平台/真实业务验收未执行。**
+发布前实际 tgz 通过公开 tree/history 隐私审计、隔离安装、default/full runtime smoke、457 项 `check-personal`、从 `0.1.0-alpha.17` 升级及隔离卸载验证；`rotom --version` 输出内置 Pi fork 版本 `0.85.1-rotom.2`。没有调用真实模型、验证登录/计费、安装 Chrome relay 或操作真实业务页面，这些结果不能外推为完整跨平台或真实业务验收。
+
+## 首次分发范围与结论
+
+用户当时授权实现“安装 rotom 即自动获得 Pi 和产品扩展”的 npm 安装产物。该轮没有公开发布、推送、真实模型调用、Chrome 安装/重载或业务页面操作，也没有更改维护者全局 CLI 与本地仓库目录；后续正式发布结果以上一节为准。
+
+**PASS：首次安装产物的本地打包、隔离安装与 L1/L2 验证。保留：完整跨平台/真实业务验收未执行。**
 
 当前产品元数据位于 `rotom/package.json`：`@bingjiang0611/rotom@0.1.0`、公开 npm 包、`UNLICENSED`。包内包含完整 Pi 运行时。
 
