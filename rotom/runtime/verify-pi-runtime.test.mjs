@@ -10,6 +10,7 @@ import { verifyPiRuntime, verifyThirdPartyPackageContract } from "./verify-pi-ru
 const REPOSITORY = resolve(import.meta.dirname, "../..");
 const AGENT_DIR = resolve(REPOSITORY, "rotom");
 const LAUNCHER = resolve(AGENT_DIR, "bin/rotom-launcher");
+const PRODUCT_VERSION = JSON.parse(readFileSync(join(AGENT_DIR, "package.json"), "utf8")).version;
 
 function resourceDeclarations(agentDir = AGENT_DIR) {
 	return RESOURCE_DESCRIPTORS_V1.map((resource) => `${resource.kind}:${resolve(agentDir, resource.path)}`);
@@ -270,7 +271,10 @@ test("launcher 默认在同一 preflight 进程解析并验证 bundled Pi", () =
 		delete env.ROTOM_PI;
 		const result = spawnSync(LAUNCHER, ["--version"], { encoding: "utf8", env });
 		assert.equal(result.status, 0, result.stderr);
-		assert.equal(result.stdout, `${DISTRIBUTION_PI_VERSION}\n`);
+		assert.equal(result.stdout, `${PRODUCT_VERSION}\n`);
+		const verbose = spawnSync(LAUNCHER, ["--version", "--verbose"], { encoding: "utf8", env });
+		assert.equal(verbose.status, 0, verbose.stderr);
+		assert.equal(verbose.stdout, `rotom ${PRODUCT_VERSION}\nPi fork ${DISTRIBUTION_PI_VERSION}\nUpdate source https://registry.npmjs.org/@bingjiang0611/rotom\n`);
 	} finally {
 		rmSync(home, { recursive: true, force: true });
 	}
@@ -289,7 +293,7 @@ test("launcher 的 version probe 验证 package identity 且不启动 Pi runtime
 		},
 	});
 	assert.equal(result.status, 0, result.stderr);
-	assert.equal(result.stdout, "0.84.3\n");
+	assert.equal(result.stdout, `${PRODUCT_VERSION}\n`);
 	assert.doesNotMatch(result.stderr, /MODULE_TYPELESS_PACKAGE_JSON/u, "version probe must not emit Node module-type warnings");
 	assert.equal(existsSync(capture), false);
 }));

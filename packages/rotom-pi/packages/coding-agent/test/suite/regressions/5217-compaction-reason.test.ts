@@ -9,7 +9,7 @@ type SessionWithCompactionInternals = {
 
 interface RecordedCompactionEvent {
 	type: "session_before_compact" | "session_compact";
-	reason: "manual" | "threshold" | "overflow";
+	reason: "manual" | "extension" | "threshold" | "overflow";
 	willRetry: boolean;
 }
 
@@ -62,6 +62,19 @@ describe("issue #5217 compaction reason on extension events", () => {
 		expect(recorded).toEqual([
 			{ type: "session_before_compact", reason: "manual", willRetry: false },
 			{ type: "session_compact", reason: "manual", willRetry: false },
+		]);
+	});
+
+	it("reports extension reason for ExtensionContext.compact()", async () => {
+		const recorded: RecordedCompactionEvent[] = [];
+		const harness = await createCompactionHarness(recorded);
+		harnesses.push(harness);
+
+		await harness.session.compactFromExtension();
+
+		expect(recorded).toEqual([
+			{ type: "session_before_compact", reason: "extension", willRetry: false },
+			{ type: "session_compact", reason: "extension", willRetry: false },
 		]);
 	});
 

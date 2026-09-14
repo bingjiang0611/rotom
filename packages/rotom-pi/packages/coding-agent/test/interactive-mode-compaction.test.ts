@@ -159,7 +159,7 @@ describe("InteractiveMode compaction events", () => {
 			this: typeof fakeThis,
 			event: {
 				type: "compaction_end";
-				reason: "manual" | "threshold" | "overflow";
+				reason: "manual" | "extension" | "threshold" | "overflow";
 				result: { tokensBefore: number; summary: string; usage?: Usage } | undefined;
 				aborted: boolean;
 				willRetry: boolean;

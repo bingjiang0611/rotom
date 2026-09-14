@@ -51,7 +51,7 @@ npm install <rotom.tgz>
 - `runtime/pi/package-lock.json` 只允许六个明确声明的本地归档，其余传递依赖必须是公共 registry 且带 SHA-512；拒绝链接、隐藏的官方 Pi 副本和未知本地 URL。源码或构建器改动后须重建，pack gate 拒绝陈旧归档。
 - 默认仅加载 `runtime/pi/node_modules/`；缺失、错误版本、symlink、来源或路径漂移即停止，不搜索全局 Pi、旁边的源码树或旧安装。
 - `ROTOM_PI` 保留为显式维护覆盖；允许选择通过原有 capability gate 的兼容版本。这是非默认发行配置，评测时必须披露。
-- `rotom --version` 保留 Pi 的版本输出（0.85.1-rotom.2），rotom 自身版本见产品 package.json。
+- `rotom --version` 输出 rotom 产品版本；`rotom --version --verbose` 同时输出 rotom、Pi fork 和更新 metadata 来源。两者均先完成 runtime/resource identity probe，但不启动 Pi runtime。
 - npm 首次接入未迁移内部身份；后续品牌改名已将 Browser 协议与 native host 统一为 rotom。旧 Chrome relay 须由用户重装/重载并重跑 installer；活跃会话不迁移。上游配置、eval arm 与兼容性 schema 的保留项见 [CLAUDE.md](../../CLAUDE.md)。
 
 ### 为什么 runtime config 改为 `.mjs`

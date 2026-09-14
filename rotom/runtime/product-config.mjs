@@ -1,6 +1,6 @@
 export const VERIFIED_PI_PACKAGE = "@earendil-works/pi-coding-agent";
 export const DISTRIBUTION_PI_VERSION = "0.85.1-rotom.2";
-export const DISTRIBUTION_PI_BUILD_SHA256 = "4906ca3093312d09b35e8ba760c876e10778473e7185bb9ec28c95933bcb7321";
+export const DISTRIBUTION_PI_BUILD_SHA256 = "8b722ec103c494828a7d8ed1eb20f677e25e1d3ba94675b0da2d0ad4664b74fa";
 export const MINIMUM_NODE_VERSION = "23.6.0";
 export const VERIFIED_HERDR_PI_INTEGRATION_VERSION = "8";
 

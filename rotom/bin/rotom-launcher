@@ -22,6 +22,8 @@ fi
 version_probe=0
 if [ "$#" -eq 1 ] && [ "$1" = "--version" ]; then
 	version_probe=1
+elif [ "$#" -eq 2 ] && [ "$1" = "--version" ] && [ "$2" = "--verbose" ]; then
+	version_probe=2
 fi
 
 # Pi package commands must remain the first argv item, so they cannot be
@@ -72,7 +74,7 @@ Usage:
   rotom update <source>
   rotom update --models
 
-Update installed Pi packages or model catalogs. The bundled Pi fork is updated only with rotom itself; use npm to upgrade @bingjiang0611/rotom.
+Update installed Pi packages or model catalogs. The bundled Pi fork is updated only with rotom itself. Exit every running rotom session, upgrade @bingjiang0611/rotom from npm, then start a new session; existing workers never hot-reload a release.
 EOF
 			exit 0
 		fi
@@ -97,7 +99,7 @@ else
 	node_candidate=
 	if command -v node >/dev/null 2>&1; then
 		path_node=$(command -v node)
-		if [ "$version_probe" -eq 1 ] || "$path_node" -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major > 23 || (major === 23 && minor >= 6) ? 0 : 1)' >/dev/null 2>&1; then
+		if [ "$version_probe" -ne 0 ] || "$path_node" -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major > 23 || (major === 23 && minor >= 6) ? 0 : 1)' >/dev/null 2>&1; then
 			node_candidate=$path_node
 		fi
 	fi
@@ -267,7 +269,7 @@ for bootstrap_path in "$runtime_verifier" "$agent_dir/runtime/product-config.mjs
 done
 
 verification_mode=--runtime
-if [ "$version_probe" -eq 1 ]; then
+if [ "$version_probe" -ne 0 ]; then
 	verification_mode=--version-only
 fi
 if [ "$bundled_pi" -eq 1 ]; then
@@ -458,7 +460,11 @@ fi
 # full SDK or starting a second Node process. Runtime starts additionally check
 # public SDK capabilities.
 if [ "$version_probe" -eq 1 ]; then
-	printf '%s\n' "$verified_runtime"
+	printf '%s\n' "$ROTOM_PRODUCT_VERSION"
+	exit 0
+fi
+if [ "$version_probe" -eq 2 ]; then
+	printf 'rotom %s\nPi fork %s\nUpdate source https://registry.npmjs.org/@bingjiang0611/rotom\n' "$ROTOM_PRODUCT_VERSION" "$verified_runtime"
 	exit 0
 fi
 

@@ -154,13 +154,13 @@ export type AgentSessionEvent =
 			steering: readonly string[];
 			followUp: readonly string[];
 	  }
-	| { type: "compaction_start"; reason: "manual" | "threshold" | "overflow" }
+	| { type: "compaction_start"; reason: "manual" | "extension" | "threshold" | "overflow" }
 	| { type: "entry_appended"; entry: SessionEntry }
 	| { type: "session_info_changed"; name: string | undefined }
 	| { type: "thinking_level_changed"; level: ThinkingLevel }
 	| {
 			type: "compaction_end";
-			reason: "manual" | "threshold" | "overflow";
+			reason: "manual" | "extension" | "threshold" | "overflow";
 			result: CompactionResult | undefined;
 			aborted: boolean;
 			willRetry: boolean;
@@ -179,7 +179,7 @@ export type AgentSessionEvent =
 	| {
 			type: "summarization_retry_attempt_start";
 			source: "compaction";
-			reason: "manual" | "threshold" | "overflow";
+			reason: "manual" | "extension" | "threshold" | "overflow";
 	  }
 	| { type: "summarization_retry_finished" }
 	| { type: "bash_execution_update"; id?: string; delta: string };
@@ -1942,7 +1942,7 @@ export class AgentSession {
 		customInstructions: string | undefined,
 		signal: AbortSignal,
 		env: Record<string, string> | undefined,
-		reason: "manual" | "threshold" | "overflow",
+		reason: "manual" | "extension" | "threshold" | "overflow",
 	): Promise<CompactionResult> {
 		return compact(
 			preparation,
@@ -1967,21 +1967,24 @@ export class AgentSession {
 	}
 
 	/**
-	 * Manually compact the session context.
-	 *
-	 * This is the manual entry point used by `/compact`, RPC, and extensions. It is
-	 * separate from automatic threshold/overflow compaction, which enters through
-	 * `_checkCompaction()` and `_runAutoCompaction()`. After preparation and the
-	 * `session_before_compact` hook, both paths call the lower-level `compact()`
-	 * function imported from `./compaction/index.ts`, unless the hook cancels or
-	 * supplies a custom result.
-	 *
-	 * Aborts the current agent operation first. Manual compaction never retries or
-	 * continues the interrupted agent turn.
-	 *
-	 * @param customInstructions Optional instructions for the compaction summary
-	 */
+	/** Compact context at an explicit user or RPC request. */
 	async compact(customInstructions?: string): Promise<CompactionResult> {
+		return this._runRequestedCompaction("manual", customInstructions);
+	}
+
+	/** @internal Compact context at an extension request while preserving provenance. */
+	async compactFromExtension(customInstructions?: string): Promise<CompactionResult> {
+		return this._runRequestedCompaction("extension", customInstructions);
+	}
+
+	/**
+	 * Shared entry point for explicit compaction. Unlike threshold/overflow
+	 * compaction, this aborts the active agent operation and never retries it.
+	 */
+	private async _runRequestedCompaction(
+		reason: "manual" | "extension",
+		customInstructions?: string,
+	): Promise<CompactionResult> {
 		this._manualCompactionPending = true;
 		try {
 			await this.abort();
@@ -1990,7 +1993,7 @@ export class AgentSession {
 			throw error;
 		}
 		this._compactionAbortController = new AbortController();
-		this._emit({ type: "compaction_start", reason: "manual" });
+		this._emit({ type: "compaction_start", reason });
 		let fromExtension = false;
 
 		try {
@@ -2021,7 +2024,7 @@ export class AgentSession {
 					preparation,
 					branchEntries: pathEntries,
 					customInstructions,
-					reason: "manual",
+					reason,
 					willRetry: false,
 					signal: this._compactionAbortController.signal,
 				})) as SessionBeforeCompactResult | undefined;
@@ -2059,7 +2062,7 @@ export class AgentSession {
 					customInstructions,
 					this._compactionAbortController.signal,
 					env,
-					"manual",
+					reason,
 				);
 				summary = result.summary;
 				firstKeptEntryId = result.firstKeptEntryId;
@@ -2088,7 +2091,7 @@ export class AgentSession {
 					type: "session_compact",
 					compactionEntry: savedCompactionEntry,
 					fromExtension,
-					reason: "manual",
+					reason,
 					willRetry: false,
 				});
 			}
@@ -2105,7 +2108,7 @@ export class AgentSession {
 			this._clearManualCompactionState();
 			this._emit({
 				type: "compaction_end",
-				reason: "manual",
+				reason,
 				result: compactionResult,
 				aborted: false,
 				willRetry: false,
@@ -2118,14 +2121,14 @@ export class AgentSession {
 			this._clearManualCompactionState();
 			this._emit({
 				type: "compaction_end",
-				reason: "manual",
+				reason,
 				result: undefined,
 				aborted,
 				willRetry: false,
 				errorMessage,
 			});
 			await this._emitSessionCompactFailed({
-				reason: "manual",
+				reason,
 				errorMessage,
 				aborted,
 				willRetry: false,
@@ -2684,7 +2687,7 @@ export class AgentSession {
 				compact: (options) => {
 					void (async () => {
 						try {
-							const result = await this.compact(options?.customInstructions);
+							const result = await this.compactFromExtension(options?.customInstructions);
 							options?.onComplete?.(result);
 						} catch (error) {
 							const err = error instanceof Error ? error : new Error(String(error));
@@ -2907,7 +2910,9 @@ export class AgentSession {
 	 * the TUI needs to render the retry and recreate the underlying indicator.
 	 */
 	private _summarizationRetryCallbacks(
-		source: { source: "branchSummary" } | { source: "compaction"; reason: "manual" | "threshold" | "overflow" },
+		source:
+			| { source: "branchSummary" }
+			| { source: "compaction"; reason: "manual" | "extension" | "threshold" | "overflow" },
 	): RetryCallbacks {
 		return {
 			onRetryScheduled: (attempt, maxAttempts, delayMs, errorMessage) => {

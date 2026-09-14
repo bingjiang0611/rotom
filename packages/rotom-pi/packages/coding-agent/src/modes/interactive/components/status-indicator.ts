@@ -80,7 +80,7 @@ export class RetryStatusIndicator extends StatusIndicator {
 	}
 }
 
-export type CompactionStatusReason = "manual" | "threshold" | "overflow";
+export type CompactionStatusReason = "manual" | "extension" | "threshold" | "overflow";
 
 export class CompactionStatusIndicator extends StatusIndicator {
 	constructor(ui: TUI, reason: CompactionStatusReason) {
@@ -88,7 +88,9 @@ export class CompactionStatusIndicator extends StatusIndicator {
 		const label =
 			reason === "manual"
 				? `Compacting context... ${cancelHint}`
-				: `${reason === "overflow" ? "Context overflow detected, " : ""}Auto-compacting... ${cancelHint}`;
+				: reason === "extension"
+					? `Extension compacting context... ${cancelHint}`
+					: `${reason === "overflow" ? "Context overflow detected, " : ""}Auto-compacting... ${cancelHint}`;
 		super(
 			"compaction",
 			ui,
