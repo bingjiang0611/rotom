@@ -8,7 +8,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
-import { agentLoop, agentLoopContinue } from "../src/agent-loop.ts";
+import { agentLoop, agentLoopContinue, runAgentLoop } from "../src/agent-loop.ts";
 import { setDefaultStreamFn } from "../src/index.ts";
 import type { AgentContext, AgentEvent, AgentLoopConfig, AgentMessage, AgentTool } from "../src/types.ts";
 
@@ -366,6 +366,66 @@ describe("agentLoop with AgentMessage", () => {
 		const messages = await stream.result();
 		const toolResult = messages.find((message) => message.role === "toolResult");
 		expect(toolResult?.role === "toolResult" ? toolResult.usage : undefined).toEqual(patchedToolUsage);
+	});
+
+	it("should stop before another provider request when a turn-end listener aborts", async () => {
+		const toolSchema = Type.Object({});
+		const tool: AgentTool<typeof toolSchema, Record<string, never>> = {
+			name: "checkpoint",
+			label: "Checkpoint",
+			description: "Record a completed boundary",
+			parameters: toolSchema,
+			async execute() {
+				return { content: [{ type: "text", text: "recorded" }], details: {} };
+			},
+		};
+		const context: AgentContext = { systemPrompt: "", messages: [], tools: [tool] };
+		const config: AgentLoopConfig = {
+			model: createModel(),
+			convertToLlm: identityConverter,
+		};
+		const abortController = new AbortController();
+		let providerRequests = 0;
+		const streamFn = () => {
+			providerRequests++;
+			if (providerRequests > 1) {
+				throw new Error("provider called with an already-aborted signal");
+			}
+			const stream = new MockAssistantStream();
+			queueMicrotask(() => {
+				const message = createAssistantMessage(
+					[{ type: "toolCall", id: "checkpoint-1", name: "checkpoint", arguments: {} }],
+					"toolUse",
+				);
+				stream.push({ type: "done", reason: "toolUse", message });
+			});
+			return stream;
+		};
+		const events: AgentEvent[] = [];
+
+		const messages = await runAgentLoop(
+			[createUserMessage("Record the boundary")],
+			context,
+			config,
+			async (event) => {
+				events.push(event);
+				if (event.type === "turn_end") abortController.abort();
+			},
+			abortController.signal,
+			streamFn,
+		);
+
+		expect(providerRequests).toBe(1);
+		expect(messages.map((message) => message.role)).toEqual(["user", "assistant", "toolResult"]);
+		expect(events.at(-1)?.type).toBe("agent_end");
+		expect(
+			events.some(
+				(event) =>
+					event.type === "message_end" &&
+					event.message.role === "assistant" &&
+					(event.message.stopReason === "error" || event.message.stopReason === "aborted"),
+			),
+		).toBe(false);
 	});
 
 	it("should not execute tool calls from a length-truncated assistant message", async () => {

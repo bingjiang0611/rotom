@@ -254,6 +254,14 @@ async function runLoop(
 				return;
 			}
 
+			// A turn-end listener may abort to stop before the next provider request
+			// (for example, to compact at a completed tool boundary). Do not dispatch
+			// another request with a signal that is already aborted.
+			if (signal?.aborted) {
+				await emit({ type: "agent_end", messages: newMessages });
+				return;
+			}
+
 			pendingMessages = (await config.getSteeringMessages?.()) || [];
 		}
 
