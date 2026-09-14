@@ -1,9 +1,9 @@
 import { compare, prerelease, valid } from "semver";
 
-export const ROTOM_RELEASES_URL = "https://github.com/bingjiang0611/rotom/releases";
-const RELEASES_API = "https://api.github.com/repos/bingjiang0611/rotom/releases?per_page=20";
-export const ROTOM_UPDATE_GUIDANCE =
-	"Get the rotom release bundle. Install to a new prefix while sessions are active; do not use pi update.";
+const ROTOM_PACKAGE_NAME = "@bingjiang0611/rotom";
+const ROTOM_LATEST_API = "https://registry.npmjs.org/%40bingjiang0611%2Frotom/latest";
+export const ROTOM_PACKAGE_URL = `https://www.npmjs.com/package/${ROTOM_PACKAGE_NAME}`;
+export const ROTOM_UPDATE_GUIDANCE = `Exit rotom, then run: npm install -g --ignore-scripts ${ROTOM_PACKAGE_NAME}`;
 
 /** Launcher-owned display metadata, not an executable/resource trust decision. */
 export function getRotomVersion(): string | undefined {
@@ -15,18 +15,18 @@ export interface RotomRelease {
 	version: string;
 }
 
-export function selectRotomRelease(data: unknown, currentVersion: string): RotomRelease | undefined {
-	if (!valid(currentVersion) || !Array.isArray(data)) return undefined;
-	let newest = currentVersion;
-	for (const release of data.slice(0, 20)) {
-		if (!release || release.draft !== false || typeof release.tag_name !== "string") continue;
-		const tag = release.tag_name.replace(/^v/, "");
-		// Never render arbitrary release text/URLs or compare malformed tags as versions.
-		if (valid(tag) !== tag || (!prerelease(currentVersion) && (prerelease(tag) || release.prerelease === true)))
-			continue;
-		if (compare(tag, newest) > 0) newest = tag;
+export function selectRotomPackageUpdate(data: unknown, currentVersion: string): RotomRelease | undefined {
+	if (!data || typeof data !== "object" || valid(currentVersion) !== currentVersion) return undefined;
+	const metadata = data as { name?: unknown; version?: unknown };
+	if (
+		metadata.name !== ROTOM_PACKAGE_NAME ||
+		typeof metadata.version !== "string" ||
+		valid(metadata.version) !== metadata.version
+	) {
+		return undefined;
 	}
-	return newest === currentVersion ? undefined : { version: newest };
+	if (prerelease(currentVersion) === null && prerelease(metadata.version) !== null) return undefined;
+	return compare(metadata.version, currentVersion) > 0 ? { version: metadata.version } : undefined;
 }
 
 /** One bounded public metadata request; no credentials, install, cache or retry. */
@@ -34,10 +34,10 @@ export async function checkForNewRotomVersion(currentVersion: string): Promise<R
 	if (process.env.PI_OFFLINE || process.env.PI_SKIP_VERSION_CHECK || process.env.ROTOM_SKIP_VERSION_CHECK) {
 		return undefined;
 	}
-	if (!valid(currentVersion)) return undefined;
+	if (valid(currentVersion) !== currentVersion) return undefined;
 	try {
-		const response = await fetch(RELEASES_API, {
-			headers: { accept: "application/vnd.github+json", "User-Agent": `rotom/${currentVersion}` },
+		const response = await fetch(ROTOM_LATEST_API, {
+			headers: { accept: "application/json", "User-Agent": `rotom/${currentVersion}` },
 			signal: AbortSignal.timeout(5000),
 			redirect: "error",
 		});
@@ -59,7 +59,7 @@ export async function checkForNewRotomVersion(currentVersion: string): Promise<R
 		} finally {
 			reader.releaseLock();
 		}
-		return selectRotomRelease(JSON.parse(Buffer.concat(chunks).toString("utf8")), currentVersion);
+		return selectRotomPackageUpdate(JSON.parse(Buffer.concat(chunks).toString("utf8")), currentVersion);
 	} catch {
 		// Optional update discovery must never delay/fail the user's session.
 		return undefined;

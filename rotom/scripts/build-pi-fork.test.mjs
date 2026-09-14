@@ -4,7 +4,30 @@ import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from "node
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import test from "node:test";
-import { sourceDigest, sourceFiles, verifyForkSource } from "./build-pi-fork.mjs";
+import { forkNpmEnvironment, sourceDigest, sourceFiles, verifyForkSource } from "./build-pi-fork.mjs";
+
+test("fork npm environment keeps explicit proxy settings without inheriting unrelated state", () => {
+	assert.deepEqual(
+		forkNpmEnvironment("/work", "/sandbox", {
+			PATH: "/bin",
+			HTTPS_PROXY: "https://proxy.example",
+			NO_PROXY: "localhost",
+			https_proxy: "https://ignored.example",
+			TOKEN: "secret",
+		}),
+		{
+			PATH: "/bin",
+			HOME: "/sandbox",
+			NPM_CONFIG_CACHE: "/work/cache",
+			NPM_CONFIG_USERCONFIG: "/sandbox/npmrc",
+			NPM_CONFIG_GLOBALCONFIG: "/sandbox/global-npmrc",
+			PI_OFFLINE: "1",
+			PI_TELEMETRY: "0",
+			HTTPS_PROXY: "https://proxy.example",
+			NO_PROXY: "localhost",
+		},
+	);
+});
 
 test("fork source attestation is stable, excludes installs, and rejects source/builder drift", async (t) => {
 	const root = await realpath(await mkdtemp(resolve(tmpdir(), "rotom-fork-test-")));

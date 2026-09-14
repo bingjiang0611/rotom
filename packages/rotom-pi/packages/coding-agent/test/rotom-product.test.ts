@@ -3,9 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionManager } from "../src/core/session-manager.ts";
-import { checkForNewRotomVersion, getRotomVersion, selectRotomRelease } from "../src/utils/rotom-product.ts";
+import { checkForNewRotomVersion, getRotomVersion, selectRotomPackageUpdate } from "../src/utils/rotom-product.ts";
 
-const release = (tag_name: string, draft = false) => ({ tag_name, draft });
+const metadata = (version: string, name = "@bingjiang0611/rotom") => ({ name, version });
 beforeEach(() => {
 	for (const key of ["PI_OFFLINE", "PI_SKIP_VERSION_CHECK", "ROTOM_SKIP_VERSION_CHECK"]) vi.stubEnv(key, "");
 });
@@ -25,26 +25,20 @@ describe("rotom product metadata", () => {
 		expect(getRotomVersion()).toBe("0.1.0-alpha.11");
 	});
 
-	it("compares numeric alpha versions, ignores drafts/malformed tags and never downgrades", () => {
-		const releases = [
-			release("v0.1.0-alpha.9"),
-			release("v0.1.0-alpha.12"),
-			release("9.0.0", true),
-			release("bad-tag"),
-			null,
-		];
-		expect(selectRotomRelease(releases, "0.1.0-alpha.11")).toEqual({ version: "0.1.0-alpha.12" });
-		expect(selectRotomRelease(releases, "0.1.0-alpha.12")).toBeUndefined();
-		expect(selectRotomRelease([], "0.1.0-alpha.11")).toBeUndefined();
-		expect(selectRotomRelease({ message: "rate limited" }, "0.1.0")).toBeUndefined();
-		expect(selectRotomRelease(releases, "bad")).toBeUndefined();
+	it("selects a newer npm package version and never downgrades", () => {
+		expect(selectRotomPackageUpdate(metadata("0.1.0-alpha.12"), "0.1.0-alpha.11")).toEqual({
+			version: "0.1.0-alpha.12",
+		});
+		expect(selectRotomPackageUpdate(metadata("0.1.0-alpha.11"), "0.1.0-alpha.12")).toBeUndefined();
+		expect(selectRotomPackageUpdate(metadata("bad-tag"), "0.1.0-alpha.11")).toBeUndefined();
+		expect(selectRotomPackageUpdate(metadata("0.1.0", "other-package"), "0.1.0-alpha.11")).toBeUndefined();
+		expect(selectRotomPackageUpdate({ message: "not found" }, "0.1.0")).toBeUndefined();
+		expect(selectRotomPackageUpdate(metadata("0.1.0"), "bad")).toBeUndefined();
 	});
 
 	it("stable installs do not opt into prereleases; alpha installs can graduate to stable", () => {
-		const releases = [release("v0.2.0-alpha.1"), release("v0.1.0")];
-		expect(selectRotomRelease(releases, "0.1.0")).toBeUndefined();
-		expect(selectRotomRelease([{ ...release("v0.2.0"), prerelease: true }], "0.1.0")).toBeUndefined();
-		expect(selectRotomRelease([release("v0.1.0")], "0.1.0-alpha.11")).toEqual({ version: "0.1.0" });
+		expect(selectRotomPackageUpdate(metadata("0.2.0-alpha.1"), "0.1.0")).toBeUndefined();
+		expect(selectRotomPackageUpdate(metadata("0.1.0"), "0.1.0-alpha.17")).toEqual({ version: "0.1.0" });
 	});
 });
 
@@ -107,16 +101,16 @@ describe("rotom runtime branding", () => {
 	});
 });
 
-describe("rotom release check", () => {
-	it("makes one credential-free rotom request, not a Pi or npm version request", async () => {
-		const fetchMock = vi.fn(async () => Response.json([release("v0.1.0-alpha.12")]));
+describe("rotom package update check", () => {
+	it("makes one credential-free request to the public npm latest endpoint", async () => {
+		const fetchMock = vi.fn(async () => Response.json(metadata("0.1.0")));
 		vi.stubGlobal("fetch", fetchMock);
-		await expect(checkForNewRotomVersion("0.1.0-alpha.11")).resolves.toEqual({ version: "0.1.0-alpha.12" });
+		await expect(checkForNewRotomVersion("0.1.0-alpha.17")).resolves.toEqual({ version: "0.1.0" });
 		expect(fetchMock).toHaveBeenCalledOnce();
 		expect(fetchMock).toHaveBeenCalledWith(
-			"https://api.github.com/repos/bingjiang0611/rotom/releases?per_page=20",
+			"https://registry.npmjs.org/%40bingjiang0611%2Frotom/latest",
 			expect.objectContaining({
-				headers: { accept: "application/vnd.github+json", "User-Agent": "rotom/0.1.0-alpha.11" },
+				headers: { accept: "application/json", "User-Agent": "rotom/0.1.0-alpha.17" },
 				redirect: "error",
 				signal: expect.any(AbortSignal),
 			}),

@@ -21,7 +21,7 @@ rotom
 
 默认启动显示像素洛托姆与 rotom 产品版本，宽终端分栏展示常用命令和当前模型/项目，窄终端自动收成单栏。`quietStartup` 仍可隐藏启动面板，展开键（默认 Ctrl+O）保留完整帮助与资源列表；`rotom --version` 的 fork identity 探测合同不变。
 
-启动更新检查只读 [rotom Releases](https://github.com/bingjiang0611/rotom/releases) 的最近 20 条发行记录，比较 rotom 自身版本而非 Pi。Alpha 安装可提示较新的预发布/正式版，正式版不提示预发布；没有发行记录、网络失败或限流时不显示新版本提示。`ROTOM_SKIP_VERSION_CHECK=1`、`PI_SKIP_VERSION_CHECK=1` 或 `--offline` 可关闭检查。`/changelog` 也指向 rotom Releases，不再展示上游 Pi 更新历史。此功能不自动下载安装；请按下文升级本地发行包，**不要运行 `pi update` 或把 `rotom update` 当成产品升级器**。上述启动界面适用于随包 Pi fork；显式 `ROTOM_PI` 覆盖的外部 Pi 不保证实现该界面。
+启动更新检查只读 npm 官方 registry 中 `@bingjiang0611/rotom` 的 `latest` 元数据，比较 rotom 自身版本而非 Pi。Alpha 安装可提示 `latest` 指向的较新预发布/正式版，正式版不提示预发布；元数据不可用、网络失败或限流时不显示新版本提示。`ROTOM_SKIP_VERSION_CHECK=1`、`PI_SKIP_VERSION_CHECK=1` 或 `--offline` 可关闭检查。`/changelog` 指向 rotom 的 npm 包页面，不再展示上游 Pi 更新历史。此功能不自动下载安装；退出所有使用当前安装的 rotom 会话后，运行 `npm install -g --ignore-scripts @bingjiang0611/rotom` 升级，**不要运行 `pi update` 或把 `rotom update` 当成产品升级器**。上述启动界面适用于随包 Pi fork；显式 `ROTOM_PI` 覆盖的外部 Pi 不保证实现该界面。
 
 `/model` 与 `/scoped-models` 都优先显示模型名称，并保留 ID/provider；Shift+Tab 调整当前高亮模型的思考档位草稿，Enter 应用、Esc 丢弃，Ctrl+S 只保存默认模型。只开放 provider 声明支持的档位，不扩展 Qoder 能力边界。
 

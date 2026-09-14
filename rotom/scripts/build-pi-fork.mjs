@@ -10,6 +10,7 @@ const repository = resolve(import.meta.dirname, "../..");
 const source = resolve(repository, "packages/rotom-pi");
 const runtime = resolve(repository, "rotom/runtime/pi");
 const skipped = new Set(["node_modules", "dist", ".git", "coverage", ".DS_Store"]);
+const PROXY_ENVIRONMENT = ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"];
 
 export async function sourceFiles(root = source, prefix = "") {
 	if (root === source && prefix === "") {
@@ -53,6 +54,12 @@ export async function verifyForkSource(root = source, product = runtime) {
 	return built;
 }
 
+export function forkNpmEnvironment(work, home, parent = process.env) {
+	const env = { PATH: parent.PATH, HOME: home, NPM_CONFIG_CACHE: resolve(work, "cache"), NPM_CONFIG_USERCONFIG: resolve(home, "npmrc"), NPM_CONFIG_GLOBALCONFIG: resolve(home, "global-npmrc"), PI_OFFLINE: "1", PI_TELEMETRY: "0" };
+	for (const name of PROXY_ENVIRONMENT) if (typeof parent[name] === "string") env[name] = parent[name];
+	return env;
+}
+
 async function buildFork() {
 	const provenance = JSON.parse(await readFile(resolve(source, "FORK.json"), "utf8"));
 	const before = await sourceDigest();
@@ -66,7 +73,7 @@ async function buildFork() {
 		}
 		await mkdir(home); await mkdir(archives);
 		await writeFile(resolve(home, "npmrc"), "");
-		const env = { PATH: process.env.PATH, HOME: home, NPM_CONFIG_CACHE: resolve(work, "cache"), NPM_CONFIG_USERCONFIG: resolve(home, "npmrc"), NPM_CONFIG_GLOBALCONFIG: resolve(home, "global-npmrc"), PI_OFFLINE: "1", PI_TELEMETRY: "0" };
+		const env = forkNpmEnvironment(work, home);
 		const run = (args, cwd) => execFileSync("npm", args, { cwd, env, encoding: "utf8", timeout: 300_000, maxBuffer: 32 * 1024 * 1024 });
 		const flags = ["--ignore-scripts", "--no-audit", "--no-fund", "--registry=https://registry.npmjs.org", "--replace-registry-host=never"];
 		console.log("Pi fork: clean locked build (isolated HOME/cache, no install hooks)");

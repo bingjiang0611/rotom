@@ -9,7 +9,7 @@ import {
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 import { initTheme, setTheme, Theme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
-import { ROTOM_RELEASES_URL } from "../src/utils/rotom-product.ts";
+import { ROTOM_PACKAGE_URL } from "../src/utils/rotom-product.ts";
 
 beforeEach(() => initTheme("dark"));
 afterEach(() => {
@@ -184,7 +184,7 @@ describe("rotom startup header", () => {
 });
 
 describe("rotom interactive update integration", () => {
-	it("uses only rotom release information, not upstream notes or self-update commands", () => {
+	it("uses only rotom package information, not upstream notes or self-update commands", () => {
 		vi.stubEnv("ROTOM_PRODUCT_VERSION", "0.1.0-alpha.11");
 		const context = { chatContainer: new Container(), ui: { requestRender: vi.fn() } };
 		InteractiveMode.prototype.showNewVersionNotification.call(context as unknown as InteractiveMode, {
@@ -194,7 +194,8 @@ describe("rotom interactive update integration", () => {
 		const output = stripAnsi(context.chatContainer.render(100).join("\n"));
 		expect(output).toContain("rotom update available");
 		expect(output).toContain("0.1.0-alpha.11 → 0.1.0-alpha.12");
-		expect(output).toContain(ROTOM_RELEASES_URL);
+		expect(output).toContain(`Package: ${ROTOM_PACKAGE_URL}`);
+		expect(output).toContain("Exit rotom, then run: npm install -g --ignore-scripts @bingjiang0611/rotom");
 		expect(output).not.toMatch(/pi.dev|UPSTREAM-NOTE|Run pi update/);
 	});
 

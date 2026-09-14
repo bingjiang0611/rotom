@@ -110,7 +110,7 @@ import { getPiUserAgent } from "../../utils/pi-user-agent.ts";
 import {
 	checkForNewRotomVersion,
 	getRotomVersion,
-	ROTOM_RELEASES_URL,
+	ROTOM_PACKAGE_URL,
 	ROTOM_UPDATE_GUIDANCE,
 } from "../../utils/rotom-product.ts";
 import { killTrackedDetachedChildren } from "../../utils/shell.ts";
@@ -4407,11 +4407,11 @@ export class InteractiveMode {
 		const updateInstruction = rotomVersion
 			? theme.fg("muted", `rotom ${rotomVersion} → ${release.version}\n${ROTOM_UPDATE_GUIDANCE}`)
 			: theme.fg("muted", `New version ${release.version} is available. Run `) + action;
-		const changelogUrl = rotomVersion ? ROTOM_RELEASES_URL : "https://pi.dev/changelog";
+		const changelogUrl = rotomVersion ? ROTOM_PACKAGE_URL : "https://pi.dev/changelog";
 		const changelogLink = getCapabilities().hyperlinks
 			? hyperlink(theme.fg("accent", changelogUrl), changelogUrl)
 			: theme.fg("accent", changelogUrl);
-		const changelogLine = theme.fg("muted", "Changelog: ") + changelogLink;
+		const changelogLine = theme.fg("muted", rotomVersion ? "Package: " : "Changelog: ") + changelogLink;
 		const note = rotomVersion ? undefined : release.note?.trim();
 
 		this.chatContainer.addChild(new Spacer(1));
@@ -6385,7 +6385,7 @@ export class InteractiveMode {
 			this.chatContainer.addChild(new Spacer(1));
 			this.chatContainer.addChild(
 				new Text(
-					`${theme.bold(theme.fg("accent", `rotom v${rotomVersion}`))}\n${ROTOM_RELEASES_URL}\n${ROTOM_UPDATE_GUIDANCE}`,
+					`${theme.bold(theme.fg("accent", `rotom v${rotomVersion}`))}\n${ROTOM_PACKAGE_URL}\n${ROTOM_UPDATE_GUIDANCE}`,
 					1,
 					1,
 				),
