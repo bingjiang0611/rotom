@@ -124,6 +124,18 @@ test('HTTP failures are sanitized, never retried, never refresh credentials', as
   assert.equal(calls, 1); assert.equal(authCalls, 1);
 });
 
+test('network failures emit only a stable phase classification', async () => {
+  const diagnostics = [];
+  const fetch = createQoderFetch({
+    getToken: async () => 'fixture-token',
+    fetchImpl: async () => { throw new Error('PRIVATE network detail'); },
+    onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+  });
+  await assert.rejects(fetch(CHAT_URL, request()), { code: 'request_failed' });
+  assert.deepEqual(diagnostics, [{ code: 'transport_failure', phase: 'request' }]);
+  assert.equal(JSON.stringify(diagnostics).includes('PRIVATE'), false);
+});
+
 test('onPayload cannot bypass the adapter output bound', async () => {
   const fetch = createQoderFetch({ getToken: () => assert.fail('auth called'), fetchImpl: () => assert.fail('network called') });
   for (const max_tokens of [-1, 0, 4097, 1.5]) {

@@ -19,6 +19,8 @@ const TRACE_FLUSH_TIMEOUT_MS = 500;
 const QODER_TRACE_ERROR_MESSAGES = new Map([
 	["Qoder: upstream_error_event", "upstream_error_event"],
 	["Qoder: upstream_error_frame", "upstream_error_frame"],
+	["Qoder: request_failed", "transport_failure"],
+	["Qoder: stream_failed", "transport_failure"],
 ]);
 
 type TraceStatus = "ok" | "error" | "aborted" | "unknown";
@@ -288,7 +290,8 @@ function assistantAttributes(message: any): TraceAttributes {
 
 function qoderDiagnosticAttributes(value: unknown): TraceAttributes {
 	const diagnostic = record(value);
-	if (!diagnostic || (diagnostic.code !== "upstream_error_frame" && diagnostic.code !== "legacy_error")) return {};
+	const allowedCodes = ["upstream_error_frame", "legacy_error", "transport_failure"];
+	if (!diagnostic || !allowedCodes.includes(String(diagnostic.code))) return {};
 	const status = Number.isSafeInteger(diagnostic.status) && (diagnostic.status as number) >= 0
 		? diagnostic.status as number
 		: undefined;
@@ -296,13 +299,17 @@ function qoderDiagnosticAttributes(value: unknown): TraceAttributes {
 	const categories = diagnostic.code === "legacy_error" && Array.isArray(diagnostic.categories)
 		? allowedCategories.filter((category) => diagnostic.categories.includes(category))
 		: [];
+	const phase = diagnostic.code === "transport_failure" && (diagnostic.phase === "request" || diagnostic.phase === "stream")
+		? diagnostic.phase
+		: undefined;
 	return {
-		"pi.ai.qoder.diagnostic_code": diagnostic.code,
+		"pi.ai.qoder.diagnostic_code": String(diagnostic.code),
 		...(status !== undefined ? { "pi.ai.qoder.frame_status_code": status } : {}),
 		...(diagnostic.code === "upstream_error_frame" && typeof diagnostic.hasError === "boolean"
 			? { "pi.ai.qoder.frame_has_error": diagnostic.hasError }
 			: {}),
 		...(categories.length ? { "pi.ai.qoder.error_categories": categories } : {}),
+		...(phase ? { "pi.ai.qoder.transport_phase": phase } : {}),
 	};
 }
 

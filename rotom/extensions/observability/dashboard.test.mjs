@@ -107,6 +107,7 @@ test("scanner aggregates bounded trace metadata and skips symlinks", async (t) =
 	assert.equal(trace.summary.staleOpenCount, 0);
 	assert.equal(trace.summary.anomalyCount, 1);
 	assert.equal(trace.summary.orphan, false);
+	assert.equal(trace.summary.sessionSizeBytes, Buffer.byteLength('{"type":"session"}\n'));
 	assert.equal(trace.summary.providerCount, 1);
 	assert.equal(trace.summary.toolCount, 1);
 	assert.equal(trace.summary.toolDurationMs, 50);
@@ -139,6 +140,7 @@ test("scanner marks traces without a sibling session as orphan and excludes them
 	const scanned = await scanTraceFiles(root);
 	assert.equal(scanned.traces.length, 1);
 	assert.equal(scanned.traces[0].summary.orphan, true);
+	assert.equal(scanned.traces[0].summary.sessionSizeBytes, null);
 	const fleet = summarizeFleet(scanned.traces.map(({ summary }) => summary));
 	assert.equal(fleet.orphanCount, 1);
 	assert.equal(fleet.sessionTraceCount, 0);

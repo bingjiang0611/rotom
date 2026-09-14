@@ -371,6 +371,9 @@ export async function* qoderChunks(body, { signal, toolNames = [], onDiagnostic,
     if (buffer.trim() || lines.length || !done) fail('incomplete_stream');
   } catch (error) {
     if (error instanceof QoderError) throw error;
+    if (!signal?.aborted) {
+      try { void Promise.resolve(onDiagnostic?.({ code: 'transport_failure', phase: 'stream' })).catch(() => {}); } catch { /* Allowlisted metadata only. */ }
+    }
     throw new QoderError(signal?.aborted ? 'aborted' : 'stream_failed');
   } finally {
     signal?.removeEventListener('abort', cancel);
@@ -500,6 +503,9 @@ export async function openQoderStream({ payload, getToken, getLegacyCredential, 
   } catch (error) {
     report(controller.signal.aborted ? 'aborted' : 'error'); cleanup();
     if (error instanceof QoderError) throw error;
+    if (!controller.signal.aborted) {
+      try { void Promise.resolve(onDiagnostic?.({ code: 'transport_failure', phase: 'request' })).catch(() => {}); } catch { /* Allowlisted metadata only. */ }
+    }
     throw new QoderError(controller.signal.aborted ? 'aborted' : 'request_failed');
   }
   const frames = qoderChunks(response.body, { signal: controller.signal, onDiagnostic, onCreditUsage: usage => meter.observe(usage), allowReasoning: allowReasoning && reasoningMode?.enabled !== false, allowOpaqueReasoning: OPAQUE_MODEL_IDS.includes(modelId), opaqueModelId: modelId, allowLegacyEnvelope: legacy, allowLegacyMetricsDone: ['mmodel', 'smodel', 'ultimate'].includes(modelId), toolNames: (payload.tools ?? []).map(t => t.function?.name) });

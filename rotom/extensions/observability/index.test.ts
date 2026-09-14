@@ -299,14 +299,22 @@ test("Qoder diagnostics attach only allowlisted metadata to the active Qoder pro
 		type: "message_end",
 		message: { ...assistantMessage("error"), provider: "qoder", model: "ultimate", errorMessage: "Qoder: upstream_error_frame" },
 	}, ctx);
+	await harness.emit("before_provider_headers", { type: "before_provider_headers", headers: {} }, ctx);
+	harness.emitDiagnostic({ code: "transport_failure", phase: "request", error: "PRIVATE_TRANSPORT_DETAIL" });
+	await harness.emit("message_end", {
+		type: "message_end",
+		message: { ...assistantMessage("error"), provider: "qoder", model: "ultimate", errorMessage: "Qoder: request_failed" },
+	}, ctx);
 	await harness.emit("session_shutdown", { type: "session_shutdown", reason: "quit" }, ctx);
 
 	const text = readFileSync(localTracePathForSessionFile(sessionFile), "utf8");
-	for (const secret of ["PRIVATE_BEFORE_SPAN", "PRIVATE_PROMPT", "PRIVATE_UPSTREAM_BODY", "PRIVATE_UPSTREAM_MESSAGE", "PRIVATE_CATEGORY"]) {
+	for (const secret of ["PRIVATE_BEFORE_SPAN", "PRIVATE_PROMPT", "PRIVATE_UPSTREAM_BODY", "PRIVATE_UPSTREAM_MESSAGE", "PRIVATE_CATEGORY", "PRIVATE_TRANSPORT_DETAIL"]) {
 		assert.equal(text.includes(secret), false, `trace leaked ${secret}`);
 	}
-	const providerEnd = text.trim().split("\n").map((line) => JSON.parse(line))
-		.find((record) => record.kind === "span_end" && record.name === "pi.ai.request");
+	const providerEnds = text.trim().split("\n").map((line) => JSON.parse(line))
+		.filter((record) => record.kind === "span_end" && record.name === "pi.ai.request");
+	assert.equal(providerEnds.length, 2);
+	const providerEnd = providerEnds[0];
 	assert.ok(providerEnd);
 	assert.equal(providerEnd.status, "error");
 	assert.equal(providerEnd.attributes["pi.ai.qoder.error_code"], "upstream_error_frame");
@@ -314,6 +322,11 @@ test("Qoder diagnostics attach only allowlisted metadata to the active Qoder pro
 	assert.equal(providerEnd.attributes["pi.ai.qoder.frame_status_code"], 503);
 	assert.equal(providerEnd.attributes["pi.ai.qoder.frame_has_error"], true);
 	assert.equal(providerEnd.attributes["pi.ai.http.status_code"], 200);
+	const transportEnd = providerEnds[1];
+	assert.ok(transportEnd);
+	assert.equal(transportEnd.attributes["pi.ai.qoder.error_code"], "transport_failure");
+	assert.equal(transportEnd.attributes["pi.ai.qoder.diagnostic_code"], "transport_failure");
+	assert.equal(transportEnd.attributes["pi.ai.qoder.transport_phase"], "request");
 });
 
 test("trace write failures stay passive and surface through /trace", async (t) => {
