@@ -46,6 +46,7 @@ import { exportFromFile } from "./core/export-html/index.ts";
 import type { InlineExtension } from "./core/extensions/types.ts";
 import { applyHttpProxySettings, configureHttpDispatcher } from "./core/http-dispatcher.ts";
 import {
+	refreshUnavailableDefaultModelInScope,
 	resolveCliModel,
 	resolveModelScope,
 	resolveModelScopeWithDiagnostics,
@@ -791,9 +792,19 @@ export async function main(args: string[], options?: MainOptions) {
 		];
 
 		const modelPatterns = parsed.models ?? settingsManager.getEnabledModels();
+		const hasExistingSession = sessionManager.buildSessionContext().messages.length > 0;
 		let scopedModels: ScopedModel[] = [];
 		if (modelPatterns && modelPatterns.length > 0) {
 			if (appMode === "interactive" && isInitialRuntime && !offlineMode) {
+				if (!parsed.model && !hasExistingSession) {
+					await refreshUnavailableDefaultModelInScope({
+						patterns: modelPatterns,
+						defaultProvider: settingsManager.getDefaultProvider(),
+						defaultModelId: settingsManager.getDefaultModel(),
+						modelRuntime,
+						signal: AbortSignal.timeout(15_000),
+					});
+				}
 				const resolution = await resolveModelScopeWithDiagnostics(modelPatterns, modelRuntime, {
 					signal: AbortSignal.timeout(15_000),
 				});
@@ -813,13 +824,7 @@ export async function main(args: string[], options?: MainOptions) {
 			options: sessionOptions,
 			cliThinkingFromModel,
 			diagnostics: sessionOptionDiagnostics,
-		} = buildSessionOptions(
-			parsed,
-			scopedModels,
-			sessionManager.buildSessionContext().messages.length > 0,
-			modelRuntime,
-			settingsManager,
-		);
+		} = buildSessionOptions(parsed, scopedModels, hasExistingSession, modelRuntime, settingsManager);
 		diagnostics.push(...sessionOptionDiagnostics);
 
 		if (parsed.apiKey) {

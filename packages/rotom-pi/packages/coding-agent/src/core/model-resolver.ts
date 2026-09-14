@@ -360,6 +360,31 @@ export function resolveModelScopeFromModels(
 	return { scopedModels, diagnostics };
 }
 
+/**
+ * Refresh only the saved default's provider when that model belongs to the configured
+ * scope but is not yet available. Dynamic providers may intentionally avoid persisting
+ * account catalogs, so availability checks alone cannot restore their defaults at startup.
+ */
+export async function refreshUnavailableDefaultModelInScope(options: {
+	patterns: string[];
+	defaultProvider?: string;
+	defaultModelId?: string;
+	modelRuntime: ModelRuntime;
+	signal?: AbortSignal;
+}): Promise<void> {
+	const { patterns, defaultProvider, defaultModelId, modelRuntime, signal } = options;
+	if (!defaultProvider || !defaultModelId || !modelRuntime.hasConfiguredAuth(defaultProvider)) return;
+
+	const defaultModel = modelRuntime.getModel(defaultProvider, defaultModelId);
+	if (!defaultModel) return;
+	if (modelRuntime.getAvailableSnapshot().some((model) => modelsAreEqual(model, defaultModel))) return;
+
+	const configuredScope = resolveModelScopeFromModels(patterns, modelRuntime.getModels()).scopedModels;
+	if (!configuredScope.some(({ model }) => modelsAreEqual(model, defaultModel))) return;
+
+	await modelRuntime.refresh({ allowNetwork: true, providers: [defaultProvider], signal });
+}
+
 export async function resolveModelScopeWithDiagnostics(
 	patterns: string[],
 	modelRuntime: ModelRuntime,

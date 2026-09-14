@@ -2,7 +2,7 @@ import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Agent } from "@earendil-works/pi-agent-core";
-import type { Model } from "@earendil-works/pi-ai";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import { getModel, streamSimple } from "@earendil-works/pi-ai/compat";
 import { getBuiltinModels, getBuiltinProviders } from "@earendil-works/pi-ai/providers/all";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -12,6 +12,7 @@ import {
 	defaultModelPerProvider,
 	findInitialModel,
 	parseModelPattern,
+	refreshUnavailableDefaultModelInScope,
 	resolveCliModel,
 	resolveModelScope,
 	resolveModelScopeWithDiagnostics,
@@ -221,6 +222,61 @@ describe("parseModelPattern", () => {
 });
 
 describe("resolveModelScopeWithDiagnostics", () => {
+	test("refreshes an unavailable saved default when its declared model is in the persisted scope", async () => {
+		let availableModels: Model<Api>[] = [mockModels[1]];
+		const refresh = vi.fn(async () => {
+			availableModels = [...mockModels];
+			return { aborted: false, errors: new Map() };
+		});
+		const runtime = {
+			hasConfiguredAuth: (provider: string) => provider === "anthropic",
+			getModel: (provider: string, id: string) =>
+				allModels.find((model) => model.provider === provider && model.id === id),
+			getAvailableSnapshot: () => availableModels,
+			getModels: () => allModels,
+			getAvailable: () => availableModels,
+			refresh,
+		} as unknown as Parameters<typeof refreshUnavailableDefaultModelInScope>[0]["modelRuntime"];
+		const signal = new AbortController().signal;
+
+		await refreshUnavailableDefaultModelInScope({
+			patterns: ["openai/gpt-4o", "anthropic/claude-sonnet-4-5"],
+			defaultProvider: "anthropic",
+			defaultModelId: "claude-sonnet-4-5",
+			modelRuntime: runtime,
+			signal,
+		});
+		const result = await resolveModelScopeWithDiagnostics(["openai/gpt-4o", "anthropic/claude-sonnet-4-5"], runtime);
+
+		expect(refresh).toHaveBeenCalledOnce();
+		expect(refresh).toHaveBeenCalledWith({ allowNetwork: true, providers: ["anthropic"], signal });
+		expect(result.scopedModels.map(({ model }) => `${model.provider}/${model.id}`)).toEqual([
+			"openai/gpt-4o",
+			"anthropic/claude-sonnet-4-5",
+		]);
+	});
+
+	test("does not refresh an unavailable saved default outside the persisted scope", async () => {
+		const refresh = vi.fn();
+		const runtime = {
+			hasConfiguredAuth: () => true,
+			getModel: (provider: string, id: string) =>
+				allModels.find((model) => model.provider === provider && model.id === id),
+			getAvailableSnapshot: () => [mockModels[1]],
+			getModels: () => allModels,
+			refresh,
+		} as unknown as Parameters<typeof refreshUnavailableDefaultModelInScope>[0]["modelRuntime"];
+
+		await refreshUnavailableDefaultModelInScope({
+			patterns: ["openai/gpt-4o"],
+			defaultProvider: "anthropic",
+			defaultModelId: "claude-sonnet-4-5",
+			modelRuntime: runtime,
+		});
+
+		expect(refresh).not.toHaveBeenCalled();
+	});
+
 	test("returns scoped models and structured diagnostics without writing console warnings", async () => {
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		try {
