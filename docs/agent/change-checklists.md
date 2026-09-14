@@ -44,7 +44,7 @@
 - 模型声明与 onPayload 后检查是否同时拒绝未验证图片、effort、opaque 形状、BYOK/custom 路由与 endpoint 漂移？图片/272K 管理窗口是否仅限 Ultimate/Kimi-K3/DeepSeek-V4-Flash 与当前目录交集，固定400K selector、输出≤4096，覆盖原生≥272K历史后的回答预算、用户多图/工具图片/磁盘恢复及 base64/格式/数量/大小/角色/别名拒绝？13 条 reasoning 路由中的可调档位是否严格取实测白名单与当前目录交集，并核对 simple/raw API、post-hook 与 COSY 的同一选中 effort/enable_thinking？其余仍固定 enabled，能力标记不替代选中模式；Ultimate/Sonus 的不同加密 item 经原生 signature 完整保存/回传并检查模型 provenance；十条 legacy key（含 Ultimate）固定 endpoint，认证元数据来自同一次账号绑定凭据读取，不作回退重试。不把目录的容量/模态声明直接启用。Sonus 与 Ultimate COSY 的 `target_hash` 是否按独立格式完整保留，并验证旧 Ultimate 双字段会话兼容？MiniMax/Sonus/Ultimate 的 metrics 终止桥接是否同时要求 finish、usage、合法工具和精确尾帧，且不按 EOF 补成功？Ultimate 旧 direct 串行工具 index 重用是否只在完整参数/新且非碎片 ID/已声明函数边界规范化，不改变工具 ID 或放过冲突？SSE 前缀续行是否只恢复同 frame 内已有字节，不跨空行或吞迟到错误？
 - 默认 browser 与显式 `ROTOM_QODER_AUTH=qodercli` 只读兼容模式是否隔离？浏览器令牌是否由 Pi 原生存储/串行刷新，刷新一次性记录是否跨重启阻止 unknown 重放？新登录/换来源须新会话，续期保留绑定。跨账号阻断、取消、不泄露令牌、费用未知是否保留？分发含 provider 不代表上游授权或新模型已验证。
 - Credit 是否仅接收完整流的有限非负数与显式 billable；累积帧不重复相加，取消/尾帧错误/缺失保持 unknown，observer 不影响推理？是否在源 EOF 验证结束前扣留 DONE？同请求去重/冲突、分支树与继承 session、原地换 session/复用 ctx、过期作用域和不可表示的总额是否覆盖？
-- `/qoder-credits` 是否在无 UI/作用域、错账号或坏绑定时先拒绝，固定只读 endpoint、不重试、不换模型；余额只 UI 通知，不进 session message、压缩或分支摘要？Credit 小计是否标 partial/billable-reported，并在窄终端仍保留 USD unknown 提示？
+- `/qoder-credits` 是否在无 UI/作用域、错账号或坏绑定时先拒绝，固定只读 endpoint、不重试、不换模型；余额只 UI 通知，不进 session message、压缩或分支摘要？Credit 小计是否仍按 partial/billable-reported 语义计算；footer 是否只显示三位小数、仅在没有已知小计时保留 `Cr?`，且不把它冒充 USD？
 - 验证脚本在 `experiments/qoder-provider/`，单测在 `rotom/extensions/qoder/`；迁移后不得调用旧单测路径。
 
 ### Third-party / deferred tools

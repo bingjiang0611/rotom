@@ -216,7 +216,7 @@ export class FooterComponent implements Component {
 				this.session.sessionManager.getSessionId(),
 			);
 			if (creditSummary.credits !== null) {
-				statsParts.push(`Cr${creditSummary.credits.toFixed(3)}${creditSummary.unknown > 0 ? " partial" : ""}`);
+				statsParts.push(`Cr${creditSummary.credits.toFixed(3)}`);
 			} else {
 				const hasObservations = creditSummary.reported > 0 || creditSummary.unknown > 0;
 				statsParts.push(hasObservations ? "Cr?" : "Cr0.000");
@@ -275,6 +275,8 @@ export class FooterComponent implements Component {
 			rightSideWithoutProvider =
 				thinkingLevel === "off" ? `${modelName} • thinking off` : `${modelName} • ${thinkingLevel}`;
 		}
+		const sessionId = sanitizeStatusText(this.session.sessionManager.getSessionId());
+		rightSideWithoutProvider = `${rightSideWithoutProvider} • sid:${sessionId}`;
 
 		// Prepend the provider in parentheses if there are multiple providers and there's enough room
 		let rightSide = rightSideWithoutProvider;

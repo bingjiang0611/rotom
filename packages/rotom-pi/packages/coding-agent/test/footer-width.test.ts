@@ -245,9 +245,10 @@ describe("FooterComponent width handling", () => {
 
 		expect(stats).toContain("Cr1.235");
 		expect(stats).not.toContain("$");
+		expect(stats.trimEnd()).toMatch(/sid:test-session$/u);
 	});
 
-	it("labels a known Qoder subtotal as partial when another request is unknown", () => {
+	it("shows only the known Qoder subtotal when another request is unknown", () => {
 		const session = createSession({
 			sessionName: "",
 			provider: "qoder",
@@ -283,8 +284,8 @@ describe("FooterComponent width handling", () => {
 		const footer = new FooterComponent(session, createFooterData(1));
 		const stats = stripAnsi(footer.render(120)[1]);
 
-		expect(stats).toContain("Cr4.737 partial");
-		expect(stats).not.toContain("+?");
+		expect(stats).toContain("Cr4.737");
+		expect(stats).not.toMatch(/Cr4\.737(?:\+\?| partial)/u);
 	});
 
 	it("keeps unknown Qoder metering explicit", () => {
