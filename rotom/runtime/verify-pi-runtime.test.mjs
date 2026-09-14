@@ -61,7 +61,7 @@ function installRejectingLowNode(root) {
 if [ "$1" = "-e" ]; then
 	exec ${JSON.stringify(process.execPath)} "$@"
 fi
-echo "rotom: Node runtime 22.23.1 不受支持；要求 >=23.6.0" >&2
+echo "rotom: Node runtime 22.23.1 不受支持；要求 >=24.0.0" >&2
 exit 1
 `);
 	chmodSync(executable, 0o700);
@@ -103,7 +103,7 @@ test("精确 package identity、semver、bin、public exports 和 capability 通
 test("拒绝低于产品要求的 Node runtime", () => withFakePi({}, async ({ executable }) => {
 	await assert.rejects(
 		verifyPiRuntime({ executable, agentDir: AGENT_DIR, resourceDeclarations: resourceDeclarations(), nodeVersion: "23.5.9" }),
-		/Node runtime .*要求 >=23\.6\.0/,
+		/Node runtime .*要求 >=24\.0\.0/,
 	);
 }));
 
@@ -649,7 +649,7 @@ test("launcher 默认低版本 Node 拒绝，ROTOM_NODE 选择的 Node 同时运
 		delete defaultEnv.ROTOM_NODE;
 		const rejected = spawnSync(LAUNCHER, ["--version"], { cwd: businessCwd, encoding: "utf8", env: defaultEnv });
 		assert.notEqual(rejected.status, 0);
-		assert.match(rejected.stderr, /Node runtime 22\.23\.1.*要求 >=23\.6\.0/);
+		assert.match(rejected.stderr, /Node runtime 22\.23\.1.*要求 >=24\.0\.0/);
 
 		execFileSync(LAUNCHER, ["--print", "node override", "--", "tail"], {
 			cwd: businessCwd,

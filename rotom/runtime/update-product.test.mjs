@@ -11,6 +11,7 @@ import {
 	ROTOM_LATEST_URL,
 	ROTOM_PACKAGE_NAME,
 	selectLatestVersion,
+	supportsProductNodeVersion,
 	updateRotom,
 } from "./update-product.mjs";
 
@@ -37,6 +38,13 @@ test("semantic version ordering covers stable and prerelease releases", () => {
 	assert.equal(compareSemver("0.1.2-alpha.2", "0.1.2-alpha.10"), -1);
 	assert.equal(compareSemver("0.1.2+build.2", "0.1.2+build.1"), 0);
 	assert.throws(() => compareSemver("latest", "0.1.2"), /invalid semantic version/u);
+});
+
+test("product updater follows the package Node 24+ contract", () => {
+	assert.equal(supportsProductNodeVersion("23.11.1"), false);
+	assert.equal(supportsProductNodeVersion("24.0.0"), true);
+	assert.equal(supportsProductNodeVersion("25.1.0"), true);
+	assert.equal(supportsProductNodeVersion("invalid"), false);
 });
 
 test("latest metadata requires the public rotom package identity", () => {

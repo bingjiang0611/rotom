@@ -54,6 +54,11 @@ export function selectLatestVersion(metadata) {
 	return parseSemver(metadata.version) ? metadata.version : undefined;
 }
 
+export function supportsProductNodeVersion(version) {
+	const [major] = version.split(".").map(Number);
+	return Number.isSafeInteger(major) && major >= 24;
+}
+
 async function readBoundedJson(response) {
 	if (!response.ok || !response.body) throw new Error(`registry returned HTTP ${response.status}`);
 	const reader = response.body.getReader();
@@ -111,6 +116,9 @@ async function confirmUpdate() {
 }
 
 export async function updateRotom(options = {}) {
+	if (!supportsProductNodeVersion(process.versions.node)) {
+		throw new Error(`Node runtime ${process.versions.node} is unsupported; rotom requires >=24.0.0`);
+	}
 	const packageRoot = await realpath(options.packageRoot ?? resolve(dirname(fileURLToPath(import.meta.url)), ".."));
 	const current = await readProductManifest(packageRoot);
 	const npmCommand = options.npmCommand ?? join(dirname(process.execPath), process.platform === "win32" ? "npm.cmd" : "npm");

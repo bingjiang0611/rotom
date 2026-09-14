@@ -123,12 +123,12 @@ else
 	node_candidate=
 	if command -v node >/dev/null 2>&1; then
 		path_node=$(command -v node)
-		if [ "$version_probe" -ne 0 ] || "$path_node" -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major > 23 || (major === 23 && minor >= 6) ? 0 : 1)' >/dev/null 2>&1; then
+		if [ "$version_probe" -ne 0 ] || "$path_node" -e 'const [major] = process.versions.node.split(".").map(Number); process.exit(major >= 24 ? 0 : 1)' >/dev/null 2>&1; then
 			node_candidate=$path_node
 		fi
 	fi
 	if [ -z "$node_candidate" ]; then
-		echo "rotom: 找不到兼容的 Node；请安装 Node >=23.6.0 或设置 ROTOM_NODE=/absolute/path/to/node" >&2
+		echo "rotom: 找不到兼容的 Node；请安装 Node >=24.0.0 或设置 ROTOM_NODE=/absolute/path/to/node" >&2
 		exit 127
 	fi
 	case "$node_candidate" in
