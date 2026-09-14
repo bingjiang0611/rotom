@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac, randomUUID } from 'node:crypto';
-import { installQoderExtension, BINDING_TYPE } from './session-policy.mjs';
+import { installQoderExtension, BINDING_TYPE, QODER_DIAGNOSTIC_EVENT } from './session-policy.mjs';
 import { CATALOG_TTL_MS } from './catalog.mjs';
 import { CATALOG_URL } from './catalog-auth.mjs';
 import { CHAT_URL } from './transport.mjs';
@@ -14,10 +14,11 @@ async function fixture(t, { authMode = 'qodercli', modelId = 'auto', modelPatch 
   const oauth = { type: 'oauth', qoderAuthVersion: 1, access: 'fixture', refresh: 'fixture-refresh', expires: Date.now() + 86400000, refreshExpires: Date.now() + 172800000, machineId, uid, org,
     fingerprint: createHmac('sha256', machineId).update(JSON.stringify(['rotom-qoder-browser-v1', uid, org])).digest('hex') };
   let credential = { accessToken: 'fixture', fingerprint: oauth.fingerprint, machineId, uid, org };
-  const handlers = new Map(), commands = new Map(), notices = [], entries = [];
+  const handlers = new Map(), commands = new Map(), notices = [], entries = [], diagnostics = [];
   let catalog = [entry(modelId, modelPatch)], catalogReads = 0, dispatches = 0, refreshCalls = 0, catalogHook, chatHook;
   let sessionId = 'fixture-session';
   const pi = {
+    events: { emit(channel, data) { diagnostics.push({ channel, data }); } },
     on(name, fn) { handlers.set(name, [...(handlers.get(name) ?? []), fn]); },
     registerProvider() {}, registerCommand(name, command) { commands.set(name, command); },
     appendEntry(customType, data) { entries.push({ type: 'custom', customType, data }); },
@@ -53,7 +54,7 @@ async function fixture(t, { authMode = 'qodercli', modelId = 'auto', modelPatch 
     const events = []; for await (const event of stream) events.push(event);
     return events.at(-1);
   };
-  return { provider, ctx, model, run, emit, commands, notices, entries,
+  return { provider, ctx, model, run, emit, commands, notices, entries, diagnostics,
     expire: () => t.mock.timers.tick(CATALOG_TTL_MS + 1),
     counts: () => ({ catalogReads, dispatches, refreshCalls }),
     setCatalog: value => { catalog = value; }, setCatalogHook: fn => { catalogHook = fn; }, setChatHook: fn => { chatHook = fn; },
@@ -86,6 +87,16 @@ test('refresh failure keeps stale catalog but blocks inference without retry or 
   await f.commands.get('qoder-models').handler('', f.ctx);
   assert.equal((await f.run()).type, 'done');
   assert.deepEqual(f.counts(), { catalogReads: 3, dispatches: 1, refreshCalls: 3 });
+});
+
+test('upstream error frames publish bounded diagnostics without the private body', async t => {
+  const f = await fixture(t);
+  f.setChatHook(() => new Response('data: '+JSON.stringify({ code: 503, error: { message: 'PRIVATE_UPSTREAM_BODY' } })+'\n\n', { headers: { 'content-type': 'text/event-stream' } }));
+  const result = await f.run();
+  assert.equal(result.type, 'error');
+  assert.equal(result.error.errorMessage, 'Qoder: upstream_error_frame');
+  assert.deepEqual(f.diagnostics, [{ channel: QODER_DIAGNOSTIC_EVENT, data: { code: 'upstream_error_frame', status: 503, hasError: true } }]);
+  assert.doesNotMatch(JSON.stringify(f.diagnostics), /PRIVATE_UPSTREAM_BODY/);
 });
 
 for (const changed of [[entry('lite')], [entry('auto', { enable: false })], [entry('auto', { format: 'anthropic' })]]) test('removed, disabled or unsupported model never dispatches after refresh', async t => {

@@ -13,8 +13,13 @@ const CAPABILITY_GROUP_BY_TOOL = new Map(
 );
 
 export const LOCAL_TRACE_SCHEMA_V1 = "rotom-local-trace/v1";
+export const QODER_DIAGNOSTIC_EVENT = "rotom:qoder:diagnostic:v1";
 const TRACE_DIRECTORY = "observability";
 const TRACE_FLUSH_TIMEOUT_MS = 500;
+const QODER_TRACE_ERROR_MESSAGES = new Map([
+	["Qoder: upstream_error_event", "upstream_error_event"],
+	["Qoder: upstream_error_frame", "upstream_error_frame"],
+]);
 
 type TraceStatus = "ok" | "error" | "aborted" | "unknown";
 type TraceAttribute = string | number | boolean | string[] | number[] | boolean[];
@@ -268,12 +273,36 @@ function statusFromAssistant(message: any): TraceStatus {
 
 function assistantAttributes(message: any): TraceAttributes {
 	if (!message || message.role !== "assistant") return {};
+	const qoderErrorCode = message.provider === "qoder" && typeof message.errorMessage === "string"
+		? QODER_TRACE_ERROR_MESSAGES.get(message.errorMessage)
+		: undefined;
 	return {
 		...(boundedTag(message.provider, 128) ? { "pi.ai.provider": boundedTag(message.provider, 128)! } : {}),
 		...(boundedTag(message.model) ? { "pi.ai.model": boundedTag(message.model)! } : {}),
 		...(boundedTag(message.api, 128) ? { "pi.ai.api": boundedTag(message.api, 128)! } : {}),
 		...(boundedTag(message.stopReason, 64) ? { "pi.ai.response.stop_reason": boundedTag(message.stopReason, 64)! } : {}),
+		...(qoderErrorCode ? { "pi.ai.qoder.error_code": qoderErrorCode } : {}),
 		...usageAttributes(message.usage),
+	};
+}
+
+function qoderDiagnosticAttributes(value: unknown): TraceAttributes {
+	const diagnostic = record(value);
+	if (!diagnostic || (diagnostic.code !== "upstream_error_frame" && diagnostic.code !== "legacy_error")) return {};
+	const status = Number.isSafeInteger(diagnostic.status) && (diagnostic.status as number) >= 0
+		? diagnostic.status as number
+		: undefined;
+	const allowedCategories = ["tool", "content", "null", "reasoning", "model", "parameter", "quota", "permission", "invalid"];
+	const categories = diagnostic.code === "legacy_error" && Array.isArray(diagnostic.categories)
+		? allowedCategories.filter((category) => diagnostic.categories.includes(category))
+		: [];
+	return {
+		"pi.ai.qoder.diagnostic_code": diagnostic.code,
+		...(status !== undefined ? { "pi.ai.qoder.frame_status_code": status } : {}),
+		...(diagnostic.code === "upstream_error_frame" && typeof diagnostic.hasError === "boolean"
+			? { "pi.ai.qoder.frame_has_error": diagnostic.hasError }
+			: {}),
+		...(categories.length ? { "pi.ai.qoder.error_categories": categories } : {}),
 	};
 }
 
@@ -431,6 +460,8 @@ class LocalTraceRecorderV1 {
 	private providerFirstUpdateAt?: number;
 	private providerFirstContentAt?: number;
 	private providerResponseAt?: number;
+	private providerName?: string;
+	private providerDiagnostics: TraceAttributes = {};
 	private startupSpan?: ActiveSpan;
 	private prefillSpan?: ActiveSpan;
 	private streamPhaseSpan?: ActiveSpan;
@@ -529,6 +560,8 @@ class LocalTraceRecorderV1 {
 		this.providerFirstUpdateAt = undefined;
 		this.providerFirstContentAt = undefined;
 		this.providerResponseAt = undefined;
+		this.providerName = boundedTag((ctx.model as any)?.provider, 128);
+		this.providerDiagnostics = {};
 		const digest = typeof surface["pi.tools.schema_digest"] === "string" ? surface["pi.tools.schema_digest"] : undefined;
 		this.providerSpan = this.startSpan("pi.ai.request", parent, {
 			...modelAttributes(ctx),
@@ -541,6 +574,11 @@ class LocalTraceRecorderV1 {
 		this.startupSpan = this.startSpan("pi.ai.startup", this.providerSpan, {
 			"pi.measurement.scope": "client_observed",
 		});
+	}
+
+	qoderDiagnostic(value: unknown): void {
+		if (!this.providerSpan || this.providerName !== "qoder") return;
+		this.providerDiagnostics = { ...this.providerDiagnostics, ...qoderDiagnosticAttributes(value) };
 	}
 
 	providerResponse(status: unknown): void {
@@ -711,10 +749,13 @@ class LocalTraceRecorderV1 {
 			...(this.providerResponseAt !== undefined ? { "pi.ai.http.time_to_response_ms": Math.max(0, this.providerResponseAt - this.providerSpan.startedAt) } : {}),
 			...(this.providerFirstUpdateAt !== undefined ? { "pi.ai.stream.time_to_first_chunk_ms": Math.max(0, this.providerFirstUpdateAt - this.providerSpan.startedAt) } : {}),
 			...(this.providerFirstContentAt !== undefined ? { "pi.ai.stream.time_to_first_content_ms": Math.max(0, this.providerFirstContentAt - this.providerSpan.startedAt) } : {}),
+			...this.providerDiagnostics,
 			...attributes,
 		});
 		this.providerSpan = undefined;
 		this.providerStatus = undefined;
+		this.providerName = undefined;
+		this.providerDiagnostics = {};
 		this.providerFirstUpdateAt = undefined;
 		this.providerFirstContentAt = undefined;
 		this.providerResponseAt = undefined;
@@ -775,6 +816,8 @@ export function createObservabilityExtensionV1() {
 				ctx.ui.notify(message, writer?.healthy === false ? "warning" : "info");
 			},
 		});
+
+		pi.events.on(QODER_DIAGNOSTIC_EVENT, (diagnostic) => recorder?.qoderDiagnostic(diagnostic));
 
 		pi.on("session_start", async (event, ctx) => {
 			if (recorder) await recorder.shutdown("reload");

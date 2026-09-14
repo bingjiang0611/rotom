@@ -256,7 +256,10 @@ export async function* qoderChunks(body, { signal, toolNames = [], onDiagnostic,
       try { void Promise.resolve(onDiagnostic?.({ code: 'invalid_sse_json', bytes: encoder.encode(data).length, position, category, fieldCounts })).catch(() => {}); } catch { /* Optional diagnostics cannot change inference. */ }
       fail('invalid_sse_json');
     }
-    if (!record(chunk) || chunk.error || (chunk.code !== undefined && chunk.code !== 0 && chunk.code !== 200)) fail('upstream_error_frame');
+    if (!record(chunk) || chunk.error || (chunk.code !== undefined && chunk.code !== 0 && chunk.code !== 200)) {
+      try { void Promise.resolve(onDiagnostic?.({ code: 'upstream_error_frame', status: Number.isSafeInteger(chunk?.code) ? chunk.code : null, hasError: Boolean(chunk?.error) })).catch(() => {}); } catch { /* Allowlisted metadata only. */ }
+      fail('upstream_error_frame');
+    }
     if (!Array.isArray(chunk.choices)) fail('invalid_choices');
     if (chunk.choices.length > 1) fail('multiple_choices_unsupported');
     const choices = chunk.choices.map(choice => {

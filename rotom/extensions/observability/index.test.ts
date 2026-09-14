@@ -5,15 +5,23 @@ import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { classifyFaultSide, createObservabilityExtensionV1, LOCAL_TRACE_SCHEMA_V1, LocalTraceWriterV1, localTracePathForSessionFile, toolSurfaceMetrics } from "./index.ts";
+import { classifyFaultSide, createObservabilityExtensionV1, LOCAL_TRACE_SCHEMA_V1, LocalTraceWriterV1, localTracePathForSessionFile, QODER_DIAGNOSTIC_EVENT, toolSurfaceMetrics } from "./index.ts";
 
 type Handler = (event: any, ctx: any) => unknown | Promise<unknown>;
 
 function extensionHarness(toolApi: Record<string, unknown> = {}) {
 	const handlers = new Map<string, Handler[]>();
+	const eventHandlers = new Map<string, Array<(data: unknown) => void>>();
 	const commands = new Map<string, any>();
 	const pi = {
 		...toolApi,
+		events: {
+			emit(channel: string, data: unknown) { for (const handler of eventHandlers.get(channel) ?? []) handler(data); },
+			on(channel: string, handler: (data: unknown) => void) {
+				eventHandlers.set(channel, [...(eventHandlers.get(channel) ?? []), handler]);
+				return () => eventHandlers.set(channel, (eventHandlers.get(channel) ?? []).filter((candidate) => candidate !== handler));
+			},
+		},
 		on(event: string, handler: Handler) {
 			const current = handlers.get(event) ?? [];
 			current.push(handler);
@@ -25,6 +33,7 @@ function extensionHarness(toolApi: Record<string, unknown> = {}) {
 	return {
 		handlers,
 		commands,
+		emitDiagnostic(value: unknown) { pi.events.emit(QODER_DIAGNOSTIC_EVENT, value); },
 		async emit(event: string, value: any, ctx: any) {
 			for (const handler of handlers.get(event) ?? []) await handler(value, ctx);
 		},
@@ -252,6 +261,59 @@ test("local observability writes correlated metadata spans without prompt, args,
 
 	await harness.commands.get("trace").handler("", ctx);
 	assert.match(notices.at(-1)?.message ?? "", /records=\d+ dropped=0 healthy=true/u);
+});
+
+test("Qoder diagnostics attach only allowlisted metadata to the active Qoder provider span", async (t) => {
+	const root = mkdtempSync(join(tmpdir(), "rotom-observability-qoder-"));
+	t.after(() => rm(root, { recursive: true, force: true }));
+	const sessionDirectory = join(root, "sessions");
+	mkdirSync(sessionDirectory, { recursive: true });
+	const sessionFile = join(sessionDirectory, "session.jsonl");
+	writeFileSync(sessionFile, "{\"type\":\"session\"}\n", { mode: 0o600 });
+	const harness = extensionHarness();
+	const ctx = {
+		mode: "print",
+		model: { provider: "qoder", id: "ultimate", api: "openai-completions" },
+		thinkingLevel: "high",
+		sessionManager: { getSessionFile: () => sessionFile, getSessionId: () => "qoder-session" },
+		getContextUsage: () => ({ tokens: 35_472, contextWindow: 272_000, percent: 13.04 }),
+		ui: { notify() {} },
+	};
+
+	harness.emitDiagnostic({ code: "upstream_error_frame", status: 418, hasError: true, body: "PRIVATE_BEFORE_SPAN" });
+	await harness.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
+	await harness.emit("before_agent_start", { type: "before_agent_start", prompt: "PRIVATE_PROMPT", systemPrompt: "", images: [] }, ctx);
+	await harness.emit("agent_start", { type: "agent_start" }, ctx);
+	await harness.emit("turn_start", { type: "turn_start", turnIndex: 0 }, ctx);
+	await harness.emit("before_provider_headers", { type: "before_provider_headers", headers: {} }, ctx);
+	await harness.emit("after_provider_response", { type: "after_provider_response", status: 200, headers: {} }, ctx);
+	harness.emitDiagnostic({
+		code: "upstream_error_frame",
+		status: 503,
+		hasError: true,
+		body: "PRIVATE_UPSTREAM_BODY",
+		error: { message: "PRIVATE_UPSTREAM_MESSAGE" },
+		categories: ["PRIVATE_CATEGORY"],
+	});
+	await harness.emit("message_end", {
+		type: "message_end",
+		message: { ...assistantMessage("error"), provider: "qoder", model: "ultimate", errorMessage: "Qoder: upstream_error_frame" },
+	}, ctx);
+	await harness.emit("session_shutdown", { type: "session_shutdown", reason: "quit" }, ctx);
+
+	const text = readFileSync(localTracePathForSessionFile(sessionFile), "utf8");
+	for (const secret of ["PRIVATE_BEFORE_SPAN", "PRIVATE_PROMPT", "PRIVATE_UPSTREAM_BODY", "PRIVATE_UPSTREAM_MESSAGE", "PRIVATE_CATEGORY"]) {
+		assert.equal(text.includes(secret), false, `trace leaked ${secret}`);
+	}
+	const providerEnd = text.trim().split("\n").map((line) => JSON.parse(line))
+		.find((record) => record.kind === "span_end" && record.name === "pi.ai.request");
+	assert.ok(providerEnd);
+	assert.equal(providerEnd.status, "error");
+	assert.equal(providerEnd.attributes["pi.ai.qoder.error_code"], "upstream_error_frame");
+	assert.equal(providerEnd.attributes["pi.ai.qoder.diagnostic_code"], "upstream_error_frame");
+	assert.equal(providerEnd.attributes["pi.ai.qoder.frame_status_code"], 503);
+	assert.equal(providerEnd.attributes["pi.ai.qoder.frame_has_error"], true);
+	assert.equal(providerEnd.attributes["pi.ai.http.status_code"], 200);
 });
 
 test("trace write failures stay passive and surface through /trace", async (t) => {

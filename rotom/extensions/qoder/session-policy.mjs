@@ -3,6 +3,8 @@ import { MODEL, PROVIDER_ID, createQoderProvider } from './provider.mjs';
 import { CREDIT_ENTRY } from './credits.mjs';
 import { abortable, SUPPORTED_MODEL_IDS } from './transport.mjs';
 
+export const QODER_DIAGNOSTIC_EVENT = 'rotom:qoder:diagnostic:v1';
+
 async function refreshRegistry(ctx, { force = false, signal } = {}) {
   const deadline = AbortSignal.timeout(30000);
   const bounded = signal ? AbortSignal.any([signal, deadline]) : deadline;
@@ -124,7 +126,17 @@ export function installSessionPolicy(pi) {
 
 export async function installQoderExtension(pi, options = {}) {
   const policy = installSessionPolicy(pi);
-  const provider = await createQoderProvider({ ...options, captureBinding: policy.captureBinding, captureMetering: policy.captureMetering, refreshCatalog: policy.refreshCatalog });
+  const externalDiagnostic = options.onDiagnostic;
+  const provider = await createQoderProvider({
+    ...options,
+    captureBinding: policy.captureBinding,
+    captureMetering: policy.captureMetering,
+    refreshCatalog: policy.refreshCatalog,
+    onDiagnostic(diagnostic) {
+      pi.events.emit(QODER_DIAGNOSTIC_EVENT, diagnostic);
+      return externalDiagnostic?.(diagnostic);
+    },
+  });
   pi.registerProvider(provider);
   const refresh = async (ctx, force = false) => {
     try {
