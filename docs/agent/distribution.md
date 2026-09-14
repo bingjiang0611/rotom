@@ -4,6 +4,10 @@
 
 当前版本使用仓内 Pi fork；构建、隔离安装、本机切换及未验证项见 [Pi fork 接入](pi-fork.md)。本页底部“首次分发”表仍是历史上游 Pi 基线，不代表新 fork 的跨平台验收。
 
+## 0.1.1 发布候选
+
+`0.1.1` 是相对 `0.1.0` 的补丁版本：恢复启动时已保存的动态 Qoder 默认模型，细分 Qoder 上游错误诊断，并通过 npm `latest` 检查提示 rotom 更新；同时保留图片模型的既有有界上下文合同。发布结果、实际产物摘要和隔离安装验证将在 registry 完成后回填。
+
 ## 0.1.0 正式发布
 
 `0.1.0` 于 2026-09-14 从公开 `main` 的 `e121a6b` 构建并发布。registry 回读确认 `latest=0.1.0`，下载的 tarball 与发布前验证产物逐字节一致：17,915 个文件，压缩后 53,376,860 bytes，解包后 168,628,696 bytes，SHA-256 为 `4b9c47ee967e26b454a59ed684559dd23535f67d7cadcd80f3571e9a05f011aa`，SRI 为 `sha512-SacawKCkqOsayWV0Brvom6AKt+EpWdfaEH5U2l6Ff86rjbvY5KijkyC48LknMxiYqVxyImFjKZ+7ECcyaRH3XQ==`。
@@ -16,7 +20,7 @@
 
 **PASS：首次安装产物的本地打包、隔离安装与 L1/L2 验证。保留：完整跨平台/真实业务验收未执行。**
 
-当前产品元数据位于 `rotom/package.json`：`@bingjiang0611/rotom@0.1.0`、公开 npm 包、`UNLICENSED`。包内包含完整 Pi 运行时。
+当前产品元数据位于 `rotom/package.json`：`@bingjiang0611/rotom@0.1.1`、公开 npm 包、`UNLICENSED`。包内包含完整 Pi 运行时。
 
 ## 分发与启动
 
