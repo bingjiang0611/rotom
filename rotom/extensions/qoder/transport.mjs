@@ -40,22 +40,18 @@ export function inputCapabilities(entry) {
   // capacity, and oversized single turns lose answer budget instead of failing.
   return Object.freeze({ images: reviewed && entry.reportedImages === true, contextWindow: expanded ? 272000 : Math.min(32000, entry?.reportedContextWindow ?? 32000), contextLength: expanded ? 400000 : Math.min(32000, entry?.reportedContextWindow ?? 32000) });
 }
-export const IMAGE_LIMITS = Object.freeze({ count: 32, singleBytes: 4 * 1024 * 1024, totalBytes: 6 * 1024 * 1024 });
+const MAX_REQUEST_BYTES = 24 * 1024 * 1024;
 // Only inline, canonical base64 in the three exercised codecs. This is bounded
-// format validation, not an image decoder or a claim about arbitrary images.
+// by the final request envelope, not an image-specific size or count budget.
 export function imageByteLength(data, mime) {
   if (!['image/png', 'image/jpeg', 'image/webp'].includes(mime) || typeof data !== 'string' || !data.length) fail('invalid_image');
-  if (data.length > 4 * Math.ceil(IMAGE_LIMITS.singleBytes / 3)) fail('image_limits_rejected');
+  if (data.length > MAX_REQUEST_BYTES) fail('request_limits_rejected');
   if (data.length % 4 || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) fail('invalid_image');
   const bytes = Buffer.from(data, 'base64');
-  if (bytes.length > IMAGE_LIMITS.singleBytes) fail('image_limits_rejected');
   if (bytes.toString('base64') !== data) fail('invalid_image');
   const valid = mime === 'image/png' ? bytes.length >= 24 && bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10])) : mime === 'image/jpeg' ? bytes.length >= 4 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255 : bytes.length >= 12 && bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP';
   if (!valid) fail('invalid_image');
   return bytes.length;
-}
-export function checkImageTotal(count, bytes) {
-  if (count > IMAGE_LIMITS.count || bytes > IMAGE_LIMITS.totalBytes) fail('image_limits_rejected');
 }
 
 // Lossless adapters for the observed Ultimate and Sonus replay schemas. Opaque
@@ -408,7 +404,6 @@ export async function openQoderStream({ payload, getToken, getLegacyCredential, 
   if (['custom_model', 'model_config', 'provider', 'patches', 'thinking', 'reasoning', 'chat_template_kwargs', 'chat_template_args'].some(key => payload[key] !== undefined)) fail('request_scope_rejected');
   // Revalidate after Pi onPayload hooks: unsupported modalities must not be
   // silently dropped or sent using overrides of the registered model contract.
-  let imageCount = 0, imageBytes = 0;
   for (const m of payload.messages) {
     if (!record(m)) fail('images_not_validated');
     if (Object.keys(m).some(k => !['role', 'content', 'name', 'tool_call_id', 'tool_calls', 'reasoning_content', 'reasoning_details', 'reasoning_item', 'reasoning_content_signature'].includes(k))) fail('request_scope_rejected');
@@ -420,7 +415,7 @@ export async function openQoderStream({ payload, getToken, getLegacyCredential, 
       if (!record(c) || c.type !== 'image_url' || Object.keys(c).some(k => !['type', 'image_url'].includes(k)) || !record(c.image_url) || Object.keys(c.image_url).some(k => !['url', 'detail'].includes(k)) || c.image_url.detail !== undefined && c.image_url.detail !== 'auto') fail('invalid_image');
       const match = typeof c.image_url.url === 'string' && c.image_url.url.match(/^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/);
       if (!match) fail('invalid_image');
-      imageBytes += imageByteLength(match[2], match[1]); checkImageTotal(++imageCount, imageBytes);
+      imageByteLength(match[2], match[1]);
     }
   }
   const allowReasoning = REASONING_MODEL_IDS.includes(modelId);
@@ -459,7 +454,7 @@ export async function openQoderStream({ payload, getToken, getLegacyCredential, 
   payload.metadata = { context: { request_id: requestId, request_set_id: requestId, session_id: sessionId, task_id: 'common', client_type: 'rotom' } };
   const legacy = LEGACY_MODEL_IDS.includes(modelId);
   const wireBody = legacy ? legacyBody(payload, legacyModel, requestId, sessionId, reasoningMode, input) : JSON.stringify(payload);
-  if (Buffer.byteLength(wireBody) > 24 * 1024 * 1024) fail('request_limits_rejected');
+  if (Buffer.byteLength(wireBody) > MAX_REQUEST_BYTES) fail('request_limits_rejected');
   const controller = new AbortController();
   const abort = () => controller.abort();
   signal?.addEventListener('abort', abort, { once: true });
@@ -536,7 +531,8 @@ export function createQoderFetch(options = {}) {
     // Models.json, onPayload and SDK overrides must never redirect credentials.
     const input = inputCapabilities(legacyModel?.id === modelId ? legacyModel : undefined);
     if (init?.signal?.aborted) fail('aborted');
-    if (String(url) !== CHAT_URL || init?.method?.toUpperCase() !== 'POST' || typeof init.body !== 'string' || Buffer.byteLength(init.body) > (input.images || input.contextLength === 400000 ? 12 : 2) * 1024 * 1024) fail('request_scope_rejected');
+    const inboundLimit = input.images ? MAX_REQUEST_BYTES : (input.contextLength === 400000 ? 12 : 2) * 1024 * 1024;
+    if (String(url) !== CHAT_URL || init?.method?.toUpperCase() !== 'POST' || typeof init.body !== 'string' || Buffer.byteLength(init.body) > inboundLimit) fail('request_scope_rejected');
     let payload;
     try { payload = JSON.parse(init.body); } catch { fail('invalid_request'); }
     const { chunks } = await openQoderStream({ ...options, payload, signal: init.signal });

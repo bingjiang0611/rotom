@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createQoderProvider} from './provider.mjs';
-import {SUPPORTED_MODEL_IDS,EXPANDED_INPUT_MODEL_IDS,imageByteLength,checkImageTotal,IMAGE_LIMITS} from './transport.mjs';
+import {SUPPORTED_MODEL_IDS,EXPANDED_INPUT_MODEL_IDS,imageByteLength} from './transport.mjs';
 import {CATALOG_URL} from './catalog-auth.mjs';
 import {LEGACY_URL} from './legacy.mjs';
 import {parseCatalog} from './catalog.mjs';
@@ -49,9 +49,15 @@ test('invalid images, remote URLs, unknown aliases, higher selectors and role ov
  }
  assert.equal(h.reads,0);assert.equal(h.requests.length,0);
 });
-test('image byte/count limits are bounded and canonical base64 is required',()=>{
+test('canonical base64, reviewed image formats and the final request envelope remain required',()=>{
  assert.equal(imageByteLength(png,'image/png'),24);
- assert.throws(()=>imageByteLength('AAAA'.repeat(Math.ceil(IMAGE_LIMITS.singleBytes/3)+1),'image/png'),/image_limits_rejected/);
- assert.throws(()=>checkImageTotal(33,1),/image_limits_rejected/);assert.throws(()=>checkImageTotal(1,IMAGE_LIMITS.totalBytes+1),/image_limits_rejected/);
  assert.throws(()=>imageByteLength('AQ==','image/jpeg'),/invalid_image/);
+ assert.throws(()=>imageByteLength('A'.repeat(24*1024*1024+4),'image/png'),/request_limits_rejected/);
+});
+test('image-specific single, aggregate and count caps do not reject a request below the final envelope limit',async()=>{
+ const h=await harness('ultimate');
+ const makePng=size=>{const bytes=Buffer.alloc(size);Buffer.from([137,80,78,71,13,10,26,10]).copy(bytes);return{...image,data:bytes.toString('base64')};};
+ const images=[makePng(4*1024*1024+1),makePng(2*1024*1024),...Array(31).fill(image)];
+ await assert.rejects(h.p.api.streamSimple(h.model(),{messages:[{role:'user',content:images}]},{}),{code:'http_403'});
+ assert.equal(h.requests.length,1);
 });

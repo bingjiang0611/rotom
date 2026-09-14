@@ -1,5 +1,5 @@
 import { readLocalCredential, createCredentialAccess, QoderError } from './auth.mjs';
-import { BASE_URL, SUPPORTED_MODEL_IDS, REASONING_MODEL_IDS, openQoderStream, abortable, validateReasoningSignature, OPAQUE_MODEL_IDS, VERIFIED_THINKING_LEVELS, EXPANDED_INPUT_MODEL_IDS, inputCapabilities, imageByteLength, checkImageTotal } from './transport.mjs';
+import { BASE_URL, SUPPORTED_MODEL_IDS, REASONING_MODEL_IDS, openQoderStream, abortable, validateReasoningSignature, OPAQUE_MODEL_IDS, VERIFIED_THINKING_LEVELS, EXPANDED_INPUT_MODEL_IDS, inputCapabilities, imageByteLength } from './transport.mjs';
 import { buildQoderPayload, isSameModelAssistant } from './messages.mjs';
 import { translateQoderStream } from './translate.mjs';
 import { fetchCatalog, CATALOG_TTL_MS } from './catalog.mjs';
@@ -109,12 +109,11 @@ export async function createQoderProvider({ piAI, getToken, getCredential, captu
       if (method === 'streamSimple' && requested === 'none' || !controls.levels.includes(level)) throw new QoderError('reasoning_controls_not_validated');
       reasoningMode = Object.freeze({ enabled: level !== 'off', effort: level === 'off' ? 'none' : level });
     } else if (reasoning ? (options.reasoning && options.reasoning !== 'medium') || options.reasoningEffort : options.reasoning || options.reasoningEffort) throw new QoderError('reasoning_controls_not_validated');
-    let imageCount = 0, imageBytes = 0;
     for (const message of context.messages) {
       for (const block of Array.isArray(message.content) ? message.content : []) {
         if (block.type === 'image') {
           if (!input.images || !['user', 'toolResult'].includes(message.role)) throw new QoderError('images_not_validated');
-          imageBytes += imageByteLength(block.data, block.mimeType); checkImageTotal(++imageCount, imageBytes);
+          imageByteLength(block.data, block.mimeType);
         }
         // The builder removes foreign assistant signatures, retaining visible
         // text and tool/result pairing. Validate only signatures it can replay;

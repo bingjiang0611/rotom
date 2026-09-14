@@ -165,7 +165,7 @@ ROTOM_QODER_AUTH=qodercli rotom --provider qoder --model lite
 
 仅 `ultimate`、`kmodel_latest`、`dfmodel`：当前绑定账号仍须声明图片可用及有效 400K selector。产品管理窗口为 272K（与 Codex 一致，便于同一压缩百分比），后端固定 selector 为 400K；不是完整 400K/1M 输入承诺。Pi 的公式为 `输入 ≤ 窗口 − 8192` 才能拿满 4096 输出，因此单请求可用输入约 263,808；超出的单轮无法压缩时会削减回答预算而不是报错。日常由原生自动压缩（默认预留 16384，本机配置 27200 → 244,800 触发）兜住。
 
-PNG/JPEG/WebP 支持用户多图、工具返回图片与原生 session 恢复；只接受内联 base64，单图 ≤4 MiB、当前历史图片合计 ≤6 MiB、≤32 张，COSY body ≤24 MiB。远程图片 URL 和其他格式不自动转换/抓取。目录收窄、未知 signature 或不合法图片会明确拒绝，不静默降级或切路由。模型视觉/检索并不保证每次正确；Credit 缺失仍为 unknown，Ultimate 的新路由不假定与旧 direct 同价。
+PNG/JPEG/WebP 支持用户多图、工具返回图片与原生 session 恢复；只接受内联 canonical base64，不再设置独立的单图、历史图片总量或张数上限，最终 COSY body 仍须 ≤24 MiB。远程图片 URL 和其他格式不自动转换/抓取。目录收窄、未知 signature、不合法图片或超大请求会明确拒绝，不静默降级或切路由。模型视觉/检索并不保证每次正确；Credit 缺失仍为 unknown，Ultimate 的新路由不假定与旧 direct 同价。
 
 关闭用 `ROTOM_QODER=0`；不设置该变量时保持默认开启。不要向 launcher 追加 `-e` 绕过资源合同。模型/API、账号和网络边界未验证时会失败关闭，不自动重放。
 
