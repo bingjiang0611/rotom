@@ -1,12 +1,14 @@
 # rotom · npm 分发
 
-> 当前 npm `latest` 是 `@bingjiang0611/rotom@0.1.0-alpha.16`；`0.1.2` 为待发布候选。后续默认组件与 macOS/Linux 安装验证见 [Subagent 默认接入](subagent-default-integration.md)，发行包默认 scope 及其未复验项见 [scoped 默认](subagent-owned-default.md)。
+> 当前稳定版是 [`@bingjiang0611/rotom@0.1.2`](https://www.npmjs.com/package/@bingjiang0611/rotom/v/0.1.2)，npm dist-tag 为 `latest`。后续默认组件与 macOS/Linux 安装验证见 [Subagent 默认接入](subagent-default-integration.md)，发行包默认 scope 及其未复验项见 [scoped 默认](subagent-owned-default.md)。
 
 当前版本使用仓内 Pi fork；构建、隔离安装、本机切换及未验证项见 [Pi fork 接入](pi-fork.md)。本页底部“首次分发”表仍是历史上游 Pi 基线，不代表新 fork 的跨平台验收。
 
-## 0.1.2 发布候选
+## 0.1.2 正式发布
 
-`0.1.2` 汇总尚未正式发布的更新：恢复启动时已保存的动态 Qoder 默认模型，细分并脱敏 Qoder 上游与 transport 诊断，通过 npm `latest` 检查提示 rotom 更新，明确区分产品与 Pi fork 版本及 extension-triggered compaction 来源，修复 fresh HOME 下 Browser Relay 安装，并在 dashboard 显示 trace/session 存储大小；同时保留图片模型的既有有界上下文合同。发布结果、实际产物摘要和隔离安装验证将在 registry 完成后回填。
+`0.1.2` 于 2026-09-14 从公开 `main` 的 `7606055` 构建并发布。registry 回读确认 `latest=0.1.2`，下载 tarball 与发布前最终产物逐字节一致：17,915 个文件，压缩后 53,378,708 bytes，解包后 168,644,009 bytes，SHA-256 为 `43270cd0a8a4be21a1d32382fa45ea8a40c1b5fbe21487600a99cd16f158e188`，npm shasum 为 `f227fd210bb8c214c2654a99e5792ca5e1f9051d`，SRI 为 `sha512-jfKywQCu8fO38tchU7xyj02ReBUCuDaB6fY30Fe3t2qcadmFhFs2q8gfSK38VpADh0i6qzQ138Rulbbx1UkdkA==`。
+
+该版本汇总此前尚未正式发布的更新：恢复启动时已保存的动态 Qoder 默认模型，细分并脱敏 Qoder 上游与 transport 诊断，通过 npm `latest` 检查提示 rotom 更新，明确区分产品与 Pi fork 版本及 extension-triggered compaction 来源，修复 fresh HOME 下 Browser Relay 安装，并在 dashboard 显示 trace/session 存储大小；同时保留图片模型的既有有界上下文合同。最终 tgz 通过 tree/history 与归档隐私审计、`test:distribution`、`check:pi`、隔离安装、`rotom --version`、default/full runtime smoke、462 项 `check-personal`、从 `0.1.0-alpha.16` 隔离升级及卸载验证。未执行真实模型或真实 Chrome 操作，也未覆盖维护者当前安装。
 
 ## 0.1.0 正式发布
 
