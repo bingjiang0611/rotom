@@ -10,7 +10,7 @@
 
 **PASS：alpha.17 本地打包、隔离安装、L1/L2 验证、npm 公开发布与 Git 推送。保留：完整跨平台/真实业务验收未执行。**
 
-当前产品元数据位于 `rotom/package.json`：`@bingjiang0611/rotom@0.1.0-alpha.17`、公开 npm 包、`UNLICENSED`。包内包含完整 Pi 运行时。
+当前产品元数据位于 `rotom/package.json`：`@bingjiang0611/rotom@0.1.0`、公开 npm 包、`UNLICENSED`。包内包含完整 Pi 运行时。
 
 ## 分发与启动
 
