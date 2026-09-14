@@ -3,7 +3,7 @@ import { compare, prerelease, valid } from "semver";
 const ROTOM_PACKAGE_NAME = "@bingjiang0611/rotom";
 const ROTOM_LATEST_API = "https://registry.npmjs.org/%40bingjiang0611%2Frotom/latest";
 export const ROTOM_PACKAGE_URL = `https://www.npmjs.com/package/${ROTOM_PACKAGE_NAME}`;
-export const ROTOM_UPDATE_GUIDANCE = `Exit every rotom session, run: npm install -g --ignore-scripts ${ROTOM_PACKAGE_NAME}, then start rotom again. Existing sessions and workers do not hot-reload.`;
+export const ROTOM_UPDATE_GUIDANCE = "Exit every rotom session, run: rotom update, then start rotom again. The updater installs the exact checked npm latest version; existing sessions and workers do not hot-reload.";
 
 /** Launcher-owned display metadata, not an executable/resource trust decision. */
 export function getRotomVersion(): string | undefined {

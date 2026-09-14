@@ -247,6 +247,46 @@ describe("FooterComponent width handling", () => {
 		expect(stats).not.toContain("$");
 	});
 
+	it("labels a known Qoder subtotal as partial when another request is unknown", () => {
+		const session = createSession({
+			sessionName: "",
+			provider: "qoder",
+			customEntries: [
+				{
+					type: "custom",
+					customType: "qoder-credit-observation-v1",
+					data: {
+						version: 1,
+						sessionId: "test-session",
+						requestId: "request-known",
+						modelId: "ultimate",
+						status: "reported",
+						outcome: "complete",
+						credits: 4.737,
+						billable: true,
+					},
+				},
+				{
+					type: "custom",
+					customType: "qoder-credit-observation-v1",
+					data: {
+						version: 1,
+						sessionId: "test-session",
+						requestId: "request-unknown",
+						modelId: "ultimate",
+						status: "unknown",
+						outcome: "complete",
+					},
+				},
+			],
+		});
+		const footer = new FooterComponent(session, createFooterData(1));
+		const stats = stripAnsi(footer.render(120)[1]);
+
+		expect(stats).toContain("Cr4.737 partial");
+		expect(stats).not.toContain("+?");
+	});
+
 	it("keeps unknown Qoder metering explicit", () => {
 		const session = createSession({
 			sessionName: "",

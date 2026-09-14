@@ -25,7 +25,7 @@ rotom --trace
 npm install -g --ignore-scripts @bingjiang0611/rotom
 ```
 
-安装后进入任意项目目录运行 `rotom`。
+安装后进入任意项目目录运行 `rotom`。检测到新版时，先退出所有 rotom 会话，再运行 `rotom update`；它会从 npm 官方 registry 读取 latest、固定精确版本并更新产品及内置 Pi fork。
 
 启动后：
 
@@ -47,7 +47,7 @@ rotom remove npm:@foo/bar
 
 package 可包含 extension、skill、prompt template 和 theme；使用 `rotom config` 调整已安装资源。临时试用单个扩展可运行 `rotom -e ./extension.ts`，也可以使用 Pi 的 `~/.pi/agent/extensions/` 和受信项目 `.pi/extensions/` 目录。rotom 自带的五个产品扩展仍固定加载，不能通过 `--no-extensions` 移除。
 
-`rotom update` 不负责升级产品内置 Pi；升级 rotom 仍使用 npm。只更新扩展时使用 `rotom update --extensions` 或 `rotom update --extension <source>`。
+`rotom update` 更新产品及内置 Pi fork；写入前会要求确认其他 rotom 会话和 worker 已退出。只更新扩展时使用 `rotom update --extensions` 或 `rotom update --extension <source>`；两类更新需分别执行。
 
 ## 配置浏览器
 

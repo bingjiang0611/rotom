@@ -48,6 +48,7 @@ test("distribution is public-scoped, owns its Pi fork, has no installation hooks
 	assert.equal(manifest.license, "UNLICENSED");
 	assert.equal(manifest.dependencies, undefined);
 	assert.ok(manifest.files.includes(PI_MODULES));
+	assert.ok(manifest.files.includes("runtime/update-product.mjs"));
 	assert.deepEqual(manifest.bin, { rotom: "bin/rotom" });
 	for (const hook of ["preinstall", "install", "postinstall", "prepare"]) assert.equal(manifest.scripts[hook], undefined);
 	await verifyDistributionContract(SOURCE);

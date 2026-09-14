@@ -33,6 +33,7 @@ trap cleanup_test_pi_bin EXIT HUP INT TERM
 PI_SUBAGENTS_EXECUTION_SCOPE= PI_SUBAGENTS_TEMP_ROOT= ROTOM_PI="$pi_command" PATH="$test_pi_bin:$PATH" "$node_command" --experimental-strip-types --test --test-concurrency=1 \
 	rotom/extensions/qoder/*.test.mjs \
 	rotom/runtime/process-tree.test.ts \
+	rotom/runtime/update-product.test.mjs \
 	rotom/runtime/distribution.test.mjs \
 	rotom/scripts/build-pi-fork.test.mjs \
 	rotom/runtime/third-party-archive.test.mjs \

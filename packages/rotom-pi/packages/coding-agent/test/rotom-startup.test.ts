@@ -195,8 +195,9 @@ describe("rotom interactive update integration", () => {
 		expect(output).toContain("rotom update available");
 		expect(output).toContain("0.1.0-alpha.11 → 0.1.0-alpha.12");
 		expect(output).toContain(`Package: ${ROTOM_PACKAGE_URL}`);
-		expect(output).toContain("Exit every rotom session, run: npm install -g --ignore-scripts @bingjiang0611/rotom");
-		expect(output).toContain("Existing sessions and workers do not hot-reload.");
+		expect(output).toContain("Exit every rotom session, run: rotom update");
+		expect(output).toContain("exact checked npm latest version");
+		expect(output).toContain("sessions and workers do not hot-reload.");
 		expect(output).not.toMatch(/pi.dev|UPSTREAM-NOTE|Run pi update/);
 	});
 

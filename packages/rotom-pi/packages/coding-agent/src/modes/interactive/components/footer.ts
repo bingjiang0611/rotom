@@ -216,7 +216,7 @@ export class FooterComponent implements Component {
 				this.session.sessionManager.getSessionId(),
 			);
 			if (creditSummary.credits !== null) {
-				statsParts.push(`Cr${creditSummary.credits.toFixed(3)}${creditSummary.unknown > 0 ? "+?" : ""}`);
+				statsParts.push(`Cr${creditSummary.credits.toFixed(3)}${creditSummary.unknown > 0 ? " partial" : ""}`);
 			} else {
 				const hasObservations = creditSummary.reported > 0 || creditSummary.unknown > 0;
 				statsParts.push(hasObservations ? "Cr?" : "Cr0.000");

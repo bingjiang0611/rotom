@@ -20,6 +20,8 @@ if [ "${HOME+x}" = x ] && [ "${HERDR_ENV:-}" = 1 ] && [ -n "${HERDR_SOCKET_PATH:
 fi
 
 version_probe=0
+product_update=0
+product_update_force=0
 if [ "$#" -eq 1 ] && [ "$1" = "--version" ]; then
 	version_probe=1
 elif [ "$#" -eq 2 ] && [ "$1" = "--version" ] && [ "$2" = "--verbose" ]; then
@@ -38,7 +40,9 @@ case "${1-}" in
 	update)
 		package_update_target=0
 		package_update_self=0
+		package_update_all=0
 		package_update_help=0
+		package_update_invalid=
 		package_update_first=1
 		for argument in "$@"; do
 			if [ "$package_update_first" -eq 1 ]; then
@@ -52,14 +56,20 @@ case "${1-}" in
 				-h|--help)
 					package_update_help=1
 					;;
-				--all|--self|self|pi)
+				--all)
+					package_update_all=1
+					;;
+				--self|self|pi)
 					package_update_self=1
 					;;
-				-a|--approve|-na|--no-approve|--force)
+				--force)
+					product_update_force=1
+					;;
+				-a|--approve|-na|--no-approve)
+					package_update_invalid=$argument
 					;;
 				-*)
-					# Let Pi report unsupported package-manager options when an
-					# otherwise explicit extension/model update was requested.
+					package_update_invalid=$argument
 					;;
 				*)
 					package_update_target=1
@@ -69,20 +79,34 @@ case "${1-}" in
 		if [ "$package_update_help" -eq 1 ]; then
 			cat <<'EOF'
 Usage:
+  rotom update [--force]
+  rotom update --self [--force]
   rotom update --extensions
   rotom update --extension <source>
   rotom update <source>
   rotom update --models
 
-Update installed Pi packages or model catalogs. The bundled Pi fork is updated only with rotom itself. Exit every running rotom session, upgrade @bingjiang0611/rotom from npm, then start a new session; existing workers never hot-reload a release.
+Update rotom itself to the exact npm latest version, or update installed Pi packages/model catalogs. Product updates support regular active global npm installations, require confirmation before replacement, and never hot-reload running sessions. --force confirms replacement and reinstalls an already-current release.
 EOF
 			exit 0
 		fi
-		if [ "$package_update_self" -eq 1 ] || [ "$package_update_target" -eq 0 ]; then
-			echo "rotom: 内置 Pi 只能随 rotom 升级；请用 rotom update --extensions 更新已安装扩展" >&2
+		if [ "$package_update_all" -eq 1 ]; then
+			echo "rotom: 不支持合并的 update --all；请依次运行 rotom update 和 rotom update --extensions" >&2
 			exit 2
 		fi
-		package_management_command=1
+		if [ "$package_update_self" -eq 1 ] && [ "$package_update_target" -eq 1 ]; then
+			echo "rotom: 产品更新不能与 extension/model 更新目标组合" >&2
+			exit 2
+		fi
+		if [ "$package_update_self" -eq 1 ] || [ "$package_update_target" -eq 0 ]; then
+			if [ -n "$package_update_invalid" ]; then
+				echo "rotom: 产品更新不支持选项 $package_update_invalid" >&2
+				exit 2
+			fi
+			product_update=1
+		else
+			package_management_command=1
+		fi
 		;;
 esac
 
@@ -149,6 +173,18 @@ esac
 if [ ! -f "$node_command" ] || [ ! -x "$node_command" ]; then
 	echo "rotom: Node realpath 不是可执行普通文件：$node_command" >&2
 	exit 2
+fi
+
+if [ "$product_update" -eq 1 ]; then
+	product_updater="$agent_dir/runtime/update-product.mjs"
+	if [ ! -f "$product_updater" ] || [ -L "$product_updater" ]; then
+		echo "rotom: product updater 缺失或不是可信普通文件" >&2
+		exit 2
+	fi
+	if [ "$product_update_force" -eq 1 ]; then
+		exec "$node_command" "$product_updater" --force
+	fi
+	exec "$node_command" "$product_updater"
 fi
 
 bundled_pi=0

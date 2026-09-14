@@ -90,6 +90,9 @@ npm run pack:release -- /absolute/output-directory
 npm install -g --ignore-scripts @bingjiang0611/rotom
 cd /path/to/business-project
 rotom
+
+# 后续先退出所有 rotom 会话，再更新产品和内置 Pi fork；写入前会再次确认
+rotom update
 ```
 
 用户不需预装 Pi，也不需二次 npm ci。模型登录/API key、Chrome 扩展安装与重载、系统权限仍需用户明确完成。

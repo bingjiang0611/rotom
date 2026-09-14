@@ -767,19 +767,38 @@ test("launcher 将 Pi package 管理命令原样交给运行时且不创建会�
 	assert.equal(existsSync(join(home, ".local/state/rotom/subagent-store")), false);
 }));
 
-test("launcher 拒绝让 Pi package manager 自行升级内置 runtime", () => withFakePi({}, async ({ root }) => {
+test("launcher 将产品 update 路由到独立 updater，并拒绝合并外部写入", () => withFakePi({}, async ({ root }) => {
 	const help = spawnSync(LAUNCHER, ["update", "--help"], { encoding: "utf8" });
 	assert.equal(help.status, 0, help.stderr);
+	assert.match(help.stdout, /rotom update \[--force\]/u);
 	assert.match(help.stdout, /rotom update --extensions/u);
-	assert.doesNotMatch(help.stdout, /--self|--all/u);
-	for (const args of [["update"], ["update", "--self"], ["update", "--all"], ["update", "pi"]]) {
-		const result = spawnSync(LAUNCHER, args, {
-			encoding: "utf8",
-			env: { ...process.env, PATH: `${join(root, "bin")}:${process.env.PATH ?? ""}`, ROTOM_NODE: process.execPath },
+
+	const productRoot = join(root, "update-product");
+	const launcher = join(productRoot, "bin/rotom-launcher");
+	const updater = join(productRoot, "runtime/update-product.mjs");
+	mkdirSync(join(productRoot, "bin"), { recursive: true });
+	mkdirSync(join(productRoot, "runtime"), { recursive: true });
+	cpSync(LAUNCHER, launcher);
+	chmodSync(launcher, 0o700);
+	writeFileSync(updater, `import { writeFileSync } from "node:fs";\nwriteFileSync(process.env.ROTOM_TEST_CAPTURE, JSON.stringify(process.argv.slice(2)));\n`);
+	for (const [index, { args, expected }] of [
+		{ args: ["update"], expected: [] },
+		{ args: ["update", "--self"], expected: [] },
+		{ args: ["update", "self"], expected: [] },
+		{ args: ["update", "pi"], expected: [] },
+		{ args: ["update", "--force"], expected: ["--force"] },
+		{ args: ["update", "--self", "--force"], expected: ["--force"] },
+	].entries()) {
+		const capture = join(root, `product-update-${index}.json`);
+		execFileSync(launcher, args, {
+			env: { ...process.env, ROTOM_NODE: process.execPath, ROTOM_TEST_CAPTURE: capture },
 		});
-		assert.equal(result.status, 2, args.join(" "));
-		assert.match(result.stderr, /内置 Pi 只能随 rotom 升级/u);
+		assert.deepEqual(JSON.parse(readFileSync(capture, "utf8")), expected);
 	}
+
+	const combined = spawnSync(LAUNCHER, ["update", "--all"], { encoding: "utf8" });
+	assert.equal(combined.status, 2);
+	assert.match(combined.stderr, /请依次运行 rotom update 和 rotom update --extensions/u);
 }));
 
 test("launcher 默认选择 scoped execution store，并对 opt-out、非法值和身份漂移 fail closed", () => withFakePi({}, async ({ root }) => {

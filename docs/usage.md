@@ -21,7 +21,7 @@ rotom
 
 默认启动显示像素洛托姆与 rotom 产品版本，宽终端分栏展示常用命令和当前模型/项目，窄终端自动收成单栏。`quietStartup` 仍可隐藏启动面板，展开键（默认 Ctrl+O）保留完整帮助与资源列表；两个 version probe 都会先验证 Pi/package/resource identity，但不会启动 Pi runtime。
 
-启动更新检查只读 npm 官方 registry 中 `@bingjiang0611/rotom` 的 `latest` 元数据，比较 rotom 自身版本而非 Pi。Alpha 安装可提示 `latest` 指向的较新预发布/正式版，正式版不提示预发布；元数据不可用、网络失败或限流时不显示新版本提示。`ROTOM_SKIP_VERSION_CHECK=1`、`PI_SKIP_VERSION_CHECK=1` 或 `--offline` 可关闭检查。`/changelog` 指向 rotom 的 npm 包页面，不再展示上游 Pi 更新历史。此功能不自动下载安装；退出所有使用当前安装的 rotom 会话后，运行 `npm install -g --ignore-scripts @bingjiang0611/rotom` 升级，再启动新会话；既有主会话和 Subagent worker 都不会热加载新版本。**不要运行 `pi update` 或把 `rotom update` 当成产品升级器**。上述启动界面适用于随包 Pi fork；显式 `ROTOM_PI` 覆盖的外部 Pi 不保证实现该界面。
+启动更新检查只读 npm 官方 registry 中 `@bingjiang0611/rotom` 的 `latest` 元数据，比较 rotom 自身版本而非 Pi。Alpha 安装可提示 `latest` 指向的较新预发布/正式版，正式版不提示预发布；元数据不可用、网络失败或限流时不显示新版本提示。`ROTOM_SKIP_VERSION_CHECK=1`、`PI_SKIP_VERSION_CHECK=1` 或 `--offline` 可关闭检查。`/changelog` 指向 rotom 的 npm 包页面，不再展示上游 Pi 更新历史。检查本身不自动写入；退出所有使用当前安装的 rotom 会话后，运行 `rotom update`。产品 updater 重新读取官方 metadata，固定检测到的精确版本，写入前再次提示并要求确认，再使用当前 Node 对应的 npm 加上 `--prefer-online` 和 `--ignore-scripts` 更新；`rotom update --force` 表示已完成该确认并可重装已是 latest 的版本。它只支持当前命令确由同一 npm prefix 的常规全局 `@bingjiang0611/rotom` 目录提供，npm link 和其他安装方式会 fail closed。既有主会话和 Subagent worker 不会热加载新版本。**不要运行 `pi update` 升级内置 Pi fork**。上述启动界面适用于随包 Pi fork；显式 `ROTOM_PI` 覆盖的外部 Pi 不保证实现该界面。
 
 `/model` 与 `/scoped-models` 都优先显示模型名称，并保留 ID/provider；Shift+Tab 调整当前高亮模型的思考档位草稿，Enter 应用、Esc 丢弃，Ctrl+S 只保存默认模型。只开放 provider 声明支持的档位，不扩展 Qoder 能力边界。
 
@@ -52,11 +52,11 @@ rotom -e ./extension.ts
 
 产品内置的 observability、browser、coding-policy、third-party 和 qoder 扩展仍由 launcher 显式加载并经过产品资源校验；用户 `--no-extensions` 只关闭自动发现的 extension，不移除这些内置资源。用户扩展新增的工具不会被 rotom 的 deferred-tool 默认策略误删，但工具重名或扩展行为冲突由用户自行负责。
 
-内置 Pi fork 只能随 rotom 发行包升级，因此 `rotom update`、`rotom update --self` 和 `rotom update --all` 会被拒绝。使用 `rotom update --extensions` 更新 package；升级产品本身仍使用 npm 安装新的 `@bingjiang0611/rotom` 版本。
+内置 Pi fork 只能随 rotom 发行包升级。`rotom update`（或 `rotom update --self`）更新 rotom 产品及其内置 Pi fork；`rotom update --extensions` 更新用户安装的 package。为避免把两个独立外部写入压成不可判定的结果，`rotom update --all` 仍被拒绝，并提示依次运行前两个命令。
 
 `ROTOM_PI=/absolute/path/to/pi` 是维护者显式覆盖入口，仍验证 executable、package identity、公开 exports 与能力；它可以选择不同的兼容 Pi，因而不再代表默认固定版本的发行配置。`ROTOM_NODE` 仍只接受绝对、存在、可执行的普通文件路径。
 
-上述全局安装方式升级前，应先退出使用该安装目录的全部会话，再重新安装本地归档；卸载用 `npm uninstall -g rotom`。有存活会话时，改用全新 prefix 安装、验收后只切换命令链接，保留旧目录，不原地覆盖或迁移会话。旁路 prefix 是独立安装，后续全局 npm 安装可能重新接管命令链接。不会自动删除凭据、会话或 Chrome relay 注册，后者需单独显式卸载。
+上述全局安装方式升级前，应先退出使用该安装目录的全部会话，再运行 `rotom update`；卸载用 `npm uninstall -g @bingjiang0611/rotom`。有存活会话时，改用全新 prefix 安装、验收后只切换命令链接，保留旧目录，不原地覆盖或迁移会话。旁路 prefix 是独立安装，后续全局 npm 安装可能重新接管命令链接。不会自动删除凭据、会话或 Chrome relay 注册，后者需单独显式卸载。
 
 默认 Subagent 为独立维护的 `pi-subagents@0.52.1-rotom.2`，不再依赖维护 patch 堆栈。worker/scout/reviewer 使用显式工具/扩展声明和 fresh 默认上下文，仍尊重用户/项目 overrides。Darwin 上 scoped store 可在 mount device ID 重编号后只读复用，仍精确校验路径、inode、owner 与权限；源码修改须重新打包安装，不热加载。
 
@@ -142,7 +142,7 @@ ROTOM_QODER_AUTH=qodercli rotom --provider qoder --model lite
 - Efficient、Qwen3.8 两项、Qwen3.7-Max、Kimi-K3、GLM-5.3-Flash、DeepSeek-V4-Flash、MiniMax-M3、Sonus、Ultimate 明确选择固定 COSY 单次推理协议；其余七项使用原 direct endpoint。推理选中状态不照搬目录能力标记；没有 CLI 子进程、远程 agent 循环或失败后回退重试。
 - **覆盖当前目录不等于任意未来模型可用**：未实测的新 key、BYOK/Enterprise、未知 opaque 形状仍不开放。工具往返、原生 signature 和磁盘恢复的证据及未验证项见维护面 `experiments/qoder-provider/ALL-MODELS-VERIFICATION.md`，不冒充真实 TUI 或完整业务验证。
 - COSY 目录请求固定到 Qoder 的 `api2.qoder.sh`，无 CLI/WASM 依赖。兼容版本头为已核实的 `1.1.45`（影响 Sonus 目录可见性，不是 rotom 发行版本，也不表示官方支持）。目录仅内存保存、绑定账号、有效一小时；不共享或写入 Pi 的跨账号模型缓存。过期后在下一次推理前通过 Pi 原生 registry 自动刷新一次（含工具续轮与压缩，最长 30 秒）；新目录仍支持当前模型、上下文和思考档位才继续，不自动换模型或降档。同作用域并发请求共享刷新；刷新失败或取消不循环重试，不重放推理，失败可用 `/qoder-models` 手动刷新。账号变化仍受会话绑定约束，切换账号须新会话。独立 SDK 直建 provider、未接入 session 刷新回调时仍须显式 `refreshModels`。每次启动或到期的目录读取不等于模型请求；浏览器令牌到期时仍按前述原生刷新规则处理。
-- **Credit 不等于 USD 或最终账单**：完整流同时返回有效 `credits` / `billable` 才记为服务端 reported；缺失、畸形、错误或取消保持 unknown。本轮 Sonus 有明确 Credit，Lite 未返回该字段，不能据此说免费。选中 Qoder 时，普通状态统计行以 `Cr1.235` 形式显示本会话 **partial、billable-reported** 小计，固定保留三位小数；尚无观察显示 `Cr0.000`，只有未知观察显示 `Cr?`，已知小计同时存在未知观察显示 `Cr1.235+?`。这里不显示 Pi 的 `$0` 占位，也不表示已知 USD 价格。记录包含整个会话树，但不归入继承自另一会话的费用。丢失作用域的迟到回调不写入新会话，计量不是完整审计账本或预算熔断。
+- **Credit 不等于 USD 或最终账单**：完整流同时返回有效 `credits` / `billable` 才记为服务端 reported；缺失、畸形、错误或取消保持 unknown。本轮 Sonus 有明确 Credit，Lite 未返回该字段，不能据此说免费。选中 Qoder 时，普通状态统计行以 `Cr1.235` 形式显示本会话 **partial、billable-reported** 小计，固定保留三位小数；尚无观察显示 `Cr0.000`，只有未知观察显示 `Cr?`，已知小计同时存在未知观察显示 `Cr1.235 partial`。这里不显示 Pi 的 `$0` 占位，也不表示已知 USD 价格。记录包含整个会话树，但不归入继承自另一会话的费用。丢失作用域的迟到回调不写入新会话，计量不是完整审计账本或预算熔断。
 - `/qoder-credits` 需要交互 UI，无 UI 不查询；仅请求当前账号的只读额度快照，分列 plan / addon / shared；不消费模型、不改变选中模型，不把快照差值归因到某次请求。余额只作 UI 通知，不写入对话、压缩或分支摘要。会话 Credit 观察单独落在非模型上下文的 custom entries；原始余额、模型倍率和 USD 不混算。Pi 的数字价格仍是零占位；headless/SDK 的 `usage.cost` 不能当账单。
 - 本轮另通过 Lite/Sonus 的原生 AgentSession 合成文件修复、固定测试、分支隔离、磁盘恢复及手动压缩；历史真实 launcher PTY 验证覆盖当时的额度命令和 Credit/USD 提示，不代表当前 `Cr` 合并行的桌面视觉或任意业务验收。见维护面 `experiments/qoder-provider/CAPABILITIES-VERIFICATION.md`。
 - Qoder 已作为正式内置功能启用，不再显示 experimental 标签；但产品集成不等于 Qoder 官方背书，也不改变第三方接口及许可边界。

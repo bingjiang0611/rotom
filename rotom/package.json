@@ -38,6 +38,7 @@
     "runtime/product-config.mjs",
     "runtime/verify-pi-runtime.mjs",
     "runtime/resolve-installed-pi.mjs",
+    "runtime/update-product.mjs",
     "runtime/process-tree.ts",
     "extensions/observability/index.ts",
     "extensions/observability/dashboard.mjs",
