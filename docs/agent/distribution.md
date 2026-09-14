@@ -1,12 +1,12 @@
 # rotom · npm 分发
 
-> 当前稳定版是 [`@bingjiang0611/rotom@0.1.0`](https://www.npmjs.com/package/@bingjiang0611/rotom/v/0.1.0)，npm dist-tag 为 `latest`。后续默认组件与 macOS/Linux 安装验证见 [Subagent 默认接入](subagent-default-integration.md)，发行包默认 scope 及其未复验项见 [scoped 默认](subagent-owned-default.md)。
+> 当前 npm `latest` 是 `@bingjiang0611/rotom@0.1.0-alpha.16`；`0.1.2` 为待发布候选。后续默认组件与 macOS/Linux 安装验证见 [Subagent 默认接入](subagent-default-integration.md)，发行包默认 scope 及其未复验项见 [scoped 默认](subagent-owned-default.md)。
 
 当前版本使用仓内 Pi fork；构建、隔离安装、本机切换及未验证项见 [Pi fork 接入](pi-fork.md)。本页底部“首次分发”表仍是历史上游 Pi 基线，不代表新 fork 的跨平台验收。
 
-## 0.1.1 发布候选
+## 0.1.2 发布候选
 
-`0.1.1` 是相对 `0.1.0` 的补丁版本：恢复启动时已保存的动态 Qoder 默认模型，细分 Qoder 上游错误诊断，并通过 npm `latest` 检查提示 rotom 更新；同时保留图片模型的既有有界上下文合同。发布结果、实际产物摘要和隔离安装验证将在 registry 完成后回填。
+`0.1.2` 汇总尚未正式发布的更新：恢复启动时已保存的动态 Qoder 默认模型，细分并脱敏 Qoder 上游与 transport 诊断，通过 npm `latest` 检查提示 rotom 更新，明确区分产品与 Pi fork 版本及 extension-triggered compaction 来源，修复 fresh HOME 下 Browser Relay 安装，并在 dashboard 显示 trace/session 存储大小；同时保留图片模型的既有有界上下文合同。发布结果、实际产物摘要和隔离安装验证将在 registry 完成后回填。
 
 ## 0.1.0 正式发布
 
@@ -20,7 +20,7 @@
 
 **PASS：首次安装产物的本地打包、隔离安装与 L1/L2 验证。保留：完整跨平台/真实业务验收未执行。**
 
-当前产品元数据位于 `rotom/package.json`：`@bingjiang0611/rotom@0.1.1`、公开 npm 包、`UNLICENSED`。包内包含完整 Pi 运行时。
+当前产品元数据位于 `rotom/package.json`：`@bingjiang0611/rotom@0.1.2`、公开 npm 包、`UNLICENSED`。包内包含完整 Pi 运行时。
 
 ## 分发与启动
 
