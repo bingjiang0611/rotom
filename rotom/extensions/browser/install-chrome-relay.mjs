@@ -3,14 +3,15 @@
 import { constants } from "node:fs";
 import { createHash } from "node:crypto";
 import { chmod, lstat, mkdir, mkdtemp, open, readdir, realpath, rename, rm, rmdir, unlink } from "node:fs/promises";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HOST_NAME = "dev.rotom.browser_relay";
 const EXTENSION_ID = "kgadcllokaodnoknakblocmhidemimdi";
 const root = dirname(fileURLToPath(import.meta.url));
-const home = await realpath(homedir());
+const configuredHome = process.env.HOME;
+if (!configuredHome || !isAbsolute(configuredHome)) throw new Error("HOME 必须是存在的绝对目录");
+const home = await realpath(configuredHome);
 const supportDir = join(home, "Library", "Application Support", "rotom", "browser-relay");
 // A single stable directory is what Chrome loads and what the launcher execs. Its
 // path never changes across product releases, so a content upgrade is one Chrome
@@ -208,7 +209,7 @@ function details(component, installed) {
 async function install() {
 	if (process.platform !== "darwin") throw new Error("Chrome relay installer 仅支持 macOS");
 	const component = await describeComponent();
-	await ensureDirectory(join(home, "Library", "Application Support", "rotom"), 0o700, true);
+	await ensureDirectory(join(home, "Library", "Application Support", "rotom"), 0o700, true, true);
 	await ensureDirectory(supportDir, 0o700, true);
 	await ensureDirectory(chromeManifestDir, 0o700, false, true);
 	const change = await materialize(component);

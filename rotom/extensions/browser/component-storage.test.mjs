@@ -7,6 +7,18 @@ import test from "node:test";
 
 const root = import.meta.dirname;
 
+test("installer rejects missing or ambiguous HOME instead of falling back to the account home", () => {
+	for (const env of [{}, { HOME: "" }, { HOME: "relative-home" }]) {
+		const result = spawnSync(process.execPath, [join(root, "install-chrome-relay.mjs"), "status"], {
+			env,
+			encoding: "utf8",
+			timeout: 10_000,
+		});
+		assert.notEqual(result.status, 0);
+		assert.match(result.stderr, /HOME/u);
+	}
+});
+
 test("stable component directory upgrades in place across releases and rejects corruption/symlinks/oversize", { skip: process.platform !== "darwin" }, async (t) => {
 	const workspace = await mkdtemp(join(tmpdir(), "browser-components-"));
 	t.after(() => rm(workspace, { recursive: true, force: true }));
@@ -19,6 +31,12 @@ test("stable component directory upgrades in place across releases and rejects c
 	for (const name of ["native-host.mjs", "install-chrome-relay.mjs"]) await cp(join(root, name), join(releaseA, name));
 	await cp(releaseA, releaseB, { recursive: true });
 	const run = (release, operation, targetHome = home) => spawnSync(process.execPath, [join(release, "install-chrome-relay.mjs"), operation], { env: { HOME: targetHome }, encoding: "utf8", timeout: 10_000 });
+
+	// A valid, otherwise-empty HOME is enough; the installer creates every parent.
+	const freshHome = join(workspace, "fresh-home");
+	await mkdir(freshHome);
+	const freshInstall = run(releaseA, "install", freshHome);
+	assert.equal(freshInstall.status, 0, freshInstall.stderr);
 
 	// First install creates the one stable directory Chrome will load; the launcher
 	// references that stable path, never the (deletable) product release directory.
