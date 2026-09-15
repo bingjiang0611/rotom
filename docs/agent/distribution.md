@@ -1,14 +1,14 @@
 # rotom · npm 分发
 
-> 当前稳定版是 [`@bingjiang0611/rotom@0.1.2`](https://www.npmjs.com/package/@bingjiang0611/rotom/v/0.1.2)，npm dist-tag 为 `latest`。后续默认组件与 macOS/Linux 安装验证见 [Subagent 默认接入](subagent-default-integration.md)，发行包默认 scope 及其未复验项见 [scoped 默认](subagent-owned-default.md)。
+> 当前稳定版是 [`@bingjiang0611/rotom@0.1.3`](https://www.npmjs.com/package/@bingjiang0611/rotom/v/0.1.3)，npm dist-tag 为 `latest`。后续默认组件与 macOS/Linux 安装验证见 [Subagent 默认接入](subagent-default-integration.md)，发行包默认 scope 及其未复验项见 [scoped 默认](subagent-owned-default.md)。
 
 当前版本使用仓内 Pi fork；构建、隔离安装、本机切换及未验证项见 [Pi fork 接入](pi-fork.md)。本页底部“首次分发”表仍是历史上游 Pi 基线，不代表新 fork 的跨平台验收。
 
-## 0.1.3 发布候选
+## 0.1.3 正式发布
 
-`0.1.3` 已获授权以 `latest` 发布。本次加入仅支持常规全局 npm 安装的 `rotom update` 产品升级命令，固定 npm 官方 registry 返回的精确 latest 版本，写入前要求确认其他会话已退出，并拒绝 npm link、错误 prefix、降级和 Node 24 以下运行时；扩展更新仍独立执行。footer 的 Qoder Credit 已知小计只显示三位数字，不追加 partial 后缀，统计行末显示 `sid:<sessionId>`。
+`0.1.3` 于 2026-09-15 从公开 `main` 的 `9f95411` 构建并发布。registry 回读确认 `latest=0.1.3`，下载 tarball 与发布前最终产物逐字节一致：17,916 个文件，压缩后 53,385,829 bytes，解包后 168,654,822 bytes，SHA-256 为 `2d7db73326e7be11eed05228416c123715aedc748149004d9610df8147ce5442`，npm shasum 为 `0f3e488d591455780a767e61bf9b826b658a1e70`，SRI 为 `sha512-1dbwWLsEiiAGMl9CuEKpNfu8QM76MQV4il78wRLQ8sOLsPK7R+iFbKrjNQuK0NkfSX0/ajbWnOEDoi05TaMjUg==`。
 
-最终构建来源、tgz 摘要、registry 回读及验证结果仅在发布完成并逐项复核后补录；候选状态不代表 npm 已公开。
+本次加入仅支持常规全局 npm 安装的 `rotom update` 产品升级命令，固定 npm 官方 registry 返回的精确 latest 版本，写入前要求确认其他会话已退出，并拒绝 npm link、错误 prefix、降级和 Node 24 以下运行时；扩展更新仍独立执行。footer 的 Qoder Credit 已知小计只显示三位数字，不追加 partial 后缀，统计行末显示 `sid:<sessionId>`。最终 tgz 通过 tree/history 与归档隐私审计、`test:distribution`、`check:pi`、隔离安装、default/full runtime smoke、`check-personal`、从 `0.1.2` 到 `0.1.3` 的隔离升级及卸载验证。未执行真实模型或真实 Chrome 操作，也未覆盖维护者当前安装。
 
 ## 0.1.2 正式发布
 
