@@ -4,6 +4,12 @@
 
 当前版本使用仓内 Pi fork；构建、隔离安装、本机切换及未验证项见 [Pi fork 接入](pi-fork.md)。本页底部“首次分发”表仍是历史上游 Pi 基线，不代表新 fork 的跨平台验收。
 
+## 0.1.4 发布准备
+
+已授权发布 `@bingjiang0611/rotom@0.1.4`，预期 dist-tag 为 `latest`，`publishConfig.access=public`，许可证仍为 `UNLICENSED`。本节是冻结元数据与发行说明，尚不代表 registry 已公开；完成最终 tgz 验证和 registry 字节回读后再记录正式结果。本次不更新维护者本机安装。
+
+本次发布此前已同步公开源码的长会话改进：完成声明绑定验证场景与版本，区分完整解析/完整阅读/抽样；精确编辑首行失配时以有界的后续唯一整行定位重读，不自动修改或重放。离线回归证明提示投递与机制行为，不宣称真实模型遵从率或 token/耗时收益。额外加载的 SoL-Pi 召回修复属于独立 package，不随本次 rotom 发布打包。详情见 [长会话改进](long-session-hardening.md)。
+
 ## 0.1.3 正式发布
 
 `0.1.3` 于 2026-09-15 从公开 `main` 的 `9f95411` 构建并发布。registry 回读确认 `latest=0.1.3`，下载 tarball 与发布前最终产物逐字节一致：17,916 个文件，压缩后 53,385,829 bytes，解包后 168,654,822 bytes，SHA-256 为 `2d7db73326e7be11eed05228416c123715aedc748149004d9610df8147ce5442`，npm shasum 为 `0f3e488d591455780a767e61bf9b826b658a1e70`，SRI 为 `sha512-1dbwWLsEiiAGMl9CuEKpNfu8QM76MQV4il78wRLQ8sOLsPK7R+iFbKrjNQuK0NkfSX0/ajbWnOEDoi05TaMjUg==`。
@@ -28,7 +34,7 @@
 
 **PASS：首次安装产物的本地打包、隔离安装与 L1/L2 验证。保留：完整跨平台/真实业务验收未执行。**
 
-当前产品元数据位于 `rotom/package.json`：`@bingjiang0611/rotom@0.1.3`、公开 npm 包、`UNLICENSED`。包内包含完整 Pi 运行时。
+当前产品元数据位于 `rotom/package.json`：`@bingjiang0611/rotom@0.1.4`、公开 npm 包、`UNLICENSED`。包内包含完整 Pi 运行时。
 
 ## 分发与启动
 
