@@ -4,6 +4,7 @@ export function scrollableTextTargets(rootDocument = document, maxTargets = 3) {
 	const seenDocuments = new Set();
 	const documents = [rootDocument];
 	const elements = [];
+	let discoveryTruncated = false;
 	for (let documentIndex = 0; documentIndex < documents.length && documentIndex < 8; documentIndex += 1) {
 		const currentDocument = documents[documentIndex];
 		if (!currentDocument || seenDocuments.has(currentDocument)) continue;
@@ -13,6 +14,14 @@ export function scrollableTextTargets(rootDocument = document, maxTargets = 3) {
 		const view = currentDocument.defaultView;
 		const width = Math.max(1, Number(view?.innerWidth) || Number(root?.clientWidth) || 1);
 		const height = Math.max(1, Number(view?.innerHeight) || Number(root?.clientHeight) || 1);
+		// A short list can sit entirely between viewport sample rows. Inspect a
+		// bounded set of semantic containers too, without walking every DOM node.
+		let landmarks = [];
+		try { landmarks = currentDocument.querySelectorAll('[role="list"],[role="grid"],[role="feed"],[role="tree"],[role="listbox"],main,aside'); } catch {}
+		discoveryTruncated ||= landmarks.length > 64;
+		for (let index = 0; index < Math.min(landmarks.length, 64); index += 1) {
+			for (let element = landmarks[index]; element; element = element.parentElement) elements.push(element);
+		}
 		for (const [xRatio, yRatio] of [[0.2, 0.25], [0.35, 0.25], [0.5, 0.25], [0.65, 0.25], [0.8, 0.25], [0.92, 0.25], [0.2, 0.5], [0.35, 0.5], [0.5, 0.5], [0.65, 0.5], [0.8, 0.5], [0.92, 0.5], [0.2, 0.75], [0.35, 0.75], [0.5, 0.75], [0.65, 0.75], [0.8, 0.75], [0.92, 0.75]]) {
 			let hits = [];
 			try { hits = currentDocument.elementsFromPoint(width * xRatio, height * yRatio); } catch {}
@@ -36,6 +45,7 @@ export function scrollableTextTargets(rootDocument = document, maxTargets = 3) {
 		try { frames = currentDocument.querySelectorAll("iframe,frame"); } catch {}
 		for (const frame of frames) try { if (frame.contentDocument) documents.push(frame.contentDocument); } catch {}
 	}
+	discoveryTruncated ||= documents.some((entry) => !seenDocuments.has(entry));
 	for (const element of elements) {
 		if (!element || seenElements.has(element)) continue;
 		seenElements.add(element);
@@ -60,7 +70,25 @@ export function scrollableTextTargets(rootDocument = document, maxTargets = 3) {
 		candidates.push({ element, score, range, textLength });
 	}
 	candidates.sort((left, right) => right.score - left.score || right.range - left.range || right.textLength - left.textLength);
-	return candidates.slice(0, Math.max(1, Math.min(Number(maxTargets) || 1, 8))).map((candidate) => candidate.element);
+	const limit = Math.max(1, Math.min(Number(maxTargets) || 1, 8));
+	const targets = candidates.slice(0, limit).map((candidate) => candidate.element);
+	targets.truncated = discoveryTruncated || candidates.length > limit;
+	return targets;
+}
+
+export function fullReadScrollStep(clientHeight) {
+	return Math.max(1, Math.floor(clientHeight * 0.75));
+}
+
+export function fullReadCoverage(sources, truncated, maxSteps, framesComplete) {
+	const scanSteps = sources.reduce((sum, source) => sum + source.scanSteps, 0);
+	const scannedContainers = sources.reduce((sum, source) => sum + source.scannedContainers, 0);
+	const scrolledContainers = sources.reduce((sum, source) => sum + source.scrolledContainers, 0);
+	return {
+		contentCoverage: scrolledContainers > 0 ? "scroll-end" : "rendered-dom",
+		contentComplete: scrolledContainers > 0 && framesComplete && sources.every((source) => source.endReached) && !truncated && scanSteps < maxSteps,
+		scanSteps, scannedContainers, scrolledContainers,
+	};
 }
 
 export function scrollTargetState() {
@@ -75,9 +103,12 @@ export function scrollTargetState() {
 	};
 }
 
-export function scrollTargetTo(top) {
-	if (!this) return 0;
+export async function scrollTargetTo(top) {
 	this.scrollTop = Math.max(0, Number(top) || 0);
+	const view = this.ownerDocument.defaultView;
+	// Background scrollTop can change without delivering scroll/RAF callbacks.
+	// Do not let the reader treat a frozen renderer as a completed traversal.
+	await new Promise((resolve) => view.requestAnimationFrame(() => view.requestAnimationFrame(resolve)));
 	return Number(this.scrollTop) || 0;
 }
 

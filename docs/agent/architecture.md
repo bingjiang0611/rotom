@@ -81,9 +81,13 @@ ROTOM_PI=/absolute/path/to/pi \
 
 Browser relay 安装入口是 `node rotom/extensions/browser/install-chrome-relay.mjs install`；Chrome 中加载/重载 extension 仍由用户显式完成。
 
-Browser 路由为 Relay-first：先 `browser_inspect/browser_interact`，只有当前运行未派发 Relay 页面请求且本机 socket 缺失/拒绝连接的类型化错误，才给 `launch_browser` 一次启动许可。错误回执与启动提示会说明独立 profile 不继承原 Chrome 的 Cookie/登录态。登录页、空列表、stale、超时/unknown、取消、权限与协议错误不授权回退；已派发请求后的断线不能靠重连失败取得许可，也不跨浏览器重放写操作。许可在启动 preflight 消费（启动失败也不重发），新用户运行、session/tree/fork/reload 后不继承；不主动改变 active tools，显式排除 Relay 的调用方保留原选择。回退后使用新 CDP stateId，不复用 Relay ref。实现位于 Browser extension 与自有 Computer Use wrapper，不修改第三方 installed source 或 Chrome protocol。本次仅本地确定性测试；真实 Chrome L2/L3 未验证，安装版本升级并启动新 session 后才会加载此策略。
+Browser 路由为 Relay-first：先 `browser_inspect/browser_interact`，只有当前运行未派发 Relay 页面请求且本机 socket 缺失/拒绝连接的类型化错误，才给 `launch_browser` 一次启动许可。错误回执与启动提示会说明独立 profile 不继承原 Chrome 的 Cookie/登录态。登录页、空列表、stale、超时/unknown、取消、权限与协议错误不授权回退；已派发请求后的断线不能靠重连失败取得许可，也不跨浏览器重放写操作。许可在启动 preflight 消费（启动失败也不重发），新用户运行、session/tree/fork/reload 后不继承；不主动改变 active tools，显式排除 Relay 的调用方保留原选择。回退后使用新 CDP stateId，不复用 Relay ref。实现位于 Browser extension 与自有 Computer Use wrapper，不修改第三方 installed source 或 Chrome protocol。上述隔离浏览器回退路由仅经确定性测试，未启动隔离 Chrome 做 L2/L3 验收；安装版本升级并启动新 session 后才会加载此策略。
 
-Browser 源码新增 ref-bound `keypress`（protocol 17 / `targeted-keypress`）：`browser_interact({operation:"execute", tabName:"form", action:"keypress", targetRef:"<最新 snapshot_visible 的输入框 ref>", key:"Enter", expect:"value=empty"})`。`Enter` 对应 Return，用于回调地址等标签输入确认；另支持 `Tab` / `Escape`，不支持组合键或无目标按键。普通 `type` 不自动提交，按键先核验原目标焦点，再后台 CDP 派发并回读；输入框清空不等于业务成功，仍要检查标签或页面状态。未知结果禁止重发。升级后需用户在 `chrome://extensions` 重载 Relay，并重启 Pi session 更新工具 schema；旧 relay 会明确要求重载。该路径的确定性 L1 已覆盖，真实 Chrome L2 / Cloudflare L3 尚待显式授权验证，不能宣称现场问题已解决。
+Browser 源码新增 ref-bound `keypress`（protocol 17 / `targeted-keypress`）：`browser_interact({operation:"execute", tabName:"form", action:"keypress", targetRef:"<最新 snapshot_visible 的输入框 ref>", key:"Enter", expect:"value=empty"})`。`Enter` 对应 Return，用于回调地址等标签输入确认；另支持 `Tab` / `Escape`，不支持组合键或无目标按键。普通 `type` 不自动提交，按键先核验原目标焦点，再后台 CDP 派发并回读；输入框清空不等于业务成功，仍要检查标签或页面状态。未知结果禁止重发。升级后需用户在 `chrome://extensions` 重载 Relay，并重启 Pi session 更新工具 schema；旧 relay 会明确要求重载。该路径的确定性 L1 已覆盖，protocol 17 的后台合成表单 Chrome L2 已通过；Cloudflare 业务 L3 未验证，不能宣称该站现场问题已解决。
+
+当前全文读取合同为 **protocol 19 / Chrome extension 0.9.2**：采样点之外补查每个文档最多 64 个语义容器，最多 8 个同源文档、每个 frame 6 个候选容器、总计 60 步；短容器按可视高度重叠滚动，避免固定最小步长跳行。后台全文读取复用已有 focus emulation，让原生滚动/渲染回调执行，不选中标签或聚焦窗口；每次滚动等待页面两帧的有界回执，不能只凭 scrollTop 变化认定已渲染。发现超出上限、扫描达到上限、已知子 frame 未完成、未观察到从顶部连续覆盖、渲染回执未知、还原位置失败或没有实际滚动时，不报告全文完成。零滚动只返回 rendered DOM 证据。超出这些边界的页面保留 partial，需要再设计定向容器读取或扩大有界发现，不能直接抬高完成标志。客户端拒绝旧协议，更新后需用户重载扩展；这不是 npm 发布或活跃 Pi 安装升级。范围与失败记录见[本次 Browser 验收](browser-verification-2026-09-15.md)。
+
+Native host 在任何 socket 探测/回收前持有进程寿命的 OS 文件锁：macOS 使用 `/usr/bin/lockf`，Linux 使用 `/usr/bin/flock` 的继承 FD 模式；辅助命令退出不释放 Node 保留的锁，正常退出和 SIGKILL 均由内核释放，不删除持久 `relay.lock`。工具不可用或锁身份异常时 fail closed，不用 PID/超时猜测来破锁。退出时仍检查 socket inode，保留其他 publisher 的端点；同 UID 任意进程不属于隔离承诺。
 
 ## 代码地图
 

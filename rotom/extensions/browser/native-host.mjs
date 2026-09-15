@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
-import { chmodSync, existsSync, lstatSync, mkdirSync, unlinkSync } from "node:fs";
+import { chmodSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, unlinkSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createConnection, createServer } from "node:net";
@@ -164,6 +165,21 @@ async function socketIsLive() {
 
 async function main() {
 	setupDirectories();
+	// Keep the same open file description locked until process exit, including
+	// socket cleanup. Never unlink this lock file: SIGKILL releases the OS lock.
+	// Descriptor-mode lockf/flock leaves the lock held by our inherited fd after
+	// the short-lived helper exits; no PID checks, stale timers or lock breaking.
+	const lockPath = join(relayDir, "relay.lock");
+	const lockFd = openSync(lockPath, constants.O_RDWR | constants.O_CREAT | constants.O_NOFOLLOW, 0o600);
+	const lockInfo = fstatSync(lockFd);
+	if (!lockInfo.isFile() || lockInfo.nlink !== 1 || lockInfo.uid !== process.getuid() || (lockInfo.mode & 0o077) !== 0) throw new Error("browser relay lock identity invalid");
+	if (process.platform !== "darwin" && process.platform !== "linux") throw new Error("browser relay lock platform unsupported");
+	const command = process.platform === "darwin" ? "/usr/bin/lockf" : "/usr/bin/flock";
+	const args = process.platform === "darwin" ? ["-s", "-t", "0", "3"] : ["-n", "3"];
+	const locked = spawnSync(command, args, { stdio: ["ignore", "ignore", "ignore", lockFd], timeout: 3_000 });
+	if (locked.error || locked.status !== 0) throw new Error("browser relay lock unavailable; no socket mutation");
+	const currentLock = lstatSync(lockPath);
+	if (currentLock.isSymbolicLink() || currentLock.dev !== lockInfo.dev || currentLock.ino !== lockInfo.ino) throw new Error("browser relay lock identity changed");
 	const server = createServer((client) => {
 		clients.add(client);
 		clientBuffers.set(client, "");

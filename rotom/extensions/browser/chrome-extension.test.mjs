@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { createConnection } from "node:net";
 import test from "node:test";
-import { mergeRenderedText, scrollableTextTargets } from "./chrome-extension/full-read.js";
+import { fullReadCoverage, fullReadScrollStep, mergeRenderedText, scrollableTextTargets } from "./chrome-extension/full-read.js";
 import { observedInteractionNode } from "./chrome-extension/interaction-observation.js";
 import { invalidateCoordinateObservation, mintCoordinateObservation, validateCoordinateBinding, validateCoordinateHit } from "./chrome-extension/coordinate-click.js";
 import { interactionScrollTarget } from "./chrome-extension/interaction-scroll-target.js";
@@ -28,7 +28,7 @@ const extensionId = "kgadcllokaodnoknakblocmhidemimdi";
 test("Chrome MV3 manifest 固定 identity 且不申请 cookie/script/host 权限", async () => {
 	const manifest = JSON.parse(await readFile(join(extensionDir, "manifest.json"), "utf8"));
 	assert.equal(manifest.manifest_version, 3);
-	assert.equal(manifest.version, "0.9.0");
+	assert.equal(manifest.version, "0.9.2");
 	const digest = createHash("sha256").update(Buffer.from(manifest.key, "base64")).digest().subarray(0, 16);
 	const derived = [...digest].flatMap((byte) => [byte >> 4, byte & 15]).map((nibble) => String.fromCharCode(97 + nibble)).join("");
 	assert.equal(derived, extensionId);
@@ -57,7 +57,7 @@ test("Chrome MV3 manifest 固定 identity 且不申请 cookie/script/host 权限
 	assert.match(worker, /chrome\.debugger\.getTargets\(\)/u);
 	assert.match(worker, /candidate\.id === item\.targetId/u);
 	assert.match(worker, /state\.epoch !== expectedEpoch/u);
-	assert.match(worker, /protocolRevision: 17/u);
+	assert.match(worker, /protocolRevision: 19/u);
 	assert.match(worker, /"targeted-keypress"/u);
 	assert.match(worker, /"virtualized-frame-scroll"/u);
 	assert.match(worker, /"multi-client-multiplex"/u);
@@ -333,6 +333,28 @@ test("全文读取沿采样点和同源 iframe 寻找滚动容器，不遍历页
 	fakeDocument.elementsFromPoint = () => [iframe];
 	fakeDocument.querySelectorAll = (selector) => selector === "iframe,frame" ? [iframe] : [];
 	assert.equal(scrollableTextTargets(fakeDocument, 6)[0], frameContent, "同源 iframe 内的虚拟化正文容器必须优先于外层空壳");
+});
+
+test("short semantic scroller between sample points is found, and discovery caps stay partial", () => {
+	const root = { clientHeight: 1200, clientWidth: 2000, scrollHeight: 1200, innerText: "root", parentElement: null, getBoundingClientRect: () => ({ width: 2000, height: 1200, bottom: 1200, right: 2000 }) };
+	const list = { clientHeight: 160, clientWidth: 700, scrollHeight: 1920, innerText: "Fixture rows", parentElement: root, getBoundingClientRect: () => ({ width: 700, height: 160, bottom: 560, right: 730 }) };
+	const document = { scrollingElement: root, defaultView: { innerWidth: 2000, innerHeight: 1200, getComputedStyle: (element) => ({ overflowY: element === list ? "auto" : "visible" }) }, elementsFromPoint: () => [root], querySelectorAll: (selector) => selector.includes('[role="list"]') ? [list] : [] };
+	root.ownerDocument = document; list.ownerDocument = document;
+	const targets = scrollableTextTargets(document, 3);
+	assert.equal(targets[0], list); assert.equal(targets.truncated, false);
+	assert.equal(scrollableTextTargets(document, 1).truncated, true, "omitted candidates cannot become complete");
+	document.querySelectorAll = (selector) => selector.includes('[role="list"]') ? Array(65).fill(list) : [];
+	assert.equal(scrollableTextTargets(document, 3).truncated, true, "semantic discovery is bounded and reports its limit");
+});
+
+test("full-read completion requires actual scrolling and all bounded sources; short viewports overlap", () => {
+	const still = { scanSteps: 3, scannedContainers: 1, scrolledContainers: 0, endReached: true };
+	assert.equal(fullReadCoverage([still], false, 60, true).contentComplete, false);
+	assert.equal(fullReadCoverage([still], false, 60, true).contentCoverage, "rendered-dom");
+	const moved = { ...still, scrolledContainers: 1 };
+	assert.equal(fullReadCoverage([moved], false, 60, true).contentComplete, true);
+	for (const [sources, truncated, maxSteps, framesComplete] of [[[moved], true, 60, true], [[moved], false, 3, true], [[moved], false, 60, false], [[moved, { ...still, endReached: false }], false, 60, true]]) assert.equal(fullReadCoverage(sources, truncated, maxSteps, framesComplete).contentComplete, false);
+	for (const height of [120, 160, 700]) assert.ok(fullReadScrollStep(height) > 0 && fullReadScrollStep(height) < height);
 });
 
 test("扩展 operation deadline 先于客户端超时并覆盖长 wait", () => {

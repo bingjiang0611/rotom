@@ -44,6 +44,7 @@ PI_SUBAGENTS_EXECUTION_SCOPE= PI_SUBAGENTS_TEMP_ROOT= ROTOM_PI="$pi_command" PAT
 	rotom/extensions/browser/index.test.ts \
 	rotom/extensions/browser/browser-relay.test.ts \
 	rotom/extensions/browser/native-host.test.mjs \
+	rotom/extensions/browser/chrome-extension.test.mjs \
 	rotom/extensions/browser/component-storage.test.mjs \
 	rotom/extensions/browser/artifact-ownership.test.ts \
 	rotom/extensions/browser/runtime-ownership.test.ts \

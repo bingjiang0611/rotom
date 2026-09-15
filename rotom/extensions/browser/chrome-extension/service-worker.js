@@ -5,7 +5,7 @@ import { createOperationGuard } from "./operation-guard.js";
 import { operationChrome } from "./operation-chrome.js";
 import { consumeMatchingWindowOpenSignal } from "./window-open-correlation.js";
 import { relayOperationDeadlineMs, runWithRelayDeadline, valueWithinRelayDeadline } from "./relay-deadline.js";
-import { mergeRenderedText, scrollableTextTargets, scrollTargetState, scrollTargetTo } from "./full-read.js";
+import { fullReadCoverage, fullReadScrollStep, mergeRenderedText, scrollableTextTargets, scrollTargetState, scrollTargetTo } from "./full-read.js";
 import { collectRenderedText, utf8TextChunks } from "./rendered-text.js";
 import { collectPageAlerts, MAX_PAGE_ALERTS, pageAlertNodes } from "./page-alerts.js";
 import { evaluateInteractionExpectation, interactionTargetChange, parseInteractionExpectation, readInteractionTargetState } from "./interaction-target-state.js";
@@ -457,10 +457,12 @@ async function fullRenderedTextSource(debuggee, scopeId, remainingSteps, assertO
 		if (typeof targetsObjectId !== "string") return { scopeId, text: "", endReached: false, truncated: false, scanSteps, scannedContainers, scrolledContainers };
 		const lengthResult = await debuggerCommandWithin(debuggee, "Runtime.callFunctionOn", {
 			objectId: targetsObjectId,
-			functionDeclaration: "function(){return this.length;}",
+			functionDeclaration: "function(){return {length:this.length,truncated:this.truncated===true};}",
 			returnByValue: true,
 		});
-		const targetCount = Math.max(0, Math.min(Number(lengthResult?.result?.value) || 0, FULL_READ_MAX_TARGETS));
+		const discovered = lengthResult?.result?.value;
+		truncated ||= !record(discovered) || discovered.truncated === true;
+		const targetCount = Math.max(0, Math.min(Number(discovered?.length) || 0, FULL_READ_MAX_TARGETS));
 		for (let index = 0; index < targetCount && scanSteps < remainingSteps; index += 1) {
 			const targetResult = await debuggerCommandWithin(debuggee, "Runtime.callFunctionOn", {
 				objectId: targetsObjectId,
@@ -473,7 +475,7 @@ async function fullRenderedTextSource(debuggee, scopeId, remainingSteps, assertO
 			const original = await debuggerCommandWithin(debuggee, "Runtime.callFunctionOn", { objectId: targetObjectId, functionDeclaration: scrollTargetState.toString(), returnByValue: true });
 			if (!record(original?.result?.value)) { endReached = false; continue; }
 			const originalTop = Number(original.result.value.top) || 0;
-			await debuggerCommandWithin(debuggee, "Runtime.callFunctionOn", { objectId: targetObjectId, arguments: [{ value: 0 }], functionDeclaration: scrollTargetTo.toString(), returnByValue: true });
+			let rendered = await debuggerCommandWithin(debuggee, "Runtime.callFunctionOn", { objectId: targetObjectId, arguments: [{ value: 0 }], functionDeclaration: scrollTargetTo.toString(), returnByValue: true, awaitPromise: true });
 			await delay(FULL_READ_RENDER_WAIT_MS);
 			scannedContainers += 1;
 			let targetComplete = false;
@@ -482,36 +484,42 @@ async function fullRenderedTextSource(debuggee, scopeId, remainingSteps, assertO
 			let stableEndPasses = 0;
 			let previousHeight = -1;
 			let previousTop = -1;
+			let previousClientHeight = 0;
 			for (;;) {
-				if (scanSteps >= remainingSteps) break;
+				if (scanSteps >= remainingSteps || typeof rendered?.result?.value !== "number") break;
 				const stateResult = await debuggerCommandWithin(debuggee, "Runtime.callFunctionOn", { objectId: targetObjectId, functionDeclaration: scrollTargetState.toString(), returnByValue: true });
 				const state = stateResult?.result?.value;
 				if (!record(state)) break;
 				scanSteps += 1;
-				const merged = mergeRenderedText(text, typeof state.text === "string" ? state.text : "", FULL_READ_MAX_CHARACTERS);
-				text = merged.text;
-				truncated ||= merged.truncated;
 				const top = Number(state.top) || 0;
 				const clientHeight = Number(state.clientHeight) || 0;
 				const scrollHeight = Number(state.scrollHeight) || 0;
 				targetScrollable ||= scrollHeight - clientHeight > 2;
 				targetMoved ||= previousTop >= 0 && top > previousTop + 1;
+				// Observe the start and overlapping progress, not just a dispatched
+				// scroll request: snapping or a refused reset can skip unseen content.
+				if (previousTop < 0 ? Math.abs(top) > 1 : top < previousTop - 1 || top > previousTop + previousClientHeight + 1) break;
+				const merged = mergeRenderedText(text, typeof state.text === "string" ? state.text : "", FULL_READ_MAX_CHARACTERS);
+				text = merged.text;
+				truncated ||= merged.truncated;
 				const atEnd = clientHeight <= 0 || top + clientHeight >= scrollHeight - 2;
 				if (atEnd) {
 					stableEndPasses = scrollHeight === previousHeight ? stableEndPasses + 1 : 0;
 					if (stableEndPasses >= 2) { targetComplete = !targetScrollable || targetMoved; break; }
 				} else stableEndPasses = 0;
-				const step = Math.max(240, Math.floor(clientHeight * 0.75));
+				const step = fullReadScrollStep(clientHeight);
 				const nextTop = Math.min(Math.max(0, scrollHeight - clientHeight), top + step);
 				if (!atEnd && (nextTop <= top + 1 || top === previousTop)) break;
 				previousHeight = scrollHeight;
 				previousTop = top;
-				await debuggerCommandWithin(debuggee, "Runtime.callFunctionOn", { objectId: targetObjectId, arguments: [{ value: nextTop }], functionDeclaration: scrollTargetTo.toString(), returnByValue: true });
+				previousClientHeight = clientHeight;
+				rendered = await debuggerCommandWithin(debuggee, "Runtime.callFunctionOn", { objectId: targetObjectId, arguments: [{ value: nextTop }], functionDeclaration: scrollTargetTo.toString(), returnByValue: true, awaitPromise: true });
 				await delay(FULL_READ_RENDER_WAIT_MS);
 			}
 			if (targetMoved) scrolledContainers += 1;
 			endReached &&= targetComplete;
-			await debuggerCommandWithin(debuggee, "Runtime.callFunctionOn", { objectId: targetObjectId, arguments: [{ value: originalTop }], functionDeclaration: scrollTargetTo.toString(), returnByValue: true });
+			const restored = await debuggerCommandWithin(debuggee, "Runtime.callFunctionOn", { objectId: targetObjectId, arguments: [{ value: originalTop }], functionDeclaration: scrollTargetTo.toString(), returnByValue: true, awaitPromise: true });
+			if (typeof restored?.result?.value !== "number" || Math.abs(restored.result.value - originalTop) > 1) endReached = false;
 		}
 		if (targetCount === 0) endReached = false;
 		return { scopeId, text, endReached, truncated, scanSteps, scannedContainers, scrolledContainers };
@@ -525,33 +533,34 @@ async function fullObservation(name, item, assertOperation) {
 	await attach(item, assertOperation);
 	const tab = await chrome.tabs.get(item.tabId);
 	if (!tab || tab.id !== item.tabId) throw new Error("owned tab lost");
-	const root = await fullRenderedTextSource({ tabId: item.tabId }, "r", FULL_READ_MAX_STEPS, assertOperation);
-	let remainingSteps = Math.max(0, FULL_READ_MAX_STEPS - root.scanSteps);
-	const sources = [root];
-	for (const entry of childSessionEntries(item.tabId)) {
-		if (remainingSteps <= 0) break;
-		const ready = await valueWithinRelayDeadline(entry.ready, 500);
-		if (!ready.ok) continue;
-		const child = await fullRenderedTextSource({ tabId: item.tabId, sessionId: entry.sessionId }, entry.scopeId, remainingSteps, assertOperation);
-		remainingSteps = Math.max(0, remainingSteps - child.scanSteps);
-		if (child.text) sources.push(child);
-	}
-	assertOperation();
-	let combined = "";
-	let truncated = false;
-	for (const source of sources) {
-		const merged = mergeRenderedText(combined, source.text, FULL_READ_MAX_CHARACTERS);
-		combined = merged.text;
-		truncated ||= source.truncated || merged.truncated;
-	}
-	const text = renderedTextNodes(item, [{ scopeId: "full", text: combined }], MAX_TEXT_NODES);
-	truncated ||= text.truncated;
-	item.lastObservationNodes = text.nodes;
-	const scanSteps = sources.reduce((sum, source) => sum + source.scanSteps, 0);
-	const scannedContainers = sources.reduce((sum, source) => sum + source.scannedContainers, 0);
-	const scrolledContainers = sources.reduce((sum, source) => sum + source.scrolledContainers, 0);
-	const contentComplete = sources.length > 0 && sources.every((source) => source.endReached) && !truncated && scanSteps < FULL_READ_MAX_STEPS;
-	return observationValue(name, item, tab, text.nodes, truncated, { contentCoverage: "scroll-end", contentComplete, scanSteps, scannedContainers, scrolledContainers });
+	// Reuse the background interaction primitive: allow rendering without selecting
+	// the tab or focusing its window. Each scroll also proves a rendered frame.
+	return withFocusEmulation({ tabId: item.tabId }, async () => {
+		const root = await fullRenderedTextSource({ tabId: item.tabId }, "r", FULL_READ_MAX_STEPS, assertOperation);
+		let remainingSteps = Math.max(0, FULL_READ_MAX_STEPS - root.scanSteps);
+		const sources = [root];
+		let framesComplete = true;
+		for (const entry of childSessionEntries(item.tabId)) {
+			if (remainingSteps <= 0) { framesComplete = false; break; }
+			const ready = await valueWithinRelayDeadline(entry.ready, 500);
+			if (!ready.ok) { framesComplete = false; continue; }
+			const child = await fullRenderedTextSource({ tabId: item.tabId, sessionId: entry.sessionId }, entry.scopeId, remainingSteps, assertOperation);
+			remainingSteps = Math.max(0, remainingSteps - child.scanSteps);
+			sources.push(child);
+		}
+		assertOperation();
+		let combined = "";
+		let truncated = false;
+		for (const source of sources) {
+			const merged = mergeRenderedText(combined, source.text, FULL_READ_MAX_CHARACTERS);
+			combined = merged.text;
+			truncated ||= source.truncated || merged.truncated;
+		}
+		const text = renderedTextNodes(item, [{ scopeId: "full", text: combined }], MAX_TEXT_NODES);
+		truncated ||= text.truncated;
+		item.lastObservationNodes = text.nodes;
+		return observationValue(name, item, tab, text.nodes, truncated, fullReadCoverage(sources, truncated, FULL_READ_MAX_STEPS, framesComplete));
+	}, assertOperation);
 }
 function interactionRef(value, generation) {
 	const ref = safeString(value, "targetRef", 128);
@@ -964,7 +973,7 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 	if (!record(payload)) throw new Error("payload invalid");
 	if (operation === "hello") {
 		const nonce = safeString(payload.nonce, "nonce", 128);
-		return { schemaVersion: 1, kind: "rotom-browser-relay-ready", protocolRevision: 17, nonce, capabilities: ["tab-control", "claim-user-tabs", "handoff-user-tabs", "agent-tab-groups", "accessibility-snapshot", "rendered-document-text", "full-document-read", "virtualized-frame-scroll", "content-coverage", "oopif-accessibility", "screenshot", "direct-interaction", "cdp-mouse", "coordinate-click", "targeted-scroll", "interaction-target-state", "page-alert-readback", "targeted-keypress", "operation-deadline", "non-destructive-timeout", "in-place-recovery", "multi-client-multiplex"] };
+		return { schemaVersion: 1, kind: "rotom-browser-relay-ready", protocolRevision: 19, nonce, capabilities: ["tab-control", "claim-user-tabs", "handoff-user-tabs", "agent-tab-groups", "accessibility-snapshot", "rendered-document-text", "full-document-read", "virtualized-frame-scroll", "content-coverage", "oopif-accessibility", "screenshot", "direct-interaction", "cdp-mouse", "coordinate-click", "targeted-scroll", "interaction-target-state", "page-alert-readback", "targeted-keypress", "operation-deadline", "non-destructive-timeout", "in-place-recovery", "multi-client-multiplex"] };
 	}
 	if (operation === "open") {
 		const name = safeName(payload.tabName);

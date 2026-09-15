@@ -21,7 +21,7 @@ async function worker(t, pendingMethod) {
 	source = source.replace(/from "(\.\/[^"]+)"/gu, (_, path) => `from ${JSON.stringify(new URL(path, new URL("./chrome-extension/", import.meta.url)).href)}`);
 	assert.equal(source.split("void startRelay();").length, 2);
 	source = source.replace("void startRelay();", "");
-	const mod = await import(`data:text/javascript;base64,${Buffer.from(source + `\nexport { attach, fullRenderedTextSource, closeOwnedIdentity, closeOwned, handleOperation, performInteraction, observation, sessionStates, childSessionsByTabId };\n// ${Math.random()}`).toString("base64")}`);
+	const mod = await import(`data:text/javascript;base64,${Buffer.from(source + `\nexport { attach, fullObservation, fullRenderedTextSource, closeOwnedIdentity, closeOwned, handleOperation, performInteraction, observation, sessionStates, childSessionsByTabId };\n// ${Math.random()}`).toString("base64")}`);
 	return { mod, api, calls, entered, release };
 }
 
@@ -140,6 +140,16 @@ test("Chrome full-read: retire during read; neither restoration nor object clean
 	assert.deepEqual(calls, ["Runtime.evaluate"]);
 });
 
+test("full-read focus emulation cannot disable a replacement after owner loss", { timeout: 5000 }, async (t) => {
+	const { mod, api, calls, entered, release } = await worker(t, "Runtime.evaluate");
+	api.debugger.getTargets = async () => [{ tabId: 1, id: "target", type: "page", attached: true }];
+	const state = { epoch: 0, operationRevision: 0, generation: "old" }; const guard = createOperationGuard(state, 0);
+	const pending = mod.fullObservation("fixture", { tabId: 1, targetId: "target", attached: true }, guard.assert);
+	const rejected = assert.rejects(pending, /invalidated/u);
+	await entered.promise; guard.invalidate(); release.resolve({ result: { objectId: "late-object" } }); await rejected;
+	assert.deepEqual(calls, ["Emulation.setFocusEmulationEnabled", "Runtime.evaluate"], "no late focus disable, restoration or object cleanup");
+});
+
 test("Chrome rollback checks the exact resource, not reused name or numeric tab ID", async (t) => {
 	const { mod, calls } = await worker(t);
 	const old = { tabId: 1, ownership: "agent" };
@@ -196,7 +206,7 @@ test("full-read never restores old scroll position after the in-flight scroll lo
 	api.debugger.sendCommand = async (_debuggee, method, params) => {
 		if (method === "Runtime.evaluate") return { result: { objectId: "targets" } };
 		if (method === "Runtime.releaseObjectGroup") { cleanup.push(method); return {}; }
-		if (params.functionDeclaration.includes("return this.length")) return { result: { value: 1 } };
+		if (params.functionDeclaration.includes("length:this.length")) return { result: { value: { length: 1, truncated: false } } };
 		if (params.objectId === "targets") return { result: { objectId: "scroll-target" } };
 		if (params.arguments) { scrolls.push(params.arguments[0].value); entered.resolve(); return release.promise; }
 		return { result: { value: { top: 120, clientHeight: 100, scrollHeight: 500, text: "fixture" } } };
@@ -205,6 +215,52 @@ test("full-read never restores old scroll position after the in-flight scroll lo
 	const pending = mod.fullRenderedTextSource({ tabId: 1 }, "r", 60, guard.assert); const rejected = assert.rejects(pending, /invalidated/u);
 	await entered.promise; guard.invalidate(); release.resolve({}); await rejected;
 	assert.deepEqual(scrolls, [0], "no second scroll or restore to original top=120"); assert.deepEqual(cleanup, []);
+});
+
+for (const scenario of ["normal", "initial-position-refused", "nonoverlapping-jump", "restore-failed", "background-emulated", "renderer-never-settles"]) test(`real full-read loop start, overlap and restoration evidence: ${scenario}`, { timeout: 10_000 }, async (t) => {
+	const { mod, api } = await worker(t);
+	let focus = false, renderedText = "";
+	const focusCommands = [];
+	const document = { scrollingElement: null, defaultView: { requestAnimationFrame(callback) {
+		if (scenario === "renderer-never-settles" || scenario === "background-emulated" && !focus) return;
+		setImmediate(() => { render(); callback(); });
+	} } };
+	const scroller = { ownerDocument: document, scrollTop: 48, clientHeight: 120, scrollHeight: 1920, get innerText() { return renderedText; } };
+	function render() {
+		const start = Math.floor(scroller.scrollTop / 24);
+		renderedText = Array.from({ length: 5 }, (_, i) => `Fixture row ${String(start + i + 1).padStart(4, "0")}`).join("\n");
+	}
+	render();
+	const targets = Object.assign([scroller], { truncated: false });
+	api.debugger.getTargets = async () => [{ tabId: 1, id: "target", type: "page", attached: true }];
+	api.debugger.sendCommand = async (_debuggee, method, params) => {
+		if (method === "Runtime.evaluate") return { result: { objectId: "targets" } };
+		if (method === "Runtime.releaseObjectGroup") return {};
+		if (method === "Emulation.setFocusEmulationEnabled") { focus = params.enabled; focusCommands.push(focus); return {}; }
+		assert.equal(method, "Runtime.callFunctionOn", "full-read must not select or focus the tab/window");
+		const target = params.objectId === "targets" ? targets : scroller;
+		const requested = params.arguments?.[0]?.value;
+		if (target === scroller && requested !== undefined) {
+			if (scenario === "initial-position-refused" && requested === 0 || scenario === "restore-failed" && requested === 48) return { result: { value: scroller.scrollTop } };
+			if (scenario === "nonoverlapping-jump" && requested > 0 && scroller.scrollTop === 0) { scroller.scrollTop = requested + scroller.clientHeight; return { result: { value: scroller.scrollTop } }; }
+		}
+		let result = Function(`return (${params.functionDeclaration})`)().apply(target, (params.arguments ?? []).map((arg) => arg.value));
+		if (result instanceof Promise) { assert.equal(params.awaitPromise, true); result = await result; }
+		return params.returnByValue ? { result: { value: result } } : { result: { objectId: "scroller" } };
+	};
+	const result = scenario === "background-emulated"
+		? await mod.fullObservation("fixture", { tabId: 1, targetId: "target", attached: true, documentGeneration: 1, url: "https://example.test/" }, () => {})
+		: await mod.fullRenderedTextSource({ tabId: 1 }, "r", 60, () => {});
+	assert.equal(result.endReached ?? result.contentComplete, scenario === "normal" || scenario === "background-emulated"); assert.equal(result.truncated, false);
+	if (scenario === "normal" || scenario === "restore-failed" || scenario === "background-emulated") {
+		assert.equal(result.scrolledContainers, 1);
+		const text = result.text ?? result.nodes.map((node) => node.name).join("");
+		const rows = [...text.matchAll(/Fixture row (\d{4})/gu)].map((match) => Number(match[1]));
+		assert.deepEqual(rows, Array.from({ length: 80 }, (_, index) => index + 1));
+	}
+	assert.equal(scroller.scrollTop === 48, scenario !== "restore-failed");
+	if (scenario === "background-emulated") assert.deepEqual(focusCommands, [true, false]);
+	if (scenario === "renderer-never-settles") assert.equal(result.scanSteps, 0);
 });
 
 test("late open cleanup reserves the unpublished tab until removal settles", { timeout: 5000 }, async (t) => {

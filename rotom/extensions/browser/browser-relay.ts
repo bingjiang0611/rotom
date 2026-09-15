@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connect, type Socket } from "node:net";
 
-export const BROWSER_RELAY_PROTOCOL_REVISION_V1 = 17 as const;
+export const BROWSER_RELAY_PROTOCOL_REVISION_V1 = 19 as const;
 export const BROWSER_RELAY_FULL_READ_CAPABILITY_V1 = "virtualized-frame-scroll" as const;
 export const BROWSER_RELAY_MULTI_CLIENT_CAPABILITY_V1 = "multi-client-multiplex" as const;
 export const BROWSER_RELAY_COORDINATE_CLICK_CAPABILITY_V1 = "coordinate-click" as const;
