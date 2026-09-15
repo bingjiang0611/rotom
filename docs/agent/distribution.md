@@ -1,14 +1,18 @@
 # rotom · npm 分发
 
-> 当前 registry 稳定版是 [`@bingjiang0611/rotom@0.1.4`](https://www.npmjs.com/package/@bingjiang0611/rotom/v/0.1.4)，npm dist-tag 为 `latest`。后续默认组件与 macOS/Linux 安装验证见 [Subagent 默认接入](subagent-default-integration.md)，发行包默认 scope 及其未复验项见 [scoped 默认](subagent-owned-default.md)。
+> 当前 registry 稳定版是 [`@bingjiang0611/rotom@0.1.5`](https://www.npmjs.com/package/@bingjiang0611/rotom/v/0.1.5)，npm dist-tag 为 `latest`。后续默认组件与 macOS/Linux 安装验证见 [Subagent 默认接入](subagent-default-integration.md)，发行包默认 scope 及其未复验项见 [scoped 默认](subagent-owned-default.md)。
 
 当前版本使用仓内 Pi fork；构建、隔离安装、本机切换及未验证项见 [Pi fork 接入](pi-fork.md)。本页底部“首次分发”表仍是历史上游 Pi 基线，不代表新 fork 的跨平台验收。
 
-## 0.1.5 发布准备
+## 0.1.5 正式发布
 
-已明确授权发布 `@bingjiang0611/rotom@0.1.5`，预期 dist-tag 为 `latest`，`publishConfig.access=public`，许可证保持 `UNLICENSED`。`0.1.4` 已存在，不能覆盖。本节只冻结元数据与发行说明，不声明 `0.1.5` 已公开；以最终 tgz 和 registry 字节回读作为完成证据，不更新维护者当前安装。
+`0.1.5` 于 2026-09-15 从公开 `main` 的 `9b690144c49f7733e895c9089a5a265f92a8f80e` 构建并发布，`publishConfig.access=public`，许可证保持 `UNLICENSED`。registry 回读确认精确版本与 `latest=0.1.5`，下载 tarball 与唯一最终产物逐字节一致：17,917 个文件，压缩后 53,378,914 bytes，解包后 168,648,528 bytes，SHA-256 为 `137c8f7e3036e22f2625e3e23e0af7f309fd7afd930c800beeb1aed185fc501f`，npm shasum 为 `699b3a7bd478e76ec56bcdd79305791542df9828`，SRI 为 `sha512-XnWeSFog1OrQ46nQjqGWcy9YWwa3UPI8ngiwDfSQ9lEp3y0sXZ7HJd9Mz3r39QB/ZBZxdvsfRy9Y10ELR1SyyA==`。
 
-本次发布已同步公开的 Goal 改进：默认显式 `goal_continue`、有界只读 completion reviewer、完整 objective 验收，以及 Ultimate 实测驱动的审阅协议和过程证据修复。组件版本为 `0.54.4-rotom.2`，保留未知不重放、控制调用不算新工作、混合控制批次拒绝及既有资源边界。19 个固定 Ultimate 场景各两次均达到预期；不外推为任意任务完成率或外部业务验收。结果及此前综合门的一次 Subagent `ps` 观测超时见 [Goal 实测报告](../../experiments/goal-review/RESULTS.md)。最终发行 gate 将独立验证。
+最终 tgz 通过归档隐私审计、隔离全新安装、从 `0.1.4` 升级、`rotom --version`、安装面 default/full SDK smoke 和卸载检查；其依赖字节用于公开维护测试，最终 `check-personal` 的 475 项产品测试、30 项 Goal 测试及 footprint gate 全部通过。冻结前另通过 `check:pi`、24 项 `test:distribution` 与公开 tree/history 审计。前期检查遇到测试 scope 未初始化、维护脚本不在发行包中的调用路径错误，以及高负载下一次 Browser fixture 超时；修正验证环境并重跑后通过，未改产品代码、未重新打包。本轮未追加真实模型、真实 Chrome 功能或跨平台验证，也未更新维护者当前安装。
+
+发布认证由用户完成；首次明确 `EOTP` 后确认版本不存在，才以相同产物和命令进入原生 CLI 网页 2FA。CLI 的接收/处理中提示不作为发布成功；上述 registry 元数据与下载字节回读才是最终证明。
+
+本次发布已同步公开的 Goal 改进：默认显式 `goal_continue`、有界只读 completion reviewer、完整 objective 验收，以及 Ultimate 实测驱动的审阅协议和过程证据修复。组件版本为 `0.54.4-rotom.2`，保留未知不重放、控制调用不算新工作、混合控制批次拒绝及既有资源边界。19 个固定 Ultimate 场景各两次均达到预期；不外推为任意任务完成率或外部业务验收。结果及此前综合门的一次 Subagent `ps` 观测超时见 [Goal 实测报告](../../experiments/goal-review/RESULTS.md)；该历史记录与本次独立发行 gate 分开报告。
 
 ## 0.1.4 发布准备（历史记录）
 
