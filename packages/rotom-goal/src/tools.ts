@@ -214,8 +214,11 @@ export function registerGoalTools(
 
 			let reviewReport: string | undefined;
 			if (runtime.settings.completionReview) {
-				const evidence = reviewEvidence(ctx.sessionManager.getBranch());
-				const candidate = digest(JSON.stringify([completedGoal.text, evidence]));
+				const branch = ctx.sessionManager.getBranch();
+				const evidence = reviewEvidence(branch, true);
+				// Reviewers can inspect actual control results when procedure is part
+				// of the objective. Controls still cannot buy a fresh work candidate.
+				const candidate = digest(JSON.stringify([completedGoal.text, reviewEvidence(branch)]));
 				const previous = completedGoal.review;
 				const pause = (reason: string) => {
 					runtime.stopActiveGoal(ctx, {
@@ -323,7 +326,7 @@ export function registerGoalTools(
 				}
 				const unchanged =
 					reviewFilesCurrent(ctx.cwd, outcome.files) &&
-					reviewEvidence(ctx.sessionManager.getBranch()) === evidence;
+					reviewEvidence(ctx.sessionManager.getBranch(), true) === evidence;
 				const status = signal.aborted || !unchanged ? "unknown" : outcome.status;
 				completedGoal.review = {
 					...completedGoal.review,

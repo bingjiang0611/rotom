@@ -64,7 +64,7 @@ extension、bundled skill 与第三方 package 是产品合同，不是“目录
 
 ### 3. 工具面要小、显式且诚实
 
-默认 deferred-tool loading 常驻 core、Ask、Browser/Computer Use、Goal 四工具与 `search_tools`，只把 Subagent 按需 additive 激活。Goal `0.54.4-rotom.1` 从启动起保持四个稳定 schema；工具可见不等于 Goal 模式启用，无 active goal 时拒绝执行，也不覆盖显式工具限制。默认要求 `goal_continue` 显式声明单次续跑；缺失声明暂停，控制调用不算进展。`goal_complete` 默认启用有界、当前模型、文件只读的 completion reviewer，不创建嵌套 AgentSession、不加载项目资源；额外用量单列且计入 Goal token admission，USD/credits unknown。审计尝试先持久化、unknown 不重放、resume/edit 不补额度，结果绑定当前 Goal/run 及实读证据；是第二意见，不是真实外部验收或 OS 沙箱。明确的用户设置 `completionReview:false` 可关闭 reviewer。它是 context-footprint 优化，不是安全沙箱。
+默认 deferred-tool loading 常驻 core、Ask、Browser/Computer Use、Goal 四工具与 `search_tools`，只把 Subagent 按需 additive 激活。Goal `0.54.4-rotom.2` 从启动起保持四个稳定 schema；工具可见不等于 Goal 模式启用，无 active goal 时拒绝执行，也不覆盖显式工具限制。默认要求 `goal_continue` 显式声明单次续跑；缺失声明暂停，控制调用不算进展。`goal_complete` 默认启用有界、当前模型、文件只读的 completion reviewer，不创建嵌套 AgentSession、不加载项目资源；额外用量单列且计入 Goal token admission，USD/credits unknown。审计尝试先持久化、unknown 不重放、resume/edit 不补额度，结果绑定当前 Goal/run 及实读证据；是第二意见，不是真实外部验收或 OS 沙箱。明确的用户设置 `completionReview:false` 可关闭 reviewer。它是 context-footprint 优化，不是安全沙箱。
 
 - `ROTOM_DEFERRED_TOOLS=0` 必须恢复完整工具面。
 - 用户显式 `--tools`、`--exclude-tools` 或 runtime policy 优先；launcher 仅在没有 tool-selection flag 时授权 loader 收窄 reviewed default，extension/SDK 直载默认保留调用方 active set；用户 extension 新增的非 deferred 工具同样保留。

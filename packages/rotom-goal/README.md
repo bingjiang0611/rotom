@@ -1,6 +1,6 @@
 # rotom Goal
 
-rotom-maintained `@narumitw/pi-goal@0.54.4-rotom.1`. MIT upstream provenance is in [UPSTREAM.md](UPSTREAM.md). Use the integrated [rotom installation](../../docs/usage.md), not a second upstream Goal extension.
+rotom-maintained `@narumitw/pi-goal@0.54.4-rotom.2`. MIT upstream provenance is in [UPSTREAM.md](UPSTREAM.md). Use the integrated [rotom installation](../../docs/usage.md), not a second upstream Goal extension.
 
 ## One session, one objective
 
@@ -41,7 +41,7 @@ The reviewer must inspect requirements individually and finish with `<approved/>
 - **Approved:** recheck ownership, evidence and file digests before committing completion.
 - **Rejected:** remain active; fix the missing requirements, then submit new evidence or declare continuation.
 - **Unknown/error/cancelled/stale/limited:** never complete or automatically repeat the review. Unresolved attempts persist across resume/edit and recovery. A late provider reply cannot approve a newer run.
-- Changing the completion summary alone does not create a fresh candidate. Resume/edit do not replenish the Goal's review allowance.
+- Bounded continuation/wait tool results and text-only user/host announcements can support procedural requirements during review (an announcement is not proof of its claimed external effect), but are not proof of semantic progress or fresh work. Changing the completion summary or only issuing control calls does not create a fresh candidate. Resume/edit do not replenish the Goal's review allowance.
 
 ### Fixed bounds and cost
 
@@ -56,7 +56,7 @@ The reviewer must inspect requirements individually and finish with `<approved/>
 | Serialized review context | 96,000 bytes |
 | Complete text file per read | 24,000 bytes |
 | Directory listing | 100 entries, explicitly partial beyond that |
-| Parent evidence | At most 6 complete tool records / 12,000 bytes; individual oversized records omitted |
+| Parent evidence | Complete recent session records within 12,000 bytes; individual records over 6,000 bytes omitted |
 
 Token accounting is **reported and partial**. A final in-flight response can exceed an admission budget; byte limits are not token estimates. Review usage is separately attributable from parent model usage; the Goal token-budget admission covers their sum. USD/credits remain unknown rather than `$0`. Cancellation cannot guarantee that the upstream provider stops billing. Provider retries are requested off; a custom provider that ignores cancellation/retry options is not certified by this extension.
 

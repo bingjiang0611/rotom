@@ -209,6 +209,32 @@ test("rejection requires new evidence; summary edits and resume do not replenish
 	const id = h.runtime.activeGoal!.id;
 	assert.equal((await h.call("goal_complete", { goal_id: id, summary: "done" })).terminate, false);
 	assert.equal(h.runtime.activeGoal?.status, "active");
+	h.entries.push(
+		{
+			type: "message",
+			message: {
+				role: "assistant",
+				content: [
+					{
+						type: "toolCall",
+						id: "control",
+						name: "goal_continue",
+						arguments: { goal_id: id, next_action: "try again" },
+					},
+				],
+			},
+		},
+		{
+			type: "message",
+			message: {
+				role: "toolResult",
+				toolCallId: "control",
+				toolName: "goal_continue",
+				content: [{ type: "text", text: "One continuation decision accepted." }],
+				isError: false,
+			},
+		},
+	);
 	assert.equal(
 		(await h.call("goal_complete", { goal_id: id, summary: "now really done" })).terminate,
 		true,

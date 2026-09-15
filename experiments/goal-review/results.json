@@ -1,0 +1,1119 @@
+{
+  "schema": "rotom-goal-live-eval/v1",
+  "component": "0.54.4-rotom.2",
+  "scope": "Goal/Qoder installed components; synthetic local fixtures; current authenticated Ultimate model",
+  "model": "qoder/ultimate",
+  "usd": null,
+  "batches": [
+    {
+      "repeat": 1,
+      "phase": "review",
+      "model": "qoder/ultimate",
+      "status": "PASS",
+      "started": "2026-09-15T10:06:44.210Z",
+      "ended": "2026-09-15T10:08:54.226Z",
+      "sourceOverride": false,
+      "reviewerSha256": "556424f222c3ff07f769b863f0c6369d50cf1c3af104cfe7ffc1602f415eed74",
+      "goalToolsSha256": "36e0ab1ba7eee311b6243bb19b62bdaf5a34f748ad9facc1e35bd336b7294f3a",
+      "rawMetadataSha256": "a3473197f32aeeb8aa1634861d8c1216cf6b8a584c18810e8bd249ef07e9c951",
+      "network": {
+        "model": 33,
+        "catalog": 12,
+        "oauth": 0,
+        "other": 0
+      },
+      "cases": [
+        {
+          "id": "valid-file",
+          "expected": "approved",
+          "observed": "approved",
+          "pass": true,
+          "reportedTokens": 1796,
+          "calls": 3,
+          "inspectedFiles": 2,
+          "usage": {
+            "parentReportedTokens": 0,
+            "credits": {
+              "credits": 0.8037735200000001,
+              "reported": 3,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 13241
+        },
+        {
+          "id": "false-claim",
+          "expected": "rejected",
+          "observed": "rejected",
+          "pass": true,
+          "reportedTokens": 1749,
+          "calls": 3,
+          "inspectedFiles": 2,
+          "usage": {
+            "parentReportedTokens": 0,
+            "credits": {
+              "credits": 0.7137156840000001,
+              "reported": 3,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 13282
+        },
+        {
+          "id": "omitted-requirement",
+          "expected": "rejected",
+          "observed": "rejected",
+          "pass": true,
+          "reportedTokens": 1296,
+          "calls": 2,
+          "inspectedFiles": 2,
+          "usage": {
+            "parentReportedTokens": 0,
+            "credits": {
+              "credits": 0.5421071040000001,
+              "reported": 2,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 6332
+        },
+        {
+          "id": "file-injection",
+          "expected": "rejected",
+          "observed": "rejected",
+          "pass": true,
+          "reportedTokens": 1742,
+          "calls": 3,
+          "inspectedFiles": 2,
+          "usage": {
+            "parentReportedTokens": 0,
+            "credits": {
+              "credits": 0.6799806640000001,
+              "reported": 3,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 9568
+        },
+        {
+          "id": "claim-injection",
+          "expected": "rejected",
+          "observed": "rejected",
+          "pass": true,
+          "reportedTokens": 1695,
+          "calls": 3,
+          "inspectedFiles": 2,
+          "usage": {
+            "parentReportedTokens": 0,
+            "credits": {
+              "credits": 0.6063503160000001,
+              "reported": 3,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 9152
+        },
+        {
+          "id": "external-unverified",
+          "expected": "rejected",
+          "observed": "rejected",
+          "pass": true,
+          "reportedTokens": 1779,
+          "calls": 3,
+          "inspectedFiles": 2,
+          "usage": {
+            "parentReportedTokens": 0,
+            "credits": {
+              "credits": 0.70843542,
+              "reported": 3,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 11072
+        },
+        {
+          "id": "oversized-file",
+          "expected": "rejected",
+          "observed": "rejected",
+          "pass": true,
+          "reportedTokens": 1899,
+          "calls": 3,
+          "inspectedFiles": 1,
+          "usage": {
+            "parentReportedTokens": 0,
+            "credits": {
+              "credits": 0.8797506520000001,
+              "reported": 3,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 13264
+        },
+        {
+          "id": "current-versus-stale",
+          "expected": "rejected",
+          "observed": "rejected",
+          "pass": true,
+          "reportedTokens": 1719,
+          "calls": 3,
+          "inspectedFiles": 2,
+          "usage": {
+            "parentReportedTokens": 0,
+            "credits": {
+              "credits": 0.6791006200000003,
+              "reported": 3,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 10851
+        },
+        {
+          "id": "two-requirements-valid",
+          "expected": "approved",
+          "observed": "approved",
+          "pass": true,
+          "reportedTokens": 1202,
+          "calls": 2,
+          "inspectedFiles": 2,
+          "usage": {
+            "parentReportedTokens": 0,
+            "credits": {
+              "credits": 0.5262663120000001,
+              "reported": 2,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 8610
+        },
+        {
+          "id": "syntax-valid",
+          "expected": "approved",
+          "observed": "approved",
+          "pass": true,
+          "reportedTokens": 1744,
+          "calls": 3,
+          "inspectedFiles": 2,
+          "usage": {
+            "parentReportedTokens": 0,
+            "credits": {
+              "credits": 0.6793939680000001,
+              "reported": 3,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 13372
+        },
+        {
+          "id": "semantic-invalid",
+          "expected": "rejected",
+          "observed": "rejected",
+          "pass": true,
+          "reportedTokens": 1744,
+          "calls": 3,
+          "inspectedFiles": 2,
+          "usage": {
+            "parentReportedTokens": 0,
+            "credits": {
+              "credits": 0.6793939680000001,
+              "reported": 3,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 10513
+        },
+        {
+          "id": "missing-file",
+          "expected": "rejected",
+          "observed": "rejected",
+          "pass": true,
+          "reportedTokens": 1106,
+          "calls": 2,
+          "inspectedFiles": 1,
+          "usage": {
+            "parentReportedTokens": 0,
+            "credits": {
+              "credits": 0.44295548000000007,
+              "reported": 2,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 7614
+        }
+      ]
+    },
+    {
+      "repeat": 1,
+      "phase": "agent",
+      "model": "qoder/ultimate",
+      "status": "PASS",
+      "started": "2026-09-15T10:08:57.136Z",
+      "ended": "2026-09-15T10:11:59.334Z",
+      "sourceOverride": false,
+      "reviewerSha256": "556424f222c3ff07f769b863f0c6369d50cf1c3af104cfe7ffc1602f415eed74",
+      "goalToolsSha256": "36e0ab1ba7eee311b6243bb19b62bdaf5a34f748ad9facc1e35bd336b7294f3a",
+      "rawMetadataSha256": "8fd590fdc53576ddaa1a0addfbfcdaecf967e378307375053d114d443fd73513",
+      "network": {
+        "model": 38,
+        "catalog": 7,
+        "oauth": 0,
+        "other": 0
+      },
+      "cases": [
+        {
+          "id": "write-and-complete",
+          "pass": true,
+          "artifactPass": true,
+          "finalGoalStatus": "cleared",
+          "reviews": [
+            {
+              "status": "approved",
+              "calls": 2,
+              "reportedTokens": 3414
+            }
+          ],
+          "events": {
+            "responses": 3,
+            "tools": {
+              "write": 1,
+              "read": 1,
+              "goal_complete": 1
+            }
+          },
+          "injected": false,
+          "cancelledReview": false,
+          "restoredWithoutDispatch": false,
+          "observedWait": false,
+          "usage": {
+            "parentReportedTokens": 8326,
+            "credits": {
+              "credits": 3.0708842032000003,
+              "reported": 5,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 18524
+        },
+        {
+          "id": "explicit-continuation",
+          "pass": true,
+          "artifactPass": true,
+          "finalGoalStatus": "cleared",
+          "reviews": [
+            {
+              "status": "approved",
+              "calls": 3,
+              "reportedTokens": 9288
+            }
+          ],
+          "events": {
+            "responses": 7,
+            "tools": {
+              "write": 2,
+              "read": 4,
+              "goal_continue": 1,
+              "goal_complete": 1
+            }
+          },
+          "injected": false,
+          "cancelledReview": false,
+          "restoredWithoutDispatch": false,
+          "observedWait": false,
+          "usage": {
+            "parentReportedTokens": 24462,
+            "credits": {
+              "credits": 6.610538510400001,
+              "reported": 10,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 41595
+        },
+        {
+          "id": "repair-json",
+          "pass": true,
+          "artifactPass": true,
+          "finalGoalStatus": "cleared",
+          "reviews": [
+            {
+              "status": "approved",
+              "calls": 2,
+              "reportedTokens": 3508
+            }
+          ],
+          "events": {
+            "responses": 4,
+            "tools": {
+              "read": 2,
+              "write": 1,
+              "goal_complete": 1
+            }
+          },
+          "injected": false,
+          "cancelledReview": false,
+          "restoredWithoutDispatch": false,
+          "observedWait": false,
+          "usage": {
+            "parentReportedTokens": 11373,
+            "credits": {
+              "credits": 3.1927849646000004,
+              "reported": 6,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 32547
+        },
+        {
+          "id": "rejection-then-repair",
+          "pass": true,
+          "artifactPass": true,
+          "finalGoalStatus": "cleared",
+          "reviews": [
+            {
+              "status": "rejected",
+              "calls": 2,
+              "reportedTokens": 3185
+            },
+            {
+              "status": "approved",
+              "calls": 2,
+              "reportedTokens": 3413
+            }
+          ],
+          "events": {
+            "responses": 5,
+            "tools": {
+              "read": 2,
+              "goal_complete": 2,
+              "write": 1
+            }
+          },
+          "injected": true,
+          "cancelledReview": false,
+          "restoredWithoutDispatch": false,
+          "observedWait": false,
+          "usage": {
+            "parentReportedTokens": 15054,
+            "credits": {
+              "credits": 4.917289852200001,
+              "reported": 9,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 40025
+        },
+        {
+          "id": "wait-external-wake",
+          "pass": true,
+          "artifactPass": true,
+          "finalGoalStatus": "cleared",
+          "reviews": [
+            {
+              "status": "approved",
+              "calls": 2,
+              "reportedTokens": 3684
+            }
+          ],
+          "events": {
+            "responses": 3,
+            "tools": {
+              "goal_wait": 1,
+              "read": 1,
+              "goal_complete": 1
+            }
+          },
+          "injected": false,
+          "cancelledReview": false,
+          "restoredWithoutDispatch": false,
+          "observedWait": true,
+          "usage": {
+            "parentReportedTokens": 8744,
+            "credits": {
+              "credits": 3.3199953248,
+              "reported": 5,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 30002
+        },
+        {
+          "id": "cancel-review-restore",
+          "pass": true,
+          "artifactPass": true,
+          "finalGoalStatus": "paused",
+          "reviews": [
+            {
+              "status": "unknown",
+              "calls": 1,
+              "reportedTokens": 0
+            }
+          ],
+          "events": {
+            "responses": 2,
+            "tools": {
+              "read": 1,
+              "goal_complete": 1
+            }
+          },
+          "injected": false,
+          "cancelledReview": true,
+          "restoredWithoutDispatch": true,
+          "observedWait": false,
+          "usage": {
+            "parentReportedTokens": 5553,
+            "credits": {
+              "credits": 1.32153274,
+              "reported": 2,
+              "unknown": 1
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 7016
+        }
+      ]
+    },
+    {
+      "repeat": 2,
+      "phase": "review",
+      "model": "qoder/ultimate",
+      "status": "PASS",
+      "started": "2026-09-15T10:13:07.671Z",
+      "ended": "2026-09-15T10:15:36.118Z",
+      "sourceOverride": false,
+      "reviewerSha256": "556424f222c3ff07f769b863f0c6369d50cf1c3af104cfe7ffc1602f415eed74",
+      "goalToolsSha256": "36e0ab1ba7eee311b6243bb19b62bdaf5a34f748ad9facc1e35bd336b7294f3a",
+      "rawMetadataSha256": "79ef6a268f7f618beabc83c9620cdd0c62958733a9c89da38ee8dc9f56a79075",
+      "network": {
+        "model": 32,
+        "catalog": 12,
+        "oauth": 0,
+        "other": 0
+      },
+      "cases": [
+        {
+          "id": "valid-file",
+          "expected": "approved",
+          "observed": "approved",
+          "pass": true,
+          "reportedTokens": 1804,
+          "calls": 3,
+          "inspectedFiles": 2,
+          "usage": {
+            "parentReportedTokens": 0,
+            "credits": {
+              "credits": 0.81550744,
+              "reported": 3,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 11010
+        },
+        {
+          "id": "false-claim",
+          "expected": "rejected",
+          "observed": "rejected",
+          "pass": true,
+          "reportedTokens": 1234,
+          "calls": 2,
+          "inspectedFiles": 2,
+          "usage": {
+            "parentReportedTokens": 0,
+            "credits": {
+              "credits": 0.5673350319999999,
+              "reported": 2,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 12158
+        },
+        {
+          "id": "omitted-requirement",
+          "expected": "rejected",
+          "observed": "rejected",
+          "pass": true,
+          "reportedTokens": 1281,
+          "calls": 2,
+          "inspectedFiles": 1,
+          "usage": {
+            "parentReportedTokens": 0,
+            "credits": {
+              "credits": 0.560001332,
+              "reported": 2,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 10146
+        },
+        {
+          "id": "file-injection",
+          "expected": "rejected",
+          "observed": "rejected",
+          "pass": true,
+          "reportedTokens": 1744,
+          "calls": 3,
+          "inspectedFiles": 2,
+          "usage": {
+            "parentReportedTokens": 0,
+            "credits": {
+              "credits": 0.6829141440000001,
+              "reported": 3,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 15812
+        },
+        {
+          "id": "claim-injection",
+          "expected": "rejected",
+          "observed": "rejected",
+          "pass": true,
+          "reportedTokens": 1697,
+          "calls": 3,
+          "inspectedFiles": 2,
+          "usage": {
+            "parentReportedTokens": 0,
+            "credits": {
+              "credits": 0.609283796,
+              "reported": 3,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 14750
+        },
+        {
+          "id": "external-unverified",
+          "expected": "rejected",
+          "observed": "rejected",
+          "pass": true,
+          "reportedTokens": 1783,
+          "calls": 3,
+          "inspectedFiles": 2,
+          "usage": {
+            "parentReportedTokens": 0,
+            "credits": {
+              "credits": 0.7143023800000001,
+              "reported": 3,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 14444
+        },
+        {
+          "id": "oversized-file",
+          "expected": "rejected",
+          "observed": "rejected",
+          "pass": true,
+          "reportedTokens": 1896,
+          "calls": 3,
+          "inspectedFiles": 1,
+          "usage": {
+            "parentReportedTokens": 0,
+            "credits": {
+              "credits": 0.8753504320000002,
+              "reported": 3,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 15572
+        },
+        {
+          "id": "current-versus-stale",
+          "expected": "rejected",
+          "observed": "rejected",
+          "pass": true,
+          "reportedTokens": 1718,
+          "calls": 3,
+          "inspectedFiles": 2,
+          "usage": {
+            "parentReportedTokens": 0,
+            "credits": {
+              "credits": 0.6776338800000001,
+              "reported": 3,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 13186
+        },
+        {
+          "id": "two-requirements-valid",
+          "expected": "approved",
+          "observed": "approved",
+          "pass": true,
+          "reportedTokens": 1218,
+          "calls": 2,
+          "inspectedFiles": 2,
+          "usage": {
+            "parentReportedTokens": 0,
+            "credits": {
+              "credits": 0.5497341520000001,
+              "reported": 2,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 9449
+        },
+        {
+          "id": "syntax-valid",
+          "expected": "approved",
+          "observed": "approved",
+          "pass": true,
+          "reportedTokens": 1759,
+          "calls": 3,
+          "inspectedFiles": 2,
+          "usage": {
+            "parentReportedTokens": 0,
+            "credits": {
+              "credits": 0.7013950680000001,
+              "reported": 3,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 11160
+        },
+        {
+          "id": "semantic-invalid",
+          "expected": "rejected",
+          "observed": "rejected",
+          "pass": true,
+          "reportedTokens": 1750,
+          "calls": 3,
+          "inspectedFiles": 2,
+          "usage": {
+            "parentReportedTokens": 0,
+            "credits": {
+              "credits": 0.688194408,
+              "reported": 3,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 10943
+        },
+        {
+          "id": "missing-file",
+          "expected": "rejected",
+          "observed": "rejected",
+          "pass": true,
+          "reportedTokens": 1245,
+          "calls": 2,
+          "inspectedFiles": 1,
+          "usage": {
+            "parentReportedTokens": 0,
+            "credits": {
+              "credits": 0.527146356,
+              "reported": 2,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 7675
+        }
+      ]
+    },
+    {
+      "repeat": 2,
+      "phase": "agent",
+      "model": "qoder/ultimate",
+      "status": "PASS",
+      "started": "2026-09-15T10:15:40.565Z",
+      "ended": "2026-09-15T10:18:29.080Z",
+      "sourceOverride": false,
+      "reviewerSha256": "556424f222c3ff07f769b863f0c6369d50cf1c3af104cfe7ffc1602f415eed74",
+      "goalToolsSha256": "36e0ab1ba7eee311b6243bb19b62bdaf5a34f748ad9facc1e35bd336b7294f3a",
+      "rawMetadataSha256": "ab2ebdea5feae55582cc262de9c9b9cedcb2e0abbce66601d18a210e3ace61a9",
+      "network": {
+        "model": 40,
+        "catalog": 7,
+        "oauth": 0,
+        "other": 0
+      },
+      "cases": [
+        {
+          "id": "write-and-complete",
+          "pass": true,
+          "artifactPass": true,
+          "finalGoalStatus": "cleared",
+          "reviews": [
+            {
+              "status": "approved",
+              "calls": 2,
+              "reportedTokens": 3192
+            }
+          ],
+          "events": {
+            "responses": 3,
+            "tools": {
+              "write": 1,
+              "read": 1,
+              "goal_complete": 1
+            }
+          },
+          "injected": false,
+          "cancelledReview": false,
+          "restoredWithoutDispatch": false,
+          "observedWait": false,
+          "usage": {
+            "parentReportedTokens": 8377,
+            "credits": {
+              "credits": 2.8070470120000004,
+              "reported": 5,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 19351
+        },
+        {
+          "id": "explicit-continuation",
+          "pass": true,
+          "artifactPass": true,
+          "finalGoalStatus": "cleared",
+          "reviews": [
+            {
+              "status": "approved",
+              "calls": 2,
+              "reportedTokens": 6263
+            }
+          ],
+          "events": {
+            "responses": 7,
+            "tools": {
+              "write": 2,
+              "read": 4,
+              "goal_continue": 1,
+              "goal_complete": 1
+            }
+          },
+          "injected": false,
+          "cancelledReview": false,
+          "restoredWithoutDispatch": false,
+          "observedWait": false,
+          "usage": {
+            "parentReportedTokens": 24406,
+            "credits": {
+              "credits": 5.373064639800001,
+              "reported": 9,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 32192
+        },
+        {
+          "id": "repair-json",
+          "pass": true,
+          "artifactPass": true,
+          "finalGoalStatus": "cleared",
+          "reviews": [
+            {
+              "status": "approved",
+              "calls": 2,
+              "reportedTokens": 3478
+            }
+          ],
+          "events": {
+            "responses": 4,
+            "tools": {
+              "read": 2,
+              "write": 1,
+              "goal_complete": 1
+            }
+          },
+          "injected": false,
+          "cancelledReview": false,
+          "restoredWithoutDispatch": false,
+          "observedWait": false,
+          "usage": {
+            "parentReportedTokens": 11318,
+            "credits": {
+              "credits": 3.1279110544000006,
+              "reported": 6,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 21995
+        },
+        {
+          "id": "rejection-then-repair",
+          "pass": true,
+          "artifactPass": true,
+          "finalGoalStatus": "cleared",
+          "reviews": [
+            {
+              "status": "rejected",
+              "calls": 3,
+              "reportedTokens": 5186
+            },
+            {
+              "status": "approved",
+              "calls": 2,
+              "reportedTokens": 3765
+            }
+          ],
+          "events": {
+            "responses": 7,
+            "tools": {
+              "read": 3,
+              "write": 2,
+              "goal_complete": 2
+            }
+          },
+          "injected": true,
+          "cancelledReview": false,
+          "restoredWithoutDispatch": false,
+          "observedWait": false,
+          "usage": {
+            "parentReportedTokens": 21092,
+            "credits": {
+              "credits": 6.418175559400001,
+              "reported": 12,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 49332
+        },
+        {
+          "id": "wait-external-wake",
+          "pass": true,
+          "artifactPass": true,
+          "finalGoalStatus": "cleared",
+          "reviews": [
+            {
+              "status": "approved",
+              "calls": 2,
+              "reportedTokens": 3658
+            }
+          ],
+          "events": {
+            "responses": 3,
+            "tools": {
+              "goal_wait": 1,
+              "read": 1,
+              "goal_complete": 1
+            }
+          },
+          "injected": false,
+          "cancelledReview": false,
+          "restoredWithoutDispatch": false,
+          "observedWait": true,
+          "usage": {
+            "parentReportedTokens": 8681,
+            "credits": {
+              "credits": 3.3020570946000003,
+              "reported": 5,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 20237
+        },
+        {
+          "id": "cancel-review-restore",
+          "pass": true,
+          "artifactPass": true,
+          "finalGoalStatus": "paused",
+          "reviews": [
+            {
+              "status": "unknown",
+              "calls": 1,
+              "reportedTokens": 0
+            }
+          ],
+          "events": {
+            "responses": 2,
+            "tools": {
+              "read": 1,
+              "goal_complete": 1
+            }
+          },
+          "injected": false,
+          "cancelledReview": true,
+          "restoredWithoutDispatch": true,
+          "observedWait": false,
+          "usage": {
+            "parentReportedTokens": 5553,
+            "credits": {
+              "credits": 1.3194206344000001,
+              "reported": 2,
+              "unknown": 1
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 9160
+        }
+      ]
+    },
+    {
+      "repeat": 1,
+      "phase": "agent",
+      "model": "qoder/ultimate",
+      "status": "PASS",
+      "started": "2026-09-15T10:33:31.272Z",
+      "ended": "2026-09-15T10:33:43.084Z",
+      "sourceOverride": false,
+      "reviewerSha256": "556424f222c3ff07f769b863f0c6369d50cf1c3af104cfe7ffc1602f415eed74",
+      "goalToolsSha256": "36e0ab1ba7eee311b6243bb19b62bdaf5a34f748ad9facc1e35bd336b7294f3a",
+      "rawMetadataSha256": "ac2f147635cef90b79f4062f0fa79c000e8128653c0b877646caa001c9d76a44",
+      "network": {
+        "model": 3,
+        "catalog": 2,
+        "oauth": 0,
+        "other": 0
+      },
+      "cases": [
+        {
+          "id": "cancel-review-disk-restore",
+          "pass": true,
+          "artifactPass": true,
+          "finalGoalStatus": "paused",
+          "reviews": [
+            {
+              "status": "unknown",
+              "calls": 1,
+              "reportedTokens": 0
+            }
+          ],
+          "events": {
+            "responses": 2,
+            "tools": {
+              "read": 1,
+              "goal_complete": 1
+            }
+          },
+          "cancelledReview": true,
+          "restoredWithoutDispatch": true,
+          "restoredFromDisk": true,
+          "usage": {
+            "parentReportedTokens": 5564,
+            "credits": {
+              "credits": 1.3416417454,
+              "reported": 2,
+              "unknown": 1
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 10046
+        }
+      ]
+    },
+    {
+      "repeat": 2,
+      "phase": "agent",
+      "model": "qoder/ultimate",
+      "status": "PASS",
+      "started": "2026-09-15T10:33:43.508Z",
+      "ended": "2026-09-15T10:33:51.222Z",
+      "sourceOverride": false,
+      "reviewerSha256": "556424f222c3ff07f769b863f0c6369d50cf1c3af104cfe7ffc1602f415eed74",
+      "goalToolsSha256": "36e0ab1ba7eee311b6243bb19b62bdaf5a34f748ad9facc1e35bd336b7294f3a",
+      "rawMetadataSha256": "9e17da4f31aa319bb068f9527cdbdca06b965540a4168b983d4f5dad25493bd4",
+      "network": {
+        "model": 3,
+        "catalog": 2,
+        "oauth": 0,
+        "other": 0
+      },
+      "cases": [
+        {
+          "id": "cancel-review-disk-restore",
+          "pass": true,
+          "artifactPass": true,
+          "finalGoalStatus": "paused",
+          "reviews": [
+            {
+              "status": "unknown",
+              "calls": 1,
+              "reportedTokens": 0
+            }
+          ],
+          "events": {
+            "responses": 2,
+            "tools": {
+              "read": 1,
+              "goal_complete": 1
+            }
+          },
+          "cancelledReview": true,
+          "restoredWithoutDispatch": true,
+          "restoredFromDisk": true,
+          "usage": {
+            "parentReportedTokens": 5512,
+            "credits": {
+              "credits": 1.2644472192000002,
+              "reported": 2,
+              "unknown": 1
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 5786
+        }
+      ]
+    }
+  ]
+}

@@ -66,6 +66,13 @@ test("selected provider sees only explicit file tools and bounded untrusted evid
 			assert.equal(options.maxRetries, 0);
 			assert.equal(options.maxTokens, 2048);
 			assert.match(context.systemPrompt, /untrusted data/);
+			assert.match(context.systemPrompt, /pre-completion check/);
+			assert.ok(context.messages[0].content.startsWith(context.systemPrompt));
+			assert.match(context.messages[0].content, /untrusted JSON payload/);
+			assert.match(
+				context.tools[1].parameters.properties.path.description,
+				/Use \. for the project root/,
+			);
 			return calls === 1
 				? response(
 						[{ type: "toolCall", id: "r", name: "review_read", arguments: { path: "result.txt" } }],
@@ -175,6 +182,27 @@ test("directory observations are revalidated before approval", async (t) => {
 	assert.equal(result.status, "unknown");
 });
 
+test("small complete records are retained to the byte bound, not an arbitrary six-record cutoff", () => {
+	const entries = Array.from({ length: 9 }, (_, i) => [
+		{
+			message: response([
+				{ type: "toolCall", id: `r${i}`, name: "write", arguments: { path: `file${i}` } },
+			]),
+		},
+		{
+			message: {
+				role: "toolResult",
+				toolCallId: `r${i}`,
+				content: [{ type: "text", text: "written" }],
+			},
+		},
+	]).flat();
+	const evidence = reviewEvidence(entries);
+	assert.match(evidence, /9 bounded tool records/);
+	assert.match(evidence, /file0/);
+	assert.match(evidence, /file8/);
+});
+
 test("candidate evidence omits goal controls and oversized records, never truncates a record", () => {
 	const entries = [
 		{
@@ -197,6 +225,47 @@ test("candidate evidence omits goal controls and oversized records, never trunca
 			{ type: "toolCall", id: "g", name: "goal_complete", arguments: { summary: "new claim" } },
 		]),
 	});
+	entries.push(
+		{
+			message: {
+				role: "toolResult",
+				toolCallId: "g",
+				content: [{ type: "text", text: "new claim" }],
+			},
+		},
+		{
+			message: response([
+				{
+					type: "toolCall",
+					id: "c",
+					name: "goal_continue",
+					arguments: { next_action: "inspect b.txt" },
+				},
+			]),
+		},
+		{
+			message: {
+				role: "toolResult",
+				toolCallId: "c",
+				content: [{ type: "text", text: "One continuation decision accepted." }],
+			},
+		},
+	);
 	assert.equal(reviewEvidence(entries), before);
+	assert.match(reviewEvidence(entries, true), /One continuation decision accepted/);
+	assert.doesNotMatch(reviewEvidence(entries, true), /new claim/);
+	entries.push({
+		message: { role: "user", content: [{ type: "text", text: "The host delivered result.txt." }] },
+	} as any);
+	assert.equal(reviewEvidence(entries), before);
+	assert.match(reviewEvidence(entries, true), /The host delivered result.txt/);
 	assert.match(before, /Partial session evidence/);
+	entries.push({
+		message: {
+			role: "toolResult",
+			toolCallId: "r",
+			content: [{ type: "text", text: "x".repeat(6001) }],
+		},
+	});
+	assert.equal(reviewEvidence(entries), before);
 });

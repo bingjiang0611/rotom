@@ -4,7 +4,8 @@
 - Repository: <https://github.com/narumiruna/pi-extensions> (`packages/pi-goal`)
 - Baseline: upstream `0.54.4`, 22 TypeScript source files.
 - License: MIT; original notice retained in `LICENSE`.
-- Maintained version: `0.54.4-rotom.1`, private component of [rotom](https://github.com/bingjiang0611/rotom), not an upstream or npm release.
+- Maintained version: `0.54.4-rotom.2`, private component of [rotom](https://github.com/bingjiang0611/rotom), not an upstream or npm release.
+- `.rotom.2`: Qoder Ultimate live evaluation exposed missing verdict markers when the request contained only JSON. The request now carries the same review contract outside the untrusted payload, and file tools explain the project-root path. Bounded `goal_continue`/`goal_wait` tool results and text-only user/host announcements are now visible to the reviewer for procedural requirements, but remain excluded from candidate identity and progress. The request also clarifies pre-completion timing and native control semantics; evidence retains complete records up to the existing 12KB bound instead of prematurely dropping them after six records. Strict verdict parsing, model-call/attempt limits and token/byte budgets are unchanged.
 
 ## Retained upstream behavior
 
