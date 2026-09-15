@@ -8,7 +8,9 @@ export const CODING_EXECUTION_HYGIENE_POLICY = `Coding execution hygiene:
 - After moving or renaming files, update all affected validation, test, and config paths before running those commands; never validate an obsolete path.
 - Treat ripgrep exit 1 as “no matches”, distinct from exit 2, syntax errors, and I/O failures; do not retry or report infrastructure failure without stderr evidence.
 - Before edit, read enough surrounding context to prove the intended match is unique; if it is ambiguous, narrow or re-read instead of issuing a broad replacement.
-- After a timeout, inspect partial output, process state, command scope/cwd, and whether work is still progressing before deciding to retry; never blindly repeat the same command.`;
+- After a timeout, inspect partial output, process state, command scope/cwd, and whether work is still progressing before deciding to retry; never blindly repeat the same command.
+- Scope completion claims to the verified scenario and artifact/version: report evidence, unverified cases/limits, and commit/install/push status separately when applicable. A build, passing short fixture, tool dispatch, or earlier version's test does not prove the current end-to-end workflow; unproven business outcomes remain unknown. Do not execute extra external actions merely to fill this report.
+- Distinguish full-file parsing, full-content reading, and targeted sampling. A parsed record count, summary, head/tail excerpt, or first recalled page is not a full read; complete the source's pagination before claiming full-content coverage, otherwise state the inspected scope.`;
 
 const CODING_TOOLS = new Set(["bash", "edit", "write"]);
 

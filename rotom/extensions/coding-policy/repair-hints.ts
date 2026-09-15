@@ -172,12 +172,21 @@ function missingMatchHint(content: string, oldText: string): string | undefined 
 		if (occurrenceLines(content, candidate, true).length === 0) break;
 		matched += 1;
 	}
-	const totalLines = content.split("\n").length;
+	const contentLines = content.split("\n");
+	const totalLines = contentLines.length;
 	if (matched === 0) {
 		const trimmed = wanted[0].trim();
 		const indentationCandidates = trimmed ? occurrenceLines(content, trimmed) : [];
 		if (indentationCandidates.length > 0) {
 			return `${REPAIR_HINT_PREFIX} the first oldText line only matches after trimming indentation, at line${indentationCandidates.length > 1 ? "s" : ""} ${indentationCandidates.slice(0, MAX_REPORTED_LINES).join(", ")}. Leading whitespace is significant; re-read that region and copy the exact indentation.`;
+		}
+		// A stale opening line can hide an otherwise locatable block. Inspect only
+		// the next eight whole lines; this locates a re-read, never authorizes an edit.
+		for (let index = 1; index < Math.min(wanted.length, MAX_REPORTED_LINES + 1); index += 1) {
+			if (!wanted[index].trim()) continue;
+			const found = contentLines.indexOf(wanted[index]);
+			if (found < 0 || contentLines.lastIndexOf(wanted[index]) !== found) continue;
+			return `${REPAIR_HINT_PREFIX} the first oldText line is absent, but oldText line ${index + 1} matches a unique whole line at file line ${found + 1} (1-based). This is a location hint, not a verified block match. Re-read around that line and rebuild oldText; do not replay the failed edit unchanged.`;
 		}
 		return `${REPAIR_HINT_PREFIX} the first oldText line does not occur anywhere in the file (${totalLines} lines). Re-read the target region and rebuild oldText from lines that actually exist; do not resend a reconstructed snippet.`;
 	}
@@ -186,7 +195,6 @@ function missingMatchHint(content: string, oldText: string): string | undefined 
 	if (matched >= wanted.length) return undefined;
 	const anchor = wanted.slice(0, matched).join("\n");
 	const anchorLine = occurrenceLines(content, anchor, true)[0];
-	const contentLines = content.split("\n");
 	const divergentIndex = anchorLine === undefined ? undefined : anchorLine - 1 + matched;
 	const actual = divergentIndex !== undefined && divergentIndex < contentLines.length ? contentLines[divergentIndex] : undefined;
 	const actualText = actual === undefined ? "end of file" : `'${preview(actual)}'`;

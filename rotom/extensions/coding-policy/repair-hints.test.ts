@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -91,6 +91,60 @@ test("edit 缩进不一致时指出仅缩进差异的候选行，重叠时给出
 	);
 	assert.ok(overlap);
 	assert.match(overlap, /edits\[0\] covers lines 1-2 and edits\[1\] covers lines 2-3/u);
+});
+
+test("edit 首行已漂移时用后续唯一整行定位重读，不修改文件或证明整段匹配", (t) => {
+	const root = workspace();
+	t.after(() => rmSync(root, { recursive: true, force: true }));
+	const path = join(root, "notes.md");
+	const original = "# Current heading\nNew introduction.\nThe stable second line.\nClosing line.\n";
+	writeFileSync(path, original);
+	const handlers = new Map<string, (event: any, ctx?: any) => any>();
+	codingPolicy({ on(event: string, handler: (event: any, ctx?: any) => any) { handlers.set(event, handler); } } as any);
+	const content = [{ type: "text", text: "Could not find edits[1] in notes.md. The oldText must match exactly including all whitespace and newlines." }];
+	const event = {
+		toolName: "edit", isError: true, content,
+		input: { path, edits: [
+			{ oldText: "# Current heading", newText: "# Changed" },
+			{ oldText: "Stale introduction.\nThe stable second line.\nClosing line.", newText: "replacement" },
+		], then_run: { command: "must-not-run" } },
+	};
+	const toolResult = handlers.get("tool_result")!;
+	const result = toolResult(event, { cwd: root });
+	assert.deepEqual(result.content[0], content[0]);
+	assert.equal(result.isError, undefined);
+	assert.match(result.content[1].text, /oldText line 2 matches a unique whole line at file line 3 \(1-based\)/u);
+	assert.match(result.content[1].text, /not a verified block match/u);
+	assert.match(result.content[1].text, /do not replay the failed edit unchanged/u);
+	assert.equal(readFileSync(path, "utf8"), original, "诊断不得执行 edit 或 then_run");
+	assert.equal(toolResult({ ...event, content: result.content }, { cwd: root }), undefined);
+
+	// A later failure must use current file evidence, not a cached location.
+	writeFileSync(path, `Another line.\n${original}`);
+	assert.match(toolResult(event, { cwd: root }).content[1].text, /at file line 4/u);
+});
+
+test("edit 后续锚点拒绝重复、子串、空行，并严格限制搜索到后八行", (t) => {
+	const root = workspace();
+	t.after(() => rmSync(root, { recursive: true, force: true }));
+	const path = join(root, "notes.md");
+	const error = [{ type: "text", text: "Could not find edits[0] in notes.md." }];
+	for (const { source, oldText } of [
+		{ source: "duplicate\nduplicate", oldText: "missing\nduplicate" },
+		{ source: "prefix needle suffix", oldText: "missing\nneedle" },
+		{ source: "\n", oldText: "missing\n" },
+		{ source: "last unique anchor", oldText: ["missing", ...Array(8).fill("absent"), "last unique anchor"].join("\n") },
+	]) {
+		writeFileSync(path, source);
+		const hint = toolErrorRepairHint("edit", { path, oldText, newText: "" }, error, root);
+		assert.ok(hint);
+		assert.doesNotMatch(hint, /unique whole line/u);
+		assert.match(hint, /Re-read the target region/u);
+	}
+	writeFileSync(path, "last unique anchor");
+	assert.match(toolErrorRepairHint("edit", {
+		path, oldText: ["missing", ...Array(7).fill("absent"), "last unique anchor"].join("\n"), newText: "",
+	}, error, root)!, /oldText line 9 matches a unique whole line at file line 1/u);
 });
 
 test("hint 只附加不覆盖，且已附加过的错误不再二次附加", () => {
