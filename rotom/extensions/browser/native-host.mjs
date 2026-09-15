@@ -15,6 +15,7 @@ const clientBuffers = new Map();
 const clientBindings = new Map();
 const pendingRoutes = new Map();
 let stdoutChain = Promise.resolve();
+let socketIdentity;
 
 function ensurePrivateDirectory(path) {
 	if (!existsSync(path)) mkdirSync(path, { mode: 0o700 });
@@ -123,10 +124,18 @@ function cleanupClient(client) {
 	catch { /* native channel may already be gone */ }
 }
 
+function sameSocket(info, expected) {
+	return info.isSocket() && info.dev === expected.dev && info.ino === expected.ino;
+}
+
 function cleanupSocket() {
+	if (!socketIdentity) return;
 	try {
-		if (existsSync(socketPath) && lstatSync(socketPath).isSocket()) unlinkSync(socketPath);
+		// A rejected duplicate host owns nothing; a retired host must not unlink
+		// a successor that has rebound this path while old clients were alive.
+		if (sameSocket(lstatSync(socketPath), socketIdentity)) unlinkSync(socketPath);
 	} catch { /* process exit cleanup is best effort; next start validates stale socket */ }
+	socketIdentity = undefined;
 }
 
 async function listen(server) {
@@ -140,11 +149,16 @@ async function listen(server) {
 }
 
 async function socketIsLive() {
-	return new Promise((resolve) => {
+	return new Promise((resolve, reject) => {
 		const client = createConnection(socketPath);
-		const timer = setTimeout(() => { client.destroy(); resolve(false); }, 500);
+		const timer = setTimeout(() => { client.destroy(); reject(new Error("browser relay socket probe timeout")); }, 500);
 		client.once("connect", () => { clearTimeout(timer); client.destroy(); resolve(true); });
-		client.once("error", () => { clearTimeout(timer); resolve(false); });
+		client.once("error", (error) => {
+			clearTimeout(timer);
+			// Only refusal proves a stale endpoint; permissions/timeouts are unknown.
+			if (error.code === "ECONNREFUSED") resolve(false);
+			else reject(error);
+		});
 	});
 }
 
@@ -165,12 +179,14 @@ async function main() {
 		await listen(server);
 	} catch (error) {
 		if (error?.code !== "EADDRINUSE") throw error;
-		if (await socketIsLive()) throw new Error("另一个 browser relay native host 已运行");
 		const info = lstatSync(socketPath);
-		if (!info.isSocket() || info.isSymbolicLink()) throw new Error("browser relay stale path 不是 socket");
+		if (!info.isSocket()) throw new Error("browser relay stale path 不是 socket");
+		if (await socketIsLive()) throw new Error("另一个 browser relay native host 已运行");
+		if (!sameSocket(lstatSync(socketPath), info)) throw new Error("browser relay socket changed during probe");
 		unlinkSync(socketPath);
 		await listen(server);
 	}
+	socketIdentity = lstatSync(socketPath);
 	server.on("error", () => process.exit(73));
 	chmodSync(socketPath, 0o600);
 	process.stdin.on("data", (chunk) => {
@@ -179,9 +195,9 @@ async function main() {
 	});
 	process.stdin.on("end", () => {
 		for (const client of clients) client.destroy(new Error("Chrome native channel closed"));
-		cleanupSocket();
-		server.close(() => process.exit(0));
-		setTimeout(() => process.exit(0), 1_000).unref();
+		// server.close() also unlinks its remembered path, bypassing our inode
+		// ownership check. Process exit closes the listener without that unlink.
+		process.exit(0);
 	});
 	process.stdin.resume();
 }

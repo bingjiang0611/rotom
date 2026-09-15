@@ -18,8 +18,17 @@ test("missing local Relay socket is typed pre-dispatch unavailability", async ()
 	await assert.rejects(BrowserRelayClientV1.connect({ sessionId: "missing", socketPath: `/tmp/pi-relay-missing-${process.pid}-${Date.now()}.sock` }), (error: Error) => {
 		assert.ok(error instanceof BrowserRelayUnavailableErrorV1);
 		assert.equal((error.cause as NodeJS.ErrnoException).code, "ENOENT");
+		assert.match(error.message, /socket 缺失（ENOENT）.*不证明未安装.*\/browser status/u);
 		return true;
 	});
+});
+
+test("unavailability diagnostics only expose allowlisted connection metadata", () => {
+	const cause = Object.assign(new Error("private socket path and arbitrary error body"), { code: "ECONNREFUSED" });
+	const error = new BrowserRelayUnavailableErrorV1(cause);
+	assert.match(error.message, /socket 拒绝连接（ECONNREFUSED）/u);
+	assert.equal(error.cause, cause);
+	assert.equal(error.message.includes(cause.message), false);
 });
 
 test("browser URL 拒绝 file/javascript/userinfo", () => {

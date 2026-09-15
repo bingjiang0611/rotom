@@ -41,7 +41,7 @@ function safeString(value: unknown, name: string, maxBytes = MAX_STRING_BYTES): 
 export function canonicalBrowserUrlV1(value: unknown): string {
 	const input = safeString(value, "url", MAX_STRING_BYTES);
 	const url = new URL(input);
-	if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error("browser relay 仅允许 http/https URL");
+	if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error("browser relay 仅允许 http/https URL；本地 HTML 请通过本地 HTTP 服务访问，URL 错误不授权浏览器回退");
 	if (url.username || url.password) throw new Error("browser relay URL 拒绝 userinfo");
 	url.username = "";
 	url.password = "";
@@ -317,7 +317,9 @@ export interface BrowserRelayConnectInputV1 {
 // Timeouts, permissions, handshake/identity errors and page text are not fallback evidence.
 export class BrowserRelayUnavailableErrorV1 extends Error {
 	constructor(cause: Error) {
-		super("browser relay 不可用；请确认 Chrome 扩展与 Native Messaging host 已安装", { cause });
+		const code = (cause as NodeJS.ErrnoException).code;
+		const reason = code === "ENOENT" ? "本机 socket 缺失（ENOENT）" : code === "ECONNREFUSED" ? "本机 socket 拒绝连接（ECONNREFUSED）" : "本机 socket 缺失或拒绝连接";
+		super(`browser relay 不可用：${reason}；这不证明未安装，请用 /browser status 只读核对连接状态`, { cause });
 		this.name = "BrowserRelayUnavailableErrorV1";
 	}
 }

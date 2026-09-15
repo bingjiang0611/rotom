@@ -286,20 +286,20 @@ test("Relay-first launch gate: local evidence, one attempt, no replay or stale p
 		let delay: Promise<any> | undefined;
 		const connectEntered = Promise.withResolvers<void>();
 		let active = ["browser_inspect", "browser_interact", "launch_browser"];
-		let requests = 0;
+		let requests = 0, connections = 0;
 		const relay = { closed: false, close() { this.closed = true; }, async request() {
 			requests += 1;
 			if (requestError) throw requestError;
 			return { schemaVersion: 1, kind: "rotom-browser-tabs", tabs: [] };
 		} };
 		createBrowserRelayExtensionV1({
-			async connectRelay() { if (delay) { connectEntered.resolve(); return delay; } if (connectError) throw connectError; relay.closed = false; return relay; },
+			async connectRelay() { connections += 1; if (delay) { connectEntered.resolve(); return delay; } if (connectError) throw connectError; relay.closed = false; return relay; },
 			async openArtifactStore() { throw new Error("unexpected artifact store"); },
 		})({ registerTool(tool: any) { tools.set(tool.name, tool); }, registerCommand() {}, on(name: string, handler: any) { handlers.set(name, handler); }, appendEntry() {}, getActiveTools() { return active; } });
 		const ctx: any = { sessionManager: { getSessionId: () => "fixture-session", getBranch: () => [] }, hasUI: true, ui: { notify(message: string) { notices.push(message); } } };
 		await handlers.get("session_start")({}, ctx);
 		return {
-			ctx, notices, relay, connectEntered: connectEntered.promise, get requests() { return requests; },
+			ctx, notices, relay, connectEntered: connectEntered.promise, get requests() { return requests; }, get connections() { return connections; },
 			failConnect(error?: Error) { connectError = error; relay.closed = true; },
 			failRequest(error: Error) { requestError = error; },
 			delayConnect(value: Promise<any>) { delay = value; },
@@ -323,8 +323,8 @@ test("Relay-first launch gate: local evidence, one attempt, no replay or stale p
 		assert.equal(f.notices.length, 0);
 		assert.equal(await f.launch(), undefined);
 		assert.match(f.notices[0], /不继承 Chrome 登录态/u);
-		assert.equal((await f.launch()).block, true);
-		await assert.rejects(f.inspect());
+		assert.match((await f.launch()).reason, /launch_browser 已尝试.*不可重试/u);
+		await assert.rejects(f.inspect(), /launch_browser 已尝试.*不可重试/u);
 		assert.equal((await f.launch()).block, true, "another failed probe cannot authorize a retry of an unknown launch");
 	});
 	for (const message of ["browser relay 不可用", "browser relay hello timeout", "debugger is not attached", "stale ref", "permission denied", "browser relay 版本过旧", "response binding 无效", "Sign in to continue"]) {
@@ -337,7 +337,20 @@ test("Relay-first launch gate: local evidence, one attempt, no replay or stale p
 		const f = await fixture(); f.failRequest(new Error("browser relay open timeout; unknown"));
 		await assert.rejects(f.inspect({ operation: "open", tabName: "docs", url: "https://example.test" } as any));
 		f.failConnect(unavailable());
-		await assert.rejects(f.inspect()); assert.equal((await f.launch()).block, true);
+		await assert.rejects(f.inspect(), /本次运行已派发 Relay 请求.*禁止.*回退/u);
+		assert.match((await f.launch()).reason, /本次运行已派发 Relay 请求.*禁止.*回退/u);
+	});
+	await t.test("invalid open input is rejected before connecting and cannot authorize fallback", async () => {
+		for (const [params, expected] of [
+			[{ operation: "open", tabName: "local", url: "file:///tmp/mockup.html" }, /http\/https.*本地 HTTP/u],
+			[{ operation: "open", url: "https://example.test" }, /open 需要 tabName/u],
+		] as const) {
+			const f = await fixture(); f.failConnect(unavailable());
+			await assert.rejects(f.inspect(params as any), expected);
+			assert.equal(f.connections, 0);
+			assert.equal(f.requests, 0);
+			assert.equal((await f.launch()).block, true);
+		}
 	});
 	await t.test("successful probe revokes a previous permit", async () => {
 		const f = await fixture(); f.failConnect(unavailable()); await assert.rejects(f.inspect());

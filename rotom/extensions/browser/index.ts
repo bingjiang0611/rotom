@@ -235,6 +235,9 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 	let browserRouteActive = false;
 	const freshRoute = () => ({ fallbackAllowed: false, requestStarted: false, launchAttempted: false });
 	let route = freshRoute();
+	const fallbackReplayReason = () => route.launchAttempted
+		? "launch_browser 已尝试，启动结果可能为 unknown，不可重试或跨浏览器重放。"
+		: route.requestStarted ? "本次运行已派发 Relay 请求，禁止改用 launch_browser 回退；不可跨浏览器重放，也不要重复探测来解锁回退。" : undefined;
 	let epoch = 0;
 	let shutdown = false;
 	const commandIO = { ...defaultCommandDependenciesV1(), ...dependencies.commands };
@@ -293,7 +296,9 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 				assertOwner();
 				// Never turn a reconnect after a dispatched operation into permission to replay
 				// in another browser. Only typed, local pre-connect evidence grants one launch.
-				if (route === attemptRoute && error instanceof BrowserRelayUnavailableErrorV1 && !route.requestStarted && !route.launchAttempted) {
+				if (route === attemptRoute && error instanceof BrowserRelayUnavailableErrorV1) {
+					const blockedReason = fallbackReplayReason();
+					if (blockedReason) throw new Error(`${error.message}；${blockedReason}`, { cause: error });
 					route.fallbackAllowed = true;
 					throw new Error(`${error.message}；本次未派发页面操作，可回退 launch_browser 一次。先告知用户：独立浏览器不继承 Chrome 登录态，可能需要重新登录。`, { cause: error });
 				}
@@ -363,7 +368,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 		promptSnippet: "Inspect dynamic or authenticated Chrome pages; snapshot is the full-content path.",
 		promptGuidelines: [
 			...BROWSER_SHARED_PROMPT_GUIDELINES,
-			"open creates a named background tab without focus; discover then claim needs tabId and a new tabName; handoff returns a claimed user tab.",
+			"open: named background tab, no focus. HTTP(S) only; serve HTML via HTTP. discover then claim: tabId + new tabName; handoff returns claimed user tabs.",
 			"snapshot and read_full traverse virtualized scroll containers and restore position; use cursor pagination, not manual scrolling, reopening, or reclaiming. Full-text claims need scrolledContainers>0.",
 			"Use snapshot_visible to refresh refs, browser_interact for actions, screenshot only for ref-less controls; screenshots are sensitive content.",
 		],
@@ -386,6 +391,9 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			if (!BROWSER_INSPECT_OPERATIONS_V1.includes(operation as any)) throw new Error("browser_inspect operation 无效");
 			const tabName = params.tabName === undefined ? undefined : safeTabName(params.tabName);
 			const limit = params.limit === undefined ? Number.MAX_SAFE_INTEGER : safeInteger(params.limit, "limit", 1, Number.MAX_SAFE_INTEGER);
+			// Invalid local input must neither contact Relay nor grant fallback permission.
+			if (operation === "open" && !tabName) throw new Error("open 需要 tabName");
+			const openUrl = operation === "open" ? canonicalBrowserUrlV1(params.url) : undefined;
 			const assertOwner = await bindSession(ctx, signal);
 			const relayClient = await client(ctx, assertOwner);
 			const boundedResult = (value: unknown) => { assertOwner(); return browserResult(value); };
@@ -395,9 +403,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			if (params.cursor !== undefined && !pagedObservation) throw new Error("cursor 仅允许 snapshot、snapshot_visible 或 read_full");
 			if (pagedObservation && params.cursor !== undefined) return snapshotResult(undefined, limit, params.cursor as string);
 			if (operation === "open") {
-				const url = canonicalBrowserUrlV1(params.url);
-				if (!tabName) throw new Error("open 需要 tabName");
-				const observation = sanitizeBrowserObservationV1(await relayClient.request("open", { tabName, url }, { signal }));
+				const observation = sanitizeBrowserObservationV1(await relayClient.request("open", { tabName, url: openUrl }, { signal }));
 				return snapshotResult(observation, limit);
 			}
 			if (operation === "discover") {
@@ -668,7 +674,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			// Respect explicit tool selection: do not require a tool the caller excluded.
 			if (!pi.getActiveTools().includes(BROWSER_INSPECT_TOOL_V1)) return undefined;
 			if (shutdown || ctx.signal?.aborted || currentSessionId !== ctx.sessionManager.getSessionId() || !route.fallbackAllowed || route.launchAttempted) {
-				return { block: true, reason: "请先使用 browser_inspect/browser_interact。仅本次 Relay 连接明确不可用且未派发页面操作时允许 launch_browser 一次；登录页、空结果、stale、超时、unknown、取消或协议/权限错误不授权回退。" };
+				return { block: true, reason: fallbackReplayReason() ?? "请先使用 browser_inspect/browser_interact。仅本次 Relay 连接明确不可用且未派发页面操作时允许 launch_browser 一次；登录页、空结果、stale、超时、unknown、取消或协议/权限错误不授权回退。" };
 			}
 			// Consume at preflight, not on success: a failed/unknown launch may have spawned.
 			route.fallbackAllowed = false;
