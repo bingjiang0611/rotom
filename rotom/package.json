@@ -36,6 +36,7 @@
     "THIRD_PARTY_NOTICES.md",
     "npm-shrinkwrap.json",
     "runtime/product-config.mjs",
+    "runtime/launch-runtime.mjs",
     "runtime/verify-pi-runtime.mjs",
     "runtime/resolve-installed-pi.mjs",
     "runtime/update-product.mjs",

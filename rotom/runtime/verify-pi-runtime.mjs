@@ -211,11 +211,18 @@ export async function verifyPiRuntimeIdentity(options) {
 
 export async function verifyPiRuntime(options) {
 	const verified = await verifyPiRuntimeIdentity(options);
-	const runtime = await import(pathToFileURL(verified.publicEntry).href);
+	let runtimeEntry = verified.publicEntry;
+	if (options.runtimeEntry !== undefined) {
+		const info = await lstat(options.runtimeEntry).catch(() => undefined);
+		if (!info?.isFile() || info.isSymbolicLink()) throw new Error("Pi runtime 入口缺失、不是普通文件或为 symlink");
+		runtimeEntry = await realpath(options.runtimeEntry);
+		assertInside(verified.packageRoot, runtimeEntry, "Pi runtime 入口");
+	}
+	const runtime = await import(pathToFileURL(runtimeEntry).href);
 	if (runtime.VERSION !== verified.version) {
 		throw new Error(`Pi 公开入口 VERSION 不一致：${String(runtime.VERSION)}`);
 	}
-	for (const exportName of ["defineTool", "createBashToolDefinition", "createAgentSession", "DefaultResourceLoader", "SettingsManager", "SessionManager", "ModelRuntime"]) {
+	for (const exportName of ["main", "defineTool", "createBashToolDefinition", "createAgentSession", "DefaultResourceLoader", "SettingsManager", "SessionManager", "ModelRuntime"]) {
 		if (!(exportName in runtime)) throw new Error(`Pi 公开入口缺少关键能力：${exportName}`);
 		if (typeof runtime[exportName] !== "function") throw new Error(`Pi 公开入口关键能力类型不兼容：${exportName}`);
 	}
@@ -231,7 +238,7 @@ export async function verifyPiRuntime(options) {
 		if (typeof method !== "function") throw new Error(`Pi 公开入口关键方法不兼容：${name}`);
 	}
 
-	return verified;
+	return { ...verified, runtimeEntry };
 }
 
 async function main() {

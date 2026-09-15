@@ -93,7 +93,8 @@ Browser 源码新增 ref-bound `keypress`（protocol 17 / `targeted-keypress`）
 - `rotom/scripts/pack-release.mjs`：隔离 staging、锁定 npm ci、资源验证、打包清单检查；不使用维护者 node_modules、不运行 install hooks。
 - `rotom/bin/rotom`：薄 npm 入口，保留 cwd/argv/environment/exit status。
 - `rotom/runtime/resolve-installed-pi.mjs`：固定 fork 来源摘要、六包 version/integrity/installed identity 与 canonical 路径校验，仅解析产品 `runtime/pi/node_modules`，不搜索 ancestor/PATH/global modules。
-- `rotom/bin/rotom-launcher`：唯一内部 launcher、Node/Pi 解析、Claude Skill bridge、resource declaration、Subagent 默认 budget、Computer Use 默认后台投递（`PI_COMPUTER_USE_HEADLESS=1`，仅在用户既没给环境变量、也没在 `<agentDir>/extensions/pi-computer-use.json` 或 `<cwd>/.pi/computer-use.json` 显式写 `headless` 时注入）。
+- `rotom/bin/rotom-launcher`：唯一内部 shell launcher，解析 Node 与 Claude Skill bridge 后只启动一个 Node 进程。
+- `rotom/runtime/launch-runtime.mjs`：在该进程内完成 Pi/resource trust gate、Subagent/Computer Use 默认值、scoped store 初始化，并通过已验证的 Pi 公开 `main` 入口启动 CLI，避免重复 Node 冷启动和重复 SDK 加载。
 - `rotom/bin/check-personal`：日常串行产品 gate 与 context footprint 报告。
 - `rotom/runtime/product-config.mjs`：最低 Node、Pi package、第三方 package identity 与 resource descriptors。
 - `rotom/runtime/verify-pi-runtime.mjs`：package/exports/path/symlink/integrity verifier。

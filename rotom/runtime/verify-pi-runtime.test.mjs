@@ -32,6 +32,7 @@ function fakePi(options = {}) {
 	writeFileSync(join(packageRoot, "package.json"), packageJson);
 	writeFileSync(join(dist, "index.js"), [
 		`export const VERSION = ${JSON.stringify(options.publicVersion ?? version)};`,
+		"export async function main() { await import('./cli.js'); }",
 		options.invalidLoaderShape
 			? "export class DefaultResourceLoader {}"
 			: "export class DefaultResourceLoader { reload() {} getExtensions() {} getSkills() {} }",
@@ -104,6 +105,21 @@ test("拒绝低于产品要求的 Node runtime", () => withFakePi({}, async ({ e
 	await assert.rejects(
 		verifyPiRuntime({ executable, agentDir: AGENT_DIR, resourceDeclarations: resourceDeclarations(), nodeVersion: "23.5.9" }),
 		/Node runtime .*要求 >=24\.0\.0/,
+	);
+}));
+
+test("显式 Pi runtime 入口必须是 package 内的普通文件", () => withFakePi({}, async ({ executable, packageRoot, root }) => {
+	const outside = join(root, "outside-runtime.js");
+	writeFileSync(outside, "export {};");
+	await assert.rejects(
+		verifyPiRuntime({ executable, agentDir: AGENT_DIR, resourceDeclarations: resourceDeclarations(), runtimeEntry: outside }),
+		/Pi runtime 入口 不在已验证 package 根目录内/u,
+	);
+	const symlink = join(packageRoot, "dist/runtime-link.js");
+	symlinkSync("index.js", symlink);
+	await assert.rejects(
+		verifyPiRuntime({ executable, agentDir: AGENT_DIR, resourceDeclarations: resourceDeclarations(), runtimeEntry: symlink }),
+		/Pi runtime 入口缺失、不是普通文件或为 symlink/u,
 	);
 }));
 
@@ -246,7 +262,7 @@ test("resource verifier 与 launcher bootstrap 均 fail closed", () => withFakeP
 		assert.match(missingResource.stderr, /缺少运行时资源.*pi-subagents\/index\.ts/u);
 		cpSync(join(AGENT_DIR, "extensions/third-party/node_modules/pi-subagents/index.ts"), thirdPartyEntry);
 
-		for (const relativePath of ["runtime/verify-pi-runtime.mjs", "runtime/product-config.mjs"]) {
+		for (const relativePath of ["runtime/launch-runtime.mjs", "runtime/verify-pi-runtime.mjs", "runtime/product-config.mjs"]) {
 			const bootstrap = join(agentDir, relativePath);
 			const target = `${bootstrap}.target`;
 			writeFileSync(target, readFileSync(bootstrap, "utf8"));
@@ -636,6 +652,28 @@ test("launcher 复用 Claude Code 用户 skill，并发现 cwd 到 Git 根的项
 	} finally {
 		rmSync(repository, { recursive: true, force: true });
 	}
+}));
+
+test("launcher 主路径只启动一个 Node 进程", () => withFakePi({}, async ({ root }) => {
+	const wrapper = join(root, "counting-node");
+	const count = join(root, "node-invocations");
+	const capture = join(root, "runtime-capture.json");
+	writeFileSync(wrapper, `#!/bin/sh\nprintf '1\\n' >> "$ROTOM_NODE_CAPTURE"\nexec ${JSON.stringify(process.execPath)} "$@"\n`);
+	chmodSync(wrapper, 0o700);
+	const env = {
+		...process.env,
+		HOME: join(root, "home"),
+		PATH: `${join(root, "bin")}:${process.env.PATH ?? ""}`,
+		ROTOM_NODE: wrapper,
+		ROTOM_NODE_CAPTURE: count,
+		ROTOM_TEST_CAPTURE: capture,
+	};
+	delete env.PI_SUBAGENTS_EXECUTION_SCOPE;
+	delete env.PI_SUBAGENTS_TEMP_ROOT;
+	const result = spawnSync(LAUNCHER, ["--print", "probe"], { encoding: "utf8", env });
+	assert.equal(result.status, 0, result.stderr);
+	assert.equal(readFileSync(count, "utf8"), "1\n");
+	assert.equal(existsSync(capture), true);
 }));
 
 test("launcher 默认低版本 Node 拒绝，ROTOM_NODE 选择的 Node 同时运行 verifier 与 Pi", () => withFakePi({}, async ({ root }) => {
