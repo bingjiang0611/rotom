@@ -1,4 +1,4 @@
-import { currentTokenTotal, formatTokenCount } from "./accounting.js";
+import { currentTokenTotal, formatTokenCount, goalBudgetTokens } from "./accounting.js";
 import { validateObjective } from "./command.js";
 import { notifyTerminal, safeGoalMenuText } from "./errors.js";
 import type { ActiveGoal } from "./persistence.js";
@@ -182,7 +182,7 @@ export class GoalCommandController {
 		const automaticLimit = this.runtime.settings.continuationLimits.automaticTurns;
 		notifyTerminal(
 			ctx.ui,
-			`${existingGoal ? "Goal replaced" : "Goal started"}: ${objective}. ${
+			`${existingGoal ? "Goal replaced" : "Goal started"}: ${objective}. ${this.runtime.settings.completionReview ? "Completion review is on: selected model, extra bounded provider usage, file-only second opinion; USD/credits unknown. " : "Completion review is off: completion is model-reported. "}${
 				startedGoal.tokenBudget === undefined
 					? ""
 					: `Token budget: ${formatTokenCount(startedGoal.tokenBudget)} cumulative; the final model call may exceed it. `
@@ -234,7 +234,7 @@ export class GoalCommandController {
 		}
 		if (
 			this.runtime.activeGoal.tokenBudget !== undefined &&
-			this.runtime.activeGoal.tokensUsed >= this.runtime.activeGoal.tokenBudget
+			goalBudgetTokens(this.runtime.activeGoal) >= this.runtime.activeGoal.tokenBudget
 		) {
 			notifyTerminal(
 				ctx.ui,
@@ -383,7 +383,7 @@ export class GoalCommandController {
 		if (
 			currentGoal.status === "budget_limited" &&
 			effectiveTokenBudget !== undefined &&
-			effectiveTokenBudget <= currentGoal.tokensUsed
+			effectiveTokenBudget <= goalBudgetTokens(currentGoal)
 		) {
 			notifyTerminal(
 				ctx.ui,

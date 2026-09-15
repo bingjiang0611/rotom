@@ -4,6 +4,7 @@ import {
 	checkpointGoalActiveTime,
 	formatDuration,
 	formatTokenCount,
+	goalBudgetTokens,
 	updateGoalUsage,
 } from "./accounting.js";
 import { formatError, notifyTerminal, safeGoalMenuText, truncateNotification } from "./errors.js";
@@ -28,6 +29,7 @@ import {
 } from "./persistence.js";
 import { buildContinuePrompt, type GoalStatus } from "./prompts.js";
 import { nextToolFreeRepeatState, resetGoalSafetyEpoch } from "./safety.js";
+import { REVIEW_LIMITS } from "./reviewer.js";
 
 export { queueGoalSafetyReset, resetGoalSafetyEpoch } from "./safety.js";
 
@@ -42,6 +44,7 @@ import { WorkflowMutex, type WorkflowMutexOwner } from "./workflow-mutex.js";
 
 export {
 	GOAL_BLOCKED_TOOL,
+	GOAL_CONTINUE_TOOL,
 	GOAL_COMPLETE_TOOL,
 	GOAL_TOOL_NAMES,
 	GOAL_WAIT_TOOL,
@@ -74,6 +77,7 @@ export interface CompletedGoalRun {
 	goalId?: string | null;
 	origin?: GoalRunOrigin;
 	toolAttempted: boolean;
+	nextAction?: string;
 }
 
 type StoppedGoalStatus = "paused" | "blocked" | "usage_limited" | "budget_limited";
@@ -234,6 +238,22 @@ export class GoalRuntime {
 	agentRunGoalId?: string | null;
 	agentRunOrigin?: GoalRunOrigin;
 	agentRunToolAttempted = false;
+	continueAction?: string;
+	mixedGoalControlBatch = false;
+	private executionController = new AbortController();
+	get executionSignal() { return this.executionController.signal; }
+
+	invalidateExecution() {
+		this.continueAction = undefined;
+		this.executionController.abort();
+		this.executionController = new AbortController();
+	}
+
+	acceptContinuation(goalId: string, nextAction: string): boolean {
+		if (this.activeGoal?.id !== goalId || this.agentRunGoalId !== goalId || !this.ownsWorkflow() || this.activeGoal.waiting || this.continueAction) return false;
+		this.continueAction = nextAction;
+		return true;
+	}
 	guardAbortGoalId?: string;
 	staleGoalToolCallsBlocked = false;
 	private readonly workflowMutex: WorkflowMutex;
@@ -264,6 +284,7 @@ export class GoalRuntime {
 	}
 
 	bindWorkflowSession(session: object) {
+		this.invalidateExecution();
 		this.workflowSession = session;
 		this.workflowOwner = undefined;
 		this.workflowMutex.bindSession(session);
@@ -292,6 +313,7 @@ export class GoalRuntime {
 	}
 
 	releaseWorkflow() {
+		this.invalidateExecution();
 		const owner = this.workflowOwner;
 		this.workflowMutex.release(owner);
 		if (!this.workflowMutex.isOwner(owner)) this.workflowOwner = undefined;
@@ -344,6 +366,7 @@ export class GoalRuntime {
 	}
 
 	beginAgentRun(goalId: string | null | undefined, origin: GoalRunOrigin | undefined) {
+		this.invalidateExecution();
 		this.agentRunGoalId = goalId;
 		this.agentRunOrigin = origin;
 		this.agentRunToolAttempted = false;
@@ -365,12 +388,15 @@ export class GoalRuntime {
 			goalId: this.agentRunGoalId,
 			origin: this.agentRunOrigin,
 			toolAttempted: this.agentRunToolAttempted,
+			nextAction: this.continueAction,
 		};
 		this.clearAgentRun();
 		return run;
 	}
 
 	clearAgentRun() {
+		this.mixedGoalControlBatch = false;
+		this.invalidateExecution();
 		this.agentRunGoalId = undefined;
 		this.agentRunOrigin = undefined;
 		this.agentRunToolAttempted = false;
@@ -394,7 +420,7 @@ export class GoalRuntime {
 		return true;
 	}
 
-	requestContinuation(goal: ActiveGoal) {
+	requestContinuation(goal: ActiveGoal, nextAction?: string) {
 		if (!this.ownsWorkflow(goal)) return false;
 		if (goal.waiting || this.hasContinuationWorkForGoal(goal.id)) return false;
 		const marker = continuationMarker(goal);
@@ -402,7 +428,7 @@ export class GoalRuntime {
 			goalId: goal.id,
 			iteration: goal.iteration,
 			marker,
-			prompt: buildContinuePrompt(goal, marker),
+			prompt: buildContinuePrompt(goal, marker, nextAction),
 		};
 		return true;
 	}
@@ -773,7 +799,7 @@ export class GoalRuntime {
 		if (
 			goal?.status !== "active" ||
 			goal.tokenBudget === undefined ||
-			goal.tokensUsed < goal.tokenBudget
+			goalBudgetTokens(goal) < goal.tokenBudget
 		) {
 			return false;
 		}
@@ -1002,6 +1028,7 @@ export class GoalRuntime {
 	}
 
 	cancelContinuationWork() {
+		this.invalidateExecution();
 		this.clearContinuationDispatchTimer();
 		if (this.continuationDelivery) {
 			this.rememberCancelledContinuationMarker(this.continuationDelivery);
@@ -1430,7 +1457,7 @@ export function transitionGoal(goal: ActiveGoal, requestedStatus: GoalStatus): A
 	const status =
 		requestedStatus === "active" &&
 		goal.tokenBudget !== undefined &&
-		goal.tokensUsed >= goal.tokenBudget
+		goalBudgetTokens(goal) >= goal.tokenBudget
 			? "budget_limited"
 			: requestedStatus;
 	const next = {
@@ -1488,7 +1515,7 @@ export function formatStatus(
 }
 
 export function formatBudget(goal: ActiveGoal) {
-	return `${formatTokenCount(goal.tokensUsed)}/${formatTokenCount(goal.tokenBudget ?? 0)}`;
+	return `${formatTokenCount(goalBudgetTokens(goal))}/${formatTokenCount(goal.tokenBudget ?? 0)}`;
 }
 
 export function goalSummary(
@@ -1511,7 +1538,8 @@ export function goalSummary(
 			? `Automatic work: ${goal.automaticModelTurns} responses · Unlimited`
 			: `Automatic work: ${goal.automaticModelTurns} of ${automaticTurnLimit} responses`,
 		`Active elapsed: ${formatDuration(goal.timeUsedSeconds)}`,
-		`Tokens: ${goal.tokenBudget === undefined ? formatTokenCount(goal.tokensUsed) : formatBudget(goal)}`,
+		`Tokens: ${goal.tokenBudget === undefined ? formatTokenCount(goalBudgetTokens(goal)) : formatBudget(goal)}`,
+		...(goal.review ? [`Completion review: ${goal.review.status} · ${goal.review.attempts}/${REVIEW_LIMITS.attempts} attempts · ${formatTokenCount(goal.review.reportedTokens)} reported tokens (partial; USD/credits unknown)`] : []),
 	];
 	if (goal.safetyPauseCause) {
 		summary.push(

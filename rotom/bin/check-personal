@@ -56,4 +56,8 @@ PI_SUBAGENTS_EXECUTION_SCOPE= PI_SUBAGENTS_TEMP_ROOT= ROTOM_PI="$pi_command" PAT
 	rotom/extensions/third-party/subagent/external-cli-evidence.test.mjs \
 	rotom/extensions/third-party/subagent/lifeline-regression.test.mjs
 
+# Goal source runs against this product's exact installed Pi, including the
+# deterministic SDK continuation/reviewer and mixed-batch regressions.
+(cd "$repository_dir/packages/rotom-goal" && "$node_command" --import ./test/register.mjs --experimental-strip-types --test --test-concurrency=1 test/*.test.ts)
+
 "$node_command" rotom/runtime/report-context-footprint.mjs "$pi_command" "$agent_dir"

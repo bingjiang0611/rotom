@@ -8,6 +8,7 @@ import {
 } from "./accounting.js";
 import type { GoalStatus } from "./prompts.js";
 import { type GoalWait, normalizeGoalWait } from "./wait.js";
+import { normalizeReview, type ReviewRecord } from "./reviewer.js";
 
 const GOAL_STATE_ENTRY_TYPE = "goal-state";
 const LEGACY_GOALS_STATE_ENTRY_TYPE = "goals-state";
@@ -33,6 +34,8 @@ export interface ActiveGoal {
 	safetyPauseCause?: SafetyPauseCause;
 	safetyResetPending?: boolean;
 	waiting?: GoalWait;
+	/** Review attempts survive resume/edit; an interrupted request is not replayable. */
+	review?: ReviewRecord;
 }
 
 export interface GoalStateEntryData {
@@ -170,9 +173,12 @@ function validObjective(value: unknown): value is string {
 
 export function normalizeLoadedGoal(goal: ActiveGoal): ActiveGoal {
 	const now = Date.now();
-	const waiting = goal.status === "active" ? normalizeGoalWait(goal.waiting) : undefined;
+	const review = normalizeReview(goal.review);
+	const status = goal.status === "active" && (review?.status === "running" || review?.status === "unknown") ? "paused" : goal.status;
+	const waiting = status === "active" ? normalizeGoalWait(goal.waiting) : undefined;
 	return {
 		...goal,
+		status,
 		startedAt: isNonNegativeFiniteNumber(goal.startedAt) ? goal.startedAt : now,
 		updatedAt: isNonNegativeFiniteNumber(goal.updatedAt) ? goal.updatedAt : now,
 		iteration: Math.max(0, Math.floor(nonNegativeFiniteNumber(goal.iteration))),
@@ -180,13 +186,14 @@ export function normalizeLoadedGoal(goal: ActiveGoal): ActiveGoal {
 		tokensUsed: nonNegativeFiniteNumber(goal.tokensUsed),
 		timeUsedSeconds: nonNegativeFiniteNumber(goal.timeUsedSeconds),
 		baselineTokens: nonNegativeFiniteNumber(goal.baselineTokens),
-		activeStartedAt: goal.status === "active" && !waiting ? now : undefined,
+		activeStartedAt: status === "active" && !waiting ? now : undefined,
 		automaticModelTurns: normalizeSafetyCounter(goal.automaticModelTurns),
 		toolFreeRepeatCount: normalizeSafetyCounter(goal.toolFreeRepeatCount),
 		lastToolFreeOutputFingerprint: normalizeOutputFingerprint(goal.lastToolFreeOutputFingerprint),
 		safetyPauseCause: normalizeSafetyPauseCause(goal.safetyPauseCause),
 		safetyResetPending: goal.safetyResetPending === true ? true : undefined,
 		waiting,
+		review,
 	};
 }
 

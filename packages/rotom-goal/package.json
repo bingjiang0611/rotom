@@ -1,6 +1,6 @@
 {
 	"name": "@narumitw/pi-goal",
-	"version": "0.54.4-rotom.0",
+	"version": "0.54.4-rotom.1",
 	"description": "rotom-maintained fork of @narumitw/pi-goal: autonomous single-objective /goal completion with a stronger no-progress guard.",
 	"type": "module",
 	"license": "MIT",
@@ -24,7 +24,8 @@
 		]
 	},
 	"scripts": {
-		"test": "node --test --experimental-strip-types \"test/*.test.ts\""
+		"check": "../rotom-pi/node_modules/.bin/tsc -p tsconfig.json",
+		"test": "node --import ./test/register.mjs --test --test-concurrency=1 --experimental-strip-types \"test/*.test.ts\""
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-ai": "*",

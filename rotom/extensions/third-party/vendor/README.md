@@ -26,12 +26,12 @@ The default product selects **`@injaneity/pi-computer-use@0.5.1-rotom.0`**, inde
 
 ## Locked Goal distribution
 
-The default product selects **`@narumitw/pi-goal@0.54.4-rotom.0`**, independently maintained in `packages/rotom-goal/`. This is a Goal fork, not a Pi fork.
+The default product selects **`@narumitw/pi-goal@0.54.4-rotom.1`**, independently maintained in `packages/rotom-goal/`. This is a Goal fork, not a Pi fork.
 
-- Archive: `narumitw-pi-goal-0.54.4-rotom.0.tgz`
-- SHA512 SRI: `sha512-QhEGtXm5jnkGSuTy2wXUCUE1h3tya3GTTZlJr00HFQdckX2Vd37emUGCAw4HGK1PaV1cpZHKL/Ym/+bsvQ4a1A==`
+- Archive: `narumitw-pi-goal-0.54.4-rotom.1.tgz`
+- SHA512 SRI: `sha512-e0iWJ1MBQbGZdJ3HqaVMPzDS13OceTml7E4YH0Scw+mgDb83reg71TN8Z711xReOrIptkrIiCTIB/gbK0r0Kxw==`
 - Upstream: `@narumitw/pi-goal`, License MIT (original notice retained in `package/LICENSE`; provenance in `package/UPSTREAM.md`).
-- Source baseline: upstream `0.54.4` source tree (22 TS files), absorbing its stable system-prefix caching, budget-stop, transient-wait quiet retry and stable tool schemas. Entry is `./src/index.ts` (the `0.52.1`-style src entry) because upstream `0.54.4` ships a bundled `dist/index.ts` whose esbuild build script is not in the tarball. `@narumitw/pi-tui-kit` is a type-only import, erased at load. The rotom change is in `src/safety.ts`: the no-progress guard now counts a repeat on identical observable behaviour (same visible text **and** same tool-call signature) so re-issuing the same failing tool call can no longer reset the guard forever; it only **pauses** (recoverable via `/goal resume`) and reduces byte-identically to the upstream tool-free fingerprint when no tool is called.
+- Source baseline: upstream `0.54.4` source tree (22 TS files), absorbing its stable system-prefix caching, budget-stop, transient-wait quiet retry and stable tool schemas. Entry is `./src/index.ts` (the `0.52.1`-style src entry) because upstream `0.54.4` ships a bundled `dist/index.ts` whose esbuild build script is not in the tarball. The existing `@narumitw/pi-tui-kit` dependency is loaded lazily for menus. `.rotom.1` adds default explicit `goal_continue` and a bounded file-only completion reviewer through the selected provider's public registry API, without a nested AgentSession. Attempts, unknown/no-replay, mixed-batch rejection and reported review token budgets are session-bound; see the component README/UPSTREAM for limits. The old `.rotom.0` archive is maintenance-only, not selected or shipped. The original rotom change is in `src/safety.ts`: the no-progress guard now counts a repeat on identical observable behaviour (same visible text **and** same tool-call signature) so re-issuing the same failing tool call can no longer reset the guard forever; it only **pauses** (recoverable via `/goal resume`) and reduces byte-identically to the upstream tool-free fingerprint when no tool is called.
 
 Both forks: `package.json` keeps the exact version, `package-lock.json` resolves it to the relative archive, and `runtime/product-config.mjs` pins version + integrity; the launcher rejects missing, linked, changed or mismatched archives. Use the same fresh-prefix `npm ci` guidance above; **do not run npm ci over a directory still used by live sessions.**
 

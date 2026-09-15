@@ -10,6 +10,7 @@ import {
 	gitIdentity,
 	CURRENT_RUNTIME_CONTEXT_CONTRACT_V1,
 	FULL_TOOL_CONTEXT_CONTRACT_V1,
+	SCOPED_FULL_TOOL_CONTEXT_CONTRACT_V1,
 	REFERENCE_CONTEXT_FOOTPRINT_V1,
 } from "./report-context-footprint.mjs";
 
@@ -109,13 +110,21 @@ test("explicit opt-out full tool surface has an independent reviewed contract", 
 	assert.equal(report.referenceObservationGate, "DRIFT");
 });
 
-test("omitting the three stable Goal schemas fails both startup contracts", () => {
+test("owned Subagent scope has an independently measured full contract", () => {
+	const contextFootprint = { ...measurement(["read"]), ...SCOPED_FULL_TOOL_CONTEXT_CONTRACT_V1 };
+	const report = buildContextFootprintReport({ runtime: { contextFootprint, deferredToolsEnabled: false, subagentExecutionScope: "owned-process-groups-v2" }, identity: {}, elapsedMs: 0 });
+	assert.equal(report.runtimeContractGate, "PASS");
+	assert.equal(report.runtimeContract, SCOPED_FULL_TOOL_CONTEXT_CONTRACT_V1);
+	assert.equal(buildContextFootprintReport({ runtime: { contextFootprint, deferredToolsEnabled: false }, identity: {}, elapsedMs: 0 }).runtimeContractGate, "REGRESSION");
+});
+
+test("omitting the four stable Goal schemas fails both startup contracts", () => {
 	for (const [deferredToolsEnabled, contract] of [[true, CURRENT_RUNTIME_CONTEXT_CONTRACT_V1], [false, FULL_TOOL_CONTEXT_CONTRACT_V1]]) {
 		const contextFootprint = {
 			...measurement(["read"]),
-			activeToolCount: contract.activeToolCount - 3,
-			activeToolSchemaBytes: contract.activeToolSchemaBytes - 2_951,
-			activeToolGuidelineBytes: contract.activeToolGuidelineBytes - 6,
+			activeToolCount: contract.activeToolCount - 4,
+			activeToolSchemaBytes: contract.activeToolSchemaBytes - 3_647,
+			activeToolGuidelineBytes: contract.activeToolGuidelineBytes - 8,
 		};
 		const report = buildContextFootprintReport({ runtime: { contextFootprint, deferredToolsEnabled }, identity: {}, elapsedMs: 0 });
 		assert.equal(report.runtimeContractGate, "REGRESSION");

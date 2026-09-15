@@ -9,10 +9,12 @@ import {
 import { Markdown } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { notifyTerminal, safeTerminalText } from "./errors.js";
+import { goalBudgetTokens } from "./accounting.js";
 import {
 	formatStatus,
 	GOAL_BLOCKED_TOOL,
 	GOAL_COMPLETE_TOOL,
+	GOAL_CONTINUE_TOOL,
 	GOAL_WAIT_TOOL,
 	type GoalRuntime,
 	goalIdRejectionReason,
@@ -29,6 +31,14 @@ import {
 	MIN_GOAL_WAIT_DELAY_MS,
 	resolveGoalWaitDelay,
 } from "./wait.js";
+
+import {
+	digest,
+	REVIEW_LIMITS,
+	reviewEvidence,
+	reviewFilesCurrent,
+	runCompletionReview,
+} from "./reviewer.js";
 
 interface GoalCompleteDetails {
 	goal: string;
@@ -58,12 +68,52 @@ const MAX_COMPLETION_SUMMARY_LENGTH = 4_000;
 const MAX_BLOCKER_REASON_LENGTH = 1_000;
 const MAX_BLOCKER_EVIDENCE_LENGTH = 4_000;
 
-export function registerGoalTools(pi: ExtensionAPI, runtime: GoalRuntime) {
+export function registerGoalTools(
+	pi: ExtensionAPI,
+	runtime: GoalRuntime,
+	review = runCompletionReview,
+) {
+	pi.registerTool(
+		defineTool({
+			name: GOAL_CONTINUE_TOOL,
+			label: "Goal Continue",
+			description:
+				"End the current active Goal execution segment with one concrete next action. Call alone, only with the latest active goal_id. This allows one Goal-owned continuation, not new permissions or proof of progress. Tool visibility alone does not activate Goal mode. Missing decision: pause without an automatic repair turn.",
+			parameters: Type.Object({
+				goal_id: Type.String({ minLength: 1, maxLength: MAX_GOAL_ID_LENGTH }),
+				next_action: Type.String({ minLength: 1, maxLength: 2000 }),
+			}),
+			executionMode: "sequential",
+			async execute(_id, params) {
+				const nextAction = params.next_action.trim();
+				if (
+					!nextAction ||
+					nextAction.length > 2000 ||
+					!runtime.acceptContinuation(params.goal_id, nextAction)
+				)
+					return {
+						content: toolContent(
+							runtime.activeGoal
+								? "Goal continuation rejected: no matching owned active run, or a decision already exists."
+								: "Goal continuation rejected: no active goal.",
+						),
+						details: { goal_id: params.goal_id, next_action: nextAction },
+						terminate: false,
+					};
+				return {
+					content: toolContent("One continuation decision accepted. Stop this execution segment."),
+					details: { goal_id: params.goal_id, next_action: nextAction },
+					terminate: true,
+				};
+			},
+		}),
+	);
 	const goalCompleteTool = defineTool({
 		name: GOAL_COMPLETE_TOOL,
 		label: "Goal Complete",
+		executionMode: "sequential",
 		description:
-			"Mark an active /goal complete only when the latest effective Goal contract explicitly says Goal mode is active, supplies the matching current goal_id, and every requirement is verified. Tool visibility alone does not activate Goal mode. Never call for ordinary work, partial progress, blockers, failures, or unverified work.",
+			"Mark an active /goal complete only when the latest effective Goal contract explicitly says Goal mode is active, supplies the matching current goal_id, and every requirement is verified. Tool visibility alone does not activate Goal mode. Call alone. By default this submits the claim to a bounded file-only reviewer using the selected model and additional provider usage. Never call for ordinary work, partial progress, blockers, failures, or unverified work.",
 		parameters: Type.Object({
 			goal_id: Type.String({
 				minLength: 1,
@@ -162,8 +212,159 @@ export function registerGoalTools(pi: ExtensionAPI, runtime: GoalRuntime) {
 				};
 			}
 
+			let reviewReport: string | undefined;
+			if (runtime.settings.completionReview) {
+				const evidence = reviewEvidence(ctx.sessionManager.getBranch());
+				const candidate = digest(JSON.stringify([completedGoal.text, evidence]));
+				const previous = completedGoal.review;
+				const pause = (reason: string) => {
+					runtime.stopActiveGoal(ctx, {
+						kind: "agent_interruption",
+						expectedGoalId: completedGoal.id,
+						status: "paused",
+						reason,
+					});
+					return {
+						content: toolContent(reason),
+						details: completionDetails(goal, requestedGoalId, summary),
+						terminate: true,
+					};
+				};
+				runtime.recordGoalUsage(completedGoal, ctx);
+				if (
+					completingDuringBudgetWrapUp ||
+					(completedGoal.tokenBudget !== undefined &&
+						goalBudgetTokens(completedGoal) >= completedGoal.tokenBudget)
+				)
+					return pause(
+						"Goal review unavailable after token budget exhaustion; completion is unverified.",
+					);
+				if (previous?.status === "running" || previous?.status === "unknown")
+					return pause(
+						"Previous completion review is unresolved. It will not be replayed, including after resume. Completion remains unverified.",
+					);
+				if (previous?.candidate === candidate)
+					return pause(
+						"This evidence candidate was already reviewed. Do new verified work before requesting another review; changing the summary is insufficient.",
+					);
+				if (
+					(previous?.attempts ?? 0) >= REVIEW_LIMITS.attempts ||
+					(previous?.reportedTokens ?? 0) >= REVIEW_LIMITS.reportedTokens
+				)
+					return pause(
+						"Goal completion-review allowance exhausted. Resume/edit does not replenish it. Completion remains unverified.",
+					);
+				const execution = runtime.executionSignal;
+				const isCurrent = () =>
+					!execution.aborted &&
+					runtime.activeGoal?.id === completedGoal.id &&
+					runtime.activeGoal.text === completedGoal.text &&
+					runtime.agentRunGoalId === completedGoal.id &&
+					runtime.ownsWorkflow();
+				const signal = AbortSignal.any([
+					execution,
+					...(_signal ? [_signal] : []),
+					AbortSignal.timeout(REVIEW_LIMITS.timeoutMs),
+				]);
+				completedGoal.review = {
+					attempts: (previous?.attempts ?? 0) + 1,
+					candidate,
+					status: "running",
+					reportedTokens: previous?.reportedTokens ?? 0,
+				};
+				// Persist before dispatch. Crashes, cancellation and late replies cannot
+				// turn an ambiguous paid request into a fresh review allowance.
+				runtime.persistGoal(completedGoal);
+				notifyTerminal(
+					ctx.ui,
+					"Completion reviewer: selected model, file-only tools, bounded extra usage. USD/credits unknown; this is a second opinion, not a sandbox or end-to-end verifier.",
+					"info",
+				);
+				const outcome = await review({
+					ctx,
+					objective: completedGoal.text,
+					summary,
+					evidence,
+					signal,
+					isCurrent,
+					remainingTokens: Math.min(
+						REVIEW_LIMITS.reportedTokens - completedGoal.review.reportedTokens,
+						completedGoal.tokenBudget === undefined
+							? Infinity
+							: completedGoal.tokenBudget -
+									completedGoal.tokensUsed -
+									completedGoal.review.reportedTokens,
+					),
+				});
+				if (!isCurrent()) {
+					// Ownership loss forbids approval, but does not erase known usage
+					// from this exact persisted attempt if the Goal still exists.
+					const current = runtime.activeGoal;
+					if (
+						current?.id === completedGoal.id &&
+						current.review?.status === "running" &&
+						current.review.candidate === candidate &&
+						current.review.attempts === completedGoal.review.attempts
+					) {
+						current.review = {
+							...current.review,
+							status: "unknown",
+							reportedTokens: current.review.reportedTokens + outcome.reportedTokens,
+						};
+						runtime.persistGoal(current);
+					}
+					return {
+						content: toolContent(
+							"Completion review became stale or cancelled; no completion was applied.",
+						),
+						details: {},
+						terminate: true,
+					};
+				}
+				const unchanged =
+					reviewFilesCurrent(ctx.cwd, outcome.files) &&
+					reviewEvidence(ctx.sessionManager.getBranch()) === evidence;
+				const status = signal.aborted || !unchanged ? "unknown" : outcome.status;
+				completedGoal.review = {
+					...completedGoal.review,
+					status,
+					reportedTokens: completedGoal.review.reportedTokens + outcome.reportedTokens,
+				};
+				runtime.activeGoal!.review = completedGoal.review;
+				runtime.persistGoal(runtime.activeGoal!);
+				pi.appendEntry("goal-review-result", {
+					goalId: completedGoal.id,
+					candidate,
+					status,
+					model: ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : null,
+					calls: outcome.calls,
+					reportedTokens: outcome.reportedTokens,
+					usageScope: "review-only-partial",
+					usd: null,
+					credits: null,
+				});
+				if (status === "unknown")
+					return pause(
+						`Completion review unresolved: ${unchanged ? outcome.report : "Review evidence changed."} No automatic retry; completion remains unverified.`,
+					);
+				if (status === "rejected")
+					return {
+						content: toolContent(
+							`Completion reviewer found unverified requirements. Goal remains active; repair using current evidence, then call goal_continue or submit new evidence within the remaining review allowance.\n\n${outcome.report}`,
+						),
+						details: { review: completedGoal.review },
+						terminate: false,
+					};
+				reviewReport = outcome.report;
+				notifyTerminal(
+					ctx.ui,
+					"Completion reviewer approved the inspected evidence scope (not arbitrary external effects).",
+					"info",
+				);
+			}
+
 			runtime.clearGoalWaitTimer();
-			runtime.activeGoal = transitionGoal(completedGoal, "complete");
+			runtime.activeGoal = transitionGoal(runtime.activeGoal ?? completedGoal, "complete");
 			runtime.setCompletionSummary(runtime.activeGoal.id, summary);
 			runtime.recordGoalUsage(runtime.activeGoal, ctx);
 			runtime.persistGoal(runtime.activeGoal);
@@ -174,7 +375,9 @@ export function registerGoalTools(pi: ExtensionAPI, runtime: GoalRuntime) {
 			notifyTerminal(ctx.ui, `Goal complete: ${goal}`, "info");
 
 			return {
-				content: toolContent(`Goal complete: ${summary}`),
+				content: toolContent(
+					`Goal complete: ${summary}${reviewReport ? `\n\nCompletion review (inspected evidence only):\n${reviewReport}` : "\n\nCompletion reviewer disabled; result is model-reported."}`,
+				),
 				details: completionDetails(goal, requestedGoalId, summary),
 				terminate: true,
 			};

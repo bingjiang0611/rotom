@@ -1,6 +1,6 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { ActionMenuItem } from "@narumitw/pi-tui-kit";
-import { formatTokenCount as formatCompactTokenCount, formatDuration } from "./accounting.js";
+import { formatTokenCount as formatCompactTokenCount, formatDuration, goalBudgetTokens } from "./accounting.js";
 import { parseTokenBudget } from "./command.js";
 import type { GoalCommandController } from "./commands.js";
 import { notifyTerminal, safeGoalMenuText } from "./errors.js";
@@ -88,7 +88,7 @@ export function buildGoalMenuState(runtime: GoalMenuRuntimeView): GoalMenuState 
 				`Usage: ${
 					goal.tokenBudget === undefined
 						? formatDuration(goal.timeUsedSeconds)
-						: `${formatTokenCount(goal.tokensUsed)}/${formatTokenCount(goal.tokenBudget)}`
+						: `${formatTokenCount(goalBudgetTokens(goal))}/${formatTokenCount(goal.tokenBudget)}`
 				}`,
 				automaticResponses,
 				...(pausedByAutomaticLimit
@@ -212,14 +212,14 @@ export async function showGoalManager(
 				const goal = runtime.activeGoal;
 				displayedBudgetGoal = goal;
 				displayedBudgetValue = goal?.tokenBudget;
-				displayedBudgetUsage = goal?.tokensUsed;
+				displayedBudgetUsage = goal ? goalBudgetTokens(goal) : undefined;
 				displayedBudgetStatus = goal?.status;
-				if (goal && goal.tokensUsed >= Number.MAX_SAFE_INTEGER) {
+				if (goal && goalBudgetTokens(goal) >= Number.MAX_SAFE_INTEGER) {
 					return {
 						kind: "detail",
 						title: "Increase token budget unavailable",
 						lines: [
-							`Current usage: ${formatBudgetDecisionValue(goal.tokensUsed)}`,
+							`Current usage: ${formatBudgetDecisionValue(goalBudgetTokens(goal))}`,
 							"No larger safe whole-number token budget is available. Progress remains saved; choose Back and clear or replace the goal when ready.",
 						],
 						hint: "back",
@@ -248,7 +248,7 @@ export async function showGoalManager(
 						? [
 								automaticPauseSummary(used, limit),
 								`${safeGoalMenuText(goal.text)} is preserved.`,
-								`${formatInteger(goal.tokensUsed)} cumulative tokens and ${formatDuration(goal.timeUsedSeconds)} active time are preserved.`,
+								`${formatInteger(goalBudgetTokens(goal))} cumulative tokens and ${formatDuration(goal.timeUsedSeconds)} active time are preserved.`,
 								"The objective and usage are preserved.",
 								limit === null
 									? "Continuing resets the counter to 0 and resumes with Unlimited automatic work."
@@ -356,10 +356,10 @@ export async function showGoalManager(
 				) {
 					return { kind: "close" };
 				}
-				if (budget <= goal.tokensUsed) {
+				if (budget <= goalBudgetTokens(goal)) {
 					notifyTerminal(
 						ctx.ui,
-						`Enter a new cumulative total greater than current usage (${formatCompactTokenCount(goal.tokensUsed)}).`,
+						`Enter a new cumulative total greater than current usage (${formatCompactTokenCount(goalBudgetTokens(goal))}).`,
 						"warning",
 					);
 					return { kind: "rejected" };
@@ -543,8 +543,8 @@ function automaticBudgetGuidance(automaticLimit: number | null) {
 function increaseTokenBudgetGuidance(goal: ActiveGoal, automaticLimit: number | null) {
 	return [
 		`Current budget: ${formatBudgetDecisionValue(goal.tokenBudget ?? 0)}`,
-		`Current usage: ${formatBudgetDecisionValue(goal.tokensUsed)}`,
-		`Enter a new cumulative total greater than ${formatBudgetDecisionValue(goal.tokensUsed)}.`,
+		`Current usage: ${formatBudgetDecisionValue(goalBudgetTokens(goal))}`,
+		`Enter a new cumulative total greater than ${formatBudgetDecisionValue(goalBudgetTokens(goal))}.`,
 		"Examples: 300k, 1.5m, or 300000.",
 		"The final model call may exceed the limit; this is not a dollar-cost cap.",
 		automaticBudgetGuidance(automaticLimit),
@@ -552,7 +552,7 @@ function increaseTokenBudgetGuidance(goal: ActiveGoal, automaticLimit: number | 
 }
 
 function suggestedIncreasedBudget(goal: ActiveGoal) {
-	const floor = Math.max(goal.tokensUsed, goal.tokenBudget ?? 0);
+	const floor = Math.max(goalBudgetTokens(goal), goal.tokenBudget ?? 0);
 	for (const suggestion of [25_000, 100_000, 300_000, 500_000, 1_000_000]) {
 		if (suggestion > floor) return formatCompactTokenCount(suggestion);
 	}
@@ -571,7 +571,7 @@ function increaseBudgetPreview(goal: ActiveGoal, budget: number, automaticLimit:
 	return [
 		`Goal: ${safeGoalMenuText(goal.text, 4_000)}`,
 		`Budget: ${formatCompactTokenCount(goal.tokenBudget ?? 0)} → ${formatCompactTokenCount(budget)}`,
-		`Current usage: ${formatCompactTokenCount(goal.tokensUsed)}`,
+		`Current usage: ${formatCompactTokenCount(goalBudgetTokens(goal))}`,
 		automaticLimit === null
 			? "Automatic work: Unlimited after resume"
 			: `Automatic work: up to ${automaticLimit} more responses after resume`,
@@ -620,7 +620,7 @@ function requireCurrentBudgetPreview(
 	if (
 		current?.id === expectedGoal.id &&
 		current.tokenBudget === expectedBudget &&
-		current.tokensUsed === expectedUsage &&
+		goalBudgetTokens(current) === expectedUsage &&
 		current.status === expectedStatus
 	) {
 		return true;

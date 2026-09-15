@@ -9,6 +9,11 @@ export interface GoalAccountingState {
 	updatedAt: number;
 }
 
+/** Parent usage and reviewer usage remain separately attributable; budgets cover both. */
+export function goalBudgetTokens(goal: { tokensUsed: number; review?: { reportedTokens: number } }) {
+	return goal.tokensUsed + (goal.review?.reportedTokens ?? 0);
+}
+
 interface AssistantUsageEntryLike {
 	type?: unknown;
 	message?: unknown;

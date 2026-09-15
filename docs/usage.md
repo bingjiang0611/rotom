@@ -4,6 +4,18 @@
 
 本文保留安装、模型配置与 Qoder 的详细说明。除明确标为源码的路径外，运行时路径均相对安装后的 rotom 包目录。
 
+## Goal（当前源码合同）
+
+当前源码默认启用显式续跑和 completion reviewer，详见 [Goal 行为、限制及验证边界](../packages/rotom-goal/README.md)。npm 已发布版本不由本节声明升级。
+
+- `/goal <完整目标与验收要求>` 启动单目标；Agent 在执行段结束前须调用 `goal_continue` 声明下一步，否则暂停，不额外花费 repair turn。
+- `goal_complete` 默认调用当前模型做有界文件审阅；无 bash/浏览器/写工具，不加载项目 extension，也不创建嵌套 AgentSession。每个 Goal 最多两次审阅、每次最多四个模型请求、90 秒；是第二意见，不是完整外部验收。
+- 额外审阅用量单独记录，已报告 token 计入 Goal budget admission；最终请求可能超出 admission 阈值，USD/credits 保持 unknown。
+- rejected 可按新证据修复；unknown/取消/中断不自动再审，resume/edit 不补审阅额度。修改摘要不算新候选。
+- 当前 reader 只接受不超过 24,000 bytes 的完整文本文件。需要验收更大文件、被省略记录或外部状态时保持 unverified；若这种需求成为常态，应另行实现带覆盖证明的有界分页，不自动放宽审批或假装已读全文。
+- 用户可在已有 `pi-goal.json` 设置 `"completionReview": false` 后 `/reload` 明确关闭审阅；不可因审阅失败由 Agent 自动关闭。显式工具白名单须新增 `goal_continue`。
+- 不引入 task tree、项目 Goal 数据库或独立完成条件字段；完整 objective 仍是需求权威来源。
+
 ## 本地发行包安装
 
 项目源码位于 [bingjiang0611/rotom](https://github.com/bingjiang0611/rotom)。npm 包为 `@bingjiang0611/rotom`，安装命令：`npm install -g --ignore-scripts @bingjiang0611/rotom`。

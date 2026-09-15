@@ -31,7 +31,7 @@ test("真实 Pi loader 注册保留的第三方运行时并排除 MCP、Backgrou
 	const loaded = await loadExtensions([import.meta.dirname], process.cwd());
 	assert.deepEqual(loaded.errors, []);
 	const tools = [...loaded.extensions[0].tools.keys()];
-	for (const tool of ["find_roots", "observe_ui", "search_ui", "expand_ui", "inspect_ui", "act_ui", "read_text", "wait_for", "launch_browser", "navigate_browser", "evaluate_browser", "subagent", "goal_complete", "goal_blocked", "goal_wait", "ask_user_question"]) {
+	for (const tool of ["find_roots", "observe_ui", "search_ui", "expand_ui", "inspect_ui", "act_ui", "read_text", "wait_for", "launch_browser", "navigate_browser", "evaluate_browser", "subagent", "goal_complete", "goal_blocked", "goal_wait", "goal_continue", "ask_user_question"]) {
 		assert.ok(tools.includes(tool), `missing third-party tool ${tool}`);
 	}
 	for (const tool of ["mcp", "mcpScript", "bg_delegate", "bg_result", "bg_run", "bg_run_pi_attested", "bg_status", "bg_logs", "bg_kill", "fusion_reason", "fusion_investigate", "fusion_research", "fusion_validate", "lsp_diagnostics", "lsp_hover", "lsp_definition", "lsp_references", "lsp_document_symbols", "lsp_workspace_symbols", "lsp_more"]) assert.equal(tools.includes(tool), false, `removed tool ${tool} must not be registered`);

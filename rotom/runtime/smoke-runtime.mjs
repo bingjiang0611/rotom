@@ -17,7 +17,7 @@ if (!piExecutable || !agentDirInput) {
 }
 
 const agentDir = resolve(agentDirInput);
-const goalToolNames = ["goal_complete", "goal_blocked", "goal_wait"];
+const goalToolNames = ["goal_complete", "goal_blocked", "goal_wait", "goal_continue"];
 const deferredToolsActive = deferredToolsEnabled(process.env);
 process.env[DEFERRED_DEFAULT_SURFACE_ENV] = "1";
 const declarations = RESOURCE_DESCRIPTORS_V1.map((resource) => `${resource.kind}:${resolve(agentDir, resource.path)}`);
@@ -133,7 +133,7 @@ try {
 	assert.equal(created.session.model.provider, "runtime-smoke-faux", "Qoder must not change the selected model");
 	assert.equal(observability?.commands.has("trace"), true, "observability 必须提供不进入模型上下文的 /trace 命令");
 	assert.equal(observability?.tools.size, 0, "observability 不得增加模型 tool schema");
-	for (const tool of ["find_roots", "observe_ui", "act_ui", "subagent", "goal_complete", "goal_blocked", "goal_wait"]) assert.equal(thirdParty?.tools.has(tool), true);
+	for (const tool of ["find_roots", "observe_ui", "act_ui", "subagent", "goal_complete", "goal_blocked", "goal_wait", "goal_continue"]) assert.equal(thirdParty?.tools.has(tool), true);
 	assert.deepEqual(new Set(extensionToolNames), new Set([
 		...RESIDENT_BROWSER_TOOL_NAMES, "ask_user_question", ...DEFERRED_CAPABILITY_GROUPS.flatMap((group) => [...group.toolNames]),
 		...goalToolNames, ...(deferredToolsActive ? [DEFERRED_TOOL_SEARCH_NAME] : []),
@@ -162,7 +162,7 @@ try {
 		contextFiles: loader.getAgentsFiles().agentsFiles,
 		skills: loader.getSkills().skills,
 	});
-	// pi-goal 0.54.4 keeps all three schemas stable from startup. Visibility is
+	// rotom Goal keeps all four schemas stable from startup. Visibility is
 	// not Goal activation: the inactive-call rejection is checked below.
 	if (deferredToolsActive) {
 		assert.deepEqual(new Set(activeTools), new Set([...DEFERRED_INITIAL_TOOL_NAMES, ...goalToolNames, DEFERRED_TOOL_SEARCH_NAME]), "默认初始工具面必须保留 core + Ask + Browser/Computer Use + Goal + loader");
@@ -192,6 +192,7 @@ try {
 			goal_complete: { goal_id: "inactive-smoke-goal", summary: "Fixture completion evidence" },
 			goal_blocked: { goal_id: "inactive-smoke-goal", reason: "Fixture blocker", evidence: "Fixture evidence", repeated_turns: 3 },
 			goal_wait: { goal_id: "inactive-smoke-goal", reason: "Fixture external wait" },
+			goal_continue: { goal_id: "inactive-smoke-goal", next_action: "Fixture next action" },
 		}[name];
 		const rejected = await definition.execute(`inactive-${name}`, params, undefined, undefined, shutdownContext);
 		assert.match(rejected.content.filter((block) => block.type === "text").map((block) => block.text).join("\n"), /rejected: no active goal/u);
@@ -222,6 +223,7 @@ try {
 		execution: "native-host",
 		thirdPartyRuntimeHandlersLoaded: true,
 		deferredToolsEnabled: deferredToolsActive,
+		subagentExecutionScope: process.env.PI_SUBAGENTS_EXECUTION_SCOPE === "owned-process-groups-v2" ? "owned-process-groups-v2" : "unscoped",
 		browserHandlersLoaded: true,
 		observabilityHandlersLoaded: true,
 	}) + "\n");

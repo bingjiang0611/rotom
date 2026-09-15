@@ -8,6 +8,8 @@ export const GOAL_SETTINGS_FILE = "pi-goal.json";
 export type ContinuationLimit = number | null;
 
 export interface GoalSettings {
+	/** User-owned opt-out; disabling review does not prove completion. */
+	completionReview: boolean;
 	rpc: {
 		enabled: boolean;
 	};
@@ -18,6 +20,7 @@ export interface GoalSettings {
 }
 
 export const DEFAULT_GOAL_SETTINGS: GoalSettings = {
+	completionReview: true,
 	rpc: { enabled: false },
 	continuationLimits: { automaticTurns: 25, noProgressTurns: 3 },
 };
@@ -39,6 +42,8 @@ interface GoalSettingsSaveFileSystem {
 export function normalizeGoalSettings(value: unknown): GoalSettings | undefined {
 	if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
 
+	const completionReview = Object.hasOwn(value, "completionReview") ? Reflect.get(value, "completionReview") : true;
+	if (typeof completionReview !== "boolean") return undefined;
 	const rpcValue = Object.hasOwn(value, "rpc") ? Reflect.get(value, "rpc") : undefined;
 	if (
 		rpcValue !== undefined &&
@@ -78,6 +83,7 @@ export function normalizeGoalSettings(value: unknown): GoalSettings | undefined 
 	if (automaticTurns === undefined || noProgressTurns === undefined) return undefined;
 
 	return {
+		completionReview,
 		rpc: { enabled: rpcEnabled },
 		continuationLimits: { automaticTurns, noProgressTurns },
 	};
@@ -119,6 +125,7 @@ export function saveGoalSettings(
 	const document = `${JSON.stringify(
 		{
 			...raw,
+			completionReview: normalized.completionReview,
 			rpc: { ...rpc, enabled: normalized.rpc.enabled },
 			continuationLimits: {
 				...continuationLimits,

@@ -213,12 +213,8 @@ export function registerGoalLifecycle(
 		const wasPiRetry = runtime.isPiOwnedCompactionRetry(event, runtime.activeGoal.id);
 		if (wasPiRetry) return;
 		runtime.clearGoalRecoveryForGoal(runtime.activeGoal.id);
-		runtime.requestContinuation(runtime.activeGoal);
-		// Pi emits session_compact before it clears its manual-compaction controller,
-		// so sendUserMessage still rejects inside this hook even when ctx reports idle.
-		// Defer one task; threshold compaction retains the intent for agent_settled
-		// when Pi is still busy.
-		runtime.scheduleContinuationDispatch(ctx, runtime.activeGoal.id);
+		// Compaction is not a new continuation decision. Native in-run work may
+		// continue; an idle session needs new input/resume, not a replayed dispatch.
 	});
 
 	pi.on("input", (event, ctx) => {
@@ -234,6 +230,7 @@ export function registerGoalLifecycle(
 			// markers pending for message_start, and track non-goal delivery mode so a
 			// steer cannot consume a later follow-up's cleanup protection.
 			if (runtime.acceptOwnedInputBoundary(event.text)) return;
+			runtime.invalidateExecution();
 			runtime.supersedeOwnedInputCollision(event.text);
 			if (runtime.activeGoal?.waiting) runtime.clearGoalWait(ctx, runtime.activeGoal.id);
 			if (event.streamingBehavior === "steer" || event.streamingBehavior === "followUp") {
@@ -243,6 +240,7 @@ export function registerGoalLifecycle(
 			return;
 		}
 		if (/^\/goal(?:\s|$)/u.test(event.text.trimStart())) return;
+		runtime.invalidateExecution();
 		if (runtime.activeGoal?.waiting) runtime.clearGoalWait(ctx, runtime.activeGoal.id);
 		if (event.streamingBehavior === "followUp") {
 			runtime.noteQueuedNonGoalInput(event.text, "followUp", true);
@@ -343,8 +341,27 @@ export function registerGoalLifecycle(
 		}
 	});
 
+	pi.on("message_end", (event) => {
+		const message = event.message;
+		if (message.role !== "assistant") return;
+		const calls = message.content.filter(block => block.type === "toolCall");
+		// Pi can dispatch siblings despite terminate:true. Reject the whole mixed
+		// batch before the first tool starts, including siblings preceding control.
+		runtime.mixedGoalControlBatch = runtime.ownsWorkflow() && calls.length > 1 && calls.some(call => ["goal_continue", "goal_complete", "goal_wait", "goal_blocked"].includes(call.name));
+	});
+
 	pi.on("tool_call", (event, ctx) => {
-		runtime.markAgentToolAttempted();
+		if (runtime.mixedGoalControlBatch) {
+			runtime.invalidateExecution();
+			abortCurrentTurn(ctx);
+			return { block: true, reason: "Goal lifecycle tools must be called alone; no tool in this mixed batch is authorized to execute." };
+		}
+		if (runtime.continueAction) {
+			runtime.invalidateExecution();
+			abortCurrentTurn(ctx);
+			return { block: true, reason: "goal_continue ended this execution segment; sibling tools cannot reuse its decision." };
+		}
+		if (event.toolName !== "goal_continue") runtime.markAgentToolAttempted();
 		if (
 			runtime.activeGoal?.status === "budget_limited" &&
 			runtime.budgetWrapUp?.goalId === runtime.activeGoal.id &&
@@ -576,7 +593,12 @@ export function registerGoalLifecycle(
 
 		const currentGoal = runtime.activeGoal;
 		if (!currentGoal || currentGoal.id !== goalId || currentGoal.status !== "active") return;
-		runtime.requestContinuation(currentGoal);
+		if (currentGoal.waiting) return;
+		if (!run.nextAction) {
+			runtime.stopActiveGoal(ctx, { kind: "agent_interruption", expectedGoalId: goalId, status: "paused", reason: "No explicit continuation decision. Use /goal resume to continue; no automatic repair turn was spent." });
+			return;
+		}
+		runtime.requestContinuation(currentGoal, run.nextAction);
 	});
 
 	pi.on("agent_settled", (_event, ctx) => {

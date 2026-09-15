@@ -58,7 +58,7 @@ export function hasAssistantToolCall(messages: readonly unknown[]) {
 		if (!isRecord(message) || message.role !== "assistant" || !Array.isArray(message.content)) {
 			continue;
 		}
-		if (message.content.some((block) => isRecord(block) && block.type === "toolCall")) return true;
+		if (message.content.some((block) => isRecord(block) && block.type === "toolCall" && block.name !== "goal_continue")) return true;
 	}
 	return false;
 }
@@ -99,7 +99,7 @@ export function toolCallSignature(messages: readonly unknown[]) {
 			continue;
 		}
 		for (const block of message.content) {
-			if (!isRecord(block) || block.type !== "toolCall") continue;
+			if (!isRecord(block) || block.type !== "toolCall" || block.name === "goal_continue") continue;
 			const name =
 				(typeof block.name === "string" && block.name) ||
 				(typeof block.toolName === "string" && block.toolName) ||
@@ -133,6 +133,9 @@ export function normalizeVisibleAssistantOutput(messages: readonly unknown[]) {
 		if (!isRecord(message) || message.role !== "assistant" || !Array.isArray(message.content)) {
 			continue;
 		}
+		// Control-only narration/next_action must not reset the progress guard.
+		const calls = message.content.filter(block => isRecord(block) && block.type === "toolCall");
+		if (calls.length && calls.every(block => isRecord(block) && block.name === "goal_continue")) continue;
 		for (const block of message.content) {
 			if (!isRecord(block) || block.type !== "text" || typeof block.text !== "string") continue;
 			text.push(block.text);

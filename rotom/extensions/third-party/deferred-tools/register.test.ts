@@ -20,7 +20,7 @@ const registerDeferredTools = (api: any, environment: NodeJS.ProcessEnv = {}) =>
 
 // Goal 0.54.4 registers stable schemas even when no Goal is active. Keep the
 // fixture faithful to the real loader rather than silently omitting these tools.
-const GOAL_TOOL_NAMES = ["goal_complete", "goal_blocked", "goal_wait"];
+const GOAL_TOOL_NAMES = ["goal_complete", "goal_blocked", "goal_wait", "goal_continue"];
 const RESIDENT_PRODUCT_TOOLS = [...DEFERRED_INITIAL_TOOL_NAMES, ...GOAL_TOOL_NAMES];
 const ALL_PRODUCT_TOOLS = [
 	...RESIDENT_PRODUCT_TOOLS,

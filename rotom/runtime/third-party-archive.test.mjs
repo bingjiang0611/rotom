@@ -3,11 +3,22 @@ import { copyFile, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } fr
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
+import { execFileSync } from "node:child_process";
 import { VERIFIED_THIRD_PARTY_PACKAGES } from "./product-config.mjs";
 import { verifyThirdPartyPackageContract } from "./verify-pi-runtime.mjs";
 
 const source = resolve(import.meta.dirname, "../extensions/third-party");
 const archiveName = VERIFIED_THIRD_PARTY_PACKAGES["pi-subagents"].archive;
+
+test("maintained Goal source and selected vendor archive are byte-identical", async () => {
+	const archive = join(source, VERIFIED_THIRD_PARTY_PACKAGES["@narumitw/pi-goal"].archive);
+	const files = execFileSync("tar", ["-tzf", archive], { encoding: "utf8", maxBuffer: 256_000 }).trim().split("\n");
+	for (const file of files) {
+		assert.match(file, /^package\/(?:src\/[a-z-]+\.ts|package\.json|README\.md|UPSTREAM\.md|LICENSE)$/u);
+		const tracked = resolve(import.meta.dirname, "../../packages/rotom-goal", file.slice("package/".length));
+		assert.deepEqual(execFileSync("tar", ["-xOf", archive, file], { maxBuffer: 256_000 }), await readFile(tracked), file);
+	}
+});
 
 async function fixture(t) {
 	const root = await mkdtemp(join(tmpdir(), "dev-agent-archive-test-"));
