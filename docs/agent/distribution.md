@@ -1,12 +1,16 @@
 # rotom · npm 分发
 
-> 当前 registry 稳定版是 [`@bingjiang0611/rotom@0.1.5`](https://www.npmjs.com/package/@bingjiang0611/rotom/v/0.1.5)，npm dist-tag 为 `latest`。后续默认组件与 macOS/Linux 安装验证见 [Subagent 默认接入](subagent-default-integration.md)，发行包默认 scope 及其未复验项见 [scoped 默认](subagent-owned-default.md)。
+> 当前 registry 稳定版是 [`@bingjiang0611/rotom@0.1.6`](https://www.npmjs.com/package/@bingjiang0611/rotom/v/0.1.6)，npm dist-tag 为 `latest`。后续默认组件与 macOS/Linux 安装验证见 [Subagent 默认接入](subagent-default-integration.md)，发行包默认 scope 及其未复验项见 [scoped 默认](subagent-owned-default.md)。
 
 当前版本使用仓内 Pi fork；构建、隔离安装、本机切换及未验证项见 [Pi fork 接入](pi-fork.md)。本页底部“首次分发”表仍是历史上游 Pi 基线，不代表新 fork 的跨平台验收。
 
-## 0.1.6 发布准备
+## 0.1.6 正式发布
 
-已授权发布 `@bingjiang0611/rotom@0.1.6`，预期 dist-tag 为 `latest`，`publishConfig.access=public`，许可证保持 `UNLICENSED`。本节冻结发布元数据与发行说明，不表示 registry 已公开；最终 tgz 验证及 registry 字节回读完成后再记录正式结果，不更新维护者当前安装。
+`0.1.6` 于 2026-09-16 从公开 `main` 的 `ac1a1c7625ca0de3388d95d610980448bc1d0e48` 构建并发布，`publishConfig.access=public`，许可证保持 `UNLICENSED`。registry 回读确认精确版本与 `latest=0.1.6`、integrity、shasum 和 tarball URL；下载 tarball 与唯一最终产物逐字节一致：17,918 个文件，压缩后 53,384,454 bytes，解包后 168,659,206 bytes，SHA-256 为 `aec0b8cca52183b95e238d28e9c226f9c5f61a1d3a3063aafbc639aa8681b5ba`，npm shasum 为 `3f6423affcab544313d00da6356b43eb9cb00638`，SRI 为 `sha512-/d5NZurimQmsJ3NbRn6FDrKKo0RJGGONrXKsJ6G+R8kr8U6HHu2z6cOkTJem1srOJYz2tFCz3ezxewInqKRk9w==`。
+
+最终 tgz 通过归档隐私审计、隔离全新安装、从 `0.1.5` 升级、`rotom --version`、实际安装面 default/full SDK smoke 和卸载检查；发行产物依赖用于公开维护测试，`check-personal` 的 528 项产品测试、30 项 Goal 测试及 footprint gate 全部通过。冻结前另通过 `check:pi`、24 项 `test:distribution` 和 tree/history 隐私审计。安装面 smoke 最初误用非 canonical 路径及未随包分发的维护脚本路径，改为由维护脚本加载实际安装资源后通过；未修改或重新打包产物。
+
+首次明确 `EOTP` 后确认版本不存在，再由用户完成原生 npm CLI 网页 2FA。CLI 接收后 registry 暂不可见，官方 Versions 页显示 `Validating`，按合同暂停且未重复 publish；用户要求继续后才完成上述 registry 字节回读。临时登录已 logout，`npm whoami` 的未认证失败证实撤销。随后应用户明确要求，将本机标准 npm 全局安装由 `0.1.4` 更新为 `0.1.6`，版本和本机实际安装面 default/full smoke 均通过；更新时用户知悉有存活会话，旧会话须重启。本次未自动重载 Chrome extension。
 
 本次汇总已同步公开源码的更新：单 Node 进程启动、Relay socket/标签所有权修复、后台全文读取覆盖证据，以及模型输出层不变正文去重和 Computer Use 焦点合同澄清。不增加自动重放或调用预算，不宣称固定 fixture 字节下降等于实际 token/成本收益。Browser 全文合同为 protocol 19 / extension 0.9.2；从旧版本升级该部分需用户重载 Chrome extension，新提示需新 Rotom session。已有功能验证的范围与未通过场景见 [Browser 验收](browser-verification-2026-09-15.md) 和 [架构说明](architecture.md)。本次发行不追加真实模型、真实 Chrome 业务或跨平台验收。
 
