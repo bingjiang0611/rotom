@@ -44,6 +44,10 @@ test("browser relay：活动标签可 claim、直接交互、敏感输入放行�
 	const tabs = new Map<string, { tabId: number; url: string; documentGeneration: number; current: boolean; browserActive: boolean; ownership: "agent" | "claimed"; relayAttached: boolean }>();
 	let closed = false;
 	let interactFailure: string | undefined;
+	let readbackEpoch = 8;
+	const originalBody = "Unchanged body. ".repeat(55);
+	let body = originalBody;
+	let textChunks = 12;
 	const relay = {
 		get closed() { return closed; },
 		close() { closed = true; },
@@ -82,7 +86,7 @@ test("browser relay：活动标签可 claim、直接交互、敏感输入放行�
 				const name = String(payload.tabName); const tab = tabs.get(name); assert.ok(tab);
 				if (interactFailure) { const failure = interactFailure; interactFailure = undefined; throw new Error(failure); }
 				const targetEffect = payload.action === "scroll" || payload.x !== undefined ? {} : { target: { observed: true, changed: true, transitions: ["valueLength=0→43"] }, ...(payload.expect ? { expectation: { requested: payload.expect, outcome: payload.expect === "value=nonempty" ? "met" : "unmet" } } : {}) };
-				return { schemaVersion: 1, kind: "rotom-browser-interaction-result", actionId: payload.actionId, action: payload.action, acknowledged: true, effect: { ...(payload.action === "scroll" ? { dispatch: "mouseWheel", moved: true, scrollScope: payload.targetRef ? "nearest" : "document" } : payload.x !== undefined ? { dispatch: "mouse", coordinate: true, observationEpoch: payload.observationEpoch, hitTested: true } : { dispatch: "mouse" }), ...targetEffect }, readback: { schemaVersion: 1, kind: "rotom-browser-observation", tabName: name, ...tab, observationEpoch: 8, title: "password: fixture-readback", status: "complete", nodes: [{ ref: "alert_1_r_1", role: "page-alert", name: "手机号格式不正确，请填写 11 位数字", states: ["read-only=true"] }, { ref: "ax_1_2", role: "status", name: "Draft saved", states: [] }], truncated: false, contentCoverage: "rendered-dom", contentComplete: false } };
+				return { schemaVersion: 1, kind: "rotom-browser-interaction-result", actionId: payload.actionId, action: payload.action, acknowledged: true, effect: { ...(payload.action === "scroll" ? { dispatch: "mouseWheel", moved: true, scrollScope: payload.targetRef ? "nearest" : "document" } : payload.x !== undefined ? { dispatch: "mouse", coordinate: true, observationEpoch: payload.observationEpoch, hitTested: true } : { dispatch: "mouse" }), ...targetEffect }, readback: { schemaVersion: 1, kind: "rotom-browser-observation", tabName: name, ...tab, observationEpoch: readbackEpoch++, title: "password: fixture-readback", status: "complete", nodes: [{ ref: "alert_1_r_1", role: "page-alert", name: "手机号格式不正确，请填写 11 位数字", states: ["read-only=true"] }, { ref: "ax_1_2", role: "status", name: "Draft saved", states: [] }, ...Array.from({ length: textChunks }, (_, i) => ({ ref: `txt_1_r_${i + 1}`, role: "document-text", name: `${i}: ${body}`, states: ["read-only=true"] }))], truncated: false, contentCoverage: "rendered-dom", contentComplete: false } };
 			}
 			if (operation === "close") { tabs.clear(); return { schemaVersion: 1, kind: "rotom-browser-close", closed: 1 }; }
 			throw new Error(`unexpected operation ${operation}`);
@@ -169,7 +173,7 @@ test("browser relay：活动标签可 claim、直接交互、敏感输入放行�
 	assert.match(interact.promptGuidelines?.join("\n") ?? "", /nested lists.*visible descendant ref for the nearest scroll container/u);
 	assert.match(interact.promptGuidelines?.join("\n") ?? "", /acknowledged proves dispatch, not business success.*dispatchSettled=false.*moved=false.*Do not loop/u);
 	assert.match(interact.promptGuidelines?.join("\n") ?? "", /page-alert nodes and effect\.target; changed=null is unknown, not unchanged.*expect \(checked.*value=empty\|nonempty\) needs a targetRef.*met is target evidence, not business success/u);
-	assert.match(interact.promptGuidelines?.join("\n") ?? "", /unknown click, type, select, or keypress may already have executed.*read-only checks, never re-dispatch that write/u, "写动作 unknown 的不重发边界必须写在写入工具自己的指引里");
+	assert.match(interact.promptGuidelines?.join("\n") ?? "", /Unknown writes may have executed.*read-only checks, never re-dispatch/u, "写动作 unknown 的不重发边界必须写在写入工具自己的指引里");
 	const browserGuidelineBytes = [tool, interact].reduce((sum, definition) => sum + Buffer.byteLength(JSON.stringify(definition.promptGuidelines ?? []), "utf8"), 0);
 	const browserSchemaBytes = [tool, interact].reduce((sum, definition) => sum + Buffer.byteLength(JSON.stringify({ name: definition.name, description: definition.description, parameters: definition.parameters }), "utf8"), 0);
 	assert.ok(browserGuidelineBytes <= 3_400, `Browser guideline budget regressed: ${browserGuidelineBytes}`);
@@ -189,8 +193,39 @@ test("browser relay：活动标签可 claim、直接交互、敏感输入放行�
 	const expected = await interact.execute("browser-interact-expect", { operation: "execute", tabName: "docs", action: "type", targetRef: "ax_1_1", text: "draft", expect: "value=nonempty" }, undefined, undefined, ctx);
 	assert.deepEqual(expected.details.effect.expectation, { requested: "value=nonempty", outcome: "met" });
 	assert.equal(expected.details.businessOutcome, "unverified", "expect 满足是目标级证据，不能升级成业务成功");
+	assert.equal(expected.details.readback.observation.omittedUnchangedTextNodes, 12);
+	assert.equal(expected.details.readback.observation.textBaselineEpoch, typed.details.readback.observation.observationEpoch);
+	assert.deepEqual(expected.details.readback.observation.nodes.map((node: any) => node.role), ["page-alert", "status"]);
+	assert.equal(expected.details.readback.observation.contentComplete, false);
+	assert.ok(expected.content[0].text.length < typed.content[0].text.length / 4, "fixed payload saving only, not provider token usage");
+	t.diagnostic(`Fixed readback fixture: ${Buffer.byteLength(typed.content[0].text)} → ${Buffer.byteLength(expected.content[0].text)} model-visible UTF-8 bytes; provider tokens not measured`);
 	assert.equal(calls.filter((call) => call.operation === "interact").at(-1)?.payload.expect, "value=nonempty");
 	assert.equal(session.getBranch().some((entry: any) => entry.data?.kind === "rotom-browser-interaction-terminal" && entry.data?.expectationOutcome === "met" && entry.data?.targetChanged === true), true, "audit 只记录期望结果与目标是否变化这类 metadata");
+	const readback = async () => (await interact.execute("text-delta", { operation: "execute", tabName: "docs", action: "click", targetRef: "ax_1_2" }, undefined, undefined, ctx)).details.readback.observation;
+	body = "Changed body";
+	assert.equal((await readback()).nodes.filter((node: any) => node.role === "document-text").length, 12);
+	body = originalBody;
+	assert.equal((await readback()).nodes.filter((node: any) => node.role === "document-text").length, 12, "reversion is compared to the immediately preceding full result");
+	assert.equal((await readback()).omittedUnchangedTextNodes, 12);
+	await tool.execute("delta-snapshot", { operation: "snapshot_visible", tabName: "docs", limit: 1 }, undefined, undefined, ctx);
+	assert.equal((await readback()).omittedUnchangedTextNodes, undefined, "even paginated explicit reads reset the baseline");
+	assert.equal((await readback()).omittedUnchangedTextNodes, 12);
+	await tool.execute("delta-recover", { operation: "recover", tabName: "docs" }, undefined, undefined, ctx);
+	assert.equal((await readback()).omittedUnchangedTextNodes, undefined);
+	tabs.get("docs")!.documentGeneration += 1;
+	assert.equal((await readback()).omittedUnchangedTextNodes, undefined, "navigation resets the baseline");
+	tabs.get("docs")!.documentGeneration -= 1;
+	await tool.execute("delta-second-tab", { operation: "claim", tabId: 77, tabName: "account" }, undefined, undefined, ctx);
+	await readback();
+	const otherTab = await interact.execute("delta-other-tab", { operation: "execute", tabName: "account", action: "click", targetRef: "ax_1_2" }, undefined, undefined, ctx);
+	assert.equal(otherTab.details.readback.observation.omittedUnchangedTextNodes, undefined, "identical text on a different tab is not a baseline");
+	assert.equal((await readback()).omittedUnchangedTextNodes, 12);
+	await tool.execute("delta-handoff", { operation: "handoff", tabName: "account" }, undefined, undefined, ctx);
+	textChunks = 180;
+	const large = await interact.execute("delta-paginated", { operation: "execute", tabName: "docs", action: "click", targetRef: "ax_1_2" }, undefined, undefined, ctx);
+	assert.ok(large.details.readback.nextCursor);
+	assert.equal((await readback()).omittedUnchangedTextNodes, undefined, "never seed a baseline from partially delivered text");
+	textChunks = 12;
 	await assert.rejects(() => interact.execute("browser-interact-expect-scroll", { operation: "execute", tabName: "docs", action: "scroll", direction: "down", expect: "checked=true" }, undefined, undefined, ctx), /expect 仅允许带 targetRef/u);
 	await assert.rejects(() => interact.execute("browser-interact-expect-syntax", { operation: "execute", tabName: "docs", action: "click", targetRef: "ax_1_2", expect: "document.title" }, undefined, undefined, ctx), /interaction expect must be/u, "非法判据必须在本地拒绝，不发到 relay");
 	await assert.rejects(() => interact.execute("browser-interact-expect-coordinate", { operation: "execute", tabName: "docs", action: "click", x: 10, y: 10, observationEpoch: 7, expect: "checked=true" }, undefined, undefined, ctx), /expect 仅允许带 targetRef/u);

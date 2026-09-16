@@ -102,6 +102,8 @@ export interface BrowserObservationV1 {
 	truncated: boolean;
 	contentCoverage: "rendered-dom" | "scroll-end";
 	contentComplete: boolean;
+	omittedUnchangedTextNodes?: number;
+	textBaselineEpoch?: number;
 	scanSteps?: number;
 	scannedContainers?: number;
 	scrolledContainers?: number;
@@ -120,6 +122,10 @@ export function sanitizeBrowserObservationV1(value: unknown): BrowserObservation
 	const contentCoverage = value.contentCoverage === "rendered-dom" || value.contentCoverage === "scroll-end" ? value.contentCoverage : undefined;
 	if (!contentCoverage || typeof value.contentComplete !== "boolean") throw new Error("browser observation coverage 无效；请重载 Chrome 扩展");
 	if (value.contentComplete === true && contentCoverage !== "scroll-end") throw new Error("browser observation complete 缺少 scroll-end 证据");
+	const hasTextDelta = value.omittedUnchangedTextNodes !== undefined || value.textBaselineEpoch !== undefined;
+	if (hasTextDelta && (!Number.isSafeInteger(value.omittedUnchangedTextNodes) || (value.omittedUnchangedTextNodes as number) < 1
+		|| !Number.isSafeInteger(value.textBaselineEpoch) || (value.textBaselineEpoch as number) < 1 || (value.textBaselineEpoch as number) >= (value.observationEpoch as number)
+		|| contentCoverage !== "rendered-dom" || value.contentComplete !== false)) throw new Error("browser observation text delta 无效");
 	const scanSteps = value.scanSteps === undefined ? undefined : (Number.isSafeInteger(value.scanSteps) && (value.scanSteps as number) >= 0 ? value.scanSteps as number : undefined);
 	const scannedContainers = value.scannedContainers === undefined ? undefined : (Number.isSafeInteger(value.scannedContainers) && (value.scannedContainers as number) >= 0 ? value.scannedContainers as number : undefined);
 	const scrolledContainers = value.scrolledContainers === undefined ? undefined : (Number.isSafeInteger(value.scrolledContainers) && (value.scrolledContainers as number) >= 0 ? value.scrolledContainers as number : undefined);
@@ -147,6 +153,7 @@ export function sanitizeBrowserObservationV1(value: unknown): BrowserObservation
 		truncated: value.truncated === true || value.nodes.length > MAX_MODEL_NODES,
 		contentCoverage,
 		contentComplete: value.contentComplete === true && value.truncated !== true && value.nodes.length <= MAX_MODEL_NODES,
+		...(hasTextDelta ? { omittedUnchangedTextNodes: value.omittedUnchangedTextNodes as number, textBaselineEpoch: value.textBaselineEpoch as number } : {}),
 		...(scanSteps === undefined ? {} : { scanSteps }),
 		...(scannedContainers === undefined ? {} : { scannedContainers }),
 		...(scrolledContainers === undefined ? {} : { scrolledContainers }),

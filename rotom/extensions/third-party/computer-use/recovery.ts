@@ -12,12 +12,29 @@ export const COMPUTER_USE_FRESH_STATE_REQUIRED =
 /**
  * The upstream package tells the model to "omit ref after clicking an editable
  * region", but its focus bookkeeping (`actionState`) is created per act_ui call
- * and focused input additionally needs an image-bearing observation. Following
- * the shorter rule across two calls, or under mode=semantic, fails the target
- * contract instead of typing. State the real scope.
+ * and only a ref-bound editable target establishes that focus. Coordinate
+ * clicks do not. Focused input also needs an image-bearing observation.
+ * Replace the upstream shortcut rather than injecting competing instructions.
  */
 export const COMPUTER_USE_FOCUS_SCOPE_GUIDELINE =
-	"typeText/keypress may omit ref only when an earlier action in the same act_ui actions array clicked or pressed that editable target; focus is not carried across separate act_ui calls and focused input also needs an image-bearing observation, so otherwise pass ref (or x and y).";
+	"typeText/keypress may omit ref only after a ref-bound click/press on an editable target in the same act_ui actions array, with an image-bearing observation. Coordinate clicks do not establish reusable focus; it is not carried across separate act_ui calls. Otherwise pass the editable target ref.";
+
+const UPSTREAM_FOCUS_GUIDELINE = "After clicking an editable region, omit ref from typeText/keypress so input follows the established focus.";
+const FOCUS_REF_DESCRIPTION = "Omit only for same-batch ref-bound editable focus.";
+
+function focusParameters<T>(parameters: T): T {
+	if (!parameters) return parameters;
+	// The pinned package's act_ui schema is an object with a discriminated action
+	// union. Only descriptions change; TypeBox symbols and validation stay intact.
+	const schema = parameters as any;
+	const actions = schema.properties.actions;
+	return { ...schema, properties: { ...schema.properties, actions: {
+		...actions, items: { ...actions.items, anyOf: actions.items.anyOf.map((action: any) =>
+			["typeText", "keypress"].includes(action.properties.action.const)
+				? { ...action, properties: { ...action.properties, ref: { ...action.properties.ref, description: FOCUS_REF_DESCRIPTION } } }
+				: action), },
+	} } };
+}
 
 export const COMPUTER_USE_CONDITION_GUIDELINE =
 	"A UI condition (act_ui expect, wait_for) needs text, or value together with an exact ref; role alone is only a filter and requires text, value, ref or scopeRef alongside it, and ref and scopeRef are mutually exclusive.";
@@ -71,7 +88,7 @@ const EXTRA_PROMPT_GUIDELINES: Record<string, readonly string[]> = {
 const CONTRACT_REPAIR_HINTS: readonly { match: RegExp; hint: string }[] = [
 	{
 		match: /^(?:typeText|keypress) requires either ref or both x and y\./u,
-		hint: "Put the click/press and the typeText/keypress in one act_ui actions array to reuse focus, or pass the target ref from the latest observe_ui; focus does not survive a separate call.",
+		hint: "Use a ref-bound click/press on an editable target and typeText/keypress in one act_ui actions array with an image-bearing observation, or pass the editable target ref directly. Coordinate clicks do not establish reusable focus.",
 	},
 	{
 		match: /^scroll requires either ref or both x and y\./u,
@@ -318,9 +335,11 @@ export function computerUseRecoveryApi(pi: ExtensionAPI): ExtensionAPI {
 				if (definition.name !== "observe_ui" && !STATE_CONSUMING_UI_TOOLS.has(definition.name)) return target.registerTool(definition);
 				const execute = definition.execute.bind(definition);
 				const extraGuidelines = EXTRA_PROMPT_GUIDELINES[definition.name];
+				const guidelines = (definition.promptGuidelines ?? []).filter((guideline) => definition.name !== "act_ui" || guideline !== UPSTREAM_FOCUS_GUIDELINE);
 				return target.registerTool({
 					...definition,
-					...(extraGuidelines ? { promptGuidelines: [...(definition.promptGuidelines ?? []), ...extraGuidelines] } : {}),
+					...(definition.name === "act_ui" ? { parameters: focusParameters(definition.parameters) } : {}),
+					...(extraGuidelines ? { promptGuidelines: [...guidelines, ...extraGuidelines] } : {}),
 					async execute(...args: Parameters<typeof definition.execute>) {
 						const generation = recovery.enterSession(sessionKeyFromContext(args[4]));
 						recovery.beforeTool(definition.name, args[1]);

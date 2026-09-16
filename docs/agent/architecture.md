@@ -87,6 +87,10 @@ Browser 源码新增 ref-bound `keypress`（protocol 17 / `targeted-keypress`）
 
 当前全文读取合同为 **protocol 19 / Chrome extension 0.9.2**：采样点之外补查每个文档最多 64 个语义容器，最多 8 个同源文档、每个 frame 6 个候选容器、总计 60 步；短容器按可视高度重叠滚动，避免固定最小步长跳行。后台全文读取复用已有 focus emulation，让原生滚动/渲染回调执行，不选中标签或聚焦窗口；每次滚动等待页面两帧的有界回执，不能只凭 scrollTop 变化认定已渲染。发现超出上限、扫描达到上限、已知子 frame 未完成、未观察到从顶部连续覆盖、渲染回执未知、还原位置失败或没有实际滚动时，不报告全文完成。零滚动只返回 rendered DOM 证据。超出这些边界的页面保留 partial，需要再设计定向容器读取或扩大有界发现，不能直接抬高完成标志。客户端拒绝旧协议，更新后需用户重载扩展；这不是 npm 发布或活跃 Pi 安装升级。范围与失败记录见[本次 Browser 验收](browser-verification-2026-09-15.md)。
 
+交互回读在 Rotom 模型输出层省略同一标签、同一文档 generation 中 ref 与正文均完全不变的 `document-text` chunk，以 `omittedUnchangedTextNodes` / `textBaselineEpoch` 显式标记 delta；保留 AX refs、告警、变化正文、动作与目标证据，不能作为全文完成。Chrome wire 仍返回完整有界回读，不改协议。仅把已单页交付的回读正文作为内存基线；显式页面读取、恢复/重连、关闭/交还及 session 生命周期清除基线，分页结果不作为新基线。最多缓存 64 个标签（复用 cursor 数量界限），淘汰后只会重新返回正文，不丢证据；需要正文时仍显式 `snapshot_visible`，全文仍走 `snapshot` / `read_full`。固定 fixture 的模型可见输出从 12,542 降至 1,082 UTF-8 bytes；这不是 provider token、真实任务质量或成本收益测量，未做本次真实 Chrome L3 验收。
+
+Computer Use wrapper 替换而非叠加上游模糊焦点提示：只有同一 `act_ui.actions` 中以 ref-bound click/press 聚焦 editable 目标，且 observation 含图像，后续输入才可省略 ref；坐标点击和跨调用不能继承。schema 说明与错误 hint 对齐，不改变执行行为或验证约束。三种工具面经真实 SDK smoke 实测，schema 字节各减少 7、guideline metadata 字节各减少 92；不等同于精确 token 节省。上述回读与提示优化需新 session 加载更新的 Rotom 源码，不要求额外 Chrome 重载；未发布 npm 或覆盖存活安装。
+
 Native host 在任何 socket 探测/回收前持有进程寿命的 OS 文件锁：macOS 使用 `/usr/bin/lockf`，Linux 使用 `/usr/bin/flock` 的继承 FD 模式；辅助命令退出不释放 Node 保留的锁，正常退出和 SIGKILL 均由内核释放，不删除持久 `relay.lock`。工具不可用或锁身份异常时 fail closed，不用 PID/超时猜测来破锁。退出时仍检查 socket inode，保留其他 publisher 的端点；同 UID 任意进程不属于隔离承诺。
 
 ## 代码地图

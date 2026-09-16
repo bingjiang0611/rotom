@@ -31,6 +31,7 @@ import {
 // expect 的语法只有一份：这个模块不依赖 chrome API，所以 tool 层可以先本地拒绝非法
 // 判据，而不是把它发到 relay 再拿错误回来。
 import { parseInteractionExpectation } from "./chrome-extension/interaction-target-state.js";
+import { compactInteractionReadback, observationTextBaseline } from "./chrome-extension/interaction-observation.js";
 
 const MAX_RESULT_BYTES = 128 * 1024;
 const SNAPSHOT_PAGE_TTL_MS = 5 * 60_000;
@@ -248,6 +249,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 	const flag = (result: unknown, name: string) => record(result) && result[name] === true;
 	let activeCommand: AbortController | undefined;
 	const cursors = new Map<string, SnapshotCursorV1>();
+	const textBaselines = new Map<number, ReturnType<typeof observationTextBaseline>>();
 
 	const closeRuntime = async () => {
 		// Retire and capture *all* resources before the first await. Old cleanup must
@@ -257,7 +259,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 		route = freshRoute();
 		const currentRelay = relay;
 		const currentArtifacts = artifacts;
-		relay = undefined; artifacts = undefined; cursors.clear(); currentSessionId = undefined; browserRouteActive = false;
+		relay = undefined; artifacts = undefined; cursors.clear(); textBaselines.clear(); currentSessionId = undefined; browserRouteActive = false;
 		if (currentRelay && !currentRelay.closed) {
 			try { await currentRelay.request("close", { all: true }, { timeoutMs: 5_000 }); }
 			catch { /* abnormal relay loss preserves tabs for the next recovery instead of deleting them */ }
@@ -306,7 +308,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			});
 			try { assertOwner(); } catch (error) { connected.close(); throw error; }
 			if (relay && !relay.closed) connected.close();
-			else relay = connected;
+			else { relay = connected; textBaselines.clear(); }
 		}
 		const captured = relay!;
 		return { async request(...args: Parameters<BrowserRelayClientV1["request"]>) {
@@ -398,7 +400,14 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			const relayClient = await client(ctx, assertOwner);
 			const boundedResult = (value: unknown) => { assertOwner(); return browserResult(value); };
 			// Cursor mutation and result construction share one synchronous publication boundary.
-			const snapshotResult = (...args: Parameters<typeof makeSnapshotPage>) => { assertOwner(); return browserResult(makeSnapshotPage(...args)); };
+			const snapshotResult = (...args: Parameters<typeof makeSnapshotPage>) => {
+				assertOwner();
+				// Explicit reads can be paginated; never assume their omitted pages
+				// reached the model. Start the next interaction with a full readback.
+				textBaselines.clear();
+				return browserResult(makeSnapshotPage(...args));
+			};
+			if (["recover", "close", "handoff"].includes(operation)) textBaselines.clear();
 			const pagedObservation = operation === "snapshot" || operation === "snapshot_visible" || operation === "read_full";
 			if (params.cursor !== undefined && !pagedObservation) throw new Error("cursor 仅允许 snapshot、snapshot_visible 或 read_full");
 			if (pagedObservation && params.cursor !== undefined) return snapshotResult(undefined, limit, params.cursor as string);
@@ -465,7 +474,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			...BROWSER_SHARED_PROMPT_GUIDELINES,
 			"keypress requires targetRef and key: Enter (Return), Tab, or Escape. Enter can commit tags or submit forms.",
 			"Prefer targetRef from the latest snapshot_visible. Plain-page scroll may omit it; nested lists, panels, or iframes must pass a visible descendant ref for the nearest scroll container.",
-			"Readback is bounded: acknowledged proves dispatch, not business success. scroll dispatchSettled=false is deadline ambiguity, moved=false means no measured movement. An unknown click, type, select, or keypress may already have executed: recover and snapshot are read-only checks, never re-dispatch that write. Do not loop; at most one snapshot_visible.",
+			"Unchanged text may be omitted (omittedUnchangedTextNodes/textBaselineEpoch). acknowledged proves dispatch, not business success. scroll dispatchSettled=false is deadline ambiguity; moved=false: no measured movement. Unknown writes may have executed: recover/snapshot are read-only checks, never re-dispatch. Do not loop; at most one snapshot_visible.",
 			"Judge page-alert nodes and effect.target; changed=null is unknown, not unchanged. Optional expect (checked|expanded|selected|disabled|connected|focused|valid=true|false, value=empty|nonempty) needs a targetRef click, type, select, or keypress; met is target evidence, not business success.",
 		],
 		parameters: Type.Object({
@@ -549,7 +558,16 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 				const targetChanged = record(result.effect?.target) ? (result.effect.target as Record<string, unknown>).changed : undefined;
 				assertOwner();
 				pi.appendEntry(BROWSER_INTERACTION_AUDIT_ENTRY, { schemaVersion: 1, kind: "rotom-browser-interaction-terminal", actionId, status: "ok", actionAcknowledged: true, businessOutcome: "unverified", ...(expectationOutcome ? { expectationOutcome } : {}), ...(typeof targetChanged === "boolean" || targetChanged === null ? { targetChanged } : {}), readbackDigest: result.readback.digest, timestamp: new Date().toISOString() });
-				return browserResult({ kind: "browser-interaction-result", actionId, acknowledged: true, businessOutcome: "unverified", ...(result.effect ? { effect: result.effect } : {}), readback: makeSnapshotPage(result.readback, Number.MAX_SAFE_INTEGER) });
+				const readback = makeSnapshotPage(sanitizeBrowserObservationV1(compactInteractionReadback(result.readback, textBaselines.get(result.readback.tabId))), Number.MAX_SAFE_INTEGER);
+				const output = browserResult({ kind: "browser-interaction-result", actionId, acknowledged: true, businessOutcome: "unverified", ...(result.effect ? { effect: result.effect } : {}), readback });
+				// Cache only text already delivered in a single result, after all
+				// ownership/size checks. Never persist page content or cache deltas.
+				textBaselines.delete(result.readback.tabId);
+				if (!readback.nextCursor) {
+					if (textBaselines.size >= MAX_SNAPSHOT_CURSORS) textBaselines.delete(textBaselines.keys().next().value!);
+					textBaselines.set(result.readback.tabId, observationTextBaseline(result.readback));
+				}
+				return output;
 			} catch (error) {
 				// Leave the old intent unresolved for read-only recovery, never append
 				// an old terminal into the replacement branch/session.

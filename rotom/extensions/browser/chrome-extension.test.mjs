@@ -7,7 +7,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { createConnection } from "node:net";
 import test from "node:test";
 import { fullReadCoverage, fullReadScrollStep, mergeRenderedText, scrollableTextTargets } from "./chrome-extension/full-read.js";
-import { observedInteractionNode } from "./chrome-extension/interaction-observation.js";
+import { compactInteractionReadback, observationTextBaseline, observedInteractionNode } from "./chrome-extension/interaction-observation.js";
 import { invalidateCoordinateObservation, mintCoordinateObservation, validateCoordinateBinding, validateCoordinateHit } from "./chrome-extension/coordinate-click.js";
 import { interactionScrollTarget } from "./chrome-extension/interaction-scroll-target.js";
 import { createOperationGuard } from "./chrome-extension/operation-guard.js";
@@ -375,6 +375,31 @@ test("扩展 operation deadline 会等待清理完成后释放串行队列", asy
 		cleanupFinished = true;
 	}, 10), /browser relay snapshot operation timeout/u);
 	assert.equal(cleanupFinished, true);
+});
+
+test("text compaction matches ref and content, never drops AX/alerts or crosses document generations", () => {
+	const text = { ref: "txt_1_r_1", role: "document-text", name: "same text", states: ["read-only=true"] };
+	const control = { ref: "ax_1_1", role: "button", name: "same text" };
+	const alert = { ref: "alert_1_r_1", role: "page-alert", name: "same text" };
+	const before = { documentGeneration: 1, observationEpoch: 2, nodes: [control, text, alert] };
+	const baseline = observationTextBaseline(before);
+	assert.deepEqual(baseline.nodes, [text]);
+	const after = { ...before, observationEpoch: 3, truncated: true, contentCoverage: "rendered-dom", contentComplete: false };
+	const delta = compactInteractionReadback(after, baseline);
+	assert.deepEqual(delta.nodes, [control, alert]);
+	assert.equal(delta.truncated, true);
+	assert.equal(delta.contentComplete, false);
+	assert.equal(delta.textBaselineEpoch, 2);
+	assert.equal(delta.omittedUnchangedTextNodes, 1);
+	assert.deepEqual(after.nodes, before.nodes, "do not mutate the full observation used as the next baseline");
+	for (const changed of [{ ...text, name: "changed" }, { ...text, ref: "txt_1_f1_1" }]) {
+		const observation = { ...after, nodes: [changed] };
+		assert.equal(compactInteractionReadback(observation, baseline), observation);
+	}
+	const navigated = { ...after, documentGeneration: 2 };
+	assert.equal(compactInteractionReadback(navigated, baseline), navigated);
+	assert.equal(compactInteractionReadback(before, baseline), before, "the baseline must precede the new observation");
+	assert.equal(compactInteractionReadback(after, undefined), after, "first readback, reconnect or restored tab has no baseline");
 });
 
 test("交互 ref 必须存在于最新 observation", () => {

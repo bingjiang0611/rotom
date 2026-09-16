@@ -78,6 +78,23 @@ test("browser observation 只有 scroll-end 且未截断时允许全文完成", 
 	assert.throws(() => sanitizeBrowserObservationV1({ ...complete, digest: undefined, contentCoverage: "rendered-dom", contentComplete: true }), /scroll-end/u);
 });
 
+test("text delta metadata survives sanitization but cannot claim complete content", () => {
+	const observation = {
+		schemaVersion: 1, kind: "rotom-browser-observation", tabName: "main", tabId: 7, documentGeneration: 2, observationEpoch: 4,
+		url: "https://example.com/doc", title: "", status: "complete", nodes: [], truncated: true,
+		contentCoverage: "rendered-dom", contentComplete: false, omittedUnchangedTextNodes: 3, textBaselineEpoch: 2,
+	};
+	const result = sanitizeBrowserObservationV1(observation);
+	assert.equal(result.omittedUnchangedTextNodes, 3);
+	assert.equal(result.textBaselineEpoch, 2);
+	assert.equal(result.truncated, true);
+	for (const invalid of [
+		{ omittedUnchangedTextNodes: 0 }, { omittedUnchangedTextNodes: undefined }, { textBaselineEpoch: undefined },
+		{ textBaselineEpoch: 4 }, { textBaselineEpoch: -1 }, { omittedUnchangedTextNodes: 1.5 },
+		{ contentCoverage: "scroll-end", contentComplete: true },
+	]) assert.throws(() => sanitizeBrowserObservationV1({ ...observation, ...invalid }), /text delta/u);
+});
+
 test("screenshot artifact 使用 AES-GCM 私有落盘且关闭后删除", async () => {
 	const store = await BrowserArtifactStoreV1.open();
 	const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from("SECRET-SCREENSHOT")]);

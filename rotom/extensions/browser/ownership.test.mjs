@@ -51,8 +51,38 @@ async function keyboardFixture(t, { scope = "r", focus = true, onKey, onFocus } 
 		return {};
 	};
 	const press = (payload = {}, guard = () => {}) => mod.performInteraction("docs", item, { actionId: "key-test", action: "keypress", targetRef: ref, key: "Enter", expect: "value=empty", ...payload }, guard);
-	return { mod, item, input, commands, chips, press };
+	return { mod, api, item, input, commands, chips, press };
 }
+
+test("Chrome wire keeps full readbacks for older clients; compaction belongs to model presentation", async (t) => {
+	const { mod, api, item, press } = await keyboardFixture(t);
+	const send = api.debugger.sendCommand;
+	let body = "Unchanged page body. ".repeat(1000);
+	api.debugger.sendCommand = async (target, method, params) => {
+		if (method === "Runtime.evaluate") return { result: { value: params.expression.includes("function collectRenderedText") ? body : ["Validation failed"] } };
+		return send(target, method, params);
+	};
+	const first = await press();
+	const second = await press();
+	assert.equal(first.readback.nodes.some((node) => node.role === "document-text"), true);
+	assert.equal(second.readback.nodes.some((node) => node.role === "document-text"), true);
+	assert.equal(second.readback.nodes.some((node) => node.role === "page-alert"), true);
+	assert.deepEqual(second.effect.expectation, { requested: "value=empty", outcome: "met" });
+	assert.equal(second.acknowledged, true);
+	assert.equal(second.readback.textBaselineEpoch, undefined);
+	assert.equal(second.readback.omittedUnchangedTextNodes, undefined);
+	assert.equal(second.readback.contentComplete, false);
+	assert.equal(second.readback.contentCoverage, "rendered-dom");
+	body = "Changed page body";
+	const changed = await press();
+	assert.equal(changed.readback.nodes.find((node) => node.role === "document-text").name, body);
+	body = "Unchanged page body. ".repeat(1000);
+	const reverted = await press();
+	assert.equal(reverted.readback.nodes.some((node) => node.role === "document-text"), true, "a reversion must not disappear against an older snapshot");
+	const snapshot = await mod.observation("docs", item, () => {});
+	assert.equal(snapshot.nodes.some((node) => node.role === "document-text"), true, "explicit snapshot still includes text");
+	assert.equal(item.textBaseline, undefined, "Chrome has no presentation cache");
+});
 
 for (const scope of ["r", "f1"]) test(`Chrome keypress commits one callback tag with scoped focus/readback: ${scope}`, async (t) => {
 	const { press, chips, commands } = await keyboardFixture(t, { scope });
