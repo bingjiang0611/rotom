@@ -4,6 +4,12 @@
 
 当前版本使用仓内 Pi fork；构建、隔离安装、本机切换及未验证项见 [Pi fork 接入](pi-fork.md)。本页底部“首次分发”表仍是历史上游 Pi 基线，不代表新 fork 的跨平台验收。
 
+## 0.1.7 发布准备
+
+已授权发布 `@bingjiang0611/rotom@0.1.7`，精确 dist-tag 为 `latest`，`publishConfig.access=public`，许可证保持 `UNLICENSED`；registry 已确认该版本不存在。完成最终 tgz 验证与 registry 字节回读后才记录正式结果，并在发布完成后将维护者当前全局安装更新到 `0.1.7`。本节不表示版本已经公开。
+
+本次版本将 Qoder 账号目录接入 Pi 原生 model store：只持久化已验证模型元数据、能力字段与非敏感账号摘要，不存储凭据；新进程可恢复默认 Ultimate，过期缓存继续保持模型选择但在推理前刷新，账号 scope 不匹配时拒绝恢复。不存在推理失败回退或跨账号目录复用。
+
 ## 0.1.6 正式发布
 
 `0.1.6` 于 2026-09-16 从公开 `main` 的 `ac1a1c7625ca0de3388d95d610980448bc1d0e48` 构建并发布，`publishConfig.access=public`，许可证保持 `UNLICENSED`。registry 回读确认精确版本与 `latest=0.1.6`、integrity、shasum 和 tarball URL；下载 tarball 与唯一最终产物逐字节一致：17,918 个文件，压缩后 53,384,454 bytes，解包后 168,659,206 bytes，SHA-256 为 `aec0b8cca52183b95e238d28e9c226f9c5f61a1d3a3063aafbc639aa8681b5ba`，npm shasum 为 `3f6423affcab544313d00da6356b43eb9cb00638`，SRI 为 `sha512-/d5NZurimQmsJ3NbRn6FDrKKo0RJGGONrXKsJ6G+R8kr8U6HHu2z6cOkTJem1srOJYz2tFCz3ezxewInqKRk9w==`。
@@ -54,7 +60,7 @@
 
 **PASS：首次安装产物的本地打包、隔离安装与 L1/L2 验证。保留：完整跨平台/真实业务验收未执行。**
 
-当前产品元数据位于 `rotom/package.json`：`@bingjiang0611/rotom@0.1.5`、公开 npm 包、`UNLICENSED`。包内包含完整 Pi 运行时。
+当前产品元数据位于 `rotom/package.json`：`@bingjiang0611/rotom@0.1.7`、公开 npm 包、`UNLICENSED`。包内包含完整 Pi 运行时。
 
 ## 分发与启动
 

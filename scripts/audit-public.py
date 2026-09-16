@@ -21,8 +21,9 @@ MAX_FILE = 32 * 1024 * 1024
 # input/aggregate coverage; ordinary members and nesting stay bounded.
 MAX_ARCHIVE = 64 * 1024 * 1024
 # Public history retains successive integrity-pinned fork archives. Keep their
-# aggregate scan bounded without relaxing the per-file or archive-member caps.
-MAX_EXPANDED = 768 * 1024 * 1024
+# aggregate scan bounded without relaxing the per-file or archive-member caps;
+# 832 MiB covers the current reviewed history plus one 64 MiB archive generation.
+MAX_EXPANDED = 832 * 1024 * 1024
 CREDENTIAL = re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|sk-(?:proj-|ant-)?[A-Za-z0-9_-]{25,}|AKIA[A-Z0-9]{16}|LTAI[A-Za-z0-9]{16,}|xox[baprs]-[A-Za-z0-9-]{20,})\b")
 PRIVATE_KEY = re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[A-Za-z0-9+/=\s]{64,}-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----")
 HOME_PATH = re.compile(r"(?:/Users/|/home/|[A-Z]:\\Users\\)([A-Za-z0-9_.-]+)")
