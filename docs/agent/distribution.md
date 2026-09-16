@@ -1,14 +1,16 @@
 # rotom · npm 分发
 
-> 当前 registry 稳定版是 [`@bingjiang0611/rotom@0.1.6`](https://www.npmjs.com/package/@bingjiang0611/rotom/v/0.1.6)，npm dist-tag 为 `latest`。后续默认组件与 macOS/Linux 安装验证见 [Subagent 默认接入](subagent-default-integration.md)，发行包默认 scope 及其未复验项见 [scoped 默认](subagent-owned-default.md)。
+> 当前 registry 稳定版是 [`@bingjiang0611/rotom@0.1.7`](https://www.npmjs.com/package/@bingjiang0611/rotom/v/0.1.7)，npm dist-tag 为 `latest`。后续默认组件与 macOS/Linux 安装验证见 [Subagent 默认接入](subagent-default-integration.md)，发行包默认 scope 及其未复验项见 [scoped 默认](subagent-owned-default.md)。
 
 当前版本使用仓内 Pi fork；构建、隔离安装、本机切换及未验证项见 [Pi fork 接入](pi-fork.md)。本页底部“首次分发”表仍是历史上游 Pi 基线，不代表新 fork 的跨平台验收。
 
-## 0.1.7 发布准备
+## 0.1.7 正式发布
 
-已授权发布 `@bingjiang0611/rotom@0.1.7`，精确 dist-tag 为 `latest`，`publishConfig.access=public`，许可证保持 `UNLICENSED`；registry 已确认该版本不存在。完成最终 tgz 验证与 registry 字节回读后才记录正式结果，并在发布完成后将维护者当前全局安装更新到 `0.1.7`。本节不表示版本已经公开。
+`0.1.7` 于 2026-09-16 从公开 `main` 的 `a7f6e7be51e346a9910d8011f8ee044e37713841` 构建并发布，`publishConfig.access=public`，许可证保持 `UNLICENSED`。registry 回读确认精确版本与 `latest=0.1.7`、integrity、shasum 和 tarball URL；下载 tarball 与唯一最终产物逐字节一致：17,918 个文件，压缩后 53,387,390 bytes，解包后 168,663,097 bytes，SHA-256 为 `ee3e78f6f4f55625b79104ca35d191d2557b623eb8313e64c2abeda2ccd7fd0a`，npm shasum 为 `1258ae11034e66629627d4e35f66ce062063a231`，SRI 为 `sha512-YtQa6lFfeE9r3Y0oa7aFeJC30IOz/iRQwY2Ombmdds/Mv4VMkPlYga7ldB/6KDG8eHOXM7t02LF4S8b5vkVPEQ==`。
 
-本次版本将 Qoder 账号目录接入 Pi 原生 model store：只持久化已验证模型元数据、能力字段与非敏感账号摘要，不存储凭据；新进程可恢复默认 Ultimate，过期缓存继续保持模型选择但在推理前刷新，账号 scope 不匹配时拒绝恢复。不存在推理失败回退或跨账号目录复用。
+最终 tgz 通过归档隐私审计、隔离全新安装、从 `0.1.6` 升级、`rotom --version`、安装面 default/full runtime smoke、`check-personal` 和卸载检查；冻结前另通过 `check:pi`、24 项 `test:distribution`、242 项 Qoder 测试、5 项 ModelsStore 测试、Pi fork 的 181 项通过/2 项跳过、OAuth/catalog/Ultimate 冷启动恢复 smoke，以及公开 tree/history 审计。本次版本将 Qoder 账号目录接入 Pi 原生 model store：只持久化已验证模型元数据、能力字段与非敏感账号摘要，不存储凭据；新进程可恢复默认 Ultimate，过期缓存继续保持模型选择但在推理前刷新，账号 scope 不匹配时拒绝恢复。不存在推理失败回退或跨账号目录复用。
+
+首次明确 `EOTP` 后确认版本不存在，再由用户完成 npm 官方网页写操作认证。CLI 接收后 registry 暂不可见，官方 Versions 页显示 `Validating`，按合同暂停；进入 `Validating` 后未重复 publish，用户要求继续后才完成上述 registry 元数据与 tarball 字节回读。随后应用户明确要求，将当前 Node 环境的标准 npm 全局安装由 `0.1.6` 更新为 `0.1.7`；版本、随包 Pi resolver、launcher help 及本机实际安装面 default/full runtime smoke 均通过。更新时有存活会话，旧会话须重启；本次未自动重载 Chrome extension，也未追加真实模型推理或真实 Chrome 业务验收。
 
 ## 0.1.6 正式发布
 
