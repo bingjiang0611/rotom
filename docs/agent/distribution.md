@@ -4,6 +4,12 @@
 
 当前版本使用仓内 Pi fork；构建、隔离安装、本机切换及未验证项见 [Pi fork 接入](pi-fork.md)。本页底部“首次分发”表仍是历史上游 Pi 基线，不代表新 fork 的跨平台验收。
 
+## 0.1.6 发布准备
+
+已授权发布 `@bingjiang0611/rotom@0.1.6`，预期 dist-tag 为 `latest`，`publishConfig.access=public`，许可证保持 `UNLICENSED`。本节冻结发布元数据与发行说明，不表示 registry 已公开；最终 tgz 验证及 registry 字节回读完成后再记录正式结果，不更新维护者当前安装。
+
+本次汇总已同步公开源码的更新：单 Node 进程启动、Relay socket/标签所有权修复、后台全文读取覆盖证据，以及模型输出层不变正文去重和 Computer Use 焦点合同澄清。不增加自动重放或调用预算，不宣称固定 fixture 字节下降等于实际 token/成本收益。Browser 全文合同为 protocol 19 / extension 0.9.2；从旧版本升级该部分需用户重载 Chrome extension，新提示需新 Rotom session。已有功能验证的范围与未通过场景见 [Browser 验收](browser-verification-2026-09-15.md) 和 [架构说明](architecture.md)。本次发行不追加真实模型、真实 Chrome 业务或跨平台验收。
+
 ## 0.1.5 正式发布
 
 `0.1.5` 于 2026-09-15 从公开 `main` 的 `9b690144c49f7733e895c9089a5a265f92a8f80e` 构建并发布，`publishConfig.access=public`，许可证保持 `UNLICENSED`。registry 回读确认精确版本与 `latest=0.1.5`，下载 tarball 与唯一最终产物逐字节一致：17,917 个文件，压缩后 53,378,914 bytes，解包后 168,648,528 bytes，SHA-256 为 `137c8f7e3036e22f2625e3e23e0af7f309fd7afd930c800beeb1aed185fc501f`，npm shasum 为 `699b3a7bd478e76ec56bcdd79305791542df9828`，SRI 为 `sha512-XnWeSFog1OrQ46nQjqGWcy9YWwa3UPI8ngiwDfSQ9lEp3y0sXZ7HJd9Mz3r39QB/ZBZxdvsfRy9Y10ELR1SyyA==`。
