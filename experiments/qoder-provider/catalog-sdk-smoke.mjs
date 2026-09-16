@@ -37,7 +37,7 @@ const credential = live ? (await readProbeCredential()).oauthCredential : {
 const snapshot = discover ? undefined : live ? JSON.parse(readFileSync(process.env.ROTOM_QODER_PROBE_CATALOG_FILE,'utf8')).scenes.assistant : [{key:id,display_name:'Synthetic',source:'system',enable:true,format:'openai',max_input_tokens:200000,is_reasoning:true,is_vl:false}];
 const nonce = randomUUID(), marker = `THINKING_TOOL_RESULT_${randomUUID()}`;
 const tool = {name:'reasoning_probe',description:'Synthetic nonce check; no side effects. Returns a fresh result string to use verbatim, not an echo of the nonce.',parameters:piAI.Type.Object({nonce:piAI.Type.String()},{additionalProperties:false})};
-let calls = 0, catalogReads = 0, replayObserved = false, expectedReplay, sessionDir;
+let calls = 0, catalogReads = 0, replayObserved = false, expectedReplay, sessionDir, persistedCatalog;
 const summary = {mode,model:id,pass:false,rounds:[],nativeMetering:[],catalogSource:discover?'live account directory':'injected directory snapshot (no directory network request)'};
 const event = chunk => `data: ${JSON.stringify(chunk)}\n\n`;
 const provider = await createQoderProvider({piAI,openAI,authMode:'browser',onMetering:({modelId,status,outcome,credits,billable,originalCredits})=>summary.nativeMetering.push({modelId,status,outcome,...credits===undefined?{}:{credits},...billable===undefined?{}:{billable},...originalCredits===undefined?{}:{originalCredits}}),onDiagnostic:data=>{summary.diagnostics??=[];if(summary.diagnostics.length<12)summary.diagnostics.push(data);},fetchImpl:async(url,init)=>{
@@ -82,7 +82,9 @@ const provider = await createQoderProvider({piAI,openAI,authMode:'browser',onMet
   return new Response(responseBody,{headers:{'content-type':'text/event-stream'}});
 }});
 try{
-  await provider.refreshModels({credential,allowNetwork:true,signal:new AbortController().signal,publish:async p=>{assert(!p.persist);p.update?.();return true;}});
+  await provider.refreshModels({credential,allowNetwork:true,signal:new AbortController().signal,publish:async p=>{persistedCatalog=p.persist;p.update?.();return true;}});
+  assert(persistedCatalog);assert.equal(persistedCatalog.scope,credential.fingerprint);assert(persistedCatalog.models.some(model=>model.id===id));
+  const persistedText=JSON.stringify(persistedCatalog);assert.equal(persistedText.includes(credential.access),false);assert.equal(persistedText.includes(credential.refresh),false);summary.catalogPersisted=true;
   const model=provider.getModels().find(m=>m.id===id);assert(model);assert.equal(model.reasoning,reasoning);if(reasoning)assert.deepEqual(piAI.getSupportedThinkingLevels(model),['medium']);summary.thinkingLevels=piAI.getSupportedThinkingLevels(model);
   if(catalogOnly){
     assert.deepEqual(provider.filterModels([],credential),[]);assert.deepEqual(provider.filterModels([model],undefined),[]);

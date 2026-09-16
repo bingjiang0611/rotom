@@ -40,12 +40,21 @@ describe("FileModelsStore", () => {
 	it("persists provider catalogs without replacing unrelated providers", async () => {
 		const store = new FileModelsStore(sharedModelsPath);
 
-		await store.write("one", { models: [model("one", "m1")], checkedAt: 100 });
+		await store.write("one", {
+			models: [model("one", "m1")],
+			checkedAt: 100,
+			scope: "account-digest",
+			metadata: { version: 1, routeIds: ["m1"] },
+		});
 		await store.write("two", { models: [model("two", "m2")], checkedAt: 200 });
 
 		const reloaded = new FileModelsStore(sharedModelsPath);
 		expect((await reloaded.read("one"))?.models.map((entry) => entry.id)).toEqual(["m1"]);
-		expect((await reloaded.read("one"))?.checkedAt).toBe(100);
+		expect(await reloaded.read("one")).toMatchObject({
+			checkedAt: 100,
+			scope: "account-digest",
+			metadata: { version: 1, routeIds: ["m1"] },
+		});
 		expect((await reloaded.read("two"))?.models.map((entry) => entry.id)).toEqual(["m2"]);
 
 		await reloaded.delete("one");

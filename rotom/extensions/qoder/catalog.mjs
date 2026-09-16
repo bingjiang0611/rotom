@@ -53,6 +53,27 @@ export function parseCatalog(body) {
   return Object.freeze(entries);
 }
 
+const CONTEXT_LABELS = new Map([[200000, '200K'], [400000, '400K'], [1000000, '1M']]);
+
+/** Persist only the bounded, validated catalog fields needed to reconstruct account capabilities. */
+export function catalogMetadata(entries) {
+  return { version: 1, assistant: entries.map(entry => ({
+    source: 'system', key: entry.id, display_name: entry.name, enable: entry.enabled, format: entry.format,
+    max_input_tokens: entry.reportedContextWindow, is_vl: entry.reportedImages, is_reasoning: entry.reportedReasoning,
+    context_config: Object.fromEntries(entry.reportedContexts.map(count => [CONTEXT_LABELS.get(count), { token_count: count }]).filter(([key]) => key)),
+    ...(entry.reportedThinking ? { thinking_config: {
+      enabled: { efforts: Object.fromEntries(entry.reportedThinking.efforts.map(level => [level, { is_default: level === entry.reportedThinking.defaultEffort }])) },
+      ...(entry.reportedThinking.disabled ? { disabled: {} } : {}),
+    } } : {}),
+  })) };
+}
+
+/** Re-run the authoritative parser before trusting a provider-owned disk cache. */
+export function parseCatalogMetadata(value) {
+  if (!record(value) || value.version !== 1) fail('catalog_invalid');
+  return parseCatalog({ assistant: value.assistant });
+}
+
 export async function fetchCatalog(credential, { fetchImpl = globalThis.fetch, signal, timeoutMs = 15000 } = {}) {
   const controller = new AbortController();
   let response, reader;

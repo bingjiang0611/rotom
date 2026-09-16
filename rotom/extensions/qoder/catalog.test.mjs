@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { catalogHeaders, CATALOG_URL } from './catalog-auth.mjs';
-import { parseCatalog, fetchCatalog } from './catalog.mjs';
+import { catalogMetadata, parseCatalog, parseCatalogMetadata, fetchCatalog } from './catalog.mjs';
 import { createQoderProvider, MODELS } from './provider.mjs';
 import { installQoderExtension } from './session-policy.mjs';
 import { CHAT_URL, createQoderFetch, normalizeSSE } from './transport.mjs';
@@ -10,7 +10,7 @@ import { CHAT_URL, createQoderFetch, normalizeSSE } from './transport.mjs';
 const credential = { accessToken:'fixture-secret',uid:'fixture-user',org:'fixture-org',machineId:'fixture-machine',fingerprint:'a'.repeat(64) };
 const entry = (key='auto',patch={}) => ({key,display_name:'Server Display Name',source:'system',enable:true,format:'openai',max_input_tokens:1000000,is_vl:true,is_reasoning:true,...patch});
 const body = (...entries) => ({assistant:entries});
-const context = (patch={}) => ({allowNetwork:true,signal:new AbortController().signal,publish:async p=>{assert.equal(p.persist,undefined);p.update?.();return true;},...patch});
+const context = (patch={}) => ({allowNetwork:true,signal:new AbortController().signal,publish:async p=>{p.update?.();return true;},...patch});
 async function fixture(options={}) {
   let current=credential, reply=body(entry()), calls=0;
   const provider=await createQoderProvider({piAI:{createProvider:x=>x,lazyStream:(_m,fn)=>fn()},authMode:'qodercli',getCredential:async()=>current,fetchImpl:async(url,init)=>{
@@ -67,9 +67,24 @@ test('catalog cancellation bounds non-cooperative transport and body',async()=>{
   await assert.rejects(fetchCatalog(credential,{timeoutMs:10,fetchImpl:()=>new Promise(()=>{})}),/aborted/);
   await assert.rejects(fetchCatalog(credential,{timeoutMs:10,fetchImpl:async()=>new Response(new ReadableStream({pull(){return new Promise(()=>{});}}))}),/aborted/);
 });
-test('registration/offline refresh do not fetch or restore account-independent stored models',async()=>{
+test('registration/offline refresh ignores unscoped stored models',async()=>{
   const f=await fixture();await f.provider.refreshModels(context({allowNetwork:false,stored:{models:[{id:'evil'}]}}));
   assert.deepEqual(f.provider.getModels().map(m=>m.id),['lite','performance','auto','qmodel','kmodel','gmodel','dmodel','ultimate','dfmodel','efficient','qmodel_38max','qfmodel','qmodel_latest','kmodel_latest','gfmodel','mmodel','smodel']);assert.deepEqual(f.provider.filterModels(f.provider.getModels()),MODELS);assert.equal(f.calls(),0);
+});
+test('validated catalog metadata round-trips through the shared provider store format',()=>{
+  const entries=parseCatalog(body(entry('auto'),entry('lite',{enable:false}))),metadata=catalogMetadata(entries);
+  assert.deepEqual(parseCatalogMetadata(metadata),entries);
+  assert.doesNotMatch(JSON.stringify(metadata),/fixture-secret/);
+  assert.throws(()=>parseCatalogMetadata({...metadata,version:2}),/catalog_invalid/);
+});
+test('catalog persists and restores only for the matching account scope',async()=>{
+  let stored;const first=await fixture();
+  await first.provider.refreshModels(context({publish:async publication=>{stored=publication.persist;publication.update?.();return true;}}));
+  assert.deepEqual(stored.models.map(model=>model.id),['auto']);assert.equal(stored.scope,credential.fingerprint);assert.equal(typeof stored.checkedAt,'number');assert.doesNotMatch(JSON.stringify(stored),/fixture-secret/);
+  const restored=await fixture();await restored.provider.refreshModels(context({allowNetwork:false,stored}));
+  assert.deepEqual(restored.provider.filterModels(restored.provider.getModels()).map(model=>model.id),['auto']);assert.equal(restored.provider.getCatalogStatus().length,1);assert.equal(restored.calls(),0);
+  const mismatched=await fixture();mismatched.setCredential({...credential,fingerprint:'b'.repeat(64)});await mismatched.provider.refreshModels(context({allowNetwork:false,stored}));
+  assert.deepEqual(mismatched.provider.filterModels(mismatched.provider.getModels()),MODELS);assert.equal(mismatched.calls(),0);
 });
 test('availability filtering never reintroduces a model removed by the caller',async()=>{
   const f=await fixture();assert.deepEqual(f.provider.filterModels([]),[]);assert.deepEqual(f.provider.filterModels([MODELS[0]]),[MODELS[0]]);
@@ -120,9 +135,9 @@ test('browser catalog is tied to validated OAuth identity and not a raw-token ov
   assert.deepEqual(f.provider.filterModels(f.provider.getModels(),{...c,fingerprint:'b'.repeat(64)}),[]);
   await assert.rejects(f.provider.refreshModels(context({credential:{...c,access:'override',uid:'changed'}})),/oauth_credential_invalid/);assert.equal(f.calls(),1);
 });
-test('catalog expires without automatic fallback dispatch or network refresh',async t=>{
+test('stale persisted availability remains visible but cannot dispatch without refresh',async t=>{
   t.mock.timers.enable({apis:['Date'],now:Date.now()});const f=await fixture();await f.provider.refreshModels(context());
-  t.mock.timers.tick(3600001);assert.deepEqual(f.provider.filterModels(f.provider.getModels()),[]);
+  t.mock.timers.tick(3600001);assert.deepEqual(f.provider.filterModels(f.provider.getModels()).map(model=>model.id),['auto']);
   await assert.rejects(f.provider.api.streamSimple(f.provider.getModels()[0],{messages:[]},{}),/catalog_refresh_required/);assert.equal(f.calls(),1);
 });
 test('catalog replacement while reading credentials blocks stale selection before dispatch',async()=>{

@@ -2,7 +2,7 @@ import { readLocalCredential, createCredentialAccess, QoderError } from './auth.
 import { BASE_URL, SUPPORTED_MODEL_IDS, REASONING_MODEL_IDS, openQoderStream, abortable, validateReasoningSignature, OPAQUE_MODEL_IDS, VERIFIED_THINKING_LEVELS, EXPANDED_INPUT_MODEL_IDS, inputCapabilities, imageByteLength } from './transport.mjs';
 import { buildQoderPayload, isSameModelAssistant } from './messages.mjs';
 import { translateQoderStream } from './translate.mjs';
-import { fetchCatalog, CATALOG_TTL_MS } from './catalog.mjs';
+import { catalogMetadata, fetchCatalog, parseCatalogMetadata, CATALOG_TTL_MS } from './catalog.mjs';
 import { createBrowserOAuth, createOAuthEnvelope } from './oauth.mjs';
 import { fetchQuota } from './credits.mjs';
 
@@ -188,8 +188,8 @@ export async function createQoderProvider({ piAI, getToken, getCredential, captu
     } },
     api: { stream: wrap('stream'), streamSimple: wrap('streamSimple') },
   });
-  // Use the public Provider refresh/publication seam, not createProvider's
-  // account-independent persisted overlay. No catalog or identity is written.
+  // Use the same ModelsStore publication seam as other dynamic providers. The
+  // non-secret scope prevents a cached account catalog from crossing identities.
   return {
     ...provider, getModels: currentModels,
     filterModels(models, credential) {
@@ -197,23 +197,46 @@ export async function createQoderProvider({ piAI, getToken, getCredential, captu
       if (!catalogState) return models.filter(m => baseline(m.id));
       const fingerprint = envelope ? credential?.fingerprint : observedCLI;
       if (fingerprint !== catalogState.fingerprint) return models.filter(m => baseline(m.id));
-      return catalogState.expiresAt > Date.now() ? models : [];
+      // Keep a stale disk catalog selectable while refresh is attempted. Dispatch
+      // still requires a fresh catalog through prepare/checkCatalog.
+      return models;
     },
     async refreshModels(context) {
-      if (!context.allowNetwork || context.signal.aborted) return;
+      if (context.signal.aborted) return;
       let c;
-      if (envelope) {
-        const auth = await envelope.toAuth(context.credential);
-        c = envelope.read(auth.apiKey);
-      } else {
-        if (!readCLI) throw new QoderError('catalog_identity_unavailable');
-        c = await abortable(readCLI, context.signal);
+      try {
+        if (envelope) {
+          const auth = await envelope.toAuth(context.credential);
+          c = envelope.read(auth.apiKey);
+        } else {
+          if (!readCLI) throw new QoderError('catalog_identity_unavailable');
+          c = await abortable(readCLI, context.signal);
+        }
+      } catch (error) {
+        // Cache-only initialization without a configured credential must remain
+        // equivalent to every other unavailable provider.
+        if (!context.allowNetwork) return;
+        throw error;
       }
+      if (!catalogState && context.stored?.scope === c.fingerprint) {
+        let entries;
+        try { entries = parseCatalogMetadata(context.stored.metadata); } catch { entries = undefined; }
+        if (entries) {
+          const models = Object.freeze(entries.filter(e => e.enabled && e.reviewed && e.format === 'openai').map(e => catalogModel(e)));
+          const checkedAt = Number.isSafeInteger(context.stored.checkedAt) ? context.stored.checkedAt : 0;
+          if (!(await context.publish({ update: () => { catalogState = { fingerprint: c.fingerprint, expiresAt: checkedAt + CATALOG_TTL_MS, entries, models }; } }))) return;
+        }
+      }
+      if (!context.allowNetwork || context.signal.aborted) return;
       if (!context.force && catalogState?.fingerprint === c.fingerprint && catalogState.expiresAt > Date.now()) return;
       const entries = await fetchCatalog(c, { fetchImpl, signal: context.signal });
       const models = Object.freeze(entries.filter(e => e.enabled && e.reviewed && e.format === 'openai').map(e => catalogModel(e)));
       if (context.signal.aborted) return;
-      await context.publish({ update: () => { catalogState = { fingerprint: c.fingerprint, expiresAt: Date.now() + CATALOG_TTL_MS, entries, models }; } });
+      const checkedAt = Date.now();
+      await context.publish({
+        persist: { models, checkedAt, scope: c.fingerprint, metadata: catalogMetadata(entries) },
+        update: () => { catalogState = { fingerprint: c.fingerprint, expiresAt: checkedAt + CATALOG_TTL_MS, entries, models }; },
+      });
     },
     async getQuotaUsage({ apiKey, expectedFingerprint, signal } = {}) {
       const deadline = AbortSignal.timeout(15000), bounded = signal ? AbortSignal.any([signal, deadline]) : deadline;

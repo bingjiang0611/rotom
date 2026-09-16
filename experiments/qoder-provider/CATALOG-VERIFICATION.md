@@ -53,7 +53,7 @@
 
 - opt-in、provider ID、绑定 ID、默认模型、CLI 只读与独立 browser 认证边界不变。没有新增 model tool 或第二套 agent 生命周期。
 - `catalog.mjs` / `catalog-auth.mjs` 进入九文件资源与 npm allowlist。只读取固定目录，不跟随 redirect、不重试；15 秒总 deadline、512 KiB 上限、严格 assistant/system/schema/ID 去重。
-- 使用 Pi 公开 `Provider.refreshModels` / generation-checked `publish`，不使用它的账号无关持久 overlay。目录仅内存、指纹隔离、1 小时 TTL，过期/换账号/读取凭据时目录代际改变均阻断 stale 模型 dispatch。失败保留上次目录，但不绕过 TTL 或账号检查。
+- 使用 Pi 公开 `Provider.refreshModels` / generation-checked `publish` 和共享 model store；目录按非敏感账号摘要隔离持久化，缓存不含凭据，恢复时重跑权威解析。1 小时 TTL 到期后缓存仍保持模型选择，但过期/换账号/读取凭据时目录代际改变均阻断 stale 模型 dispatch；失败不绕过 TTL 或账号检查。
 - 注册已验证 ID 的占位声明，让 Pi 在 session_start 前解析显式选择/磁盘恢复；没有新目录时可用列表仍只显示 Lite/Performance，新增 ID 不能凭声明发请求。启动/`/qoder-models` 完成目录读取后取 enabled/实测白名单交集，名称来自服务器。
 - `qmodel/kmodel/gmodel/dmodel` 只接通固定 enabled 的 `reasoning_content`；Pi 仅声明 medium 一个可用档，不承诺强度控制。允许 Pi 原生 plain 字段签名用于 assistant 历史回传；opaque/其他 reasoning 格式和 custom/BYOK 路由仍 fail closed。
 - 图片关闭，32K/4096 保守上限不扩大；目录中的百万窗口、VL/effort 元数据不直接启用。价格仍是未知占位，不能按 Pi `$0` 解释为免费。

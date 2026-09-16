@@ -11,6 +11,10 @@ export interface ModelsStoreEntry {
 	 * (quotes included) and echoed back as If-None-Match.
 	 */
 	etag?: string;
+	/** Non-secret provider-defined scope used to reject a catalog restored for another account or tenant. */
+	scope?: string;
+	/** Provider-owned JSON metadata needed to restore the catalog; credentials must never be stored here. */
+	metadata?: unknown;
 }
 
 export interface ModelsStoreOperationOptions {

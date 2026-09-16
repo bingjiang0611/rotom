@@ -147,7 +147,7 @@ test('registry deadline bounds a noncooperative refresh and blocks late dispatch
   await started.promise; deadline.abort(); await rejected;
   release.resolve(); await new Promise(setImmediate);
   assert.equal(f.counts().dispatches, 0);
-  assert.deepEqual(f.provider.filterModels(f.provider.getModels()), []);
+  assert.deepEqual(f.provider.filterModels(f.provider.getModels()).map(model => model.id), ['auto']);
 });
 
 test('inference failure after refresh is not retried or treated as another catalog expiry', async t => {
