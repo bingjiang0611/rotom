@@ -7,6 +7,7 @@
 - **结果必须有证据**：证据不足就返回 `unknown`，不会重放可能已经发生的写操作。避免点错位置、重复输入或重复任务，减少纠错浪费的 token 与等待时间。
 - **编码过程有固定规则**：执行前先确认仓库、路径、脚本和编辑位置，失败后先读取当前状态再修复。减少改错仓库、无效命令和长任务重跑，节省返工的 token 和开发时间。
 - **工具按需加载**：默认只保留常用工具，Subagent 等专用能力需要时再加入。减少无关 schema 和工具误调用，为代码与任务信息留出更多上下文。
+- **内置 Qoder 支持**：默认启用原生 Qoder provider，可直接通过浏览器授权登录、读取当前账号的模型目录并选择已适配模型，无需安装 Qoder CLI。
 - **新增本地可观测性**：通过 trace 和 dashboard 串联模型请求、工具调用与上下文压缩。快速定位慢在哪里、失败在哪一层和用了多少资源，同时不保存 prompt、模型输出或工具正文。
 
 查看本地执行记录：
@@ -32,6 +33,16 @@ npm install -g --ignore-scripts @bingjiang0611/rotom
 1. 用 `/login` 登录模型服务，或自行配置 API key。
 2. 用 `/model` 选择模型和支持的思考档位。
 3. 直接描述任务，例如：“检查这个项目，修复失败的测试，并说明修改。”
+
+## 使用 Qoder
+
+Qoder provider 已内置并默认启用，无需安装或登录 Qoder CLI。在 rotom 内执行 `/login qoder`，打开显示的链接并在 Qoder 网页完成授权；随后执行 `/new`，再用 `/qoder-models` 刷新当前账号的模型目录、用 `/model` 选择模型。以后也可以直接指定：
+
+```sh
+rotom --provider qoder --model lite
+```
+
+这是 rotom 对 Qoder 接口的产品集成，不代表 Qoder 官方支持。认证方式、模型与 Thinking 档位、Credit 显示和兼容模式等边界见 [Qoder 详细说明](docs/usage.md#qoder原生-provider默认启用)。如需关闭内置 provider，设置 `ROTOM_QODER=0`。
 
 ## 安装扩展
 
