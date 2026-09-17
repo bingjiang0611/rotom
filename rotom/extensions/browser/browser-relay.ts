@@ -6,13 +6,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connect, type Socket } from "node:net";
 
-export const BROWSER_RELAY_PROTOCOL_REVISION_V1 = 19 as const;
+export const BROWSER_RELAY_PROTOCOL_REVISION_V1 = 20 as const;
 export const BROWSER_RELAY_FULL_READ_CAPABILITY_V1 = "virtualized-frame-scroll" as const;
 export const BROWSER_RELAY_MULTI_CLIENT_CAPABILITY_V1 = "multi-client-multiplex" as const;
 export const BROWSER_RELAY_COORDINATE_CLICK_CAPABILITY_V1 = "coordinate-click" as const;
 export const BROWSER_RELAY_TARGET_STATE_CAPABILITY_V1 = "interaction-target-state" as const;
 export const BROWSER_RELAY_PAGE_ALERT_CAPABILITY_V1 = "page-alert-readback" as const;
 export const BROWSER_RELAY_KEYPRESS_CAPABILITY_V1 = "targeted-keypress" as const;
+export const BROWSER_RELAY_QUERY_CAPABILITY_V1 = "snapshot-query" as const;
 export const BROWSER_INSPECT_TOOL_V1 = "browser_inspect" as const;
 export const BROWSER_INSPECT_OPERATIONS_V1 = ["open", "discover", "claim", "handoff", "tabs", "switch", "snapshot", "snapshot_visible", "read_full", "screenshot", "wait", "close", "recover"] as const;
 export const BROWSER_INTERACT_TOOL_V1 = "browser_interact" as const;
@@ -107,6 +108,7 @@ export interface BrowserObservationV1 {
 	scanSteps?: number;
 	scannedContainers?: number;
 	scrolledContainers?: number;
+	selection?: { text?: string; role?: string; sourceNodes: number; scannedAxNodes: number; scanTruncated: boolean; matchesTruncated: boolean };
 	digest: string;
 }
 
@@ -130,6 +132,23 @@ export function sanitizeBrowserObservationV1(value: unknown): BrowserObservation
 	const scannedContainers = value.scannedContainers === undefined ? undefined : (Number.isSafeInteger(value.scannedContainers) && (value.scannedContainers as number) >= 0 ? value.scannedContainers as number : undefined);
 	const scrolledContainers = value.scrolledContainers === undefined ? undefined : (Number.isSafeInteger(value.scrolledContainers) && (value.scrolledContainers as number) >= 0 ? value.scrolledContainers as number : undefined);
 	if ((value.scanSteps !== undefined && scanSteps === undefined) || (value.scannedContainers !== undefined && scannedContainers === undefined) || (value.scrolledContainers !== undefined && scrolledContainers === undefined)) throw new Error("browser observation scan evidence 无效");
+	let selection: BrowserObservationV1["selection"];
+	if (value.selection !== undefined) {
+		const query = value.selection;
+		if (!record(query) || (query.text === undefined && query.role === undefined)
+			|| !Number.isSafeInteger(query.sourceNodes) || (query.sourceNodes as number) < value.nodes.length
+			|| !Number.isSafeInteger(query.scannedAxNodes) || (query.scannedAxNodes as number) < 0
+			|| typeof query.scanTruncated !== "boolean" || typeof query.matchesTruncated !== "boolean"
+			|| ((query.scanTruncated || query.matchesTruncated) && value.truncated !== true)
+			|| contentCoverage !== "rendered-dom" || value.contentComplete !== false || hasTextDelta) throw new Error("browser observation selection evidence 无效");
+		for (const [key, max] of [["text", 256], ["role", 128]] as const) {
+			const input = query[key];
+			if (input !== undefined && (typeof input !== "string" || input.length < 1 || input.length > max || input.includes("\0"))) throw new Error(`browser observation selection.${key} 无效`);
+		}
+		selection = { ...(query.text === undefined ? {} : { text: query.text as string }), ...(query.role === undefined ? {} : { role: query.role as string }),
+			sourceNodes: query.sourceNodes as number, scannedAxNodes: query.scannedAxNodes as number, scanTruncated: query.scanTruncated,
+			matchesTruncated: query.matchesTruncated || value.nodes.length > MAX_MODEL_NODES };
+	}
 	const nodes = value.nodes.slice(0, MAX_MODEL_NODES).map((node, index) => {
 		if (!record(node)) throw new Error(`browser observation node ${index} 无效`);
 		const ref = safeString(node.ref, `node[${index}].ref`, 128);
@@ -157,6 +176,7 @@ export function sanitizeBrowserObservationV1(value: unknown): BrowserObservation
 		...(scanSteps === undefined ? {} : { scanSteps }),
 		...(scannedContainers === undefined ? {} : { scannedContainers }),
 		...(scrolledContainers === undefined ? {} : { scrolledContainers }),
+		...(selection ? { selection } : {}),
 	};
 	return { ...publicValue, digest: browserActionDigestV1(publicValue) };
 }
@@ -372,7 +392,7 @@ export class BrowserRelayClientV1 {
 			if (handshakeRemainingMs <= 0) throw new Error("browser relay 连接超时；请确认 Chrome 扩展已启用");
 			const nonce = randomUUID();
 			const ready = await client.request("hello", { nonce }, { timeoutMs: Math.max(1, handshakeRemainingMs) });
-			if (!record(ready) || ready.schemaVersion !== 1 || ready.kind !== "rotom-browser-relay-ready" || ready.nonce !== nonce || !Number.isSafeInteger(ready.protocolRevision) || (ready.protocolRevision as number) < BROWSER_RELAY_PROTOCOL_REVISION_V1 || !Array.isArray(ready.capabilities) || !ready.capabilities.includes(BROWSER_RELAY_FULL_READ_CAPABILITY_V1) || !ready.capabilities.includes(BROWSER_RELAY_MULTI_CLIENT_CAPABILITY_V1) || !ready.capabilities.includes(BROWSER_RELAY_COORDINATE_CLICK_CAPABILITY_V1) || !ready.capabilities.includes(BROWSER_RELAY_TARGET_STATE_CAPABILITY_V1) || !ready.capabilities.includes(BROWSER_RELAY_PAGE_ALERT_CAPABILITY_V1) || !ready.capabilities.includes(BROWSER_RELAY_KEYPRESS_CAPABILITY_V1)) throw new Error("browser relay 版本过旧；请在 chrome://extensions 重载 Rotom Browser Relay");
+			if (!record(ready) || ready.schemaVersion !== 1 || ready.kind !== "rotom-browser-relay-ready" || ready.nonce !== nonce || !Number.isSafeInteger(ready.protocolRevision) || (ready.protocolRevision as number) < BROWSER_RELAY_PROTOCOL_REVISION_V1 || !Array.isArray(ready.capabilities) || !ready.capabilities.includes(BROWSER_RELAY_FULL_READ_CAPABILITY_V1) || !ready.capabilities.includes(BROWSER_RELAY_MULTI_CLIENT_CAPABILITY_V1) || !ready.capabilities.includes(BROWSER_RELAY_COORDINATE_CLICK_CAPABILITY_V1) || !ready.capabilities.includes(BROWSER_RELAY_TARGET_STATE_CAPABILITY_V1) || !ready.capabilities.includes(BROWSER_RELAY_PAGE_ALERT_CAPABILITY_V1) || !ready.capabilities.includes(BROWSER_RELAY_KEYPRESS_CAPABILITY_V1) || !ready.capabilities.includes(BROWSER_RELAY_QUERY_CAPABILITY_V1)) throw new Error("browser relay 版本过旧；请在 chrome://extensions 重载 Rotom Browser Relay");
 			return client;
 		} catch (error) {
 			client.close();

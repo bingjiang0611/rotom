@@ -21,9 +21,78 @@ async function worker(t, pendingMethod) {
 	source = source.replace(/from "(\.\/[^"]+)"/gu, (_, path) => `from ${JSON.stringify(new URL(path, new URL("./chrome-extension/", import.meta.url)).href)}`);
 	assert.equal(source.split("void startRelay();").length, 2);
 	source = source.replace("void startRelay();", "");
-	const mod = await import(`data:text/javascript;base64,${Buffer.from(source + `\nexport { attach, fullObservation, fullRenderedTextSource, closeOwnedIdentity, closeOwned, handleOperation, performInteraction, observation, sessionStates, childSessionsByTabId };\n// ${Math.random()}`).toString("base64")}`);
+	const mod = await import(`data:text/javascript;base64,${Buffer.from(source + `\nexport { attach, fullObservation, fullRenderedTextSource, closeOwnedIdentity, closeOwned, handleOperation, performInteraction, interactionTarget, observation, sessionStates, childSessionsByTabId };\n// ${Math.random()}`).toString("base64")}`);
 	return { mod, api, calls, entered, release };
 }
+
+test("snapshot query finds a tail AX target before the output cap and preserves scoped refs", async (t) => {
+	const { mod, api } = await worker(t);
+	const ax = (id, name) => ({ nodeId: String(id), backendDOMNodeId: id, role: { value: "button" }, name: { value: name } });
+	let tree = Array.from({ length: 1101 }, (_, i) => ax(i + 1, i === 1100 ? "Tail target sentinel" : `Control ${i + 1}`));
+	api.debugger.sendCommand = async (_target, method) => method === "Accessibility.getFullAXTree" ? { nodes: tree } : { result: { value: "TAIL" } };
+	const item = { tabId: 1, targetId: "target", documentGeneration: 1 };
+	const state = { tabsByName: new Map([["docs", item]]) };
+	const read = (query) => mod.handleOperation(state, "snapshot", { tabName: "docs", ...query }, 0);
+	const ordinary = await read();
+	assert.equal(ordinary.nodes.filter((n) => n.role === "button").length, 600);
+	assert.equal(ordinary.nodes.some((n) => n.name === "Tail target sentinel"), false);
+	const result = await read({ text: "TAIL TARGET", role: "button" });
+	assert.deepEqual(result.nodes.map((n) => n.ref), ["ax_1_1101"]);
+	assert.deepEqual(item.lastObservationNodes, result.nodes, "interaction membership uses selected nodes");
+	const actionTarget = await mod.interactionTarget("docs", item, { action: "click", targetRef: result.nodes[0].ref }, () => {});
+	assert.equal(actionTarget.parsed.backendNodeId, 1101);
+	item.documentGeneration += 1;
+	await assert.rejects(mod.interactionTarget("docs", item, { action: "click", targetRef: result.nodes[0].ref }, () => {}), /stale/u);
+	item.documentGeneration -= 1;
+	assert.equal(result.selection.sourceNodes, 1101);
+	assert.equal(result.selection.scannedAxNodes, 1101);
+	assert.equal(result.selection.scanTruncated, false);
+	assert.equal(result.selection.matchesTruncated, false);
+	assert.equal(result.truncated, false);
+	assert.equal(result.contentComplete, false);
+	assert.ok(result.observationEpoch > ordinary.observationEpoch);
+	assert.equal((await read({ text: "absent", role: "button" })).nodes.length, 0);
+	await assert.rejects(mod.interactionTarget("docs", item, { action: "click", targetRef: result.nodes[0].ref }, () => {}), /stale/u, "new queries replace, not accumulate, target membership");
+	assert.equal((await read({ text: "TAIL", role: "link" })).nodes.length, 0);
+	const many = await read({ role: "button" });
+	assert.equal(many.nodes.length, 600);
+	assert.equal(many.selection.scanTruncated, false);
+	assert.equal(many.selection.matchesTruncated, true);
+	assert.equal(many.truncated, true);
+	const body = await read({ role: "document-text" });
+	assert.equal(body.nodes[0].role, "document-text");
+	assert.deepEqual(body.nodes[0].states, ["read-only=true"]);
+	await assert.rejects(mod.interactionTarget("docs", item, { action: "click", targetRef: body.nodes[0].ref }, () => {}), /read-only|stale/u);
+	mod.childSessionsByTabId.set(1, new Map([["child", { scopeId: "f1", sessionId: "child", ready: Promise.resolve() }]]));
+	const framed = await read({ text: "Tail target", role: "button" });
+	assert.deepEqual(framed.nodes.map((n) => n.ref), ["ax_1_1101", "ax_1_f1_1101"], "same backend id in different frames must not deduplicate");
+	assert.deepEqual((await mod.interactionTarget("docs", item, { action: "click", targetRef: framed.nodes[1].ref }, () => {})).debuggee, { tabId: 1, sessionId: "child" });
+	mod.childSessionsByTabId.clear();
+	await assert.rejects(mod.interactionTarget("docs", item, { action: "click", targetRef: framed.nodes[1].ref }, () => {}), /frame is stale/u);
+	tree = [ax(1, "parent")]; tree[0].childIds = ["not-returned"];
+	assert.equal((await read({ text: "missing descendant" })).selection.scanTruncated, true);
+	tree = Array.from({ length: 20001 }, (_, i) => ax(i + 1, i === 20000 ? "beyond scan" : "other"));
+	const capped = await read({ text: "beyond scan", role: "button" });
+	assert.equal(capped.nodes.length, 0);
+	assert.equal(capped.selection.scannedAxNodes, 20000);
+	assert.equal(capped.selection.scanTruncated, true);
+	assert.equal(capped.selection.matchesTruncated, false);
+	assert.equal(capped.truncated, true);
+	const send = api.debugger.sendCommand;
+	api.debugger.sendCommand = async (target, method) => { if (method === "Accessibility.getFullAXTree") throw new Error("fixture CDP failure"); return send(target, method); };
+	assert.equal((await read({ text: "absent", role: "button" })).selection.scanTruncated, true, "failed AX read is not evidence of absence");
+	api.debugger.sendCommand = async (target, method) => method === "Runtime.evaluate" ? {} : send(target, method);
+	tree = [ax(1, "parent")];
+	assert.equal((await read({ text: "absent" })).selection.scanTruncated, true, "unavailable rendered text must remain partial");
+	mod.childSessionsByTabId.set(1, new Map([["child", { scopeId: "f1", sessionId: "child", ready: Promise.resolve() }]]));
+	api.debugger.sendCommand = async (target, method) => target.sessionId ? {} : send(target, method);
+	assert.equal((await read({ role: "button" })).selection.scanTruncated, true, "missing child tree must remain partial");
+	api.debugger.sendCommand = send;
+	mod.childSessionsByTabId.clear();
+	for (const query of [{ text: "" }, { role: "" }, { text: "x".repeat(257) }, { role: "x".repeat(129) }, { text: "x\u0000y" }]) {
+		await assert.rejects(read(query), /query|text|role/u);
+	}
+});
 
 // Execute the real worker against a deterministic CDP fixture. This proves command
 // ordering and evidence plumbing, not Chrome's native default keyboard behavior.

@@ -67,6 +67,21 @@ test("browser observation 保留凭据形状文本，仍隐藏 URL query/hash �
 	assert.throws(() => sanitizeBrowserObservationV1({ ...value, digest: undefined, observationEpoch: undefined }), /observationEpoch/u);
 });
 
+test("query evidence is bounded, explicit and cannot claim complete content", () => {
+	const input = { schemaVersion: 1, kind: "rotom-browser-observation", tabName: "main", tabId: 7, documentGeneration: 1, observationEpoch: 1,
+		url: "https://example.test", status: "complete", nodes: [], truncated: false, contentCoverage: "rendered-dom", contentComplete: false,
+		selection: { text: "查询", sourceNodes: 1101, scannedAxNodes: 1101, scanTruncated: false, matchesTruncated: false } };
+	assert.deepEqual(sanitizeBrowserObservationV1(input).selection, input.selection);
+	for (const patch of [{ text: "" }, { text: undefined }, { role: 1 }, { scannedAxNodes: -1 }, { sourceNodes: -1 }, { scanTruncated: "false" }, { matchesTruncated: true }]) {
+		assert.throws(() => sanitizeBrowserObservationV1({ ...input, selection: { ...input.selection, ...patch } }), /selection/u);
+	}
+	assert.throws(() => sanitizeBrowserObservationV1({ ...input, contentCoverage: "scroll-end", contentComplete: true }), /selection/u);
+	const capped = sanitizeBrowserObservationV1({ ...input, nodes: Array.from({ length: 1001 }, (_, i) => ({ ref: `ax_1_${i}`, role: "button", name: "Query" })) });
+	assert.equal(capped.nodes.length, 1000);
+	assert.equal(capped.selection?.matchesTruncated, true);
+	assert.equal(capped.truncated, true);
+});
+
 test("browser observation 只有 scroll-end 且未截断时允许全文完成", () => {
 	const complete = sanitizeBrowserObservationV1({
 		schemaVersion: 1, kind: "rotom-browser-observation", tabName: "main", tabId: 7, documentGeneration: 2, observationEpoch: 4,
@@ -124,7 +139,7 @@ test("relay client 绑定 session/generation 并拒绝错误 response", async (t
 					socket.write(`${JSON.stringify({ schemaVersion: 1, kind: "response", id: request.id, sessionId: request.sessionId, generation: request.generation, ok: false, error: `password=fixture\u0000${"x".repeat(2_000)}` })}\n`);
 					continue;
 				}
-					const result = request.operation === "hello" ? { schemaVersion: 1, kind: "rotom-browser-relay-ready", protocolRevision: 19, nonce: request.payload.nonce, capabilities: ["virtualized-frame-scroll", "multi-client-multiplex", "coordinate-click", "interaction-target-state", "page-alert-readback", "targeted-keypress"] } : { operation: request.operation };
+				const result = request.operation === "hello" ? { schemaVersion: 1, kind: "rotom-browser-relay-ready", protocolRevision: 20, nonce: request.payload.nonce, capabilities: ["virtualized-frame-scroll", "multi-client-multiplex", "coordinate-click", "interaction-target-state", "page-alert-readback", "targeted-keypress", "snapshot-query"] } : { operation: request.operation };
 				socket.write(`${JSON.stringify({ schemaVersion: 1, kind: "response", id: request.id, sessionId: request.sessionId, generation: request.generation, ok: true, result })}\n`);
 			}
 		});
@@ -161,7 +176,7 @@ test("relay client 遇到 protocol 14 busy 时明确要求重载而不等待接�
 					socket.end(`${JSON.stringify({ schemaVersion: 1, kind: "response", id: request.id, sessionId: request.sessionId, generation: request.generation, ok: false, error: "browser relay busy; another operation is active" })}\n`);
 					continue;
 				}
-				const result = { schemaVersion: 1, kind: "rotom-browser-relay-ready", protocolRevision: 19, nonce: request.payload.nonce, capabilities: ["virtualized-frame-scroll", "multi-client-multiplex", "coordinate-click", "interaction-target-state", "page-alert-readback", "targeted-keypress"] };
+				const result = { schemaVersion: 1, kind: "rotom-browser-relay-ready", protocolRevision: 20, nonce: request.payload.nonce, capabilities: ["virtualized-frame-scroll", "multi-client-multiplex", "coordinate-click", "interaction-target-state", "page-alert-readback", "targeted-keypress", "snapshot-query"] };
 				socket.write(`${JSON.stringify({ schemaVersion: 1, kind: "response", id: request.id, sessionId: request.sessionId, generation: request.generation, ok: true, result })}\n`);
 			}
 		});
@@ -196,9 +211,10 @@ test("interaction effect 保留凭据形状文本，仍限制证据形状与长�
 });
 
 for (const [protocolRevision, capabilities] of [
-	[18, ["virtualized-frame-scroll", "multi-client-multiplex", "coordinate-click", "interaction-target-state", "page-alert-readback", "targeted-keypress"]],
-	[19, ["virtualized-frame-scroll", "multi-client-multiplex", "coordinate-click", "interaction-target-state", "page-alert-readback"]],
-	[19, ["virtualized-frame-scroll", "multi-client-multiplex", "targeted-keypress"]],
+	[19, ["virtualized-frame-scroll", "multi-client-multiplex", "coordinate-click", "interaction-target-state", "page-alert-readback", "targeted-keypress", "snapshot-query"]],
+	[20, ["virtualized-frame-scroll", "multi-client-multiplex", "coordinate-click", "interaction-target-state", "page-alert-readback", "targeted-keypress"]],
+	[20, ["virtualized-frame-scroll", "multi-client-multiplex", "coordinate-click", "interaction-target-state", "page-alert-readback", "snapshot-query"]],
+	[20, ["virtualized-frame-scroll", "multi-client-multiplex", "targeted-keypress", "snapshot-query"]],
 ] as const) test(`relay client 拒绝旧协议或缺少必需 capability: ${protocolRevision}/${capabilities.length}`, async (t) => {
 	const socketPath = `/tmp/rotom-browser-relay-old-ready-${process.pid}-${Date.now()}.sock`;
 	const server = createServer((socket) => {
@@ -235,7 +251,7 @@ test("relay client 请求超时后销毁连接，避免复用卡死队列", asyn
 				const line = buffer.slice(0, newline); buffer = buffer.slice(newline + 1); if (!line) continue;
 				const request = JSON.parse(line);
 				if (request.operation !== "hello") continue;
-				const result = { schemaVersion: 1, kind: "rotom-browser-relay-ready", protocolRevision: 19, nonce: request.payload.nonce, capabilities: ["virtualized-frame-scroll", "multi-client-multiplex", "coordinate-click", "interaction-target-state", "page-alert-readback", "targeted-keypress"] };
+				const result = { schemaVersion: 1, kind: "rotom-browser-relay-ready", protocolRevision: 20, nonce: request.payload.nonce, capabilities: ["virtualized-frame-scroll", "multi-client-multiplex", "coordinate-click", "interaction-target-state", "page-alert-readback", "targeted-keypress", "snapshot-query"] };
 				socket.write(`${JSON.stringify({ schemaVersion: 1, kind: "response", id: request.id, sessionId: request.sessionId, generation: request.generation, ok: true, result })}\n`);
 			}
 		});

@@ -16,6 +16,7 @@ import { collectListedOwnedTabs, isMissingChromeTabError, listedOwnedTabStatus }
 const HOST_NAME = "dev.rotom.browser_relay";
 const MAX_NATIVE_BYTES = 1024 * 1024;
 const MAX_AX_NODES = 600;
+const MAX_QUERY_AX_NODES = 20_000;
 const MAX_TEXT_NODES = 320;
 const MAX_INTERACTION_TEXT_NODES = 24;
 const TEXT_NODE_BYTES = 900;
@@ -348,7 +349,10 @@ async function scopedEvaluations(item, expression, deadlineMs, assertOperation) 
 }
 async function renderedTextSources(item, assertOperation) {
 	const evaluated = await scopedEvaluations(item, `(${collectRenderedText.toString()})()`, 2_500, assertOperation);
-	return evaluated.filter((entry) => typeof entry.value === "string" && entry.value).map((entry) => ({ scopeId: entry.scopeId, text: entry.value }));
+	return {
+		sources: evaluated.filter((entry) => typeof entry.value === "string" && entry.value).map((entry) => ({ scopeId: entry.scopeId, text: entry.value })),
+		incomplete: evaluated.length !== 1 + childSessionEntries(item.tabId).length || evaluated.some((entry) => typeof entry.value !== "string"),
+	};
 }
 async function pageAlertSources(item, assertOperation) {
 	const evaluated = await scopedEvaluations(item, `(${collectPageAlerts.toString()})()`, PAGE_ALERT_WAIT_MS, assertOperation);
@@ -371,7 +375,16 @@ function renderedTextNodes(item, sources, maxNodes) {
 	}
 	return { nodes, truncated };
 }
-async function observation(name, item, assertOperation) {
+async function observation(name, item, assertOperation, payload = {}) {
+	const query = {};
+	for (const [key, max] of [["text", 256], ["role", 128]]) {
+		if (payload[key] === undefined) continue;
+		if (typeof payload[key] !== "string" || !payload[key].length || payload[key].length > max || payload[key].includes("\0")) throw new Error(`snapshot query ${key} invalid`);
+		query[key] = payload[key];
+	}
+	const filtered = query.text !== undefined || query.role !== undefined;
+	const needle = query.text?.toLowerCase();
+	const matches = (role, name) => (query.role === undefined || query.role === role) && (needle === undefined || name.toLowerCase().includes(needle));
 	const chrome = operationChrome(globalThis.chrome, assertOperation);
 	await attach(item, assertOperation);
 	const tab = await chrome.tabs.get(item.tabId);
@@ -386,16 +399,24 @@ async function observation(name, item, assertOperation) {
 		const ready = await valueWithinRelayDeadline(entry.ready, 1_000);
 		if (!ready.ok) return undefined;
 		const tree = await valueWithinRelayDeadline(chrome.debugger.sendCommand({ tabId: item.tabId, sessionId: entry.sessionId }, "Accessibility.getFullAXTree", { depth: 64 }), 2_000);
-		return tree.ok ? { scopeId: entry.scopeId, nodes: Array.isArray(tree.value?.nodes) ? tree.value.nodes : [] } : undefined;
+		return tree.ok ? { scopeId: entry.scopeId, nodes: Array.isArray(tree.value?.nodes) ? tree.value.nodes : [], incomplete: !Array.isArray(tree.value?.nodes) } : undefined;
 	}));
-	const [rootTree, childTrees, textSources] = await Promise.all([rootTreePromise, childTreesPromise, renderedTextSources(item, assertOperation)]);
+	const includeText = !filtered || query.role === undefined || query.role === "document-text";
+	const [rootTree, childTrees, textSources] = await Promise.all([rootTreePromise, childTreesPromise,
+		includeText ? renderedTextSources(item, assertOperation) : { sources: [], incomplete: false }]);
 	assertOperation();
 	const rawNodes = (rootTree.ok && Array.isArray(rootTree.value?.nodes) ? rootTree.value.nodes : []).map((node) => ({ node, scopeId: "r" }));
 	for (const child of childTrees) if (child) for (const node of child.nodes) rawNodes.push({ node, scopeId: child.scopeId });
 	const nodes = [];
+	const selection = filtered ? { ...query, sourceNodes: 0, scannedAxNodes: Math.min(rawNodes.length, MAX_QUERY_AX_NODES),
+		scanTruncated: rawNodes.length > MAX_QUERY_AX_NODES || !rootTree.ok || !Array.isArray(rootTree.value?.nodes) || childTrees.some((child) => !child || child.incomplete), matchesTruncated: false } : undefined;
+	const scanned = filtered ? rawNodes.slice(0, MAX_QUERY_AX_NODES) : rawNodes;
+	// Missing child IDs expose depth/scan boundaries; no whole-DOM absence claim.
+	const scannedIds = filtered ? new Set(scanned.map(({ node, scopeId }) => `${scopeId}:${node.nodeId}`)) : undefined;
 	const seenBackendNodeIds = new Set();
-	for (const { node, scopeId } of rawNodes) {
-		if (nodes.length >= MAX_AX_NODES) break;
+	for (const { node, scopeId } of scanned) {
+		if (!filtered && nodes.length >= MAX_AX_NODES) break;
+		if (selection && node.childIds?.some((id) => !scannedIds.has(`${scopeId}:${id}`))) selection.scanTruncated = true;
 		if (node?.ignored === true || !Number.isInteger(node?.backendDOMNodeId)) continue;
 		const scopedBackendNodeId = `${scopeId}:${node.backendDOMNodeId}`;
 		if (seenBackendNodeIds.has(scopedBackendNodeId)) continue;
@@ -403,12 +424,22 @@ async function observation(name, item, assertOperation) {
 		const nameValue = axValue(node, "name");
 		if (!role && !nameValue) continue;
 		seenBackendNodeIds.add(scopedBackendNodeId);
+		if (selection) {
+			selection.sourceNodes += 1;
+			if (!matches(role, nameValue)) continue;
+			if (nodes.length >= MAX_AX_NODES) { selection.matchesTruncated = true; continue; }
+		}
 		const ref = formatScopedAxRef(item.documentGeneration, scopeId, node.backendDOMNodeId);
 		nodes.push({ ref, role, name: nameValue, states: axStates(node) });
 	}
-	const text = renderedTextNodes(item, textSources, MAX_TEXT_NODES);
-	nodes.push(...text.nodes);
+	const text = renderedTextNodes(item, textSources.sources, MAX_TEXT_NODES);
+	nodes.push(...(filtered ? text.nodes.filter((node) => matches(node.role, node.name)) : text.nodes));
 	item.lastObservationNodes = nodes;
+	if (selection) {
+		selection.sourceNodes += text.nodes.length;
+		selection.scanTruncated ||= text.truncated || textSources.incomplete;
+		return { ...observationValue(name, item, tab, nodes, selection.scanTruncated || selection.matchesTruncated), selection };
+	}
 	return observationValue(name, item, tab, nodes, (rawNodes.length > MAX_AX_NODES) || text.truncated || !rootTree.ok);
 }
 async function interactionReadback(name, item, assertOperation) {
@@ -416,7 +447,7 @@ async function interactionReadback(name, item, assertOperation) {
 	const tab = await chrome.tabs.get(item.tabId);
 	const [textSources, alertSources] = await Promise.all([renderedTextSources(item, assertOperation), pageAlertSources(item, assertOperation)]);
 	assertOperation();
-	const text = renderedTextNodes(item, textSources, MAX_INTERACTION_TEXT_NODES);
+	const text = renderedTextNodes(item, textSources.sources, MAX_INTERACTION_TEXT_NODES);
 	// 提示排在正文之前：被校验拦下的表单，错误就是这次交互唯一重要的结果。
 	const alerts = pageAlertNodes(item.documentGeneration, alertSources, MAX_PAGE_ALERTS);
 	return observationValue(name, item, tab, [...alerts.nodes, ...text.nodes], text.truncated || alerts.truncated);
@@ -973,7 +1004,7 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 	if (!record(payload)) throw new Error("payload invalid");
 	if (operation === "hello") {
 		const nonce = safeString(payload.nonce, "nonce", 128);
-		return { schemaVersion: 1, kind: "rotom-browser-relay-ready", protocolRevision: 19, nonce, capabilities: ["tab-control", "claim-user-tabs", "handoff-user-tabs", "agent-tab-groups", "accessibility-snapshot", "rendered-document-text", "full-document-read", "virtualized-frame-scroll", "content-coverage", "oopif-accessibility", "screenshot", "direct-interaction", "cdp-mouse", "coordinate-click", "targeted-scroll", "interaction-target-state", "page-alert-readback", "targeted-keypress", "operation-deadline", "non-destructive-timeout", "in-place-recovery", "multi-client-multiplex"] };
+		return { schemaVersion: 1, kind: "rotom-browser-relay-ready", protocolRevision: 20, nonce, capabilities: ["tab-control", "claim-user-tabs", "handoff-user-tabs", "agent-tab-groups", "accessibility-snapshot", "rendered-document-text", "full-document-read", "virtualized-frame-scroll", "content-coverage", "oopif-accessibility", "screenshot", "direct-interaction", "cdp-mouse", "coordinate-click", "targeted-scroll", "interaction-target-state", "page-alert-readback", "targeted-keypress", "snapshot-query", "operation-deadline", "non-destructive-timeout", "in-place-recovery", "multi-client-multiplex"] };
 	}
 	if (operation === "open") {
 		const name = safeName(payload.tabName);
@@ -1049,7 +1080,7 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 		assertOperation();
 		return observation(name, item, assertOperation);
 	}
-	if (operation === "snapshot") { const { name, item } = owned(state, payload.tabName); return observation(name, item, assertOperation); }
+	if (operation === "snapshot") { const { name, item } = owned(state, payload.tabName); return observation(name, item, assertOperation, payload); }
 	if (operation === "read_full") { const { name, item } = owned(state, payload.tabName); return fullObservation(name, item, assertOperation); }
 	if (operation === "wait") {
 		const { name, item } = owned(state, payload.tabName);

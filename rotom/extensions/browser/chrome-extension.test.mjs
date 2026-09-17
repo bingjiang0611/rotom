@@ -28,7 +28,7 @@ const extensionId = "kgadcllokaodnoknakblocmhidemimdi";
 test("Chrome MV3 manifest 固定 identity 且不申请 cookie/script/host 权限", async () => {
 	const manifest = JSON.parse(await readFile(join(extensionDir, "manifest.json"), "utf8"));
 	assert.equal(manifest.manifest_version, 3);
-	assert.equal(manifest.version, "0.9.2");
+	assert.equal(manifest.version, "0.10.0");
 	const digest = createHash("sha256").update(Buffer.from(manifest.key, "base64")).digest().subarray(0, 16);
 	const derived = [...digest].flatMap((byte) => [byte >> 4, byte & 15]).map((nibble) => String.fromCharCode(97 + nibble)).join("");
 	assert.equal(derived, extensionId);
@@ -57,7 +57,8 @@ test("Chrome MV3 manifest 固定 identity 且不申请 cookie/script/host 权限
 	assert.match(worker, /chrome\.debugger\.getTargets\(\)/u);
 	assert.match(worker, /candidate\.id === item\.targetId/u);
 	assert.match(worker, /state\.epoch !== expectedEpoch/u);
-	assert.match(worker, /protocolRevision: 19/u);
+	assert.match(worker, /protocolRevision: 20/u);
+	assert.match(worker, /"snapshot-query"/u);
 	assert.match(worker, /"targeted-keypress"/u);
 	assert.match(worker, /"virtualized-frame-scroll"/u);
 	assert.match(worker, /"multi-client-multiplex"/u);
