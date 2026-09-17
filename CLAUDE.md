@@ -64,7 +64,7 @@ extension、bundled skill 与第三方 package 是产品合同，不是“目录
 
 ### 3. 工具面要小、显式且诚实
 
-默认 deferred-tool loading 常驻 core、Ask、Browser/Computer Use、Goal 四工具与 `search_tools`，只把 Subagent 按需 additive 激活。Goal `0.54.4-rotom.3` 从启动起保持四个稳定 schema；工具可见不等于 Goal 模式启用，无 active goal 时拒绝执行，也不覆盖显式工具限制。默认要求 `goal_continue` 显式声明单次续跑；缺失声明暂停，控制调用不算进展。共享提示合同先查证目标、验收与写入边界；缺少授权或关键决策时立即询问并暂停，不凑三轮技术 blocker；重试须有新证据或可检验假设，外部写入 unknown 只读核验、不盲目重放。这是模型行为指引，不是权限拦截器，不缩小原始目标或降低完成标准。`goal_complete` 默认启用有界、当前模型、文件只读的 completion reviewer，不创建嵌套 AgentSession、不加载项目资源；额外用量单列且计入 Goal token admission，USD/credits unknown。审计尝试先持久化、unknown 不重放、resume/edit 不补额度，结果绑定当前 Goal/run 及实读证据；是第二意见，不是真实外部验收或 OS 沙箱。明确的用户设置 `completionReview:false` 可关闭 reviewer。它是 context-footprint 优化，不是安全沙箱。
+默认 deferred-tool loading 常驻 core、Ask、Browser/Computer Use、Goal 四工具与 `search_tools`，只把 Subagent 按需 additive 激活。Goal `0.54.4-rotom.4` 从启动起保持四个稳定 schema；工具可见不等于 Goal 模式启用，无 active goal 时拒绝执行，也不覆盖显式工具限制。默认要求 `goal_continue` 显式声明单次续跑；缺失声明暂停，控制调用不算进展。共享提示合同先查证目标、验收与写入边界；缺少授权或关键决策时立即询问并暂停，不凑三轮技术 blocker；重试须有新证据或可检验假设；三轮只限制 `goal_blocked`，已证实外部前置条件且无有意义的下一步时直接暂停，不为凑轮次重复检查。外部写入 unknown 只读核验、不盲目重放；审阅拒绝只表示验收未获支持，不授权重做成功/unknown 写入，缺证据先只读核验，无新证据或合理修复则暂停。这是模型行为指引，不是权限拦截器，不缩小原始目标或降低完成标准。`goal_complete` 默认启用有界、当前模型、文件只读的 completion reviewer，不创建嵌套 AgentSession、不加载项目资源；额外用量单列且计入 Goal token admission，USD/credits unknown。审计尝试先持久化、unknown 不重放、resume/edit 不补额度，结果绑定当前 Goal/run 及实读证据；是第二意见，不是真实外部验收或 OS 沙箱。明确的用户设置 `completionReview:false` 可关闭 reviewer。它是 context-footprint 优化，不是安全沙箱。
 
 - `ROTOM_DEFERRED_TOOLS=0` 必须恢复完整工具面。
 - 用户显式 `--tools`、`--exclude-tools` 或 runtime policy 优先；launcher 仅在没有 tool-selection flag 时授权 loader 收窄 reviewed default，extension/SDK 直载默认保留调用方 active set；用户 extension 新增的非 deferred 工具同样保留。

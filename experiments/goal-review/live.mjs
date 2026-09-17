@@ -316,7 +316,10 @@ try {
 			const done = new Promise((resolve) => { settle = resolve; });
 			const tools = {}, stopReasons = [];
 			const unsubscribe = h.session.subscribe((e) => {
-				if (e.type === "tool_execution_start") tools[e.toolName] = (tools[e.toolName] ?? 0) + 1;
+				if (e.type === "tool_execution_start") {
+					tools[e.toolName] = (tools[e.toolName] ?? 0) + 1;
+					if (e.toolName === "goal_complete") h.fixture.beforeReview();
+				}
 				if (e.type === "message_end" && e.message.role === "assistant") {
 					stopReasons.push(e.message.stopReason);
 					if (e.message.stopReason === "error") modelError = true;

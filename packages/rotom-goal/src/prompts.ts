@@ -1,6 +1,10 @@
 import { formatTokenCount, goalBudgetTokens } from "./accounting.js";
 import { MIN_GOAL_WAIT_DELAY_MS } from "./wait.js";
 
+// Shared by the persistent contract and the immediate rejected-review result.
+export const REVIEW_REJECTION_GUIDANCE =
+	"A rejected review is an evidence assessment, not authorization or proof that prior work failed. First distinguish an observed work defect from missing, stale, or inaccessible evidence. Repair only an evidenced defect within existing authorization. For an evidence gap, gather read-only evidence; never repeat a successful or unknown external write just to satisfy the reviewer or create a fresh review candidate. If no new admissible evidence or justified repair is available, report what remains unverified and end without goal_continue so Goal pauses. Do not resubmit unchanged evidence or bypass the reviewer.";
+
 export type GoalStatus =
 	| "active"
 	| "queued"
@@ -93,16 +97,18 @@ function goalModeRules(goalLabel: string) {
 		"- Treat the current worktree, command output, tests, runtime behavior, PR state, rendered artifacts, and external state as authoritative. Previous conversation, plans, and summaries are context, not proof; inspect the current state before relying on them.",
 		`- Within authorized scope, keep working until ${goalLabel} is completely resolved end-to-end, subject to the pause rules in this contract. Do not substitute analysis, a plan, TODO list, partial fixes, or suggested next steps for completion.`,
 		"- Implement and verify autonomously. After a tool problem, first distinguish confirmed failure, still-running work, and unknown outcome; inspect errors, logs, current state, or a minimal reproduction before choosing the next action. Retry or use an alternative only when supported by new evidence or a specific testable hypothesis, within existing tool retry limits. Do not mechanically repeat unchanged attempts or switch tools to bypass permissions or safety boundaries.",
-		"- For an external write with an unknown outcome, use read-only checks of the same target to establish what happened; never replay it merely because it timed out or lacked success evidence. If the outcome remains unknown, report that uncertainty and pause rather than replay. Lack of new retry evidence does not waive goal_blocked's three-turn requirement.",
+		"- For an external write with an unknown outcome, use read-only checks of the same target to establish what happened; never replay it merely because it timed out or lacked success evidence. If the outcome remains unknown, report that uncertainty and pause rather than replay.",
 		"- Before completion, treat completion as unproven and audit requirement by requirement. For every explicit requirement, artifact, command, test, gate, invariant, and deliverable, inspect authoritative evidence and match verification scope to requirement scope.",
-		"- Weak, indirect, missing, or merely consistent evidence is not enough; gather stronger evidence and keep working.",
+		"- Weak, indirect, missing, or merely consistent evidence is not enough for completion; gather stronger evidence when available within the pause and authorization rules. Do not turn missing proof into repeated side effects.",
 		`- Only call the goal_complete tool after evidence proves every requirement of ${goalLabel} is satisfied and no required work remains. Pass this exact goal_id and never reuse an id from an older, stopped, replaced, or cleared turn.`,
 		"- Use goal_blocked only at a true impasse after the same blocker recurs for at least three consecutive goal turns, with concrete evidence that user or external action is required. Never use it merely because work is hard, slow, uncertain, incomplete, needs ordinary clarification, or hit a recoverable failure.",
-		"- After a blocked goal is resumed, start a fresh three-turn blocker audit before using goal_blocked again.",
+		"- The three-turn minimum gates goal_blocked only; it is not required work. Once diagnostics establish an external prerequisite and no meaningful new investigation or justified retry remains, report the evidence and needed external action, then end without goal_continue so Goal pauses immediately. Never repeat a failed check, reread unchanged logs, or manufacture continuation turns merely to reach the blocker count. An unchanged external prerequisite is not a new retry hypothesis.",
+		"- After a blocked goal is resumed, start a fresh three-turn blocker audit before using goal_blocked again; this does not require repeating known futile actions.",
 		"- When progress genuinely depends on a later external event, first arrange a non-goal wake message, then call goal_wait with the exact current goal_id to keep the goal active without automatic continuation. Use resume_after_ms only as a bounded safety wake-up, not as a polling interval.",
 		`- Prefer longer goal_wait deadlines measured in minutes to avoid busy polling. Requests below ${MIN_GOAL_WAIT_DELAY_MS}ms are clamped to ${MIN_GOAL_WAIT_DELAY_MS}ms, and omitting resume_after_ms keeps the goal quiet until external input or explicit resume.`,
 		"- Call goal_wait alone because parallel sibling tools can prevent immediate turn termination. Do not use it for ordinary unfinished work, and do not use goal_blocked for a recoverable external wait.",
 		"- Before yielding with authorized runnable work remaining and no required pause, call goal_continue alone with the exact current goal_id and a concrete next_action. It ends this execution segment and permits one Goal-owned continuation; it is not proof of progress or permission for new external writes. If you omit a decision, Goal pauses without an automatic repair turn.",
+		`- ${REVIEW_REJECTION_GUIDANCE}`,
 		"- goal_complete runs a bounded independent file-only completion reviewer by default, using the selected model and additional provider usage. Its summary is an untrusted claim, not evidence. Supply concrete evidence references; missing or uninspectable requirements remain unverified. Review errors/unknown pause without automatic retry; do not keep submitting the same completion candidate.",
 	].join("\n");
 }

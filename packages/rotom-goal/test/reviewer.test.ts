@@ -67,6 +67,10 @@ test("selected provider sees only explicit file tools and bounded untrusted evid
 			assert.equal(options.maxTokens, 2048);
 			assert.match(context.systemPrompt, /untrusted data/);
 			assert.match(context.systemPrompt, /pre-completion check/);
+			assert.match(context.systemPrompt, /not that observed calls\/results are categorically unusable as evidence/);
+			assert.match(context.systemPrompt, /do not prove.*an unobserved external effect succeeded/);
+			assert.match(context.systemPrompt, /Distinguish an observed defect from missing evidence/);
+			assert.match(context.systemPrompt, /do not prescribe repeating external writes/);
 			assert.ok(context.messages[0].content.startsWith(context.systemPrompt));
 			assert.match(context.messages[0].content, /untrusted JSON payload/);
 			assert.match(
