@@ -11,7 +11,7 @@ const image={type:'image',mimeType:'image/png',data:png};
 const raw=id=>({key:id,display_name:'Fixture',source:'system',enable:true,format:'openai',is_vl:true,max_input_tokens:id==='kmodel_latest'?180000:1000000,context_config:{'400K':{token_count:400000}}});
 async function harness(id){
  let entry=raw(id),reads=0;const requests=[];
- const p=await createQoderProvider({authMode:'qodercli',piAI:{createProvider:p=>p,lazyStream:(_m,fn)=>fn()},getCredential:async()=>{reads++;return{accessToken:'fixture',uid:'fixture',org:'',machineId:'fixture-machine',fingerprint:'a'.repeat(64)};},fetchImpl:async(url,init)=>{if(url===CATALOG_URL)return Response.json({assistant:[entry]});requests.push({url,body:decodeProbeBody(init.body)});return new Response('',{status:403});}});
+ const p=await createQoderProvider({authMode:'qodercli',piAI:{createProvider:p=>p,lazyStream:(_m,fn)=>fn()},getCredential:async()=>{reads++;return{accessToken:'fixture',uid:'fixture',org:'',machineId:'fixture-machine',fingerprint:'a'.repeat(64)};},fetchImpl:async(url,init)=>{if(url===CATALOG_URL)return Response.json({assistant:[entry]});requests.push({url,bytes:Buffer.byteLength(init.body),body:decodeProbeBody(init.body)});return new Response('',{status:403});}});
  const refresh=()=>p.refreshModels({force:true,allowNetwork:true,signal:new AbortController().signal,publish:async v=>v.update()});await refresh();reads=0;
  return{p,requests,model:()=>p.getModels().find(m=>m.id===id),get reads(){return reads;},async update(patch){entry={...entry,...patch};await refresh();reads=0;}};
 }
@@ -49,15 +49,16 @@ test('invalid images, remote URLs, unknown aliases, higher selectors and role ov
  }
  assert.equal(h.reads,0);assert.equal(h.requests.length,0);
 });
-test('canonical base64, reviewed image formats and the final request envelope remain required',()=>{
+test('canonical base64 and reviewed image formats remain required without a 24 MiB image cap',()=>{
  assert.equal(imageByteLength(png,'image/png'),24);
  assert.throws(()=>imageByteLength('AQ==','image/jpeg'),/invalid_image/);
- assert.throws(()=>imageByteLength('A'.repeat(24*1024*1024+4),'image/png'),/request_limits_rejected/);
+ const large=Buffer.alloc(19*1024*1024);Buffer.from([137,80,78,71,13,10,26,10]).copy(large);
+ assert.equal(imageByteLength(large.toString('base64'),'image/png'),large.length);
 });
-test('image-specific single, aggregate and count caps do not reject a request below the final envelope limit',async()=>{
+test('image size, aggregate, count and final envelope caps do not reject a request',async()=>{
  const h=await harness('ultimate');
  const makePng=size=>{const bytes=Buffer.alloc(size);Buffer.from([137,80,78,71,13,10,26,10]).copy(bytes);return{...image,data:bytes.toString('base64')};};
- const images=[makePng(4*1024*1024+1),makePng(2*1024*1024),...Array(31).fill(image)];
+ const images=[makePng(8*1024*1024+1),makePng(2*1024*1024),...Array(31).fill(image)];
  await assert.rejects(h.p.api.streamSimple(h.model(),{messages:[{role:'user',content:images}]},{}),{code:'http_403'});
- assert.equal(h.requests.length,1);
+ assert.equal(h.requests.length,1);assert.ok(h.requests[0].bytes>24*1024*1024);
 });

@@ -40,12 +40,9 @@ export function inputCapabilities(entry) {
   // capacity, and oversized single turns lose answer budget instead of failing.
   return Object.freeze({ images: reviewed && entry.reportedImages === true, contextWindow: expanded ? 272000 : Math.min(32000, entry?.reportedContextWindow ?? 32000), contextLength: expanded ? 400000 : Math.min(32000, entry?.reportedContextWindow ?? 32000) });
 }
-const MAX_REQUEST_BYTES = 24 * 1024 * 1024;
-// Only inline, canonical base64 in the three exercised codecs. This is bounded
-// by the final request envelope, not an image-specific size or count budget.
+// Only inline, canonical base64 in the three exercised codecs.
 export function imageByteLength(data, mime) {
   if (!['image/png', 'image/jpeg', 'image/webp'].includes(mime) || typeof data !== 'string' || !data.length) fail('invalid_image');
-  if (data.length > MAX_REQUEST_BYTES) fail('request_limits_rejected');
   if (data.length % 4 || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) fail('invalid_image');
   const bytes = Buffer.from(data, 'base64');
   if (bytes.toString('base64') !== data) fail('invalid_image');
@@ -460,7 +457,6 @@ export async function openQoderStream({ payload, getToken, getLegacyCredential, 
   payload.metadata = { context: { request_id: requestId, request_set_id: requestId, session_id: sessionId, task_id: 'common', client_type: 'rotom' } };
   const legacy = LEGACY_MODEL_IDS.includes(modelId);
   const wireBody = legacy ? legacyBody(payload, legacyModel, requestId, sessionId, reasoningMode, input) : JSON.stringify(payload);
-  if (Buffer.byteLength(wireBody) > MAX_REQUEST_BYTES) fail('request_limits_rejected');
   const controller = new AbortController();
   const abort = () => controller.abort();
   signal?.addEventListener('abort', abort, { once: true });
@@ -540,8 +536,8 @@ export function createQoderFetch(options = {}) {
     // Models.json, onPayload and SDK overrides must never redirect credentials.
     const input = inputCapabilities(legacyModel?.id === modelId ? legacyModel : undefined);
     if (init?.signal?.aborted) fail('aborted');
-    const inboundLimit = input.images ? MAX_REQUEST_BYTES : (input.contextLength === 400000 ? 12 : 2) * 1024 * 1024;
-    if (String(url) !== CHAT_URL || init?.method?.toUpperCase() !== 'POST' || typeof init.body !== 'string' || Buffer.byteLength(init.body) > inboundLimit) fail('request_scope_rejected');
+    const inboundLimit = (input.contextLength === 400000 ? 12 : 2) * 1024 * 1024;
+    if (String(url) !== CHAT_URL || init?.method?.toUpperCase() !== 'POST' || typeof init.body !== 'string' || (!input.images && Buffer.byteLength(init.body) > inboundLimit)) fail('request_scope_rejected');
     let payload;
     try { payload = JSON.parse(init.body); } catch { fail('invalid_request'); }
     const { chunks } = await openQoderStream({ ...options, payload, signal: init.signal });
