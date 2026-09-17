@@ -95,7 +95,7 @@ Browser 源码新增 ref-bound `keypress`（protocol 17 / `targeted-keypress`）
 - 未指定角色或指定 `document-text` 时还匹配最多 320 个既有有界正文 chunk；不是全文搜索，不把正文 ref 升级为可写 ref。返回 `selection.sourceNodes`（扫描的去重候选 AX 节点加正文 chunk 数）、`scannedAxNodes`（原始 AX 扫描数）、`scanTruncated`（扫描上限/缺少后代/已知 frame 或正文提取未完成）、`matchesTruncated`（匹配输出截断）。两类截断独立，任一成立则 observation.truncated=true；contentComplete 始终 false，零匹配不证明整个页面不存在目标。
 - `availableNodes` 是已保留的匹配数，模型输出字节预算与显式 limit 继续走原有分页。后续只传 cursor/limit，保留同份查询证据，不重新扫描或改变条件。握手拒绝旧协议或缺少 capability，查询回执缺失/条件不匹配时明确失败，不静默退回截断后的本地过滤。
 
-此前真实 Chrome 的 1,101 按钮合成页面已确认：尾部按钮可见、正文可读，但 600 AX 节点上限使其缺少 ref，移到首部即可发现。这是旧路径缺口的 L2 证据，不是新查询的 L2 验收。新路径经真实 worker + CDP fixture 的 L1 验证，覆盖尾部目标、frame ref、交互目标校验、扫描/输出截断与失败证据；未做新版真实 Chrome L2/L3 或 provider token 测量。安装更新后需用户显式重载 Chrome 扩展并启动新 session；本次不发布 npm、不覆盖活跃安装。真实重放仍须检查同一尾部按钮的 ref、点击回读及导航后失效。若实际页面触及扫描或深度边界，再设计定向子树查询，不能直接放宽完成标志。
+此前真实 Chrome 的 1,101 按钮合成页面已确认：尾部按钮可见、正文可读，但 600 AX 节点上限使其缺少 ref，移到首部即可发现。新路径的 L1 覆盖尾部目标、frame ref、交互目标校验、扫描/输出截断与失败证据。用户更新并手动重载扩展后，`qoder/ultimate`（high）在新会话通过尾部点击、跨 origin iframe、分页、零匹配和导航 stale ref 五组真实 Chrome 验收；父会话独立核对三个目标服务器计数各一次。19 次响应的服务端 credits 已记录小计为 38.737 Cr，USD 未知；保留一次非法 expect 参数的派发前拒绝。具体配置、用量及未覆盖范围见 [Qoder Ultimate 查询验收](browser-query-verification-2026-09-17.md)。这是候选 Browser + Qoder provider 的合成本地 L2/L3，不是完整 npm 产品或任意网站验收；未发布 npm、未覆盖活跃 rotom 主程序。其他安装仍须显式更新并由用户重载扩展、启动新 session。若实际页面触及扫描或深度边界，再设计定向子树查询，不能直接放宽完成标志。
 
 Computer Use wrapper 替换而非叠加上游模糊焦点提示：只有同一 `act_ui.actions` 中以 ref-bound click/press 聚焦 editable 目标，且 observation 含图像，后续输入才可省略 ref；坐标点击和跨调用不能继承。schema 说明与错误 hint 对齐，不改变执行行为或验证约束。三种工具面经真实 SDK smoke 实测，schema 字节各减少 7、guideline metadata 字节各减少 92；不等同于精确 token 节省。上述回读与提示优化需新 session 加载更新的 Rotom 源码，不要求额外 Chrome 重载；未发布 npm 或覆盖存活安装。
 
