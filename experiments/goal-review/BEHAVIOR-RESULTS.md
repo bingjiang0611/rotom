@@ -1,5 +1,7 @@
 # Goal 三项提示合同 × Qoder Ultimate 实测
 
+> 本文保留 `.rotom.3` 原轮次的 INCONCLUSIVE 结论和失败。后续 `.rotom.4` 停止边界修复及独立复测见 [RETRY-RETEST.md](RETRY-RETEST.md)，不回写本轮结果。
+
 ## 结论：INCONCLUSIVE，不是全项 PASS
 
 2026-09-17，用户明确授权 Qoder Ultimate 真实评测、无费用上限。三项合同有局部正向证据，但**不能宣布整体优化已可靠生效**：

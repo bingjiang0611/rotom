@@ -50,7 +50,7 @@ for (const variant of ["baseline", "candidate"]) {
 				fixture: { counts: () => row.counts, events: row.events }, cwd: evidence.cwd,
 				tools: row.tools, question, reviews: row.reviews.map((r) => r.status), timedOut: row.timedOut, modelError: row.modelError,
 			});
-			report.rows.push({ variant, repetition, goalVersion: raw.goalVersion, objectiveRoundTripVerified: raw.objectiveRoundTripVerified === true, objectiveTextMatches: evidence.objectiveTextMatches, objectiveSHA256: evidence.objectiveSHA256, promptsHash: raw.promptsHash, reviewerHash: raw.reviewerHash, harnessHashes: raw.harnessHashes, started: raw.started, network: raw.network, ...row, originalPass: row.pass, ...verdict, regraded: verdict.pass !== row.pass });
+			report.rows.push({ variant, repetition, goalVersion: raw.goalVersion, objectiveRoundTripVerified: raw.objectiveRoundTripVerified === true, objectiveTextMatches: evidence.objectiveTextMatches, objectiveSHA256: evidence.objectiveSHA256, promptsHash: raw.promptsHash, reviewerHash: raw.reviewerHash, harnessHashes: raw.harnessHashes, started: raw.started, network: raw.network, ...row, originalPass: row.pass, originalQuestion: row.question, question, ...verdict, regraded: verdict.pass !== row.pass });
 		}
 	}
 }
