@@ -4,7 +4,7 @@
 - Repository: <https://github.com/narumiruna/pi-extensions> (`packages/pi-goal`)
 - Baseline: upstream `0.54.4`, 22 TypeScript source files.
 - License: MIT; original notice retained in `LICENSE`.
-- Maintained version: `0.54.4-rotom.2`, private component of [rotom](https://github.com/bingjiang0611/rotom), not an upstream or npm release.
+- Maintained version: `0.54.4-rotom.3`, private component of [rotom](https://github.com/bingjiang0611/rotom), not an upstream or npm release.
 - `.rotom.2`: Qoder Ultimate live evaluation exposed missing verdict markers when the request contained only JSON. The request now carries the same review contract outside the untrusted payload, and file tools explain the project-root path. Bounded `goal_continue`/`goal_wait` tool results and text-only user/host announcements are now visible to the reviewer for procedural requirements, but remain excluded from candidate identity and progress. The request also clarifies pre-completion timing and native control semantics; evidence retains complete records up to the existing 12KB bound instead of prematurely dropping them after six records. Strict verdict parsing, model-call/attempt limits and token/byte budgets are unchanged.
 
 ## Retained upstream behavior
@@ -29,6 +29,10 @@ This version takes design inspiration from `tmonk/pi-goal-x` commit `323fd4c3b07
 - `completionReview` defaults true in existing settings. An explicit user opt-out restores the old model-reported completion path.
 - Review attempts and partial reported-token usage persist in the existing Goal state before dispatch. Resume/edit do not replenish the allowance. Unknown/in-flight attempts are not replayed; restore pauses them. Approval checks the current run/Goal, selected evidence and inspected file digests.
 - Requirements remain in the complete original objective. Reviewer approval is a second opinion, not independent proof of arbitrary external effects. File scope, budgets, cancellation limits and unknown USD/credits are documented in [README.md](README.md).
+
+### `.rotom.3`: clarification, authorization pauses and evidence-driven retries
+
+Design inspiration: `qiaomu-goal-meta-skill` by 向阳乔木 (<https://github.com/joeseesun/>). No skill implementation, templates or linter are bundled. The shared prompt contract adds evidence-first clarification without narrowing the original objective, immediate pauses for missing authorization/critical decisions through the existing missing-decision path, and evidence-driven retries with read-only resolution of unknown external writes. No new tool, state, model call, permission interceptor or fixed improvement-round limit is added. Technical `goal_blocked` thresholds and completion requirements remain unchanged.
 
 ## Compatibility and verification
 

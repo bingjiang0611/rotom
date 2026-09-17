@@ -1,6 +1,6 @@
 # rotom Goal
 
-rotom-maintained `@narumitw/pi-goal@0.54.4-rotom.2`. MIT upstream provenance is in [UPSTREAM.md](UPSTREAM.md). Use the integrated [rotom installation](../../docs/usage.md), not a second upstream Goal extension.
+rotom-maintained `@narumitw/pi-goal@0.54.4-rotom.3`. MIT upstream provenance is in [UPSTREAM.md](UPSTREAM.md). Use the integrated [rotom installation](../../docs/usage.md), not a second upstream Goal extension.
 
 ## One session, one objective
 
@@ -14,6 +14,16 @@ rotom-maintained `@narumitw/pi-goal@0.54.4-rotom.2`. MIT upstream provenance is 
 ```
 
 Bare `/goal` opens the manager. Keep all acceptance requirements in the objective; there is no task tree, project goal pool, separate criteria store or ordered queue. Current files, command results and external observations outrank plans and summaries.
+
+## Clarification, authorization and retries
+
+The shared Goal prompt contract applies on start, objective updates, continuation and resume:
+
+- Identify the deliverable, completion evidence and authorized write scope. Inspect project scripts, documentation and current state before asking; unfamiliar domain rules and verification commands must come from evidence. State low-risk, reversible assumptions and proceed, without rewriting the objective, reducing it to an MVP or adding acceptance requirements.
+- Ask only about unresolved choices that materially affect acceptance, product direction, cost, permissions or ownership. Preserve explicit authorization already given. For missing authorization or a critical user decision, ask before the affected action (`ask_user_question` when available, otherwise a normal message). If unanswered, end without `goal_continue`: the existing missing-decision path pauses immediately, without waiting for three blocker turns or misusing `goal_blocked` / `goal_wait`. Resume does not grant missing authorization.
+- After a tool problem, distinguish confirmed failure, still-running work and unknown outcome. Inspect evidence and require new evidence or a specific testable hypothesis before another attempt, within existing retry limits. Never switch tools to bypass a boundary. Check unknown external writes read-only at the same target; if still unknown, report and pause, never replay merely because success was unproven. Lack of new retry evidence does not waive the technical blocker threshold.
+
+These are model instructions, **not a permission interceptor**. Tools, state schema, completion evidence requirements and reviewer limits are unchanged. Deterministic tests prove prompt injection and the existing immediate-pause behavior, not live-model judgment or authorization compliance.
 
 ## Explicit continuation (default)
 

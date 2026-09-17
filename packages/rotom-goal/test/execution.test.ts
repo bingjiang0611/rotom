@@ -122,6 +122,24 @@ test("accepted decision permits exactly one settled continuation; missing decisi
 	assert.equal(h.sent.length, 1);
 });
 
+test("an unanswered authorization question pauses on the first run without a blocker or wake", (t) => {
+	const h = fixture(t);
+	const original = h.runtime.activeGoal!;
+	assert.equal(original.iteration, 0);
+	h.handlers.get("agent_end")(
+		{ messages: [{ role: "assistant", content: [{ type: "text", text: "May I publish this version?" }], stopReason: "stop" }] },
+		h.ctx,
+	);
+	h.handlers.get("agent_settled")({}, h.ctx);
+	assert.equal(h.runtime.activeGoal?.status, "paused");
+	assert.equal(h.runtime.activeGoal?.id, original.id);
+	assert.equal(h.runtime.activeGoal?.text, original.text);
+	assert.equal(h.runtime.activeGoal?.iteration, 1);
+	assert.equal(h.runtime.activeGoal?.waiting, undefined);
+	assert.equal(h.runtime.continueAction, undefined);
+	assert.deepEqual(h.sent, []);
+});
+
 test("non-goal input and sibling tools invalidate a decision instead of dispatching it", async (t) => {
 	const h = fixture(t);
 	const id = h.runtime.activeGoal!.id;

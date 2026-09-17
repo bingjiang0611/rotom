@@ -1,6 +1,6 @@
 {
 	"name": "@narumitw/pi-goal",
-	"version": "0.54.4-rotom.2",
+	"version": "0.54.4-rotom.3",
 	"description": "rotom-maintained fork of @narumitw/pi-goal: autonomous single-objective /goal completion with a stronger no-progress guard.",
 	"type": "module",
 	"license": "MIT",
