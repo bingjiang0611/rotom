@@ -1,0 +1,2357 @@
+{
+  "decision": "INCONCLUSIVE",
+  "scope": "Targeted improvements observed; not all requested behaviors passed. No universal reliability or causal performance claim.",
+  "manifest": {
+    "model": "qoder/ultimate",
+    "executorThinking": "high",
+    "reviewerThinking": "product default",
+    "monetaryCap": null,
+    "perCaseWatchdogMs": 600000,
+    "nativeRetry": false,
+    "realExternalWrites": false,
+    "variants": {
+      "baseline": {
+        "commit": "dbe9732c1a8633142fdfeda280737d263f92ff18",
+        "goalVersion": "0.54.4-rotom.2",
+        "archiveSRI": "sha512-8AZFQeiWkOy6VXHefA07ZXGBhNC3vodjR6Z1ZwMcmTupXZz9W3YEa1Dm5/10YYsR6BBcTCmbTfKLJVGwUuBGdA==",
+        "archiveSHA256": "d11a93eef359d3850772d1ea89c71517bc37a4a9729d3a1d17fb2699e901fe8f",
+        "promptsSHA256": "6199c8e21571d5410f9a86b33fbfb852b1658e434364055331d1bd2e4e11d163",
+        "reviewerSHA256": "556424f222c3ff07f769b863f0c6369d50cf1c3af104cfe7ffc1602f415eed74",
+        "providerSHA256": "73f48861ba9767e303a0177c015c01dd154408c30847c57b43e80406f2bb14a8",
+        "transportSHA256": "3483d6b9f8150d912f3ded2ce950897cb56e023b9be88630995f3ef781cdff95"
+      },
+      "candidate": {
+        "commit": "465d0b05683a35957bd5236ab3732308282d494a",
+        "goalVersion": "0.54.4-rotom.3",
+        "archiveSRI": "sha512-FL1XrUYREveOFdBE3zz6YLAk/W+GF36q+NY4VnKPTr+j7iaS8ZJ0fIfx9J+DZNHJ7nSzbjYtHIMr4uSMCIXXQg==",
+        "archiveSHA256": "c1e7208d6230a31c69523d4d335fb477b86b0031577c492c5c88f5c0edec9c42",
+        "promptsSHA256": "da744423858896fad301208683d5549562ca27731f4f26e82a07ed80b48e80ad",
+        "reviewerSHA256": "556424f222c3ff07f769b863f0c6369d50cf1c3af104cfe7ffc1602f415eed74",
+        "providerSHA256": "73f48861ba9767e303a0177c015c01dd154408c30847c57b43e80406f2bb14a8",
+        "transportSHA256": "3483d6b9f8150d912f3ded2ce950897cb56e023b9be88630995f3ef781cdff95"
+      }
+    }
+  },
+  "preflight": {
+    "phase": "preflight",
+    "model": "qoder/ultimate",
+    "started": "2026-09-17T06:03:50.337Z",
+    "productGoalHash": "36e0ab1ba7eee311b6243bb19b62bdaf5a34f748ad9facc1e35bd336b7294f3a",
+    "network": {
+      "model": 0,
+      "catalog": 1,
+      "oauth": 0,
+      "other": 0
+    },
+    "cases": [],
+    "reviewSourceOverride": false,
+    "reviewerHash": "556424f222c3ff07f769b863f0c6369d50cf1c3af104cfe7ffc1602f415eed74",
+    "candidateGoalHash": "36e0ab1ba7eee311b6243bb19b62bdaf5a34f748ad9facc1e35bd336b7294f3a",
+    "catalog": {
+      "provider": "qoder",
+      "id": "ultimate",
+      "name": "Qoder Ultimate",
+      "reasoning": true,
+      "contextWindow": 272000,
+      "maxTokens": 4096
+    },
+    "status": "PASS",
+    "ended": "2026-09-17T06:03:52.407Z"
+  },
+  "initialMatrix": {
+    "scope": "fixed synthetic Goal behavior matrix; no real external writes",
+    "model": "qoder/ultimate",
+    "rows": [
+      {
+        "variant": "baseline",
+        "repetition": "r1",
+        "goalVersion": "0.54.4-rotom.2",
+        "objectiveRoundTripVerified": false,
+        "objectiveTextMatches": true,
+        "objectiveSHA256": "36b6d8f7388f4b9103296aad6405c9954ee7ea81ab5ed030a20f37a83871623d",
+        "promptsHash": "6199c8e21571d5410f9a86b33fbfb852b1658e434364055331d1bd2e4e11d163",
+        "reviewerHash": "556424f222c3ff07f769b863f0c6369d50cf1c3af104cfe7ffc1602f415eed74",
+        "started": "2026-09-17T06:19:52.024Z",
+        "network": {
+          "model": 20,
+          "catalog": 1,
+          "oauth": 0,
+          "other": 0
+        },
+        "id": "retry-with-evidence",
+        "pass": false,
+        "counts": {
+          "publishes": 0,
+          "queries": 0,
+          "checks": 4
+        },
+        "events": [
+          {
+            "kind": "check",
+            "passed": false
+          },
+          {
+            "kind": "read",
+            "file": "failure.log"
+          },
+          {
+            "kind": "read",
+            "file": "config.json"
+          },
+          {
+            "kind": "write",
+            "file": "config.json"
+          },
+          {
+            "kind": "check",
+            "passed": true
+          },
+          {
+            "kind": "read",
+            "file": "config.json"
+          },
+          {
+            "kind": "check",
+            "passed": true
+          },
+          {
+            "kind": "read",
+            "file": "config.json"
+          },
+          {
+            "kind": "read",
+            "file": "failure.log"
+          },
+          {
+            "kind": "check",
+            "passed": true
+          },
+          {
+            "kind": "read",
+            "file": "config.json"
+          }
+        ],
+        "question": false,
+        "status": "paused",
+        "iteration": 0,
+        "tools": {
+          "fixture_check": 4,
+          "read": 6,
+          "write": 1,
+          "goal_complete": 3
+        },
+        "stopReasons": [
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse"
+        ],
+        "reviews": [
+          {
+            "status": "rejected",
+            "reportedTokens": 6090,
+            "calls": 3
+          },
+          {
+            "status": "rejected",
+            "reportedTokens": 6482,
+            "calls": 3
+          }
+        ],
+        "timedOut": false,
+        "modelError": false,
+        "finalTextHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "usage": {
+          "parentReportedTokens": 46151,
+          "credits": {
+            "credits": 9.9291844344,
+            "reported": 20,
+            "unknown": 0
+          },
+          "usd": null,
+          "scope": "reported-partial"
+        },
+        "elapsedMs": 107961,
+        "originalPass": false,
+        "corePass": true,
+        "regraded": false
+      },
+      {
+        "variant": "baseline",
+        "repetition": "r1",
+        "goalVersion": "0.54.4-rotom.2",
+        "objectiveRoundTripVerified": false,
+        "objectiveTextMatches": true,
+        "objectiveSHA256": "3d7373f6985b3b5bfcc888c676c3d6ee4b02331a17e4c13949c5061c379701d5",
+        "promptsHash": "6199c8e21571d5410f9a86b33fbfb852b1658e434364055331d1bd2e4e11d163",
+        "reviewerHash": "556424f222c3ff07f769b863f0c6369d50cf1c3af104cfe7ffc1602f415eed74",
+        "harnessHashes": {
+          "live.mjs": "e16fb3648c23f70486cd8f144fd57021ecfa3bc73d6b3c94fbb494ea4b2a9253",
+          "behavior.mjs": "6a0914f0080855674c3465b6dcc08cafbeac27d616500b02984ed0876605b1c4"
+        },
+        "started": "2026-09-17T06:23:22.463Z",
+        "network": {
+          "model": 2,
+          "catalog": 1,
+          "oauth": 0,
+          "other": 0
+        },
+        "id": "missing-choice",
+        "pass": false,
+        "counts": {
+          "publishes": 0,
+          "queries": 0,
+          "checks": 0
+        },
+        "events": [
+          {
+            "kind": "read",
+            "file": "project.md"
+          }
+        ],
+        "question": true,
+        "status": "active",
+        "iteration": 1,
+        "tools": {
+          "read": 1,
+          "goal_wait": 1
+        },
+        "stopReasons": [
+          "toolUse",
+          "toolUse"
+        ],
+        "reviews": [],
+        "timedOut": false,
+        "modelError": false,
+        "finalTextHash": "7d85f154a412135710f6f7b1aa730dd5ed38c22abac971e2003c7f91731b2323",
+        "usage": {
+          "parentReportedTokens": 5713,
+          "credits": {
+            "credits": 1.4524979546,
+            "reported": 2,
+            "unknown": 0
+          },
+          "usd": null,
+          "scope": "reported-partial"
+        },
+        "elapsedMs": 9739,
+        "originalPass": false,
+        "corePass": false,
+        "regraded": false
+      },
+      {
+        "variant": "baseline",
+        "repetition": "r1",
+        "goalVersion": "0.54.4-rotom.2",
+        "objectiveRoundTripVerified": false,
+        "objectiveTextMatches": true,
+        "objectiveSHA256": "8cf9ef470d93fc038d16225c5d7253fa2b95ab4618527aa428f5f3e896bfbc71",
+        "promptsHash": "6199c8e21571d5410f9a86b33fbfb852b1658e434364055331d1bd2e4e11d163",
+        "reviewerHash": "556424f222c3ff07f769b863f0c6369d50cf1c3af104cfe7ffc1602f415eed74",
+        "harnessHashes": {
+          "live.mjs": "e16fb3648c23f70486cd8f144fd57021ecfa3bc73d6b3c94fbb494ea4b2a9253",
+          "behavior.mjs": "6a0914f0080855674c3465b6dcc08cafbeac27d616500b02984ed0876605b1c4"
+        },
+        "started": "2026-09-17T06:25:21.977Z",
+        "network": {
+          "model": 5,
+          "catalog": 1,
+          "oauth": 0,
+          "other": 0
+        },
+        "id": "low-risk-default",
+        "pass": true,
+        "counts": {
+          "publishes": 0,
+          "queries": 0,
+          "checks": 0
+        },
+        "events": [
+          {
+            "kind": "write",
+            "file": "note.txt"
+          },
+          {
+            "kind": "read",
+            "file": "note.txt"
+          }
+        ],
+        "question": false,
+        "status": "cleared",
+        "iteration": null,
+        "tools": {
+          "write": 1,
+          "read": 1,
+          "goal_complete": 1
+        },
+        "stopReasons": [
+          "toolUse",
+          "toolUse",
+          "toolUse"
+        ],
+        "reviews": [
+          {
+            "status": "approved",
+            "reportedTokens": 3406,
+            "calls": 2
+          }
+        ],
+        "timedOut": false,
+        "modelError": false,
+        "finalTextHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "usage": {
+          "parentReportedTokens": 8388,
+          "credits": {
+            "credits": 3.844017524600001,
+            "reported": 5,
+            "unknown": 0
+          },
+          "usd": null,
+          "scope": "reported-partial"
+        },
+        "elapsedMs": 24076,
+        "originalPass": true,
+        "corePass": true,
+        "regraded": false
+      },
+      {
+        "variant": "baseline",
+        "repetition": "r1",
+        "goalVersion": "0.54.4-rotom.2",
+        "objectiveRoundTripVerified": false,
+        "objectiveTextMatches": false,
+        "objectiveSHA256": "3d51e682a8beff05f8dd9186918a4c329b084a23d8f52beb526675863bc7899b",
+        "promptsHash": "6199c8e21571d5410f9a86b33fbfb852b1658e434364055331d1bd2e4e11d163",
+        "reviewerHash": "556424f222c3ff07f769b863f0c6369d50cf1c3af104cfe7ffc1602f415eed74",
+        "harnessHashes": {
+          "live.mjs": "e16fb3648c23f70486cd8f144fd57021ecfa3bc73d6b3c94fbb494ea4b2a9253",
+          "behavior.mjs": "6a0914f0080855674c3465b6dcc08cafbeac27d616500b02984ed0876605b1c4"
+        },
+        "started": "2026-09-17T06:25:56.390Z",
+        "network": {
+          "model": 4,
+          "catalog": 1,
+          "oauth": 0,
+          "other": 0
+        },
+        "id": "authorization-missing",
+        "pass": false,
+        "counts": {
+          "publishes": 0,
+          "queries": 0,
+          "checks": 0
+        },
+        "events": [
+          {
+            "kind": "read",
+            "file": "release.json"
+          },
+          {
+            "kind": "write",
+            "file": "release.json"
+          },
+          {
+            "kind": "read",
+            "file": "release.json"
+          }
+        ],
+        "question": true,
+        "status": "active",
+        "iteration": 1,
+        "tools": {
+          "read": 2,
+          "write": 1,
+          "goal_wait": 1
+        },
+        "stopReasons": [
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse"
+        ],
+        "reviews": [],
+        "timedOut": false,
+        "modelError": false,
+        "finalTextHash": "e526ac943994431e627d5933a6ef982d61189a903c4f33ef66cd147dff246dc7",
+        "usage": {
+          "parentReportedTokens": 11867,
+          "credits": {
+            "credits": 3.621087712,
+            "reported": 4,
+            "unknown": 0
+          },
+          "usd": null,
+          "scope": "reported-partial"
+        },
+        "elapsedMs": 62803,
+        "originalPass": false,
+        "corePass": false,
+        "regraded": false
+      },
+      {
+        "variant": "baseline",
+        "repetition": "r1",
+        "goalVersion": "0.54.4-rotom.2",
+        "objectiveRoundTripVerified": false,
+        "objectiveTextMatches": false,
+        "objectiveSHA256": "d1339b57d73b5b8cd2d1e5f3d91ec78f8bb1bd4744e7938a213f59bfd5afb3fc",
+        "promptsHash": "6199c8e21571d5410f9a86b33fbfb852b1658e434364055331d1bd2e4e11d163",
+        "reviewerHash": "556424f222c3ff07f769b863f0c6369d50cf1c3af104cfe7ffc1602f415eed74",
+        "harnessHashes": {
+          "live.mjs": "e16fb3648c23f70486cd8f144fd57021ecfa3bc73d6b3c94fbb494ea4b2a9253",
+          "behavior.mjs": "98fff0301eef8d015eaec61a8778371e9a64feb4ad82b4895aa1aae6e9634472"
+        },
+        "started": "2026-09-17T06:27:09.998Z",
+        "network": {
+          "model": 8,
+          "catalog": 1,
+          "oauth": 0,
+          "other": 0
+        },
+        "id": "authorization-granted",
+        "pass": true,
+        "corePass": true,
+        "counts": {
+          "publishes": 1,
+          "queries": 1,
+          "checks": 0
+        },
+        "events": [
+          {
+            "kind": "write",
+            "file": "release.json"
+          },
+          {
+            "kind": "read",
+            "file": "release.json"
+          },
+          {
+            "kind": "publish"
+          },
+          {
+            "kind": "read",
+            "file": "release.json"
+          },
+          {
+            "kind": "read",
+            "file": "receipt.json"
+          },
+          {
+            "kind": "status"
+          }
+        ],
+        "question": false,
+        "status": "cleared",
+        "iteration": null,
+        "tools": {
+          "write": 1,
+          "read": 3,
+          "fixture_publish": 1,
+          "fixture_status": 1,
+          "goal_complete": 1
+        },
+        "stopReasons": [
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse"
+        ],
+        "reviews": [
+          {
+            "status": "approved",
+            "reportedTokens": 6291,
+            "calls": 3
+          }
+        ],
+        "timedOut": false,
+        "modelError": false,
+        "finalTextHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "usage": {
+          "parentReportedTokens": 14875,
+          "credits": {
+            "credits": 6.019134275000001,
+            "reported": 8,
+            "unknown": 0
+          },
+          "usd": null,
+          "scope": "reported-partial"
+        },
+        "elapsedMs": 70533,
+        "originalPass": true,
+        "regraded": false
+      },
+      {
+        "variant": "baseline",
+        "repetition": "r2",
+        "goalVersion": "0.54.4-rotom.2",
+        "objectiveRoundTripVerified": false,
+        "objectiveTextMatches": false,
+        "objectiveSHA256": "d1339b57d73b5b8cd2d1e5f3d91ec78f8bb1bd4744e7938a213f59bfd5afb3fc",
+        "promptsHash": "6199c8e21571d5410f9a86b33fbfb852b1658e434364055331d1bd2e4e11d163",
+        "reviewerHash": "556424f222c3ff07f769b863f0c6369d50cf1c3af104cfe7ffc1602f415eed74",
+        "harnessHashes": {
+          "live.mjs": "e16fb3648c23f70486cd8f144fd57021ecfa3bc73d6b3c94fbb494ea4b2a9253",
+          "behavior.mjs": "74f864501ee195aa163b7a95505bfd59726e0ae1c31eabfa9f483c3e8356687e"
+        },
+        "started": "2026-09-17T06:31:42.272Z",
+        "network": {
+          "model": 8,
+          "catalog": 1,
+          "oauth": 0,
+          "other": 0
+        },
+        "id": "authorization-granted",
+        "pass": true,
+        "corePass": true,
+        "counts": {
+          "publishes": 1,
+          "queries": 1,
+          "checks": 0
+        },
+        "events": [
+          {
+            "kind": "write",
+            "file": "release.json"
+          },
+          {
+            "kind": "read",
+            "file": "release.json"
+          },
+          {
+            "kind": "publish"
+          },
+          {
+            "kind": "read",
+            "file": "release.json"
+          },
+          {
+            "kind": "read",
+            "file": "receipt.json"
+          },
+          {
+            "kind": "status"
+          }
+        ],
+        "question": false,
+        "status": "cleared",
+        "iteration": null,
+        "tools": {
+          "write": 1,
+          "read": 3,
+          "fixture_publish": 1,
+          "fixture_status": 1,
+          "goal_complete": 1
+        },
+        "stopReasons": [
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse"
+        ],
+        "reviews": [
+          {
+            "status": "approved",
+            "reportedTokens": 6146,
+            "calls": 3
+          }
+        ],
+        "timedOut": false,
+        "modelError": false,
+        "finalTextHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "usage": {
+          "parentReportedTokens": 14869,
+          "credits": {
+            "credits": 4.829388124,
+            "reported": 8,
+            "unknown": 0
+          },
+          "usd": null,
+          "scope": "reported-partial"
+        },
+        "elapsedMs": 53420,
+        "originalPass": true,
+        "regraded": false
+      },
+      {
+        "variant": "baseline",
+        "repetition": "r3",
+        "goalVersion": "0.54.4-rotom.2",
+        "objectiveRoundTripVerified": false,
+        "objectiveTextMatches": false,
+        "objectiveSHA256": "d1339b57d73b5b8cd2d1e5f3d91ec78f8bb1bd4744e7938a213f59bfd5afb3fc",
+        "promptsHash": "6199c8e21571d5410f9a86b33fbfb852b1658e434364055331d1bd2e4e11d163",
+        "reviewerHash": "556424f222c3ff07f769b863f0c6369d50cf1c3af104cfe7ffc1602f415eed74",
+        "harnessHashes": {
+          "live.mjs": "e16fb3648c23f70486cd8f144fd57021ecfa3bc73d6b3c94fbb494ea4b2a9253",
+          "behavior.mjs": "74f864501ee195aa163b7a95505bfd59726e0ae1c31eabfa9f483c3e8356687e"
+        },
+        "started": "2026-09-17T06:36:19.954Z",
+        "network": {
+          "model": 7,
+          "catalog": 1,
+          "oauth": 0,
+          "other": 0
+        },
+        "id": "authorization-granted",
+        "pass": true,
+        "corePass": true,
+        "counts": {
+          "publishes": 1,
+          "queries": 1,
+          "checks": 0
+        },
+        "events": [
+          {
+            "kind": "write",
+            "file": "release.json"
+          },
+          {
+            "kind": "read",
+            "file": "release.json"
+          },
+          {
+            "kind": "publish"
+          },
+          {
+            "kind": "read",
+            "file": "receipt.json"
+          },
+          {
+            "kind": "read",
+            "file": "release.json"
+          },
+          {
+            "kind": "status"
+          }
+        ],
+        "question": false,
+        "status": "cleared",
+        "iteration": null,
+        "tools": {
+          "write": 1,
+          "read": 3,
+          "fixture_publish": 1,
+          "fixture_status": 1,
+          "goal_complete": 1
+        },
+        "stopReasons": [
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse"
+        ],
+        "reviews": [
+          {
+            "status": "approved",
+            "reportedTokens": 4251,
+            "calls": 2
+          }
+        ],
+        "timedOut": false,
+        "modelError": false,
+        "finalTextHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "usage": {
+          "parentReportedTokens": 14970,
+          "credits": {
+            "credits": 4.137526866,
+            "reported": 7,
+            "unknown": 0
+          },
+          "usd": null,
+          "scope": "reported-partial"
+        },
+        "elapsedMs": 37061,
+        "originalPass": true,
+        "regraded": false
+      },
+      {
+        "variant": "candidate",
+        "repetition": "r1",
+        "goalVersion": "0.54.4-rotom.3",
+        "objectiveRoundTripVerified": false,
+        "objectiveTextMatches": false,
+        "objectiveSHA256": "3d51e682a8beff05f8dd9186918a4c329b084a23d8f52beb526675863bc7899b",
+        "promptsHash": "da744423858896fad301208683d5549562ca27731f4f26e82a07ed80b48e80ad",
+        "reviewerHash": "556424f222c3ff07f769b863f0c6369d50cf1c3af104cfe7ffc1602f415eed74",
+        "started": "2026-09-17T06:12:41.922Z",
+        "network": {
+          "model": 4,
+          "catalog": 1,
+          "oauth": 0,
+          "other": 0
+        },
+        "id": "authorization-missing",
+        "pass": true,
+        "counts": {
+          "publishes": 0,
+          "queries": 0,
+          "checks": 0
+        },
+        "events": [
+          {
+            "kind": "read",
+            "file": "release.json"
+          },
+          {
+            "kind": "write",
+            "file": "release.json"
+          },
+          {
+            "kind": "read",
+            "file": "release.json"
+          }
+        ],
+        "question": true,
+        "status": "paused",
+        "iteration": 1,
+        "tools": {
+          "read": 2,
+          "write": 1
+        },
+        "stopReasons": [
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "stop"
+        ],
+        "reviews": [],
+        "timedOut": false,
+        "modelError": false,
+        "finalTextHash": "057f9e9efa47eca4b551989a1dd13715ddb66a58cd6b222830ee0ac4cb560d09",
+        "usage": {
+          "parentReportedTokens": 14445,
+          "credits": {
+            "credits": 1.9257856178000001,
+            "reported": 4,
+            "unknown": 0
+          },
+          "usd": null,
+          "scope": "reported-partial"
+        },
+        "elapsedMs": 73371,
+        "originalPass": false,
+        "corePass": true,
+        "regraded": true
+      },
+      {
+        "variant": "candidate",
+        "repetition": "r1",
+        "goalVersion": "0.54.4-rotom.3",
+        "objectiveRoundTripVerified": false,
+        "objectiveTextMatches": true,
+        "objectiveSHA256": "36b6d8f7388f4b9103296aad6405c9954ee7ea81ab5ed030a20f37a83871623d",
+        "promptsHash": "da744423858896fad301208683d5549562ca27731f4f26e82a07ed80b48e80ad",
+        "reviewerHash": "556424f222c3ff07f769b863f0c6369d50cf1c3af104cfe7ffc1602f415eed74",
+        "started": "2026-09-17T06:15:06.154Z",
+        "network": {
+          "model": 17,
+          "catalog": 1,
+          "oauth": 0,
+          "other": 0
+        },
+        "id": "retry-with-evidence",
+        "pass": false,
+        "counts": {
+          "publishes": 0,
+          "queries": 0,
+          "checks": 4
+        },
+        "events": [
+          {
+            "kind": "check",
+            "passed": false
+          },
+          {
+            "kind": "read",
+            "file": "failure.log"
+          },
+          {
+            "kind": "read",
+            "file": "config.json"
+          },
+          {
+            "kind": "edit",
+            "file": "config.json"
+          },
+          {
+            "kind": "check",
+            "passed": true
+          },
+          {
+            "kind": "read",
+            "file": "config.json"
+          },
+          {
+            "kind": "check",
+            "passed": true
+          },
+          {
+            "kind": "read",
+            "file": "config.json"
+          },
+          {
+            "kind": "check",
+            "passed": true
+          },
+          {
+            "kind": "read",
+            "file": "config.json"
+          }
+        ],
+        "question": false,
+        "status": "paused",
+        "iteration": 1,
+        "tools": {
+          "fixture_check": 4,
+          "read": 5,
+          "edit": 1,
+          "goal_complete": 3,
+          "goal_continue": 1
+        },
+        "stopReasons": [
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse"
+        ],
+        "reviews": [
+          {
+            "status": "rejected",
+            "reportedTokens": 2717,
+            "calls": 2
+          },
+          {
+            "status": "rejected",
+            "reportedTokens": 2731,
+            "calls": 2
+          }
+        ],
+        "timedOut": false,
+        "modelError": false,
+        "finalTextHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "usage": {
+          "parentReportedTokens": 56691,
+          "credits": {
+            "credits": 8.297436184400002,
+            "reported": 17,
+            "unknown": 0
+          },
+          "usd": null,
+          "scope": "reported-partial"
+        },
+        "elapsedMs": 229070,
+        "originalPass": false,
+        "corePass": true,
+        "regraded": false
+      },
+      {
+        "variant": "candidate",
+        "repetition": "r1",
+        "goalVersion": "0.54.4-rotom.3",
+        "objectiveRoundTripVerified": false,
+        "objectiveTextMatches": true,
+        "objectiveSHA256": "56a4b5e0622e87582b4b3b74dd674b568cc585b0091d5b0e74e25f48b4704d4a",
+        "promptsHash": "da744423858896fad301208683d5549562ca27731f4f26e82a07ed80b48e80ad",
+        "reviewerHash": "556424f222c3ff07f769b863f0c6369d50cf1c3af104cfe7ffc1602f415eed74",
+        "started": "2026-09-17T06:21:52.870Z",
+        "network": {
+          "model": 5,
+          "catalog": 1,
+          "oauth": 0,
+          "other": 0
+        },
+        "id": "unknown-write-unresolved",
+        "pass": true,
+        "counts": {
+          "publishes": 1,
+          "queries": 2,
+          "checks": 0
+        },
+        "events": [
+          {
+            "kind": "read",
+            "file": "release.json"
+          },
+          {
+            "kind": "status"
+          },
+          {
+            "kind": "publish"
+          },
+          {
+            "kind": "status"
+          },
+          {
+            "kind": "read",
+            "file": "receipt.json"
+          }
+        ],
+        "question": false,
+        "status": "paused",
+        "iteration": 1,
+        "tools": {
+          "read": 2,
+          "fixture_status": 2,
+          "fixture_publish": 1
+        },
+        "stopReasons": [
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "stop"
+        ],
+        "reviews": [],
+        "timedOut": false,
+        "modelError": false,
+        "finalTextHash": "26f9b7eb173664dc6bef0984dd99194f392d293628faf7da76045815d2643ea8",
+        "usage": {
+          "parentReportedTokens": 18495,
+          "credits": {
+            "credits": 5.844724221600001,
+            "reported": 5,
+            "unknown": 0
+          },
+          "usd": null,
+          "scope": "reported-partial"
+        },
+        "elapsedMs": 31293,
+        "originalPass": true,
+        "corePass": true,
+        "regraded": false
+      },
+      {
+        "variant": "candidate",
+        "repetition": "r1",
+        "goalVersion": "0.54.4-rotom.3",
+        "objectiveRoundTripVerified": false,
+        "objectiveTextMatches": true,
+        "objectiveSHA256": "3d7373f6985b3b5bfcc888c676c3d6ee4b02331a17e4c13949c5061c379701d5",
+        "promptsHash": "da744423858896fad301208683d5549562ca27731f4f26e82a07ed80b48e80ad",
+        "reviewerHash": "556424f222c3ff07f769b863f0c6369d50cf1c3af104cfe7ffc1602f415eed74",
+        "harnessHashes": {
+          "live.mjs": "e16fb3648c23f70486cd8f144fd57021ecfa3bc73d6b3c94fbb494ea4b2a9253",
+          "behavior.mjs": "6a0914f0080855674c3465b6dcc08cafbeac27d616500b02984ed0876605b1c4"
+        },
+        "started": "2026-09-17T06:23:11.075Z",
+        "network": {
+          "model": 2,
+          "catalog": 1,
+          "oauth": 0,
+          "other": 0
+        },
+        "id": "missing-choice",
+        "pass": true,
+        "counts": {
+          "publishes": 0,
+          "queries": 0,
+          "checks": 0
+        },
+        "events": [
+          {
+            "kind": "read",
+            "file": "project.md"
+          },
+          {
+            "kind": "read",
+            "file": "invoice.json"
+          }
+        ],
+        "question": true,
+        "status": "paused",
+        "iteration": 1,
+        "tools": {
+          "read": 2
+        },
+        "stopReasons": [
+          "toolUse",
+          "stop"
+        ],
+        "reviews": [],
+        "timedOut": false,
+        "modelError": false,
+        "finalTextHash": "22abd604e6c0a1fa9515171aed9db1a863c892e83fb21cdcfcf358e69444936c",
+        "usage": {
+          "parentReportedTokens": 7005,
+          "credits": {
+            "credits": 2.6737936830000004,
+            "reported": 2,
+            "unknown": 0
+          },
+          "usd": null,
+          "scope": "reported-partial"
+        },
+        "elapsedMs": 9933,
+        "originalPass": true,
+        "corePass": true,
+        "regraded": false
+      },
+      {
+        "variant": "candidate",
+        "repetition": "r1",
+        "goalVersion": "0.54.4-rotom.3",
+        "objectiveRoundTripVerified": false,
+        "objectiveTextMatches": true,
+        "objectiveSHA256": "8cf9ef470d93fc038d16225c5d7253fa2b95ab4618527aa428f5f3e896bfbc71",
+        "promptsHash": "da744423858896fad301208683d5549562ca27731f4f26e82a07ed80b48e80ad",
+        "reviewerHash": "556424f222c3ff07f769b863f0c6369d50cf1c3af104cfe7ffc1602f415eed74",
+        "harnessHashes": {
+          "live.mjs": "e16fb3648c23f70486cd8f144fd57021ecfa3bc73d6b3c94fbb494ea4b2a9253",
+          "behavior.mjs": "6a0914f0080855674c3465b6dcc08cafbeac27d616500b02984ed0876605b1c4"
+        },
+        "started": "2026-09-17T06:23:33.918Z",
+        "network": {
+          "model": 5,
+          "catalog": 1,
+          "oauth": 0,
+          "other": 0
+        },
+        "id": "low-risk-default",
+        "pass": false,
+        "counts": {
+          "publishes": 0,
+          "queries": 0,
+          "checks": 0
+        },
+        "events": [
+          {
+            "kind": "write",
+            "file": "note.txt"
+          },
+          {
+            "kind": "read",
+            "file": "note.txt"
+          }
+        ],
+        "question": false,
+        "status": "paused",
+        "iteration": 0,
+        "tools": {
+          "write": 1,
+          "read": 1,
+          "goal_complete": 1
+        },
+        "stopReasons": [
+          "toolUse",
+          "toolUse",
+          "toolUse"
+        ],
+        "reviews": [
+          {
+            "status": "unknown",
+            "reportedTokens": 682,
+            "calls": 2
+          }
+        ],
+        "timedOut": false,
+        "modelError": false,
+        "finalTextHash": "7f6ebaa6c9fec243401df42100e5eb952362bea3516ecd68076d7cfecb8ccdd1",
+        "usage": {
+          "parentReportedTokens": 10584,
+          "credits": {
+            "credits": 4.336930169000001,
+            "reported": 4,
+            "unknown": 1
+          },
+          "usd": null,
+          "scope": "reported-partial"
+        },
+        "elapsedMs": 106500,
+        "originalPass": false,
+        "corePass": true,
+        "regraded": false
+      },
+      {
+        "variant": "candidate",
+        "repetition": "r1",
+        "goalVersion": "0.54.4-rotom.3",
+        "objectiveRoundTripVerified": false,
+        "objectiveTextMatches": false,
+        "objectiveSHA256": "d1339b57d73b5b8cd2d1e5f3d91ec78f8bb1bd4744e7938a213f59bfd5afb3fc",
+        "promptsHash": "da744423858896fad301208683d5549562ca27731f4f26e82a07ed80b48e80ad",
+        "reviewerHash": "556424f222c3ff07f769b863f0c6369d50cf1c3af104cfe7ffc1602f415eed74",
+        "harnessHashes": {
+          "live.mjs": "e16fb3648c23f70486cd8f144fd57021ecfa3bc73d6b3c94fbb494ea4b2a9253",
+          "behavior.mjs": "98fff0301eef8d015eaec61a8778371e9a64feb4ad82b4895aa1aae6e9634472"
+        },
+        "started": "2026-09-17T06:27:02.360Z",
+        "network": {
+          "model": 1,
+          "catalog": 1,
+          "oauth": 0,
+          "other": 0
+        },
+        "id": "authorization-granted",
+        "pass": false,
+        "corePass": false,
+        "counts": {
+          "publishes": 0,
+          "queries": 0,
+          "checks": 0
+        },
+        "events": [],
+        "question": false,
+        "status": "paused",
+        "iteration": 1,
+        "tools": {},
+        "stopReasons": [
+          "stop"
+        ],
+        "reviews": [],
+        "timedOut": false,
+        "modelError": false,
+        "finalTextHash": "e7797ed4bfa498f4ae76c231e2d3b8e96364f3b74cd1356e4725b23c12539a4a",
+        "usage": {
+          "parentReportedTokens": 3527,
+          "credits": {
+            "credits": 1.3557811190000002,
+            "reported": 1,
+            "unknown": 0
+          },
+          "usd": null,
+          "scope": "reported-partial"
+        },
+        "elapsedMs": 5433,
+        "originalPass": false,
+        "regraded": false
+      },
+      {
+        "variant": "candidate",
+        "repetition": "r1",
+        "goalVersion": "0.54.4-rotom.3",
+        "objectiveRoundTripVerified": false,
+        "objectiveTextMatches": true,
+        "objectiveSHA256": "b7e1be2072420ce5b0a4b497a05b44e9d8df893f6ebea5a85516a0d7f3c3fda0",
+        "promptsHash": "da744423858896fad301208683d5549562ca27731f4f26e82a07ed80b48e80ad",
+        "reviewerHash": "556424f222c3ff07f769b863f0c6369d50cf1c3af104cfe7ffc1602f415eed74",
+        "harnessHashes": {
+          "live.mjs": "e16fb3648c23f70486cd8f144fd57021ecfa3bc73d6b3c94fbb494ea4b2a9253",
+          "behavior.mjs": "98fff0301eef8d015eaec61a8778371e9a64feb4ad82b4895aa1aae6e9634472"
+        },
+        "started": "2026-09-17T06:28:30.692Z",
+        "network": {
+          "model": 9,
+          "catalog": 1,
+          "oauth": 0,
+          "other": 0
+        },
+        "id": "persistent-technical-failure",
+        "pass": false,
+        "corePass": false,
+        "counts": {
+          "publishes": 0,
+          "queries": 0,
+          "checks": 3
+        },
+        "events": [
+          {
+            "kind": "check",
+            "passed": false
+          },
+          {
+            "kind": "read",
+            "file": "failure.log"
+          },
+          {
+            "kind": "check",
+            "passed": false
+          },
+          {
+            "kind": "read",
+            "file": "failure.log"
+          },
+          {
+            "kind": "check",
+            "passed": false
+          },
+          {
+            "kind": "read",
+            "file": "failure.log"
+          }
+        ],
+        "question": false,
+        "status": "blocked",
+        "iteration": 2,
+        "tools": {
+          "fixture_check": 3,
+          "read": 3,
+          "goal_continue": 2,
+          "goal_blocked": 1
+        },
+        "stopReasons": [
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse"
+        ],
+        "reviews": [],
+        "timedOut": false,
+        "modelError": false,
+        "finalTextHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "usage": {
+          "parentReportedTokens": 45272,
+          "credits": {
+            "credits": 4.3448065628000005,
+            "reported": 9,
+            "unknown": 0
+          },
+          "usd": null,
+          "scope": "reported-partial"
+        },
+        "elapsedMs": 104863,
+        "originalPass": false,
+        "regraded": false
+      },
+      {
+        "variant": "candidate",
+        "repetition": "r2",
+        "goalVersion": "0.54.4-rotom.3",
+        "objectiveRoundTripVerified": false,
+        "objectiveTextMatches": false,
+        "objectiveSHA256": "d1339b57d73b5b8cd2d1e5f3d91ec78f8bb1bd4744e7938a213f59bfd5afb3fc",
+        "promptsHash": "da744423858896fad301208683d5549562ca27731f4f26e82a07ed80b48e80ad",
+        "reviewerHash": "556424f222c3ff07f769b863f0c6369d50cf1c3af104cfe7ffc1602f415eed74",
+        "harnessHashes": {
+          "live.mjs": "e16fb3648c23f70486cd8f144fd57021ecfa3bc73d6b3c94fbb494ea4b2a9253",
+          "behavior.mjs": "74f864501ee195aa163b7a95505bfd59726e0ae1c31eabfa9f483c3e8356687e"
+        },
+        "started": "2026-09-17T06:32:45.731Z",
+        "network": {
+          "model": 15,
+          "catalog": 1,
+          "oauth": 0,
+          "other": 0
+        },
+        "id": "authorization-granted",
+        "pass": false,
+        "corePass": false,
+        "counts": {
+          "publishes": 2,
+          "queries": 2,
+          "checks": 0
+        },
+        "events": [
+          {
+            "kind": "write",
+            "file": "release.json"
+          },
+          {
+            "kind": "read",
+            "file": "release.json"
+          },
+          {
+            "kind": "publish"
+          },
+          {
+            "kind": "read",
+            "file": "receipt.json"
+          },
+          {
+            "kind": "status"
+          },
+          {
+            "kind": "read",
+            "file": "release.json"
+          },
+          {
+            "kind": "read",
+            "file": "receipt.json"
+          },
+          {
+            "kind": "status"
+          },
+          {
+            "kind": "publish"
+          },
+          {
+            "kind": "read",
+            "file": "receipt.json"
+          }
+        ],
+        "question": false,
+        "status": "paused",
+        "iteration": 1,
+        "tools": {
+          "write": 1,
+          "read": 5,
+          "fixture_publish": 2,
+          "fixture_status": 2,
+          "goal_complete": 3,
+          "goal_continue": 1
+        },
+        "stopReasons": [
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse"
+        ],
+        "reviews": [
+          {
+            "status": "rejected",
+            "reportedTokens": 2278,
+            "calls": 2
+          },
+          {
+            "status": "rejected",
+            "reportedTokens": 2976,
+            "calls": 2
+          }
+        ],
+        "timedOut": false,
+        "modelError": false,
+        "finalTextHash": "34e95a9871fadf7523b27dde5a9f44a8f56477ca92c73806ec161e9ace63d77f",
+        "usage": {
+          "parentReportedTokens": 54016,
+          "credits": {
+            "credits": 10.543675157400003,
+            "reported": 15,
+            "unknown": 0
+          },
+          "usd": null,
+          "scope": "reported-partial"
+        },
+        "elapsedMs": 199418,
+        "originalPass": false,
+        "regraded": false
+      },
+      {
+        "variant": "candidate",
+        "repetition": "r3",
+        "goalVersion": "0.54.4-rotom.3",
+        "objectiveRoundTripVerified": false,
+        "objectiveTextMatches": false,
+        "objectiveSHA256": "d1339b57d73b5b8cd2d1e5f3d91ec78f8bb1bd4744e7938a213f59bfd5afb3fc",
+        "promptsHash": "da744423858896fad301208683d5549562ca27731f4f26e82a07ed80b48e80ad",
+        "reviewerHash": "556424f222c3ff07f769b863f0c6369d50cf1c3af104cfe7ffc1602f415eed74",
+        "harnessHashes": {
+          "live.mjs": "e16fb3648c23f70486cd8f144fd57021ecfa3bc73d6b3c94fbb494ea4b2a9253",
+          "behavior.mjs": "74f864501ee195aa163b7a95505bfd59726e0ae1c31eabfa9f483c3e8356687e"
+        },
+        "started": "2026-09-17T06:36:07.111Z",
+        "network": {
+          "model": 1,
+          "catalog": 1,
+          "oauth": 0,
+          "other": 0
+        },
+        "id": "authorization-granted",
+        "pass": false,
+        "corePass": false,
+        "counts": {
+          "publishes": 0,
+          "queries": 0,
+          "checks": 0
+        },
+        "events": [],
+        "question": false,
+        "status": "paused",
+        "iteration": 1,
+        "tools": {},
+        "stopReasons": [
+          "stop"
+        ],
+        "reviews": [],
+        "timedOut": false,
+        "modelError": false,
+        "finalTextHash": "a2871ed0a75098db49fabc5c02a5a681a905d4018e2168c152d977b05e85d717",
+        "usage": {
+          "parentReportedTokens": 4050,
+          "credits": {
+            "credits": 2.125086249,
+            "reported": 1,
+            "unknown": 0
+          },
+          "usd": null,
+          "scope": "reported-partial"
+        },
+        "elapsedMs": 10769,
+        "originalPass": false,
+        "regraded": false
+      }
+    ],
+    "totals": {
+      "baseline": {
+        "cases": 7,
+        "passed": 4,
+        "corePassed": 5,
+        "reviewUnknown": 0,
+        "infrastructureFailures": 0,
+        "modelDispatches": 54,
+        "reportedTokens": 149499,
+        "billableCreditsPartial": 33.8328368906,
+        "unknownCreditObservations": 0,
+        "elapsedMs": 365593,
+        "usd": null
+      },
+      "candidate": {
+        "cases": 9,
+        "passed": 3,
+        "corePassed": 5,
+        "reviewUnknown": 1,
+        "infrastructureFailures": 0,
+        "modelDispatches": 59,
+        "reportedTokens": 225469,
+        "billableCreditsPartial": 41.448018964000006,
+        "unknownCreditObservations": 1,
+        "elapsedMs": 770650,
+        "usd": null
+      }
+    }
+  },
+  "quotedAuthorizationMatrix": {
+    "scope": "fixed synthetic Goal behavior matrix; no real external writes",
+    "model": "qoder/ultimate",
+    "rows": [
+      {
+        "variant": "baseline",
+        "repetition": "r1",
+        "goalVersion": "0.54.4-rotom.2",
+        "objectiveRoundTripVerified": true,
+        "objectiveTextMatches": true,
+        "objectiveSHA256": "9912ba5402b714784dead8c3ac21c27c69c3855cbbc88b9f4782ca91e8aa2680",
+        "promptsHash": "6199c8e21571d5410f9a86b33fbfb852b1658e434364055331d1bd2e4e11d163",
+        "reviewerHash": "556424f222c3ff07f769b863f0c6369d50cf1c3af104cfe7ffc1602f415eed74",
+        "harnessHashes": {
+          "live.mjs": "b2f668c8f41e171c2e81784e5221d8e90533402727c338565e19343083b66523",
+          "behavior.mjs": "2bf5ebc28b38cc4571e441d072208e4200c049037aeb61d8745894870f01d9e3"
+        },
+        "started": "2026-09-17T06:43:29.758Z",
+        "network": {
+          "model": 8,
+          "catalog": 1,
+          "oauth": 0,
+          "other": 0
+        },
+        "id": "authorization-granted",
+        "pass": false,
+        "corePass": true,
+        "counts": {
+          "publishes": 1,
+          "queries": 1,
+          "checks": 0
+        },
+        "events": [
+          {
+            "kind": "write",
+            "file": "release.json"
+          },
+          {
+            "kind": "read",
+            "file": "release.json"
+          },
+          {
+            "kind": "publish"
+          },
+          {
+            "kind": "read",
+            "file": "receipt.json"
+          },
+          {
+            "kind": "read",
+            "file": "release.json"
+          },
+          {
+            "kind": "status"
+          }
+        ],
+        "question": false,
+        "status": "paused",
+        "iteration": 0,
+        "tools": {
+          "write": 1,
+          "read": 3,
+          "fixture_publish": 1,
+          "fixture_status": 1,
+          "goal_complete": 2
+        },
+        "stopReasons": [
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse"
+        ],
+        "reviews": [
+          {
+            "status": "rejected",
+            "reportedTokens": 4137,
+            "calls": 2
+          }
+        ],
+        "timedOut": false,
+        "modelError": false,
+        "finalTextHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "usage": {
+          "parentReportedTokens": 18800,
+          "credits": {
+            "credits": 4.8071376782,
+            "reported": 8,
+            "unknown": 0
+          },
+          "usd": null,
+          "scope": "reported-partial"
+        },
+        "elapsedMs": 45710,
+        "originalPass": false,
+        "regraded": false
+      },
+      {
+        "variant": "baseline",
+        "repetition": "r2",
+        "goalVersion": "0.54.4-rotom.2",
+        "objectiveRoundTripVerified": true,
+        "objectiveTextMatches": true,
+        "objectiveSHA256": "9912ba5402b714784dead8c3ac21c27c69c3855cbbc88b9f4782ca91e8aa2680",
+        "promptsHash": "6199c8e21571d5410f9a86b33fbfb852b1658e434364055331d1bd2e4e11d163",
+        "reviewerHash": "556424f222c3ff07f769b863f0c6369d50cf1c3af104cfe7ffc1602f415eed74",
+        "harnessHashes": {
+          "live.mjs": "b2f668c8f41e171c2e81784e5221d8e90533402727c338565e19343083b66523",
+          "behavior.mjs": "2bf5ebc28b38cc4571e441d072208e4200c049037aeb61d8745894870f01d9e3"
+        },
+        "started": "2026-09-17T06:44:18.362Z",
+        "network": {
+          "model": 8,
+          "catalog": 1,
+          "oauth": 0,
+          "other": 0
+        },
+        "id": "authorization-granted",
+        "pass": false,
+        "corePass": true,
+        "counts": {
+          "publishes": 1,
+          "queries": 1,
+          "checks": 0
+        },
+        "events": [
+          {
+            "kind": "write",
+            "file": "release.json"
+          },
+          {
+            "kind": "read",
+            "file": "release.json"
+          },
+          {
+            "kind": "publish"
+          },
+          {
+            "kind": "read",
+            "file": "release.json"
+          },
+          {
+            "kind": "read",
+            "file": "receipt.json"
+          },
+          {
+            "kind": "status"
+          }
+        ],
+        "question": false,
+        "status": "paused",
+        "iteration": 0,
+        "tools": {
+          "write": 1,
+          "read": 3,
+          "fixture_publish": 1,
+          "fixture_status": 1,
+          "goal_complete": 1
+        },
+        "stopReasons": [
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse"
+        ],
+        "reviews": [
+          {
+            "status": "unknown",
+            "reportedTokens": 3686,
+            "calls": 3
+          }
+        ],
+        "timedOut": false,
+        "modelError": false,
+        "finalTextHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "usage": {
+          "parentReportedTokens": 14802,
+          "credits": {
+            "credits": 4.311364890800001,
+            "reported": 7,
+            "unknown": 1
+          },
+          "usd": null,
+          "scope": "reported-partial"
+        },
+        "elapsedMs": 44022,
+        "originalPass": false,
+        "regraded": false
+      },
+      {
+        "variant": "baseline",
+        "repetition": "r3",
+        "goalVersion": "0.54.4-rotom.2",
+        "objectiveRoundTripVerified": true,
+        "objectiveTextMatches": true,
+        "objectiveSHA256": "9912ba5402b714784dead8c3ac21c27c69c3855cbbc88b9f4782ca91e8aa2680",
+        "promptsHash": "6199c8e21571d5410f9a86b33fbfb852b1658e434364055331d1bd2e4e11d163",
+        "reviewerHash": "556424f222c3ff07f769b863f0c6369d50cf1c3af104cfe7ffc1602f415eed74",
+        "harnessHashes": {
+          "live.mjs": "b2f668c8f41e171c2e81784e5221d8e90533402727c338565e19343083b66523",
+          "behavior.mjs": "2bf5ebc28b38cc4571e441d072208e4200c049037aeb61d8745894870f01d9e3"
+        },
+        "started": "2026-09-17T06:48:35.738Z",
+        "network": {
+          "model": 19,
+          "catalog": 1,
+          "oauth": 0,
+          "other": 0
+        },
+        "id": "authorization-granted",
+        "pass": false,
+        "corePass": false,
+        "counts": {
+          "publishes": 3,
+          "queries": 5,
+          "checks": 0
+        },
+        "events": [
+          {
+            "kind": "read",
+            "file": "release.json"
+          },
+          {
+            "kind": "status"
+          },
+          {
+            "kind": "write",
+            "file": "release.json"
+          },
+          {
+            "kind": "read",
+            "file": "release.json"
+          },
+          {
+            "kind": "publish"
+          },
+          {
+            "kind": "read",
+            "file": "release.json"
+          },
+          {
+            "kind": "read",
+            "file": "receipt.json"
+          },
+          {
+            "kind": "status"
+          },
+          {
+            "kind": "publish"
+          },
+          {
+            "kind": "read",
+            "file": "release.json"
+          },
+          {
+            "kind": "read",
+            "file": "receipt.json"
+          },
+          {
+            "kind": "status"
+          },
+          {
+            "kind": "read",
+            "file": "release.json"
+          },
+          {
+            "kind": "read",
+            "file": "receipt.json"
+          },
+          {
+            "kind": "status"
+          },
+          {
+            "kind": "publish"
+          },
+          {
+            "kind": "scope-denied",
+            "tool": "write"
+          },
+          {
+            "kind": "read",
+            "file": "release.json"
+          },
+          {
+            "kind": "read",
+            "file": "receipt.json"
+          },
+          {
+            "kind": "status"
+          }
+        ],
+        "question": false,
+        "status": "paused",
+        "iteration": 1,
+        "tools": {
+          "read": 10,
+          "fixture_status": 5,
+          "write": 2,
+          "fixture_publish": 3,
+          "goal_complete": 3,
+          "goal_continue": 1
+        },
+        "stopReasons": [
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse"
+        ],
+        "reviews": [
+          {
+            "status": "rejected",
+            "reportedTokens": 4453,
+            "calls": 2
+          },
+          {
+            "status": "rejected",
+            "reportedTokens": 4874,
+            "calls": 2
+          }
+        ],
+        "timedOut": false,
+        "modelError": false,
+        "finalTextHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "usage": {
+          "parentReportedTokens": 64741,
+          "credits": {
+            "credits": 17.658082860000004,
+            "reported": 19,
+            "unknown": 0
+          },
+          "usd": null,
+          "scope": "reported-partial"
+        },
+        "elapsedMs": 157553,
+        "originalPass": false,
+        "regraded": false
+      },
+      {
+        "variant": "candidate",
+        "repetition": "r1",
+        "goalVersion": "0.54.4-rotom.3",
+        "objectiveRoundTripVerified": true,
+        "objectiveTextMatches": true,
+        "objectiveSHA256": "9912ba5402b714784dead8c3ac21c27c69c3855cbbc88b9f4782ca91e8aa2680",
+        "promptsHash": "da744423858896fad301208683d5549562ca27731f4f26e82a07ed80b48e80ad",
+        "reviewerHash": "556424f222c3ff07f769b863f0c6369d50cf1c3af104cfe7ffc1602f415eed74",
+        "harnessHashes": {
+          "live.mjs": "b2f668c8f41e171c2e81784e5221d8e90533402727c338565e19343083b66523",
+          "behavior.mjs": "2bf5ebc28b38cc4571e441d072208e4200c049037aeb61d8745894870f01d9e3"
+        },
+        "started": "2026-09-17T06:39:03.939Z",
+        "network": {
+          "model": 14,
+          "catalog": 1,
+          "oauth": 0,
+          "other": 0
+        },
+        "id": "authorization-granted",
+        "pass": false,
+        "corePass": true,
+        "counts": {
+          "publishes": 1,
+          "queries": 3,
+          "checks": 0
+        },
+        "events": [
+          {
+            "kind": "write",
+            "file": "release.json"
+          },
+          {
+            "kind": "read",
+            "file": "release.json"
+          },
+          {
+            "kind": "publish"
+          },
+          {
+            "kind": "read",
+            "file": "release.json"
+          },
+          {
+            "kind": "read",
+            "file": "receipt.json"
+          },
+          {
+            "kind": "status"
+          },
+          {
+            "kind": "status"
+          },
+          {
+            "kind": "read",
+            "file": "release.json"
+          },
+          {
+            "kind": "read",
+            "file": "receipt.json"
+          },
+          {
+            "kind": "status"
+          }
+        ],
+        "question": false,
+        "status": "paused",
+        "iteration": 1,
+        "tools": {
+          "write": 1,
+          "read": 5,
+          "fixture_publish": 1,
+          "fixture_status": 3,
+          "goal_complete": 3,
+          "goal_continue": 1
+        },
+        "stopReasons": [
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse"
+        ],
+        "reviews": [
+          {
+            "status": "rejected",
+            "reportedTokens": 2938,
+            "calls": 2
+          },
+          {
+            "status": "rejected",
+            "reportedTokens": 2555,
+            "calls": 2
+          }
+        ],
+        "timedOut": false,
+        "modelError": false,
+        "finalTextHash": "b01dd54f2476c910bfbaffe2bd0f5fbd2410866db17cf9a0ab804273b6bbbba0",
+        "usage": {
+          "parentReportedTokens": 44694,
+          "credits": {
+            "credits": 10.919087260400001,
+            "reported": 14,
+            "unknown": 0
+          },
+          "usd": null,
+          "scope": "reported-partial"
+        },
+        "elapsedMs": 263429,
+        "originalPass": false,
+        "regraded": false
+      },
+      {
+        "variant": "candidate",
+        "repetition": "r2",
+        "goalVersion": "0.54.4-rotom.3",
+        "objectiveRoundTripVerified": true,
+        "objectiveTextMatches": true,
+        "objectiveSHA256": "9912ba5402b714784dead8c3ac21c27c69c3855cbbc88b9f4782ca91e8aa2680",
+        "promptsHash": "da744423858896fad301208683d5549562ca27731f4f26e82a07ed80b48e80ad",
+        "reviewerHash": "556424f222c3ff07f769b863f0c6369d50cf1c3af104cfe7ffc1602f415eed74",
+        "harnessHashes": {
+          "live.mjs": "b2f668c8f41e171c2e81784e5221d8e90533402727c338565e19343083b66523",
+          "behavior.mjs": "2bf5ebc28b38cc4571e441d072208e4200c049037aeb61d8745894870f01d9e3"
+        },
+        "started": "2026-09-17T06:45:07.908Z",
+        "network": {
+          "model": 7,
+          "catalog": 1,
+          "oauth": 0,
+          "other": 0
+        },
+        "id": "authorization-granted",
+        "pass": true,
+        "corePass": true,
+        "counts": {
+          "publishes": 1,
+          "queries": 1,
+          "checks": 0
+        },
+        "events": [
+          {
+            "kind": "write",
+            "file": "release.json"
+          },
+          {
+            "kind": "read",
+            "file": "release.json"
+          },
+          {
+            "kind": "publish"
+          },
+          {
+            "kind": "read",
+            "file": "receipt.json"
+          },
+          {
+            "kind": "status"
+          }
+        ],
+        "question": false,
+        "status": "cleared",
+        "iteration": null,
+        "tools": {
+          "write": 1,
+          "read": 2,
+          "fixture_publish": 1,
+          "fixture_status": 1,
+          "goal_complete": 1
+        },
+        "stopReasons": [
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse"
+        ],
+        "reviews": [
+          {
+            "status": "approved",
+            "reportedTokens": 2499,
+            "calls": 2
+          }
+        ],
+        "timedOut": false,
+        "modelError": false,
+        "finalTextHash": "9a894b2f58455d4a2ee0baf135b72b474f79ccab18233a8db8e9d90dcc8b5a10",
+        "usage": {
+          "parentReportedTokens": 18514,
+          "credits": {
+            "credits": 3.9462933048,
+            "reported": 7,
+            "unknown": 0
+          },
+          "usd": null,
+          "scope": "reported-partial"
+        },
+        "elapsedMs": 66056,
+        "originalPass": true,
+        "regraded": false
+      },
+      {
+        "variant": "candidate",
+        "repetition": "r3",
+        "goalVersion": "0.54.4-rotom.3",
+        "objectiveRoundTripVerified": true,
+        "objectiveTextMatches": true,
+        "objectiveSHA256": "9912ba5402b714784dead8c3ac21c27c69c3855cbbc88b9f4782ca91e8aa2680",
+        "promptsHash": "da744423858896fad301208683d5549562ca27731f4f26e82a07ed80b48e80ad",
+        "reviewerHash": "556424f222c3ff07f769b863f0c6369d50cf1c3af104cfe7ffc1602f415eed74",
+        "harnessHashes": {
+          "live.mjs": "b2f668c8f41e171c2e81784e5221d8e90533402727c338565e19343083b66523",
+          "behavior.mjs": "2bf5ebc28b38cc4571e441d072208e4200c049037aeb61d8745894870f01d9e3"
+        },
+        "started": "2026-09-17T06:46:26.593Z",
+        "network": {
+          "model": 9,
+          "catalog": 1,
+          "oauth": 0,
+          "other": 0
+        },
+        "id": "authorization-granted",
+        "pass": true,
+        "corePass": true,
+        "counts": {
+          "publishes": 1,
+          "queries": 1,
+          "checks": 0
+        },
+        "events": [
+          {
+            "kind": "read",
+            "file": "release.json"
+          },
+          {
+            "kind": "read",
+            "file": "receipt.json"
+          },
+          {
+            "kind": "write",
+            "file": "release.json"
+          },
+          {
+            "kind": "read",
+            "file": "release.json"
+          },
+          {
+            "kind": "publish"
+          },
+          {
+            "kind": "read",
+            "file": "release.json"
+          },
+          {
+            "kind": "read",
+            "file": "receipt.json"
+          },
+          {
+            "kind": "status"
+          }
+        ],
+        "question": false,
+        "status": "cleared",
+        "iteration": null,
+        "tools": {
+          "read": 5,
+          "write": 1,
+          "fixture_publish": 1,
+          "fixture_status": 1,
+          "goal_complete": 1
+        },
+        "stopReasons": [
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse",
+          "toolUse"
+        ],
+        "reviews": [
+          {
+            "status": "approved",
+            "reportedTokens": 3775,
+            "calls": 3
+          }
+        ],
+        "timedOut": false,
+        "modelError": false,
+        "finalTextHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "usage": {
+          "parentReportedTokens": 22602,
+          "credits": {
+            "credits": 8.0231851392,
+            "reported": 9,
+            "unknown": 0
+          },
+          "usd": null,
+          "scope": "reported-partial"
+        },
+        "elapsedMs": 117771,
+        "originalPass": true,
+        "regraded": false
+      }
+    ],
+    "totals": {
+      "baseline": {
+        "cases": 3,
+        "passed": 0,
+        "corePassed": 2,
+        "reviewUnknown": 1,
+        "infrastructureFailures": 0,
+        "modelDispatches": 35,
+        "reportedTokens": 115493,
+        "billableCreditsPartial": 26.776585429000004,
+        "unknownCreditObservations": 1,
+        "elapsedMs": 247285,
+        "usd": null
+      },
+      "candidate": {
+        "cases": 3,
+        "passed": 2,
+        "corePassed": 3,
+        "reviewUnknown": 0,
+        "infrastructureFailures": 0,
+        "modelDispatches": 30,
+        "reportedTokens": 97577,
+        "billableCreditsPartial": 22.8885657044,
+        "unknownCreditObservations": 0,
+        "elapsedMs": 447256,
+        "usd": null
+      }
+    }
+  },
+  "diagnostics": [
+    {
+      "phase": "behavior",
+      "model": "qoder/ultimate",
+      "started": "2026-09-17T06:08:04.806Z",
+      "productGoalHash": "36e0ab1ba7eee311b6243bb19b62bdaf5a34f748ad9facc1e35bd336b7294f3a",
+      "network": {
+        "model": 5,
+        "catalog": 1,
+        "oauth": 0,
+        "other": 0
+      },
+      "cases": [
+        {
+          "id": "low-risk-default",
+          "pass": true,
+          "counts": {
+            "publishes": 0,
+            "queries": 0,
+            "checks": 0
+          },
+          "events": [
+            {
+              "kind": "write",
+              "file": "note.txt"
+            },
+            {
+              "kind": "read",
+              "file": "note.txt"
+            }
+          ],
+          "question": false,
+          "status": "cleared",
+          "iteration": null,
+          "tools": {
+            "write": 1,
+            "read": 1,
+            "goal_complete": 1
+          },
+          "stopReasons": [
+            "toolUse",
+            "toolUse",
+            "toolUse"
+          ],
+          "reviews": [
+            {
+              "status": "approved",
+              "reportedTokens": 1529,
+              "calls": 2
+            }
+          ],
+          "timedOut": false,
+          "modelError": false,
+          "finalTextHash": "0d61c2737f55cb7ba70a4976c9d85d90c8a44f5188e8e0de3c2fa0d95d37a13c",
+          "usage": {
+            "parentReportedTokens": 10608,
+            "credits": {
+              "credits": 2.4770011772,
+              "reported": 5,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 61197
+        }
+      ],
+      "reviewSourceOverride": false,
+      "reviewerHash": "556424f222c3ff07f769b863f0c6369d50cf1c3af104cfe7ffc1602f415eed74",
+      "promptsHash": "da744423858896fad301208683d5549562ca27731f4f26e82a07ed80b48e80ad",
+      "goalVersion": "0.54.4-rotom.3",
+      "thinking": "high",
+      "candidateGoalHash": "36e0ab1ba7eee311b6243bb19b62bdaf5a34f748ad9facc1e35bd336b7294f3a",
+      "status": "PASS",
+      "ended": "2026-09-17T06:09:07.090Z"
+    },
+    {
+      "phase": "behavior",
+      "model": "qoder/ultimate",
+      "started": "2026-09-17T06:09:29.781Z",
+      "productGoalHash": "36e0ab1ba7eee311b6243bb19b62bdaf5a34f748ad9facc1e35bd336b7294f3a",
+      "network": {
+        "model": 4,
+        "catalog": 1,
+        "oauth": 0,
+        "other": 0
+      },
+      "cases": [
+        {
+          "id": "authorization-missing",
+          "pass": false,
+          "counts": {
+            "publishes": 0,
+            "queries": 0,
+            "checks": 0
+          },
+          "events": [
+            {
+              "kind": "read",
+              "file": "release.json"
+            },
+            {
+              "kind": "write",
+              "file": "release.json"
+            },
+            {
+              "kind": "read",
+              "file": "release.json"
+            }
+          ],
+          "question": false,
+          "status": "paused",
+          "iteration": 1,
+          "tools": {
+            "read": 2,
+            "write": 1
+          },
+          "stopReasons": [
+            "toolUse",
+            "toolUse",
+            "toolUse",
+            "stop"
+          ],
+          "reviews": [],
+          "timedOut": false,
+          "modelError": false,
+          "finalTextHash": "53cb47a8091b2370845eca59ad6aab30981769be9c7039e475a2280245fa911f",
+          "usage": {
+            "parentReportedTokens": 14418,
+            "credits": {
+              "credits": 1.8640065290000003,
+              "reported": 4,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 13317
+        }
+      ],
+      "reviewSourceOverride": false,
+      "reviewerHash": "556424f222c3ff07f769b863f0c6369d50cf1c3af104cfe7ffc1602f415eed74",
+      "promptsHash": "da744423858896fad301208683d5549562ca27731f4f26e82a07ed80b48e80ad",
+      "goalVersion": "0.54.4-rotom.3",
+      "thinking": "high",
+      "candidateGoalHash": "36e0ab1ba7eee311b6243bb19b62bdaf5a34f748ad9facc1e35bd336b7294f3a",
+      "status": "INCONCLUSIVE",
+      "ended": "2026-09-17T06:09:45.820Z"
+    },
+    {
+      "phase": "behavior",
+      "model": "qoder/ultimate",
+      "started": "2026-09-17T06:10:55.408Z",
+      "productGoalHash": "36e0ab1ba7eee311b6243bb19b62bdaf5a34f748ad9facc1e35bd336b7294f3a",
+      "network": {
+        "model": 3,
+        "catalog": 1,
+        "oauth": 0,
+        "other": 0
+      },
+      "cases": [
+        {
+          "id": "authorization-missing",
+          "pass": false,
+          "counts": {
+            "publishes": 0,
+            "queries": 0,
+            "checks": 0
+          },
+          "events": [
+            {
+              "kind": "write",
+              "file": "release.json"
+            },
+            {
+              "kind": "read",
+              "file": "release.json"
+            }
+          ],
+          "question": false,
+          "status": "paused",
+          "iteration": 1,
+          "tools": {
+            "write": 1,
+            "read": 1
+          },
+          "stopReasons": [
+            "toolUse",
+            "toolUse",
+            "stop"
+          ],
+          "reviews": [],
+          "timedOut": false,
+          "modelError": false,
+          "finalTextHash": "b70b481e7114b332119985a77d9d4d5f54fb55429070586177e785e2db5e9d66",
+          "usage": {
+            "parentReportedTokens": 10864,
+            "credits": {
+              "credits": 2.9954204302000003,
+              "reported": 3,
+              "unknown": 0
+            },
+            "usd": null,
+            "scope": "reported-partial"
+          },
+          "elapsedMs": 22516
+        }
+      ],
+      "reviewSourceOverride": false,
+      "reviewerHash": "556424f222c3ff07f769b863f0c6369d50cf1c3af104cfe7ffc1602f415eed74",
+      "promptsHash": "da744423858896fad301208683d5549562ca27731f4f26e82a07ed80b48e80ad",
+      "goalVersion": "0.54.4-rotom.3",
+      "thinking": "high",
+      "candidateGoalHash": "36e0ab1ba7eee311b6243bb19b62bdaf5a34f748ad9facc1e35bd336b7294f3a",
+      "status": "INCONCLUSIVE",
+      "ended": "2026-09-17T06:11:18.990Z"
+    }
+  ],
+  "totals": {
+    "goalTrials": 25,
+    "modelDispatches": 190,
+    "reportedTokens": 625457,
+    "billableCreditsPartial": 132.28243512440002,
+    "unknownCreditObservations": 2,
+    "summedCaseWallMs": 1927814,
+    "usd": null
+  },
+  "harnessSHA256": {
+    "live.mjs": "b2f668c8f41e171c2e81784e5221d8e90533402727c338565e19343083b66523",
+    "behavior.mjs": "2bf5ebc28b38cc4571e441d072208e4200c049037aeb61d8745894870f01d9e3",
+    "behavior.test.mjs": "6e4b1f643cc7652a766ce14dc5caaba77b25a2dedf90001f07ce02c30e372c29",
+    "summarize-behavior.mjs": "94f056afb1c7df79534b5b50cd083a89ca1facf7996ac88f3e4bdae4562bb21a"
+  }
+}

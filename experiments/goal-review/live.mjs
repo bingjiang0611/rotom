@@ -17,10 +17,11 @@ import { createHash } from "node:crypto";
 import { channel } from "node:diagnostics_channel";
 import { execFileSync } from "node:child_process";
 import { isCleared, isWaiting } from "./state.mjs";
+import { behaviorCases, behaviorCommand, createBehaviorFixture, gradeBehavior, requestsDecision } from "./behavior.mjs";
 
 const [productArg, phase = "preflight", outputArg, selectedCase, reviewSourceArg] =
 	process.argv.slice(2);
-assert(productArg && ["preflight", "review", "agent"].includes(phase));
+assert(productArg && ["preflight", "review", "agent", "behavior"].includes(phase));
 const product = realpathSync(productArg);
 const output = outputArg
 	? realpathSync(outputArg)
@@ -30,6 +31,7 @@ const hash = (data) => createHash("sha256").update(data).digest("hex");
 const summary = {
 	phase,
 	model: "qoder/ultimate",
+	harnessHashes: Object.fromEntries(["live.mjs", "behavior.mjs"].map((name) => [name, hash(readFileSync(new URL(name, import.meta.url)))])),
 	started: new Date().toISOString(),
 	productGoalHash: hash(
 		readFileSync(
@@ -110,15 +112,20 @@ const reviewerSource = reviewSourceArg
 summary.reviewSourceOverride = Boolean(reviewSourceArg);
 summary.reviewerHash = hash(readFileSync(reviewerSource));
 const goalSource = join(dirname(reviewerSource), "goal.ts");
+summary.promptsHash = hash(readFileSync(join(dirname(reviewerSource), "prompts.ts")));
+summary.goalVersion = JSON.parse(readFileSync(join(product, "extensions/third-party/node_modules/@narumitw/pi-goal/package.json"), "utf8")).version;
+summary.thinking = "high";
+const { Type } = await import(pathToFileURL(join(product, "runtime/pi/node_modules/@earendil-works/pi-ai/dist/index.js")));
 summary.candidateGoalHash = hash(readFileSync(join(dirname(reviewerSource), "tools.ts")));
 const reviewer = await jiti.import(reviewerSource);
 
-async function open(id, restore) {
+async function open(id, restore, behaviorCase) {
 	const base = mkdtempSync(join(output, `${id}-`));
 	const cwd = restore?.cwd ?? join(base, "project"),
 		agentDir = join(base, "control");
 	if (!restore?.cwd) mkdirSync(cwd, { mode: 0o700 });
 	mkdirSync(agentDir, { mode: 0o700 });
+	const fixture = behaviorCase ? createBehaviorFixture(behaviorCase, cwd, Type) : undefined;
 	const wrapper = join(agentDir, "goal.ts");
 	writeFileSync(
 		wrapper,
@@ -142,6 +149,7 @@ async function open(id, restore) {
 		additionalExtensionPaths: [join(product, "extensions/qoder/index.ts"), wrapper],
 		extensionFactories: [
 			(pi) => {
+				fixture?.register(pi);
 				pi.on("session_start", (_e, ctx) => {
 					context = ctx;
 				});
@@ -171,7 +179,7 @@ async function open(id, restore) {
 		resourceLoader: loader,
 		settingsManager,
 		sessionManager: manager,
-		tools: ["read", "write", "edit", "goal_continue", "goal_complete", "goal_wait", "goal_blocked"],
+		tools: ["read", "write", "edit", "goal_continue", "goal_complete", "goal_wait", "goal_blocked", ...(fixture?.tools.map((t) => t.name) ?? [])],
 	});
 	const errors = [];
 	await session.bindExtensions({ mode: "print", onError: (e) => errors.push(e) });
@@ -184,7 +192,7 @@ async function open(id, restore) {
 	await session.setModel(model);
 	assert.equal(session.model.provider, "qoder");
 	assert.equal(session.model.id, "ultimate");
-	return { cwd, session, manager, context: () => ({ ...context, model }), model };
+	return { cwd, session, manager, context: () => ({ ...context, model }), model, fixture };
 }
 
 const reviewCases = [
@@ -298,6 +306,49 @@ try {
 		assert.equal(summary.network.model, 0);
 		h.session.dispose();
 		summary.status = "PASS";
+	} else if (phase === "behavior") {
+		assert(!selectedCase || behaviorCases.some((c) => c.id === selectedCase), "unknown behavior case");
+		for (const c of behaviorCases.filter((c) => !selectedCase || c.id === selectedCase)) {
+			const start = Date.now(), h = await open(c.id, { disk: true }, c);
+			for (const [name, text] of Object.entries(c.files)) writeFileSync(join(h.cwd, name), text, { mode: 0o600 });
+			const latest = () => h.manager.getBranch().filter((e) => e.type === "custom" && e.customType === "goal-state").at(-1)?.data?.goal;
+			let settle, timedOut = false, modelError = false;
+			const done = new Promise((resolve) => { settle = resolve; });
+			const tools = {}, stopReasons = [];
+			const unsubscribe = h.session.subscribe((e) => {
+				if (e.type === "tool_execution_start") tools[e.toolName] = (tools[e.toolName] ?? 0) + 1;
+				if (e.type === "message_end" && e.message.role === "assistant") {
+					stopReasons.push(e.message.stopReason);
+					if (e.message.stopReason === "error") modelError = true;
+				}
+				if (e.type === "agent_settled" && (latest()?.status !== "active" || isWaiting(latest()))) settle();
+			});
+			const timer = setTimeout(() => { timedOut = true; void h.session.abort(); settle(); }, 600000);
+			try {
+				const command = behaviorCommand(c);
+				const { parseCommand } = await jiti.import(join(dirname(reviewerSource), "command.ts"));
+				assert.equal(parseCommand(command.slice("/goal ".length)).objective, c.objective);
+				summary.objectiveRoundTripVerified = true;
+				await h.session.prompt(command);
+				await done;
+				const reviews = h.manager.getBranch().filter((e) => e.type === "custom" && e.customType === "goal-review-result").map((e) => ({ status: e.data.status, reportedTokens: e.data.reportedTokens, calls: e.data.calls }));
+				const finalText = h.manager.getBranch().filter((e) => e.type === "message" && e.message.role === "assistant").map((e) => e.message.content.filter((b) => b.type === "text").map((b) => b.text).join("\n")).filter(Boolean).at(-1) ?? "";
+				const question = requestsDecision(finalText);
+				const verdict = gradeBehavior(c, { goal: latest(), fixture: h.fixture, cwd: h.cwd, tools, question, reviews: reviews.map((r) => r.status), timedOut, modelError });
+				const row = { id: c.id, ...verdict, tools, stopReasons, reviews, timedOut, modelError, finalTextHash: hash(finalText), usage: usage(h), elapsedMs: Date.now() - start };
+				// Native private sessions retain synthetic evidence for adjudication; no
+				// transcript or provider error body is copied into metadata results.
+				summary.cases.push(row);
+				save();
+				console.log(JSON.stringify(row));
+				if (!verdict.pass) { summary.status = modelError || timedOut ? "BLOCKED" : "INCONCLUSIVE"; break; }
+			} finally {
+				clearTimeout(timer);
+				unsubscribe();
+				h.session.dispose();
+			}
+		}
+		summary.status ??= "PASS";
 	} else if (phase === "review") {
 		assert(!selectedCase || reviewCases.some((c) => c.id === selectedCase), "unknown review case");
 		for (const c of reviewCases.filter((c) => !selectedCase || c.id === selectedCase)) {

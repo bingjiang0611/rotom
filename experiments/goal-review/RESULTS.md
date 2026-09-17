@@ -1,5 +1,7 @@
 # Goal × Qoder Ultimate live validation
 
+> Historical `.rotom.2` reviewer/integration matrix. The later `.rotom.3` clarification, authorization and retry evaluation is [BEHAVIOR-RESULTS.md](BEHAVIOR-RESULTS.md); its overall decision is INCONCLUSIVE, not covered by this historical PASS.
+
 ## Decision
 
 **PASS for the fixed Goal/Qoder matrix. INCONCLUSIVE for the unrelated full-product gate.**
