@@ -1,15 +1,19 @@
 # rotom · npm 分发
 
-## 0.1.8 · 发布准备
+## 0.1.8 正式发布
 
-用户已明确授权精确版本 `0.1.8`、dist-tag `latest`。当前尚未发布；只有 registry 与最终 tgz 的字节/摘要核验通过后才记为 verified。
+`0.1.8` 于 2026-09-17 从公开 `main` 的 `521e18266b16ba644d933e7c7c89f1fdfb20eab8` 构建并发布，`publishConfig.access=public`，许可证保持 `UNLICENSED`。官方 Versions 页显示 Published；registry 确认精确版本、`latest=0.1.8`、integrity、shasum 与 tarball URL（`https://registry.npmjs.org/@bingjiang0611/rotom/-/rotom-0.1.8.tgz`）。下载包与唯一最终 tgz 逐字节一致：17,918 个文件，压缩后 53,394,623 bytes，解包后 168,675,221 bytes；SHA-256 `2fcc70673050f46493e28fd355b25807e63e80779feb0b5576a66ee191e647ce`，shasum `abee78ef37ac80c3fa23be18ebf908478f55aff4`，SRI `sha512-y9Ktr4fY8gXkgvLbfZSrBjbxzN9TQfQNWn42+tevnSl0ruNagcNC7YQkSr33Kp7Vm2xX9ako5CjkVJ8NQz+J8g==`。
+
+最终 tgz 通过隐私审计、隔离 HOME/prefix 的全新安装、全部 17,918 个安装文件与归档内容比对、`rotom --version`、实际安装面 default/full smoke（23/24 tools、footprint PASS）、`0.1.7 → 0.1.8` 升级及卸载。最终产物依赖用于冻结源码的维护测试：`check-personal` 的 530 项产品测试、65 项 Goal 测试及 footprint 全部通过，无跳过；冻结前另通过 `check:pi`、`test:distribution` 和 tree/history 审计。首次安装面 smoke 因维护脚本静态导入缺少测试依赖而失败，补齐来自最终 tgz 的依赖后通过；未修改或重打产物。本轮不新增真实模型、Linux 或真实 Chrome 业务验收。
+
+首次 publish 明确返回 EOTP，确认 registry 尚无该版本后，由用户完成官方网页写操作认证，再以私有短时 web OTP 重放同一命令和 tgz。CLI 接收后官方页面显示 Validating，按合同暂停；审核期间没有再次 publish。用户要求继续后完成上述 registry 与字节核验。临时 CLI 登录已 logout，`npm whoami` 失败回读，认证/challenge 文件已删除；本机活跃安装未更新。
 
 - Goal 更新至 `0.54.4-rotom.4`：证据驱动的澄清/授权暂停；三轮仅限制 `goal_blocked`，不为凑次数重复工作；审阅拒绝区分真实缺陷与证据缺口，不以重放成功/unknown 外部写入换取批准。工具、状态与 reviewer 限额不变，不宣称硬性副作用拦截。实测及局限见 [Ultimate 复测](../../experiments/goal-review/RETRY-RETEST.md)。
 - 包含 Qoder 大图片请求修复；不扩大模型、effort、图片格式或受管上下文合同。
 - 提交身份已按用户授权改用 GitHub noreply，原/新 SHA 对照见 [身份修正记录](history-identity-repair.md)。未新增隐私审计例外。
 - 保持 `publishConfig.access=public`、官方 npm registry 与 `UNLICENSED`；Pi fork 版本不变。不更新活跃安装，也不把先前测试替代最终 `0.1.8` tgz 安装验证。
 
-> 当前 registry 稳定版是 [`@bingjiang0611/rotom@0.1.7`](https://www.npmjs.com/package/@bingjiang0611/rotom/v/0.1.7)，npm dist-tag 为 `latest`。后续默认组件与 macOS/Linux 安装验证见 [Subagent 默认接入](subagent-default-integration.md)，发行包默认 scope 及其未复验项见 [scoped 默认](subagent-owned-default.md)。
+> 当前 registry 稳定版是 [`@bingjiang0611/rotom@0.1.8`](https://www.npmjs.com/package/@bingjiang0611/rotom/v/0.1.8)，npm dist-tag 为 `latest`。后续默认组件与 macOS/Linux 安装验证见 [Subagent 默认接入](subagent-default-integration.md)，发行包默认 scope 及其未复验项见 [scoped 默认](subagent-owned-default.md)。
 
 当前版本使用仓内 Pi fork；构建、隔离安装、本机切换及未验证项见 [Pi fork 接入](pi-fork.md)。本页底部“首次分发”表仍是历史上游 Pi 基线，不代表新 fork 的跨平台验收。
 
