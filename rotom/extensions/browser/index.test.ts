@@ -48,6 +48,8 @@ test("browser relay：活动标签可 claim、直接交互、敏感输入放行�
 	const originalBody = "Unchanged body. ".repeat(55);
 	let body = originalBody;
 	let textChunks = 12;
+	let visibleTruncated = false;
+	let visibleNodes = 40;
 	const relay = {
 		get closed() { return closed; },
 		close() { closed = true; },
@@ -77,9 +79,9 @@ test("browser relay：活动标签可 claim、直接交互、敏感输入放行�
 				const nodes = operation === "read_full"
 					? Array.from({ length: 269 }, (_, index) => ({ ref: `txt_1_full_${index + 1}`, role: "document-text", name: `Document body ${index + 1} ${"x".repeat(80)}`, states: ["read-only=true"] }))
 					: operation === "snapshot"
-						? Array.from({ length: 40 }, (_, index) => ({ ref: index < 30 ? `ax_1_${index + 1}` : `txt_1_${index + 1}`, role: index < 30 ? "row" : "document-text", name: `${index < 30 ? "Wiki navigation" : "Visible body"} ${index + 1}`, states: [] }))
+						? Array.from({ length: visibleNodes }, (_, index) => ({ ref: index < 30 ? `ax_1_${index + 1}` : `txt_1_${index + 1}`, role: index < 30 ? "row" : "document-text", name: `${index < 30 ? "Wiki navigation" : "Visible body"} ${index + 1}`, states: [] }))
 						: [{ ref: "ax_1_1", role: "heading", name: "visible", states: [] }];
-				return { schemaVersion: 1, kind: "rotom-browser-observation", tabName: name, ...tab, observationEpoch: 2, title: "safe", status: "complete", nodes, truncated: false, contentCoverage: operation === "read_full" ? "scroll-end" : "rendered-dom", contentComplete: operation === "read_full", ...(operation === "read_full" ? { scanSteps: 7, scannedContainers: 1, scrolledContainers: 1 } : {}) };
+				return { schemaVersion: 1, kind: "rotom-browser-observation", tabName: name, ...tab, observationEpoch: 2, title: "safe", status: "complete", nodes, truncated: operation === "snapshot" && visibleTruncated, contentCoverage: operation === "read_full" ? "scroll-end" : "rendered-dom", contentComplete: operation === "read_full", ...(operation === "read_full" ? { scanSteps: 7, scannedContainers: 1, scrolledContainers: 1 } : {}) };
 			}
 			if (operation === "screenshot") return { schemaVersion: 1, kind: "rotom-browser-screenshot", tabName: payload.tabName, tabId: 41, documentGeneration: 1, observationEpoch: 7, viewport: { width: 1280, height: 800, pageX: 0, pageY: 0, scale: 1 }, mimeType: "image/jpeg", data: Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString("base64") };
 			if (operation === "interact") {
@@ -176,8 +178,9 @@ test("browser relay：活动标签可 claim、直接交互、敏感输入放行�
 	assert.match(interact.promptGuidelines?.join("\n") ?? "", /Unknown writes may have executed.*read-only checks, never re-dispatch/u, "写动作 unknown 的不重发边界必须写在写入工具自己的指引里");
 	const browserGuidelineBytes = [tool, interact].reduce((sum, definition) => sum + Buffer.byteLength(JSON.stringify(definition.promptGuidelines ?? []), "utf8"), 0);
 	const browserSchemaBytes = [tool, interact].reduce((sum, definition) => sum + Buffer.byteLength(JSON.stringify({ name: definition.name, description: definition.description, parameters: definition.parameters }), "utf8"), 0);
-	assert.ok(browserGuidelineBytes <= 3_400, `Browser guideline budget regressed: ${browserGuidelineBytes}`);
-	assert.ok(browserSchemaBytes <= 1_800, `Browser schema budget regressed: ${browserSchemaBytes}`);
+	// Allow only the two selectors and their bounded-query/continuation semantics.
+	assert.ok(browserGuidelineBytes <= 3_650, `Browser guideline budget regressed: ${browserGuidelineBytes}`);
+	assert.ok(browserSchemaBytes <= 1_950, `Browser schema budget regressed: ${browserSchemaBytes}`);
 	const typed = await interact.execute("browser-interact-type", { operation: "execute", tabName: "docs", action: "type", targetRef: "ax_1_1", text: "Authorization: Bearer secret-token-123456789", replace: true }, undefined, undefined, ctx);
 	assert.equal(typed.details.acknowledged, true);
 	assert.equal(typed.details.businessOutcome, "unverified");
@@ -290,6 +293,59 @@ test("browser relay：活动标签可 claim、直接交互、敏感输入放行�
 	assert.equal(visibleSnapshot.details.observation.contentCoverage, "rendered-dom");
 	assert.equal(visibleSnapshot.details.observation.contentComplete, false);
 	assert.equal(visibleSnapshot.details.observation.nodes.some((node: any) => node.name.startsWith("Wiki navigation")), true);
+	await t.test("snapshot_visible filters fresh bounded observations, not whole-page content", async () => {
+		const query = async (params: Record<string, unknown>) => tool.execute("visible-query", { operation: "snapshot_visible", tabName: "docs", ...params }, undefined, undefined, ctx);
+		const match = await query({ text: "NAVIGATION 29", role: "row" });
+		assert.deepEqual(match.details.observation.nodes, [visibleSnapshot.details.observation.nodes[28]]);
+		assert.deepEqual(match.details.selection, { text: "NAVIGATION 29", role: "row", sourceNodes: 40 });
+		assert.equal(match.details.observation.contentCoverage, "rendered-dom");
+		assert.equal(match.details.observation.contentComplete, false);
+		assert.equal(match.details.observation.documentGeneration, visibleSnapshot.details.observation.documentGeneration);
+		assert.equal(match.details.observation.observationEpoch, visibleSnapshot.details.observation.observationEpoch);
+		assert.notEqual(match.details.observation.digest, visibleSnapshot.details.observation.digest);
+		assert.ok(match.content[0].text.length < visibleSnapshot.content[0].text.length / 2);
+		assert.deepEqual(calls.at(-1), { operation: "snapshot", payload: { tabName: "docs" } }, "filters stay local; no JS or protocol change");
+		assert.equal(visibleSnapshot.details.selection, undefined);
+		assert.equal((await query({ text: "navigation 29", role: "button" })).details.availableNodes, 0, "predicates use AND");
+		assert.equal((await query({ text: "Visible body" })).details.availableNodes, 10);
+		assert.equal((await query({ role: "ROW" })).details.availableNodes, 0, "role is exact and case-sensitive");
+		const paged = await query({ role: "document-text", limit: 3 });
+		assert.equal(paged.details.availableNodes, 10);
+		const nodes = [...paged.details.observation.nodes];
+		let cursor = paged.details.nextCursor;
+		const beforePages = calls.length;
+		while (cursor) {
+			const page = await query({ cursor, limit: 3 });
+			assert.deepEqual(page.details.selection, paged.details.selection);
+			assert.equal(page.details.observation.digest, paged.details.observation.digest);
+			nodes.push(...page.details.observation.nodes);
+			cursor = page.details.nextCursor;
+		}
+		assert.equal(calls.length, beforePages, "cursor reads the same observation without another scan");
+		assert.deepEqual(nodes, visibleSnapshot.details.observation.nodes.slice(30));
+		assert.ok(nodes.every((node: any) => node.role === "document-text" && node.ref.startsWith("txt_")), "text refs remain read-only");
+		visibleTruncated = true;
+		const absent = await query({ text: "not in this observation" });
+		assert.equal(absent.details.availableNodes, 0);
+		assert.equal(absent.details.observation.truncated, true, "no match must not hide source truncation");
+		assert.equal(absent.details.observation.contentComplete, false);
+		visibleTruncated = false;
+		visibleNodes = 1_001;
+		const beyondCap = await query({ text: "Visible body 1001" });
+		assert.equal(beyondCap.details.availableNodes, 0);
+		assert.equal(beyondCap.details.selection.sourceNodes, 1_000);
+		assert.equal(beyondCap.details.observation.truncated, true, "sanitizer cap is retained even with no matches");
+		visibleNodes = 40;
+		tabs.get("docs")!.documentGeneration += 1;
+		const fresh = await query({ role: "row" });
+		assert.equal(fresh.details.observation.documentGeneration, match.details.observation.documentGeneration + 1, "new query must not reuse a cached observation");
+		tabs.get("docs")!.documentGeneration -= 1;
+		const beforeInvalid = calls.length;
+		for (const params of [{ text: "" }, { text: "x".repeat(257) }, { role: "" }, { role: "x".repeat(129) }, { text: "a\u0000b" }, { cursor: "existing-cursor", role: "row" }, { operation: "read_full", text: "body" }, { operation: "open", tabName: "bad", url: "https://example.test", role: "row" }]) {
+			await assert.rejects(() => query(params), /text|role|snapshot_visible|cursor/u);
+		}
+		assert.equal(calls.length, beforeInvalid, "invalid selectors must not dispatch");
+	});
 	const snapshot = await tool.execute("browser-no-ui-snapshot", { operation: "snapshot", tabName: "docs", limit: 30 }, undefined, undefined, ctx);
 	assert.equal(snapshot.details.observation.tabName, "docs");
 	assert.match(String(snapshot.details.nextCursor), /^pi1_browser_cursor_/u);

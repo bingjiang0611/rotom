@@ -53,7 +53,8 @@ type BrowserRelayTabsV1 = {
 	tabs: Array<{ name: string; tabId: number; documentGeneration: number; url: string; title: string; status: "loading" | "complete"; current: boolean; browserActive: boolean; ownership: "agent" | "claimed"; relayAttached: boolean }>;
 };
 type BrowserDiscoveredTabsV1 = { schemaVersion: 1; kind: "rotom-browser-discovered-tabs"; tabs: Array<{ tabId: number; url: string; title: string; status: "loading" | "complete"; browserActive: boolean }> };
-type SnapshotCursorV1 = { observation: BrowserObservationV1; offset: number; expiresAt: number };
+type SnapshotSelectionV1 = { text?: string; role?: string; sourceNodes: number };
+type SnapshotCursorV1 = { observation: BrowserObservationV1; selection?: SnapshotSelectionV1; offset: number; expiresAt: number };
 
 export interface BrowserCommandDependenciesV1 {
 	platform: NodeJS.Platform;
@@ -333,7 +334,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 	};
 	const readTabs = async (relayClient: Awaited<ReturnType<typeof client>>, signal?: AbortSignal) => validateTabs(await relayClient.request("tabs", {}, { signal, timeoutMs: 5_000 }));
 
-	const makeSnapshotPage = (freshObservation: BrowserObservationV1 | undefined, requestedLimit: number, cursor?: string) => {
+	const makeSnapshotPage = (freshObservation: BrowserObservationV1 | undefined, requestedLimit: number, cursor?: string, selection?: SnapshotSelectionV1) => {
 		let offset = 0;
 		let observation = freshObservation;
 		if (cursor) {
@@ -341,6 +342,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			cursors.delete(cursor);
 			if (!cached || cached.expiresAt < Date.now()) throw new Error("snapshot cursor 已过期或不属于当前 observation");
 			observation = cached.observation;
+			selection = cached.selection;
 			offset = cached.offset;
 		}
 		if (!observation) throw new Error("snapshot observation 缺失");
@@ -349,7 +351,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 		for (;;) {
 			const nodes = observation.nodes.slice(offset, offset + limit);
 			const nextOffset = offset + nodes.length;
-			result = { kind: "observation", observation: { ...observation, nodes }, offset, availableNodes: observation.nodes.length };
+			result = { kind: "observation", observation: { ...observation, nodes }, offset, availableNodes: observation.nodes.length, ...(selection ? { selection } : {}) };
 			if (nextOffset < observation.nodes.length) result.nextCursor = "pending";
 			if (Buffer.byteLength(JSON.stringify(result), "utf8") <= MAX_RESULT_BYTES || limit === 1) break;
 			limit = Math.max(1, Math.floor(limit / 2));
@@ -357,7 +359,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 		if (result.nextCursor) {
 			while (cursors.size >= MAX_SNAPSHOT_CURSORS) cursors.delete(cursors.keys().next().value!);
 			const nextCursor = `pi1_browser_cursor_${randomUUID()}`;
-			cursors.set(nextCursor, { observation, offset: offset + (result.observation as BrowserObservationV1).nodes.length, expiresAt: Date.now() + SNAPSHOT_PAGE_TTL_MS });
+			cursors.set(nextCursor, { observation, selection, offset: offset + (result.observation as BrowserObservationV1).nodes.length, expiresAt: Date.now() + SNAPSHOT_PAGE_TTL_MS });
 			result.nextCursor = nextCursor;
 		}
 		return result;
@@ -373,6 +375,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			"open: named background tab, no focus. HTTP(S) only; serve HTML via HTTP. discover then claim: tabId + new tabName; handoff returns claimed user tabs.",
 			"snapshot and read_full traverse virtualized scroll containers and restore position; use cursor pagination, not manual scrolling, reopening, or reclaiming. Full-text claims need scrolledContainers>0.",
 			"Use snapshot_visible to refresh refs, browser_interact for actions, screenshot only for ref-less controls; screenshots are sensitive content.",
+			"snapshot_visible accepts text (case-insensitive name substring) and role (exact), combined with AND. Filters search only the bounded observation, not the whole page; zero matches is not proof of absence. Continue nextCursor without filters.",
 		],
 		parameters: Type.Object({
 			operation: StringEnum(BROWSER_INSPECT_OPERATIONS_V1),
@@ -384,6 +387,8 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			all: Type.Optional(Type.Boolean()),
 			cursor: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
 			limit: Type.Optional(Type.Integer({ minimum: 1 })),
+			text: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
+			role: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
 		}, { additionalProperties: false }),
 		executionMode: "sequential",
 		async execute(_toolCallId, rawParams, signal, _onUpdate, ctx) {
@@ -393,6 +398,10 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			if (!BROWSER_INSPECT_OPERATIONS_V1.includes(operation as any)) throw new Error("browser_inspect operation 无效");
 			const tabName = params.tabName === undefined ? undefined : safeTabName(params.tabName);
 			const limit = params.limit === undefined ? Number.MAX_SAFE_INTEGER : safeInteger(params.limit, "limit", 1, Number.MAX_SAFE_INTEGER);
+			const text = params.text === undefined ? undefined : safeString(params.text, "text", 256);
+			const role = params.role === undefined ? undefined : safeString(params.role, "role", 128);
+			const filtered = text !== undefined || role !== undefined;
+			if (filtered && (operation !== "snapshot_visible" || params.cursor !== undefined)) throw new Error("text/role 仅允许首次 snapshot_visible；cursor 已固定查询结果，请勿重复过滤");
 			// Invalid local input must neither contact Relay nor grant fallback permission.
 			if (operation === "open" && !tabName) throw new Error("open 需要 tabName");
 			const openUrl = operation === "open" ? canonicalBrowserUrlV1(params.url) : undefined;
@@ -455,6 +464,20 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			}
 			if (operation === "snapshot_visible") {
 				const observation = sanitizeBrowserObservationV1(await relayClient.request("snapshot", { tabName }, { signal }));
+				if (filtered) {
+					const selection = { ...(text !== undefined ? { text } : {}), ...(role !== undefined ? { role } : {}), sourceNodes: observation.nodes.length };
+					const needle = text?.toLowerCase();
+					// Filter only sanitized nodes; retain ref identity and source truncation.
+					// Matching cannot prove absence beyond the bounded rendered observation.
+					const { digest: _digest, ...source } = observation;
+					const selected = {
+						...source,
+						nodes: source.nodes.filter((node) =>
+							(role === undefined || node.role === role) && (needle === undefined || node.name.toLowerCase().includes(needle))),
+						contentComplete: false,
+					};
+					return snapshotResult({ ...selected, digest: browserActionDigestV1(selected) }, limit, undefined, selection);
+				}
 				return snapshotResult(observation, limit);
 			}
 			if (operation === "switch") {
