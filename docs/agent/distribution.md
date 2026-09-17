@@ -1,5 +1,14 @@
 # rotom · npm 分发
 
+## 0.1.8 · 发布准备
+
+用户已明确授权精确版本 `0.1.8`、dist-tag `latest`。当前尚未发布；只有 registry 与最终 tgz 的字节/摘要核验通过后才记为 verified。
+
+- Goal 更新至 `0.54.4-rotom.4`：证据驱动的澄清/授权暂停；三轮仅限制 `goal_blocked`，不为凑次数重复工作；审阅拒绝区分真实缺陷与证据缺口，不以重放成功/unknown 外部写入换取批准。工具、状态与 reviewer 限额不变，不宣称硬性副作用拦截。实测及局限见 [Ultimate 复测](../../experiments/goal-review/RETRY-RETEST.md)。
+- 包含 Qoder 大图片请求修复；不扩大模型、effort、图片格式或受管上下文合同。
+- 提交身份已按用户授权改用 GitHub noreply，原/新 SHA 对照见 [身份修正记录](history-identity-repair.md)。未新增隐私审计例外。
+- 保持 `publishConfig.access=public`、官方 npm registry 与 `UNLICENSED`；Pi fork 版本不变。不更新活跃安装，也不把先前测试替代最终 `0.1.8` tgz 安装验证。
+
 > 当前 registry 稳定版是 [`@bingjiang0611/rotom@0.1.7`](https://www.npmjs.com/package/@bingjiang0611/rotom/v/0.1.7)，npm dist-tag 为 `latest`。后续默认组件与 macOS/Linux 安装验证见 [Subagent 默认接入](subagent-default-integration.md)，发行包默认 scope 及其未复验项见 [scoped 默认](subagent-owned-default.md)。
 
 当前版本使用仓内 Pi fork；构建、隔离安装、本机切换及未验证项见 [Pi fork 接入](pi-fork.md)。本页底部“首次分发”表仍是历史上游 Pi 基线，不代表新 fork 的跨平台验收。
