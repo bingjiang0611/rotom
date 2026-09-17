@@ -1,5 +1,15 @@
 # rotom · npm 分发
 
+## 0.1.9 正式发布
+
+`0.1.9` 于 2026-09-17 从公开 `main` 的 `c6b0d6302b7af0064ec4e7035214594ca259fee` 构建并发布，`publishConfig.access=public`，许可证保持 `UNLICENSED`。registry 确认精确版本、`latest=0.1.9`、integrity、shasum 与 tarball URL（`https://registry.npmjs.org/@bingjiang0611/rotom/-/rotom-0.1.9.tgz`）。下载 tarball 与唯一最终 tgz 逐字节一致：17,918 个文件，53,396,875 bytes；SHA-256 `c223707f4f08fa8189ff7c179d536e8583ff6b4f7fd90103640ff1a6f1d9f5f3`，shasum `f026d870cd295a649cff647af09f49d06cefc7e4`，SRI `sha512-3WPuEKGMvn3ENMPGJ9ml0DU0bSJsXh7q9ugmtmgK0AqHGt31IeitUF3V7FHozNpWNFP7qn5VglLvsgWEPtH4Cg==`。
+
+发布前最终 tgz 通过 pack gate、tree/history 隐私审计、隔离安装、`rotom --version`（0.1.9）、CLI help 与 24 项 `test:distribution`；安装包不包含维护用 smoke 脚本，因此未将安装包外部 smoke 冒充为完整安装面 runtime smoke。npm 首次 publish 触发 EOTP，用户完成官方网页 2FA 后以同一命令和同一 tgz 完成发布；后续 registry 与字节核验通过。随后按用户要求将本机全局 npm 安装更新为 0.1.9，更新后版本回读通过。已安装 Browser Relay 组件与当前发行内容一致，Chrome 扩展此前已由用户手动重载；未自动重载存活会话。
+
+本次版本包含 Browser Relay protocol 20 / Chrome extension 0.10.0 的 Relay 端定向 AX/text 查询；真实 Qoder Ultimate + Chrome 合成页面验收记录见 [Browser 查询验收](browser-query-verification-2026-09-17.md)。该真实验收不外推为任意网站或完整产品 L3。
+
+> 当前 registry 稳定版是 [`@bingjiang0611/rotom@0.1.9`](https://www.npmjs.com/package/@bingjiang0611/rotom/v/0.1.9)，npm dist-tag 为 `latest`。
+
 ## 0.1.8 正式发布
 
 `0.1.8` 于 2026-09-17 从公开 `main` 的 `521e18266b16ba644d933e7c7c89f1fdfb20eab8` 构建并发布，`publishConfig.access=public`，许可证保持 `UNLICENSED`。官方 Versions 页显示 Published；registry 确认精确版本、`latest=0.1.8`、integrity、shasum 与 tarball URL（`https://registry.npmjs.org/@bingjiang0611/rotom/-/rotom-0.1.8.tgz`）。下载包与唯一最终 tgz 逐字节一致：17,918 个文件，压缩后 53,394,623 bytes，解包后 168,675,221 bytes；SHA-256 `2fcc70673050f46493e28fd355b25807e63e80779feb0b5576a66ee191e647ce`，shasum `abee78ef37ac80c3fa23be18ebf908478f55aff4`，SRI `sha512-y9Ktr4fY8gXkgvLbfZSrBjbxzN9TQfQNWn42+tevnSl0ruNagcNC7YQkSr33Kp7Vm2xX9ako5CjkVJ8NQz+J8g==`。
