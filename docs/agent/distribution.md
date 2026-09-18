@@ -1,10 +1,12 @@
 # rotom · npm 分发
 
-## 0.1.10 发布准备
+## 0.1.10 正式发布
 
-`0.1.10` 汇总已公开的 Subagent Qoder provider 修复：当 reviewer/worker/scout 继承 `qoder/*` 模型时，隔离子进程显式加载已验证产品中的 Qoder provider，同时继续关闭 ambient extensions、保持原工具白名单和原模型选择。`ROTOM_QODER=0` 或 capability ceiling 禁止子扩展时在启动前拒绝，不自动换模型；其他自定义 provider 仍需显式 child 配置。组件升级为 `pi-subagents@0.52.1-rotom.3`，锁文件、归档、integrity 和产品资源合同同步。
+`0.1.10` 于 2026-09-18 从公开 `main` 的 `5c7c397e2e621a9b0a0d03260f0dc5275b6e1ff7` 构建并发布，`latest=0.1.10`。registry 下载包与唯一最终 tgz 逐字节一致：17,918 个文件，53,399,660 bytes；SHA-256 `e736afd9a1844f2710816feb2463f386d374336c306a9849f8c1981bc9bb7cf1`，shasum `44e7465d20f2256f940e1e7aa3bc8a336e7578c0`，SRI `sha512-n7R9siL+GvWV9zSsih1xGbtxrt0kvIYUIAcLKxbc3mTGK3ajO02fZQj/OtLHjgGRsnTLYMn1WhsGN/x/XrUrRA==`。
 
-发行前要求对最终唯一 tgz 执行 pack gate、tree/history 与归档隐私审计、隔离安装、版本/帮助、24 项 distribution、default/full runtime smoke、从 `0.1.9` 升级及卸载。离线真实 Pi CLI/RPC 回归只证明 `qoder/ultimate:high` 在禁用 ambient extensions 时可选择，没有发送真实 Qoder 推理，也不证明账号目录、额度或远端 reviewer 成功。本节在 registry 字节回读前仅是准备记录，不代表已经发布或更新维护者安装。
+本版汇总 Subagent Qoder provider 修复：当 reviewer/worker/scout 继承 `qoder/*` 模型时，隔离子进程显式加载已验证产品中的 Qoder provider，同时继续关闭 ambient extensions、保持原工具白名单和原模型选择。`ROTOM_QODER=0` 或 capability ceiling 禁止子扩展时在启动前拒绝，不自动换模型；其他自定义 provider 仍需显式 child 配置。组件升级为 `pi-subagents@0.52.1-rotom.3`，锁文件、归档、integrity 和产品资源合同同步。
+
+最终 tgz 通过 pack gate、tree/history 与归档隐私审计、24 项 distribution、隔离安装、版本/帮助、default/full runtime smoke、`0.1.9`→`0.1.10` 升级和卸载；发布后 registry 字节回读及维护机版本化安装的 default/full smoke 再次通过。本机命令已切换至 `~/.local/share/rotom/releases/0.1.10`；旧的存活会话没有热加载或重放。离线真实 Pi CLI/RPC 回归只证明 `qoder/ultimate:high` 在禁用 ambient extensions 时可选择，没有发送真实 Qoder 推理，也不证明账号目录、额度或远端 reviewer 成功。
 
 ## 0.1.9 正式发布
 
