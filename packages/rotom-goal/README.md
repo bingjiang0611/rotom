@@ -1,6 +1,6 @@
 # rotom Goal
 
-rotom-maintained `@narumitw/pi-goal@0.54.4-rotom.4`. MIT upstream provenance is in [UPSTREAM.md](UPSTREAM.md). Use the integrated [rotom installation](../../docs/usage.md), not a second upstream Goal extension.
+rotom-maintained `@narumitw/pi-goal@0.54.4-rotom.5`. MIT upstream provenance is in [UPSTREAM.md](UPSTREAM.md). Use the integrated [rotom installation](../../docs/usage.md), not a second upstream Goal extension.
 
 ## One session, one objective
 
@@ -36,7 +36,7 @@ Four stable tool schemas are registered at startup. Visibility never activates G
 
 If an otherwise successful run ends without an accepted continue/wait/terminal decision, Goal **pauses**, spending no automatic repair call. New user input or `/goal resume` can continue it. Cancellation, replacement, compaction and session changes invalidate old decisions; an idle compaction does not itself authorize a new dispatch. Persisted waits keep their existing ownership/deadline behavior. Native within-run retries and independently triggered host work are not new Goal continuation decisions.
 
-The default automatic-work limit remains **25 model responses**, not 25 tool calls or scheduler dispatches. The no-progress threshold remains 3 repeated runs. Control-only `goal_continue` narration and arguments are excluded from progress fingerprints. Different ordinary narration can still evade a heuristic fingerprint; this is not proof of semantic progress.
+The default automatic-work limit is **100 model responses**, not tool calls or completed tasks. This bounded long-task trial replaces the old 25-response default; explicit saved limits (including 25 or Unlimited) are preserved. The footer shows remaining responses. Pause/status views show the last accepted continuation plan when available; it is display-only, not verified progress or authority to replay an action. No model summary request is added. Reassess this default if representative long tasks still stop too often or spend excessively; adjust the existing limit/token budget rather than adding semantic task counting. The no-progress threshold remains 3 repeated runs. Control-only `goal_continue` narration and arguments are excluded from progress fingerprints. Different ordinary narration can still evade a heuristic fingerprint; this is not proof of semantic progress.
 
 Restrictive allowlists must now include `goal_continue` alongside `goal_complete` and `goal_blocked`; missing tools pause/refuse activation, never widen the caller's selection. No old pending continuation is migrated into a fresh authorization.
 
@@ -76,7 +76,7 @@ The user-owned opt-out is `completionReview: false` in the existing user `pi-goa
 {
   "completionReview": true,
   "rpc": { "enabled": false },
-  "continuationLimits": { "automaticTurns": 25, "noProgressTurns": 3 }
+  "continuationLimits": { "automaticTurns": 100, "noProgressTurns": 3 }
 }
 ```
 

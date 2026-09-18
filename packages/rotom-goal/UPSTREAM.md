@@ -4,7 +4,7 @@
 - Repository: <https://github.com/narumiruna/pi-extensions> (`packages/pi-goal`)
 - Baseline: upstream `0.54.4`, 22 TypeScript source files.
 - License: MIT; original notice retained in `LICENSE`.
-- Maintained version: `0.54.4-rotom.4`, private component of [rotom](https://github.com/bingjiang0611/rotom), not an upstream or npm release.
+- Maintained version: `0.54.4-rotom.5`, private component of [rotom](https://github.com/bingjiang0611/rotom), not an upstream or npm release.
 - `.rotom.2`: Qoder Ultimate live evaluation exposed missing verdict markers when the request contained only JSON. The request now carries the same review contract outside the untrusted payload, and file tools explain the project-root path. Bounded `goal_continue`/`goal_wait` tool results and text-only user/host announcements are now visible to the reviewer for procedural requirements, but remain excluded from candidate identity and progress. The request also clarifies pre-completion timing and native control semantics; evidence retains complete records up to the existing 12KB bound instead of prematurely dropping them after six records. Strict verdict parsing, model-call/attempt limits and token/byte budgets are unchanged.
 
 ## Retained upstream behavior
@@ -37,6 +37,10 @@ Design inspiration: `qiaomu-goal-meta-skill` by 向阳乔木 (<https://github.co
 ### `.rotom.4`: stop futile retries and separate rejection from repair authority
 
 Ultimate evaluation of `.rotom.3` exposed repeated failed checks to meet the blocker count, and repeated publication after completion-review rejection. The shared contract now permits an immediate pause once diagnostics show an external prerequisite with no useful next investigation; three turns still gate `goal_blocked`, not the right to pause. Rejected reviews use the same guidance in both the persistent prompt and tool feedback: distinguish observed defects from proof gaps, gather proof read-only, never replay successful/unknown external writes just to obtain approval, and pause when no justified repair or new evidence is available. The file-only reviewer distinguishes captured procedural observations from unobserved external effects; its report is an assessment, not authority to act. Tools, state schema, approval requirements and all review/continuation limits are unchanged. This remains model guidance, not a semantic write interceptor.
+
+### `.rotom.5`: bounded long-task allowance and pause context
+
+The default automatic-response allowance becomes 100; explicitly saved limits are unchanged. Footer status shows remaining responses, and the existing Goal state optionally retains the last accepted continuation plan for pause/status display only. It cannot schedule work, count as progress, reset usage, or authorize replay. Old state without this field remains valid. No summary model call, new tool, scheduler, or relaxed token/no-progress/reviewer guard is introduced.
 
 ## Compatibility and verification
 

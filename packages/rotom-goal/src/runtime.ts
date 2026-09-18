@@ -252,6 +252,8 @@ export class GoalRuntime {
 	acceptContinuation(goalId: string, nextAction: string): boolean {
 		if (this.activeGoal?.id !== goalId || this.agentRunGoalId !== goalId || !this.ownsWorkflow() || this.activeGoal.waiting || this.continueAction) return false;
 		this.continueAction = nextAction;
+		this.activeGoal.lastContinuationAction = nextAction;
+		this.persistGoal(this.activeGoal);
 		return true;
 	}
 	guardAbortGoalId?: string;
@@ -1492,7 +1494,7 @@ export function formatStatus(
 	const automatic =
 		automaticTurnLimit === null
 			? "automatic Unlimited"
-			: `automatic ${goal.automaticModelTurns}/${automaticTurnLimit}`;
+			: `automatic ${goal.automaticModelTurns}/${automaticTurnLimit} · ${Math.max(0, automaticTurnLimit - goal.automaticModelTurns)} left`;
 	if (goal.status === "queued") return `queued · ${automatic}`;
 	if (goal.waiting) {
 		return `waiting ${safeGoalMenuText(goal.waiting.reason)} · ${automatic}`;
@@ -1537,6 +1539,7 @@ export function goalSummary(
 		automaticTurnLimit === null
 			? `Automatic work: ${goal.automaticModelTurns} responses · Unlimited`
 			: `Automatic work: ${goal.automaticModelTurns} of ${automaticTurnLimit} responses`,
+		...(goal.lastContinuationAction ? [`Last recorded next step (plan, not progress): ${safeGoalMenuText(goal.lastContinuationAction, 1_000)}`] : []),
 		`Active elapsed: ${formatDuration(goal.timeUsedSeconds)}`,
 		`Tokens: ${goal.tokenBudget === undefined ? formatTokenCount(goalBudgetTokens(goal)) : formatBudget(goal)}`,
 		...(goal.review ? [`Completion review: ${goal.review.status} · ${goal.review.attempts}/${REVIEW_LIMITS.attempts} attempts · ${formatTokenCount(goal.review.reportedTokens)} reported tokens (partial; USD/credits unknown)`] : []),

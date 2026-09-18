@@ -4,7 +4,7 @@ import { EventEmitter } from "node:events";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { GoalRuntime, createGoal, nextGoalInstance } from "../src/runtime.js";
+import { GoalRuntime, createGoal, nextGoalInstance, formatStatus, goalSummary, transitionGoal } from "../src/runtime.js";
 import { registerGoalTools } from "../src/tools.js";
 import { registerGoalLifecycle } from "../src/lifecycle.js";
 import { GoalCommandController } from "../src/commands.js";
@@ -94,6 +94,36 @@ test("four stable tools; defaults enable completion review; excluded continue is
 	assert.equal(normalizeGoalSettings({ completionReview: "false" }), undefined);
 	h.pi.getActiveTools = () => ["goal_complete", "goal_blocked"];
 	assert.equal(h.runtime.goalToolsAvailable(), false);
+});
+
+test("100-response default preserves explicit limits and pauses precisely without clearing usage or replaying plans", (t) => {
+	const h = fixture(t);
+	assert.equal(normalizeGoalSettings({})?.continuationLimits.automaticTurns, 100);
+	assert.equal(normalizeGoalSettings({ continuationLimits: { automaticTurns: 25 } })?.continuationLimits.automaticTurns, 25);
+	assert.equal(normalizeGoalSettings({ continuationLimits: { automaticTurns: null } })?.continuationLimits.automaticTurns, null);
+	const id = h.runtime.activeGoal!.id;
+	h.entries.push({ type: "message", message: { role: "assistant", usage: { totalTokens: 1234 } } });
+	assert.equal(h.runtime.acceptContinuation(id, "Inspect the test result"), true);
+	const restored = normalizeLoadedGoal(h.entries.at(-1).data.goal);
+	assert.equal(restored.lastContinuationAction, "Inspect the test result");
+	assert.equal(normalizeLoadedGoal({ ...restored, lastContinuationAction: undefined }).lastContinuationAction, undefined);
+	for (let i = 1; i < 100; i++) {
+		assert.equal(h.runtime.recordAutomaticTurn(h.ctx, { role: "assistant", stopReason: "toolUse" }), false);
+		assert.equal(h.runtime.activeGoal!.status, "active");
+	}
+	assert.match(formatStatus(h.runtime.activeGoal)!, /99\/100 · 1 left/);
+	assert.equal(h.runtime.recordAutomaticTurn(h.ctx, { role: "assistant", stopReason: "toolUse" }), true);
+	assert.equal(h.runtime.activeGoal!.status, "paused");
+	assert.equal(h.runtime.activeGoal!.safetyPauseCause, "continuation_limit");
+	assert.equal(h.runtime.activeGoal!.tokensUsed, 1234);
+	assert.match(goalSummary(h.runtime.activeGoal!), /Last recorded next step \(plan, not progress\): Inspect the test result/);
+	assert.equal(h.sent.length, 0);
+	h.runtime.activeGoal = transitionGoal(h.runtime.activeGoal!, "active");
+	h.runtime.resetActiveSafetyEpoch(h.ctx);
+	assert.equal(h.runtime.activeGoal!.automaticModelTurns, 0);
+	assert.equal(h.runtime.activeGoal!.tokensUsed, 1234);
+	assert.equal(h.runtime.activeGoal!.lastContinuationAction, "Inspect the test result");
+	assert.equal(h.sent.length, 0, "a saved plan must never dispatch itself");
 });
 
 test("accepted decision permits exactly one settled continuation; missing decision pauses", async (t) => {

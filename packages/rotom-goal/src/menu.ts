@@ -247,6 +247,7 @@ export async function showGoalManager(
 					lines: goal
 						? [
 								automaticPauseSummary(used, limit),
+								...(goal.lastContinuationAction ? [`Last recorded next step (plan, not progress): ${safeGoalMenuText(goal.lastContinuationAction, 1_000)}`] : []),
 								`${safeGoalMenuText(goal.text)} is preserved.`,
 								`${formatInteger(goalBudgetTokens(goal))} cumulative tokens and ${formatDuration(goal.timeUsedSeconds)} active time are preserved.`,
 								"The objective and usage are preserved.",
