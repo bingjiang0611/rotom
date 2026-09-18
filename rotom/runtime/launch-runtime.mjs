@@ -149,6 +149,9 @@ export async function launchRuntime(rawArgs = process.argv.slice(2)) {
 	const bundledPi = process.env.ROTOM_PI === undefined;
 	const executable = bundledPi ? await resolveInstalledPi(agentDir) : process.env.ROTOM_PI;
 	if (!isAbsolute(executable)) throw new UsageError("ROTOM_PI 必须是绝对 Pi 可执行文件路径");
+	// Verification imports the Pi SDK. Set trusted product identity first so
+	// import-time branding (including the exit resume command) cannot freeze as "pi".
+	process.env.ROTOM_PRODUCT_VERSION = await readProductVersion(agentDir);
 	const verified = await (options.versionMode
 		? verifyPiRuntimeIdentity({ executable, agentDir, resourceDeclarations })
 		: verifyPiRuntime({
@@ -160,7 +163,6 @@ export async function launchRuntime(rawArgs = process.argv.slice(2)) {
 			// module graph, instead of evaluating the unbundled SDK a second time.
 			...(bundledPi ? { runtimeEntry: resolve(dirname(executable), "index.js") } : {}),
 		}));
-	process.env.ROTOM_PRODUCT_VERSION = await readProductVersion(agentDir);
 	process.env.ROTOM_VERIFIED_PI_EXECUTABLE = verified.executable;
 	if (options.packageManagement) {
 		await runPi(verified, options.userArgs);
