@@ -1,5 +1,16 @@
 # rotom · npm 分发
 
+## 0.1.12 发布准备
+
+预期 npm dist-tag 为 `latest`，包保持 `@bingjiang0611/rotom`、公开 access 与 `UNLICENSED`。本节是构建前发行说明，不表示版本已经发布；公开状态仍须由 registry 的精确 version/tag/digest 与最终 tgz 字节一致性证明。
+
+- Goal 内化组件升级为 `0.54.4-rotom.5`：默认自动响应额度从 25 提升至 100，显式用户设置优先；展示剩余额度和最近声明的下一步计划。计划不是已验证进展，也不授权重放写入；原有预算、无进展暂停、显式续跑和完成审阅边界不变。
+- 保留 session-efficiency 可重复评测及负结果。歧义 edit 预览和全局 context-efficiency 提示因未证明净收益而不进入运行时；不宣称一般 token 或成本下降。
+- 同步已上线 Browser 查询/回退描述的精确 footprint 与 eval 断言，补齐默认 Qoder 资源列表，按实际 trace 字节数构造 fixture 并保留负向检查；不放宽身份或元数据校验。
+- 修复 trace dashboard 在输出就绪 URL 后、注册信号处理器前收到 Ctrl+C 时不能正常退出的竞态。
+
+仅发行已提交源码；不包含维护工作区未提交的 Pi retry 改动。活跃会话与浏览器绑定不热迁移，安装后须新开会话。
+
 ## 0.1.11 发布准备
 
 本版修复交互会话退出提示错误显示 `pi --session ...`：launcher 现在在 Pi SDK 首次 import 前写入经过产品 manifest 校验的 rotom 版本，使 Pi 的 import-time 品牌常量稳定选择 `rotom`。回归测试显式注入伪造的父进程版本，并证明 SDK 在 import 时已看到当前产品版本；不改变底层进程兼容名称、session ID、session 目录或恢复语义。
