@@ -1,5 +1,11 @@
 # rotom · npm 分发
 
+## 0.1.11 发布准备
+
+本版修复交互会话退出提示错误显示 `pi --session ...`：launcher 现在在 Pi SDK 首次 import 前写入经过产品 manifest 校验的 rotom 版本，使 Pi 的 import-time 品牌常量稳定选择 `rotom`。回归测试显式注入伪造的父进程版本，并证明 SDK 在 import 时已看到当前产品版本；不改变底层进程兼容名称、session ID、session 目录或恢复语义。
+
+发布目标为 `@bingjiang0611/rotom@0.1.11`、`latest`、public access、`UNLICENSED`。发布仍由维护者按 `npm-release-handoff.mjs` 输出在前台终端完成；准备阶段不修改活动安装或存活会话。
+
 ## 0.1.10 正式发布
 
 `0.1.10` 于 2026-09-18 从公开 `main` 的 `5c7c397e2e621a9b0a0d03260f0dc5275b6e1ff7` 构建并发布，`latest=0.1.10`。registry 下载包与唯一最终 tgz 逐字节一致：17,918 个文件，53,399,660 bytes；SHA-256 `e736afd9a1844f2710816feb2463f386d374336c306a9849f8c1981bc9bb7cf1`，shasum `44e7465d20f2256f940e1e7aa3bc8a336e7578c0`，SRI `sha512-n7R9siL+GvWV9zSsih1xGbtxrt0kvIYUIAcLKxbc3mTGK3ajO02fZQj/OtLHjgGRsnTLYMn1WhsGN/x/XrUrRA==`。

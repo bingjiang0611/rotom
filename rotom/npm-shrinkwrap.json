@@ -1,12 +1,12 @@
 {
   "name": "@bingjiang0611/rotom",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "lockfileVersion": 3,
   "requires": true,
   "packages": {
     "": {
       "name": "@bingjiang0611/rotom",
-      "version": "0.1.10",
+      "version": "0.1.11",
       "license": "UNLICENSED",
       "os": [
         "darwin",
