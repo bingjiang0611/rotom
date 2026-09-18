@@ -944,12 +944,13 @@ async function main() {
 			void stop(1);
 		},
 	});
+	// The URL signals readiness; shutdown handlers must already be installed.
+	process.on("SIGINT", () => { void stop(0); });
+	process.on("SIGTERM", () => { void stop(0); });
 	process.stdout.write(`Rotom trace dashboard: ${dashboard.url}\n`);
 	process.stdout.write(`Data: ${dashboard.root}\n`);
 	if (process.env.ROTOM_TRACE_DASHBOARD_TEST_ONCE === "1") { await dashboard.close(); return; }
 	process.stdout.write("Press Ctrl+C to stop.\n");
-	process.on("SIGINT", () => { void stop(0); });
-	process.on("SIGTERM", () => { void stop(0); });
 	await new Promise(() => {});
 }
 
