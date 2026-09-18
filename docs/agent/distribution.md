@@ -143,6 +143,20 @@ npm run test:distribution
 npm run pack:release -- /absolute/output-directory
 ```
 
+### npm 发布的人机交接
+
+Agent 负责收口源码、确定性测试、构建唯一 tgz、隔离安装/升级/卸载与只读核验；维护者本人在前台终端负责 npm login、网页/OTP、不可逆 publish 和本机版本切换。Agent 不再通过后台 shell、AppleScript 或浏览器工具触发这些步骤，也不让不可见的 publish 进程等待 2FA。
+
+构建完成后先生成绑定绝对 tgz、version、tag 和摘要的命令单：
+
+```sh
+node scripts/npm-release-handoff.mjs commands '/absolute/output/bingjiang0611-rotom-<version>.tgz' latest
+```
+
+在同一个前台终端中按输出顺序逐段执行，不要整块无脑粘贴。`preflight` 只读证明目标版本不存在；随后命令创建本次发布专用的私有 npm config/cache 并清除环境 token，用户在其中登录；`npm publish` 只执行一次。出现 `EOTP` 时先完成该前台命令展示的官方 challenge，再运行 `verify`，不得凭错误文本直接重复发布。`verify` 要求精确 version、dist-tag、integrity、shasum 和下载 tarball 字节全部等于冻结产物。只有 `verified: true` 后才执行输出中的 `install-release.sh`；Agent 随后只读回验 registry、`rotom --version --verbose`、活动路径和内置组件版本。最后仍由用户执行输出中的 logout、`npm whoami` 失败回读与临时认证目录删除命令。
+
+该 helper 不登录、不发布、不安装、不退出登录，也不读取 npm 凭据；`commands` 模式无网络，`preflight`/`verify` 仅访问固定 npm registry。它不能替代 `pack:release`、tree/history 审计、distribution、default/full smoke 或升级/卸载门禁。
+
 维护打包需要 Node 24+、npm、Python 3、Git、POSIX shell 和公共 npm registry 网络；用户安装/运行不需要 Python。输出目录必须在产品目录之外，已有同名 tgz 会被拒绝覆盖。
 
 打包器 `scripts/pack-release.mjs`：
