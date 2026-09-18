@@ -1,5 +1,11 @@
 # rotom · npm 分发
 
+## 0.1.10 发布准备
+
+`0.1.10` 汇总已公开的 Subagent Qoder provider 修复：当 reviewer/worker/scout 继承 `qoder/*` 模型时，隔离子进程显式加载已验证产品中的 Qoder provider，同时继续关闭 ambient extensions、保持原工具白名单和原模型选择。`ROTOM_QODER=0` 或 capability ceiling 禁止子扩展时在启动前拒绝，不自动换模型；其他自定义 provider 仍需显式 child 配置。组件升级为 `pi-subagents@0.52.1-rotom.3`，锁文件、归档、integrity 和产品资源合同同步。
+
+发行前要求对最终唯一 tgz 执行 pack gate、tree/history 与归档隐私审计、隔离安装、版本/帮助、24 项 distribution、default/full runtime smoke、从 `0.1.9` 升级及卸载。离线真实 Pi CLI/RPC 回归只证明 `qoder/ultimate:high` 在禁用 ambient extensions 时可选择，没有发送真实 Qoder 推理，也不证明账号目录、额度或远端 reviewer 成功。本节在 registry 字节回读前仅是准备记录，不代表已经发布或更新维护者安装。
+
 ## 0.1.9 正式发布
 
 `0.1.9` 于 2026-09-17 从公开 `main` 的 `c6b0d6302b7af0064ec4e7035214594ca259fee` 构建并发布，`publishConfig.access=public`，许可证保持 `UNLICENSED`。registry 确认精确版本、`latest=0.1.9`、integrity、shasum 与 tarball URL（`https://registry.npmjs.org/@bingjiang0611/rotom/-/rotom-0.1.9.tgz`）。下载 tarball 与唯一最终 tgz 逐字节一致：17,918 个文件，53,396,875 bytes；SHA-256 `c223707f4f08fa8189ff7c179d536e8583ff6b4f7fd90103640ff1a6f1d9f5f3`，shasum `f026d870cd295a649cff647af09f49d06cefc7e4`，SRI `sha512-3WPuEKGMvn3ENMPGJ9ml0DU0bSJsXh7q9ugmtmgK0AqHGt31IeitUF3V7FHozNpWNFP7qn5VglLvsgWEPtH4Cg==`。
