@@ -144,6 +144,8 @@ npm run eval -- --provider=<provider> --model=<model> cases/coding-hygiene-rule-
 
 因此回退，并遵循"不报告未经测量的 token 收益"。**尚未测量**：弱模型、其他 provider、真实长会话累积。不得用本结果声称"所有模型都不需要这类引导"；如要重新引入同类 policy，必须先在目标模型上重建 paired 行为证据（大 fixture + 天真路径真正昂贵 + 反向约束题），不能用"说得对"的计划题冒充行为改变，也不能用小样本声称整体收益。比较 policy 本身时两臂须用同一份 eval 代码，只让产品 policy 不同；若仓库 `node_modules` 与 `product-config.mjs` 声明的第三方版本漂移，资源校验会先报错，应用隔离快照对齐声明版本，不要改可能正在被活跃会话使用的安装目录。
 
+2026-09-18 在 `openai-codex/gpt-6-astra` 上重新执行大 fixture + 逐字源码反向约束对照，共 16 个运行。首组范围求和收益受单次大范围读取影响，确认组候选也出现大读取；逐字题稳定增加提示开销。因此未恢复全局 policy。显式 `ROTOM_EVAL_CONTEXT_EFFICIENCY=1` 才运行新的 `context-efficiency.eval.ts`，只在评测侧注入提示；结果与局限见 [会话效率验证](../../experiments/session-efficiency/RESULTS.md)。`tool-error-repair.eval.ts` 同次新增测试端真实执行原子失败的恢复场景；新源码预览未证明净收益，也未进入产品。
+
 `bash-tool-surface.eval.ts` 在隔离临时 Git 风格工作区中实际执行一个跨文件 API rename 和一个单文件 bug fix，对比当前 `bash/read/edit/write` core 与 `bash`-only。它用独立的最终文件检查、仓库测试和隐藏行为验证判分，并比较通过率、tool calls、token、延迟和可用时的估算成本。为避免普通 eval 意外增加模型费用，必须显式启用：
 
 ```sh

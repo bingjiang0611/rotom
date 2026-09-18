@@ -1,3 +1,5 @@
+import assert from "node:assert/strict";
+import { pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
@@ -6,6 +8,7 @@ import { createJudge, describeEval } from "vitest-evals";
 import type { JsonValue } from "vitest-evals/harness";
 import { createPiCodingAgentHarness, type PiCodingAgentInput, type PiCodingAgentOutputContext, type PiCodingAgentScenario, type PiEvalWorkspaceContext } from "../src/pi-harness.ts";
 import { evalHarnessTable } from "../src/vitest-evals/harness-table.ts";
+import { loadProductRuntime } from "../src/product-runtime.ts";
 
 /**
  * Paired A/B for the product's read/edit failure evidence (coding-policy
@@ -29,7 +32,7 @@ if (!Number.isSafeInteger(repetitions) || repetitions < 1 || repetitions > 5) th
 
 const MARKER = "RECORDER_MARKER_7F3A9C";
 
-type TaskId = "missing-path-recovery" | "ambiguous-edit-target";
+type TaskId = "missing-path-recovery" | "ambiguous-edit-target" | "ambiguous-error-recovery";
 type Output = {
 	taskId: TaskId;
 	response: string;
@@ -132,6 +135,28 @@ const tasks: TaskDefinition[] = [
 	},
 ];
 
+// Recovery-specific fault injection: the host executes the same atomically
+// rejected edit in both arms, then supplies its actual error plus product hint.
+// The ordinary task above remains a control when no error naturally occurs.
+const ambiguousTask = tasks.find((task) => task.id === "ambiguous-edit-target")!;
+tasks.push({
+	...ambiguousTask,
+	id: "ambiguous-error-recovery",
+	label: "seeded ambiguous error recovery",
+	tools: ["read", "edit"],
+	prompt: `A previous atomic edit was rejected for multiple matches; the actual tool error is attached. Recover by changing ONLY the call in renderFooter to flushLayout("footer");, keeping renderHeader, renderBody and all filler lines unchanged.`,
+	async setup(workspace) {
+		await ambiguousTask.setup(workspace);
+		const source = await readFile(join(workspace, "src/render.ts"), "utf8");
+		const filler = Array.from({ length: 600 }, (_, i) => `// unchanged padding ${i}: ${"x".repeat(80)}`).join("\n");
+		await writeFile(join(workspace, "src/render.ts"), source.replaceAll("\n\n", `\n${filler}\n`));
+	},
+	checks: (output) => ({
+		...ambiguousTask.checks(output),
+		fillerRetained: (output.files["src/render.ts"].match(/\/\/ unchanged padding /gu) ?? []).length === 1800,
+	}),
+});
+
 function taskForInput(input: PiCodingAgentInput): TaskDefinition {
 	const id = !Array.isArray(input) && typeof input === "object" ? input.id : undefined;
 	const task = tasks.find((candidate) => candidate.id === id);
@@ -181,14 +206,29 @@ async function setupWorkspace({ input, workspace }: PiEvalWorkspaceContext): Pro
 	if (initialized.status !== 0) throw new Error(`Failed to initialize eval Git repository: ${initialized.stderr}`);
 }
 
-function harness(name: string, productAgentDir: string, tools: string[]) {
+function harness(name: string, productAgentDir: string, task: TaskDefinition) {
 	return createPiCodingAgentHarness<Output>({
 		name,
 		model: { provider: provider!, id: model! },
 		thinkingLevel: "low",
-		tools,
+		tools: task.tools,
 		productAgentDir,
 		setupWorkspace,
+		inlineExtensions: task.id !== "ambiguous-error-recovery" ? [] : [(pi) => {
+			pi.on("before_agent_start", async (_event, ctx) => {
+				const product = await loadProductRuntime({ agentDir: productAgentDir, piExecutable: process.env.ROTOM_PI });
+				const params = { path: "src/render.ts", edits: [{ oldText: "\tflushLayout();", newText: "\tflushLayout(\"footer\");" }] };
+				const before = await readFile(join(ctx.cwd, params.path), "utf8");
+				let errorText = "";
+				try { await product.runtime.createEditTool(ctx.cwd).execute("seed", params); }
+				catch (error) { errorText = (error as Error).message; }
+				assert.match(errorText, /Found 3 occurrences/);
+				assert.equal(await readFile(join(ctx.cwd, params.path), "utf8"), before);
+				const { toolErrorRepairHint } = await import(pathToFileURL(join(productAgentDir, "extensions/coding-policy/repair-hints.ts")).href);
+				const hint = toolErrorRepairHint("edit", params, [{ type: "text", text: errorText }], ctx.cwd);
+				return { message: { customType: "eval-edit-rejection", content: `${errorText}\n${hint}`, display: false } };
+			});
+		}],
 		async output({ input, workspace, response, session }) {
 			const task = taskForInput(input);
 			const names = collectToolNames(session.messages);
@@ -230,8 +270,8 @@ if (!enabled || !provider || !model || !baselineProduct) {
 	for (const task of tasks) {
 		const scenario = { id: task.id, steps: [{ type: "prompt", content: task.prompt }] } satisfies PiCodingAgentScenario;
 		const planned = evalHarnessTable(`Tool error repair: ${task.label}`, {
-			baseline: harness("baseline", baselineProductPath, task.tools),
-			candidate: harness("candidate", candidateProduct, task.tools),
+			baseline: harness("baseline", baselineProductPath, task),
+			candidate: harness("candidate", candidateProduct, task),
 			repetitions,
 		});
 		const rows = Array.from({ length: repetitions }, (_, index) => {
