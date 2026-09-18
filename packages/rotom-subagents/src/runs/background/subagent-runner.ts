@@ -1581,6 +1581,7 @@ async function runSingleStepInner(
 		}));
 		if (step.definitionDigest) {
 			const toolPlan = resolvePiLaunchToolPlan(omitUndefinedProperties({
+				model: candidate,
 				tools: step.tools,
 				extensions: step.extensions,
 				subagentOnlyExtensions: step.subagentOnlyExtensions,

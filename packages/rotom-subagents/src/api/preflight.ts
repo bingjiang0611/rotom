@@ -303,6 +303,7 @@ export async function resolveSubagentLaunchContract(input: SubagentLaunchContrac
 	let toolPlan: PiLaunchToolPlan;
 	try {
 		toolPlan = resolvePiLaunchToolPlan({
+			model,
 			tools: agent.tools,
 			extensions: agent.extensions,
 			subagentOnlyExtensions: agent.subagentOnlyExtensions,

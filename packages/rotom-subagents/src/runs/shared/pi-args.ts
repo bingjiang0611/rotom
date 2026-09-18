@@ -239,6 +239,7 @@ export function applyThinkingSuffix(
 }
 
 export interface ResolvePiLaunchToolPlanInput {
+	model?: string;
 	tools?: string[];
 	extensions?: string[];
 	subagentOnlyExtensions?: string[];
@@ -456,8 +457,22 @@ export function resolvePiLaunchToolPlan(
 	const permSystemExt = capabilityCeiling?.denyExtensions
 		? undefined
 		: resolvePermissionSystemExtension();
+	// The product launcher supplies this path only after resource verification.
+	// Inherit the selected provider, not the parent's tools or ambient extensions.
+	const qoderExtension = input.model?.startsWith("qoder/")
+		? process.env.ROTOM_SUBAGENT_QODER_EXTENSION
+		: undefined;
+	if (qoderExtension !== undefined) {
+		if (process.env.ROTOM_QODER === "0" || capabilityCeiling?.denyExtensions) {
+			throw new Error("Qoder subagent requires its provider extension, but Qoder or child extensions are disabled. Refusing this child launch; select an authorized model explicitly.");
+		}
+		if (!path.isAbsolute(qoderExtension) || !fs.lstatSync(qoderExtension).isFile() || fs.realpathSync(qoderExtension) !== qoderExtension) {
+			throw new Error("Invalid product Qoder extension path; refusing subagent launch.");
+		}
+	}
 	const runtimeExtensions = [
 		PROMPT_RUNTIME_EXTENSION_PATH,
+		...(qoderExtension ? [qoderExtension] : []),
 		...(fanoutAuthorized ? [FANOUT_CHILD_EXTENSION_PATH] : []),
 		...(permSystemExt ? [permSystemExt] : []),
 	];
@@ -579,6 +594,7 @@ export function buildPiArgs(input: BuildPiArgsInput): BuildPiArgsResult {
 	}
 
 	const toolPlan = resolvePiLaunchToolPlan({
+		model: modelArg,
 		tools: input.tools,
 		extensions: input.extensions,
 		subagentOnlyExtensions: input.subagentOnlyExtensions,

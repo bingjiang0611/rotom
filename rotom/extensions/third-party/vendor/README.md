@@ -1,13 +1,13 @@
 # Locked Subagent distribution
 
-The default product selects **`pi-subagents@0.52.1-rotom.2`**, independently maintained in the repository's `packages/rotom-subagents/`. New builds consume its reviewed archive, not installed source or a patch stack. This is a Subagent fork, not a Pi fork.
+The default product selects **`pi-subagents@0.52.1-rotom.3`**, independently maintained in the repository's `packages/rotom-subagents/`. New builds consume its reviewed archive, not installed source or a patch stack. This is a Subagent fork, not a Pi fork.
 
-- Archive: `pi-subagents-0.52.1-rotom.2.tgz`
-- SHA256: `23c92eeaf0d4c7a3be7d3ce925e542f5c413f3c162778de855bb90a33ff3727f`
-- SHA512 SRI: `sha512-rwGayYsZUxd/IY/G7nfU29IicL5RJGVeFcBd6UJoukb6cHI3XZBPPE+Iyft6vlj+J3JuD/HjCjuwGIS2ZB++KA==`
+- Archive: `pi-subagents-0.52.1-rotom.3.tgz`
+- SHA256: `bc3fb98eca833f79d1aa6c49040bed833f84f1621d8075485155aee8aeed5774`
+- SHA512 SRI: `sha512-iBYI5r33HveCRqjKflz0s9cHZ4m7OEc+gV6mg/dFTL83edW/2nyW1ZGANqC5QmhEb7aalwVzBNVzi4B054UooQ==`
 - Upstream: <https://github.com/nicobailon/pi-subagents>
 - License: MIT, Copyright (c) 2026 Nico Bailon. Original notice remains in `package/LICENSE`; provenance and maintenance notes are in `package/UPSTREAM.md`.
-- Source baseline: validated `0.52.1-dev-agent-owned-flat.7`; 213 TS and four existing mjs files retained byte-for-byte. The component has independent metadata, lockfile, tests and packaging. In `.rotom.1`, worker/scout/reviewer declare empty ambient extensions and fresh default context without expanding tools; explicit user/project overrides remain effective.
+- Source baseline: validated `0.52.1-dev-agent-owned-flat.7`; 213 TS and four existing mjs files retained byte-for-byte. The component has independent metadata, lockfile, tests and packaging. In `.rotom.1`, worker/scout/reviewer declare empty ambient extensions and fresh default context without expanding tools; explicit user/project overrides remain effective. `.rotom.3` explicitly loads the verified product Qoder provider for Qoder child models, preserving ambient isolation, tool ceilings, model choice and launch identity. Other custom providers still require explicit child configuration. Offline CLI/RPC coverage does not claim live inference acceptance.
 
 The former `pi-subagents-0.52.1-rotom.0.tgz` and `pi-subagents-0.52.1-dev-agent-followthrough.2.tgz` remain **maintenance-only historical evidence** in the repository. It is neither the selected product archive nor included in new product packages. Historical patch comparisons verify and extract that original archive rather than assuming the currently installed default is still `.2`.
 

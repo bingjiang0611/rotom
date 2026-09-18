@@ -16,4 +16,6 @@
 
 在 `0.52.1-rotom.1`，仅 `worker`、`scout`、`reviewer` 三个内置 agent 增加显式空 extensions 和 fresh 默认上下文；worker 的继承上下文说明同步修正。工具列表、模型与 213 TS 未改；用户/项目显式 overrides 仍走原生解析，不静默修补不兼容配置。
 
+在 `0.52.1-rotom.3`，rotom 的共享 child launch plan 显式加载所选 Qoder 模型需要的产品 provider；路径来自已验证 launcher，扩展禁用和工具 ceiling 保持权威。同步、异步、workflow 与 preflight 同步 extension identity；不回退模型、不继承 ambient 扩展。此为 rotom 自有集成修复，不来自上游。
+
 其余上游文档/agents/prompts 暂时保留以避免与功能裁剪混杂。这些资源的存在不是当前 rotom 产品启用能力的证明；只有产品 policy、显式 scope 合同和对应验证决定可用范围。

@@ -175,6 +175,9 @@ export async function launchRuntime(rawArgs = process.argv.slice(2)) {
 		else process.stdout.write(`rotom ${process.env.ROTOM_PRODUCT_VERSION}\nPi fork ${verified.version}\nUpdate source https://registry.npmjs.org/@bingjiang0611/rotom\n`);
 		return;
 	}
+	// Child Pi processes bypass this launcher and do not inherit loaded providers.
+	// Forward only the verified product provider path, never ambient extensions.
+	process.env.ROTOM_SUBAGENT_QODER_EXTENSION = resolve(agentDir, "extensions/qoder/index.ts");
 	await initializeSubagentStore(agentDir);
 	const herdrArgs = options.herdrExtension ? ["--extension", options.herdrExtension] : [];
 	await runPi(verified, [...productRuntimeArgs(agentDir), ...herdrArgs, ...options.userArgs]);

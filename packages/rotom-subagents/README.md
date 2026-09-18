@@ -21,6 +21,12 @@ rotom 独立维护的 Subagent 组件，源码单源是本目录。它是 `pi-su
 
 macOS 的 mount device ID 可能在重启后重新编号。store 现在只在 Darwin 上接受四个持久化 device ID 到当前 device ID 的一致双射；路径、四个 inode、owner、权限、store ID，以及进程存活期间的实际 device 仍精确校验。Linux 继续要求持久化 device ID 精确一致。既有 v3 marker 只读复用，不迁移、不重写，也不授权恢复或重放旧工作。
 
+## `0.52.1-rotom.3`：隔离子进程的 Qoder provider
+
+产品 launcher 在资源校验后固定内部 `ROTOM_SUBAGENT_QODER_EXTENSION` 路径。共享 launch plan 仅为选定 `qoder/*` 的子进程加载该 provider，并将它纳入 launch extension identity/digest；preflight、同步、异步和 workflow 使用同一计划。空 `extensions` 仍关闭 ambient discovery，不继承父工具、不换模型、不复制凭据。`ROTOM_QODER=0` 或 capability ceiling 禁止扩展时拒绝本次启动；非 Qoder 模型与非产品调用方保持原行为。其他自定义 provider 仍需显式 `subagentOnlyExtensions`，未实现通用 provider 继承。
+
+离线回归使用真实 Pi CLI/RPC、隔离 HOME 和合成凭据，证明 `qoder/ultimate:high` 在禁用 ambient extensions 时可选择；未发送真实 Qoder 推理，不证明账号目录、额度或远端评审成功。旧会话/失败任务不自动重放，正在使用的安装不原地覆盖。
+
 ## 开发
 
 在本目录运行；依赖是固定版本及本目录 lockfile，勿复制维护者 node_modules：

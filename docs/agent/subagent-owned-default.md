@@ -8,7 +8,7 @@
 
 - launcher 在启动 Pi 前选定 `PI_SUBAGENTS_EXECUTION_SCOPE=owned-process-groups-v2`，并在 `~/.local/state/rotom/subagent-store` 锚定 store。已存在的锚点直接复用，绝不替换。
 - store 放在持久 state 目录而不是临时目录，避免 tmp 清理删掉活跃 store 锚点后使运行中的工作无法证明。
-- 当前组件是 `pi-subagents@0.52.1-rotom.2`；本节其余证据记录 scoped 默认首次发布批次，不冒充 `.2` 的重新验收。
+- 当前组件是 `pi-subagents@0.52.1-rotom.3`；本节其余证据记录 scoped 默认首次发布批次，不冒充 `.3` 的重新验收。
 - 之前的个人 wrapper（`~/.local/share/rotom/owned-default-1/rotom`）与仓库内 `scripts/owned-default-launcher.mjs` 已删除；`rotom` 命令直接指向产品 `bin/rotom`。旧 profile 目录只留 `RETIRED.md` 与旧 store 作为证据，不再使用。
 - **切换默认不迁移、不升级、不回放任何既有会话或未知任务。** 存活进程保持原路径与原语义。
 
