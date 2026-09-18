@@ -130,17 +130,35 @@ it("rejects a trace artifact larger than the bounded snapshot contract", async (
 	})).rejects.toThrow("trace artifact metadata is invalid");
 });
 
+it("rejects a trace artifact whose byte count does not match its body", async ({ task }) => {
+	const trace = '{"kind":"span_end"}\n';
+	await expect(recordEvalRunArtifacts(task, {
+		artifacts: {
+			runId: "mismatched-run",
+			piTraceJsonl: trace,
+			piTraceSnapshot: {
+				schema: EVAL_TRACE_SNAPSHOT_SCHEMA_V1,
+				originalBytes: Buffer.byteLength(trace) + 1,
+				capturedBytes: Buffer.byteLength(trace) + 1,
+				truncated: false,
+				strategy: "full",
+			},
+		},
+	})).rejects.toThrow("trace artifact metadata is invalid");
+});
+
 it("records session, trace, and source artifacts against the explicit test task", async ({ task }) => {
 	const runId = "run-1";
+	const trace = '{"schema":"rotom-local-trace/v1","kind":"span_end"}\n';
 	await recordEvalRunArtifacts(task, {
 		artifacts: {
 			runId,
 			piSessionJsonl: '{"type":"session"}\n',
-			piTraceJsonl: '{"schema":"rotom-local-trace/v1","kind":"span_end"}\n',
+			piTraceJsonl: trace,
 			piTraceSnapshot: {
 				schema: EVAL_TRACE_SNAPSHOT_SCHEMA_V1,
-				originalBytes: 55,
-				capturedBytes: 55,
+				originalBytes: Buffer.byteLength(trace),
+				capturedBytes: Buffer.byteLength(trace),
 				truncated: false,
 				strategy: "full",
 			},

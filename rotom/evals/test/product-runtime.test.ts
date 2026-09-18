@@ -100,7 +100,7 @@ it("verifies and imports the actual product runtime without a compact-policy ext
 	expect(product.verified.version).toMatch(/^\d+\.\d+\.\d+/u);
 	expect(product.runtime.VERSION).toBe(product.verified.version);
 	expect(product.allResources.map(productResourceKey)).toEqual([
-		"extension:observability", "extension:browser", "extension:coding-policy", "extension:third-party",
+		"extension:observability", "extension:browser", "extension:coding-policy", "extension:third-party", "extension:qoder",
 		"skill:pi-subagents",
 	]);
 	expect(product.selectedResources.map(productResourceKey)).toContain("extension:browser");

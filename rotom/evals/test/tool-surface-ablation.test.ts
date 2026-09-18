@@ -95,8 +95,9 @@ it("measures the managed-CDP ablation without removing relay or native desktop c
 		expect(ablatedOutput.activeTools).not.toContain(tool);
 	}
 	expect(ablatedOutput.footprint.activeToolCount).toBe(fullOutput.footprint.activeToolCount - MANAGED_CDP_TOOLS.length);
-	expect(fullOutput.footprint.activeToolSchemaBytes - ablatedOutput.footprint.activeToolSchemaBytes).toBe(917);
-	expect(fullOutput.footprint.activeToolGuidelineBytes - ablatedOutput.footprint.activeToolGuidelineBytes).toBe(69);
+	// Includes the product's Relay-first fallback description and no-replay guidelines.
+	expect(fullOutput.footprint.activeToolSchemaBytes - ablatedOutput.footprint.activeToolSchemaBytes).toBe(946);
+	expect(fullOutput.footprint.activeToolGuidelineBytes - ablatedOutput.footprint.activeToolGuidelineBytes).toBe(607);
 });
 
 it("preserves explicit tools and excludeTools selections when deferred loading defaults on", async () => {
