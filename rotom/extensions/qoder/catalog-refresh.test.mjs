@@ -23,7 +23,7 @@ async function fixture(t, { authMode = 'qodercli', modelId = 'auto', modelPatch 
     registerProvider() {}, registerCommand(name, command) { commands.set(name, command); },
     appendEntry(customType, data) { entries.push({ type: 'custom', customType, data }); },
   };
-  const provider = await installQoderExtension(pi, { piAI: { createProvider: x => x, lazyStream: (_m, fn) => fn() }, authMode,
+  const provider = await installQoderExtension(pi, { piAI: { createProvider: x => x, lazyStream: (_m, fn) => fn() }, clampMaxTokens: (_m, _c, cap) => cap, authMode,
     getCredential: async () => credential,
     fetchImpl: async (url, init) => {
       if (url === CATALOG_URL) {

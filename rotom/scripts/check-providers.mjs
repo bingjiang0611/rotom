@@ -141,7 +141,9 @@ export async function checkProviders() {
         continue;
       }
       const start = Date.now();
-      const result = await executeProcessTreeV1(process.execPath, item.args, { cwd: resolve(repository, item.cwd), env, timeoutMs: 120_000, maxOutputBytes: 4 * 1024 * 1024 });
+      const caseEnv = { ...env };
+      if (!item.requiresPi) delete caseEnv.ROTOM_PI;
+      const result = await executeProcessTreeV1(process.execPath, item.args, { cwd: resolve(repository, item.cwd), env: caseEnv, timeoutMs: 120_000, maxOutputBytes: 4 * 1024 * 1024 });
       cleanup &&= result.terminal.confirmed;
       Object.assign(row, { execution: 'executed', ...classifyResult(item.kind, { ...result, status: result.code }), durationMs: Date.now() - start, exitCode: result.code, signal: result.signal, terminal: result.terminal, outputSha256: sha256(`${result.stdout}\0${result.stderr}`) });
       process.stderr.write(`${row.status} ${row.id}\n`);
