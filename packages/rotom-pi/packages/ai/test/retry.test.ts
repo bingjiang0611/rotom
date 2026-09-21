@@ -51,6 +51,14 @@ describe("provider retry classification", () => {
 		).toBe(true);
 	});
 
+	it("matches Qoder's sanitized upstream SSE error frame", () => {
+		expect(
+			isRetryableAssistantError(
+				fauxAssistantMessage("", { stopReason: "error", errorMessage: "Qoder: upstream_error_frame" }),
+			),
+		).toBe(true);
+	});
+
 	it.each([
 		wrappedDnsLookupError,
 		"connect ENOTFOUND api.example.com",

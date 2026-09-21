@@ -39,8 +39,10 @@ const RETRYABLE_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 	"internal.?error",
 
 	// Wrapper/provider text for transient upstream failures, including OpenRouter
-	// "Provider returned error" responses (#2264).
+	// "Provider returned error" responses (#2264) and Qoder's sanitized SSE
+	// error frame. The outer retry loop owns the bounded retry budget.
 	"provider.?returned.?error",
+	"upstream_error_frame",
 	"exceeded request buffer limit while retrying upstream",
 
 	// Network, proxy, and fetch transport failures. This includes OpenAI Codex
