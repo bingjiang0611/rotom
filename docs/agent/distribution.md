@@ -1,15 +1,17 @@
 # rotom · npm 分发
 
-## 0.1.13 发布准备
+## 0.1.13 正式发布
 
-预期 npm dist-tag 为 `latest`，包保持 `@bingjiang0611/rotom`、公开 access 与 `UNLICENSED`。本节是构建前发行说明，不表示版本已经发布；公开状态仍须由 registry 的精确 version/tag/digest 与最终 tgz 字节一致性证明。
+`@bingjiang0611/rotom@0.1.13` 已由维护者在前台终端发布，`latest=0.1.13`，公开 access 与 `UNLICENSED` 不变。构建源为公开 `main` 的 `c41568a696335bf8890a1ab5fd1219de42594dd4`。`npm-release-handoff.mjs verify` 确认精确 version、tag、integrity、shasum、tarball URL，且 registry 下载包与冻结 tgz 逐字节一致（`verified: true`）：17,918 个文件，53,397,693 bytes；SHA-256 `0fef514bb397289172e20a115517caae3241186bfd5a7be3fc68d1b8507774be`，shasum `a044b37e501f6be74c9252fc48cd1c93d1499575`，SRI `sha512-Yt+2CniV6pORj5OWGHogzSnRGooaVqILpezu50ybvJgM3IWqjdrjDkbVHyqA78F7LNdUu1qxu+dq01yTcZhqLg==`。
 
 - 新增固定离线 Provider 验证入口：隔离 HOME/凭据与 Node 网络，覆盖 Qoder 协议、Pi AI 合同、browser/CLI fixture、工具续轮、会话恢复、迟到错误和输出预算；报告绑定源码及实际 Pi 字节，不把离线 PASS 冒充真实模型验收。
 - 修复 Qoder 自有请求构造漏用 Pi 原生上下文输出预算：保持既有 4096 safety 和最小输出 1，不扩大窗口；三模型及实际 extension loader 回归覆盖 244K→4096、272K→1 和调用方小上限。
 - 将 Qoder 的 `upstream_error_frame` 归入现有有界外层重试分类，并同步 Pi fork 归档、锁文件和发行 identity。该分类不扩大重试次数；不宣称避免重复计费或任意外部副作用。
 - 公开历史审计因新增 fork 归档达到约 852 MiB，经明确批准将总量上限按一个 64 MiB 档提升至 896 MiB；单文件、归档、嵌套和敏感信息规则不变。
 
-仅发行已提交源码。活跃会话与浏览器绑定不热迁移，安装后须新开会话；本版未执行真实 Provider 请求。
+冻结产物通过归档隐私审计；公开副本 tree/history 审计通过（93 commits / 893,690,032 bytes，无发现）。隔离 HOME、PATH 无全局 Pi 的版本化安装完成 `0.1.12 → 0.1.13` 升级及版本回读；仓库维护脚本绑定实际安装资源完成 default/full runtime smoke（23/24 tools，lifecycleErrors=0），卸载后 session sentinel 保留。首次 smoke 路径及 full-mode/结果字段使用错误，修正验证命令后通过，未修改或重打产物；此处不宣称独立 footprint report gate 通过。
+
+本轮未切换维护者当前安装，未验证真实 Provider 请求或真实 Chrome 业务操作；活跃会话与浏览器绑定不热迁移，安装后须新开会话。
 
 ## 0.1.12 正式发布
 
