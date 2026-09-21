@@ -1,15 +1,24 @@
 # rotom · npm 分发
 
-## 0.1.12 发布准备
+## 0.1.13 发布准备
 
 预期 npm dist-tag 为 `latest`，包保持 `@bingjiang0611/rotom`、公开 access 与 `UNLICENSED`。本节是构建前发行说明，不表示版本已经发布；公开状态仍须由 registry 的精确 version/tag/digest 与最终 tgz 字节一致性证明。
+
+- 新增固定离线 Provider 验证入口：隔离 HOME/凭据与 Node 网络，覆盖 Qoder 协议、Pi AI 合同、browser/CLI fixture、工具续轮、会话恢复、迟到错误和输出预算；报告绑定源码及实际 Pi 字节，不把离线 PASS 冒充真实模型验收。
+- 修复 Qoder 自有请求构造漏用 Pi 原生上下文输出预算：保持既有 4096 safety 和最小输出 1，不扩大窗口；三模型及实际 extension loader 回归覆盖 244K→4096、272K→1 和调用方小上限。
+- 将 Qoder 的 `upstream_error_frame` 归入现有有界外层重试分类，并同步 Pi fork 归档、锁文件和发行 identity。该分类不扩大重试次数；不宣称避免重复计费或任意外部副作用。
+- 公开历史审计因新增 fork 归档达到约 852 MiB，经明确批准将总量上限按一个 64 MiB 档提升至 896 MiB；单文件、归档、嵌套和敏感信息规则不变。
+
+仅发行已提交源码。活跃会话与浏览器绑定不热迁移，安装后须新开会话；本版未执行真实 Provider 请求。
+
+## 0.1.12 正式发布
+
+`0.1.12` 已发布为 npm `latest`；后续 Provider 验证、Qoder 输出预算和 retry/归档改动不属于该不可变版本。
 
 - Goal 内化组件升级为 `0.54.4-rotom.5`：默认自动响应额度从 25 提升至 100，显式用户设置优先；展示剩余额度和最近声明的下一步计划。计划不是已验证进展，也不授权重放写入；原有预算、无进展暂停、显式续跑和完成审阅边界不变。
 - 保留 session-efficiency 可重复评测及负结果。歧义 edit 预览和全局 context-efficiency 提示因未证明净收益而不进入运行时；不宣称一般 token 或成本下降。
 - 同步已上线 Browser 查询/回退描述的精确 footprint 与 eval 断言，补齐默认 Qoder 资源列表，按实际 trace 字节数构造 fixture 并保留负向检查；不放宽身份或元数据校验。
 - 修复 trace dashboard 在输出就绪 URL 后、注册信号处理器前收到 Ctrl+C 时不能正常退出的竞态。
-
-仅发行已提交源码；不包含维护工作区未提交的 Pi retry 改动。活跃会话与浏览器绑定不热迁移，安装后须新开会话。
 
 ## 0.1.11 发布准备
 
