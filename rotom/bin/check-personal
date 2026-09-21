@@ -31,7 +31,7 @@ trap cleanup_test_pi_bin EXIT HUP INT TERM
 # Maintenance tests must not inherit scoped writer authority from the rotom session
 # that invoked this gate; owned-store fixtures establish their own explicit scope.
 PI_SUBAGENTS_EXECUTION_SCOPE= PI_SUBAGENTS_TEMP_ROOT= ROTOM_PI="$pi_command" PATH="$test_pi_bin:$PATH" "$node_command" --experimental-strip-types --test --test-concurrency=1 \
-	rotom/extensions/qoder/*.test.mjs \
+	rotom/scripts/check-providers.test.mjs \
 	rotom/runtime/process-tree.test.ts \
 	rotom/runtime/update-product.test.mjs \
 	rotom/runtime/distribution.test.mjs \
@@ -59,6 +59,9 @@ PI_SUBAGENTS_EXECUTION_SCOPE= PI_SUBAGENTS_TEMP_ROOT= ROTOM_PI="$pi_command" PAT
 	rotom/extensions/third-party/subagent/runtime-ownership.test.ts \
 	rotom/extensions/third-party/subagent/external-cli-evidence.test.mjs \
 	rotom/extensions/third-party/subagent/lifeline-regression.test.mjs
+
+# Fixed offline Provider matrix; no implicit model calls or credential inheritance.
+"$node_command" "$agent_dir/scripts/check-providers.mjs"
 
 # Goal source runs against this product's exact installed Pi, including the
 # deterministic SDK continuation/reviewer and mixed-batch regressions.

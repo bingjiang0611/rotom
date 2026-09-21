@@ -50,6 +50,7 @@ python3 scripts/audit-public.py --root . --history
 ### 扩大验证的条件
 
 - launcher、resource、public contract：追加 `verify-pi-runtime.test.mjs` 与 `smoke-runtime.mjs`。
+- Provider 离线维护入口：`npm --prefix rotom run test:providers`，由 `check-personal` 接入；固定源码单测与原生 SDK smoke、隔离 HOME/Node 网络、输出版本绑定报告。范围和 `ROTOM_PI` 显式覆盖的证据边界见 [Provider 离线验证](provider-verification.md)。Pi AI 原始 `npm test` 包含 live 测试及模块加载期 OAuth 解析，不作为安全离线入口。
 - Qoder：按本次受影响合同选择下表中的定向测试和离线 smoke；仅跨多个合同、高风险合入或发布时运行完整矩阵。当前模型 key 从产品声明读取；历史覆盖数量留在 `experiments/qoder-provider/` 报告，不作为每次任务的固定配额。真实请求须已有目标、档位、预算和外部权限的明确授权，并共享有界 ledger。
 
 | Qoder 改动范围 | 对应检查 |

@@ -27,6 +27,7 @@
     "pack:release": "node scripts/pack-release.mjs",
     "audit:public": "python3 ../scripts/audit-public.py --root ..",
     "test:distribution": "node --test --test-concurrency=1 runtime/distribution.test.mjs",
+    "test:providers": "node scripts/check-providers.mjs",
     "build:pi": "node scripts/build-pi-fork.mjs",
     "check:pi": "node scripts/build-pi-fork.mjs --check"
   },

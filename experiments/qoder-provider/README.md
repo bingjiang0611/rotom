@@ -1,5 +1,7 @@
 # Qoder provider：维护验证
 
+日常离线门禁：仓库根运行 `npm --prefix rotom run test:providers`。它固定选择现有单测、direct/COSY、OAuth、会话恢复和原生预算 smoke，隔离 HOME/Node 网络，并记录源码与实际 Pi 的摘要；不接受 `--live`，不继承旧轮次授权。报告、默认安装失配与显式覆盖边界见 [Provider 离线验证](../../docs/agent/provider-verification.md)。下文真实探针仍须独立授权。
+
 实现与 colocated 单测已迁到 `rotom/extensions/qoder/`，不保留第二份实现或旧入口。产品将其作为第五个 bundled extension 默认加载，可用 `ROTOM_QODER=0` 停用。用户用法与边界见 [产品说明](../../docs/usage.md#qoder原生-provider默认启用)。
 
 - 正式 provider 身份为 `qoder`；新会话写入 `qoder-account-v1` 绑定，同时兼容读取旧 `qoder-experimental-account-v1` 绑定。旧浏览器登录凭据需通过 `/login qoder` 重新建立，不自动迁移活跃会话。

@@ -23,7 +23,7 @@ const fetchImpl = async (url, init) => {
   if (phase === 'abort') return new Response(new ReadableStream({ start(out) { out.enqueue(new TextEncoder().encode(first)); } }), { headers: { 'content-type': 'text/event-stream' } });
   return new Response(first + frame({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] }) + frame({ choices: [], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } }) + 'data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
 };
-const provider = await createQoderProvider({ piAI, openAI, fetchImpl, ...live ? {} : { getToken: async () => 'fixture' } });
+const provider = await createQoderProvider({ piAI, openAI, fetchImpl, ...live ? {} : { authMode: 'qodercli', getToken: async () => 'fixture' } });
 async function run(context, signal, onDelta) {
   const stream = provider.streamSimple(MODEL, context, { maxTokens: 256, signal });
   let deltas = 0;

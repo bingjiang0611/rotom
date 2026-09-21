@@ -43,7 +43,7 @@ const fetchImpl = async (url, init) => {
   return new Response(frame(chunk(delta)) + (phase === 'truncated' ? '' : finish), { headers: { 'content-type': 'text/event-stream' } });
 };
 let provider;
-const providerOptions = { piAI, openAI, fetchImpl, onDiagnostic: data => { if (summary.diagnostics.length < 12) summary.diagnostics.push({ phase, ...data }); }, ...live ? {} : { getCredential: async () => ({ accessToken: 'fixture', fingerprint: fixtureFingerprint }) } };
+const providerOptions = { piAI, openAI, fetchImpl, onDiagnostic: data => { if (summary.diagnostics.length < 12) summary.diagnostics.push({ phase, ...data }); }, ...live ? {} : { authMode: 'qodercli', getCredential: async () => ({ accessToken: 'fixture', fingerprint: fixtureFingerprint }) } };
 const settingsManager = sdk.SettingsManager.inMemory({ retry: { enabled: false }, compaction: { enabled: false, reserveTokens: 1024, keepRecentTokens: 64 } });
 const modelRuntime = await sdk.ModelRuntime.create({ credentials: new piAI.InMemoryCredentialStore(), modelsPath: null, modelsStore: new piAI.InMemoryModelsStore(), refreshOnCreate: false, allowModelNetwork: false });
 const resourceLoader = new sdk.DefaultResourceLoader({ cwd: dir, agentDir: dir, settingsManager,

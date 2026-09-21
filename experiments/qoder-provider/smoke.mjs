@@ -42,7 +42,7 @@ const fakeFetch = async (_url, init) => {
   const wire = encode(make(delta)) + encode(make({}, 'stop')) + `data: ${final.slice(0, at)}\n${final.slice(at)}\n\n` + 'data: [DONE]\n\n';
   return new Response(wire, { headers: { 'content-type': 'text/event-stream' } });
 };
-const provider = await createQoderProvider({ piAI, openAI, ...live ? {} : { getToken: async () => 'fixture-token', fetchImpl: fakeFetch } });
+const provider = await createQoderProvider({ piAI, openAI, ...live ? {} : { authMode: 'qodercli', getToken: async () => 'fixture-token', fetchImpl: fakeFetch } });
 async function run(options = {}) {
   const events = {};
   const stream = provider.streamSimple(MODEL, context, { maxTokens: 256, sessionId: nonce, ...options });
