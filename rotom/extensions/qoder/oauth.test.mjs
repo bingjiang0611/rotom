@@ -172,7 +172,7 @@ test('sealed request auth rejects override, mutation, cross-instance replay and 
 
 test('browser provider integrates dispatch binding without CLI reads or raw token overrides', async () => {
   const c = await harness().login(); let network = 0; const bindings = [];
-  const provider = await createQoderProvider({ authMode: 'browser',
+  const provider = await createQoderProvider({ authMode: 'browser', clampMaxTokens: (_m, _c, cap) => cap,
     piAI: { createProvider: p => p, lazyStream: (_m, setup) => setup() },
     getCredential: () => assert.fail('CLI read'), getToken: () => assert.fail('CLI token'),
     captureBinding: () => fp => bindings.push(fp),
@@ -197,6 +197,7 @@ test('default auth mode is browser and never reaches the CLI credential source',
   const saved = process.env.ROTOM_QODER_AUTH; delete process.env.ROTOM_QODER_AUTH;
   try {
     const provider = await createQoderProvider({
+      clampMaxTokens: (_m, _c, cap) => cap,
       piAI: { createProvider: p => p, lazyStream: (_m, setup) => setup() },
       getCredential: () => assert.fail('CLI read'), getToken: () => assert.fail('CLI token'),
     });

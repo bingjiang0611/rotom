@@ -93,7 +93,7 @@ test('native adapter normalizes to safe error codes without another dispatch', a
   // turns into an error event) with no upstream body and no network dispatch.
   for (const [error, expected] of [[new QoderError('credential_expired_login_with_qodercli'), 'credential_expired_login_with_qodercli'], [new Error('PRIVATE fixture error'), 'request_failed']]) {
     const provider = await createQoderProvider({
-      authMode: 'qodercli',
+      authMode: 'qodercli', clampMaxTokens: (_m, _c, cap) => cap,
       piAI: { createProvider: p => p, lazyStream: (_m, setup) => setup() },
       getToken: () => { throw error; }, fetchImpl: () => assert.fail('network'),
     });

@@ -13,7 +13,7 @@ const result = { role: 'toolResult', toolCallId: 'call_history', toolName: 'prob
 function freeze(value) { if (value && typeof value === 'object') { Object.values(value).forEach(freeze); Object.freeze(value); } return value; }
 async function fixture(id = 'ultimate') {
   const wires = []; let reads = 0;
-  const p = await createQoderProvider({ authMode: 'qodercli', piAI: { createProvider: x => x, lazyStream: (_m, fn) => fn() },
+  const p = await createQoderProvider({ authMode: 'qodercli', clampMaxTokens: (_m, _c, cap) => cap, piAI: { createProvider: x => x, lazyStream: (_m, fn) => fn() },
     getCredential: async () => { reads++; return { accessToken: 'fixture', uid: 'fixture', org: '', machineId: 'fixture-machine', fingerprint: 'a'.repeat(64) }; },
     fetchImpl: async (url, init) => {
       if (url === CATALOG_URL) return Response.json({ assistant: [{ key: id, display_name: 'Fixture', source: 'system', enable: true, format: 'openai', max_input_tokens: 200000 }] });

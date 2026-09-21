@@ -13,7 +13,7 @@ const body = (...entries) => ({assistant:entries});
 const context = (patch={}) => ({allowNetwork:true,signal:new AbortController().signal,publish:async p=>{p.update?.();return true;},...patch});
 async function fixture(options={}) {
   let current=credential, reply=body(entry()), calls=0;
-  const provider=await createQoderProvider({piAI:{createProvider:x=>x,lazyStream:(_m,fn)=>fn()},authMode:'qodercli',getCredential:async()=>current,fetchImpl:async(url,init)=>{
+  const provider=await createQoderProvider({clampMaxTokens:(_m,_c,cap)=>cap,piAI:{createProvider:x=>x,lazyStream:(_m,fn)=>fn()},authMode:'qodercli',getCredential:async()=>current,fetchImpl:async(url,init)=>{
     calls++;assert.equal(init.redirect,'error');
     if(url===CATALOG_URL)return new Response(JSON.stringify(reply));
     assert.equal(url,CHAT_URL);return new Response('',{status:403});

@@ -4,7 +4,8 @@
 // Synthetic upstream only. Run with the maintenance network blocker.
 import assert from 'node:assert/strict';
 import {pathToFileURL} from 'node:url';
-import {readFileSync,realpathSync} from 'node:fs';
+import {readFileSync,realpathSync,mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
 import {join,isAbsolute,resolve} from 'node:path';
 import {createHash} from 'node:crypto';
 import {decodeProbeBody} from './probe-wire.mjs';
@@ -26,6 +27,23 @@ for(const id of ['ultimate','kmodel_latest','dfmodel']){
  const governed=await provider.streamSimple(model,history(244000),{maxTokens:4096}).result();assert.equal(governed.stopReason,'error');assert.equal(calls,1);assert.equal(serializedMaxTokens,4096);
  // An oversized single turn cannot be compacted away; record the real cliff.
  const starved=await provider.streamSimple(model,history(272000),{maxTokens:4096}).result();assert.equal(starved.stopReason,'error');assert.equal(calls,2);assert.equal(serializedMaxTokens,1);
- cases.push({id,pass:true,contextWindow:model.contextWindow,governedInput:244000,governedMaxTokens:4096,oversizedInput:272000,oversizedMaxTokens:serializedMaxTokens,fullOutputInputCeiling:model.contextWindow-8192});
+ const capped=await provider.streamSimple(model,history(244000),{maxTokens:128}).result();assert.equal(capped.stopReason,'error');assert.equal(calls,3);assert.equal(serializedMaxTokens,128);
+ cases.push({id,pass:true,contextWindow:model.contextWindow,governedInput:244000,governedMaxTokens:4096,oversizedInput:272000,oversizedMaxTokens:1,callerMaxTokens:serializedMaxTokens,fullOutputInputCeiling:model.contextWindow-8192});
 }
-console.log(JSON.stringify({pass:true,scope:'offline real native SDK, synthetic upstream',productRoot:root,piEntry:pi,piEntrySha256:createHash('sha256').update(readFileSync(pi)).digest('hex'),cases},null,2));
+// Also traverse the actual bundled extension entry and Pi's jiti aliases. Stop
+// at onPayload, before credentials/HTTP, after the native budget helper ran.
+const sdk=await import(import.meta.resolve('@earendil-works/pi-coding-agent',piURL));
+const dir=realpathSync(mkdtempSync(join(tmpdir(),'qoder-budget-loader-')));
+try {
+ const loader=new sdk.DefaultResourceLoader({cwd:dir,agentDir:dir,settingsManager:sdk.SettingsManager.inMemory(),noExtensions:true,noSkills:true,noPromptTemplates:true,noThemes:true,noContextFiles:true,additionalExtensionPaths:[join(root,'extensions/qoder/index.ts')]});
+ await loader.reload();assert.deepEqual(loader.getExtensions().errors,[]);
+ const provider=loader.getExtensions().runtime.pendingNativeProviderRegistrations.find(r=>r.provider.id==='qoder').provider;
+ const model=provider.getModels().find(m=>m.id==='lite');let observed=0;
+ for(const [input,expected] of [[20000,4096],[32000,1]]) {
+  const context={messages:[{role:'assistant',provider:model.provider,model:model.id,api:model.api,timestamp:0,content:[{type:'text',text:'fixture'}],stopReason:'stop',usage:{input,output:0,cacheRead:0,cacheWrite:0,totalTokens:input,cost:{input:0,output:0,cacheRead:0,cacheWrite:0,total:0}}}]};
+  const result=await provider.streamSimple(model,context,{maxTokens:4096,onPayload(payload){assert.equal(payload.max_tokens,expected);observed++;throw new Error('synthetic-budget-stop');}}).result();
+  assert.equal(result.stopReason,'error');assert.match(result.errorMessage,/synthetic-budget-stop/);
+ }
+ assert.equal(observed,2);
+}finally{rmSync(dir,{recursive:true,force:true});}
+console.log(JSON.stringify({pass:true,scope:'offline native SDK and bundled extension loader, synthetic upstream',productRoot:root,piEntry:pi,piEntrySha256:createHash('sha256').update(readFileSync(pi)).digest('hex'),extensionBudget:true,cases},null,2));

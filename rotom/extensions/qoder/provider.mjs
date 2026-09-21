@@ -1,3 +1,7 @@
+import { findPackageJSON } from 'node:module';
+import { readFile } from 'node:fs/promises';
+import { isAbsolute } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { readLocalCredential, createCredentialAccess, QoderError } from './auth.mjs';
 import { BASE_URL, SUPPORTED_MODEL_IDS, REASONING_MODEL_IDS, openQoderStream, abortable, validateReasoningSignature, OPAQUE_MODEL_IDS, VERIFIED_THINKING_LEVELS, EXPANDED_INPUT_MODEL_IDS, inputCapabilities, imageByteLength } from './transport.mjs';
 import { buildQoderPayload, isSameModelAssistant } from './messages.mjs';
@@ -52,7 +56,21 @@ function catalogModel(entry, declared = false) {
 // dispatch gates reject absent/narrowed capabilities, including stale maxima.
 const DECLARED_MODELS = Object.freeze(SUPPORTED_MODEL_IDS.map(id => MODELS.find(m => m.id === id) ?? catalogModel({ id, name: `${id} [catalog required]` }, true)));
 
-export async function createQoderProvider({ piAI, getToken, getCredential, captureBinding, captureMetering, fetchImpl, onDiagnostic, onMetering,
+// Pi's extension loader aliases the ai root to compat.js, so importing an
+// arbitrary ai subpath through jiti would become compat.js/api/…. Resolve the
+// public export from the launcher-verified Pi (or explicit SDK probe Pi), never
+// from the business cwd or an unrelated global installation.
+async function nativeOutputBudget() {
+  const executable = process.env.ROTOM_VERIFIED_PI_EXECUTABLE ?? process.env.ROTOM_PI;
+  if (!executable || !isAbsolute(executable)) throw new QoderError('pi_budget_runtime_unavailable');
+  const metadata = findPackageJSON('@earendil-works/pi-ai/api/simple-options', pathToFileURL(executable));
+  const pkg = JSON.parse(await readFile(metadata, 'utf8'));
+  const exported = pkg.exports?.['./api/*']?.import;
+  if (pkg.name !== '@earendil-works/pi-ai' || exported !== './dist/api/*.js') throw new QoderError('pi_budget_runtime_unavailable');
+  return (await import(new URL(exported.replace('*', 'simple-options'), pathToFileURL(metadata)).href)).clampMaxTokensToContext;
+}
+
+export async function createQoderProvider({ piAI, clampMaxTokens, getToken, getCredential, captureBinding, captureMetering, fetchImpl, onDiagnostic, onMetering,
   authMode = process.env.ROTOM_QODER_AUTH ?? 'browser', oauthOptions = {}, refreshCatalog } = {}) {
   if (!['browser', 'qodercli'].includes(authMode)) throw new QoderError('invalid_auth_mode');
   const envelope = authMode === 'browser' ? createOAuthEnvelope() : undefined;
@@ -146,7 +164,8 @@ export async function createQoderProvider({ piAI, getToken, getCredential, captu
     // the agent lifecycle; only request encoding and response translation move
     // in-house here.
     const nativeModel = { ...model, contextWindow: input.contextWindow, input: input.images ? ['text', 'image'] : ['text'], ...(controls ? { thinkingLevelMap: thinkingMap(controls.levels), compat: { ...MODEL.compat, supportsReasoningEffort: true } } : {}) };
-    const maxTokens = Math.min(options.maxTokens ?? MODEL.maxTokens, MODEL.maxTokens);
+    clampMaxTokens ??= await nativeOutputBudget();
+    const maxTokens = clampMaxTokens(nativeModel, context, Math.min(options.maxTokens ?? MODEL.maxTokens, MODEL.maxTokens));
     let payload = buildQoderPayload(nativeModel, context, { maxTokens, reasoningMode });
     // Preserve Pi's BeforeProviderRequest hook: an extension may rewrite the
     // payload, but openQoderStream re-validates the result against the bound

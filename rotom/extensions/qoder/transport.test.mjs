@@ -192,10 +192,29 @@ test('credential errors never include underlying contents or missing file paths'
   await assert.rejects(readLocalAccessToken({ authDir: 'relative' }), { code: 'credential_path_not_canonical' });
 });
 
+test('provider uses the native context budget for both stream APIs before dispatch', async () => {
+  const context = { messages: [] }, offered = [], sent = [];
+  const provider = await createQoderProvider({
+    authMode: 'qodercli', piAI: { createProvider: p => p, lazyStream: (_m, setup) => setup() },
+    clampMaxTokens(model, actualContext, cap) {
+      assert.equal(model.contextWindow, MODEL.contextWindow); assert.equal(actualContext, context);
+      offered.push(cap); return 7;
+    },
+    getToken: async () => 'fixture',
+    fetchImpl: async (_url, init) => { sent.push(JSON.parse(init.body).max_tokens); return new Response('', { status: 403 }); },
+  });
+  await assert.rejects(provider.api.streamSimple(MODEL, context, { maxTokens: 99999 }), { code: 'http_403' });
+  await assert.rejects(provider.api.stream(MODEL, context, { maxTokens: 128 }), { code: 'http_403' });
+  const aborted = await provider.api.streamSimple(MODEL, context, { signal: AbortSignal.abort() });
+  const events = []; for await (const event of aborted) events.push(event);
+  assert.equal(events.at(-1).type, 'error'); assert.equal(events.at(-1).reason, 'aborted');
+  assert.deepEqual(offered, [4096, 128]); assert.deepEqual(sent, [7, 7]);
+});
+
 test('provider owns a single bounded dispatch, caps maxTokens, and rejects endpoint overrides', async () => {
   let calls = 0, body;
   const provider = await createQoderProvider({
-    authMode: 'qodercli',
+    authMode: 'qodercli', clampMaxTokens: (_m, _c, cap) => cap,
     piAI: { createProvider: p => p, lazyStream: (_m, setup) => setup() },
     getToken: async () => 'secret-fixture',
     fetchImpl: async (_url, init) => { calls++; body = JSON.parse(init.body); return new Response('', { status: 403 }); },
