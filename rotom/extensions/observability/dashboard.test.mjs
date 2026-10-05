@@ -21,7 +21,23 @@ import {
 	summarizeEfficiency,
 	summarizeFleet,
 	summarizeTrace,
+	toolEvidenceLabels,
 } from "./dashboard.mjs";
+
+test("tool detail separates receipts, file mutations, checks and business evidence without changing status", () => {
+	const receipt = { name: "pi.tool.execute", status: "ok", attributes: { "pi.tool.subagent_phase": "launch" } };
+	assert.deepEqual(toolEvidenceLabels(receipt), [["Phase", "Launch receipt — child completion unproven"]]);
+	assert.equal(receipt.status, "ok");
+	assert.deepEqual(toolEvidenceLabels({ ...receipt, attributes: {} }), [], "historical spans are not retroactively inferred");
+	const mutation = { name: "pi.tool.execute", status: "error", attributes: { "pi.tool.coding_evidence_source": "tool-reported", "pi.tool.mutation_status": "applied", "pi.tool.followup_status": "failed" } };
+	assert.deepEqual(toolEvidenceLabels(mutation), [["File mutation", "Applied (tool-reported, not readback)"], ["Follow-up command", "failed (tool-reported, not verification)"]]);
+	assert.equal(mutation.status, "error");
+	assert.deepEqual(toolEvidenceLabels({ ...mutation, attributes: { ...mutation.attributes, "pi.tool.coding_evidence_source": undefined } }), []);
+	assert.deepEqual(toolEvidenceLabels({ ...receipt, attributes: { "pi.tool.subagent_phase": "stop-request", "pi.tool.process_terminal_state": "pending" } }), [["Phase", "Stop requested — termination unproven"], ["Process terminal", "pending"]]);
+	assert.deepEqual(toolEvidenceLabels({ ...receipt, attributes: { "pi.tool.dispatch_acknowledged": true, "pi.tool.verification_status": "preexisting", "pi.tool.business_outcome": "unverified" } }), [["Dispatch", "Acknowledged — not business completion"], ["Target check", "preexisting"], ["Business effect", "unverified"]]);
+	assert.deepEqual(toolEvidenceLabels({ ...receipt, attributes: { "pi.tool.subagent_phase": "<secret>", "pi.tool.business_outcome": "<secret>" } }), []);
+	assert.deepEqual(toolEvidenceLabels({ ...receipt, name: "pi.agent.operation" }), []);
+});
 
 const SCHEMA = "rotom-local-trace/v1";
 
@@ -559,6 +575,9 @@ test("dashboard binds loopback, requires bearer auth, and serves trace details",
 	assert.match(pageBody, /NEWER.*OLDER/u, "history navigation must support bounded cursor paging in both directions");
 	assert.match(pageBody, /lifecycle classification is unavailable across page boundaries/u);
 	assert.match(pageBody, /PAGE-LOCAL ERROR/u);
+	assert.match(pageBody, /concat\(toolEvidenceLabels\(span\)\)/u, "inspector renders the shared evidence projection");
+	assert.match(pageBody, /Launch receipt — child completion unproven/u);
+	assert.match(pageBody, /Applied \(tool-reported, not readback\)/u);
 	assert.doesNotMatch(pageBody, /innerHTML|<script[^>]+src=/u, "trace-driven UI must remain self-contained and textContent-only");
 	const inlineScript = pageBody.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/u);
 	assert.ok(inlineScript, "dashboard must include its authenticated self-contained client");

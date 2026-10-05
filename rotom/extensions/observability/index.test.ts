@@ -556,10 +556,15 @@ test("request metadata changes and independent result evidence survive trace wit
 		{ lifecycleStatus: { processTerminal: { state: "pending" } } },
 		{ truncation: { truncated: true } },
 		{ execution: { outcome: "private-outcome" }, businessOutcome: "private-outcome" },
+		{ subagentPhase: "launch", runId: "private-run-id" },
+		{ subagentPhase: "stop-request" },
+		{ codingPhases: { mutation: "applied", followup: "failed", source: "tool-reported", command: "private-command" } },
+		{ subagentPhase: "private-phase", codingPhases: { mutation: "private-state", followup: "private-state", source: "tool-reported" } },
+		{ codingPhases: { mutation: "applied", followup: "succeeded", source: "private-source" } },
 	];
 	for (const [i, details] of cases.entries()) {
 		await harness.emit("tool_execution_start", { toolCallId: String(i), toolName: "fixture" }, ctx);
-		await harness.emit("tool_execution_end", { toolCallId: String(i), isError: false, result: { content: [], details } }, ctx);
+		await harness.emit("tool_execution_end", { toolCallId: String(i), isError: i === 7, result: { content: [], details } }, ctx);
 	}
 	await harness.emit("session_shutdown", { reason: "quit" }, ctx);
 	const text = readFileSync(localTracePathForSessionFile(file), "utf8");
@@ -578,6 +583,19 @@ test("request metadata changes and independent result evidence survive trace wit
 	assert.equal(results[2].attributes["pi.tool.content_complete"], undefined);
 	assert.equal(results[2].attributes["pi.tool.result_truncated"], undefined);
 	assert.equal(results[3].attributes["pi.tool.result_truncated"], true);
+	assert.equal(results[5].status, "ok", "launch success remains a dispatch fact, not task acceptance");
+	assert.equal(results[5].attributes["pi.tool.subagent_phase"], "launch");
+	assert.equal(results[5].attributes["pi.tool.business_outcome"], undefined);
+	assert.equal(results[6].attributes["pi.tool.subagent_phase"], "stop-request");
+	assert.equal(results[7].status, "error", "successful mutation does not hide failed validation");
+	assert.equal(results[7].attributes["pi.tool.mutation_status"], "applied");
+	assert.equal(results[7].attributes["pi.tool.followup_status"], "failed");
+	assert.equal(results[7].attributes["pi.tool.coding_evidence_source"], "tool-reported");
+	assert.equal(results[8].attributes["pi.tool.subagent_phase"], undefined);
+	assert.equal(results[8].attributes["pi.tool.mutation_status"], undefined);
+	assert.equal(results[8].attributes["pi.tool.followup_status"], undefined);
+	assert.equal(results[9].attributes["pi.tool.mutation_status"], undefined);
+	assert.equal(results[9].attributes["pi.tool.coding_evidence_source"], undefined);
 });
 
 test("flush has a bounded best-effort deadline", async () => {

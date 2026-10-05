@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { subagentPolicyApi, subagentEvidenceResult, prepareProductSubagentArguments, PRODUCT_HANDOFF_GUIDELINE } from "./policy.ts";
+import { subagentPolicyApi, subagentEvidenceResult, prepareProductSubagentArguments, constrainSubagentParameters, PRODUCT_SUBAGENT_ACCEPTANCE_GUIDELINE, PRODUCT_HANDOFF_GUIDELINE } from "./policy.ts";
 
 function fixture() {
 	const handlers = new Map<string, Function[]>(); const tools = new Map<string, any>(); const published: unknown[] = [];
@@ -63,7 +63,8 @@ test("task receipts and process evidence remain distinct without result mutation
 	const projected = await tools.get("subagent").execute("call", { workflowScript: "return 1" });
 	assert.equal(calls, 1);
 	assert.match(projected.content[0].text, /launch receipt only/u);
-	assert.equal(projected.details, receipt.details);
+	assert.deepEqual(projected.details, { ...receipt.details, subagentPhase: "launch" });
+	assert.equal((receipt.details as any).subagentPhase, undefined);
 	assert.equal(projected.content[1], receipt.content[0]);
 	assert.equal(receipt.content.length, 1);
 	for (const state of ["pending", "observed", "unknown", "not-started", "private-invalid-state"]) {
@@ -89,12 +90,29 @@ test("stop is dispatched once and remains a request, not writer-closure evidence
 	assert.equal(calls, 1);
 	assert.match(result.content[0].text, /stop response is not proof of cancellation convergence/u);
 	assert.match(result.content[0].text, /unknown does not authorize replay/u);
-	assert.equal(result.details, raw.details);
+	assert.deepEqual(result.details, { ...raw.details, subagentPhase: "stop-request" });
+	assert.equal((raw.details as any).subagentPhase, undefined);
 	assert.equal(result.content[1], raw.content[0]);
 	assert.equal(raw.content.length, 1);
 	const rejected = { ...raw, isError: true };
 	assert.equal(subagentEvidenceResult("subagent", { action: "stop" }, rejected), rejected);
 	assert.equal(subagentEvidenceResult("subagent", { action: "status" }, raw), raw);
+});
+
+test("read-only acceptance guidance reaches the schema and tool prompt without silently lowering explicit gates", () => {
+	const schema = { type: "object", properties: { acceptance: { anyOf: [{ type: "string" }, { type: "object" }] } } };
+	const constrained = constrainSubagentParameters(schema);
+	assert.equal((constrained.properties.acceptance as any).description, PRODUCT_SUBAGENT_ACCEPTANCE_GUIDELINE);
+	assert.equal(constrained.properties.acceptance.anyOf, schema.properties.acceptance.anyOf);
+	assert.equal((schema.properties.acceptance as any).description, undefined);
+	const { api, tools } = fixture();
+	api.registerTool({ name: "subagent", parameters: schema, execute() { return { content: [] }; } } as any);
+	assert.ok(tools.get("subagent").promptGuidelines.includes(PRODUCT_SUBAGENT_ACCEPTANCE_GUIDELINE));
+	for (const required of ["omit acceptance", "evidence is additive", "inherited by children", "shell-less reviewers", "cannot waive", "never invent evidence"]) assert.ok(PRODUCT_SUBAGENT_ACCEPTANCE_GUIDELINE.includes(required));
+	const acceptance = { level: "checked", evidence: ["review-findings", "commands-run"] };
+	const requested = { agent: "reviewer", task: "read-only review", acceptance };
+	assert.equal(prepareProductSubagentArguments(requested).acceptance, acceptance);
+	assert.equal(prepareProductSubagentArguments({ agent: "reviewer" }).acceptance, undefined);
 });
 
 test("short handoff guideline retains evidence, unknown and freshness boundaries (text contract only)", () => {

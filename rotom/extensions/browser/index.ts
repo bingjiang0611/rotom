@@ -30,7 +30,7 @@ import {
 } from "./browser-relay.ts";
 // expect 的语法只有一份：这个模块不依赖 chrome API，所以 tool 层可以先本地拒绝非法
 // 判据，而不是把它发到 relay 再拿错误回来。
-import { parseInteractionExpectation } from "./chrome-extension/interaction-target-state.js";
+import { INTERACTION_EXPECTATIONS, parseInteractionExpectation } from "./chrome-extension/interaction-target-state.js";
 import { compactInteractionReadback, observationTextBaseline } from "./chrome-extension/interaction-observation.js";
 
 const MAX_RESULT_BYTES = 128 * 1024;
@@ -378,9 +378,9 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 		],
 		parameters: Type.Object({
 			operation: StringEnum(BROWSER_INSPECT_OPERATIONS_V1),
-			tabName: Type.Optional(Type.String({ minLength: 1, maxLength: 64 })),
-			tabId: Type.Optional(Type.Integer({ minimum: 0 })),
-			url: Type.Optional(Type.String({ minLength: 1, maxLength: 4096 })),
+			tabName: Type.Optional(Type.String({ minLength: 1, maxLength: 64, description: "Required for open and claim: a new owned tab name. Other operations may use the current owned tab." })),
+			tabId: Type.Optional(Type.Integer({ minimum: 0, description: "Required for claim: the tabId returned by discover." })),
+			url: Type.Optional(Type.String({ minLength: 1, maxLength: 4096, description: "Required for open: an HTTP(S) URL." })),
 			status: Type.Optional(StringEnum(["loading", "complete"] as const)),
 			timeoutMs: Type.Optional(Type.Integer({ minimum: 0, maximum: 300_000 })),
 			all: Type.Optional(Type.Boolean()),
@@ -402,8 +402,9 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			const filtered = text !== undefined || role !== undefined;
 			if (filtered && (operation !== "snapshot_visible" || params.cursor !== undefined)) throw new Error("text/role 仅允许首次 snapshot_visible；cursor 已固定查询结果，请勿重复过滤");
 			// Invalid local input must neither contact Relay nor grant fallback permission.
-			if (operation === "open" && !tabName) throw new Error("open 需要 tabName");
+			if ((operation === "open" || operation === "claim") && !tabName) throw new Error(`${operation} 需要 tabName`);
 			const openUrl = operation === "open" ? canonicalBrowserUrlV1(params.url) : undefined;
+			const claimTabId = operation === "claim" ? safeInteger(params.tabId, "tabId", 0, Number.MAX_SAFE_INTEGER) : undefined;
 			const assertOwner = await bindSession(ctx, signal);
 			const relayClient = await client(ctx, assertOwner);
 			const boundedResult = (value: unknown) => { assertOwner(); return browserResult(value); };
@@ -428,8 +429,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 				return boundedResult({ kind: "discovered-tabs", tabs: discovered.tabs.map((tab) => ({ ...tab, url: safeDisplayUrl(tab.url), origin: browserOriginV1(tab.url) })) });
 			}
 			if (operation === "claim") {
-				if (!tabName) throw new Error("claim 需要 tabName");
-				const tabId = safeInteger(params.tabId, "tabId", 0, Number.MAX_SAFE_INTEGER);
+				const tabId = claimTabId!;
 				const discovered = validateDiscoveredTabs(await relayClient.request("discover", {}, { signal }));
 				const candidate = discovered.tabs.find((tab) => tab.tabId === tabId);
 				if (!candidate) throw new Error("claim 目标不在当前可用标签列表");
@@ -491,7 +491,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 		parameters: Type.Object({
 			operation: StringEnum(BROWSER_INTERACT_OPERATIONS_V1),
 			tabName: Type.Optional(Type.String({ minLength: 1, maxLength: 64 })),
-			action: Type.Optional(StringEnum(BROWSER_INTERACTION_ACTIONS_V1)),
+			action: StringEnum(BROWSER_INTERACTION_ACTIONS_V1),
 			key: Type.Optional(StringEnum(BROWSER_INTERACTION_KEYS_V1)),
 			targetRef: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
 			x: Type.Optional(Type.Number({ minimum: 0, maximum: 100_000 })),
@@ -500,7 +500,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			text: Type.Optional(Type.String({ minLength: 1, maxLength: 4096 })),
 			replace: Type.Optional(Type.Boolean()),
 			option: Type.Optional(Type.String({ minLength: 1, maxLength: 512 })),
-			expect: Type.Optional(Type.String({ maxLength: 32 })),
+			expect: Type.Optional(StringEnum(INTERACTION_EXPECTATIONS, { description: "Target-state check for a ref-bound action, not navigation or arbitrary text. A met check does not prove business completion." })),
 			direction: Type.Optional(StringEnum(["up", "down"] as const)),
 			amount: Type.Optional(Type.Integer({ minimum: 1, maximum: 100_000 })),
 		}, { additionalProperties: false }),
@@ -510,10 +510,8 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			const params = rawParams as Record<string, unknown>;
 			const operation = safeString(params.operation, "operation", 64);
 			if (!BROWSER_INTERACT_OPERATIONS_V1.includes(operation as any)) throw new Error("browser_interact operation 无效");
-			const assertOwner = await bindSession(ctx, signal);
-			const relayClient = await client(ctx, assertOwner);
 			const action = interactionAction(params.action);
-			const tab = targetTab(await readTabs(relayClient, signal), params.tabName === undefined ? undefined : safeTabName(params.tabName));
+			const tabName = params.tabName === undefined ? undefined : safeTabName(params.tabName);
 			const coordinateFieldsPresent = params.x !== undefined || params.y !== undefined || params.observationEpoch !== undefined;
 			if (coordinateFieldsPresent && action !== "click") throw new Error("坐标参数仅允许 click");
 			if (coordinateFieldsPresent && params.targetRef !== undefined) throw new Error("click 的 targetRef 与坐标模式互斥");
@@ -548,6 +546,11 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 				amount = params.amount === undefined ? 600 : safeInteger(params.amount, "amount", 1, 100_000);
 				if (params.text !== undefined || params.replace !== undefined || params.option !== undefined) throw new Error("scroll 参数组合无效");
 			} else if (params.text !== undefined || params.replace !== undefined || params.option !== undefined || params.direction !== undefined || params.amount !== undefined) throw new Error("click 参数组合无效");
+			// Reject invalid local arguments before even listing tabs. A schema mistake
+			// must neither dispatch Relay requests nor change fallback eligibility.
+			const assertOwner = await bindSession(ctx, signal);
+			const relayClient = await client(ctx, assertOwner);
+			const tab = targetTab(await readTabs(relayClient, signal), tabName);
 			const actionFacts = {
 				action, tabName: tab.name, tabId: tab.tabId, documentGeneration: tab.documentGeneration, url: tab.url,
 				...(key ? { key } : {}),

@@ -181,9 +181,15 @@ test("browser relay：活动标签可 claim、直接交互、敏感输入放行�
 	assert.match(interact.promptGuidelines?.join("\n") ?? "", /Unknown writes may have executed.*read-only checks, never re-dispatch/u, "写动作 unknown 的不重发边界必须写在写入工具自己的指引里");
 	const browserGuidelineBytes = [tool, interact].reduce((sum, definition) => sum + Buffer.byteLength(JSON.stringify(definition.promptGuidelines ?? []), "utf8"), 0);
 	const browserSchemaBytes = [tool, interact].reduce((sum, definition) => sum + Buffer.byteLength(JSON.stringify({ name: definition.name, description: definition.description, parameters: definition.parameters }), "utf8"), 0);
-	// Allow only the two selectors and their bounded-query/continuation semantics.
+	// Keep prompt text bounded; schema growth exposes the fixed expectation enum
+	// and operation-specific requirements instead of adding another prose checklist.
 	assert.ok(browserGuidelineBytes <= 3_650, `Browser guideline budget regressed: ${browserGuidelineBytes}`);
-	assert.ok(browserSchemaBytes <= 1_950, `Browser schema budget regressed: ${browserSchemaBytes}`);
+	assert.ok(browserSchemaBytes <= 2_750, `Browser schema budget regressed: ${browserSchemaBytes}`);
+	assert.ok(interact.parameters.required.includes("action"));
+	assert.equal(interact.parameters.properties.expect.enum.length, 16);
+	assert.ok(interact.parameters.properties.expect.enum.includes("value=nonempty"));
+	for (const invalid of ["visible", "navigation", "ack", "EPUB"]) assert.equal(interact.parameters.properties.expect.enum.includes(invalid), false);
+	assert.match(tool.parameters.properties.tabName.description, /Required for open and claim/u);
 	const typed = await interact.execute("browser-interact-type", { operation: "execute", tabName: "docs", action: "type", targetRef: "ax_1_1", text: "Authorization: Bearer secret-token-123456789", replace: true }, undefined, undefined, ctx);
 	assert.equal(typed.details.acknowledged, true);
 	assert.equal(typed.details.businessOutcome, "unverified");
@@ -399,6 +405,7 @@ test("Relay-first launch gate: local evidence, one attempt, no replay or stale p
 			emit: (name: string) => handlers.get(name)({}, ctx),
 			launch: () => handlers.get("tool_call")({ toolName: "launch_browser", input: {} }, ctx),
 			inspect: (params = { operation: "tabs" }, signal?: AbortSignal) => tools.get("browser_inspect").execute("fixture", params, signal, undefined, ctx),
+			interact: (params: any) => tools.get("browser_interact").execute("fixture", params, undefined, undefined, ctx),
 		};
 	}
 	await t.test("blocks launch first, healthy Relay and empty tabs", async () => {
@@ -443,6 +450,31 @@ test("Relay-first launch gate: local evidence, one attempt, no replay or stale p
 			assert.equal(f.requests, 0);
 			assert.equal((await f.launch()).block, true);
 		}
+	});
+	await t.test("invalid claim and interaction parameters never connect or consume fallback evidence", async () => {
+		for (const params of [
+			{ operation: "claim", tabId: 41 },
+			{ operation: "claim", tabName: "docs" },
+			{ operation: "execute", action: "click", targetRef: "ax_1", expect: "visible" },
+			{ operation: "execute", action: "click" },
+			{ operation: "execute", action: "type", targetRef: "ax_1" },
+			{ operation: "execute", action: "keypress", targetRef: "ax_1", key: "Space" },
+			{ operation: "execute", action: "scroll", direction: "sideways" },
+			{ operation: "execute", action: "click", targetRef: "ax_1", x: 1, y: 2, observationEpoch: 1 },
+			{ operation: "execute" },
+		]) {
+			const f = await fixture(); f.failConnect(unavailable());
+			await assert.rejects(params.operation === "claim" ? f.inspect(params as any) : f.interact(params));
+			assert.equal(f.connections, 0, JSON.stringify(params));
+			assert.equal(f.requests, 0);
+			assert.equal((await f.launch()).block, true);
+		}
+		const f = await fixture(); f.failConnect(unavailable());
+		await assert.rejects(f.inspect()); // Legitimate pre-dispatch unavailability.
+		const connections = f.connections;
+		await assert.rejects(f.interact({ operation: "execute", action: "click", expect: "navigation" }));
+		assert.equal(f.connections, connections);
+		assert.equal(await f.launch(), undefined, "local mistakes neither grant nor revoke an existing permit");
 	});
 	await t.test("successful probe revokes a previous permit", async () => {
 		const f = await fixture(); f.failConnect(unavailable()); await assert.rejects(f.inspect());

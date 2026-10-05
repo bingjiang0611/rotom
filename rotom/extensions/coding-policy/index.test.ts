@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import codingPolicy, { CODING_EXECUTION_HYGIENE_POLICY } from "./index.ts";
+import codingPolicy, { codingResultPhases, CODING_EXECUTION_HYGIENE_POLICY } from "./index.ts";
 
 test("coding policy 只在编码工具激活时注入执行与证据范围约束", () => {
 	let handler: ((event: any) => any) | undefined;
@@ -20,4 +20,30 @@ test("coding policy 只在编码工具激活时注入执行与证据范围约束
 		assert.deepEqual(handler({ systemPrompt: "base", systemPromptOptions: { selectedTools: [tool] } }), result);
 	}
 	assert.doesNotMatch(CODING_EXECUTION_HYGIENE_POLICY, /quick[^\n]*directed[^\n]*full|fast[^\n]*canary[^\n]*full/iu, "用户明确排除的分层验证建议不得进入产品 policy");
+});
+
+test("then_run receipts preserve applied mutations and failed validation without replay or status laundering", () => {
+	let handler: (event: any, ctx: any) => any;
+	codingPolicy({ on(name: string, fn: any) { if (name === "tool_result") handler = fn; } } as any);
+	const input = { path: "src/sample.ts", edits: [{ oldText: "before", newText: "after" }], then_run: { command: "fixture check" } };
+	const content = [{ type: "text", text: "Successfully replaced 1 block(s) in src/sample.ts.\n\n[then_run:failed]\nprivate validation output" }];
+	const event = { toolName: "edit", input, content, isError: true, details: { existing: "preserved" } };
+	const result = handler!(event, { cwd: "/must-not-read-or-write" });
+	assert.deepEqual(result.details, { existing: "preserved", codingPhases: { mutation: "applied", followup: "failed", source: "tool-reported" } });
+	assert.equal(result.content[0], content[0]);
+	assert.match(result.content[1].text, /Do not replay/u);
+	assert.equal(result.isError, undefined, "keep the original error; never turn a failed check into ok");
+	assert.deepEqual(event.details, { existing: "preserved" });
+	assert.equal(content.length, 1);
+	const passed = handler!({ ...event, isError: false, content: [{ type: "text", text: content[0].text.replace("then_run:failed", "then_run:succeeded") }] }, {});
+	assert.equal(passed.details.codingPhases.followup, "succeeded");
+	assert.equal(passed.content, undefined);
+	assert.equal(codingResultPhases({ ...event, toolName: "write", input: { path: "sample.txt", then_run: { command: "fixture check" } }, content: [{ type: "text", text: "Successfully wrote to sample.txt\n\n[then_run:failed]\n" }] })?.mutation, "applied");
+	for (const changed of [
+		{ toolName: "bash" }, { input: { ...input, then_run: undefined } },
+		{ input: { ...input, path: "different.ts" } }, { isError: false },
+		{ content: [{ type: "text", text: "diagnostic: " + content[0].text }] },
+		{ content: [{ type: "text", text: "Could not find oldText.\n\n[then_run:failed]\n" }] },
+		{ content: [{ type: "text", text: content[0].text.replace("1 block(s)", "2 block(s)") }] },
+	]) assert.equal(codingResultPhases({ ...event, ...changed }), undefined);
 });

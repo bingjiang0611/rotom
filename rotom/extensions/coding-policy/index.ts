@@ -14,6 +14,24 @@ export const CODING_EXECUTION_HYGIENE_POLICY = `Coding execution hygiene:
 
 const CODING_TOOLS = new Set(["bash", "edit", "write"]);
 
+// Some tool hosts compose a file write with then_run and return only one error
+// bit. Project their exact leading receipt, never test output or arbitrary prose.
+// This is reported execution evidence, not a file readback or business success.
+export function codingResultPhases(event: { toolName: string; input: Record<string, unknown>; content: readonly unknown[]; isError: boolean }) {
+	const { toolName, input } = event;
+	if ((toolName !== "edit" && toolName !== "write") || typeof input.path !== "string"
+		|| !input.then_run || typeof input.then_run !== "object") return undefined;
+	const first = event.content[0] as { type?: string; text?: string } | undefined;
+	if (first?.type !== "text" || typeof first.text !== "string") return undefined;
+	const receipt = toolName === "edit" && Array.isArray(input.edits) && input.edits.length > 0
+		? `Successfully replaced ${input.edits.length} block(s) in ${input.path}.`
+		: toolName === "write" ? `Successfully wrote to ${input.path}` : undefined;
+	if (!receipt) return undefined;
+	const followup = event.isError ? "failed" : "succeeded";
+	if (!first.text.startsWith(`${receipt}\n\n[then_run:${followup}]\n`)) return undefined;
+	return { mutation: "applied" as const, followup, source: "tool-reported" as const };
+}
+
 export default function codingPolicy(pi: ExtensionAPI): void {
 	pi.on("before_agent_start", (event) => {
 		const selectedTools = Array.isArray(event.systemPromptOptions?.selectedTools) ? event.systemPromptOptions.selectedTools : [];
@@ -23,6 +41,11 @@ export default function codingPolicy(pi: ExtensionAPI): void {
 	// Attach evidence to the two coding failures that otherwise dead-end into a
 	// blind retry. The hint is additive: original tool output and isError stay.
 	pi.on("tool_result", (event, ctx) => {
+		const phases = codingResultPhases(event);
+		if (phases) return {
+			details: { ...event.details, codingPhases: phases },
+			...(phases.followup === "failed" ? { content: [...event.content, { type: "text" as const, text: "The tool reports that the file mutation was applied; only then_run failed. Inspect the command error and current file. Do not replay the successful mutation or treat it as rolled back. Command exit status is not business verification." }] } : {}),
+		};
 		if (!event.isError) return undefined;
 		const hint = toolErrorRepairHint(event.toolName, event.input, event.content, ctx?.cwd);
 		if (!hint) return undefined;

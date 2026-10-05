@@ -54,6 +54,9 @@ export const PRODUCT_SUBAGENT_BLOCKED_FIELDS = [
 export const PRODUCT_SUBAGENT_POLICY_GUIDELINE =
 	"Product policy overrides broader package documentation: omit action for execution; only the model-visible actions in the schema are available. Agent configuration, missions, refine, schedules, project/inspector management, worktree discard, watchdog configuration, and spawn-budget grants are disabled. Actionless execution is forced ephemeral and cannot create an automatic mission. Omit mission entirely; an explicit mission:false is accepted and ignored, while any truthy mission or other mission field is rejected. For one implementation or validation lane, steer its live child or resume its latest run with a compact handoff; do not fork duplicate full-history workers for that lane. Direct steer always disables automatic steeringRecovery; acknowledgement timeout is not writer termination or permission to replace it.";
 
+export const PRODUCT_SUBAGENT_ACCEPTANCE_GUIDELINE =
+	"For read-only reviewer/scout tasks, omit acceptance and use the inferred read-only contract. Explicit checked/verified adds command and no-staged-files requirements; evidence is additive, not a replacement. Workflow-level acceptance is inherited by children: do not impose writer gates on shell-less reviewers. Have a capable parent verify Git/build evidence separately. A supervisor message cannot waive a frozen acceptance contract; never invent evidence or silently lower an explicit gate.";
+
 export const PRODUCT_HANDOFF_GUIDELINE =
 	"For handoffs and summaries, keep constraints, unknowns and the next authorized action. Summaries are not evidence; never upgrade unknown to success. Cite readable evidence and its command/result/scope; revalidate missing, conflicting or stale sources against the current revision and relevant dirty files.";
 
@@ -72,6 +75,9 @@ export function constrainSubagentParameters<T>(parameters: T): T {
 		? properties.action as Record<string, unknown>
 		: {};
 	properties.action = { ...action, enum: [...PRODUCT_SUBAGENT_ALLOWED_ACTIONS] };
+	if (properties.acceptance && typeof properties.acceptance === "object") {
+		properties.acceptance = { ...properties.acceptance as Record<string, unknown>, description: PRODUCT_SUBAGENT_ACCEPTANCE_GUIDELINE };
+	}
 	return { ...schema, properties } as T;
 }
 
@@ -122,7 +128,11 @@ export function subagentEvidenceResult<T>(toolName: string, params: unknown, res
 			: "Subagent evidence: the returned task/workflow state is not proof that every child or external effect has finished.";
 	const process = terminalState ? ` Reported process-terminal=${terminalState}; this is scoped process evidence, not whole-process-tree or remote-effect closure.` : " Process termination is not established by this result.";
 	const text = `${evidence}${process} Inspect the original run and verify its output; unknown does not authorize replay or a replacement writer.`;
-	return { ...value, content: [{ type: "text", text }, ...value.content] } as T;
+	return {
+		...value,
+		...(launchReceipt || stopReceipt ? { details: { ...details, subagentPhase: launchReceipt ? "launch" : "stop-request" } } : {}),
+		content: [{ type: "text", text }, ...value.content],
+	} as T;
 }
 
 export function productSubagentCommandAllowed(command: string): boolean {
@@ -158,7 +168,7 @@ export function subagentPolicyApi(pi: ExtensionAPI): ExtensionAPI {
 					...(isSubagent ? {
 						description: `${definition.description}\n\n${PRODUCT_SUBAGENT_POLICY_GUIDELINE}`,
 						parameters: constrainSubagentParameters(definition.parameters),
-						promptGuidelines: [...(definition.promptGuidelines ?? []), PRODUCT_SUBAGENT_POLICY_GUIDELINE, PRODUCT_HANDOFF_GUIDELINE],
+						promptGuidelines: [...(definition.promptGuidelines ?? []), PRODUCT_SUBAGENT_POLICY_GUIDELINE, PRODUCT_SUBAGENT_ACCEPTANCE_GUIDELINE, PRODUCT_HANDOFF_GUIDELINE],
 					} : {}),
 					execute(...args: Parameters<typeof definition.execute>) {
 						assertLive();

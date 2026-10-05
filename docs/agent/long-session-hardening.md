@@ -30,6 +30,19 @@
 
 保留的开发失败：新增 judge 测试首次 typecheck 缺少标准 JudgeContext 字段；按依赖类型补齐无工具调用的合成 run 后通过，没有改变产品合同来跳过检查。未执行付费模型 A/B、真实设备/浏览器验收或安装升级。
 
+## 后续：工具参数与分阶段证据
+
+针对调用合同误用和整次调用红绿灯掩盖阶段差异，追加以下小范围改动，不新增工具或重试：
+
+- Browser `expect` 的 16 个合法值由页面侧解析器与模型 schema 共享，`action` 标为必填，open/claim 的参数说明明确依赖。交互的纯参数校验在连接/列举 Relay tabs 之前完成；本地错误既不授予也不消费既有 fallback 许可。
+- 只读 reviewer/scout 默认验收本来就是轻量合同。产品 schema 和 prompt 明确：不要给无 shell 的 reviewer 强加 `checked`；workflow 验收会传给子任务，evidence 是追加而非替换，supervisor 自然语言回复不能改写已冻结合同。本次不按 agent 名称猜权限、不静默降级显式验收；这是调用指引，尚未证明真实模型误配率下降。
+- coding-policy 仅对带 `then_run` 输入、且开头严格匹配已知 edit/write 回执的结果投影 `codingPhases`。分别记录工具报告的 mutation applied 与 follow-up succeeded/failed，保留原 isError 和结果正文，失败时提醒不重放成功写入。后续命令可能是构建、安装或启动，因此不把 exit 0 标成业务验证通过。
+- Subagent 的启动/停止回执增加 `subagentPhase`，不改变底层 results、任务终态或取消逻辑。trace 仅新增白名单枚举，不记录命令、路径或错误正文；inspector 独立显示阶段、目标检查和业务效果，不改写原 span 状态。
+
+兼容边界：既有合法 Browser 值和 wire protocol 不变；`chrome-extension/interaction-target-state.js` 字节变化后，安装新版仍须用户显式重载扩展，本次未执行。旧 trace 没有阶段字段时不追认成功；未知工具回执形状保持原样，不从任意输出猜结果。只有新增实际回执证据证明当前精确投影不够时，才在相应工具所有者补结构化阶段信息或增加有界合同测试，不做通用文本分类器。
+
+验证使用 synthetic receipts、真实 Pi loader、SDK faux provider 和隔离 external-CLI fixture，无真实模型、Chrome 写入或安装升级。阶段投影的测试证明 dispatch/原错误/原结果被保留，不证明文件最终内容、业务完成、真实模型遵守提示或耗时下降。完整 `check-personal` 首轮两个停止 fixture 仍要求 details 引用相同，因新增只读投影失败；改为校验保留原字段、原对象未修改，并继续通过原进程关闭与 residual-write 断言，未放宽取消验收。default/full/scoped context footprint 均重新实测并同步当前合同，不修改历史参考。
+
 ## 未修改：用户额外加载的 SoL-Pi
 
 已定位召回套娃来自独立 SoL-Pi package 的 `src/sol-pi/extensions/observation-pack/`，不在 rotom 产品清单中。其 `index.ts` 的召回页上限为 16 KiB，`observation.ts` 的打包阈值为 10 KiB，且未排除召回结果；较大的页经过两次请求后会被再次归档成新 observation。

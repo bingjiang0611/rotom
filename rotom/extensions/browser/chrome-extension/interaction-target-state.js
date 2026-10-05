@@ -61,8 +61,10 @@ export function interactionTargetChange(before, after) {
 	return { changed: transitions.some((transition) => !transition.startsWith("focused=")), transitions };
 }
 
-const BOOLEAN_EXPECTATION_PATTERN = /^(checked|expanded|selected|disabled|connected|focused|valid)=(true|false)$/u;
-const VALUE_EXPECTATION_PATTERN = /^value=(empty|nonempty)$/u;
+export const INTERACTION_EXPECTATIONS = [
+	...["checked", "expanded", "selected", "disabled", "connected", "focused", "valid"].flatMap((field) => [`${field}=true`, `${field}=false`]),
+	"value=empty", "value=nonempty",
+];
 // 消息写成英文并包含 "interaction"：它要穿过 relay 的错误白名单才能到达调用方，
 // 否则会被压成一句无信息量的 "browser relay operation failed"。
 export const INTERACTION_EXPECTATION_SYNTAX = "interaction expect must be checked|expanded|selected|disabled|connected|focused|valid=true|false or value=empty|nonempty";
@@ -70,12 +72,9 @@ export const INTERACTION_EXPECTATION_SYNTAX = "interaction expect must be checke
 /** 期望只接受一组固定判据：可判定、可解释，且不需要在页面里执行模型给的代码。 */
 export function parseInteractionExpectation(value) {
 	if (value === undefined) return undefined;
-	if (typeof value !== "string" || value.length < 1 || value.length > 32) throw new Error(INTERACTION_EXPECTATION_SYNTAX);
-	const booleanMatch = BOOLEAN_EXPECTATION_PATTERN.exec(value);
-	if (booleanMatch) return { requested: value, field: booleanMatch[1], operator: booleanMatch[2] };
-	const valueMatch = VALUE_EXPECTATION_PATTERN.exec(value);
-	if (valueMatch) return { requested: value, field: "valueLength", operator: valueMatch[1] };
-	throw new Error(INTERACTION_EXPECTATION_SYNTAX);
+	if (!INTERACTION_EXPECTATIONS.includes(value)) throw new Error(INTERACTION_EXPECTATION_SYNTAX);
+	const [field, operator] = value.split("=");
+	return { requested: value, field: field === "value" ? "valueLength" : field, operator };
 }
 
 /** 满足、未满足、未知三态。读不到目标状态时是 unknown，不能压成 unmet。 */

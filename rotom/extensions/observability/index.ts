@@ -208,12 +208,18 @@ function toolResultMetrics(result: unknown): TraceAttributes {
 	const execution = record(details?.execution);
 	const verification = record(execution?.verification);
 	const terminal = record(record(details?.lifecycleStatus)?.processTerminal);
+	const phases = record(details?.codingPhases);
+	const codingPhases = phases?.source === "tool-reported" ? phases : undefined;
 	const evidence: TraceAttributes = {};
 	for (const [key, value, allowed] of [
 		["pi.tool.execution_outcome", execution?.outcome, ["worked", "didnt", "unknown"]],
 		["pi.tool.verification_status", verification?.status, ["verified", "failed", "preexisting"]],
 		["pi.tool.business_outcome", details?.businessOutcome, ["unknown", "unverified", "verified"]],
 		["pi.tool.process_terminal_state", terminal?.state, ["pending", "observed", "unknown", "not-started"]],
+		["pi.tool.subagent_phase", details?.subagentPhase, ["launch", "stop-request"]],
+		["pi.tool.mutation_status", codingPhases?.mutation, ["applied"]],
+		["pi.tool.followup_status", codingPhases?.followup, ["succeeded", "failed"]],
+		["pi.tool.coding_evidence_source", codingPhases?.source, ["tool-reported"]],
 	] as const) {
 		if (typeof value === "string" && (allowed as readonly string[]).includes(value)) evidence[key] = value;
 	}

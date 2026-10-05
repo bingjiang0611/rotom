@@ -108,7 +108,8 @@ else {
 	assert.notEqual(raw.isError, true);
 	const projected = subagentEvidenceResult("subagent", params, raw);
 	assert.match(projected.content[0].text, /stop response is not proof/u);
-	assert.equal(projected.details, raw.details);
+	assert.deepEqual(projected.details, { ...raw.details, subagentPhase: "stop-request" });
+	assert.equal(raw.details.subagentPhase, undefined, "evidence projection must not mutate the package result");
 	assert.deepEqual(projected.content.slice(1), raw.content);
 }
 const terminalState = scenario === "complete" ? "complete" : "stopped";
