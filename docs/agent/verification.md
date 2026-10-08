@@ -38,6 +38,10 @@ rotom/bin/check-personal
 git diff --check
 ```
 
+### 离线轨迹分析与摘要状态
+
+维护入口及数据授权边界见 [trajectory-analysis.md](trajectory-analysis.md)。确定性检查：`node --test --test-concurrency=1 scripts/analyze-session-trajectories.test.mjs`。压缩源码改动另跑 Pi 的 serialization、summary-reasoning、branch-summarization 与 compaction 回归，再重建 fork。真实轨迹分析和模型 continuation A/B 不由合成 fixture 或 mock 摘要替代。
+
 ### 公开前隐私检查
 
 ```bash

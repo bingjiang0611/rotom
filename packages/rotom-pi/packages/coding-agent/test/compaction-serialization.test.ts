@@ -4,7 +4,7 @@ import { serializeConversation } from "../src/core/compaction/utils.ts";
 
 describe("serializeConversation", () => {
 	it("should truncate long tool results", () => {
-		const longContent = "x".repeat(5000);
+		const longContent = `START${"x".repeat(4990)}ERROR`;
 		const messages: Message[] = [
 			{
 				role: "toolResult",
@@ -18,11 +18,11 @@ describe("serializeConversation", () => {
 
 		const result = serializeConversation(messages);
 
-		expect(result).toContain("[Tool result]:");
+		expect(result).toContain('[Tool result name="read" id="tc1" isError=false]:');
 		expect(result).toContain("[... 3000 more characters truncated]");
-		expect(result).not.toContain("x".repeat(3000));
-		// First 2000 chars should be present
-		expect(result).toContain("x".repeat(2000));
+		expect(result).not.toContain("x".repeat(2000));
+		expect(result).toContain(`START${"x".repeat(995)}`);
+		expect(result).toContain(`${"x".repeat(995)}ERROR`);
 	});
 
 	it("should not truncate short tool results", () => {
@@ -40,8 +40,47 @@ describe("serializeConversation", () => {
 
 		const result = serializeConversation(messages);
 
-		expect(result).toBe(`[Tool result]: ${shortContent}`);
+		expect(result).toBe(`[Tool result name="read" id="tc1" isError=false]: ${shortContent}`);
 		expect(result).not.toContain("truncated");
+	});
+
+	it("keeps empty errors and correlates results with parallel calls", () => {
+		const messages: Message[] = [
+			{
+				role: "assistant",
+				content: [
+					{ type: "toolCall", id: "a", name: "bash", arguments: { command: "check-a" } },
+					{ type: "toolCall", id: "b", name: "bash", arguments: { command: "check-b" } },
+				],
+				api: "anthropic-messages",
+				provider: "anthropic",
+				model: "test",
+				usage: {
+					input: 0,
+					output: 0,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 0,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+				},
+				stopReason: "toolUse",
+				timestamp: 0,
+			},
+			{ role: "toolResult", toolCallId: "b", toolName: "bash", content: [], isError: true, timestamp: 0 },
+			{
+				role: "toolResult",
+				toolCallId: "a",
+				toolName: "bash",
+				content: [{ type: "text", text: "dispatch unknown" }],
+				isError: false,
+				timestamp: 0,
+			},
+		];
+		const result = serializeConversation(messages);
+		expect(result).toContain('bash[id="a"](command="check-a")');
+		expect(result).toContain('bash[id="b"](command="check-b")');
+		expect(result).toContain('[Tool result name="bash" id="b" isError=true]: [No text content]');
+		expect(result).toContain('[Tool result name="bash" id="a" isError=false]: dispatch unknown');
 	});
 
 	it("should not truncate assistant or user messages", () => {
