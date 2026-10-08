@@ -366,6 +366,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 
 	pi.registerTool(defineTool({
 		name: BROWSER_INSPECT_TOOL_V1,
+		exposure: "model-only",
 		label: "Browser Inspect",
 		description: "Manage Chrome relay tabs. snapshot traverses virtualized content with completion evidence; snapshot_visible covers current DOM only.",
 		promptSnippet: "Inspect dynamic or authenticated Chrome pages; snapshot is the full-content path.",
@@ -478,6 +479,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 
 	pi.registerTool(defineTool({
 		name: BROWSER_INTERACT_TOOL_V1,
+		exposure: "model-only",
 		label: "Browser Interact",
 		description: "Interact via refs; coordinate clicks need latest screenshot epoch.",
 		promptSnippet: "Interact with a relay tab; prefer refs and use fresh screenshot coordinates only when no ref exists.",

@@ -27,6 +27,7 @@ function createSession(options: {
 	usingSubscription?: boolean;
 	customEntries?: Array<Record<string, unknown>>;
 	sessionId?: string;
+	routedModel?: { model: { id: string; provider?: string }; thinkingLevel?: string };
 }): AgentSession {
 	const usage = options.usage;
 	const entries: Array<Record<string, unknown>> = [];
@@ -79,11 +80,14 @@ function createSession(options: {
 		},
 		sessionManager: {
 			getEntries: () => entries,
+			getEntryCount: () => entries.length,
 			getSessionId: () => options.sessionId ?? "test-session",
+			getLeafId: () => null,
 			getSessionName: () => options.sessionName,
 			getCwd: () => "/tmp/project",
 		},
 		getContextUsage: () => ({ contextWindow: 200_000, percent: 12.3 }),
+		routedModel: options.routedModel,
 		modelRuntime: {
 			isUsingSubscription: () => options.usingSubscription ?? false,
 		},
@@ -157,6 +161,21 @@ describe("FooterComponent width handling", () => {
 		}
 	});
 
+	it("shows the physical model a virtual model routed to", () => {
+		const session = createSession({
+			sessionName: "",
+			modelId: "auto",
+			reasoning: true,
+			thinkingLevel: "high",
+			routedModel: { model: { id: "gpt-5.6-luna" }, thinkingLevel: "medium" },
+		});
+		const footer = new FooterComponent(session, createFooterData(1));
+
+		const statsLine = stripAnsi(footer.render(120)[1]);
+
+		expect(statsLine).toContain("auto \u2022 high \u2192 gpt-5.6-luna \u2022 medium");
+	});
+
 	it("includes summary and tool result usage in the total cost", () => {
 		const session = createSession({
 			sessionName: "",
@@ -195,6 +214,16 @@ describe("FooterComponent width handling", () => {
 		expect(statsLine).toContain("$1.250");
 	});
 
+	it("updates cached usage totals after an entry is appended", () => {
+		const usage = { input: 10, output: 1, cacheRead: 0, cacheWrite: 0, cost: { total: 0.5 } };
+		const session = createSession({ sessionName: "", usage });
+		const footer = new FooterComponent(session, createFooterData(1));
+		expect(stripAnsi(footer.render(120)[1])).toContain("$0.500");
+
+		session.sessionManager.getEntries().push({ type: "message", message: { role: "assistant", usage } } as never);
+		expect(stripAnsi(footer.render(120)[1])).toContain("$1.000");
+	});
+
 	it("shows the latest cache hit rate when cache usage is present", () => {
 		const session = createSession({
 			sessionName: "",
@@ -212,10 +241,11 @@ describe("FooterComponent width handling", () => {
 		expect(statsLine).toContain("CH25.0%");
 	});
 
-	it("shows Qoder Credits to three decimal places instead of USD", () => {
+	it.each([false, true])("shows Qoder Credits instead of USD (virtual route: %s)", (virtual) => {
 		const session = createSession({
 			sessionName: "",
-			provider: "qoder",
+			provider: virtual ? "router" : "qoder",
+			routedModel: virtual ? { model: { provider: "qoder", id: "ultimate" } } : undefined,
 			usage: {
 				input: 100,
 				output: 10,

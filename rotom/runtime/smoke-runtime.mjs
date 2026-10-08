@@ -86,7 +86,7 @@ try {
 		}
 	}
 	const piAiEntry = await findPiAiEntry(verified.packageRoot);
-	const { fauxProvider } = await import(pathToFileURL(piAiEntry).href);
+	const { fauxProvider, fauxToolCall, fauxAssistantMessage } = await import(pathToFileURL(piAiEntry).href);
 	const faux = fauxProvider({ provider: "runtime-smoke-faux", models: [{ id: "runtime-smoke", contextWindow: 12_000, maxTokens: 1_024 }] });
 	const modelRuntime = await pi.ModelRuntime.create({ authPath: resolve(isolatedAgentDir, "auth.json"), modelsPath: null, refreshOnCreate: false });
 	modelRuntime.registerNativeProvider(faux.provider);
@@ -135,7 +135,7 @@ try {
 	assert.equal(observability?.tools.size, 0, "observability 不得增加模型 tool schema");
 	for (const tool of ["find_roots", "observe_ui", "act_ui", "subagent", "goal_complete", "goal_blocked", "goal_wait", "goal_continue"]) assert.equal(thirdParty?.tools.has(tool), true);
 	assert.deepEqual(new Set(extensionToolNames), new Set([
-		...RESIDENT_BROWSER_TOOL_NAMES, "ask_user_question", ...DEFERRED_CAPABILITY_GROUPS.flatMap((group) => [...group.toolNames]),
+		...RESIDENT_BROWSER_TOOL_NAMES, "ask_user_question", "codemode", ...DEFERRED_CAPABILITY_GROUPS.flatMap((group) => [...group.toolNames]),
 		...goalToolNames, ...(deferredToolsActive ? [DEFERRED_TOOL_SEARCH_NAME] : []),
 	]), "公开工具面必须精确匹配保留的能力，不得加载未声明的业务平台工具");
 	assert.equal(thirdParty?.tools.has(DEFERRED_TOOL_SEARCH_NAME), deferredToolsActive, "deferred loader 默认注册且必须可显式关闭");
@@ -155,6 +155,12 @@ try {
 	assert.deepEqual(subagentDefinition?.parameters?.properties?.action?.enum, [...PRODUCT_SUBAGENT_ALLOWED_ACTIONS]);
 	for (const field of PRODUCT_SUBAGENT_BLOCKED_FIELDS) assert.equal(subagentDefinition?.parameters?.properties?.[field], undefined);
 	const activeTools = created.session.getActiveToolNames();
+	// The raw measurement stays unchanged. Only the deterministic gate removes
+	// the checkout-dependent documentation path in Codemode's declaration.
+	const codemodeSchema = JSON.stringify(realToolInfos.find(tool => tool.name === "codemode"));
+	const docsPath = JSON.stringify(resolve(verified.packageRoot, "docs/codemode.md")).slice(1, -1);
+	assert.equal(codemodeSchema.split(docsPath).length, 2, "Codemode must declare its documentation path exactly once");
+	const toolSchemaPathOverheadBytes = Buffer.byteLength(docsPath) - Buffer.byteLength("<pi-docs>/codemode.md");
 	const contextFootprint = measureContextFootprint({
 		systemPrompt: created.session.systemPrompt,
 		allTools: realToolInfos,
@@ -174,6 +180,25 @@ try {
 			...DEFERRED_CAPABILITY_GROUPS.flatMap((group) => [...group.toolNames]),
 		]), "full opt-out 必须保留 Goal 与 Subagent，且不注册 loader");
 	}
+	// Exercise the real worker and nested tool dispatch without a provider request.
+	assert.ok(activeTools.includes("codemode"));
+	for (const name of [...goalToolNames, "ask_user_question", ...RESIDENT_BROWSER_TOOL_NAMES]) {
+		assert.equal(realToolInfos.find(tool => tool.name === name)?.exposure, "model-only");
+	}
+	await writeFile(resolve(businessCwd, "codemode-fixture.txt"), "codemode-without-mcp");
+	faux.setResponses([
+		fauxAssistantMessage([fauxToolCall("codemode", { code: 'const result = await tools.read({ path: "codemode-fixture.txt" }); text(result); text("goal_continue" in tools); text("browser_interact" in tools);' })], { stopReason: "toolUse" }),
+		fauxAssistantMessage("fixture done"),
+	]);
+	await created.session.prompt("Run the offline codemode fixture.");
+	const scriptResult = created.session.messages.findLast(message => message.role === "toolResult" && message.toolName === "codemode");
+	assert.ok(scriptResult && !scriptResult.isError, JSON.stringify(scriptResult));
+	const scriptText = scriptResult.content.filter(block => block.type === "text").map(block => block.text).join("\n");
+	assert.match(scriptText, /codemode-without-mcp/);
+	assert.equal((scriptText.match(/false/g) ?? []).length, 2);
+	const restricted = await pi.createAgentSession({ cwd: businessCwd, agentDir: isolatedAgentDir, modelRuntime, model: faux.getModel(), tools: ["read"], resourceLoader: loader, sessionManager: pi.SessionManager.inMemory(businessCwd), settingsManager });
+	assert.deepEqual(restricted.session.getActiveToolNames(), ["read"], "explicit selection must not gain codemode");
+	restricted.session.dispose();
 	const shutdownContext = {
 		cwd: businessCwd,
 		sessionManager: session,
@@ -183,6 +208,7 @@ try {
 		isProjectTrusted: () => false,
 		ui: { notify() {}, setStatus() {}, theme: { fg: (_color, value) => value } },
 	};
+	const toolsBeforeInactiveChecks = created.session.getActiveToolNames();
 	for (const name of goalToolNames) {
 		assert.ok(activeTools.includes(name), `${name} schema must remain active without a Goal`);
 		const definition = thirdParty.tools.get(name).definition;
@@ -198,7 +224,7 @@ try {
 		assert.match(rejected.content.filter((block) => block.type === "text").map((block) => block.text).join("\n"), /rejected: no active goal/u);
 		assert.notEqual(rejected.terminate, true, "inactive Goal tools must not terminate ordinary work");
 		assert.equal(JSON.stringify(session.getBranch()), branchBefore, "inactive calls must not persist Goal transitions");
-		assert.deepEqual(created.session.getActiveToolNames(), activeTools, "inactive calls must not change the tool policy");
+		assert.deepEqual(created.session.getActiveToolNames(), toolsBeforeInactiveChecks, "inactive calls must not change the tool policy");
 	}
 	for (const handler of observability?.handlers.get("session_shutdown") ?? []) await handler({ type: "session_shutdown", reason: "quit" }, shutdownContext);
 	await browser.handlers.get("session_shutdown")[0]({ type: "session_shutdown", reason: "quit" }, shutdownContext);
@@ -217,6 +243,8 @@ try {
 		registeredTools: loaded.extensions.flatMap((extension) => [...extension.tools.keys()]),
 		activeTools,
 		contextFootprint,
+		toolSchemaPathOverheadBytes,
+		fauxProviderCalls: faux.state.callCount,
 		publicToolInfoOmitsExecutionMode: true,
 		realCreateAgentSessionBound: true,
 		lifecycleErrors: lifecycleErrors.length,

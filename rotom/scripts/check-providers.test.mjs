@@ -83,7 +83,7 @@ test('Pi evidence follows executable resolution, including nested dependencies, 
     await writeFile(join(root, 'dist/cli.js'), '', { mode: 0o755 });
     return root;
   }
-  for (const name of ['chord', 'pi-telemetry', 'pi-ai', 'pi-tui', 'pi-agent-core', 'pi-coding-agent']) await makePackage(modules, name, '0.85.1');
+  for (const name of ['chord', 'pi-telemetry', 'pi-ai', 'pi-tui', 'pi-agent-core', 'pi-codemode', 'pi-mcp', 'pi-coding-agent']) await makePackage(modules, name, '0.85.1');
   const coding = join(modules, 'pi-coding-agent'), executable = join(coding, 'dist/cli.js');
   const nested = await makePackage(join(coding, 'node_modules/@earendil-works'), 'pi-ai', '0.85.2');
   const selected = identity => identity.packages.find(pkg => pkg.name === '@earendil-works/pi-ai');

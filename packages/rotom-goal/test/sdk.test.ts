@@ -10,7 +10,7 @@ import {
 	SessionManager,
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import { fauxProvider, fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
+import { fauxProvider, fauxAssistantMessage, fauxToolCall, getCurrentTools } from "@earendil-works/pi-ai";
 import goal from "../src/goal.js";
 
 test(
@@ -79,7 +79,7 @@ test(
 			(context: any) => {
 				reviewRequests++;
 				assert.deepEqual(
-					context.tools.map((x: any) => x.name),
+					getCurrentTools(context.messages).map((x: any) => x.name),
 					["review_read", "review_list"],
 				);
 				return fauxAssistantMessage(fauxToolCall("review_read", { path: "result.txt" }), {

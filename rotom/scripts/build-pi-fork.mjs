@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const PI_PACKAGES = ["chord", "telemetry", "ai", "tui", "agent", "coding-agent"];
+export const PI_PACKAGES = ["chord", "telemetry", "ai", "tui", "agent", "codemode", "mcp", "coding-agent"];
 const repository = resolve(import.meta.dirname, "../..");
 const source = resolve(repository, "packages/rotom-pi");
 const runtime = resolve(repository, "rotom/runtime/pi");
@@ -17,7 +17,10 @@ export async function sourceFiles(root = source, prefix = "") {
 		// Git's source inventory, not a recursive checkout copy: ignored npmrc,
 		// credentials, generated catalogs/caches and live state must never enter a build.
 		const names = execFileSync("git", ["-C", repository, "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "packages/rotom-pi"], { encoding: "utf8" }).split("\0").filter(Boolean);
-		const paths = [...new Set(names.map((name) => name.slice("packages/rotom-pi/".length)))].sort();
+		// A baseline sync can delete tracked upstream files before staging. Git's
+		// cached inventory still lists them; exclude exactly Git-reported deletions.
+		const deleted = new Set(execFileSync("git", ["-C", repository, "ls-files", "-z", "--deleted", "--", "packages/rotom-pi"], { encoding: "utf8" }).split("\0"));
+		const paths = [...new Set(names.filter(name => !deleted.has(name)).map((name) => name.slice("packages/rotom-pi/".length)))].sort();
 		if (!paths.includes("FORK.json") || !paths.includes("package-lock.json")) throw new Error("Missing Git-owned Pi fork source inventory");
 		for (const path of paths) {
 			if (path.split("/").some((part) => skipped.has(part) || [".pi", ".npmrc", ".env"].includes(part))) throw new Error(`Private/generated tracked fork input: ${path}`);
@@ -79,9 +82,9 @@ async function buildFork() {
 		console.log("Pi fork: clean locked build (isolated HOME/cache, no install hooks)");
 		run(["ci", ...flags], tree);
 		// Full upstream offline build also checks development-only workspace dependencies;
-		// only the six public CLI/SDK runtime packages are distributed below.
+		// only the declared CLI/SDK runtime packages are distributed below.
 		console.log(run(["run", "build:offline"], tree));
-		console.log(run(["test", "--", "test/model-selector.test.ts", "test/scoped-models-selector.test.ts", "test/suite/agent-session-model-extension.test.ts", "test/suite/regressions/3217-scoped-model-order.test.ts", "test/suite/regressions/5217-compaction-reason.test.ts", "test/suite/regressions/7209-model-selector-filter-resets-selection.test.ts", "test/suite/regressions/7153-scoped-models-refresh.test.ts", "test/compaction.test.ts", "test/rotom-startup.test.ts", "test/footer-width.test.ts", "test/interactive-mode-status.test.ts", "test/suite/regressions/5943-session-start-notify.test.ts", "test/rotom-product.test.ts", "test/version-check.test.ts", "test/interactive-mode-startup-input.test.ts"], resolve(tree, "packages/coding-agent")));
+		console.log(run(["test", "--", "test/model-selector.test.ts", "test/scoped-models-selector.test.ts", "test/suite/agent-session-model-extension.test.ts", "test/suite/regressions/3217-scoped-model-order.test.ts", "test/suite/regressions/5217-compaction-reason.test.ts", "test/suite/regressions/7209-model-selector-filter-resets-selection.test.ts", "test/suite/regressions/7153-scoped-models-refresh.test.ts", "test/compaction.test.ts", "test/rotom-startup.test.ts", "test/footer-width.test.ts", "test/interactive-mode-status.test.ts", "test/suite/regressions/5943-session-start-notify.test.ts", "test/rotom-product.test.ts", "test/version-check.test.ts", "test/interactive-mode-startup-input.test.ts", "test/rotom-builtins.test.ts", "test/suite/agent-session-codemode.test.ts", "test/suite/agent-session-tool-orchestration.test.ts", "test/suite/virtual-models.test.ts", "test/session-context-edit.test.ts", "test/model-runtime-classifiers.test.ts", "test/model-runtime-images.test.ts"], resolve(tree, "packages/coding-agent")));
 		const names = new Map();
 		for (const directory of PI_PACKAGES) {
 			const pkg = JSON.parse(await readFile(resolve(tree, "packages", directory, "package.json"), "utf8"));
@@ -113,7 +116,7 @@ async function buildFork() {
 		if (await sourceDigest() !== before) throw new Error("Pi source changed during build; refusing publication");
 		await mkdir(resolve(runtime, "vendor"), { recursive: true });
 		for (const item of Object.values(artifacts)) await copyFile(resolve(archives, item.file.slice(7)), resolve(runtime, item.file));
-		const manifest = { name: "rotom-pi-runtime", version: provenance.forkVersion, private: true, type: "module", dependencies, overrides: { ...dependencies, protobufjs: "7.6.5", rimraf: "6.1.2", gaxios: { rimraf: "6.1.2" } } };
+		const manifest = { name: "rotom-pi-runtime", version: provenance.forkVersion, private: true, type: "module", dependencies, overrides: { ...dependencies, protobufjs: "7.6.6" } };
 		await writeFile(resolve(runtime, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 		const lockPath = resolve(runtime, "package-lock.json");
 		const previousLock = await readFile(lockPath, "utf8").then(JSON.parse, (error) => { if (error.code === "ENOENT") return null; throw error; });

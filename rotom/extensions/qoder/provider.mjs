@@ -99,6 +99,15 @@ export async function createQoderProvider({ piAI, clampMaxTokens, getToken, getC
     getToken = access.getToken; checkAuth = access.check;
   }
   const prepare = async (method, model, context, options) => {
+    // Pi 1.0 carries prompt/tool deltas in system messages. Qoder's wire API
+    // needs one current prompt and tool set; replay through Pi's native helpers
+    // so deferred tools and removals are neither lost nor resurrected.
+    const transcript = piAI.normalizeContext(context);
+    context = {
+      systemPrompt: piAI.getCurrentSystemPrompt(transcript.messages),
+      tools: piAI.getCurrentTools(transcript.messages),
+      messages: transcript.messages.filter(message => message.role !== 'system'),
+    };
     const reasoning = REASONING_MODEL_IDS.includes(model.id);
     if (!SUPPORTED_MODEL_IDS.includes(model.id) || model.provider !== PROVIDER_ID || model.baseUrl !== BASE_URL || model.api !== MODEL.api || model.reasoning !== reasoning || !Number.isSafeInteger(model.contextWindow) || model.contextWindow < 4096 || model.contextWindow > (EXPANDED_INPUT_MODEL_IDS.includes(model.id) ? 272000 : 32000) || model.maxTokens > 4096) throw new QoderError('model_scope_rejected');
     if (options.signal?.aborted) throw new QoderError('aborted');

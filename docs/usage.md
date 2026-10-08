@@ -81,6 +81,14 @@ rotom -e ./extension.ts
 
 scoped 执行是执行归属与资源关闭管理，**不是安全沙箱**；首个版本只接受已验证拓扑，nested/worktree/gate/fork/import/external job/独立 foreground 会在 writer 前拒绝。安装、升级或切换入口均不授权旧 unknown 工作的恢复/重放。
 
+## Codemode 与模型能力（Pi 1.0 源码）
+
+rotom 默认提供 `codemode`：模型可用 JavaScript 编排普通文件工具、并行读取及筛选结果；显式 `--tools` / `--exclude-tools` 仍优先。用 `rotom --exclude-tools codemode` 可关闭。Goal、Ask、Subagent、Browser/Computer Use 保持模型直接调用，不在脚本中嵌套执行；QuickJS 脚本沙箱不等于被调用工具的 OS 权限隔离。
+
+内置 MCP 不注册、不自动发现或连接服务器；发行依赖仍含上游 MCP 包。分类模型（包括 Jev）、图片模型和 `registerVirtualModel()` API 可用，**不默认启用 Jev 自动路由**。接入外部模型需要自己的凭据和明确的数据/费用范围；目录无价格或 Pi 显示零成本不代表服务免费。虚拟路由的 Goal completion reviewer 使用最近实际执行模型，不额外调用分类器。
+
+终端默认采用上游全屏模式，`rotom --tui-mode regular` 可使用普通模式。已有会话的磁盘迁移、真实 Provider/设备及跨平台结果不能由本地 fixture 推断。迁移验证记录见 [Pi 1.0](agent/pi-1.0-migration.md)；已安装旧版本不会因源码同步而自动获得这些能力。
+
 ## 浏览器命令
 
 在交互会话中输入 `/browser` 并回车，直接填写浏览器任务；Esc 可取消。输入 `/browser `（尾随空格）仅补全 `install`、`status`；也可直接继续写任务。只有完整参数恰好为 `install` 或 `status` 才执行管理操作，其余内容均作为任务，不再提供 `use`、`help` 子命令或操作菜单。

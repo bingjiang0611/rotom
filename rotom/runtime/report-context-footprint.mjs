@@ -16,16 +16,18 @@ export const CURRENT_RUNTIME_CONTEXT_CONTRACT_V1 = {
 	// Four stable Goal schemas, including explicit continuation. Measured by
 	// real SDK smoke, including the shared Browser expectation enum and operation
 	// parameter requirements; static bytes are not provider tokens.
-	activeToolCount: 23,
-	activeToolSchemaBytes: 21_264,
-	activeToolGuidelineBytes: 8_963,
-	note: "The default product surface keeps core, Ask, Browser/Computer Use, the four stable Goal schemas, and search_tools active while deferring only the retained Subagent group. Visible Goal schemas do not authorize Goal execution without an active Goal. Guideline bytes include the product's observe_ui/read_text/act_ui/wait_for/search_ui contract guidelines, which state the real per-call focus scope, condition combinations, observe-first requirement, untrusted status of observed screen text, structured-interface-first routing, and the dispatch-versus-effect evidence ladder of the Computer Use package, plus the browser relay's ref-bound Enter/Tab/Escape keypress, target-state/page-alert evidence and no-replay boundary for unknown writes. Includes Relay-first launch_browser fallback metadata, HTTP-only local-page guidance, isolated-login disclosure and pre-dispatch/no-replay boundaries; measured static bytes are not provider tokens.",
+	activeToolCount: 24,
+	activeToolSchemaBytes: 22_477,
+	activeToolGuidelineBytes: 9_101,
+	schemaPathNormalization: "Codemode documentation path -> <pi-docs>/codemode.md; current measurements remain raw bytes",
+	note: "The default product surface keeps core, Codemode, Ask, Browser/Computer Use, the four stable Goal schemas, and search_tools active while deferring only the retained Subagent group. Visible Goal schemas do not authorize Goal execution without an active Goal. Guideline bytes include the product's observe_ui/read_text/act_ui/wait_for/search_ui contract guidelines, which state the real per-call focus scope, condition combinations, observe-first requirement, untrusted status of observed screen text, structured-interface-first routing, and the dispatch-versus-effect evidence ladder of the Computer Use package, plus the browser relay's ref-bound Enter/Tab/Escape keypress, target-state/page-alert evidence and no-replay boundary for unknown writes. Includes Relay-first launch_browser fallback metadata, HTTP-only local-page guidance, isolated-login disclosure and pre-dispatch/no-replay boundaries; measured static bytes are not provider tokens.",
 };
 
 export const FULL_TOOL_CONTEXT_CONTRACT_V1 = {
-	activeToolCount: 24,
-	activeToolSchemaBytes: 35_929,
-	activeToolGuidelineBytes: 11_387,
+	activeToolCount: 25,
+	activeToolSchemaBytes: 37_142,
+	activeToolGuidelineBytes: 11_525,
+	schemaPathNormalization: CURRENT_RUNTIME_CONTEXT_CONTRACT_V1.schemaPathNormalization,
 	note: "ROTOM_DEFERRED_TOOLS=0 restores the reviewed full startup surface for retained product tools, including the four stable Goal schemas. This contract is for an unscoped maintenance load; Measured with the Browser keypress schema, Relay-first isolated-browser fallback metadata and compact descriptions, after removing the enterprise platform extensions and bundled skills; the default deferred surface only routes Subagent. These are static bytes, not provider tokens. Retired capabilities stay absent even with deferred loading disabled.",
 };
 
@@ -33,8 +35,8 @@ export const FULL_TOOL_CONTEXT_CONTRACT_V1 = {
 // Keep both measured surfaces explicit rather than masking drift with a ceiling.
 export const SCOPED_FULL_TOOL_CONTEXT_CONTRACT_V1 = {
 	...FULL_TOOL_CONTEXT_CONTRACT_V1,
-	activeToolSchemaBytes: 37_190,
-	activeToolGuidelineBytes: 11_880,
+	activeToolSchemaBytes: 38_403,
+	activeToolGuidelineBytes: 12_018,
 	note: "Full startup surface under the product owned-process-groups-v2 Subagent scope, with four stable Goal schemas. Static bytes, not provider tokens.",
 };
 
@@ -70,9 +72,10 @@ export function buildContextFootprintReport({ runtime, identity, elapsedMs }) {
 	const footprint = runtime.contextFootprint;
 	const deferredToolsEnabled = runtime.deferredToolsEnabled === true;
 	const selectedRuntimeContract = deferredToolsEnabled ? CURRENT_RUNTIME_CONTEXT_CONTRACT_V1 : runtime.subagentExecutionScope === "owned-process-groups-v2" ? SCOPED_FULL_TOOL_CONTEXT_CONTRACT_V1 : FULL_TOOL_CONTEXT_CONTRACT_V1;
+	const normalizedToolSchemaBytes = footprint.activeToolSchemaBytes - (runtime.toolSchemaPathOverheadBytes ?? 0);
 	const contract = {
 		activeToolCount: footprint.activeToolCount === selectedRuntimeContract.activeToolCount,
-		activeToolSchemaBytes: footprint.activeToolSchemaBytes === selectedRuntimeContract.activeToolSchemaBytes,
+		activeToolSchemaBytes: normalizedToolSchemaBytes === selectedRuntimeContract.activeToolSchemaBytes,
 		activeToolGuidelineBytes: footprint.activeToolGuidelineBytes === selectedRuntimeContract.activeToolGuidelineBytes,
 	};
 	const runtimeContractGate = contract.activeToolCount && contract.activeToolSchemaBytes && contract.activeToolGuidelineBytes ? "PASS" : "REGRESSION";
@@ -83,7 +86,7 @@ export function buildContextFootprintReport({ runtime, identity, elapsedMs }) {
 	return {
 		schema: "dev-agent-context-footprint-report/v3",
 		identity,
-		measurement: { realModelCalls: 0, fauxProviderCalls: 0, networkRequired: false, providerExactTokens: false, elapsedMs },
+		measurement: { realModelCalls: 0, fauxProviderCalls: runtime.fauxProviderCalls ?? null, networkRequired: false, providerExactTokens: false, elapsedMs, normalizedToolSchemaBytes },
 		referenceObservation: REFERENCE_CONTEXT_FOOTPRINT_V1,
 		deferredToolsEnabled,
 		runtimeContract: selectedRuntimeContract,

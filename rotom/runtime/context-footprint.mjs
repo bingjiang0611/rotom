@@ -4,6 +4,7 @@ export const CONTEXT_FOOTPRINT_SCHEMA_V1 = "dev-agent-context-footprint/v1";
 
 export const TOOL_FOOTPRINT_GROUPS_V1 = {
 	core: ["read", "bash", "edit", "write"],
+	Codemode: ["codemode"],
 	"Deferred Tool Loader": ["search_tools"],
 	Browser: ["browser_inspect", "browser_interact"],
 	"Computer Use": [

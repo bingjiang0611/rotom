@@ -31,6 +31,10 @@ test("真实 Pi loader 注册保留的第三方运行时并排除 MCP、Backgrou
 	const loaded = await loadExtensions([import.meta.dirname], process.cwd());
 	assert.deepEqual(loaded.errors, []);
 	const tools = [...loaded.extensions[0].tools.keys()];
+	assert.equal(loaded.extensions[0].tools.get("codemode")?.definition.defaultActive, true);
+	for (const name of ["goal_continue", "goal_complete", "goal_wait", "goal_blocked", "ask_user_question", "subagent", "act_ui"]) {
+		assert.equal(loaded.extensions[0].tools.get(name)?.definition.exposure, "model-only", `${name} must not run inside codemode`);
+	}
 	for (const tool of ["find_roots", "observe_ui", "search_ui", "expand_ui", "inspect_ui", "act_ui", "read_text", "wait_for", "launch_browser", "navigate_browser", "evaluate_browser", "subagent", "goal_complete", "goal_blocked", "goal_wait", "goal_continue", "ask_user_question"]) {
 		assert.ok(tools.includes(tool), `missing third-party tool ${tool}`);
 	}

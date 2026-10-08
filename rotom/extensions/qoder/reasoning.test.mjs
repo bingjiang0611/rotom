@@ -1,3 +1,4 @@
+import * as transcript from '../../runtime/pi/node_modules/@earendil-works/pi-ai/dist/utils/transcript.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {normalizeSSE,createQoderFetch,CHAT_URL,QODER_REASONING_FORMAT,SONUS_REASONING_FORMAT,reasoningDetailsToItem,validateReasoningSignature} from './transport.mjs';
@@ -113,7 +114,7 @@ test('native details are converted back only on Ultimate assistant turns before 
 test('same-model signatures are validated while foreign history is converted before dispatch',async()=>{
   // Same-model opaque replay remains strict; foreign signatures cannot replay
   // and are removed by the builder, rather than blocking the entire handoff.
-  let dispatches=0;const p=await createQoderProvider({authMode:'qodercli',clampMaxTokens:(_m,_c,cap)=>cap,getCredential:async()=>({accessToken:'fixture',uid:'fixture',machineId:'fixture-machine',org:'',fingerprint:'a'.repeat(64)}),piAI:{createProvider:x=>x,lazyStream:(_m,fn)=>fn()},fetchImpl:async url=>{if(url===CATALOG_URL)return new Response(JSON.stringify({assistant:[{key:'ultimate',display_name:'Ultimate',source:'system',enable:true,format:'openai',max_input_tokens:200000}]}));dispatches++;return new Response('',{status:403});}});
+  let dispatches=0;const p=await createQoderProvider({authMode:'qodercli',clampMaxTokens:(_m,_c,cap)=>cap,getCredential:async()=>({accessToken:'fixture',uid:'fixture',machineId:'fixture-machine',org:'',fingerprint:'a'.repeat(64)}),piAI:{ ...transcript,createProvider:x=>x,lazyStream:(_m,fn)=>fn()},fetchImpl:async url=>{if(url===CATALOG_URL)return new Response(JSON.stringify({assistant:[{key:'ultimate',display_name:'Ultimate',source:'system',enable:true,format:'openai',max_input_tokens:200000}]}));dispatches++;return new Response('',{status:403});}});
   await p.refreshModels({allowNetwork:true,signal:new AbortController().signal,publish:async p=>{p.update?.();return true;}});
   const model=p.getModels()[0];const message={role:'assistant',provider:'qoder',model:'ultimate',api:'qoder',content:[{type:'thinking',thinking:'text',thinkingSignature:JSON.stringify(details)}]};
   await assert.rejects(p.api.streamSimple(model,{messages:[message]},{}),{code:'http_403'});assert.equal(dispatches,1);

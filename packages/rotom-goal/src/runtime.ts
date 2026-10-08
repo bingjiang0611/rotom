@@ -1448,6 +1448,7 @@ export function createGoal(
 		tokensUsed: 0,
 		timeUsedSeconds: 0,
 		baselineTokens,
+		usageAccountingVersion: 2,
 		activeStartedAt: now,
 		automaticModelTurns: 0,
 		toolFreeRepeatCount: 0,

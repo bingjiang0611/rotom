@@ -161,6 +161,18 @@ for (const drift of ["archive", "build-metadata", "installed-source", "sibling-p
 	});
 }
 
+test("a fork package may have a locked non-Pi transitive dependency but not a hidden Pi copy", async (t) => {
+	const { root } = fixture(t);
+	const path = join(root, PI_RUNTIME, "package-lock.json");
+	const lock = JSON.parse(readFileSync(path, "utf8"));
+	lock.packages["node_modules/@earendil-works/pi-ai/node_modules/example"] = { ...lock.packages["node_modules/chalk"] };
+	put(path, lock);
+	await verifyDistributionContract(root);
+	lock.packages["node_modules/@earendil-works/pi-ai/node_modules/@earendil-works/pi-ai"] = { ...lock.packages["node_modules/chalk"] };
+	put(path, lock);
+	await assert.rejects(verifyDistributionContract(root), /隐藏的上游 Pi/);
+});
+
 test("npm bin symlink chains preserve business cwd, argv, environment and exit status", (t) => {
 	const root = temp(t);
 	const bin = join(root, "lib/node_modules/rotom/bin");
@@ -214,7 +226,7 @@ test("staging uses an explicit file list and never copies source node_modules or
 
 test("packed inventory requires every runtime resource and license and excludes unexpected source artifacts", () => {
 	const paths = new Set(releaseFiles(manifest).filter((file) => file !== EMBEDDED_MODULES && file !== PI_MODULES));
-	for (const name of ["chord", "pi-telemetry", "pi-ai", "pi-tui", "pi-agent-core", "pi-coding-agent"]) for (const file of ["LICENSE", "package.json"]) paths.add(`${PI_MODULES}/@earendil-works/${name}/${file}`);
+	for (const name of ["chord", "pi-telemetry", "pi-ai", "pi-tui", "pi-agent-core", "pi-codemode", "pi-mcp", "pi-coding-agent"]) for (const file of ["LICENSE", "package.json"]) paths.add(`${PI_MODULES}/@earendil-works/${name}/${file}`);
 	for (const r of RESOURCE_DESCRIPTORS_V1) for (const file of r.requiredFiles) paths.add(`${r.path}/${file}`);
 	for (const name of Object.keys(VERIFIED_THIRD_PARTY_PACKAGES)) paths.add(`${EMBEDDED_MODULES}/${name}/LICENSE`);
 	const packed = { files: [...paths].map((path) => ({ path })) };

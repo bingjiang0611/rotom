@@ -1,3 +1,4 @@
+import * as transcript from '../../runtime/pi/node_modules/@earendil-works/pi-ai/dist/utils/transcript.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac, randomUUID } from 'node:crypto';
@@ -23,7 +24,7 @@ async function fixture(t, { authMode = 'qodercli', modelId = 'auto', modelPatch 
     registerProvider() {}, registerCommand(name, command) { commands.set(name, command); },
     appendEntry(customType, data) { entries.push({ type: 'custom', customType, data }); },
   };
-  const provider = await installQoderExtension(pi, { piAI: { createProvider: x => x, lazyStream: (_m, fn) => fn() }, clampMaxTokens: (_m, _c, cap) => cap, authMode,
+  const provider = await installQoderExtension(pi, { piAI: { ...transcript, createProvider: x => x, lazyStream: (_m, fn) => fn() }, clampMaxTokens: (_m, _c, cap) => cap, authMode,
     getCredential: async () => credential,
     fetchImpl: async (url, init) => {
       if (url === CATALOG_URL) {

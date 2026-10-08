@@ -41,6 +41,7 @@ function fakePi(options = {}) {
 		"export class SessionManager { static inMemory() {} }",
 		"export class ModelRuntime { static create() {} }",
 		options.missingCreateAgentSession ? "" : "export async function createAgentSession() {}",
+		options.missingCodemode ? "" : "export function createCodemodeExtension() {}",
 		options.missingDefineTool
 			? ""
 			: options.invalidDefineToolType
@@ -175,6 +176,9 @@ test("拒绝无法解析版本、错误 package 与缺失公开能力", async (t
 	}));
 	await t.test("公开入口 createBashToolDefinition 类型不兼容", () => withFakePi({ invalidCreateBashToolType: true }, async ({ executable }) => {
 		await assert.rejects(verifyPiRuntime({ executable, agentDir: AGENT_DIR, resourceDeclarations: resourceDeclarations() }), /关键能力类型不兼容：createBashToolDefinition/);
+	}));
+	await t.test("公开入口缺 createCodemodeExtension", () => withFakePi({ missingCodemode: true }, async ({ executable }) => {
+		await assert.rejects(verifyPiRuntime({ executable, agentDir: AGENT_DIR, resourceDeclarations: resourceDeclarations() }), /缺少关键能力：createCodemodeExtension/);
 	}));
 	await t.test("公开入口缺 createAgentSession", () => withFakePi({ missingCreateAgentSession: true }, async ({ executable }) => {
 		await assert.rejects(verifyPiRuntime({ executable, agentDir: AGENT_DIR, resourceDeclarations: resourceDeclarations() }), /缺少关键能力：createAgentSession/);

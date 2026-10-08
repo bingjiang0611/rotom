@@ -1,3 +1,4 @@
+import * as transcript from '../../runtime/pi/node_modules/@earendil-works/pi-ai/dist/utils/transcript.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createQoderFetch, normalizeSSE, CHAT_URL } from './transport.mjs';
@@ -40,7 +41,7 @@ test('abort during credential loading prevents late dispatch', { timeout: 1000 }
 });
 
 test('provider auth resolution observes caller abort', { timeout: 1000 }, async () => {
-  const provider = await createQoderProvider({ authMode: 'qodercli', piAI: { createProvider: p => p }, getToken: never });
+  const provider = await createQoderProvider({ authMode: 'qodercli', piAI: { ...transcript, createProvider: p => p }, getToken: never });
   const controller = new AbortController();
   const pending = provider.auth.apiKey.resolve({ signal: controller.signal });
   controller.abort(); await assert.rejects(pending, { code: 'aborted' });

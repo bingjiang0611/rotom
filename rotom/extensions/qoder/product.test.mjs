@@ -1,3 +1,4 @@
+import * as transcript from '../../runtime/pi/node_modules/@earendil-works/pi-ai/dist/utils/transcript.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { MODELS, createQoderProvider } from './provider.mjs';
@@ -36,6 +37,6 @@ test('performance transport keeps selected model and explicitly disables thinkin
 });
 test('registration performs no credential access, network, or model selection', async () => {
   let reads=0,network=0;
-  const provider=await createQoderProvider({piAI:{createProvider:x=>x},getToken:async()=>{reads++;},fetchImpl:async()=>{network++;}});
+  const provider=await createQoderProvider({piAI:{ ...transcript,createProvider:x=>x},getToken:async()=>{reads++;},fetchImpl:async()=>{network++;}});
   assert.equal(provider.models.length,17);assert.deepEqual(provider.filterModels(provider.models),MODELS);assert.equal(reads,0);assert.equal(network,0);
 });

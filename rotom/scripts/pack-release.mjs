@@ -78,7 +78,7 @@ export function verifyPackList(manifest, packed) {
 	for (const name of Object.keys(VERIFIED_THIRD_PARTY_PACKAGES)) {
 		if (!paths.has(`${EMBEDDED_MODULES}/${name}/LICENSE`)) throw new Error(`Missing license: ${name}`);
 	}
-	for (const name of ["chord", "pi-telemetry", "pi-ai", "pi-tui", "pi-agent-core", "pi-coding-agent"]) {
+	for (const name of ["chord", "pi-telemetry", "pi-ai", "pi-tui", "pi-agent-core", "pi-codemode", "pi-mcp", "pi-coding-agent"]) {
 		for (const file of ["LICENSE", "package.json"]) {
 			if (!paths.has(`${PI_MODULES}/@earendil-works/${name}/${file}`)) throw new Error(`Missing packed Pi fork: ${name}/${file}`);
 		}

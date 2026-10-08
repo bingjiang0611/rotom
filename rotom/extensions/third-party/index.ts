@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { createCodemodeExtension, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import computerUse from "./node_modules/@injaneity/pi-computer-use/extensions/computer-use.ts";
 import askUserQuestion from "./node_modules/@juicesharp/rpiv-ask-user-question/index.ts";
 import goal from "./node_modules/@narumitw/pi-goal/src/index.ts";
@@ -66,11 +66,25 @@ function sequentialAskCompatApi(pi: ExtensionAPI, askContinuation: ReturnType<ty
  * product. Package code remains unmodified and version-pinned by the launcher.
  */
 export default function thirdPartyRuntime(pi: ExtensionAPI): void {
-	computerUse(computerUseRecoveryApi(pi));
-	subagents(subagentPolicyApi(pi));
-	goal(pi);
+	// Interactive and lifecycle tools need a model/observation boundary, not a script batch.
+	// The SDK applies explicit tool selections after registration, including codemode.
+	const controlApi = new Proxy(pi, {
+		get(target, property, receiver) {
+			if (property === "registerTool") return (definition: Parameters<ExtensionAPI["registerTool"]>[0]) => target.registerTool(
+				definition.name === "codemode"
+					? { ...definition, defaultActive: true }
+					: { ...definition, exposure: "model-only" },
+			);
+			const value = Reflect.get(target, property, receiver);
+			return typeof value === "function" ? value.bind(target) : value;
+		},
+	});
+	createCodemodeExtension()(controlApi);
+	computerUse(computerUseRecoveryApi(controlApi));
+	subagents(subagentPolicyApi(controlApi));
+	goal(controlApi);
 	const askContinuation = createAskContinuationController();
-	const sequentialAskCompat = sequentialAskCompatApi(pi, askContinuation);
+	const sequentialAskCompat = sequentialAskCompatApi(controlApi, askContinuation);
 	askUserQuestion(sequentialAskCompat);
 	registerDeferredTools(pi);
 	pi.on("tool_call", (event) => askContinuation.onToolCall(event.toolName));

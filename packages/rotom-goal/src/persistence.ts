@@ -27,6 +27,7 @@ export interface ActiveGoal {
 	tokensUsed: number;
 	timeUsedSeconds: number;
 	baselineTokens: number;
+	usageAccountingVersion?: 2;
 	activeStartedAt?: number;
 	automaticModelTurns: number;
 	toolFreeRepeatCount: number;

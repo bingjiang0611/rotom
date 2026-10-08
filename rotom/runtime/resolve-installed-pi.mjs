@@ -54,7 +54,7 @@ export async function verifyDistributionContract(agentDir) {
 		if (local) continue;
 		const url = new URL(entry.resolved);
 		if (url.origin !== "https://registry.npmjs.org" || url.username || url.password) throw new Error(`Pi transitive source/integrity 缺失或不可信：${path}`);
-		if (path.includes("node_modules/@earendil-works/")) throw new Error(`不允许隐藏的上游 Pi 副本：${path}`);
+		if (/(?:^|\/)node_modules\/@earendil-works\/[^/]+$/u.test(path)) throw new Error(`不允许隐藏的上游 Pi 副本：${path}`);
 	}
 	return root;
 }

@@ -222,7 +222,7 @@ export async function verifyPiRuntime(options) {
 	if (runtime.VERSION !== verified.version) {
 		throw new Error(`Pi 公开入口 VERSION 不一致：${String(runtime.VERSION)}`);
 	}
-	for (const exportName of ["main", "defineTool", "createBashToolDefinition", "createAgentSession", "DefaultResourceLoader", "SettingsManager", "SessionManager", "ModelRuntime"]) {
+	for (const exportName of ["main", "defineTool", "createBashToolDefinition", "createAgentSession", "createCodemodeExtension", "DefaultResourceLoader", "SettingsManager", "SessionManager", "ModelRuntime"]) {
 		if (!(exportName in runtime)) throw new Error(`Pi 公开入口缺少关键能力：${exportName}`);
 		if (typeof runtime[exportName] !== "function") throw new Error(`Pi 公开入口关键能力类型不兼容：${exportName}`);
 	}

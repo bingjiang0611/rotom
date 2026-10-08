@@ -7,9 +7,9 @@
       "integrity": "sha512-DPi0FmjiSU5EvQV0++GFDOJ9ASQUVFh5kD+OzOnYdi7n3Wpm9hWWGfB/O2blfHcMVTL5WkQXSnRiK9makhrcnw=="
     },
     "openai": {
-      "version": "6.40.0",
-      "resolved": "https://registry.npmjs.org/openai/-/openai-6.40.0.tgz",
-      "integrity": "sha512-MWtTjd/gQt4jpbji61NTgFWJLoY/PdRJ6wG9/ZDRMYNMlBKrCrSlkLI+KgHP1vR1qT6LKSAyAqIxno6lcK9JiA=="
+      "version": "7.19.0",
+      "resolved": "https://registry.npmjs.org/openai/-/openai-7.19.0.tgz",
+      "integrity": "sha512-MX2s3u2L5racTO0CC/SWpCOasJQBCJrqLKXK+l82cAhdeF8mPMBEe/gxMm0ZFa2xpKpOFLRjxv5afYEZbBXmbQ=="
     },
     "formdata-polyfill": {
       "version": "4.0.10",
@@ -17,14 +17,9 @@
       "integrity": "sha512-buewHzMvYL29jdeQTVILecSaZKnt/RJWjoZCF5OW60Z67/GmSLBkOFM7qh1PI3zFNtJbaZL5eQu1vLfazOwj4g=="
     },
     "undici": {
-      "version": "8.9.0",
-      "resolved": "https://registry.npmjs.org/undici/-/undici-8.9.0.tgz",
-      "integrity": "sha512-aWZpUj7XoGonMClx4gdDRfgBjqeA+F473aDmROQQbM9n6PRfK/u1q/a0X4wMTgcHfT8H6fpbt98PFuDUwFg2YA=="
-    },
-    "@mariozechner/clipboard": {
-      "version": "0.3.9",
-      "resolved": "https://registry.npmjs.org/@mariozechner/clipboard/-/clipboard-0.3.9.tgz",
-      "integrity": "sha512-ABnA53mdfkGZwOFUdZNv2S0CWGO/EIuPj8Vv9xmBFmSYg/qFc7ihO6q5FcQjvoE67kZpWkEc4AhD6B/os04yuA=="
+      "version": "8.10.2",
+      "resolved": "https://registry.npmjs.org/undici/-/undici-8.10.2.tgz",
+      "integrity": "sha512-/y4/bH9YNU5hi9NIrpOuvGXFcxrj3CMrV+/AYpowAYTpHn8gX/XPFjNy766FPoYY0miQhdW977JFWKGNhBdwyQ=="
     },
     "@aws-sdk/nested-clients": {
       "version": "3.997.45",
@@ -32,9 +27,9 @@
       "integrity": "sha512-mooq9Q+jLa18VoM7HouczmslZU60iiB0aKc/Ztnq/luIL1ud0z4DnYprLR/ZO1gp331S9tJctM1HZr7u6YKBXQ=="
     },
     "@types/node": {
-      "version": "22.20.2",
-      "resolved": "https://registry.npmjs.org/@types/node/-/node-22.20.2.tgz",
-      "integrity": "sha512-xlvWf4Vs9n1PEVYwP1n4vvG07M6y8WgvJ2t0vbrWTmijsIHp1cS+uJ2kMIRdY3nHZK0nCYKrPeD171+SzF4/zw=="
+      "version": "26.6.4",
+      "resolved": "https://registry.npmjs.org/@types/node/-/node-26.6.4.tgz",
+      "integrity": "sha512-ldVPDCzj7fsaGZrLB0NuHuTvJcsNasysBAqMolr/cgxrLd1xbqxIr3XJiPnHHJUCxj5sNF1vnRj9aWnrVh5Jcg=="
     }
   },
   "examples": {
@@ -105,6 +100,51 @@
     ],
     "0f6c824fee875926e2d4af09a512e5be89ef1cdffbb4dfcf71d8ffd5191939a6": [
       "/runtime/pi/node_modules/@types/node/util.d.ts"
+    ],
+    "08b95d5815028683b786c8aa9aeeeb49973c07f8f696e8ae14ae765352362739": [
+      "packages/rotom-pi/packages/coding-agent/test/bug-report.test.ts"
+    ],
+    "8a0d34f9497dee2361329cf59a3997f3ca265b78d8b4901880c9fe473a0c3f1e": [
+      "packages/rotom-pi/packages/coding-agent/test/bug-report.test.ts"
+    ],
+    "36edac57e03d26d0dcd7299ae9757e5f101c5c5b22759d9533db78f465bbd80f": [
+      "packages/rotom-pi/packages/coding-agent/test/crash-log.test.ts"
+    ],
+    "7d6a80ae36e902c03ec04f885253d74a9fd9bf766a9943b6b28aaeb925a72aab": [
+      "packages/rotom-pi/packages/coding-agent/test/crash-log.test.ts"
+    ],
+    "0e78d77113c380043d12eb6c8be1bbdbe1e09a6ac703c16bc69af8331abca453": [
+      "packages/rotom-pi/packages/coding-agent/test/crash-log.test.ts"
+    ],
+    "d0cee58775fe84c8556744602a2dcb7216b86559d86775bee0275d2f41543f70": [
+      "packages/rotom-pi/packages/coding-agent/test/crash-log.test.ts"
+    ],
+    "84072f4279a5cf1901e1bb3482b8452371bcd244746c9e8e84f8a07c6b3f2b85": [
+      "packages/rotom-pi/packages/coding-agent/test/crash-log.test.ts"
+    ],
+    "6f5bab7340c003fcb85d3163615a569151546b8afdadccaec1b6a49586d9d318": [
+      "packages/rotom-pi/packages/coding-agent/test/crash-log.test.ts"
+    ],
+    "ca01b4177f816dea4b7b2def649bc0af4119f9e53fc6a5aa5f00802402172261": [
+      "packages/rotom-pi/packages/coding-agent/test/crash-log.test.ts"
+    ],
+    "4cddd958190fa8082eca4c9b818405ce1bc8e6805a40ad0a2ae62d554c1f5ff2": [
+      "packages/rotom-pi/packages/coding-agent/test/crash-log.test.ts"
+    ],
+    "cb47ebc0e46ab9f844b8cc710de93a9327738602fceb80e650887cecdd935b88": [
+      "packages/rotom-pi/packages/coding-agent/test/crash-log.test.ts"
+    ],
+    "70fc4645e40df0130a0641d5a11aa1c0b33243cee8a01f29ca139629952be6bb": [
+      "/runtime/pi/node_modules/@types/node/os.d.ts"
+    ],
+    "138e8a67c0996ad3dea838d36d85c2d40039a553a4b9ab3310dc535ef940f7be": [
+      "/runtime/pi/node_modules/@types/node/os.d.ts"
+    ],
+    "8bc6d932989d2130e8b8273b2d306c80786b07d4e233bbda0ca697cea745532c": [
+      "/runtime/pi/node_modules/@types/node/process.d.ts"
+    ],
+    "0f8132ac55d2a73561faeb80aeab9ba76e7096bea4d2838f1c48b32772781dbf": [
+      "/runtime/pi/node_modules/@types/node/process.d.ts"
     ]
   },
   "credentialExamples": {
@@ -112,5 +152,30 @@
       "/runtime/pi/node_modules/@aws-sdk/nested-clients/dist-types/submodules/sts/commands/AssumeRoleCommand.d.ts",
       "/runtime/pi/node_modules/@aws-sdk/nested-clients/dist-types/submodules/sts/commands/AssumeRoleWithWebIdentityCommand.d.ts"
     ]
+  },
+  "sourceRevisions": {
+    "pi@1.0.4": "7c10bd4337495ee613f2224843ecdf349b80d1df (bug-report/crash-log synthetic regression fixtures, byte-verified against tag)"
+  },
+  "historicalPackages": {
+    "openai@6.40.0": {
+      "version": "6.40.0",
+      "resolved": "https://registry.npmjs.org/openai/-/openai-6.40.0.tgz",
+      "integrity": "sha512-MWtTjd/gQt4jpbji61NTgFWJLoY/PdRJ6wG9/ZDRMYNMlBKrCrSlkLI+KgHP1vR1qT6LKSAyAqIxno6lcK9JiA=="
+    },
+    "undici@8.9.0": {
+      "version": "8.9.0",
+      "resolved": "https://registry.npmjs.org/undici/-/undici-8.9.0.tgz",
+      "integrity": "sha512-aWZpUj7XoGonMClx4gdDRfgBjqeA+F473aDmROQQbM9n6PRfK/u1q/a0X4wMTgcHfT8H6fpbt98PFuDUwFg2YA=="
+    },
+    "@mariozechner/clipboard@0.3.9": {
+      "version": "0.3.9",
+      "resolved": "https://registry.npmjs.org/@mariozechner/clipboard/-/clipboard-0.3.9.tgz",
+      "integrity": "sha512-ABnA53mdfkGZwOFUdZNv2S0CWGO/EIuPj8Vv9xmBFmSYg/qFc7ihO6q5FcQjvoE67kZpWkEc4AhD6B/os04yuA=="
+    },
+    "@types/node@22.20.2": {
+      "version": "22.20.2",
+      "resolved": "https://registry.npmjs.org/@types/node/-/node-22.20.2.tgz",
+      "integrity": "sha512-xlvWf4Vs9n1PEVYwP1n4vvG07M6y8WgvJ2t0vbrWTmijsIHp1cS+uJ2kMIRdY3nHZK0nCYKrPeD171+SzF4/zw=="
+    }
   }
 }

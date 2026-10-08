@@ -1,3 +1,4 @@
+import * as transcript from '../../runtime/pi/node_modules/@earendil-works/pi-ai/dist/utils/transcript.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, realpath, writeFile, rm } from 'node:fs/promises';
@@ -94,7 +95,7 @@ test('native adapter normalizes to safe error codes without another dispatch', a
   for (const [error, expected] of [[new QoderError('credential_expired_login_with_qodercli'), 'credential_expired_login_with_qodercli'], [new Error('PRIVATE fixture error'), 'request_failed']]) {
     const provider = await createQoderProvider({
       authMode: 'qodercli', clampMaxTokens: (_m, _c, cap) => cap,
-      piAI: { createProvider: p => p, lazyStream: (_m, setup) => setup() },
+      piAI: { ...transcript, createProvider: p => p, lazyStream: (_m, setup) => setup() },
       getToken: () => { throw error; }, fetchImpl: () => assert.fail('network'),
     });
     await assert.rejects(provider.api.streamSimple(MODEL, { messages: [] }), e => {

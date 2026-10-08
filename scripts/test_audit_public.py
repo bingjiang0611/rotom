@@ -63,7 +63,9 @@ class PrivacyAuditTests(unittest.TestCase):
 
     def test_pi_public_host_example_never_exempts_credentials(self):
         path = 'packages/rotom-pi/packages/coding-agent/docs/containerization.md'
-        data = (Path(__file__).resolve().parents[1] / path).read_bytes()
+        # Historical public fixture: Pi 1.0 rewrote the current document.
+        data = (b'When inference routing is configured, code inside the sandbox can call `https://inference.'
+                b'local`, and the gateway injects the configured provider credentials upstream.')
         audit = Audit(); audit.scan(path, data)
         self.assertEqual(audit.findings, [])
         self.assertEqual(audit.public_examples, 1)

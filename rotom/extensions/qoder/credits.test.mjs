@@ -1,3 +1,4 @@
+import * as transcript from '../../runtime/pi/node_modules/@earendil-works/pi-ai/dist/utils/transcript.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
@@ -96,7 +97,7 @@ test('reused context objects and in-place session changes invalidate old capture
  let valid=p.captureScope(),bind=p.captureBinding(),record=p.captureMetering();s.switchId();assert.equal(valid(),false);assert.throws(()=>bind(fingerprint),{code:'account_binding_stale'});record({fingerprint,modelId:'lite',requestId:randomUUID(),status:'reported',outcome:'complete',credits:1,billable:true});assert(!s.entries.some(e=>e.customType===CREDIT_ENTRY));
  await s.emit('session_start');valid=p.captureScope();await s.emit('session_before_tree');assert.equal(valid(),false);
 });
-async function extension(s,fetchImpl){return installQoderExtension(s.pi,{piAI:{createProvider:p=>p},getCredential:async()=>credential,authMode:'qodercli',fetchImpl});}
+async function extension(s,fetchImpl){return installQoderExtension(s.pi,{piAI:{ ...transcript,createProvider:p=>p},getCredential:async()=>credential,authMode:'qodercli',fetchImpl});}
 test('quota commands without a UI or active scope fail before auth and HTTP',async()=>{
  const s=setupPolicy();let auth=0;s.ctx.modelRegistry.getApiKeyAndHeaders=()=>{auth++;assert.fail('auth must not resolve');};await extension(s,()=>assert.fail('HTTP must not dispatch'));
  const command=s.commands.get('qoder-credits');await assert.rejects(command.handler('',s.ctx),{code:'quota_context_unavailable'});s.ctx.hasUI=false;await assert.rejects(command.handler('',s.ctx),{code:'quota_ui_unavailable'});assert.equal(auth,0);

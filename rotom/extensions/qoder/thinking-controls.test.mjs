@@ -1,3 +1,4 @@
+import * as transcript from '../../runtime/pi/node_modules/@earendil-works/pi-ai/dist/utils/transcript.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createQoderProvider} from './provider.mjs';
@@ -14,7 +15,7 @@ const raw=id=>({key:id,display_name:'Fixture',source:'system',enable:true,format
 async function terminal(streamPromise){const stream=await streamPromise;let last;for await(const event of stream)last=event;return last;}
 async function harness(id,upstream=()=>new Response('',{status:403})){
  let catalog=raw(id),reads=0;const requests=[];
- const provider=await createQoderProvider({authMode:'qodercli',clampMaxTokens:(_m,_c,cap)=>cap,piAI:{createProvider:p=>p,lazyStream:(_m,fn)=>fn()},getCredential:async()=>{reads++;return{accessToken:'fixture',uid:'fixture',org:'',machineId:'fixture-machine',fingerprint:'a'.repeat(64)};},fetchImpl:async(url,init)=>{
+ const provider=await createQoderProvider({authMode:'qodercli',clampMaxTokens:(_m,_c,cap)=>cap,piAI:{ ...transcript,createProvider:p=>p,lazyStream:(_m,fn)=>fn()},getCredential:async()=>{reads++;return{accessToken:'fixture',uid:'fixture',org:'',machineId:'fixture-machine',fingerprint:'a'.repeat(64)};},fetchImpl:async(url,init)=>{
   if(url===CATALOG_URL)return Response.json({assistant:[catalog]});
   assert.equal(url,LEGACY_MODEL_IDS.includes(id)?LEGACY_URL:CHAT_URL);requests.push(url===LEGACY_URL?decodeProbeBody(init.body):JSON.parse(init.body));
   return upstream();

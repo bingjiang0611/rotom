@@ -28,6 +28,7 @@ export const DEFERRED_INITIAL_TOOL_NAMES = [
 	"bash",
 	"edit",
 	"write",
+	"codemode",
 	"ask_user_question",
 	...RESIDENT_BROWSER_TOOL_NAMES,
 ] as const;

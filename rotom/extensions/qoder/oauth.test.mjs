@@ -1,3 +1,4 @@
+import * as transcript from '../../runtime/pi/node_modules/@earendil-works/pi-ai/dist/utils/transcript.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -173,7 +174,7 @@ test('sealed request auth rejects override, mutation, cross-instance replay and 
 test('browser provider integrates dispatch binding without CLI reads or raw token overrides', async () => {
   const c = await harness().login(); let network = 0; const bindings = [];
   const provider = await createQoderProvider({ authMode: 'browser', clampMaxTokens: (_m, _c, cap) => cap,
-    piAI: { createProvider: p => p, lazyStream: (_m, setup) => setup() },
+    piAI: { ...transcript, createProvider: p => p, lazyStream: (_m, setup) => setup() },
     getCredential: () => assert.fail('CLI read'), getToken: () => assert.fail('CLI token'),
     captureBinding: () => fp => bindings.push(fp),
     fetchImpl: async (_url, init) => { network++; assert.equal(init.headers.Authorization ?? init.headers.authorization, `Bearer ${c.access}`); return new Response(null, { status: 403 }); },
@@ -198,7 +199,7 @@ test('default auth mode is browser and never reaches the CLI credential source',
   try {
     const provider = await createQoderProvider({
       clampMaxTokens: (_m, _c, cap) => cap,
-      piAI: { createProvider: p => p, lazyStream: (_m, setup) => setup() },
+      piAI: { ...transcript, createProvider: p => p, lazyStream: (_m, setup) => setup() },
       getCredential: () => assert.fail('CLI read'), getToken: () => assert.fail('CLI token'),
     });
     // Browser mode exposes the oauth adapter and no raw apiKey resolver; the

@@ -56,7 +56,8 @@ function git(args) {
 }
 async function sourceIdentity() {
   const scopes = ['packages/rotom-pi', 'rotom/extensions/qoder', 'experiments/qoder-provider', 'rotom/scripts', 'rotom/runtime', 'rotom/package.json'];
-  const paths = [...new Set(git(['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', ...scopes]).split('\0').filter(Boolean))];
+  const deleted = new Set(git(['ls-files', '-z', '--deleted', '--', ...scopes]).split('\0'));
+  const paths = [...new Set(git(['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', ...scopes]).split('\0').filter(path => path && !deleted.has(path)))];
   return {
     commit: git(['rev-parse', 'HEAD']).trim(),
     dirty: git(['status', '--porcelain', '--untracked-files=normal']).length > 0,
@@ -68,7 +69,7 @@ export async function piIdentity(executable) {
   if (!isAbsolute(executable) || !(await lstat(executable)).isFile() || await realpath(executable) !== executable) throw new Error('Canonical Pi executable required');
   await probePiVersion({ executable });
   const packages = [];
-  for (const name of ['chord', 'pi-telemetry', 'pi-ai', 'pi-tui', 'pi-agent-core', 'pi-coding-agent']) {
+  for (const name of ['chord', 'pi-telemetry', 'pi-ai', 'pi-tui', 'pi-agent-core', 'pi-codemode', 'pi-mcp', 'pi-coding-agent']) {
     const metadata = findPackageJSON(`@earendil-works/${name}`, pathToFileURL(executable));
     const root = dirname(metadata), pkg = JSON.parse(await readFile(metadata, 'utf8'));
     if (pkg.name !== `@earendil-works/${name}`) throw new Error('Pi dependency identity mismatch');

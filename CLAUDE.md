@@ -25,7 +25,7 @@ Browser relay 的 wire-protocol message kind（`rotom-browser-*`）、native mes
 rotom 当前通过仓内 `packages/rotom-pi/` 的 Pi fork 接入 `@earendil-works/pi-coding-agent`，不再默认依赖官方 npm Pi 或旁边的 Pi checkout。公开 API 与组合层是优先方案，不是强制边界；允许按任务需要修改或 fork Pi、使用私有 Extension API，以及调整或自行实现生命周期。相关改动需说明兼容性影响并完成对应验证。
 
 - `rotom/bin/rotom` 是 npm 公开入口，只解析 bin symlink 并 exec 唯一内部 launcher `rotom/bin/rotom-launcher`。
-- 默认仅从产品 `runtime/pi/node_modules/` 解析固定 Pi fork；六个运行时包由仓内源码构建，归档、lock、源码/构建器摘要和 installed identity 必须匹配，不查 ancestor hoisting、不回退 PATH/global/旁路 Pi。`ROTOM_PI` 是显式维护覆盖，仍过原有 identity/capability gate，不代表默认发行版本。
+- 默认仅从产品 `runtime/pi/node_modules/` 解析固定 Pi fork；八个运行时包（含 Codemode 与未启用的 MCP 依赖）由仓内源码构建，归档、lock、源码/构建器摘要和 installed identity 必须匹配，不查 ancestor hoisting、不回退 PATH/global/旁路 Pi。`ROTOM_PI` 是显式维护覆盖，仍过原有 identity/capability gate，不代表默认发行版本。
 - Pi 源码或构建器改动后先 `cd rotom && npm run build:pi`；发布维护命令为 `npm run pack:release -- /absolute/output-dir`：拒绝陈旧 fork 归档，隔离 HOME/cache、按锁文件新安装 Pi fork 与第三方依赖后打包；禁止复制维护者 node_modules 或把评测、会话、凭据带入发行包。npm 发布固定使用公开作用域包 `@bingjiang0611/rotom`；许可证仍为 `UNLICENSED`。
 - `pack:release` 偶发 `spawnSync npm ETIMEDOUT` 先排查是不是自己造成的资源/网络争用（把多次 pack 塞进循环、同时跑重度任务、残留 staging 堆积），不是脚本 300s/单调用 cap 太紧或基础设施故障：隔离单次 `npm ci` 实测远低于该 cap（根与第三方各数十秒）。清掉 `$TMPDIR/rotom-release-*` 残留后单次干净重跑即可，不要为此放宽 timeout 或改发布脚本。
 - launcher 保留业务 cwd 和用户 argv；仓库根不能冒充用户项目。
@@ -64,8 +64,10 @@ extension、bundled skill 与第三方 package 是产品合同，不是“目录
 
 ### 3. 工具面要小、显式且诚实
 
-默认 deferred-tool loading 常驻 core、Ask、Browser/Computer Use、Goal 四工具与 `search_tools`，只把 Subagent 按需 additive 激活。Goal `0.54.4-rotom.5` 默认自动额度为 100 次模型响应（显式用户设置优先），剩余额度与最后记录的续跑计划仅供状态展示，不证明进展、不授权重放；从启动起保持四个稳定 schema；工具可见不等于 Goal 模式启用，无 active goal 时拒绝执行，也不覆盖显式工具限制。默认要求 `goal_continue` 显式声明单次续跑；缺失声明暂停，控制调用不算进展。共享提示合同先查证目标、验收与写入边界；缺少授权或关键决策时立即询问并暂停，不凑三轮技术 blocker；重试须有新证据或可检验假设；三轮只限制 `goal_blocked`，已证实外部前置条件且无有意义的下一步时直接暂停，不为凑轮次重复检查。外部写入 unknown 只读核验、不盲目重放；审阅拒绝只表示验收未获支持，不授权重做成功/unknown 写入，缺证据先只读核验，无新证据或合理修复则暂停。这是模型行为指引，不是权限拦截器，不缩小原始目标或降低完成标准。`goal_complete` 默认启用有界、当前模型、文件只读的 completion reviewer，不创建嵌套 AgentSession、不加载项目资源；额外用量单列且计入 Goal token admission，USD/credits unknown。审计尝试先持久化、unknown 不重放、resume/edit 不补额度，结果绑定当前 Goal/run 及实读证据；是第二意见，不是真实外部验收或 OS 沙箱。明确的用户设置 `completionReview:false` 可关闭 reviewer。它是 context-footprint 优化，不是安全沙箱。
+默认 deferred-tool loading 常驻 core、Codemode、Ask、Browser/Computer Use、Goal 四工具与 `search_tools`，只把 Subagent 按需 additive 激活。Goal `0.54.4-rotom.6` 默认自动额度为 100 次模型响应（显式用户设置优先），剩余额度与最后记录的续跑计划仅供状态展示，不证明进展、不授权重放；从启动起保持四个稳定 schema；工具可见不等于 Goal 模式启用，无 active goal 时拒绝执行，也不覆盖显式工具限制。默认要求 `goal_continue` 显式声明单次续跑；缺失声明暂停，控制调用不算进展。共享提示合同先查证目标、验收与写入边界；缺少授权或关键决策时立即询问并暂停，不凑三轮技术 blocker；重试须有新证据或可检验假设；三轮只限制 `goal_blocked`，已证实外部前置条件且无有意义的下一步时直接暂停，不为凑轮次重复检查。外部写入 unknown 只读核验、不盲目重放；审阅拒绝只表示验收未获支持，不授权重做成功/unknown 写入，缺证据先只读核验，无新证据或合理修复则暂停。这是模型行为指引，不是权限拦截器，不缩小原始目标或降低完成标准。`goal_complete` 默认启用有界、当前模型、文件只读的 completion reviewer，不创建嵌套 AgentSession、不加载项目资源；额外用量单列且计入 Goal token admission，USD/credits unknown。审计尝试先持久化、unknown 不重放、resume/edit 不补额度，结果绑定当前 Goal/run 及实读证据；是第二意见，不是真实外部验收或 OS 沙箱。明确的用户设置 `completionReview:false` 可关闭 reviewer。它是 context-footprint 优化，不是安全沙箱。
 
+- Pi 基线为 `1.0.4-rotom.0`；Codemode 独立启用，内置 MCP 不注册、不自动发现或连接服务器（源码/依赖保留）。分类/图片模型及虚拟路由 API 可用，但不默认注册 Jev 路由、不自行增加分类请求。Goal/Ask/Subagent/Browser/Computer Use 使用 `model-only`，不可从 Codemode 嵌套调用；普通文件工具仍可编排。显式工具选择仍优先。
+- Goal 预算计入已报告的 tool-result/model/summary usage；旧 Goal 基线一次迁移、不追收历史辅助用量。虚拟模型 reviewer 使用最近记录的实际执行模型，不额外路由；找不到物理模型保持 unknown。
 - `ROTOM_DEFERRED_TOOLS=0` 必须恢复完整工具面。
 - 用户显式 `--tools`、`--exclude-tools` 或 runtime policy 优先；launcher 仅在没有 tool-selection flag 时授权 loader 收窄 reviewed default，extension/SDK 直载默认保留调用方 active set；用户 extension 新增的非 deferred 工具同样保留。
 - 已加载 specialized tools 在当前 session 内不主动移除；group state 与 active tool 子序列按 product declaration order canonicalize，相同 group 集合不因加载顺序产生不同最终 identity。

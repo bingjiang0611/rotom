@@ -3,13 +3,17 @@
 ## 当前合同
 
 - 源码：`packages/rotom-pi/`，上游 revision 和导入差异见 `FORK.json`，维护流程见 `ROTOM-FORK.md`。不复制上游 Git 历史或维护者安装；录制会话 fixture 已替换/省略。
-- runtime：`rotom/runtime/pi/`，六包版本 `0.85.1-rotom.2`，来源摘要与各归档 integrity 见 `fork-build.json`，由 product config 锚定。保留上游包名、公开 API、配置/会话格式与 MIT 许可证。
+- runtime：`rotom/runtime/pi/`，八包版本 `1.0.4-rotom.0`，来源摘要与各归档 integrity 见 `fork-build.json`，由 product config 锚定。保留上游包名、公开 API、配置/会话格式与 MIT 许可证。
 - 构建：`cd rotom && npm run build:pi`，从 Git 可见源码清单复制到隔离 staging，按 lock 新安装并 offline build；不复制 ignored state、node_modules 或旁边的 Pi checkout。fork 内部包从本地归档安装，其他依赖锁定公共 registry。
 - 打包：`npm run check:pi && npm run test:distribution`，再 `npm run pack:release -- /absolute/output-directory`。源码/构建器漂移需重建；archive/lock/source/version/installed identity 或 canonical 路径漂移均阻断，不回退官方/全局/旁路 Pi。
 - 安装：用 `scripts/install-release.sh` 安装新版本目录并只切换命令链接。升级走新的 rotom 发行包；不要用 Pi 自更新命令替换内置 fork。`ROTOM_PI` 仍为显式维护覆盖。
 - 产品源码在 `rotom/`，Pi **维护源码**在仓库的 `packages/rotom-pi/`；npm 产品只携带构建后的独立 runtime，不要求用户编译。
 
-## 本轮验证（macOS arm64，Node 24.18.0 / npm 11.16.0）
+## Pi 1.0 迁移
+
+当前迁移范围与验证见 [pi-1.0-migration.md](pi-1.0-migration.md)。下面保留 alpha.11 的历史记录，不作为当前版本验收。
+
+## alpha.11 历史验证（macOS arm64，Node 24.18.0 / npm 11.16.0）
 
 | 检查 | 实际结果 |
 |---|---|

@@ -39,7 +39,7 @@ npm --prefix rotom run test:providers -- --report /absolute/new-report.json
 `rotom-provider-verification/v1` 记录：
 
 - Node 版本、起止时间、源码 commit/dirty、Git-owned 输入集合摘要及 Pi 源码摘要。
-- 实际 Pi 入口、六个运行时包的 version/source/compiled 摘要，以及 `compiledPiMatchesSource`。
+- 实际 Pi 入口、八个运行时包的 version/source/compiled 摘要，以及 `compiledPiMatchesSource`。
 - 每项固定命令、cwd、执行/未执行、状态、实际测试计数、退出状态、时长与输出摘要；不保存输出正文、HTTP、凭据或合成会话。
 - 执行前后重复核对源码和 Pi 字节/文件权限；Pi 包按实际 executable 的模块解析结果定位，包含可能的 nested dependency，不拿未使用的 sibling 包作证据。漂移或进程超时为 `UNKNOWN`；不重放。失败之后的用例为 `SKIPPED`。
 - 复用 `executeProcessTreeV1` 管理每个检查的 owned process group。超时/输出超限停止该组；无法确认组已关闭时保留临时 HOME 并记录位置。进程组关闭不证明逃逸进程或外部业务效果。

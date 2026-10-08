@@ -2,13 +2,12 @@
   "compilerOptions": {
     "target": "ES2023", "module": "NodeNext", "moduleResolution": "NodeNext",
     "strict": true, "noEmit": true, "skipLibCheck": true,
-    "baseUrl": "../../rotom/runtime/pi/node_modules",
     "paths": {
-      "@earendil-works/pi-ai": ["@earendil-works/pi-ai/dist/index.d.ts"],
-      "@earendil-works/pi-coding-agent": ["@earendil-works/pi-coding-agent/dist/index.d.ts"],
-      "@earendil-works/pi-tui": ["@earendil-works/pi-tui/dist/index.d.ts"],
-      "typebox": ["typebox/build/index.d.mts"],
-      "@narumitw/pi-tui-kit": ["../../../extensions/third-party/node_modules/@narumitw/pi-tui-kit/dist/index.d.ts"]
+      "@earendil-works/pi-ai": ["../../rotom/runtime/pi/node_modules/@earendil-works/pi-ai/dist/index.d.ts"],
+      "@earendil-works/pi-coding-agent": ["../../rotom/runtime/pi/node_modules/@earendil-works/pi-coding-agent/dist/index.d.ts"],
+      "@earendil-works/pi-tui": ["../../rotom/runtime/pi/node_modules/@earendil-works/pi-tui/dist/index.d.ts"],
+      "typebox": ["../../rotom/runtime/pi/node_modules/typebox/build/index.d.mts"],
+      "@narumitw/pi-tui-kit": ["../../rotom/extensions/third-party/node_modules/@narumitw/pi-tui-kit/dist/index.d.ts"]
     },
     "typeRoots": ["../rotom-pi/node_modules/@types"]
   },

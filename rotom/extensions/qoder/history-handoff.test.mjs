@@ -1,3 +1,4 @@
+import * as transcript from '../../runtime/pi/node_modules/@earendil-works/pi-ai/dist/utils/transcript.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createQoderProvider } from './provider.mjs';
@@ -13,7 +14,7 @@ const result = { role: 'toolResult', toolCallId: 'call_history', toolName: 'prob
 function freeze(value) { if (value && typeof value === 'object') { Object.values(value).forEach(freeze); Object.freeze(value); } return value; }
 async function fixture(id = 'ultimate') {
   const wires = []; let reads = 0;
-  const p = await createQoderProvider({ authMode: 'qodercli', clampMaxTokens: (_m, _c, cap) => cap, piAI: { createProvider: x => x, lazyStream: (_m, fn) => fn() },
+  const p = await createQoderProvider({ authMode: 'qodercli', clampMaxTokens: (_m, _c, cap) => cap, piAI: { ...transcript, createProvider: x => x, lazyStream: (_m, fn) => fn() },
     getCredential: async () => { reads++; return { accessToken: 'fixture', uid: 'fixture', org: '', machineId: 'fixture-machine', fingerprint: 'a'.repeat(64) }; },
     fetchImpl: async (url, init) => {
       if (url === CATALOG_URL) return Response.json({ assistant: [{ key: id, display_name: 'Fixture', source: 'system', enable: true, format: 'openai', max_input_tokens: 200000 }] });
@@ -26,6 +27,24 @@ async function fixture(id = 'ultimate') {
   const model = p.getModels()[0];
   return { wires, reads: () => reads, run: (messages, options = {}, method = 'streamSimple') => p.api[method](model, { messages }, options) };
 }
+
+test('native transcript replays prompt sections and tool additions/removals before Qoder dispatch', async () => {
+  const f = await fixture('lite');
+  const tool = name => ({ name, description: name, parameters: { type: 'object', properties: {} } });
+  const messages = freeze([
+    { role: 'system', content: 'Base instructions', toolsAdded: [tool('removed')], sections: { policy: 'old policy' }, timestamp: 0 },
+    { role: 'user', content: 'A fixture request', timestamp: 1 },
+    { role: 'system', content: 'Added instructions', toolsRemoved: [{ name: 'removed' }], toolsAdded: [tool('current')], sections: { policy: 'new policy' }, timestamp: 2 },
+  ]);
+  const original = JSON.stringify(messages);
+  await assert.rejects(f.run(messages), { code: 'http_403' });
+  const wire = f.wires[0];
+  assert.deepEqual(wire.tools.map(tool => tool.function.name), ['current']);
+  assert.equal(wire.messages.filter(message => message.role === 'system').length, 1);
+  const prompt = wire.messages.find(message => message.role === 'system').content;
+  assert.match(prompt, /Base instructions/); assert.match(prompt, /Added instructions/); assert.match(prompt, /new policy/); assert.doesNotMatch(prompt, /old policy/);
+  assert.equal(JSON.stringify(messages), original);
+});
 
 for (const id of ['ultimate', 'gmodel', 'lite']) for (const source of [{ provider: 'foreign' }, { model: 'smodel' }, { api: 'other-api' }]) test(`${id}: foreign identity ${Object.keys(source)[0]} strips opaque/tool signatures without editing history`, async () => {
   const f = await fixture(id);

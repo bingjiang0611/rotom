@@ -1,3 +1,4 @@
+import * as transcript from '../../runtime/pi/node_modules/@earendil-works/pi-ai/dist/utils/transcript.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, chmod, realpath, symlink, readFile, rm } from 'node:fs/promises';
@@ -195,9 +196,9 @@ test('credential errors never include underlying contents or missing file paths'
 test('provider uses the native context budget for both stream APIs before dispatch', async () => {
   const context = { messages: [] }, offered = [], sent = [];
   const provider = await createQoderProvider({
-    authMode: 'qodercli', piAI: { createProvider: p => p, lazyStream: (_m, setup) => setup() },
+    authMode: 'qodercli', piAI: { ...transcript, createProvider: p => p, lazyStream: (_m, setup) => setup() },
     clampMaxTokens(model, actualContext, cap) {
-      assert.equal(model.contextWindow, MODEL.contextWindow); assert.equal(actualContext, context);
+      assert.equal(model.contextWindow, MODEL.contextWindow); assert.deepEqual(actualContext, { ...context, systemPrompt: '', tools: [] });
       offered.push(cap); return 7;
     },
     getToken: async () => 'fixture',
@@ -215,7 +216,7 @@ test('provider owns a single bounded dispatch, caps maxTokens, and rejects endpo
   let calls = 0, body;
   const provider = await createQoderProvider({
     authMode: 'qodercli', clampMaxTokens: (_m, _c, cap) => cap,
-    piAI: { createProvider: p => p, lazyStream: (_m, setup) => setup() },
+    piAI: { ...transcript, createProvider: p => p, lazyStream: (_m, setup) => setup() },
     getToken: async () => 'secret-fixture',
     fetchImpl: async (_url, init) => { calls++; body = JSON.parse(init.body); return new Response('', { status: 403 }); },
   });

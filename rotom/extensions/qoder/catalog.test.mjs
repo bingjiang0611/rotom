@@ -1,3 +1,4 @@
+import * as transcript from '../../runtime/pi/node_modules/@earendil-works/pi-ai/dist/utils/transcript.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, createHmac, randomUUID } from 'node:crypto';
@@ -13,7 +14,7 @@ const body = (...entries) => ({assistant:entries});
 const context = (patch={}) => ({allowNetwork:true,signal:new AbortController().signal,publish:async p=>{p.update?.();return true;},...patch});
 async function fixture(options={}) {
   let current=credential, reply=body(entry()), calls=0;
-  const provider=await createQoderProvider({clampMaxTokens:(_m,_c,cap)=>cap,piAI:{createProvider:x=>x,lazyStream:(_m,fn)=>fn()},authMode:'qodercli',getCredential:async()=>current,fetchImpl:async(url,init)=>{
+  const provider=await createQoderProvider({clampMaxTokens:(_m,_c,cap)=>cap,piAI:{ ...transcript,createProvider:x=>x,lazyStream:(_m,fn)=>fn()},authMode:'qodercli',getCredential:async()=>current,fetchImpl:async(url,init)=>{
     calls++;assert.equal(init.redirect,'error');
     if(url===CATALOG_URL)return new Response(JSON.stringify(reply));
     assert.equal(url,CHAT_URL);return new Response('',{status:403});
@@ -115,7 +116,7 @@ test('named stream requires fresh discovery and rejects changed account before m
 test('TUI startup defers native refresh while print startup and explicit command keep provider-scoped discovery',async()=>{
   const handlers=new Map(),commands=new Map(),notices=[];let calls=0,bindings=0;
   const pi={on:(name,fn)=>handlers.set(name,[...(handlers.get(name)??[]),fn]),registerProvider(){},registerCommand:(name,c)=>commands.set(name,c),appendEntry(){bindings++;}};
-  await installQoderExtension(pi,{piAI:{createProvider:x=>x},authMode:'qodercli',getToken:async()=> 'fixture'});
+  await installQoderExtension(pi,{piAI:{ ...transcript,createProvider:x=>x},authMode:'qodercli',getToken:async()=> 'fixture'});
   const ctx={mode:'tui',hasUI:true,sessionManager:{getEntries:()=>[]},ui:{setStatus(){},notify:text=>notices.push(text)},modelRegistry:{refresh:async options=>{calls++;assert.deepEqual(options.providers,['qoder']);assert.equal(options.allowNetwork,true);return{aborted:false,errors:new Map()};}}};
   for(const handler of handlers.get('session_start'))await handler({},ctx);assert.equal(calls,0);assert.equal(bindings,0);
   for(const handler of handlers.get('session_start'))await handler({}, {...ctx,mode:'print'});assert.equal(calls,1);

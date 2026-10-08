@@ -1,3 +1,4 @@
+import * as transcript from '../../runtime/pi/node_modules/@earendil-works/pi-ai/dist/utils/transcript.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createQoderProvider} from './provider.mjs';
@@ -11,7 +12,7 @@ const image={type:'image',mimeType:'image/png',data:png};
 const raw=id=>({key:id,display_name:'Fixture',source:'system',enable:true,format:'openai',is_vl:true,max_input_tokens:id==='kmodel_latest'?180000:1000000,context_config:{'400K':{token_count:400000}}});
 async function harness(id){
  let entry=raw(id),reads=0;const requests=[];
- const p=await createQoderProvider({authMode:'qodercli',clampMaxTokens:(_m,_c,cap)=>cap,piAI:{createProvider:p=>p,lazyStream:(_m,fn)=>fn()},getCredential:async()=>{reads++;return{accessToken:'fixture',uid:'fixture',org:'',machineId:'fixture-machine',fingerprint:'a'.repeat(64)};},fetchImpl:async(url,init)=>{if(url===CATALOG_URL)return Response.json({assistant:[entry]});requests.push({url,bytes:Buffer.byteLength(init.body),body:decodeProbeBody(init.body)});return new Response('',{status:403});}});
+ const p=await createQoderProvider({authMode:'qodercli',clampMaxTokens:(_m,_c,cap)=>cap,piAI:{ ...transcript,createProvider:p=>p,lazyStream:(_m,fn)=>fn()},getCredential:async()=>{reads++;return{accessToken:'fixture',uid:'fixture',org:'',machineId:'fixture-machine',fingerprint:'a'.repeat(64)};},fetchImpl:async(url,init)=>{if(url===CATALOG_URL)return Response.json({assistant:[entry]});requests.push({url,bytes:Buffer.byteLength(init.body),body:decodeProbeBody(init.body)});return new Response('',{status:403});}});
  const refresh=()=>p.refreshModels({force:true,allowNetwork:true,signal:new AbortController().signal,publish:async v=>v.update()});await refresh();reads=0;
  return{p,requests,model:()=>p.getModels().find(m=>m.id===id),get reads(){return reads;},async update(patch){entry={...entry,...patch};await refresh();reads=0;}};
 }
@@ -30,7 +31,7 @@ test('all other fourteen keys remain text-only and at most 32K despite advertise
  for(const id of SUPPORTED_MODEL_IDS.filter(id=>!EXPANDED_INPUT_MODEL_IDS.includes(id))){const h=await harness(id);assert.equal(h.model().contextWindow,32000);assert.deepEqual(h.model().input,['text']);await assert.rejects(h.p.api.streamSimple(h.model(),{messages:[{role:'user',content:[image]}]},{}),/images_not_validated/);assert.equal(h.reads,0);}
 });
 test('startup declarations expose reviewed maxima, but unavailable accounts cannot dispatch them',async()=>{
- let reads=0;const p=await createQoderProvider({authMode:'qodercli',getCredential:async()=>{reads++;},piAI:{createProvider:p=>p,lazyStream:(_m,fn)=>fn()}});
+ let reads=0;const p=await createQoderProvider({authMode:'qodercli',getCredential:async()=>{reads++;},piAI:{ ...transcript,createProvider:p=>p,lazyStream:(_m,fn)=>fn()}});
  assert.deepEqual(p.filterModels(p.models).map(m=>m.id),['lite','performance']);
  for(const id of EXPANDED_INPUT_MODEL_IDS){const declared=p.models.find(m=>m.id===id);assert.equal(declared.contextWindow,272000);assert.deepEqual(declared.input,['text','image']);await assert.rejects(p.api.streamSimple(declared,{messages:[{role:'user',content:[image]}]},{}),/catalog_refresh_required/);}
  assert.equal(reads,0);

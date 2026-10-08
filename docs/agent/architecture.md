@@ -104,11 +104,11 @@ Native host 在任何 socket 探测/回收前持有进程寿命的 OS 文件锁�
 ## 代码地图
 
 - `rotom/package.json` / `npm-shrinkwrap.json`：npm 产品元数据、公开 bin 和显式发行文件清单；不再声明官方 Pi dependency，固定通过公开作用域包 `@bingjiang0611/rotom` 分发。
-- `packages/rotom-pi/`：仓内 Pi 源码 fork、上游来源与 MIT 许可证、锁定公开模型目录；`rotom/scripts/build-pi-fork.mjs` 隔离构建六个 CLI/SDK runtime 归档。
+- `packages/rotom-pi/`：仓内 Pi 源码 fork、上游来源与 MIT 许可证、锁定公开模型目录；`rotom/scripts/build-pi-fork.mjs` 隔离构建八个 CLI/SDK runtime 归档。
 - `rotom/runtime/pi/`：fork package/lock、源码/构建器摘要和归档；发行包中按锁新安装 node_modules，不依赖维护 checkout。
 - `rotom/scripts/pack-release.mjs`：隔离 staging、锁定 npm ci、资源验证、打包清单检查；不使用维护者 node_modules、不运行 install hooks。
 - `rotom/bin/rotom`：薄 npm 入口，保留 cwd/argv/environment/exit status。
-- `rotom/runtime/resolve-installed-pi.mjs`：固定 fork 来源摘要、六包 version/integrity/installed identity 与 canonical 路径校验，仅解析产品 `runtime/pi/node_modules`，不搜索 ancestor/PATH/global modules。
+- `rotom/runtime/resolve-installed-pi.mjs`：固定 fork 来源摘要、八包 version/integrity/installed identity 与 canonical 路径校验，仅解析产品 `runtime/pi/node_modules`，不搜索 ancestor/PATH/global modules。
 - `rotom/bin/rotom-launcher`：唯一内部 shell launcher，解析 Node 与 Claude Skill bridge 后只启动一个 Node 进程。
 - `rotom/runtime/launch-runtime.mjs`：在该进程内完成 Pi/resource trust gate、Subagent/Computer Use 默认值、scoped store 初始化，并通过已验证的 Pi 公开 `main` 入口启动 CLI，避免重复 Node 冷启动和重复 SDK 加载。
 - `rotom/bin/check-personal`：日常串行产品 gate 与 context footprint 报告。

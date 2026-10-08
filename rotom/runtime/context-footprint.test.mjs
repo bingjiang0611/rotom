@@ -96,6 +96,20 @@ test("runtime report enforces the default deferred contract without rewriting th
 	assert.equal(report.measurement.realModelCalls, 0);
 });
 
+test("Codemode's path normalization does not rewrite raw bytes or hide schema drift", () => {
+	for (const overhead of [111, 131]) {
+		const current = { ...measurement(["read"]), ...CURRENT_RUNTIME_CONTEXT_CONTRACT_V1,
+			activeToolSchemaBytes: CURRENT_RUNTIME_CONTEXT_CONTRACT_V1.activeToolSchemaBytes + overhead };
+		const runtime = { contextFootprint: current, deferredToolsEnabled: true, toolSchemaPathOverheadBytes: overhead, fauxProviderCalls: 2 };
+		const report = buildContextFootprintReport({ runtime, identity: {}, elapsedMs: 0 });
+		assert.equal(report.runtimeContractGate, "PASS");
+		assert.equal(report.current.activeToolSchemaBytes, current.activeToolSchemaBytes);
+		assert.equal(report.measurement.fauxProviderCalls, 2);
+		current.activeToolSchemaBytes++;
+		assert.equal(buildContextFootprintReport({ runtime, identity: {}, elapsedMs: 0 }).runtimeContractGate, "REGRESSION");
+	}
+});
+
 test("explicit opt-out full tool surface has an independent reviewed contract", () => {
 	const current = {
 		...measurement(["read", "browser_inspect", "mystery"]),

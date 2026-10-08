@@ -3,6 +3,7 @@ import type { Usage } from "@earendil-works/pi-ai";
 export interface GoalAccountingState {
 	status: string;
 	baselineTokens: number;
+	usageAccountingVersion?: 2;
 	tokensUsed: number;
 	timeUsedSeconds: number;
 	activeStartedAt?: number;
@@ -14,9 +15,10 @@ export function goalBudgetTokens(goal: { tokensUsed: number; review?: { reported
 	return goal.tokensUsed + (goal.review?.reportedTokens ?? 0);
 }
 
-interface AssistantUsageEntryLike {
+interface UsageEntryLike {
 	type?: unknown;
 	message?: unknown;
+	usage?: unknown;
 }
 
 interface UsageContext {
@@ -44,9 +46,16 @@ export function updateGoalUsage(
 	continueClock = goal.status === "active",
 ) {
 	const now = Date.now();
-	const baselineTokens = nonNegativeFiniteNumber(goal.baselineTokens);
-	goal.baselineTokens = baselineTokens;
-	goal.tokensUsed = Math.max(0, currentTokenTotal(ctx) - baselineTokens);
+	const entries = branchEntries(ctx);
+	const total = cumulativeReportedTokens(entries);
+	// Old baselines counted only assistant replies. Do not retroactively charge
+	// historical compaction/cache-warming when resuming a pre-1.0 Goal.
+	if (goal.usageAccountingVersion !== 2) {
+		goal.baselineTokens = nonNegativeFiniteNumber(goal.baselineTokens) + total - cumulativeReportedTokens(entries, true);
+		goal.usageAccountingVersion = 2;
+	}
+	goal.baselineTokens = nonNegativeFiniteNumber(goal.baselineTokens);
+	goal.tokensUsed = Math.max(0, total - goal.baselineTokens);
 	checkpointGoalActiveTime(goal, now, continueClock);
 	goal.updatedAt = now;
 }
@@ -93,19 +102,28 @@ export function assistantUsageTokens(value: unknown) {
 	);
 }
 
-export function cumulativeAssistantTokens(entries: unknown[]) {
+export function cumulativeReportedTokens(entries: unknown[], assistantOnly = false) {
 	let total = 0;
 	for (const entry of entries) {
-		const candidate = entry as AssistantUsageEntryLike;
-		if (candidate?.type !== "message") continue;
-		const message = candidate.message as { role?: unknown; usage?: unknown } | undefined;
-		if (message?.role !== "assistant") continue;
-		total = Math.min(Number.MAX_SAFE_INTEGER, total + assistantUsageTokens(message.usage));
+		const candidate = entry as UsageEntryLike;
+		const message = candidate?.message as { role?: unknown; usage?: unknown } | undefined;
+		let usage: unknown;
+		if (candidate?.type === "message" && (message?.role === "assistant" || (!assistantOnly && message?.role === "toolResult"))) usage = message.usage;
+		else if (!assistantOnly && ["usage", "compaction", "branch_summary"].includes(String(candidate?.type))) usage = candidate.usage;
+		total = Math.min(Number.MAX_SAFE_INTEGER, total + assistantUsageTokens(usage));
 	}
 	return total;
 }
 
-export function currentTokenTotal(ctx: UsageContext): number {
+export function cumulativeAssistantTokens(entries: unknown[]) {
+	return cumulativeReportedTokens(entries, true);
+}
+
+function branchEntries(ctx: UsageContext): unknown[] {
 	const sessionManager = ctx.sessionManager as { getBranch?: () => unknown[] } | undefined;
-	return cumulativeAssistantTokens(sessionManager?.getBranch?.() ?? []);
+	return sessionManager?.getBranch?.() ?? [];
+}
+
+export function currentTokenTotal(ctx: UsageContext): number {
+	return cumulativeReportedTokens(branchEntries(ctx));
 }
