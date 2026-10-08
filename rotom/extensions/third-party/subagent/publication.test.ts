@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { subagentPolicyApi, subagentEvidenceResult, prepareProductSubagentArguments, constrainSubagentParameters, PRODUCT_SUBAGENT_ACCEPTANCE_GUIDELINE, PRODUCT_HANDOFF_GUIDELINE } from "./policy.ts";
+import { subagentPolicyApi, subagentEvidenceResult, prepareProductSubagentArguments, constrainSubagentParameters, PRODUCT_SUBAGENT_POLICY_GUIDELINE, PRODUCT_SUBAGENT_ACCEPTANCE_GUIDELINE, PRODUCT_HANDOFF_GUIDELINE } from "./policy.ts";
 
 function fixture() {
 	const handlers = new Map<string, Function[]>(); const tools = new Map<string, any>(); const published: unknown[] = [];
@@ -113,6 +113,21 @@ test("read-only acceptance guidance reaches the schema and tool prompt without s
 	const requested = { agent: "reviewer", task: "read-only review", acceptance };
 	assert.equal(prepareProductSubagentArguments(requested).acceptance, acceptance);
 	assert.equal(prepareProductSubagentArguments({ agent: "reviewer" }).acceptance, undefined);
+});
+
+test("delegation guidance prefers direct single tasks without changing explicit execution inputs", () => {
+	const { api, tools } = fixture();
+	api.registerTool({ name: "subagent", description: "upstream contract", promptSnippet: "upstream summary", execute() { return { content: [] }; } } as any);
+	const tool = tools.get("subagent");
+	assert.match(tool.promptSnippet, /one task with agent\/task and async:true/u);
+	assert.match(tool.description, /upstream contract/u);
+	assert.ok(tool.description.includes(PRODUCT_SUBAGENT_POLICY_GUIDELINE));
+	assert.ok(tool.promptGuidelines.includes(PRODUCT_SUBAGENT_POLICY_GUIDELINE));
+	for (const text of ["absolute cwd directly", "omit action and workflowScript", "only for multi-step or parallel orchestration", "without top-level agent/task/action", "acknowledgement timeout is not writer termination"]) assert.ok(PRODUCT_SUBAGENT_POLICY_GUIDELINE.includes(text), text);
+	for (const input of [
+		{ agent: "worker", task: "explicit legacy request", async: false, context: "fork" },
+		{ workflowScript: "return runs.run('scan', { agent: 'scout', task: 'inspect' });", async: true, context: "fresh" },
+	]) assert.deepEqual(prepareProductSubagentArguments(input), { ...input, mission: false }, "guidance must not rewrite explicit requests or bypass downstream scope admission");
 });
 
 test("short handoff guideline retains evidence, unknown and freshness boundaries (text contract only)", () => {

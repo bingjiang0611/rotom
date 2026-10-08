@@ -25,18 +25,18 @@ export const CURRENT_RUNTIME_CONTEXT_CONTRACT_V1 = {
 
 export const FULL_TOOL_CONTEXT_CONTRACT_V1 = {
 	activeToolCount: 25,
-	activeToolSchemaBytes: 37_142,
-	activeToolGuidelineBytes: 11_525,
+	activeToolSchemaBytes: 37_340,
+	activeToolGuidelineBytes: 11_723,
 	schemaPathNormalization: CURRENT_RUNTIME_CONTEXT_CONTRACT_V1.schemaPathNormalization,
 	note: "ROTOM_DEFERRED_TOOLS=0 restores the reviewed full startup surface for retained product tools, including the four stable Goal schemas. This contract is for an unscoped maintenance load; Measured with the Browser keypress schema, Relay-first isolated-browser fallback metadata and compact descriptions, after removing the enterprise platform extensions and bundled skills; the default deferred surface only routes Subagent. These are static bytes, not provider tokens. Retired capabilities stay absent even with deferred loading disabled.",
 };
 
-// The existing owned scope changes Subagent metadata, not the Goal tool set.
-// Keep both measured surfaces explicit rather than masking drift with a ceiling.
+// Both full surfaces include direct single-task delegation guidance. Owned
+// scope changes Subagent metadata, not the Goal tool set; keep measured values.
 export const SCOPED_FULL_TOOL_CONTEXT_CONTRACT_V1 = {
 	...FULL_TOOL_CONTEXT_CONTRACT_V1,
-	activeToolSchemaBytes: 38_403,
-	activeToolGuidelineBytes: 12_018,
+	activeToolSchemaBytes: 38_601,
+	activeToolGuidelineBytes: 12_216,
 	note: "Full startup surface under the product owned-process-groups-v2 Subagent scope, with four stable Goal schemas. Static bytes, not provider tokens.",
 };
 

@@ -75,6 +75,8 @@ test("真实 Pi loader 注册保留的第三方运行时并排除 MCP、Backgrou
 	assert.deepEqual((subagent.parameters as any)?.properties?.action?.enum, [...PRODUCT_SUBAGENT_ALLOWED_ACTIONS]);
 	for (const field of PRODUCT_SUBAGENT_BLOCKED_FIELDS) assert.equal((subagent.parameters as any)?.properties?.[field], undefined, `blocked subagent field ${field} must not remain model-visible`);
 	assert.ok(subagent.promptGuidelines?.includes(PRODUCT_SUBAGENT_POLICY_GUIDELINE));
+	assert.match(subagent.promptSnippet ?? "", /one task with agent\/task and async:true/u);
+	for (const field of ["agent", "task", "async", "context", "cwd", "output", "workflowScript"]) assert.ok((subagent.parameters as any).properties[field], `delegation field ${field} must remain model-visible`);
 	assert.match(PRODUCT_SUBAGENT_POLICY_GUIDELINE, /steer its live child or resume its latest run with a compact handoff/u, "同一 lane 必须复用 worker，而不是重复 fork 全量历史");
 	assert.throws(
 		() => subagent.execute("blocked-refine", { action: "refine" } as any, undefined, undefined, { cwd: process.cwd() } as any),

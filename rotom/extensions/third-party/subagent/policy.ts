@@ -52,7 +52,7 @@ export const PRODUCT_SUBAGENT_BLOCKED_FIELDS = [
 ] as const;
 
 export const PRODUCT_SUBAGENT_POLICY_GUIDELINE =
-	"Product policy overrides broader package documentation: omit action for execution; only the model-visible actions in the schema are available. Agent configuration, missions, refine, schedules, project/inspector management, worktree discard, watchdog configuration, and spawn-budget grants are disabled. Actionless execution is forced ephemeral and cannot create an automatic mission. Omit mission entirely; an explicit mission:false is accepted and ignored, while any truthy mission or other mission field is rejected. For one implementation or validation lane, steer its live child or resume its latest run with a compact handoff; do not fork duplicate full-history workers for that lane. Direct steer always disables automatic steeringRecovery; acknowledgement timeout is not writer termination or permission to replace it.";
+	"Product policy overrides broader package documentation: for one task, pass agent, task, async:true, context:'fresh' and an absolute cwd directly; omit action and workflowScript. Use workflowScript only for multi-step or parallel orchestration, without top-level agent/task/action. Only the model-visible actions in the schema are available. Agent configuration, missions, refine, schedules, project/inspector management, worktree discard, watchdog configuration, and spawn-budget grants are disabled. Actionless execution is forced ephemeral and cannot create an automatic mission. Omit mission entirely; an explicit mission:false is accepted and ignored, while any truthy mission or other mission field is rejected. For one implementation or validation lane, steer its live child or resume its latest run with a compact handoff; do not fork duplicate full-history workers for that lane. Direct steer always disables automatic steeringRecovery; acknowledgement timeout is not writer termination or permission to replace it.";
 
 export const PRODUCT_SUBAGENT_ACCEPTANCE_GUIDELINE =
 	"For read-only reviewer/scout tasks, omit acceptance and use the inferred read-only contract. Explicit checked/verified adds command and no-staged-files requirements; evidence is additive, not a replacement. Workflow-level acceptance is inherited by children: do not impose writer gates on shell-less reviewers. Have a capable parent verify Git/build evidence separately. A supervisor message cannot waive a frozen acceptance contract; never invent evidence or silently lower an explicit gate.";
@@ -167,6 +167,7 @@ export function subagentPolicyApi(pi: ExtensionAPI): ExtensionAPI {
 					...definition,
 					...(isSubagent ? {
 						description: `${definition.description}\n\n${PRODUCT_SUBAGENT_POLICY_GUIDELINE}`,
+						promptSnippet: "Delegate one task with agent/task and async:true; use workflowScript only for multi-step or parallel orchestration",
 						parameters: constrainSubagentParameters(definition.parameters),
 						promptGuidelines: [...(definition.promptGuidelines ?? []), PRODUCT_SUBAGENT_POLICY_GUIDELINE, PRODUCT_SUBAGENT_ACCEPTANCE_GUIDELINE, PRODUCT_HANDOFF_GUIDELINE],
 					} : {}),

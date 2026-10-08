@@ -10,7 +10,7 @@ description: |
 
 # Pi Subagents
 
-仅供主会话使用，子 Agent 不派生。工具 schema 与 scope 同时约束能力；上游发现描述不代表默认 scope 全支持。
+仅主会话委派，子 Agent 不派生；能力以工具 schema 和当前 scope 为准。
 
 ## 委派
 
@@ -21,20 +21,22 @@ description: |
 
 ## 执行
 
-使用 `subagent` 的 `workflowScript`，不传 `action`。单任务用 `runs.run(key, options)`，串行用顶层 `await`，并行用 `runs.all([...])`，显式 `return` 汇总结果。脚本不要定义嵌套 async 函数。
-
-下例参数传给 `subagent`；先替换仓库路径和任务范围：
+单任务直接向 `subagent` 传 `agent`、`task`，不传 `action` 或 `workflowScript`。先替换示例路径和任务：
 
 ```json
 {
+  "agent": "scout",
+  "task": "Read src/session.ts and its tests. Do not edit files or launch subagents. Return findings with file/line evidence and gaps.",
   "async": true,
   "context": "fresh",
   "cwd": "/absolute/path/to/repo",
-  "workflowScript": "return runs.run('scan', { agent: 'scout', task: 'Read src/session.ts and its tests. Do not edit files or launch subagents. Return findings with file/line evidence and gaps.', output: false });"
+  "output": false
 }
 ```
 
-- 默认异步；同一 cwd/worktree 只有一个 writer，子任务写入期间主会话也不并发修改。并行写入必须先明确隔离目录。
+只有多步骤或并行编排才用 `workflowScript`，不与顶层 `agent/task/action` 混用。串行用顶层 `await runs.run(key, options)` 和结果 `.output`，并行用 `await runs.all([...])`，显式 `return` 汇总；不定义嵌套 async 函数，不重复启动子任务。
+
+- 显式使用 `async: true`；同一 cwd/worktree 只有一个 writer，子任务写入期间主会话也不并发修改。并行写入必须先明确隔离目录。
 - 返回后保留 run id，先做独立工作，再消费完成通知；当前轮必须等结果时用 `subagent_wait` 指定 id，不用 sleep 或循环查状态。
 - 活跃任务用 `status` 核对、`steer` 补充指令；已结束任务先用 `children.list` 核对。scoped 仅允许通过 closure 与 canonical lease 检查的原 Pi-only async run 原生 `resume`；workflow、external 和 retained child 不可恢复，不能换 ID 重跑。
 - 需要暂停/停止时用 `interrupt` / `stop` 指定 id；投递确认、超时或取消请求不证明 writer 已停止，结果未知时先核对原任务，不重放写入。
