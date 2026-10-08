@@ -1,6 +1,6 @@
 # rotom 0.1.14
 
-状态：发行暂停；用户已确认未执行 publish。此前冻结候选及其发布命令已撤销，不得复用。用户授权版本 `0.1.14`、dist-tag `latest`；包 `@bingjiang0611/rotom`，access `public`，许可证 `UNLICENSED`。
+状态：重新冻结准备；用户再次明确授权 `0.1.14 / latest` 发布及验证后的全局安装。尚未执行 publish；此前所有候选与发布命令仍撤销，不得复用。包 `@bingjiang0611/rotom`，access `public`，许可证 `UNLICENSED`。
 
 ## 发行说明
 
@@ -10,7 +10,9 @@
 - 运行时八个包保持固定来源、归档及 installed identity 校验。
 - Subagent 单任务优先直接传 `agent/task/async:true`；只为多步骤或并行任务使用 `workflowScript`，同步产品 skill 与工具提示。
 
-此前候选曾因 Subagent 修复重新冻结；最新候选又因用户要求删除分类器/路由而撤销。须先完成本次功能改动及验证，再重新冻结公开 commit、构建并独立验证唯一最终 tgz；此前摘要、命令与验证结果均不能替代新产物证据。
+此前候选曾因 Subagent 修复重新冻结，随后因删除分类器/路由而撤销。本次使用最新公开 main（包含压缩改动回滚，不恢复被撤销的压缩/轨迹实验），以本次发布元数据 commit 为唯一构建源；commit SHA 由 Git 读取，唯一 tgz 摘要及实际安装验证单独记录。此前摘要、命令与验证均不能替代新产物证据。
+
+发布助手改用 npm 全局安装已验证的作用域 tgz，不使用旧无作用域安装脚本。认证、publish、真实全局切换仍由用户前台终端分阶段执行，Agent 仅只读核验 registry 和安装结果。
 
 源码迁移与非发布候选验证见 [Pi 1.0 迁移](pi-1.0-migration.md)。该页的旧候选摘要不能用于本次正式包。正式发布需对本次冻结 commit 的唯一 tgz 独立验证，再以 registry version/tag/digest 和下载字节一致性确认。
 
