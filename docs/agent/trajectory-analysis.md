@@ -33,7 +33,7 @@ node --test --test-concurrency=1 scripts/analyze-session-trajectories.test.mjs
 4. 第一轮只选择 1–3 个有证据的问题；复用现有 helper/提示，根因在工具或上下文组装时不要只加提示补丁。
 5. 模型 A/B 须另定模型、预算、停止条件与外部写入范围。留出任务上比较正确性、重复探索、验证完整性及包括摘要生成在内的总成本。小样本结果不外推。
 
-尚未导入真实私人会话、提炼跨任务规则或进行付费评测。合成 fixture 只能证明解析和统计口径，不能证明 CASD 的行为收益。
+上述合成 fixture 只能证明解析和统计口径，不能证明 CASD 的行为收益。真实会话样本和审阅结果保持私有，不随维护工具提交；不能由统计候选直接宣称已提炼出有效的跨任务规则。
 
 ## 2. 本轮源码证据与修复
 
@@ -64,4 +64,8 @@ node --test --test-concurrency=1 scripts/analyze-session-trajectories.test.mjs
 - distribution 与构建器测试 27 passed；公开基线干净 clone 的 runtime identity 39 passed。
 - 新 fork 归档在独立 HOME 下按锁安装后，公开基线 default/full runtime smoke 均通过：真实 SDK + faux provider，各 2 次假响应，`lifecycleErrors=0`。未启动真实 provider 推理。
 - 本地维护目录曾因已有的 Subagent 声明为 `.4`、installed source 为 `.3` 而使 identity 测试失败；未覆盖这份安装，改在最新公开基线的独立 clone 仅重放本次 diff、干净安装后验证。其他任务的本地 Subagent 改动不混入交付。
-- 没有 npm 发布、升级用户安装或迁移活跃会话。模型生成质量、真实续跑行为、收益及真实语料规则提炼仍未验证。
+- 没有 npm 发布、升级用户安装或迁移活跃会话。首次代码交付时尚未进行真实模型续跑，mock 不作为行为收益证明。
+
+### 后续真实模型诊断
+
+已按用户授权完成 [固定六场景 A/B](../../experiments/compaction-continuation/RESULTS.md)：原生摘要、持久化/恢复与真实模型续跑，工作区及服务效果为有状态模拟。新版 12 条正常结束；旧版 9 条正常结束、2 条截断、1 条调用阻塞。9 组完整配对都通过，但新版 reported tokens 高 13.5%；总体结论 **INCONCLUSIVE**，未证明一般任务净收益或统计非劣。split-turn、连续两次真实生成摘要、真实 SWE 任务及多模型效果仍未验证。此次仅交付评测，不再修改运行时或升级用户安装。
