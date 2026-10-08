@@ -7,7 +7,7 @@ import {
 	type SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
-import { generateBranchSummary, prepareBranchEntries } from "../src/core/compaction/index.ts";
+import { generateBranchSummary } from "../src/core/compaction/index.ts";
 import type { SessionEntry } from "../src/core/session-manager.ts";
 
 const model: Model<"anthropic-messages"> = {
@@ -44,26 +44,6 @@ function response(content: AssistantMessage["content"]): AssistantMessage {
 }
 
 describe("branch summarization", () => {
-	it("budgets a long tool result by its bounded summary representation", () => {
-		const tool: SessionEntry = {
-			type: "message",
-			id: "result",
-			parentId: "branch-user",
-			timestamp: new Date(2).toISOString(),
-			message: {
-				role: "toolResult",
-				toolName: "bash",
-				toolCallId: "check",
-				isError: true,
-				content: [{ type: "text", text: `${"progress ".repeat(10000)}SyntaxError remains` }],
-				timestamp: 2,
-			},
-		};
-		const prepared = prepareBranchEntries([...entries, tool], 1000);
-		expect(prepared.messages).toEqual([entries[0].type === "message" ? entries[0].message : undefined, tool.message]);
-		expect(prepared.totalTokens).toBeLessThan(1000);
-	});
-
 	it("does not override tool choice for branch summaries", async () => {
 		let requestOptions: SimpleStreamOptions | undefined;
 		const streamFn: StreamFn = (_model, _context, options) => {

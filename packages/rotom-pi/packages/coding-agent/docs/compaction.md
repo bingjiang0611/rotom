@@ -235,8 +235,6 @@ See [`collectEntriesForBranchSummary()`](https://github.com/earendil-works/pi/bl
 
 Both formats include Goal, Constraints & Preferences, Progress, Key Decisions, and Next Steps. Compaction summaries also include Critical Context. Branch summaries stop after Next Steps. Pi appends file lists to either format when relevant.
 
-The shared summarization instructions preserve authorization boundaries, separate evidence from hypotheses and attempts from verified outcomes, and require next steps to agree with unresolved work. Checks apply to the state actually checked; later edits can invalidate them. Unknown external writes require read-only verification rather than replay. These are model instructions, not a semantic validator or permission barrier. Custom summary hooks that bypass the default generator do not inherit them.
-
 Compaction summaries use this format:
 
 ```markdown
@@ -283,13 +281,13 @@ Before summarization, messages are serialized to text via [`serializeConversatio
 [User]: What they said
 [Assistant thinking]: Internal reasoning
 [Assistant]: Response text
-[Assistant tool calls]: read[id="call-1"](path="foo.ts"); edit[id="call-2"](path="bar.ts", ...)
-[Tool result name="read" id="call-1" isError=false]: Output from tool
+[Assistant tool calls]: read(path="foo.ts"); edit(path="bar.ts", ...)
+[Tool result]: Output from tool
 ```
 
 This prevents the model from treating it as a conversation to continue.
 
-Tool results retain up to 2000 characters of text during serialization: the first and last 1000 characters for longer results, with a marker counting omitted characters. This retains trailing diagnostics without increasing the existing text budget; middle content is still unavailable. Tool name, call ID, and `isError` are retained even when no text is present (`[No text content]`). A false error flag does not prove business success. Branch summaries also retain results, using their bounded serialized size for the token estimate rather than dropping them or budgeting the full log.
+Tool results are truncated to 2000 characters during serialization. Content beyond that limit is replaced with a marker indicating how many characters were truncated. This keeps summarization requests within reasonable token budgets, since tool results (especially from `read` and `bash`) are typically the largest contributors to context size.
 
 ## Custom Summarization via Extensions
 

@@ -156,7 +156,8 @@ export function collectEntriesForBranchSummary(
 function getMessageFromEntry(entry: SessionEntry): AgentMessage | undefined {
 	switch (entry.type) {
 		case "message":
-			// A call records intent, not its outcome. Preserve results (bounded during serialization).
+			// Skip tool results - context is in assistant's tool call
+			if (entry.message.role === "toolResult") return undefined;
 			return entry.message;
 
 		case "custom_message":
@@ -223,12 +224,7 @@ export function prepareBranchEntries(entries: SessionEntry[], tokenBudget: numbe
 		// Extract file ops from assistant messages (tool calls)
 		extractFileOpsFromMessage(message, fileOps);
 
-		// Tool bodies are bounded by serializeConversation; budgeting their original size
-		// could discard the entire branch when its newest result is a long log.
-		const tokens =
-			message.role === "toolResult"
-				? Math.ceil(serializeConversation([message]).length / 4)
-				: estimateTokens(message);
+		const tokens = estimateTokens(message);
 
 		// Check budget before adding
 		if (tokenBudget > 0 && totalTokens + tokens > tokenBudget) {
