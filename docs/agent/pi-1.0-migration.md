@@ -20,6 +20,16 @@
 
 所有结论仅覆盖被执行的版本、平台和 fixture。真实 Chrome、外部模型、计费、存活会话升级与 Linux/Windows 不在本轮授权验证范围。未发布 npm、未替换本机活跃安装。
 
+## 最终候选包验证
+
+构建源 commit：`deaca3e628bb5976a783796b873f25b4a997dac0`（独立公开 clone）。`pack:release` 与实际 tgz 审计通过：21,777 个递归检查文件、274,136,001 bytes、61 个精确公开示例、0 findings。
+
+- 文件：`bingjiang0611-rotom-0.1.13.tgz`；18,851 个打包文件，压缩 52,934,544 bytes，直接解包 169,665,235 bytes。
+- SHA-256：`838238a7c7e4067e0dea1906e2619821aff0e222d8e3abc3c59dec5b6f7ef868`。
+- SRI：`sha512-IhnvfI68CxV76lUR2icguin69a6VGBV527puLYcKt3TV77Gt3g2i7CPg/fojPSNaJOahcV7MKVh+1nhWVo1P+g==`。
+- 隔离 HOME/prefix，从公开 `0.1.12` 安装后升级到此 tgz，PATH 无全局 Pi；公开 CLI 版本分别回读 `0.1.12`、`0.1.13`。实际安装的 Pi 为 `1.0.4-rotom.0`，default/full SDK smoke 与 footprint 均 PASS、lifecycleErrors=0；卸载后包和 bin 消失，HOME fixture 不变。
+- 这是沿用源码版本号的**未发布候选包**，不是 registry 已发布 `0.1.13` 的字节，也不是 npm release。下一次正式发行须重新授权 version/dist-tag、冻结和验证正式产物；本次未修改用户全局安装。
+
 ## 保留的问题与修复证据
 
 - 初次源码依赖安装超时，确认原进程已退出后改用明确 registry，安装成功；未放宽构建器 timeout。
@@ -29,4 +39,5 @@
 - 本机高负载造成两次隔离重建超时、一次清理竞态及定向测试超时；未增加 timeout。负载降低后隔离构建与 focused 回归通过。
 - 一次直接运行上游测试继承产品品牌环境，standalone Pi 断言失败；清理环境后 22 文件通过，未改断言掩盖污染。
 - 原检查继承了存活旧安装的 `ROTOM_VERIFIED_PI_EXECUTABLE`，导致 loader 测到旧 API；检查入口现明确绑定本次解析的 executable。
+- 公开 clone 的 patch replay 最初把 PowerShell 文件落成 LF，与 `.gitattributes` 声明的 CRLF 不同，来源门禁正确阻断。按 Git 属性重新 checkout 该文件后 `check:pi` 通过；没有修改摘要或绕过门禁。
 - 公开前仅从干净公开 clone 重放 diff，不携带本地维护分支。新增隐私例外涵盖逐字节核对上游 tag 的 bug-report/crash-log 合成测试，以及与锁定官方归档核对的 Node 类型文档完整行；未放宽敏感数据规则。Codemode 文档路径只在 footprint 门禁比较时规范化，原始字节数仍完整报告，不冒充 provider token。
