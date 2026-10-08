@@ -8,6 +8,9 @@
 - 默认提供 Codemode；Goal/Ask/Subagent/Browser 等控制工具保持模型直接调用。MCP 不注册或自动连接；Jev 不默认自动路由。
 - Qoder 适配新 transcript 的提示词和工具增删；Goal `0.54.4-rotom.6` 适配辅助 usage 与虚拟模型 reviewer。
 - 运行时八个包保持固定来源、归档及 installed identity 校验。
+- Subagent 单任务优先直接传 `agent/task/async:true`；只为多步骤或并行任务使用 `workflowScript`，同步产品 skill 与工具提示。
+
+此前冻结的未发布候选因公开基线新增 Subagent 修复而撤销；本轮只接受最新冻结 commit 的唯一最终 tgz，不复用旧候选，也不重放任何发布操作。
 
 源码迁移与非发布候选验证见 [Pi 1.0 迁移](pi-1.0-migration.md)。该页的旧候选摘要不能用于本次正式包。正式发布需对本次冻结 commit 的唯一 tgz 独立验证，再以 registry version/tag/digest 和下载字节一致性确认。
 
