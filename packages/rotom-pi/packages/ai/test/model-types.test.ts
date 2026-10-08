@@ -84,7 +84,7 @@ describe("chat models without a type", () => {
 		const mixed = [chatModel("p", "c"), { ...chatModel("p", "typed"), type: "chat" as const }, imageModel("p", "i")];
 		expect(mixed.filter((model) => isModelType(model, "chat")).map((model) => model.id)).toEqual(["c", "typed"]);
 		expect(mixed.filter((model) => isModelType(model, "image")).map((model) => model.id)).toEqual(["i"]);
-		expect(mixed.filter((model) => isModelType(model, "classifier"))).toEqual([]);
+		expect("classify" in createModels()).toBe(false);
 	});
 });
 
@@ -108,6 +108,7 @@ describe("stored and fetched models of unknown types", () => {
 			models: [
 				chatModel("dyn", "stored-chat"),
 				imageModel("dyn", "stored-image"),
+				{ ...chatModel("dyn", "legacy-classifier"), type: "classifier" },
 				{ ...chatModel("dyn", "future-embedding"), type: "embedding" },
 				{ ...imageModel("dyn", "future-video"), type: "video" },
 			],

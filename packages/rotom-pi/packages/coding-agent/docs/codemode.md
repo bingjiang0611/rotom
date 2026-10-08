@@ -1,6 +1,6 @@
 # Codemode
 
-The `codemode` tool lets the model write a JavaScript script that calls pi's other tools and runs non-LLM models, such as classifiers and image models. Only the script's output reaches the model, so a script can run calls in parallel and filter large results before the model sees them. To turn it on, see [Enable codemode](cli.md#enable-codemode).
+The `codemode` tool lets the model write a JavaScript script that calls pi's other tools and generates images. Only the script's output reaches the model, so a script can run calls in parallel and filter large results before the model sees them. To turn it on, see [Enable codemode](cli.md#enable-codemode).
 
 ## Scripts
 
@@ -59,10 +59,10 @@ The store is for small state such as IDs, cursors, or summaries. One value may h
 
 ## Models
 
-`models` reaches the model catalog and runs non-LLM models with the session's credentials: classifiers, which answer typed questions about JSON state, and image models, which generate images. Chat models are listed but cannot be run from scripts. Which classifier and image models exist is described in [Use classifier models](models.md#use-classifier-models) and [Use image models](models.md#use-image-models).
+`models` reaches the model catalog and generates images with the session's credentials. Chat models are listed but cannot be run from scripts. See [Use image models](models.md#use-image-models).
 
 ```ts
-type ModelType = "chat" | "image" | "classifier";
+type ModelType = "chat" | "image";
 
 /** A catalog entry. `provider` and `id` identify it; other fields depend on the type. */
 interface ModelInfo {
@@ -84,84 +84,14 @@ declare const models: {
   /** One catalog entry, or undefined. */
   getModelOfType(type: ModelType, provider: string, id: string): Promise<ModelInfo | undefined>;
   /** Answer `context.questions` about `context.state`; answers are in `result.answers` by question ID. */
-  classify(model: ModelInfo, context: ClassifierContext): Promise<ClassifierResult>;
   /** Generate images from `context.input` text and image blocks; show `result.output` blocks with image(). Can take minutes. */
   generateImages(model: ModelInfo, context: ImagesContext): Promise<ImagesResult>;
 };
 ```
 
-`classify()` and `generateImages()` use only the `provider` and `id` of `model`, so `{ provider, id }` works as well. They do not throw on provider errors: check `stopReason` and `errorMessage`. At most four such calls run at once per script; more calls wait for a free slot, so `Promise.all()` over many items is fine. Their usage is added to the `codemode` tool result and counts toward the session cost.
+`generateImages()` uses only the `provider` and `id` of `model`, so `{ provider, id }` works as well. It does not throw on provider errors: check `stopReason` and `errorMessage`. At most four image calls run at once per script; more calls wait for a free slot, so `Promise.all()` over many items is fine. Their usage is added to the `codemode` tool result and counts toward the session cost.
 
 Model IDs differ between providers, for example `typesafe/jev-latest` and `openrouter/typesafe/jev-1.13`. Use `models.getAvailableOfType(type)` to find the IDs that work with the current credentials.
-
-### Classify
-
-```ts
-interface ClassifierContext {
-  /** The data to classify. */
-  state: Record<string, unknown>;
-  /** Questions by ID. One call answers all of them. */
-  questions: Record<string, ClassifierQuestion>;
-}
-
-type ClassifierQuestion =
-  /** Pick one label. `criteria` maps each label to what it means. */
-  | { type: "choice"; instructions: string; criteria: Record<string, string> }
-  /** Score on an ordered scale. `criteria` describes each level, lowest first. */
-  | { type: "score"; instructions: string; criteria: string[] }
-  /** Yes or no. */
-  | { type: "bool"; instructions: string; criteria: { true: string; false: string } };
-
-interface ClassifierResult {
-  provider: string;
-  model: string;
-  /** Answers by question ID. */
-  answers: Record<string, ClassifierAnswer>;
-  usage?: ModelUsage;
-  stopReason: "stop" | "error" | "aborted";
-  errorMessage?: string;
-}
-
-type ClassifierAnswer =
-  | { type: "choice"; choice: string; probabilities: Record<string, number>; confidence: number }
-  /** `score` is the expected level index, from 0 to `criteria.length - 1`. */
-  | { type: "score"; score: number; confidence: number }
-  /** Probability of `true`. */
-  | { type: "bool"; probability: number };
-
-/** Token counts and cost in USD, when the service reports them. */
-type ModelUsage = { input: number; output: number; totalTokens: number; cost: { total: number } };
-```
-
-Classify several items by calling `classify()` once per item. This script sorts feedback messages, for example ones a tool returned earlier in the script:
-
-```js
-const jev = await models.getModelOfType("classifier", "typesafe", "jev-latest");
-const results = await Promise.all(
-  messages.map((message) =>
-    models.classify(jev, {
-      state: { message },
-      questions: {
-        sentiment: {
-          type: "choice",
-          instructions: "How does the user feel about the product?",
-          criteria: { positive: "Satisfied or happy", negative: "Unhappy or frustrated", neutral: "Neither" },
-        },
-        urgency: {
-          type: "score",
-          instructions: "How urgently does this need a reply?",
-          criteria: ["no reply needed", "reply this week", "reply today"],
-        },
-      },
-    }),
-  ),
-);
-return results.map((result, i) =>
-  result.stopReason === "stop"
-    ? { message: messages[i], sentiment: result.answers.sentiment.choice, urgency: result.answers.urgency.score }
-    : { message: messages[i], error: result.errorMessage },
-);
-```
 
 ### Generate images
 

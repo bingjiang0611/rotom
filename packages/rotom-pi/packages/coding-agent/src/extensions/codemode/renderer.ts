@@ -30,7 +30,7 @@ function formatDuration(ms: number | undefined): string {
 	return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`;
 }
 
-/** Cents for larger amounts, two significant digits for the fractions of a cent classifier calls cost. */
+/** Cents for larger amounts, two significant digits for small model-call costs. */
 function formatCost(cost: number): string {
 	return `$${cost >= 0.01 ? cost.toFixed(2) : cost.toPrecision(2)}`;
 }

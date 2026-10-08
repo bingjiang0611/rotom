@@ -19,7 +19,7 @@ export const REMOTE_CATALOG_REFRESH_INTERVAL_MS = 4 * 60 * 60 * 1000;
  * that predate model types. A server that ignores the parameter still returns
  * the chat-only shard, which this client handles unchanged.
  */
-export const REMOTE_CATALOG_MODEL_TYPES: readonly ModelType[] = ["chat", "image", "classifier"];
+export const REMOTE_CATALOG_MODEL_TYPES: readonly ModelType[] = ["chat", "image"];
 
 function isSupportedModelType(model: { type?: unknown }): boolean {
 	return (

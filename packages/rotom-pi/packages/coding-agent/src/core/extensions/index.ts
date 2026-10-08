@@ -92,7 +92,6 @@ export type {
 	ExtensionToolContext,
 	ExtensionUIContext,
 	ExtensionUIDialogOptions,
-	ExtensionVirtualModel,
 	ExtensionWidgetOptions,
 	FindToolCallEvent,
 	FindToolResultEvent,

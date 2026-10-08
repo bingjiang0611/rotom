@@ -15,7 +15,7 @@ export interface CodemodeExtensionOptions {
 	mode?: CodemodeMode;
 	/** Overrides the `codemode.inlineBudget` setting. */
 	inlineBudget?: number;
-	/** Expose the model catalog and classifiers to scripts as `models`. Default: `true`. */
+	/** Expose the model catalog and image generation to scripts as `models`. Default: `true`. */
 	models?: boolean;
 }
 

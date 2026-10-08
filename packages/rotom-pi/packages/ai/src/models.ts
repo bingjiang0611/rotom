@@ -27,11 +27,6 @@ import type {
 	AssistantImages,
 	AssistantMessage,
 	AssistantMessageEventStream,
-	ClassifierApi,
-	ClassifierContext,
-	ClassifierModel,
-	ClassifierOptions,
-	ClassifierResult,
 	Context,
 	DeferredCancelOptions,
 	DeferredFetchOptions,
@@ -45,7 +40,6 @@ import type {
 	ModelThinkingLevel,
 	ModelType,
 	ModelTypeMap,
-	ProviderClassifier,
 	ProviderHeaders,
 	ProviderImages,
 	ProviderRequestOptions,
@@ -57,9 +51,7 @@ import type {
 import { operationSignal, raceWithAbortSignal } from "./utils/abort.ts";
 import {
 	assertChatModel,
-	assertClassifierModel,
 	assertImageModel,
-	classifierErrorResult,
 	getModelType,
 	imageErrorResult,
 	isModelType,
@@ -118,9 +110,7 @@ export type ModelsSimpleStreamOptions = SimpleStreamOptions & ModelsRequestTrans
 export type ModelsDeferredFetchOptions = DeferredFetchOptions & ModelsRequestTransforms;
 export type ModelsDeferredCancelOptions = DeferredCancelOptions & ModelsRequestTransforms;
 export type ModelsImagesOptions = ImagesOptions & ModelsRequestTransforms;
-export type ModelsClassifierOptions = ClassifierOptions & ModelsRequestTransforms;
-
-const KNOWN_MODEL_TYPES: Record<ModelType, true> = { chat: true, image: true, classifier: true };
+const KNOWN_MODEL_TYPES: Record<ModelType, true> = { chat: true, image: true };
 
 /** Models from stores and remote sources may have types that only newer versions know. */
 function hasKnownModelType(model: AnyModel): boolean {
@@ -133,12 +123,12 @@ function withKnownModelTypes(entry: ModelsStoreEntry): ModelsStoreEntry {
 }
 
 /** Any model a provider with chat APIs `TApi` can list. */
-type ProviderModel<TApi extends Api> = Model<TApi> | ImageModel<ImageApi> | ClassifierModel<ClassifierApi>;
+type ProviderModel<TApi extends Api> = Model<TApi> | ImageModel<ImageApi>;
 
 /**
  * A provider is the concrete runtime unit. It owns id/name/base metadata,
  * auth methods, model listing, and the operations its models support
- * (streaming, image generation, classification).
+ * (streaming and image generation).
  *
  * `TApi` lets concrete provider factories declare which chat APIs their models
  * use (e.g. `openaiProvider(): Provider<"openai-responses" | "openai-completions">`),
@@ -228,13 +218,6 @@ export interface Provider<TApi extends Api = Api> {
 		context: ImagesContext,
 		options?: ImagesOptions,
 	): Promise<AssistantImages>;
-
-	/** Present when the provider supports structured classifier models. Never rejects. */
-	classify?(
-		model: ClassifierModel<ClassifierApi>,
-		context: ClassifierContext,
-		options?: ClassifierOptions,
-	): Promise<ClassifierResult>;
 }
 
 /**
@@ -348,13 +331,6 @@ export interface Models {
 		context: ImagesContext,
 		options?: ModelsImagesOptions,
 	): Promise<AssistantImages>;
-
-	/** Classify structured state through the owning provider. Never rejects. */
-	classify(
-		model: ClassifierModel<ClassifierApi>,
-		context: ClassifierContext,
-		options?: ModelsClassifierOptions,
-	): Promise<ClassifierResult>;
 }
 
 export interface MutableModels extends Models {
@@ -967,24 +943,6 @@ class ModelsImpl implements MutableModels {
 			return imageErrorResult(model, error, options?.signal?.aborted);
 		}
 	}
-
-	async classify(
-		model: ClassifierModel<ClassifierApi>,
-		context: ClassifierContext,
-		options?: ModelsClassifierOptions,
-	): Promise<ClassifierResult> {
-		try {
-			assertClassifierModel(model);
-			const provider = this.requireProvider(model);
-			if (!provider.classify) {
-				throw new ModelsError("provider", `Provider ${model.provider} does not support classification`);
-			}
-			const { requestModel, requestOptions } = await this.applyAuth(model, options);
-			return await provider.classify(requestModel, context, requestOptions);
-		} catch (error) {
-			return classifierErrorResult(model, error, options?.signal?.aborted);
-		}
-	}
 }
 
 export function createModels(options?: CreateModelsOptions): MutableModels {
@@ -1018,14 +976,11 @@ export interface CreateProviderOptions<TApi extends Api = Api> {
 	) => readonly ProviderModel<TApi>[];
 	/**
 	 * Chat implementation: a single one for all chat models, or a map keyed by
-	 * `model.api` for mixed-API providers. Optional when `images` or
-	 * `classifiers` is given.
+	 * `model.api` for mixed-API providers. Optional when `images` is given.
 	 */
 	api?: ProviderStreams | Partial<Record<TApi, ProviderStreams>>;
 	/** Image-generation implementations keyed by `model.api`. */
 	images?: Partial<Record<ImageApi, ProviderImages>>;
-	/** Classifier implementations keyed by `model.api`. */
-	classifiers?: Partial<Record<ClassifierApi, ProviderClassifier>>;
 }
 
 /**
@@ -1034,7 +989,7 @@ export interface CreateProviderOptions<TApi extends Api = Api> {
  * models; an `api` map dispatches on `model.api`, and a model whose api has
  * no entry produces a stream error. One-shot operation maps dispatch on
  * `model.api` the same way. At least one concrete implementation across
- * `api`/`images`/`classifiers` is required; empty maps are rejected.
+ * `api`/`images` is required; empty maps are rejected.
  */
 export function createProvider<TApi extends Api = Api>(input: CreateProviderOptions<TApi>): Provider<TApi> {
 	const single =
@@ -1043,12 +998,10 @@ export function createProvider<TApi extends Api = Api>(input: CreateProviderOpti
 			: undefined;
 	const byApi = single || !input.api ? undefined : (input.api as Partial<Record<string, ProviderStreams>>);
 	const images = input.images as Partial<Record<string, ProviderImages>> | undefined;
-	const classifiers = input.classifiers as Partial<Record<string, ProviderClassifier>> | undefined;
 	const streams = single ? [single] : Object.values(byApi ?? {}).filter((entry) => entry !== undefined);
 	const imageImplementations = Object.values(images ?? {}).filter((entry) => entry !== undefined);
-	const classifierImplementations = Object.values(classifiers ?? {}).filter((entry) => entry !== undefined);
-	if (streams.length === 0 && imageImplementations.length === 0 && classifierImplementations.length === 0) {
-		throw new Error(`Provider ${input.id}: at least one of "api", "images", or "classifiers" is required.`);
+	if (streams.length === 0 && imageImplementations.length === 0) {
+		throw new Error(`Provider ${input.id}: at least one of "api" or "images" is required.`);
 	}
 
 	const baselineModels = input.models;
@@ -1161,18 +1114,6 @@ export function createProvider<TApi extends Api = Api>(input: CreateProviderOpti
 				);
 			}
 			return implementation.generateImages(model, context, options);
-		};
-	}
-	if (classifiers && classifierImplementations.length > 0) {
-		provider.classify = async (model, context, options) => {
-			const implementation = classifiers[model.api];
-			if (!implementation) {
-				return classifierErrorResult(
-					model,
-					new ModelsError("provider", `Provider ${input.id} has no classifier implementation for "${model.api}"`),
-				);
-			}
-			return implementation.classify(model, context, options);
 		};
 	}
 

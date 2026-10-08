@@ -1,6 +1,6 @@
 # rotom Goal
 
-rotom-maintained `@narumitw/pi-goal@0.54.4-rotom.6`. MIT upstream provenance is in [UPSTREAM.md](UPSTREAM.md). Use the integrated [rotom installation](../../docs/usage.md), not a second upstream Goal extension.
+rotom-maintained `@narumitw/pi-goal@0.54.4-rotom.7`. MIT upstream provenance is in [UPSTREAM.md](UPSTREAM.md). Use the integrated [rotom installation](../../docs/usage.md), not a second upstream Goal extension.
 
 ## One session, one objective
 

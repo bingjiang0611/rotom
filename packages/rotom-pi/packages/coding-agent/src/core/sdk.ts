@@ -32,7 +32,6 @@ import {
 	createWriteTool,
 	withFileMutationQueue,
 } from "./tools/index.ts";
-import { getBranchSelection } from "./virtual-models.ts";
 
 // Preserve the pre-0.81 fallback for extensions that construct Agent instances
 // or invoke low-level agent loops without supplying streamFn. Agent core remains
@@ -204,11 +203,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	let model = options.model;
 	let modelFallbackMessage: string | undefined;
 
-	// Assistant messages name the physical model that answered, so a virtual selection is only in
-	// model_change entries.
-	const sessionModel = getBranchSelection(sessionManager.getBranch(), (provider, modelId) =>
-		modelRuntime.getModel(provider, modelId),
-	);
+	const sessionModel = existingSession.model;
 
 	// If session has data, try to restore model from it
 	if (!model && hasExistingSession && sessionModel) {

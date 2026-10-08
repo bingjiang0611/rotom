@@ -2,14 +2,13 @@ import {
 	type ApiKeyCredential,
 	type AuthContext,
 	type AuthResult,
-	type ClassifierModel,
 	isModelType,
 	type Model,
 	type Provider,
 	type ProviderStreamOptions,
 	type RefreshModelsContext,
 } from "@earendil-works/pi-ai";
-import { llamaCppClassifyApi } from "@earendil-works/pi-ai/api/llama-cpp-classify.lazy";
+
 import { stream, streamSimple } from "@earendil-works/pi-ai/compat";
 import {
 	LlamaClient,
@@ -76,25 +75,6 @@ function contextWindowOf(model: LlamaModelInfo, cachedContextWindow?: number): n
 	return trainingContextWindow && trainingContextWindow > 0 ? trainingContextWindow : 128000;
 }
 
-/** The same llama.cpp model used as a classifier: answers are read from next-token label probabilities. */
-function toPiClassifierModel(
-	model: LlamaModelInfo,
-	serverUrl: string,
-	cachedContextWindow?: number,
-): ClassifierModel<"llama-cpp-classify"> {
-	return {
-		type: "classifier",
-		id: model.id,
-		name: model.id,
-		api: "llama-cpp-classify",
-		provider: LLAMA_PROVIDER_ID,
-		baseUrl: serverUrl,
-		input: ["text"],
-		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-		contextWindow: contextWindowOf(model, cachedContextWindow),
-	};
-}
-
 function toPiModel(
 	model: LlamaModelInfo,
 	serverUrl: string,
@@ -136,8 +116,6 @@ export interface LlamaProviderController {
 
 export function createLlamaProvider(): LlamaProviderController {
 	let models: readonly Model<"openai-completions">[] = [];
-	let classifiers: readonly ClassifierModel<"llama-cpp-classify">[] = [];
-	const classifier = llamaCppClassifyApi();
 
 	const setCatalog = (
 		catalog: readonly LlamaModelInfo[],
@@ -146,7 +124,6 @@ export function createLlamaProvider(): LlamaProviderController {
 	): void => {
 		const selectable = catalog.filter((model) => modelIsSelectable(model, options.routerAutoload === true));
 		models = selectable.map((model) => toPiModel(model, serverUrl));
-		classifiers = selectable.map((model) => toPiClassifierModel(model, serverUrl));
 	};
 
 	const provider: Provider<"openai-completions"> = {
@@ -197,7 +174,7 @@ export function createLlamaProvider(): LlamaProviderController {
 			},
 		},
 		getModels: () => models,
-		getAllModels: () => [...models, ...classifiers],
+		getAllModels: () => models,
 		refreshModels: async (context: RefreshModelsContext): Promise<void> => {
 			const cachedContextWindows = new Map<string, number>();
 			if (context.stored) {
@@ -206,18 +183,13 @@ export function createLlamaProvider(): LlamaProviderController {
 					(model): model is Model<"openai-completions"> =>
 						isModelType(model, "chat") && model.api === "openai-completions",
 				);
-				const restoredClassifiers = stored.filter(
-					(model): model is ClassifierModel<"llama-cpp-classify"> =>
-						isModelType(model, "classifier") && model.api === "llama-cpp-classify",
-				);
-				for (const model of [...restored, ...restoredClassifiers]) {
+				for (const model of restored) {
 					cachedContextWindows.set(model.id, model.contextWindow);
 				}
 				if (
 					!(await context.publish({
 						update: () => {
 							models = restored;
-							classifiers = restoredClassifiers;
 						},
 					}))
 				) {
@@ -245,21 +217,16 @@ export function createLlamaProvider(): LlamaProviderController {
 					return toPiModel(model, serverUrl, props, cachedContextWindow);
 				}),
 			);
-			const refreshedClassifiers = selectable.map((model) =>
-				toPiClassifierModel(model, serverUrl, cachedContextWindows.get(model.id)),
-			);
 			if (context.signal.aborted) return;
 			await context.publish({
-				persist: { models: [...refreshed, ...refreshedClassifiers], checkedAt: Date.now() },
+				persist: { models: refreshed, checkedAt: Date.now() },
 				update: () => {
 					models = refreshed;
-					classifiers = refreshedClassifiers;
 				},
 			});
 		},
 		stream: (model, context, options) => stream(model, context, options as ProviderStreamOptions | undefined),
 		streamSimple: (model, context, options) => streamSimple(model, context, options),
-		classify: (model, context, options) => classifier.classify(model, context, options),
 	};
 
 	return { provider, setCatalog };

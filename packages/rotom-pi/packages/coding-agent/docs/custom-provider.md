@@ -27,9 +27,9 @@ There are two registration forms:
 
 Prefer a complete provider for new integrations that own more than static endpoint and model metadata. Pi composes `models.json` overrides above a registered native provider.
 
-Registering only `baseUrl` or `headers` for an existing provider preserves its built-in models. Supplying `models` in the legacy form replaces that provider's models across chat, image, and classifier operations. An omitted `type` means `"chat"`; image and classifier models require explicit discriminants and implementations keyed by their `api` values through the `images` and `classifiers` fields.
+Registering only `baseUrl` or `headers` for an existing provider preserves its built-in models. Supplying `models` in the legacy form replaces that provider's models across chat and image operations. An omitted `type` means `"chat"`; image models require an explicit discriminant and implementations keyed by their `api` values through the `images` field.
 
-For example, a mixed-operation provider can register non-chat models and their implementations together:
+For example, a provider can register image models and their implementations together:
 
 ```typescript
 pi.registerProvider("media-tools", {
@@ -45,22 +45,9 @@ pi.registerProvider("media-tools", {
       output: ["image"],
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     },
-    {
-      type: "classifier",
-      id: "classifier-v1",
-      name: "Classifier V1",
-      api: "media-classifier",
-      baseUrl: "https://media.example.com/v1",
-      input: ["text"],
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: 64000,
-    },
   ],
   images: {
     "media-images": { generateImages: async (model, context, options) => result },
-  },
-  classifiers: {
-    "media-classifier": { classify: async (model, context, options) => result },
   },
 });
 ```
@@ -90,7 +77,7 @@ Never write access tokens, refresh tokens, authorization headers, or complete pr
 
 ## Supply and refresh models
 
-Every model needs an ID, display name, input capabilities, and cost metadata. Chat and classifier models also need a context window; chat models need an output limit and reasoning support; image models declare their output modalities. Choose the API implementation at the provider level unless one model requires an override.
+Every model needs an ID, display name, input capabilities, and cost metadata. Chat models also need a context window, an output limit and reasoning support; image models declare their output modalities. Choose the API implementation at the provider level unless one model requires an override.
 
 Set `promptCache.short` or `promptCache.long` to the provider's best-effort cache lifetime in seconds when Pi should keep an idle prompt cache warm. Leave them unset to disable cache warming for that retention tier.
 

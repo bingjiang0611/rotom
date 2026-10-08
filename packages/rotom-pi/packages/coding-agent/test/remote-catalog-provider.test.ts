@@ -97,7 +97,7 @@ describe("remote catalog provider", () => {
 		expect(requested.searchParams.get("types")).toBe(REMOTE_CATALOG_MODEL_TYPES.join(","));
 	});
 
-	it("overlays image and classifier models and drops unknown model types", async () => {
+	it("overlays image models and drops retired and unknown model types", async () => {
 		vi.spyOn(globalThis, "fetch").mockImplementation(
 			async () =>
 				new Response(
@@ -136,12 +136,12 @@ describe("remote catalog provider", () => {
 
 		const models = createModels({ modelsStore: store });
 		models.setProvider(provider);
-		expect(models.getAllModels("test-provider").map((entry) => entry.id)).toEqual(["static", "chat", "flux", "jev"]);
+		expect(models.getAllModels("test-provider").map((entry) => entry.id)).toEqual(["static", "chat", "flux"]);
 		expect(models.getModelOfType("image", "test-provider", "flux")?.type).toBe("image");
-		expect(models.getModelOfType("classifier", "test-provider", "jev")?.type).toBe("classifier");
+		expect(models.getAllModels().some((model) => model.id === "jev")).toBe(false);
 		expect(models.getModel("test-provider", "flux")).toBeUndefined();
 		const stored = await store.read(provider.id);
-		expect(stored?.models.map((entry) => entry.id)).toEqual(["chat", "flux", "jev"]);
+		expect(stored?.models.map((entry) => entry.id)).toEqual(["chat", "flux"]);
 	});
 
 	it("prefers the newer of the generated and remote catalogs", async () => {

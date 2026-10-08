@@ -17,7 +17,7 @@ export const CURRENT_RUNTIME_CONTEXT_CONTRACT_V1 = {
 	// real SDK smoke, including the shared Browser expectation enum and operation
 	// parameter requirements; static bytes are not provider tokens.
 	activeToolCount: 24,
-	activeToolSchemaBytes: 22_477,
+	activeToolSchemaBytes: 22_479,
 	activeToolGuidelineBytes: 9_101,
 	schemaPathNormalization: "Codemode documentation path -> <pi-docs>/codemode.md; current measurements remain raw bytes",
 	note: "The default product surface keeps core, Codemode, Ask, Browser/Computer Use, the four stable Goal schemas, and search_tools active while deferring only the retained Subagent group. Visible Goal schemas do not authorize Goal execution without an active Goal. Guideline bytes include the product's observe_ui/read_text/act_ui/wait_for/search_ui contract guidelines, which state the real per-call focus scope, condition combinations, observe-first requirement, untrusted status of observed screen text, structured-interface-first routing, and the dispatch-versus-effect evidence ladder of the Computer Use package, plus the browser relay's ref-bound Enter/Tab/Escape keypress, target-state/page-alert evidence and no-replay boundary for unknown writes. Includes Relay-first launch_browser fallback metadata, HTTP-only local-page guidance, isolated-login disclosure and pre-dispatch/no-replay boundaries; measured static bytes are not provider tokens.",
@@ -25,17 +25,18 @@ export const CURRENT_RUNTIME_CONTEXT_CONTRACT_V1 = {
 
 export const FULL_TOOL_CONTEXT_CONTRACT_V1 = {
 	activeToolCount: 25,
-	activeToolSchemaBytes: 37_340,
+	activeToolSchemaBytes: 37_342,
 	activeToolGuidelineBytes: 11_723,
 	schemaPathNormalization: CURRENT_RUNTIME_CONTEXT_CONTRACT_V1.schemaPathNormalization,
 	note: "ROTOM_DEFERRED_TOOLS=0 restores the reviewed full startup surface for retained product tools, including the four stable Goal schemas. This contract is for an unscoped maintenance load; Measured with the Browser keypress schema, Relay-first isolated-browser fallback metadata and compact descriptions, after removing the enterprise platform extensions and bundled skills; the default deferred surface only routes Subagent. These are static bytes, not provider tokens. Retired capabilities stay absent even with deferred loading disabled.",
 };
 
 // Both full surfaces include direct single-task delegation guidance. Owned
-// scope changes Subagent metadata, not the Goal tool set; keep measured values.
+// scope changes Subagent metadata, not the Goal tool set. The shared Codemode
+// image-only description adds two UTF-8 bytes to each retained startup contract.
 export const SCOPED_FULL_TOOL_CONTEXT_CONTRACT_V1 = {
 	...FULL_TOOL_CONTEXT_CONTRACT_V1,
-	activeToolSchemaBytes: 38_601,
+	activeToolSchemaBytes: 38_603,
 	activeToolGuidelineBytes: 12_216,
 	note: "Full startup surface under the product owned-process-groups-v2 Subagent scope, with four stable Goal schemas. Static bytes, not provider tokens.",
 };

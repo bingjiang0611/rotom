@@ -27,7 +27,6 @@ function createSession(options: {
 	usingSubscription?: boolean;
 	customEntries?: Array<Record<string, unknown>>;
 	sessionId?: string;
-	routedModel?: { model: { id: string; provider?: string }; thinkingLevel?: string };
 }): AgentSession {
 	const usage = options.usage;
 	const entries: Array<Record<string, unknown>> = [];
@@ -87,7 +86,6 @@ function createSession(options: {
 			getCwd: () => "/tmp/project",
 		},
 		getContextUsage: () => ({ contextWindow: 200_000, percent: 12.3 }),
-		routedModel: options.routedModel,
 		modelRuntime: {
 			isUsingSubscription: () => options.usingSubscription ?? false,
 		},
@@ -161,21 +159,6 @@ describe("FooterComponent width handling", () => {
 		}
 	});
 
-	it("shows the physical model a virtual model routed to", () => {
-		const session = createSession({
-			sessionName: "",
-			modelId: "auto",
-			reasoning: true,
-			thinkingLevel: "high",
-			routedModel: { model: { id: "gpt-5.6-luna" }, thinkingLevel: "medium" },
-		});
-		const footer = new FooterComponent(session, createFooterData(1));
-
-		const statsLine = stripAnsi(footer.render(120)[1]);
-
-		expect(statsLine).toContain("auto \u2022 high \u2192 gpt-5.6-luna \u2022 medium");
-	});
-
 	it("includes summary and tool result usage in the total cost", () => {
 		const session = createSession({
 			sessionName: "",
@@ -241,11 +224,10 @@ describe("FooterComponent width handling", () => {
 		expect(statsLine).toContain("CH25.0%");
 	});
 
-	it.each([false, true])("shows Qoder Credits instead of USD (virtual route: %s)", (virtual) => {
+	it("shows Qoder Credits instead of USD", () => {
 		const session = createSession({
 			sessionName: "",
-			provider: virtual ? "router" : "qoder",
-			routedModel: virtual ? { model: { provider: "qoder", id: "ultimate" } } : undefined,
+			provider: "qoder",
 			usage: {
 				input: 100,
 				output: 10,

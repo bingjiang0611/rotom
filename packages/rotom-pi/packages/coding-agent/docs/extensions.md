@@ -81,7 +81,6 @@ Automatic retries, recovery, compaction, or queued work can continue afterward.
 | Change active tools, model, or thinking level | Session control methods on `pi` |
 | Add a model provider | `pi.registerProvider()` |
 | Add an MCP server | `pi.registerMcpServer()` |
-| Route each request to a model | [`pi.registerVirtualModel()`](virtual-models.md) |
 | Add terminal rendering | Renderer registration and `ctx.ui` |
 | Communicate with another extension | `pi.events` |
 

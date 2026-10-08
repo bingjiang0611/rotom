@@ -39,19 +39,16 @@ function input(cwd: string, complete: any, signal = new AbortController().signal
 	};
 }
 
-test("virtual selections review on the recorded physical executor without rerouting", async (t) => {
+test("reviews on the selected model without another lookup", async (t) => {
 	const request = input(fixture(t), async (model: any) => {
 		assert.equal(model.id, "physical");
 		return response([{ type: "text", text: "Insufficient evidence\n<rejected/>" }]);
 	});
-	request.ctx.model = { api: "pi-virtual", provider: "router", id: "auto" };
-	request.ctx.sessionManager = { getBranch: () => [{ type: "message", message: { role: "assistant", provider: "fixture", model: "physical" } }] };
-	request.ctx.modelRegistry.find = (provider: string, id: string) => ({ provider, id });
-	assert.equal((await runCompletionReview(request)).status, "rejected");
-	request.ctx.modelRegistry.find = () => undefined;
-	const missing = await runCompletionReview(request);
-	assert.equal(missing.status, "unknown");
-	assert.equal(missing.calls, 0);
+	request.ctx.model = { provider: "fixture", id: "physical" };
+	request.ctx.modelRegistry.find = () => { throw new Error("Unexpected model lookup"); };
+	const reviewed = await runCompletionReview(request);
+	assert.equal(reviewed.status, "rejected");
+	assert.equal(reviewed.calls, 1);
 });
 
 test("reader rejects traversal, symlinks, runtime paths, oversized and invalid UTF8 files", (t) => {

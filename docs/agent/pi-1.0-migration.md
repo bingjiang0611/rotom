@@ -1,5 +1,7 @@
 # Pi 1.0 非 MCP 能力迁移
 
+本页是 `1.0.4-rotom.0` 的历史迁移与验证记录。当前 `1.0.4-rotom.1` 已删除分类器和虚拟自动路由；以下相关描述、候选与验证不能作为当前产品合同，见[移除记录](classifier-routing-removal.md)。
+
 ## 范围
 
 - 上游 tag `v1.0.4` / commit `7c10bd4337495ee613f2224843ecdf349b80d1df`，fork `1.0.4-rotom.0`；模型目录取自官方 `@earendil-works/pi-ai@1.0.4`，逐文件摘要在 `FORK.json`。

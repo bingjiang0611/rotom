@@ -96,7 +96,7 @@ Assistant messages name the model that produced them. Newer messages also record
 
 ### ModelChangeEntry
 
-Emitted when the user switches models mid-session. The latest entry is the selected model, which may be a [virtual model](virtual-models.md); assistant messages then name the physical model that answered.
+Emitted when the user switches models mid-session. Branch restoration uses the latest model-change or assistant model metadata.
 
 ```json
 {"type":"model_change","id":"d4e5f6g7","parentId":"c3d4e5f6","timestamp":"2024-12-03T14:05:00.000Z","provider":"openai","modelId":"gpt-4o"}
@@ -171,7 +171,7 @@ Extension state persistence. Does NOT participate in LLM context.
 
 Use `customType` to identify your extension's entries on reload. Interactive mode can render custom entries via `pi.registerEntryRenderer(customType, renderer)`, but they still do not participate in LLM context.
 
-Pi stores [virtual model](virtual-models.md) router state as custom entries with `customType` `pi.virtual-model-state` and `data` `{ provider, modelId, state }`.
+Older sessions can contain custom entries with `customType` `pi.virtual-model-state` and `data` `{ provider, modelId, state }`. Rotom preserves these historical entries but does not restore or execute routers from them.
 
 ### CustomMessageEntry
 

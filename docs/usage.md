@@ -85,7 +85,7 @@ scoped 执行是执行归属与资源关闭管理，**不是安全沙箱**；首
 
 rotom 默认提供 `codemode`：模型可用 JavaScript 编排普通文件工具、并行读取及筛选结果；显式 `--tools` / `--exclude-tools` 仍优先。用 `rotom --exclude-tools codemode` 可关闭。Goal、Ask、Subagent、Browser/Computer Use 保持模型直接调用，不在脚本中嵌套执行；QuickJS 脚本沙箱不等于被调用工具的 OS 权限隔离。
 
-内置 MCP 不注册、不自动发现或连接服务器；发行依赖仍含上游 MCP 包。分类模型（包括 Jev）、图片模型和 `registerVirtualModel()` API 可用，**不默认启用 Jev 自动路由**。接入外部模型需要自己的凭据和明确的数据/费用范围；目录无价格或 Pi 显示零成本不代表服务免费。虚拟路由的 Goal completion reviewer 使用最近实际执行模型，不额外调用分类器。
+内置 MCP 不注册、不自动发现或连接服务器；发行依赖仍含上游 MCP 包。保留普通聊天、Codemode 工具编排与图片生成；分类器（包括 Jev、Clef）、`models.classify()` 和 `registerVirtualModel()` 等虚拟自动路由实现已移除。旧的路由扩展须停用或迁移，历史会话和自定义记录不会删除。接入外部模型需要自己的凭据和明确的数据/费用范围；目录无价格或 Pi 显示零成本不代表服务免费。Goal completion reviewer 使用当前选中的普通模型，不额外分类或选路。
 
 终端默认采用上游全屏模式，`rotom --tui-mode regular` 可使用普通模式。已有会话的磁盘迁移、真实 Provider/设备及跨平台结果不能由本地 fixture 推断。迁移验证记录见 [Pi 1.0](agent/pi-1.0-migration.md)；已安装旧版本不会因源码同步而自动获得这些能力。
 

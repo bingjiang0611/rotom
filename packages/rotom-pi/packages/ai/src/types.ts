@@ -32,10 +32,6 @@ export type KnownImageApi = "openrouter-images";
 
 export type ImageApi = KnownImageApi | (string & {});
 
-export type KnownClassifierApi = "typesafe-system-one" | "cloudflare-workers-ai-system-one" | "llama-cpp-classify";
-
-export type ClassifierApi = KnownClassifierApi | (string & {});
-
 export type KnownProvider =
 	| "amazon-bedrock"
 	| "ant-ling"
@@ -46,7 +42,6 @@ export type KnownProvider =
 	| "azure"
 	| "openai-codex"
 	| "radius"
-	| "typesafe"
 	| "nvidia"
 	| "deepseek"
 	| "github-copilot"
@@ -314,24 +309,6 @@ export interface ProviderImages {
 	): Promise<AssistantImages>;
 }
 
-/** The uniform contract implemented by classifier API modules. */
-export interface ProviderClassifier {
-	classify(
-		model: ClassifierModel<ClassifierApi>,
-		context: ClassifierContext,
-		options?: ClassifierOptions,
-	): Promise<ClassifierResult>;
-}
-
-export interface ClassifierOptions extends ProviderRequestOptions<ClassifierModel<ClassifierApi>> {
-	/**
-	 * Divides the answer logits by this value before they are normalized into probabilities.
-	 * Values above 1 soften the distribution; values below 1 sharpen it. Must be positive.
-	 * APIs that cannot apply it ignore it.
-	 */
-	temperature?: number;
-}
-
 export interface ImagesOptions extends ProviderRequestOptions<ImageModel<ImageApi>> {
 	/**
 	 * Optional metadata to include in API requests.
@@ -381,12 +358,6 @@ export type ImagesFunction<TOptions extends ImagesOptions = ImagesOptions> = (
 	context: ImagesContext,
 	options?: TOptions,
 ) => Promise<AssistantImages>;
-
-export type ClassifierFunction<TOptions extends ClassifierOptions = ClassifierOptions> = (
-	model: ClassifierModel<ClassifierApi>,
-	context: ClassifierContext,
-	options?: TOptions,
-) => Promise<ClassifierResult>;
 
 export interface TextSignatureV1 {
 	v: 1;
@@ -628,64 +599,6 @@ export interface AssistantImages {
 	responseId?: string;
 	usage?: Usage;
 	stopReason: ImagesStopReason;
-	errorMessage?: string;
-	timestamp: number; // Unix timestamp in milliseconds
-}
-
-export interface ClassifierChoiceQuestion {
-	type: "choice";
-	instructions: string;
-	criteria: Record<string, string>;
-}
-
-export interface ClassifierScoreQuestion {
-	type: "score";
-	instructions: string;
-	criteria: string[];
-}
-
-export interface ClassifierBoolQuestion {
-	type: "bool";
-	instructions: string;
-	criteria: { true: string; false: string };
-}
-
-export type ClassifierQuestion = ClassifierChoiceQuestion | ClassifierScoreQuestion | ClassifierBoolQuestion;
-
-export interface ClassifierContext {
-	state: JsonObject;
-	questions: Record<string, ClassifierQuestion>;
-}
-
-export interface ClassifierChoiceAnswer {
-	type: "choice";
-	choice: string;
-	probabilities: Record<string, number>;
-	confidence: number;
-}
-
-export interface ClassifierScoreAnswer {
-	type: "score";
-	score: number;
-	confidence: number;
-}
-
-export interface ClassifierBoolAnswer {
-	type: "bool";
-	probability: number;
-}
-
-export type ClassifierAnswer = ClassifierChoiceAnswer | ClassifierScoreAnswer | ClassifierBoolAnswer;
-export type ClassifierStopReason = "stop" | "error" | "aborted";
-
-export interface ClassifierResult {
-	api: ClassifierApi;
-	provider: ProviderId;
-	model: string;
-	answers: Record<string, ClassifierAnswer>;
-	/** Token usage and its cost at the model's catalog price, when the service reports token counts. */
-	usage?: Usage;
-	stopReason: ClassifierStopReason;
 	errorMessage?: string;
 	timestamp: number; // Unix timestamp in milliseconds
 }
@@ -1152,17 +1065,10 @@ export interface ImageModel<TApi extends ImageApi> extends BaseModel<TApi> {
 	output: ("text" | "image")[];
 }
 
-/** Structured classifier model: usable with `classify()` only. */
-export interface ClassifierModel<TApi extends ClassifierApi> extends BaseModel<TApi> {
-	type: "classifier";
-	contextWindow: number;
-}
-
 /** Model shape for each model type. */
 export interface ModelTypeMap {
 	chat: Model<Api>;
 	image: ImageModel<ImageApi>;
-	classifier: ClassifierModel<ClassifierApi>;
 }
 
 /** What a catalog entry is for. Decides which `Models` operation accepts it. */

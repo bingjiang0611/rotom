@@ -2,7 +2,7 @@
 
 Unified LLM API with provider collections, automatic auth resolution, token and cost tracking, and simple context persistence and hand-off to other models mid-session.
 
-**Note**: The chat catalog only includes models that support tool calling (function calling), as this is essential for agentic workflows. Image and classifier catalogs use their operation-specific capabilities.
+**Note**: The chat catalog only includes models that support tool calling (function calling), as this is essential for agentic workflows. Image catalogs use their operation-specific capabilities. Rotom's fork removes classifier APIs and catalogs.
 
 ## Table of Contents
 
@@ -29,7 +29,6 @@ Unified LLM API with provider collections, automatic auth resolution, token and 
   - [Compact Assistant Message Frames](#compact-assistant-message-frames)
 - [Image Input](#image-input)
 - [Image Generation](#image-generation)
-- [Classification](#classification)
 - [Thinking/Reasoning](#thinkingreasoning)
   - [Unified Interface](#unified-interface-streamsimplecompletesimple)
   - [Provider-Specific Options](#provider-specific-options-streamcomplete)
@@ -65,7 +64,6 @@ Unified LLM API with provider collections, automatic auth resolution, token and 
 - **Azure OpenAI (Responses)**
 - **OpenAI Codex (legacy)** (ChatGPT Plus/Pro subscription, requires OAuth, see below)
 - **Radius** (API key or OAuth, with a dynamically refreshed gateway catalog)
-- **TypeSafe** (System One classifier API)
 - **DeepSeek**
 - **NVIDIA NIM**
 - **Anthropic**
@@ -296,12 +294,11 @@ The unqualified reads `getModels()`/`getModel()`/`getAvailable()` return chat mo
 ```typescript
 const images = models.getModelsOfType('image', 'openrouter');           // ImageModel[]
 const flux = models.getModelOfType('image', 'openrouter', 'black-forest-labs/flux.2-pro');
-const jev = models.getModelOfType('classifier', 'typesafe', 'jev-latest');
 const availableImages = await models.getAvailableOfType('image');
 const everything = models.getAllModels();                               // AnyModel[]
 ```
 
-The model's `type` decides which operation accepts it: chat models stream, `type: "image"` models generate images, and `type: "classifier"` models classify structured state. `type` is optional on chat models, so a model without `type` is a chat model. Do not compare `type` directly; narrow mixed lists with `isModelType()` or read the effective type with `getModelType()`:
+The model's `type` decides which operation accepts it: chat models stream and `type: "image"` models generate images. `type` is optional on chat models, so a model without `type` is a chat model. Do not compare `type` directly; narrow mixed lists with `isModelType()` or read the effective type with `getModelType()`:
 
 ```typescript
 import { isModelType } from '@earendil-works/pi-ai';
@@ -334,8 +331,6 @@ For tooling that wants the generated built-in catalog with full literal typing (
 ```typescript
 import {
   getAllBuiltinModels,
-  getBuiltinClassifierModel,
-  getBuiltinClassifierModels,
   getBuiltinImageModel,
   getBuiltinImageModels,
   getBuiltinModel,
@@ -346,11 +341,9 @@ import {
 const model = getBuiltinModel('openai', 'gpt-4o-mini'); // typed Model<'openai-responses'>
 const radius = getBuiltinModel('radius', 'balanced');   // typed Model<'pi-messages'>
 const flux = getBuiltinImageModel('openrouter', 'black-forest-labs/flux.2-pro');
-const jev = getBuiltinClassifierModel('typesafe', 'jev-latest');
 const providers = getBuiltinProviders();
 const openrouterChat = getBuiltinModels('openrouter');        // Model[]
 const openrouterImages = getBuiltinImageModels('openrouter'); // ImageModel[]
-const typesafeClassifiers = getBuiltinClassifierModels('typesafe'); // ClassifierModel[]
 const openrouterAll = getAllBuiltinModels('openrouter');      // AnyModel[]
 ```
 
@@ -888,97 +881,6 @@ console.log(model.output); // ['image'] or ['image', 'text']
 - If you want a model to analyze images in a conversation or call tools, use the regular chat APIs with a model that supports image input.
 - At the moment, image generation is available through only one provider, OpenRouter.
 
-## Classification
-
-Classifier models consume structured JSON state and answer one or more typed questions. They do not use chat or image-generation APIs. TypeSafe's Jev model is available from these built-in providers:
-
-| Provider | Model IDs | Auth |
-| --- | --- | --- |
-| `typesafe` | `jev-latest` | `TYPESAFE_API_KEY` |
-| `openrouter` | `typesafe/jev-1.13`, `~typesafe/jev-latest` | `OPENROUTER_API_KEY` or OpenRouter OAuth |
-| `cloudflare-workers-ai` | `typesafe/jev`, `@cf/cloudflare/clef`, `@cf/cloudflare/clef-flash` | `CLOUDFLARE_API_KEY` and `CLOUDFLARE_ACCOUNT_ID` |
-| `vercel-ai-gateway` | `typesafe-ai/jev` | `AI_GATEWAY_API_KEY` |
-| `opencode` | `jev-1.13`, `jev-1.13-free` | `OPENCODE_API_KEY` |
-
-```typescript
-import { builtinModels } from '@earendil-works/pi-ai/providers/all';
-
-const models = builtinModels();
-const model = models.getModelOfType('classifier', 'typesafe', 'jev-latest')!;
-const result = await models.classify(model, {
-  state: { message: 'The change works perfectly, thanks.' },
-  questions: {
-    category: {
-      type: 'choice',
-      instructions: 'Classify the message.',
-      criteria: {
-        approval: 'The user approves of the result',
-        correction: 'The user requests a correction'
-      }
-    },
-    satisfaction: {
-      type: 'score',
-      instructions: 'Score user satisfaction.',
-      criteria: ['dissatisfied', 'neutral', 'satisfied']
-    },
-    approved: {
-      type: 'bool',
-      instructions: 'Does the user approve?',
-      criteria: { true: 'Approval', false: 'No approval' }
-    }
-  }
-});
-
-console.log(result.answers);
-```
-
-The public contract uses `bool` questions and `{ type: "bool", probability }` answers. The TypeSafe adapter translates those to and from its `noul` wire representation. Like image generation, `classify()` resolves to a result with `stopReason: "error"` instead of rejecting for provider, authentication, or response errors.
-
-When the service reports token counts, `result.usage` carries them with their cost at the model's catalog price, the same `Usage` shape as chat messages. All System One services report token counts; a request that was answered with malformed answers keeps its usage. Local classifiers such as `llama-cpp-classify` report no usage.
-
-`ClassifierOptions.temperature` divides the answer logits by the given value before they are normalized; values above 1 soften the distribution. APIs that cannot apply it, such as System One, ignore it.
-
-### Chat models on llama.cpp
-
-The `llama-cpp-classify` API turns a chat model served by llama.cpp's `llama-server` into a classifier. Each question becomes one chat prompt: the state, every question of the request, the state again, and the question with its answers under single-token labels (letters for a choice, `Yes`/`No` for a bool, digits for a score). The prompt up to the final question is shared by all questions of a request, so the server's prompt cache evaluates the state once per request. The server returns the log-probabilities of the next token, and the answer is the softmax over the label tokens. Choices support up to 62 options and scores up to 10 levels. The model's `baseUrl` is the server URL; a trailing `/v1` is ignored. In router mode, the model ID selects the model.
-
-```typescript
-import { createProvider } from '@earendil-works/pi-ai';
-import { llamaCppClassifyApi } from '@earendil-works/pi-ai/api/llama-cpp-classify.lazy';
-
-const provider = createProvider({
-  id: 'local-llama',
-  auth: { apiKey: { name: 'llama.cpp', resolve: async () => ({ auth: {} }) } },
-  models: [{
-    type: 'classifier',
-    id: 'qwen3-4b',
-    name: 'Qwen3 4B',
-    api: 'llama-cpp-classify',
-    provider: 'local-llama',
-    baseUrl: 'http://127.0.0.1:8080',
-    input: ['text'],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 32768
-  }],
-  classifiers: { 'llama-cpp-classify': llamaCppClassifyApi() }
-});
-```
-
-Raw label probabilities are usually overconfident; pass `temperature` above 1 to soften them.
-
-Custom providers register classifier models and implementations by API ID:
-
-```typescript
-createProvider({
-  id: 'classifier-service',
-  auth,
-  models: [model],
-  classifiers: {
-    'classifier-api': { classify: async (model, context, options) => result }
-  }
-});
-```
-
 ## Thinking/Reasoning
 
 Many models support thinking/reasoning capabilities where they can show their internal thought process. You can check if a model supports reasoning via the `reasoning` property. If you pass reasoning options to a non-reasoning model, they are silently ignored.
@@ -1210,7 +1112,7 @@ Callbacks are awaited in stream order, so slow callbacks delay stream consumptio
 
 ### createProvider()
 
-`createProvider()` builds a provider from parts: identity, auth, a model list, and an API implementation (`api` for chat models, `images` for image generation, `classifiers` for classification; at least one is required, see [Image Generation](#image-generation)). Use it for local inference servers, proxies, or any OpenAI/Anthropic-compatible endpoint:
+`createProvider()` builds a provider from parts: identity, auth, a model list, and an API implementation (`api` for chat models or `images` for image generation; at least one is required, see [Image Generation](#image-generation)). Use it for local inference servers, proxies, or any OpenAI/Anthropic-compatible endpoint:
 
 ```typescript
 import { createModels, createProvider, envApiKeyAuth, type Model } from '@earendil-works/pi-ai';
@@ -1871,7 +1773,7 @@ Add a lazy wrapper `src/api/<api-id>.lazy.ts` (`<name>Api()` via `lazyApi()`) so
 #### 3. Model Generation (`scripts/generate-models.ts`)
 
 - Add logic to fetch and parse models from the provider's source (e.g., models.dev API)
-- Map chat/tool-capable provider data to `Model`, image-generation data to `ImageModel`, and models.dev `type: "decision"` entries to `ClassifierModel`; hydration groups the ignored `src/providers/data/<id>.json` values by API while stable `src/providers/<id>.models.ts` wrappers derive exact model/API types directly from those JSON keys
+- Map chat/tool-capable provider data to `Model` and image-generation data to `ImageModel`; classifier/decision catalogs are excluded; hydration groups the ignored `src/providers/data/<id>.json` values by API while stable `src/providers/<id>.models.ts` wrappers derive exact model/API types directly from those JSON keys
 - Keep model ids unique within each provider and model type; emit separate entries when an upstream model supports multiple operations
 - Handle provider-specific quirks (pricing format, capability flags, model ID transformations)
 

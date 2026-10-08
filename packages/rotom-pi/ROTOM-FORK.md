@@ -2,7 +2,7 @@
 
 本目录是 rotom 仓内维护的 Pi 源码，不是 sibling checkout、Git submodule 或已安装 node_modules 的副本。来源、上游 revision、fork 版本及明确省略的维护文件见 `FORK.json`；保留上游 MIT `LICENSE` 与 package identity。此目录的上游 README/CHANGELOG 描述上游工具，rotom 的实际产品合同以仓库根指南为准。
 
-- 当前基线：Pi 1.0.4。同步 Codemode、分类/图片模型与虚拟模型 API、全屏及上下文管理；不加载内置 MCP，不默认注册 Jev 自动路由。MCP 源码/依赖保留以避免破坏上游包结构，但不自动发现或连接服务器。
+- 当前基线：Pi 1.0.4，fork `1.0.4-rotom.1`。保留普通聊天、Codemode 工具编排、图片生成、全屏及上下文管理；删除分类器类型/实现/目录和虚拟自动路由 API、示例与调度。旧会话仍可读取，不删除历史自定义记录。MCP 源码/依赖保留，但不注册内置 MCP、不自动发现或连接服务器。
 - 保留差异：原生 `/model` 与 `/scoped-models` 统一优先显示名称并保留 ID/provider；支持 picker-local thinking 草稿、确认/取消及能力限制；带定向回归。
 - 原始会话 fixture 不带入；大型压缩测试改为合成数据。未导入上游 Git 历史、个人状态、安装目录、CI 发布配置或 agent 指令。其余源码与开发 workspace 保留，实验性 server/client 不随 rotom 发行。
 - `packages/ai/src/providers/data/` 来自官方 `@earendil-works/pi-ai@1.0.4` 发行包，是固定的公开模型目录输入；`FORK.json` 记录导入摘要。普通构建不联网刷新模型，不代表目录中的每个模型都由 rotom 启用。
