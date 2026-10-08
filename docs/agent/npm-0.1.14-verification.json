@@ -1,0 +1,42 @@
+{
+  "state": "published-and-globally-installed",
+  "package": "@bingjiang0611/rotom",
+  "version": "0.1.14",
+  "tag": "latest",
+  "sourceCommit": "a972f955960530aa2fee0598c24f6d30a4fcb9e9",
+  "sha256": "708cc3b67fd9985768a1298829f5cdcdc61bf541a09774f3346620b3138163a5",
+  "shasum": "22670e5b38f729f8d443737641ccfaa00655f6b1",
+  "integrity": "sha512-SQJ5yCyeFZlzGJpuIwMSgjnvS/sgtJ4Py3KxqjcmwMu8h/eVX8ZBTdrKoXL9cBVGVZk2IMrtBLg0uATKPV9daA==",
+  "tarball": "https://registry.npmjs.org/@bingjiang0611/rotom/-/rotom-0.1.14.tgz",
+  "fileCount": 18804,
+  "compressedBytes": 52763074,
+  "unpackedBytes": 169220570,
+  "checks": {
+    "productTests": "312 passed against actual installed tgz Pi executable",
+    "goalTests": "70 passed against actual installed tgz Pi executable",
+    "offlineProviderGates": "9 PASS",
+    "defaultAndFullInstalledSdkSmoke": "PASS; two faux calls each, zero lifecycle errors",
+    "footprintContracts": "PASS; normalized schemas 22479 / 37342 UTF-8 bytes",
+    "isolatedUpgrade": "0.1.13 to actual 0.1.14 tgz PASS",
+    "isolatedUninstall": "PASS; user-state marker retained",
+    "publicHistoryAudit": "PASS; 1088 MiB approved budget, zero findings",
+    "actualArtifactPrivacyAudit": "PASS; zero findings",
+    "retiredImplementationInventory": "no classifier or virtual routing implementation files"
+  },
+  "registryVerified": true,
+  "globalInstall": {
+    "previousVersion": "0.1.9",
+    "version": "0.1.14",
+    "piFork": "1.0.4-rotom.1",
+    "command": "npm install --global <verified-tgz> --ignore-scripts --no-audit --no-fund",
+    "hotReplacementExplicitlyAccepted": true,
+    "existingSessionRestartRequired": true
+  },
+  "unverified": [
+    "live model/image services and costs",
+    "full terminal interactions",
+    "Chrome/devices",
+    "cross-platform"
+  ],
+  "temporaryAuthenticationCleanup": "user foreground terminal; pending"
+}
