@@ -24,7 +24,7 @@ MAX_ARCHIVE = 64 * 1024 * 1024
 # aggregate scan bounded without relaxing the per-file or archive-member caps;
 # Pi 1.0's committed archive generation exceeded 896 MiB. The maintainer
 # authorized one 64 MiB increment; further growth requires a new budget review.
-MAX_EXPANDED = 1024 * 1024 * 1024
+MAX_EXPANDED = 1088 * 1024 * 1024
 CREDENTIAL = re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|sk-(?:proj-|ant-)?[A-Za-z0-9_-]{25,}|AKIA[A-Z0-9]{16}|LTAI[A-Za-z0-9]{16,}|xox[baprs]-[A-Za-z0-9-]{20,})\b")
 PRIVATE_KEY = re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[A-Za-z0-9+/=\s]{64,}-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----")
 HOME_PATH = re.compile(r"(?:/Users/|/home/|[A-Z]:\\Users\\)([A-Za-z0-9_.-]+)")
