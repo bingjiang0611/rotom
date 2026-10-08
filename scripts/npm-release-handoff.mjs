@@ -3,7 +3,7 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { lstatSync, readFileSync, realpathSync } from "node:fs";
-import { basename, dirname, isAbsolute, resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const PACKAGE_NAME = "@bingjiang0611/rotom";
@@ -115,11 +115,9 @@ export async function verifyRelease(artifactInput, tagInput, fetchImpl = fetch) 
 export function handoffCommands(artifactInput, tagInput = "latest", scriptPath = fileURLToPath(import.meta.url)) {
 	const artifact = inspectArtifact(artifactInput);
 	const tag = validateTag(tagInput);
-	const repository = resolve(dirname(scriptPath), "..");
 	const helper = shellQuote(realpathSync(scriptPath));
 	const tgz = shellQuote(artifact.artifact);
-	const install = shellQuote(resolve(repository, "scripts/install-release.sh"));
-	return `# 请在同一个前台终端中逐段执行，保持下面的临时环境变量\n# 1) 无凭据只读检查：目标版本必须不存在\nnode ${helper} preflight ${tgz} ${shellQuote(tag)}\n\n# 2) 创建本次发布专用的私有 npm 配置，再由你完成网页登录\numask 077\nexport ROTOM_NPM_AUTH_DIR="$(mktemp -d \"\${TMPDIR:-/tmp}/rotom-npm-auth.XXXXXX\")"\nexport NPM_CONFIG_USERCONFIG="$ROTOM_NPM_AUTH_DIR/user.npmrc"\nexport NPM_CONFIG_GLOBALCONFIG="$ROTOM_NPM_AUTH_DIR/global.npmrc"\nexport NPM_CONFIG_CACHE="$ROTOM_NPM_AUTH_DIR/cache"\nexport ROTOM_RELEASE_CWD="$PWD"\nunset NPM_TOKEN NODE_AUTH_TOKEN\n: > "$NPM_CONFIG_USERCONFIG"\n: > "$NPM_CONFIG_GLOBALCONFIG"\ncd "$ROTOM_NPM_AUTH_DIR"\nnpm login --auth-type=web --registry=${REGISTRY}\nnpm whoami --registry=${REGISTRY}\n\n# 3) 不可逆发布：确认前两步通过后由你执行一次\nnpm publish ${tgz} --ignore-scripts --access public --tag ${shellQuote(tag)} --registry=${REGISTRY}\n\n# 4) 若遇到 EOTP，只完成 npm 输出的官方网页确认；先运行下面的只读核验，不要盲目重发 publish\nnode ${helper} verify ${tgz} ${shellQuote(tag)}\n\n# 5) 仅在 verify 显示 verified=true 后，由你切换本机版本\n${install} ${tgz}\nrotom --version --verbose\n\n# 6) 撤销并删除本次临时认证；whoami 失败是预期回读\nnpm logout --registry=${REGISTRY}\nif npm whoami --registry=${REGISTRY}; then echo 'credential cleanup unproven' >&2; else echo 'temporary npm credential removed'; fi\ncd "$ROTOM_RELEASE_CWD"\ncase "\${ROTOM_NPM_AUTH_DIR:-}" in */rotom-npm-auth.??????) rm -rf -- "$ROTOM_NPM_AUTH_DIR" ;; *) echo 'refusing unexpected auth directory' >&2 ;; esac\nunset ROTOM_NPM_AUTH_DIR ROTOM_RELEASE_CWD NPM_CONFIG_USERCONFIG NPM_CONFIG_GLOBALCONFIG NPM_CONFIG_CACHE`;
+	return `# 请在同一个前台终端中逐段执行，保持下面的临时环境变量\n# 1) 无凭据只读检查：目标版本必须不存在\nnode ${helper} preflight ${tgz} ${shellQuote(tag)}\n\n# 2) 创建本次发布专用的私有 npm 配置，再由你完成网页登录\numask 077\nexport ROTOM_NPM_AUTH_DIR="$(mktemp -d \"\${TMPDIR:-/tmp}/rotom-npm-auth.XXXXXX\")"\nexport NPM_CONFIG_USERCONFIG="$ROTOM_NPM_AUTH_DIR/user.npmrc"\nexport NPM_CONFIG_GLOBALCONFIG="$ROTOM_NPM_AUTH_DIR/global.npmrc"\nexport NPM_CONFIG_CACHE="$ROTOM_NPM_AUTH_DIR/cache"\nexport ROTOM_RELEASE_CWD="$PWD"\nunset NPM_TOKEN NODE_AUTH_TOKEN\n: > "$NPM_CONFIG_USERCONFIG"\n: > "$NPM_CONFIG_GLOBALCONFIG"\ncd "$ROTOM_NPM_AUTH_DIR"\nnpm login --auth-type=web --registry=${REGISTRY}\nnpm whoami --registry=${REGISTRY}\n\n# 3) 不可逆发布：确认前两步通过后由你执行一次\nnpm publish ${tgz} --ignore-scripts --access public --tag ${shellQuote(tag)} --registry=${REGISTRY}\n\n# 4) 若遇到 EOTP，只完成 npm 输出的官方网页确认；先运行下面的只读核验，不要盲目重发 publish\nnode ${helper} verify ${tgz} ${shellQuote(tag)}\n\n# 5) 仅在 verify 显示 verified=true 且退出其他存活 rotom 会话后，由你全局安装已验证的作用域包\nnpm install --global ${tgz} --ignore-scripts --no-audit --no-fund --registry=${REGISTRY}\nrotom --version --verbose\n\n# 6) 撤销并删除本次临时认证；whoami 失败是预期回读\nnpm logout --registry=${REGISTRY}\nif npm whoami --registry=${REGISTRY}; then echo 'credential cleanup unproven' >&2; else echo 'temporary npm credential removed'; fi\ncd "$ROTOM_RELEASE_CWD"\ncase "\${ROTOM_NPM_AUTH_DIR:-}" in */rotom-npm-auth.??????) rm -rf -- "$ROTOM_NPM_AUTH_DIR" ;; *) echo 'refusing unexpected auth directory' >&2 ;; esac\nunset ROTOM_NPM_AUTH_DIR ROTOM_RELEASE_CWD NPM_CONFIG_USERCONFIG NPM_CONFIG_GLOBALCONFIG NPM_CONFIG_CACHE`;
 }
 
 async function main() {

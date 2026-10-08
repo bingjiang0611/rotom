@@ -46,9 +46,10 @@ test("artifact inspection is canonical, bounded and identity preserving", (t) =>
 test("handoff prints phased maintainer commands without executing auth, publish or installation", (t) => {
 	const { artifact } = fixture(t);
 	const output = handoffCommands(artifact, "latest");
-	for (const phrase of ["npm login --auth-type=web", "npm whoami", "ROTOM_NPM_AUTH_DIR", "NPM_CONFIG_USERCONFIG", "unset NPM_TOKEN NODE_AUTH_TOKEN", " preflight ", "npm publish", " verify ", "install-release.sh", "rotom --version --verbose", "npm logout"]) assert.match(output, new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+	for (const phrase of ["npm login --auth-type=web", "npm whoami", "ROTOM_NPM_AUTH_DIR", "NPM_CONFIG_USERCONFIG", "unset NPM_TOKEN NODE_AUTH_TOKEN", " preflight ", "npm publish", " verify ", "npm install --global", "rotom --version --verbose", "npm logout"]) assert.match(output, new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 	assert.match(output, /不要盲目重发 publish/u);
-	assert.doesNotMatch(output, /osascript|open https|--otp/u);
+	assert.doesNotMatch(output, /osascript|open https|--otp|install-release\.sh/u);
+	assert.match(output, /退出其他存活 rotom 会话/u);
 });
 
 test("preflight proves absence and rejects an existing immutable version", async (t) => {
