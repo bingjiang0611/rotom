@@ -61,13 +61,14 @@ function createArmHarness(name: string, options: { withheldRule?: string; recons
 			: {}),
 		async modelRuntimeFactory({ product, configDir }) {
 			const piAiEntry = await findPiAiEntry(product.verified.packageRoot);
-			const { fauxAssistantMessage, fauxProvider } = await import(pathToFileURL(piAiEntry).href);
+			const { fauxAssistantMessage, fauxProvider, getSystemMessageText } = await import(pathToFileURL(piAiEntry).href);
 			const faux = fauxProvider({
 				provider: "dev-agent-hygiene-ablation-faux",
 				models: [{ id: "fixture", contextWindow: 64_000, maxTokens: 1_024 }],
 			});
-			faux.setResponses([(context: { systemPrompt?: string }) => {
-				capture.systemPrompts.push(context.systemPrompt ?? "");
+			faux.setResponses([(context: { messages: { role: string }[] }) => {
+				// Pi 1.x providers receive normalized transcript system messages, not Context.systemPrompt.
+				capture.systemPrompts.push(context.messages.filter((message) => message.role === "system").map(getSystemMessageText).join("\n\n"));
 				return fauxAssistantMessage("{}");
 			}]);
 			const modelRuntime = await product.runtime.ModelRuntime.create({

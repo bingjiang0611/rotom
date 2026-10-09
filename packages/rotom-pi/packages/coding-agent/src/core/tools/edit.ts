@@ -191,7 +191,18 @@ export function createEditToolDefinition(
 				const { bom, text: content } = splitBom(rawContent);
 				const originalEnding = detectLineEnding(content);
 				const normalizedContent = normalizeToLF(content);
-				const { baseContent, newContent } = applyEditsToNormalizedContent(normalizedContent, edits, path);
+				let prepared: ReturnType<typeof applyEditsToNormalizedContent>;
+				try {
+					prepared = applyEditsToNormalizedContent(normalizedContent, edits, path);
+				} catch (error) {
+					// Matching is pure and precedes writeFile. Never attach this receipt to
+					// write/abort errors: those may happen after the file was changed.
+					throw new Error(
+						`${error instanceof Error ? error.message : String(error)}\nNo edits were written by this call. Re-read the target before rebuilding the replacement.`,
+						{ cause: error },
+					);
+				}
+				const { baseContent, newContent } = prepared;
 				throwIfAborted();
 
 				const finalContent = bom + restoreLineEndings(newContent, originalEnding);

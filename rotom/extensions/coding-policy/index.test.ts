@@ -12,7 +12,7 @@ test("coding policy 只在编码工具激活时注入执行与证据范围约束
 	assert.equal(handler({ systemPrompt: "base" }), undefined);
 	const result = handler({ systemPrompt: "base", systemPromptOptions: { selectedTools: ["read", "bash", "edit"] } });
 	assert.equal(result.systemPrompt, `base\n\n${CODING_EXECUTION_HYGIENE_POLICY}`);
-	for (const required of ["Git repository root", "package.json scripts", "moving or renaming", "ripgrep exit 1", "prove the intended match is unique", "partial output, process state"]) assert.match(CODING_EXECUTION_HYGIENE_POLICY, new RegExp(required, "u"));
+	for (const required of ["Git repository root", "package.json scripts", "Reuse observed paths", "moving or renaming", "ripgrep exit 1", "prove the intended match is unique", "block index/location hint", "partial output, process state", "never replay an applied mutation", "Preserve exit status", "not whole-machine command arguments"]) assert.match(CODING_EXECUTION_HYGIENE_POLICY, new RegExp(required, "u"));
 	for (const required of ["verified scenario and artifact/version", "unverified cases/limits", "commit/install/push status separately", "unproven business outcomes remain unknown", "Do not execute extra external actions", "full-file parsing, full-content reading, and targeted sampling", "complete the source's pagination"]) {
 		assert.ok(result.systemPrompt.includes(required), `missing evidence boundary: ${required}`);
 	}

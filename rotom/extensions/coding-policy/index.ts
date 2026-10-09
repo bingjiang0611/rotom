@@ -3,12 +3,13 @@ import { piRuntimeDriftDiagnosis } from "./pi-runtime-drift.ts";
 import { toolErrorRepairHint } from "./repair-hints.ts";
 
 export const CODING_EXECUTION_HYGIENE_POLICY = `Coding execution hygiene:
-- Before the first code command or edit, establish the exact target Git repository root and effective cwd; never assume an aggregate launcher workspace is the target repository.
-- Preflight every referenced file, directory, script, and the target package's actual package.json scripts before invoking a command that depends on them.
+- Before the first code command or edit, establish the exact target Git repository root and effective cwd; never assume an aggregate launcher workspace is the target repository. Reuse that evidence until cwd or repository changes.
+- Preflight every referenced file, directory and the target package's actual package.json scripts by locating them before dependent commands; do not guess paths or script names. Reuse observed paths unless moves, deletions, branch changes or failed generation invalidate them.
 - After moving or renaming files, update all affected validation, test, and config paths before running those commands; never validate an obsolete path.
 - Treat ripgrep exit 1 as “no matches”, distinct from exit 2, syntax errors, and I/O failures; do not retry or report infrastructure failure without stderr evidence.
-- Before edit, read enough surrounding context to prove the intended match is unique; if it is ambiguous, narrow or re-read instead of issuing a broad replacement.
-- After a timeout, inspect partial output, process state, command scope/cwd, and whether work is still progressing before deciding to retry; never blindly repeat the same command.
+- Before edit, read enough surrounding context to prove the intended match is unique; if it is ambiguous, narrow or re-read instead of issuing a broad replacement. After a rejected edit, use its block index/location hint to read current text and rebuild the match, not replay stale oldText.
+- After a timeout, inspect partial output, process state, command scope/cwd, and whether work is still progressing before deciding to retry; never blindly repeat the same command. A failed response may follow a successful write: inspect the original target, and never replay an applied mutation merely because its follow-up check failed.
+- Keep output proportional to the question: inspect large diffs by changed file after a file/stat overview; query only relevant processes and aggregate counts/resource use, not whole-machine command arguments. For noisy checks, retain the full log and return status plus a bounded excerpt; read the relevant failure region before diagnosing. Preserve exit status when filtering output; a successful filter is not a successful check.
 - Scope completion claims to the verified scenario and artifact/version: report evidence, unverified cases/limits, and commit/install/push status separately when applicable. A build, passing short fixture, tool dispatch, or earlier version's test does not prove the current end-to-end workflow; unproven business outcomes remain unknown. Do not execute extra external actions merely to fill this report.
 - Distinguish full-file parsing, full-content reading, and targeted sampling. A parsed record count, summary, head/tail excerpt, or first recalled page is not a full read; complete the source's pagination before claiming full-content coverage, otherwise state the inspected scope.`;
 

@@ -1,0 +1,1922 @@
+{
+  "schema": "rotom-tool-efficiency-acceptance/v1",
+  "model": "openai-codex/gpt-6-astra",
+  "thinkingLevel": "low",
+  "rawResultBytesAreProviderTokens": false,
+  "costIsPricingEstimateNotInvoice": true,
+  "runs": [
+    {
+      "phase": "main",
+      "runId": "01a1203a-c4c6-7148-8ebf-9a4dc2d17c49",
+      "scenario": "locate-edit-verify",
+      "arm": "baseline-1",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": 1,
+        "toolCalls": 7,
+        "toolErrors": 0,
+        "resultBytes": 1891,
+        "compactCalls": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 8,
+      "assistantMessages": 8,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 4100,
+        "outputTokens": 431,
+        "totalTokens": 21811,
+        "toolCalls": 7,
+        "metadata": {
+          "cacheReadTokens": 17280,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.07983
+        }
+      },
+      "totalMs": 24155.349000000002,
+      "artifactSha256": {
+        "session.jsonl": "10ec6fbe1827a3f30cec9633b9a3c57c1e9fc3f3382f0f1ccb82dcbc378075a5",
+        "trace.jsonl": "860d5fe99f676f37bcc7e535221ab70a25577d06cfd7f3c8ad9da04bcc301bc5",
+        "trace-snapshot.json": "803640a8c214960fd344208f6191b98df497dcfd75563d2efe82137cc1945f2f"
+      }
+    },
+    {
+      "phase": "main",
+      "runId": "01a1203b-25e2-7513-9303-dc4bc54ea4d6",
+      "scenario": "locate-edit-verify",
+      "arm": "candidate-1",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": 1,
+        "toolCalls": 7,
+        "toolErrors": 0,
+        "resultBytes": 1356,
+        "compactCalls": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 6,
+      "assistantMessages": 6,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 3844,
+        "outputTokens": 449,
+        "totalTokens": 16069,
+        "toolCalls": 7,
+        "metadata": {
+          "cacheReadTokens": 11776,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.072666
+        }
+      },
+      "totalMs": 26274.802666999996,
+      "artifactSha256": {
+        "session.jsonl": "a48cdce14d8ffd4e047a871485fcad7b1f8818968515240b640020badfb7cb60",
+        "trace.jsonl": "da18471e42dbdb3cb1d4921d0b262fa26b6e8856c8b8b7d137822385f5de53cb",
+        "trace-snapshot.json": "ee91fed24f0afb5201cdcaaa987fe6aabc1929ee3ddafcb5ba760a8bb79a6c1d"
+      }
+    },
+    {
+      "phase": "main",
+      "runId": "01a1203b-89e4-7513-9303-dc4dbc6d69f5",
+      "scenario": "locate-edit-verify",
+      "arm": "candidate-2",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": 1,
+        "toolCalls": 7,
+        "toolErrors": 0,
+        "resultBytes": 1384,
+        "compactCalls": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 8,
+      "assistantMessages": 8,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 4186,
+        "outputTokens": 456,
+        "totalTokens": 21282,
+        "toolCalls": 7,
+        "metadata": {
+          "cacheReadTokens": 16640,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.0813
+        }
+      },
+      "totalMs": 26322.591625,
+      "artifactSha256": {
+        "session.jsonl": "4c3ee51ff707c5f9a80760e9af81439bd02d439726e1ee324d39a39aa5948380",
+        "trace.jsonl": "a17de66bc5c63a950a3576f16c32f8b129279589b8a93ed40c9f086873cdba34",
+        "trace-snapshot.json": "f503a91da6c0cc658e50ec3123e56df11e4cd541942aa5fe1b20962a03e08970"
+      }
+    },
+    {
+      "phase": "main",
+      "runId": "01a1203b-ed26-7148-8ebf-9a4ff5b82ed0",
+      "scenario": "locate-edit-verify",
+      "arm": "baseline-2",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": 1,
+        "toolCalls": 8,
+        "toolErrors": 0,
+        "resultBytes": 34346,
+        "compactCalls": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 7,
+      "assistantMessages": 7,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 14415,
+        "outputTokens": 407,
+        "totalTokens": 34278,
+        "toolCalls": 8,
+        "metadata": {
+          "cacheReadTokens": 19456,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.183956
+        }
+      },
+      "totalMs": 24068.182,
+      "artifactSha256": {
+        "session.jsonl": "419cd0945bb49625d3a28306d6fa2c9d812eff0ed2af4b231175128152701331",
+        "trace.jsonl": "7f9072da7939cb22d6dd321cefeeb30c115bf8677f4fee8ae097e18d265b1e6b",
+        "trace-snapshot.json": "b478cb1f86509974ec4e944646b1a72d750723089df814227f81dd85991bc8e0"
+      }
+    },
+    {
+      "phase": "main",
+      "runId": "01a1203c-4a90-7148-8ebf-9a519c08eb08",
+      "scenario": "failed-check-evidence",
+      "arm": "baseline-1",
+      "originalTestStatus": "failed",
+      "validation": {
+        "correct": false,
+        "filesIntact": true,
+        "checkRuns": 1,
+        "toolCalls": 4,
+        "toolErrors": 0,
+        "resultBytes": 988,
+        "compactCalls": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 4,
+      "assistantMessages": 4,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 3217,
+        "outputTokens": 353,
+        "totalTokens": 9970,
+        "toolCalls": 4,
+        "metadata": {
+          "cacheReadTokens": 6400,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.056220000000000006
+        }
+      },
+      "totalMs": 19007.919666999995,
+      "artifactSha256": {
+        "session.jsonl": "f7c5e16c57cb9161b11af7606ee5ebb946e8aeb474d2dee7c8920616a02ec01f",
+        "trace.jsonl": "d390a74760e3161ee5d93de30100f501f41e7d673e50c85be56a90c6b47dade6",
+        "trace-snapshot.json": "bd9ebd3718d61bfd9d42904349934233c113629b05fc9fec6bb7ce03933c8b8b"
+      }
+    },
+    {
+      "phase": "main",
+      "runId": "01a1203c-99d8-7513-9303-dc4f3a001bff",
+      "scenario": "failed-check-evidence",
+      "arm": "candidate-1",
+      "originalTestStatus": "failed",
+      "validation": {
+        "correct": false,
+        "filesIntact": true,
+        "checkRuns": 1,
+        "toolCalls": 5,
+        "toolErrors": 1,
+        "resultBytes": 1049,
+        "compactCalls": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 6,
+      "assistantMessages": 6,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 5947,
+        "outputTokens": 404,
+        "totalTokens": 15439,
+        "toolCalls": 5,
+        "metadata": {
+          "cacheReadTokens": 9088,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.08875799999999999
+        }
+      },
+      "totalMs": 22968.151499999993,
+      "artifactSha256": {
+        "session.jsonl": "61c463723270ce2799db6a39c70b39f46c47c4c77f3512a35b3899ff45b95e35",
+        "trace.jsonl": "abdf657dc84ad3b01381b12ceb7dc0bf482dea26bb8e9fb19c6c2841736cb95f",
+        "trace-snapshot.json": "baca1ce6375556cefcd5ac5477a2e1cee29f92c77ea8e6684ecab9f919f3a360"
+      }
+    },
+    {
+      "phase": "main",
+      "runId": "01a1203c-f24b-7513-9303-dc51c418e31c",
+      "scenario": "failed-check-evidence",
+      "arm": "candidate-2",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": 1,
+        "toolCalls": 4,
+        "toolErrors": 1,
+        "resultBytes": 742,
+        "compactCalls": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 5,
+      "assistantMessages": 5,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 3220,
+        "outputTokens": 363,
+        "totalTokens": 12543,
+        "toolCalls": 4,
+        "metadata": {
+          "cacheReadTokens": 8960,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.05931000000000001
+        }
+      },
+      "totalMs": 18184.506374999997,
+      "artifactSha256": {
+        "session.jsonl": "8662ff8cbbf900ed55b5fd87af0199ea322ee3c1a17f9250243374df646a1dd4",
+        "trace.jsonl": "ba47457d2401916a08bc8ce475a18b6c33edb9d1acc4f86d790a6b18a8622483",
+        "trace-snapshot.json": "abb366df1c4d998aeb7e4275a6b6b07a1100e146ed79945be66f18a966fcf783"
+      }
+    },
+    {
+      "phase": "main",
+      "runId": "01a1203d-3655-7148-8ebf-9a5286338da7",
+      "scenario": "failed-check-evidence",
+      "arm": "baseline-2",
+      "originalTestStatus": "failed",
+      "validation": {
+        "correct": false,
+        "filesIntact": true,
+        "checkRuns": 1,
+        "toolCalls": 4,
+        "toolErrors": 1,
+        "resultBytes": 1026,
+        "compactCalls": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 4,
+      "assistantMessages": 4,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 5460,
+        "outputTokens": 290,
+        "totalTokens": 9846,
+        "toolCalls": 4,
+        "metadata": {
+          "cacheReadTokens": 4096,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.07319600000000001
+        }
+      },
+      "totalMs": 15831.792874999985,
+      "artifactSha256": {
+        "session.jsonl": "a7212bb75227f564d3432c59c4012057a234781b40bbf175f1855259379e250a",
+        "trace.jsonl": "89670a68d73a50e74287587146ca698922c2ac557cd0a21b040bece70799c999",
+        "trace-snapshot.json": "c430456f6583721a1249eb094e88622b915744c607027078f7f95a5e8fe88aea"
+      }
+    },
+    {
+      "phase": "main",
+      "runId": "01a1203d-73a6-7148-8ebf-9a550b073132",
+      "scenario": "exact-source",
+      "arm": "baseline-1",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": null,
+        "toolCalls": 2,
+        "toolErrors": 0,
+        "resultBytes": 33071,
+        "compactCalls": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 3,
+      "assistantMessages": 3,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 9794,
+        "outputTokens": 1754,
+        "totalTokens": 15516,
+        "toolCalls": 2,
+        "metadata": {
+          "cacheReadTokens": 3968,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.189608
+        }
+      },
+      "totalMs": 38898.42275,
+      "artifactSha256": {
+        "session.jsonl": "f55eb30f84e6b279b657766b48373fe6b08e39f6217c23e1b0c1f6f437f9b2cc",
+        "trace.jsonl": "2b3cba6b4d0f15d6452b779f50a481351eb5db84f1bf0ada8f65d035574c6550",
+        "trace-snapshot.json": "a5ad69213191570b5ea8011e4edd0c528a24d9c715c24d43e2b325706e374663"
+      }
+    },
+    {
+      "phase": "main",
+      "runId": "01a1203e-0fd4-7513-9303-dc52101441a1",
+      "scenario": "exact-source",
+      "arm": "candidate-1",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": null,
+        "toolCalls": 2,
+        "toolErrors": 0,
+        "resultBytes": 33071,
+        "compactCalls": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 3,
+      "assistantMessages": 3,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 9919,
+        "outputTokens": 1754,
+        "totalTokens": 15897,
+        "toolCalls": 2,
+        "metadata": {
+          "cacheReadTokens": 4224,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.19111400000000003
+        }
+      },
+      "totalMs": 38882.718292000005,
+      "artifactSha256": {
+        "session.jsonl": "e26cafea956cf1f52f18be4cfe741d9dd817b2def9ea0277664e4d565a1ace9f",
+        "trace.jsonl": "ee81bd39b4ff75579e90a3a99028b2f2823150a9181ec3f0daea06cb62b7a081",
+        "trace-snapshot.json": "d0d52986f7743c59c62a3ca95f15b0bf4a0a8f21c1a7b05dc839ccc00c898b6e"
+      }
+    },
+    {
+      "phase": "main",
+      "runId": "01a1203e-a767-7513-9303-dc556d9ef0df",
+      "scenario": "exact-source",
+      "arm": "candidate-2",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": null,
+        "toolCalls": 2,
+        "toolErrors": 0,
+        "resultBytes": 33071,
+        "compactCalls": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 3,
+      "assistantMessages": 3,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 12088,
+        "outputTokens": 1754,
+        "totalTokens": 15890,
+        "toolCalls": 2,
+        "metadata": {
+          "cacheReadTokens": 2048,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.210628
+        }
+      },
+      "totalMs": 38899.37400000001,
+      "artifactSha256": {
+        "session.jsonl": "a6137476e3e2d72a028fd8a442e174374360019d1379c5de5e15bed3cceb7458",
+        "trace.jsonl": "cc59ecc9d62e5571e08894efbd9b0aae0330112eb42ccbc427000b5b2c622c8c",
+        "trace-snapshot.json": "5aa5d85988fc2294e470290155f21d7229b1e29c56f44b13e47463f446114cbd"
+      }
+    },
+    {
+      "phase": "main",
+      "runId": "01a1203f-3c0b-7148-8ebf-9a56d4ba8dc6",
+      "scenario": "exact-source",
+      "arm": "baseline-2",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": null,
+        "toolCalls": 2,
+        "toolErrors": 0,
+        "resultBytes": 33071,
+        "compactCalls": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 3,
+      "assistantMessages": 3,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 9801,
+        "outputTokens": 1754,
+        "totalTokens": 15523,
+        "toolCalls": 2,
+        "metadata": {
+          "cacheReadTokens": 3968,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.189678
+        }
+      },
+      "totalMs": 38228.56812499999,
+      "artifactSha256": {
+        "session.jsonl": "bfac99a346c10d82bb78a29cb65f0bf858234a3a4736755d52b979c5b541dce7",
+        "trace.jsonl": "65c8bea29e459439ce367c40b8ed5a885daa222e9af9dd9248c3b82b5a89594a",
+        "trace-snapshot.json": "67a5226081ea977535d23811d43167436f05929e78e9b21f7c61098804593b35"
+      }
+    },
+    {
+      "phase": "main",
+      "runId": "01a1203f-d0b2-7148-8ebf-9a58176a853f",
+      "scenario": "scoped-diff",
+      "arm": "baseline-1",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": null,
+        "toolCalls": 2,
+        "toolErrors": 0,
+        "resultBytes": 694,
+        "compactCalls": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 3,
+      "assistantMessages": 3,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 2630,
+        "outputTokens": 173,
+        "totalTokens": 6771,
+        "toolCalls": 2,
+        "metadata": {
+          "cacheReadTokens": 3968,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.038918
+        }
+      },
+      "totalMs": 10986.090250000008,
+      "artifactSha256": {
+        "session.jsonl": "e07248ee9116cc2d67d7def1b13f59961cb31cf33bfe94e431d237fab00cc130",
+        "trace.jsonl": "c27a6e73e176e1efbe0d9848d6102be644f9174708ba88a1d44268f9876fe088",
+        "trace-snapshot.json": "3f75567d0f70d5ffaa4c550b1842cba4aa336cbe9301b5ee59fdc09161a52994"
+      }
+    },
+    {
+      "phase": "main",
+      "runId": "01a12040-0091-7513-9303-dc578f050de4",
+      "scenario": "scoped-diff",
+      "arm": "candidate-1",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": null,
+        "toolCalls": 3,
+        "toolErrors": 0,
+        "resultBytes": 665,
+        "compactCalls": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 4,
+      "assistantMessages": 4,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 2912,
+        "outputTokens": 180,
+        "totalTokens": 9620,
+        "toolCalls": 3,
+        "metadata": {
+          "cacheReadTokens": 6528,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.044648
+        }
+      },
+      "totalMs": 13138.129666000023,
+      "artifactSha256": {
+        "session.jsonl": "e62080adfd33df02e80ebd5253eea472dda3a48c17ea6fc72506b11cd8fd3467",
+        "trace.jsonl": "7ff5c8dc078f3210339d9240ae0ea9ffe3d375bc0b23a4424ad345080069c7b1",
+        "trace-snapshot.json": "30fb1ae09f842a6e64ece151468ccc871d252517b06a37007e6029fe8c89aad4"
+      }
+    },
+    {
+      "phase": "main",
+      "runId": "01a12040-3259-7513-9303-dc5960e83f0c",
+      "scenario": "scoped-diff",
+      "arm": "candidate-2",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": null,
+        "toolCalls": 3,
+        "toolErrors": 0,
+        "resultBytes": 665,
+        "compactCalls": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 4,
+      "assistantMessages": 4,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 2988,
+        "outputTokens": 198,
+        "totalTokens": 9714,
+        "toolCalls": 3,
+        "metadata": {
+          "cacheReadTokens": 6528,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.046308
+        }
+      },
+      "totalMs": 13801.320583000022,
+      "artifactSha256": {
+        "session.jsonl": "d17aace9f946975f26e81e438095a7a0fb4fce59b31603f4dfd9f1f7e0af2e10",
+        "trace.jsonl": "1b55d154e47be93ce1bb94fc078799f995d1273663029d90f2646d76d2ac765a",
+        "trace-snapshot.json": "0e4acb09f0924b1ea13bfb437cc11db55d00c1afb599c0e14b6fac3c229103e3"
+      }
+    },
+    {
+      "phase": "main",
+      "runId": "01a12040-6576-7148-8ebf-9a5a989f4ec6",
+      "scenario": "scoped-diff",
+      "arm": "baseline-2",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": null,
+        "toolCalls": 3,
+        "toolErrors": 0,
+        "resultBytes": 735,
+        "compactCalls": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 4,
+      "assistantMessages": 4,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 4786,
+        "outputTokens": 195,
+        "totalTokens": 9205,
+        "toolCalls": 3,
+        "metadata": {
+          "cacheReadTokens": 4224,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.061834
+        }
+      },
+      "totalMs": 11601.704667000042,
+      "artifactSha256": {
+        "session.jsonl": "8d76b93e9b8e747e7bcb81d81891643430b95d380b290a4a008719a350195655",
+        "trace.jsonl": "5038a3d881b090423ac0fafe29b4296b338a2d523ca1fe018fb208021fdce14b",
+        "trace-snapshot.json": "cf2d38ab453a314c08520fcb086eb68c74f7853a98ba2321a0373d155ab4447c"
+      }
+    },
+    {
+      "phase": "main",
+      "runId": "01a12040-921c-7148-8ebf-9a5d47799c1f",
+      "scenario": "process-projection",
+      "arm": "baseline-1",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": null,
+        "toolCalls": 3,
+        "toolErrors": 0,
+        "resultBytes": 248,
+        "compactCalls": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 4,
+      "assistantMessages": 4,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 4918,
+        "outputTokens": 278,
+        "totalTokens": 9292,
+        "toolCalls": 3,
+        "metadata": {
+          "cacheReadTokens": 4096,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.06717600000000001
+        }
+      },
+      "totalMs": 15476.249249999993,
+      "artifactSha256": {
+        "session.jsonl": "b5b24d03ded5f157700e170c7ab8ffc84db695edec9a6c8386644667fe8ef661",
+        "trace.jsonl": "ad7c0ef609671d0f3fb3e01acb2bb6f0304d1d5832eb135f928e0b6a97458b95",
+        "trace-snapshot.json": "3d0b97d4446834d4a3c17af4dccad49393b06e20eecb0db58fd000c72319069a"
+      }
+    },
+    {
+      "phase": "main",
+      "runId": "01a12040-d251-7513-9303-dc5bd34bfefc",
+      "scenario": "process-projection",
+      "arm": "candidate-1",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": null,
+        "toolCalls": 3,
+        "toolErrors": 0,
+        "resultBytes": 261,
+        "compactCalls": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 4,
+      "assistantMessages": 4,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 4986,
+        "outputTokens": 247,
+        "totalTokens": 9713,
+        "toolCalls": 3,
+        "metadata": {
+          "cacheReadTokens": 4480,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.06669
+        }
+      },
+      "totalMs": 13610.776958000031,
+      "artifactSha256": {
+        "session.jsonl": "dce3f978952421e2b22394e630cab7324d0a1fffbc9ecca639f15c8fb10bd1fe",
+        "trace.jsonl": "9f4f094ff79ca8dd8e1e63004cfc58a84705f529ce2cf55acf9fe85518ca4787",
+        "trace-snapshot.json": "8ac44897fd11ff8732d1d0dea184c767c744acb280a791cc5ee0d683bfd7f165"
+      }
+    },
+    {
+      "phase": "main",
+      "runId": "01a12041-0769-7513-9303-dc5d751c8a2f",
+      "scenario": "process-projection",
+      "arm": "candidate-2",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": null,
+        "toolCalls": 3,
+        "toolErrors": 0,
+        "resultBytes": 272,
+        "compactCalls": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 4,
+      "assistantMessages": 4,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 2927,
+        "outputTokens": 245,
+        "totalTokens": 9700,
+        "toolCalls": 3,
+        "metadata": {
+          "cacheReadTokens": 6528,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.048048
+        }
+      },
+      "totalMs": 13214.591209000035,
+      "artifactSha256": {
+        "session.jsonl": "eff23ce9d7818223ecc3ef314644feeaa9d0a3555293b80672119ae3f0c56993",
+        "trace.jsonl": "0d8717f57e7626f8dfe7204c6e8b11f354fda7e163a5503f3f1b51b5b31a9f74",
+        "trace-snapshot.json": "d673619615ee890b361e02bf86c58ac1e2714d4894baf34cbfc4d212965a140f"
+      }
+    },
+    {
+      "phase": "main",
+      "runId": "01a12041-37ec-7148-8ebf-9a5eb3a00dbf",
+      "scenario": "process-projection",
+      "arm": "baseline-2",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": null,
+        "toolCalls": 3,
+        "toolErrors": 0,
+        "resultBytes": 307,
+        "compactCalls": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 4,
+      "assistantMessages": 4,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 2939,
+        "outputTokens": 308,
+        "totalTokens": 9391,
+        "toolCalls": 3,
+        "metadata": {
+          "cacheReadTokens": 6144,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.05093400000000001
+        }
+      },
+      "totalMs": 14017.647125000018,
+      "artifactSha256": {
+        "session.jsonl": "dd377d9e7495ac4c2139cab406e9d66cf001ad1db20e9a8c9af04b1e10064a06",
+        "trace.jsonl": "153588146c340fe893cdf561b36da13d58a67ec07025ebe174a8e6e3fe2e746b",
+        "trace-snapshot.json": "b54e9c5ae05315b4c453e1632216ccb346e87a84ee4b577311000d8b6a0e4f45"
+      }
+    },
+    {
+      "phase": "verified",
+      "runId": "01a12051-5313-76d3-980a-a438d90d80e9",
+      "scenario": "locate-edit-verify",
+      "arm": "baseline-1",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": 1,
+        "toolCalls": 7,
+        "toolErrors": 0,
+        "resultBytes": 1930,
+        "compactCalls": 0,
+        "editRejections": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 6,
+      "assistantMessages": 6,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 3824,
+        "outputTokens": 455,
+        "totalTokens": 16567,
+        "toolCalls": 7,
+        "metadata": {
+          "cacheReadTokens": 12288,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.07327800000000001
+        }
+      },
+      "totalMs": 22565.210333,
+      "artifactSha256": {
+        "session.jsonl": "58ddf38b3ddb05b8775df1138ff8859cb829c38a4cc051a8f247dc531d484888",
+        "trace.jsonl": "bb58a739807ab7bef22d65170322e4a4b0bb627f12a2f0735dc59e453c70dfe0",
+        "trace-snapshot.json": "d495faa414ed26af47c3f6d889690ba97331c5f99fe4129d64baaf220be338ef"
+      }
+    },
+    {
+      "phase": "verified",
+      "runId": "01a12051-b45d-7691-a2c3-6e1617fd2789",
+      "scenario": "locate-edit-verify",
+      "arm": "candidate-1",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": 1,
+        "toolCalls": 8,
+        "toolErrors": 0,
+        "resultBytes": 4158,
+        "compactCalls": 4,
+        "editRejections": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 9,
+      "assistantMessages": 9,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 5204,
+        "outputTokens": 426,
+        "totalTokens": 28542,
+        "toolCalls": 8,
+        "metadata": {
+          "cacheReadTokens": 22912,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.096252
+        }
+      },
+      "totalMs": 29456.083875000004,
+      "artifactSha256": {
+        "session.jsonl": "a10f35a7c945ba38b165c97bf6f28f399aa1ab278aabc5bd128cb5904a9dbb6d",
+        "trace.jsonl": "3b0e30b20102f266e3828889f46361a530dc4b1b4bac4314fb4d754067791d03",
+        "trace-snapshot.json": "59f4c0e2638e09418932dc83192a40266b649e5f475e2f2fe5f8ff29935c308f"
+      }
+    },
+    {
+      "phase": "verified",
+      "runId": "01a12052-1e96-7691-a2c3-6e198855671b",
+      "scenario": "locate-edit-verify",
+      "arm": "candidate-2",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": 1,
+        "toolCalls": 8,
+        "toolErrors": 0,
+        "resultBytes": 3829,
+        "compactCalls": 4,
+        "editRejections": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 9,
+      "assistantMessages": 9,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 5051,
+        "outputTokens": 424,
+        "totalTokens": 27235,
+        "toolCalls": 8,
+        "metadata": {
+          "cacheReadTokens": 21760,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.09347
+        }
+      },
+      "totalMs": 26188.136166000004,
+      "artifactSha256": {
+        "session.jsonl": "624a1fda2ea855c982e5de52dfb60207c7f44f61e5e829cb5120a385e0936262",
+        "trace.jsonl": "b0a0dc1d03d33a21f4647e4b2e586d872c935a947e1078d68a1be4551819698a",
+        "trace-snapshot.json": "937fb163eec51bd161d6b3e326f4013170d922c521f820bc27bbaeaa12a28060"
+      }
+    },
+    {
+      "phase": "verified",
+      "runId": "01a12052-81c6-76d3-980a-a43aef7fda07",
+      "scenario": "locate-edit-verify",
+      "arm": "baseline-2",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": 1,
+        "toolCalls": 8,
+        "toolErrors": 0,
+        "resultBytes": 1909,
+        "compactCalls": 0,
+        "editRejections": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 9,
+      "assistantMessages": 9,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 9694,
+        "outputTokens": 446,
+        "totalTokens": 25116,
+        "toolCalls": 8,
+        "metadata": {
+          "cacheReadTokens": 14976,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.13421600000000003
+        }
+      },
+      "totalMs": 27544.721000000005,
+      "artifactSha256": {
+        "session.jsonl": "c32545316268f5c3cd77dd43c458a0f5f29a4c1cb44b309b88c28317ec45659c",
+        "trace.jsonl": "adec1dfb904ed4b1e9eee43715bdeeb600fa6f19a00d7a82415f41d3324c6da7",
+        "trace-snapshot.json": "878eb6ad28ac5890b3e45862467d36fdb5dbab5b264f0bc45c4f5b57fadce6de"
+      }
+    },
+    {
+      "phase": "verified",
+      "runId": "01a12052-ecba-76d3-980a-a43de0ec5833",
+      "scenario": "failed-check-evidence",
+      "arm": "baseline-1",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": 1,
+        "toolCalls": 4,
+        "toolErrors": 0,
+        "resultBytes": 993,
+        "compactCalls": 0,
+        "editRejections": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 4,
+      "assistantMessages": 4,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 3197,
+        "outputTokens": 343,
+        "totalTokens": 9940,
+        "toolCalls": 4,
+        "metadata": {
+          "cacheReadTokens": 6400,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.05552000000000001
+        }
+      },
+      "totalMs": 18557.197040999992,
+      "artifactSha256": {
+        "session.jsonl": "5a198cbd13ce6d371fcfd73a59028df2e1d342708435de2e157192866ec9e19b",
+        "trace.jsonl": "bd0089c1cb0afd8d58ebca3a6bd9cbc6f08691575c686ddc3ec3e6add633426e",
+        "trace-snapshot.json": "f1acfd436e66a2fb21d7c86c7bc70f0b15084a772e45b2c17f531714e619abf0"
+      }
+    },
+    {
+      "phase": "verified",
+      "runId": "01a12053-3a42-7691-a2c3-6e1bfc6e23cd",
+      "scenario": "failed-check-evidence",
+      "arm": "candidate-1",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": 1,
+        "toolCalls": 6,
+        "toolErrors": 1,
+        "resultBytes": 3415,
+        "compactCalls": 3,
+        "editRejections": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 7,
+      "assistantMessages": 7,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 4445,
+        "outputTokens": 331,
+        "totalTokens": 19752,
+        "toolCalls": 6,
+        "metadata": {
+          "cacheReadTokens": 14976,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.075976
+        }
+      },
+      "totalMs": 21992.306415999992,
+      "artifactSha256": {
+        "session.jsonl": "93d3f128f883321a578b890036a07d09133449a378710f3b353b78ff5cb884a4",
+        "trace.jsonl": "8559a012f67381bb1d5c17706326b4e8baaa807ee9003ce957222a4aa2fbd4fa",
+        "trace-snapshot.json": "cbce089deb02ac0b5b7f18458b4a4a479c141031a1c1cb03432d74f673b25608"
+      }
+    },
+    {
+      "phase": "verified",
+      "runId": "01a12053-9065-7691-a2c3-6e1cefd3c0f6",
+      "scenario": "failed-check-evidence",
+      "arm": "candidate-2",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": 1,
+        "toolCalls": 4,
+        "toolErrors": 1,
+        "resultBytes": 3247,
+        "compactCalls": 3,
+        "editRejections": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 5,
+      "assistantMessages": 5,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 3910,
+        "outputTokens": 311,
+        "totalTokens": 14205,
+        "toolCalls": 4,
+        "metadata": {
+          "cacheReadTokens": 9984,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.06463400000000001
+        }
+      },
+      "totalMs": 21528.61154099999,
+      "artifactSha256": {
+        "session.jsonl": "5787b2ca6697e91bf391c689c01ded0eb073740081625fb91731d51ce3664792",
+        "trace.jsonl": "2a78d809c8c82e52578954c4c0ee7bde25282940053a9cb2bcbd1bc75d7795ca",
+        "trace-snapshot.json": "5992b8587a1ce191d5a0520d928f37c61ab135dde8a37f39bf4993e4fa5a06d0"
+      }
+    },
+    {
+      "phase": "verified",
+      "runId": "01a12053-e043-76d3-980a-a43e5b841d07",
+      "scenario": "failed-check-evidence",
+      "arm": "baseline-2",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": 1,
+        "toolCalls": 4,
+        "toolErrors": 0,
+        "resultBytes": 992,
+        "compactCalls": 0,
+        "editRejections": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 5,
+      "assistantMessages": 5,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 3368,
+        "outputTokens": 314,
+        "totalTokens": 12258,
+        "toolCalls": 4,
+        "metadata": {
+          "cacheReadTokens": 8576,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.057956
+        }
+      },
+      "totalMs": 19431.95304200001,
+      "artifactSha256": {
+        "session.jsonl": "ee539b7cd34f4e0f4c530e9e09c5121bf2a895ffef7c7adf0ef9361b9a074fe9",
+        "trace.jsonl": "befb79ea998324895b9cb98b92e73aba68dbe7c68b839537b3139f1c367244b8",
+        "trace-snapshot.json": "1677135b3968bd146f2443ba3c537e12a9b2b4d22969fbffc82ed18d25422746"
+      }
+    },
+    {
+      "phase": "verified",
+      "runId": "01a12054-2b48-76d3-980a-a44037a68997",
+      "scenario": "exact-source",
+      "arm": "baseline-1",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": null,
+        "toolCalls": 2,
+        "toolErrors": 0,
+        "resultBytes": 33071,
+        "compactCalls": 0,
+        "editRejections": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 3,
+      "assistantMessages": 3,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 11708,
+        "outputTokens": 1755,
+        "totalTokens": 15511,
+        "toolCalls": 2,
+        "metadata": {
+          "cacheReadTokens": 2048,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.206878
+        }
+      },
+      "totalMs": 38100.840832999995,
+      "artifactSha256": {
+        "session.jsonl": "a3e1aaa07e753893d4b57db2b5b876d217a0fde2470abf80a70eec71e157e9f5",
+        "trace.jsonl": "63df3efd6c69910ab0957534c157b0a8785a021d90c134436df44eb3c4107871",
+        "trace-snapshot.json": "c8f147d5eac56957990c185b20174694093f87189debcb88d7d7ee85504ba6bf"
+      }
+    },
+    {
+      "phase": "verified",
+      "runId": "01a12054-c466-7691-a2c3-6e1e174d7fd7",
+      "scenario": "exact-source",
+      "arm": "candidate-1",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": null,
+        "toolCalls": 2,
+        "toolErrors": 0,
+        "resultBytes": 33071,
+        "compactCalls": 1,
+        "editRejections": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 3,
+      "assistantMessages": 3,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 10017,
+        "outputTokens": 1759,
+        "totalTokens": 16256,
+        "toolCalls": 2,
+        "metadata": {
+          "cacheReadTokens": 4480,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.1926
+        }
+      },
+      "totalMs": 38100.15079200003,
+      "artifactSha256": {
+        "session.jsonl": "1708fb3a9a97c3c8607a972586e3f88af4d7e72b0cb309984aba6c309cc3f337",
+        "trace.jsonl": "9adddf5a6ce1441f2e9e5b7c9a41fb9814ed4c28609aa84b5107565bcdce039c",
+        "trace-snapshot.json": "097ec4e24cdbbde43d5bd45ccfffe0372e3433ae536d3573e2dce4d091a2d757"
+      }
+    },
+    {
+      "phase": "verified",
+      "runId": "01a12055-59ac-7691-a2c3-6e2187bcc7fe",
+      "scenario": "exact-source",
+      "arm": "candidate-2",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": null,
+        "toolCalls": 2,
+        "toolErrors": 0,
+        "resultBytes": 33071,
+        "compactCalls": 1,
+        "editRejections": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 3,
+      "assistantMessages": 3,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 10010,
+        "outputTokens": 1759,
+        "totalTokens": 16249,
+        "toolCalls": 2,
+        "metadata": {
+          "cacheReadTokens": 4480,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.19253000000000003
+        }
+      },
+      "totalMs": 39330.646707999986,
+      "artifactSha256": {
+        "session.jsonl": "adf74ff182d5949fa2f14780950744920d0a98b99bd79cdffadecb4975f9f5da",
+        "trace.jsonl": "b3e1ae2f8d01ac75b9e8586ddde06fad0f180434aa48476fa3357ea2ba464e60",
+        "trace-snapshot.json": "e17f3f27130ad3066a667587c00ed684d9a0f034a83c571b00bc2645d1dd053b"
+      }
+    },
+    {
+      "phase": "verified",
+      "runId": "01a12055-ef11-76d3-980a-a4434f4fa5cc",
+      "scenario": "exact-source",
+      "arm": "baseline-2",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": null,
+        "toolCalls": 2,
+        "toolErrors": 0,
+        "resultBytes": 33071,
+        "compactCalls": 0,
+        "editRejections": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 3,
+      "assistantMessages": 3,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 11843,
+        "outputTokens": 1755,
+        "totalTokens": 15518,
+        "toolCalls": 2,
+        "metadata": {
+          "cacheReadTokens": 1920,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.2081
+        }
+      },
+      "totalMs": 39585.909958000004,
+      "artifactSha256": {
+        "session.jsonl": "173cef434cc7cda5216d77aa33b9799f672d5badf86a0b75edcccc9e51935768",
+        "trace.jsonl": "d7ad5ccad2abf4ca810b2bfe2a2f31c893e486be01cf0e3a44cd98a2465ebb18",
+        "trace-snapshot.json": "d0d325ba133d31433e236451a99472fd19bf4171d9cbf9e1752b17acdd4ad7fd"
+      }
+    },
+    {
+      "phase": "verified",
+      "runId": "01a12056-8b9d-76d3-980a-a445a375b0ce",
+      "scenario": "scoped-diff",
+      "arm": "baseline-1",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": null,
+        "toolCalls": 2,
+        "toolErrors": 0,
+        "resultBytes": 624,
+        "compactCalls": 0,
+        "editRejections": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 3,
+      "assistantMessages": 3,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 2593,
+        "outputTokens": 157,
+        "totalTokens": 6718,
+        "toolCalls": 2,
+        "metadata": {
+          "cacheReadTokens": 3968,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.037748000000000004
+        }
+      },
+      "totalMs": 11749.186209000007,
+      "artifactSha256": {
+        "session.jsonl": "1c4ec3f82bdbe069cf4dee15a6c3cf77b19674236018974d2f88200f5d6a9045",
+        "trace.jsonl": "62350a11798c3249c7a57265ffd8c02618452804a01907d5230c357a54e09a80",
+        "trace-snapshot.json": "10a185648155a9c2fe4aa55086190dfdce2b9cbd71414f9d63e6feef21581743"
+      }
+    },
+    {
+      "phase": "verified",
+      "runId": "01a12056-bc54-7691-a2c3-6e23339042b7",
+      "scenario": "scoped-diff",
+      "arm": "candidate-1",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": null,
+        "toolCalls": 3,
+        "toolErrors": 0,
+        "resultBytes": 665,
+        "compactCalls": 2,
+        "editRejections": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 4,
+      "assistantMessages": 4,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 3012,
+        "outputTokens": 194,
+        "totalTokens": 10118,
+        "toolCalls": 3,
+        "metadata": {
+          "cacheReadTokens": 6912,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.04673200000000001
+        }
+      },
+      "totalMs": 17469.260083,
+      "artifactSha256": {
+        "session.jsonl": "eefa4a5514a5582634ac0353a7eef537f4db85df45ec88adde260343fbfab7fd",
+        "trace.jsonl": "1677c574e6c0c91c0131e5c1b220eb41c8312e767e763ccb4f22661f391c81a3",
+        "trace-snapshot.json": "17e9652f66f9a9bbb275c171b88a261ec5882ab0d88f59e600a46f9f897858bf"
+      }
+    },
+    {
+      "phase": "verified",
+      "runId": "01a12056-ffb7-7691-a2c3-6e248d558e42",
+      "scenario": "scoped-diff",
+      "arm": "candidate-2",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": null,
+        "toolCalls": 3,
+        "toolErrors": 0,
+        "resultBytes": 665,
+        "compactCalls": 2,
+        "editRejections": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 4,
+      "assistantMessages": 4,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 3084,
+        "outputTokens": 220,
+        "totalTokens": 10216,
+        "toolCalls": 3,
+        "metadata": {
+          "cacheReadTokens": 6912,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.048752000000000004
+        }
+      },
+      "totalMs": 15300.974875000014,
+      "artifactSha256": {
+        "session.jsonl": "87d704cf79ee91f3b917b0fc50547543968b615511b2c83b222e5f66c8972cb7",
+        "trace.jsonl": "f58b65776d5d660ab3838abbed6b9082cfe68c5a232afc0a7113b26b90bc192d",
+        "trace-snapshot.json": "18e9d158118c8186ec78b80730c1291e0490ec0a5f5020589e6602cac281adf9"
+      }
+    },
+    {
+      "phase": "verified",
+      "runId": "01a12057-3792-76d3-980a-a447746ca176",
+      "scenario": "scoped-diff",
+      "arm": "baseline-2",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": null,
+        "toolCalls": 3,
+        "toolErrors": 0,
+        "resultBytes": 537,
+        "compactCalls": 0,
+        "editRejections": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 4,
+      "assistantMessages": 4,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 2746,
+        "outputTokens": 181,
+        "totalTokens": 9071,
+        "toolCalls": 3,
+        "metadata": {
+          "cacheReadTokens": 6144,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.042654
+        }
+      },
+      "totalMs": 14820.11162500002,
+      "artifactSha256": {
+        "session.jsonl": "549441037d56ac56948218f8461a0c14ddb78abbdbacfd3da7edc7175ca59b34",
+        "trace.jsonl": "d118106491ada0c6d1257adff3f127a3022b8c5a79125e0c62e99bb59aca14be",
+        "trace-snapshot.json": "31163e04fe2326caed948ceb161c98e93a94f5e16e81e37b2135da1577a353b5"
+      }
+    },
+    {
+      "phase": "verified",
+      "runId": "01a12057-7199-76d3-980a-a4488dce0c09",
+      "scenario": "process-projection",
+      "arm": "baseline-1",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": null,
+        "toolCalls": 3,
+        "toolErrors": 0,
+        "resultBytes": 277,
+        "compactCalls": 0,
+        "editRejections": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 4,
+      "assistantMessages": 4,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 2848,
+        "outputTokens": 255,
+        "totalTokens": 9247,
+        "toolCalls": 3,
+        "metadata": {
+          "cacheReadTokens": 6144,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.047374
+        }
+      },
+      "totalMs": 15825.206208000018,
+      "artifactSha256": {
+        "session.jsonl": "4111ee955ee5115c221c3e6f737438b903a0b8eb825f7f33e28f01122bd0f0d4",
+        "trace.jsonl": "5740222a7dc906daed0c5510ba90cc05272e72c0f7f41aa78a80d836fd85f463",
+        "trace-snapshot.json": "34f6f4be9b21cbe503b65a88315dcdf01d691c279a2afb87ef917eacfd851d10"
+      }
+    },
+    {
+      "phase": "verified",
+      "runId": "01a12057-bf36-7691-a2c3-6e27082fbe18",
+      "scenario": "process-projection",
+      "arm": "candidate-1",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": null,
+        "toolCalls": 3,
+        "toolErrors": 0,
+        "resultBytes": 261,
+        "compactCalls": 3,
+        "editRejections": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 4,
+      "assistantMessages": 4,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 5343,
+        "outputTokens": 255,
+        "totalTokens": 10206,
+        "toolCalls": 3,
+        "metadata": {
+          "cacheReadTokens": 4608,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.070788
+        }
+      },
+      "totalMs": 19153.263707999955,
+      "artifactSha256": {
+        "session.jsonl": "c7d0fdfb2410c2cce42b6d797ae82158dc0711d75eefa753ebceb844e85b9bbf",
+        "trace.jsonl": "87267e645e32d43787691270724b6241d6116355534229fa15766c75055dbbfe",
+        "trace-snapshot.json": "f23c9f54bf59f68e2e9dc622490124f9aa12573520c779e68532f1d607d9a1b2"
+      }
+    },
+    {
+      "phase": "verified",
+      "runId": "01a12058-0dab-7691-a2c3-6e2994a6788a",
+      "scenario": "process-projection",
+      "arm": "candidate-2",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": null,
+        "toolCalls": 3,
+        "toolErrors": 0,
+        "resultBytes": 251,
+        "compactCalls": 3,
+        "editRejections": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 4,
+      "assistantMessages": 4,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 3033,
+        "outputTokens": 266,
+        "totalTokens": 10211,
+        "toolCalls": 3,
+        "metadata": {
+          "cacheReadTokens": 6912,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.050542000000000004
+        }
+      },
+      "totalMs": 19049.062832999974,
+      "artifactSha256": {
+        "session.jsonl": "a4dae14bf656fc5dbb606c1d4cb82155c116d0afe47faa003948bc289d19425f",
+        "trace.jsonl": "a6288a2c806c8e0b91211396d23328d6db479d6879e9d7e668e85751125261d7",
+        "trace-snapshot.json": "28c3c4149034505db8b3254e81fe678f887a4c97abf832301704dfcafd985af3"
+      }
+    },
+    {
+      "phase": "verified",
+      "runId": "01a12058-481a-76d3-980a-a44b5f810308",
+      "scenario": "process-projection",
+      "arm": "baseline-2",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": null,
+        "toolCalls": 3,
+        "toolErrors": 0,
+        "resultBytes": 266,
+        "compactCalls": 0,
+        "editRejections": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 4,
+      "assistantMessages": 4,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 4872,
+        "outputTokens": 250,
+        "totalTokens": 9218,
+        "toolCalls": 3,
+        "metadata": {
+          "cacheReadTokens": 4096,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.06531600000000001
+        }
+      },
+      "totalMs": 17626.22199999995,
+      "artifactSha256": {
+        "session.jsonl": "fa746105acb7673c83384969b6a505790e4886bc30d54a3589af529eeae83675",
+        "trace.jsonl": "0294832ee139206410c7d56213b406d6654762a7547a4829fae81c578bc1e5c6",
+        "trace-snapshot.json": "4b5b0d54c2b812bafc53378be5a4498d13af57ca857eb54c8752aa39417a27ac"
+      }
+    },
+    {
+      "phase": "verified",
+      "runId": "01a12058-9023-7691-a2c3-6e2af4660d21",
+      "scenario": "compact-success",
+      "arm": "candidate-1",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": 1,
+        "toolCalls": 8,
+        "toolErrors": 0,
+        "resultBytes": 4054,
+        "compactCalls": 4,
+        "editRejections": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 7,
+      "assistantMessages": 7,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 4941,
+        "outputTokens": 447,
+        "totalTokens": 22284,
+        "toolCalls": 8,
+        "metadata": {
+          "cacheReadTokens": 16896,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.088656
+        }
+      },
+      "totalMs": 24428.013708999963,
+      "artifactSha256": {
+        "session.jsonl": "06125277ae1170440cd817d6e921484c3d48be61143e94b6d9f4074015a02ddb",
+        "trace.jsonl": "82025483e28e7bb8e6269af3e693c2dc18d20c006d3f128c6931883c65cacf0e",
+        "trace-snapshot.json": "9b7a889fd6a859045de4348c61b79e936b18a98b2c77f9cf1147d6318f8080f5"
+      }
+    },
+    {
+      "phase": "verified",
+      "runId": "01a12058-ed20-7691-a2c3-6e2c51360828",
+      "scenario": "compact-success",
+      "arm": "candidate-2",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": 1,
+        "toolCalls": 8,
+        "toolErrors": 0,
+        "resultBytes": 3545,
+        "compactCalls": 1,
+        "editRejections": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 7,
+      "assistantMessages": 7,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 4747,
+        "outputTokens": 407,
+        "totalTokens": 21026,
+        "toolCalls": 8,
+        "metadata": {
+          "cacheReadTokens": 15872,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.083692
+        }
+      },
+      "totalMs": 24275.201875000028,
+      "artifactSha256": {
+        "session.jsonl": "7c9551822adbc2ea92f0673a0d14c6880eeca775fea0a2e116e06999c3f04f91",
+        "trace.jsonl": "2a654de0f78f027d34b1a32a46a9f58180f8bf781f0a95a33a229bdc79d68439",
+        "trace-snapshot.json": "aa72be24451182ae00ae42209b7116a9a6b00f35405b38e7555a5a691ca39e05"
+      }
+    },
+    {
+      "phase": "verified",
+      "runId": "01a12059-4b86-7691-a2c3-6e2f10b13136",
+      "scenario": "compact-failure",
+      "arm": "candidate-1",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": 1,
+        "toolCalls": 6,
+        "toolErrors": 1,
+        "resultBytes": 4192,
+        "compactCalls": 4,
+        "editRejections": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 7,
+      "assistantMessages": 7,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 4749,
+        "outputTokens": 371,
+        "totalTokens": 20992,
+        "toolCalls": 6,
+        "metadata": {
+          "cacheReadTokens": 15872,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.08191199999999998
+        }
+      },
+      "totalMs": 27401.313582999923,
+      "artifactSha256": {
+        "session.jsonl": "c27ef4082c8f4cf5b9bc57ee5c0cdcdbeec8c5f4d37160d6cbc37162ea259a32",
+        "trace.jsonl": "715636def75ca0d9f4784713424821ec465c9963c3238586049e837bef51eee2",
+        "trace-snapshot.json": "230bb1c82dc7e7eb19303fb9c25ea0d69eacae59f06a99d100ce3007bb426ccb"
+      }
+    },
+    {
+      "phase": "verified",
+      "runId": "01a12059-b9dc-7691-a2c3-6e3173d2e9f1",
+      "scenario": "compact-failure",
+      "arm": "candidate-2",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": 1,
+        "toolCalls": 6,
+        "toolErrors": 1,
+        "resultBytes": 4062,
+        "compactCalls": 4,
+        "editRejections": 0,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 7,
+      "assistantMessages": 7,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 4697,
+        "outputTokens": 377,
+        "totalTokens": 20946,
+        "toolCalls": 6,
+        "metadata": {
+          "cacheReadTokens": 15872,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.081692
+        }
+      },
+      "totalMs": 24820.52783300006,
+      "artifactSha256": {
+        "session.jsonl": "4a9a8699b62438829e8ecaa97a378412692956e5475ccc968cdaf5ffeb6044ab",
+        "trace.jsonl": "e8353d0d483c206f90e1d4076c2edc9a55508c6b71ef1b4043c75218d35b5203",
+        "trace-snapshot.json": "5144469529664ab748acd61a4e671a9df288055d6f87d308041c5a1a72dd12ba"
+      }
+    },
+    {
+      "phase": "verified",
+      "runId": "01a1205a-183c-7691-a2c3-6e336bf99cff",
+      "scenario": "stale-edit-recovery",
+      "arm": "candidate-1",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": null,
+        "toolCalls": 6,
+        "toolErrors": 1,
+        "resultBytes": 712,
+        "compactCalls": 1,
+        "editRejections": 1,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 7,
+      "assistantMessages": 7,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 5919,
+        "outputTokens": 244,
+        "totalTokens": 18195,
+        "toolCalls": 6,
+        "metadata": {
+          "cacheReadTokens": 12032,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.083422
+        }
+      },
+      "totalMs": 21416.49129200005,
+      "artifactSha256": {
+        "session.jsonl": "2d7d07edebb3fe7ee89e7c3c6f91f689289d95086d12680cfdc636e3ea92d105",
+        "trace.jsonl": "88da9e93b0fb54cbfade961d2d4cb2d46d37f3625112a503e8d00c796445c415",
+        "trace-snapshot.json": "5144469529664ab748acd61a4e671a9df288055d6f87d308041c5a1a72dd12ba"
+      }
+    },
+    {
+      "phase": "verified",
+      "runId": "01a1205a-6acd-7691-a2c3-6e34882d2a42",
+      "scenario": "stale-edit-recovery",
+      "arm": "candidate-2",
+      "originalTestStatus": "passed",
+      "validation": {
+        "correct": true,
+        "filesIntact": true,
+        "checkRuns": null,
+        "toolCalls": 6,
+        "toolErrors": 1,
+        "resultBytes": 712,
+        "compactCalls": 1,
+        "editRejections": 1,
+        "unneededProcessArguments": false
+      },
+      "modelRequestSpans": 7,
+      "assistantMessages": 7,
+      "assistantErrorsOrAborts": 0,
+      "usage": {
+        "provider": "openai-codex",
+        "model": "gpt-6-astra",
+        "inputTokens": 3615,
+        "outputTokens": 234,
+        "totalTokens": 18185,
+        "toolCalls": 6,
+        "metadata": {
+          "cacheReadTokens": 14336,
+          "cacheWriteTokens": 0,
+          "estimatedCostUsd": 0.06218599999999999
+        }
+      },
+      "totalMs": 25759.457166000037,
+      "artifactSha256": {
+        "session.jsonl": "912fb429fcfb0ef782181e690d9e385f084207ae1495641fa9b998b3b14bdc1c",
+        "trace.jsonl": "bb5a4945343627f2503a7e1602a861e18a464cc4bdd397913ec1b42d14cdc81b",
+        "trace-snapshot.json": "5297c69339c7644842ac0017f44e3dcf6cdda4e5e403076c2820766ce0c2bbf7"
+      }
+    }
+  ],
+  "totals": {
+    "pilot-excluded": {
+      "runs": 20,
+      "modelRequests": 91,
+      "assistantErrorsOrAborts": 0,
+      "toolCalls": 77,
+      "toolResultBytes": 178913,
+      "toolErrors": 3,
+      "compactCalls": 0,
+      "inputTokens": 115077,
+      "outputTokens": 11993,
+      "totalTokens": 277470,
+      "cacheReadTokens": 150400,
+      "estimatedCostUsd": 1.9008200000000002,
+      "wallMs": 437568.8885840001
+    },
+    "baseline": {
+      "runs": 10,
+      "modelRequests": 45,
+      "assistantErrorsOrAborts": 0,
+      "toolCalls": 38,
+      "toolResultBytes": 73670,
+      "toolErrors": 0,
+      "compactCalls": 0,
+      "inputTokens": 56693,
+      "outputTokens": 5911,
+      "totalTokens": 129164,
+      "cacheReadTokens": 66560,
+      "estimatedCostUsd": 0.9290400000000001,
+      "wallMs": 225806.558249
+    },
+    "candidate": {
+      "runs": 10,
+      "modelRequests": 52,
+      "assistantErrorsOrAborts": 0,
+      "toolCalls": 42,
+      "toolResultBytes": 82633,
+      "toolErrors": 2,
+      "compactCalls": 26,
+      "inputTokens": 53109,
+      "outputTokens": 5945,
+      "totalTokens": 162990,
+      "cacheReadTokens": 103936,
+      "estimatedCostUsd": 0.932276,
+      "wallMs": 247568.49699699995
+    },
+    "capability": {
+      "runs": 6,
+      "modelRequests": 42,
+      "assistantErrorsOrAborts": 0,
+      "toolCalls": 40,
+      "toolResultBytes": 17277,
+      "toolErrors": 4,
+      "compactCalls": 15,
+      "inputTokens": 28668,
+      "outputTokens": 2080,
+      "totalTokens": 121628,
+      "cacheReadTokens": 90880,
+      "estimatedCostUsd": 0.48156,
+      "wallMs": 148101.00545800006
+    }
+  },
+  "sourceReportSha256": {
+    "main": "cf5c2ad342c53ba6537e76ac715ee1fbe5710198a8efbaef9499e1beb48d15ce",
+    "verified": "77d5218d322b5ddc4763bafbfcdabd949c3ab63679cd23f87f0b9cbbf33fe39d"
+  },
+  "runtime": {
+    "baseline": {
+      "version": "1.0.4-rotom.2",
+      "sourceSha256": "e9376ae48d0c230695d72a176a9efbbd2de97d41e8c3819f7281bcf8ea481dcc",
+      "builderSha256": "ef3cc45a4280c4ab2a143ac973f2fd617d4c93d78aee4e676edec5cc7386a38e",
+      "installedSourceMatchesBuild": true,
+      "codingAgentArchiveIntegrity": "sha512-vJrfiRtjq9nwhi1PKEe0JejIyfJ9TuCNeLlwkivhhy9Tqf+LA54viBn2moDFVBlb/bMHQq+5XHJFAg/onpU4Qw==",
+      "codingPolicySha256": "0e22b87c91de706ee6b8d226e6513fc534c6fa675330f18787cb03d31b01b439"
+    },
+    "candidate": {
+      "version": "1.0.4-rotom.2",
+      "sourceSha256": "50f38de814acca0ba2fbbd6c48a246a51e5966afd1a6593cfd225cfc4594f39a",
+      "builderSha256": "ef3cc45a4280c4ab2a143ac973f2fd617d4c93d78aee4e676edec5cc7386a38e",
+      "installedSourceMatchesBuild": true,
+      "codingAgentArchiveIntegrity": "sha512-G/k7H5gdz7j8nP4q0y16gT1tNwlg0iz/eiLKN6bzCG78eJ/REN26AbY/HHxISy01CxdvtVlu1jXPIjYdQluwXA==",
+      "codingPolicySha256": "c79e0041c26ac76c1760dce96846472a7f8684f081b4bc2afea8c023bdf90748"
+    }
+  },
+  "deltasPercent": {
+    "toolCalls": 10.526315789473696,
+    "toolResultBytes": 12.16641780914891,
+    "inputTokens": -6.321768119520932,
+    "totalTokens": 26.18841163172401,
+    "cacheReadTokens": 56.15384615384615,
+    "estimatedCostUsd": 0.34831654180658145,
+    "wallMs": 9.637425465739913
+  }
+}

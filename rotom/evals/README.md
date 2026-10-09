@@ -88,6 +88,17 @@ dev-agent verifier 拒绝低于 `23.6.0` 的版本。
 
 `coding-execution-hygiene.eval.ts` 使用真实 baseline/candidate 产品资源和最小 `bash/edit` 工具面，固定评估目标 Git root/cwd、package script preflight、rename 后验证路径、`rg` exit 1、唯一 edit 上下文和 timeout 诊断六个维度，并检查用户排除的分层验证建议没有被引入。`browser-coordinate-click.eval.ts` 使用最小 Browser 工具面，固定评估 Canvas 坐标 fallback、stale screenshot、ref 优先和 hit-test mismatch fail-closed。两者默认各 2 次 paired、交替顺序；只证明固定决策题，不代替 Chrome relay 确定性 guard 或真实 Canvas L2/L3。
 
+### 真实工具输出与执行卫生：`tool-efficiency.eval.ts`
+
+仅经明确模型调用授权后启用。5 个实际工具任务、每臂 2 次、交替顺序，另有 3 个候选能力任务各 2 次（显式 compact 成功/失败与合成文件漂移恢复）。baseline/candidate 复用各自 launcher 的 installed/archive/source identity gate，不能仅凭相同版本号认定运行时相同；不注入假 bash/edit 返回。检查文件正确性、检查只执行一次、失败日志证据回读、逐字完整性、无关进程参数不进入输出，记录 raw tool-result bytes、调用数和 compact 使用次数。合成进程快照不是本机性能实测；bytes 不是 provider tokens。合同与边界见 [工具执行卫生与输出控制](../../docs/agent/tool-efficiency.md)。
+
+```sh
+ROTOM_EVAL_TOOL_EFFICIENCY=1 \
+ROTOM_EVAL_BASELINE_PRODUCT=/absolute/baseline/rotom \
+ROTOM_EVAL_CANDIDATE_PRODUCT=/absolute/candidate/rotom \
+npm run eval -- --provider=<provider> --model=<model> cases/tool-efficiency.eval.ts
+```
+
 ### 规则级消融：`coding-hygiene-rule-ablation.eval.ts`
 
 产品 A/B 只能回答“这个 build 是否合规”，不能回答“这 6 条规矩里哪几条真的改变了行为”——模型本来就会做的那几条，有没有 policy 分数都一样。该评测集因此每次撤掉一条规则并做配对比较，三臂共用 `src/coding-hygiene-cases.ts` 的题目与判分：
