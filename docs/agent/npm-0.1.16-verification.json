@@ -1,5 +1,5 @@
 {
-  "state": "published",
+  "state": "published-and-globally-installed",
   "package": "@bingjiang0611/rotom",
   "version": "0.1.16",
   "tag": "latest",
@@ -52,8 +52,18 @@
   "registryVerified": true,
   "registryVerification": "Exact version, latest tag, integrity, shasum, trusted tarball URL and downloaded bytes match the single frozen tgz",
   "globalInstall": {
-    "state": "not-performed-by-this-release-flow",
-    "existingSessionsMigrated": false
+    "state": "verified",
+    "previousVersion": "0.1.15",
+    "version": "0.1.16",
+    "piFork": "1.0.4-rotom.2",
+    "command": "npm install --global --prefix <existing-node-prefix> <verified-tgz> --ignore-scripts --no-audit --no-fund --offline",
+    "hotReplacementExplicitlyAccepted": true,
+    "existingSessionsTerminated": false,
+    "existingSessionsMigrated": false,
+    "credentialsAccessed": false,
+    "installCount": 1,
+    "readback": "public CLI version, command realpath, installed identity gate and fork metadata match the verified release",
+    "existingSessionRestartRequired": true
   },
   "unverified": [
     "live model services on the final release artifact",

@@ -1,6 +1,6 @@
 # rotom 0.1.16
 
-状态：已发布并独立核验 `0.1.16 / latest`。registry 的 version、dist-tag、integrity、shasum、可信 tarball URL 与下载字节全部匹配唯一最终 tgz；构建源及验证见 [发行证据](npm-0.1.16-verification.json)。包 `@bingjiang0611/rotom`，access `public`，许可证 `UNLICENSED`。本次流程未执行全局升级，存活会话不自动迁移。
+状态：已发布并独立核验 `0.1.16 / latest`。registry 的 version、dist-tag、integrity、shasum、可信 tarball URL 与下载字节全部匹配唯一最终 tgz；构建源及验证见 [发行证据](npm-0.1.16-verification.json)。包 `@bingjiang0611/rotom`，access `public`，许可证 `UNLICENSED`。已按用户明确授权，从已验证的固定 tgz 全局升级并回读 `rotom 0.1.16` / `Pi fork 1.0.4-rotom.2`；没有终止存活会话，也不把版本回读视为旧会话迁移。
 
 ## 发行说明
 
@@ -17,4 +17,4 @@
 
 构建首次因 npm 12.2 的 pack JSON 对象格式与现有数组合同不兼容，在 dry-run 阶段失败，未生成 tgz；最小复现后使用隔离 npm 11.13.0 成功构建。未修改全局 npm 或冻结源码。验证准备阶段补齐维护 workspace 依赖并移除错误继承的 observability 禁用变量，校正版本输出与 ESM 导入假设后通过；未修改产物、未重打包或放宽门禁。本次发行未新增真实模型、Chrome/设备或跨平台验收，源码阶段的真实模型结果不冒充最终产物的 L3 验证。
 
-npm 登录与 publish 由用户前台终端执行，Agent 未读取凭据；随后独立完成 registry 和下载字节核验。本机全局升级另行交接，安装后旧会话仍须重启。临时 npm 认证注销及删除待用户在原前台终端完成。
+npm 登录与 publish 由用户前台终端执行，Agent 未读取凭据；随后独立完成 registry 和下载字节核验。本次用户另行明确要求 Agent 直接升级并接受存活会话热替换风险；Agent 使用独立空 HOME/npm 配置/cache，在既有 Node 全局 prefix 对固定 tgz 执行一次离线安装，未读取认证或终止会话。命令 realpath、包版本、Pi identity gate 与 fork build metadata 回读一致。旧会话仍须重启才能完整加载新版本；以后不能沿用本次例外。临时 npm 认证注销及删除仍待用户在原前台终端完成。
