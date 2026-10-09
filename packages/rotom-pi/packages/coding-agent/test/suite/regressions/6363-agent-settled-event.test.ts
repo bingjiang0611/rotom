@@ -36,8 +36,8 @@ describe("regression #6363: agent settled event and idle waiting", () => {
 					pi.on("agent_end", () => {
 						extensionEvents.push("agent_end");
 					});
-					pi.on("agent_settled", (_event, ctx) => {
-						extensionEvents.push(`agent_settled:${ctx.isIdle()}`);
+					pi.on("agent_settled", (event, ctx) => {
+						extensionEvents.push(`agent_settled:${ctx.isIdle()}:${event.aborted}`);
 					});
 				},
 			],
@@ -56,8 +56,8 @@ describe("regression #6363: agent settled event and idle waiting", () => {
 		await harness.session.prompt("test");
 
 		expect(harness.eventsOfType("agent_end").map((event) => event.willRetry)).toEqual([true, false]);
-		expect(harness.eventsOfType("agent_settled")).toHaveLength(1);
-		expect(extensionEvents).toEqual(["agent_end", "agent_end", "agent_settled:true"]);
+		expect(harness.eventsOfType("agent_settled")).toEqual([{ type: "agent_settled", aborted: false }]);
+		expect(extensionEvents).toEqual(["agent_end", "agent_end", "agent_settled:true:false"]);
 		expect(publicEvents).toEqual(["agent_settled"]);
 	});
 

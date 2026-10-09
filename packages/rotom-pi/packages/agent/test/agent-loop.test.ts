@@ -4,10 +4,14 @@ import {
 	EventStream,
 	type Message,
 	type Model,
+	type ToolResultMessage,
 	type UserMessage,
 } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+afterEach(() => vi.restoreAllMocks());
+
 import { agentLoop, agentLoopContinue, runAgentLoop, runToolCall } from "../src/agent-loop.ts";
 import { setDefaultStreamFn } from "../src/index.ts";
 import type {
@@ -412,6 +416,68 @@ describe("agentLoop with AgentMessage", () => {
 		expect(toolResult?.role === "toolResult" ? toolResult.usage : undefined).toEqual(patchedToolUsage);
 	});
 
+	// #10549
+	it.each([false, true])("records execution duration, excluding hooks (throws: %s)", async (throws) => {
+		const toolSchema = Type.Object({ value: Type.String() });
+		let now = 0;
+		vi.spyOn(performance, "now").mockImplementation(() => now);
+		const tool: AgentTool<typeof toolSchema, { value: string }> = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo tool",
+			parameters: toolSchema,
+			async execute(_toolCallId, params) {
+				now += 30;
+				if (throws) throw new Error("tool failed");
+				return { content: [{ type: "text", text: params.value }], details: { value: params.value } };
+			},
+		};
+		const config: AgentLoopConfig = {
+			model: createModel(),
+			convertToLlm: identityConverter,
+			beforeToolCall: async ({ toolCall }) => {
+				now += 100;
+				return toolCall.id === "blocked" ? { block: true, reason: "no" } : undefined;
+			},
+			afterToolCall: async () => {
+				now += 100;
+			},
+		};
+		let callIndex = 0;
+		const streamFn = () => {
+			const stream = new MockAssistantStream();
+			queueMicrotask(() => {
+				const message =
+					callIndex === 0
+						? createAssistantMessage(
+								[
+									{ type: "toolCall", id: "ran", name: "echo", arguments: { value: "a" } },
+									{ type: "toolCall", id: "blocked", name: "echo", arguments: { value: "b" } },
+								],
+								"toolUse",
+							)
+						: createAssistantMessage([{ type: "text", text: "done" }]);
+				stream.push({ type: "done", reason: callIndex === 0 ? "toolUse" : "stop", message });
+				callIndex++;
+			});
+			return stream;
+		};
+		const stream = agentLoop([createUserMessage("go")], { messages: [], tools: [tool] }, config, undefined, streamFn);
+		const events: AgentEvent[] = [];
+		for await (const event of stream) events.push(event);
+		const results = (await stream.result()).filter(
+			(message): message is ToolResultMessage => message.role === "toolResult",
+		);
+		const [ran, blocked] = results;
+		expect(ran?.durationMs).toBe(30);
+		expect(ran?.isError).toBe(throws);
+		expect(blocked?.isError).toBe(true);
+		expect(blocked).not.toHaveProperty("durationMs");
+		const ends = events.filter((event) => event.type === "tool_execution_end");
+		expect(ends.find((event) => event.toolCallId === "ran")?.durationMs).toBe(ran?.durationMs);
+		expect(ends.find((event) => event.toolCallId === "blocked")).not.toHaveProperty("durationMs");
+	});
+
 	it("should stop before another provider request when a turn-end listener aborts", async () => {
 		const toolSchema = Type.Object({});
 		const tool: AgentTool<typeof toolSchema, Record<string, never>> = {
@@ -423,7 +489,7 @@ describe("agentLoop with AgentMessage", () => {
 				return { content: [{ type: "text", text: "recorded" }], details: {} };
 			},
 		};
-		const context: AgentContext = { systemPrompt: "", messages: [], tools: [tool] };
+		const context: AgentContext = { messages: [], tools: [tool] };
 		const config: AgentLoopConfig = {
 			model: createModel(),
 			convertToLlm: identityConverter,
@@ -460,7 +526,8 @@ describe("agentLoop with AgentMessage", () => {
 		);
 
 		expect(providerRequests).toBe(1);
-		expect(messages.map((message) => message.role)).toEqual(["user", "assistant", "toolResult"]);
+		// Pi 1.0 declares tools in a system message before the user prompt.
+		expect(messages.map((message) => message.role)).toEqual(["system", "user", "assistant", "toolResult"]);
 		expect(events.at(-1)?.type).toBe("agent_end");
 		expect(
 			events.some(

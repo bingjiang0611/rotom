@@ -16,6 +16,9 @@ const azurePeakLoadError =
 	"The system is currently experiencing high demand and cannot process your request. Your request exceeds the maximum usage size allowed during peak load. For improved capacity reliability, consider switching to Provisioned Throughput.";
 
 describe("provider retry classification", () => {
+	it.each(["server_busy", "Our servers are currently busy"])("retries transient load: %s", (errorMessage) => {
+		expect(isRetryableAssistantError(fauxAssistantMessage("", { stopReason: "error", errorMessage }))).toBe(true);
+	});
 	it("matches explicit provider retry guidance", () => {
 		expect(
 			isRetryableAssistantError(

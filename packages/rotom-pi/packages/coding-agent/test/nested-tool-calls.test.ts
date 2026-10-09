@@ -41,7 +41,7 @@ function createRunner(tools: AgentTool[], options: { sequential?: boolean } = {}
 				signal,
 				(partial) => void onUpdate(partial),
 			);
-			return { toolCall, result, isError: result.isError === true };
+			return { toolCall, result, isError: result.isError === true, durationMs: 42 };
 		},
 		emit: async (event) => {
 			events.push(event);
@@ -69,6 +69,9 @@ describe("NestedToolCallRunner", () => {
 		const missing = await runner.execute("call", "missing", {});
 
 		expect(first.toolCall.id).toBe("call/1");
+		const ends = events.filter((event) => event.type === "tool_execution_end");
+		expect(ends[0]?.durationMs).toBe(42);
+		expect(ends[1]).not.toHaveProperty("durationMs");
 		expect(missing).toMatchObject({ toolCall: { id: "call/2" }, isError: true });
 		expect(updates).toHaveLength(1);
 		expect(events.map((event) => [event.type, event.toolCallId, event.parentToolCallId])).toEqual([

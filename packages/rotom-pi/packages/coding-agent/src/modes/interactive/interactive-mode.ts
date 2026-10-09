@@ -167,9 +167,9 @@ import {
 	formatAuthSelectorProviderType,
 	OAuthSelectorComponent,
 } from "./components/oauth-selector.ts";
-import { RotomHeader } from "./components/rotom-header.ts";
 import { piLogoLines, piWordmark, supportsPiLogo } from "./components/pi-logo.ts";
 import { createLoginMenuSelector } from "./components/radius-login-selector.ts";
+import { RotomHeader } from "./components/rotom-header.ts";
 import { ScopedModelsSelectorComponent } from "./components/scoped-models-selector.ts";
 import { SessionSelectorComponent } from "./components/session-selector.ts";
 import { SettingsSelectorComponent } from "./components/settings-selector.ts";
@@ -1190,10 +1190,7 @@ export class InteractiveMode {
 			}
 		}
 
-		const resolution = resolveModelScopeFromModels(
-			scope.patterns,
-			this.session.modelRuntime.getAvailableSnapshot(),
-		);
+		const resolution = resolveModelScopeFromModels(scope.patterns, this.session.modelRuntime.getAvailableSnapshot());
 		if (resolution.scopedModels.length > 0) {
 			this.session.setScopedModels(resolution.scopedModels);
 		}
@@ -3737,7 +3734,7 @@ export class InteractiveMode {
 				if (event.isError) this.maybeShowInstallChangeWarning();
 				const component = this.pendingTools.get(event.toolCallId);
 				if (component) {
-					component.updateResult({ ...event.result, isError: event.isError });
+					component.updateResult({ ...event.result, isError: event.isError, durationMs: event.durationMs });
 					this.pendingTools.delete(event.toolCallId);
 					this.ui.requestRender();
 				}
@@ -4309,7 +4306,11 @@ export class InteractiveMode {
 		}
 		this.chatContainer.addChild(
 			new ThemedText(
-				() => theme.fg("warning", `This project is not trusted. Project ${CONFIG_DIR_NAME} resources and packages are ignored. Use /trust to save a trust decision, then restart ${APP_NAME}.`),
+				() =>
+					theme.fg(
+						"warning",
+						`This project is not trusted. Project ${CONFIG_DIR_NAME} resources and packages are ignored. Use /trust to save a trust decision, then restart ${APP_NAME}.`,
+					),
 				1,
 				0,
 			),
@@ -4707,9 +4708,11 @@ export class InteractiveMode {
 
 	showNewVersionNotification(release: LatestPiRelease): void {
 		const rotomVersion = getRotomVersion();
-		const updateInstruction = () => rotomVersion
-			? theme.fg("muted", `rotom ${rotomVersion} → ${release.version}\n${ROTOM_UPDATE_GUIDANCE}`)
-			: theme.fg("muted", `New version ${release.version} is available. Run `) + theme.fg("accent", `${APP_NAME} update`);
+		const updateInstruction = () =>
+			rotomVersion
+				? theme.fg("muted", `rotom ${rotomVersion} → ${release.version}\n${ROTOM_UPDATE_GUIDANCE}`)
+				: theme.fg("muted", `New version ${release.version} is available. Run `) +
+					theme.fg("accent", `${APP_NAME} update`);
 		const changelogUrl = rotomVersion ? ROTOM_PACKAGE_URL : "https://pi.dev/changelog";
 		const changelogLine = () => {
 			const changelogLink = getCapabilities().hyperlinks
@@ -4722,7 +4725,12 @@ export class InteractiveMode {
 		this.chatContainer.addChild(new Spacer(1));
 		this.chatContainer.addChild(new DynamicBorder((text) => theme.fg("warning", text)));
 		this.chatContainer.addChild(
-			new ThemedText(() => `${theme.bold(theme.fg("warning", rotomVersion ? "rotom update available" : "Update Available"))}\n${updateInstruction()}`, 1, 0),
+			new ThemedText(
+				() =>
+					`${theme.bold(theme.fg("warning", rotomVersion ? "rotom update available" : "Update Available"))}\n${updateInstruction()}`,
+				1,
+				0,
+			),
 		);
 		if (note) {
 			this.chatContainer.addChild(new Spacer(1));

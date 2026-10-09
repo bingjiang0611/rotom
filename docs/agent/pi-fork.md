@@ -3,11 +3,15 @@
 ## 当前合同
 
 - 源码：`packages/rotom-pi/`，上游 revision 和导入差异见 `FORK.json`，维护流程见 `ROTOM-FORK.md`。不复制上游 Git 历史或维护者安装；录制会话 fixture 已替换/省略。
-- runtime：`rotom/runtime/pi/`，八包版本 `1.0.4-rotom.1`，来源摘要与各归档 integrity 见 `fork-build.json`，由 product config 锚定。保留上游包名、普通聊天/图片 API、配置/会话格式与 MIT 许可证；分类器和虚拟自动路由 API/实现已删除。旧路由扩展须停用或迁移，历史会话记录不删除。
+- runtime：`rotom/runtime/pi/`，八包版本 `1.0.4-rotom.2`，来源摘要与各归档 integrity 见 `fork-build.json`，由 product config 锚定。保留上游包名、普通聊天/图片 API、配置/会话格式与 MIT 许可证；分类器和虚拟自动路由 API/实现已删除。旧路由扩展须停用或迁移，历史会话记录不删除。
 - 构建：`cd rotom && npm run build:pi`，从 Git 可见源码清单复制到隔离 staging，按 lock 新安装并 offline build；不复制 ignored state、node_modules 或旁边的 Pi checkout。fork 内部包从本地归档安装，其他依赖锁定公共 registry。
 - 打包：`npm run check:pi && npm run test:distribution`，再 `npm run pack:release -- /absolute/output-directory`。源码/构建器漂移需重建；archive/lock/source/version/installed identity 或 canonical 路径漂移均阻断，不回退官方/全局/旁路 Pi。
 - 安装：用 `scripts/install-release.sh` 安装新版本目录并只切换命令链接。升级走新的 rotom 发行包；不要用 Pi 自更新命令替换内置 fork。`ROTOM_PI` 仍为显式维护覆盖。
 - 产品源码在 `rotom/`，Pi **维护源码**在仓库的 `packages/rotom-pi/`；npm 产品只携带构建后的独立 runtime，不要求用户编译。
+
+## Pi 1.1 定向修复
+
+`1.0.4-rotom.2` 的范围、兼容性与本次验证见 [Pi 1.1 backports](pi-1.1-backports.md)。不恢复分类器/虚拟自动路由，不代表完整上游 1.1.0 升级或本机安装切换。
 
 ## Pi 1.0 迁移
 
