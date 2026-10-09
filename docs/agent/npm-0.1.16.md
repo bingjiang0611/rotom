@@ -1,6 +1,6 @@
 # rotom 0.1.16
 
-状态：用户已明确授权 `0.1.16 / latest`，发布准备中，尚未发布。包 `@bingjiang0611/rotom`，access `public`，许可证 `UNLICENSED`。
+状态：已发布并独立核验 `0.1.16 / latest`。registry 的 version、dist-tag、integrity、shasum、可信 tarball URL 与下载字节全部匹配唯一最终 tgz；构建源及验证见 [发行证据](npm-0.1.16-verification.json)。包 `@bingjiang0611/rotom`，access `public`，许可证 `UNLICENSED`。本次流程未执行全局升级，存活会话不自动迁移。
 
 ## 发行说明
 
@@ -13,6 +13,8 @@
 
 ## 发行边界
 
-从最新公开 main 的独立干净 clone 提交并冻结本次发布元数据；只对冻结 commit 成功构建一个最终 tgz。实际产物须完成隐私扫描、文件清单/摘要核验，以及隔离 HOME/prefix、PATH 无全局 Pi 的安装、版本、default/full SDK smoke、check-personal、0.1.15→0.1.16 升级及卸载验证。
+从最新公开 main 的独立干净 clone 冻结发布元数据，只对该 commit 成功构建一个最终 tgz。实际产物已通过隐私扫描、文件清单/摘要核验，以及隔离 HOME/prefix、PATH 无全局 Pi 的安装、版本、default/full SDK smoke、check-personal（312 产品测试、70 Goal 测试及 Provider/footprint 门禁）、0.1.15→0.1.16 升级与卸载验证。直接在 tgz 安装后的 SDK 验证了 compact 的 80 行上限、真实非零退出码、完整私有日志，以及 edit 拒绝后的文件未变。维护测试入口使用冻结 clone 和锁定依赖，Pi executable 来自实际安装包；产品 smoke 加载实际安装包资源。
 
-npm 认证与最终 publish 命令交给用户前台终端，Agent 不读取凭据；只有 registry version/tag/integrity/shasum、可信 tarball URL 和下载字节全部一致才记录正式发布完成。npm 审核中不得重发；本机全局升级及旧会话重启另行交接，不由发布授权自动推断。
+构建首次因 npm 12.2 的 pack JSON 对象格式与现有数组合同不兼容，在 dry-run 阶段失败，未生成 tgz；最小复现后使用隔离 npm 11.13.0 成功构建。未修改全局 npm 或冻结源码。验证准备阶段补齐维护 workspace 依赖并移除错误继承的 observability 禁用变量，校正版本输出与 ESM 导入假设后通过；未修改产物、未重打包或放宽门禁。本次发行未新增真实模型、Chrome/设备或跨平台验收，源码阶段的真实模型结果不冒充最终产物的 L3 验证。
+
+npm 登录与 publish 由用户前台终端执行，Agent 未读取凭据；随后独立完成 registry 和下载字节核验。本机全局升级另行交接，安装后旧会话仍须重启。临时 npm 认证注销及删除待用户在原前台终端完成。

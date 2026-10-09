@@ -1,0 +1,70 @@
+{
+  "state": "published",
+  "package": "@bingjiang0611/rotom",
+  "version": "0.1.16",
+  "tag": "latest",
+  "sourceCommit": "e39d9fd9574d194213efd4b775a71c43e2a7d921",
+  "sha256": "670cf2227cf3dd0ace1ec2ea5b33e4bb3902243aa00d3b795b1f43ebf74f76e7",
+  "shasum": "2d4fdaef8884d1b540fe4f90089f0f418ce701c6",
+  "integrity": "sha512-w1N3kOTtfJKFdmipym4QHF+0svMTLMX/efScuHouWmrtF1llZ4EeUl/C+HIog7pB5WtV6E82iT3XKPp5o5lQ/w==",
+  "tarball": "https://registry.npmjs.org/@bingjiang0611/rotom/-/rotom-0.1.16.tgz",
+  "fileCount": 18804,
+  "compressedBytes": 52783929,
+  "unpackedBytes": 169281725,
+  "buildToolchain": {
+    "node": "24.18.0",
+    "npm": "11.13.0",
+    "successfulFinalPacks": 1
+  },
+  "checks": {
+    "productTests": "312 passed with actual installed tgz Pi",
+    "goalTests": "70 passed with actual installed tgz Pi",
+    "offlineProviderAndFootprintGates": "PASS; frozen maintenance source and identified installed Pi; not live service validation",
+    "defaultAndFullInstalledSdkSmoke": "PASS; actual installed product resources, two faux calls each, zero lifecycle errors",
+    "installedCoreToolSmoke": {
+      "actualInstalledSdk": true,
+      "compact": true,
+      "excerptLines": 80,
+      "exitCode": 7,
+      "fullLogExact": true,
+      "privateLog": true,
+      "editNoWriteReceipt": true,
+      "fixtureUnchanged": true
+    },
+    "isolatedInstall": "PASS; isolated HOME/prefix/npm configuration, PATH without global Pi",
+    "isolatedUpgrade": "0.1.15 to exact 0.1.16 tgz PASS",
+    "isolatedUninstall": "PASS; binary and package absent",
+    "publicFrozenSourceAudit": {
+      "scope": "tree+history",
+      "files": 68117,
+      "bytes": 1157045933,
+      "commits": 118,
+      "findings": 0,
+      "approvedBoundMiB": 1152
+    },
+    "actualArtifactPrivacyAudit": {
+      "scope": "artifact",
+      "files": 21683,
+      "bytes": 273290661,
+      "findings": 0
+    }
+  },
+  "registryVerified": true,
+  "registryVerification": "Exact version, latest tag, integrity, shasum, trusted tarball URL and downloaded bytes match the single frozen tgz",
+  "globalInstall": {
+    "state": "not-performed-by-this-release-flow",
+    "existingSessionsMigrated": false
+  },
+  "unverified": [
+    "live model services on the final release artifact",
+    "full terminal interactions of the final release artifact",
+    "Chrome/devices",
+    "cross-platform"
+  ],
+  "temporaryAuthenticationCleanup": "user foreground terminal; pending",
+  "preparationCorrections": [
+    "npm 12.2 pack JSON object incompatible with array consumer: failed dry-run, no tgz created; reproduced minimally, isolated npm 11.13 array contract verified; one subsequent successful final pack",
+    "Maintenance source Vitest dependencies initially absent and observability-disable env incorrectly inherited by observability tests; installed locked workspace dependencies and removed disabling env for tests; final gate passed",
+    "Smoke harness assumptions corrected to CLI plain version and SDK Pi identity/import-only exports; no product edits or artifact repack"
+  ]
+}
