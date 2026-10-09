@@ -1,0 +1,41 @@
+{
+  "state": "published",
+  "package": "@bingjiang0611/rotom",
+  "version": "0.1.15",
+  "tag": "latest",
+  "sourceCommit": "25cec6e35f1df644689a6b69c2163a863c1917d4",
+  "sha256": "032e25037f171d6a8cce34d77fefd62382fbc46fbc1fe46c1f52816a0caa614f",
+  "shasum": "549fc21f7862578a4a7fdf394fa6f0182e626e7d",
+  "integrity": "sha512-nsSM0oFnNVfrG0leiqlfyR55VjCUj+OOnS3LY5/pe5hTWnaXyk/iRew1FINo8X14hwlL3xOUpM7chBsEZ8zI4w==",
+  "tarball": "https://registry.npmjs.org/@bingjiang0611/rotom/-/rotom-0.1.15.tgz",
+  "fileCount": 18804,
+  "compressedBytes": 52779331,
+  "unpackedBytes": 169274007,
+  "checks": {
+    "productTests": "312 passed with the actual installed tgz Pi executable",
+    "goalTests": "70 passed with the actual installed tgz Pi executable",
+    "offlineProviderGates": "9 PASS; source contracts plus the identified installed Pi, not live service validation",
+    "defaultAndFullInstalledSdkSmoke": "PASS; actual tgz product resources; two faux calls each, zero lifecycle errors",
+    "footprintContracts": "PASS; normalized schemas 22643 / 37506 UTF-8 bytes",
+    "isolatedInstall": "PASS; empty HOME/prefix/cache, offline installation, PATH without global Pi",
+    "isolatedUpgrade": "0.1.14 to actual 0.1.15 tgz PASS",
+    "isolatedUninstall": "PASS; user-state marker retained",
+    "publicHistoryAudit": "PASS; complete frozen-source tree+history under the approved 1088 MiB bound, zero findings",
+    "actualArtifactPrivacyAudit": "PASS; 21683 recursively inspected files, 273272787 bytes, zero findings"
+  },
+  "registryVerified": true,
+  "registryVerification": "Exact version, latest tag, integrity, shasum, trusted tarball URL and downloaded bytes match the single frozen tgz",
+  "globalInstall": {
+    "state": "pending-user-terminal",
+    "version": "0.1.15",
+    "piFork": "1.0.4-rotom.2",
+    "existingSessionRestartRequired": true
+  },
+  "unverified": [
+    "live model/image services and costs",
+    "full terminal interactions of the final release artifact",
+    "Chrome/devices",
+    "cross-platform"
+  ],
+  "temporaryAuthenticationCleanup": "user foreground terminal; pending"
+}
