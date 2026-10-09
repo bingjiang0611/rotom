@@ -1,5 +1,5 @@
 {
-  "state": "published",
+  "state": "published-and-globally-installed",
   "package": "@bingjiang0611/rotom",
   "version": "0.1.15",
   "tag": "latest",
@@ -26,9 +26,15 @@
   "registryVerified": true,
   "registryVerification": "Exact version, latest tag, integrity, shasum, trusted tarball URL and downloaded bytes match the single frozen tgz",
   "globalInstall": {
-    "state": "pending-user-terminal",
+    "state": "verified",
+    "previousVersion": "0.1.14",
     "version": "0.1.15",
     "piFork": "1.0.4-rotom.2",
+    "command": "npm install --global --prefix <existing-node-prefix> <verified-tgz> --ignore-scripts --no-audit --no-fund",
+    "hotReplacementExplicitlyAccepted": true,
+    "existingSessionsTerminated": false,
+    "credentialsAccessed": false,
+    "readback": "public CLI version, command realpath, installed package identity and fork build metadata match",
     "existingSessionRestartRequired": true
   },
   "unverified": [
