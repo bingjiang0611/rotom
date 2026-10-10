@@ -20,6 +20,13 @@ test("maintained Goal source and selected vendor archive are byte-identical", as
 	}
 });
 
+test("selected Subagent archive includes the current unknown-terminal projection fix", async () => {
+	const archive = join(source, VERIFIED_THIRD_PARTY_PACKAGES["pi-subagents"].archive);
+	const file = "src/runs/background/process-terminal.ts";
+	const tracked = resolve(import.meta.dirname, "../../packages/rotom-subagents", file);
+	assert.deepEqual(execFileSync("tar", ["-xOf", archive, `package/${file}`], { maxBuffer: 256_000 }), await readFile(tracked));
+});
+
 async function fixture(t) {
 	const root = await mkdtemp(join(tmpdir(), "dev-agent-archive-test-"));
 	t.after(() => rm(root, { recursive: true, force: true }));

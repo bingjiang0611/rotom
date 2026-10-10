@@ -12,7 +12,6 @@
  *   { "asyncByDefault": true, "defaultSubagentContext": "fork", "forceTopLevelAsync": true, "maxSubagentDepth": 1, "intercomBridge": { "mode": "always", "instructionFile": "./intercom-bridge.md" }, "worktreeSetupHook": "./scripts/setup-worktree.mjs" }
  */
 
-import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -32,10 +31,9 @@ import { createSubagentParamsSchema } from "./schemas.ts";
 import { createSubagentExecutor, type SubagentParamsLike } from "../runs/foreground/subagent-executor.ts";
 import { createAsyncJobTracker } from "../runs/background/async-job-tracker.ts";
 import { getActiveAsyncCapacitySnapshot, resolveMaxActiveAsyncRunsPerSession } from "../runs/background/active-async-capacity.ts";
-import { cleanupResultIndexes, missionObserverResultCandidateFiles } from "../runs/background/result-files.ts";
+import { cleanupResultIndexes } from "../runs/background/result-files.ts";
 import { ASYNC_RETENTION_DELAY_MS, cleanupAsyncRetention } from "../runs/background/async-retention.ts";
 import { createResultWatcher } from "../runs/background/result-watcher.ts";
-import { createScheduledRunManager } from "../runs/background/scheduled-runs.ts";
 import { registerSlashCommands } from "../slash/slash-commands.ts";
 import { registerPromptTemplateDelegationBridge } from "../slash/prompt-template-bridge.ts";
 import { registerMainWatchdog } from "../watchdog/register-main.ts";
@@ -52,14 +50,10 @@ import { drainOutstandingWork } from "../runs/background/auto-drain.ts";
 import registerSubagentNotify, { parseSubagentNotifyContent, type SubagentNotifyDetails } from "../runs/background/notify.ts";
 import { formatSteeringNotice, handleSubagentSteeringNotice, SUBAGENT_STEERING_MESSAGE_TYPE, type SubagentSteeringMessageDetails } from "./steering-notices.ts";
 import { SUBAGENT_CHILD_ENV, SUBAGENT_PARENT_SESSION_ENV } from "../runs/shared/pi-args.ts";
-import { resolveCurrentSubagentCapabilityCeiling } from "../runs/shared/capability-ceiling.ts";
 import { formatDuration, shortenPath } from "../shared/formatters.ts";
-import { loadConfig, resolveAsyncByDefault, resolveScheduledStoreRoot } from "./config.ts";
+import { loadConfig, resolveAsyncByDefault } from "./config.ts";
 import { buildSubagentToolDescription, buildSubagentToolPromptMetadata } from "./tool-description.ts";
-import { collectGoalContinuationNotices } from "../missions/goal-driver.ts";
 import { restoreForegroundRunHistory } from "../runs/foreground/foreground-history.ts";
-import { resolveMissionStoreLocation } from "../missions/store.ts";
-import { listRetainedChildren } from "../runs/background/retained-children.ts";
 import {
 	type Details,
 	type MainWindowRendererConfig,
@@ -467,31 +461,11 @@ export default function registerSubagentExtension(pi: ExtensionAPI): void {
 			await openSubagentFleet(ctx, state, { initialKey: itemKey, asyncDirRoot: DIRS.async, resultsDir: DIRS.results, fleetKeybindings: config.fleetKeybindings });
 		}, { placement: fleetViewPlacement })
 		: undefined;
-	let executorScheduled: ((id: string, params: SubagentParamsLike, signal: AbortSignal, ctx: ExtensionContext) => Promise<AgentToolResult<Details>>) | undefined;
-	let goalTurnId = 0;
 	let parentSessionEnvValue: string | null = null;
-	const scheduledStoreRoot = config.scheduledRuns?.storeRoot === undefined ? undefined : resolveScheduledStoreRoot(config.scheduledRuns.storeRoot);
-	const scheduledRunManager = createScheduledRunManager({
-		config,
-		storeRoot: scheduledStoreRoot,
-		launch: (params, ctx, signal) => {
-			if (!executorScheduled) {
-				return Promise.resolve({
-					content: [{ type: "text", text: "Scheduled subagent launch is unavailable (executor not ready)." }],
-					isError: true,
-					details: { mode: "management" as const, results: [] },
-				});
-			}
-			return executorScheduled(randomUUID(), params, signal, ctx);
-		},
-		resolveCapabilityCeiling: (sessionId) => resolveCurrentSubagentCapabilityCeiling(sessionId),
-	});
 	let refreshResultDelivery = () => {};
 	const hasResultDeliveryDemand = () => {
 		if ([...state.asyncJobs.values()].some((job) => job.status === "queued" || job.status === "running")) return true;
-		if (state.foregroundControls.size > 0) return true;
-		if (scheduledRunManager.observedCompletionRunIds().size > 0) return true;
-		return missionObserverResultCandidateFiles(DIRS.results).length > 0;
+		return state.foregroundControls.size > 0;
 	};
 	const { ensurePoller, refreshWidget, handleStarted, handleComplete, resetJobs, restoreActiveJobs, dispose: disposeAsyncJobTracker } = createAsyncJobTracker(pi, state, DIRS.async, {
 		widgetEnabled: asyncWidgetEnabled,
@@ -504,8 +478,6 @@ export default function registerSubagentExtension(pi: ExtensionAPI): void {
 		10 * 60 * 1000,
 		{
 			notifier: completionNotifier,
-			observeCompletion: (result) => scheduledRunManager.handleAsyncCompletion(result),
-			observedCompletionRunIds: () => scheduledRunManager.observedCompletionRunIds(),
 			hasDeliveryDemand: hasResultDeliveryDemand,
 			deliverIntercomResults: config.intercomBridge?.resultDelivery === true,
 		},
@@ -522,7 +494,6 @@ export default function registerSubagentExtension(pi: ExtensionAPI): void {
 				protectedRunIds: new Set([
 					...state.asyncJobs.keys(),
 					...(state.workflowControllers?.keys() ?? []),
-					...scheduledRunManager.referencedAsyncRunIds(),
 				]),
 			});
 		} catch (error) {
@@ -537,7 +508,6 @@ export default function registerSubagentExtension(pi: ExtensionAPI): void {
 		config,
 		asyncByDefault,
 		waitToolEnabled: waitToolConfig.enabled,
-		handleScheduledRunAction: (params, ctx) => scheduledRunManager.handleToolCall(params, ctx),
 		watchdog: mainWatchdog,
 		tempArtifactsDir,
 		getSubagentSessionRoot,
@@ -546,7 +516,6 @@ export default function registerSubagentExtension(pi: ExtensionAPI): void {
 		activateSupervisorTransport: () => supervisorChannel.activateTransport(),
 		refreshResultDelivery: () => refreshResultDelivery(),
 	});
-	executorScheduled = executor.executeScheduled;
 
 	pi.registerMessageRenderer<SlashMessageDetails>(SLASH_RESULT_TYPE, (message, options, theme) => {
 		const details = resolveSlashMessageDetails(message.details);
@@ -696,23 +665,6 @@ export default function registerSubagentExtension(pi: ExtensionAPI): void {
 
 	pi.on("agent_end", async (_event, ctx) => {
 		if (!ctx.hasUI) await drainOutstandingWork({ state, events: pi.events });
-		const ownerSessionId = state.currentSessionId;
-		if (!ownerSessionId) return;
-		goalTurnId += 1;
-		try {
-			const location = resolveMissionStoreLocation({ projectRoot: state.baseCwd, ...(config.missions ? { config: config.missions } : {}) });
-			const retainedChildren = listRetainedChildren(DIRS.async, ownerSessionId);
-			for (const notice of collectGoalContinuationNotices({ location, ownerSessionId, retainedChildren, turnId: goalTurnId })) {
-				handleSubagentControlNotice({
-					pi,
-					state,
-					visibleControlNotices: new Set(),
-					details: { source: "goal", event: notice.event, noticeText: notice.message },
-				});
-			}
-		} catch (error) {
-			console.error("Failed to evaluate goal missions:", error);
-		}
 	});
 
 	registerSlashCommands(pi, state, {
@@ -750,7 +702,6 @@ export default function registerSubagentExtension(pi: ExtensionAPI): void {
 		handleComplete(payload);
 		refreshResultDelivery();
 		refreshActiveAsyncCapacity();
-		scheduledRunManager.handleAsyncCompletion(payload);
 		fleetStatus?.refresh();
 	};
 	const eventUnsubscribes = [
@@ -819,7 +770,6 @@ export default function registerSubagentExtension(pi: ExtensionAPI): void {
 	const resetSessionState = (ctx: ExtensionContext, recovering: boolean) => {
 		state.widgetsSuspended = false;
 		state.baseCwd = ctx.cwd;
-		goalTurnId = 0;
 		state.currentSessionId = resolveCurrentSessionId(ctx.sessionManager);
 		state.parentSessionFile = ctx.sessionManager.getSessionFile();
 		state.trustedSessionRoots = [...new Set([
@@ -864,9 +814,6 @@ export default function registerSubagentExtension(pi: ExtensionAPI): void {
 		restoreActiveJobs(ctx);
 		logSlowPhase("active-job-restore", phaseStartedAt);
 		phaseStartedAt = Date.now();
-		scheduledRunManager.bindSession(ctx);
-		logSlowPhase("scheduled-runs", phaseStartedAt);
-		phaseStartedAt = Date.now();
 		restoreSlashFinalSnapshots(ctx.sessionManager.getEntries());
 		logSlowPhase("slash-snapshots", phaseStartedAt);
 		phaseStartedAt = Date.now();
@@ -895,7 +842,6 @@ export default function registerSubagentExtension(pi: ExtensionAPI): void {
 			stopResultWatcher();
 			completionNotifier.dispose();
 			mainWatchdog.dispose();
-			scheduledRunManager.stop();
 			supervisorChannel.dispose();
 			waitSubscriptionManager.dispose();
 			fleetStatus?.dispose();

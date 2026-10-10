@@ -307,14 +307,17 @@ export function finalizeProcessTerminal(
 				};
 			}
 		}
+		// Store and lease checks in the scoped projection can throw too. Keep
+		// them inside the evidence boundary so failure publishes unknown,
+		// rather than escaping the native close callback without a sidecar.
+		if (candidateForOverlay?.ownedExecution && candidateForOverlay.runId === runId && candidateForOverlay.runnerProcessInstanceId === runnerClose.processInstanceId) {
+			const candidate = candidateForOverlay;
+			const leaseFree = (!candidate.sessionFile || inspectSessionLease(candidate.sessionFile).state === "free")
+				&& (!candidate.revivalLeaseToken || candidate.revivalLeaseReleaseAcknowledged === true);
+			proof = { ...proof, ownedClosure: projectOwnedClosure(candidate.ownedExecution!, runnerClose, leaseFree) };
+		}
 	} catch (error) {
 		proof = unknownProof(runId, runnerClose.processInstanceId, "proof-write-failed", errorMessage(error));
-	}
-	if (candidateForOverlay?.ownedExecution && candidateForOverlay.runId === runId && candidateForOverlay.runnerProcessInstanceId === runnerClose.processInstanceId) {
-		const candidate = candidateForOverlay;
-		const leaseFree = (!candidate.sessionFile || inspectSessionLease(candidate.sessionFile).state === "free")
-			&& (!candidate.revivalLeaseToken || candidate.revivalLeaseReleaseAcknowledged === true);
-		proof = { ...proof, ownedClosure: projectOwnedClosure(candidate.ownedExecution!, runnerClose, leaseFree) };
 	}
 	let durable = false;
 	try {

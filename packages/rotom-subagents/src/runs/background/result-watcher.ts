@@ -22,8 +22,7 @@ import {
 import { projectNestedRegistryForRoot, sanitizeSummary } from "../shared/nested-events.ts";
 import { resolveWatchPath } from "../../shared/utils.ts";
 import { recordWaitCompletion } from "./wait-completions.ts";
-import { MISSION_BINDING_FILE, syncMissionFromAsyncCompletion } from "../../missions/lifecycle.ts";
-import { missionObserverResultCandidateFiles, promotePendingResultFile, removeMissionObserverIndex, removeResultIndex, resultCandidateFilesForSession, resultPayloadPathForIndexedRun, resultPayloadPathForMissionObserverRun, resultPayloadPathForSessionRun, writeAsyncResultFile, writeResultIndexForData } from "./result-files.ts";
+import { promotePendingResultFile, removeResultIndex, resultCandidateFilesForSession, resultPayloadPathForIndexedRun, resultPayloadPathForSessionRun, writeAsyncResultFile, writeResultIndexForData } from "./result-files.ts";
 import type { CompletionNotifier, CompletionNotification } from "./notify.ts";
 
 const WATCHER_RESTART_DELAY_MS = 3000;
@@ -242,8 +241,6 @@ export function createResultWatcher(
 		const runId = file.replace(/\.json$/i, "");
 		const sessionResult = state.currentSessionId ? resultPayloadPathForSessionRun(resultsDir, state.currentSessionId, runId) : undefined;
 		if (sessionResult) return sessionResult;
-		const observerResult = resultPayloadPathForMissionObserverRun(resultsDir, runId);
-		if (observerResult) return observerResult;
 		if (observed?.has(runId)) {
 			const indexedResult = resultPayloadPathForIndexedRun(resultsDir, runId);
 			if (indexedResult) return indexedResult;
@@ -303,7 +300,6 @@ export function createResultWatcher(
 		// files keep their existing diagnostics and compatibility behavior.
 		if (!identity.sessionId) return true;
 		if (identity.sessionId === state.currentSessionId && identity.completionOwnerId === state.completionOwnerId) return true;
-		if (identity.asyncDir && fsApi.existsSync(path.join(identity.asyncDir, MISSION_BINDING_FILE))) return true;
 		if (identity.runId && (observed ?? observedRunIds()).has(identity.runId)) return true;
 		return Boolean(deps.observeCompletion && !deps.observedCompletionRunIds);
 	};
@@ -396,18 +392,11 @@ export function createResultWatcher(
 			const toolCallId = typeof data.toolCallId === "string" ? data.toolCallId : undefined;
 			let observerSucceeded = true;
 			try {
-				syncMissionFromAsyncCompletion({ ...data, runId });
-			} catch (error) {
-				observerSucceeded = false;
-				console.error(`Mission completion sync failed for '${resultPath}':`, error);
-			}
-			try {
 				deps.observeCompletion?.({ ...data, runId });
 			} catch (error) {
 				observerSucceeded = false;
 				console.error(`Completion observer failed for '${resultPath}':`, error);
 			}
-			if (observerSucceeded) removeMissionObserverIndex(resultsDir, runId);
 			const epoch = deliveryEpoch;
 			if (!ownsCompletion(sessionId, completionOwnerId, epoch)) return;
 			// Recorded before dedupe and before the unlink below so subagent_wait can
@@ -612,7 +601,6 @@ export function createResultWatcher(
 			for (const file of resultCandidateFilesForSession(resultsDir, state.currentSessionId)) files.add(file);
 		}
 		for (const runId of state.asyncJobs.keys()) files.add(`${runId}.json`);
-		for (const file of missionObserverResultCandidateFiles(resultsDir)) files.add(file);
 		for (const runId of observed) files.add(`${runId}.json`);
 		return [...files];
 	};

@@ -1,10 +1,13 @@
 # Locked Subagent distribution
 
-The default product selects **`pi-subagents@0.52.1-rotom.3`**, independently maintained in the repository's `packages/rotom-subagents/`. New builds consume its reviewed archive, not installed source or a patch stack. This is a Subagent fork, not a Pi fork.
+The default product selects **`pi-subagents@0.52.1-rotom.5`**, independently maintained in the repository's `packages/rotom-subagents/`. New builds consume its reviewed archive, not installed source or a patch stack. This is a Subagent fork, not a Pi fork.
 
-- Archive: `pi-subagents-0.52.1-rotom.3.tgz`
-- SHA256: `bc3fb98eca833f79d1aa6c49040bed833f84f1621d8075485155aee8aeed5774`
-- SHA512 SRI: `sha512-iBYI5r33HveCRqjKflz0s9cHZ4m7OEc+gV6mg/dFTL83edW/2nyW1ZGANqC5QmhEb7aalwVzBNVzi4B054UooQ==`
+- Archive: `pi-subagents-0.52.1-rotom.5.tgz`
+- SHA256: `558daa602ce2efa96fdee0564f55bf1a07c166ef330056c922c3fd9bcbab1f5d`
+- SHA512 SRI: `sha512-MT2a8nF5ppzL8MGU+0mwMQpdx/cxtpFgny12EOC2FVt3J46gaCE1I5mUT6EU66rzI9pfJYnS55n3MgSxM+Gg8w==`
+- Source digest: `59e755f9c5dd6c317529d337a5da9894e8ef9ec7562e5074f4fc0fd32b29249c`
+
+This batch removes schedule execution and automatic goal-mission continuation, including legacy opt-out sessions; old data remains untouched. Targeted status uses bounded current-session output and native recovery preflight, which is not launch authorization. Shared legacy mission/inspector readers remain. Product schema and prompt guidance are scoped by the product wrapper; raw execution still passes the original fences.
 - Upstream: <https://github.com/nicobailon/pi-subagents>
 - License: MIT, Copyright (c) 2026 Nico Bailon. Original notice remains in `package/LICENSE`; provenance and maintenance notes are in `package/UPSTREAM.md`.
 - Source baseline: validated `0.52.1-dev-agent-owned-flat.7`; 213 TS and four existing mjs files retained byte-for-byte. The component has independent metadata, lockfile, tests and packaging. In `.rotom.1`, worker/scout/reviewer declare empty ambient extensions and fresh default context without expanding tools; explicit user/project overrides remain effective. `.rotom.3` explicitly loads the verified product Qoder provider for Qoder child models, preserving ambient isolation, tool ceilings, model choice and launch identity. Other custom providers still require explicit child configuration. Offline CLI/RPC coverage does not claim live inference acceptance.
@@ -14,6 +17,8 @@ The former `pi-subagents-0.52.1-rotom.0.tgz` and `pi-subagents-0.52.1-dev-agent-
 `package.json` keeps the exact version. `package-lock.json` resolves it to the relative archive. `runtime/product-config.mjs` pins source and integrity; the launcher rejects missing, linked, changed or mismatched archives. For a fresh source maintenance installation use `npm ci --ignore-scripts --omit=optional --legacy-peer-deps --replace-registry-host=never`, not `npm install` (which may resolve the custom version from a registry). **Do not run npm ci over a directory still used by live sessions.** Use a fresh product/prefix and leave the old files intact. Artifact users need no second extension installation: the locked dependencies are included.
 
 Do not use `--replace-registry-host=always`: npm 11 rewrites even local archive URLs into registry URLs. The product launcher now selects `owned-process-groups-v2` for new sessions and anchors its store under `~/.local/state/rotom/subagent-store`; see `node_modules/pi-subagents/docs/owned-execution.md` for the admitted topologies. That default neither migrates live sessions nor authorizes replay, and unknown ownership remains fenced. Unselected upstream tools/templates/skills remain disabled by product policy.
+
+The selected `.rotom.5` also includes the later terminal-projection fix: projection failure preserves unknown and observed closure evidence, never authorizing replay. It is subsequent development and is **not** included in the already frozen rotom 0.1.17 artifact. Component unit/SDK/type checks and current product gates are separate from the unavailable historical `test:compat` discovery path documented in the component README.
 
 ## Locked Computer Use distribution
 

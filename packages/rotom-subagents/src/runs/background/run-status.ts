@@ -7,14 +7,15 @@ import { formatAsyncResultTranscript, formatAsyncRunTranscript, formatNestedRunT
 import { formatNestedRunStatusLines } from "../shared/nested-render.ts";
 import { formatModelThinking } from "../../shared/formatters.ts";
 import { formatActivityLabel } from "../../shared/status-format.ts";
-import { DIRS, type AsyncStatus, type Details, type ForegroundResumeRun, type NestedRunSummary, type SteeringStatus, type SubagentState } from "../../shared/types.ts";
+import { DIRS, EXECUTION_STORE, type AsyncStatus, type Details, type ForegroundResumeRun, type NestedRunSummary, type SteeringStatus, type SubagentState } from "../../shared/types.ts";
 import { inspectActiveAsyncCapacityOwner, type ActiveAsyncCapacityInspection } from "./active-async-capacity.ts";
 import { readStatus } from "../../shared/utils.ts";
 import { resolveSubagentIntercomTarget } from "../../intercom/intercom-bridge.ts";
 import { resolveSubagentResultStatus } from "../../intercom/result-intercom.ts";
 import { readProcessTerminal, sanitizeProcessTerminal } from "./process-terminal.ts";
 import { formatWaitSubscriptions } from "./wait-subscriptions.ts";
-import { resolveAsyncRunLocation } from "./async-resume.ts";
+import { ownedClosureWasObserved } from "./owned-execution.ts";
+import { asyncReviveRequiresRecoveryDescriptor, resolveAsyncResumeTarget, resolveAsyncRunLocation } from "./async-resume.ts";
 import { resolveSubagentRunId } from "./run-id-resolver.ts";
 import { flatToLogicalStepIndex, normalizeParallelGroups } from "./parallel-groups.ts";
 import { reconcileAsyncRun, reconcileNestedAsyncDescendants } from "./stale-run-reconciler.ts";
@@ -108,30 +109,27 @@ function hasExistingSessionFile(value: unknown): value is string {
 	return typeof value === "string" && fs.existsSync(value);
 }
 
-function formatResumeGuidance(runId: string | undefined, children: Array<{ agent?: unknown; sessionFile?: unknown; runId?: unknown; workflowKey?: unknown; status?: unknown; activityState?: unknown }>, fallbackSessionFile?: unknown, options: { stopped?: boolean } = {}): string {
-	if (options.stopped) return "Resume: unavailable; stopped runs are not resumable. Start a new run instead.";
-	const knownChildren = children
-		.map((child, index) => ({ child, index }))
-		.filter(({ child }) => typeof child.agent === "string");
-	if (!runId || knownChildren.length === 0) return "Resume: unavailable; no child session file was persisted.";
-	const workflowChildren = knownChildren.filter(({ child }) => typeof child.runId === "string" && child.runId.trim() && hasExistingSessionFile(child.sessionFile));
-	const supervisorDetachedWorkflowChildren = workflowChildren.filter(({ child }) => child.status === "paused" && child.activityState === "needs_attention");
-	const resumableWorkflowChildren = workflowChildren.filter(({ child }) => !(child.status === "paused" && child.activityState === "needs_attention"));
-	if (workflowChildren.length > 0) {
-		return [
-			...supervisorDetachedWorkflowChildren.map(({ child }) => `Recovery workflow child${typeof child.workflowKey === "string" && child.workflowKey.trim() ? ` '${child.workflowKey}'` : ""}: reply to the supervisor request first, then wait with subagent_wait({ id: "${child.runId}" }). Use subagent({ action: "status", id: "${child.runId}" }) to recover the result; do not resume or launch a replacement while it remains detached.`),
-			...resumableWorkflowChildren.map(({ child }) => `Revive workflow child${typeof child.workflowKey === "string" && child.workflowKey.trim() ? ` '${child.workflowKey}'` : ""}: subagent({ action: "resume", id: "${child.runId}", message: "..." })`),
-		].join("\n");
+function formatOwnedClosure(proof: AsyncStatus["processTerminal"], runId: string): string {
+	try {
+		return ownedClosureWasObserved(proof?.ownedClosure, { runId, runnerProcessInstanceId: proof?.runnerProcessInstanceId ?? "" })
+			? "observed (historical registered-resource evidence only)"
+			: "unavailable";
+	} catch (error) {
+		return `unavailable (${safeTerminalText(error instanceof Error ? error.message : String(error))})`;
 	}
-	const singleSessionFile = knownChildren[0]?.child.sessionFile ?? fallbackSessionFile;
-	if (children.length === 1 && knownChildren.length === 1 && hasExistingSessionFile(singleSessionFile)) {
-		return `Revive: subagent({ action: "resume", id: "${runId}", message: "..." })`;
+}
+
+function formatAsyncResumeGuidance(params: RunStatusParams, deps: RunStatusDeps, runId: string): string {
+	// Use the actual resume preflight, not session-file existence or a task state.
+	// No writer/lease is acquired here; launch must recheck this snapshot.
+	try {
+		const target = resolveAsyncResumeTarget({ ...params, id: runId }, deps, { sessionId: deps.state?.currentSessionId ?? undefined });
+		if (target.kind === "live") return "Resume: unavailable while running; steer the original child instead.";
+		if (asyncReviveRequiresRecoveryDescriptor(target)) return "Resume: unavailable; missing recovery descriptor for the original child contract.";
+		return `Resume: preflight passed; not launch authorization. Closure, identity and canonical lease fences are rechecked at execution.\nContinue original run: subagent({ action: "resume", id: "${target.runId}", index: ${target.index}, message: "..." })`;
+	} catch (error) {
+		return `Resume: unavailable (${safeTerminalText(error instanceof Error ? error.message : String(error))}). Unknown work must not be replayed or replaced.`;
 	}
-	const childWithSession = knownChildren.find(({ child }) => hasExistingSessionFile(child.sessionFile));
-	if (childWithSession) {
-		return `Revive child: subagent({ action: "resume", id: "${runId}", index: ${childWithSession.index}, message: "..." })`;
-	}
-	return "Resume: unavailable; no child session file was persisted.";
 }
 
 function stepLineLabel(status: AsyncStatus, index: number): string {
@@ -207,6 +205,8 @@ function formatRememberedForegroundStatus(run: ForegroundResumeRun): string {
 	const resumable = run.children.find((child) => hasExistingSessionFile(child.sessionFile));
 	if (detached) {
 		lines.push(`Recovery: reply to the supervisor request first, then wait with subagent_wait({ id: "${run.runId}" }); do not resume or launch a replacement while any child remains detached.`);
+	} else if (EXECUTION_STORE.scope) {
+		lines.push("Resume: unavailable; owned foreground/workflow-child recovery is not admitted. Session-file existence does not authorize replay.");
 	} else if (resumable) {
 		lines.push(run.children.length === 1
 			? `Revive: subagent({ action: "resume", id: "${run.runId}", message: "..." })`
@@ -485,7 +485,8 @@ export function inspectSubagentStatus(params: RunStatusParams, deps: RunStatusDe
 				status.toolCallId ? `Tool call: ${status.toolCallId}` : undefined,
 				missionId ? `Mission: ${missionId}` : undefined,
 				`State: ${status.state}`,
-				processTerminal ? `Process terminal: ${processTerminal.state}${processTerminal.reason ? ` (${processTerminal.reason})` : ""}` : undefined,
+				`Process terminal: ${processTerminal ? formatProcessTerminal(processTerminal) : "unavailable"}; task state is not closure or effect verification.`,
+				`Registered-resource closure: ${formatOwnedClosure(processTerminal, status.runId)}; escaped descendants and business effects remain unverified.`,
 				status.capabilityCeiling ? `Capability ceiling: ${status.capabilityCeiling.allowedTools === undefined ? "names unrestricted" : status.capabilityCeiling.allowedTools.length === 0 ? "none" : status.capabilityCeiling.allowedTools.join(", ")}\nExtensions denied: ${status.capabilityCeiling.denyExtensions ? "yes" : "no"} (sources: ${status.capabilityCeiling.sources.join(", ")})` : undefined,
 				status.capabilityAudit ? `Capability audit: ${status.capabilityAudit.removedTools.length} tools removed, ${status.capabilityAudit.removedExtensionCount} extension entries removed` : undefined,
 				status.error ? `Error: ${status.error}` : undefined,
@@ -525,6 +526,8 @@ export function inspectSubagentStatus(params: RunStatusParams, deps: RunStatusDe
 				const display = step.label ? `${step.label} (${step.agent})` : step.agent;
 				const phase = step.phase ? `[${step.phase}] ` : "";
 				lines.push(`${stepLineLabel(status, index)}: ${phase}${display} ${step.status}${modelText}${stepActivityText ? `, ${stepActivityText}` : ""}${steeringSuffix}${acceptanceText}${budgetText}${errorText}`);
+				const task = step.description?.replace(/\s+/g, " ").trim();
+				lines.push(`  Task: ${task ? safeTerminalText(task.length > 240 ? `${task.slice(0, 239)}…` : task) : "(not recorded)"}`);
 				if (step.runner?.type === "external-cli") {
 					lines.push(`  Runner: external-cli (${step.runner.command}${step.runner.args.length ? ` ${step.runner.args.join(" ")}` : ""})`);
 					if (step.externalProcess?.pid !== undefined) lines.push(`  Process: ${step.externalProcess.pid}`);
@@ -561,13 +564,17 @@ export function inspectSubagentStatus(params: RunStatusParams, deps: RunStatusDe
 			if (status.sessionFile) lines.push(`Session: ${status.sessionFile}`);
 			const allExternal = (status.steps?.length ?? 0) > 0 && status.steps!.every((step) => step.runner?.type === "external-cli" || step.runner?.type === "external-job");
 			if (status.state === "running" && !allExternal && status.mode !== "workflow") lines.push(`Steer running child: subagent({ action: "steer", id: "${status.runId}", message: "..." })`);
-			if (status.state !== "running") {
-				lines.push(allExternal
-					? "Resume: unavailable; external runners do not persist Pi sessions."
-					: formatResumeGuidance(status.runId, status.steps ?? [], status.sessionFile, { stopped: status.state === "stopped" || status.stopped === true }));
-			}
+			if (status.state !== "running") lines.push(formatAsyncResumeGuidance({ ...params, dir: asyncDir }, deps, status.runId));
 			if (fs.existsSync(logPath)) lines.push(`Log: ${logPath}`);
 			if (fs.existsSync(eventsPath)) lines.push(`Events: ${eventsPath}`);
+			if (!currentSessionId || status.sessionId === currentSessionId) {
+				lines.push("", "Latest output (bounded tail, not a full transcript):");
+				try {
+					lines.push(formatAsyncRunTranscript(status, asyncDir, { index: params.index, lines: 8, sessionRoots: deps.sessionRoots }));
+				} catch (error) {
+					lines.push(`Output unavailable: ${safeTerminalText(error instanceof Error ? error.message : String(error))}`);
+				}
+			} else lines.push("Latest output: unavailable outside the current session.");
 
 			return { content: [{ type: "text", text: lines.join("\n") }], details: { mode: "single", results: [], ...(runFanoutBudget ? { runFanoutBudget } : {}), ...(processTerminal ? { lifecycleStatus: { processTerminal } } : {}) } };
 		}
@@ -610,8 +617,8 @@ export function inspectSubagentStatus(params: RunStatusParams, deps: RunStatusDe
 			const runId = data.runId ?? data.id ?? resolvedId;
 			const lines = [`Run: ${runId}`, data.toolCallId ? `Tool call: ${data.toolCallId}` : undefined, `State: ${status}`, `Result: ${resultPath}`].filter((line): line is string => Boolean(line));
 			if (data.parallelHandoff?.path) lines.push(`Parallel handoff: ${data.parallelHandoff.path}`);
-			const children = Array.isArray(data.results) ? data.results : data.agent ? [{ agent: data.agent, sessionFile: data.sessionFile }] : [];
-			lines.push(formatResumeGuidance(runId, children, data.sessionFile, { stopped: status === "stopped" }));
+			lines.push(`Process terminal: unavailable in this result-only view; task state is not closure or effect verification.`);
+			if (runId) lines.push(formatAsyncResumeGuidance(params, deps, runId));
 			if (data.summary) lines.push("", data.summary);
 			return { content: [{ type: "text", text: lines.join("\n") }], details: { mode: "single", results: [] } };
 		} catch (error) {

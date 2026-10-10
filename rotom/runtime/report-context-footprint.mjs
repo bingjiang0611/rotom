@@ -12,8 +12,10 @@ export const REFERENCE_CONTEXT_FOOTPRINT_V1 = {
 	referenceSystemPromptBytes: 27_314,
 };
 
-// Optional compact shell output adds 352 schema bytes and 227 guideline bytes,
-// measured on default/full/scoped SDK smoke. These are bytes, not provider tokens.
+// Shared Codemode description: +2 UTF-8 bytes for image-only APIs, then +164
+// for the Pi 1.1 async/output guidance. Optional compact shell output adds
+// 352 schema bytes and 227 guideline bytes, measured on default/full/scoped SDK smoke.
+// Preserve this checkout's Subagent contract; these are bytes, not provider tokens.
 export const CURRENT_RUNTIME_CONTEXT_CONTRACT_V1 = {
 	// Four stable Goal schemas, including explicit continuation. Measured by
 	// real SDK smoke, including the shared Browser expectation enum and operation
@@ -27,20 +29,18 @@ export const CURRENT_RUNTIME_CONTEXT_CONTRACT_V1 = {
 
 export const FULL_TOOL_CONTEXT_CONTRACT_V1 = {
 	activeToolCount: 25,
-	activeToolSchemaBytes: 37_858,
-	activeToolGuidelineBytes: 11_950,
+	activeToolSchemaBytes: 35_278,
+	activeToolGuidelineBytes: 9_979,
 	schemaPathNormalization: CURRENT_RUNTIME_CONTEXT_CONTRACT_V1.schemaPathNormalization,
 	note: "ROTOM_DEFERRED_TOOLS=0 restores the reviewed full startup surface for retained product tools, including the four stable Goal schemas. This contract is for an unscoped maintenance load; Measured with the Browser keypress schema, Relay-first isolated-browser fallback metadata and compact descriptions, after removing the enterprise platform extensions and bundled skills; the default deferred surface only routes Subagent. These are static bytes, not provider tokens. Retired capabilities stay absent even with deferred loading disabled.",
 };
 
-// Both full surfaces include direct single-task delegation guidance. Owned
-// scope changes Subagent metadata, not the Goal tool set. The Pi 1.1 fixes add
-// 164 UTF-8 bytes of shared Codemode async-helper/output guidance to each surface;
-// real SDK smoke verifies this reviewed change, not provider token savings.
+// Measured with pi-subagents .4: product-owned descriptions/guidelines replace
+// inherited metadata; scoped schemas omit unavailable fields. Not token savings.
 export const SCOPED_FULL_TOOL_CONTEXT_CONTRACT_V1 = {
 	...FULL_TOOL_CONTEXT_CONTRACT_V1,
-	activeToolSchemaBytes: 39_119,
-	activeToolGuidelineBytes: 12_443,
+	activeToolSchemaBytes: 34_502,
+	activeToolGuidelineBytes: 10_614,
 	note: "Full startup surface under the product owned-process-groups-v2 Subagent scope, with four stable Goal schemas. Static bytes, not provider tokens.",
 };
 

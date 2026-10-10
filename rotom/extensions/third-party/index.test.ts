@@ -6,7 +6,7 @@ import test from "node:test";
 import { pathToFileURL } from "node:url";
 import { ASK_CONTINUATION_GUIDELINE, ASK_CONTINUATION_RESULT, createAskContinuationController, enforceAskContinuationResult, selectedOptionsRequireContinuation, stripAskContinuationMetadata } from "./ask/continuation.ts";
 import { COMPUTER_USE_CONDITION_GUIDELINE, COMPUTER_USE_EFFECT_EVIDENCE_GUIDELINE, COMPUTER_USE_FOCUS_SCOPE_GUIDELINE, COMPUTER_USE_FRESH_STATE_REQUIRED, COMPUTER_USE_OBSERVE_FIRST_GUIDELINE, COMPUTER_USE_REOBSERVE_REQUIRED, COMPUTER_USE_STALE_RECOVERY_GUIDELINE, COMPUTER_USE_STRUCTURED_FIRST_GUIDELINE, COMPUTER_USE_UNTRUSTED_SCREEN_GUIDELINE, computerUseContractRepairHint, computerUseRecoveryApi, isRecoverableComputerUseStateError } from "./computer-use/recovery.ts";
-import { constrainSubagentParameters, prepareProductSubagentArguments, PRODUCT_SUBAGENT_ALLOWED_ACTIONS, PRODUCT_SUBAGENT_ALLOWED_COMMANDS, PRODUCT_SUBAGENT_BLOCKED_FIELDS, PRODUCT_SUBAGENT_POLICY_GUIDELINE } from "./subagent/policy.ts";
+import { constrainSubagentParameters, prepareProductSubagentArguments, PRODUCT_SUBAGENT_ALLOWED_ACTIONS, PRODUCT_SUBAGENT_ALLOWED_COMMANDS, PRODUCT_SUBAGENT_BLOCKED_FIELDS, PRODUCT_SUBAGENT_DESCRIPTION, PRODUCT_SUBAGENT_POLICY_GUIDELINE } from "./subagent/policy.ts";
 import { computerUseEvidenceResult } from "./computer-use/recovery.ts";
 
 function findPiDist(): string {
@@ -77,6 +77,7 @@ test("真实 Pi loader 注册保留的第三方运行时并排除 MCP、Backgrou
 	assert.ok(subagent.promptGuidelines?.includes(PRODUCT_SUBAGENT_POLICY_GUIDELINE));
 	assert.match(subagent.promptSnippet ?? "", /one task with agent\/task and async:true/u);
 	for (const field of ["agent", "task", "async", "context", "cwd", "output", "workflowScript"]) assert.ok((subagent.parameters as any).properties[field], `delegation field ${field} must remain model-visible`);
+	assert.equal(subagent.description, PRODUCT_SUBAGENT_DESCRIPTION);
 	assert.match(PRODUCT_SUBAGENT_POLICY_GUIDELINE, /steer its live child or resume its latest run with a compact handoff/u, "同一 lane 必须复用 worker，而不是重复 fork 全量历史");
 	assert.throws(
 		() => subagent.execute("blocked-refine", { action: "refine" } as any, undefined, undefined, { cwd: process.cwd() } as any),
@@ -383,7 +384,7 @@ test("Subagent 产品策略拒绝持久管理能力并强制普通执行保持 e
 	assert.deepEqual(prepareProductSubagentArguments({ action: "status", id: "run-1", mission: false }), { action: "status", id: "run-1" }, "action 调用不得把 mission 透传给锁定 package");
 	assert.throws(() => prepareProductSubagentArguments({ workflowScript: "return 1", mission: true }), /omit it or pass mission:false/u);
 	assert.throws(() => prepareProductSubagentArguments({ workflowScript: "return 1", mission: { title: "m" } }), /omit it or pass mission:false/u);
-	assert.match(PRODUCT_SUBAGENT_POLICY_GUIDELINE, /an explicit mission:false is accepted and ignored/u, "guideline 必须说明 mission 的唯一合法取值");
+	assert.match(PRODUCT_SUBAGENT_DESCRIPTION, /Work is ephemeral/u, "工具只描述保留能力；raw mission:false 的幂等兼容由上面的执行测试证明");
 });
 
 test("ask_user_question 非取消答案追加确定性继续执行要求", () => {

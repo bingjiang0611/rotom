@@ -51,8 +51,14 @@ export const PRODUCT_SUBAGENT_BLOCKED_FIELDS = [
 	"config",
 ] as const;
 
+export const PRODUCT_SUBAGENT_DESCRIPTION =
+	"Delegate one task with agent/task; use workflowScript for multi-step or parallel work. Execution omits action; management uses only the listed actions. Work is ephemeral: agent configuration, missions, schedules, refine and project/inspector management are unavailable. Use status with id for diagnosis, view:'transcript' for a bounded output tail, or children.list for retained workflow children.";
+
 export const PRODUCT_SUBAGENT_POLICY_GUIDELINE =
-	"Product policy overrides broader package documentation: for one task, pass agent, task, async:true, context:'fresh' and an absolute cwd directly; omit action and workflowScript. Use workflowScript only for multi-step or parallel orchestration, without top-level agent/task/action. Only the model-visible actions in the schema are available. Agent configuration, missions, refine, schedules, project/inspector management, worktree discard, watchdog configuration, and spawn-budget grants are disabled. Actionless execution is forced ephemeral and cannot create an automatic mission. Omit mission entirely; an explicit mission:false is accepted and ignored, while any truthy mission or other mission field is rejected. For one implementation or validation lane, steer its live child or resume its latest run with a compact handoff; do not fork duplicate full-history workers for that lane. Direct steer always disables automatic steeringRecovery; acknowledgement timeout is not writer termination or permission to replace it.";
+	"For delegation use async:true, context:'fresh' and an absolute cwd. Keep one writer per cwd; steer its live child or resume its latest run with a compact handoff instead of duplicating that lane. Do not sleep or poll status to wait; use subagent_wait at a dependency barrier when this turn must finish. Acknowledgement timeout is not writer termination or permission to replace it; steering never auto-recovers. Unknown work does not authorize replay.";
+
+export const PRODUCT_SUBAGENT_SCOPED_GUIDELINE =
+	"Owned scope admits one async Pi/external CLI task or an async workflow controller with independent async children or fresh single foreground Pi children. Agents require explicit tools and extensions; ambient discovery, fork/import, nested delegation, worktrees, host gates, verification/review execution and external jobs are not admitted. Explicit extensions are trusted local code, not a sandbox. Closure covers registered resources only, not escaped descendants or business effects. Resume is limited to the original async Pi run after closure and canonical lease checks; workflow/retained-child/external recovery is unavailable.";
 
 export const PRODUCT_SUBAGENT_ACCEPTANCE_GUIDELINE =
 	"For read-only reviewer/scout tasks, omit acceptance and use the inferred read-only contract. Explicit checked/verified adds command and no-staged-files requirements; evidence is additive, not a replacement. Workflow-level acceptance is inherited by children: do not impose writer gates on shell-less reviewers. Have a capable parent verify Git/build evidence separately. A supervisor message cannot waive a frozen acceptance contract; never invent evidence or silently lower an explicit gate.";
@@ -63,7 +69,7 @@ export const PRODUCT_HANDOFF_GUIDELINE =
 const allowedActionSet = new Set<string>(PRODUCT_SUBAGENT_ALLOWED_ACTIONS);
 const blockedFieldSet = new Set<string>(PRODUCT_SUBAGENT_BLOCKED_FIELDS);
 
-export function constrainSubagentParameters<T>(parameters: T): T {
+export function constrainSubagentParameters<T>(parameters: T, scoped = process.env.PI_SUBAGENTS_EXECUTION_SCOPE === "owned-process-groups-v2"): T {
 	if (!parameters || typeof parameters !== "object" || Array.isArray(parameters)) return parameters;
 	const schema = parameters as Record<string, unknown>;
 	const properties = schema.properties && typeof schema.properties === "object" && !Array.isArray(schema.properties)
@@ -71,6 +77,35 @@ export function constrainSubagentParameters<T>(parameters: T): T {
 		: undefined;
 	if (!properties) return parameters;
 	for (const field of blockedFieldSet) delete properties[field];
+	// These fields only configure retired watchdog actions or automatic recovery.
+	// Execution still validates raw SDK inputs; this projection is not admission.
+	delete properties.thinking;
+	delete properties.steeringRecovery;
+	const descriptions: Record<string, string> = {
+		agent: "Configured agent for one task, or for get. Use list to inspect available roles.",
+		id: "Original run id/prefix for status, interrupt, steer, stop, resume or dismiss.",
+		runId: "Alias for id. Prefer id.",
+		dir: "Original async run directory for status, stop, resume or steer. Never change storage base to retry unknown work.",
+		message: "Follow-up for resume, or live guidance for steer.",
+		cwd: "Absolute execution directory. Preserve the authorized repository and write scope.",
+		topic: "Guide topic. Packaged legacy documentation does not extend the product's tool or scope contract.",
+		workflowScript: "Trusted JavaScript statement body; omit top-level agent/task/action. Use top-level await runs.run(key,{agent,task}) for sequence, await runs.all([{key,agent,task},...]) for parallel work, and explicit return for results. Consume completed .output, never an unawaited promise. Await runs.steer(key,message,{mode?,index?,ackTimeoutMs?}) for a prior child key. runs.status, runs.ref/refs, emit and console are available. No nested async helpers, filesystem, shell, Pi tools, host globals or mission state.",
+	};
+	if (scoped) {
+		for (const field of ["worktree", "isolation", "gate"]) delete properties[field];
+		descriptions.context = "Fresh context only in owned scope. Supply required evidence in task; fork is unavailable.";
+		descriptions.async = "Set true. Owned scope does not admit standalone foreground execution.";
+		descriptions.chatProgress = "For async workflows use auto or off; live-card is unavailable.";
+		descriptions.workflowScript += " Owned scope does not admit resume/worktree/gate child fields, nested delegation, verification/review execution or external jobs.";
+	}
+	for (const [field, description] of Object.entries(descriptions)) {
+		if (properties[field]) properties[field] = { ...properties[field] as object, description };
+	}
+	if (scoped) {
+		if (properties.context) properties.context = { ...properties.context as object, enum: ["fresh"] };
+		if (properties.async) properties.async = { ...properties.async as object, enum: [true] };
+		if (properties.chatProgress) properties.chatProgress = { ...properties.chatProgress as object, enum: ["auto", "off"] };
+	}
 	const action = properties.action && typeof properties.action === "object" && !Array.isArray(properties.action)
 		? properties.action as Record<string, unknown>
 		: {};
@@ -147,6 +182,9 @@ export function productSubagentShortcutAllowed(shortcut: string): boolean {
  * This fences publication, not package-internal disk writes or child execution.
  */
 export function subagentPolicyApi(pi: ExtensionAPI): ExtensionAPI {
+	// Launcher scope is fixed before extension construction; do not track mutable
+	// environment changes as a second lifecycle authority.
+	const scoped = process.env.PI_SUBAGENTS_EXECUTION_SCOPE === "owned-process-groups-v2";
 	let retired = false;
 	const assertLive = () => {
 		if (retired) throw new Error("Subagent runtime retired; publication rejected, execution remains unknown. Inspect the original run; do not replay writes.");
@@ -166,10 +204,10 @@ export function subagentPolicyApi(pi: ExtensionAPI): ExtensionAPI {
 				return target.registerTool({
 					...definition,
 					...(isSubagent ? {
-						description: `${definition.description}\n\n${PRODUCT_SUBAGENT_POLICY_GUIDELINE}`,
+						description: PRODUCT_SUBAGENT_DESCRIPTION,
 						promptSnippet: "Delegate one task with agent/task and async:true; use workflowScript only for multi-step or parallel orchestration",
-						parameters: constrainSubagentParameters(definition.parameters),
-						promptGuidelines: [...(definition.promptGuidelines ?? []), PRODUCT_SUBAGENT_POLICY_GUIDELINE, PRODUCT_SUBAGENT_ACCEPTANCE_GUIDELINE, PRODUCT_HANDOFF_GUIDELINE],
+						parameters: constrainSubagentParameters(definition.parameters, scoped),
+						promptGuidelines: [PRODUCT_SUBAGENT_POLICY_GUIDELINE, ...(scoped ? [PRODUCT_SUBAGENT_SCOPED_GUIDELINE] : []), PRODUCT_HANDOFF_GUIDELINE],
 					} : {}),
 					execute(...args: Parameters<typeof definition.execute>) {
 						assertLive();

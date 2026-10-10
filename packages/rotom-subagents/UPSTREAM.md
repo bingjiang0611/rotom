@@ -18,4 +18,8 @@
 
 在 `0.52.1-rotom.3`，rotom 的共享 child launch plan 显式加载所选 Qoder 模型需要的产品 provider；路径来自已验证 launcher，扩展禁用和工具 ceiling 保持权威。同步、异步、workflow 与 preflight 同步 extension identity；不回退模型、不继承 ambient 扩展。此为 rotom 自有集成修复，不来自上游。
 
+在 `0.52.1-rotom.5`，将 `.4` 之后的终态投影修复固化到新归档：投影失败保持 unknown，保留关闭证据及诊断，不伪造成功或授权重放；旧归档与存活会话不修改。
+
+在 `0.52.1-rotom.4`，删除上游 schedule manager 与其 executor/selector，以及 goal-mission driver；启动/完成不再扫描或同步 mission observer。旧 schedule 与自动 goal-mission 路径即使在 legacy scope 也不再执行，不删历史记录。保留共享 mission helpers、历史 reader、project-panes API 与 fleet 依赖的 inspector 实现，未将整套模块盲目删除。async status 改为复用实际 resume preflight 和有界 transcript reader；诊断不是启动授权，不改变 canonical lease、关闭或业务效果边界。字段说明与重复提示由产品 wrapper 收敛。此批是 rotom 自有删减与诊断改进，不来自上游。
+
 其余上游文档/agents/prompts 暂时保留以避免与功能裁剪混杂。这些资源的存在不是当前 rotom 产品启用能力的证明；只有产品 policy、显式 scope 合同和对应验证决定可用范围。

@@ -33,7 +33,7 @@ Chaining is code-driven through `workflowScript`. Use `await runs.run(...)` for 
 | Param | Type | Default | Description |
 |-------|------|---------|-------------|
 | `agent` | string | - | Agent target for management actions. Workflow child agents are set inside `runs.run` or `runs.all`. |
-| `action` | string | - | Agent management (including `guide`, `children.list`, and `refine`/`refine.show`/`refine.rollback`), mission (`mission.create/list/show/update/resolve-decision/attach-run/close`), Herdr inspector (`inspector.open/status/close`), status/control, schedule, watchdog, or doctor action. |
+| `action` | string | - | Agent management (including `guide`, `children.list`, and `refine`/`refine.show`/`refine.rollback`), mission (`mission.create/list/show/update/resolve-decision/attach-run/close`), Herdr inspector (`inspector.open/status/close`), status/control, watchdog, or doctor action. Scheduling is retired in the maintained component. |
 | `topic` | `overview \| workflows \| agents \| missions \| observability \| tool-reference \| configuration \| models \| watchdog \| extension-api` | `overview` | Packaged guide topic for `action: "guide"`. |
 | `config` | object/string | - | Agent config for management create/update. |
 | `context` | `fresh \| fork` | global or per-agent default, else `fresh` | Explicit `fresh` or `fork` overrides every workflow child. When omitted, [`defaultSubagentContext`](configuration.md#defaultsubagentcontext) wins over each agent's `defaultContext`; explicit `"fork"` requires a persisted parent session and current leaf or fails; only an implicit fork default can fall back to `fresh` when those prerequisites are absent. Packaged `worker`, `scout`, and `reviewer` default to `fresh`; `oracle` and its `advisor` alias default to `fork` (unsupported in owned scope). |
@@ -222,6 +222,8 @@ subagent({ action: "doctor" })
 - Inside child-safe fanout mode, bare `status` requires an id when no local foreground run is active, so children cannot enumerate unrelated top-level async runs.
 - Bare `interrupt` still targets only the visible top-level run; interrupting a nested run requires its explicit nested id.
 
+A targeted async `status` also shows the recorded task, process-terminal evidence, historical registered-resource closure, original-run resume preflight (or its rejection reason), and an eight-line output tail. The tail uses the same current-session and contained-path checks as transcript view; it is not a full transcript. Preflight is a snapshot, not launch authorization; execution rechecks configuration, ownership, capacity and canonical session leases. Missing proof stays unavailable, never inferred from task success.
+
 ### resume
 
 `resume` revives a paused, completed, or failed async/foreground child by starting a new child from its stored session file. Stopped runs remain non-resumable, and it does not interrupt a live top-level async child. Use `steer` for acknowledged live async guidance.
@@ -235,12 +237,12 @@ subagent({ action: "doctor" })
 
 `stop` ends a current-session top-level async run. It is deliberately stronger than `interrupt`:
 
-- It is not a resumable pause; stopped runs should be restarted as new runs.
+- It is not a resumable pause. A stop response alone does not prove resource closure, and unknown work must not be restarted under a new id.
 - Foreground and nested targets are rejected.
 - Direct id calls execute immediately.
 - `/subagents-stop` without an id opens a selector with confirmation when a TUI is available. Use `↑`/`↓` or `j`/`k` to move through the selector.
 - In non-TUI contexts the slash command prints exact `subagent({ action: "stop", id })` and `/subagents-stop <id>` commands.
-- Inactive schedules can appear in the selector, but they are labeled as schedules and route through `schedule.pause`, not `stop`.
+- The maintained component no longer lists or pauses schedules. The rotom product requires an explicit current-session run id; its bare selector is not exposed.
 
 ### steer
 

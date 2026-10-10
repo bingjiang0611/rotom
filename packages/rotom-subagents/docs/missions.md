@@ -1,6 +1,6 @@
-# Missions and schedules
+# Legacy mission records
 
-Durable records for delegated work: missions wrap runs so you can recover them later, and schedules launch work on a timer.
+This is component-level legacy reference, not the rotom product contract. The product launches ephemeral work and disables mission management. In `0.52.1-rotom.4`, schedule execution and the automatic goal-mission driver were removed; startup/completion no longer scan or synchronize mission observers. Existing files are not deleted or migrated.
 
 ## Missions
 
@@ -42,27 +42,9 @@ subagent({
 })
 ```
 
-### Goal missions
+### Goal missions (retired driver)
 
-Set `goal: true` with a token budget to make an open mission an active continuation driver:
-
-```ts
-subagent({
-  action: "mission.create",
-  mission: {
-    title: "Ship auth refresh",
-    objective: "Implement and validate token refresh",
-    goal: true,
-    budget: { tokens: 400000 }
-  }
-})
-```
-
-After each parent turn, an idle goal mission sends one needs-attention notice with its title, remaining token budget, and next ready action. The action comes from `state.nextReadyAction`, `state.nextAction`, a state item with `status: "ready"`, an open decision, or linked-run state. A workflow can write `state.nextReadyAction` to tell the next notice exactly what work is ready. When the latest linked workflow has a resumable retained child, the notice names that child as the `resume` target. Non-resumable retained children stay visible in `children.list` with their reason, but goal notices do not present them as resume targets. The extension never launches or replans goal work by itself.
-
-Linked-run token totals are stored on each run and folded into mission `usage`. An active linked run suppresses notices. Reaching the token budget changes the goal status to `budget-exhausted` and stops notices without closing the mission or reporting success.
-
-Pause and resume notices with `mission.update` and `{ goal: { paused: true } }` or `{ goal: { paused: false } }`. Set `{ goal: false }` to disable goal mode. `mission.close` also ends the loop.
+Stored goal fields remain readable, but no automatic parent-turn notices or continuation are generated. This historical mechanism is unrelated to rotom's separate `/goal` component.
 
 ### Managing missions
 
@@ -83,39 +65,6 @@ For substantial or long-running work in another project, open a project-owned He
 
 Mission storage configuration (`missions.directory`, `retainTerminal`, `globalIndex`) is in [configuration.md](configuration.md#missions).
 
-## Schedules
+## Schedules (retired)
 
-Durable schedules are enabled by default and stored per project under `.pi/subagents/schedules/<id>/`.
-
-Create a one-shot schedule:
-
-```ts
-subagent({
-  action: "schedule.create",
-  id: "evening-review",
-  name: "Evening review",
-  at: "+30m",
-  workflowScript: `return runs.run("main", { agent: "reviewer", task: "Review the current diff." })`
-})
-```
-
-Create a fixed recurring workflow:
-
-```ts
-subagent({ action: "schedule.create", id: "backlog", every: "6h", catchUp: "latest", workflowScript: "..." })
-```
-
-Fixed intervals support `m`, `h`, `d`, and `w` units and advance from the planned time without completion drift.
-
-Manage schedules with `schedule.list`, `schedule.show`, `schedule.history`, `schedule.pause`, `schedule.resume`, `schedule.run`, `schedule.run-due`, and `schedule.delete`.
-
-Behavior:
-
-- Runs always launch async with fresh context and disable automatic mission creation; mission attachment is deferred from this first slice.
-- Definitions, bounded history, append-only events, and per-run receipts are stored with mode `0600`.
-- `overlap` is currently fixed to `skip`; `catchUp` supports `latest` (default) and `none`.
-- `schedule.run-due` lets an external launcher start due project work without making `pi-subagents` a daemon.
-- Calendar recurrence, cron, queue/replace overlap, and the schedule TUI inspector are intentionally deferred to the next slice.
-- The old `schedule`, `schedule-list`, `schedule-status`, and `schedule-cancel` actions were removed in a hard cutover.
-
-Disable or bound schedules with the `scheduledRuns` config key in [configuration.md](configuration.md#scheduledruns).
+All `schedule.*` execution, timer binding and the schedule stop selector were removed in `0.52.1-rotom.4`, including legacy opt-out sessions. Existing definitions/config are ignored, not deleted. Independently authorized new tasks must be launched explicitly; historical or unknown work must not be replayed.

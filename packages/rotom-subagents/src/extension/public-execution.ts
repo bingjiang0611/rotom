@@ -81,17 +81,8 @@ export function normalizePublicSubagentExecution<T extends PublicSubagentExecuti
 		if (legacyAction === "parallel" || legacyAction === "tasks" || legacyAction === "chain") {
 			return { ok: false, error: "Legacy top-level chain and parallel inputs were removed; use workflowScript.", mode: "workflow" };
 		}
-		if (normalizedAction === "schedule.create") {
-			if (params.agent !== undefined || params.task !== undefined || params.step !== undefined) {
-				return { ok: false, error: "schedule.create requires workflowScript and does not accept direct agent, task, or step execution fields.", mode: "management" };
-			}
-			if (typeof params.workflowScript !== "string" || !params.workflowScript.trim()) {
-				return { ok: false, error: "schedule.create requires a non-empty workflowScript.", mode: "management" };
-			}
-			return { ok: true, params: { ...params, action: normalizedAction } };
-		}
 		if (params.workflowScript !== undefined) {
-			return { ok: false, error: "workflowScript execution must omit action; only schedule.create accepts action with workflowScript.", mode: "management" };
+			return { ok: false, error: "workflowScript execution must omit action.", mode: "management" };
 		}
 		if (params.task !== undefined) {
 			return { ok: false, error: "Structured single-child task cannot be combined with a management/control action.", mode: "management" };

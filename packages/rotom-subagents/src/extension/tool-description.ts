@@ -18,7 +18,7 @@ export const SUBAGENT_TOOL_PROMPT_GUIDELINES = [
 	"workflowScript means exactly one top-level subagent tool call with async:true. Inside it, use runs.run/runs.all to launch children; do not make another top-level subagent call for those children.",
 	"For ordinary parallel work, use await runs.all([{key,agent,task}, ...]); do not read .output from unawaited runs.run launches. Stored runs.run promises are only for advanced rolling fanout and each must later be observed with direct await, Promise.race, or Promise.all.",
 	"Keep one writer per cwd/worktree unless writers run in isolated worktrees.",
-	"Use guide or the pi-subagents skill for advanced scheduling, missions, steering, and retention.",
+	"Use guide or the pi-subagents skill for advanced steering and retention.",
 ];
 
 export const SUBAGENT_SAFETY_GUIDANCE = `SAFETY-CRITICAL SUBAGENT GUIDANCE:
@@ -44,7 +44,6 @@ EXECUTION:
 MANAGEMENT / CONTROL (use action; omit execution fields):
 • list, get, models, guide, children.list, create, update, delete, eject, disable, enable, reset, status, debug.run, doctor, grant-spawn-budget, worktree.discard, refine/refine.show/refine.rollback, mission.create/list/show/update/resolve-decision/attach-run/close, inspector.open/status/close, project.open/status/close, and watchdog actions remain available. Use {action:"guide", topic:"overview"} for packaged current-version help; topics are overview, workflows, agents, missions, observability, tool-reference, configuration, models, watchdog, and extension-api.
 • status, interrupt, stop, resume, and steer manage live or persisted runs. Use status view:"fleet" for an overview or view:"transcript" with id and optional index to tail output.
-• Create durable project schedules with { action:"schedule.create", id?, name?, at:"+10m" | ISO, workflowScript:"return runs.run('main', {agent:'worker', task:'...'})" } or { every:"6h", workflowScript:"..." }. Manage them with schedule.list/show/history/pause/resume/run/run-due/delete. This first slice supports fixed intervals; calendar schedules and schedule mission attachment are deferred.
 
 ${SUBAGENT_SAFETY_GUIDANCE}`;
 

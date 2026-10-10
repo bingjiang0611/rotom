@@ -9,7 +9,7 @@ rotom 独立维护的 Subagent 组件，源码单源是本目录。它是 `pi-su
 - 只通过 Pi 公开 API/exports 接入；默认验证 Pi 0.85.1、Node 24.18.0。
 - 修改 `src/`，不要修改任何 installed `node_modules`。
 - 产品通过固定归档安装本组件；本目录不会被 launcher 自动发现或热加载。个人默认 scope 由新进程的启动环境选择，不迁移活跃会话。
-- runtime 代码、exports、内置资源均先保持不变；保留源码中的上游能力不代表 rotom 暴露它们。
+- 首次导入保持 runtime 代码、exports 与内置资源不变；后续兼容性变化见下方版本说明。保留的上游能力不代表 rotom 暴露它们。
 - 默认 scope 不变。新进程显式选择 `owned-process-groups-v2` 前先读 [执行范围](docs/owned-execution.md)。容量、历史关闭、恢复授权分开；unknown 不重放，不迁移存活会话。
 - MIT 原始版权/许可证保留；`private:true`，不发布 npm。上游安全修复、许可证和 Pi/Node 兼容变化仍需人工关注。
 
@@ -27,6 +27,17 @@ macOS 的 mount device ID 可能在重启后重新编号。store 现在只在 Da
 
 离线回归使用真实 Pi CLI/RPC、隔离 HOME 和合成凭据，证明 `qoder/ultimate:high` 在禁用 ambient extensions 时可选择；未发送真实 Qoder 推理，不证明账号目录、额度或远端评审成功。旧会话/失败任务不自动重放，正在使用的安装不原地覆盖。
 
+## `0.52.1-rotom.4`：精简产品面与原任务诊断
+
+- 产品 wrapper 使用自有简短说明与单份提示，不再叠加上游全文。字段说明不再引导已禁用的 mission/project/watchdog 配置；owned scope 的模型 schema 只呈现 fresh/async、隐藏 worktree/gate/isolation，原始 SDK 请求仍过原执行校验。
+- targeted async `status` 复用原 resume preflight 与 transcript reader，显示任务摘要、进程终态、历史 registered-resource closure、恢复拒绝原因和 8 行输出尾部。preflight 不是启动授权；canonical lease 占用仍拒绝恢复，业务效果和逃逸后代仍未验证。输出沿用当前会话/路径边界，不新增 inspector。
+- 删除 schedule manager、专属 executor/selector 与 goal-mission continuation driver；移除启动/完成时的 mission observer 扫描和同步。**兼容性变化也适用于显式 legacy scope**：旧 `schedule.*`、自动 goal-mission 通知与 `scheduledRuns` 不再执行，历史文件不删除、不迁移、不重放。手动历史 mission/status reader、共享 workflow helper、导出的 project-panes API 与现有 fleet 仍保留，不能把本次裁剪宣称为整套 mission/inspector 源码已删除。
+- 不改变停止、owner lifeline、受控进程组、lease 或恢复门禁；不升级存活安装。真实模型业务效果与桌面 UI 未验收。
+
+## `0.52.1-rotom.5`：保留 unknown 终态证据
+
+在 `.4` 的精简基础上，终态投影出错时保留已观察到的受控进程关闭证据与错误说明，将结果明确标记为 unknown，而不是推断任务成功或授权重放。本版重新归档当前源码，使后续终态修复实际进入产品；不覆盖旧 `.4` 归档，不迁移存活安装。它属于后续开发，不包含在已冻结的 rotom `0.1.17` 安装包中。
+
 ## 开发
 
 在本目录运行；依赖是固定版本及本目录 lockfile，勿复制维护者 node_modules：
@@ -39,6 +50,8 @@ npm run test:compat      # 历史 reader/lease/capacity 等兼容回归
 npm run typecheck        # --listFilesOnly 绑定当前快照，不使用旧 tsconfig
 # 或 npm run test:all
 ```
+
+当前公开 checkout 的 `test:compat` 仍引用已归档或不存在的顶层历史测试路径（首个缺失文件是 `subagent-owned-flat.test.mjs`），会在测试发现阶段失败；这不是已通过的兼容门。本次不删除或跳过历史断言来掩盖问题。现行单测、真实进程/SDK 与 typecheck 分别执行，产品侧继续运行当前 ownership/lifeline 回归、default/full loader smoke 与 footprint 合同；这些不替代缺失的历史兼容证据。若仍需该旧层对照矩阵，须先明确要支持的历史版本，再恢复其完整、可审计的 fixtures，而非猜路径或恢复已撤销能力。
 
 当前源码的测试快照直接复制本目录，不应用补丁、不从旧归档抽取实现。`test:compat` 中旧 reader/对照版本仍由历史 fixtures 生成，这是比较证据，不是新源码的依赖。复用仓库的 verifier 与测试驱动，不另建 Pi 框架。无需私有 upstream checkout 或真实账号；测试使用隔离 HOME，无远端模型授权。
 

@@ -1938,13 +1938,6 @@ export interface ProactiveSkillSubagentsConfig {
 export type ToolDescriptionMode = "full" | "compact" | "custom";
 export type InlineToolDisplay = "rich" | "summary";
 
-export interface ScheduledRunsConfig {
-	enabled?: boolean;
-	maxPending?: number;
-	/** Absolute or `~/` root for per-project durable schedules. */
-	storeRoot?: string;
-}
-
 export type FleetViewPlacement = "aboveEditor" | "belowEditor";
 
 export const FLEET_KEYBINDING_ACTIONS = [
@@ -2053,7 +2046,6 @@ export interface ExtensionConfig {
 	artifactConfig?: Pick<ArtifactConfig, "cleanupDays">;
 	intercomBridge?: IntercomBridgeConfig;
 	proactiveSkillSubagents?: ProactiveSkillSubagentsConfig | false;
-	scheduledRuns?: ScheduledRunsConfig;
 	/** Durable mission behavior. Missions are automatic by default; set enabled:false to disable auto-create. Explicit mission actions/fields still work. */
 	missions?: MissionStoreConfig;
 	/** Small fixed authority policy for the supported operational actions. */
@@ -2164,7 +2156,7 @@ export const SLASH_SUBAGENT_CANCEL_EVENT = "subagent:slash:cancel";
 export const POLL_INTERVAL_MS = 250;
 export const MAX_WIDGET_JOBS = 4;
 export const DEFAULT_SUBAGENT_MAX_DEPTH = 2;
-export const SUBAGENT_ACTIONS = ["list", "get", "models", "children.list", "guide", "create", "update", "delete", "eject", "disable", "enable", "reset", "mission.create", "mission.list", "mission.show", "mission.update", "mission.resolve-decision", "mission.attach-run", "mission.close", "worktree.discard", "refine", "refine.show", "refine.rollback", "inspector.open", "inspector.status", "inspector.close", "project.open", "project.status", "project.close", "status", "debug.run", "grant-spawn-budget", "interrupt", "resume", "steer", "stop", "dismiss", "doctor", "watchdog.status", "watchdog.check", "watchdog.configure", "watchdog.recommend-model", "schedule.create", "schedule.list", "schedule.show", "schedule.history", "schedule.pause", "schedule.resume", "schedule.run", "schedule.run-due", "schedule.delete"] as const;
+export const SUBAGENT_ACTIONS = ["list", "get", "models", "children.list", "guide", "create", "update", "delete", "eject", "disable", "enable", "reset", "mission.create", "mission.list", "mission.show", "mission.update", "mission.resolve-decision", "mission.attach-run", "mission.close", "worktree.discard", "refine", "refine.show", "refine.rollback", "inspector.open", "inspector.status", "inspector.close", "project.open", "project.status", "project.close", "status", "debug.run", "grant-spawn-budget", "interrupt", "resume", "steer", "stop", "dismiss", "doctor", "watchdog.status", "watchdog.check", "watchdog.configure", "watchdog.recommend-model"] as const;
 
 export const DEFAULT_FORK_PREAMBLE =
 	"You are a delegated subagent running from a fork of the parent session. " +

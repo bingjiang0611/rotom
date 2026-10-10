@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { subagentPolicyApi, subagentEvidenceResult, prepareProductSubagentArguments, constrainSubagentParameters, PRODUCT_SUBAGENT_POLICY_GUIDELINE, PRODUCT_SUBAGENT_ACCEPTANCE_GUIDELINE, PRODUCT_HANDOFF_GUIDELINE } from "./policy.ts";
+import { subagentPolicyApi, subagentEvidenceResult, prepareProductSubagentArguments, constrainSubagentParameters, PRODUCT_SUBAGENT_DESCRIPTION, PRODUCT_SUBAGENT_POLICY_GUIDELINE, PRODUCT_SUBAGENT_SCOPED_GUIDELINE, PRODUCT_SUBAGENT_ACCEPTANCE_GUIDELINE, PRODUCT_HANDOFF_GUIDELINE } from "./policy.ts";
 
 function fixture() {
 	const handlers = new Map<string, Function[]>(); const tools = new Map<string, any>(); const published: unknown[] = [];
@@ -99,7 +99,7 @@ test("stop is dispatched once and remains a request, not writer-closure evidence
 	assert.equal(subagentEvidenceResult("subagent", { action: "status" }, raw), raw);
 });
 
-test("read-only acceptance guidance reaches the schema and tool prompt without silently lowering explicit gates", () => {
+test("acceptance guidance lives in its field rather than duplicating the tool prompt; explicit gates are unchanged", () => {
 	const schema = { type: "object", properties: { acceptance: { anyOf: [{ type: "string" }, { type: "object" }] } } };
 	const constrained = constrainSubagentParameters(schema);
 	assert.equal((constrained.properties.acceptance as any).description, PRODUCT_SUBAGENT_ACCEPTANCE_GUIDELINE);
@@ -107,7 +107,8 @@ test("read-only acceptance guidance reaches the schema and tool prompt without s
 	assert.equal((schema.properties.acceptance as any).description, undefined);
 	const { api, tools } = fixture();
 	api.registerTool({ name: "subagent", parameters: schema, execute() { return { content: [] }; } } as any);
-	assert.ok(tools.get("subagent").promptGuidelines.includes(PRODUCT_SUBAGENT_ACCEPTANCE_GUIDELINE));
+	assert.equal(tools.get("subagent").parameters.properties.acceptance.description, PRODUCT_SUBAGENT_ACCEPTANCE_GUIDELINE);
+	assert.equal(tools.get("subagent").promptGuidelines.includes(PRODUCT_SUBAGENT_ACCEPTANCE_GUIDELINE), false);
 	for (const required of ["omit acceptance", "evidence is additive", "inherited by children", "shell-less reviewers", "cannot waive", "never invent evidence"]) assert.ok(PRODUCT_SUBAGENT_ACCEPTANCE_GUIDELINE.includes(required));
 	const acceptance = { level: "checked", evidence: ["review-findings", "commands-run"] };
 	const requested = { agent: "reviewer", task: "read-only review", acceptance };
@@ -120,14 +121,34 @@ test("delegation guidance prefers direct single tasks without changing explicit 
 	api.registerTool({ name: "subagent", description: "upstream contract", promptSnippet: "upstream summary", execute() { return { content: [] }; } } as any);
 	const tool = tools.get("subagent");
 	assert.match(tool.promptSnippet, /one task with agent\/task and async:true/u);
-	assert.match(tool.description, /upstream contract/u);
-	assert.ok(tool.description.includes(PRODUCT_SUBAGENT_POLICY_GUIDELINE));
-	assert.ok(tool.promptGuidelines.includes(PRODUCT_SUBAGENT_POLICY_GUIDELINE));
-	for (const text of ["absolute cwd directly", "omit action and workflowScript", "only for multi-step or parallel orchestration", "without top-level agent/task/action", "acknowledgement timeout is not writer termination"]) assert.ok(PRODUCT_SUBAGENT_POLICY_GUIDELINE.includes(text), text);
+	assert.equal(tool.description, PRODUCT_SUBAGENT_DESCRIPTION);
+	assert.doesNotMatch(tool.description, /upstream contract|scheduling|state\.get/u);
+	assert.equal(tool.promptGuidelines.filter((line: string) => line === PRODUCT_SUBAGENT_POLICY_GUIDELINE).length, 1);
+	for (const text of ["async:true", "context:'fresh'", "absolute cwd", "Acknowledgement timeout is not writer termination", "Unknown work does not authorize replay"]) assert.ok(PRODUCT_SUBAGENT_POLICY_GUIDELINE.includes(text), text);
 	for (const input of [
 		{ agent: "worker", task: "explicit legacy request", async: false, context: "fork" },
 		{ workflowScript: "return runs.run('scan', { agent: 'scout', task: 'inspect' });", async: true, context: "fresh" },
 	]) assert.deepEqual(prepareProductSubagentArguments(input), { ...input, mission: false }, "guidance must not rewrite explicit requests or bypass downstream scope admission");
+});
+
+test("model schema matches scope without mutating the source schema or changing raw SDK admission", () => {
+	const schema = { properties: Object.fromEntries(["agent", "action", "id", "dir", "message", "cwd", "workflowScript", "thinking", "steeringRecovery", "gate", "worktree", "isolation", "context", "async", "chatProgress", "mission"].map((field) => [field, { type: "string", description: "legacy schedule.create mission.attach-run project.open" }])) };
+	const legacy = constrainSubagentParameters(schema, false);
+	const scoped = constrainSubagentParameters(schema, true);
+	for (const params of [legacy, scoped]) {
+		for (const field of ["thinking", "steeringRecovery", "mission"]) assert.equal(params.properties[field], undefined);
+		for (const field of ["agent", "id", "dir", "message", "cwd", "workflowScript"]) assert.doesNotMatch(params.properties[field].description, /schedule\.create|mission\.attach-run|project\.open/u);
+	}
+	for (const field of ["gate", "worktree", "isolation"]) {
+		assert.equal(scoped.properties[field], undefined);
+		assert.equal(legacy.properties[field], schema.properties[field], "legacy opt-out retains its admitted fields");
+	}
+	assert.deepEqual((scoped.properties.context as any).enum, ["fresh"]);
+	assert.deepEqual((scoped.properties.async as any).enum, [true]);
+	assert.deepEqual((scoped.properties.chatProgress as any).enum, ["auto", "off"]);
+	assert.match(scoped.properties.workflowScript.description, /does not admit resume\/worktree\/gate/u);
+	assert.match(PRODUCT_SUBAGENT_SCOPED_GUIDELINE, /canonical lease checks/u);
+	assert.equal(schema.properties.workflowScript.description, "legacy schedule.create mission.attach-run project.open");
 });
 
 test("short handoff guideline retains evidence, unknown and freshness boundaries (text contract only)", () => {
