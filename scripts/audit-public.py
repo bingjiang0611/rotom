@@ -23,9 +23,11 @@ MAX_ARCHIVE = 64 * 1024 * 1024
 # Public history retains successive integrity-pinned fork archives. Keep their
 # aggregate scan bounded without relaxing the per-file or archive-member caps;
 # The tool-efficiency archive generation exceeded the public 1088 MiB cap.
-# On 2026-10-09 the maintainer approved one 64 MiB increment; further growth
-# requires a new budget review. Per-file, archive and detection limits are unchanged.
-MAX_EXPANDED = 1152 * 1024 * 1024
+# On 2026-10-09 the maintainer approved one 64 MiB increment. The Pi 1.1.0
+# fork archives (about 1169 MiB tree+history) needed a second approved 64 MiB
+# increment; further growth requires a new budget review. Per-file, archive
+# and detection limits are unchanged.
+MAX_EXPANDED = 1216 * 1024 * 1024
 CREDENTIAL = re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|sk-(?:proj-|ant-)?[A-Za-z0-9_-]{25,}|AKIA[A-Z0-9]{16}|LTAI[A-Za-z0-9]{16,}|xox[baprs]-[A-Za-z0-9-]{20,})\b")
 PRIVATE_KEY = re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[A-Za-z0-9+/=\s]{64,}-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----")
 HOME_PATH = re.compile(r"(?:/Users/|/home/|[A-Z]:\\Users\\)([A-Za-z0-9_.-]+)")
