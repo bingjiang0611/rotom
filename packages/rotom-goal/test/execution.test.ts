@@ -8,7 +8,7 @@ import { GoalRuntime, createGoal, nextGoalInstance, formatStatus, goalSummary, t
 import { registerGoalTools } from "../src/tools.js";
 import { registerGoalLifecycle } from "../src/lifecycle.js";
 import { GoalCommandController } from "../src/commands.js";
-import { GoalRunController } from "../src/run-protocol.js";
+import { GoalRunController, GOAL_RUN_START_CHANNEL, GOAL_RUN_CANCEL_CHANNEL, goalRunEventChannel } from "../src/run-protocol.js";
 import { GOAL_TOOL_NAMES } from "../src/tool-policy.js";
 import { normalizeLoadedGoal } from "../src/persistence.js";
 import { normalizeGoalSettings } from "../src/settings.js";
@@ -67,7 +67,7 @@ export function fixture(t: any, review?: any) {
 	});
 	const call = (name: string, args: any, signal?: AbortSignal) =>
 		tools.get(name).execute("call", args, signal, undefined, ctx);
-	return { cwd, runtime, ctx, pi, tools, entries, sent, notices, handlers, call };
+	return { cwd, runtime, ctx, pi, tools, entries, sent, notices, handlers, call, controller };
 }
 const decision = (status: ReviewResult["status"]): ReviewResult => ({
 	status,
@@ -152,6 +152,200 @@ test("accepted decision permits exactly one settled continuation; missing decisi
 	assert.equal(h.runtime.activeGoal?.status, "paused");
 	assert.equal(h.sent.length, 1);
 });
+
+function failRun(h: ReturnType<typeof fixture>, errorMessage = "fetch failed") {
+	h.handlers.get("agent_end")({ messages: [{ role: "assistant", content: [], stopReason: "error", errorMessage }] }, h.ctx);
+}
+
+test("host recovery is visible; exhaustion pauses with a durable cause and no phantom wake", (t) => {
+	const h = fixture(t);
+	failRun(h);
+	assert.equal(h.runtime.activeGoal?.recovery, "provider_retry");
+	assert.match(formatStatus(h.runtime.activeGoal)!, /recovering/);
+	assert.match(goalSummary(h.runtime.activeGoal!), /owned by Pi/);
+	h.handlers.get("agent_settled")({ aborted: false }, h.ctx);
+	assert.equal(h.runtime.activeGoal?.status, "paused");
+	assert.equal(h.runtime.activeGoal?.waiting, undefined);
+	assert.equal(h.runtime.activeGoal?.recovery, undefined);
+	assert.equal(h.runtime.activeGoal?.stopReason, "provider_retry_exhausted");
+	const restored = normalizeLoadedGoal(h.entries.at(-1).data.goal);
+	assert.equal(restored.stopReason, "provider_retry_exhausted");
+	assert.match(goalSummary(restored), /check the connection/i);
+	assert.equal(h.runtime.ownsWorkflow(), false);
+	h.handlers.get("agent_settled")({ aborted: false }, h.ctx);
+	assert.deepEqual(h.sent, []);
+});
+
+test("successful host response clears recovering before the next tool turn", (t) => {
+	const h = fixture(t);
+	failRun(h);
+	h.handlers.get("agent_start")({}, h.ctx);
+	h.handlers.get("turn_end")({ message: { role: "assistant", stopReason: "toolUse", content: [] } }, h.ctx);
+	assert.equal(h.runtime.activeGoal?.recovery, undefined);
+	assert.equal(h.runtime.goalRecovery, undefined);
+	assert.equal(h.entries.at(-1).data.goal.recovery, undefined);
+});
+
+test("in-session compaction retains live host recovery until a successful response", async (t) => {
+	const h = fixture(t);
+	const snapshots: any[] = [];
+	h.runtime.setGoalStateSink((snapshot) => snapshots.push(snapshot));
+	failRun(h, "maximum context length exceeded");
+	await h.handlers.get("session_before_compact")({}, h.ctx);
+	await h.handlers.get("session_compact")({ reason: "overflow", willRetry: true }, h.ctx);
+	assert.equal(h.runtime.activeGoal?.recovery, "compaction_retry");
+	assert.equal(snapshots.at(-1).activity, "recovering");
+	assert.equal(snapshots.at(-1).recovery, "compaction_retry");
+	assert.deepEqual(h.sent, [], "only the host may resume this retry");
+});
+
+test("failed context recovery stops without a second recovery loop", (t) => {
+	const h = fixture(t);
+	failRun(h, "maximum context length exceeded");
+	assert.equal(h.runtime.goalRecovery?.kind, "compaction_retry");
+	h.handlers.get("agent_settled")({ aborted: false }, h.ctx);
+	assert.equal(h.runtime.activeGoal?.status, "blocked");
+	assert.equal(h.runtime.activeGoal?.stopReason, "retry_exhausted");
+	assert.equal(h.runtime.activeGoal?.recovery, undefined);
+	assert.deepEqual(h.sent, []);
+});
+
+test("explicit external waits survive restore rather than becoming resumable work", async (t) => {
+	const h = fixture(t);
+	h.runtime.enterGoalWait(h.ctx, h.runtime.activeGoal!.id, { reason: "Registered fixture event" });
+	await h.handlers.get("session_start")({}, h.ctx);
+	assert.equal(h.runtime.activeGoal?.status, "active");
+	assert.equal(h.runtime.activeGoal?.waiting?.reason, "Registered fixture event");
+	assert.deepEqual(h.sent, []);
+});
+
+test("cancelled recovery and stale recovery cannot wake or overwrite another Goal", (t) => {
+	const h = fixture(t);
+	failRun(h);
+	h.handlers.get("agent_settled")({ aborted: true }, h.ctx);
+	assert.equal(h.runtime.activeGoal?.status, "paused");
+	assert.equal(h.runtime.activeGoal?.stopReason, "agent_interruption");
+	assert.deepEqual(h.sent, []);
+	const replacement = createGoal("Replacement", undefined, 0);
+	h.runtime.activeGoal = replacement;
+	h.runtime.goalRecovery = { goalId: "obsolete", kind: "provider_retry", automaticOwner: true };
+	assert.equal(h.runtime.finalizeSettledRecovery(h.ctx), false);
+	assert.equal(h.runtime.activeGoal, replacement);
+});
+
+test("session restoration pauses running work and explicit resume creates one fresh prompt", async (t) => {
+	const h = fixture(t);
+	const original = h.runtime.activeGoal!;
+	original.lastContinuationAction = "OLD PLAN MUST NOT REPLAY";
+	h.entries.push({ type: "message", message: { role: "assistant", usage: { totalTokens: 321 } } });
+	h.runtime.recordGoalUsage(original, h.ctx);
+	h.runtime.persistGoal(original);
+	await h.handlers.get("session_start")({}, h.ctx);
+	assert.equal(h.runtime.activeGoal?.status, "paused");
+	assert.equal(h.runtime.activeGoal?.stopReason, "session_restored");
+	assert.deepEqual(h.sent, []);
+	await new GoalCommandController(h.runtime).resumeGoal(h.ctx);
+	assert.equal(h.runtime.activeGoal?.status, "active");
+	assert.equal(h.runtime.activeGoal?.stopReason, undefined);
+	assert.notEqual(h.runtime.activeGoal?.id, original.id);
+	assert.equal(h.runtime.activeGoal?.tokensUsed, 321);
+	assert.equal(h.sent.length, 1);
+	assert.doesNotMatch(h.sent[0], /OLD PLAN MUST NOT REPLAY/);
+});
+
+test("idle active resume rejects running, queued, recovering and already-owned work", async (t) => {
+	const h = fixture(t);
+	const commands = new GoalCommandController(h.runtime);
+	await commands.resumeGoal(h.ctx);
+	assert.equal(h.sent.length, 0, "in-flight run cannot be replaced by resume");
+	h.runtime.clearAgentRun();
+	h.ctx.isIdle = () => false;
+	await commands.resumeGoal(h.ctx);
+	h.ctx.isIdle = () => true;
+	h.ctx.hasPendingMessages = () => true;
+	await commands.resumeGoal(h.ctx);
+	h.ctx.hasPendingMessages = () => false;
+	h.runtime.goalRecovery = { goalId: h.runtime.activeGoal!.id, kind: "provider_retry", automaticOwner: true };
+	await commands.resumeGoal(h.ctx);
+	assert.equal(h.sent.length, 0);
+	h.runtime.clearGoalRecovery();
+	await commands.resumeGoal(h.ctx);
+	assert.equal(h.sent.length, 1);
+	await commands.resumeGoal(h.ctx);
+	assert.equal(h.sent.length, 1, "queued owned prompt is not duplicated");
+});
+
+test("idle compaction invalidates the old continuation but leaves explicit resume usable", async (t) => {
+	const h = fixture(t);
+	await h.call("goal_continue", { goal_id: h.runtime.activeGoal!.id, next_action: "OLD PLAN" });
+	finish(h);
+	h.handlers.get("session_before_compact")({}, h.ctx);
+	h.handlers.get("session_compact")({ reason: "manual", willRetry: false }, h.ctx);
+	h.handlers.get("agent_settled")({ aborted: false }, h.ctx);
+	assert.equal(h.sent.length, 0);
+	await new GoalCommandController(h.runtime).resumeGoal(h.ctx);
+	assert.equal(h.sent.length, 1);
+	assert.doesNotMatch(h.sent[0], /OLD PLAN/);
+});
+
+test("managed run publishes active recovery and waiting changes without duplicate events", async (t) => {
+	const h = fixture(t);
+	h.runtime.activeGoal = undefined;
+	h.runtime.clearAgentRun();
+	h.runtime.releaseWorkflow();
+	h.ctx.mode = "rpc";
+	h.runtime.settings = { ...h.runtime.settings, rpc: { enabled: true } } as any;
+	h.controller.bindSession(h.ctx);
+	h.controller.register(h.pi);
+	const events: any[] = [];
+	h.pi.events.on(goalRunEventChannel("recovery-test"), (event: any) => events.push(event));
+	h.pi.events.emit(GOAL_RUN_START_CHANNEL, { runId: "recovery-test", objective: "Inspect a local result" });
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(events[0]?.activity, "running");
+	h.runtime.clearPendingGoalPrompts();
+	h.runtime.beginAgentRun(h.runtime.activeGoal!.id, "automatic");
+	failRun(h);
+	assert.equal(events.at(-1)?.activity, "recovering");
+	const count = events.length;
+	h.runtime.persistGoal(h.runtime.activeGoal!);
+	assert.equal(events.length, count);
+	h.runtime.clearGoalRecoveryForGoal(h.runtime.activeGoal!.id);
+	h.runtime.enterGoalWait(h.ctx, h.runtime.activeGoal!.id, { reason: "Registered external wake" });
+	assert.equal(events.at(-1)?.activity, "waiting");
+	assert.equal(events.at(-1)?.reason, "Registered external wake");
+});
+
+for (const activity of ["recovering", "waiting"] as const) {
+	test(`synchronous managed cancellation from ${activity} is terminal and schedules no work`, async (t) => {
+		const h = fixture(t);
+		h.runtime.activeGoal = undefined;
+		h.runtime.clearAgentRun();
+		h.runtime.releaseWorkflow();
+		h.runtime.settings = { ...h.runtime.settings, rpc: { enabled: true } };
+		h.controller.bindSession(h.ctx);
+		h.controller.register(h.pi);
+		const events: any[] = [];
+		h.pi.events.on(goalRunEventChannel("cancel-recovery"), (event: any) => {
+			events.push(event);
+			if (event.activity === activity) h.pi.events.emit(GOAL_RUN_CANCEL_CHANNEL, { runId: "cancel-recovery" });
+		});
+		h.pi.events.emit(GOAL_RUN_START_CHANNEL, { runId: "cancel-recovery", objective: "Inspect local result" });
+		await new Promise((resolve) => setImmediate(resolve));
+		h.sent.length = 0;
+		h.runtime.clearPendingGoalPrompts();
+		h.runtime.beginAgentRun(h.runtime.activeGoal!.id, "automatic");
+		if (activity === "recovering") failRun(h);
+		else h.runtime.enterGoalWait(h.ctx, h.runtime.activeGoal!.id, { reason: "External wake", resumeAt: Date.now() + 60_000 });
+		await new Promise((resolve) => setImmediate(resolve));
+		h.handlers.get("agent_settled")({ aborted: true }, h.ctx);
+		assert.equal(events.at(-1)?.status, "paused");
+		assert.equal(h.runtime.activeGoal?.stopReason, "explicit_pause");
+		assert.equal(h.runtime.activeGoal?.waiting, undefined);
+		assert.equal(h.runtime.goalRecovery, undefined);
+		assert.equal(h.runtime.dispatchDueGoalWait(h.ctx), false);
+		assert.deepEqual(h.sent, []);
+	});
+}
 
 test("an unanswered authorization question pauses on the first run without a blocker or wake", (t) => {
 	const h = fixture(t);

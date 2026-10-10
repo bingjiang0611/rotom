@@ -16,6 +16,23 @@ const STATE_FILE = join(getAgentDir(), "pi-goal-state.json");
 
 export type SafetyPauseCause = "continuation_limit" | "no_progress";
 
+/** Stable metadata only: never authorization to replay a request or tool. */
+export const GOAL_STOP_REASONS = {
+	explicit_pause: "Paused by user",
+	budget_limit: "Token budget reached",
+	safety_pause: "Automatic-work safety limit reached",
+	retry_exhausted: "Context recovery failed; inspect the error before resuming",
+	provider_retry_exhausted: "Provider recovery stopped; check the connection and use /goal resume",
+	tools_unavailable: "Required Goal tools unavailable",
+	blocker_report: "External blocker reported",
+	agent_interruption: "Model run interrupted",
+	activation_rollback: "Goal activation failed",
+	missing_decision: "No continuation decision; review the last response before resuming",
+	session_restored: "Session restored; use /goal resume to continue without replaying old work",
+} as const;
+export type GoalStopReason = keyof typeof GOAL_STOP_REASONS;
+export type GoalRecoveryKind = "provider_retry" | "compaction_retry";
+
 export interface ActiveGoal {
 	id: string;
 	text: string;
@@ -35,6 +52,9 @@ export interface ActiveGoal {
 	/** Display-only last accepted plan; never proof of progress or replay authority. */
 	lastContinuationAction?: string;
 	safetyPauseCause?: SafetyPauseCause;
+	stopReason?: GoalStopReason;
+	/** Display-only host recovery state; discarded on session restoration. */
+	recovery?: GoalRecoveryKind;
 	safetyResetPending?: boolean;
 	waiting?: GoalWait;
 	/** Review attempts survive resume/edit; an interrupted request is not replayable. */
@@ -195,6 +215,8 @@ export function normalizeLoadedGoal(goal: ActiveGoal): ActiveGoal {
 		lastToolFreeOutputFingerprint: normalizeOutputFingerprint(goal.lastToolFreeOutputFingerprint),
 		lastContinuationAction: typeof goal.lastContinuationAction === "string" && goal.lastContinuationAction.trim() && goal.lastContinuationAction.length <= 2_000 ? goal.lastContinuationAction : undefined,
 		safetyPauseCause: normalizeSafetyPauseCause(goal.safetyPauseCause),
+		stopReason: typeof goal.stopReason === "string" && Object.hasOwn(GOAL_STOP_REASONS, goal.stopReason) ? goal.stopReason : undefined,
+		recovery: undefined,
 		safetyResetPending: goal.safetyResetPending === true ? true : undefined,
 		waiting,
 		review,

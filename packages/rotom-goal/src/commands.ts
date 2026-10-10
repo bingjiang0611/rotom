@@ -220,11 +220,16 @@ export class GoalCommandController {
 			notifyTerminal(ctx.ui, "No active goal.", "info");
 			return;
 		}
+		const idleActive = this.runtime.activeGoal.status === "active" && this.runtime.canResumeIdleGoal(ctx);
+		if (this.runtime.activeGoal.status === "active" && !idleActive) {
+			notifyTerminal(ctx.ui, "Goal still has running or queued work; wait for it to settle before resuming.", "warning");
+			return;
+		}
 		if (this.runtime.activeGoal.status === "active" && this.runtime.activeGoal.waiting) {
 			await this.resumeWaitingGoal(ctx);
 			return;
 		}
-		if (!isResumableGoalStatus(this.runtime.activeGoal.status)) {
+		if (!idleActive && !isResumableGoalStatus(this.runtime.activeGoal.status)) {
 			notifyTerminal(
 				ctx.ui,
 				`Goal is ${this.runtime.activeGoal.status}; only paused, blocked, usage-limited, or budget-limited goals can be resumed.`,

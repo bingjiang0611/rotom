@@ -22,6 +22,9 @@ import {
 } from "./markers.js";
 import {
 	type ActiveGoal,
+	GOAL_STOP_REASONS,
+	type GoalStopReason,
+	type GoalRecoveryKind,
 	clearLegacyPersistedGoal,
 	type LegacyQueueState,
 	type SafetyPauseCause,
@@ -62,7 +65,7 @@ export interface BudgetWrapUp {
 	delivered: boolean;
 }
 
-export type GoalRecoveryKind = "provider_retry" | "compaction_retry";
+export type { GoalRecoveryKind } from "./persistence.js";
 
 export type GoalRunOrigin = "manual" | "automatic";
 
@@ -102,6 +105,7 @@ export type GoalStopRequest =
 	| { kind: "blocker_report"; expectedGoalId: string; reason: string }
 	| {
 			kind: "agent_interruption";
+			cause?: GoalStopReason;
 			expectedGoalId: string;
 			status: "paused" | "blocked" | "usage_limited";
 			reason: string;
@@ -137,6 +141,10 @@ export type GoalStateSnapshotStatus = GoalStatus | "cleared";
 export interface GoalStateSnapshot {
 	goalId: string;
 	status: GoalStateSnapshotStatus;
+	activity?: "running" | "recovering" | "waiting";
+	recovery?: GoalRecoveryKind;
+	resumeAt?: number;
+	stopReason?: GoalStopReason;
 	summary?: string;
 	reason?: string;
 }
@@ -152,9 +160,18 @@ function buildGoalStateSnapshot(
 	reason: string | undefined,
 ): GoalStateSnapshot {
 	const snapshot: GoalStateSnapshot = { goalId: goal.id, status: goal.status };
+	if (goal.stopReason) snapshot.stopReason = goal.stopReason;
+	if (goal.status === "active") {
+		snapshot.activity = goal.waiting ? "waiting" : goal.recovery ? "recovering" : "running";
+		if (goal.recovery) snapshot.recovery = goal.recovery;
+		if (goal.waiting) {
+			snapshot.reason = goal.waiting.reason;
+			if (goal.waiting.resumeAt !== undefined) snapshot.resumeAt = goal.waiting.resumeAt;
+		}
+	}
 	if (goal.status === "complete" && summary) snapshot.summary = summary;
-	else if (goal.status !== "complete" && isTerminalGoalStatus(goal.status) && reason) {
-		snapshot.reason = reason;
+	else if (isTerminalGoalStatus(goal.status)) {
+		snapshot.reason = reason ?? (goal.stopReason ? GOAL_STOP_REASONS[goal.stopReason] : undefined);
 	}
 	return snapshot;
 }
@@ -494,6 +511,7 @@ export class GoalRuntime {
 		this.activeGoal = {
 			...goal,
 			waiting,
+			recovery: undefined,
 			activeStartedAt: undefined,
 			updatedAt: Date.now(),
 		};
@@ -691,6 +709,7 @@ export class GoalRuntime {
 				terminalReason = request.reason;
 				break;
 			case "agent_interruption":
+				this.clearGoalRecoveryForGoal(goal.id);
 				this.cancelContinuationWork();
 				this.clearBudgetWrapUp();
 				this.blockStaleGoalToolCalls();
@@ -706,7 +725,8 @@ export class GoalRuntime {
 				break;
 		}
 
-		this.activeGoal = transitionGoal(goal, status);
+		const stopReason = request.kind === "agent_interruption" ? request.cause ?? request.kind : request.kind;
+		this.activeGoal = { ...transitionGoal(goal, status), stopReason };
 		if (terminalReason !== undefined) this.setTerminalReason(this.activeGoal.id, terminalReason);
 		const stoppedGoal = this.activeGoal;
 		this.persistGoal(stoppedGoal);
@@ -728,6 +748,7 @@ export class GoalRuntime {
 
 	clearGoalRecovery() {
 		this.goalRecovery = undefined;
+		if (this.activeGoal?.recovery) this.activeGoal = { ...this.activeGoal, recovery: undefined };
 	}
 
 	clearBudgetWrapUp() {
@@ -914,13 +935,17 @@ export class GoalRuntime {
 		}
 		const details = recovery.errorMessage ? `: ${truncateNotification(recovery.errorMessage)}` : "";
 		if (recovery.kind === "provider_retry") {
-			const waitingGoal = this.enterGoalWait(ctx, goal.id, {
-				reason: `Provider retries exhausted${details}`,
+			const stoppedGoal = this.stopActiveGoal(ctx, {
+				kind: "agent_interruption",
+				cause: "provider_retry_exhausted",
+				expectedGoalId: goal.id,
+				status: "paused",
+				reason: GOAL_STOP_REASONS.provider_retry_exhausted,
 			});
-			if (!waitingGoal) return false;
+			if (!stoppedGoal) return false;
 			notifyTerminal(
 				ctx.ui,
-				`Goal waiting after provider retries were exhausted${details}. Send a follow-up or run /goal resume to retry.`,
+				`Goal paused after provider recovery stopped${details}. Check the connection and run /goal resume; no automatic retry is pending.`,
 				"warning",
 			);
 			return true;
@@ -949,15 +974,17 @@ export class GoalRuntime {
 
 	clearGoalRecoveryForGoal(goalId: string) {
 		if (this.goalRecovery?.goalId === goalId) this.goalRecovery = undefined;
+		if (this.activeGoal?.id === goalId && this.activeGoal.recovery) {
+			this.activeGoal = { ...this.activeGoal, recovery: undefined };
+		}
 	}
 
-	isPiOwnedCompactionRetry(event: unknown, goalId: string) {
-		const compaction = event as { reason?: unknown; willRetry?: unknown };
-		if (compaction.willRetry === true) return true;
+	canResumeIdleGoal(ctx: StatusContext) {
 		return (
-			this.goalRecovery?.goalId === goalId &&
-			this.goalRecovery.kind === "compaction_retry" &&
-			(compaction.reason === undefined || compaction.reason === "overflow")
+			ctx.isIdle?.() === true && !hasPendingMessages(ctx) &&
+			!this.agentRunGoalId && !this.goalRecovery &&
+			!this.continuationIntent && !this.continuationDelivery &&
+			this.pendingGoalPromptMarkers.size === 0
 		);
 	}
 
@@ -1467,6 +1494,8 @@ export function transitionGoal(goal: ActiveGoal, requestedStatus: GoalStatus): A
 		...goal,
 		status,
 		updatedAt: now,
+		stopReason: status === "active" ? undefined : goal.stopReason,
+		recovery: undefined,
 		...(status === "active" ? {} : { waiting: undefined }),
 	};
 	checkpointGoalActiveTime(next, now, status === "active" && !next.waiting);
@@ -1497,6 +1526,7 @@ export function formatStatus(
 			? "automatic Unlimited"
 			: `automatic ${goal.automaticModelTurns}/${automaticTurnLimit} · ${Math.max(0, automaticTurnLimit - goal.automaticModelTurns)} left`;
 	if (goal.status === "queued") return `queued · ${automatic}`;
+	if (goal.recovery) return `recovering (${goal.recovery}) · host retry/compaction · ${automatic}`;
 	if (goal.waiting) {
 		return `waiting ${safeGoalMenuText(goal.waiting.reason)} · ${automatic}`;
 	}
@@ -1509,7 +1539,7 @@ export function formatStatus(
 		}
 		return `paused · automatic limit ${goal.automaticModelTurns}/${automaticTurnLimit}`;
 	}
-	if (goal.status === "paused") return `paused · ${automatic}`;
+	if (goal.status === "paused") return `paused${goal.stopReason ? ` · ${GOAL_STOP_REASONS[goal.stopReason]}` : ""} · ${automatic}`;
 	if (goal.status === "blocked") return `blocked · ${automatic}`;
 	if (goal.status === "usage_limited") return `usage · ${automatic}`;
 	if (goal.status === "budget_limited") return `budget ${formatBudget(goal)} · ${automatic}`;
@@ -1527,7 +1557,9 @@ export function goalSummary(
 ) {
 	const summary = [
 		`Goal: ${goal.text}`,
-		`Status: ${goal.waiting ? "waiting" : goal.status}`,
+		`Status: ${goal.waiting ? "waiting" : goal.recovery ? "recovering" : goal.status}`,
+		...(goal.recovery ? [`Recovery: ${goal.recovery} (owned by Pi; Goal does not schedule retries)`] : []),
+		...(goal.stopReason ? [`Stop reason: ${goal.stopReason} · ${GOAL_STOP_REASONS[goal.stopReason]}`] : []),
 		...(goal.waiting
 			? [
 					`Waiting: ${safeGoalMenuText(goal.waiting.reason, 1_000)}`,
@@ -1655,7 +1687,7 @@ function goalCommandHint(goal: ActiveGoal, experimentalGoals = false) {
 		return `/goal resume, /goal edit <objective>, /goal pause, /goal clear${queueCommands}`;
 	}
 	if (goal.status === "active") {
-		return `/goal edit <objective>, /goal pause, /goal clear${queueCommands}`;
+		return `/goal resume (only when idle), /goal edit <objective>, /goal pause, /goal clear${queueCommands}`;
 	}
 	if (isResumableGoalStatus(goal.status)) {
 		return `/goal edit <objective>, /goal resume, /goal clear${queueCommands}`;

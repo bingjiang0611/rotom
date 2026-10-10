@@ -1,6 +1,6 @@
 # rotom Goal
 
-rotom-maintained `@narumitw/pi-goal@0.54.4-rotom.7`. MIT upstream provenance is in [UPSTREAM.md](UPSTREAM.md). Use the integrated [rotom installation](../../docs/usage.md), not a second upstream Goal extension.
+rotom-maintained `@narumitw/pi-goal@0.54.4-rotom.8`. MIT upstream provenance is in [UPSTREAM.md](UPSTREAM.md). Use the integrated [rotom installation](../../docs/usage.md), not a second upstream Goal extension.
 
 ## One session, one objective
 
@@ -39,6 +39,14 @@ If an otherwise successful run ends without an accepted continue/wait/terminal d
 The default automatic-work limit is **100 model responses**, not tool calls or completed tasks. This bounded long-task trial replaces the old 25-response default; explicit saved limits (including 25 or Unlimited) are preserved. The footer shows remaining responses. Pause/status views show the last accepted continuation plan when available; it is display-only, not verified progress or authority to replay an action. No model summary request is added. Reassess this default if representative long tasks still stop too often or spend excessively; adjust the existing limit/token budget rather than adding semantic task counting. The no-progress threshold remains 3 repeated runs. Control-only `goal_continue` narration and arguments are excluded from progress fingerprints. Different ordinary narration can still evade a heuristic fingerprint; this is not proof of semantic progress.
 
 Restrictive allowlists must now include `goal_continue` alongside `goal_complete` and `goal_blocked`; missing tools pause/refuse activation, never widen the caller's selection. No old pending continuation is migrated into a fresh authorization.
+
+## Recovery and explicit resume
+
+Pi remains the only owner of provider retry/backoff and overflow compaction. Goal adds no retry loop, changes no retry allowance and never replays a tool to recover a model request. The existing host retry events carry attempt/delay information; Goal displays `recovering` until a successful response or settlement. Provider recovery that settles without success now **pauses** with `stopReason: provider_retry_exhausted`, rather than entering an active wait with no wake deadline. This also applies when retry is disabled. Check the connection or provider error, then use `/goal resume`; no automatic retry is pending. Cancelling recovery stops it, and threshold compaction after a failed request cannot erase that failure.
+
+Session restoration pauses previously active, nonwaiting work with `stopReason: session_restored`; it never replays a saved continuation plan. Explicit external waits retain their existing ownership/deadline behavior. `/goal resume` also accepts an idle active Goal (for example after manual compaction), but refuses it while a run, recovery, queued message or owned prompt/continuation is pending. Resume submits one fresh prompt and preserves cumulative usage and review allowance; it is not permission to repeat successful/unknown effects. Older persisted provider-error waits remain readable and can be explicitly resumed.
+
+Stable `stopReason` codes are stored in the existing `goal-state` entry and shown in status/menu views; raw provider error bodies are not added to this metadata. The opt-in managed-run `pi-goal:event:<runId>` state event retains its existing statuses and adds `activity` (`running`, `recovering`, `waiting`), recovery kind, optional wait `resumeAt`, and `stopReason`. Activity changes publish even when status stays active; identical snapshots are deduplicated. These are display data, not wake/replay authority. External consumers must adopt these optional fields; this change does not modify a separate dashboard application.
 
 ## Completion reviewer (default on)
 
@@ -91,4 +99,4 @@ cd packages/rotom-goal
 npm test
 ```
 
-Type checking uses `packages/rotom-pi/node_modules/.bin/tsc -p packages/rotom-goal/tsconfig.json` from the repository root. Tests cover local invariants and a real Pi SDK with a deterministic faux provider. They do **not** prove live-model acceptance quality, lower cost, real external verification or desktop interaction. Those require a separately authorized bounded evaluation.
+Type checking uses `packages/rotom-pi/node_modules/.bin/tsc -p packages/rotom-goal/tsconfig.json` from the repository root. Tests cover local invariants and a real Pi SDK with a deterministic faux provider, including successful/exhausted/cancelled host retries, post-error threshold compaction, and single dispatch of successful/unknown tool effects. They do **not** prove live-model acceptance quality, lower cost, real external verification or desktop interaction. Those require a separately authorized bounded evaluation.

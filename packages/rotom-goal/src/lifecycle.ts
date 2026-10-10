@@ -108,6 +108,16 @@ export function registerGoalLifecycle(
 				runtime.pauseGoalForUnavailableTools(ctx, false);
 				return;
 			}
+			if (!runtime.activeGoal.waiting) {
+				runtime.stopActiveGoal(ctx, {
+					kind: "agent_interruption",
+					cause: "session_restored",
+					expectedGoalId: runtime.activeGoal.id,
+					status: "paused",
+					reason: "Session restored. Use /goal resume to continue; saved plans are not replayed.",
+				});
+				return;
+			}
 			runtime.persistGoal(runtime.activeGoal);
 			if (!runtime.ownsWorkflow(runtime.activeGoal)) return;
 			const restoredGoalId = runtime.activeGoal.id;
@@ -183,7 +193,7 @@ export function registerGoalLifecycle(
 		if (runtime.limitActiveGoalForBudget(ctx, false)) return { cancel: true as const };
 	});
 
-	pi.on("session_compact", async (event, ctx) => {
+	pi.on("session_compact", async (_event, ctx) => {
 		if (runtime.activeGoal?.status !== "active" || !runtime.ownsWorkflow(runtime.activeGoal)) {
 			runtime.clearGoalRecovery();
 			return;
@@ -191,7 +201,12 @@ export function registerGoalLifecycle(
 
 		const restoredState = loadGoalStateFromSession(ctx);
 		if (restoredState.goal?.id === runtime.activeGoal.id) {
-			runtime.activeGoal = restoredState.goal;
+			// Reloading compacted history is not a new session: the live host still
+			// owns its pending retry. Persisted recovery metadata cannot grant it.
+			runtime.activeGoal = {
+				...restoredState.goal,
+				recovery: runtime.goalRecovery?.goalId === restoredState.goal.id ? runtime.goalRecovery.kind : undefined,
+			};
 		}
 		const usageRecorded = runtime.recordGoalUsage(runtime.activeGoal, ctx);
 		if (usageRecorded) {
@@ -199,22 +214,11 @@ export function registerGoalLifecycle(
 			runtime.updateStatus(ctx, runtime.activeGoal);
 		}
 		if (runtime.limitActiveGoalForBudget(ctx, false)) return;
-		const compactedGoalId = runtime.activeGoal.id;
 		runtime.ensureGoalContextContract(ctx, runtime.activeGoal);
-		if (
-			runtime.activeGoal?.id !== compactedGoalId ||
-			runtime.activeGoal.status !== "active" ||
-			!runtime.ownsWorkflow(runtime.activeGoal)
-		) {
-			return;
-		}
-		if (!usageRecorded) return;
-
-		const wasPiRetry = runtime.isPiOwnedCompactionRetry(event, runtime.activeGoal.id);
-		if (wasPiRetry) return;
-		runtime.clearGoalRecoveryForGoal(runtime.activeGoal.id);
-		// Compaction is not a new continuation decision. Native in-run work may
-		// continue; an idle session needs new input/resume, not a replayed dispatch.
+		// Compaction is neither a successful model response nor a continuation
+		// decision. In particular, threshold compaction after exhausted provider
+		// retries must retain the failure until settlement pauses the Goal.
+		// Native in-run work may continue; idle work requires explicit resume.
 	});
 
 	pi.on("input", (event, ctx) => {
@@ -500,6 +504,16 @@ export function registerGoalLifecycle(
 
 	pi.on("turn_end", (event, ctx) => {
 		runtime.recordAutomaticTurn(ctx, event.message);
+		if (
+			runtime.activeGoal?.status === "active" &&
+			runtime.goalRecovery?.goalId === runtime.activeGoal.id &&
+			event.message.role === "assistant" &&
+			event.message.stopReason !== "error" && event.message.stopReason !== "aborted"
+		) {
+			runtime.clearGoalRecoveryForGoal(runtime.activeGoal.id);
+			runtime.persistGoal(runtime.activeGoal);
+			runtime.updateStatus(ctx, runtime.activeGoal);
+		}
 		// Terminal Goal tools transition state synchronously, but their inactive contract
 		// must wait until Pi has persisted the real tool result at this turn boundary.
 		if (runtime.activeGoal?.status !== "active") {
@@ -554,6 +568,7 @@ export function registerGoalLifecycle(
 					automaticOwner: run.origin === "automatic",
 					errorMessage: finalAssistant.errorMessage,
 				};
+				runtime.activeGoal = { ...runtime.activeGoal, recovery: runtime.goalRecovery.kind };
 				runtime.cancelContinuationWork();
 				runtime.persistGoal(runtime.activeGoal);
 				runtime.updateStatus(ctx, runtime.activeGoal);
@@ -595,18 +610,26 @@ export function registerGoalLifecycle(
 		if (!currentGoal || currentGoal.id !== goalId || currentGoal.status !== "active") return;
 		if (currentGoal.waiting) return;
 		if (!run.nextAction) {
-			runtime.stopActiveGoal(ctx, { kind: "agent_interruption", expectedGoalId: goalId, status: "paused", reason: "No explicit continuation decision. Use /goal resume to continue; no automatic repair turn was spent." });
+			runtime.stopActiveGoal(ctx, { kind: "agent_interruption", cause: "missing_decision", expectedGoalId: goalId, status: "paused", reason: "No explicit continuation decision. Use /goal resume to continue; no automatic repair turn was spent." });
 			return;
 		}
 		runtime.requestContinuation(currentGoal, run.nextAction);
 	});
 
-	pi.on("agent_settled", (_event, ctx) => {
+	pi.on("agent_settled", (event, ctx) => {
 		if (runtime.activeGoal?.status === "active" && !runtime.ownsWorkflow(runtime.activeGoal)) {
 			runtime.cancelContinuationWork();
 			runtime.clearGoalRecovery();
 			runtime.clearSettledSafetyTracking();
 			return;
+		}
+		if (event.aborted && runtime.activeGoal?.status === "active" && runtime.goalRecovery) {
+			runtime.stopActiveGoal(ctx, {
+				kind: "agent_interruption",
+				expectedGoalId: runtime.activeGoal.id,
+				status: "paused",
+				reason: "Recovery cancelled; no automatic retry is pending.",
+			});
 		}
 		runtime.finalizeSettledRecovery(ctx);
 		const resumedWait = runtime.dispatchDueGoalWait(ctx);

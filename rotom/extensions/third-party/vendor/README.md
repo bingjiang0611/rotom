@@ -26,10 +26,13 @@ The default product selects **`@injaneity/pi-computer-use@0.5.1-rotom.0`**, inde
 
 ## Locked Goal distribution
 
-The default product selects **`@narumitw/pi-goal@0.54.4-rotom.7`**, independently maintained in `packages/rotom-goal/`. This is a Goal fork, not a Pi fork.
+`.rotom.8` exposes host recovery and durable stop causes, pauses exhausted provider recovery, and supports explicit idle-active resume without replay. Recovery remains Pi-owned; threshold compaction cannot erase a pending failure. Managed-run events add optional activity fields. Existing installations are not modified in place; see the component README for compatibility and offline verification limits.
 
-- Archive: `narumitw-pi-goal-0.54.4-rotom.7.tgz`
-- SHA512 SRI: `sha512-NTQ8KTMcGi1Q3JgyMMfBF3eMT4myBSkc3wJarUANSTtLEcRx27Byv+zowzc0aoQaBDwSRqGRRehOrdTKCkr7vQ==`
+
+The default product selects **`@narumitw/pi-goal@0.54.4-rotom.8`**, independently maintained in `packages/rotom-goal/`. This is a Goal fork, not a Pi fork.
+
+- Archive: `narumitw-pi-goal-0.54.4-rotom.8.tgz`
+- SHA512 SRI: `sha512-nEQhj4obyLpYRUUpqZF9co8UeX7Jc1iPKrI0D3hSMW9cEXDrIzv+ZnrhGWqwyWWk4GB7cZ7NzO5LAjC5uNTI8g==`
 - `.rotom.7` removes virtual-model reviewer adaptation alongside Pi's classifier/router removal; reviews use the selected ordinary model without another lookup or routing request. Versioned auxiliary usage accounting is retained.
 - `.rotom.6` introduced Pi 1.0 tool/model/summary accounting and one-time legacy baseline migration. Its former virtual-model reviewer behavior is superseded by `.rotom.7`.
 - `.rotom.5` changes the default automatic-response allowance to 100 (explicit settings win), displays remaining responses and persists the last accepted continuation plan for display only. No extra summary request, replay permission or guard relaxation is added.

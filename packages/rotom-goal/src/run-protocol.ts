@@ -32,6 +32,10 @@ export type GoalRunEvent =
 			runId: string;
 			goalId: string;
 			status: GoalRunStatus;
+			activity?: GoalStateSnapshot["activity"];
+			recovery?: GoalStateSnapshot["recovery"];
+			resumeAt?: number;
+			stopReason?: GoalStateSnapshot["stopReason"];
 			summary?: string;
 			reason?: string;
 	  }
@@ -57,7 +61,7 @@ interface ManagedRun {
 	runId: string;
 	generation: number;
 	goalId?: string;
-	lastStatus?: GoalRunStatus;
+	lastSnapshot?: string;
 	closed: boolean;
 	cancelRequested: boolean;
 	cancelReason?: string;
@@ -324,22 +328,26 @@ export class GoalRunController {
 			});
 			return;
 		}
-		if (snapshot.status === "queued" || run.lastStatus === snapshot.status) return;
+		if (snapshot.status === "queued" || run.lastSnapshot === JSON.stringify(snapshot)) return;
 		this.publishStateEvent(run, snapshot);
 	}
 
 	private publishStateEvent(
 		run: ManagedRun,
-		snapshot: Pick<GoalStateSnapshot, "goalId" | "status" | "summary" | "reason">,
+		snapshot: GoalStateSnapshot,
 	) {
 		const status = snapshot.status;
 		if (status === "queued") return;
-		run.lastStatus = status;
+		run.lastSnapshot = JSON.stringify(snapshot);
 		const event: GoalRunEvent = {
 			type: "state",
 			runId: run.runId,
 			goalId: snapshot.goalId,
 			status,
+			...(snapshot.activity ? { activity: snapshot.activity } : {}),
+			...(snapshot.recovery ? { recovery: snapshot.recovery } : {}),
+			...(snapshot.resumeAt !== undefined ? { resumeAt: snapshot.resumeAt } : {}),
+			...(snapshot.stopReason ? { stopReason: snapshot.stopReason } : {}),
 			...(snapshot.summary ? { summary: snapshot.summary } : {}),
 			...(snapshot.reason ? { reason: snapshot.reason } : {}),
 		};

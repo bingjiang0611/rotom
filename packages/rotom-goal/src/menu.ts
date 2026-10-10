@@ -7,7 +7,7 @@ import { notifyTerminal, safeGoalMenuText } from "./errors.js";
 
 export { safeGoalMenuText } from "./errors.js";
 
-import type { ActiveGoal } from "./persistence.js";
+import { type ActiveGoal, GOAL_STOP_REASONS } from "./persistence.js";
 import { type GoalRuntime, goalSummary } from "./runtime.js";
 
 export const GOAL_MENU_ACTIONS = {
@@ -72,7 +72,7 @@ export function buildGoalMenuState(runtime: GoalMenuRuntimeView): GoalMenuState 
 		? "Paused — automatic-work limit reached"
 		: waitingReason
 			? `Waiting — ${waitingReason}`
-			: displayStatus(goal?.status);
+			: goal?.recovery ? "Recovering — Pi owns retry/compaction" : displayStatus(goal?.status);
 	const automaticTurnLimit = runtime.settings.continuationLimits.automaticTurns;
 	const used = goal?.automaticModelTurns ?? 0;
 	const automaticResponses =
@@ -91,6 +91,7 @@ export function buildGoalMenuState(runtime: GoalMenuRuntimeView): GoalMenuState 
 						: `${formatTokenCount(goalBudgetTokens(goal))}/${formatTokenCount(goal.tokenBudget)}`
 				}`,
 				automaticResponses,
+				...(goal.stopReason ? [GOAL_STOP_REASONS[goal.stopReason]] : []),
 				...(pausedByAutomaticLimit
 					? ["Progress is saved. Review the safety limit before continuing."]
 					: []),
@@ -159,7 +160,7 @@ export async function showGoalManager(
 				displayedGoal = runtime.activeGoal;
 				return {
 					kind: "actions",
-					title: "Goal",
+					title: state.title.split("\n")[0]!,
 					lines: state.title.split("\n").slice(1),
 					items: state.actions.map(goalMainMenuItem),
 					hint: "close",
