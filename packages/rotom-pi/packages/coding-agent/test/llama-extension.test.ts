@@ -321,6 +321,87 @@ describe("llama.cpp extension", () => {
 		expect(cachedEntry?.models.map((model) => [model.id, model.api])).toEqual([["preset", "openai-completions"]]);
 	});
 
+	it("keeps decision-only models out of the chat catalog without probing them", async () => {
+		const propsModels: string[] = [];
+		const { url } = await listen((request, response) => {
+			const requestUrl = new URL(request.url ?? "", "http://localhost");
+			if (requestUrl.pathname === "/models") {
+				json(response, {
+					data: [
+						{
+							id: "qwen",
+							status: { value: "loaded" },
+							architecture: { input_modalities: ["text"], output_modalities: ["text"] },
+							meta: { n_ctx: 32768 },
+						},
+						{
+							id: "kev",
+							status: { value: "loaded" },
+							architecture: { input_modalities: ["text"], output_modalities: ["decisions"] },
+							meta: { n_ctx: 8192 },
+						},
+						{
+							id: "laya",
+							status: { value: "sleeping" },
+							architecture: { input_modalities: ["text"], output_modalities: ["decisions"] },
+						},
+						// Servers before llama.cpp 0.6.0 may omit architecture.
+						{ id: "legacy", status: { value: "loaded" } },
+					],
+				});
+				return;
+			}
+			if (requestUrl.pathname === "/props") {
+				propsModels.push(requestUrl.searchParams.get("model") ?? "");
+				json(response, {});
+				return;
+			}
+			response.writeHead(404).end();
+		});
+
+		let cachedEntry: ModelsStoreEntry | undefined;
+		const publish = async (publication: ModelsPublication): Promise<boolean> => {
+			if (publication.persist !== undefined && publication.persist !== null) {
+				cachedEntry = structuredClone(publication.persist);
+			}
+			publication.update?.();
+			return true;
+		};
+		const credential = { type: "api_key" as const, key: "local", env: { LLAMA_BASE_URL: url } };
+		const controller = createLlamaProvider();
+		await controller.provider.refreshModels?.({
+			credential,
+			stored: undefined,
+			publish,
+			allowNetwork: true,
+			signal: new AbortController().signal,
+		});
+
+		expect(propsModels.sort()).toEqual(["legacy", "qwen"]);
+		expect(controller.provider.getModels().map((model) => model.id)).toEqual(["qwen", "legacy"]);
+		expect(cachedEntry?.models.map((model) => [model.id, model.api, model.baseUrl])).toEqual([
+			["qwen", "openai-completions", `${url}/v1`],
+			["legacy", "openai-completions", `${url}/v1`],
+		]);
+		expect("classify" in controller.provider).toBe(false);
+	});
+
+	it("lists decision models that also output text for chat", () => {
+		const controller = createLlamaProvider();
+		controller.setCatalog(
+			[
+				{ id: "decide", status: { value: "sleeping" }, architecture: { output_modalities: ["decisions"] } },
+				{
+					id: "hybrid",
+					status: { value: "loaded" },
+					architecture: { output_modalities: ["text", "decisions"] },
+				},
+			],
+			"http://localhost:8080",
+		);
+		expect(controller.provider.getModels().map((model) => model.id)).toEqual(["hybrid"]);
+	});
+
 	it("hides unloaded presets when router autoload is disabled", async () => {
 		const { url } = await listen((request, response) => {
 			if (request.url === "/models") {

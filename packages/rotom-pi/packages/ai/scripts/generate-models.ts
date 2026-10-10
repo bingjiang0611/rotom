@@ -601,7 +601,7 @@ function supportsAnthropicMidConvoEffort(modelId: string): boolean {
 	const id = modelId.toLowerCase().replace(/^~?anthropic\//, "");
 	return (
 		/^claude-opus-(?:5|5[.-]5)(?:-\d{8})?$/.test(id) ||
-		/^claude-sonnet-5[.-]5(?:-\d{8})?$/.test(id) ||
+		/^claude-(?:sonnet|haiku)-5[.-]5(?:-\d{8})?$/.test(id) ||
 		/^claude-(?:fable|mythos)-5(?:[.-]1)(?:-\d{8})?$/.test(id)
 	);
 }
@@ -609,7 +609,7 @@ function supportsAnthropicMidConvoEffort(modelId: string): boolean {
 function supportsAnthropicMidConvoSystemMessages(modelId: string): boolean {
 	return (
 		/^claude-opus-(?:4[.-]8|5(?:[.-]5)?)(?:-\d{8})?$/.test(modelId) ||
-		/^claude-sonnet-5[.-]5(?:-\d{8})?$/.test(modelId) ||
+		/^claude-(?:sonnet|haiku)-5[.-]5(?:-\d{8})?$/.test(modelId) ||
 		/^claude-(?:fable|mythos)-5(?:[.-]1)?(?:-\d{8})?$/.test(modelId)
 	);
 }
@@ -628,6 +628,8 @@ function isAnthropicAdaptiveThinkingModel(modelId: string): boolean {
 		modelId.includes("sonnet-4.6") ||
 		modelId.includes("sonnet-5") ||
 		modelId.includes("sonnet.5") ||
+		modelId.includes("haiku-5") ||
+		modelId.includes("haiku.5") ||
 		modelId.includes("fable-5") ||
 		modelId.includes("mythos-5")
 	);
@@ -643,7 +645,9 @@ function isAnthropicTemperatureUnsupportedModel(modelId: string): boolean {
 		id.includes("opus-5") ||
 		id.includes("opus.5") ||
 		id.includes("sonnet-5-5") ||
-		id.includes("sonnet-5.5")
+		id.includes("sonnet-5.5") ||
+		id.includes("haiku-5-5") ||
+		id.includes("haiku-5.5")
 	);
 }
 
@@ -1082,7 +1086,7 @@ function applyThinkingLevelMetadata(model: Model<any>): void {
 	}
 	// Anthropic adaptive-thinking effort support (per Anthropic adaptive thinking docs):
 	// - "max" is available on all adaptive-thinking Claude models.
-	// - "xhigh" is only available on Opus 4.7/4.8/5, Sonnet 5, and Fable 5.
+	// - "xhigh" is only available on Opus 4.7/4.8/5, Sonnet 5, Haiku 5.5, and Fable 5.
 	if (
 		model.id.includes("opus-4-6") ||
 		model.id.includes("opus-4.6") ||
@@ -1099,7 +1103,9 @@ function applyThinkingLevelMetadata(model: Model<any>): void {
 		model.id.includes("opus-5") ||
 		model.id.includes("opus.5") ||
 		model.id.includes("sonnet-5") ||
-		model.id.includes("sonnet.5")
+		model.id.includes("sonnet.5") ||
+		model.id.includes("haiku-5") ||
+		model.id.includes("haiku.5")
 	) {
 		mergeThinkingLevelMap(model, { xhigh: "xhigh", max: "max" });
 	}
@@ -2395,12 +2401,15 @@ async function loadModelsDevData(): Promise<Model<any>[]> {
 					baseUrl,
 					reasoning: isKimiK3 || m.reasoning === true,
 					input: m.modalities?.input?.includes("image") ? ["text", "image"] : ["text"],
-					cost: {
-						input: m.cost?.input || (isKimiK3 ? KIMI_K3_COST.input : 0),
-						output: m.cost?.output || (isKimiK3 ? KIMI_K3_COST.output : 0),
-						cacheRead: m.cost?.cache_read || (isKimiK3 ? KIMI_K3_COST.cacheRead : 0),
-						cacheWrite: m.cost?.cache_write || (isKimiK3 ? KIMI_K3_COST.cacheWrite : 0),
-					},
+					// Moonshot does not bill cache writes; models.dev lists the input rate as cache_write for Kimi K3.
+					cost: isKimiK3
+						? { ...KIMI_K3_COST }
+						: {
+								input: m.cost?.input || 0,
+								output: m.cost?.output || 0,
+								cacheRead: m.cost?.cache_read || 0,
+								cacheWrite: m.cost?.cache_write || 0,
+							},
 					contextWindow: m.limit?.context || 4096,
 					maxTokens: m.limit?.output || 4096,
 					compat,
@@ -2614,6 +2623,39 @@ async function generateModels() {
 		});
 	}
 
+	// Add Claude Haiku 5.5 until models.dev includes it. Prompts over 100k input tokens
+	// are billed at 5x for the whole request.
+	// https://platform.claude.com/docs/en/models/haiku-5-5/overview
+	if (!allModels.some((model) => model.provider === "anthropic" && model.id === "claude-haiku-5-5")) {
+		allModels.push({
+			id: "claude-haiku-5-5",
+			name: "Claude Haiku 5.5",
+			api: "anthropic-messages",
+			provider: "anthropic",
+			baseUrl: "https://api.anthropic.com",
+			reasoning: true,
+			thinkingLevelMap: {
+				off: null,
+				minimal: null,
+				low: "low",
+				medium: "medium",
+				high: "high",
+				xhigh: "xhigh",
+				max: "max",
+			},
+			input: ["text", "image"],
+			cost: {
+				input: 0.1,
+				output: 0.5,
+				cacheRead: 0.01,
+				cacheWrite: 0.125,
+				tiers: [{ inputTokensAbove: 100000, input: 0.5, output: 2.5, cacheRead: 0.05, cacheWrite: 0.625 }],
+			},
+			contextWindow: 1000000,
+			maxTokens: 128000,
+		});
+	}
+
 	// The authenticated Copilot catalog advertised these models on 2026-09-22,
 	// but models.dev did not include them yet.
 	const missingCopilotModels: Model<Api>[] = [
@@ -2665,10 +2707,12 @@ async function generateModels() {
 			candidate.contextWindow = 1000000;
 		}
 
-		// models.dev may list Opus 5.5 and Sonnet 5.5 before their effort metadata is complete.
+		// models.dev may list Opus 5.5, Sonnet 5.5, and Haiku 5.5 before their effort metadata is complete.
 		if (
 			(candidate.provider === "anthropic" &&
-				(candidate.id === "claude-opus-5-5" || candidate.id === "claude-sonnet-5-5")) ||
+				(candidate.id === "claude-opus-5-5" ||
+					candidate.id === "claude-sonnet-5-5" ||
+					candidate.id === "claude-haiku-5-5")) ||
 			(candidate.provider === "github-copilot" && candidate.id === "claude-opus-5.5")
 		) {
 			mergeThinkingLevelMap(candidate, {

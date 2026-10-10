@@ -539,7 +539,14 @@ export interface AssistantMessage {
 	 * Preserved for debugging and does not currently affect agent control flow.
 	 */
 	endTurn?: boolean;
-	timestamp: number; // Unix timestamp in milliseconds
+	/** Unix timestamp in milliseconds when the request started. */
+	timestamp: number;
+	/**
+	 * Milliseconds from `timestamp` until the response ended, measured with a monotonic clock. Set by
+	 * `AssistantMessageEventStream` on the final message of a response it saw start; absent for legacy messages and
+	 * for deferred results fetched later.
+	 */
+	durationMs?: number;
 }
 
 /** A tool call that another tool made while it ran, for example from a codemode script. */

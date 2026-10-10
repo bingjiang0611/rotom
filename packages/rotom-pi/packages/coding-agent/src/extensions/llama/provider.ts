@@ -75,6 +75,20 @@ function contextWindowOf(model: LlamaModelInfo, cachedContextWindow?: number): n
 	return trainingContextWindow && trainingContextWindow > 0 ? trainingContextWindow : 128000;
 }
 
+/**
+ * Whether llama.cpp reports a native decision model. Since llama.cpp 0.6.0, `GET /models` lists
+ * `decisions` in `architecture.output_modalities` for these models, including unloaded and sleeping ones.
+ * Older servers report `["text"]` or omit `architecture`, so their models are treated as chat models.
+ */
+function isDecisionModel(model: LlamaModelInfo): boolean {
+	return model.architecture?.output_modalities?.includes("decisions") === true;
+}
+
+/** Decision-only models cannot generate text and are not listed for chat. */
+function isChatModel(model: LlamaModelInfo): boolean {
+	return !isDecisionModel(model) || model.architecture?.output_modalities?.includes("text") === true;
+}
+
 function toPiModel(
 	model: LlamaModelInfo,
 	serverUrl: string,
@@ -123,7 +137,7 @@ export function createLlamaProvider(): LlamaProviderController {
 		options: { routerAutoload?: boolean } = {},
 	): void => {
 		const selectable = catalog.filter((model) => modelIsSelectable(model, options.routerAutoload === true));
-		models = selectable.map((model) => toPiModel(model, serverUrl));
+		models = selectable.filter(isChatModel).map((model) => toPiModel(model, serverUrl));
 	};
 
 	const provider: Provider<"openai-completions"> = {
@@ -206,12 +220,13 @@ export function createLlamaProvider(): LlamaProviderController {
 			const routerAutoload = await routerAutoloadEnabled(client, catalog, context.signal);
 			if (context.signal.aborted) return;
 			const selectable = catalog.filter((model) => modelIsSelectable(model, routerAutoload));
+			// Only loaded models expose their chat template without side effects. Unloaded autoload presets would
+			// need to be loaded, while querying sleeping models may wake them. Those models remain without thinking
+			// support until they are loaded and a later catalog refresh discovers it. Decision-only models are
+			// not chat models and are skipped.
 			const refreshed = await Promise.all(
-				selectable.map(async (model) => {
+				selectable.filter(isChatModel).map(async (model) => {
 					const cachedContextWindow = cachedContextWindows.get(model.id);
-					// Only loaded models expose their template without side effects. Unloaded autoload presets
-					// would need to be loaded, while querying sleeping models may wake them. Those models remain
-					// unclassified until they are loaded or woken and a later catalog refresh discovers them.
 					if (model.status.value !== "loaded") return toPiModel(model, serverUrl, undefined, cachedContextWindow);
 					const props = await client.props({ model: model.id, signal: context.signal });
 					return toPiModel(model, serverUrl, props, cachedContextWindow);

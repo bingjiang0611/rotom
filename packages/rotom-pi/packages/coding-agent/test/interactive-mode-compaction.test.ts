@@ -138,6 +138,7 @@ describe("InteractiveMode compaction events", () => {
 		const fakeThis = {
 			isInitialized: true,
 			footer: { invalidate: vi.fn() },
+			programStatus: { handleEvent: vi.fn() },
 			autoCompactionEscapeHandler: undefined as (() => void) | undefined,
 			autoCompactionLoader: undefined,
 			defaultEditor: {},
@@ -206,6 +207,7 @@ describe("InteractiveMode compaction events", () => {
 			session: { isManualCompactionPending: true, retryAttempt: 0 },
 			chatContainer: { removeChild: vi.fn() },
 			footer: { invalidate: vi.fn() },
+			programStatus: { handleEvent: vi.fn() },
 			ui: { requestRender: vi.fn() },
 		};
 		const message = {
@@ -236,6 +238,7 @@ describe("InteractiveMode compaction events", () => {
 			chatContainer: { removeChild: vi.fn() },
 			pendingTools: new Map(),
 			footer: { invalidate: vi.fn() },
+			programStatus: { handleEvent: vi.fn() },
 			ui: { requestRender: vi.fn() },
 		};
 		const message = fauxAssistantMessage("partial output", { stopReason: "aborted" });
@@ -258,6 +261,7 @@ describe("InteractiveMode compaction events", () => {
 		const fakeThis = {
 			isInitialized: true,
 			footer: { invalidate: vi.fn() },
+			programStatus: { handleEvent: vi.fn() },
 			activeStatusIndicator: undefined,
 			workingVisible: true,
 			showWorkingStatusIndicator: vi.fn(),

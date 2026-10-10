@@ -6,7 +6,7 @@ rotom 的根产品许可证尚未确定（当前 `UNLICENSED`）；此状态不�
 
 | Package | Version | Declared license | Distribution |
 |---|---|---|---|
-| `@earendil-works/pi-coding-agent`, `pi-agent-core`, `pi-ai`, `pi-tui`, `pi-telemetry`, `chord`, `pi-codemode`, `pi-mcp` (all under `@earendil-works`) | `1.0.4-rotom.2` | MIT | In-repository Pi fork (`packages/rotom-pi/`), built into integrity-pinned archives and installed under `runtime/pi/node_modules/` |
+| `@earendil-works/pi-coding-agent`, `pi-agent-core`, `pi-ai`, `pi-tui`, `pi-telemetry`, `chord`, `pi-codemode`, `pi-mcp` (all under `@earendil-works`) | `1.1.0-rotom.1` | MIT | In-repository Pi fork (`packages/rotom-pi/`), built into integrity-pinned archives and installed under `runtime/pi/node_modules/` |
 | `@injaneity/pi-computer-use` | `0.5.1-rotom.0` | MIT | Independently maintained fork (`packages/rotom-computer-use/`), included from its integrity-pinned vendor archive |
 | `@juicesharp/rpiv-ask-user-question` | `2.6.2` | MIT | Included under `extensions/third-party/node_modules/` |
 | `@narumitw/pi-goal` | `0.54.4-rotom.8` | MIT | Independently maintained fork (`packages/rotom-goal/`), included from its integrity-pinned vendor archive |
@@ -44,7 +44,7 @@ SOFTWARE.
 
 ## Pi license
 
-Source: [Pi repository LICENSE](https://github.com/earendil-works/pi/blob/7c10bd4337495ee613f2224843ecdf349b80d1df/LICENSE). All eight fork archives retain this LICENSE and upstream metadata. `runtime/pi/fork-build.json` records the upstream revision, maintained source/builder digests and archive integrities. The fork retains Rotom's model picker, UI, Qoder integration and product update behavior. Built-in MCP is not registered; its package dependency is retained. This is not an official Pi release. Source provenance and maintenance instructions are in `packages/rotom-pi/FORK.json` and `ROTOM-FORK.md` in the source repository.
+Source: [Pi repository LICENSE](https://github.com/earendil-works/pi/blob/abe508e1b89912adde45528136c3221eb69acdd7/LICENSE). All eight fork archives retain this LICENSE and upstream metadata. `runtime/pi/fork-build.json` records the upstream revision, maintained source/builder digests and archive integrities. The fork retains Rotom's model picker, UI, Qoder integration and product update behavior. Built-in MCP is not registered; its package dependency is retained. This is not an official Pi release. Source provenance and maintenance instructions are in `packages/rotom-pi/FORK.json` and `ROTOM-FORK.md` in the source repository.
 
 ```text
 MIT License

@@ -491,6 +491,8 @@ export interface ToolRenderContext<TState = any, TArgs = any> {
 	 * for results stored before durations were recorded.
 	 */
 	durationMs: number | undefined;
+	/** Horizontal padding configured by the outputPad setting. Renderers with `renderShell: "self"` apply it themselves. */
+	outputPad: number;
 }
 
 /**
