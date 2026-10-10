@@ -1,0 +1,83 @@
+{
+  "state": "published-and-globally-installed",
+  "package": "@bingjiang0611/rotom",
+  "version": "0.1.18",
+  "tag": "latest",
+  "sourceCommit": "4b91eecf06cf6a1796bdb383f332b5405899dd85",
+  "sha256": "e7c057625ca81cfd0cf1e9a5abd16035ab7cb71a56b28a54a777bcd05961598e",
+  "shasum": "72033c593e4ddafcba44fb603374ebf83b2f998f",
+  "integrity": "sha512-ENCKpF4mCmgIejqyVhrGzVXu6+ULRAcHX72kcYfiSrjDR2bXsakzmPF8Scx24J3OwY6QFkVig4QGFTrav7Awxg==",
+  "tarball": "https://registry.npmjs.org/@bingjiang0611/rotom/-/rotom-0.1.18.tgz",
+  "fileCount": 18871,
+  "compressedBytes": 53033312,
+  "unpackedBytes": 169928261,
+  "buildToolchain": {
+    "node": "24.18.0",
+    "npm": "11.13.0",
+    "successfulFinalPacks": 1
+  },
+  "components": {
+    "piFork": "1.1.0-rotom.2",
+    "pi-subagents": "0.52.1-rotom.6",
+    "pi-goal": "0.54.4-rotom.8",
+    "pi-computer-use": "0.5.1-rotom.0"
+  },
+  "supersededFirstFreeze": {
+    "sourceCommit": "754e6dc929e727f9ab3b2097ebc88132d6e70ba6",
+    "piFork": "1.0.4-rotom.2",
+    "sha256": "e6fce63b936b6e454d3554847d03a7cca23f3a84beaccb5493219c840aa6ef4d",
+    "publishResult": "user-reported E404 on package PUT; exact version absent on registry before this release",
+    "republished": false
+  },
+  "checks": {
+    "checkPi": "PASS",
+    "distributionTests": "25 passed",
+    "productTests": "314 passed with actual installed tgz Pi",
+    "goalTests": "87 passed with actual installed tgz Pi",
+    "offlineProviderAndFootprintGates": "runtimeContractGate and deterministicGate PASS; referenceObservationGate DRIFT is informational and also present in 0.1.17",
+    "defaultAndFullInstalledSdkSmoke": "PASS; actual installed product resources, 2/2 faux calls, 0/0 lifecycle errors",
+    "installedMcp": "rotom mcp list connects the upstream stdio fixture (tools [echo]); /mcp command registered over RPC",
+    "isolatedInstall": "PASS; isolated HOME/prefix/npm configuration, PATH without global Pi",
+    "isolatedUpgrade": "0.1.17 (registry) to exact 0.1.18 tgz PASS",
+    "isolatedUninstall": "PASS; binary and package absent; HOME sentinel retained",
+    "productFilesByteIdentical": "72 files identical across frozen source, tgz and isolated install",
+    "publicFrozenSourceAudit": {
+      "scope": "tree+history",
+      "files": 74801,
+      "bytes": 1268474931,
+      "commits": 129,
+      "findings": 0,
+      "approvedBoundMiB": 1216
+    },
+    "actualArtifactPrivacyAudit": {
+      "scope": "artifact",
+      "files": 21817,
+      "bytes": 274702949,
+      "findings": 0
+    }
+  },
+  "registryVerified": true,
+  "registryVerification": "Exact version, latest tag, integrity, shasum, trusted tarball URL and downloaded bytes match the single frozen tgz",
+  "globalInstall": {
+    "state": "verified",
+    "previousVersion": "0.1.17",
+    "version": "0.1.18",
+    "piFork": "1.1.0-rotom.2",
+    "layout": "~/.local/share/rotom/releases/0.1.18/node_modules/@bingjiang0611/rotom with node-bin rotom symlink switch",
+    "performedBy": "agent after the user saw the exact commands and explicitly asked it to install",
+    "hotReplacementExplicitlyAccepted": true,
+    "existingSessionsTerminated": false,
+    "existingSessionsMigrated": false,
+    "credentialsAccessed": false,
+    "installCount": 1,
+    "previousReleaseDirectoryRetained": true,
+    "readback": "public CLI version, symlink target, bundled component versions and installed tgz bytes match the verified release",
+    "existingSessionRestartRequired": true
+  },
+  "unverified": [
+    "live classifier calls",
+    "OAuth MCP servers",
+    "live model services on the final release artifact",
+    "terminal UI, Chrome/device and cross-platform acceptance"
+  ]
+}

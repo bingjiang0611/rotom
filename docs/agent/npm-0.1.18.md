@@ -1,7 +1,7 @@
 # npm 0.1.18 发布准备
 
 - 授权目标：`@bingjiang0611/rotom@0.1.18`，dist-tag `latest`，access `public`，许可证 `UNLICENSED`。
-- 状态：重新冻结发布元数据；尚未证明 npm 发布成功。
+- 状态：已发布并独立核验 `0.1.18 / latest`。registry 的 version、dist-tag、integrity、shasum、可信 tarball URL 与下载字节全部匹配唯一最终 tgz；构建源及验证见 [发行证据](npm-0.1.18-verification.json)。用户看过精确命令后明确要求由 Agent 完成本机按版本目录安装与命令切换；旧 0.1.17 目录保留，存活会话未迁移，须重启后才使用新版本。
 - 基于公开 `main`，独立干净 clone 构建；最终 source commit 由 Git 读取并记录在验证报告中，不手填或重建旧包。
 
 ## 首次冻结的发布尝试（已作废）
@@ -22,4 +22,8 @@
 
 发布前已用真实模型验证（源码 launcher，非安装包）：虚拟模型按 thinking 档位路由到对应的 `openai-codex` 物理模型，工具后续请求保持在同一模型；模型可在 Codemode 内调用 stdio MCP 工具并返回正确结果。分类器的真实调用未验证：本机 ChatGPT OAuth 不能调用 Decisions API，也没有其他分类器提供方的 key。OAuth MCP、完整终端交互、Chrome/设备与跨平台尚未验收。组件历史 `test:compat` 因缺失/归档测试路径无法运行。
 
-npm 登录和最终 publish 由维护者在前台终端执行一次。仅精确 version、tag、摘要及下载字节全部一致才记为 verified；submitted/reviewing/unknown 不重复 publish，也不自动升级本机。
+## 发布结果
+
+最终 tgz 已通过上述全部安装包门禁（314 产品测试、87 Goal 测试、default/full smoke、安装包 MCP、0.1.17→0.1.18 升级与卸载、实际包与 tree/history 审计），详见验证 JSON。
+
+npm 登录和 publish 由维护者在前台终端执行。首次粘贴时命令被终端折行，`npm publish` 未带参数，在读取当前目录 `package.json` 时 ENOENT 失败，没有任何网络发布；只读确认 registry 仍无 0.1.18 后，以变量化的单行命令执行唯一一次有效 publish。Agent 未读取凭据，随后独立完成 registry 与下载字节核验（`verified: true`）。
