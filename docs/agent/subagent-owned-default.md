@@ -8,7 +8,7 @@
 
 - launcher 在启动 Pi 前选定 `PI_SUBAGENTS_EXECUTION_SCOPE=owned-process-groups-v2`，并在 `~/.local/state/rotom/subagent-store` 锚定 store。已存在的锚点直接复用，绝不替换。
 - store 放在持久 state 目录而不是临时目录，避免 tmp 清理删掉活跃 store 锚点后使运行中的工作无法证明。
-- 当前源码选择 `pi-subagents@0.52.1-rotom.5`；本批没有 npm 发布或本机安装切换；远端 `rotom@0.1.14` 发行准备冻结基线仍携带 `.3`，npm 公开状态未在本批核验。本节其余证据记录 scoped 默认首次发布批次，不冒充 `.4` 的重新验收。
+- 当前源码选择 `pi-subagents@0.52.1-rotom.6`，本地产品 `0.1.17` 已并排安装并切换启动命令；runner 异常收尾与 paused 容量释放的实际验证见 [runner drain](subagent-runner-drain.md)。旧未知任务不解锁、不重放；运行中会话不热替换。本节其余证据记录 scoped 默认首次发布批次，不冒充最新版本重新验收；本次未发布 npm。
 - `.4` 用产品自有短提示替代上游叠加说明，schema 仅描述当前 scope 允许的字段；指定 id 的 status 复用恢复预检与有界尾部读取。预检通过不是启动授权，启动仍核对配置/closure/identity/canonical lease。schedule executor 和自动 goal-mission driver 已删除（legacy scope 同样不再执行）；历史数据不删、不迁移、不重放。共享历史 reader 与 inspector/fleet 依赖仍保留。
 - 本批最终源码：46 项 unit、211 个 TS 文件对当前 Pi `1.0.4-rotom.0` 的 strict typecheck；最终归档有 source digest/lock/integrity 与隐私审计。SDK 安全套件在最后的状态/selector 收口前 3/3 通过，重跑在本机高负载下 600s 超时，仅前 2 项完成，不冒充最终全量通过。既有 `test:compat` 引用已不存在的 `subagent-owned-flat.test.mjs`，仍为 BLOCKED，未恢复旧框架。真实模型业务效果、真实桌面交互、npm 发行安装/升级未验收。
 - 静态全工具面（移除 Codemode 绝对路径差值）：legacy schema `37,340 → 34,760` bytes，guidelines `11,723 → 9,752`；owned schema `38,601 → 33,984`，guidelines `12,216 → 10,387`。默认 deferred 面未变；这是 metadata bytes，不是精确 token、费用或延迟收益。

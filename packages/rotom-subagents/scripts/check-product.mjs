@@ -7,7 +7,7 @@ import {privateOutput, repoRoot, manifest} from './source.mjs';
 const [prefix, requested] = process.argv.slice(2);
 assert.equal(process.argv.length,4,'Usage: npm run test:product -- /absolute/install-prefix /absolute/private/evidence');
 assert.ok(path.isAbsolute(prefix));
-const product=path.join(prefix,'node_modules/rotom');
+const product=path.join(prefix,'node_modules/@bingjiang0611/rotom');
 assert.equal(JSON.parse(fs.readFileSync(path.join(product,'extensions/third-party/node_modules/pi-subagents/package.json'))).version,manifest().version,'Wrong installed component');
 const output=privateOutput(requested);
 for (const args of [['wait','0','transient'],['wait','0','persistent'],['drain','0','transient'],['wait','1','transient'],['native','0','transient'],['workflow','0','transient']]) {

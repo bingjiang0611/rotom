@@ -98,9 +98,11 @@ import { markProcessTerminalCandidateLeaseRelease, writeProcessTerminalCandidate
 import { createOwnedProcessTreeController, type OwnedProcessTreeController } from "./owned-process-tree.ts";
 import { beginOwnedExecution, registerOwnedWriter, closeOwnedWriter, sealOwnedExecution, ownedExecutionCanReleaseLease, bindOwnedWriterLease, markOwnedWriterLeaseRelease, ownedSessionPreviouslyReleased, type OwnedExecutionRequest } from "./owned-execution.ts";
 import { OWNER_LIFELINE_ENV, trackOwnedLifeline } from "../shared/owner-lifeline.ts";
+import { createRunnerDrain } from "./runner-drain.ts";
 import { createSteeringStatus, recordSteeringRequest, steeringStatus, terminalSteeringNoticeState, updateSteeringTarget } from "./steering.ts";
 import { attachPostExitStdioGuard, trySignalChild } from "../../shared/post-exit-stdio-guard.ts";
 import { PROMPT_REDACTED, detectSubagentError, extractTextFromContent, extractToolArgsPreview, getFinalOutput, hasEmptyTerminalAssistantResponse, readStatus } from "../../shared/utils.ts";
+
 import { evaluateCompletionMutationGuard } from "../shared/completion-guard.ts";
 import {
 	createMutatingFailureState,
@@ -155,6 +157,7 @@ import {
 	type ChildWatchdogStateSnapshot,
 } from "../../watchdog/child-status.ts";
 
+const runnerDrain = createRunnerDrain();
 const INTERCOM_DETACH_RECEIPT = "Detached for intercom coordination before task completion.";
 
 interface SubagentRunConfig {
@@ -567,6 +570,7 @@ function runPiStreaming(
 	orcaProgressTab?: OrcaProgressTab,
 ): Promise<RunPiStreamingResult> {
 	return new Promise((resolve) => {
+		runnerDrain.assertOpen();
 		const startedAt = Date.now();
 		const processInstanceId = randomUUID();
 		if (childEventContext) registerOwnedWriter(path.dirname(outputFile), "pi-writer", childEventContext.stepIndex, processInstanceId, childEventContext.ownedExecutionRequired);
@@ -607,6 +611,16 @@ function runPiStreaming(
 			detached: process.platform !== "win32",
 		});
 		trackOwnedLifeline(child);
+		// Hold fault teardown until the existing close observer has persisted its
+		// group/lease evidence. Never resurrect a PID read from a stale run.
+		const writerDrained = runnerDrain.track(() => {
+			if (processTreeController) void processTreeController.terminate();
+			else trySignalChild(child, "SIGTERM");
+		});
+		let closeObserverAttached = false;
+		// A setup fault before the full observer is attached still waits for real
+		// OS close, but cannot create group/lease proof or authorize recovery.
+		child.once("close", () => { if (!closeObserverAttached) writerDrained(); });
 		let processTreeController: OwnedProcessTreeController | undefined;
 		const stderrTail = createBoundedByteTail();
 		const rawStdoutTail = createBoundedByteTail();
@@ -844,7 +858,9 @@ function runPiStreaming(
 			if (!error) error = "Interrupted. Waiting for explicit next action.";
 			trySignalChild(child, "SIGINT");
 			setTimeout(() => {
-				if (!settled && !timedOut && !stopped) trySignalChild(child, "SIGTERM");
+				if (settled || timedOut || stopped) return;
+				if (processTreeController) void processTreeController.terminate();
+				else trySignalChild(child, "SIGTERM");
 			}, 1000).unref?.();
 		});
 		const terminateForTimeout = (message: string): void => {
@@ -1004,70 +1020,73 @@ function runPiStreaming(
 			});
 		});
 		child.on("close", async (exitCode, signal) => {
-			settled = true; processCloseSeen = true; clearStdioGuard();
-			// Forced pipe destruction is bounded waiting, never an actual-close witness.
-			const processCloseObservedAt = forcedOwnedStdio ? undefined : Date.now();
-			const processTree = await finishGroup();
-			// Pipe cleanup continues after evidence failure, but lease release still
-			// requires a durable close and positive controlled-group observation.
-			let ownedCloseRecorded = false;
-			try { if (childEventContext && processCloseObservedAt !== undefined) { closeOwnedWriter(path.dirname(outputFile), processInstanceId, processTree, processCloseObservedAt); ownedCloseRecorded = true; } }
-			catch { /* The durable roster remains unclosed; scoped capacity stays held. */ }
-			try { onWriterProcess?.({ state: "none" }); }
-			catch { /* Unreadable ownership cannot manufacture lease release. */ }
-			if (ownedLease && ownedCloseRecorded && processTree.state === "observed") {
-				try { markOwnedWriterLeaseRelease(path.dirname(outputFile), ownedLease.owner.token, ownedLease.release()); }
-				catch { /* Failed persistence cannot become observed lease closure. */ }
-			}
-			registerInterrupt?.(undefined);
-			registerTimeout?.(undefined);
-			registerStop?.(undefined);
-			registerTurnBudgetAbort?.(undefined);
-			clearDrainTimers();
-			clearStdioGuard();
-			stdoutReader.end();
-			stderrReader.end();
-			outputStream.end();
-			const stderr = stderrTail.text();
-			const finalOutput = getFinalOutput(messages) || rawStdoutTail.text().trim();
-			const finalError = error ?? assistantError;
-			const forcedDrainAfterFinalSuccess = Boolean(forcedTerminationSignal || signal) && (cleanTerminalAssistantStopReceived || agentSettledReceived) && !finalError;
-			const signalError = isUnexplainedProcessSignal({
-				processSignal: signal,
-				interrupted,
-				timedOut,
-				stopped,
-				turnBudgetExceeded,
-				forcedDrainAfterFinalSuccess,
-			}) ? formatProcessSignalError(signal!) : undefined;
-			resolve(omitUndefinedProperties({
-				stderr,
-				exitCode: timedOut || stopped ? 1 : turnBudgetExceeded ? 1 : interrupted || forcedDrainAfterFinalSuccess ? 0 : forcedTerminationSignal || signal ? (exitCode ?? 1) : exitCode,
-				messages,
-				usage,
-				toolCount,
-				durationMs: Date.now() - startedAt,
-				model,
-				error: stopped ? (stopMessage ?? "Subagent stopped by user.") : timedOut ? (timeoutMessage ?? "Subagent timed out.") : turnBudgetExceeded ? turnBudgetMessage : interrupted || forcedDrainAfterFinalSuccess ? undefined : finalError ?? signalError,
-				protocolError,
-				finalOutput: (timedOut || stopped) && !finalOutput.trim() ? (stopped ? stopMessage ?? "Subagent stopped by user." : timeoutMessage ?? "Subagent timed out.") : finalOutput,
-				outputState: finalOutput.trim() ? "present" : "absent",
-				interrupted,
-				timedOut,
-				stopped,
-				turnBudget,
-				turnBudgetExceeded,
-				wrapUpRequested: turnBudget?.outcome === "wrap-up-requested" || turnBudget?.outcome === "termination-deferred" || turnBudgetExceeded || undefined,
-				observedMutationAttempt,
-				structuredOutputToolInvoked,
-				structuredOutputMessageStartIndex,
-				watchdog: childWatchdogState,
-				processInstanceId,
-				processCloseObservedAt,
-				processSignal: signal,
-				processTree,
-			}));
+			try {
+				settled = true; processCloseSeen = true; clearStdioGuard();
+				// Forced pipe destruction is bounded waiting, never an actual-close witness.
+				const processCloseObservedAt = forcedOwnedStdio ? undefined : Date.now();
+				const processTree = await finishGroup();
+				// Pipe cleanup continues after evidence failure, but lease release still
+				// requires a durable close and positive controlled-group observation.
+				let ownedCloseRecorded = false;
+				try { if (childEventContext && processCloseObservedAt !== undefined) { closeOwnedWriter(path.dirname(outputFile), processInstanceId, processTree, processCloseObservedAt); ownedCloseRecorded = true; } }
+				catch { /* The durable roster remains unclosed; scoped capacity stays held. */ }
+				try { onWriterProcess?.({ state: "none" }); }
+				catch { /* Unreadable ownership cannot manufacture lease release. */ }
+				if (ownedLease && ownedCloseRecorded && processTree.state === "observed") {
+					try { markOwnedWriterLeaseRelease(path.dirname(outputFile), ownedLease.owner.token, ownedLease.release()); }
+					catch { /* Failed persistence cannot become observed lease closure. */ }
+				}
+				registerInterrupt?.(undefined);
+				registerTimeout?.(undefined);
+				registerStop?.(undefined);
+				registerTurnBudgetAbort?.(undefined);
+				clearDrainTimers();
+				clearStdioGuard();
+				stdoutReader.end();
+				stderrReader.end();
+				outputStream.end();
+				const stderr = stderrTail.text();
+				const finalOutput = getFinalOutput(messages) || rawStdoutTail.text().trim();
+				const finalError = error ?? assistantError;
+				const forcedDrainAfterFinalSuccess = Boolean(forcedTerminationSignal || signal) && (cleanTerminalAssistantStopReceived || agentSettledReceived) && !finalError;
+				const signalError = isUnexplainedProcessSignal({
+					processSignal: signal,
+					interrupted,
+					timedOut,
+					stopped,
+					turnBudgetExceeded,
+					forcedDrainAfterFinalSuccess,
+				}) ? formatProcessSignalError(signal!) : undefined;
+				resolve(omitUndefinedProperties({
+					stderr,
+					exitCode: timedOut || stopped ? 1 : turnBudgetExceeded ? 1 : interrupted || forcedDrainAfterFinalSuccess ? 0 : forcedTerminationSignal || signal ? (exitCode ?? 1) : exitCode,
+					messages,
+					usage,
+					toolCount,
+					durationMs: Date.now() - startedAt,
+					model,
+					error: stopped ? (stopMessage ?? "Subagent stopped by user.") : timedOut ? (timeoutMessage ?? "Subagent timed out.") : turnBudgetExceeded ? turnBudgetMessage : interrupted || forcedDrainAfterFinalSuccess ? undefined : finalError ?? signalError,
+					protocolError,
+					finalOutput: (timedOut || stopped) && !finalOutput.trim() ? (stopped ? stopMessage ?? "Subagent stopped by user." : timeoutMessage ?? "Subagent timed out.") : finalOutput,
+					outputState: finalOutput.trim() ? "present" : "absent",
+					interrupted,
+					timedOut,
+					stopped,
+					turnBudget,
+					turnBudgetExceeded,
+					wrapUpRequested: turnBudget?.outcome === "wrap-up-requested" || turnBudget?.outcome === "termination-deferred" || turnBudgetExceeded || undefined,
+					observedMutationAttempt,
+					structuredOutputToolInvoked,
+					structuredOutputMessageStartIndex,
+					watchdog: childWatchdogState,
+					processInstanceId,
+					processCloseObservedAt,
+					processSignal: signal,
+					processTree,
+				}));
+			} finally { writerDrained(); }
 		});
+		closeObserverAttached = true;
 
 		child.on("error", (spawnError) => {
 			settled = true;
@@ -3534,6 +3553,9 @@ async function runSubagent(
 		timeoutActiveChildren();
 	};
 	process.on(ASYNC_INTERRUPT_SIGNAL, interruptRunner);
+	// A catchable runner termination is an interrupt, not permission to skip
+	// child close/group observation. SIGKILL/owner loss remains unverified.
+	process.on("SIGTERM", interruptRunner);
 	// Portable control inbox: the parent drops control request files here when
 	// it cannot deliver OS signals (e.g. ENOSYS on Windows) or when steering a
 	// live child. Interrupts still route into the same graceful interruptRunner().
@@ -4884,6 +4906,9 @@ async function runSubagent(
 		}
 	}
 
+	// A caught step/setup failure may leave a live child despite a failed task
+	// result. Drain before publishing terminal state or sealing writer admission.
+	await runnerDrain.drain();
 	if (activityTimer) {
 		clearInterval(activityTimer);
 		activityTimer = undefined;
@@ -5126,6 +5151,8 @@ async function runSubagent(
 			console.error(`Failed to write process-terminal candidate for '${id}':`, error);
 		}
 	}
+	process.off(ASYNC_INTERRUPT_SIGNAL, interruptRunner);
+	process.off("SIGTERM", interruptRunner);
 }
 
 async function waitForStartupControl(
@@ -5191,6 +5218,28 @@ async function runConfiguredSubagent(config: SubagentRunConfig): Promise<void> {
 			} catch {
 				// The parent will time out and terminate this runner if the handshake cannot be written.
 			}
+		}
+		// Drain creation-time handles before exiting on a coordinator fault.
+		// Only existing observers can close writers and release their leases.
+		await runnerDrain.drain();
+		if (config.ownedExecution && config.runnerProcessInstanceId) {
+			try {
+				const status = JSON.parse(fs.readFileSync(path.join(config.asyncDir, "status.json"), "utf-8")) as AsyncStatus;
+				const coverageComplete = !flattenSteps(config.steps).some(step => step.importAsyncRoot || step.runner?.type === "external-job")
+					&& !!status.steps && !status.steps.some(step => (step.children?.length ?? 0) > 0);
+				sealOwnedExecution(config.asyncDir, config.id, config.runnerProcessInstanceId, coverageComplete);
+				// Business failure is independent from process closure. Preserve the
+				// original identity/session fields for native recovery after observers
+				// have actually closed the owned writers.
+				status.state = "failed";
+				status.error = error instanceof Error ? error.message : String(error);
+				status.endedAt = status.lastUpdate = Date.now();
+				for (const step of status.steps ?? []) {
+					if (step.status !== "running" && step.status !== "pending") continue;
+					step.status = "failed"; step.error = status.error; step.endedAt = status.endedAt;
+				}
+				writeAtomicJson(path.join(config.asyncDir, "status.json"), status);
+			} catch { /* Missing roster/coverage remains unknown; no fabricated proof. */ }
 		}
 		throw error;
 	} finally {

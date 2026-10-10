@@ -110,6 +110,26 @@ async function settled(id) {
 	}
 	return proof;
 }
+if (config.runnerTermination || config.runnerFault) {
+	const receipt = await execute('runner-drain', {agent:'pi',task:'local fixture',async:true});
+	assert.notEqual(receipt.isError, true, JSON.stringify(receipt));
+	const id = receipt.details.asyncId, dir = path.join(DIRS.async, id);
+	if (config.runnerTermination) {
+		// Stop while a real child is live, not after a completed result.
+		await until(() => json(path.join(dir, 'process-terminal-candidate.json'))?.ownedExecution?.writers?.some(w => w.sessionLease), 'writer registered');
+		const pid = await until(() => json(path.join(dir, 'status.json'))?.pid, 'live runner');
+		process.kill(pid, 'SIGTERM');
+	}
+	const proof = await settled(id);
+	assert.equal(proof.ownedClosure.writers.length, 1);
+	await until(() => used() === 0, 'drained capacity');
+	const resumed = await execute('runner-drain-resume', {action:'resume',id,message:'local fixture after observed closure'});
+	assert.notEqual(resumed.isError, true, JSON.stringify(resumed));
+	await settled(resumed.details.asyncId);
+	await until(() => used() === 0, 'resumed closure');
+	fs.writeFileSync(path.join(root, 'result.json'), JSON.stringify({remoteModelCalls:0, mode:config.runnerFault?'runner-fault':'runner-sigterm', ownedClosureObserved:true, capacityAfter:used(), resumeAccepted:true}));
+	process.exit(0);
+}
 if (config.expectStoreMismatch) {
 	assert.equal(modules.loadConfig().asyncExecutionScope, undefined);
 	const cfg = modules.getConfigPath(); fs.mkdirSync(path.dirname(cfg), { recursive: true });
@@ -319,7 +339,9 @@ if (config.expectWorkflowClosure) {
 if (config.expectForegroundClosure) {
 	agents.push({...agents.find(a=>a.name==='pi'),name:'pi-foreground-hold',tools:['fixture_hold']});
 	for (const mode of ['stop','timeout']) {
-		const receipt = await execute(`foreground-${mode}`, {workflowScript:`return await runs.run("pi",{agent:"pi-foreground-hold",task:"WAIT_FOREGROUND_${mode.toUpperCase()}",acceptance:false});`,async:true,timeoutMs:mode==='timeout'?7000:25000});
+		// This is a whole-workflow deadline (including real Pi startup). Leave
+		// room for local boot; still require the held tool to be killed by timeout.
+		const receipt = await execute(`foreground-${mode}`, {workflowScript:`return await runs.run("pi",{agent:"pi-foreground-hold",task:"WAIT_FOREGROUND_${mode.toUpperCase()}",acceptance:false});`,async:true,timeoutMs:mode==='timeout'?15000:25000});
 		assert.notEqual(receipt.isError,true,JSON.stringify(receipt)); const id=receipt.details.asyncId;
 		const ready = path.join(root,`foreground-ready-${mode}`);
 		await until(()=>fs.existsSync(ready),`foreground ${mode} tool ready`); assert.equal(used(),1);

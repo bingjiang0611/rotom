@@ -10,14 +10,14 @@ assert.ok(path.isAbsolute(prefixArg??'')&&path.isAbsolute(workArg??''));
 assert.ok(['wait','drain','native','workflow'].includes(scenario)&&['0','1'].includes(deferred)&&['transient','persistent'].includes(persistence));
 const prefix=fs.realpathSync(prefixArg),workRoot=fs.realpathSync(workArg),stat=fs.statSync(workRoot);
 assert.equal(stat.mode&0o077,0,'Require a private evidence root');assert.equal(stat.uid,process.getuid());
-const product=path.join(prefix,'node_modules/rotom'),bin=process.env.ROTOM_SUBAGENT_TEST_BIN??path.join(prefix,'node_modules/.bin/rotom');
+const product=path.join(prefix,'node_modules/@bingjiang0611/rotom'),bin=process.env.ROTOM_SUBAGENT_TEST_BIN??path.join(prefix,'node_modules/.bin/rotom');
 // A selected public command may be an activation symlink, never another product or shell command.
 assert.ok(path.isAbsolute(bin));
 assert.equal(fs.realpathSync(bin),fs.realpathSync(path.join(product,'bin/rotom')));
 const builtinAgent=process.env.ROTOM_SUBAGENT_TEST_BUILTIN;
 if(builtinAgent)assert.ok(['worker','scout','reviewer'].includes(builtinAgent)&&scenario==='native');
 const manifest=JSON.parse(fs.readFileSync(path.join(product,'package.json')));
-assert.equal(manifest.name,'rotom');assert.equal(manifest.private,true);
+assert.equal(manifest.name,'@bingjiang0611/rotom');assert.equal(manifest.private,false);
 const subagentRoot=path.join(product,'extensions/third-party/node_modules/pi-subagents');
 const subagent=JSON.parse(fs.readFileSync(path.join(subagentRoot,'package.json')));
 if(process.env.ROTOM_SUBAGENT_TEST_VERSION) {
@@ -68,9 +68,9 @@ const server=http.createServer(async(req,res)=>{
    assert.ok(body.tools.some(t=>t.function?.name==='search_tools'));assert.ok(!body.tools.some(t=>t.function?.name==='subagent'));
    call={name:'search_tools',arguments:JSON.stringify({query:'Subagent delegate task',limit:1})};searchSeen=true;
   } else {
-   const tool=body.tools.find(t=>t.function?.name==='subagent');assert.ok(tool);assert.match(tool.function.description,/Scoped first release \(owned-process-groups-v2\)/);scopedDescription=true;
+   const tool=body.tools.find(t=>t.function?.name==='subagent');assert.ok(tool);assert.match(tool.function.description,/Delegate one task with agent\/task; use workflowScript/);assert.match(tool.function.description,/ephemeral/);scopedDescription=true;
    if(logical===0)call={name:'subagent',arguments:JSON.stringify({agent:'external',task:'Rejected local fixture',async:false})};
-   else if(logical===1){assert.match(String(result?.content),/Scoped first release/);assert.equal(fs.existsSync(marker),false);rejectionSeen=true;call={name:'subagent',arguments:JSON.stringify(scenario==='workflow'?{async:true,workflowScript:"const both = await runs.all([{key:'native-async',agent:'native',task:'Read the local fixture',async:true,acceptance:false},{key:'external',agent:'external',task:'Run the independent external fixture',async:true}]); const foreground = await runs.run('native-foreground',{agent:'native',task:'Read the local fixture',async:false,acceptance:false}); return {both,foreground};"}:{agent:scenario==='native'?(builtinAgent??'native'):'external',task:'Independent local product validation',async:true,...(scenario==='native'?{acceptance:false}:{})})};}
+   else if(logical===1){assert.match(String(result?.content),/Validation failed for tool "subagent"/);assert.match(String(result?.content),/async: must be equal to one of the allowed values/);assert.equal(fs.existsSync(marker),false);rejectionSeen=true;call={name:'subagent',arguments:JSON.stringify(scenario==='workflow'?{async:true,workflowScript:"const both = await runs.all([{key:'native-async',agent:'native',task:'Read the local fixture',async:true,acceptance:false},{key:'external',agent:'external',task:'Run the independent external fixture',async:true}]); const foreground = await runs.run('native-foreground',{agent:'native',task:'Read the local fixture',async:false,acceptance:false}); return {both,foreground};"}:{agent:scenario==='native'?(builtinAgent??'native'):'external',task:'Independent local product validation',async:true,...(scenario==='native'?{acceptance:false}:{})})};}
    else if(logical===2){assert.ok(!String(result?.content).includes('no writer is authorized'));if(scenario!=='drain')call={name:'subagent_wait',arguments:JSON.stringify({all:true,timeoutMs:60000})};}
    else if(logical===3&&scenario==='native'){
     assert.match(String(result?.content),/; done/);

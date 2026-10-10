@@ -20,11 +20,12 @@ test("maintained Goal source and selected vendor archive are byte-identical", as
 	}
 });
 
-test("selected Subagent archive includes the current unknown-terminal projection fix", async () => {
+test("selected Subagent archive includes current closure projection and runner drain fixes", async () => {
 	const archive = join(source, VERIFIED_THIRD_PARTY_PACKAGES["pi-subagents"].archive);
-	const file = "src/runs/background/process-terminal.ts";
-	const tracked = resolve(import.meta.dirname, "../../packages/rotom-subagents", file);
-	assert.deepEqual(execFileSync("tar", ["-xOf", archive, `package/${file}`], { maxBuffer: 256_000 }), await readFile(tracked));
+	for (const file of ["src/runs/background/process-terminal.ts", "src/runs/background/runner-drain.ts", "src/runs/background/subagent-runner.ts", "src/runs/background/active-async-capacity.ts"]) {
+		const tracked = resolve(import.meta.dirname, "../../packages/rotom-subagents", file);
+		assert.deepEqual(execFileSync("tar", ["-xOf", archive, `package/${file}`], { maxBuffer: 512_000 }), await readFile(tracked), file);
+	}
 });
 
 async function fixture(t) {

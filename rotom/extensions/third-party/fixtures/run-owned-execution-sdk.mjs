@@ -16,16 +16,25 @@ function fauxEntry(root) {
 		if (path.dirname(dir) === dir) throw Error("Public faux provider unavailable");
 	}
 }
-export async function runOwnedExecutionSdk(t, { prepareCandidate, expectWorkflowClosure = false, expectForegroundClosure = false, expectStoreIsolation = false, expectStoreMismatch = false, expectSessionIsolation = false, expectFlatAdmission = false, usePublicEntry = false, controllerCrash = false }) {
+export async function runOwnedExecutionSdk(t, { prepareCandidate, expectWorkflowClosure = false, expectForegroundClosure = false, expectStoreIsolation = false, expectStoreMismatch = false, expectSessionIsolation = false, expectFlatAdmission = false, usePublicEntry = false, controllerCrash = false, runnerTermination = false, runnerFault = false }) {
 	assert.ok(process.env.ROTOM_PI, "ROTOM_PI must select a verified public runtime");
 	const pi = await probePiVersion({ executable: process.env.ROTOM_PI });
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "rotom-owned-sdk-"));
 	const source = prepareCandidate(root), home = path.join(root, "home"); fs.mkdirSync(home);
+	if (runnerFault) {
+		// Fault only this disposable source after close observers are attached.
+		// Production source has no fault-injection environment or bypass flag.
+		const file = path.join(source, "src/runs/background/subagent-runner.ts");
+		const body = fs.readFileSync(file, "utf8"), needle = '\t\tchild.on("error", (spawnError) => {';
+		assert.equal(body.split(needle).length, 2);
+		const marker = JSON.stringify(path.join(root, "runner-fault-injected"));
+		fs.writeFileSync(file, body.replace(needle, `\t\tif (!fs.existsSync(${marker})) { fs.writeFileSync(${marker}, "1"); throw new Error("fixture runner coordinator fault"); }\n` + needle));
+	}
 	const scope = "owned-process-groups-v2", runtimeBase = path.join(root, "runtime"), runtimeRoot = expectStoreIsolation ? path.join(runtimeBase, scope) : runtimeBase;
 	if (expectStoreIsolation) (await import(pathToFileURL(path.join(source, "src/shared/execution-store.ts")))).initializeExecutionStore(runtimeBase);
 	const config = path.join(root, "config.json"), preload = path.join(root, "no-network.mjs");
 	const typeboxEntry = expectForegroundClosure ? createRequire(path.join(pi.packageRoot, "package.json")).resolve("typebox") : undefined;
-	fs.writeFileSync(config, JSON.stringify({ root, source, typeboxEntry, piEntry: pi.publicEntry, fauxEntry: fauxEntry(pi.packageRoot), expectWorkflowClosure, expectForegroundClosure, expectStoreIsolation, expectStoreMismatch, expectSessionIsolation, expectFlatAdmission, usePublicEntry, controllerCrash }), { mode: 0o600 });
+	fs.writeFileSync(config, JSON.stringify({ root, source, typeboxEntry, piEntry: pi.publicEntry, fauxEntry: fauxEntry(pi.packageRoot), expectWorkflowClosure, expectForegroundClosure, expectStoreIsolation, expectStoreMismatch, expectSessionIsolation, expectFlatAdmission, usePublicEntry, controllerCrash, runnerTermination, runnerFault }), { mode: 0o600 });
 	fs.writeFileSync(preload, "globalThis.fetch=()=>{throw Error('Network forbidden in owned fixture')};");
 	const log = fs.openSync(path.join(root, "driver.log"), "wx", 0o600); let result;
 	try {
@@ -61,6 +70,12 @@ export async function runOwnedExecutionSdk(t, { prepareCandidate, expectWorkflow
 		if (result.error || result.status !== 0 || !fs.existsSync(path.join(root, "result.json"))) assert.fail(`Owned fixture unverified; artifacts retained: ${root}; exit=${result.status}; error=${result.error?.code ?? "none"}`);
 		const evidence = JSON.parse(fs.readFileSync(path.join(root, "result.json")));
 		assert.equal(evidence.remoteModelCalls, 0);
+		if (runnerTermination || runnerFault) {
+			assert.equal(evidence.ownedClosureObserved, true);
+			assert.equal(evidence.capacityAfter, 0);
+			assert.equal(evidence.resumeAccepted, true);
+			t.diagnostic(JSON.stringify(evidence)); fs.rmSync(root, { recursive: true, force: true }); return;
+		}
 		if (expectStoreMismatch) {
 			assert.equal(evidence.scopeMismatchRejected, true); assert.equal(evidence.writerStarts, 0);
 			t.diagnostic(JSON.stringify(evidence)); fs.rmSync(root, { recursive: true, force: true }); return;

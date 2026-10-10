@@ -194,7 +194,10 @@ function runnerReleaseVerdict(owner: ActiveAsyncCapacityOwner, status: AsyncStat
 	if (!owner.runnerProcessInstanceId) return { state: "retained", reason: "runner process identity has not been recorded" };
 	if (status.sessionId !== owner.ownerSessionId) return { state: "retained", reason: `status session ${status.sessionId ?? "unknown"} does not match owner session ${owner.ownerSessionId}` };
 	if (status.runId !== owner.runId) return { state: "retained", reason: `status run ${status.runId} does not match owner run ${owner.runId}` };
-	if (!terminalState(status.state)) return { state: "retained", reason: `run is still ${status.state}` };
+	// Paused is a resumable business state, not proof that a writer is still
+	// alive. Its slot can release only through the same identity-bound close
+	// proof; queued/running and all missing/unknown proofs remain occupied.
+	if (!terminalState(status.state) && status.state !== "paused") return { state: "retained", reason: `run is still ${status.state}` };
 	if (owner.scope !== OWNED_EXECUTION_SCOPE && status.processTerminal?.state === "not-started"
 		&& status.processTerminal.runId === owner.runId
 		&& status.processTerminal.runnerProcessInstanceId === owner.runnerProcessInstanceId

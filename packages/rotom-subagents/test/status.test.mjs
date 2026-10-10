@@ -23,6 +23,7 @@ Object.assign(process.env,{HOME:root,PI_SUBAGENTS_TEMP_ROOT:base,PI_SUBAGENTS_EX
 globalThis.fetch=()=>{throw Error('Network forbidden in status units')};
 const {DIRS,EXECUTION_STORE}=await load('src/shared/types.ts');
 const {inspectSubagentStatus}=await load('src/runs/background/run-status.ts');
+const {acquireActiveAsyncCapacity,getActiveAsyncCapacitySnapshot}=await load('src/runs/background/active-async-capacity.ts');
 const {writePrivateAtomicJson}=await load('src/shared/atomic-json.ts');
 const {finalizeProcessTerminal,writeProcessTerminalCandidate,readProcessTerminal}=await load('src/runs/background/process-terminal.ts');
 const {acquireSessionLease,canonicalSessionId}=await load('src/runs/shared/session-lease.ts');
@@ -113,4 +114,20 @@ test('result-only task success cannot manufacture closure or a replacement-write
  const id=randomUUID();fs.mkdirSync(DIRS.results,{recursive:true,mode:0o700});
  fs.writeFileSync(path.join(DIRS.results,id+'.json'),JSON.stringify({id,success:true,agent:'scout',state:'complete',ownedExecutionScope:EXECUTION_STORE.scope}));
  const result=text(inspectSubagentStatus({id}));assert.match(result,/result-only view/u);assert.match(result,/Resume: unavailable/u);assert.doesNotMatch(result,/Revive|Start a new run|Continue original run/u);
+});
+
+test('paused scoped run releases capacity only with matching observed closure',()=>{
+ const f=fixture();f.status.state='paused';f.save();
+ const handle=acquireActiveAsyncCapacity({sessionId:f.status.sessionId,limit:1,runId:f.id,kind:'runner',asyncDir:f.dir,scope:EXECUTION_STORE.scope});
+ handle.markStarted(f.runner);
+ const used=()=>getActiveAsyncCapacitySnapshot(f.status.sessionId,1).used;
+ assert.equal(used(),1,'paused is not closure');
+ const proof=f.close();
+ assert.equal(used(),1,'capacity binding is required');
+ proof.ownedClosure.capacity={ownerSessionId:handle.owner.ownerSessionId,reservationToken:handle.owner.reservationToken,generation:handle.owner.generation};
+ proof.ownedClosure.state='unknown';
+ writePrivateAtomicJson(path.join(f.dir,'process-terminal.json'),proof);
+ assert.equal(used(),1,'unknown never releases');
+ proof.ownedClosure.state='observed';writePrivateAtomicJson(path.join(f.dir,'process-terminal.json'),proof);
+ assert.equal(used(),0);
 });
