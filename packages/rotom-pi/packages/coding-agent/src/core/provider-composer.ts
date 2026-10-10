@@ -6,6 +6,7 @@ import {
 	type AuthContext,
 	type AuthInteraction,
 	type AuthResult,
+	type ClassifierApi,
 	type Credential,
 	type ImageApi,
 	isModelType,
@@ -16,6 +17,7 @@ import {
 	type OAuthCredentials,
 	type OAuthLoginCallbacks,
 	type Provider,
+	type ProviderClassifier,
 	type ProviderHeaders,
 	type ProviderImages,
 	type RefreshModelsContext,
@@ -24,7 +26,7 @@ import {
 	type TranscriptContext,
 } from "@earendil-works/pi-ai";
 import { getApiProvider } from "@earendil-works/pi-ai/compat";
-import { imageErrorResult } from "@earendil-works/pi-ai/utils/model-operations";
+import { classifierErrorResult, imageErrorResult } from "@earendil-works/pi-ai/utils/model-operations";
 import type { ModelConfig, ModelsJsonModel, ModelsJsonModelOverride, ModelsJsonProvider } from "./model-config.ts";
 import {
 	clearConfigValueCache,
@@ -77,7 +79,13 @@ export interface ProviderImageModelConfig extends ProviderModelConfigBase {
 	output: ("text" | "image")[];
 }
 
-export type ProviderModelConfig = ProviderChatModelConfig | ProviderImageModelConfig;
+export interface ProviderClassifierModelConfig extends ProviderModelConfigBase {
+	type: "classifier";
+	api?: ClassifierApi;
+	contextWindow: number;
+}
+
+export type ProviderModelConfig = ProviderChatModelConfig | ProviderImageModelConfig | ProviderClassifierModelConfig;
 
 /** Input type for the extension registerProvider API. */
 export interface ProviderConfigInput {
@@ -91,6 +99,7 @@ export interface ProviderConfigInput {
 		options?: SimpleStreamOptions,
 	) => AssistantMessageEventStream;
 	images?: Partial<Record<ImageApi, ProviderImages>>;
+	classifiers?: Partial<Record<ClassifierApi, ProviderClassifier>>;
 	headers?: Record<string, string>;
 	authHeader?: boolean;
 	oauth?: ExtensionOAuthConfig;
@@ -281,6 +290,9 @@ function extensionModelFromDefinition(
 	if (!baseUrl) throw new Error(`Provider ${providerId}: "baseUrl" is required when defining custom models.`);
 	if (definition.type === "image") {
 		return { ...definition, api: api as ImageApi, provider: providerId, baseUrl, headers: undefined };
+	}
+	if (definition.type === "classifier") {
+		return { ...definition, api: api as ClassifierApi, provider: providerId, baseUrl, headers: undefined };
 	}
 	return { ...definition, api: api as Api, provider: providerId, baseUrl, headers: undefined };
 }
@@ -648,6 +660,21 @@ export function composeModelProvider(
 			if (generateImages) return generateImages(model, context, options);
 			return Promise.resolve(
 				imageErrorResult(model, new Error(`Provider ${providerId} has no image implementation for "${model.api}"`)),
+			);
+		};
+	}
+	const extensionClassifiers = extension?.classifiers;
+	const classify = base?.classify;
+	if (classify || Object.keys(extensionClassifiers ?? {}).length > 0) {
+		provider.classify = (model, context, options) => {
+			const implementation = extensionClassifiers?.[model.api];
+			if (implementation) return implementation.classify(model, context, options);
+			if (classify) return classify(model, context, options);
+			return Promise.resolve(
+				classifierErrorResult(
+					model,
+					new Error(`Provider ${providerId} has no classifier implementation for "${model.api}"`),
+				),
 			);
 		};
 	}

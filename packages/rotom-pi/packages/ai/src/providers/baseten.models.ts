@@ -2,10 +2,13 @@
 // Do not edit manually - run 'npm run generate-models' to update
 
 import values from "./data/baseten.json" with { type: "json" };
-import { flattenChatModelCatalog, flattenImageModelCatalog, type ChatModelCatalog, type ImageModelCatalog } from "../model-catalog.ts";
+import { flattenChatModelCatalog, flattenClassifierModelCatalog, flattenImageModelCatalog, type ChatModelCatalog, type ClassifierModelCatalog, type ImageModelCatalog } from "../model-catalog.ts";
 
 export const BASETEN_MODELS: ChatModelCatalog<typeof values, "baseten"> =
 	flattenChatModelCatalog("baseten", values);
 
 export const BASETEN_IMAGE_MODELS: ImageModelCatalog<typeof values, "baseten"> =
 	flattenImageModelCatalog("baseten", values);
+
+export const BASETEN_CLASSIFIER_MODELS: ClassifierModelCatalog<typeof values, "baseten"> =
+	flattenClassifierModelCatalog("baseten", values);

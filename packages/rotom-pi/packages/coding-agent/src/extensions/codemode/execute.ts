@@ -6,10 +6,11 @@
 import type { AgentTool, AgentToolCallOutcome, AgentToolResult } from "@earendil-works/pi-agent-core";
 import type {
 	AnyModel,
-	AssistantImages,
+	ClassifierContext,
 	ImageContent,
 	ImagesContext,
 	ModelType,
+	ModelTypeMap,
 	TextContent,
 	Usage,
 } from "@earendil-works/pi-ai";
@@ -45,7 +46,7 @@ import {
 
 const ARGS_PREVIEW_CHARS = 200;
 const ERROR_PREVIEW_CHARS = 500;
-/** Image generation calls one script may have in flight; `Promise.all` over many items queues the rest. */
+/** `models.classify()` and `models.generateImages()` calls one script may have in flight; `Promise.all` over many items queues the rest. */
 const MAX_CONCURRENT_MODEL_CALLS = 4;
 /**
  * Heap limit for the QuickJS VM. The worker shares pi's process, so without a limit a runaway
@@ -53,7 +54,7 @@ const MAX_CONCURRENT_MODEL_CALLS = 4;
  * `InternalError: out of memory` inside the script.
  */
 const CODEMODE_MEMORY_LIMIT_BYTES = 256 * 1024 * 1024;
-const MODEL_TYPES: ReadonlySet<string> = new Set<ModelType>(["chat", "image"]);
+const MODEL_TYPES: ReadonlySet<string> = new Set<ModelType>(["chat", "image", "classifier"]);
 
 function truncateText(text: string, maxChars: number): string {
 	return text.length > maxChars ? `${text.slice(0, maxChars - 3)}...` : text;
@@ -77,7 +78,7 @@ function textOf(result: AgentToolResult<unknown>): string {
 
 function toModelType(value: unknown): ModelType {
 	if (typeof value === "string" && MODEL_TYPES.has(value)) return value as ModelType;
-	throw new Error(`Unknown model type ${JSON.stringify(value)}. Use "chat" or "image".`);
+	throw new Error(`Unknown model type ${JSON.stringify(value)}. Use "chat", "image", or "classifier".`);
 }
 
 function toProvider(value: unknown): string | undefined {
@@ -93,7 +94,7 @@ function toModelInfo(model: AnyModel): Record<string, unknown> {
 	return info;
 }
 
-/** `an image`, `a chat`. */
+/** `an image`, `a classifier`. */
 function withArticle(word: string): string {
 	return `${/^[aeiou]/.test(word) ? "an" : "a"} ${word}`;
 }
@@ -112,6 +113,60 @@ function describeValue(value: unknown): string {
 		return `{ ${keys.slice(0, 6).join(", ")}${keys.length > 6 ? ", ..." : ""} }`;
 	}
 	return typeof value === "string" ? "a string" : `a ${typeof value}`;
+}
+
+const CLASSIFIER_CONTEXT_SHAPE =
+	'{ state: { ... }, images?: [{ type: "image", data: <base64>, mimeType }], questions: { <id>: { type: "choice", instructions, criteria: { <label>: <meaning> } } | { type: "score", instructions, criteria: [<lowest level>, ..., <highest level>] } | { type: "bool", instructions, criteria: { true: <meaning>, false: <meaning> } } } }';
+
+/** Check a script's classifier context, so mistakes fail with the expected shape instead of a provider error. */
+function checkClassifierContext(context: unknown): ClassifierContext {
+	const fail = (problem: string) =>
+		new Error(
+			`models.classify() ${problem}. Expected context: ${CLASSIFIER_CONTEXT_SHAPE}. See "Classify" in ${CODEMODE_DOCS_PATH}.`,
+		);
+	if (!isRecord(context)) throw fail(`expects a context object as its second argument, got ${describeValue(context)}`);
+	if (!isRecord(context.state)) throw fail(`context.state must be an object, got ${describeValue(context.state)}`);
+	const { images } = context;
+	if (images !== undefined) {
+		if (!Array.isArray(images)) throw fail(`context.images must be an array, got ${describeValue(images)}`);
+		images.forEach((image: unknown, index) => {
+			if (
+				!isRecord(image) ||
+				image.type !== "image" ||
+				typeof image.data !== "string" ||
+				typeof image.mimeType !== "string"
+			) {
+				throw fail(`context.images[${index}] must be an image block, got ${describeValue(image)}`);
+			}
+		});
+	}
+	const { questions } = context;
+	if (!isRecord(questions) || Object.keys(questions).length === 0) {
+		throw fail(`context.questions must map question IDs to questions, got ${describeValue(questions)}`);
+	}
+	const isStrings = (values: unknown[]) => values.length > 0 && values.every((value) => typeof value === "string");
+	for (const [id, question] of Object.entries(questions)) {
+		const at = `context.questions.${id}`;
+		if (!isRecord(question)) throw fail(`${at} must be a question object, got ${describeValue(question)}`);
+		if (typeof question.instructions !== "string") throw fail(`${at}.instructions must be a string`);
+		const { criteria } = question;
+		if (question.type === "choice") {
+			if (!isRecord(criteria) || !isStrings(Object.values(criteria))) {
+				throw fail(`${at} is a "choice" question, so criteria must map each label to its meaning`);
+			}
+		} else if (question.type === "score") {
+			if (!Array.isArray(criteria) || !isStrings(criteria)) {
+				throw fail(`${at} is a "score" question, so criteria must list the levels as strings, lowest first`);
+			}
+		} else if (question.type === "bool") {
+			if (!isRecord(criteria) || typeof criteria.true !== "string" || typeof criteria.false !== "string") {
+				throw fail(`${at} is a "bool" question, so criteria must be { true: string, false: string }`);
+			}
+		} else {
+			throw fail(`${at}.type must be "choice", "score", or "bool", got ${JSON.stringify(question.type)}`);
+		}
+	}
+	return context as unknown as ClassifierContext;
 }
 
 /** Check a script's image context, so mistakes such as `{ prompt }` fail with the expected shape. */
@@ -138,6 +193,13 @@ function checkImagesContext(context: unknown): ImagesContext {
 		throw fail(`context.input[${index}] must be a text or image block, got ${describeValue(block)}`);
 	});
 	return context as unknown as ImagesContext;
+}
+
+/** The fields of `ClassifierResult` and `AssistantImages` that a nested call row reports. */
+interface ModelCallResult {
+	stopReason: "stop" | "error" | "aborted";
+	errorMessage?: string;
+	usage?: Usage;
 }
 
 /** Runs at most `limit` calls at once, in call order. */
@@ -559,7 +621,7 @@ function createDiscoveryGlobals(
 
 /**
  * `models.*` for scripts: the model registry methods documented in docs/codemode.md.
- * Image calls appear as nested call rows so the renderer shows them, and their usage
+ * Classifier and image calls appear as nested call rows so the renderer shows them, and their usage
  * goes to `addUsage`. Rows show only the model, never prompts or image data.
  */
 function createModelGlobals(
@@ -577,9 +639,13 @@ function createModelGlobals(
 	 * Resolve the script's model by provider and id only, check the context, then run the call as a
 	 * nested call row. A script-supplied baseUrl or headers must never receive the credentials.
 	 */
-	const runImageCall = async ([model, context]: unknown[], signal: AbortSignal): Promise<AssistantImages> => {
-		const name = "models.generateImages";
-		const type = "image";
+	const runModelCall = async <TType extends "classifier" | "image", TContext, TResult extends ModelCallResult>(
+		name: string,
+		type: TType,
+		[model, context]: unknown[],
+		checkContext: (context: unknown) => TContext,
+		run: (resolved: ModelTypeMap[TType], context: TContext) => Promise<TResult>,
+	): Promise<TResult> => {
 		const listHint = `List the ${type} models you can use with models.getAvailableOfType("${type}").`;
 		if (!isRecord(model) || typeof model.provider !== "string" || typeof model.id !== "string") {
 			// undefined arrives as null: spread arguments cross the sandbox as a JSON array.
@@ -604,7 +670,7 @@ function createModelGlobals(
 					: `Unknown ${type} model "${ref}". ${listHint}`,
 			);
 		}
-		const checked = checkImagesContext(context);
+		const checked = checkContext(context);
 
 		const record: CodemodeNestedCall = {
 			id: `${toolCallId}/${name}/${++callCount}`,
@@ -615,8 +681,7 @@ function createModelGlobals(
 		calls.push(record);
 		publish();
 		const startedAt = performance.now();
-		const result = await limit(() => models.generateImages(resolved, checked, { signal }));
-		addGeneratedImages(result.output.filter((block) => block.type === "image").length);
+		const result = await limit(() => run(resolved, checked));
 		record.durationMs = performance.now() - startedAt;
 		record.status = result.stopReason === "stop" ? "ok" : result.stopReason === "aborted" ? "cancelled" : "error";
 		if (result.errorMessage) record.error = truncateText(result.errorMessage, ERROR_PREVIEW_CHARS);
@@ -641,13 +706,28 @@ function createModelGlobals(
 			const [type, provider, id] = args as unknown[];
 			if (typeof provider !== "string" || typeof id !== "string") {
 				throw new Error(
-					`models.getModelOfType(type, provider, id) expects three strings, got (${(args as unknown[]).map(describeValue).join(", ")}). The provider and the id are separate arguments, for example models.getModelOfType("image", "openrouter", "openai/gpt-image-2").`,
+					`models.getModelOfType(type, provider, id) expects three strings, got (${(args as unknown[]).map(describeValue).join(", ")}). The provider and the id are separate arguments, for example models.getModelOfType("classifier", "typesafe", "jev-latest").`,
 				);
 			}
 			const model = models.getModelOfType(toModelType(type), provider, id);
 			return model === undefined ? undefined : toModelInfo(model);
 		},
-		"models.generateImages": (args, { signal }) => runImageCall(args as unknown[], signal),
+		"models.classify": (args, { signal }) =>
+			runModelCall("models.classify", "classifier", args as unknown[], checkClassifierContext, (resolved, context) =>
+				models.classify(resolved, context, { signal }),
+			),
+		"models.generateImages": (args, { signal }) =>
+			runModelCall(
+				"models.generateImages",
+				"image",
+				args as unknown[],
+				checkImagesContext,
+				async (resolved, context) => {
+					const result = await models.generateImages(resolved, context, { signal });
+					addGeneratedImages(result.output.filter((block) => block.type === "image").length);
+					return result;
+				},
+			),
 	};
 	return Object.entries(implementations).map(([name, execute]) => ({ name, spread: true, execute }));
 }

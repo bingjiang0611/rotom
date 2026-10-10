@@ -9,6 +9,8 @@ import {
 	builtinModels,
 	builtinProviders,
 	getAllBuiltinModels,
+	getBuiltinClassifierModel,
+	getBuiltinClassifierModels,
 	getBuiltinImageModel,
 	getBuiltinImageModels,
 	getBuiltinModel,
@@ -56,10 +58,6 @@ describe("builtin providers", () => {
 		const providers = models.getProviders();
 		expect(providers.length).toBe(builtinProviders().length);
 		expect(providers.map((p) => p.id)).toContain("anthropic");
-		expect(providers.map((p) => p.id)).not.toContain("typesafe");
-		expect(providers.every((provider) => !("classify" in provider))).toBe(true);
-		expect("classify" in models).toBe(false);
-		expect(models.getAllModels().some((model) => model.id.startsWith("typesafe/"))).toBe(false);
 
 		const anthropic = models.getModel("anthropic", "claude-haiku-4-5");
 		expect(anthropic?.api).toBe("anthropic-messages");
@@ -84,8 +82,10 @@ describe("builtin providers", () => {
 
 		expect(getBuiltinModel(unknownProvider, unknownModel)).toBeUndefined();
 		expect(getBuiltinImageModel(unknownProvider, unknownModel)).toBeUndefined();
+		expect(getBuiltinClassifierModel(unknownProvider, unknownModel)).toBeUndefined();
 		expect(getBuiltinModels(unknownProvider)).toEqual([]);
 		expect(getBuiltinImageModels(unknownProvider)).toEqual([]);
+		expect(getBuiltinClassifierModels(unknownProvider)).toEqual([]);
 		expect(getAllBuiltinModels(unknownProvider)).toEqual([]);
 		expect(getCompatModel(unknownProvider, unknownModel)).toBeUndefined();
 		expect(getCompatModels(unknownProvider)).toEqual([]);

@@ -1,49 +1,49 @@
 {
   "schema": "rotom-pi-fork/v1",
-  "version": "1.1.0-rotom.1",
+  "version": "1.1.0-rotom.2",
   "upstreamRevision": "abe508e1b89912adde45528136c3221eb69acdd7",
-  "sourceSha256": "c92cbc85733f6a17160157b9f816bc60594928707c56d349b89a6ef7c8f15313",
+  "sourceSha256": "c9c61618fced6319a84fffc58556b86ffb0abd4535e87a222a8fa971472cc123",
   "builderSha256": "ef3cc45a4280c4ab2a143ac973f2fd617d4c93d78aee4e676edec5cc7386a38e",
   "artifacts": {
     "@earendil-works/chord": {
-      "version": "1.1.0-rotom.1",
-      "file": "vendor/earendil-works-chord-1.1.0-rotom.1.tgz",
-      "integrity": "sha512-P64YhfhNgzKPimNrR9sYutElZi6uSL81Zc86shVQ6rzMB7a+Bg+O21TSIQ4cC5rckAbjQrxCfIirvV6Z/y+8Jw=="
+      "version": "1.1.0-rotom.2",
+      "file": "vendor/earendil-works-chord-1.1.0-rotom.2.tgz",
+      "integrity": "sha512-CbtQ/GvL0SY34J4frPNQo4j21ETkMZoaxln23BZdEb+DTvomBZnRg5WHONdi8Q9ugZeedoSBYKW++lhGKEEORw=="
     },
     "@earendil-works/pi-telemetry": {
-      "version": "1.1.0-rotom.1",
-      "file": "vendor/earendil-works-pi-telemetry-1.1.0-rotom.1.tgz",
-      "integrity": "sha512-lJkqKZw7qvXMLzQFQG6bU+fU8ZwBdim+YsLB5wWDlmsC6u47RgBB40LiG1Yj3aPiIaHKsQTf/kANdFphL/FRqQ=="
+      "version": "1.1.0-rotom.2",
+      "file": "vendor/earendil-works-pi-telemetry-1.1.0-rotom.2.tgz",
+      "integrity": "sha512-5omCG/lU5VGpRQbxc8/RZv06A4oB20DoBppm6i1GtpjIw+WRcxphjKO+MM1gxMCC59hMUqGrOfJt/Bmw6FXQRg=="
     },
     "@earendil-works/pi-ai": {
-      "version": "1.1.0-rotom.1",
-      "file": "vendor/earendil-works-pi-ai-1.1.0-rotom.1.tgz",
-      "integrity": "sha512-Z+RtUX09H72ArnQUv5lw3JB3QZg/VZNIaC9Ho5fkqE3gNmcbDVHnGR7IGmACLPlkiGO4S2fiP1vNZKCh4WLTfA=="
+      "version": "1.1.0-rotom.2",
+      "file": "vendor/earendil-works-pi-ai-1.1.0-rotom.2.tgz",
+      "integrity": "sha512-0lYbAqeTON+fnDf8M372TmjgpW7PSaLcPjShjWRGGDAZxM7OFjhExlpzbV2G8n+SrmQagU3NkIsOYieJQjNCIw=="
     },
     "@earendil-works/pi-tui": {
-      "version": "1.1.0-rotom.1",
-      "file": "vendor/earendil-works-pi-tui-1.1.0-rotom.1.tgz",
-      "integrity": "sha512-tjs0euBhHLa9ZO23PnyMBh4LcMKNbDxmJKMBg78QqGQIoM8mtBdQ546gRaqMmudjSAFpM5WWN5auqunlhwHvMA=="
+      "version": "1.1.0-rotom.2",
+      "file": "vendor/earendil-works-pi-tui-1.1.0-rotom.2.tgz",
+      "integrity": "sha512-aQuTOaZi81XOs/+8SVHhdQWVbzJVJnQ0XYVUz9IlXNYfCfGpWpY602jSbC9AVD3PYDGkElQtbBKLPQZiuxh2mw=="
     },
     "@earendil-works/pi-agent-core": {
-      "version": "1.1.0-rotom.1",
-      "file": "vendor/earendil-works-pi-agent-core-1.1.0-rotom.1.tgz",
-      "integrity": "sha512-pc36DqJ69LJO385upeQV8fmKkF2SmWv39SONtjzlkK6swbUFb5IGs4fF09lsGCu/ZO/I7fFsqOi61KECInrVew=="
+      "version": "1.1.0-rotom.2",
+      "file": "vendor/earendil-works-pi-agent-core-1.1.0-rotom.2.tgz",
+      "integrity": "sha512-G+eRmxlCbaxvG153nczQmw/nUV9rKijBzKbdq7W2J6ML7Q+KLlxk7nvncL6deo1tzN1fCU8Kr2OnsgF5H9W/iA=="
     },
     "@earendil-works/pi-codemode": {
-      "version": "1.1.0-rotom.1",
-      "file": "vendor/earendil-works-pi-codemode-1.1.0-rotom.1.tgz",
-      "integrity": "sha512-elGrs/JSzKXhfJAB80xIiy/5aXK9o1WEGg9cKwtNAs6GQ/PO7rIbrXqLYBTSEfvsuzBljnRMwO4Z5aq1zL8nsg=="
+      "version": "1.1.0-rotom.2",
+      "file": "vendor/earendil-works-pi-codemode-1.1.0-rotom.2.tgz",
+      "integrity": "sha512-GeR5s1pTiliiTShYq6UU9gVvS8zXBNRRHwth5T+DDmtnjCGObS/+ihJ/xa2BWWtsiqsBTzgzQggKetQNTt3+7Q=="
     },
     "@earendil-works/pi-mcp": {
-      "version": "1.1.0-rotom.1",
-      "file": "vendor/earendil-works-pi-mcp-1.1.0-rotom.1.tgz",
-      "integrity": "sha512-Fw1j1DV6d5LJQQEiOMD0L73nfFDHpW/cS6Vi0Qtwn0QXkptk8fi3R5tJF9vWzYfF4uxdde8o4EqLxfhh37CZBg=="
+      "version": "1.1.0-rotom.2",
+      "file": "vendor/earendil-works-pi-mcp-1.1.0-rotom.2.tgz",
+      "integrity": "sha512-lg+91aCNaOyL+2VsqWlxm1Bsey89gUpts9cqZAZJ8ClPvAVwWAchrEfaIxXZF797S5taSKAUzjR/rzBQnPH+YQ=="
     },
     "@earendil-works/pi-coding-agent": {
-      "version": "1.1.0-rotom.1",
-      "file": "vendor/earendil-works-pi-coding-agent-1.1.0-rotom.1.tgz",
-      "integrity": "sha512-d5ln71x9C0ZYUiH27oF2r4YglLXd2pFyNOCG7Ql/ALnElcuenFK97apIANQpnntajOof2ly4/qnDbPs28EXG0g=="
+      "version": "1.1.0-rotom.2",
+      "file": "vendor/earendil-works-pi-coding-agent-1.1.0-rotom.2.tgz",
+      "integrity": "sha512-l0vgZJLuAdGY0rMOXsa+OcqTBDlnoew3CGVnyZJuUOue0eCRNOI/grXdInOatCutbrRjhaQJQWx+WCfoX4cUDg=="
     }
   }
 }

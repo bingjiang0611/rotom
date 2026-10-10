@@ -1,7 +1,7 @@
 /**
  * The `codemode` tool: the model writes JavaScript that calls other tools. Scripts use `tools`,
  * `ALL_TOOLS`, `text()`, `image()`, `exit()`, `store()`/`load()`, `console.*`, and `return <value>`,
- * may start with a `// @options:` line, and reach the model catalog and image models
+ * may start with a `// @options:` line, and reach the model catalog, classifiers, and image models
  * through `models.*`. Results start with a "Script completed" or "Script failed" header.
  *
  * Scripts can call the agent loop's nested tools: active `direct` tools and every `codemode` or
@@ -60,7 +60,7 @@ export interface CodemodeStoreEntryData {
 /** The part of the model registry that scripts reach through `models`. */
 export type CodemodeModelRuntime = Pick<
 	ModelRegistry,
-	"getModelsOfType" | "getAvailableOfType" | "getModelOfType" | "generateImages"
+	"getModelsOfType" | "getAvailableOfType" | "getModelOfType" | "classify" | "generateImages"
 >;
 
 export interface CodemodeToolOptions {
@@ -147,7 +147,7 @@ function describeGlobals(models: boolean): string {
 		"- `ALL_TOOLS`, `await searchTools(query, { limit?, namespace? })`, `await describeTool(name)`, `await describeNamespace(name)`: find unlisted tools, such as MCP tools.",
 	];
 	if (models) {
-		lines.push(`- \`models\`: model catalog and image generation. Read ${CODEMODE_DOCS_PATH} first.`);
+		lines.push(`- \`models\`: classifiers and image generation. Read ${CODEMODE_DOCS_PATH} first.`);
 	}
 	return lines.join("\n");
 }

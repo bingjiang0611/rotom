@@ -8,8 +8,8 @@ import { ModelRuntime } from "../src/core/model-runtime.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import * as codingAgent from "../src/index.ts";
 
-describe("physical chat and image capabilities", () => {
-	it("does not export classifier or virtual-routing APIs", async () => {
+describe("upstream model capabilities", () => {
+	it("exports classifier and virtual-routing APIs alongside chat and image models", async () => {
 		const runtime = await ModelRuntime.create({
 			credentials: AuthStorage.inMemory(),
 			modelsStore: new InMemoryModelsStore(),
@@ -17,17 +17,19 @@ describe("physical chat and image capabilities", () => {
 			allowModelNetwork: false,
 		});
 		for (const target of [ai.createModels(), runtime, new ModelRegistry(runtime)]) {
-			expect("classify" in target).toBe(false);
-			expect("registerVirtualModel" in target).toBe(false);
-			expect("unregisterVirtualModel" in target).toBe(false);
+			expect(typeof target.classify).toBe("function");
 		}
-		expect(catalog).not.toHaveProperty("getBuiltinClassifierModel");
-		expect(catalog).not.toHaveProperty("getBuiltinClassifierModels");
-		expect(codingAgent).not.toHaveProperty("VIRTUAL_MODEL_STATE_ENTRY");
-		expect(catalog.getBuiltinProviders()).not.toContain("typesafe");
-		expect(runtime.getAllModels().every((model) => ["chat", "image"].includes(ai.getModelType(model)))).toBe(true);
+		for (const target of [runtime, new ModelRegistry(runtime)]) {
+			expect(typeof target.registerVirtualModel).toBe("function");
+			expect(typeof target.unregisterVirtualModel).toBe("function");
+		}
+		expect(catalog).toHaveProperty("getBuiltinClassifierModel");
+		expect(catalog).toHaveProperty("getBuiltinClassifierModels");
+		expect(codingAgent).toHaveProperty("VIRTUAL_MODEL_STATE_ENTRY");
+		expect(catalog.getBuiltinProviders()).toContain("typesafe");
 		expect(runtime.getModels().length).toBeGreaterThan(0);
 		expect(runtime.getModelsOfType("image").length).toBeGreaterThan(0);
+		expect(runtime.getModelsOfType("classifier").length).toBeGreaterThan(0);
 	});
 
 	it("keeps ordinary branch model selection and ignores historical router state", () => {

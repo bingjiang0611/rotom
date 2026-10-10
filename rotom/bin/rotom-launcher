@@ -24,13 +24,14 @@ elif [ "$#" -eq 2 ] && [ "$1" = "--version" ] && [ "$2" = "--verbose" ]; then
 	version_probe=2
 fi
 
-# Pi package commands must remain the first argv item, so they cannot be
-# decorated with the product's explicitly loaded runtime resources. User and
-# project packages are managed by the pinned Pi package manager, while rotom's
-# bundled Pi fork remains upgradeable only as part of a rotom release.
+# Pi package and MCP configuration commands must remain the first argv item, so
+# they cannot be decorated with the product's explicitly loaded runtime
+# resources. User and project packages are managed by the pinned Pi package
+# manager, while rotom's bundled Pi fork remains upgradeable only as part of a
+# rotom release.
 package_management_command=0
 case "${1-}" in
-	install|remove|uninstall|list|config)
+	install|remove|uninstall|list|config|mcp)
 		package_management_command=1
 		;;
 	update)

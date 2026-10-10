@@ -17,6 +17,8 @@ import type {
 	AnthropicMessagesCompat,
 	AnyModel,
 	Api,
+	ClassifierApi,
+	ClassifierModel,
 	ImageApi,
 	ImageModel,
 	KnownProvider,
@@ -218,6 +220,9 @@ const TOGETHER_TOGGLE_REASONING_LEVEL_MAP = {
 
 const AI_GATEWAY_MODELS_URL = "https://ai-gateway.vercel.sh/v1";
 const AI_GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh";
+// TypeSafe-compatible System One endpoint for evaluation models.
+// https://vercel.com/docs/ai-gateway/sdks-and-apis/typesafe
+const AI_GATEWAY_TYPESAFE_BASE_URL = "https://ai-gateway.vercel.sh/typesafe/v1";
 const VERTEX_BASE_URL = "https://{location}-aiplatform.googleapis.com";
 const NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1";
 const NVIDIA_HEADERS = {
@@ -1316,12 +1321,15 @@ async function fetchOpenRouterList(query: string): Promise<OpenRouterModelListIt
 async function fetchOpenRouterModels(): Promise<OpenRouterCatalog> {
 	try {
 		console.log("Fetching models from OpenRouter API...");
-		const [listed, imageListed] = await Promise.all([
+		const [listed, imageListed, decisionListed] = await Promise.all([
 			fetchOpenRouterList(""),
 			fetchOpenRouterList("?output_modalities=image"),
+			fetchOpenRouterList("?output_modalities=decisions"),
 		]);
-		const catalog = buildOpenRouterCatalog(listed, imageListed);
-		console.log(`Fetched ${catalog.chat.length} tool-capable and ${catalog.images.length} image models from OpenRouter`);
+		const catalog = buildOpenRouterCatalog(listed, imageListed, decisionListed);
+		console.log(
+			`Fetched ${catalog.chat.length} tool-capable, ${catalog.images.length} image, and ${catalog.classifiers.length} classifier models from OpenRouter`,
+		);
 		if (generatorOptions.strict && catalog.images.length === 0) {
 			throw new Error("OpenRouter API returned no usable image models");
 		}
@@ -1329,7 +1337,7 @@ async function fetchOpenRouterModels(): Promise<OpenRouterCatalog> {
 	} catch (error) {
 		console.error("Failed to fetch OpenRouter models:", error);
 		if (generatorOptions.strict) throw error;
-		return { chat: [], images: [] };
+		return { chat: [], images: [], classifiers: [] };
 	}
 }
 
@@ -1350,6 +1358,7 @@ async function fetchRadiusModels(): Promise<Model<"pi-messages">[]> {
 
 async function fetchAiGatewayModels(): Promise<{
 	chat: Model<any>[];
+	classifiers: ClassifierModel<"typesafe-system-one">[];
 }> {
 	try {
 		console.log("Fetching models from Vercel AI Gateway API...");
@@ -1357,6 +1366,7 @@ async function fetchAiGatewayModels(): Promise<{
 		if (!response.ok) throw new Error(`Vercel AI Gateway API returned ${response.status}`);
 		const data = await response.json();
 		const models: Model<any>[] = [];
+		const classifiers: ClassifierModel<"typesafe-system-one">[] = [];
 
 		const toNumber = (value: string | number | undefined): number => {
 			if (typeof value === "number") {
@@ -1368,7 +1378,27 @@ async function fetchAiGatewayModels(): Promise<{
 
 		const items = Array.isArray(data.data) ? (data.data as AiGatewayModel[]) : [];
 		for (const model of items) {
-			if (model.type === "evaluation") continue;
+			// Evaluation models such as TypeSafe's Jev are served through the
+			// TypeSafe-compatible System One endpoint.
+			if (model.type === "evaluation") {
+				classifiers.push({
+					type: "classifier",
+					id: model.id,
+					name: model.name || model.id,
+					api: "typesafe-system-one",
+					provider: "vercel-ai-gateway",
+					baseUrl: AI_GATEWAY_TYPESAFE_BASE_URL,
+					input: ["text"],
+					cost: {
+						input: roundCost(toNumber(model.pricing?.input) * 1_000_000),
+						output: roundCost(toNumber(model.pricing?.output) * 1_000_000),
+						cacheRead: 0,
+						cacheWrite: 0,
+					},
+					contextWindow: model.context_window || 4096,
+				});
+				continue;
+			}
 			const tags = Array.isArray(model.tags) ? model.tags : [];
 			// Only include models that support tools
 			if (!tags.includes("tool-use")) continue;
@@ -1393,12 +1423,14 @@ async function fetchAiGatewayModels(): Promise<{
 			});
 		}
 
-		console.log(`Fetched ${models.length} tool-capable models from Vercel AI Gateway`);
-		return { chat: models };
+		console.log(
+			`Fetched ${models.length} tool-capable and ${classifiers.length} classifier models from Vercel AI Gateway`,
+		);
+		return { chat: models, classifiers };
 	} catch (error) {
 		console.error("Failed to fetch Vercel AI Gateway models:", error);
 		if (generatorOptions.strict) throw error;
-		return { chat: [] };
+		return { chat: [], classifiers: [] };
 	}
 }
 
@@ -2551,6 +2583,130 @@ async function loadModelsDevData(): Promise<Model<any>[]> {
 	}
 }
 
+async function loadModelsDevClassifierModels(): Promise<ClassifierModel<"typesafe-system-one">[]> {
+	try {
+		console.log("Fetching classifier models from models.dev API...");
+		const response = await fetch("https://models.dev/models.json?type=decision");
+		if (!response.ok) throw new Error(`models.dev classifier API returned ${response.status}`);
+		const data = (await response.json()) as Record<string, ModelsDevMetadata>;
+		const metadata = data["typesafe/jev-latest"];
+		if (!metadata || metadata.type !== "decision") {
+			throw new Error("models.dev did not return decision model typesafe/jev-latest");
+		}
+		return [
+			{
+				type: "classifier",
+				id: "jev-latest",
+				name: metadata.name,
+				api: "typesafe-system-one",
+				provider: "typesafe",
+				baseUrl: "https://api.typesafe.ai/v1/",
+				input: metadata.modalities?.input?.includes("image") ? ["text", "image"] : ["text"],
+				// The canonical models.dev entry has no direct-provider pricing. System One reports token usage,
+				// so classify() results carry token counts but price them at zero.
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+				contextWindow: metadata.limit?.context || 64000,
+			},
+		];
+	} catch (error) {
+		console.error("Failed to load models.dev classifier data:", error);
+		if (generatorOptions.strict) throw error;
+		return [];
+	}
+}
+
+// Workers AI has no unauthenticated catalog and models.dev does not list its
+// System One models yet. Cloudflare publishes pricing only in the dashboard.
+// https://developers.cloudflare.com/ai/models/typesafe/jev/
+// OpenCode Zen serves Jev through its TypeSafe-compatible System One endpoint.
+// Neither its /zen/v1/models listing nor models.dev carries metadata for it.
+// https://opencode.ai/docs/zen
+const OPENCODE_CLASSIFIER_MODELS: ClassifierModel<"typesafe-system-one">[] = [
+	{
+		type: "classifier",
+		id: "jev-1.13",
+		name: "Jev 1.13",
+		api: "typesafe-system-one",
+		provider: "opencode",
+		baseUrl: "https://opencode.ai/zen/v1",
+		input: ["text"],
+		cost: { input: 0.042, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 32000,
+	},
+	{
+		type: "classifier",
+		id: "jev-1.13-free",
+		name: "Jev 1.13 Free",
+		api: "typesafe-system-one",
+		provider: "opencode",
+		baseUrl: "https://opencode.ai/zen/v1",
+		input: ["text"],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 32000,
+	},
+];
+
+const CLOUDFLARE_WORKERS_AI_CLASSIFIER_MODELS: ClassifierModel<"cloudflare-workers-ai-system-one">[] = [
+	// Cloudflare-hosted Clef decision models. They accept images, but classifier
+	// contexts carry text or JSON state only, so the catalog advertises text.
+	// Pricing: https://developers.cloudflare.com/workers-ai/models/clef/
+	// and https://developers.cloudflare.com/workers-ai/models/clef-flash/
+	{
+		type: "classifier",
+		id: "@cf/cloudflare/clef",
+		name: "Clef",
+		api: "cloudflare-workers-ai-system-one",
+		provider: "cloudflare-workers-ai",
+		baseUrl: CLOUDFLARE_WORKERS_AI_REST_BASE_URL,
+		input: ["text"],
+		cost: { input: 0.24, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 65536,
+	},
+	{
+		type: "classifier",
+		id: "@cf/cloudflare/clef-flash",
+		name: "Clef Flash",
+		api: "cloudflare-workers-ai-system-one",
+		provider: "cloudflare-workers-ai",
+		baseUrl: CLOUDFLARE_WORKERS_AI_REST_BASE_URL,
+		input: ["text"],
+		cost: { input: 0.09, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 65536,
+	},
+	{
+		type: "classifier",
+		id: "typesafe/jev",
+		name: "Jev",
+		api: "cloudflare-workers-ai-system-one",
+		provider: "cloudflare-workers-ai",
+		baseUrl: CLOUDFLARE_WORKERS_AI_REST_BASE_URL,
+		input: ["text"],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 32000,
+	},
+];
+
+// OpenAI Decisions API (public beta): gpt-6-luna is its only model. It bills input tokens only,
+// with the same long-context multiplier as chat requests. Only API keys work: Sign in with ChatGPT
+// tokens are rejected on /v1/decisions, and the Codex backend has no Decisions route.
+// The endpoint rejects inputs above 922K tokens (the model's documented maximum input), but
+// requests running longer than about five seconds, currently above roughly 600K input tokens,
+// fail with a gateway timeout.
+// https://developers.openai.com/api/docs/guides/decisions
+const OPENAI_CLASSIFIER_MODELS: ClassifierModel<"openai-decisions">[] = [
+	{
+		type: "classifier",
+		id: "gpt-6-luna",
+		name: "GPT-6 Luna",
+		api: "openai-decisions",
+		provider: "openai",
+		baseUrl: "https://api.openai.com/v1",
+		input: ["text", "image"],
+		cost: withOpenAiLongContextPricing({ input: 0.1, output: 0, cacheRead: 0, cacheWrite: 0 }),
+		contextWindow: 922000,
+	},
+];
+
 async function generateModels() {
 	// Fetch models from all upstream catalogs.
 	// models.dev: Anthropic, Google, OpenAI, Groq, Cerebras, and others
@@ -2558,6 +2714,7 @@ async function generateModels() {
 	// AI Gateway: OpenAI-compatible catalog with tool-capable models
 	// Radius: its unauthenticated public catalog; authenticated clients overlay it at runtime
 	const modelsDevModels = await loadModelsDevData();
+	const modelsDevClassifierModels = await loadModelsDevClassifierModels();
 	const openRouterCatalog = await fetchOpenRouterModels();
 	const aiGatewayCatalog = await fetchAiGatewayModels();
 	const radiusModels = await fetchRadiusModels();
@@ -2565,8 +2722,6 @@ async function generateModels() {
 	// Combine chat models (models.dev has priority where sources overlap).
 	const allModels = [...modelsDevModels, ...openRouterCatalog.chat, ...aiGatewayCatalog.chat, ...radiusModels].filter(
 		(model) =>
-			model.provider !== "typesafe" &&
-			!model.id.startsWith("typesafe/") &&
 			!(model.provider === "xai" && XAI_BUILTIN_EXCLUDED_MODEL_IDS.has(model.id)) &&
 			!((model.provider === "opencode" || model.provider === "opencode-go") && model.id === "gpt-5.3-codex-spark"),
 	);
@@ -3295,21 +3450,36 @@ async function generateModels() {
 	type ProviderCatalog = {
 		chat: Record<string, Model<Api>>;
 		image: Record<string, ImageModel<ImageApi>>;
+		classifier: Record<string, ClassifierModel<ClassifierApi>>;
 	};
 	const providers: Record<string, ProviderCatalog> = {};
 	for (const model of allModels) {
-		providers[model.provider] ??= { chat: {}, image: {} };
+		providers[model.provider] ??= { chat: {}, image: {}, classifier: {} };
 		// Only add if not already present (models.dev takes priority over OpenRouter).
 		providers[model.provider].chat[model.id] ??= { ...model, type: "chat" };
 	}
 	for (const model of openRouterCatalog.images) {
 		applyImageInputMetadata(model);
-		providers[model.provider] ??= { chat: {}, image: {} };
+		providers[model.provider] ??= { chat: {}, image: {}, classifier: {} };
 		providers[model.provider].image[model.id] ??= model;
 	}
+	const classifierModels: ClassifierModel<ClassifierApi>[] = [
+		...modelsDevClassifierModels,
+		...openRouterCatalog.classifiers,
+		...aiGatewayCatalog.classifiers,
+		...OPENCODE_CLASSIFIER_MODELS,
+		...CLOUDFLARE_WORKERS_AI_CLASSIFIER_MODELS,
+		...OPENAI_CLASSIFIER_MODELS,
+	];
+	for (const model of classifierModels) {
+		providers[model.provider] ??= { chat: {}, image: {}, classifier: {} };
+		providers[model.provider].classifier[model.id] ??= model;
+	}
+
 	const sortedProviderIds = Object.keys(providers).sort();
 	const jsonChatProviders: Record<string, Record<string, Model<Api>>> = {};
 	const jsonImageProviders: Record<string, Record<string, ImageModel<ImageApi>>> = {};
+	const jsonClassifierProviders: Record<string, Record<string, ClassifierModel<ClassifierApi>>> = {};
 	const jsonAllProviders: Record<string, AnyModel[]> = {};
 	for (const providerId of sortedProviderIds) {
 		jsonChatProviders[providerId] = Object.fromEntries(
@@ -3318,9 +3488,13 @@ async function generateModels() {
 		jsonImageProviders[providerId] = Object.fromEntries(
 			Object.entries(providers[providerId].image).sort(([left], [right]) => left.localeCompare(right)),
 		);
+		jsonClassifierProviders[providerId] = Object.fromEntries(
+			Object.entries(providers[providerId].classifier).sort(([left], [right]) => left.localeCompare(right)),
+		);
 		jsonAllProviders[providerId] = [
 			...Object.values(jsonChatProviders[providerId]),
 			...Object.values(jsonImageProviders[providerId]),
+			...Object.values(jsonClassifierProviders[providerId]),
 		];
 	}
 
@@ -3394,15 +3568,19 @@ async function generateModels() {
 					`${providerId.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_MODELS`;
 				const imageCatalogConstName = (providerId: string) =>
 					`${providerId.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_IMAGE_MODELS`;
+				const classifierCatalogConstName = (providerId: string) =>
+					`${providerId.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_CLASSIFIER_MODELS`;
 				const generatedShardFiles = new Set<string>();
 				for (const providerId of sortedProviderIds) {
 					let output = generatedHeader;
 					output += `import values from "./data/${providerId}.json" with { type: "json" };\n`;
-					output += `import { flattenChatModelCatalog, flattenImageModelCatalog, type ChatModelCatalog, type ImageModelCatalog } from "../model-catalog.ts";\n\n`;
+					output += `import { flattenChatModelCatalog, flattenClassifierModelCatalog, flattenImageModelCatalog, type ChatModelCatalog, type ClassifierModelCatalog, type ImageModelCatalog } from "../model-catalog.ts";\n\n`;
 					output += `export const ${catalogConstName(providerId)}: ChatModelCatalog<typeof values, ${JSON.stringify(providerId)}> =\n`;
 					output += `\tflattenChatModelCatalog(${JSON.stringify(providerId)}, values);\n\n`;
 					output += `export const ${imageCatalogConstName(providerId)}: ImageModelCatalog<typeof values, ${JSON.stringify(providerId)}> =\n`;
-					output += `\tflattenImageModelCatalog(${JSON.stringify(providerId)}, values);\n`;
+					output += `\tflattenImageModelCatalog(${JSON.stringify(providerId)}, values);\n\n`;
+					output += `export const ${classifierCatalogConstName(providerId)}: ClassifierModelCatalog<typeof values, ${JSON.stringify(providerId)}> =\n`;
+					output += `\tflattenClassifierModelCatalog(${JSON.stringify(providerId)}, values);\n`;
 					const filename = `${providerId}.models.ts`;
 					generatedShardFiles.add(filename);
 					writeFileSync(join(providersDir, filename), output);
@@ -3413,7 +3591,7 @@ async function generateModels() {
 
 				let output = generatedHeader;
 				for (const providerId of sortedProviderIds) {
-					output += `import { ${imageCatalogConstName(providerId)}, ${catalogConstName(providerId)} } from "./providers/${providerId}.models.ts";\n`;
+					output += `import { ${classifierCatalogConstName(providerId)}, ${imageCatalogConstName(providerId)}, ${catalogConstName(providerId)} } from "./providers/${providerId}.models.ts";\n`;
 				}
 				output += `\nexport const MODELS: {\n`;
 				for (const providerId of sortedProviderIds) {
@@ -3430,6 +3608,14 @@ async function generateModels() {
 				output += `} = {\n`;
 				for (const providerId of sortedProviderIds) {
 					output += `\t${JSON.stringify(providerId)}: ${imageCatalogConstName(providerId)},\n`;
+				}
+				output += `};\n\nexport const CLASSIFIER_MODELS: {\n`;
+				for (const providerId of sortedProviderIds) {
+					output += `\treadonly ${JSON.stringify(providerId)}: typeof ${classifierCatalogConstName(providerId)};\n`;
+				}
+				output += `} = {\n`;
+				for (const providerId of sortedProviderIds) {
+					output += `\t${JSON.stringify(providerId)}: ${classifierCatalogConstName(providerId)},\n`;
 				}
 				output += `};\n`;
 				writeFileSync(aggregatorPath, output);
@@ -3486,7 +3672,7 @@ async function generateModels() {
 
 	for (const [provider, models] of Object.entries(providers)) {
 		console.log(
-			`  ${provider}: ${Object.keys(models.chat).length} chat models, ${Object.keys(models.image).length} image models`,
+			`  ${provider}: ${Object.keys(models.chat).length} chat models, ${Object.keys(models.image).length} image models, ${Object.keys(models.classifier).length} classifier models`,
 		);
 	}
 }

@@ -9,6 +9,7 @@ function openRouterChatCost(pricing: OpenRouterModelListItem["pricing"]) {
 	const catalog = buildOpenRouterCatalog(
 		[{ id: "anthropic/claude-haiku-5.5", name: "Claude Haiku 5.5", supported_parameters: ["tools"], pricing }],
 		[],
+		[],
 	);
 	return catalog.chat[0]?.cost;
 }

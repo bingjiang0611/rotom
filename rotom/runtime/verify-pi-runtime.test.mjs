@@ -791,6 +791,7 @@ test("launcher 将 Pi package 管理命令原样交给运行时且不创建会�
 		["remove", "npm:@foo/bar"],
 		["list"],
 		["config"],
+		["mcp", "list", "--json"],
 		["update", "--extensions"],
 		["update", "--extension", "npm:@foo/bar"],
 	];

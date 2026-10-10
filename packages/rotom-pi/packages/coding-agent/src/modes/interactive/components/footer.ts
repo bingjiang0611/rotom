@@ -178,7 +178,7 @@ export class FooterComponent implements Component {
 		const entryCount = sessionManager.getEntryCount();
 		const sessionId = sessionManager.getSessionId();
 		const leafId = sessionManager.getLeafId();
-		const limitsModel = this.session.model;
+		const limitsModel = this.session.routedModel?.model ?? this.session.model;
 		const cached = this.sessionStats;
 		if (
 			cached &&
@@ -325,6 +325,12 @@ export class FooterComponent implements Component {
 			const thinkingLevel = state.thinkingLevel || "off";
 			rightSideWithoutProvider =
 				thinkingLevel === "off" ? `${modelName} • thinking off` : `${modelName} • ${thinkingLevel}`;
+		}
+		// A virtual model routes each request; show where the latest response went.
+		const routed = this.session.routedModel;
+		if (routed) {
+			const level = routed.thinkingLevel ? ` • ${routed.thinkingLevel}` : "";
+			rightSideWithoutProvider += ` → ${routed.model.id}${level}`;
 		}
 		const sessionId = sanitizeStatusText(this.session.sessionManager.getSessionId());
 		rightSideWithoutProvider = `${rightSideWithoutProvider} • sid:${sessionId}`;

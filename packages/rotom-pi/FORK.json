@@ -2,11 +2,11 @@
   "upstream": "https://github.com/earendil-works/pi",
   "revision": "abe508e1b89912adde45528136c3221eb69acdd7",
   "upstreamVersion": "1.1.0",
-  "forkVersion": "1.1.0-rotom.1",
+  "forkVersion": "1.1.0-rotom.2",
   "modelData": {
     "package": "@earendil-works/pi-ai@1.1.0",
     "integrity": "sha512-1T7LAkc/5Bvc0v6w4vAGVdCrli0o/E0pEmYKTnixu95vSFArBjvbhS/G4ZwI0RUePgf0Imcu0VyqlM4EcXxqfw==",
-    "scope": "dist/providers/data from the published package; drop classifier API groups, the TypeSafe-only provider file and typesafe/ listings, then recompute the manifest"
+    "scope": "dist/providers/data from the published package, unmodified"
   },
   "importedChanges": [
     "Retain the Pi process identity for process-based integrations while keeping Rotom command and UI branding",
@@ -14,10 +14,8 @@
     "model picker display names and picker-local thinking level selection (source, tests, docs)",
     "Replace recorded session fixtures with synthetic compaction input; omit unused before-compaction transcript",
     "Retain Rotom branding, startup, product updates, session ID, Qoder metering/catalog and abort/compaction fixes across the 1.0.4 merge",
-    "Do not register built-in MCP; retain its package dependency, independent Codemode/model APIs and upstream tests",
-    "Remove classifier model types, dedicated providers/APIs/catalogs and virtual automatic routing; retain physical chat, Codemode tool orchestration and image generation",
     "Merge v1.1.0 over the 1.0.4 fork; earlier selective 1.1.0 backports are now part of the base",
-    "Drop 1.1.0 OpenAI Decisions, llama.cpp System One and classifier image support; keep llama.cpp decision-only models out of the chat catalog"
+    "Retain upstream classifier models/APIs, virtual model routing and the built-in MCP extension; Rotom adds no classifier or virtual model of its own"
   ],
   "omittedMaintenanceFiles": [
     ".github/APPROVED_CONTRIBUTORS",
@@ -60,7 +58,7 @@
     "packages/coding-agent/test/fixtures/large-session.jsonl"
   ],
   "providerData": {
-    "packages/ai/src/providers/data/.manifest.json": "c7e8de41c9766c0fe07b8f37e9cfb175ea10e2ec18efec3ab9203dd2542300da",
+    "packages/ai/src/providers/data/.manifest.json": "fb3b3b6b4fd9dcfac1f77058520bffb5fab4f15e15f97307b8afe2cd3f9dfae1",
     "packages/ai/src/providers/data/amazon-bedrock.json": "d9381ff9bf5c9d8c03b2909665526d243dfc33600e73beec4d58df18dfd0addd",
     "packages/ai/src/providers/data/ant-ling.json": "628feab3ef6c7d80ce96f75999804e1d9f05fec3851e5302e30fff3b69db90f6",
     "packages/ai/src/providers/data/anthropic.json": "aa4342dfb96feb1619794113619d6630088d6ac544c547a4f9899a0a7f26419b",
@@ -68,7 +66,7 @@
     "packages/ai/src/providers/data/baseten.json": "b04d1423d6958bec857ffccc36726f091ec1a8f3a09cf0836b64cc94b0ee697d",
     "packages/ai/src/providers/data/cerebras.json": "3eccb58c5de3d0dc7ba49dc6e477ba29f00cb3150ce0a35cc90d59e6b5ab368e",
     "packages/ai/src/providers/data/cloudflare-ai-gateway.json": "e76699154fe8a933c504c5f64f6cb5e2bca572efd21edd0d429e51c6c234ebbc",
-    "packages/ai/src/providers/data/cloudflare-workers-ai.json": "de9e9ed412739a5ba1ed149186efb69c5cfaa49b0b181478a82fa63a519ef721",
+    "packages/ai/src/providers/data/cloudflare-workers-ai.json": "d04336a61cacfd0cadbc2f3d30cd3b552e3d153e5a320658a31ba1bab8f01c83",
     "packages/ai/src/providers/data/deepseek.json": "10a296fb3e898f7715c80890c8af0af4f5fd58f22dbcd6612fdc5d762157ccdc",
     "packages/ai/src/providers/data/fireworks.json": "8db3c11f65a5d76260d5040a5dc5a9ef0f35b92de8505a30907c2355c2837b36",
     "packages/ai/src/providers/data/github-copilot.json": "8119aa175666d70136471aa7cae08043910a97d9cbede8b367d0b2c20559049e",
@@ -85,16 +83,17 @@
     "packages/ai/src/providers/data/moonshotai.json": "1da2c4e34f22aef17a07c974d85bdee8e1b68b6dc712e3769c935b3f1e7dadca",
     "packages/ai/src/providers/data/nvidia.json": "a75e963dc81779e3eec01c051b12277c15ec37c5b94ab51ece9e9ccb3b16407c",
     "packages/ai/src/providers/data/openai-codex.json": "3cc35a7e122e5c77ee8ec30a9a3bd8bd59629997e85ba2cb3f9e0ed62e9a09c0",
-    "packages/ai/src/providers/data/openai.json": "4be49742b7072f4d603ca8553b68160e76d1b604d5f5db511f21697f7d9a9b38",
+    "packages/ai/src/providers/data/openai.json": "f4c1ac9f8f84cb9f2a952b0ceec51c90a38b31b4cdf33200e018ece9d408e95f",
     "packages/ai/src/providers/data/opencode-go.json": "4a10d85457c0d25d4fd8b4089cb15c0f54f086b9a6b304d7bd8e92397a3d7d0b",
-    "packages/ai/src/providers/data/opencode.json": "ed2e8ccc2ee62c641379650645db1d09d908077fa6e4966b33bcc5763a68e5d8",
-    "packages/ai/src/providers/data/openrouter.json": "5c49c0b1ef7992ebdaa65208d7d0ff3ac77e9825269249493fd7b8e4d3227d8d",
+    "packages/ai/src/providers/data/opencode.json": "a6a76926c51c2c410422dec612fdbe903b63191ff7334242e4f6ca3758bc0d2f",
+    "packages/ai/src/providers/data/openrouter.json": "c86aa3b95d412465dac54cb902402cbdb40f47a1fe33f12b002913834724d8f0",
     "packages/ai/src/providers/data/qwen-token-plan-cn.json": "2469a4091c474ec3db0a49a9962d8d2726c074ad9065b96bc4e0c87861c4c6c5",
     "packages/ai/src/providers/data/qwen-token-plan-individual.json": "0fb7cf64faf39d1a3b0a884210a86c87084b805eda15644f5f39293287b959dd",
     "packages/ai/src/providers/data/qwen-token-plan.json": "eff10620cb577142de4ec02698d5961a71fda2fe4f6ae7ea9432bad9d6844176",
     "packages/ai/src/providers/data/radius.json": "88a3f060a851882df89015bcd346e03238b4b0725bd72c8ad501fcffff782768",
     "packages/ai/src/providers/data/together.json": "52293df62191c8e799ae3632f8ab1b3f52ee626aee0280677086627b32864bf7",
-    "packages/ai/src/providers/data/vercel-ai-gateway.json": "1e4cd5c43804822e36aa6e65d578d3a8d94ac99762df610ef3cb731be628b112",
+    "packages/ai/src/providers/data/typesafe.json": "a4429a2f696d5cc5273969af61a7310bda07d6bdcd27bf9ac9c76c534cc43716",
+    "packages/ai/src/providers/data/vercel-ai-gateway.json": "0ec37357cc2c3eec0b71cbff98910bfd0988e16b89178d9c930579f1ce747c30",
     "packages/ai/src/providers/data/xai.json": "879c49b78b663a52a220ac4ee013e726b10c4f50aaa03bc58ee53a4b54c76928",
     "packages/ai/src/providers/data/xiaomi-token-plan-ams.json": "ca65178f4525d9705bc8d085ed136cecbe149c4080e857ea6a64ae643d2ac00a",
     "packages/ai/src/providers/data/xiaomi-token-plan-cn.json": "b065326926681c2262084e59c1c19ebdaf146c07107b5242c76b456becf74db0",

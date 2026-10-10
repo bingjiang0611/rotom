@@ -33,7 +33,7 @@ function createFixture(): {
 	mkdirSync(dataDir, { recursive: true });
 	writeFileSync(
 		join(packageRoot, "src", "models.generated.ts"),
-		'import { TEST_PROVIDER_IMAGE_MODELS, TEST_PROVIDER_MODELS } from "./providers/test-provider.models.ts";\n',
+		'import { TEST_PROVIDER_CLASSIFIER_MODELS, TEST_PROVIDER_IMAGE_MODELS, TEST_PROVIDER_MODELS } from "./providers/test-provider.models.ts";\n',
 	);
 	writeFileSync(
 		join(providersDir, "test-provider.models.ts"),
@@ -220,7 +220,7 @@ describe("generated model data validation", () => {
 		delete model.type;
 		writeFixtureData(fixture.dataDir, fixture.structure, fixture.values);
 		expect(() => validateModelDataDirectory(fixture.structure, fixture.dataDir)).toThrow(
-			'expected "chat" or "image"',
+			'expected "chat", "image", or "classifier"',
 		);
 	});
 
@@ -266,7 +266,7 @@ describe("generated model data validation", () => {
 		);
 	});
 
-	it("rejects retired classifier entries", () => {
+	it("validates classifier models without chat output limits", () => {
 		const fixture = createFixture();
 		const structure: ModelDataStructure = {
 			"test-provider": { "classifier:classifier-a": "test-classifier" },
@@ -289,7 +289,7 @@ describe("generated model data validation", () => {
 			MODEL_DATA_SCHEMA_VERSION,
 			"test-classifier",
 		);
-		expect(() => validateModelDataDirectory(structure, fixture.dataDir)).toThrow('expected "chat" or "image"');
+		expect(() => validateModelDataDirectory(structure, fixture.dataDir)).not.toThrow();
 	});
 
 	it("rejects a model in the wrong API group", () => {
@@ -348,7 +348,7 @@ describe("generated model data validation", () => {
 		const { packageRoot } = createFixture();
 		writeFileSync(
 			join(packageRoot, "src", "models.generated.ts"),
-			'import { TEST_PROVIDER_IMAGE_MODELS, TEST_PROVIDER_MODELS } from "./providers/test-provider.models.ts";\nimport { MISSING_IMAGE_MODELS, MISSING_MODELS } from "./providers/missing.models.ts";\n',
+			'import { TEST_PROVIDER_CLASSIFIER_MODELS, TEST_PROVIDER_IMAGE_MODELS, TEST_PROVIDER_MODELS } from "./providers/test-provider.models.ts";\nimport { MISSING_CLASSIFIER_MODELS, MISSING_IMAGE_MODELS, MISSING_MODELS } from "./providers/missing.models.ts";\n',
 		);
 		expect(() => readModelDataStructure(packageRoot)).toThrow("aggregator and provider shards do not match");
 	});
