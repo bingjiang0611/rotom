@@ -290,7 +290,7 @@ test("Chrome mouse sequence stops before the next dispatch after retirement", { 
 test("retiring tab reservation prevents another session claiming it during cleanup", { timeout: 5000 }, async (t) => {
 	const { mod, api } = await worker(t); const entered = deferred(), release = deferred();
 	api.debugger.detach = async () => { entered.resolve(); await release.promise; };
-	const state = { tabsByName: new Map([["docs", { tabId: 1, ownership: "agent" }]]) };
+	const state = { tabsByName: new Map([["docs", { tabId: 1, ownership: "agent" }]]), retiredTabNames: new Map() };
 	const closing = mod.closeOwned(state, "docs", () => {}); await entered.promise;
 	// Probe dispatch rather than the private Set: any equivalent exclusion design can pass.
 	api.tabs.get = async () => { throw new Error("claim reached Chrome"); };
