@@ -442,6 +442,59 @@ describe("AgentSession codemode tool", () => {
 		expect(text).toContain("Tool calls made before the failure (they are not undone): echo (ok)");
 		expect((result.details as unknown as CodemodeToolDetails).calls.map((call) => call.name)).toEqual(["echo"]);
 	});
+
+	it("aborts a script that keeps starting nested calls, even when it catches their errors", async () => {
+		const harness = await setup();
+		harness.setResponses([
+			fauxAssistantMessage(
+				[
+					fauxToolCall("codemode", {
+						code: `// @options: {"timeout_ms": 30000}\nfor (;;) { try { await tools.echo({ text: "x" }); } catch {} }`,
+					}),
+				],
+				{ stopReason: "toolUse" },
+			),
+			fauxAssistantMessage("done"),
+		]);
+
+		await harness.session.prompt("go");
+
+		const result = codemodeResult(harness);
+		expect(result.isError).toBe(true);
+		expect(resultText(result)).toContain(
+			"Script error:\nScript aborted: Stopped after 200 nested tool calls in one script.",
+		);
+		expect(resultText(result)).toContain("(they are not undone): echo (ok) ×200");
+		const calls = (result.details as unknown as CodemodeToolDetails).calls;
+		expect(calls).toHaveLength(200);
+		expect(calls.every((call) => call.status === "ok")).toBe(true);
+	});
+
+	it("tells a script to call a declared model-only tool directly instead of saying it does not exist", async () => {
+		const registerModelOnly = (pi: ExtensionAPI) => {
+			pi.registerTool({
+				...createToolDefinitionFromAgentTool(statsTool as AgentTool),
+				name: "ask_person",
+				exposure: "model-only",
+			});
+		};
+		const harness = await setup([registerModelOnly]);
+		harness.session.setActiveToolsByName(["codemode", "ask_person"]);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("codemode", { code: "await tools.ask_person({});" })], {
+				stopReason: "toolUse",
+			}),
+			fauxAssistantMessage("done"),
+		]);
+
+		await harness.session.prompt("go");
+
+		const text = resultText(codemodeResult(harness));
+		expect(text).toContain(
+			"tools.ask_person cannot be called from a script. Call the ask_person tool directly, as its own tool call outside the script.",
+		);
+		expect(text).not.toContain("does not exist");
+	});
 });
 
 describe("codemode options and store", () => {

@@ -34,6 +34,7 @@ import { Bm25Ranker, createToolSearchDocument, DEFAULT_TOOL_SEARCH_LIMIT } from 
 import {
 	CODEMODE_DOCS_PATH,
 	CODEMODE_STORE_ENTRY_TYPE,
+	CODEMODE_TOOL_NAME,
 	type CodemodeModelRuntime,
 	type CodemodeNestedCall,
 	type CodemodeStoreEntryData,
@@ -54,6 +55,13 @@ const MAX_CONCURRENT_MODEL_CALLS = 4;
  * `InternalError: out of memory` inside the script.
  */
 const CODEMODE_MEMORY_LIMIT_BYTES = 256 * 1024 * 1024;
+/**
+ * Nested tool calls one script may start. Real scripts use a few dozen at most. A loop whose exit
+ * condition never holds (for example, paging past the end of a result) otherwise starts thousands
+ * of calls in seconds and floods the session with updates. Reaching the limit aborts the whole
+ * script, so a `catch` inside the loop cannot keep it spinning.
+ */
+const MAX_NESTED_TOOL_CALLS = 200;
 const MODEL_TYPES: ReadonlySet<string> = new Set<ModelType>(["chat", "image", "classifier"]);
 
 function truncateText(text: string, maxChars: number): string {
@@ -297,7 +305,16 @@ function joinAdjacentText(items: (TextContent | ImageContent)[]): (TextContent |
 
 function formatCallSummary(calls: readonly CodemodeNestedCall[]): string {
 	if (calls.length === 0) return "No tool calls were made.";
-	return `Tool calls made before the failure (they are not undone): ${calls.map((call) => `${call.name} (${call.status})`).join(", ")}`;
+	// Runs of the same call and status are counted, so a runaway loop does not list hundreds of entries.
+	const runs: { label: string; count: number }[] = [];
+	for (const call of calls) {
+		const label = `${call.name} (${call.status})`;
+		const last = runs[runs.length - 1];
+		if (last?.label === label) last.count += 1;
+		else runs.push({ label, count: 1 });
+	}
+	const summary = runs.map(({ label, count }) => (count === 1 ? label : `${label} ×${count}`)).join(", ");
+	return `Tool calls made before the failure (they are not undone): ${summary}`;
 }
 
 function formatError(result: Extract<CodemodeResult, { ok: false }>, calls: readonly CodemodeNestedCall[]): string {
@@ -438,6 +455,10 @@ export async function executeCodemode(
 	const snapshot = (): CodemodeToolDetails => ({ calls: calls.map((call) => ({ ...call })) });
 	const publish = () => onUpdate?.({ content: [], details: snapshot() });
 
+	const callLimit = new AbortController();
+	const scriptSignal = signal ? AbortSignal.any([signal, callLimit.signal]) : callLimit.signal;
+	let startedToolCalls = 0;
+
 	const callable = ctx ? getCodemodeCallableTools(ctx.tools) : [];
 	// ALL_TOOLS entries carry the declaration.
 	const guidelines = options.getToolGuidelines?.();
@@ -448,6 +469,14 @@ export async function executeCodemode(
 		name: tool.name,
 		description: samples.get(tool.name),
 		execute: async (args, { signal: callSignal }) => {
+			startedToolCalls += 1;
+			if (startedToolCalls > MAX_NESTED_TOOL_CALLS) {
+				const error = new Error(
+					`Stopped after ${MAX_NESTED_TOOL_CALLS} nested tool calls in one script. A loop probably never meets its exit condition (for example, paging past the end of a result). Fix the exit condition, or split the work across several codemode calls.`,
+				);
+				callLimit.abort(error);
+				throw error;
+			}
 			const record: CodemodeNestedCall = {
 				id: `${toolCallId}/?`,
 				name: tool.name,
@@ -473,8 +502,13 @@ export async function executeCodemode(
 		},
 	}));
 
+	const callableNames = new Set(callable.map((tool) => tool.name));
+	const directOnlyTools = (options.getActiveToolNames?.() ?? []).filter(
+		(name) => name !== CODEMODE_TOOL_NAME && !callableNames.has(name),
+	);
 	const sandbox = new CodemodeSandbox({
 		tools: sandboxTools,
+		directOnlyTools,
 		globals: [
 			...createDiscoveryGlobals(callable, samples, options),
 			...(options.models && ctx
@@ -490,7 +524,7 @@ export async function executeCodemode(
 	let result: CodemodeResult;
 	try {
 		const store = ctx ? readCodemodeStore(ctx.sessionManager.getBranch()) : {};
-		result = await sandbox.execute(code, { signal, store });
+		result = await sandbox.execute(code, { signal: scriptSignal, store });
 	} finally {
 		await sandbox.close();
 	}

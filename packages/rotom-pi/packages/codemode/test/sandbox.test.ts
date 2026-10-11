@@ -352,6 +352,23 @@ describe("tools", () => {
 		).toEqual([true, false, "undefined", "{}"]);
 	});
 
+	it("says a direct-only tool must be called directly, by its name or identifier", async () => {
+		const sandbox = new CodemodeSandbox({ tools: [echo], directOnlyTools: ["browser-inspect"], timeoutMs: 10_000 });
+		sandboxes.push(sandbox);
+		for (const expression of ["tools.browser_inspect", 'tools["browser-inspect"]']) {
+			const result = await sandbox.execute(`return ${expression};`);
+			expect(result.ok ? result.value : result.error.message).toBe(
+				`tools.${expression.includes("[") ? "browser-inspect" : "browser_inspect"} cannot be called from a script. Call the browser-inspect tool directly, as its own tool call outside the script.`,
+			);
+		}
+		expect(
+			await sandbox.execute("return ['browser_inspect' in tools, ALL_TOOLS.map((tool) => tool.name)];"),
+		).toMatchObject({
+			ok: true,
+			value: [false, ["echo"]],
+		});
+	});
+
 	it("supports register and unregister between executions", async () => {
 		const sandbox = createSandbox();
 		sandbox.registerTool(echo);

@@ -101,6 +101,11 @@ export interface CodemodeSandboxOptions {
 	 */
 	globals?: CodemodeTool[];
 	/**
+	 * Names of tools the caller can use itself but scripts cannot call. A script that reads one on
+	 * `tools` gets an error saying to call it directly, instead of one saying it does not exist.
+	 */
+	directOnlyTools?: readonly string[];
+	/**
 	 * Overall deadline per execution, including time spent in tools. `Infinity` disables the
 	 * deadline; the execution then only ends when the script settles or is aborted.
 	 * Default: 300000.

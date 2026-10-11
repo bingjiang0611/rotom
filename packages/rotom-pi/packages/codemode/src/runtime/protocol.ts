@@ -12,6 +12,8 @@ export interface WorkerData {
 	/** `jsName` is the identifier the script uses; `description` is listed in `ALL_TOOLS`. */
 	tools: { name: string; jsName: string; description: string }[];
 	globals: { name: string; spread: boolean }[];
+	/** Tools only the caller can call; see `CodemodeSandboxOptions.directOnlyTools`. */
+	directOnlyTools: { name: string; jsName: string }[];
 	/** Compiled `quickjs-wasi` module. Structured clone shares the compiled code with the worker. */
 	wasm: CodemodeWasmModule;
 	memoryLimitBytes: number | undefined;

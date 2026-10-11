@@ -16,12 +16,13 @@
  * JSON text passed in as `storeJson`, and the keys the script wrote are reported
  * with a successful "done".
  *
- * Evaluates to a function `(bridge, toolsJson, globalsJson, storeJson) => { settle, run, stalled }`.
+ * Evaluates to a function `(bridge, toolsJson, globalsJson, storeJson, directOnlyJson) => { settle, run, stalled }`.
  * `toolsJson` lists `{ name, jsName, description }`: `tools[jsName]` and `tools[name]` call the
  * tool, and `ALL_TOOLS` lists `{ name: jsName, description }`.
  * `stalled()` reports a script that has not finished while no host call is pending: with no timers
  * or I/O in the VM, nothing can ever resume it.
  * `globalsJson` lists `{ name, spread }`; `a.b` names are grouped into a frozen `a` object.
+ * `directOnlyJson` lists `{ name, jsName }` of tools only the caller can call; reading one on `tools` says so.
  * `bridge(kind, a, b, c)` with kind "call" or "global" (id, name, argsJson),
  * "output" ("text" or "console", text) or ("image", data, mimeType), or "done" (ok, valueJsonOrErrorJson, writesJson).
  *
@@ -43,7 +44,7 @@ export const MAX_OUTPUT_ITEMS = 100_000;
 const IMAGE_HELPER_EXPECTS =
 	"image expects a non-empty image URL string, an object with image_url, or a raw MCP image block";
 
-export const PRELUDE_SOURCE: string = `(function (bridge, toolsJson, globalsJson, storeJson) {
+export const PRELUDE_SOURCE: string = `(function (bridge, toolsJson, globalsJson, storeJson, directOnlyJson) {
 	"use strict";
 
 	// Freeze every object reachable from the built-in globals, plus the intrinsics that are only
@@ -225,11 +226,15 @@ export const PRELUDE_SOURCE: string = `(function (bridge, toolsJson, globalsJson
 	// Reading a member that does not exist throws an error that names the close matches, instead of
 	// a later "not a function". \`in\` checks still work.
 	const comparable = (name) => name.toLowerCase().replace(/[^a-z0-9]/g, "");
-	function guard(target, label, names, hint) {
+	function guard(target, label, names, hint, directOnly = new Map()) {
 		return new Proxy(target, {
 			get(object, property, receiver) {
 				if (typeof property !== "string" || property in object || property in Object.prototype || property === "then" || property === "toJSON") {
 					return Reflect.get(object, property, receiver);
+				}
+				const directName = directOnly.get(property);
+				if (directName !== undefined) {
+					throw new TypeErrorCtor(label + "." + property + " cannot be called from a script. Call the " + directName + " tool directly, as its own tool call outside the script.");
 				}
 				const wanted = comparable(property);
 				const exact = names.filter((name) => comparable(name) === wanted);
@@ -248,6 +253,7 @@ export const PRELUDE_SOURCE: string = `(function (bridge, toolsJson, globalsJson
 		"tools",
 		allTools.map((tool) => tool.name),
 		"ALL_TOOLS lists every tool; searchTools(query) finds tools by topic.",
+		new Map(parse(directOnlyJson).flatMap(({ name, jsName }) => [[name, name], [jsName, name]])),
 	);
 
 	const namespaces = new Map();

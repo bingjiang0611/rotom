@@ -109,6 +109,7 @@ interface ExecutionOptions {
 	code: string;
 	tools: ReadonlyMap<string, CodemodeTool>;
 	globals: ReadonlyMap<string, CodemodeTool>;
+	directOnlyTools: readonly string[];
 	timeoutMs: number;
 	signal: AbortSignal | undefined;
 	memoryLimitBytes: number | undefined;
@@ -184,6 +185,7 @@ class Execution {
 				name: global.name,
 				spread: global.spread === true,
 			})),
+			directOnlyTools: options.directOnlyTools.map((name) => ({ name, jsName: toCodemodeIdentifier(name) })),
 			wasm,
 			memoryLimitBytes: options.memoryLimitBytes,
 			store: options.store,
@@ -340,6 +342,7 @@ class Execution {
 export class CodemodeSandbox {
 	private readonly toolsByName = new Map<string, CodemodeTool>();
 	private readonly globalsByName = new Map<string, CodemodeTool>();
+	private readonly directOnlyTools: readonly string[];
 	private readonly timeoutMs: number;
 	private readonly memoryLimitBytes: number | undefined;
 	private readonly wasm: CodemodeWasmModule | Promise<CodemodeWasmModule> | undefined;
@@ -349,6 +352,7 @@ export class CodemodeSandbox {
 
 	constructor(options: CodemodeSandboxOptions = {}) {
 		this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+		this.directOnlyTools = [...(options.directOnlyTools ?? [])];
 		this.memoryLimitBytes = options.memoryLimitBytes;
 		this.wasm = options.wasm;
 		this.workerUrl = options.workerUrl ?? defaultWorkerUrl();
@@ -397,6 +401,7 @@ export class CodemodeSandbox {
 			code,
 			tools: new Map(this.toolsByName),
 			globals: this.globalsByName,
+			directOnlyTools: this.directOnlyTools,
 			timeoutMs: options.timeoutMs ?? this.timeoutMs,
 			signal: options.signal,
 			memoryLimitBytes: this.memoryLimitBytes,

@@ -37,6 +37,7 @@ export function createCodemodeExtension(options: CodemodeExtensionOptions = {}):
 				getToolNamespace: (name) => pi.getAllTools().find((tool) => tool.name === name)?.namespace,
 				getToolGuidelines: () =>
 					new Map(pi.getAllTools().map((tool) => [tool.name, tool.promptGuidelines ?? []] as const)),
+				getActiveToolNames: () => pi.getActiveTools(),
 				getMode: () => options.mode ?? readMode(pi),
 				getInlineBudget: () => options.inlineBudget ?? readInlineBudget(pi),
 			}),

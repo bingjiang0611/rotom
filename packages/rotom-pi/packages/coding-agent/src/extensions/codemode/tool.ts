@@ -69,6 +69,11 @@ export interface CodemodeToolOptions {
 	/** Prompt guidelines of every tool, by tool name, shown with declarations by `describeTool()` and `ALL_TOOLS`. */
 	getToolGuidelines?: () => ReadonlyMap<string, readonly string[]>;
 	/**
+	 * Tools declared to the model. A script that reads one it cannot call gets an error saying to
+	 * call it directly, instead of one saying the tool does not exist.
+	 */
+	getActiveToolNames?: () => readonly string[];
+	/**
 	 * Expose the `models` namespace to scripts, backed by the session's model registry
 	 * (`ctx.modelRegistry`). Without it, `models` is not declared.
 	 */
@@ -128,6 +133,7 @@ export const codemodeToolSystemPromptContribution = {
 	snippet: "Run JavaScript that calls other tools",
 	guidelines: [
 		"Use codemode to batch independent tool calls (Promise.allSettled), chain them, or filter large output, instead of many separate calls.",
+		"Scripts can call only the tools listed in the codemode description or whose description has a `Codemode:` line. Call every other tool directly, never from a script.",
 	],
 } as const;
 
