@@ -1,6 +1,7 @@
 // No model or network. Runs one external Node child behind an explicit release gate.
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
@@ -70,7 +71,7 @@ async function until(read, description) {
 	const deadline = Date.now() + 20000;
 	for (;;) {
 		const value = read(); if (value) return value;
-		if (Date.now() >= deadline) throw Error(`Fixture deadline: ${description}; artifacts retained`);
+		if (Date.now() >= deadline) throw Error(`Fixture deadline: ${description}; artifacts retained; 1-min load average ${os.loadavg()[0].toFixed(1)} on ${os.availableParallelism()} CPUs`);
 		await new Promise((resolve) => setTimeout(resolve, 20));
 	}
 }

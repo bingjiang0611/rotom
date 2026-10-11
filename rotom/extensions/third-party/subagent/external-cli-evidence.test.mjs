@@ -39,7 +39,11 @@ for (const scenario of ["complete", "stop-direct", "stop-residual"]) test(`exact
 	const resultPath = path.join(root, "result.json");
 	if (processResult.error || processResult.status !== 0 || !fs.existsSync(resultPath)) {
 		t.diagnostic(`Fixture retained (closure unproven): ${root}`);
-		assert.fail(`external evidence fixture failed: exit=${processResult.status}; error=${processResult.error?.code ?? "none"}`);
+		// The fixture uses fixed 15-20 s wall-clock deadlines to catch hangs. On an overloaded
+		// machine a correct stop can miss them, so report the load next to the failure: a failure
+		// at high load is not yet evidence of a regression; rerun it on an idle machine first.
+		const load = `1-min load average ${os.loadavg()[0].toFixed(1)} on ${os.availableParallelism()} CPUs`;
+		assert.fail(`external evidence fixture failed: exit=${processResult.status}; error=${processResult.error?.code ?? "none"}; ${load}`);
 	}
 	const result = JSON.parse(fs.readFileSync(resultPath));
 	assert.deepEqual(result, { parentStateBeforeRelease: "complete", childStateBeforeRelease: "running", markerBeforeRelease: false,
