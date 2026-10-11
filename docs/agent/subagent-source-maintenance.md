@@ -31,7 +31,7 @@
 
 完整可执行示例见组件 README。测试快照的源码直接来自本目录；只为测试复制四个已锁定依赖。发行包不复制开发 node_modules，不包含维护脚本/tests/旧 patch/运行状态。历史对照仍可重建旧版本，但它们不是新组件的构建输入。
 
-产品 staging 工具要求新私有目录，读固定 Git revision，不混入 dirty WIP；核对实际 archive SHA512、TS digest 与 receipt，再同步新副本的 package、lock/shrinkwrap、vendor、product-config。仍沿用产品 `pack:release` 的隔离 HOME/cache、fresh install、实际 tgz 审计及 runtime gate，不复制 Pi 生命周期。
+产品 staging 工具要求新私有目录，读固定 Git revision，不混入 dirty WIP；核对实际 archive SHA512、TS digest 与 receipt，再同步新副本的 package、lock、vendor、product-config。仍沿用产品 `pack:release` 的隔离 HOME/cache、fresh install、实际 tgz 审计及 runtime gate，不复制 Pi 生命周期。
 
 ## 实际验证
 

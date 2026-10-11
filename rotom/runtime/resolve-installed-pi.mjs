@@ -26,8 +26,9 @@ function inside(root, path) {
 export async function verifyDistributionContract(agentDir) {
 	const root = await realpath(agentDir);
 	const manifest = await json(resolve(root, "package.json"));
-	const outerLock = await json(resolve(root, "npm-shrinkwrap.json"));
-	if (Object.keys(manifest.dependencies ?? {}).length || Object.keys(outerLock.packages?.[""]?.dependencies ?? {}).length || outerLock.lockfileVersion !== 3 || Object.keys(outerLock.packages ?? {}).length !== 1) throw new Error("rotom 不得从外部 dependency/shrinkwrap 加载 Pi");
+	// The product declares no npm dependencies; Pi comes only from the fixed fork runtime below.
+	// There is no product-level lockfile: npm 12 neither packs nor honors npm-shrinkwrap.json.
+	if (Object.keys(manifest.dependencies ?? {}).length) throw new Error("rotom 不得从外部 dependency 加载 Pi");
 	const runtime = resolve(root, PI_RUNTIME);
 	const buildPath = resolve(runtime, "fork-build.json");
 	await ordinaryFile(buildPath);

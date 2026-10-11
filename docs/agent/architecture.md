@@ -103,7 +103,7 @@ Native host 在任何 socket 探测/回收前持有进程寿命的 OS 文件锁�
 
 ## 代码地图
 
-- `rotom/package.json` / `npm-shrinkwrap.json`：npm 产品元数据、公开 bin 和显式发行文件清单；不再声明官方 Pi dependency，固定通过公开作用域包 `@bingjiang0611/rotom` 分发。
+- `rotom/package.json`：npm 产品元数据、公开 bin 和显式发行文件清单；不声明任何 npm dependency，也没有产品级 lockfile（npm 12 不再打包或读取 `npm-shrinkwrap.json`），固定通过公开作用域包 `@bingjiang0611/rotom` 分发。
 - `packages/rotom-pi/`：仓内 Pi 源码 fork、上游来源与 MIT 许可证、锁定公开模型目录；`rotom/scripts/build-pi-fork.mjs` 隔离构建八个 CLI/SDK runtime 归档。
 - `rotom/runtime/pi/`：fork package/lock、源码/构建器摘要和归档；发行包中按锁新安装 node_modules，不依赖维护 checkout。
 - `rotom/scripts/pack-release.mjs`：隔离 staging、锁定 npm ci、资源验证、打包清单检查；不使用维护者 node_modules、不运行 install hooks。

@@ -110,9 +110,6 @@ def stage(archive, output, revision, product_version):
     product['version'] = product_version
     product['files'] = [new_archive if f == old_archive else f for f in product['files']]
     put_json('package.json', product)
-    shrink = json.loads((output/'rotom/npm-shrinkwrap.json').read_text())
-    shrink['version'] = shrink['packages']['']['version'] = product_version
-    put_json('npm-shrinkwrap.json', shrink)
     third['dependencies']['pi-subagents'] = new
     put_json('extensions/third-party/package.json', third)
     old_integrity = entry['integrity']

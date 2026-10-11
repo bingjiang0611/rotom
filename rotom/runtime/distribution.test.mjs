@@ -23,7 +23,6 @@ function fixture(t) {
 	const work = temp(t);
 	const root = join(work, "node_modules/rotom");
 	put(join(root, "package.json"), manifest);
-	cpSync(join(SOURCE, "npm-shrinkwrap.json"), join(root, "npm-shrinkwrap.json"));
 	const build = JSON.parse(readFileSync(join(SOURCE, PI_RUNTIME, "fork-build.json"), "utf8"));
 	for (const file of ["package.json", "package-lock.json", "fork-build.json", ...Object.values(build.artifacts).map((a) => a.file)]) {
 		const target = join(root, PI_RUNTIME, file);
