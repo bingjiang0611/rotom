@@ -1029,7 +1029,14 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 			await persistState();
 			if (state.epoch !== expectedEpoch || state.generation === undefined) throw new Error("browser relay session changed during tab persistence");
 		}
-		catch (error) { await closeOwnedIdentity(state, name, tab.id, item, assertOperation); throw error; }
+		catch (error) {
+			// Grouping/attach fail with unrelated-looking errors when something else closed the
+			// tab (e.g. a duplicate-tab extension when the URL is already open). Name that case.
+			const vanished = await globalThis.chrome.tabs.get(tab.id).then(() => false, isMissingChromeTabError);
+			await closeOwnedIdentity(state, name, tab.id, item, assertOperation);
+			if (vanished) throw new Error("Chrome closed the new tab right after it was created; another extension (for example a duplicate-tab manager, if this URL is already open) may have closed it", { cause: error });
+			throw error;
+		}
 		return observation(name, item, assertOperation);
 	}
 	if (operation === "discover") {

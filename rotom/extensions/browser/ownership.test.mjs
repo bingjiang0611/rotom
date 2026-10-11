@@ -375,3 +375,18 @@ test("late open cleanup reserves the unpublished tab until removal settles", { t
 	finally { releaseRemove.resolve(); await rejected; }
 	await assert.rejects(claim(), /claim reached Chrome/u); assert.equal(state.tabsByName.size, 0);
 });
+
+test("open names an external close of the new tab instead of the grouping error", { timeout: 5000 }, async (t) => {
+	const { mod, api } = await worker(t);
+	let alive = true;
+	api.tabs.create = async () => ({ id: 1, windowId: 7, status: "loading" });
+	api.tabs.query = async () => { alive = false; return []; }; // closed before grouping sees it
+	api.tabs.get = async (tabId) => { if (!alive) throw new Error(`No tab with id: ${tabId}.`); return { id: tabId }; };
+	api.tabs.group = async () => 1;
+	api.tabGroups.update = async () => {};
+	const state = { epoch: 0, operationRevision: 0, generation: "g", tabsByName: new Map(), retiredTabNames: new Map() };
+	await assert.rejects(mod.handleOperation(state, "open", { tabName: "docs", url: "https://example.test/" }, 0, () => {}), /Chrome closed the new tab right after it was created/u);
+	assert.equal(state.tabsByName.has("docs"), false);
+	alive = true; api.tabs.query = async () => { alive = true; throw new Error("query unavailable"); };
+	await assert.rejects(mod.handleOperation(state, "open", { tabName: "docs2", url: "https://example.test/" }, 0, () => {}), /query unavailable/u);
+});
