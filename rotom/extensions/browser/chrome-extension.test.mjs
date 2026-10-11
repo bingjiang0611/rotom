@@ -12,7 +12,7 @@ import { invalidateCoordinateObservation, mintCoordinateObservation, validateCoo
 import { interactionScrollTarget } from "./chrome-extension/interaction-scroll-target.js";
 import { createOperationGuard } from "./chrome-extension/operation-guard.js";
 import { consumeMatchingWindowOpenSignal } from "./chrome-extension/window-open-correlation.js";
-import { relayOperationDeadlineMs, runWithRelayDeadline, valueWithinRelayDeadline } from "./chrome-extension/relay-deadline.js";
+import { RELAY_SETTLE_MS, relayClientTimeoutMs, relayOperationDeadlineMs, runWithRelayDeadline, valueWithinRelayDeadline } from "./chrome-extension/relay-deadline.js";
 import { collectRenderedText, utf8TextChunks } from "./chrome-extension/rendered-text.js";
 import { collectPageAlerts, pageAlertNodes } from "./chrome-extension/page-alerts.js";
 import { evaluateInteractionExpectation, interactionTargetChange, parseInteractionExpectation, readInteractionTargetState } from "./chrome-extension/interaction-target-state.js";
@@ -416,6 +416,20 @@ test("扩展 operation deadline 先于客户端超时并覆盖长 wait", () => {
 	assert.equal(relayOperationDeadlineMs("recover", {}), 8_000);
 	assert.equal(relayOperationDeadlineMs("read_full", {}), 25_000);
 	assert.equal(relayOperationDeadlineMs("wait", { timeoutMs: 12_000 }), 12_500);
+});
+
+test("客户端超时晚于扩展 deadline 加超时清理，扩展的有界错误先到达", async () => {
+	// Before: tabs waited 5 s on the client while the extension could take 4 s + 2 s cleanup,
+	// so the client dropped the connection instead of receiving "tabs operation timeout".
+	for (const [operation, payload] of [["tabs", {}], ["recover", {}], ["interact", {}], ["read_full", {}], ["snapshot", {}], ["wait", { timeoutMs: 12_000 }], ["wait", { timeoutMs: 300_000 }]]) {
+		assert.ok(relayClientTimeoutMs(operation, payload) > relayOperationDeadlineMs(operation, payload) + 2 * RELAY_SETTLE_MS, operation);
+	}
+	// Requests that pass no timeout use the client default of 30 s.
+	assert.ok(relayClientTimeoutMs("snapshot", {}) <= 30_000);
+	const source = await readFile(new URL("./index.ts", import.meta.url), "utf8");
+	for (const operation of ["tabs", "recover", "wait", "read_full", "interact"]) {
+		assert.match(source, new RegExp(`request\\("${operation}", [^\\n]*timeoutMs: relayClientTimeoutMs\\("${operation}"`), operation);
+	}
 });
 
 test("扩展 operation deadline 会等待清理完成后释放串行队列", async () => {

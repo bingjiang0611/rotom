@@ -31,6 +31,7 @@ import {
 // expect 的语法只有一份：这个模块不依赖 chrome API，所以 tool 层可以先本地拒绝非法
 // 判据，而不是把它发到 relay 再拿错误回来。
 import { INTERACTION_EXPECTATIONS, parseInteractionExpectation } from "./chrome-extension/interaction-target-state.js";
+import { relayClientTimeoutMs } from "./chrome-extension/relay-deadline.js";
 import { compactInteractionReadback, observationTextBaseline } from "./chrome-extension/interaction-observation.js";
 
 const MAX_RESULT_BYTES = 128 * 1024;
@@ -331,7 +332,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 		assertOwner();
 		return artifacts!;
 	};
-	const readTabs = async (relayClient: Awaited<ReturnType<typeof client>>, signal?: AbortSignal) => validateTabs(await relayClient.request("tabs", {}, { signal, timeoutMs: 5_000 }));
+	const readTabs = async (relayClient: Awaited<ReturnType<typeof client>>, signal?: AbortSignal) => validateTabs(await relayClient.request("tabs", {}, { signal, timeoutMs: relayClientTimeoutMs("tabs", {}) }));
 
 	const makeSnapshotPage = (freshObservation: BrowserObservationV1 | undefined, requestedLimit: number, cursor?: string) => {
 		let offset = 0;
@@ -439,7 +440,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			}
 			if (operation === "recover") {
 				const target = targetTab(await readTabs(relayClient, signal), tabName);
-				return boundedResult({ kind: "tabs", tabs: publicTabs(validateTabs(await relayClient.request("recover", { tabName: target.name }, { signal, timeoutMs: 12_000 }))) });
+				return boundedResult({ kind: "tabs", tabs: publicTabs(validateTabs(await relayClient.request("recover", { tabName: target.name }, { signal, timeoutMs: relayClientTimeoutMs("recover", {}) }))) });
 			}
 			const tabs = await readTabs(relayClient, signal);
 			if (operation === "tabs") return boundedResult({ kind: "tabs", tabs: publicTabs(tabs) });
@@ -455,11 +456,11 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 				const status = params.status === undefined ? "complete" : params.status;
 				if (status !== "loading" && status !== "complete") throw new Error("wait status 无效");
 				const timeoutMs = params.timeoutMs === undefined ? 30_000 : safeInteger(params.timeoutMs, "timeoutMs", 0, 300_000);
-				const observation = sanitizeBrowserObservationV1(await relayClient.request("wait", { tabName, status, timeoutMs }, { signal, timeoutMs: timeoutMs + 1_000 }));
+				const observation = sanitizeBrowserObservationV1(await relayClient.request("wait", { tabName, status, timeoutMs }, { signal, timeoutMs: relayClientTimeoutMs("wait", { timeoutMs }) }));
 				return snapshotResult(observation, limit);
 			}
 			if (operation === "snapshot" || operation === "read_full") {
-				const observation = sanitizeBrowserObservationV1(await relayClient.request("read_full", { tabName }, { signal, timeoutMs: 27_000 }));
+				const observation = sanitizeBrowserObservationV1(await relayClient.request("read_full", { tabName }, { signal, timeoutMs: relayClientTimeoutMs("read_full", {}) }));
 				return snapshotResult(observation, limit);
 			}
 			if (operation === "snapshot_visible") {
@@ -569,7 +570,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			pi.appendEntry(BROWSER_INTERACTION_AUDIT_ENTRY, { schemaVersion: 1, kind: "rotom-browser-interaction-intent", actionId, sessionId: ctx.sessionManager.getSessionId(), branchLeafId: ctx.sessionManager.getLeafId() ?? null, toolCallId, action, actionDigest, targetDigest: browserActionDigestV1({ tabName: tab.name, tabId: tab.tabId, documentGeneration: tab.documentGeneration, ...(targetRef ? { targetRef } : {}), ...(coordinateClick ? { x, y, observationEpoch } : {}) }), originDigest: browserActionDigestV1(browserOriginV1(tab.url)), timestamp: new Date().toISOString() });
 			try {
 				const payload = { actionId, tabName: tab.name, action, ...(key ? { key } : {}), ...(targetRef ? { targetRef } : {}), ...(coordinateClick ? { x, y, observationEpoch, documentGeneration: tab.documentGeneration } : {}), ...(text ? { text, replace: params.replace === true } : {}), ...(option ? { option } : {}), ...(expectation ? { expect: expectation } : {}), ...(direction ? { direction, amount } : {}) };
-				const result = interactionResult(await relayClient.request("interact", payload, { signal, timeoutMs: 10_000 }), { actionId, action });
+				const result = interactionResult(await relayClient.request("interact", payload, { signal, timeoutMs: relayClientTimeoutMs("interact", {}) }), { actionId, action });
 				const expectationOutcome = browserInteractionExpectationOutcomeV1(result.effect);
 				const targetChanged = record(result.effect?.target) ? (result.effect.target as Record<string, unknown>).changed : undefined;
 				assertOwner();

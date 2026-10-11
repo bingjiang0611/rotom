@@ -4,7 +4,7 @@ import { interactionScrollTarget } from "./interaction-scroll-target.js";
 import { createOperationGuard } from "./operation-guard.js";
 import { operationChrome } from "./operation-chrome.js";
 import { consumeMatchingWindowOpenSignal } from "./window-open-correlation.js";
-import { relayOperationDeadlineMs, runWithRelayDeadline, valueWithinRelayDeadline } from "./relay-deadline.js";
+import { RELAY_SETTLE_MS, relayOperationDeadlineMs, runWithRelayDeadline, valueWithinRelayDeadline } from "./relay-deadline.js";
 import { fullReadCoverage, fullReadScrollStep, mergeRenderedText, scrollableTextTargets, scrollTargetState, scrollTargetTo } from "./full-read.js";
 import { collectRenderedText, utf8TextChunks } from "./rendered-text.js";
 import { collectPageAlerts, MAX_PAGE_ALERTS, pageAlertNodes } from "./page-alerts.js";
@@ -1131,7 +1131,7 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 	throw new Error("operation denied");
 }
 function delay(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
-async function settleWithin(promise, timeoutMs = 1_000) {
+async function settleWithin(promise, timeoutMs = RELAY_SETTLE_MS) {
 	await Promise.race([Promise.resolve(promise).catch(() => undefined), delay(timeoutMs)]);
 }
 async function detachItemsPreservingState(items) {
