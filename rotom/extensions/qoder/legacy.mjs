@@ -29,10 +29,13 @@ export function legacyBody(payload,entry,requestId,sessionId,reasoningMode,input
   const text=m=>typeof m.content==='string'?m.content:Array.isArray(m.content)?m.content.map(b=>b.text).join('\n'):'';
   const system=payload.messages.filter(m=>m.role==='system').map(text).join('\n');
   if(payload.messages.some(m=>!['system','user','assistant','tool'].includes(m.role)))fail('legacy_request_field_unsupported');
+  // The COSY endpoint reads the system prompt only from messages: a live A/B
+  // showed the top-level system field alone is ignored. Like the official CLI,
+  // keep the system message in messages as well as in the top-level field.
   // The exercised COSY image contract retains both content and contents arrays.
   // Only the transport's reviewed input mode may select it. Text-only assistant
   // tool turns still use an empty string, preserving their native replay fields.
-  const messages=payload.messages.filter(m=>m.role!=='system').map(m=>{
+  const messages=payload.messages.map(m=>{
     const image=Array.isArray(m.content)&&m.content.some(b=>b.type==='image_url');
     if(image&&!inputMode?.images)fail('images_not_validated');
     return {...m,content:image?m.content:text(m),...image?{contents:m.content}:{}};

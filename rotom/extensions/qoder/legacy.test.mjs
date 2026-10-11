@@ -17,10 +17,10 @@ const decode=value=>{
 test('legacy body preserves messages/tools/reasoning and fixes conservative scope',()=>{
   const p=payload();p.messages.push({role:'assistant',content:'',reasoning_content:'plain fixture',tool_calls:[{id:'call',type:'function',function:{name:'probe',arguments:'{}'}}]},{role:'tool',tool_call_id:'call',content:'result'});p.tools=[{type:'function',function:{name:'probe'}}];
   const body=decode(legacyBody(p,entry,'request','session'));
-  assert.equal(body.system,'synthetic system');assert.deepEqual(body.messages,p.messages.slice(1));assert.deepEqual(body.tools,p.tools);
+  assert.equal(body.system,'synthetic system');assert.deepEqual(body.messages,p.messages);assert.deepEqual(body.tools,p.tools);
   assert.equal(body.session_id,'session');assert.equal(body.request_id,'request');assert.equal(body.is_retry,false);assert.equal(body.model_config.api_key,'');assert.equal(body.model_config.url,'');assert.equal(body.parameters.reasoning_effort,'high');assert.equal(body.parameters.context_length,32000);assert.equal(body.parameters.max_tokens,32);
   assert.equal(body.chat_context.extra.context.length,0);assert.equal(body.business,undefined);
-  p.messages[2].content=null;const normalized=decode(legacyBody(p,entry,'request','session'));assert.equal(normalized.messages[1].content,'');assert.equal(normalized.messages[1].reasoning_content,'plain fixture');assert.deepEqual(normalized.messages[1].tool_calls,p.messages[2].tool_calls);
+  p.messages[2].content=null;const normalized=decode(legacyBody(p,entry,'request','session'));assert.equal(normalized.messages[2].content,'');assert.equal(normalized.messages[2].reasoning_content,'plain fixture');assert.deepEqual(normalized.messages[2].tool_calls,p.messages[2].tool_calls);
   assert.throws(()=>legacyBody({...p,unknown_override:true},entry,'a','b'),/legacy_request_field_unsupported/);
   assert.throws(()=>legacyBody(p,{...entry,reviewed:false},'a','b'),/legacy_model_metadata_required/);
 });
