@@ -34,9 +34,11 @@ export function pack(requested) {
   assert.ifError(r.error); assert.equal(r.status,0,r.stderr||r.stdout); return r.stdout;
  };
  const expected=payloadFiles(stage);
- const [preview]=JSON.parse(run('npm',['pack','--offline','--ignore-scripts','--dry-run','--json'])); checkPackList(preview,expected);
+ // npm <=11 prints an array; npm 12 prints an object keyed by package name.
+ const packResult=out=>{const parsed=JSON.parse(out);return Array.isArray(parsed)?parsed[0]:Object.values(parsed)[0]};
+ const preview=packResult(run('npm',['pack','--offline','--ignore-scripts','--dry-run','--json'])); checkPackList(preview,expected);
  assert.equal(preview.filename,filename);
- const [packed]=JSON.parse(run('npm',['pack','--offline','--ignore-scripts','--json','--pack-destination',work])); checkPackList(packed,expected);
+ const packed=packResult(run('npm',['pack','--offline','--ignore-scripts','--json','--pack-destination',work])); checkPackList(packed,expected);
  const built=path.join(work,filename);
  const audit=JSON.parse(run('python3',['-I',path.join(repoRoot,'scripts/audit-public.py'),'--root',repoRoot,'--artifact',built]));
  assert.equal(audit.status,'PASS');

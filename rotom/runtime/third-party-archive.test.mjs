@@ -20,9 +20,9 @@ test("maintained Goal source and selected vendor archive are byte-identical", as
 	}
 });
 
-test("selected Subagent archive includes current closure projection and runner drain fixes", async () => {
+test("selected Subagent archive includes current closure projection, runner drain and supervisor schema fixes", async () => {
 	const archive = join(source, VERIFIED_THIRD_PARTY_PACKAGES["pi-subagents"].archive);
-	for (const file of ["src/runs/background/process-terminal.ts", "src/runs/background/runner-drain.ts", "src/runs/background/subagent-runner.ts", "src/runs/background/active-async-capacity.ts"]) {
+	for (const file of ["src/runs/background/process-terminal.ts", "src/runs/background/runner-drain.ts", "src/runs/background/subagent-runner.ts", "src/runs/background/active-async-capacity.ts", "src/intercom/native-supervisor-channel.ts"]) {
 		const tracked = resolve(import.meta.dirname, "../../packages/rotom-subagents", file);
 		assert.deepEqual(execFileSync("tar", ["-xOf", archive, `package/${file}`], { maxBuffer: 512_000 }), await readFile(tracked), file);
 	}

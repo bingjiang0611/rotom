@@ -131,3 +131,17 @@ test('paused scoped run releases capacity only with matching observed closure',(
  proof.ownedClosure.state='observed';writePrivateAtomicJson(path.join(f.dir,'process-terminal.json'),proof);
  assert.equal(used(),0);
 });
+
+test('parent supervisor tool offers only answering actions',async()=>{
+ const {createNativeSupervisorChannel,NATIVE_SUPERVISOR_TOOL_NAME}=await load('src/intercom/native-supervisor-channel.ts');
+ const tools=[];
+ const pi={registerTool:tool=>tools.push(tool),getAllTools:()=>tools,on(){},events:{on(){return()=>{}},emit(){}},sendMessage(){}};
+ const channel=createNativeSupervisorChannel(pi,{foregroundControls:new Map(),foregroundRuns:new Map(),asyncJobs:new Map()},{platform:'linux',watch:()=>({close(){},on(){},unref(){}})});
+ channel.start();
+ try {
+  const tool=tools.find(t=>t.name===NATIVE_SUPERVISOR_TOOL_NAME);
+  assert.ok(tool,'parent tool is registered on start');
+  // Children start asks with contact_supervisor; a parent send/ask could only fail.
+  assert.deepEqual(tool.parameters.properties.action.enum,['list','reply','pending','status']);
+ } finally { channel.dispose(); }
+});

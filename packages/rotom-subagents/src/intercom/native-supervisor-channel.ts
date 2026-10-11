@@ -65,7 +65,7 @@ interface ContactSupervisorParams {
 }
 
 interface IntercomParams {
-	action: "list" | "send" | "ask" | "reply" | "pending" | "status";
+	action: "list" | "reply" | "pending" | "status";
 	to?: string;
 	message?: string;
 	replyTo?: string;
@@ -86,7 +86,9 @@ const ContactSupervisorParamsSchema = Type.Object({
 }, { additionalProperties: false });
 
 const IntercomParamsSchema = Type.Object({
-	action: Type.String({ enum: ["list", "send", "ask", "reply", "pending", "status"] }),
+	// Parent agents only answer. Children start asks with contact_supervisor, so
+	// send/ask are not offered here.
+	action: Type.String({ enum: ["list", "reply", "pending", "status"] }),
 	to: Type.Optional(Type.String()),
 	message: Type.Optional(Type.String()),
 	replyTo: Type.Optional(Type.String()),
@@ -605,9 +607,6 @@ function buildParentSupervisorTool(pending: Map<string, PendingSupervisorRequest
 				pending.delete(request.id);
 				clearForegroundSupervisorAttention(request, pending, state);
 				return { content: [{ type: "text", text: `Replied to supervisor request ${request.id}.` }], details: { replyTo: request.id, runId: request.runId, agent: request.agent } };
-			}
-			if (input.action === "send" || input.action === "ask") {
-				throw new Error("The native subagent supervisor handles replies only. Child agents initiate asks with contact_supervisor.");
 			}
 			throw new Error(`Unsupported supervisor action: ${input.action}`);
 		},
