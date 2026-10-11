@@ -18,7 +18,7 @@ import { collectPageAlerts, pageAlertNodes } from "./chrome-extension/page-alert
 import { evaluateInteractionExpectation, interactionTargetChange, parseInteractionExpectation, readInteractionTargetState } from "./chrome-extension/interaction-target-state.js";
 import { formatScopedAxRef, parseScopedAxRef } from "./chrome-extension/scoped-ax-ref.js";
 import { agentOwnedTabIdsInWindow, placeAgentTabsInSharedGroup } from "./chrome-extension/shared-tab-group.js";
-import { collectListedOwnedTabs, isMissingChromeTabError, listedOwnedTabStatus } from "./chrome-extension/tab-list-status.js";
+import { applyOwnedTabUpdate, collectListedOwnedTabs, isMissingChromeTabError, listedOwnedTabStatus, relayUrl } from "./chrome-extension/tab-list-status.js";
 
 const root = resolve("rotom/extensions/browser");
 const extensionDir = join(root, "chrome-extension");
@@ -230,6 +230,43 @@ test("tabs target 暂缺时保留标签 identity 并返回 detached 状态", () 
 	const healthy = listedOwnedTabStatus({ name: "docs", item, tab: { id: 41, status: "complete", active: false }, targetUrl: "https://example.test/healthy", targetAttached: true, currentTabName: "docs" });
 	assert.equal(healthy.value.relayAttached, true);
 	assert.deepEqual(healthy.state, { url: "https://example.test/healthy", status: "complete", attached: true, detached: false });
+});
+
+test("超长或不支持的导航 URL 只让该标签 detached，不进入标签列表", async () => {
+	const longUrl = `https://www.google.com/url?q=${"a".repeat(4_100)}`;
+	// 2,000 raw characters become 12,000 after percent-encoding.
+	const growsWhenEncoded = `https://example.test/${"é".repeat(2_000)}`;
+	assert.throws(() => relayUrl(longUrl), /url exceeds 4096 characters/u);
+	assert.throws(() => relayUrl(growsWhenEncoded), /url exceeds 4096 characters/u);
+	assert.throws(() => relayUrl("chrome://newtab/"), /url scheme denied/u);
+	assert.equal(relayUrl("https://example.test/a b"), "https://example.test/a%20b");
+
+	const item = { tabId: 44, targetId: "target-44", documentGeneration: 1, url: "https://example.test/start", status: "complete", ownership: "agent", attached: true, detached: false };
+	assert.equal(applyOwnedTabUpdate(item, { status: "loading", url: longUrl }), true);
+	assert.equal(item.url, "https://example.test/start", "不可报告的 URL 不得写入 owned 状态");
+	assert.equal(item.documentGeneration, 2, "导航仍需使旧 ref 失效");
+	assert.equal(item.status, "loading");
+
+	const healthy = { tabId: 45, targetId: "target-45", documentGeneration: 1, url: "https://example.test/ok", status: "complete", ownership: "agent", attached: true, detached: false };
+	const tabs = await collectListedOwnedTabs({
+		entries: new Map([["long", item], ["ok", healthy]]),
+		currentTabName: "ok",
+		getTargets: async () => [
+			{ tabId: 44, id: "target-44", type: "page", url: longUrl, attached: true },
+			{ tabId: 45, id: "target-45", type: "page", url: "https://example.test/ok", attached: true },
+		],
+		getTab: async (tabId) => ({ id: tabId, status: "complete", active: false }),
+		normalizeUrl: relayUrl,
+	});
+	assert.deepEqual(tabs.map((tab) => [tab.name, tab.url, tab.relayAttached]), [
+		["long", "https://example.test/start", false],
+		["ok", "https://example.test/ok", true],
+	]);
+	assert.ok(tabs.every((tab) => tab.url.length <= 4_096));
+
+	assert.equal(applyOwnedTabUpdate(item, { url: "https://example.test/next" }), true);
+	assert.equal(item.url, "https://example.test/next");
+	assert.equal(applyOwnedTabUpdate(item, { status: "complete" }), false);
 });
 
 test("tabs Chrome API 失败时仍返回缓存 identity 并保留 ownership", async () => {

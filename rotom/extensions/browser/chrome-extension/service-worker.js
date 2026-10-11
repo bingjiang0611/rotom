@@ -11,7 +11,7 @@ import { collectPageAlerts, MAX_PAGE_ALERTS, pageAlertNodes } from "./page-alert
 import { evaluateInteractionExpectation, interactionTargetChange, parseInteractionExpectation, readInteractionTargetState } from "./interaction-target-state.js";
 import { formatScopedAxRef, parseScopedAxRef } from "./scoped-ax-ref.js";
 import { placeAgentTabsInSharedGroup } from "./shared-tab-group.js";
-import { collectListedOwnedTabs, isMissingChromeTabError, listedOwnedTabStatus } from "./tab-list-status.js";
+import { applyOwnedTabUpdate, collectListedOwnedTabs, isMissingChromeTabError, listedOwnedTabStatus, relayUrl as safeUrl, reportableRelayUrl } from "./tab-list-status.js";
 
 const HOST_NAME = "dev.rotom.browser_relay";
 const MAX_NATIVE_BYTES = 1024 * 1024;
@@ -54,13 +54,6 @@ function safeName(value) {
 	const name = safeString(value, "tabName", 64);
 	if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(name)) throw new Error("tabName format invalid");
 	return name;
-}
-function safeUrl(value) {
-	const raw = safeString(value, "url", 4096);
-	const url = new URL(raw);
-	if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("url scheme denied");
-	if (url.username || url.password) throw new Error("url userinfo denied");
-	return url.href;
 }
 function boundedText(value, max = MAX_NAME_CHARS) {
 	return typeof value === "string" ? value.slice(0, max).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/gu, "") : "";
@@ -972,7 +965,7 @@ async function waitForTab(name, item, payload, assertSession) {
 		const target = (await chrome.debugger.getTargets()).find((candidate) => candidate.tabId === item.tabId && candidate.id === item.targetId && candidate.type === "page");
 		if (!target || typeof target.url !== "string") throw new Error("owned debugger target identity changed");
 		const statusMatches = (tab.status === "complete" ? "complete" : "loading") === expectedStatus;
-		const urlMatches = expectedUrl === undefined || safeUrl(target.url) === expectedUrl;
+		const urlMatches = expectedUrl === undefined || reportableRelayUrl(target.url) === expectedUrl;
 		if (statusMatches && urlMatches) {
 			assertSession();
 			const result = await observation(name, item, assertSession);
@@ -1038,7 +1031,7 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 	}
 	if (operation === "discover") {
 		const ownedIds = new Set([...allSessionItems().map((item) => item.tabId), ...tabReservations]);
-		const tabs = (await chrome.tabs.query({ currentWindow: true })).filter((tab) => Number.isInteger(tab.id) && !ownedIds.has(tab.id) && typeof tab.url === "string" && /^(https?):/u.test(tab.url)).slice(0, 50).map((tab) => ({ tabId: tab.id, url: safeUrl(tab.url), title: boundedText(tab.title, 512), status: tab.status === "complete" ? "complete" : "loading", browserActive: tab.active === true }));
+		const tabs = (await chrome.tabs.query({ currentWindow: true })).filter((tab) => Number.isInteger(tab.id) && !ownedIds.has(tab.id) && typeof tab.url === "string" && reportableRelayUrl(tab.url) !== undefined).slice(0, 50).map((tab) => ({ tabId: tab.id, url: safeUrl(tab.url), title: boundedText(tab.title, 512), status: tab.status === "complete" ? "complete" : "loading", browserActive: tab.active === true }));
 		return { schemaVersion: 1, kind: "rotom-browser-discovered-tabs", tabs };
 	}
 	if (operation === "claim") {
@@ -1248,11 +1241,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 	for (const item of allSessionItems()) {
 		if (item.tabId !== tabId) continue;
-		const nextUrl = typeof changeInfo.url === "string" ? changeInfo.url : undefined;
-		const startsNavigation = changeInfo.status === "loading" && item.status !== "loading";
-		if ((nextUrl && nextUrl !== item.url) || startsNavigation) { item.documentGeneration += 1; invalidateCoordinateObservation(item); }
-		if (nextUrl) item.url = nextUrl;
-		if (changeInfo.status === "complete" || changeInfo.status === "loading") item.status = changeInfo.status;
+		if (applyOwnedTabUpdate(item, changeInfo)) invalidateCoordinateObservation(item);
 	}
 	void persistState();
 });

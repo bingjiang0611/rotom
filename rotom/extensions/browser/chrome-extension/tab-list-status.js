@@ -1,3 +1,41 @@
+export const MAX_RELAY_URL_CHARS = 4096;
+
+/**
+ * Canonical http(s) URL the relay may report. Both the raw value and the canonical href must fit:
+ * canonicalization percent-encodes non-ASCII text, so a short raw URL can grow several times.
+ * The href is ASCII, so this character bound is also the client's UTF-8 byte bound.
+ */
+export function relayUrl(value) {
+	if (typeof value !== "string" || value.length < 1 || value.includes("\0")) throw new Error("url invalid");
+	if (value.length > MAX_RELAY_URL_CHARS) throw new Error(`url exceeds ${MAX_RELAY_URL_CHARS} characters`);
+	const url = new URL(value);
+	if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("url scheme denied");
+	if (url.username || url.password) throw new Error("url userinfo denied");
+	if (url.href.length > MAX_RELAY_URL_CHARS) throw new Error(`url exceeds ${MAX_RELAY_URL_CHARS} characters`);
+	return url.href;
+}
+
+export function reportableRelayUrl(value) {
+	try { return relayUrl(value); } catch { return undefined; }
+}
+
+/**
+ * Apply a `chrome.tabs.onUpdated` change to an owned tab. Returns whether a new document started.
+ * Only a reportable URL is stored: one over-long or non-http(s) URL would otherwise reach every tab
+ * list and make the client reject all of them. The tab keeps its last reportable URL, and listing
+ * reports it detached because its debugger target URL is not reportable.
+ */
+export function applyOwnedTabUpdate(item, changeInfo) {
+	const nextUrl = typeof changeInfo.url === "string" ? changeInfo.url : undefined;
+	const startsNavigation = changeInfo.status === "loading" && item.status !== "loading";
+	const navigated = (nextUrl !== undefined && nextUrl !== item.url) || startsNavigation;
+	if (navigated) item.documentGeneration += 1;
+	const reportable = nextUrl === undefined ? undefined : reportableRelayUrl(nextUrl);
+	if (reportable) item.url = reportable;
+	if (changeInfo.status === "complete" || changeInfo.status === "loading") item.status = changeInfo.status;
+	return navigated;
+}
+
 export function listedOwnedTabStatus({ name, item, tab, targetUrl, targetAttached, currentTabName }) {
 	const targetAvailable = typeof targetUrl === "string";
 	const relayAttached = targetAvailable && targetAttached === true && item.attached === true && item.detached !== true;
