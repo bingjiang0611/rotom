@@ -36,6 +36,14 @@ export function releaseFiles(manifest) {
 	return files;
 }
 
+// npm <=11 prints `pack --json` as an array; npm 12 prints an object keyed by package name.
+function packResult(output) {
+	const parsed = JSON.parse(output);
+	const results = Array.isArray(parsed) ? parsed : Object.values(parsed);
+	if (results.length !== 1) throw new Error(`Expected one npm pack result, got ${results.length}`);
+	return results[0];
+}
+
 export async function stageRelease(source, target) {
 	const root = await realpath(source);
 	const manifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
@@ -130,12 +138,12 @@ async function main() {
 			{ cwd: stage, env, encoding: "utf8", timeout: 60_000, maxBuffer: 1024 * 1024 });
 		if (verified !== executable) throw new Error("Staged Pi executable changed during verification");
 		await access(resolve(stage, "bin/rotom"), constants.X_OK);
-		const [preview] = JSON.parse(npm(["pack", "--dry-run", "--json", "--ignore-scripts"], stage));
+		const preview = packResult(npm(["pack", "--dry-run", "--json", "--ignore-scripts"], stage));
 		verifyPackList(manifest, preview);
 		if (!preview.filename || preview.filename.includes("/") || preview.filename.includes("\\")) throw new Error("Invalid pack filename");
 		const target = resolve(output, preview.filename);
 		if (await lstat(target).then(() => true, (error) => { if (error.code === "ENOENT") return false; throw error; })) throw new Error(`Refusing to overwrite: ${target}`);
-		const [packed] = JSON.parse(npm(["pack", "--json", "--ignore-scripts", "--pack-destination", output], stage));
+		const packed = packResult(npm(["pack", "--json", "--ignore-scripts", "--pack-destination", output], stage));
 		verifyPackList(manifest, packed);
 		audit(["--artifact", target]);
 		console.log(JSON.stringify({ artifact: target, integrity: packed.integrity, size: packed.size, fileCount: packed.files.length, piVersion: JSON.parse(await readFile(resolve(stage, PI_RUNTIME, "fork-build.json"), "utf8")).version, published: false }, null, 2));
