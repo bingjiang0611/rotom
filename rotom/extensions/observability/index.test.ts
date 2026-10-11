@@ -678,15 +678,16 @@ test("a provider request closed without its own end names why its status is unkn
 	};
 	await harness.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
 	await harness.emit("before_agent_start", { type: "before_agent_start", prompt: "compact", systemPrompt: "system", systemPromptOptions: { selectedTools: [] } }, ctx);
-	// A split-turn compaction summarizes history, then the turn prefix: two sequential calls.
-	await harness.emit("session_before_compact", { type: "session_before_compact", reason: "threshold", willRetry: false, preparation: { tokensBefore: 50_000 } }, ctx);
-	await harness.emit("before_provider_headers", { type: "before_provider_headers", headers: {} }, ctx);
-	await harness.emit("before_provider_headers", { type: "before_provider_headers", headers: {} }, ctx);
-	await harness.emit("session_compact", { type: "session_compact", reason: "threshold", willRetry: false, fromExtension: false, compactionEntry: {} }, ctx);
-	// A turn torn down while its request is still open.
+	// A retry starts a new request before the previous one reported an end.
 	await harness.emit("turn_start", { turnIndex: 0 }, ctx);
 	await harness.emit("before_provider_headers", { type: "before_provider_headers", headers: {} }, ctx);
-	await harness.emit("turn_end", { turnIndex: 0, message: { role: "user" } }, ctx);
+	await harness.emit("before_provider_headers", { type: "before_provider_headers", headers: {} }, ctx);
+	await harness.emit("message_end", { message: { role: "assistant", stopReason: "stop", usage: {} } }, ctx);
+	await harness.emit("turn_end", { turnIndex: 0, message: { role: "assistant" } }, ctx);
+	// A turn torn down while its request is still open.
+	await harness.emit("turn_start", { turnIndex: 1 }, ctx);
+	await harness.emit("before_provider_headers", { type: "before_provider_headers", headers: {} }, ctx);
+	await harness.emit("turn_end", { turnIndex: 1, message: { role: "user" } }, ctx);
 	await harness.emit("session_shutdown", { type: "session_shutdown", reason: "quit" }, ctx);
 	const requests = readFileSync(localTracePathForSessionFile(sessionFile), "utf8").trim().split("\n").map((line) => JSON.parse(line))
 		.filter((record) => record.kind === "span_end" && record.name === "pi.ai.request");
@@ -695,6 +696,60 @@ test("a provider request closed without its own end names why its status is unkn
 		["ok", undefined],
 		["unknown", "turn_closed"],
 	]);
+});
+
+test("parallel compaction requests share one request span and report per-summary timing", async (t) => {
+	const root = mkdtempSync(join(tmpdir(), "rotom-observability-parallel-compaction-"));
+	t.after(() => rm(root, { recursive: true, force: true }));
+	const sessionFile = join(root, "session.jsonl");
+	writeFileSync(sessionFile, "{}\n", { mode: 0o600 });
+	const harness = extensionHarness();
+	const ctx = {
+		mode: "print",
+		model: { provider: "test", id: "test", api: "test" },
+		thinkingLevel: "off",
+		sessionManager: { getSessionFile: () => sessionFile, getSessionId: () => "parallel-compaction" },
+		ui: { notify() {} },
+	};
+	await harness.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
+	await harness.emit("session_before_compact", { type: "session_before_compact", reason: "threshold", willRetry: false, preparation: { tokensBefore: 50_000 } }, ctx);
+	// History and turn-prefix summaries start together; their responses cannot be told apart.
+	await harness.emit("before_provider_headers", { type: "before_provider_headers", headers: {} }, ctx);
+	await harness.emit("before_provider_headers", { type: "before_provider_headers", headers: {} }, ctx);
+	await harness.emit("after_provider_response", { type: "after_provider_response", status: 529, headers: {} }, ctx);
+	await harness.emit("after_provider_response", { type: "after_provider_response", status: 200, headers: {} }, ctx);
+	await harness.emit("session_compact", {
+		type: "session_compact",
+		reason: "threshold",
+		willRetry: false,
+		fromExtension: false,
+		compactionEntry: { usage: { input: 70, output: 20, cacheRead: 0, cacheWrite: 0, totalTokens: 90, cost: { total: 0 } } },
+		summaryCalls: [
+			{ kind: "history", durationMs: 90_000, attempts: 2, firstThinkingMs: 4_000, firstTextMs: 60_000 },
+			{ kind: "turn_prefix", durationMs: 30_000, attempts: 1, firstTextMs: 20_000 },
+			{ kind: "other", durationMs: 1 },
+		],
+	}, ctx);
+	await harness.emit("session_shutdown", { type: "session_shutdown", reason: "quit" }, ctx);
+	const ends = readFileSync(localTracePathForSessionFile(sessionFile), "utf8").trim().split("\n").map((line) => JSON.parse(line))
+		.filter((record) => record.kind === "span_end");
+	const requests = ends.filter((record) => record.name === "pi.ai.request");
+	assert.equal(requests.length, 1, "one span covers the concurrent compaction requests");
+	assert.equal(requests[0].status, "ok");
+	assert.equal(requests[0].attributes["pi.ai.request.end_reason"], undefined, "a concurrent request is not superseded");
+	assert.equal(requests[0].attributes["pi.ai.http.status_code"], 529, "a later 200 must not hide an error response");
+	assert.equal(requests[0].attributes["pi.usage.output_tokens"], 20);
+	const compaction = ends.find((record) => record.name === "pi.session.compaction");
+	assert.deepEqual(Object.fromEntries(Object.entries(compaction.attributes).filter(([key]) => /request_starts|\.(history|turn_prefix|other)\./.test(key))), {
+		"pi.compaction.request_starts": 2,
+		"pi.compaction.history.ms": 90_000,
+		"pi.compaction.history.attempts": 2,
+		"pi.compaction.history.first_thinking_ms": 4_000,
+		"pi.compaction.history.first_text_ms": 60_000,
+		"pi.compaction.turn_prefix.ms": 30_000,
+		"pi.compaction.turn_prefix.attempts": 1,
+		"pi.compaction.turn_prefix.first_text_ms": 20_000,
+	});
 });
 
 test("subagent tool spans carry their deferred capability group", async (t) => {

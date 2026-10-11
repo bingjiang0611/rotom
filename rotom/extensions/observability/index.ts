@@ -61,6 +61,21 @@ function finiteNumber(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
+/** Per-request timing of a built-in compaction, keyed by summary kind. */
+function summaryCallAttributes(value: unknown): TraceAttributes {
+	if (!Array.isArray(value)) return {};
+	const attributes: TraceAttributes = {};
+	for (const call of value.slice(0, 2)) {
+		const kind = call?.kind === "history" || call?.kind === "turn_prefix" ? call.kind : undefined;
+		if (!kind) continue;
+		for (const [field, name] of [["durationMs", "ms"], ["attempts", "attempts"], ["firstThinkingMs", "first_thinking_ms"], ["firstTextMs", "first_text_ms"]] as const) {
+			const number = finiteNumber(call[field]);
+			if (number !== undefined) attributes[`pi.compaction.${kind}.${name}`] = number;
+		}
+	}
+	return attributes;
+}
+
 function usageAttributes(value: unknown): TraceAttributes {
 	if (!value || typeof value !== "object" || Array.isArray(value)) return {};
 	const usage = value as Record<string, unknown>;
@@ -485,6 +500,7 @@ class LocalTraceRecorderV1 {
 	private streamPhaseSpan?: ActiveSpan;
 	private streamPhase?: "reasoning" | "generation";
 	private compactionSpan?: ActiveSpan;
+	private compactionRequestStarts = 0;
 	private compactionSequence = 0;
 	private activeCompactionSequence?: number;
 	private pendingCompactionSequence?: number;
@@ -573,8 +589,15 @@ class LocalTraceRecorderV1 {
 	providerStart(ctx: ExtensionContext, surface: TraceAttributes = {}): void {
 		const parent = this.compactionSpan ?? this.turnSpan;
 		if (!parent) return;
-		// Hooks only see request starts. A compaction makes sequential summary calls and a
-		// retry starts a new attempt, so the open request's own end was never observed.
+		if (this.compactionSpan) {
+			// A split-turn compaction sends its summary requests at the same time, and hooks
+			// cannot tell which request a response belongs to. One request span therefore covers
+			// all requests of the compaction; per-request timing arrives with session_compact.
+			this.compactionRequestStarts++;
+			if (this.providerSpan) return;
+		}
+		// Hooks only see request starts. A retry starts a new attempt, so the open
+		// request's own end was never observed.
 		if (this.providerSpan) this.finishProvider("unknown", { "pi.ai.request.end_reason": "superseded_by_next_request" });
 		this.providerStatus = undefined;
 		this.providerFirstUpdateAt = undefined;
@@ -585,7 +608,7 @@ class LocalTraceRecorderV1 {
 		const digest = typeof surface["pi.tools.schema_digest"] === "string" ? surface["pi.tools.schema_digest"] : undefined;
 		this.providerSpan = this.startSpan("pi.ai.request", parent, {
 			...modelAttributes(ctx),
-			"pi.ai.operation": "stream",
+			"pi.ai.operation": this.compactionSpan ? "compaction" : "stream",
 			...surface,
 			...(digest && this.previousToolSchemaDigest ? { "pi.tools.schema_changed": digest !== this.previousToolSchemaDigest } : {}),
 		});
@@ -602,7 +625,9 @@ class LocalTraceRecorderV1 {
 	}
 
 	providerResponse(status: unknown): void {
-		this.providerStatus = finiteNumber(status);
+		// Inside a compaction several responses share one span: keep the first error status.
+		const keepError = this.compactionSpan !== undefined && this.providerStatus !== undefined && this.providerStatus >= 400;
+		if (!keepError) this.providerStatus = finiteNumber(status);
 		if (!this.providerSpan || this.providerResponseAt !== undefined) return;
 		this.providerResponseAt = performance.now();
 		this.endSpan(this.startupSpan, "ok");
@@ -729,6 +754,7 @@ class LocalTraceRecorderV1 {
 		});
 		const sequence = ++this.compactionSequence;
 		this.activeCompactionSequence = sequence;
+		this.compactionRequestStarts = 0;
 		this.compactionSpan = this.startSpan("pi.session.compaction", this.operationSpan ?? this.sessionSpan, {
 			"pi.compaction.sequence": sequence,
 			"pi.compaction.reason": boundedTag(event.reason, 32) ?? "unknown",
@@ -747,6 +773,8 @@ class LocalTraceRecorderV1 {
 			"pi.compaction.reason": boundedTag(event.reason, 32) ?? "unknown",
 			"pi.compaction.will_retry": event.willRetry === true,
 			"pi.compaction.from_extension": event.fromExtension === true,
+			"pi.compaction.request_starts": this.compactionRequestStarts,
+			...summaryCallAttributes(event.summaryCalls),
 		});
 		if (!failed && sequence !== undefined) this.pendingCompactionSequence = sequence;
 		this.compactionSpan = undefined;
