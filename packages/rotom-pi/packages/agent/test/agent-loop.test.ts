@@ -2282,6 +2282,57 @@ describe("runToolCall", () => {
 		expect(hookCalls).toEqual(["before a", "after a", "before c", "before e", "after e"]);
 	});
 
+	it("names why a call failed in details.code without changing what the model sees", async () => {
+		const throwing = (code: unknown): AgentTool => ({
+			name: "throwing",
+			label: "Throwing",
+			description: "Throws",
+			parameters: Type.Object({}),
+			async execute() {
+				throw Object.assign(new Error("boom"), { code });
+			},
+		});
+		const run = (tool: AgentTool, toolCall: AgentToolCall, extra = {}) =>
+			runToolCall(toolCall, { tools: [echo, tool], assistantMessage, context: { messages: [] }, ...extra });
+		const outcomes = [
+			await run(throwing("command_timeout"), call("a", "throwing", {})),
+			await run(throwing("ENOENT"), call("b", "throwing", {})),
+			// Only short identifier-like codes are copied; anything else stays out of details.
+			await run(throwing("not a code"), call("c", "throwing", {})),
+			await run(throwing(42), call("d", "throwing", {})),
+			await run(throwing(undefined), call("e", "echo", { value: { nested: true } })),
+			await run(throwing(undefined), call("f", "missing", {})),
+			await run(throwing(undefined), call("g", "echo", { value: "x" }), {
+				beforeToolCall: async () => ({ block: true, reason: "nope" }),
+			}),
+		];
+		expect(outcomes.map((outcome) => [outcome.isError, outcome.result.details])).toEqual([
+			[true, { code: "command_timeout" }],
+			[true, { code: "ENOENT" }],
+			[true, {}],
+			[true, {}],
+			[true, { code: "validation_error" }],
+			[true, { code: "tool_not_found" }],
+			[true, { code: "blocked" }],
+		]);
+		expect(outcomes[0].result.content).toEqual([{ type: "text", text: "boom" }]);
+	});
+
+	it("reports a throwing beforeToolCall hook without blaming the arguments", async () => {
+		const outcome = await runToolCall(call("h", "echo", { value: "x" }), {
+			tools: [echo],
+			assistantMessage,
+			context: { messages: [] },
+			beforeToolCall: async () => {
+				throw new Error("hook failed");
+			},
+		});
+		expect(outcome).toMatchObject({
+			isError: true,
+			result: { content: [{ type: "text", text: "hook failed" }], details: {} },
+		});
+	});
+
 	it("lets afterToolCall replace structured content and drops it when only content is replaced", async () => {
 		const redacted = [{ type: "text" as const, text: "redacted" }];
 		const results = [

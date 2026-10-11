@@ -77,6 +77,16 @@ export type BashToolOutput = Static<typeof bashOutputSchema>;
 export interface BashToolDetails {
 	truncation?: TruncationResult;
 	fullOutputPath?: string;
+	/** Set when the command ran and exited with a non-zero status. */
+	code?: "nonzero_exit";
+	exitCode?: number;
+}
+
+/** Error codes the bash tool attaches to the errors it throws; the agent loop copies them to details.code. */
+type BashErrorCode = "aborted" | "command_timeout" | "cwd_missing" | "no_exit_code";
+
+function bashError(message: string, code: BashErrorCode): Error {
+	return Object.assign(new Error(message), { code });
 }
 
 /**
@@ -116,7 +126,10 @@ export function createLocalShellOperations(shellName: string, resolveShellConfig
 			try {
 				await fsAccess(cwd, constants.F_OK);
 			} catch {
-				throw new Error(`Working directory does not exist: ${cwd}\nCannot execute ${shellName} commands.`);
+				throw bashError(
+					`Working directory does not exist: ${cwd}\nCannot execute ${shellName} commands.`,
+					"cwd_missing",
+				);
 			}
 
 			const commandFromStdin = shellConfig.commandTransport === "stdin";
@@ -386,11 +399,14 @@ export function createShellToolDefinition(
 					const snapshot = await finishOutput();
 					const { text } = formatOutput(snapshot, "");
 					if (err instanceof Error && err.message === "aborted") {
-						throw new Error(appendStatus(text, "Command aborted"));
+						throw bashError(appendStatus(text, "Command aborted"), "aborted");
 					}
 					if (err instanceof Error && err.message.startsWith("timeout:")) {
 						const timeoutSecs = err.message.split(":")[1];
-						throw new Error(appendStatus(text, `Command timed out after ${timeoutSecs} seconds`));
+						throw bashError(
+							appendStatus(text, `Command timed out after ${timeoutSecs} seconds`),
+							"command_timeout",
+						);
 					}
 					throw err;
 				}
@@ -398,7 +414,7 @@ export function createShellToolDefinition(
 				const snapshot = await finishOutput();
 				const { text: outputText, details } = formatOutput(snapshot);
 				if (exitCode === null) {
-					throw new Error(appendStatus(outputText, "Command terminated without an exit code"));
+					throw bashError(appendStatus(outputText, "Command terminated without an exit code"), "no_exit_code");
 				}
 				const wallTimeSeconds = Math.round((performance.now() - startedAt) / 100) / 10;
 				const fullOutput = compact
@@ -416,7 +432,7 @@ export function createShellToolDefinition(
 				if (exitCode !== 0) {
 					return {
 						content: [{ type: "text", text: appendStatus(outputText, `Command exited with code ${exitCode}`) }],
-						details,
+						details: { ...details, code: "nonzero_exit", exitCode },
 						structuredContent,
 						isError: true,
 					};

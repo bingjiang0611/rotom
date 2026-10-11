@@ -508,6 +508,7 @@ describe("Coding Agent Tools", () => {
 				exit_code: 3,
 				wall_time_seconds: expect.any(Number),
 			});
+			expect(result.details).toMatchObject({ code: "nonzero_exit", exitCode: 3 });
 
 			const ok = await bashTool.execute("test-call-9b", { command: "echo fine" });
 			expect(ok.isError).toBeUndefined();
@@ -588,17 +589,23 @@ describe("Coding Agent Tools", () => {
 			await expect(bash.execute("test-call-null-exit", { command: "remote" })).rejects.toThrow(
 				/partial\s+Command terminated without an exit code$/,
 			);
+			await expect(bash.execute("test-call-null-exit-code", { command: "remote" })).rejects.toMatchObject({
+				code: "no_exit_code",
+			});
 		});
 
 		it("should respect timeout", async () => {
 			const command = `${JSON.stringify(process.execPath)} -e ${JSON.stringify("setInterval(() => {}, 1000)")}`;
 			await expect(bashTool.execute("test-call-10", { command, timeout: 0.05 })).rejects.toThrow(/timed out/i);
+			await expect(bashTool.execute("test-call-10b", { command, timeout: 0.05 })).rejects.toMatchObject({
+				code: "command_timeout",
+			});
 		});
 
 		it("should include full output path for truncated timeout and abort errors", async () => {
 			for (const testCase of [
-				{ error: "timeout:5", expected: "Command timed out after 5 seconds" },
-				{ error: "aborted", expected: "Command aborted" },
+				{ error: "timeout:5", expected: "Command timed out after 5 seconds", code: "command_timeout" },
+				{ error: "aborted", expected: "Command aborted", code: "aborted" },
 			]) {
 				const operations: BashOperations = {
 					exec: async (_command, _cwd, { onData }) => {
@@ -618,6 +625,7 @@ describe("Coding Agent Tools", () => {
 				}
 
 				expect(error).toBeInstanceOf(Error);
+				expect(error).toMatchObject({ code: testCase.code });
 				const message = (error as Error).message;
 				expect(message).toContain(testCase.expected);
 				expect(message).toMatch(/\[Showing lines \d+-\d+ of \d+\. Full output: /);
@@ -639,6 +647,9 @@ describe("Coding Agent Tools", () => {
 			await expect(bashToolWithBadCwd.execute("test-call-11", { command: "echo test" })).rejects.toThrow(
 				/Working directory does not exist/,
 			);
+			await expect(bashToolWithBadCwd.execute("test-call-11b", { command: "echo test" })).rejects.toMatchObject({
+				code: "cwd_missing",
+			});
 		});
 
 		it("should handle process spawn errors", async () => {

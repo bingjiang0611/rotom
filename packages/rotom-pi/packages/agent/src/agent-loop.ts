@@ -499,6 +499,7 @@ async function failToolCallsFromTruncatedMessage(
 			toolCall,
 			result: createErrorToolResult(
 				`Tool call "${toolCall.name}" was not executed: the response hit the output token limit, so its arguments may be truncated. Re-issue the tool call with complete arguments.`,
+				"truncated_arguments",
 			),
 			isError: true,
 		};
@@ -628,7 +629,7 @@ async function executeToolCallsParallel(
 			if (signal?.aborted) {
 				const finalized = {
 					toolCall,
-					result: createErrorToolResult("Operation aborted"),
+					result: createErrorToolResult("Operation aborted", "aborted"),
 					isError: true,
 				} satisfies FinalizedToolCallOutcome;
 				await emitToolExecutionEnd(finalized, emit);
@@ -725,14 +726,23 @@ async function prepareToolCall(
 	if (!tool) {
 		return {
 			kind: "immediate",
-			result: createErrorToolResult(`Tool ${toolCall.name} not found`),
+			result: createErrorToolResult(`Tool ${toolCall.name} not found`, "tool_not_found"),
+			isError: true,
+		};
+	}
+
+	let validatedArgs: ReturnType<typeof validateToolArguments>;
+	try {
+		validatedArgs = validateToolArguments(tool, prepareToolCallArguments(tool, toolCall));
+	} catch (error) {
+		return {
+			kind: "immediate",
+			result: createErrorToolResult(error instanceof Error ? error.message : String(error), "validation_error"),
 			isError: true,
 		};
 	}
 
 	try {
-		const preparedToolCall = prepareToolCallArguments(tool, toolCall);
-		const validatedArgs = validateToolArguments(tool, preparedToolCall);
 		if (config.beforeToolCall) {
 			const beforeResult = await config.beforeToolCall(
 				{
@@ -746,12 +756,12 @@ async function prepareToolCall(
 			if (signal?.aborted) {
 				return {
 					kind: "immediate",
-					result: createErrorToolResult("Operation aborted"),
+					result: createErrorToolResult("Operation aborted", "aborted"),
 					isError: true,
 				};
 			}
 			if (beforeResult?.block) {
-				const result = createErrorToolResult(beforeResult.reason || "Tool execution was blocked");
+				const result = createErrorToolResult(beforeResult.reason || "Tool execution was blocked", "blocked");
 				if (beforeResult.terminate === true) {
 					result.terminate = true;
 				}
@@ -765,7 +775,7 @@ async function prepareToolCall(
 		if (signal?.aborted) {
 			return {
 				kind: "immediate",
-				result: createErrorToolResult("Operation aborted"),
+				result: createErrorToolResult("Operation aborted", "aborted"),
 				isError: true,
 			};
 		}
@@ -855,7 +865,7 @@ async function executePreparedToolCall(
 		acceptingUpdates = false;
 		await Promise.all(updateEvents);
 		return {
-			result: createErrorToolResult(error instanceof Error ? error.message : String(error)),
+			result: createErrorToolResult(error instanceof Error ? error.message : String(error), thrownErrorCode(error)),
 			isError: true,
 			durationMs,
 		};
@@ -917,11 +927,21 @@ async function finalizeExecutedToolCall(
 	};
 }
 
-function createErrorToolResult(message: string): AgentToolResult<any> {
+/**
+ * `code` is a short machine-readable reason in `details.code`; the model only sees `message`.
+ * Observers use it to tell, for example, a rejected argument from a failed command.
+ */
+function createErrorToolResult(message: string, code?: string): AgentToolResult<any> {
 	return {
 		content: [{ type: "text", text: message }],
-		details: {},
+		details: code ? { code } : {},
 	};
+}
+
+/** A tool may throw an Error with a short `code` (for example bash timeouts or Node's ENOENT). */
+function thrownErrorCode(error: unknown): string | undefined {
+	const code = error instanceof Error ? (error as Error & { code?: unknown }).code : undefined;
+	return typeof code === "string" && /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(code) ? code : undefined;
 }
 
 async function emitToolExecutionEnd(finalized: FinalizedToolCallOutcome, emit: AgentEventSink): Promise<void> {
