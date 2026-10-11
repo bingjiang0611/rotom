@@ -26,6 +26,8 @@ python3 -m unittest discover -s scripts -p 'test_audit_public.py'
 python3 scripts/audit-public.py --root .
 # 对准备上传的独立仓库检查所有 refs 的历史：
 python3 scripts/audit-public.py --root . --history
+# 完整 PASS 后把历史中的 fork 归档 blob 记入账本（随后提交 scripts/audited-history-archives.json）：
+python3 scripts/audit-public.py --root . --history --record-audited-archives
 # 检查实际分发包，递归覆盖嵌套 vendor tgz：
 python3 scripts/audit-public.py --artifact /absolute/path/to/rotom.tgz
 ```
@@ -56,6 +58,8 @@ Pi 1.0 迁移追加记录：独立公开 clone 在提交新 fork 归档后，tre
 Pi 1.1.0 fork 追加记录：`1.1.0-rotom.2` 的新 fork 归档提交后，完整公开 tree 加 all-refs history 需要扫描 1,225,976,856 bytes（约 1169 MiB），超过 1152 MiB 上限，审计返回 BLOCKED。当时尚未 push。用户明确批准再增加一个 64 MiB 档至 **1216 MiB**。普通文件、归档输入、嵌套深度和敏感检测规则保持不变，不跳过历史。用临时提高上限的副本复审：72,136 个文件、126 commits，0 findings；该副本已删除，未提交。两次提交进入历史后，正式审计器在 1216 MiB 上限下复审：74,799 个文件、1,268,471,040 bytes（约 1209.7 MiB）、128 commits，0 findings，PASS。余量只剩约 6 MiB，下一次 fork 归档提交几乎必然超限，需要重新评审预算或减少历史中的归档体积。
 
 2026-10-11 codemode 嵌套调用上限追加记录：重建 `1.1.0-rotom.2` fork 归档并提交后，完整公开 tree 加 all-refs history 需要扫描 1,309,654,048 bytes（约 1249 MiB），超过 1216 MiB 上限，审计返回 BLOCKED。当时尚未 push。用户明确批准再增加一个 64 MiB 档至 **1280 MiB**。普通文件、归档输入、嵌套深度和敏感检测规则保持不变，不跳过历史。用临时提高上限的副本复审：77,418 个文件、132 commits，0 findings；该副本未提交。每次 fork 归档重建约增加 32 MiB，新上限约只能再容纳一次重建；之后须重新评审预算，或减少历史中重复扫描的归档体积。
+
+2026-10-11 已审计 fork 归档账本：每次 fork 重建都会在历史中留下一组约 32 MiB 的归档，按 64 MiB 档反复加预算不可持续。经用户批准，历史扫描只跳过 `scripts/audited-history-archives.json` 中列出精确 blob oid 的 `rotom/runtime/pi/vendor/*.tgz`；账本只由完整 PASS 的 `--history --record-audited-archives` 写入，新出现或被替换的归档仍会完整扫描，被跳过的数量以 `skippedAuditedArchives` 单独报告、不计入字节预算。tracked tree 中的当前归档始终扫描。限制：账本信任维护者提交的 oid，评审时须核对其 diff 只来自 `--record-audited-archives`；检测规则变化时须清空账本并完整重扫，若届时超出 1280 MiB 仍需重新审批预算。
 
 扫描是有界文本启发式，不是任意秘密不存在、二进制/OCR 内容安全、第三方供应链安全或代码所有权证明。未发现确认的真实密钥；若后续确认真实凭据泄露，应撤销/轮换，不能仅删文件或重建历史。
 

@@ -154,6 +154,42 @@ class PrivacyAuditTests(unittest.TestCase):
             self.assertTrue(any(f['rule'] == 'non-noreply-tagger' for f in audit.findings))
             self.assertNotIn('fixture@example.invalid', json.dumps(audit.findings))
 
+    def test_history_skips_only_fork_archives_recorded_by_a_passing_audit(self):
+        with tempfile.TemporaryDirectory(prefix='rotom-audit-test-') as work:
+            root = Path(work).resolve()
+            def git(*args):
+                return subprocess.check_output(['git', '-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false', '-C', str(root), *args], stderr=subprocess.DEVNULL)
+            git('init', '-q', '--initial-branch=main')
+            git('config', 'user.name', 'Fixture'); git('config', 'user.email', 'fixture@users.noreply.github.com')
+            vendor = root / 'rotom/runtime/pi/vendor'; vendor.mkdir(parents=True)
+            archive = vendor / 'pi-1.0.0.tgz'
+            archive.write_bytes(self.archive('package/clean.txt', b'clean'))
+            git('add', '.'); git('commit', '-qm', 'clean fork archive')
+            clean_oid = git('rev-parse', 'HEAD:rotom/runtime/pi/vendor/pi-1.0.0.tgz').decode().strip()
+            archive.write_bytes(self.archive('package/leak.txt', b'private-marker'))
+            git('add', '.'); git('commit', '-qm', 'replaced fork archive')
+            archive.write_bytes(self.archive('package/clean.txt', b'clean again'))
+            git('add', '.'); git('commit', '-qm', 'replaced again')
+
+            # Recording covers every fork archive blob in history, scanned or already audited.
+            first = Audit(); MODULE['audit_history'](root, first)
+            self.assertEqual(len(first.ledger_archives), 3)
+            self.assertEqual(first.skipped_audited_archives, 0)
+
+            # Only the exact recorded oid is skipped; the replaced, unrecorded archive is still scanned.
+            audit = Audit(['private-marker']); MODULE['audit_history'](root, audit, {clean_oid})
+            self.assertEqual(audit.skipped_audited_archives, 1)
+            self.assertTrue(any(f['rule'] == 'private-marker' and 'leak.txt' in f['path'] for f in audit.findings))
+            self.assertFalse(any(clean_oid[:12] in f['path'] for f in audit.findings))
+            self.assertLess(audit.expanded, first.expanded)
+
+            ledger = root / 'ledger.json'
+            MODULE['write_audited_archives']({clean_oid: 'rotom/runtime/pi/vendor/pi-1.0.0.tgz'}, ledger)
+            self.assertEqual(MODULE['load_audited_archives'](ledger), {clean_oid})
+            ledger.write_text('{"schema": 2, "archives": []}')
+            with self.assertRaises(ValueError):
+                MODULE['load_audited_archives'](ledger)
+
     def test_archive_input_budget_does_not_relax_regular_file_limit(self):
         with self.assertRaises(ValueError):
             Audit().scan('fixture.txt', b'x' * (MODULE['MAX_FILE'] + 1))

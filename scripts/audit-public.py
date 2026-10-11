@@ -29,6 +29,12 @@ MAX_ARCHIVE = 64 * 1024 * 1024
 # third approved 64 MiB increment on 2026-10-11; further growth requires a new
 # budget review. Per-file, archive and detection limits are unchanged.
 MAX_EXPANDED = 1280 * 1024 * 1024
+# Each fork rebuild leaves another ~32 MiB archive set in history. A history
+# blob is skipped only if its exact oid is in this ledger, which only a full
+# PASS run with --record-audited-archives writes. A new or replaced archive is
+# always scanned. If the detection rules change, empty the ledger and rescan.
+AUDITED_ARCHIVES = Path(__file__).with_name("audited-history-archives.json")
+LEDGER_ARCHIVE = re.compile(r"^rotom/runtime/pi/vendor/[^/]+\.tgz$")
 CREDENTIAL = re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|sk-(?:proj-|ant-)?[A-Za-z0-9_-]{25,}|AKIA[A-Z0-9]{16}|LTAI[A-Za-z0-9]{16,}|xox[baprs]-[A-Za-z0-9-]{20,})\b")
 PRIVATE_KEY = re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[A-Za-z0-9+/=\s]{64,}-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----")
 HOME_PATH = re.compile(r"(?:/Users/|/home/|[A-Z]:\\Users\\)([A-Za-z0-9_.-]+)")
@@ -76,6 +82,8 @@ class Audit:
         self.expanded = 0
         self.public_examples = 0
         self.commits = 0
+        self.skipped_audited_archives = 0
+        self.ledger_archives = {}
 
     def add(self, path, rule, value="", line=None):
         self.findings.append({"path": path, "rule": rule, "line": line,
@@ -182,7 +190,21 @@ def audit_tree(root, audit):
             audit.scan(name, stream.read(MAX_FILE + 1))
 
 
-def audit_history(root, audit):
+def load_audited_archives(path=AUDITED_ARCHIVES):
+    if not path.exists():
+        return set()
+    ledger = json.loads(path.read_text())
+    if ledger.get("schema") != 1 or not isinstance(ledger.get("archives"), list):
+        raise ValueError("audited archive ledger is invalid")
+    return {entry["oid"] for entry in ledger["archives"]}
+
+
+def write_audited_archives(archives, path=AUDITED_ARCHIVES):
+    entries = [{"oid": oid, "path": archives[oid]} for oid in sorted(archives)]
+    path.write_text(json.dumps({"schema": 1, "archives": entries}, indent=1) + "\n")
+
+
+def audit_history(root, audit, audited_archives=frozenset()):
     commits = git(root, "log", "--all", "--format=%H%x09%ae%x09%ce").decode().splitlines()
     if not commits:
         raise ValueError("history audit requires at least one commit")
@@ -202,6 +224,11 @@ def audit_history(root, audit):
             data = proc.stdout.read(size)
             if len(data) != size or proc.stdout.read(1) != b"\n":
                 raise ValueError("incomplete git object read")
+            if header[1] == b"blob" and LEDGER_ARCHIVE.match(path):
+                audit.ledger_archives[oid] = path
+                if oid in audited_archives:
+                    audit.skipped_audited_archives += 1
+                    continue
             if header[1] in {b"blob", b"commit", b"tag"}:
                 audit.scan("history:" + oid[:12] + "::" + path, data)
             if header[1] == b"tag":
@@ -226,6 +253,8 @@ def main():
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--artifact", type=Path)
     mode.add_argument("--history", action="store_true")
+    parser.add_argument("--record-audited-archives", action="store_true",
+                        help="with --history: after a PASS, record the fork archive blobs in history as audited")
     parser.add_argument("--deny-term", action="append", default=[])
     args = parser.parse_args()
     audit = Audit(args.deny_term)
@@ -239,9 +268,14 @@ def main():
                 raise ValueError("root must be the exact Git repository root")
             audit_tree(root, audit)
             if args.history:
-                audit_history(root, audit)
+                audit_history(root, audit, load_audited_archives())
+        if args.record_audited_archives:
+            if not args.history:
+                raise ValueError("--record-audited-archives requires --history")
+            if not audit.findings:
+                write_audited_archives(audit.ledger_archives)
         print(json.dumps({"status": "BLOCKED" if audit.findings else "PASS", "scope": "artifact" if args.artifact else "tree+history" if args.history else "tracked-tree",
-                          "filesChecked": audit.files, "bytesChecked": audit.expanded, "commitsChecked": audit.commits, "verifiedPublicExamples": audit.public_examples, "findingCount": len(audit.findings),
+                          "filesChecked": audit.files, "bytesChecked": audit.expanded, "commitsChecked": audit.commits, "skippedAuditedArchives": audit.skipped_audited_archives, "verifiedPublicExamples": audit.public_examples, "findingCount": len(audit.findings),
                           "findings": audit.findings[:200], "omittedFindings": max(0, len(audit.findings)-200),
                           "limitations": "Heuristic text scan; no OCR, arbitrary secret guarantee, or IP ownership review."}, ensure_ascii=False))
         return 1 if audit.findings else 0
