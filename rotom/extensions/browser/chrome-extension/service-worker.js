@@ -11,7 +11,7 @@ import { collectPageAlerts, MAX_PAGE_ALERTS, pageAlertNodes } from "./page-alert
 import { evaluateInteractionExpectation, interactionTargetChange, parseInteractionExpectation, readInteractionTargetState } from "./interaction-target-state.js";
 import { formatScopedAxRef, parseScopedAxRef } from "./scoped-ax-ref.js";
 import { placeAgentTabsInSharedGroup } from "./shared-tab-group.js";
-import { applyOwnedTabUpdate, collectListedOwnedTabs, isMissingChromeTabError, listedOwnedTabStatus, relayUrl as safeUrl, reportableRelayUrl } from "./tab-list-status.js";
+import { applyOwnedTabUpdate, collectListedOwnedTabs, isMissingChromeTabError, listedOwnedTabStatus, ownedTabNotFoundError, relayUrl as safeUrl, reportableRelayUrl, retireOwnedTabName } from "./tab-list-status.js";
 
 const HOST_NAME = "dev.rotom.browser_relay";
 const MAX_NATIVE_BYTES = 1024 * 1024;
@@ -70,7 +70,7 @@ function post(message) {
 	nativePort?.postMessage(message);
 }
 function createSessionState(sessionId) {
-	return { sessionId: safeString(sessionId, "sessionId", 512), generation: undefined, epoch: 0, operationRevision: 0, currentTabName: undefined, tabsByName: new Map(), operationChain: Promise.resolve() };
+	return { sessionId: safeString(sessionId, "sessionId", 512), generation: undefined, epoch: 0, operationRevision: 0, currentTabName: undefined, tabsByName: new Map(), retiredTabNames: new Map(), operationChain: Promise.resolve() };
 }
 function allSessionItems() {
 	return [...sessionStates.values()].flatMap((state) => [...state.tabsByName.values()]);
@@ -127,10 +127,12 @@ async function restoreState() {
 		for (const candidate of stored.tabs) {
 			if (!record(candidate) || !Number.isInteger(candidate.tabId) || typeof candidate.targetId !== "string" || seenTabIds.has(candidate.tabId)) continue;
 			let name; let cachedUrl;
-			try { name = safeName(candidate.name); cachedUrl = safeUrl(candidate.url); } catch { continue; }
+			try { name = safeName(candidate.name); } catch { continue; }
+			try { cachedUrl = safeUrl(candidate.url); }
+			catch { retireOwnedTabName(state.retiredTabNames, name, "dropped on extension restart because its saved URL is unsupported"); continue; }
 			let tab;
 			try { tab = await chrome.tabs.get(candidate.tabId); }
-			catch (error) { if (isMissingChromeTabError(error)) continue; }
+			catch (error) { if (isMissingChromeTabError(error)) { retireOwnedTabName(state.retiredTabNames, name, "its Chrome tab was gone when the extension restarted"); continue; } }
 			const target = targets.find((item) => item.tabId === candidate.tabId && item.id === candidate.targetId && item.type === "page");
 			let actualUrl;
 			if (target && typeof target.url === "string") try { actualUrl = safeUrl(target.url); } catch { /* unsupported navigation remains detached */ }
@@ -254,6 +256,7 @@ async function closeOwned(state, name, assertOperation = () => undefined) {
 	// Keep a retiring ID unavailable to concurrent sessions until cleanup settles.
 	tabReservations.add(item.tabId);
 	state.tabsByName.delete(name);
+	retireOwnedTabName(state.retiredTabNames, name, "closed by the relay (close request or failed open/claim cleanup)");
 	childSessionsByTabId.delete(item.tabId);
 	if (state.currentTabName === name) state.currentTabName = undefined;
 	try {
@@ -279,7 +282,7 @@ function owned(state, nameValue) {
 	const name = nameValue === undefined ? state.currentTabName : safeName(nameValue);
 	if (!name) throw new Error("no current owned tab");
 	const item = state.tabsByName.get(name);
-	if (!item) throw new Error("owned tab not found");
+	if (!item) throw ownedTabNotFoundError(state.retiredTabNames, name);
 	return { name, item };
 }
 async function assertOwnedWithin(item, assertOperation) {
@@ -1234,6 +1237,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 	childSessionsByTabId.delete(tabId);
 	for (const state of sessionStates.values()) for (const [name, item] of state.tabsByName) if (item.tabId === tabId) {
 		state.tabsByName.delete(name);
+		retireOwnedTabName(state.retiredTabNames, name, "Chrome closed the tab (user, page script or browser)");
 		if (state.currentTabName === name) state.currentTabName = undefined;
 	}
 	void persistState();

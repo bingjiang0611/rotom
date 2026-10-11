@@ -36,6 +36,23 @@ export function applyOwnedTabUpdate(item, changeInfo) {
 	return navigated;
 }
 
+const MAX_RETIRED_TAB_NAMES = 32;
+
+/**
+ * Remember why an owned tab name stopped resolving, so a later "owned tab not found"
+ * names the removal path. In-memory and bounded; an extension restart forgets it.
+ */
+export function retireOwnedTabName(retired, name, reason) {
+	retired.delete(name);
+	retired.set(name, reason);
+	while (retired.size > MAX_RETIRED_TAB_NAMES) retired.delete(retired.keys().next().value);
+}
+
+export function ownedTabNotFoundError(retired, name) {
+	const reason = retired.get(name);
+	return new Error(reason ? `owned tab not found: ${reason}` : "owned tab not found");
+}
+
 export function listedOwnedTabStatus({ name, item, tab, targetUrl, targetAttached, currentTabName }) {
 	const targetAvailable = typeof targetUrl === "string";
 	const relayAttached = targetAvailable && targetAttached === true && item.attached === true && item.detached !== true;

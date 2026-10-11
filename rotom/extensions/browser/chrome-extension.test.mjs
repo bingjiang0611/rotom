@@ -18,7 +18,7 @@ import { collectPageAlerts, pageAlertNodes } from "./chrome-extension/page-alert
 import { evaluateInteractionExpectation, interactionTargetChange, parseInteractionExpectation, readInteractionTargetState } from "./chrome-extension/interaction-target-state.js";
 import { formatScopedAxRef, parseScopedAxRef } from "./chrome-extension/scoped-ax-ref.js";
 import { agentOwnedTabIdsInWindow, placeAgentTabsInSharedGroup } from "./chrome-extension/shared-tab-group.js";
-import { applyOwnedTabUpdate, collectListedOwnedTabs, isMissingChromeTabError, listedOwnedTabStatus, relayUrl } from "./chrome-extension/tab-list-status.js";
+import { applyOwnedTabUpdate, collectListedOwnedTabs, isMissingChromeTabError, listedOwnedTabStatus, ownedTabNotFoundError, relayUrl, retireOwnedTabName } from "./chrome-extension/tab-list-status.js";
 
 const root = resolve("rotom/extensions/browser");
 const extensionDir = join(root, "chrome-extension");
@@ -267,6 +267,19 @@ test("超长或不支持的导航 URL 只让该标签 detached，不进入标签
 	assert.equal(applyOwnedTabUpdate(item, { url: "https://example.test/next" }), true);
 	assert.equal(item.url, "https://example.test/next");
 	assert.equal(applyOwnedTabUpdate(item, { status: "complete" }), false);
+});
+
+test("owned tab not found 说明该名称最近一次被移除的路径，且记录有界", () => {
+	const retired = new Map();
+	assert.equal(ownedTabNotFoundError(retired, "never-opened").message, "owned tab not found");
+	retireOwnedTabName(retired, "docs", "Chrome closed the tab (user, page script or browser)");
+	assert.equal(ownedTabNotFoundError(retired, "docs").message, "owned tab not found: Chrome closed the tab (user, page script or browser)");
+	retireOwnedTabName(retired, "docs", "closed by the relay (close request or failed open/claim cleanup)");
+	assert.match(ownedTabNotFoundError(retired, "docs").message, /closed by the relay/u, "最近一次移除覆盖旧原因");
+	for (let index = 0; index < 40; index += 1) retireOwnedTabName(retired, `tab-${index}`, "Chrome closed the tab (user, page script or browser)");
+	assert.equal(retired.size, 32);
+	assert.equal(retired.has("docs"), false, "最旧的记录先被淘汰");
+	assert.equal(retired.has("tab-39"), true);
 });
 
 test("tabs Chrome API 失败时仍返回缓存 identity 并保留 ownership", async () => {
