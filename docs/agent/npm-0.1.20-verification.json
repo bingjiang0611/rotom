@@ -1,0 +1,60 @@
+{
+ "state": "published",
+ "package": "@bingjiang0611/rotom",
+ "version": "0.1.20",
+ "tag": "latest",
+ "sourceCommit": "3d048492684f4e1fac27856e56dbbe826a7ccb4a",
+ "sha256": "9f522bf8202ba466b7cecbb946e075f43971d9f64f62c8dba5e41369184348ff",
+ "shasum": "7bd17767e7cfc89083221d1d3e56671449f6180b",
+ "integrity": "sha512-34WBQomz+HaooqAh7F5v/jh+m2a6HLU2DHMWaymn2jpfD3mFw9tLBQEv/ac2QXKxT+/rd+mP8fq0Us/hqDjmNg==",
+ "tarball": "https://registry.npmjs.org/@bingjiang0611/rotom/-/rotom-0.1.20.tgz",
+ "fileCount": 18870,
+ "compressedBytes": 53050220,
+ "uncompressedBytes": 184732672,
+ "buildToolchain": {
+  "node": "24.18.0",
+  "npm": "12.2.0",
+  "successfulFinalPacks": 1,
+  "note": "First release packed with npm 12: pack-release.mjs reads the npm 12 pack --json object, and the product no longer ships npm-shrinkwrap.json, which npm 12 neither packs nor honors."
+ },
+ "components": {
+  "piFork": "1.1.0-rotom.2 (rebuilt; fork-build.json sha256 6697ec3547cf8d6d0af9c74db45fb2d0304b36aee734a63e90c9844ae65f32ff)",
+  "pi-subagents": "0.52.1-rotom.7",
+  "pi-goal": "0.54.4-rotom.8",
+  "pi-computer-use": "0.5.1-rotom.0"
+ },
+ "checks": {
+  "checkPi": "PASS",
+  "productTests": "320 passed with actual installed tgz Pi (check-personal)",
+  "goalTests": "87 passed with actual installed tgz Pi",
+  "offlineProviderAndFootprintGates": "9 provider cases PASS; runtimeContractGate and deterministicGate PASS; referenceObservationGate DRIFT is informational and also present in 0.1.19",
+  "firstCheckPersonalRun": "3 failures not caused by this release: 2 from a clean clone without packages/rotom-pi dev dependencies (fixed by the documented npm ci), 1 process-tree abort test returning unavailable at load 80-108 (file unchanged since 0.1.19; 3/3 pass alone). The full rerun passed.",
+  "defaultAndFullInstalledSdkSmoke": "PASS; actual installed product resources, 2/2 faux calls, 0 lifecycle errors",
+  "isolatedInstall": "PASS; isolated HOME/prefix, PATH without global Pi; rotom --version 0.1.20; no npm-shrinkwrap.json in the install",
+  "isolatedUpgrade": "0.1.19 (registry) to exact 0.1.20 tgz PASS",
+  "isolatedUninstall": "PASS; package absent; HOME sentinel retained",
+  "productFilesByteIdentical": "70 files identical across frozen source, tgz and isolated install",
+  "publicFrozenSourceAudit": {
+   "scope": "tree+history",
+   "files": 15206,
+   "bytes": 272094641,
+   "commits": 156,
+   "skippedAuditedArchives": 176,
+   "findings": 0
+  },
+  "actualArtifactPrivacyAudit": "PASS inside pack:release",
+  "chromeExtension": "Maintainer machine only: install-chrome-relay install from the source tree, maintainer reloaded Chrome; relay returned the new owned-tab removal reason. Not a cross-machine acceptance."
+ },
+ "registryVerified": true,
+ "registryVerification": "npm-release-handoff verify: exact version, latest tag, integrity, shasum, trusted tarball URL and downloaded bytes match the single frozen tgz",
+ "publishedBy": "maintainer in a foreground terminal; the agent did not read credentials",
+ "globalInstall": {
+  "state": "not-performed"
+ },
+ "unverified": [
+  "real-model compaction latency after parallel summaries (no live A/B was run)",
+  "whether the browser client timeout change reduces tabs timeouts in real use",
+  "terminal UI and cross-platform acceptance",
+  "OAuth MCP servers"
+ ]
+}

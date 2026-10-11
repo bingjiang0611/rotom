@@ -1,7 +1,8 @@
 # npm 0.1.20 发布准备
 
 - 授权目标：`@bingjiang0611/rotom@0.1.20`，dist-tag `latest`，access `public`，许可证 `UNLICENSED`。
-- 状态：准备中。基于公开 `main`，在独立干净 clone 中构建；最终 source commit 由 Git 读取并记录在验证报告中。
+- 状态：已发布并独立核验 `0.1.20 / latest`。registry 的 version、dist-tag、integrity、shasum、可信 tarball URL 与下载字节全部匹配唯一最终 tgz；构建源及验证见 [发行证据](npm-0.1.20-verification.json)。未改变本机全局安装。
+- 基于公开 `main`，在独立干净 clone 中构建；最终 source commit 由 Git 读取并记录在验证报告中。
 
 ## 相对 0.1.19 的变化
 
@@ -23,3 +24,7 @@
 ## 验证与限制
 
 最终 tgz 须通过独立 HOME/prefix 安装、版本回读、default/full SDK smoke、`check-personal`、从 0.1.19 升级与卸载，以及实际包和 tree/history 隐私审计。执行结果在验证后记录。
+
+## 发布结果
+
+最终 tgz 已通过上述全部安装包门禁：320 个产品测试、87 个 Goal 测试、default/full smoke、0.1.19→0.1.20 升级与卸载、实际包与 tree/history 审计。这是第一个用 npm 12.2.0 打包的版本，`pack:release` 只成功执行一次。npm 登录和 publish 由维护者在前台终端执行，Agent 未读取凭据。未验证项见验证 JSON。
