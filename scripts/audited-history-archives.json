@@ -6,6 +6,10 @@
    "path": "rotom/runtime/pi/vendor/earendil-works-pi-telemetry-0.85.1-rotom.2.tgz"
   },
   {
+   "oid": "034e4f9b99dbe3219a3e00fc3f28d4190eba866a",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-telemetry-1.1.0-rotom.2.tgz"
+  },
+  {
    "oid": "040c5882896adc5d1c288d878e53eb9943bb23ee",
    "path": "rotom/runtime/pi/vendor/earendil-works-pi-tui-0.85.1-rotom.2.tgz"
   },
@@ -28,6 +32,10 @@
   {
    "oid": "0e7ccdb291b5efb1788f79da8e5c5b7aad0723c7",
    "path": "rotom/runtime/pi/vendor/earendil-works-chord-1.0.4-rotom.2.tgz"
+  },
+  {
+   "oid": "0fec76284681e773d30cf97a7d6d20895a3e5402",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-codemode-1.1.0-rotom.2.tgz"
   },
   {
    "oid": "10a59cdfa55fba447cfb4df224406323e13c855e",
@@ -74,6 +82,10 @@
    "path": "rotom/runtime/pi/vendor/earendil-works-pi-coding-agent-0.85.1-rotom.2.tgz"
   },
   {
+   "oid": "1ccc867a0543b162a4a0d4951e36cc27eb86799c",
+   "path": "rotom/runtime/pi/vendor/earendil-works-chord-1.1.0-rotom.2.tgz"
+  },
+  {
    "oid": "1d7e5b9010256909d01ef99b08f5eadeeedffc62",
    "path": "rotom/runtime/pi/vendor/earendil-works-chord-0.85.1-rotom.2.tgz"
   },
@@ -94,8 +106,16 @@
    "path": "rotom/runtime/pi/vendor/earendil-works-pi-ai-0.85.1-rotom.2.tgz"
   },
   {
+   "oid": "28502ad832083c43f161a47b52e243135756c388",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-mcp-1.1.0-rotom.2.tgz"
+  },
+  {
    "oid": "2ac69737561496a28b90f6eb9887bcd8630f25e0",
    "path": "rotom/runtime/pi/vendor/earendil-works-pi-agent-core-1.0.4-rotom.2.tgz"
+  },
+  {
+   "oid": "2b6c7c219027e4252b29a0b67117c7c504b0a522",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-agent-core-1.1.0-rotom.2.tgz"
   },
   {
    "oid": "2c07bb6688237866736312be68b1db2d2563d990",
@@ -534,8 +554,16 @@
    "path": "rotom/runtime/pi/vendor/earendil-works-pi-coding-agent-1.1.0-rotom.2.tgz"
   },
   {
+   "oid": "cf773e49e45df50e5e6100b01835c247868b8622",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-tui-1.1.0-rotom.2.tgz"
+  },
+  {
    "oid": "d0467c3e729259f628efe27a10556510f982c7b0",
    "path": "rotom/runtime/pi/vendor/earendil-works-pi-tui-1.1.0-rotom.2.tgz"
+  },
+  {
+   "oid": "d2171878bf65ef1aecc60bb28d7b6091522dd46e",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-ai-1.1.0-rotom.2.tgz"
   },
   {
    "oid": "d2a9e149153738c9980adb758e7443f7f12e04cb",
@@ -568,6 +596,10 @@
   {
    "oid": "dcdf8cee56d14e10bb046a967dc41c4ab2ee8e83",
    "path": "rotom/runtime/pi/vendor/earendil-works-pi-ai-0.85.1-rotom.2.tgz"
+  },
+  {
+   "oid": "de30b0486510b1cf2f95bd421b663348c75d1087",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-coding-agent-1.1.0-rotom.2.tgz"
   },
   {
    "oid": "de3d50f0f97305baeff999431547336a6c78fec5",
