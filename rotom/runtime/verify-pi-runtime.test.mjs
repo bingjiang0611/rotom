@@ -526,7 +526,7 @@ test("launcher 不因 HOME 中存在未声明的 recorder 就自动加载它", (
 	}
 }));
 
-test("launcher 在 Herdr pane 中固定加载可信的 Pi lifecycle integration", () => withFakePi({}, async ({ root }) => {
+test("launcher 在 Herdr pane 中加载 Pi integration，版本升级不阻断启动", () => withFakePi({}, async ({ root }) => {
 	const businessCwd = mkdtempSync(join(tmpdir(), "rotom-herdr-"));
 	const home = join(root, "home");
 	const extension = installHerdrPiExtension(home);
@@ -549,7 +549,15 @@ test("launcher 在 Herdr pane 中固定加载可信的 Pi lifecycle integration"
 		const extensionPaths = invocation.argv.flatMap((argument, index, argv) => argument === "--extension" ? [argv[index + 1]] : []);
 		assert.equal(extensionPaths.includes(realpathSync(extension)), true);
 
-		writeFileSync(extension, readFileSync(extension, "utf8").replace("HERDR_INTEGRATION_VERSION=8", "HERDR_INTEGRATION_VERSION=9"));
+		for (const version of ["9", "42", "future-revision"]) {
+			installHerdrPiExtension(home, version);
+			await verifyPiRuntime({ executable: process.env.ROTOM_PI, agentDir: AGENT_DIR,
+				resourceDeclarations: [...resourceDeclarations(), `herdr-extension:${realpathSync(extension)}`] });
+		}
+		writeFileSync(extension, readFileSync(extension, "utf8").replace(/^\/\/ HERDR_INTEGRATION_VERSION=.*\n/mu, ""));
+		await verifyPiRuntime({ executable: process.env.ROTOM_PI, agentDir: AGENT_DIR,
+			resourceDeclarations: [...resourceDeclarations(), `herdr-extension:${realpathSync(extension)}`] });
+		writeFileSync(extension, readFileSync(extension, "utf8").replace("HERDR_INTEGRATION_ID=pi", "HERDR_INTEGRATION_ID=claude"));
 		const rejected = spawnSync(LAUNCHER, ["--print", "herdr"], {
 			cwd: businessCwd,
 			encoding: "utf8",
@@ -565,7 +573,17 @@ test("launcher 在 Herdr pane 中固定加载可信的 Pi lifecycle integration"
 			},
 		});
 		assert.notEqual(rejected.status, 0);
-		assert.match(rejected.stderr, /Herdr Pi extension identity\/version 不可信/u);
+		assert.match(rejected.stderr, /Herdr Pi extension identity 不可信/u);
+		installHerdrPiExtension(home);
+		writeFileSync(extension, readFileSync(extension, "utf8").replace("// installed by herdr", "// installed by someone else"));
+		await assert.rejects(verifyPiRuntime({ executable: process.env.ROTOM_PI, agentDir: AGENT_DIR,
+			resourceDeclarations: [...resourceDeclarations(), `herdr-extension:${realpathSync(extension)}`] }), /identity 不可信/u);
+		const target = join(root, "extension.ts");
+		writeFileSync(target, readFileSync(extension, "utf8"));
+		rmSync(extension);
+		symlinkSync(target, extension);
+		await assert.rejects(verifyPiRuntime({ executable: process.env.ROTOM_PI, agentDir: AGENT_DIR,
+			resourceDeclarations: [...resourceDeclarations(), `herdr-extension:${extension}`] }), /不是普通文件/u);
 	} finally {
 		rmSync(businessCwd, { recursive: true, force: true });
 	}

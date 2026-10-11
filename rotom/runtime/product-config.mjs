@@ -2,7 +2,6 @@ export const VERIFIED_PI_PACKAGE = "@earendil-works/pi-coding-agent";
 export const DISTRIBUTION_PI_VERSION = "1.1.0-rotom.2";
 export const DISTRIBUTION_PI_BUILD_SHA256 = "43cd9295a353db8732a55c06e81ac09bf54fba0c76a0d2bb18305b0ecd7a106b";
 export const MINIMUM_NODE_VERSION = "24.0.0";
-export const VERIFIED_HERDR_PI_INTEGRATION_VERSION = "8";
 
 export const VERIFIED_THIRD_PARTY_PACKAGES = {
 	"@injaneity/pi-computer-use": { version: "0.5.1-rotom.0", integrity: "sha512-CNmDZatjUImvODkmVUZPMTx/exzojHdDNZGXSqk9yqpAtR54lnaUULbPvBtrqunhZnee+mGJwQW2wVkLVTEDtw==", archive: "vendor/injaneity-pi-computer-use-0.5.1-rotom.0.tgz" },

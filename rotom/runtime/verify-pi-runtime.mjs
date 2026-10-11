@@ -7,7 +7,6 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import {
 	MINIMUM_NODE_VERSION,
 	RESOURCE_DESCRIPTORS_V1,
-	VERIFIED_HERDR_PI_INTEGRATION_VERSION,
 	VERIFIED_PI_PACKAGE,
 	VERIFIED_THIRD_PARTY_PACKAGES,
 } from "./product-config.mjs";
@@ -118,12 +117,13 @@ async function verifyOptionalHerdrExtension(declaration) {
 	const canonical = await realpath(extension);
 	if (canonical !== extension) throw new Error(`Herdr Pi extension 路径不是 canonical：${extension}`);
 	const content = await readFile(extension, "utf8");
+	// Herdr owns this user-installed integration. Its revision is metadata,
+	// not a Pi API compatibility contract; upgrades must not block startup.
 	if (
 		!content.startsWith("// installed by herdr\n// managed by herdr;") ||
-		!content.includes("\n// HERDR_INTEGRATION_ID=pi\n") ||
-		!content.includes(`\n// HERDR_INTEGRATION_VERSION=${VERIFIED_HERDR_PI_INTEGRATION_VERSION}\n`)
+		!content.includes("\n// HERDR_INTEGRATION_ID=pi\n")
 	) {
-		throw new Error("Herdr Pi extension identity/version 不可信");
+		throw new Error("Herdr Pi extension identity 不可信");
 	}
 }
 
