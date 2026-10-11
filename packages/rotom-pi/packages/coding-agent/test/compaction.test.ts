@@ -32,7 +32,9 @@ import {
 function loadLargeSessionEntries(): SessionEntry[] {
 	// Synthetic transcript: retain large-session parsing/compaction coverage without
 	// redistributing the upstream contributor's recorded conversation.
-	const records: object[] = [{ type: "session", version: 1, id: "synthetic", timestamp: "2026-01-01T00:00:00.000Z", cwd: "/tmp/test" }];
+	const records: object[] = [
+		{ type: "session", version: 1, id: "synthetic", timestamp: "2026-01-01T00:00:00.000Z", cwd: "/tmp/test" },
+	];
 	for (let i = 0; i < 80; i++) {
 		records.push({ type: "message", message: createUserMessage("Synthetic user context. ".repeat(200)) });
 		records.push({ type: "message", message: createAssistantMessage("Synthetic assistant context. ".repeat(200)) });

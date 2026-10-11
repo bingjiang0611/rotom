@@ -69,7 +69,9 @@ describe("rotom runtime branding", () => {
 	it("uses the public rotom command while preserving Pi configuration environment names", async () => {
 		vi.stubEnv("ROTOM_PRODUCT_VERSION", "0.1.0-alpha.11");
 		vi.resetModules();
-		const { APP_NAME, APP_TITLE, PROCESS_NAME, CONFIG_DIR_NAME, ENV_AGENT_DIR, ENV_SESSION_DIR } = await import("../src/config.ts");
+		const { APP_NAME, APP_TITLE, PROCESS_NAME, CONFIG_DIR_NAME, ENV_AGENT_DIR, ENV_SESSION_DIR } = await import(
+			"../src/config.ts"
+		);
 		expect({ APP_NAME, APP_TITLE, PROCESS_NAME, CONFIG_DIR_NAME, ENV_AGENT_DIR, ENV_SESSION_DIR }).toEqual({
 			APP_NAME: "rotom",
 			APP_TITLE: "rotom",
