@@ -144,7 +144,10 @@ function classifyToolOutcome(event: any): ToolOutcome {
  * - `unknown`     it failed, and nothing in the result proves a side.
  *
  * Absent for `ok`, and absent for `aborted` because a cancellation is not a
- * fault. Derived purely from already-allowlisted codes and statuses: no prompt,
+ * fault. Also absent for an `unknown_outcome` whose result only says the effect
+ * is unverified or unknown: that is missing evidence, not a failure. A result
+ * that reports the action did not happen, or that its verification failed, is a
+ * failure and still gets a side. Derived purely from already-allowlisted codes and statuses: no prompt,
  * arguments, or result bodies are read.
  */
 type FaultSide = "harness" | "model" | "environment" | "unknown";
@@ -157,6 +160,8 @@ const HARNESS_FAULT_CODES = new Set([
 export function classifyFaultSide(event: any, outcome: ToolOutcome): FaultSide | undefined {
 	if (outcome === "ok" || outcome === "aborted") return undefined;
 	const details = record(event?.result?.details);
+	const execution = record(details?.execution);
+	if (outcome === "unknown_outcome" && execution?.outcome !== "didnt" && record(execution?.verification)?.status !== "failed") return undefined;
 	// A protocol-level failure is our adapter, not the model's output and not the
 	// external system the call would have reached.
 	if (record(details?.protocolError)) return "harness";
@@ -164,7 +169,7 @@ export function classifyFaultSide(event: any, outcome: ToolOutcome): FaultSide |
 	if (code && HARNESS_FAULT_CODES.has(code)) return "harness";
 	if (outcome === "schema") return "model";
 	if (outcome === "permission" || outcome === "timeout" || outcome === "transport") return "environment";
-	// tool_error, unspecified and unknown_outcome all mean "failed, side unproven".
+	// tool_error, unspecified and a failed unknown_outcome all mean "failed, side unproven".
 	return "unknown";
 }
 
@@ -568,7 +573,9 @@ class LocalTraceRecorderV1 {
 	providerStart(ctx: ExtensionContext, surface: TraceAttributes = {}): void {
 		const parent = this.compactionSpan ?? this.turnSpan;
 		if (!parent) return;
-		if (this.providerSpan) this.finishProvider("unknown");
+		// Hooks only see request starts. A compaction makes sequential summary calls and a
+		// retry starts a new attempt, so the open request's own end was never observed.
+		if (this.providerSpan) this.finishProvider("unknown", { "pi.ai.request.end_reason": "superseded_by_next_request" });
 		this.providerStatus = undefined;
 		this.providerFirstUpdateAt = undefined;
 		this.providerFirstContentAt = undefined;
@@ -716,7 +723,7 @@ class LocalTraceRecorderV1 {
 	}
 
 	compactionStart(event: any): void {
-		this.finishProvider("unknown");
+		this.finishProvider("unknown", { "pi.ai.request.end_reason": "compaction_started" });
 		if (this.compactionSpan) this.endSpan(this.compactionSpan, "unknown", {
 			...(this.activeCompactionSequence !== undefined ? { "pi.compaction.sequence": this.activeCompactionSequence } : {}),
 		});
@@ -775,7 +782,7 @@ class LocalTraceRecorderV1 {
 	}
 
 	private finishTurn(status: TraceStatus, attributes: TraceAttributes = {}): void {
-		this.finishProvider("unknown");
+		this.finishProvider("unknown", { "pi.ai.request.end_reason": "turn_closed" });
 		for (const [toolCallId, current] of this.toolSpans) {
 			// Turn torn down while the tool was still open: no end event of its own.
 			this.endSpan(current.span, "unknown", {

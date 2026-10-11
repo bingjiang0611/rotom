@@ -654,7 +654,47 @@ test("fault side is evidence-gated and never blames a side it cannot prove", () 
 	assert.equal(classifyFaultSide({ isError: true, result: { details: { code: "tool_not_found" } } }, "tool_error"), "harness");
 	// Failed but unprovable stays unknown, not a guess.
 	assert.equal(classifyFaultSide({ isError: true, result: { details: {} } }, "tool_error"), "unknown");
-	assert.equal(classifyFaultSide({ isError: true, result: { details: { status: "unknown" } } }, "unknown_outcome"), "unknown");
+	// An unverified or unknown effect is missing evidence, not a failure: no side.
+	assert.equal(classifyFaultSide({ isError: false, result: { details: { status: "unknown" } } }, "unknown_outcome"), undefined);
+	assert.equal(classifyFaultSide({ isError: false, result: { details: { businessOutcome: "unverified" } } }, "unknown_outcome"), undefined);
+	assert.equal(classifyFaultSide({ isError: false, result: { details: { execution: { outcome: "unknown" } } } }, "unknown_outcome"), undefined);
+	// A reported non-effect or failed verification is a failure with an unproven side.
+	assert.equal(classifyFaultSide({ isError: false, result: { details: { execution: { outcome: "didnt" } } } }, "unknown_outcome"), "unknown");
+	assert.equal(classifyFaultSide({ isError: false, result: { details: { execution: { outcome: "worked", verification: { status: "failed" } } } } }, "unknown_outcome"), "unknown");
+});
+
+test("a provider request closed without its own end names why its status is unknown", async (t) => {
+	const root = mkdtempSync(join(tmpdir(), "rotom-observability-superseded-"));
+	t.after(() => rm(root, { recursive: true, force: true }));
+	const sessionFile = join(root, "session.jsonl");
+	writeFileSync(sessionFile, "{}\n", { mode: 0o600 });
+	const harness = extensionHarness();
+	const ctx = {
+		mode: "print",
+		model: { provider: "test", id: "test", api: "test" },
+		thinkingLevel: "off",
+		sessionManager: { getSessionFile: () => sessionFile, getSessionId: () => "superseded-request" },
+		ui: { notify() {} },
+	};
+	await harness.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
+	await harness.emit("before_agent_start", { type: "before_agent_start", prompt: "compact", systemPrompt: "system", systemPromptOptions: { selectedTools: [] } }, ctx);
+	// A split-turn compaction summarizes history, then the turn prefix: two sequential calls.
+	await harness.emit("session_before_compact", { type: "session_before_compact", reason: "threshold", willRetry: false, preparation: { tokensBefore: 50_000 } }, ctx);
+	await harness.emit("before_provider_headers", { type: "before_provider_headers", headers: {} }, ctx);
+	await harness.emit("before_provider_headers", { type: "before_provider_headers", headers: {} }, ctx);
+	await harness.emit("session_compact", { type: "session_compact", reason: "threshold", willRetry: false, fromExtension: false, compactionEntry: {} }, ctx);
+	// A turn torn down while its request is still open.
+	await harness.emit("turn_start", { turnIndex: 0 }, ctx);
+	await harness.emit("before_provider_headers", { type: "before_provider_headers", headers: {} }, ctx);
+	await harness.emit("turn_end", { turnIndex: 0, message: { role: "user" } }, ctx);
+	await harness.emit("session_shutdown", { type: "session_shutdown", reason: "quit" }, ctx);
+	const requests = readFileSync(localTracePathForSessionFile(sessionFile), "utf8").trim().split("\n").map((line) => JSON.parse(line))
+		.filter((record) => record.kind === "span_end" && record.name === "pi.ai.request");
+	assert.deepEqual(requests.map((record) => [record.status, record.attributes?.["pi.ai.request.end_reason"]]), [
+		["unknown", "superseded_by_next_request"],
+		["ok", undefined],
+		["unknown", "turn_closed"],
+	]);
 });
 
 test("subagent tool spans carry their deferred capability group", async (t) => {
