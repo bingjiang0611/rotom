@@ -752,6 +752,52 @@ test("parallel compaction requests share one request span and report per-summary
 	});
 });
 
+test("tool error codes are recorded only from the allowlist and drive outcome and side", async (t) => {
+	const root = mkdtempSync(join(tmpdir(), "rotom-observability-error-code-"));
+	t.after(() => rm(root, { recursive: true, force: true }));
+	const sessionFile = join(root, "session.jsonl");
+	writeFileSync(sessionFile, "{}\n", { mode: 0o600 });
+	const harness = extensionHarness();
+	const ctx = {
+		mode: "print",
+		model: { provider: "test", id: "test", api: "test" },
+		thinkingLevel: "off",
+		sessionManager: { getSessionFile: () => sessionFile, getSessionId: () => "error-code" },
+		ui: { notify() {} },
+	};
+	await harness.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
+	await harness.emit("agent_start", {}, ctx);
+	await harness.emit("turn_start", { turnIndex: 0 }, ctx);
+	const cases = [
+		{ code: "nonzero_exit", exitCode: 3 },
+		{ code: "command_timeout" },
+		{ code: "validation_error" },
+		{ code: "tool_not_found" },
+		{ code: "aborted" },
+		{ code: "secret-looking-value" },
+	];
+	for (const [index, details] of cases.entries()) {
+		await harness.emit("tool_execution_start", { toolCallId: `call-${index}`, toolName: "bash" }, ctx);
+		await harness.emit("tool_execution_end", { toolCallId: `call-${index}`, toolName: "bash", isError: true, result: { content: [], details } }, ctx);
+	}
+	await harness.emit("session_shutdown", { type: "session_shutdown", reason: "exit" }, ctx);
+	const tools = readFileSync(localTracePathForSessionFile(sessionFile), "utf8").trim().split("\n").map((line) => JSON.parse(line))
+		.filter((record) => record.kind === "span_end" && record.name === "pi.tool.execute");
+	assert.deepEqual(tools.map((record) => [
+		record.attributes["pi.tool.error_code"],
+		record.attributes["pi.tool.exit_code"],
+		record.attributes["pi.tool.outcome"],
+		record.attributes["pi.tool.fault_side"],
+	]), [
+		["nonzero_exit", 3, "tool_error", "unknown"],
+		["command_timeout", undefined, "tool_error", "unknown"],
+		["validation_error", undefined, "schema", "model"],
+		["tool_not_found", undefined, "tool_error", "harness"],
+		["aborted", undefined, "aborted", undefined],
+		[undefined, undefined, "tool_error", "unknown"],
+	]);
+});
+
 test("subagent tool spans carry their deferred capability group", async (t) => {
 	const root = mkdtempSync(join(tmpdir(), "rotom-observability-group-"));
 	t.after(() => rm(root, { recursive: true, force: true }));

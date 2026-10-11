@@ -172,6 +172,30 @@ const HARNESS_FAULT_CODES = new Set([
 	"tool_disabled", "tool_not_active", "protocol_error", "invalid_protocol",
 ]);
 
+/**
+ * Error codes copied to pi.tool.error_code. Only known codes are recorded: details.code is
+ * tool-controlled, and the trace keeps allowlisted metadata only.
+ */
+const RECORDED_TOOL_ERROR_CODES = new Set([
+	...HARNESS_FAULT_CODES,
+	// Agent loop: rejected before the tool ran.
+	"aborted", "validation_error", "blocked", "truncated_arguments",
+	// Bash: the command ran and failed, or could not run.
+	"nonzero_exit", "command_timeout", "cwd_missing", "no_exit_code",
+	// Node system errors thrown by file tools.
+	"enoent", "eacces", "eperm", "eisdir", "enotdir", "eexist", "enospc", "emfile",
+]);
+
+function toolErrorAttributes(details: Record<string, unknown> | undefined): TraceAttributes {
+	const code = structuredToolCode(details);
+	if (!code || !RECORDED_TOOL_ERROR_CODES.has(code)) return {};
+	const exitCode = finiteNumber(details?.exitCode);
+	return {
+		"pi.tool.error_code": code,
+		...(code === "nonzero_exit" && exitCode !== undefined && Number.isInteger(exitCode) ? { "pi.tool.exit_code": exitCode } : {}),
+	};
+}
+
 export function classifyFaultSide(event: any, outcome: ToolOutcome): FaultSide | undefined {
 	if (outcome === "ok" || outcome === "aborted") return undefined;
 	const details = record(event?.result?.details);
@@ -723,6 +747,7 @@ class LocalTraceRecorderV1 {
 			"pi.tool.update_count": current.updates,
 			"pi.tool.outcome": outcome,
 			...(faultSide ? { "pi.tool.fault_side": faultSide } : {}),
+			...(event.isError === true ? toolErrorAttributes(record(event.result?.details)) : {}),
 			// Repeated from span start: a reader merging start into end sees only the
 			// end attributes, and the aggregation groups over end records.
 			...(current.capabilityGroup ? { "pi.tool.capability_group": current.capabilityGroup } : {}),
