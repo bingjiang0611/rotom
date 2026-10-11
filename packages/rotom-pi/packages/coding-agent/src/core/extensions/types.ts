@@ -58,7 +58,7 @@ import type { Static, TSchema } from "typebox";
 import type { Theme } from "../../modes/interactive/theme/theme.ts";
 import type { BashResult } from "../bash-executor.ts";
 import type { CacheWarmingDecisionEvent, CacheWarmingDecisionEventResult } from "../cache-warmer.ts";
-import type { CompactionPreparation, CompactionResult } from "../compaction/index.ts";
+import type { CompactionPreparation, CompactionResult, SummarizationCallMetrics } from "../compaction/index.ts";
 import type { EventBus } from "../event-bus.ts";
 import type { ExecOptions, ExecResult } from "../exec.ts";
 import type { ReadonlyFooterDataProvider } from "../footer-data-provider.ts";
@@ -789,6 +789,8 @@ export interface SessionCompactEvent {
 	reason: "manual" | "extension" | "threshold" | "overflow";
 	/** True when the aborted turn is retried after this compaction (overflow recovery) */
 	willRetry: boolean;
+	/** Timing of each built-in summary request; absent when an extension supplied the compaction. */
+	summaryCalls?: SummarizationCallMetrics[];
 }
 
 /** Fired after context compaction fails or is aborted */

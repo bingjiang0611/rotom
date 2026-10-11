@@ -75,6 +75,7 @@ import {
 	estimateTokens,
 	generateBranchSummary,
 	prepareCompaction,
+	type SummarizationCallMetrics,
 	shouldCompact,
 } from "./compaction/index.ts";
 import { DEFAULT_THINKING_LEVEL, THINKING_LEVEL_OPTIONS } from "./defaults.ts";
@@ -2762,6 +2763,12 @@ export class AgentSession {
 	): Promise<CompactionResult> {
 		// Resolve the request only when Pi summarizes itself: routing may call models or fail.
 		const request = await this._getSummarizationRequestAuth(model, signal);
+		// compaction.thinkingLevel trades summary depth for latency; unset keeps the session level.
+		const compactionThinkingLevel = this.settingsManager.getCompactionThinkingLevel();
+		const thinkingLevel =
+			compactionThinkingLevel === undefined
+				? request.thinkingLevel
+				: clampThinkingLevel(request.model, compactionThinkingLevel);
 		return compact(
 			preparation,
 			request.model,
@@ -2769,7 +2776,7 @@ export class AgentSession {
 			request.headers,
 			customInstructions,
 			signal,
-			request.thinkingLevel,
+			thinkingLevel,
 			this.agent.streamFunction,
 			request.env,
 			this.settingsManager.getRetrySettings(),
@@ -2862,6 +2869,7 @@ export class AgentSession {
 			let tokensBefore: number;
 			let usage: Usage | undefined;
 			let details: unknown;
+			let summaryCalls: SummarizationCallMetrics[] | undefined;
 
 			if (extensionCompaction) {
 				// Extension provided compaction content
@@ -2884,6 +2892,7 @@ export class AgentSession {
 				tokensBefore = result.tokensBefore;
 				usage = result.usage;
 				details = result.details;
+				summaryCalls = result.summaryCalls;
 			}
 
 			if (this._compactionAbortController.signal.aborted) {
@@ -2907,6 +2916,7 @@ export class AgentSession {
 					fromExtension,
 					reason,
 					willRetry: false,
+					...(summaryCalls ? { summaryCalls } : {}),
 				});
 			}
 
@@ -3195,6 +3205,7 @@ export class AgentSession {
 			let tokensBefore: number;
 			let usage: Usage | undefined;
 			let details: unknown;
+			let summaryCalls: SummarizationCallMetrics[] | undefined;
 
 			if (extensionCompaction) {
 				// Extension provided compaction content
@@ -3217,6 +3228,7 @@ export class AgentSession {
 				tokensBefore = compactResult.tokensBefore;
 				usage = compactResult.usage;
 				details = compactResult.details;
+				summaryCalls = compactResult.summaryCalls;
 			}
 			abortController.signal.throwIfAborted();
 
@@ -3237,6 +3249,7 @@ export class AgentSession {
 					fromExtension,
 					reason,
 					willRetry,
+					...(summaryCalls ? { summaryCalls } : {}),
 				});
 			}
 

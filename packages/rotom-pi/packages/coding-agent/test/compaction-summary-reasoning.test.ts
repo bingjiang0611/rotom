@@ -1,5 +1,11 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { type AssistantMessage, type Model, normalizeContext, type TranscriptContext } from "@earendil-works/pi-ai";
+import {
+	type AssistantMessage,
+	createAssistantMessageEventStream,
+	type Model,
+	normalizeContext,
+	type TranscriptContext,
+} from "@earendil-works/pi-ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	type CompactionPreparation,
@@ -297,5 +303,115 @@ describe("generateSummary reasoning options", () => {
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 		});
 		expect(completeSimpleMock.mock.calls.map((call) => call[2]?.maxTokens)).toEqual([128000, 128000]);
+	});
+});
+
+describe("split-turn compaction requests", () => {
+	const splitPreparation: CompactionPreparation = {
+		firstKeptEntryId: "entry-keep",
+		messagesToSummarize: messages,
+		turnPrefixMessages: [{ role: "user", content: "Current turn.", timestamp: Date.now() }],
+		isSplitTurn: true,
+		tokensBefore: 100,
+		fileOps: { read: new Set(), written: new Set(), edited: new Set() },
+		settings: { enabled: true, reserveTokens: 2000, keepRecentTokens: 20 },
+	};
+	const isTurnPrefix = (context: TranscriptContext) => JSON.stringify(context.messages).includes("Current turn.");
+	const summaryText = (text: string): AssistantMessage => ({
+		...mockSummaryResponse,
+		content: [{ type: "text", text }],
+	});
+
+	beforeEach(() => {
+		completeSimpleMock.mockReset();
+	});
+
+	it("starts the history and turn-prefix summaries together and keeps their merge order", async () => {
+		const pending: Array<{ turnPrefix: boolean; resolve: (message: AssistantMessage) => void }> = [];
+		completeSimpleMock.mockImplementation(
+			(_model: Model<any>, context: TranscriptContext) =>
+				new Promise<AssistantMessage>((resolve) => pending.push({ turnPrefix: isTurnPrefix(context), resolve })),
+		);
+
+		const result = compact(splitPreparation, createModel(false), "test-key");
+		await vi.waitFor(() => expect(pending).toHaveLength(2));
+		// Finish the turn prefix first: the merged summary must still put history before it.
+		pending.find((call) => call.turnPrefix)!.resolve(summaryText("turn prefix summary"));
+		pending.find((call) => !call.turnPrefix)!.resolve(summaryText("history summary"));
+
+		const compaction = await result;
+		expect(compaction.summary).toMatch(
+			/^history summary\n\n---\n\n\*\*Turn Context \(split turn\):\*\*\n\nturn prefix summary/,
+		);
+		expect(compaction.summaryCalls?.map((call) => [call.kind, call.attempts])).toEqual([
+			["history", 1],
+			["turn_prefix", 1],
+		]);
+	});
+
+	it("aborts the sibling request when one summary fails and reports the first failure", async () => {
+		let turnPrefixSignal: AbortSignal | undefined;
+		completeSimpleMock.mockImplementation((_model: Model<any>, context: TranscriptContext, options) => {
+			if (!isTurnPrefix(context)) {
+				return Promise.resolve({ ...mockSummaryResponse, stopReason: "error", errorMessage: "history failed" });
+			}
+			turnPrefixSignal = options.signal;
+			return new Promise<AssistantMessage>((resolve) =>
+				options.signal.addEventListener("abort", () => resolve({ ...mockSummaryResponse, stopReason: "aborted" })),
+			);
+		});
+
+		await expect(compact(splitPreparation, createModel(false), "test-key")).rejects.toThrow("history failed");
+		expect(turnPrefixSignal?.aborted).toBe(true);
+	});
+
+	it("aborts both requests when the caller cancels", async () => {
+		const signals: AbortSignal[] = [];
+		completeSimpleMock.mockImplementation((_model: Model<any>, _context: TranscriptContext, options) => {
+			signals.push(options.signal);
+			return new Promise<AssistantMessage>((resolve) =>
+				options.signal.addEventListener("abort", () => resolve({ ...mockSummaryResponse, stopReason: "aborted" })),
+			);
+		});
+		const controller = new AbortController();
+
+		const result = compact(splitPreparation, createModel(false), "test-key", undefined, undefined, controller.signal);
+		await vi.waitFor(() => expect(signals).toHaveLength(2));
+		controller.abort();
+
+		// As before, compact() returns the aborted summaries; the session checks its own signal.
+		await result;
+		expect(signals.every((signal) => signal.aborted)).toBe(true);
+	});
+
+	it("records when the first thinking and text blocks stream", async () => {
+		const streamFn = () => {
+			const stream = createAssistantMessageEventStream();
+			const partial = summaryText("summary");
+			queueMicrotask(() => {
+				stream.push({ type: "start", partial });
+				stream.push({ type: "thinking_start", contentIndex: 0, partial });
+				stream.push({ type: "text_start", contentIndex: 1, partial });
+				stream.push({ type: "done", reason: "stop", message: partial });
+			});
+			return stream;
+		};
+
+		const result = await compact(
+			{ ...splitPreparation, isSplitTurn: false, turnPrefixMessages: [] },
+			createModel(false),
+			"test-key",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			streamFn,
+		);
+
+		const [call] = result.summaryCalls ?? [];
+		expect(call).toMatchObject({ kind: "history", attempts: 1 });
+		expect(call.firstThinkingMs).toBeGreaterThanOrEqual(0);
+		expect(call.firstTextMs).toBeGreaterThanOrEqual(call.firstThinkingMs!);
+		expect(call.durationMs).toBeGreaterThanOrEqual(call.firstTextMs!);
 	});
 });

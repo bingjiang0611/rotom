@@ -109,6 +109,8 @@ export interface CompactionResult<T = unknown> {
 	estimatedTokensAfter?: number;
 	/** Usage from the LLM call(s) that generated this summary, if available */
 	usage?: Usage;
+	/** Timing of each built-in summary request; absent for extension-provided compactions. */
+	summaryCalls?: SummarizationCallMetrics[];
 	/** Extension-specific data (e.g., ArtifactIndex, version markers for structured compaction) */
 	details?: T;
 }
@@ -609,6 +611,21 @@ function createSummarizationOptions(
 	return options;
 }
 
+/** Client-observed timing of one summary request. */
+export interface SummarizationCallMetrics {
+	kind: "history" | "turn_prefix";
+	/** Wall time of the whole call, including retries and their backoff. */
+	durationMs: number;
+	/** Number of provider attempts, 1 when no retry happened. */
+	attempts: number;
+	/** Time from the start of the final attempt to its first thinking block, when one streamed. */
+	firstThinkingMs?: number;
+	/** Time from the start of the final attempt to its first text block, when one streamed. */
+	firstTextMs?: number;
+}
+
+type SummarizationTiming = Omit<SummarizationCallMetrics, "kind">;
+
 /**
  * Shared choke point for every compaction/branch-summary summarization call. Wraps the
  * single LLM call in {@link retryAssistantCall} so transient stream drops (e.g.
@@ -624,6 +641,17 @@ export async function completeSummarization(
 	retry?: RetryPolicy,
 	callbacks?: RetryCallbacks,
 ): Promise<AssistantMessage> {
+	return (await completeTimedSummarization(model, context, options, streamFn, retry, callbacks)).response;
+}
+
+async function completeTimedSummarization(
+	model: Model<any>,
+	context: TranscriptContext,
+	options: SimpleStreamOptions,
+	streamFn?: StreamFn,
+	retry?: RetryPolicy,
+	callbacks?: RetryCallbacks,
+): Promise<{ response: AssistantMessage; timing: SummarizationTiming }> {
 	// Avoid cache writes for one-off summaries. Reuse caller-supplied routing when available;
 	// callers without a session ID, including branch summaries, receive a fresh routing ID.
 	const requestOptions: SimpleStreamOptions = {
@@ -631,11 +659,36 @@ export async function completeSummarization(
 		cacheRetention: "none",
 		sessionId: options.sessionId ?? uuidv7(),
 	};
-	const produce = async (): Promise<AssistantMessage> =>
-		streamFn
-			? (await streamFn(model, context, requestOptions)).result()
-			: completeSimple(model, context, requestOptions);
-	return retryAssistantCall(produce, retry, requestOptions.signal, callbacks);
+	const startedAt = performance.now();
+	let attempts = 0;
+	let firstThinkingMs: number | undefined;
+	let firstTextMs: number | undefined;
+	const produce = async (): Promise<AssistantMessage> => {
+		attempts++;
+		firstThinkingMs = undefined;
+		firstTextMs = undefined;
+		if (!streamFn) return completeSimple(model, context, requestOptions);
+		const attemptStartedAt = performance.now();
+		const stream = await streamFn(model, context, requestOptions);
+		for await (const event of stream) {
+			if (firstThinkingMs === undefined && event.type === "thinking_start") {
+				firstThinkingMs = performance.now() - attemptStartedAt;
+			} else if (firstTextMs === undefined && event.type === "text_start") {
+				firstTextMs = performance.now() - attemptStartedAt;
+			}
+		}
+		return stream.result();
+	};
+	const response = await retryAssistantCall(produce, retry, requestOptions.signal, callbacks);
+	return {
+		response,
+		timing: {
+			durationMs: performance.now() - startedAt,
+			attempts,
+			...(firstThinkingMs !== undefined ? { firstThinkingMs } : {}),
+			...(firstTextMs !== undefined ? { firstTextMs } : {}),
+		},
+	};
 }
 
 /**
@@ -708,7 +761,7 @@ export async function generateSummaryWithUsage(
 	retry?: RetryPolicy,
 	callbacks?: RetryCallbacks,
 	sessionId?: string,
-): Promise<{ text: string; usage: Usage }> {
+): Promise<{ text: string; usage: Usage; metrics: SummarizationCallMetrics }> {
 	const maxTokens = Math.min(
 		Math.floor(0.8 * reserveTokens),
 		model.maxTokens > 0 ? model.maxTokens : Number.POSITIVE_INFINITY,
@@ -743,7 +796,7 @@ export async function generateSummaryWithUsage(
 		sessionId,
 	);
 
-	const response = await completeSummarization(
+	const { response, timing } = await completeTimedSummarization(
 		model,
 		buildSummarizationContext(promptText),
 		completionOptions,
@@ -762,7 +815,7 @@ export async function generateSummaryWithUsage(
 
 	const textContent = contentText(response.content);
 
-	return { text: textContent, usage: response.usage };
+	return { text: textContent, usage: response.usage, metrics: { kind: "history", ...timing } };
 }
 
 // ============================================================================
@@ -990,47 +1043,62 @@ export async function compact(
 	// Generate summaries and merge into one
 	let summary: string;
 	let summaryUsage: Usage;
+	let summaryCalls: SummarizationCallMetrics[];
 
 	if (isSplitTurn && turnPrefixMessages.length > 0) {
-		let historyText = previousSummary ?? "No prior history.";
-		let historyUsage: Usage | undefined;
-		if (messagesToSummarize.length > 0) {
-			const historyResult = await generateSummaryWithUsage(
-				messagesToSummarize,
-				model,
-				settings.reserveTokens,
-				apiKey,
-				headers,
-				signal,
-				customInstructions,
-				previousSummary,
-				thinkingLevel,
-				streamFn,
-				env,
-				retry,
-				callbacks,
-				sessionId,
-			);
-			historyText = historyResult.text;
-			historyUsage = historyResult.usage;
-		}
-		const turnPrefixResult = await generateTurnPrefixSummary(
-			turnPrefixMessages,
-			model,
-			settings.reserveTokens,
-			apiKey,
-			headers,
-			env,
-			signal,
-			thinkingLevel,
-			streamFn,
-			retry,
-			callbacks,
-			sessionId,
-		);
+		// The turn-prefix summary does not read the history summary, so both requests run at
+		// once. A failed request aborts its sibling, so a compaction that already failed stops
+		// spending tokens; the first failure is the error the caller sees.
+		const sibling = new AbortController();
+		const callSignal = signal ? AbortSignal.any([signal, sibling.signal]) : sibling.signal;
+		const abortSiblingOnFailure = <T>(call: Promise<T>): Promise<T> =>
+			call.catch((error: unknown) => {
+				sibling.abort();
+				throw error;
+			});
+		const [historyResult, turnPrefixResult] = await Promise.all([
+			messagesToSummarize.length > 0
+				? abortSiblingOnFailure(
+						generateSummaryWithUsage(
+							messagesToSummarize,
+							model,
+							settings.reserveTokens,
+							apiKey,
+							headers,
+							callSignal,
+							customInstructions,
+							previousSummary,
+							thinkingLevel,
+							streamFn,
+							env,
+							retry,
+							callbacks,
+							sessionId,
+						),
+					)
+				: undefined,
+			abortSiblingOnFailure(
+				generateTurnPrefixSummary(
+					turnPrefixMessages,
+					model,
+					settings.reserveTokens,
+					apiKey,
+					headers,
+					env,
+					callSignal,
+					thinkingLevel,
+					streamFn,
+					retry,
+					callbacks,
+					sessionId,
+				),
+			),
+		]);
+		const historyText = historyResult?.text ?? previousSummary ?? "No prior history.";
 		// Merge into single summary
 		summary = `${historyText}\n\n---\n\n**Turn Context (split turn):**\n\n${turnPrefixResult.text}`;
-		summaryUsage = historyUsage ? combineUsage(historyUsage, turnPrefixResult.usage) : turnPrefixResult.usage;
+		summaryUsage = historyResult ? combineUsage(historyResult.usage, turnPrefixResult.usage) : turnPrefixResult.usage;
+		summaryCalls = historyResult ? [historyResult.metrics, turnPrefixResult.metrics] : [turnPrefixResult.metrics];
 	} else {
 		// Just generate history summary
 		const result = await generateSummaryWithUsage(
@@ -1051,6 +1119,7 @@ export async function compact(
 		);
 		summary = result.text;
 		summaryUsage = result.usage;
+		summaryCalls = [result.metrics];
 	}
 
 	// Compute file lists and append to summary
@@ -1066,6 +1135,7 @@ export async function compact(
 		firstKeptEntryId,
 		tokensBefore,
 		usage: summaryUsage,
+		summaryCalls,
 		details: { readFiles, modifiedFiles } as CompactionDetails,
 	};
 }
@@ -1086,7 +1156,7 @@ async function generateTurnPrefixSummary(
 	retry?: RetryPolicy,
 	callbacks?: RetryCallbacks,
 	sessionId?: string,
-): Promise<{ text: string; usage: Usage }> {
+): Promise<{ text: string; usage: Usage; metrics: SummarizationCallMetrics }> {
 	const maxTokens = Math.min(
 		Math.floor(0.5 * reserveTokens),
 		model.maxTokens > 0 ? model.maxTokens : Number.POSITIVE_INFINITY,
@@ -1095,7 +1165,7 @@ async function generateTurnPrefixSummary(
 	const conversationText = serializeConversation(llmMessages);
 	const promptText = `# Conversation\n${conversationText}\n\n# Instructions\n${TURN_PREFIX_SUMMARIZATION_PROMPT}`;
 
-	const response = await completeSummarization(
+	const { response, timing } = await completeTimedSummarization(
 		model,
 		buildSummarizationContext(promptText),
 		createSummarizationOptions(model, maxTokens, apiKey, headers, env, signal, thinkingLevel, sessionId),
@@ -1115,5 +1185,6 @@ async function generateTurnPrefixSummary(
 	return {
 		text: contentText(response.content),
 		usage: response.usage,
+		metrics: { kind: "turn_prefix", ...timing },
 	};
 }

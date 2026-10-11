@@ -13,6 +13,7 @@ import lockfile from "proper-lockfile";
 import { CONFIG_DIR_NAME, getAgentDir } from "../config.ts";
 import { normalizePath, resolvePath } from "../utils/paths.ts";
 import { stripBom } from "../utils/text.ts";
+import { THINKING_LEVEL_OPTIONS } from "./defaults.ts";
 import { DEFAULT_HTTP_IDLE_TIMEOUT_MS, parseHttpIdleTimeoutMs } from "./http-dispatcher.ts";
 
 export interface CompactionModelOverride {
@@ -30,6 +31,7 @@ export interface CompactionSettings {
 	reserveTokens?: number; // default: 16384
 	keepRecentTokens?: number; // default: 20000
 	modelOverrides?: Record<string, CompactionModelOverride>; // exact "provider/modelId" keys
+	thinkingLevel?: ThinkingLevel; // default: inherit the session thinking level
 }
 
 export interface BranchSummarySettings {
@@ -973,6 +975,17 @@ export class SettingsManager {
 			);
 		}
 		return override ?? ordinary ?? DEFAULT_COMPACTION_TOKEN_SETTINGS[field];
+	}
+
+	/** Thinking level for compaction summaries; undefined means inherit the session level. */
+	getCompactionThinkingLevel(): ThinkingLevel | undefined {
+		const level = this.settings.compaction?.thinkingLevel;
+		if (level !== undefined && !THINKING_LEVEL_OPTIONS.includes(level)) {
+			throw new Error(
+				`Invalid compaction.thinkingLevel setting: ${String(level)}. Expected one of ${THINKING_LEVEL_OPTIONS.join(", ")}.`,
+			);
+		}
+		return level;
 	}
 
 	getCompactionReserveTokens(model?: Pick<Model<string>, "provider" | "id">): number {

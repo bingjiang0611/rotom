@@ -1,6 +1,7 @@
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { SessionBeforeCompactEvent } from "../../src/core/extensions/index.ts";
+import type { SessionBeforeCompactEvent, SessionCompactEvent } from "../../src/core/extensions/index.ts";
+import { SettingsManager } from "../../src/core/settings-manager.ts";
 import { createHarness, type Harness } from "./harness.ts";
 
 function seedHistory(harness: Harness, totalTokens = 650): string {
@@ -131,6 +132,49 @@ describe("AgentSession compaction model overrides", () => {
 			summary: "built-in summary",
 		});
 		expect(harness.getPendingResponseCount()).toBe(0);
+	});
+
+	it.each([
+		["inherits the session level", undefined, "high"],
+		["uses compaction.thinkingLevel", "low", "low"],
+	] as const)("built-in compaction %s and reports summary timing", async (_name, compactionLevel, expected) => {
+		const compactEvents: SessionCompactEvent[] = [];
+		const harness = await createHarness({
+			models: [{ id: "faux-1", contextWindow: 4000, reasoning: true }],
+			tools: [],
+			settings: {
+				compaction: { reserveTokens: 2000, keepRecentTokens: 150, thinkingLevel: compactionLevel },
+			},
+			extensionFactories: [
+				(pi) => {
+					pi.on("session_compact", (event) => {
+						compactEvents.push(event);
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		harness.session.setThinkingLevel("high");
+		seedHistory(harness);
+		const levels: Array<string | undefined> = [];
+		harness.setResponses([
+			(_context, options) => {
+				levels.push(options?.reasoning);
+				return fauxAssistantMessage("built-in summary");
+			},
+		]);
+		await harness.session.compact();
+		expect(levels).toEqual([expected]);
+		expect(harness.session.thinkingLevel).toBe("high");
+		expect(compactEvents).toHaveLength(1);
+		expect(compactEvents[0]?.summaryCalls).toEqual([
+			expect.objectContaining({ kind: "history", attempts: 1, durationMs: expect.any(Number) }),
+		]);
+	});
+
+	it("rejects an invalid compaction.thinkingLevel", () => {
+		const settings = SettingsManager.inMemory({ compaction: { thinkingLevel: "fast" as never } });
+		expect(() => settings.getCompactionThinkingLevel()).toThrow("Invalid compaction.thinkingLevel setting: fast");
 	});
 
 	it("uses the newly selected model without changing ordinary settings", async () => {

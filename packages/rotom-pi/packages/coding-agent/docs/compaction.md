@@ -125,6 +125,10 @@ For split user-message spans, Pi generates two summaries and merges them:
 1. **History summary**: Previous context (if any)
 2. **User-message-span prefix summary**: The early part of the split user-message span
 
+The prefix summary does not read the history summary, so Pi sends both requests at the same time. If one request fails, Pi aborts the other and reports the first failure. The merged summary always puts the history summary first.
+
+After a built-in compaction, `session_compact` carries `summaryCalls`: one entry per summary request with `kind` (`history` or `turn_prefix`), `durationMs` (including retries), `attempts`, and, when the provider streamed them, `firstThinkingMs` and `firstTextMs` for the final attempt. The field is absent when an extension supplied the compaction.
+
 ### Cut Point Rules
 
 Valid cut points are:
@@ -433,6 +437,7 @@ Configure compaction in `~/.pi/agent/settings.json` or `<project-dir>/.pi/settin
 | `enabled` | `true` | Enable auto-compaction |
 | `reserveTokens` | `16384` | Tokens to reserve for LLM response |
 | `keepRecentTokens` | `20000` | Recent tokens to keep (not summarized) |
+| `thinkingLevel` | session level | Thinking level for summary requests, clamped to the model. A lower level such as `low` makes compaction faster but can make summaries less thorough. |
 
 Disable auto-compaction with `"enabled": false`. You can still compact manually with `/compact`.
 
