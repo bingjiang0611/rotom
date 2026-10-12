@@ -91,7 +91,7 @@ rotom 默认提供 `codemode`：模型可用 JavaScript 编排普通文件工具
 
 ## 上下文折叠（实验，默认关闭）
 
-`ROTOM_CONTEXT_FOLD=1 rotom` 开启常驻 `context` 工具：模型可列出历史、把已完成的旧工具步骤折叠成摘要，并按需召回原文（追加在末尾）。原文保留在 session 文件，不额外落盘；Pi 原生压缩仍作兜底。每次折叠会使折叠点之后的 provider 缓存失效，真实收益尚未验证。只接受 `0` / `1`。详见 [Context fold](agent/context-fold.md)。
+`ROTOM_CONTEXT_FOLD=1 rotom` 开启常驻 `context` 工具：模型可列出历史、把已完成的旧工具步骤折叠成摘要，并按需召回原文（追加在末尾）。原文保留在 session 文件，不额外落盘；Pi 原生压缩仍作兜底。每次折叠会使折叠点之后的 provider 缓存失效。L3 实测（Qoder DeepSeek-Flash，160 文件读取任务）：任务照常完成，计费 credits 基本中性（0.97×），收益仅为峰值上下文下降，模型是否折叠不稳定。只接受 `0` / `1`。详见 [Context fold](agent/context-fold.md)。
 
 ## 浏览器命令
 
