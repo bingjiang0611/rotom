@@ -5,8 +5,8 @@
 实现与 colocated 单测已迁到 `rotom/extensions/qoder/`，不保留第二份实现或旧入口。产品将其作为第五个 bundled extension 默认加载，可用 `ROTOM_QODER=0` 停用。用户用法与边界见 [产品说明](../../docs/usage.md#qoder原生-provider默认启用)。
 
 - 正式 provider 身份为 `qoder`；新会话写入 `qoder-account-v1` 绑定，同时兼容读取旧 `qoder-experimental-account-v1` 绑定。旧浏览器登录凭据需通过 `/login qoder` 重新建立，不自动迁移活跃会话。
-- `lite` / `performance` 保留离线基线；账号目录按原始 key 发现并限制为实测白名单交集。当前 Default 目录 17 项（含 `smodel` Sonus）已适配，13 条 reasoning 路由支持原生推理，其中八条的 effort 取实测白名单与当前目录交集，其余固定 enabled；Ultimate/Sonus 的不同加密 item 完整保留，十条路线（含 Ultimate）固定 COSY 单次推理，不做失败回退。仅 Ultimate/Kimi-K3/DeepSeek-V4-Flash 的 PNG/JPEG/WebP 与 272K 管理窗口按已验证能力和当前目录交集开放，输出≤4096；未知 opaque 形状和未验证 effort 仍拒绝。历史见[目录验证](CATALOG-VERIFICATION.md)、[Ultimate/Flash 续查](REASONING-VERIFICATION.md)，基线见[全模型验证](ALL-MODELS-VERIFICATION.md)，后续见[长会话与档位验证](LONG-SESSIONS-VERIFICATION.md)，最新[图片与大上下文验证](IMAGE-CONTEXT-VERIFICATION.md)。
-- 不启动 Qoder CLI，不刷新或写回 CLI 凭据，不嵌套 agent，不添加工具。启用 provider 后默认 browser 模式使用 Pi 原生 OAuth 存储/刷新，显式 `ROTOM_QODER_AUTH=qodercli` 才使用只读 CLI 兼容路径；独立登录与强制隔离凭据本地到期后的串行真实刷新已通过；不是自然到期测试。历史见 [浏览器认证验证](BROWSER-VERIFICATION.md)，本轮见 [能力与 Credit 验证](CAPABILITIES-VERIFICATION.md)。
+- `lite` / `performance` 保留离线基线；账号目录按原始 key 发现并限制为实测白名单交集。当前 Default 目录 17 项（含 `smodel` Sonus）已适配，13 条 reasoning 路由支持原生推理，其中八条的 effort 取实测白名单与当前目录交集，其余固定 enabled；Ultimate/Sonus 的不同加密 item 完整保留，十条路线（含 Ultimate）固定 COSY 单次推理，不做失败回退。仅 Ultimate/Kimi-K3/DeepSeek-V4-Flash 的 PNG/JPEG/WebP 与 272K 管理窗口按已验证能力和当前目录交集开放，输出≤4096；未知 opaque 形状和未验证 effort 仍拒绝。当前产品合同与离线门禁见[Provider 离线验证](../../docs/agent/provider-verification.md)和[验证与交付](../../docs/agent/verification.md)。
+- 不启动 Qoder CLI，不刷新或写回 CLI 凭据，不嵌套 agent，不添加工具。启用 provider 后默认 browser 模式使用 Pi 原生 OAuth 存储/刷新，显式 `ROTOM_QODER_AUTH=qodercli` 才使用只读 CLI 兼容路径；独立登录与强制隔离凭据本地到期后的串行真实刷新已通过；不是自然到期测试。当前认证、Credit 与额度边界以产品说明和 Provider 离线门禁为准。
 - 完整流的 allowlisted Credit 可被记录；缺失/错误/取消保持 unknown，部分 billable-reported 小计不是余额或 USD。`/qoder-credits` 仅交互 UI 显示固定只读额度快照，不进入对话/压缩/分支上下文。美元费用、接口支持/订阅适用/第三方许可未确认；Pi 必填价格零只是占位，不代表免费。
 
 ## 离线检查
@@ -82,9 +82,9 @@ raw legacy 探针仍要求字面 DONE/标准 finish 才记 pass；Sonus/MiniMax 
 
 ## 证据与来源
 
-- [目录与具名模型验证](CATALOG-VERIFICATION.md)
-- [历史产品接入及能力验证](PRODUCT-VERIFICATION.md)
-- [d66676e 历史修复验收](VERIFICATION.md)（历史路径/命令不代表当前树）
+- [Provider 离线验证](../../docs/agent/provider-verification.md)
+- [产品说明](../../docs/usage.md#qoder原生-provider默认启用)
+- [验证与交付](../../docs/agent/verification.md)
 - [Qoder CLI models](https://docs.qoder.com/cli/model.md)、[usage](https://docs.qoder.com/cli/usage.md)、[SDK overview](https://docs.qoder.com/cli/sdk/overview.md)。官方 SDK 封装 CLI agent，不是独立推理 API 合同。
 - 本机 CLI 1.1.45 的 serializer、`bundle/proto/chat.proto`：直连接口与请求字段线索。目录通过固定 `https://api2.qoder.sh/algo/api/v2/model/list?Encode=1` 的独立 COSY 适配获取 `assistant` 场景，没有猜测 `/v1/models`，也没有加载 native/WASM。参考来源与 MIT 通知见产品 `THIRD_PARTY_NOTICES.md`。
 - [社区桥接线索](https://github.com/bzym2/QoderGateway/blob/main/src/qoder2api/bridge.py)：没有安装、运行或复制。

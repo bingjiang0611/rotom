@@ -2,7 +2,7 @@
 
 > **历史设计与采用合同**：下文“当前安装 `.2` / 仅 opt-in”描述第十二批结束时的状态。后续已内化 `pi-subagents`（当前 `0.52.1-rotom.7`），并从 `alpha.3` 起由 launcher 默认启用 scoped 执行，见 [当前默认与限制](subagent-owned-default.md)。本页保留采用过程、授权范围与证据，不作为当前安装操作指南。
 
-**状态：隔离首版采用门已通过；仅供显式 opt-in 的新隔离会话，不是当前默认运行时合同。** 用户在第四批采用审查后选择“先重设采用合同”；本文件确定设计与验收线，不授权立即更新依赖、放宽旧记录、迁移活跃会话或修复本机 VM。当前仍安装 Subagent `.2`；[第五批实现](../../rotom/extensions/third-party/history/subagent-owned-execution.md) 已支持有证明的 runner 槽位释放；[第六批证据](../../rotom/extensions/third-party/history/subagent-owned-workflow.md)增加显式 async child 的 workflow/controller 封存与 lineage；[第七批](../../rotom/extensions/third-party/history/subagent-owned-foreground.md)补了 fresh single Pi foreground 的 writer/group/lease 与双屏障。[第八批](../../rotom/extensions/third-party/history/subagent-owned-store.md)增加显式初始化的 namespace、store 身份和跨版本共享 lease。[第九批](../../rotom/extensions/third-party/history/subagent-owned-session.md)证实旧 reader 能回收第八批的 v1 未决 lease，改为 v3 store/session 根绑定、旧 reader 不可读的 v2 lease，并补 async Pi/native revival 的强关管道负例。[第十批](../../rotom/extensions/third-party/history/subagent-owned-flat.md)补了首版 pre-writer admission、真实公开 single 入口、显式工具/扩展与初始化 CLI；[第十一批](../../rotom/extensions/third-party/history/subagent-owned-linux.md)完成独立授权 Linux 真进程矩阵，并纠正第九/十批类型配置范围、按实际候选补跑；[第十二批](../../rotom/extensions/third-party/history/subagent-owned-readiness.md)补齐真实 npm 入口的 startup/wait/drain 与 native lease 历史证明问题；独立 `.owned-flat.7` 归档、私有 metadata/integrity 同步及 macOS/Linux 实际安装验收通过，当前维护安装仍未切换。第四批见 [历史候选](../../rotom/extensions/third-party/history/subagent-external-group.md)。
+**状态：隔离首版采用门已通过；仅供显式 opt-in 的新隔离会话，不是当前默认运行时合同。** 用户在采用审查后选择“先重设采用合同”；本文件确定设计与验收线，不授权立即更新依赖、放宽旧记录、迁移活跃会话或修复本机 VM。历史候选报告不属于当前权威文档；当前默认行为与维护入口见[当前默认与限制](subagent-owned-default.md)、[源维护](subagent-source-maintenance.md)和[验证入口](verification.md)。
 
 ## 首版范围：用户已明确收窄
 
@@ -120,7 +120,7 @@ operator-reported 和 machine-observed 必须分开显示。日志中只记录 a
 | 已阅/abandoned 与人工可核验 closure | 区分接受风险与真实证明 | 原始 unknown 不被擦除，来源可追溯 |
 | 老 run / 活跃会话 / 旧 proof | 不隐式迁移 | 不补造创建期 ownership |
 
-本矩阵按首版范围的采用结果、当前源摘要、真实/合成边界、失败历史与唯一归档身份见[第十二批证据](../../rotom/extensions/third-party/history/subagent-owned-readiness.md)。当前维护 manifest、vendor 与 installed source 未切换；用户授权的交付面是独立产品副本。
+本矩阵定义首版范围的采用结果、当前源摘要、真实/合成边界与失败处置；它不把历史实验结果当作当前安装或活跃会话的证据。当前维护 manifest、vendor 与 installed source 以[源维护](subagent-source-maintenance.md)和[当前默认与限制](subagent-owned-default.md)为准。
 
 macOS 与 Linux 均需真实本机/容器进程回归；Linux 测试需独立且明确授权的可用环境，不自动修本机旧 VM 磁盘。Windows 不在当前 rotom 产品 OS 范围，unsupported 分支应 fail closed，但不以此冒充 Windows 真机验证。模型 A/B、远端副作用和生产操作另行授权。
 

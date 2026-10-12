@@ -143,7 +143,7 @@ rotom/bin/check-personal
 
 已实现创建期 POSIX 进程组、一次性 TERM/KILL/核验、直接进程先退出时的同组后代清理，以及组级/全图证据分离。主动脱离组的后代仍属于 unknown，不能自动恢复成替代 writer。定向 22/22、原 external CLI 7/7、followthrough 15/15、候选全源码类型检查通过；当前产品门禁仍为 153/153。
 
-**暂不更新锁定依赖或已安装运行时。** 通用 group controller、混合任务/恢复及跨平台的扩大门禁尚未完成；不得将这些候选结果称为产品已启用。方案、失败记录、验证和采用条件见 [External CLI 进程组候选](../../rotom/extensions/third-party/history/subagent-external-group.md)。
+**暂不更新锁定依赖或已安装运行时。** 通用 group controller、混合任务/恢复及跨平台的扩大门禁尚未完成；不得将隔离候选结果称为产品已启用。当前采用条件见 [External CLI 采用合同](subagent-external-adoption-contract.md)，运行时边界以当前产品回归为准。
 
 ## 第四批：采用审查，发现并修复候选缺口
 

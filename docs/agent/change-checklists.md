@@ -54,8 +54,8 @@
 - 中英文 capability map、group allowlist、canonical active/state order、additive/resume/fork 是否有测试？live tree 不卸载工具；replacement/reload 只从选中分支恢复，不将 abandoned discovery 静默写回新分支，见 [状态合同](harness-hardening.md)。
 - Subagent action/command schema 是否仍收窄，普通执行是否固定 `mission:false`？
 - 自有 Subagent skill 是否与当前工具面一致、示例仍可执行，且 launcher/resource contract 未回退到上游完整指南？
-- 以下 wait/owner-loss/lifeline/workflow 记录描述旧版本及采用过程，不是当前默认仍停留在 `.2` 的声明；当前 scope 与边界见 [默认执行合同](subagent-owned-default.md)。Subagent wait 的历史缺口与维护面候选见 `rotom/extensions/third-party/history/subagent-regression.md`；这些历史候选当时仅用于隔离维护评测、未应用到 installed source，不构成当前禁止修改安装源码的规则。有界真实模型/L2 结果见 `rotom/extensions/third-party/history/subagent-live-eval.md`：局部 wait 改善不代表完整门禁通过，父进程死亡后的继续写入风险仍未修复。不得外推通知、取消或恢复已整体修复，也不能在 wrapper 中吞掉已消费订阅的通知。
-- Workflow owner 丢失的止损见 `rotom/extensions/third-party/history/subagent-owner-loss.md`；pipe/公开 abort 候选见 `rotom/extensions/third-party/history/subagent-lifeline.md`；完整包固定路径与缺配置修复见 `rotom/extensions/third-party/history/subagent-workflow.md`。仅隔离验证；不响应取消的工具、漏加载 runtime 的 child 仍可能写入，启动确认未完成，不能据此解除 unknown、自动重试或部署。
+- 旧 wait/owner-loss/lifeline/workflow 候选仅属于已完成的隔离实验，不作为当前产品证据；对应历史报告已清理。当前 scope、unknown、关闭证明、恢复与不重放边界以[默认执行合同](subagent-owned-default.md)和[采用合同](subagent-external-adoption-contract.md)为准。
+- 任何执行资源关闭证明都不等于全树终止、外部效果成功或恢复授权；不响应取消的工具、逃逸后代和漏加载 runtime 的 child 仍须按 unknown 处理。新增或修改相关路径时，使用当前 `rotom/extensions/third-party/subagent/` 回归与 `check-personal`，不重放已删除的历史 patch 堆栈。
 - Subagent 启动回执、workflow/wait 结果与 process-terminal 是否保持分层？不得把父 workflow complete 或直接 runner close 当成所有 child 完成，也不得以短窗口测试 teardown 删除仍在写的夹具；external-CLI 与当前 product-config 固定版本的 lifeline/SDK 回归纳入 check-personal，不替换历史失败 gate；保留 noncooperative 与 stop-residual 的负对照，PASS 不代表残留写入已被消除。普通 stop management 回执也不得被误解为 writer 终止。
 - Ask `continueExecution` metadata 是否在进入锁定 package 前剥离，并仅在正常 `stop`、未取消且尚未调用下一工具时补一次 follow-up？模型可见的继续指令也只能附加到明确选中的 continuation option，停止/偏好不附加。Goal 上限中止、错误、取消或未知结束不得触发补跑；session 切换/重载/树导航及迟到答案不得复活旧意图。Goal 安全暂停仍需用户显式 `/goal resume`，不通过 Ask 自动恢复或重置上限。
 

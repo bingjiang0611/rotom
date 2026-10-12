@@ -11,7 +11,7 @@
 - 统一项目仓库入口；区分源码公开、npm `private` Alpha 与许可/正式发布。
 - 修正 Qoder 默认 browser / 显式 qodercli、13 个资源文件、250K 实测输入与 272K 管理窗口的区别。
 - 同步 Subagent、deferred-tools 重构路径及历史目录链接；移除已删除 flat/readiness 测试的失效链接，不恢复兼容壳。
-- 历史实验增加时点边界和[重放说明](../../rotom/extensions/third-party/history/README.md)，保留原版本、失败、计数与授权限制。
+- 历史实验增加时点边界和[重放说明](../../rotom/extensions/third-party/history/README.md)；已完成且不再具备当前权威性的报告已清理，仍维护的测试入口、当前合同和失败处置保留在产品文档中。
 - Computer Use 文档对齐默认禁止推测性重放、真实参数与可用检查；Goal 文档对齐源码入口和组合 no-progress 指纹。
 - 修正 worker 的 fresh 默认、bundled skill 的 scoped fork/resume 限制；上游完整指南与产品工具面分开。
 - 安装示例使用版本占位，澄清 `--force` 会删除同版本目录、独立 prefix 不适用全局卸载命令；设计原型同步品牌并标为 prototype。

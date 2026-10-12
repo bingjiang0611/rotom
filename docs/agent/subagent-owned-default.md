@@ -1,66 +1,40 @@
-# scoped 执行成为发行包默认
+# 默认 scoped 执行合同
 
-> 默认行为仍适用；下方安装路径、产物摘要与验证表记录 `alpha.3` 这一批，不是当前 PATH 状态或最新版本的重新验收。当前产品版本见 `rotom/package.json`。
+本页描述新会话的产品默认行为，不记录某批实验的安装路径、测试计数或性能结果。产品和组件版本分别以 [`rotom/package.json`](../../rotom/package.json)、[`packages/rotom-subagents/package.json`](../../packages/rotom-subagents/package.json) 及发行 identity 为准；它们不证明当前 PATH 安装已更新。
 
-## 当前状态
+## 默认与显式开关
 
-`rotom@0.1.0-alpha.3` 起，**scoped 执行是发行包默认**，不再需要外部 wrapper 或手工 opt-in：
-
-- launcher 在启动 Pi 前选定 `PI_SUBAGENTS_EXECUTION_SCOPE=owned-process-groups-v2`，并在 `~/.local/state/rotom/subagent-store` 锚定 store。已存在的锚点直接复用，绝不替换。
-- store 放在持久 state 目录而不是临时目录，避免 tmp 清理删掉活跃 store 锚点后使运行中的工作无法证明。
-- 当前源码选择 `pi-subagents@0.52.1-rotom.7`：在 `.6` 的 runner 异常收尾与 paused 容量释放（实际验证见 [runner drain](subagent-runner-drain.md)）之上，父侧 `subagent_supervisor` 移除了必定失败的 `send`/`ask`，只保留 list/reply/pending/status；子 agent 仍用 `contact_supervisor` 发起请求。本机尚未安装 `.7`。旧未知任务不解锁、不重放；运行中会话不热替换。本节其余证据记录 scoped 默认首次发布批次，不冒充最新版本重新验收；本次未发布 npm。
-- `.4` 用产品自有短提示替代上游叠加说明，schema 仅描述当前 scope 允许的字段；指定 id 的 status 复用恢复预检与有界尾部读取。预检通过不是启动授权，启动仍核对配置/closure/identity/canonical lease。schedule executor 和自动 goal-mission driver 已删除（legacy scope 同样不再执行）；历史数据不删、不迁移、不重放。共享历史 reader 与 inspector/fleet 依赖仍保留。
-- 本批最终源码：46 项 unit、211 个 TS 文件对当前 Pi `1.0.4-rotom.0` 的 strict typecheck；最终归档有 source digest/lock/integrity 与隐私审计。SDK 安全套件在最后的状态/selector 收口前 3/3 通过，重跑在本机高负载下 600s 超时，仅前 2 项完成，不冒充最终全量通过。既有 `test:compat` 引用已不存在的 `subagent-owned-flat.test.mjs`，仍为 BLOCKED，未恢复旧框架。真实模型业务效果、真实桌面交互、npm 发行安装/升级未验收。
-- 静态全工具面（移除 Codemode 绝对路径差值）：legacy schema `37,340 → 34,760` bytes，guidelines `11,723 → 9,752`；owned schema `38,601 → 33,984`，guidelines `12,216 → 10,387`。默认 deferred 面未变；这是 metadata bytes，不是精确 token、费用或延迟收益。
-- 之前的个人 wrapper（`~/.local/share/rotom/owned-default-1/rotom`）与仓库内 `scripts/owned-default-launcher.mjs` 已删除；`rotom` 命令直接指向产品 `bin/rotom`。旧 profile 目录只留 `RETIRED.md` 与旧 store 作为证据，不再使用。
-- **切换默认不迁移、不升级、不回放任何既有会话或未知任务。** 存活进程保持原路径与原语义。
-
-### 仍然保留的显式开关
-
-去掉的是"必须手工配置才能用默认"，不是逃生阀。owned scope 会在启动前拒绝不支持的拓扑，没有退路会让人无法工作：
+[`launch-runtime.mjs`](../../rotom/runtime/launch-runtime.mjs) 在启动 Pi 前为未指定 scope 的新会话选择 `PI_SUBAGENTS_EXECUTION_SCOPE=owned-process-groups-v2`，并在 `~/.local/state/rotom/subagent-store` 锚定持久 store。已存在的锚点只复用，不替换。`--version` 探测不创建 store。
 
 ```sh
-PI_SUBAGENTS_EXECUTION_SCOPE= rotom        # 显式空值：回到旧 scope，不创建/触碰 store
-PI_SUBAGENTS_TEMP_ROOT=/absolute/path rotom # 自定 store 位置（绝对路径）
+PI_SUBAGENTS_EXECUTION_SCOPE= rotom         # 显式空值：旧 scope，不创建/触碰 owned store
+PI_SUBAGENTS_TEMP_ROOT=/absolute/path rotom # 自定 owned store 位置，必须是绝对路径
 ```
 
-其他值、相对路径、空 store 路径、缺少 HOME、store 身份漂移或不可读，都在启动 Pi 前失败退出：不回退旧 scope、不重建锚点、不启动 writer。`--version` 探测不创建任何 store。
+非法 scope、相对或空 store 路径、缺少 HOME、不可读 store、身份或拓扑漂移会在启动 writer 前失败，不回退、重建锚点或自动修复。删除整个 base 只会围栏旧记录，不授权恢复、重放或解除旧容量。
 
-注意 store 锚点自身定义 store 身份，因此**改写锚点里的 `storeId` 不会被识别为漂移**；能被检测的是路径、inode、device topology 与解析失败。Darwin 的 mount device ID 可能在重启后重新编号，`.2` 只允许四个目录的旧→新 device 保持一致双射，不改 marker；Linux 仍精确匹配 device。删除整个 base 是用户行为，会把旧记录围栏在外，但同样不授权恢复它们。
+- store 锚点定义 `storeId`，因此直接改写该值不等同于可检测的身份漂移。校验包含路径、inode、owner/permission、解析和 device topology。
+- Darwin 重启可能重编号 mount device；v3 仅允许受控目录的 device 一致双射，不改 marker。Linux 保持精确 device 匹配。旧 store 版本不能通过重复 init 自动升级。
+- 默认切换不迁移、升级或回放既有会话。存活进程保持原路径、原语义；安装或 capacity 释放不授权热替换未知工作。
 
-### 三个内置 agent
+完整状态机、资源类型和 schema 以维护组件的 [owned-execution.md](../../packages/rotom-subagents/docs/owned-execution.md) 为准。启动与资源合同在 [`product-config.mjs`](../../rotom/runtime/product-config.mjs)；维护流程见 [subagent-source-maintenance.md](subagent-source-maintenance.md)。
 
-`worker`、`scout`、`reviewer` 显式声明空 extensions 与 `defaultContext: fresh`（`0.52.1-rotom.1` 起）。工具白名单、模型和 thinking 未扩大，用户/项目 `agentOverrides`（含显式 `fork`）仍优先。其他仍依赖 ambient extensions 或隐式工具的自定义 agent，在默认 scope 下会在 writer 前被拒绝，需自行补显式声明。
+## Agent 与监督
 
-## 边界
+内置 `worker`、`scout`、`reviewer` 显式声明 extensions 和 fresh context。用户/项目 overrides 的配置优先级不绕过当前 scope 的启动限制；不支持的 fork、worktree、嵌套、gate/review 或独立 foreground 形式仍在 writer 前拒绝。自定义 Agent 必须满足当前声明和工具合同，不能依赖隐式 ambient extensions 扩大能力。
 
-- scoped 执行是**执行归属与资源关闭管理，不是安全沙箱**：工具仍以本机用户权限运行，显式 extensions 仍是受信任本地代码。
-- 首个 scoped release 只接受已验证拓扑：单个 async Pi/external CLI 任务或 async workflow controller；nested/worktree/gate/review/fork/import/external job/独立 foreground 在 writer 前拒绝。
-- 关闭证明只覆盖已登记的受控资源，`descendantCoverage` 与 `effectVerification` 仍为 `unverified`；capacity 释放不授权恢复或重放。
-- 吞吐未测量。三对真实模型对照见 `experiments/subagent-owned-performance/README.md`：串行固定任务未见明显变慢，**不是性能等效或提速证明**。
+子 Agent 通过 `contact_supervisor` 提问；父侧 `subagent_supervisor` 使用 list/reply/pending/status 回应。监督消息不替代冻结的任务权限或验收合同。任务结果、进程关闭和业务效果必须分别判断。
 
-## 门禁与实际证据
+## 安全与恢复边界
 
-`/tmp/rotom-release-default-root` 指向本批私有证据根（上一批 wrapper 阶段在 `/tmp/rotom-owned-default-root`）。产品 `rotom-0.1.0-alpha.3.tgz`：9366320 bytes / 3805 files，SHA512 SRI `sha512-L/NvzepXpsaANpYDzWW8+tfqQ+ixNukDtN9QaMIP8HxMxuoVvTlAnbT/pAXV9jEhg8hGdqOVKWc2z7+g7fd9Nw==`；已安装内容与该归档逐字节一致（3805/3805）。
+- scoped 执行管理归属和已登记资源的关闭，不是文件系统或工具沙箱；工具仍以本机用户权限执行，显式 extensions 是可信本地代码。
+- 启动范围和允许字段以当前维护组件的 schema 为准，不用旧实验命令扩张能力。旧任务、schedule/mission 历史数据不迁移或自动重放。
+- 关闭证明只覆盖已登记的受控资源；`descendantCoverage` 与 `effectVerification` 仍为 `unverified`。关闭、初始化、preflight 和 capacity 释放都不是业务成功或恢复授权。
+- unknown、身份失配、closure 缺口或失效 canonical lease 不因普通重试、监督回复或删除文件而变为可恢复。恢复须满足当前任务、资源关闭和独占 writer 合同。
+- 旧模型对照和 metadata 字节变化不构成性能等效、提速、费用节省或真实业务效果证明。
 
-| 验证 | 结果 |
-|---|---|
-| launcher 启动契约 `verify-pi-runtime.test.mjs` | 33/33，含默认 scope/store 路径、锚点幂等复用、显式空值 opt-out、显式 base、非法 scope/相对或空 base/缺 HOME 在 Pi 启动前失败、路径/inode/解析漂移退出 1 且不重写锚点 |
-| 新锁 fresh 副本 `check-personal` | 321/321 |
-| `test:distribution` | 16/16 |
-| 实际 npm bin 六场景 | PASS：wait、persistent、drain、deferred、native resume、mixed/foreground；fixture 不再注入 scope/store，由产品自建并核对 v3 锚点与只读 inspect |
-| 三个内置 profile（产品默认 scope） | worker/scout/reviewer 各自 dispatch→read→wait→native resume→close，`ownedClosure.state=observed` |
-| 已切换的 PATH 命令 | 实际链接完成同一 worker 全链路，`publicNpmBin:true` |
-| default/full runtime smoke | 2/2 |
-| 独立 prefix alpha.2 → alpha.3 → 卸载 | PASS；安装外 v3 marker SHA256 不变，`recoveryAuthorized:false` |
-| 旁路安装保护 | 切换前后 56099 个旧安装/维护 runtime 文件 SHA256 不变（含保留的 alpha.1、alpha.2 与全局旧包） |
+## 验证入口
 
-所有模型请求都是本地 faux/loopback SSE，零远端模型调用。
+[verification.md](verification.md) 是产品验证入口；launcher/store 合同回归在 [`verify-pi-runtime.test.mjs`](../../rotom/runtime/verify-pi-runtime.test.mjs)，发行面回归在 [`distribution.test.mjs`](../../rotom/runtime/distribution.test.mjs)。维护组件提供 unit、SDK、typecheck 和 product 门禁，具体脚本以其 `package.json` 为准。
 
-### 未验证与保留的失败
-
-- **Linux 未复验**：本批只在 macOS 执行启动契约、实际 CLI 与 smoke。launcher 是 POSIX sh 且组件源码未变，但 Linux 上的新默认未实测。
-- 未测试 Windows、GUI/Chrome 绑定、真实业务效果、活跃会话升级或发布。
-- 第一次编写的漂移负例把"改写 `storeId`"当作漂移，实际被接受（锚点自定义身份），测试 32/33 失败。改为路径/inode/解析漂移后 33/33，并在上文明确该语义，而不是放宽运行时。
-- 一次完整 `check-personal` 出现 319/321：`process-tree.test.ts` 的 `aborted` 分支返回 `unavailable`。单独重跑两次均 5/5，随后完整门 321/321。该用例与 Subagent scope 无关，属于时序敏感的既有波动，未追认为本次回归，也未用后续 PASS 抹去首次失败日志。
-- 上一批 wrapper 阶段的证据、日志与已退休 profile 保留，不冒充本批结果。
+运行前核对当前脚本及所需输入；缺少旧 preimage 的历史兼容 harness 只能在匹配的隔离历史 checkout 调查，不能重建兼容壳或重放 unknown 工作。真实模型、桌面、跨平台及安装/升级必须记录实际版本和本次验证，不沿用历史 PASS。本页不授权付费请求或活跃会话升级。

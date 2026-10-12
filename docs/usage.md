@@ -161,11 +161,11 @@ ROTOM_QODER_AUTH=qodercli rotom --provider qoder --model lite
 - 使用服务端原始 key，不根据截图猜 ID。当前 Default 目录的 **17 项**已适配：`auto`、`ultimate`、`performance`、`efficient`、`lite`；`smodel`（Sonus）；`qmodel_38max` / `qfmodel`（Qwen3.8-Max / Flash）；`qmodel_latest` / `qmodel`（Qwen3.7-Max / Plus）；`kmodel_latest` / `kmodel`（Kimi-K3 / K2.7-Code）；`gmodel` / `gfmodel`（GLM-5.3 / Flash）；`dmodel` / `dfmodel`（DeepSeek-V4-Pro / Flash）；`mmodel`（MiniMax-M3）。仍需出现在当前账号 enabled 目录；离线仅保留 Lite/Performance 基线。
 - 除 Lite/Performance/Auto/Efficient 外，13 条路由支持原生推理与工具往返，其中八条按实测白名单与当前目录交集开放 thinking 档位（见下表）；其余仍固定 enabled，单一 medium 不代表测得的中等强度。Ultimate 旧双字段、新 COSY 三字段 item（含 `target_hash`）与 Sonus item 使用不同 Pi signature 格式完整保存，并在同模型回传时严格校验；不解密、不丢字段、不跨模型迁移签名。切换模型时，仅在出站请求副本中移除其他 provider/model/api 的推理与工具签名，保留可见文本和工具调用/结果配对；空白或 redacted 推理不发送，不改写已保存的历史。同模型签名损坏仍报错，不以兼容转换掩盖。仅 Ultimate、Kimi-K3、DeepSeek-V4-Flash 开放图片和 272K 管理窗口（与 Codex 声明一致；已实测上游可吃超过 272K 输入）；其余仍为文本、≤32K。所有输出上限仍为 4096，不将目录的 1M 当成已验证容量。
 - Efficient、Qwen3.8 两项、Qwen3.7-Max、Kimi-K3、GLM-5.3-Flash、DeepSeek-V4-Flash、MiniMax-M3、Sonus、Ultimate 明确选择固定 COSY 单次推理协议；其余七项使用原 direct endpoint。推理选中状态不照搬目录能力标记；没有 CLI 子进程、远程 agent 循环或失败后回退重试。
-- **覆盖当前目录不等于任意未来模型可用**：未实测的新 key、BYOK/Enterprise、未知 opaque 形状仍不开放。工具往返、原生 signature 和磁盘恢复的证据及未验证项见维护面 `experiments/qoder-provider/ALL-MODELS-VERIFICATION.md`，不冒充真实 TUI 或完整业务验证。
+- **覆盖当前目录不等于任意未来模型可用**：未实测的新 key、BYOK/Enterprise、未知 opaque 形状仍不开放。工具往返、原生 signature 和磁盘恢复的离线检查见维护面 [Provider 离线验证](agent/provider-verification.md)，不冒充真实 TUI 或完整业务验证。
 - COSY 目录请求固定到 Qoder 的 `api2.qoder.sh`，无 CLI/WASM 依赖。兼容版本头为已核实的 `1.1.45`（影响 Sonus 目录可见性，不是 rotom 发行版本，也不表示官方支持）。目录绑定账号、有效一小时，并通过 Pi 原生 model store 持久化模型元数据、能力字段和非敏感账号摘要；恢复时重新解析并拒绝账号不匹配，绝不写入令牌。过期缓存仍可维持模型选择和默认模型，下一次推理前通过 Pi 原生 registry 自动刷新一次（含工具续轮与压缩，最长 30 秒）；新目录仍支持当前模型、上下文和思考档位才继续，不自动换模型或降档。同作用域并发请求共享刷新；刷新失败或取消不循环重试、不重放推理，也不会静默切换模型，失败可用 `/qoder-models` 手动刷新。账号变化仍受会话绑定约束，切换账号须新会话。独立 SDK 直建 provider、未接入 session 刷新回调时仍须显式 `refreshModels`。目录刷新不等于模型请求；浏览器令牌到期时仍按前述原生刷新规则处理。
 - **Credit 不等于 USD 或最终账单**：完整流同时返回有效 `credits` / `billable` 才记为服务端 reported；缺失、畸形、错误或取消保持 unknown。本轮 Sonus 有明确 Credit，Lite 未返回该字段，不能据此说免费。选中 Qoder 时，普通状态统计行以 `Cr1.235` 形式显示本会话 **partial、billable-reported** 小计，固定保留三位小数；尚无观察显示 `Cr0.000`，只有未知观察显示 `Cr?`，已知小计同时存在未知观察时仍只显示数字、不追加后缀。统计行末以 `sid:<sessionId>` 显示当前 session ID。这里不显示 Pi 的 `$0` 占位，也不表示已知 USD 价格。记录包含整个会话树，但不归入继承自另一会话的费用。丢失作用域的迟到回调不写入新会话，计量不是完整审计账本或预算熔断。
 - `/qoder-credits` 需要交互 UI，无 UI 不查询；仅请求当前账号的只读额度快照，分列 plan / addon / shared；不消费模型、不改变选中模型，不把快照差值归因到某次请求。余额只作 UI 通知，不写入对话、压缩或分支摘要。会话 Credit 观察单独落在非模型上下文的 custom entries；原始余额、模型倍率和 USD 不混算。Pi 的数字价格仍是零占位；headless/SDK 的 `usage.cost` 不能当账单。
-- 本轮另通过 Lite/Sonus 的原生 AgentSession 合成文件修复、固定测试、分支隔离、磁盘恢复及手动压缩；历史真实 launcher PTY 验证覆盖当时的额度命令和 Credit/USD 提示，不代表当前 `Cr` 合并行的桌面视觉或任意业务验收。见维护面 `experiments/qoder-provider/CAPABILITIES-VERIFICATION.md`。
+- 本轮另通过 Lite/Sonus 的原生 AgentSession 合成文件修复、固定测试、分支隔离、磁盘恢复及手动压缩；维护面的 CLI/PTY 检查只验证内容与命令，不代表当前 `Cr` 合并行的桌面视觉或任意业务验收。日常入口见 [Qoder 维护验证](agent/provider-verification.md)。
 - Qoder 已作为正式内置功能启用，不再显示 experimental 标签；但产品集成不等于 Qoder 官方背书，也不改变第三方接口及许可边界。
 
 ### Thinking 档位
@@ -180,7 +180,7 @@ ROTOM_QODER_AUTH=qodercli rotom --provider qoder --model lite
 | Kimi-K3、DeepSeek-V4-Flash | low / high / max |
 | GLM-5.3-Flash、DeepSeek-V4-Pro | high / max |
 
-当前账号目录可能进一步收窄选项。未验证档位不映射成别的档位；尤其目录声明的 off 不一定真的关闭，除表中 Qwen3.8-Max 外不开放 off。缺少可信配置的模型退回固定 enabled。参数正确转发和工具往返通过，不证明不同档位具有单调 token/延迟差异。reasoning 请求总 deadline 为 180 秒，其余 60 秒；超时/取消不重试，也不承诺服务端停止计费。长会话、重复工具、压缩/恢复与实际安装证据见维护面 `experiments/qoder-provider/LONG-SESSIONS-VERIFICATION.md`。图片/大上下文的独立证据见维护面 `experiments/qoder-provider/IMAGE-CONTEXT-VERIFICATION.md`。
+当前账号目录可能进一步收窄选项。未验证档位不映射成别的档位；尤其目录声明的 off 不一定真的关闭，除表中 Qwen3.8-Max 外不开放 off。缺少可信配置的模型退回固定 enabled。参数正确转发和工具往返通过，不证明不同档位具有单调 token/延迟差异。reasoning 请求总 deadline 为 180 秒，其余 60 秒；超时/取消不重试，也不承诺服务端停止计费。长会话、重复工具、压缩/恢复、图片和实际安装检查按[验证与交付](agent/verification.md)选择对应的当前 smoke，不把历史结果当作新版本证据。
 
 ### 图片与大上下文
 

@@ -25,4 +25,4 @@
 
 真实模型：`rotom/evals/cases/tool-efficiency.eval.ts` 使用两个实际产品及其各自 Pi runtime，在合成 Git 工作区中运行真实工具。5 个自然任务（目标定位/唯一编辑/真实验证、失败日志回读、完整源码、大 diff 定向检查、进程快照聚合），每臂两次并交替顺序，共 20 轮。另有候选定向验收 6 轮：显式使用 compact 的成功/失败检查，以及首次 edit 派发前注入文件变化后的真实原生拒绝与恢复，各两次。后者是合成竞态，不是真实多人协作故障复现；模型与工具返回没有 mock。验证文件内容、检查执行次数、回答与证据，同时记录工具错误、结果 UTF-8 bytes 和 compact 使用次数。结果 bytes 不是 provider token；成本、缓存和延迟由 eval usage 单列。
 
-已有 `tool-error-repair.eval.ts` 可补充缺失路径和歧义编辑的模型恢复检查；模型未触发错误时不能声称证明了恢复能力。固定 fixture 不证明生产任务全局收益，不以较少调用换取遗漏证据。正式 A/B 的正确性两臂均通过，但候选没有减少整体输出或模型 token，不能将此功能宣传为普遍省 token；结果见 [验收报告](../../experiments/tool-efficiency-2026-10-09/RESULTS.md)。
+已有 `tool-error-repair.eval.ts` 可补充缺失路径和歧义编辑的模型恢复检查；模型未触发错误时不能声称证明了恢复能力。固定 fixture 不证明生产任务全局收益，不以较少调用换取遗漏证据。正式 A/B 的正确性两臂均通过，但候选没有减少整体输出或模型 token，不能将此功能宣传为普遍省 token；当前可重跑入口和结果边界见 `rotom/evals/README.md`。

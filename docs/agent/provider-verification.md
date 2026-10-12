@@ -57,4 +57,4 @@ Pi 的 jiti alias 会把任意 ai 子路径错误拼接到 compat.js；因此 he
 
 仍使用 [Qoder 维护探针](../../experiments/qoder-provider/README.md) 的独立入口。必须先明确目标 model/route/effort、预算和外部权限，复用有界 ledger、串行执行、unknown 不重放；离线 PASS 不授予真实调用权限。现有账本是特定 Node/Undici 路径的请求次数约束，不是货币预算或通用网络隔离。
 
-图片/长上下文、更多模型及实际安装的真实验收，按 [验证与交付](verification.md) 选择受影响专项，不自动扩大到全量付费矩阵。
+图片/长上下文、更多模型及实际安装的真实验收，按 [验证与交付](verification.md) 选择受影响专项，不自动扩大到全量付费矩阵。维护探针的 live 入口和运行边界见 [Qoder 维护验证](../../experiments/qoder-provider/README.md)；历史账本不作为当前版本证据。
