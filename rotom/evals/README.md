@@ -140,6 +140,28 @@ npm run eval -- --provider=<provider> --model=<model> cases/coding-hygiene-rule-
 
 附带发现（**未修复**）：`transformSystemPrompt` 走 loader 的 `systemPromptOverride`，它替换的是*基础* system prompt，Pi 随后仍会追加 skill 目录与 cwd 页脚。把已合成的 prompt 传进去会让页脚出现两次——首轮消融即因此使重建臂多约 700 tokens（约 1776 字符）。`computer-use-contract`、`ownership-handoff`、`lane-stale-recovery` 仍在用该选项，其历史数字都带这一重复页脚。需要追加内容时应改用 `inlineExtensions` 或 loader 的 `appendSystemPromptOverride`。
 
+### 最终汇报结构：`final-report.eval.ts`
+
+比较 coding-policy 的 `FINAL_REPORT_POLICY` 段。两臂都排除产品 `coding-policy`，用同一重建路径注入：`hygiene-only` 只带执行卫生规则，`with-final-report` 再追加汇报段，差异仅为该段。三道真实工具题在临时 Git 工作区运行：`fix-with-gaps`（真修复 + 无关失败测试 + 本地无法验证的网关）、`diagnose-only`（只诊断不改文件）、`simple-question`（对照题，汇报段不得把一句话答案撑长）。判分是文本锚点，只证明提到了某项，不证明清晰；结论须人工阅读 `vitest-results.json` 中保存的完整回复。
+
+```sh
+ROTOM_EVAL_FINAL_REPORT=1 \
+ROTOM_EVAL_FINAL_REPORT_REPEATS=2 \
+npm run eval -- --provider=<provider> --model=<model> cases/final-report.eval.ts
+```
+
+可选 `ROTOM_EVAL_FINAL_REPORT_TASK=<task-id>` 只跑一题，`ROTOM_EVAL_THINKING` 默认 `medium`。
+
+2026-10-12 首轮（thinking=medium）平均锚点分 hygiene-only → with-final-report：
+
+| 模型（每臂次数） | fix-with-gaps | diagnose-only | simple-question | fix 回复长度（字符） |
+|---|---|---|---|---|
+| `openai-codex/gpt-6.1-sol`（2） | 0.83 → 0.94 | 0.58 → 0.83 | 1.00 → 1.00 | ~150 → ~420 |
+| `openai-codex/gpt-6-astra`（2） | 0.89 → 1.00 | 0.58 → 0.83 | 1.00 → 1.00 | ~155 → ~460 |
+| `cc-switch/claude-opus-5-5`（1） | 0.89 → 1.00 | 0.67 → 1.00 | 1.00 → 1.00 | 690 → 981 |
+
+人工阅读：两臂都已写出“无关失败 / 网关未验证 / 未提交”，这来自既有执行卫生规则；汇报段新增的是分段结构、改动文件清单（含新增测试）、验证命令与计数表、修复前复现失败的反向对照，以及诊断题的下一步。对照题两臂都约 56 字符，未被撑长；opus 对照题反而由 253 缩到 83。`diagnose-only` 的 `statesCiUnverified` 锚点在 GPT 两臂都未命中：回复写了“未运行安装”和“再用 `npm ci` 验证”，属锚点过严，保留原分数。局限：n≤2、隔离 configDir 不加载用户 `AGENTS.md`、未覆盖长会话；`qoder/*` 由扩展注册 provider，当前 harness 的 `ModelRuntime.create()` 找不到，未测。
+
 ## 已归档结论：context-efficient tool-use policy（无对应 case）
 
 曾在 `coding-policy` 注入过一段 `CONTEXT_EFFICIENT_TOOL_USE_POLICY`（引导"能聚合的问题写一条 pipeline、先 `rg` 定位再按窗口读取、在源头限流"，并附"需逐字复现的内容照常精确读取"的反向约束）。该 policy 与验证它的 paired 行为 A/B 均已按维护者决定移除，仅保留下面的实测结论，避免后人重踩。
