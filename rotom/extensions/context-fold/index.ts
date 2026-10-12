@@ -18,7 +18,7 @@ export function contextFoldEnabled(env: NodeJS.ProcessEnv): boolean {
 export const CONTEXT_TOOL_DESCRIPTION = [
 	"Manage your own context window. Actions:",
 	"- outline: list visible history (oldest first) with step ids, tools, size estimates and the fold ranges that are safe to fold now.",
-	"- fold: replace completed tool steps from..to (step ids from outline, inside one user turn) with your summary. It takes effect when the current step ends. Originals stay recallable.",
+	"- fold: replace completed tool steps from..to (step ids from outline, inside one user turn) with your summary. It takes effect when the current step ends. A fold block stays in context as your own completed work, listing the calls that were folded; the originals stay retrievable with recall.",
 	"- recall: read folded originals with block=bN (paged by offset), or search hidden history with query. Results are historical, not current state.",
 ].join("\n");
 

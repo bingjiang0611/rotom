@@ -84,8 +84,31 @@ function holderBlocks(records: readonly FoldRecord[]): Map<string, FoldRecord> {
 	return byHolder;
 }
 
-function holderText(block: string, steps: number, summary: string): string {
-	return `[context fold ${block} · ${steps} tool step(s) folded · originals: context recall block=${block}]\n${summary}`;
+const MANIFEST_CHARS = 600;
+
+/**
+ * A fold block must show that the folded steps are the model's own completed calls,
+ * otherwise the model sees summaries with no trace of its own actions and starts
+ * distrusting them as claims it cannot verify (observed: a 700-file run abandoned
+ * the task for exactly this reason). Listing the folded calls keeps that evidence
+ * without restoring the results.
+ */
+function manifest(labels: readonly string[]): string {
+	const kept: string[] = [];
+	let used = 0;
+	for (const label of labels) {
+		if (used + label.length > MANIFEST_CHARS) break;
+		kept.push(label);
+		used += label.length + 2;
+	}
+	const more = labels.length - kept.length;
+	return `${kept.join(", ")}${more > 0 ? `, +${more} more` : ""}`;
+}
+
+function holderText(block: string, steps: number, summary: string, labels: readonly string[]): string {
+	const head = `[context fold ${block} · you completed these ${steps} step(s) earlier; their results are folded out of view, not lost. Re-read any original with context recall block=${block}]`;
+	const calls = labels.length > 0 ? `folded calls: ${manifest(labels)}\n` : "";
+	return `${head}\n${calls}${summary}`;
 }
 
 export type FoldRequest = { from: string; to: string; summary: string; currentEntryId: string | undefined };
@@ -130,13 +153,20 @@ export function planFold(projection: readonly ProjectedEntry[], branch: readonly
 	}
 
 	const drafts: Draft[] = [];
+	const labels: string[] = [];
+	for (const row of range) {
+		if (row.kind === "assistant") {
+			const calls = Array.isArray(row.message?.content) ? row.message.content.filter((part: any) => part?.type === "toolCall") : [];
+			for (const part of calls) labels.push(toolCallLabel(part));
+		}
+	}
 	const targetIds = new Set<string>();
 	for (const row of range) {
 		targetIds.add(row.id);
 		// Nested folds: an older holder inside the range carries its own hidden targets.
 		for (const id of byHolder.get(row.id)?.targetIds ?? []) targetIds.add(id);
 		if (row === first) continue;
-		if (row === holder) drafts.push({ type: "context_edit", targetId: row.id, replacement: { content: [{ type: "text", text: holderText(block, steps, summary) }] } });
+		if (row === holder) drafts.push({ type: "context_edit", targetId: row.id, replacement: { content: [{ type: "text", text: holderText(block, steps, summary, labels) }] } });
 		else if (firstResults.includes(row)) drafts.push({ type: "context_edit", targetId: row.id, replacement: { content: [{ type: "text", text: `[folded into ${block}]` }] } });
 		else drafts.push({ type: "context_edit", targetId: row.id, replacement: null });
 	}

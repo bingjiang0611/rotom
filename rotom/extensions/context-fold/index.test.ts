@@ -84,7 +84,10 @@ test("fold keeps the first assistant verbatim, puts the summary in its result an
 	assert.deepEqual(llm.map((message: any) => message.role), ["user", "assistant", "toolResult", "assistant", "user", "assistant", "toolResult", "assistant", "toolResult"]);
 	assert.equal(messages[1].content[0].thinkingSignature, "sig-1", "the kept assistant must keep its signed thinking");
 	assert.equal(messages[1].content[1].id, "c1");
-	assert.match(messages[2].content[0].text, /^\[context fold b1 · 3 tool step\(s\) folded/u);
+	assert.match(messages[2].content[0].text, /^\[context fold b1 · you completed these 3 step\(s\) earlier/u);
+	// The folded calls stay visible as evidence of the model's own earlier work.
+	assert.match(messages[2].content[0].text, /folded calls: read\(src\/parser\.ts\), bash\(npm test\)/u);
+	assert.match(messages[2].content[0].text, /Re-read any original with context recall block=b1/u);
 	assert.equal(messages[2].toolCallId, "c1");
 	const sent = JSON.stringify(llm);
 	for (const hidden of ["PARSER-SOURCE-V1", "TEST-FAILURE-OUTPUT", "README-CONTENT"]) assert.doesNotMatch(sent, new RegExp(hidden, "u"));
@@ -176,6 +179,25 @@ test("outline suggests only safe, large, not-yet-folded ranges", async () => {
 	assert.ok(plan.ok, plan.ok ? "" : plan.error);
 	apply(manager, plan.drafts);
 	assert.match(outline(), /Foldable ranges: none yet/u, "a folded range must not be suggested again");
+});
+
+test("fold manifest is bounded and says how many calls it left out", async () => {
+	const { pi } = await loadPi();
+	const manager = pi.SessionManager.inMemory("/fixture");
+	const chunk = "y".repeat(30_000);
+	manager.appendMessage({ role: "user", content: "bulk", timestamp: Date.now() });
+	const ids: string[] = [];
+	for (let index = 0; index < 40; index += 1) {
+		const path = `fixtures/some-rather-long-directory-name/part${String(index).padStart(3, "0")}.txt`;
+		ids.push(manager.appendMessage(assistant([call(`m${index}`, "read", { path })])));
+		manager.appendMessage(result(`m${index}`, "read", chunk));
+	}
+	const plan = planFold(projectionOf(manager), manager.getBranch(), { from: ids[0], to: ids[39], summary: "Read 40 long-named parts.", currentEntryId: undefined });
+	assert.ok(plan.ok, plan.ok ? "" : plan.error);
+	const holder = (plan.drafts[0] as any).replacement.content[0].text as string;
+	assert.match(holder, /\+\d+ more/u, "a long manifest must report how many calls it omitted");
+	assert.ok(holder.length < 2000, `manifest must stay bounded, got ${holder.length} chars`);
+	assert.match(holder, /you completed these 40 step\(s\) earlier/u);
 });
 
 test("context nudge is appended once per 10% bucket from 50% and never to its own results", () => {
