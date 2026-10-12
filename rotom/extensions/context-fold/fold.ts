@@ -165,6 +165,57 @@ function textOf(content: unknown): string {
 
 export type OutlinePage = { text: string; total: number; nextOffset?: number };
 
+type Range = { from: string; to: string; steps: number; messages: number; chars: number };
+type Step = { id: string; chars: number; results: number; folded: boolean };
+
+// A suggestion must be worth the round trip and the cache re-prefill it causes.
+const MIN_FOLD_CHARS = 20_000;
+const MAX_SUGGESTIONS = 3;
+
+/**
+ * Concrete fold ranges the model can pass to `fold` without deriving ids itself.
+ * A range is a maximal run of consecutive steps that each end in tool results, so it
+ * never starts at a text-only reply and never crosses a boundary message. `to` is the
+ * last step with results: a trailing narrative reply stays verbatim. Already-folded
+ * steps are skipped, because folding them again would only absorb their own holder.
+ */
+function foldableRanges(rows: readonly Row[], byHolder: Map<string, FoldRecord>): Range[] {
+	const ranges: Range[] = [];
+	let steps: Step[] = [];
+	const flush = () => {
+		let cursor = 0;
+		while (cursor < steps.length) {
+			if (steps[cursor].results === 0 || steps[cursor].folded) { cursor += 1; continue; }
+			let end = cursor;
+			let chars = 0;
+			let messages = 0;
+			while (end < steps.length && steps[end].results > 0 && !steps[end].folded) {
+				chars += steps[end].chars;
+				messages += 1 + steps[end].results;
+				end += 1;
+			}
+			if (chars >= MIN_FOLD_CHARS) {
+				ranges.push({ from: steps[cursor].id, to: steps[end - 1].id, steps: end - cursor, messages, chars });
+			}
+			cursor = end;
+		}
+		steps = [];
+	};
+	for (const row of rows) {
+		if (row.kind === "boundary") { flush(); continue; }
+		if (row.kind === "assistant") steps.push({ id: row.id, chars: row.chars, results: 0, folded: false });
+		else {
+			const step = steps[steps.length - 1];
+			if (!step) continue;
+			step.chars += row.chars;
+			step.results += 1;
+			if (byHolder.has(row.id)) step.folded = true;
+		}
+	}
+	flush();
+	return ranges.slice(0, MAX_SUGGESTIONS);
+}
+
 export function renderOutline(projection: readonly ProjectedEntry[], branch: readonly Entry[], options: { currentEntryId: string | undefined; offset: number; limit: number; usage?: { tokens: number | null; percent: number | null; contextWindow: number } }): OutlinePage {
 	const rows = visibleRows(projection, options.currentEntryId);
 	const byHolder = holderBlocks(readFoldRecords(branch));
@@ -192,9 +243,15 @@ export function renderOutline(projection: readonly ProjectedEntry[], branch: rea
 		? `context ~${options.usage.tokens} tokens (${Math.round(options.usage.percent)}% of ${options.usage.contextWindow})`
 		: "context usage unknown until the next model response";
 	const nextOffset = options.offset + page.length < lines.length ? options.offset + page.length : undefined;
+	const ranges = foldableRanges(rows, byHolder);
+	const suggestions = ranges.length === 0
+		? "Foldable ranges: none yet. Nothing old enough is large enough to be worth folding."
+		: ["Foldable ranges, oldest first (pass from/to to action=fold):",
+			...ranges.map((range) => `  from=${range.from} to=${range.to}  ${range.steps} step(s), ${range.messages} messages, ${formatTokens(range.chars)} tokens`),
+			`Example: context fold from=${ranges[0].from} to=${ranges[0].to} summary="..."`].join("\n");
 	const header = `Context outline, oldest first: rows ${options.offset}-${options.offset + page.length} of ${lines.length}; ${usage}. Token figures are chars/4 estimates. The current step is excluded.`;
 	const footer = nextOffset === undefined ? "" : `\n[more rows: context outline offset=${nextOffset}]`;
-	return { text: `${header}\n${page.join("\n")}${footer}`, total: lines.length, nextOffset };
+	return { text: `${header}\n${page.join("\n")}${footer}\n\n${suggestions}`, total: lines.length, nextOffset };
 }
 
 function renderEntry(entry: Entry): string {

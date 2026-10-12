@@ -127,6 +127,8 @@ test("nested folds subsume older blocks; recall returns originals with later-cha
 	const outline = renderOutline(projectionOf(manager), manager.getBranch(), { currentEntryId: undefined, offset: 0, limit: 80 });
 	assert.match(outline.text, new RegExp(`${ids.a1}  step  read\\(src/parser.ts\\).*\\[fold b2: 7 messages hidden\\]`, "u"));
 	assert.match(outline.text, new RegExp(`${ids.user2}  user  "now add docs"  \\(boundary`, "u"));
+	// This fixture stays under the size floor, so nothing should be suggested.
+	assert.match(outline.text, /Foldable ranges: none yet/u);
 
 	const recall = recallBlock(manager.getBranch(), "b2", 0);
 	assert.ok(recall.ok);
@@ -152,6 +154,28 @@ test("nested folds subsume older blocks; recall returns originals with later-cha
 	assert.ok(search.ok);
 	assert.match(search.text, new RegExp(`1 match\\(es\\).*\\n(b1|b2) · ${ids.t2}: `, "u"));
 	assert.match(searchHidden(projectionOf(manager), manager.getBranch(), "DOCS-A").text as string, /0 match/u, "visible history is not searched");
+});
+
+test("outline suggests only safe, large, not-yet-folded ranges", async () => {
+	const { pi } = await loadPi();
+	const manager = pi.SessionManager.inMemory("/fixture");
+	const chunk = (label: string) => `${label} ${"x".repeat(30_000)}`;
+	manager.appendMessage({ role: "user", content: "process it", timestamp: Date.now() });
+	const a1 = manager.appendMessage(assistant([call("k1", "read", { path: "a.txt" })]));
+	manager.appendMessage(result("k1", "read", chunk("A")));
+	const a2 = manager.appendMessage(assistant([call("k2", "read", { path: "b.txt" })]));
+	manager.appendMessage(result("k2", "read", chunk("B")));
+	const narrative = manager.appendMessage(assistant([{ type: "text", text: "Segment done." }], "stop"));
+	const outline = () => renderOutline(projectionOf(manager), manager.getBranch(), { currentEntryId: undefined, offset: 0, limit: 80 }).text;
+
+	// The run ends at the last step with results: a suggestion never drops the trailing narrative reply.
+	assert.match(outline(), new RegExp(`from=${a1} to=${a2}\\b  2 step\\(s\\)`, "u"));
+	assert.doesNotMatch(outline(), new RegExp(`to=${narrative}\\b`, "u"));
+
+	const plan = planFold(projectionOf(manager), manager.getBranch(), { from: a1, to: a2, summary: "Read a.txt and b.txt.", currentEntryId: undefined });
+	assert.ok(plan.ok, plan.ok ? "" : plan.error);
+	apply(manager, plan.drafts);
+	assert.match(outline(), /Foldable ranges: none yet/u, "a folded range must not be suggested again");
 });
 
 test("context nudge is appended once per 10% bucket from 50% and never to its own results", () => {
