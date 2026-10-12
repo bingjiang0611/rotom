@@ -16,8 +16,8 @@
  * that it is clear; read the stored responses before drawing conclusions.
  */
 import { spawnSync } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { describe } from "vitest";
 import { createJudge, describeEval } from "vitest-evals";
 import type { JsonValue } from "vitest-evals/harness";
@@ -35,6 +35,9 @@ const candidateProduct = process.env.ROTOM_EVAL_CANDIDATE_PRODUCT?.trim() || res
 const repetitions = Number(process.env.ROTOM_EVAL_FINAL_REPORT_REPEATS ?? "2");
 if (!Number.isSafeInteger(repetitions) || repetitions < 1 || repetitions > 5) throw new Error("ROTOM_EVAL_FINAL_REPORT_REPEATS must be an integer from 1 to 5.");
 const onlyTask = process.env.ROTOM_EVAL_FINAL_REPORT_TASK?.trim();
+// Optional real user AGENTS.md, copied into the isolated agent dir as the global context file.
+const userAgentsFile = process.env.ROTOM_EVAL_FINAL_REPORT_AGENTS?.trim() || undefined;
+if (userAgentsFile && !isAbsolute(userAgentsFile)) throw new Error("ROTOM_EVAL_FINAL_REPORT_AGENTS must be an absolute path.");
 
 type TaskId = "fix-with-gaps" | "diagnose-only" | "simple-question";
 type Output = { taskId: TaskId; response: string; toolCallCount: number; workspace: Record<string, JsonValue> };
@@ -132,7 +135,8 @@ function taskForInput(input: PiCodingAgentInput): TaskDefinition {
 	return task;
 }
 
-async function setupWorkspace({ input, workspace }: PiEvalWorkspaceContext): Promise<void> {
+async function setupWorkspace({ input, workspace, configDir }: PiEvalWorkspaceContext): Promise<void> {
+	if (userAgentsFile) await copyFile(userAgentsFile, join(configDir, "AGENTS.md"));
 	for (const [relativePath, content] of Object.entries(taskForInput(input).files)) {
 		const path = join(workspace, relativePath);
 		await mkdir(dirname(path), { recursive: true });
@@ -169,8 +173,11 @@ function harness(name: string, withFinalReport: boolean) {
 		excludedResourceKeys: [CODING_POLICY_RESOURCE_KEY],
 		inlineExtensions: [hygienePolicyInlineExtension(withFinalReport ? policy : { ...policy, finalReport: "" })],
 		setupWorkspace,
-		async output({ input, workspace, response, session }) {
+		noContextFiles: !userAgentsFile,
+		async output({ input, workspace, configDir, response, session }) {
 			const task = taskForInput(input);
+			// Fail closed: a run that claims user context must have sent it.
+			if (userAgentsFile && !session.systemPrompt.includes((await readFile(join(configDir, "AGENTS.md"), "utf8")).trim())) throw new Error("User AGENTS.md was not loaded into the system prompt.");
 			return { taskId: task.id, response, toolCallCount: countToolCalls(session.messages), workspace: await task.inspect(workspace) };
 		},
 	});

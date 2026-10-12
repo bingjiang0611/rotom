@@ -150,7 +150,7 @@ ROTOM_EVAL_FINAL_REPORT_REPEATS=2 \
 npm run eval -- --provider=<provider> --model=<model> cases/final-report.eval.ts
 ```
 
-可选 `ROTOM_EVAL_FINAL_REPORT_TASK=<task-id>` 只跑一题，`ROTOM_EVAL_THINKING` 默认 `medium`。
+可选 `ROTOM_EVAL_FINAL_REPORT_TASK=<task-id>` 只跑一题；high thinking 下建议追加 `--testTimeout=600000`。`ROTOM_EVAL_THINKING` 默认 `medium`。`ROTOM_EVAL_FINAL_REPORT_AGENTS=/absolute/AGENTS.md` 会把该文件复制进隔离 agent 目录作为全局 context file，用于贴近真实用户配置；若系统提示中未出现其内容，该 run 直接报错。
 
 2026-10-12 首轮（thinking=medium）平均锚点分 hygiene-only → with-final-report：
 
@@ -160,7 +160,18 @@ npm run eval -- --provider=<provider> --model=<model> cases/final-report.eval.ts
 | `openai-codex/gpt-6-astra`（2） | 0.89 → 1.00 | 0.58 → 0.83 | 1.00 → 1.00 | ~155 → ~460 |
 | `cc-switch/claude-opus-5-5`（1） | 0.89 → 1.00 | 0.67 → 1.00 | 1.00 → 1.00 | 690 → 981 |
 
-人工阅读：两臂都已写出“无关失败 / 网关未验证 / 未提交”，这来自既有执行卫生规则；汇报段新增的是分段结构、改动文件清单（含新增测试）、验证命令与计数表、修复前复现失败的反向对照，以及诊断题的下一步。对照题两臂都约 56 字符，未被撑长；opus 对照题反而由 253 缩到 83。`diagnose-only` 的 `statesCiUnverified` 锚点在 GPT 两臂都未命中：回复写了“未运行安装”和“再用 `npm ci` 验证”，属锚点过严，保留原分数。局限：n≤2、隔离 configDir 不加载用户 `AGENTS.md`、未覆盖长会话；`qoder/*` 由扩展注册 provider，当前 harness 的 `ModelRuntime.create()` 找不到，未测。
+人工阅读：两臂都已写出“无关失败 / 网关未验证 / 未提交”，这来自既有执行卫生规则；汇报段新增的是分段结构、改动文件清单（含新增测试）、验证命令与计数表、修复前复现失败的反向对照，以及诊断题的下一步。对照题两臂都约 56 字符，未被撑长；opus 对照题反而由 253 缩到 83。`diagnose-only` 的 `statesCiUnverified` 锚点在 GPT 两臂都未命中：回复写了“未运行安装”和“再用 `npm ci` 验证”，属锚点过严，保留原分数。首轮局限：n≤2、不加载用户 `AGENTS.md`、未覆盖长会话、未测 qoder。
+
+第二轮（harness 支持扩展注册 provider 后补测 qoder；“真实配置”= thinking=high + 维护者全局 `AGENTS.md`，每臂 2 次）：
+
+| 模型 / 配置 | fix-with-gaps | diagnose-only | simple-question | fix 回复长度（字符） |
+|---|---|---|---|---|
+| `qoder/ultimate`，medium，无 AGENTS | 0.78 → 1.00 | 0.58 → 0.67 | 1.00 → 1.00 | ~150 → ~380 |
+| `qoder/ultimate`，真实配置 | 0.78 → 1.00 | 0.50 → 0.92 | 1.00 → 1.00 | ~165 → ~415 |
+| `openai-codex/gpt-6.1-sol`，真实配置 | 0.78 → 1.00 | 0.58 → 0.83 | 1.00 → 1.00 | ~155 → ~390 |
+| `openai-codex/gpt-6-astra`，真实配置 | 0.83 → 1.00 | 0.67 → 0.92 | 1.00 → 1.00 | ~175 → ~395 |
+
+用户 `AGENTS.md`（含“输出清晰简洁”与“如实交付”要求）没有让 baseline 自行写出分段汇报：真实配置下 baseline 的 fix 回复仍约 150–175 字符、常缺验证计数。汇报段在四组中方向一致，对照题不变长。high thinking 下 fix 题耗时可超过默认 120s：gpt-6.1-sol 有 3 次、qoder 有 1 次超时（基础设施失败，不计分），两模型的 fix 题以 `--testTimeout=600000` 整题重跑、仅用重跑数据。仍未覆盖：长会话、真实复杂任务、opus 真实配置、判分之外的清晰度量化。
 
 ## 已归档结论：context-efficient tool-use policy（无对应 case）
 
@@ -391,7 +402,7 @@ Harness 支持：
 - `excludedResourceKeys`：做某个 extension/skill/prompt 的有无对照；
 - `setupWorkspace`：为后续代码、Browser fixture、fake CLI 创建隔离环境；
 - `modelRuntimeFactory`：为基础设施测试或受控 replay 注入 faux/provider runtime；
-- `tools/noTools/excludeTools`：固定工具暴露面；宿主机未显式配置时默认 `noTools`；
+- 扩展注册的 provider（如 `qoder`）：加载产品 extensions 后，先把排队的 provider 注册写入 model runtime，再解析模型，与 Pi 自身 session services 顺序一致；注册失败直接报错。模型调用使用默认 `~/.pi/agent` 的真实凭据与目录缓存；- `tools/noTools/excludeTools`：固定工具暴露面；宿主机未显式配置时默认 `noTools`；
 - `allowHostSideEffects`：显式授权宿主 eval 暴露完整产品工具面；Apple container 不需要该开关；
 - `environment/environmentProfile`：声明并隔离环境差异；
 - `output`：在临时目录删除前执行确定性 outcome 投影。
