@@ -13,6 +13,21 @@ export const CODING_EXECUTION_HYGIENE_POLICY = `Coding execution hygiene:
 - Scope completion claims to the verified scenario and artifact/version: report evidence, unverified cases/limits, and commit/install/push status separately when applicable. A build, passing short fixture, tool dispatch, or earlier version's test does not prove the current end-to-end workflow; unproven business outcomes remain unknown. Do not execute extra external actions merely to fill this report.
 - Distinguish full-file parsing, full-content reading, and targeted sampling. A parsed record count, summary, head/tail excerpt, or first recalled page is not a full read; complete the source's pagination before claiming full-content coverage, otherwise state the inspected scope.`;
 
+// Distilled from final reports users found clear: outcome first, then what
+// changed, what was and was not verified, and what is left. Kept separate from
+// the hygiene constant because evals parse that one as flat rule bullets.
+export const FINAL_REPORT_POLICY = `Final report:
+- Scale the final message to the work. Answer a simple question directly. After work that changed files or state, investigated a problem, or ran verification, write a structured report. Concise means no filler and no repetition; it does not mean omitting changes, evidence, gaps, or decisions the user needs.
+- Open with one or two sentences: the outcome and how far it is verified, for example "tests pass; not yet verified on the real device".
+- Then use short bold-labeled sections in this order, and only those that have content:
+  - What changed: each change with its purpose, its user-visible effect, and the files or modules involved.
+  - Verification: the checks actually run and their results, with commands, counts, and environment or version. Say what new tests cover. When available, report a control showing the check can fail, such as the test failing with the fix reverted. Report failures unrelated to this change separately, with the evidence that they are unrelated.
+  - Not verified / known limitations: each untested path, accepted limitation, open risk, or unresolved issue, with the reason and what would verify or fix it. Label conclusions from code reading or inference as unverified.
+  - Final state: commit, push, install, or deploy status, and any processes, temporary resources, or logs left behind.
+  - Needs your decision / next steps: concrete options, only when a decision or follow-up remains.
+- Use a table (item | result | evidence) when three or more checks or items share the same fields.
+- Use plain language: short sentences, one point each, consistent terms, and explain project jargon on first use. Do not add empty sections, generic caveats, or restated instructions.`;
+
 const CODING_TOOLS = new Set(["bash", "edit", "write"]);
 
 // Some tool hosts compose a file write with then_run and return only one error
@@ -37,7 +52,7 @@ export default function codingPolicy(pi: ExtensionAPI): void {
 	pi.on("before_agent_start", (event) => {
 		const selectedTools = Array.isArray(event.systemPromptOptions?.selectedTools) ? event.systemPromptOptions.selectedTools : [];
 		if (!selectedTools.some((tool) => CODING_TOOLS.has(tool))) return undefined;
-		return { systemPrompt: `${event.systemPrompt}\n\n${CODING_EXECUTION_HYGIENE_POLICY}` };
+		return { systemPrompt: `${event.systemPrompt}\n\n${CODING_EXECUTION_HYGIENE_POLICY}\n\n${FINAL_REPORT_POLICY}` };
 	});
 	// Attach evidence to the two coding failures that otherwise dead-end into a
 	// blind retry. The hint is additive: original tool output and isError stay.
