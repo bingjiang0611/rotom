@@ -369,6 +369,7 @@ test("launcher 保留业务 cwd 与用户参数，并固定加载 bundled resour
 			"--extension", resolve(AGENT_DIR, "extensions/coding-policy/index.ts"),
 			"--extension", resolve(AGENT_DIR, "extensions/third-party"),
 			"--extension", resolve(AGENT_DIR, "extensions/qoder/index.ts"),
+			"--extension", resolve(AGENT_DIR, "extensions/context-fold/index.ts"),
 			"--skill", resolve(AGENT_DIR, "skills/pi-subagents"),
 			"--print", "argument with spaces", "--", "tail",
 		]);
@@ -790,12 +791,13 @@ test("launcher 保留 Pi 原生 resource 参数并继续固定加载产品资源
 	});
 	const invocation = JSON.parse(readFileSync(capture, "utf8"));
 	assert.deepEqual(invocation.argv.slice(-userArgs.length), userArgs);
-	assert.deepEqual(invocation.argv.slice(0, 10), [
+	assert.deepEqual(invocation.argv.slice(0, 12), [
 		"--extension", resolve(AGENT_DIR, "extensions/observability"),
 		"--extension", resolve(AGENT_DIR, "extensions/browser/index.ts"),
 		"--extension", resolve(AGENT_DIR, "extensions/coding-policy/index.ts"),
 		"--extension", resolve(AGENT_DIR, "extensions/third-party"),
 		"--extension", resolve(AGENT_DIR, "extensions/qoder/index.ts"),
+		"--extension", resolve(AGENT_DIR, "extensions/context-fold/index.ts"),
 	]);
 }));
 

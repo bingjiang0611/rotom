@@ -62,7 +62,7 @@ rotom -e ./extension.ts
 
 安装源、package manifest、过滤和配置行为与 Pi 一致：用户配置写入 `~/.pi/agent/settings.json`，项目配置写入 `.pi/settings.json`；用户扩展目录为 `~/.pi/agent/extensions/`，受信项目扩展目录为 `.pi/extensions/`。package 可以同时声明 extension、skill、prompt template 和 theme，使用 `rotom config` 启用或禁用其资源。项目资源只有在项目通过 Pi trust 检查后才会安装或执行。
 
-产品内置的 observability、browser、coding-policy、third-party 和 qoder 扩展仍由 launcher 显式加载并经过产品资源校验；用户 `--no-extensions` 只关闭自动发现的 extension，不移除这些内置资源。用户扩展新增的工具不会被 rotom 的 deferred-tool 默认策略误删，但工具重名或扩展行为冲突由用户自行负责。
+产品内置的 observability、browser、coding-policy、third-party、qoder 和 context-fold 扩展仍由 launcher 显式加载并经过产品资源校验；用户 `--no-extensions` 只关闭自动发现的 extension，不移除这些内置资源。用户扩展新增的工具不会被 rotom 的 deferred-tool 默认策略误删，但工具重名或扩展行为冲突由用户自行负责。
 
 内置 Pi fork 只能随 rotom 发行包升级。`rotom update`（或 `rotom update --self`）更新 rotom 产品及其内置 Pi fork；`rotom update --extensions` 更新用户安装的 package。为避免把两个独立外部写入压成不可判定的结果，`rotom update --all` 仍被拒绝，并提示依次运行前两个命令。
 
@@ -88,6 +88,10 @@ rotom 默认提供 `codemode`：模型可用 JavaScript 编排普通文件工具
 内置 MCP 读取 `~/.pi/agent/mcp.json` 与受信项目的 `.pi/mcp.json`，没有配置时不连接任何 server；配置后在会话启动时后台连接已启用的 server，工具默认以 `codemode` exposure 暴露（只能在 Codemode 脚本中经 `searchTools()` 等发现并调用），也可按 server 设为 `deferred`、`direct` 或 `hidden`。用 `rotom mcp add/list` 管理 server，`--no-mcp` 关闭 MCP。rotom 的 `search_tools` 与 MCP `deferred` exposure 依赖的 `tool_search` 能否共存尚未验证。分类模型（包括 Jev）、图片模型、`models.classify()` 和 `registerVirtualModel()` API 可用，但产品本身不调用分类器、不注册虚拟模型，**不默认启用 Jev 自动路由**；只有 Codemode 脚本或扩展显式调用时才产生请求与费用。Jev 直连凭据使用 `TYPESAFE_API_KEY` 或 `auth.json` 的 `typesafe` 项（可用 `!` 命令从 Keychain 读取）。接入外部模型需要自己的凭据和明确的数据/费用范围；目录无价格或 Pi 显示零成本不代表服务免费。Goal completion reviewer 使用当前选中的模型，不额外调用分类器或选路。
 
 终端默认采用上游全屏模式，`rotom --tui-mode regular` 可使用普通模式。已有会话的磁盘迁移、真实 Provider/设备及跨平台结果不能由本地 fixture 推断。迁移验证记录见 [Pi 1.0](agent/pi-1.0-migration.md)；已安装旧版本不会因源码同步而自动获得这些能力。
+
+## 上下文折叠（实验，默认关闭）
+
+`ROTOM_CONTEXT_FOLD=1 rotom` 开启常驻 `context` 工具：模型可列出历史、把已完成的旧工具步骤折叠成摘要，并按需召回原文（追加在末尾）。原文保留在 session 文件，不额外落盘；Pi 原生压缩仍作兜底。每次折叠会使折叠点之后的 provider 缓存失效，真实收益尚未验证。只接受 `0` / `1`。详见 [Context fold](agent/context-fold.md)。
 
 ## 浏览器命令
 

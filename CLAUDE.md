@@ -69,6 +69,7 @@ extension、bundled skill 与第三方 package 是产品合同，不是“目录
 - Pi 基线为 `1.1.0-rotom.2`（上游 `v1.1.0` 合并，见 [Pi 1.1.0 对齐](docs/agent/pi-1.1-migration.md)）；Codemode 独立启用。上游分类模型/API、虚拟模型路由 API 与内置 MCP 均保留：产品不自带分类器调用或虚拟模型，只有扩展注册虚拟模型或用户在 `mcp.json` 配置 server 时才生效；`rotom mcp …` 与 Pi 包管理命令一样原样透传。Goal/Ask/Subagent/Browser/Computer Use 使用 `model-only`，不可从 Codemode 嵌套调用；普通文件工具仍可编排。显式工具选择仍优先。
 - Goal 预算计入已报告的 tool-result/model/summary usage；旧 Goal 基线一次迁移、不追收历史辅助用量。reviewer 使用当前选中的普通模型，不进行分类或自动路由；没有选中模型保持 unknown。
 - `ROTOM_DEFERRED_TOOLS=0` 必须恢复完整工具面。
+- `ROTOM_CONTEXT_FOLD=1` 才加载常驻 `context` 折叠工具（默认关闭，仅 L1/L2，未经 L3 不默认开启、不宣称 token/缓存收益），合同见 [Context fold](docs/agent/context-fold.md)。
 - 用户显式 `--tools`、`--exclude-tools` 或 runtime policy 优先；launcher 仅在没有 tool-selection flag 时授权 loader 收窄 reviewed default，extension/SDK 直载默认保留调用方 active set；用户 extension 新增的非 deferred 工具同样保留。
 - 已加载 specialized tools 在当前 session 内不主动移除；group state 与 active tool 子序列按 product declaration order canonicalize，相同 group 集合不因加载顺序产生不同最终 identity。
 - resume/fork 必须恢复 capability state；升级前无 deferred state 的旧 session 允许首次多一次 `search_tools`。

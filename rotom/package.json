@@ -66,6 +66,8 @@
     "extensions/browser/chrome-extension/shared-tab-group.js",
     "extensions/browser/chrome-extension/tab-list-status.js",
     "extensions/browser/chrome-extension/window-open-correlation.js",
+    "extensions/context-fold/index.ts",
+    "extensions/context-fold/fold.ts",
     "extensions/qoder/index.ts",
     "extensions/qoder/auth.mjs",
     "extensions/qoder/catalog.mjs",
