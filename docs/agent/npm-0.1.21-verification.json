@@ -1,0 +1,59 @@
+{
+ "state": "published",
+ "package": "@bingjiang0611/rotom",
+ "version": "0.1.21",
+ "tag": "latest",
+ "sourceCommit": "2c185cfd7a4d4f7b3378075b99cfff1b67385422",
+ "sha256": "dfe5d9b471f106ffedd7cfd1a0eec58afabf75d7843706f68771becb497cbf4c",
+ "shasum": "bde763da0b65b0fb28488ffbee0cb6e9d71a4b82",
+ "integrity": "sha512-Yfjccs6KC9NlgFT7CjsvHjo7klHd7cYgDv7TMPpVy7G2uDn6hAYtdWCF19223YXaIgha3Sqkh9abxEx4aYuP6Q==",
+ "tarball": "https://registry.npmjs.org/@bingjiang0611/rotom/-/rotom-0.1.21.tgz",
+ "fileCount": 18870,
+ "compressedBytes": 53051458,
+ "uncompressedBytes": 184735232,
+ "buildToolchain": {
+  "node": "24.18.0",
+  "npm": "12.2.0",
+  "successfulFinalPacks": 1
+ },
+ "components": {
+  "piFork": "1.1.0-rotom.2 (unchanged from 0.1.20; check:pi PASS)",
+  "pi-subagents": "0.52.1-rotom.7",
+  "pi-goal": "0.54.4-rotom.8",
+  "pi-computer-use": "0.5.1-rotom.0"
+ },
+ "checks": {
+  "checkPi": "PASS",
+  "productTests": "321 passed with actual installed tgz Pi (check-personal)",
+  "goalTests": "87 passed with actual installed tgz Pi",
+  "offlineProviderAndFootprintGates": "provider matrix PASS with compiledPiMatchesSource=true; runtimeContractGate and deterministicGate PASS; referenceObservationGate DRIFT is informational and also present in 0.1.20",
+  "firstCheckPersonalRuns": "2 environment failures, not product: the clean clone lacked rotom/runtime/pi node_modules (fixed by the documented npm ci), and ROTOM_PI used /tmp instead of the canonical /private/tmp path. The full rerun passed.",
+  "defaultAndFullInstalledSdkSmoke": "PASS; actual installed product resources, 2/2 faux calls, 0 lifecycle errors",
+  "isolatedInstall": "PASS; isolated HOME/prefix, PATH containing only node/npm and system dirs, no global Pi; rotom --version 0.1.21",
+  "isolatedUpgrade": "0.1.20 (registry) to exact 0.1.21 tgz PASS",
+  "isolatedUninstall": "PASS; package absent; HOME sentinel retained",
+  "productFilesByteIdentical": "18870 tgz files identical to the isolated install; 71 product files also identical to the frozen source",
+  "publicFrozenSourceAudit": {
+   "scope": "tree+history",
+   "files": 15207,
+   "bytes": 272194658,
+   "commits": 164,
+   "skippedAuditedArchives": 176,
+   "findings": 0
+  },
+  "actualArtifactPrivacyAudit": "PASS inside pack:release; independent --artifact audit 21816 files, 0 findings"
+ },
+ "registryVerified": true,
+ "registryVerification": "npm-release-handoff verify: exact version, latest tag, integrity, shasum, trusted tarball URL and downloaded bytes match the single frozen tgz",
+ "publishedBy": "maintainer in a foreground terminal; the agent did not read credentials",
+ "globalInstall": {
+  "state": "not-performed",
+  "note": "Local switch via scripts/install-release.sh is handed to the maintainer."
+ },
+ "unverified": [
+  "Final report policy on long sessions and real complex tasks (evidence is a small paired eval, n<=2 per arm)",
+  "browser closed-right-after-open message in real Chrome after reinstalling the extension",
+  "terminal UI and cross-platform acceptance",
+  "OAuth MCP servers"
+ ]
+}
