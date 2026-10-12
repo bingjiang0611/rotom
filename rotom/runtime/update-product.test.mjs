@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
-import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, readlink, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
@@ -176,4 +178,113 @@ test("refuses to update an installation outside the active npm prefix", async (t
 		}),
 		/rotom update supports only a regular active global npm installation/u,
 	);
+});
+
+async function releaseFixture(version = "0.1.2") {
+	const root = await realpath(await mkdtemp(join(tmpdir(), "rotom-release-update-test-")));
+	const releasesRoot = join(root, "home/.local/share/rotom/releases");
+	const packageRoot = join(releasesRoot, version, "node_modules/rotom");
+	const binDirectory = join(root, "bin");
+	const commandPath = join(binDirectory, "rotom");
+	const npmCommand = join(root, "npm");
+	await mkdir(join(packageRoot, "bin"), { recursive: true });
+	await mkdir(binDirectory);
+	await writeFile(join(packageRoot, "package.json"), JSON.stringify({ name: ROTOM_PACKAGE_NAME, version }));
+	await writeFile(join(packageRoot, "bin/rotom"), "#!/bin/sh\n");
+	await symlink(join(packageRoot, "bin/rotom"), commandPath);
+	await writeFile(npmCommand, "#!/bin/sh\nexit 0\n");
+	await chmod(npmCommand, 0o700);
+	return { root, home: join(root, "home"), releasesRoot, packageRoot, binDirectory, commandPath, npmCommand };
+}
+
+function releaseRegistry(version, tarball, integrity = `sha512-${createHash("sha512").update(tarball).digest("base64")}`) {
+	const tarballUrl = `https://registry.npmjs.org/@bingjiang0611/rotom/-/rotom-${version}.tgz`;
+	const requests = [];
+	const fetchImpl = async (url) => {
+		requests.push(url);
+		if (url === ROTOM_LATEST_URL) return new Response(JSON.stringify({ name: ROTOM_PACKAGE_NAME, version, dist: { tarball: tarballUrl, integrity } }), { status: 200 });
+		assert.equal(url, tarballUrl);
+		return new Response(tarball, { status: 200 });
+	};
+	return { fetchImpl, requests };
+}
+
+// Simulates `npm install` of file:rotom-<version>.tgz inside the staging dir.
+function stagedInstall(version, calls) {
+	return (command, args, options) => {
+		calls.push({ command, args, options });
+		const installed = join(options.cwd, "node_modules/rotom");
+		spawnSync("mkdir", ["-p", join(installed, "bin")]);
+		writeFileSync(join(installed, "package.json"), JSON.stringify({ name: ROTOM_PACKAGE_NAME, version }));
+		writeFileSync(join(installed, "bin/rotom"), "#!/bin/sh\n");
+		return { status: 0 };
+	};
+}
+
+test("updates the per-version release layout and switches only the PATH command symlink", async (t) => {
+	const value = await releaseFixture();
+	t.after(() => rm(value.root, { recursive: true, force: true }));
+	const tarball = Buffer.from("verified tarball bytes");
+	const registry = releaseRegistry("0.1.3", tarball);
+	const calls = [];
+	const output = [];
+	const result = await updateRotom({
+		packageRoot: value.packageRoot,
+		npmCommand: value.npmCommand,
+		home: value.home,
+		pathEnv: `relative/bin:${value.binDirectory}:/usr/bin`,
+		fetchImpl: registry.fetchImpl,
+		runCommand: stagedInstall("0.1.3", calls),
+		output: (message) => output.push(message),
+		confirm: async () => assert.fail("release-layout switches keep the old release and need no live-replacement prompt"),
+	});
+	assert.deepEqual(result, { currentVersion: "0.1.2", latestVersion: "0.1.3", updated: true });
+	const destination = join(value.releasesRoot, "0.1.3");
+	assert.equal(await readlink(value.commandPath), join(destination, "node_modules/rotom/bin/rotom"));
+	assert.equal(calls.length, 1, "no npm root --global or global install");
+	assert.deepEqual(calls[0].args, ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--registry=https://registry.npmjs.org"]);
+	assert.deepEqual(JSON.parse(await readFile(join(destination, "package.json"), "utf8")), { name: "rotom-release-0.1.3", private: true, dependencies: { rotom: "file:rotom-0.1.3.tgz" } });
+	assert.deepEqual(await readFile(join(destination, "rotom-0.1.3.tgz")), tarball);
+	assert.ok(existsSync(join(value.packageRoot, "package.json")), "previous release is kept");
+	assert.deepEqual((await readdir(value.releasesRoot)).sort(), ["0.1.2", "0.1.3"], "no staging directory remains");
+	assert.deepEqual((await readdir(value.binDirectory)), ["rotom"], "no temporary link remains");
+	assert.match(output.join("\n"), /previous release stays at/u);
+});
+
+test("release-layout update rejects a tarball that fails registry integrity without touching the command", async (t) => {
+	const value = await releaseFixture();
+	t.after(() => rm(value.root, { recursive: true, force: true }));
+	const registry = releaseRegistry("0.1.3", Buffer.from("tampered"), `sha512-${createHash("sha512").update("expected").digest("base64")}`);
+	const calls = [];
+	await assert.rejects(updateRotom({
+		packageRoot: value.packageRoot,
+		npmCommand: value.npmCommand,
+		home: value.home,
+		pathEnv: value.binDirectory,
+		fetchImpl: registry.fetchImpl,
+		runCommand: stagedInstall("0.1.3", calls),
+		output: () => {},
+	}), /does not match the registry integrity/u);
+	assert.equal(calls.length, 0);
+	assert.equal(await readlink(value.commandPath), join(value.packageRoot, "bin/rotom"));
+	assert.deepEqual(await readdir(value.releasesRoot), ["0.1.2"]);
+});
+
+test("release-layout update refuses when the first rotom on PATH is not this release", async (t) => {
+	const value = await releaseFixture();
+	t.after(() => rm(value.root, { recursive: true, force: true }));
+	const shadow = join(value.root, "shadow");
+	await mkdir(shadow);
+	await writeFile(join(shadow, "rotom"), "#!/bin/sh\n");
+	const registry = releaseRegistry("0.1.3", Buffer.from("x"));
+	await assert.rejects(updateRotom({
+		packageRoot: value.packageRoot,
+		npmCommand: value.npmCommand,
+		home: value.home,
+		pathEnv: `${shadow}:${value.binDirectory}`,
+		fetchImpl: registry.fetchImpl,
+		runCommand: () => assert.fail("must not install"),
+		output: () => {},
+	}), /first rotom on PATH .* is not a symlink to this release/u);
+	assert.equal(registry.requests.length, 0);
 });

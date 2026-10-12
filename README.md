@@ -58,7 +58,12 @@ rotom remove npm:@foo/bar
 
 package 可包含 extension、skill、prompt template 和 theme；使用 `rotom config` 调整已安装资源。临时试用单个扩展可运行 `rotom -e ./extension.ts`，也可以使用 Pi 的 `~/.pi/agent/extensions/` 和受信项目 `.pi/extensions/` 目录。rotom 自带的五个产品扩展仍固定加载，不能通过 `--no-extensions` 移除。
 
-`rotom update` 更新产品及内置 Pi fork；写入前会要求确认其他 rotom 会话和 worker 已退出。只更新扩展时使用 `rotom update --extensions` 或 `rotom update --extension <source>`；两类更新需分别执行。
+`rotom update` 更新产品及内置 Pi fork，支持两种安装方式：
+
+- `npm install --global` 安装：原地替换，写入前会要求确认其他 rotom 会话和 worker 已退出。
+- `scripts/install-release.sh` 的版本目录布局（`~/.local/share/rotom/releases/<version>/`，PATH 上第一个 `rotom` 是指向它的符号链接）：下载 latest tgz 并核对 registry integrity，装进新版本目录，再原子切换该符号链接。旧版本目录保留，运行中的会话不受影响，确认不再使用后可手动删除。
+
+只更新扩展时使用 `rotom update --extensions` 或 `rotom update --extension <source>`；两类更新需分别执行。
 
 ## 配置浏览器
 

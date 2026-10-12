@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { access, lstat, readFile, realpath } from "node:fs/promises";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { access, lstat, mkdtemp, readFile, readlink, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { basename, delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 
@@ -11,6 +13,8 @@ export const ROTOM_PACKAGE_NAME = "@bingjiang0611/rotom";
 export const ROTOM_REGISTRY = "https://registry.npmjs.org";
 export const ROTOM_LATEST_URL = `${ROTOM_REGISTRY}/%40bingjiang0611%2Frotom/latest`;
 const MAX_METADATA_BYTES = 256 * 1024;
+// 0.1.21 is about 53 MB; the cap only stops an unbounded download.
+const MAX_TARBALL_BYTES = 512 * 1024 * 1024;
 const SEMVER_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
 
 function parseSemver(version) {
@@ -59,7 +63,7 @@ export function supportsProductNodeVersion(version) {
 	return Number.isSafeInteger(major) && major >= 24;
 }
 
-async function readBoundedJson(response) {
+async function readBoundedBody(response, maxBytes, label) {
 	if (!response.ok || !response.body) throw new Error(`registry returned HTTP ${response.status}`);
 	const reader = response.body.getReader();
 	const chunks = [];
@@ -69,16 +73,20 @@ async function readBoundedJson(response) {
 			const { value, done } = await reader.read();
 			if (done) break;
 			bytes += value.byteLength;
-			if (bytes > MAX_METADATA_BYTES) {
+			if (bytes > maxBytes) {
 				await reader.cancel();
-				throw new Error("registry metadata exceeded 256 KiB");
+				throw new Error(`${label} exceeded ${maxBytes} bytes`);
 			}
 			chunks.push(value);
 		}
 	} finally {
 		reader.releaseLock();
 	}
-	return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+	return Buffer.concat(chunks);
+}
+
+async function readBoundedJson(response) {
+	return JSON.parse((await readBoundedBody(response, MAX_METADATA_BYTES, "registry metadata")).toString("utf8"));
 }
 
 async function readProductManifest(packageRoot) {
@@ -91,6 +99,7 @@ async function readProductManifest(packageRoot) {
 
 function defaultRunCommand(command, args, options) {
 	return spawnSync(command, args, {
+		cwd: options.cwd,
 		encoding: options.capture ? "utf8" : undefined,
 		stdio: options.capture ? ["ignore", "pipe", "pipe"] : "inherit",
 	});
@@ -115,6 +124,122 @@ async function confirmUpdate() {
 	}
 }
 
+async function pathExists(path) {
+	try {
+		await lstat(path);
+		return true;
+	} catch (error) {
+		if (error?.code === "ENOENT") return false;
+		throw error;
+	}
+}
+
+/**
+ * Detects the per-version layout written by scripts/install-release.sh:
+ *   ~/.local/share/rotom/releases/<version>/node_modules/rotom
+ *   <dir on PATH>/rotom -> that release's bin/rotom
+ * The active command is the first `rotom` on PATH. It must be a symlink to
+ * this exact release; anything else is refused rather than guessed.
+ */
+async function findReleaseLayout(packageRoot, home, pathEnv) {
+	let releasesRoot;
+	try {
+		releasesRoot = await realpath(join(home, ".local/share/rotom/releases"));
+	} catch {
+		return undefined;
+	}
+	const inRelease = basename(packageRoot) === "rotom"
+		&& basename(dirname(packageRoot)) === "node_modules"
+		&& dirname(dirname(dirname(packageRoot))) === releasesRoot;
+	if (!inRelease) return undefined;
+
+	const launcher = join(packageRoot, "bin/rotom");
+	for (const directory of pathEnv.split(delimiter)) {
+		if (!isAbsolute(directory)) continue;
+		const commandPath = join(directory, "rotom");
+		if (!(await pathExists(commandPath))) continue;
+		const linked = (await lstat(commandPath)).isSymbolicLink() && await realpath(commandPath) === launcher;
+		if (!linked) throw new Error(`the first rotom on PATH (${commandPath}) is not a symlink to this release (${launcher})`);
+		return { releasesRoot, commandPath };
+	}
+	throw new Error(`no rotom command on PATH points to this release (${launcher})`);
+}
+
+async function downloadVerifiedTarball(fetchImpl, url, integrity, userAgent) {
+	const bytes = await readBoundedBody(await fetchImpl(url, {
+		headers: { "User-Agent": userAgent },
+		redirect: "error",
+		signal: AbortSignal.timeout(600_000),
+	}), MAX_TARBALL_BYTES, "release tarball");
+	const actual = `sha512-${createHash("sha512").update(bytes).digest("base64")}`;
+	if (actual !== integrity) throw new Error("downloaded tarball does not match the registry integrity");
+	return bytes;
+}
+
+async function updateReleaseLayout({ layout, metadata, latest, current, packageRoot, npmCommand, runCommand, fetchImpl, output }) {
+	const expectedTarball = `${ROTOM_REGISTRY}/${ROTOM_PACKAGE_NAME}/-/rotom-${latest}.tgz`;
+	const integrity = metadata.dist?.integrity;
+	if (metadata.dist?.tarball !== expectedTarball || typeof integrity !== "string" || !integrity.startsWith("sha512-")) {
+		throw new Error("registry latest metadata has an unexpected tarball URL or integrity");
+	}
+	const destination = join(layout.releasesRoot, latest);
+	if (await pathExists(destination)) {
+		throw new Error(`${destination} already exists; inspect it, then switch ${layout.commandPath} manually or remove that directory`);
+	}
+
+	output(`Installing rotom ${current.version} → ${latest} into ${destination}...`);
+	// Stage beside the destination so the final rename stays on one filesystem.
+	const staging = await mkdtemp(join(layout.releasesRoot, `.rotom-update-${latest}-`));
+	let staged = false;
+	try {
+		const tarballName = `rotom-${latest}.tgz`;
+		const tarball = await downloadVerifiedTarball(fetchImpl, expectedTarball, integrity, `rotom/${current.version}`);
+		await writeFile(join(staging, tarballName), tarball);
+		await writeFile(join(staging, "package.json"), `${JSON.stringify({ name: `rotom-release-${latest}`, private: true, dependencies: { rotom: `file:${tarballName}` } }, null, 2)}\n`);
+		const installResult = runCommand(npmCommand, ["install", "--ignore-scripts", "--no-audit", "--no-fund", `--registry=${ROTOM_REGISTRY}`], { capture: false, cwd: staging });
+		if (installResult.status !== 0) throw new Error(`${commandFailure("npm install", installResult)}; the active rotom command was not changed`);
+		const installed = await readProductManifest(join(staging, "node_modules/rotom"));
+		if (installed.version !== latest) throw new Error(`staged install is ${installed.version}, expected ${latest}; the active rotom command was not changed`);
+		await rename(staging, destination);
+		staged = true;
+	} finally {
+		if (!staged) await rm(staging, { recursive: true, force: true });
+	}
+
+	// Atomic switch: a new symlink is renamed over the command, so the command
+	// always points at either the old or the new complete release.
+	const launcher = join(destination, "node_modules/rotom/bin/rotom");
+	const temporaryLink = join(dirname(layout.commandPath), `.rotom-update-${randomUUID()}`);
+	try {
+		await symlink(launcher, temporaryLink);
+		await rename(temporaryLink, layout.commandPath);
+	} catch (error) {
+		await rm(temporaryLink, { force: true });
+		throw new Error(`installed ${destination} but could not switch ${layout.commandPath}: ${error.message}`);
+	}
+	if (await readlink(layout.commandPath) !== launcher) {
+		throw new Error(`switch status unknown: ${layout.commandPath} does not read back as ${launcher}; run rotom --version`);
+	}
+	output(`Updated rotom to ${latest}: ${layout.commandPath} -> ${launcher}`);
+	output(`The previous release stays at ${dirname(dirname(packageRoot))}; running sessions keep using it. Start a new session to use ${latest}.`);
+	return { currentVersion: current.version, latestVersion: latest, updated: true };
+}
+
+async function fetchLatest(fetchImpl, currentVersion) {
+	const metadata = await readBoundedJson(await fetchImpl(ROTOM_LATEST_URL, {
+		headers: {
+			accept: "application/json",
+			"cache-control": "no-cache",
+			"User-Agent": `rotom/${currentVersion}`,
+		},
+		redirect: "error",
+		signal: AbortSignal.timeout(10_000),
+	}));
+	const latest = selectLatestVersion(metadata);
+	if (!latest) throw new Error("registry latest metadata has an invalid package identity or version");
+	return { metadata, latest };
+}
+
 export async function updateRotom(options = {}) {
 	if (!supportsProductNodeVersion(process.versions.node)) {
 		throw new Error(`Node runtime ${process.versions.node} is unsupported; rotom requires >=24.0.0`);
@@ -126,6 +251,18 @@ export async function updateRotom(options = {}) {
 	const fetchImpl = options.fetchImpl ?? fetch;
 	const output = options.output ?? ((message) => process.stdout.write(`${message}\n`));
 	await access(npmCommand, constants.X_OK);
+
+	const layout = await findReleaseLayout(packageRoot, options.home ?? homedir(), options.pathEnv ?? process.env.PATH ?? "");
+	if (layout) {
+		const { metadata, latest } = await fetchLatest(fetchImpl, current.version);
+		const order = compareSemver(latest, current.version);
+		if (order === 0) {
+			output(`rotom is already up to date (${current.version}).`);
+			return { currentVersion: current.version, latestVersion: latest, updated: false };
+		}
+		if (order < 0) throw new Error(`refusing to downgrade rotom ${current.version} to registry latest ${latest}`);
+		return updateReleaseLayout({ layout, metadata, latest, current, packageRoot, npmCommand, runCommand, fetchImpl, output });
+	}
 
 	const rootResult = runCommand(npmCommand, ["root", "--global"], { capture: true });
 	if (rootResult.status !== 0) throw new Error(commandFailure("npm root --global", rootResult));
@@ -149,17 +286,7 @@ export async function updateRotom(options = {}) {
 		throw new Error(`active rotom is not owned by this npm prefix (${npmRoot})`);
 	}
 
-	const metadata = await readBoundedJson(await fetchImpl(ROTOM_LATEST_URL, {
-		headers: {
-			accept: "application/json",
-			"cache-control": "no-cache",
-			"User-Agent": `rotom/${current.version}`,
-		},
-		redirect: "error",
-		signal: AbortSignal.timeout(10_000),
-	}));
-	const latest = selectLatestVersion(metadata);
-	if (!latest) throw new Error("registry latest metadata has an invalid package identity or version");
+	const { latest } = await fetchLatest(fetchImpl, current.version);
 	const order = compareSemver(latest, current.version);
 	if (!options.force && order <= 0) {
 		output(`rotom is already up to date (${current.version}).`);
