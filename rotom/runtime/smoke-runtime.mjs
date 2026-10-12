@@ -70,7 +70,7 @@ try {
 	const loaded = loader.getExtensions();
 	assert.deepEqual(loaded.errors, []);
 	assert.deepEqual(loaded.extensions.map((extension) => resolve(extension.path)), [...extensions, nativeExtension]);
-	assert.equal(loaded.extensions.length, 7);
+	assert.equal(loaded.extensions.length, 6);
 	assert.equal(loaded.extensions.find((extension) => resolve(extension.path) === nativeExtension)?.commands.has("native-extension-smoke"), true, "Pi agentDir extensions 必须无需产品声明即可发现");
 	assert.deepEqual(skills, [resolve(agentDir, "skills/pi-subagents")], "产品只加载自有精简版 Subagent skill");
 	assert.equal(loader.getSkills().skills.filter((skill) => skill.name === "pi-subagents").length, 1, "不得同时加载上游完整指南");
@@ -116,8 +116,6 @@ try {
 	const thirdParty = created.extensionsResult.extensions.find((extension) => extension.path.endsWith("/third-party"));
 	const qoder = created.extensionsResult.extensions.find((extension) => extension.path === resolve(agentDir, "extensions/qoder/index.ts"));
 	assert.equal(qoder?.tools.size, 0, "Qoder provider must not change the tool surface");
-	const contextFold = created.extensionsResult.extensions.find((extension) => extension.path === resolve(agentDir, "extensions/context-fold/index.ts"));
-	assert.equal(contextFold?.tools.size, 0, "this smoke measures the default surface: context fold must stay off unless ROTOM_CONTEXT_FOLD=1");
 	const qoderEnabled = process.env.ROTOM_QODER !== "0";
 	assert.equal(Boolean(modelRuntime.getModel("qoder", "lite")), qoderEnabled, "Qoder registration must default on with an explicit opt-out");
 	if (qoderEnabled) {
