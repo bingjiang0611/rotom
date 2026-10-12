@@ -338,28 +338,6 @@ async function runPiCodingAgent<TOutput extends JsonValue>(
 			const modelRuntime = options.modelRuntimeFactory
 				? await options.modelRuntimeFactory({ product, configDir })
 				: await runtime.ModelRuntime.create();
-			const model = modelRuntime.getModel(selection.provider, selection.id);
-			if (!model) throw new Error(`Eval model not found: ${selection.provider}/${selection.id}`);
-			const thinkingLevel = options.thinkingLevel ?? "off";
-			const baseOrigin = modelBaseOrigin(model.baseUrl);
-			const manifest = await createProductRunManifest({
-				selection: product,
-				workspace,
-				model: {
-					...selection,
-					...(typeof model.api === "string" ? { api: model.api } : {}),
-					...(baseOrigin ? { baseOrigin } : {}),
-				},
-				thinkingLevel,
-				environmentProfile:
-					options.environmentProfile ??
-					(process.env.ROTOM_EVAL_ENVIRONMENT_PROFILE?.trim() || "isolated-local"),
-				workspaceFixtureDigestMode: options.workspaceFixtureDigestMode,
-			});
-			const manifestArtifact = toJsonValue(manifest);
-			if (manifestArtifact === undefined) throw new TypeError("Run manifest is not JSON-serializable.");
-			setArtifact(DEV_AGENT_RUN_MANIFEST_ARTIFACT, manifestArtifact);
-
 			const settingsManager = runtime.SettingsManager.create(workspace, configDir, { projectTrusted: false });
 			const loader = new runtime.DefaultResourceLoader({
 				cwd: workspace,
@@ -383,6 +361,45 @@ async function runPiCodingAgent<TOutput extends JsonValue>(
 			if (extensionLoadErrors.length > 0) {
 				throw new AggregateError(extensionLoadErrors.map((item) => item.error), "Product extensions failed to load.");
 			}
+
+			// Product extensions such as qoder register providers while loading.
+			// Pi's own session services flush these queues into the model runtime
+			// before resolving the model (agent-session-services.ts); mirror that so
+			// extension-provided models are selectable, failing closed on errors.
+			const extensionRuntime = loader.getExtensions().runtime;
+			const registrationErrors: unknown[] = [];
+			for (const { name, config } of extensionRuntime.pendingProviderRegistrations) {
+				try { modelRuntime.registerProvider(name, config); } catch (error) { registrationErrors.push(error); }
+			}
+			for (const { provider } of extensionRuntime.pendingNativeProviderRegistrations) {
+				try { modelRuntime.registerNativeProvider(provider); } catch (error) { registrationErrors.push(error); }
+			}
+			extensionRuntime.pendingProviderRegistrations = [];
+			extensionRuntime.pendingNativeProviderRegistrations = [];
+			if (registrationErrors.length > 0) throw new AggregateError(registrationErrors, "Product provider registration failed.");
+			await modelRuntime.refresh({ allowNetwork: false });
+
+			const model = modelRuntime.getModel(selection.provider, selection.id);
+			if (!model) throw new Error(`Eval model not found: ${selection.provider}/${selection.id}`);
+			const thinkingLevel = options.thinkingLevel ?? "off";
+			const baseOrigin = modelBaseOrigin(model.baseUrl);
+			const manifest = await createProductRunManifest({
+				selection: product,
+				workspace,
+				model: {
+					...selection,
+					...(typeof model.api === "string" ? { api: model.api } : {}),
+					...(baseOrigin ? { baseOrigin } : {}),
+				},
+				thinkingLevel,
+				environmentProfile:
+					options.environmentProfile ??
+					(process.env.ROTOM_EVAL_ENVIRONMENT_PROFILE?.trim() || "isolated-local"),
+				workspaceFixtureDigestMode: options.workspaceFixtureDigestMode,
+			});
+			const manifestArtifact = toJsonValue(manifest);
+			if (manifestArtifact === undefined) throw new TypeError("Run manifest is not JSON-serializable.");
+			setArtifact(DEV_AGENT_RUN_MANIFEST_ARTIFACT, manifestArtifact);
 
 			sessionManager = runtime.SessionManager.create(workspace, sessionsDir);
 			setArtifact("runId", sessionManager.getSessionId());

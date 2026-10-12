@@ -133,6 +133,29 @@ async function findPiAiEntry(packageRoot: string): Promise<string> {
 	}
 }
 
+it("selects a model whose provider an extension registers while loading", async () => {
+	// Mirrors qoder: the provider exists only after extension load, so the model
+	// runtime handed to the harness does not know it.
+	let extensionProvider: unknown;
+	const harness = createPiCodingAgentHarness({
+		name: "extension-provider",
+		model: { provider: "dev-agent-eval-extension-faux", id: "fixture" },
+		piExecutable: process.env.ROTOM_TEST_PI,
+		tools: [],
+		async modelRuntimeFactory({ product, configDir }) {
+			const piAiEntry = await findPiAiEntry(product.verified.packageRoot);
+			const { fauxAssistantMessage, fauxProvider } = await import(pathToFileURL(piAiEntry).href);
+			const faux = fauxProvider({ provider: "dev-agent-eval-extension-faux", models: [{ id: "fixture", contextWindow: 12_000, maxTokens: 1_024 }] });
+			faux.setResponses([fauxAssistantMessage("extension-provider-ready")]);
+			extensionProvider = faux.provider;
+			return product.runtime.ModelRuntime.create({ authPath: resolve(configDir, "auth.json"), modelsPath: null, refreshOnCreate: false });
+		},
+		inlineExtensions: [(pi) => { (pi.registerProvider as (provider: unknown) => void)(extensionProvider); }],
+	});
+	const result = await harness.run("Reply with the fixture response.", { artifacts: {}, setArtifact() {} });
+	expect(result.output).toBe("extension-provider-ready");
+});
+
 it("runs a real product AgentSession with an injected faux model and captures artifacts", async () => {
 	const harness = createPiCodingAgentHarness({
 		name: "faux-product-smoke",
