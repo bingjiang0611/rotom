@@ -1,0 +1,56 @@
+{
+  "state": "published",
+  "package": "@bingjiang0611/rotom",
+  "version": "0.1.22",
+  "tag": "latest",
+  "sourceCommit": "044702dcd5c502e3ed129acef64ad4540e253abb",
+  "sha256": "a1576007c927e81a0b43c7cf0a42102a834f884ceeff94f68eeacaaf9d58dbb8",
+  "shasum": "9bf16217eed107d2c2ce2c1f0030c6c702013d32",
+  "integrity": "sha512-h7ze8ln8N9VV7WD87x4waXIta9ruZQpGzmwR7NOqCeXfQb0/RSNYpxw+7mPyEPPGpRyD/w7JglHpo7CV9cU++A==",
+  "tarball": "https://registry.npmjs.org/@bingjiang0611/rotom/-/rotom-0.1.22.tgz",
+  "fileCount": 18870,
+  "compressedBytes": 53055254,
+  "uncompressedRegularFileBytes": 169994568,
+  "buildToolchain": {
+    "node": "24.18.0",
+    "npm": "12.2.0",
+    "successfulFinalPacks": 1
+  },
+  "checks": {
+    "checkPi": "PASS before freeze; fork source and archives unchanged by release metadata",
+    "distribution": "25 passed",
+    "checkPersonal": "328 product tests and 87 Goal tests passed using the actual installed tgz Pi; source harness and clean locked source dependencies",
+    "offlineProviders": "PASS; compiledPiMatchesSource=true; inputsStable=true",
+    "footprint": "runtimeContractGate and deterministicGate PASS; immutable historical referenceObservationGate DRIFT is informational, also reported by 0.1.21",
+    "defaultAndFullInstalledSdkSmoke": "PASS; actual installed resources; 2 faux calls and 0 lifecycle errors per mode; source harness used because Node does not strip types within node_modules",
+    "isolatedInstall": "PASS; isolated HOME/prefix, PATH without global Pi; version 0.1.22 / Pi 1.1.0-rotom.2",
+    "installedFilesByteIdentical": 18870,
+    "sourceFilesByteIdentical": 71,
+    "upgrade": "PASS; registry 0.1.21 artifact verified against registry integrity/shasum and prior SHA-256, then upgraded to exact final 0.1.22 tgz via isolated npm global prefix",
+    "uninstall": "PASS; bin and package absent, isolated HOME sentinel retained",
+    "publicFrozenSourceAudit": {
+      "status": "PASS",
+      "commits": 175,
+      "findings": 0
+    },
+    "actualArtifactPrivacyAudit": {
+      "status": "PASS",
+      "filesChecked": 21816,
+      "findings": 0
+    },
+    "registryPreflight": "Target version absent and latest=0.1.21 before publication"
+  },
+  "registryVerified": true,
+  "registryVerification": "npm-release-handoff verify with NODE_USE_ENV_PROXY=1: exact version, latest tag, integrity, shasum, trusted tarball URL and downloaded bytes match the unique frozen tgz; independent curl download also byte-identical",
+  "verificationTransport": "Two default Node fetch attempts timed out. curl reached registry and downloaded successfully; enabling Node's existing environment proxy support made the unmodified helper pass. No republish or artifact rebuild.",
+  "publishedBy": "Maintainer in a foreground terminal; agent did not read credentials or publish",
+  "globalInstall": {
+    "state": "not-performed",
+    "note": "Current command readback remains 0.1.21; per-version installation is handed to the maintainer using scripts/install-release.sh without --force."
+  },
+  "unverified": [
+    "Multi-round compaction retention and actual post-compaction business continuation",
+    "Real browser/phone/terminal UI and cross-platform acceptance",
+    "Actual public-registry rotom update path; isolated upgrade validation used npm"
+  ]
+}

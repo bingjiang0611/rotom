@@ -1,8 +1,8 @@
-# npm 0.1.22 发布准备
+# npm 0.1.22 发布记录
 
 - 授权目标：`@bingjiang0611/rotom@0.1.22`，dist-tag `latest`，access `public`，许可证 `UNLICENSED`。
-- 状态：冻结发布元数据，准备唯一最终 tgz；尚未提交 npm publish，尚未核验 registry，也未切换本机安装。
-- 冻结后以 Git 读取的该提交 SHA 为唯一构建源；最终产物摘要及安装验证另留本次私有发行工作区，公开确认后补发布证据。
+- 状态：维护者已在前台发布；registry 的精确版本、latest tag、integrity、shasum、可信 tarball URL 与下载字节均已独立核验。本机安装尚未切换。
+- 唯一构建源：`044702dcd5c502e3ed129acef64ad4540e253abb`。只成功打包一次；53,055,254 字节、18,870 个文件。完整摘要和验证结果见 [机器可读证据](npm-0.1.22-verification.json)。
 
 ## 相对 0.1.21 的变更
 
@@ -13,7 +13,8 @@
 
 ## 验证范围和限制
 
-- Pi fork 已重建；正式打包前检查源码/归档 identity，再对唯一 tgz 做独立隐私审计、隔离安装、default/full smoke、`check-personal`、升级与卸载验证。
+- Pi fork 源码/归档 identity 检查通过；唯一 tgz 的独立隐私审计、隔离安装、default/full smoke、升级与卸载通过。分发 25 项、产品 328 项、Goal 87 项测试通过；18,870 个安装文件与 tgz 字节一致。
+- 离线 Provider 和运行时合同门禁通过；旧的固定上下文观测基线仍为 DRIFT，属于已记录的参考差异，不冒充 PASS。首次两次 Node 只读 registry 核验超时；启用现有环境代理后，未修改的 handoff helper 核验通过，独立 curl 下载也与最终包字节一致。
 - 已有真实长会话摘要重放和跨模型比较，见 [压缩验证记录](compaction-update-evaluation.md)。观测到输出减少，但样本有限，部分调用存在缓存差异；不宣称无损压缩、跨厂商泛化、多轮续跑准确率或美元节省。
 - 不为此次发行恢复已经撤销的 context fold，不改个人重试/模型设置，不新增后台等待工具或 trace 保留策略。
 - 本次发行 gate 不调用真实模型、浏览器或手机，不代替跨平台、真实 Chrome、终端 UI 或后续业务任务验收。
