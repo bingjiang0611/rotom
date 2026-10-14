@@ -54,9 +54,19 @@ export interface CompactionDetails {
 	modifiedFiles: string[];
 }
 
-/**
- * Extract file operations from messages and previous compaction entries.
+/** Identify only the exact Pi-appended suffix backed by carried details.
+ * Hook summaries and unmatched text remain intact because their lists may not be carried.
  */
+function carriedFileListSuffix(entry: CompactionEntry): string | undefined {
+	const details = entry.details as Partial<CompactionDetails> | undefined;
+	if (entry.fromHook || !Array.isArray(details?.readFiles) || !Array.isArray(details.modifiedFiles)) {
+		return undefined;
+	}
+	const carried = formatFileOperations(details.readFiles, details.modifiedFiles);
+	return carried && entry.summary.endsWith(carried) ? carried : undefined;
+}
+
+/** Extract file operations from messages and previous compaction entries. */
 function extractFileOperations(
 	messages: AgentMessage[],
 	entries: SessionEntry[],
@@ -540,12 +550,15 @@ Use this EXACT format:
 Keep each section concise. Preserve exact file paths, function names, and error messages.`;
 
 const UPDATE_SUMMARIZATION_INSTRUCTIONS = `Update the existing structured summary with new information. RULES:
-- PRESERVE all existing information from the previous summary
+- REWRITE the summary as the current state of the work, not as a log that only grows
+- KEEP the goals, user constraints and preferences, open work, blockers, unresolved errors, and decisions that still apply
 - ADD new progress, decisions, and context from the new messages
 - UPDATE the Progress section: move items from "In Progress" to "Done" when completed
+- CONDENSE "Done": one short line per completed outcome; merge related items; keep commit hashes, versions, and changed file paths, but drop step-by-step detail that later work does not need
 - UPDATE "Next Steps" based on what was accomplished
-- PRESERVE exact file paths, function names, and error messages
-- If something is no longer relevant, you may remove it
+- PRESERVE exact file paths, function names, and error messages that open work or later steps depend on
+- REMOVE details that are superseded or no longer relevant
+- Keep the summary about as long as the previous one unless new open work needs more
 
 Use this EXACT format:
 
@@ -566,7 +579,7 @@ Use this EXACT format:
 - [Current blockers - remove if resolved]
 
 ## Key Decisions
-- **[Decision]**: [Brief rationale] (preserve all previous, add new)
+- **[Decision]**: [Brief rationale] (keep decisions that still apply, add new)
 
 ## Next Steps
 1. [Update based on current state]
@@ -834,6 +847,8 @@ export interface CompactionPreparation {
 	tokensBefore: number;
 	/** Summary from previous compaction, for iterative update */
 	previousSummary?: string;
+	/** Exact Pi-appended suffix backed by fileOps; omitted only by built-in summarization. */
+	previousSummaryFileListSuffix?: string;
 	/** File operations extracted from messagesToSummarize */
 	fileOps: FileOperations;
 	/** Compaction settions from settings.jsonl	*/
@@ -940,9 +955,12 @@ export function prepareCompaction(
 	);
 
 	let previousSummary: string | undefined;
+	let previousSummaryFileListSuffix: string | undefined;
 	let boundaryStart = 0;
 	if (prevCompactionIndex >= 0) {
-		previousSummary = (projectedEntries[prevCompactionIndex].sourceEntry as CompactionEntry).summary;
+		const previous = projectedEntries[prevCompactionIndex].sourceEntry as CompactionEntry;
+		previousSummary = previous.summary;
+		previousSummaryFileListSuffix = carriedFileListSuffix(previous);
 		// The canonical projection has already selected the previous compaction's retained tail.
 		boundaryStart = prevCompactionIndex + 1;
 	}
@@ -983,6 +1001,7 @@ export function prepareCompaction(
 		isSplitTurn: cutPoint.isSplitTurn,
 		tokensBefore,
 		previousSummary,
+		previousSummaryFileListSuffix,
 		fileOps,
 		settings,
 	};
@@ -1029,16 +1048,15 @@ export async function compact(
 	callbacks?: RetryCallbacks,
 	sessionId?: string,
 ): Promise<CompactionResult> {
-	const {
-		firstKeptEntryId,
-		messagesToSummarize,
-		turnPrefixMessages,
-		isSplitTurn,
-		tokensBefore,
-		previousSummary,
-		fileOps,
-		settings,
-	} = preparation;
+	const { firstKeptEntryId, messagesToSummarize, turnPrefixMessages, isSplitTurn, tokensBefore, fileOps, settings } =
+		preparation;
+	// Preserve the full extension-visible checkpoint. Only the built-in summary omits
+	// the carried suffix; check again because a before-compact hook may edit preparation.
+	const carried = preparation.previousSummaryFileListSuffix;
+	const previousSummary =
+		carried && preparation.previousSummary?.endsWith(carried)
+			? preparation.previousSummary.slice(0, -carried.length)
+			: preparation.previousSummary;
 
 	// Generate summaries and merge into one
 	let summary: string;

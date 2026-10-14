@@ -44,7 +44,7 @@ You can also trigger manually with `/compact [instructions]`, where optional ins
 
 1. **Find cut point**: Walk backwards through the finalized session projection, accumulating token estimates until `keepRecentTokens` (default 20k, configurable in `~/.pi/agent/settings.json` or `<project-dir>/.pi/settings.json`) is reached
 2. **Extract messages**: Collect projected messages from the previous kept boundary (or session start) up to the cut point
-3. **Generate summary**: Call LLM to summarize with structured format, passing the previous summary as iterative context when present
+3. **Generate summary**: Call LLM to summarize with structured format, passing the previous summary as iterative context when present. The update prompt asks the model to rewrite the summary as the current state, condense completed work, and keep it about as long as the previous summary unless new open work needs more
 4. **Append entry**: Save `CompactionEntry` with summary and `firstKeptEntryId`
 5. **Rebuilds context**: Session rebuilds the context for the next request, using summary + messages from `firstKeptEntryId` onwards
 
@@ -206,6 +206,8 @@ After navigation with summary:
 Default compaction and branch summarization track files cumulatively. Both extract file operations from tool calls in the messages being summarized. Compaction also carries file lists from the previous Pi-generated compaction. Branch summarization carries file lists from Pi-generated branch summaries in the entries it summarizes.
 
 File tracking therefore accumulates across default compactions and nested default branch summaries. Pi does not automatically carry file lists from extension-generated summaries whose `fromHook` field is `true`; extensions manage their own `details` format.
+
+Because the lists of a Pi-generated compaction are carried through `details`, built-in summarization omits the exact Pi-appended file-list suffix before sending the previous summary to the model (or reusing it when there is no new history). Pi appends the merged lists once. Extensions still receive the full `preparation.previousSummary`; the optional `previousSummaryFileListSuffix` identifies the carried suffix. Hook-generated summaries, missing details and unmatched suffixes remain intact.
 
 ### BranchSummaryEntry Structure
 

@@ -568,6 +568,44 @@ describe("prepareCompaction with previous compaction", () => {
 		expect(summarizedText).not.toContain("First summary");
 		expect(preparation!.previousSummary).toBe("First summary");
 	});
+
+	it.each(["default", "hook", "missing-details", "unmatched-suffix", "empty-lists"])(
+		"preserves file evidence when preparing %s summaries",
+		(kind) => {
+			const body = "## Goal\nShip it";
+			const carried = "\n\n<read-files>\nsrc/a.ts\n</read-files>\n\n<modified-files>\nsrc/b.ts\n</modified-files>";
+			const u1 = createMessageEntry(createUserMessage("summarized earlier"));
+			const u2 = createMessageEntry(createUserMessage("user msg 2 kept ".repeat(12)));
+			const a2 = createMessageEntry(
+				createAssistantMessage("assistant msg 2 ".repeat(12), createMockUsage(5000, 1000)),
+			);
+			const previous = createCompactionEntry(
+				body + carried + (kind === "unmatched-suffix" ? "\nStill needed" : ""),
+				u2.id,
+			);
+			previous.fromHook = kind === "hook";
+			if (kind !== "missing-details") {
+				previous.details =
+					kind === "empty-lists"
+						? { readFiles: [], modifiedFiles: [] }
+						: { readFiles: ["src/a.ts"], modifiedFiles: ["src/b.ts"] };
+			}
+			const u3 = createMessageEntry(createUserMessage("user msg 3 new ".repeat(12)));
+			const a3 = createMessageEntry(
+				createAssistantMessage("assistant msg 3 ".repeat(12), createMockUsage(8000, 2000)),
+			);
+			const preparation = prepareCompaction([u1, u2, a2, previous, u3, a3], {
+				...DEFAULT_COMPACTION_SETTINGS,
+				keepRecentTokens: 100,
+			});
+			expect(preparation!.previousSummary).toBe(previous.summary);
+			expect(preparation!.previousSummaryFileListSuffix).toBe(kind === "default" ? carried : undefined);
+			const carriesFiles = kind === "default" || kind === "unmatched-suffix";
+			expect([...preparation!.fileOps.read]).toEqual(carriesFiles ? ["src/a.ts"] : []);
+			expect([...preparation!.fileOps.edited]).toEqual(carriesFiles ? ["src/b.ts"] : []);
+			expect(previous.summary).toContain(carried); // Stored history is not rewritten.
+		},
+	);
 });
 
 // ============================================================================

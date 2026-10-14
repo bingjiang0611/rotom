@@ -108,6 +108,29 @@ describe("generateSummary reasoning options", () => {
 		);
 	});
 
+	it("rewrites an updated checkpoint without imposing a smaller output cap", async () => {
+		await generateSummary(
+			messages,
+			createModel(false),
+			2000,
+			"test-key",
+			undefined,
+			undefined,
+			undefined,
+			"previous checkpoint",
+		);
+		const [, context, options] = completeSimpleMock.mock.calls[0];
+		const prompt = JSON.stringify(context);
+		expect(prompt).toContain("previous checkpoint");
+		expect(prompt).toContain("REWRITE the summary as the current state");
+		expect(prompt).toContain("open work, blockers, unresolved errors");
+		expect(prompt).toContain("unless new open work needs more");
+		// Hook checkpoints may contain file lists that Pi does not carry separately.
+		expect(prompt).not.toContain("Do not include <read-files>");
+		expect(prompt).not.toContain("PRESERVE all existing information");
+		expect(options.maxTokens).toBe(1600);
+	});
+
 	it("uses fresh routing sessions without prompt caching", async () => {
 		await generateSummary(messages, createModel(false), 2000, "test-key");
 		await generateSummary(messages, createModel(false), 2000, "test-key");
@@ -132,6 +155,35 @@ describe("generateSummary reasoning options", () => {
 			cacheRetention: "none",
 			toolChoice: "auto",
 		});
+	});
+
+	it.each([false, true])("omits carried lists from built-in summaries (split=%s)", async (split) => {
+		const suffix = "\n\n<read-files>\nsrc/a.ts\n</read-files>";
+		const preparation: CompactionPreparation = {
+			firstKeptEntryId: "entry-keep",
+			messagesToSummarize: split ? [] : messages,
+			turnPrefixMessages: split ? messages : [],
+			isSplitTurn: split,
+			tokensBefore: 100,
+			previousSummary: `previous checkpoint${suffix}`,
+			previousSummaryFileListSuffix: suffix,
+			fileOps: { read: new Set(["src/a.ts"]), written: new Set(), edited: new Set() },
+			settings: { enabled: true, reserveTokens: 2000, keepRecentTokens: 20 },
+		};
+		const result = await compact(preparation, createModel(false), "test-key");
+		expect(JSON.stringify(completeSimpleMock.mock.calls[0][1])).not.toContain("src/a.ts");
+		expect(result.summary.match(/<read-files>/g)).toHaveLength(1);
+		expect(result.details).toEqual({ readFiles: ["src/a.ts"], modifiedFiles: [] });
+		expect(preparation.previousSummary).toBe(`previous checkpoint${suffix}`);
+		if (split) expect(result.summary).toContain("previous checkpoint");
+
+		// A hook that changes the checkpoint must not have unrelated text sliced off.
+		completeSimpleMock.mockClear();
+		preparation.previousSummary += "\nHook context";
+		const changed = await compact(preparation, createModel(false), "test-key");
+		const retained = split ? changed.summary : JSON.stringify(completeSimpleMock.mock.calls[0][1]);
+		expect(retained).toContain("Hook context");
+		expect(retained).toContain("src/a.ts");
 	});
 
 	it("preserves the previous summary without an empty history request for a split turn", async () => {

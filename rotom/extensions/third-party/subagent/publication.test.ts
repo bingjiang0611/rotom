@@ -2,6 +2,36 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { subagentPolicyApi, subagentEvidenceResult, prepareProductSubagentArguments, constrainSubagentParameters, PRODUCT_SUBAGENT_DESCRIPTION, PRODUCT_SUBAGENT_POLICY_GUIDELINE, PRODUCT_SUBAGENT_SCOPED_GUIDELINE, PRODUCT_SUBAGENT_ACCEPTANCE_GUIDELINE, PRODUCT_HANDOFF_GUIDELINE } from "./policy.ts";
 
+test("shorter optional-parameter descriptions preserve validation and disclosure", () => {
+	const descriptions = {
+		maxRuntimeMs: "Alias timeoutMs. Foreground and single async runs use config timeoutMs, else 30m; async composites have no default parent deadline.",
+		usageBudget: "Optional root-only reported-usage budget. Hard limits prevent future child launches; running children are not stopped.",
+		agentScope: "Agent discovery scope: 'user', 'project', or 'both' (default: 'both'; project wins on name collisions)",
+		share: "Upload session to GitHub Gist for sharing (default: false)",
+		sessionDir: "Directory to store session logs (default: temp; enables sessions even if share=false)",
+		skill: "Skill name(s) to make available (comma-separated), array of strings, or boolean (false disables, true uses default)",
+		model: "Default child model override. Full provider/id values are accepted; bare ids resolve from the active registry.",
+		outputSchema: "JSON Schema object for strict structured output. Non-object roots are rejected.",
+	};
+	const schema = { type: "object", properties: Object.fromEntries(Object.entries(descriptions).map(([key, description]) => [key, {
+		description, anyOf: [{ type: "string" }, { type: "object", additionalProperties: false }],
+	}])), additionalProperties: false };
+	const original = structuredClone(schema);
+	for (const scoped of [false, true]) {
+		const projected = constrainSubagentParameters(schema, scoped);
+		for (const [key, before] of Object.entries(schema.properties)) {
+			const { description, ...validation } = projected.properties[key];
+			assert.deepEqual(validation, { anyOf: before.anyOf });
+			assert.ok(description.length < before.description.length, key);
+		}
+		assert.equal(projected.additionalProperties, false);
+		assert.match(projected.properties.share.description, /Upload.*GitHub Gist.*default false/);
+		assert.match(projected.properties.usageBudget.description, /reported-usage.*block new child launches, not running children/);
+		assert.match(projected.properties.maxRuntimeMs.description, /30m; async composites have no default parent deadline/);
+	}
+	assert.deepEqual(schema, original, "projection does not mutate the component schema");
+});
+
 function fixture() {
 	const handlers = new Map<string, Function[]>(); const tools = new Map<string, any>(); const published: unknown[] = [];
 	const api = subagentPolicyApi({
