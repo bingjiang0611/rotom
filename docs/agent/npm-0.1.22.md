@@ -1,7 +1,7 @@
 # npm 0.1.22 发布记录
 
 - 授权目标：`@bingjiang0611/rotom@0.1.22`，dist-tag `latest`，access `public`，许可证 `UNLICENSED`。
-- 状态：维护者已在前台发布；registry 的精确版本、latest tag、integrity、shasum、可信 tarball URL 与下载字节均已独立核验。本机安装尚未切换。
+- 状态：维护者已在前台发布；registry 的精确版本、latest tag、integrity、shasum、可信 tarball URL 与下载字节均已独立核验。维护者看到精确命令后，另行明确授权 Agent 执行安装；全局命令已切换到分版本目录中的 0.1.22，保留 0.1.21 和活跃会话。实际安装的 18,870 个文件与最终包字节一致。
 - 唯一构建源：`044702dcd5c502e3ed129acef64ad4540e253abb`。只成功打包一次；53,055,254 字节、18,870 个文件。完整摘要和验证结果见 [机器可读证据](npm-0.1.22-verification.json)。
 
 ## 相对 0.1.21 的变更

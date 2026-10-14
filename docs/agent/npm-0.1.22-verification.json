@@ -45,8 +45,12 @@
   "verificationTransport": "Two default Node fetch attempts timed out. curl reached registry and downloaded successfully; enabling Node's existing environment proxy support made the unmodified helper pass. No republish or artifact rebuild.",
   "publishedBy": "Maintainer in a foreground terminal; agent did not read credentials or publish",
   "globalInstall": {
-    "state": "not-performed",
-    "note": "Current command readback remains 0.1.21; per-version installation is handed to the maintainer using scripts/install-release.sh without --force."
+    "state": "verified",
+    "note": "After seeing the exact command, the maintainer explicitly authorized the agent to install. scripts/install-release.sh ran once without --force, using empty isolated npm configs/cache rather than user credentials. The active rotom command resolves to the 0.1.22 per-version installation; 0.1.21 is retained and active sessions are not migrated.",
+    "productVersion": "0.1.22",
+    "piVersion": "1.1.0-rotom.2",
+    "installedFilesByteIdentical": 18870,
+    "components": {"pi-subagents": "0.52.1-rotom.7", "@narumitw/pi-goal": "0.54.4-rotom.8", "@injaneity/pi-computer-use": "0.5.1-rotom.0"}
   },
   "unverified": [
     "Multi-round compaction retention and actual post-compaction business continuation",
