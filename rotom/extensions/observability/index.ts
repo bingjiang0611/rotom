@@ -23,6 +23,25 @@ const QODER_TRACE_ERROR_MESSAGES = new Map([
 	["Qoder: stream_failed", "transport_failure"],
 ]);
 
+const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u;
+
+// Bounded category of a failed provider request. Patterns match error texts seen
+// in real rotom sessions; only the label (and an HTTP status parsed from a
+// leading status code) is recorded, never the text. Anything else stays
+// "unknown" rather than being guessed.
+const PROVIDER_ERROR_CATEGORIES: ReadonlyArray<readonly [category: string, pattern: RegExp]> = [
+	["timeout", /timed out|\btimeout\b/iu],
+	["websocket", /^WebSocket (?:error|closed)\b/u],
+	["aborted", /^This operation was aborted$/u],
+	["overloaded", /overloaded/iu],
+	["network", /^(?:fetch failed|terminated|Connection error\.)$|^Qoder: (?:request|stream)_failed$|\b(?:ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN)\b|socket hang up|^upstream connect error/u],
+	["auth", /^API key auth failed\b/u],
+	["provider_error", /^Codex error:|^\{"type":"error"|^Qoder: /u],
+];
+const LEADING_HTTP_STATUS = /^([45]\d\d)\b/u;
+// Compaction failures wrap the provider error: "Compaction failed: Summarization failed: <error>".
+const SUMMARY_FAILURE_PREFIX = /^Compaction failed: (?:[A-Za-z ]+ failed: )?/u;
+
 type TraceStatus = "ok" | "error" | "aborted" | "unknown";
 type TraceAttribute = string | number | boolean | string[] | number[] | boolean[];
 type TraceAttributes = Record<string, TraceAttribute>;
@@ -59,6 +78,23 @@ function boundedTag(value: unknown, maximum = 256): string | undefined {
 
 function finiteNumber(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+/** Launcher-owned, identity-gated versions. Direct SDK or `-e` loads lack them and leave them absent. */
+export function runtimeVersionAttributes(env: NodeJS.ProcessEnv = process.env): TraceAttributes {
+	const product = env.ROTOM_PRODUCT_VERSION;
+	const pi = env.ROTOM_VERIFIED_PI_VERSION;
+	return {
+		...(product && EXACT_VERSION.test(product) ? { "rotom.product.version": product } : {}),
+		...(pi && EXACT_VERSION.test(pi) ? { "pi.runtime.version": pi } : {}),
+	};
+}
+
+export function providerErrorAttributes(errorMessage: unknown, httpStatus: number | undefined): TraceAttributes {
+	const text = typeof errorMessage === "string" ? errorMessage.replace(SUMMARY_FAILURE_PREFIX, "").trim() : "";
+	const status = Number(LEADING_HTTP_STATUS.exec(text)?.[1]) || (httpStatus !== undefined && httpStatus >= 400 ? httpStatus : undefined);
+	if (status) return { "pi.ai.error.category": "http", "pi.ai.error.http_status": status };
+	return { "pi.ai.error.category": PROVIDER_ERROR_CATEGORIES.find(([, pattern]) => pattern.test(text))?.[0] ?? "unknown" };
 }
 
 /** Per-request timing of a built-in compaction, keyed by summary kind. */
@@ -700,7 +736,11 @@ class LocalTraceRecorderV1 {
 		if (message?.role !== "assistant" || !this.providerSpan) return;
 		const status = statusFromAssistant(message);
 		if (status !== "ok") this.operationStatus = status;
-		this.finishProvider(status, { ...assistantAttributes(message), ...contextUsageAttributes(ctx) });
+		this.finishProvider(status, {
+			...assistantAttributes(message),
+			...(status === "error" ? providerErrorAttributes(message.errorMessage, this.providerStatus) : {}),
+			...contextUsageAttributes(ctx),
+		});
 	}
 
 	toolStart(event: any, ctx: ExtensionContext): void {
@@ -792,8 +832,10 @@ class LocalTraceRecorderV1 {
 		if (!this.compactionSpan) return;
 		const status: TraceStatus = failed ? (event.aborted === true ? "aborted" : "error") : "ok";
 		const sequence = this.activeCompactionSequence;
-		this.finishProvider(status, usageAttributes(event.compactionEntry?.usage));
+		const errorAttributes = status === "error" ? providerErrorAttributes(event.errorMessage, this.providerStatus) : {};
+		this.finishProvider(status, { ...usageAttributes(event.compactionEntry?.usage), ...errorAttributes });
 		this.endSpan(this.compactionSpan, status, {
+			...errorAttributes,
 			...(sequence !== undefined ? { "pi.compaction.sequence": sequence } : {}),
 			"pi.compaction.reason": boundedTag(event.reason, 32) ?? "unknown",
 			"pi.compaction.will_retry": event.willRetry === true,
@@ -903,6 +945,7 @@ export function createObservabilityExtensionV1() {
 			recorder = new LocalTraceRecorderV1(writer, ctx.sessionManager.getSessionId(), {
 				"pi.session.start_reason": event.reason,
 				"pi.session.mode": ctx.mode,
+				...runtimeVersionAttributes(),
 			});
 			unavailableReason = "available";
 		});

@@ -164,6 +164,8 @@ export async function launchRuntime(rawArgs = process.argv.slice(2)) {
 			...(bundledPi ? { runtimeEntry: resolve(dirname(executable), "index.js") } : {}),
 		}));
 	process.env.ROTOM_VERIFIED_PI_EXECUTABLE = verified.executable;
+	// Identity-gated Pi version for local trace attribution; never read from ambient env.
+	process.env.ROTOM_VERIFIED_PI_VERSION = verified.version;
 	if (options.packageManagement) {
 		await runPi(verified, options.userArgs);
 		return;

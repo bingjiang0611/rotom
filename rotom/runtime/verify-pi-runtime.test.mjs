@@ -51,7 +51,7 @@ function fakePi(options = {}) {
 	].join("\n"));
 	writeFileSync(join(dist, "cli.js"), `#!/usr/bin/env node
 import { writeFileSync } from "node:fs";
-writeFileSync(process.env.ROTOM_TEST_CAPTURE, JSON.stringify({ cwd: process.cwd(), argv: process.argv.slice(2), nodeExecutable: process.execPath, nodeVersion: process.versions.node, verifiedPiExecutable: process.env.ROTOM_VERIFIED_PI_EXECUTABLE, productVersion: process.env.ROTOM_PRODUCT_VERSION, importedProductVersion: process.env.ROTOM_TEST_IMPORTED_PRODUCT_VERSION, maxSubagentSpawnsPerSession: process.env.PI_SUBAGENT_MAX_SPAWNS_PER_SESSION, cacheRetention: process.env.PI_CACHE_RETENTION, deferredDefaultSurface: process.env.ROTOM_DEFERRED_DEFAULT_SURFACE, computerUseHeadless: process.env.PI_COMPUTER_USE_HEADLESS, executionScope: process.env.PI_SUBAGENTS_EXECUTION_SCOPE, subagentTempRoot: process.env.PI_SUBAGENTS_TEMP_ROOT, subagentQoderExtension: process.env.ROTOM_SUBAGENT_QODER_EXTENSION }));
+writeFileSync(process.env.ROTOM_TEST_CAPTURE, JSON.stringify({ cwd: process.cwd(), argv: process.argv.slice(2), nodeExecutable: process.execPath, nodeVersion: process.versions.node, verifiedPiExecutable: process.env.ROTOM_VERIFIED_PI_EXECUTABLE, verifiedPiVersion: process.env.ROTOM_VERIFIED_PI_VERSION, productVersion: process.env.ROTOM_PRODUCT_VERSION, importedProductVersion: process.env.ROTOM_TEST_IMPORTED_PRODUCT_VERSION, maxSubagentSpawnsPerSession: process.env.PI_SUBAGENT_MAX_SPAWNS_PER_SESSION, cacheRetention: process.env.PI_CACHE_RETENTION, deferredDefaultSurface: process.env.ROTOM_DEFERRED_DEFAULT_SURFACE, computerUseHeadless: process.env.PI_COMPUTER_USE_HEADLESS, executionScope: process.env.PI_SUBAGENTS_EXECUTION_SCOPE, subagentTempRoot: process.env.PI_SUBAGENTS_TEMP_ROOT, subagentQoderExtension: process.env.ROTOM_SUBAGENT_QODER_EXTENSION }));
 `);
 	chmodSync(join(dist, "cli.js"), 0o700);
 	symlinkSync("../lib/node_modules/fake-pi/dist/cli.js", join(bin, "pi"));
@@ -345,6 +345,7 @@ test("launcher 保留业务 cwd 与用户参数，并固定加载 bundled resour
 				ROTOM_TEST_CAPTURE: capture,
 				PI_CACHE_RETENTION: "long",
 				ROTOM_PRODUCT_VERSION: "99.0.0",
+				ROTOM_VERIFIED_PI_VERSION: "99.0.0",
 				ROTOM_SUBAGENT_QODER_EXTENSION: "/untrusted/inherited-provider.ts",
 				ROTOM_DEFERRED_DEFAULT_SURFACE: "0",
 			},
@@ -354,6 +355,7 @@ test("launcher 保留业务 cwd 与用户参数，并固定加载 bundled resour
 		assert.equal(invocation.nodeExecutable, realpathSync(process.execPath));
 		assert.equal(invocation.nodeVersion, process.versions.node);
 		assert.equal(invocation.verifiedPiExecutable, realpathSync(join(root, "bin/pi")));
+		assert.equal(invocation.verifiedPiVersion, "0.84.3", "trace Pi version must come from the identity gate, not inherited parent metadata");
 		assert.equal(invocation.productVersion, PRODUCT_VERSION, "startup must use the launched product version, not inherited parent metadata");
 		assert.equal(invocation.importedProductVersion, PRODUCT_VERSION, "product identity must exist before Pi SDK import so UI branding cannot freeze as pi");
 		assert.equal(invocation.subagentQoderExtension, resolve(AGENT_DIR, "extensions/qoder/index.ts"), "child provider must come from this verified product, not inherited metadata");
