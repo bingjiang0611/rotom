@@ -109,6 +109,7 @@ export const codingHygieneCases = [
 
 const POLICY_CONSTANT = /export const CODING_EXECUTION_HYGIENE_POLICY = `([\s\S]*?)`;/u;
 const FINAL_REPORT_CONSTANT = /export const FINAL_REPORT_POLICY = `([\s\S]*?)`;/u;
+const FOLLOW_THROUGH_CONSTANT = /export const FOLLOW_THROUGH_POLICY = `([\s\S]*?)`;/u;
 
 export type HygienePolicy = {
 	/** First line of the product constant, e.g. "Coding execution hygiene:". */
@@ -117,7 +118,9 @@ export type HygienePolicy = {
 	rules: string[];
 	/** Verbatim constant body, used to prove reconstruction is lossless. */
 	body: string;
-	/** Final-report section the product appends after the rules; empty for baselines that predate it. Never ablated. */
+	/** Follow-through section the product appends after the rules; empty for baselines that predate it. Never ablated. */
+	followThrough: string;
+	/** Final-report section the product appends last; empty for baselines that predate it. Never ablated. */
 	finalReport: string;
 };
 
@@ -137,7 +140,7 @@ export function readHygienePolicy(productAgentDir: string): HygienePolicy {
 	const nonBullet = rest.filter((line) => !line.startsWith("- "));
 	if (nonBullet.length > 0) throw new Error(`CODING_EXECUTION_HYGIENE_POLICY in ${productAgentDir} has non-bullet lines: ${JSON.stringify(nonBullet)}`);
 	if (rest.length === 0) throw new Error(`CODING_EXECUTION_HYGIENE_POLICY in ${productAgentDir} has no rules`);
-	return { header: header.trimEnd(), rules: rest.map((line) => line.slice(2)), body, finalReport: source.match(FINAL_REPORT_CONSTANT)?.[1] ?? "" };
+	return { header: header.trimEnd(), rules: rest.map((line) => line.slice(2)), body, followThrough: source.match(FOLLOW_THROUGH_CONSTANT)?.[1] ?? "", finalReport: source.match(FINAL_REPORT_CONSTANT)?.[1] ?? "" };
 }
 
 /** Rebuild the policy text, optionally withholding rules. No omissions must reproduce `body` byte for byte. */
@@ -159,7 +162,8 @@ export function hygienePolicyText(policy: HygienePolicy, omitted: readonly strin
  * catalogue and cwd footer and inflate every reconstructed arm.
  */
 export function hygienePolicyInlineExtension(policy: HygienePolicy, omitted: readonly string[] = []): InlineExtension {
-	const text = policy.finalReport ? `${hygienePolicyText(policy, omitted)}\n\n${policy.finalReport}` : hygienePolicyText(policy, omitted);
+	// Same order as the product: rules, follow-through, final report; empty sections are skipped.
+	const text = [hygienePolicyText(policy, omitted), policy.followThrough, policy.finalReport].filter(Boolean).join("\n\n");
 	return {
 		name: "eval-hygiene-policy",
 		factory: (pi: { on: (event: string, handler: (event: BeforeAgentStartLike) => { systemPrompt: string } | undefined) => void }) => {

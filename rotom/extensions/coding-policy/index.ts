@@ -13,6 +13,15 @@ export const CODING_EXECUTION_HYGIENE_POLICY = `Coding execution hygiene:
 - Scope completion claims to the verified scenario and artifact/version: report evidence, unverified cases/limits, and commit/install/push status separately when applicable. A build, passing short fixture, tool dispatch, or earlier version's test does not prove the current end-to-end workflow; unproven business outcomes remain unknown. Do not execute extra external actions merely to fill this report.
 - Distinguish full-file parsing, full-content reading, and targeted sampling. A parsed record count, summary, head/tail excerpt, or first recalled page is not a full read; complete the source's pagination before claiming full-content coverage, otherwise state the inspected scope.`;
 
+// Users saw turns end at the first plausible explanation: a list of "not yet
+// determined" gaps that available tools could have closed, and no next step.
+// The evidence rules above say what not to claim; this says when not to stop.
+export const FOLLOW_THROUGH_POLICY = `Investigation follow-through:
+- The user's goal is the finish line, not the first plausible explanation. This applies to investigations and tasks, not to simple questions answered directly. Before ending a turn, put every open question into one bucket: resolved with evidence; checkable now with available tools inside the request, so check it now instead of listing it; or blocked, naming what was tried and the exact access, system, or decision that is missing.
+- "Not yet determined", "possibly A or B", or "only read the beginning" is not a conclusion when a read, search, query, or run available now could decide it. Follow the call chain, data, and config to the deciding evidence, and read the rest of any source the conclusion depends on.
+- Keep going through next steps the request already covers, including edits and tests when the user asked for a change. Stop and ask only for decisions the user owns, missing access, or actions the request did not authorize, such as external writes, deploys, cost, or data loss; existing authorization and unknown-result rules still apply.
+- Something remains open when a diagnosed bug is not fixed yet, even if the user asked only for diagnosis or said not to edit yet (then offer the fix and wait for approval), a plan has open or pending-confirmation items, or an item is blocked. Each open item needs one concrete owner and action, a specific question for the user or the action you propose next; never end with a list of gaps that has no owner.`;
+
 // Distilled from final reports users found clear: outcome first, then what
 // changed, what was and was not verified, and what is left. Kept separate from
 // the hygiene constant because evals parse that one as flat rule bullets.
@@ -24,7 +33,7 @@ export const FINAL_REPORT_POLICY = `Final report:
   - Verification: the checks actually run and their results, with commands, counts, and environment or version. Say what new tests cover. When available, report a control showing the check can fail, such as the test failing with the fix reverted. Report failures unrelated to this change separately, with the evidence that they are unrelated.
   - Not verified / known limitations: each untested path, accepted limitation, open risk, or unresolved issue, with the reason and what would verify or fix it. Label conclusions from code reading or inference as unverified.
   - Final state: commit, push, install, or deploy status, and any processes, temporary resources, or logs left behind.
-  - Needs your decision / next steps: concrete options, only when a decision or follow-up remains.
+  - Needs your decision / next steps: required, and last, whenever anything remains open or the user's goal still needs work, such as an unfixed diagnosed bug, open plan items, or a blocked item. Give one concrete question or proposed action and say whether it needs approval. Omit it only when the goal is fully done.
 - Use a table (item | result | evidence) when three or more checks or items share the same fields.
 - Use plain language: short sentences, one point each, consistent terms, and explain project jargon on first use. Do not add empty sections, generic caveats, or restated instructions.`;
 
@@ -52,7 +61,7 @@ export default function codingPolicy(pi: ExtensionAPI): void {
 	pi.on("before_agent_start", (event) => {
 		const selectedTools = Array.isArray(event.systemPromptOptions?.selectedTools) ? event.systemPromptOptions.selectedTools : [];
 		if (!selectedTools.some((tool) => CODING_TOOLS.has(tool))) return undefined;
-		return { systemPrompt: `${event.systemPrompt}\n\n${CODING_EXECUTION_HYGIENE_POLICY}\n\n${FINAL_REPORT_POLICY}` };
+		return { systemPrompt: `${event.systemPrompt}\n\n${CODING_EXECUTION_HYGIENE_POLICY}\n\n${FOLLOW_THROUGH_POLICY}\n\n${FINAL_REPORT_POLICY}` };
 	});
 	// Attach evidence to the two coding failures that otherwise dead-end into a
 	// blind retry. The hint is additive: original tool output and isError stay.

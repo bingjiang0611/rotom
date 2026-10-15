@@ -173,6 +173,32 @@ npm run eval -- --provider=<provider> --model=<model> cases/final-report.eval.ts
 
 用户 `AGENTS.md`（含“输出清晰简洁”与“如实交付”要求）没有让 baseline 自行写出分段汇报：真实配置下 baseline 的 fix 回复仍约 150–175 字符、常缺验证计数。汇报段在四组中方向一致，对照题不变长。high thinking 下 fix 题耗时可超过默认 120s：gpt-6.1-sol 有 3 次、qoder 有 1 次超时（基础设施失败，不计分），两模型的 fix 题以 `--testTimeout=600000` 整题重跑、仅用重跑数据。仍未覆盖：长会话、真实复杂任务、opus 真实配置、判分之外的清晰度量化。
 
+### 排查推进：`follow-through.eval.ts`
+
+比较 coding-policy 的推进改动：新增 `FOLLOW_THROUGH_POLICY` 段，并把汇报段的“下一步”从“可选”改为“仍有未决项时必填、放最后”。改动跨两段，所以 baseline 臂注入 `ROTOM_EVAL_FOLLOW_THROUGH_BASELINE_REF` 处提交的完整 policy，candidate 臂注入工作区 policy；两臂都排除产品 `coding-policy`，走同一重建路径。三道题：`archive-mismatch`（原因要跨三跳：查询键 → 无 import 指向的写入任务 → 数据，且不许改代码）、`plan-gaps`（四个缺口中三个可本地查清，其中一个只在超过 read 50KB 分页的 SQL 末尾；第四个确实受阻）、`simple-question`（对照题，不得变长或多跑工具）。`onlyPlanChanged`/`noEdits` 按相对 fixture 提交的改动判定，因为用户 `AGENTS.md` 可能让 agent 自动提交。
+
+```sh
+ROTOM_EVAL_FOLLOW_THROUGH=1 \
+ROTOM_EVAL_FOLLOW_THROUGH_BASELINE_REF=<commit> \
+ROTOM_EVAL_FOLLOW_THROUGH_REPEATS=2 \
+npm run eval -- --provider=<provider> --model=<model> cases/follow-through.eval.ts --testTimeout=900000
+```
+
+可选 `ROTOM_EVAL_FOLLOW_THROUGH_TASK`、`ROTOM_EVAL_FOLLOW_THROUGH_AGENTS`、`ROTOM_EVAL_THINKING`，含义同上节。
+
+2026-10-15 首轮（baseline=`2d1a250`，thinking=high，维护者全局 `AGENTS.md`）。表中为“以下一步收尾”的命中次数，即结尾 500 字符内出现提问或带审批的提议动作：
+
+| 模型 / 题目 | baseline | candidate |
+|---|---|---|
+| `qoder/ultimate` archive-mismatch | 0/2 | 2/2 |
+| `cc-switch/claude-opus-5-5` archive-mismatch | 0/1 | 1/1 |
+| `qoder/ultimate` plan-gaps | 0/2 | 1/2 |
+| `qoder/ultimate` simple-question（对照） | 回复 20–58 字符，2 次工具 | 20–72 字符，2–3 次工具 |
+
+人工阅读：candidate 在诊断题末尾写“统一读写两端日期键并补跨午夜测试，你确认后我再修改”，且未改代码；baseline 停在“修复方向是……”或“未修改任何文件”。迭代中发现，只在新段里写“有未决项要给下一步”无效（同模型 0/2 → 1/4）：汇报段原来写的是“only when a decision or follow-up remains”，模型据此判定诊断题已完成。把规则落到汇报段本身、并点名“只要求诊断时也算未决”后才生效。plan-gaps 的 candidate 仍有 1/2 只把未决项列成“待确认”，未给负责人和动作。
+
+未复现的部分：在这些短 fixture 上，两臂都追到了根因、读完了 50KB 之后的分区字段 `stat_day_p`。用户反馈的“浅看即停”在这里不出现，可能只在长会话或大仓库中出现。因此 `FOLLOW_THROUGH_POLICY` 中“查完再停”的规则目前没有正向证据，只有“未损害对照题”的证据。要验证需要长上下文 fixture 或真实会话回放。样本 n≤2，结论只代表方向。
+
 ## 已归档结论：context-efficient tool-use policy（无对应 case）
 
 曾在 `coding-policy` 注入过一段 `CONTEXT_EFFICIENT_TOOL_USE_POLICY`（引导"能聚合的问题写一条 pipeline、先 `rg` 定位再按窗口读取、在源头限流"，并附"需逐字复现的内容照常精确读取"的反向约束）。该 policy 与验证它的 paired 行为 A/B 均已按维护者决定移除，仅保留下面的实测结论，避免后人重踩。

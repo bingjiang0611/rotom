@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import codingPolicy, { codingResultPhases, CODING_EXECUTION_HYGIENE_POLICY, FINAL_REPORT_POLICY } from "./index.ts";
+import codingPolicy, { codingResultPhases, CODING_EXECUTION_HYGIENE_POLICY, FINAL_REPORT_POLICY, FOLLOW_THROUGH_POLICY } from "./index.ts";
 
 test("coding policy 只在编码工具激活时注入执行与证据范围约束", () => {
 	let handler: ((event: any) => any) | undefined;
@@ -11,8 +11,11 @@ test("coding policy 只在编码工具激活时注入执行与证据范围约束
 	}
 	assert.equal(handler({ systemPrompt: "base" }), undefined);
 	const result = handler({ systemPrompt: "base", systemPromptOptions: { selectedTools: ["read", "bash", "edit"] } });
-	assert.equal(result.systemPrompt, `base\n\n${CODING_EXECUTION_HYGIENE_POLICY}\n\n${FINAL_REPORT_POLICY}`);
-	for (const required of ["Answer a simple question directly", "how far it is verified", "What changed", "Verification:", "check can fail", "unrelated to this change separately", "Not verified / known limitations", "inference as unverified", "Final state", "Needs your decision", "only those that have content"]) {
+	assert.equal(result.systemPrompt, `base\n\n${CODING_EXECUTION_HYGIENE_POLICY}\n\n${FOLLOW_THROUGH_POLICY}\n\n${FINAL_REPORT_POLICY}`);
+	for (const required of ["not the first plausible explanation", "not to simple questions", "check it now instead of listing it", "exact access, system, or decision", "possibly A or B", "read the rest of any source", "including edits and tests", "did not authorize", "existing authorization and unknown-result rules still apply", "diagnosed bug is not fixed yet", "pending-confirmation items", "one concrete owner and action", "no owner"]) {
+		assert.ok(FOLLOW_THROUGH_POLICY.includes(required), `missing follow-through rule: ${required}`);
+	}
+	for (const required of ["Answer a simple question directly", "how far it is verified", "What changed", "Verification:", "check can fail", "unrelated to this change separately", "Not verified / known limitations", "inference as unverified", "Final state", "Needs your decision", "required, and last, whenever anything remains open", "Omit it only when the goal is fully done", "only those that have content"]) {
 		assert.ok(FINAL_REPORT_POLICY.includes(required), `missing final report rule: ${required}`);
 	}
 	for (const required of ["Git repository root", "package.json scripts", "Reuse observed paths", "moving or renaming", "ripgrep exit 1", "prove the intended match is unique", "block index/location hint", "partial output, process state", "never replay an applied mutation", "Preserve exit status", "not whole-machine command arguments"]) assert.match(CODING_EXECUTION_HYGIENE_POLICY, new RegExp(required, "u"));
