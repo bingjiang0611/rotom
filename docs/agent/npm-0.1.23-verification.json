@@ -1,0 +1,64 @@
+{
+  "state": "published",
+  "package": "@bingjiang0611/rotom",
+  "version": "0.1.23",
+  "tag": "latest",
+  "sourceCommit": "72be6144dc72131de834705309169f3fcad8fea1",
+  "sha256": "db6f1f52dbc3a7473ad16e271b55f5b48cc850e9d101aa320e7ffa29c4af0fd7",
+  "shasum": "8177fb6ad417945000b8d13dd2feca820bafaf7e",
+  "integrity": "sha512-JHQDw3jrFSgFm4AQjIawyFU6q28T4RgZb8/Oc7OUZZjFXv1dc3pnBJP/3JZtrWsmewQfAwfVuuRa4HEm0wa1KA==",
+  "tarball": "https://registry.npmjs.org/@bingjiang0611/rotom/-/rotom-0.1.23.tgz",
+  "fileCount": 18870,
+  "compressedBytes": 53056287,
+  "uncompressedRegularFileBytes": 169996589,
+  "buildToolchain": {
+    "node": "24.18.0",
+    "npm": "12.2.0",
+    "successfulFinalPacks": 1
+  },
+  "checks": {
+    "checkPi": "PASS before freeze; fork source and archives unchanged since 0.1.22",
+    "distribution": "25 passed",
+    "checkPersonal": "328 product tests and 87 Goal tests passed using the actual installed tgz Pi; source harness and clean locked source dependencies. Two earlier runs failed on verification-environment setup (missing fork dev deps and runtime/pi source deps; non-canonical Pi path) and are retained",
+    "offlineProviders": "PASS 9/9; compiledPiMatchesSource=true; inputsStable=true",
+    "footprint": "runtimeContractGate and deterministicGate PASS; immutable historical referenceObservationGate DRIFT is informational, also reported by 0.1.21 and 0.1.22",
+    "defaultAndFullInstalledSdkSmoke": "PASS; actual installed resources; 2 faux calls and 0 lifecycle errors per mode; deferredToolsEnabled true/false",
+    "isolatedInstall": "PASS; isolated HOME/prefix, PATH without global Pi or rotom; version 0.1.23 / Pi 1.1.0-rotom.2",
+    "installedFilesByteIdentical": 18870,
+    "sourceFilesByteIdentical": "60 product files outside node_modules and runtime/pi",
+    "upgrade": "PASS; registry 0.1.22 artifact verified against registry integrity/shasum and recorded SHA-256, then upgraded to exact final 0.1.23 tgz via isolated npm global prefix",
+    "uninstall": "PASS; bin and package absent, isolated HOME sentinel retained",
+    "publicFrozenSourceAudit": {
+      "status": "PASS",
+      "commits": 178,
+      "findings": 0
+    },
+    "actualArtifactPrivacyAudit": {
+      "status": "PASS",
+      "filesChecked": 21816,
+      "findings": 0
+    },
+    "registryPreflight": "Target version absent and latest=0.1.22 before publication"
+  },
+  "registryVerified": true,
+  "registryVerification": "npm-release-handoff verify with NODE_USE_ENV_PROXY=1: exact version, latest tag, integrity, shasum, trusted tarball URL and downloaded bytes match the unique frozen tgz",
+  "publishAttempts": "First maintainer command had an empty tgz variable; npm failed locally reading ./package.json (debug log argv without artifact, publish ['.']) before upload. Registry read-only check confirmed absence; the absolute-path publish then ran once",
+  "publishedBy": "Maintainer in a foreground terminal; agent did not read credentials or publish",
+  "globalInstall": {
+    "state": "verified",
+    "note": "The maintainer explicitly asked the agent to install after publication. scripts/install-release.sh ran once without --force, using empty isolated npm configs/cache rather than user credentials. The active rotom command resolves to the 0.1.23 per-version installation; 0.1.22 and earlier releases are retained and active sessions are not migrated.",
+    "productVersion": "0.1.23",
+    "piVersion": "1.1.0-rotom.2",
+    "installedFilesByteIdentical": 18870,
+    "components": {
+      "pi-subagents": "0.52.1-rotom.7",
+      "@narumitw/pi-goal": "0.54.4-rotom.8",
+      "@injaneity/pi-computer-use": "0.5.1-rotom.0"
+    }
+  },
+  "unverified": [
+    "Follow-through policy effect in long sessions or large repositories; eval evidence is short fixtures with n<=2",
+    "Real browser/phone/terminal UI and cross-platform acceptance",
+    "Actual public-registry rotom update path; isolated upgrade validation used npm"
+  ]
+}
