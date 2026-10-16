@@ -51,7 +51,7 @@
     },
     "reducerHistoricalSessionReview": {
       "method": "Read-only aggregate scan of the maintainer's local session files (661 files, 31 with reducer journal entries, 2026-10-07..16, sol-pi used before and after bundling); duplicate entries from forked sessions removed; no session content recorded",
-      "requests": "66 openai-codex/gpt-5.6-luna responses, all stop; 45 receipts applied, 22 fallbacks to the raw output (16 unverifiable-quote, 3 missing-failure-evidence, 1 likely-secret, 1 invalid-json, 1 schema-mismatch)",
+      "requests": "66 openai-codex/gpt-5.6-luna responses, all stop: 45 receipts applied, 21 rejected after the response (16 unverifiable-quote, 3 missing-failure-evidence, 1 invalid-json, 1 schema-mismatch); 1 more output fell back before any request (likely-secret)",
       "cost": "863,894 reducer tokens versus 1.74 billion main-model tokens in the same sessions (0.05%); per-session median 0.05%, max 2.70%; per call median 10,468, p90 28,375, max 38,952 tokens; 283,717 tokens (33%) were spent on responses that were then rejected",
       "compression": "applied receipts: source median 26,142 bytes, receipt median 1,571 bytes, 1.97 MB removed from tool results in total; 40 later artifact readback calls returned 254 KB",
       "fidelity": "all isError results kept status=failure; no success receipt hid a real failure (heuristic scan); every failure receipt quoted the test count summary, but several quoted only one example of many failing test names (for example 1 of 3, 1 of 7, 1 of 29), so the full list needs artifact readback, which the main model did after 10 of 22 failure receipts",
