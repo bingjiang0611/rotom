@@ -18,7 +18,7 @@ const aiDirectory = 'packages/rotom-pi/packages/ai';
 // tests whose module imports can read/refresh auth; never invoke that broad suite.
 export const AI_TESTS = [
   'retry.test.ts', 'provider-retry.test.ts', 'openai-responses-terminal-event.test.ts',
-  'provider-error-body-regression.test.ts', 'assistant-message-frame.test.ts',
+  'provider-error-body-regression.test.ts',
 ];
 
 export function offlineEnvironment(home) {
@@ -69,7 +69,7 @@ export async function piIdentity(executable) {
   if (!isAbsolute(executable) || !(await lstat(executable)).isFile() || await realpath(executable) !== executable) throw new Error('Canonical Pi executable required');
   await probePiVersion({ executable });
   const packages = [];
-  for (const name of ['chord', 'pi-telemetry', 'pi-ai', 'pi-tui', 'pi-agent-core', 'pi-codemode', 'pi-mcp', 'pi-coding-agent']) {
+  for (const name of ['pi-telemetry', 'pi-ai', 'pi-tui', 'pi-agent-core', 'pi-codemode', 'pi-mcp', 'pi-coding-agent']) {
     const metadata = findPackageJSON(`@earendil-works/${name}`, pathToFileURL(executable));
     const root = dirname(metadata), pkg = JSON.parse(await readFile(metadata, 'utf8'));
     if (pkg.name !== `@earendil-works/${name}`) throw new Error('Pi dependency identity mismatch');

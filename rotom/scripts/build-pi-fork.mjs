@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const PI_PACKAGES = ["chord", "telemetry", "ai", "tui", "agent", "codemode", "mcp", "coding-agent"];
+export const PI_PACKAGES = ["telemetry", "ai", "tui", "agent", "codemode", "mcp", "coding-agent"];
 const repository = resolve(import.meta.dirname, "../..");
 const source = resolve(repository, "packages/rotom-pi");
 const runtime = resolve(repository, "rotom/runtime/pi");

@@ -240,6 +240,7 @@ describe("InteractiveMode compaction events", () => {
 			footer: { invalidate: vi.fn() },
 			programStatus: { handleEvent: vi.fn() },
 			ui: { requestRender: vi.fn() },
+			maybeSuggestBugReport: vi.fn(),
 		};
 		const message = fauxAssistantMessage("partial output", { stopReason: "aborted" });
 		const handleEvent = Reflect.get(InteractiveMode.prototype, "handleEvent") as (
