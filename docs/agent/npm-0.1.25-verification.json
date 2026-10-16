@@ -46,8 +46,15 @@
   "registryVerification": "npm-release-handoff verify with NODE_USE_ENV_PROXY=1: exact version, latest tag, integrity, shasum, trusted tarball URL and downloaded bytes match the unique frozen tgz",
   "publishedBy": "Maintainer in a foreground terminal; agent did not read credentials or publish",
   "globalInstall": {
-    "state": "pending",
-    "note": "Local installation is handed to the maintainer via scripts/install-release.sh; not yet performed when this record was written."
+    "state": "verified",
+    "note": "The maintainer ran scripts/install-release.sh once. The active rotom command resolves to the 0.1.25 per-version installation; 0.1.24 and earlier releases are retained and active sessions are not migrated. ~/.pi/agent/settings.json was not changed and holds no self-installed sol-pi or pi-context-view entry. With the user's real settings, RPC get_commands lists /context once with no duplicate commands and empty stderr (--no-session, no model call).",
+    "productVersion": "0.1.25",
+    "piVersion": "1.3.0-rotom.2",
+    "installedFilesByteIdentical": 18885,
+    "components": {
+      "pi-context-view": "0.7.1",
+      "sol-pi": "0.1.0-rotom.1"
+    }
   },
   "unverified": [
     "A real openai-codex reducer request recording its usage entry (offline faux only for 0.1.25)",

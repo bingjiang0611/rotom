@@ -1,7 +1,7 @@
 # npm 0.1.25 发布记录
 
 - 授权目标：`@bingjiang0611/rotom@0.1.25`，dist-tag `latest`，access `public`，许可证 `UNLICENSED`。
-- 状态：维护者已在前台发布；registry 的精确版本、latest tag、integrity、shasum、可信 tarball URL 与下载字节均已独立核验。本机安装尚未切换。
+- 状态：维护者已在前台发布；registry 的精确版本、latest tag、integrity、shasum、可信 tarball URL 与下载字节均已独立核验。维护者用 `scripts/install-release.sh` 安装后，全局命令已切换到分版本目录中的 0.1.25，保留 0.1.24 及更早版本和活跃会话；实际安装的 18,885 个文件与最终包逐字节一致，真实配置下 `/context` 只注册一次。
 - 唯一构建源：`997251965f664f9e8c0faf4d1deb5670890374c9`。冻结提交 `2648250` 漏改了 `distribution.md` 的指向（脚本中一处文本替换失败，后续命令仍执行）；`9972519` 只补这一行文档。只成功打包一次：48,664,829 字节、18,885 个文件。完整摘要和验证结果见 [机器可读证据](npm-0.1.25-verification.json)。
 
 ## 相对 0.1.24 的变更
