@@ -52,6 +52,7 @@ The default product selects **`sol-pi@0.1.0-rotom.0`**, maintained in `packages/
 - SHA512 SRI: `sha512-flcySXo03haUIopXUtuJCOcDevQiOGclTcDeHSOArGltmnbb++0tkf/EFycVB/MB3FmD56g/5UUV81Ll8LP2aw==`
 - Upstream: <https://github.com/NVlabs/SoL-Pi>, License MIT (original notice in `package/LICENSE`; provenance in `package/UPSTREAM.md`).
 - Source: the maintainer's branch `b463fad` (upstream `2b791687` plus five fix/compat commits). `src/` is byte-identical; only package metadata changed.
+- Tests: upstream's suite passes 166/166 against the installed Pi `1.3.0-rotom.1` packages. In `packages/rotom-sol-pi/` itself, the 2 `tests/install-guide.test.ts` cases fail because they read the non-imported upstream `AGENTS.md`/`CLAUDE.md`.
 - `extensions/third-party/sol-pi.ts` supplies rotom's default (Action Fusion, Observation Pack, Evidence-Preserving Reducer on; Online Context Compact off) only when no SoL-Pi config file exists.
 
 `pi-context-view@0.7.1` is taken unmodified from the public npm registry and pinned by its registry integrity in `package-lock.json` and `runtime/product-config.mjs`.

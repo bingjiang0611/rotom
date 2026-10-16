@@ -38,7 +38,13 @@
       "filesChecked": 21800,
       "findings": 0
     },
-    "registryPreflight": "Target version absent and latest=0.1.23 before publication"
+    "registryPreflight": "Target version absent and latest=0.1.23 before publication",
+    "postReleaseSolPiSuiteOnPi13": "166 passed and tsc 0 errors with the actually installed Pi 1.3.0-rotom.1 packages; in the imported copy 2 install-guide tests need upstream AGENTS.md/CLAUDE.md, which are not imported",
+    "postReleaseReducerL3": {
+      "withoutLogin": "model-response-error (Provider is not configured: openai-codex); full raw output kept (10,702 bytes), isError kept, 0 tokens",
+      "withLogin": "1 real openai-codex/gpt-5.6-luna request, 3,543 tokens, ~3 s; 10,702-byte synthetic make failure reduced to a 1,576-byte receipt with 5 verified quotes and the source artifact path",
+      "usageAccounting": "Reducer usage is journaled only in SoL-Pi custom entries; no Pi usage entry, so footer/session stats exclude it"
+    }
   },
   "registryVerified": true,
   "registryVerification": "npm-release-handoff verify with NODE_USE_ENV_PROXY=1: exact version, latest tag, integrity, shasum, trusted tarball URL and downloaded bytes match the unique frozen tgz",
@@ -58,9 +64,8 @@
     }
   },
   "unverified": [
-    "SoL-Pi upstream suite on the Pi 1.3 fork (ran only against its pinned Pi 0.85.1 devDependencies)",
-    "Evidence-Preserving Reducer real model requests, cost and behavior without openai-codex login",
     "Real browser/phone/terminal UI and cross-platform acceptance",
-    "Actual public-registry rotom update path; isolated upgrade validation used npm"
+    "Actual public-registry rotom update path; isolated upgrade validation used npm",
+    "Reducer quality on real project output and its cumulative cost in long sessions (one synthetic sample only)"
   ]
 }

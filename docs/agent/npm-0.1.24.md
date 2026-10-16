@@ -18,7 +18,10 @@
 
 - `check:pi`、分发 25 项、离线 Provider 通过；以实际安装 tgz 的 Pi 运行 `check-personal`：产品 329 项、Goal 87 项通过，footprint default/full/scoped 合同 PASS。唯一 tgz 的独立隐私审计（21,800 个文件、0 发现）、隔离安装、default/full smoke（`obs_recall` 激活）、真实 RPC `/context`、0.1.23→0.1.24 升级与卸载通过。
 - 隔离验证脚本第一次把 npm user/global config 都设为 `/dev/null`，npm 拒绝重复加载同一文件而未安装；改用两个空文件后通过。产品与产物未改动，未重新打包。
-- SoL-Pi 上游测试 166 项只在其锁定的 Pi 0.85.1 开发依赖上运行；在 Pi 1.3 上的证据来自 rotom 自己的测试和 smoke。Reducer 的真实模型请求、费用与未登录时的回退行为未实测（由代码阅读得出）。
+- 发布后补充验证（2026-10-16）：
+  - SoL-Pi 上游测试换成 0.1.24 实际安装的 Pi `1.3.0-rotom.1` 包后：166 项通过、`tsc` 0 错误。导入副本里 `tests/install-guide.test.ts` 的 2 项会失败，因为它读取未导入的上游 `AGENTS.md`/`CLAUDE.md`；补上这两个文件后全过，与 Pi 无关。
+  - Reducer 用已安装的 0.1.24 资源、faux 主模型和约 10 KB 的合成失败 `make` 输出实测。未登录 `openai-codex` 时：`model-response-error`，模型收到完整原始输出（10,702 字节），保留错误状态，0 token。真实登录时：1 次 `gpt-5.6-luna` 请求、3,543 token，回执 1,576 字节，保留首尾错误、`Error 1` 与退出码，并附原文路径供按范围回读。
+  - 已知限制：Reducer 用量只记在 SoL-Pi 自己的 journal，没有写入 Pi 的 `usage` entry，所以 footer 和会话统计不包含这部分 token。
 - 本次发行 gate 不调用真实模型、浏览器或手机。
 
 ## 发布交接
