@@ -18,6 +18,7 @@ if (!piExecutable || !agentDirInput) {
 
 const agentDir = resolve(agentDirInput);
 const goalToolNames = ["goal_complete", "goal_blocked", "goal_wait", "goal_continue"];
+const SOL_PI_SESSION_TOOL_NAMES = ["obs_recall"];
 const deferredToolsActive = deferredToolsEnabled(process.env);
 process.env[DEFERRED_DEFAULT_SURFACE_ENV] = "1";
 const declarations = RESOURCE_DESCRIPTORS_V1.map((resource) => `${resource.kind}:${resolve(agentDir, resource.path)}`);
@@ -98,7 +99,8 @@ try {
 		modelRuntime,
 		model: faux.getModel(),
 		thinkingLevel: "off",
-		tools: ["read", "bash", "edit", "write", ...extensionToolNames],
+		// SoL-Pi registers its tools on session_start, after this load-time list.
+		tools: ["read", "bash", "edit", "write", ...SOL_PI_SESSION_TOOL_NAMES, ...extensionToolNames],
 		resourceLoader: loader,
 		sessionManager: session,
 		settingsManager,
@@ -134,6 +136,9 @@ try {
 	assert.equal(observability?.commands.has("trace"), true, "observability 必须提供不进入模型上下文的 /trace 命令");
 	assert.equal(observability?.tools.size, 0, "observability 不得增加模型 tool schema");
 	for (const tool of ["find_roots", "observe_ui", "act_ui", "subagent", "goal_complete", "goal_blocked", "goal_wait", "goal_continue"]) assert.equal(thirdParty?.tools.has(tool), true);
+	// Without a SoL-Pi config file rotom enables Action Fusion and Observation Pack.
+	for (const tool of ["edit", "write", ...SOL_PI_SESSION_TOOL_NAMES]) assert.equal(thirdParty?.tools.has(tool), true, `SoL-Pi 默认必须注册 ${tool}`);
+	assert.equal(thirdParty?.commands.has("context"), true, "pi-context-view 必须提供 /context 命令");
 	assert.deepEqual(new Set(extensionToolNames), new Set([
 		...RESIDENT_BROWSER_TOOL_NAMES, "ask_user_question", "codemode", ...DEFERRED_CAPABILITY_GROUPS.flatMap((group) => [...group.toolNames]),
 		...goalToolNames, ...(deferredToolsActive ? [DEFERRED_TOOL_SEARCH_NAME] : []),
@@ -171,12 +176,12 @@ try {
 	// rotom Goal keeps all four schemas stable from startup. Visibility is
 	// not Goal activation: the inactive-call rejection is checked below.
 	if (deferredToolsActive) {
-		assert.deepEqual(new Set(activeTools), new Set([...DEFERRED_INITIAL_TOOL_NAMES, ...goalToolNames, DEFERRED_TOOL_SEARCH_NAME]), "默认初始工具面必须保留 core + Ask + Browser/Computer Use + Goal + loader");
+		assert.deepEqual(new Set(activeTools), new Set([...DEFERRED_INITIAL_TOOL_NAMES, ...SOL_PI_SESSION_TOOL_NAMES, ...goalToolNames, DEFERRED_TOOL_SEARCH_NAME]), "默认初始工具面必须保留 core + Ask + Browser/Computer Use + Goal + loader");
 		for (const tool of RESIDENT_BROWSER_TOOL_NAMES) assert.equal(activeTools.includes(tool), true, `默认必须预加载 ${tool}`);
 		for (const tool of DEFERRED_CAPABILITY_GROUPS.flatMap((group) => [...group.toolNames])) assert.equal(activeTools.includes(tool), false, `默认不得预加载 ${tool}`);
 	} else {
 		assert.deepEqual(new Set(activeTools), new Set([
-			...DEFERRED_INITIAL_TOOL_NAMES, ...goalToolNames,
+			...DEFERRED_INITIAL_TOOL_NAMES, ...SOL_PI_SESSION_TOOL_NAMES, ...goalToolNames,
 			...DEFERRED_CAPABILITY_GROUPS.flatMap((group) => [...group.toolNames]),
 		]), "full opt-out 必须保留 Goal 与 Subagent，且不注册 loader");
 	}

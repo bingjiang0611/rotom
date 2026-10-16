@@ -10,9 +10,11 @@ rotom 的根产品许可证尚未确定（当前 `UNLICENSED`）；此状态不�
 | `@injaneity/pi-computer-use` | `0.5.1-rotom.0` | MIT | Independently maintained fork (`packages/rotom-computer-use/`), included from its integrity-pinned vendor archive |
 | `@juicesharp/rpiv-ask-user-question` | `2.6.2` | MIT | Included under `extensions/third-party/node_modules/` |
 | `@narumitw/pi-goal` | `0.54.4-rotom.8` | MIT | Independently maintained fork (`packages/rotom-goal/`), included from its integrity-pinned vendor archive |
-| `pi-subagents` | `0.52.1-rotom.5` | MIT | Independently maintained Subagent source, included from its integrity-pinned vendor archive |
+| `pi-context-view` | `0.7.1` | MIT | Included unmodified under `extensions/third-party/node_modules/` |
+| `pi-subagents` | `0.52.1-rotom.7` | MIT | Independently maintained Subagent source, included from its integrity-pinned vendor archive |
+| `sol-pi` (SoL-Pi, Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES) | `0.1.0-rotom.0` | MIT | Maintained import (`packages/rotom-sol-pi/`), included from its integrity-pinned vendor archive |
 
-Each included extension retains its original `LICENSE` and package metadata; transitive dependency notices remain in their installed package directories. The modified Subagent, Computer Use and Goal archives' origin and scope are documented in `extensions/third-party/vendor/README.md` and each fork's `package/UPSTREAM.md`. Shipping the complete dependency does not enable its unselected tools, templates, or skills.
+Each included extension retains its original `LICENSE` and package metadata; transitive dependency notices remain in their installed package directories. The modified Subagent, Computer Use, Goal and SoL-Pi archives' origin and scope are documented in `extensions/third-party/vendor/README.md` and each fork's `package/UPSTREAM.md`. Shipping the complete dependency does not enable its unselected tools, templates, or skills.
 
 ## Qoder authentication and legacy inference reference
 

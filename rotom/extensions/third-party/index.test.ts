@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -103,6 +103,40 @@ test("真实 Pi loader 注册保留的第三方运行时并排除 MCP、Backgrou
 	} finally {
 		rmSync(workflowRoot, { recursive: true, force: true });
 	}
+});
+
+function findPiDependency(piDist: string, relativePath: string): string {
+	let directory = piDist;
+	for (;;) {
+		const candidate = join(directory, "node_modules", relativePath);
+		if (existsSync(candidate)) return candidate;
+		const parent = dirname(directory);
+		if (parent === directory) throw new Error(`无法从 Pi dist 解析依赖：${relativePath}`);
+		directory = parent;
+	}
+}
+
+test("SoL-Pi 无配置文件时用 rotom 默认；存在配置文件时完全按文件，项目配置仅在受信时生效", async (t) => {
+	const workspace = mkdtempSync(join(tmpdir(), "rotom-sol-pi-config-"));
+	t.after(() => rmSync(workspace, { recursive: true, force: true }));
+	const piDist = findPiDist();
+	const loaderUrl = pathToFileURL(join(piDist, "core/extensions/loader.js")).href;
+	const { createJiti } = await import(pathToFileURL(findPiDependency(piDist, "jiti/lib/jiti.mjs")).href);
+	const jiti = createJiti(loaderUrl, { moduleCache: false, alias: { "@earendil-works/pi-coding-agent": join(piDist, "index.js") } });
+	const { loadRotomSolPiConfig } = await jiti.import(join(import.meta.dirname, "sol-pi.ts")) as any;
+	const agentDir = join(workspace, "agent");
+	const cwd = join(workspace, "project");
+	mkdirSync(join(cwd, ".pi"), { recursive: true });
+	mkdirSync(agentDir);
+	const ctx = (trusted: boolean) => ({ cwd, isProjectTrusted: () => trusted });
+	const features = (config: any) => [config.actionFusion, config.observationPack, config.evidencePreservingReducer, config.onlineContextCompact];
+
+	assert.deepEqual(features(loadRotomSolPiConfig(ctx(true), agentDir)), [true, true, true, false]);
+	writeFileSync(join(cwd, ".pi", "sol-pi.json"), JSON.stringify({ version: 1, observationPack: true }));
+	assert.deepEqual(features(loadRotomSolPiConfig(ctx(false), agentDir)), [true, true, true, false], "untrusted project config must be ignored");
+	assert.deepEqual(features(loadRotomSolPiConfig(ctx(true), agentDir)), [false, true, false, false]);
+	writeFileSync(join(agentDir, "sol-pi.json"), JSON.stringify({ version: 1 }));
+	assert.deepEqual(features(loadRotomSolPiConfig(ctx(false), agentDir)), [false, false, false, false]);
 });
 
 test("Computer Use stale state 强制绑定新 observe state，且不跨 session 泄漏", async () => {

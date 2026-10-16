@@ -3,9 +3,12 @@ import computerUse from "./node_modules/@injaneity/pi-computer-use/extensions/co
 import askUserQuestion from "./node_modules/@juicesharp/rpiv-ask-user-question/index.ts";
 import goal from "./node_modules/@narumitw/pi-goal/src/index.ts";
 import subagents from "./node_modules/pi-subagents/index.ts";
+import contextView from "./node_modules/pi-context-view/src/index.ts";
+import { createSolPiExtension } from "./node_modules/sol-pi/src/sol-pi/index.ts";
 import { ASK_AUTO_CONTINUATION_MESSAGE, ASK_CONTINUATION_GUIDELINE, ASK_OPTION_CONTINUATION_DESCRIPTION, createAskContinuationController, selectedOptionsRequireContinuation, stripAskContinuationMetadata } from "./ask/continuation.ts";
 import { computerUseRecoveryApi } from "./computer-use/recovery.ts";
 import { registerDeferredTools } from "./deferred-tools/register.ts";
+import { loadRotomSolPiConfig } from "./sol-pi.ts";
 import { subagentPolicyApi } from "./subagent/policy.ts";
 
 function sequentialAskCompatApi(pi: ExtensionAPI, askContinuation: ReturnType<typeof createAskContinuationController>): ExtensionAPI {
@@ -86,6 +89,11 @@ export default function thirdPartyRuntime(pi: ExtensionAPI): void {
 	const askContinuation = createAskContinuationController();
 	const sequentialAskCompat = sequentialAskCompatApi(controlApi, askContinuation);
 	askUserQuestion(sequentialAskCompat);
+	// SoL-Pi edit/write/obs_recall stay ordinary tools so Codemode can still call them.
+	// SoL-Pi registers them on session_start, so its handler must run before the
+	// deferred loader narrows the startup tool set.
+	createSolPiExtension(loadRotomSolPiConfig)(pi);
+	contextView(pi);
 	registerDeferredTools(pi);
 	pi.on("tool_call", (event) => askContinuation.onToolCall(event.toolName));
 	pi.on("session_start", () => askContinuation.reset());

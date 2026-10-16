@@ -81,6 +81,34 @@ rotom -e ./extension.ts
 
 scoped 执行是执行归属与资源关闭管理，**不是安全沙箱**；首个版本只接受已验证拓扑，nested/worktree/gate/fork/import/external job/独立 foreground 会在 writer 前拒绝。安装、升级或切换入口均不授权旧 unknown 工作的恢复/重放。
 
+## 内置上下文扩展：`/context` 与 SoL-Pi
+
+rotom 内置两个上下文相关的第三方扩展，安装后即可使用，不需要再 `rotom install`：
+
+- **`/context`**（[pi-context-view](https://github.com/dimk90/pi-context-view) `0.7.1`，原样内置）：查看当前上下文的组成和占用。它只是用户命令，不增加模型工具。
+- **SoL-Pi**（[NVlabs/SoL-Pi](https://github.com/NVlabs/SoL-Pi) 的维护导入版 `0.1.0-rotom.0`，来源见 `packages/rotom-sol-pi/UPSTREAM.md`）。
+
+没有 SoL-Pi 配置文件时，rotom 默认开启：
+
+| 功能 | 默认 | 效果 |
+|---|---|---|
+| Action Fusion | 开 | 用 SoL-Pi 的 `edit`/`write` 替换内置同名工具 |
+| Observation Pack | 开 | 超大工具结果存到会话目录，上下文里只留摘录；模型用 `obs_recall` 按页取回 |
+| Evidence-Preserving Reducer | 开 | 对较大的失败构建/测试输出调用 `openai-codex/gpt-5.6-luna` 生成保留证据的精简版 |
+| Online Context Compact | 关 | — |
+
+Reducer 会额外请求模型，按该 provider 正常计费或消耗订阅额度。没有登录 `openai-codex` 时请求失败，SoL-Pi 保留原始输出，不影响任务。
+
+要改默认值，写 `~/.pi/agent/sol-pi.json`（受信项目也可用 `.pi/sol-pi.json`）。只要文件存在，rotom 就完全按文件生效，省略的功能按 SoL-Pi 原生默认值关闭。例如全部关闭：
+
+```json
+{ "version": 1 }
+```
+
+字段说明见 `extensions/third-party/node_modules/sol-pi/docs/configuration.md`。
+
+**升级注意：** 如果以前自己安装过 `pi-context-view` 或 SoL-Pi（`~/.pi/agent/settings.json` 的 `packages` 里有它们），升级后请用 `rotom remove` 删掉。否则同一扩展会加载两次：`/context` 会出现重复命令，SoL-Pi 的结果处理也会执行两遍。
+
 ## Codemode 与模型能力（Pi 1.0 源码）
 
 rotom 默认提供 `codemode`：模型可用 JavaScript 编排普通文件工具、并行读取及筛选结果；显式 `--tools` / `--exclude-tools` 仍优先。用 `rotom --exclude-tools codemode` 可关闭。Goal、Ask、Subagent、Browser/Computer Use 保持模型直接调用，不在脚本中嵌套执行；QuickJS 脚本沙箱不等于被调用工具的 OS 权限隔离。
