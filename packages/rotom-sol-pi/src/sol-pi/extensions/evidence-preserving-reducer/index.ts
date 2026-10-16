@@ -131,6 +131,7 @@ export async function reduceToolResult(
 			toolCallId: event.toolCallId,
 			sourceSha256: archive.hash,
 			reason: checked.reason,
+			quoteDiagnostic: checked.quoteDiagnostic,
 			usage: provider.usage,
 		});
 		return undefined;

@@ -14,6 +14,7 @@
 ## rotom changes
 
 - `0.1.0-rotom.1`: the Evidence-Preserving Reducer records each returned reducer response (applied or rejected) as a Pi `usage` entry of kind `sol_pi_reducer`, attributed to the reducer provider/model with the provider-reported usage unchanged. Pi's footer, session stats, usage breakdown and Goal budgets then include the reducer spend. It uses `pi.appendUsage`, which the rotom Pi fork exposes from `1.3.0-rotom.2`; on Pi releases without it (upstream Pi) only the SoL-Pi journal entry is written, as before. Calls that throw before a response (timeout, unavailable model, missing auth) record no usage. Files: `evidence-preserving-reducer/{provider,journal,index}.ts`, `tests/helpers.ts`, `tests/evidence-preserving-reducer.test.ts`.
+- `0.1.0-rotom.2`: an `unverifiable-quote` fallback journal entry now carries a `quoteDiagnostic` for the first rejected evidence item: `cause` (`invalid-kind`, `not-a-string`, `empty`, `too-long` or `not-in-source`), its index and the evidence count, the quote length and SHA-256, and for `not-in-source` the longest leading part found in the log with its line, plus whether the quote would match after removing ANSI escapes or collapsing whitespace. It never stores quote or log text. Acceptance is unchanged: a receipt is still rejected unless every quote appears byte for byte. Files: `evidence-preserving-reducer/{receipt,index}.ts`, `tests/evidence-preserving-reducer.test.ts`.
 
 ## How rotom uses it
 

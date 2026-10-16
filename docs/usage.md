@@ -86,7 +86,7 @@ scoped 执行是执行归属与资源关闭管理，**不是安全沙箱**；首
 rotom 内置两个上下文相关的第三方扩展，安装后即可使用，不需要再 `rotom install`：
 
 - **`/context`**（[pi-context-view](https://github.com/dimk90/pi-context-view) `0.7.1`，原样内置）：查看当前上下文的组成和占用。它只是用户命令，不增加模型工具。
-- **SoL-Pi**（[NVlabs/SoL-Pi](https://github.com/NVlabs/SoL-Pi) 的维护导入版 `0.1.0-rotom.1`，来源见 `packages/rotom-sol-pi/UPSTREAM.md`）。
+- **SoL-Pi**（[NVlabs/SoL-Pi](https://github.com/NVlabs/SoL-Pi) 的维护导入版 `0.1.0-rotom.2`，来源见 `packages/rotom-sol-pi/UPSTREAM.md`）。
 
 没有 SoL-Pi 配置文件时，rotom 默认开启：
 

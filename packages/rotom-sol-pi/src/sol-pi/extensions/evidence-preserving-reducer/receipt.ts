@@ -30,9 +30,30 @@ export interface ValidatedReceipt {
 	readonly evidence: readonly VerifiedEvidence[];
 }
 
+export type QuoteRejection = "invalid-kind" | "not-a-string" | "empty" | "too-long" | "not-in-source";
+
+/**
+ * Why one evidence item was rejected, without its text: the journal may only
+ * hold digests, sizes and line numbers, never log or model content.
+ */
+export interface QuoteDiagnostic {
+	readonly cause: QuoteRejection;
+	readonly evidenceIndex: number;
+	readonly evidenceCount: number;
+	readonly quoteChars?: number;
+	readonly quoteSha256?: string;
+	/** Longest leading part of the quote found in the log, and its line. */
+	readonly matchedPrefixChars?: number;
+	readonly matchedPrefixLine?: number;
+	/** Whether the quote would match after removing ANSI escapes from the log. */
+	readonly matchesWithoutAnsi?: boolean;
+	/** Whether the quote would match after collapsing whitespace runs in both. */
+	readonly matchesWithCollapsedWhitespace?: boolean;
+}
+
 export type ReceiptValidation =
 	| { readonly ok: true; readonly value: ValidatedReceipt }
-	| { readonly ok: false; readonly reason: string };
+	| { readonly ok: false; readonly reason: string; readonly quoteDiagnostic?: QuoteDiagnostic };
 
 export function reducerInstructions(): string {
 	return [
@@ -74,6 +95,50 @@ function lineNumberOf(body: string, quote: string): number | undefined {
 	return line;
 }
 
+const ALLOWED_KINDS = new Set<EvidenceKind>(["fatal", "failure", "warning", "target", "summary"]);
+const ANSI_ESCAPE = /\u001b\[[0-9;?]*[ -/]*[@-~]/gu;
+
+function collapseWhitespace(value: string): string {
+	return value.replace(/\s+/gu, " ").trim();
+}
+
+function quoteRejection(kind: unknown, quote: unknown, body: string): QuoteRejection | undefined {
+	if (typeof kind !== "string" || !ALLOWED_KINDS.has(kind as EvidenceKind)) return "invalid-kind";
+	if (typeof quote !== "string") return "not-a-string";
+	if (quote.length < 1) return "empty";
+	if (quote.length > MAX_QUOTE_CHARS) return "too-long";
+	if (!body.includes(quote)) return "not-in-source";
+	return undefined;
+}
+
+function quoteDiagnostic(
+	cause: QuoteRejection,
+	quote: unknown,
+	body: string,
+	evidenceIndex: number,
+	evidenceCount: number,
+): QuoteDiagnostic {
+	const base = { cause, evidenceIndex, evidenceCount };
+	if (typeof quote !== "string") return base;
+	const sized = { ...base, quoteChars: quote.length, quoteSha256: sha256(quote) };
+	if (cause !== "not-in-source") return sized;
+	// Prefix presence is monotonic, so a binary search finds the longest one.
+	let found = 0;
+	let missing = quote.length;
+	while (missing - found > 1) {
+		const middle = Math.floor((found + missing) / 2);
+		if (body.includes(quote.slice(0, middle))) found = middle;
+		else missing = middle;
+	}
+	return {
+		...sized,
+		matchedPrefixChars: found,
+		matchedPrefixLine: found > 0 ? lineNumberOf(body, quote.slice(0, found)) : undefined,
+		matchesWithoutAnsi: body.replace(ANSI_ESCAPE, "").includes(quote),
+		matchesWithCollapsedWhitespace: collapseWhitespace(body).includes(collapseWhitespace(quote)),
+	};
+}
+
 /**
  * Accept a receipt only when every claim in it can be checked against the
  * archived log: right schema, right source hash, status that matches the
@@ -104,31 +169,29 @@ export function validateReceipt(
 	) {
 		return { ok: false, reason: "schema-mismatch" };
 	}
-	const allowedKinds = new Set<EvidenceKind>(["fatal", "failure", "warning", "target", "summary"]);
 	const evidence: VerifiedEvidence[] = [];
 	const seen = new Set<string>();
-	for (const item of evidenceValue) {
+	for (const [index, item] of evidenceValue.entries()) {
 		const kind = recordValue(item, "kind");
 		const quote = recordValue(item, "quote");
-		if (
-			typeof kind !== "string" ||
-			!allowedKinds.has(kind as EvidenceKind) ||
-			typeof quote !== "string" ||
-			quote.length < 1 ||
-			quote.length > MAX_QUOTE_CHARS ||
-			!body.includes(quote)
-		) {
-			return { ok: false, reason: "unverifiable-quote" };
+		const rejection = quoteRejection(kind, quote, body);
+		if (rejection !== undefined) {
+			return {
+				ok: false,
+				reason: "unverifiable-quote",
+				quoteDiagnostic: quoteDiagnostic(rejection, quote, body, index, evidenceValue.length),
+			};
 		}
 		const evidenceKind = kind as EvidenceKind;
-		const key = `${evidenceKind}\0${quote}`;
+		const evidenceQuote = quote as string;
+		const key = `${evidenceKind}\0${evidenceQuote}`;
 		if (seen.has(key)) continue;
 		seen.add(key);
 		evidence.push({
 			kind: evidenceKind,
-			line: lineNumberOf(body, quote),
-			quote,
-			quoteSha256: sha256(quote),
+			line: lineNumberOf(body, evidenceQuote),
+			quote: evidenceQuote,
+			quoteSha256: sha256(evidenceQuote),
 		});
 	}
 	// A failing log that reads as a failure must carry failure evidence, or the

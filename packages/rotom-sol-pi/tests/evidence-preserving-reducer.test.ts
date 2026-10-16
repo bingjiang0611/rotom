@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative } from "node:path";
@@ -15,6 +15,7 @@ import {
 	DIAGNOSTIC_COMMAND,
 	loadReducerConfig,
 	REDUCER_RECEIPT_SCHEMA,
+	validateReceipt,
 } from "../src/sol-pi/extensions/evidence-preserving-reducer/index.ts";
 import { archiveBody } from "../src/sol-pi/extensions/evidence-preserving-reducer/archive.ts";
 import {
@@ -449,8 +450,62 @@ describe("evidence-preserving reducer", () => {
 					: entry.reason === "unverifiable-quote",
 			),
 		).toBe(true);
+		if (mode === "invented") {
+			// The rejected quote is described by digest and position only.
+			const diagnostic = fallbacks.find((entry) => entry.reason === "unverifiable-quote")?.quoteDiagnostic;
+			expect(diagnostic).toEqual({
+				cause: "not-in-source",
+				evidenceIndex: 0,
+				evidenceCount: 1,
+				quoteChars: "ERROR invented failure".length,
+				quoteSha256: createHash("sha256").update("ERROR invented failure").digest("hex"),
+				matchedPrefixChars: "ERROR ".length,
+				matchedPrefixLine: 1,
+				matchesWithoutAnsi: false,
+				matchesWithCollapsedWhitespace: false,
+			});
+			expect(JSON.stringify(fallbacks)).not.toContain("invented");
+		}
 		// A returned response is billed even when its receipt is rejected.
 		expect(manager.usageEntries()).toHaveLength(1);
+	});
+
+	it("diagnoses rejected quotes without keeping their text", async () => {
+		const body = "collected 3 items\n\u001b[31mFAILED\u001b[0m tests/a.py::test_x\nE   assert   1 == 2\n";
+		const archive = await archiveBody(await storeRoot(), body);
+		const reject = (quote: unknown, kind: unknown = "failure") => {
+			const raw = JSON.stringify({
+				schema: REDUCER_RECEIPT_SCHEMA,
+				source_sha256: archive.hash,
+				status: "failure",
+				uncertain: false,
+				evidence: [{ kind: "summary", quote: "collected 3 items" }, { kind, quote }],
+			});
+			const checked = validateReceipt(raw, archive, body, true);
+			expect(checked.ok).toBe(false);
+			return checked.ok ? undefined : checked.quoteDiagnostic;
+		};
+
+		expect(reject("FAILED tests/a.py::test_x")).toMatchObject({
+			cause: "not-in-source",
+			evidenceIndex: 1,
+			evidenceCount: 2,
+			matchedPrefixChars: "FAILED".length,
+			matchedPrefixLine: 2,
+			matchesWithoutAnsi: true,
+			matchesWithCollapsedWhitespace: false,
+		});
+		expect(reject("E assert 1 == 2")).toMatchObject({
+			matchedPrefixChars: "E ".length,
+			matchedPrefixLine: 3,
+			matchesWithoutAnsi: false,
+			matchesWithCollapsedWhitespace: true,
+		});
+		const tooLong = reject("x".repeat(601));
+		expect(tooLong).toMatchObject({ cause: "too-long", quoteChars: 601 });
+		expect(tooLong).not.toHaveProperty("matchedPrefixChars");
+		expect(reject("collected", "note")).toMatchObject({ cause: "invalid-kind", quoteChars: 9 });
+		expect(reject(42)).toEqual({ cause: "not-a-string", evidenceIndex: 1, evidenceCount: 2 });
 	});
 
 	it("keeps only the journal record on Pi releases without pi.appendUsage", async () => {
