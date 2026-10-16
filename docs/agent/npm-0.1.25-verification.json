@@ -40,7 +40,15 @@
     },
     "registryPreflight": "Target version absent and latest=0.1.24 before publication",
     "solPiSuite": "167/167 and tsc 0 errors on the Pi 1.3.0-rotom.2 packages; tsc 0 errors on upstream Pi 0.85.1 (no appendUsage)",
-    "reducerUsageOfflineEndToEnd": "rotom/bin/rotom -p with faux main and reducer models: one usage entry (sol_pi_reducer, fauxr/reducer, 1,935 tokens); getUsageCostBreakdown lists fauxr/reducer separately"
+    "reducerUsageOfflineEndToEnd": "rotom/bin/rotom -p with faux main and reducer models: one usage entry (sol_pi_reducer, fauxr/reducer, 1,935 tokens); getUsageCostBreakdown lists fauxr/reducer separately",
+    "postReleaseReducerUsageL3": {
+      "setup": "Installed 0.1.25 with the user's real settings, sol-pi.json and openai-codex login; faux main model via -e; temporary --session-dir; synthetic 17,162-byte failing pytest log (2 failures, 238 passes)",
+      "realRequest": "1 openai-codex/gpt-5.6-luna request: input 4,698, output 251, total 4,949 tokens; catalog cost $0.0012408 (subscription quota, not a USD charge)",
+      "receipt": "applied; 17,162 -> 1,740 bytes; 4 verified quotes (both failure tracebacks, summary line, exit code) plus the source artifact path; isError kept",
+      "usageEntry": "one Pi usage entry kind=sol_pi_reducer, provider openai-codex, model gpt-5.6-luna, usage unchanged from the provider",
+      "tuiFooter": "Resuming the session in a real PTY TUI (no prompt, no model call) shows ↑17k ↓265 $0.001: main 11,949/14 plus reducer 4,698/251. Without the reducer entry it would read ↑12k ↓14 and no cost",
+      "configFiles": "auth.json, sol-pi.json and settings.json modification times unchanged"
+    }
   },
   "registryVerified": true,
   "registryVerification": "npm-release-handoff verify with NODE_USE_ENV_PROXY=1: exact version, latest tag, integrity, shasum, trusted tarball URL and downloaded bytes match the unique frozen tgz",
@@ -57,9 +65,8 @@
     }
   },
   "unverified": [
-    "A real openai-codex reducer request recording its usage entry (offline faux only for 0.1.25)",
-    "Footer display of reducer usage in a real TUI (inferred from shared usage-entry aggregation)",
     "Real browser/phone/terminal UI and cross-platform acceptance",
-    "Actual public-registry rotom update path; isolated upgrade validation used npm"
+    "Actual public-registry rotom update path; isolated upgrade validation used npm",
+    "Reducer quality on real project output and its cumulative cost in long sessions (synthetic samples only)"
   ]
 }

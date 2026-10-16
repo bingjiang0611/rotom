@@ -16,7 +16,10 @@
 
 - `build:pi`、`check:pi`、coding-agent 全量（2781 通过、0 失败）、分发 25 项通过；以实际安装 tgz 的 Pi 运行 `check-personal`：产品 329 项、Goal 87 项通过，default footprint 合同 PASS；full/scoped 在源码树 PASS，与 0.1.24 相同。
 - 唯一 tgz 的独立隐私审计（21,800 个文件、0 发现）、隔离安装（18,885 个文件逐字节一致）、default/full smoke、RPC `/context`、0.1.24→0.1.25 升级与卸载通过。
-- Reducer 用量只做了离线 faux 端到端验证；真实 `openai-codex` 请求和真实 TUI footer 显示未验证。
+- 发布后补充验证（2026-10-16）：用已安装的 0.1.25、你的真实配置和 `openai-codex` 登录，主模型为 faux，输入 17,162 字节的合成 pytest 失败日志。
+  - 1 次真实 `gpt-5.6-luna` 请求：输入 4,698、输出 251，共 4,949 token；按模型目录价格折合 $0.0012（实际消耗订阅额度）。回执被采用，压到 1,740 字节，保留两处失败堆栈、测试汇总和退出码，并附原文路径。
+  - 会话里写入 1 条 `sol_pi_reducer` 用量记录。在真实 PTY TUI 中恢复该会话（不发 prompt），footer 显示 `↑17k ↓265 $0.001`，即主模型 11,949/14 加 Reducer 4,698/251；不含 Reducer 时应为 `↑12k ↓14`。
+  - `auth.json`、`sol-pi.json`、`settings.json` 未被修改。未验证：真实项目输出上的效果和长会话累计成本。
 - 本次发行 gate 不调用真实模型、浏览器或手机。
 
 ## 发布交接
