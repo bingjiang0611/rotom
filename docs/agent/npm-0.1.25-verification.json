@@ -48,6 +48,14 @@
       "usageEntry": "one Pi usage entry kind=sol_pi_reducer, provider openai-codex, model gpt-5.6-luna, usage unchanged from the provider",
       "tuiFooter": "Resuming the session in a real PTY TUI (no prompt, no model call) shows ↑17k ↓265 $0.001: main 11,949/14 plus reducer 4,698/251. Without the reducer entry it would read ↑12k ↓14 and no cost",
       "configFiles": "auth.json, sol-pi.json and settings.json modification times unchanged"
+    },
+    "reducerHistoricalSessionReview": {
+      "method": "Read-only aggregate scan of the maintainer's local session files (661 files, 31 with reducer journal entries, 2026-10-07..16, sol-pi used before and after bundling); duplicate entries from forked sessions removed; no session content recorded",
+      "requests": "66 openai-codex/gpt-5.6-luna responses, all stop; 45 receipts applied, 22 fallbacks to the raw output (16 unverifiable-quote, 3 missing-failure-evidence, 1 likely-secret, 1 invalid-json, 1 schema-mismatch)",
+      "cost": "863,894 reducer tokens versus 1.74 billion main-model tokens in the same sessions (0.05%); per-session median 0.05%, max 2.70%; per call median 10,468, p90 28,375, max 38,952 tokens; 283,717 tokens (33%) were spent on responses that were then rejected",
+      "compression": "applied receipts: source median 26,142 bytes, receipt median 1,571 bytes, 1.97 MB removed from tool results in total; 40 later artifact readback calls returned 254 KB",
+      "fidelity": "all isError results kept status=failure; no success receipt hid a real failure (heuristic scan); every failure receipt quoted the test count summary, but several quoted only one example of many failing test names (for example 1 of 3, 1 of 7, 1 of 29), so the full list needs artifact readback, which the main model did after 10 of 22 failure receipts",
+      "limits": "heuristic line matching, not a semantic grading; cost is token counts only, Codex quota and USD impact unknown; context-window and cache effects not measured; rejected reducer outputs are not journaled, so the cause of unverifiable-quote cannot be determined from existing logs"
     }
   },
   "registryVerified": true,
@@ -67,6 +75,6 @@
   "unverified": [
     "Real browser/phone/terminal UI and cross-platform acceptance",
     "Actual public-registry rotom update path; isolated upgrade validation used npm",
-    "Reducer quality on real project output and its cumulative cost in long sessions (synthetic samples only)"
+    "Cause of the 24% unverifiable-quote reducer rejections (rejected outputs are not journaled) and the net effect on quota after cache pricing"
   ]
 }
