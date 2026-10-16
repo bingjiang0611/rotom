@@ -1,0 +1,66 @@
+{
+  "state": "published",
+  "package": "@bingjiang0611/rotom",
+  "version": "0.1.24",
+  "tag": "latest",
+  "sourceCommit": "23d0fc67d3b1b9fa7d1339a04cd3c52bf1e2f71e",
+  "sha256": "6e17be27ac9accf04f720e9a07fda44483bb13a4881021aace20e79d7b436891",
+  "shasum": "573b1f713ca47ed9f69233727d89d0b2f09521d3",
+  "integrity": "sha512-E4MnNPz10E2Zf1No1700fsP/mScPbMyHjivbpiERRYMNF1j3ZAK1prRnjiPeU465rQydIbdXG90MHE776Fef8w==",
+  "tarball": "https://registry.npmjs.org/@bingjiang0611/rotom/-/rotom-0.1.24.tgz",
+  "fileCount": 18885,
+  "compressedBytes": 48661826,
+  "uncompressedRegularFileBytes": 159446782,
+  "buildToolchain": {
+    "node": "24.18.0",
+    "npm": "12.2.0",
+    "successfulFinalPacks": 1
+  },
+  "checks": {
+    "checkPi": "PASS; Pi fork 1.3.0-rotom.1 with the official SRI-verified pi-ai@1.3.0 model catalog",
+    "distribution": "25 passed",
+    "checkPersonal": "329 product tests and 87 Goal tests passed using the actual installed tgz Pi",
+    "offlineProviders": "PASS",
+    "footprint": "default/full/scoped runtimeContractGate and deterministicGate PASS (+1 tool obs_recall, +1,243 normalized schema bytes from bundled SoL-Pi)",
+    "defaultAndFullInstalledSdkSmoke": "PASS; actual installed resources; 2 faux calls per mode; obs_recall active; deferredToolsEnabled true/false",
+    "installedRpcCommands": "PASS; /context registered once by the bundled third-party extension",
+    "isolatedInstall": "PASS; isolated HOME/prefix, PATH without global Pi or rotom; version 0.1.24 / Pi 1.3.0-rotom.1. The first attempt used /dev/null for both npm configs and npm refused before installing; rerun with two empty files",
+    "installedFilesByteIdentical": 18885,
+    "upgrade": "PASS; registry 0.1.23 artifact verified against registry integrity/shasum, then upgraded to exact final 0.1.24 tgz via isolated npm global prefix",
+    "uninstall": "PASS; bin and package absent, isolated HOME sentinel retained",
+    "publicFrozenSourceAudit": {
+      "status": "PASS",
+      "commits": 183,
+      "findings": 0
+    },
+    "actualArtifactPrivacyAudit": {
+      "status": "PASS",
+      "filesChecked": 21800,
+      "findings": 0
+    },
+    "registryPreflight": "Target version absent and latest=0.1.23 before publication"
+  },
+  "registryVerified": true,
+  "registryVerification": "npm-release-handoff verify with NODE_USE_ENV_PROXY=1: exact version, latest tag, integrity, shasum, trusted tarball URL and downloaded bytes match the unique frozen tgz",
+  "publishedBy": "Maintainer in a foreground terminal; agent did not read credentials or publish",
+  "globalInstall": {
+    "state": "verified",
+    "note": "The maintainer chose to remove the self-installed sol-pi-updated and pi-context-view entries from ~/.pi/agent/settings.json (backed up first; other keys unchanged). scripts/install-release.sh ran once without --force. The active rotom command resolves to the 0.1.24 per-version installation; 0.1.23 and earlier releases are retained and active sessions are not migrated. With the user's real settings and sol-pi.json, /context and SoL-Pi tools are registered once.",
+    "productVersion": "0.1.24",
+    "piVersion": "1.3.0-rotom.1",
+    "installedFiles": 18885,
+    "components": {
+      "pi-subagents": "0.52.1-rotom.7",
+      "@narumitw/pi-goal": "0.54.4-rotom.8",
+      "@injaneity/pi-computer-use": "0.5.1-rotom.0",
+      "pi-context-view": "0.7.1",
+      "sol-pi": "0.1.0-rotom.0"
+    }
+  },
+  "unverified": [
+    "SoL-Pi upstream suite on the Pi 1.3 fork (ran only against its pinned Pi 0.85.1 devDependencies)",
+    "Evidence-Preserving Reducer real model requests, cost and behavior without openai-codex login",
+    "Real browser/phone/terminal UI and cross-platform acceptance",
+    "Actual public-registry rotom update path; isolated upgrade validation used npm"
+  ]
+}
