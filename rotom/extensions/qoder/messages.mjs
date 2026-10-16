@@ -80,8 +80,8 @@ function normalizeForeignToolCallId(id) {
 }
 
 // First/second-pass history normalization, ported from pi-ai transformMessages
-// for the Qoder subset. It keeps encrypted/signed thinking only for the same
-// model, normalizes foreign OpenAI Responses tool IDs, skips errored/aborted
+// for the Qoder subset. It keeps thinking only for the same model (signed or
+// redacted blocks unchanged), normalizes foreign OpenAI Responses tool IDs, skips errored/aborted
 // assistant turns, and inserts synthetic results for orphaned tool calls.
 function transformMessages(messages, model) {
   const normalized = messages.map(msg => (msg.content == null ? { ...msg, content: [] } : msg));
@@ -96,10 +96,12 @@ function transformMessages(messages, model) {
     const isSameModel = isSameModelAssistant(msg, model);
     const content = msg.content.flatMap(block => {
       if (block.type === 'thinking') {
-        if (block.redacted) return isSameModel ? block : [];
-        if (isSameModel && block.thinkingSignature) return block;
+        // Pi 1.3 (#11000): another model's thinking is dropped, not replayed as
+        // visible text, so the new model does not continue it in its answer.
+        if (!isSameModel) return [];
+        if (block.redacted || block.thinkingSignature) return block;
         if (!block.thinking || block.thinking.trim() === '') return [];
-        return isSameModel ? block : { type: 'text', text: block.thinking };
+        return block;
       }
       if (block.type === 'text') return isSameModel ? block : { type: 'text', text: block.text };
       if (block.type === 'toolCall') {

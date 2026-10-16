@@ -56,9 +56,9 @@ for (const id of ['ultimate', 'gmodel', 'lite']) for (const source of [{ provide
   await assert.rejects(f.run(messages), { code: 'http_403' });
   assert.equal(f.wires.length, 1); assert.equal(f.reads(), 1); assert.equal(JSON.stringify(messages), original);
   const wire = f.wires[0], text = JSON.stringify(wire);
-  assert.doesNotMatch(text, /FOREIGN_|reasoning_item|reasoning_details|reasoning_content|thoughtSignature|thinkingSignature/);
+  assert.doesNotMatch(text, /FOREIGN_|Visible reasoning|reasoning_item|reasoning_details|reasoning_content|thoughtSignature|thinkingSignature/);
   const sent = wire.messages.find(m => m.role === 'assistant');
-  assert.equal(sent.content, 'Visible answerVisible reasoning');
+  assert.equal(sent.content, 'Visible answer', 'foreign thinking is dropped, not sent as visible text');
   assert.deepEqual(sent.tool_calls, [{ id: 'call_history', type: 'function', function: { name: 'probe', arguments: '{"n":7}' } }]);
   assert.equal(wire.messages.find(m => m.role === 'tool').tool_call_id, 'call_history');
   assert.equal(wire.messages.find(m => m.role === 'tool').content, 'Saved result');

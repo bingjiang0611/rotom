@@ -77,13 +77,16 @@ test('empty assistant turns are skipped, orphaned tool calls get a synthetic res
   assert.deepEqual(payload.tools, []); // tool history without live tools still declares an empty tools array.
 });
 
-test('cross-model thinking is downgraded to plain text and never replayed as signed reasoning', () => {
+test('cross-model thinking is dropped while visible text and tool calls stay', () => {
   const payload = buildQoderPayload(MODEL, { messages: [
-    { role: 'assistant', provider: 'other-provider', api: 'qoder', model: MODEL.id, content: [{ type: 'thinking', thinking: 'foreign reasoning', thinkingSignature: 'reasoning_content' }] },
+    { role: 'assistant', provider: 'other-provider', api: 'qoder', model: MODEL.id, content: [{ type: 'thinking', thinking: 'foreign reasoning', thinkingSignature: 'reasoning_content' }, { type: 'thinking', thinking: 'unsigned foreign reasoning' }, { type: 'text', text: 'Visible answer' }] },
+    { role: 'assistant', provider: 'other-provider', api: 'qoder', model: MODEL.id, content: [{ type: 'thinking', thinking: 'thinking-only foreign turn' }] },
   ] }, { maxTokens: 4096 });
-  assert.equal(payload.messages[0].content, 'foreign reasoning');
+  assert.equal(payload.messages.length, 1, 'an assistant turn left with no content is not sent');
+  assert.equal(payload.messages[0].content, 'Visible answer');
   assert.equal(payload.messages[0].reasoning_content, undefined);
   assert.equal(payload.messages[0].reasoning_details, undefined);
+  assert.doesNotMatch(JSON.stringify(payload), /foreign/);
 });
 
 test('tool results batch into tool messages and split images into a trailing user message', () => {
