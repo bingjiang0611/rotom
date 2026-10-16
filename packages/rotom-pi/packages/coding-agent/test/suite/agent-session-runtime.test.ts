@@ -12,6 +12,7 @@ import {
 } from "../../src/core/agent-session-runtime.ts";
 import { AuthStorage } from "../../src/core/auth-storage.ts";
 import { SessionManager } from "../../src/core/session-manager.ts";
+import { getUsageCostBreakdown } from "../../src/core/usage-totals.ts";
 import type {
 	AgentToolResult,
 	ExtensionAPI,
@@ -161,6 +162,46 @@ describe("AgentSessionRuntime characterization", () => {
 			throw new Error("missing persisted assistant message");
 		}
 		expect(persistedAssistant.usage.cost.total).toBe(0.123);
+	});
+
+	it("counts extension-reported usage in session stats and the usage breakdown", async () => {
+		let api!: ExtensionAPI;
+		const { runtime } = await createRuntimeForTest((pi: ExtensionAPI) => {
+			api = pi;
+		});
+		const appended: string[] = [];
+		runtime.session.subscribe((event) => {
+			if (event.type === "entry_appended") appended.push(event.entry.type);
+		});
+		const before = runtime.session.getSessionStats();
+
+		api.appendUsage("sol_pi_reducer", "openai-codex", "gpt-5.6-luna", {
+			input: 3000,
+			output: 500,
+			cacheRead: 40,
+			cacheWrite: 3,
+			totalTokens: 3543,
+			cost: { input: 0.01, output: 0.02, cacheRead: 0, cacheWrite: 0, total: 0.03 },
+		});
+
+		const after = runtime.session.getSessionStats();
+		expect(after.tokens.total - before.tokens.total).toBe(3543);
+		expect(after.cost - before.cost).toBeCloseTo(0.03);
+		expect(appended).toEqual(["usage"]);
+		const entries = runtime.session.sessionManager.getEntries();
+		expect(entries.at(-1)).toMatchObject({
+			type: "usage",
+			kind: "sol_pi_reducer",
+			provider: "openai-codex",
+			model: "gpt-5.6-luna",
+		});
+		expect(getUsageCostBreakdown(entries)).toContainEqual({
+			key: "openai-codex/gpt-5.6-luna",
+			cost: 0.03,
+			tokens: 3543,
+		});
+		// Usage entries never enter model context.
+		expect(runtime.session.messages.some((message) => JSON.stringify(message).includes("gpt-5.6-luna"))).toBe(false);
 	});
 
 	it("settles the active response before session replacement", async () => {

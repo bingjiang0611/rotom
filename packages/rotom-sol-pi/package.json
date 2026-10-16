@@ -1,6 +1,6 @@
 {
 	"name": "sol-pi",
-	"version": "0.1.0-rotom.0",
+	"version": "0.1.0-rotom.1",
 	"description": "rotom-maintained build of SoL-Pi: context and tool-efficiency extensions for Pi",
 	"type": "module",
 	"private": true,

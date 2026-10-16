@@ -1748,6 +1748,13 @@ export interface ExtensionAPI {
 	/** Append a custom entry to the session for state persistence (not sent to LLM). */
 	appendEntry<T = unknown>(customType: string, data?: T): void;
 
+	/**
+	 * Record model usage from a provider request the extension made itself (not sent to LLM).
+	 * The entry is counted in the footer, session stats, and usage breakdown like Pi's own
+	 * auxiliary requests. Pass the provider-reported `Usage` unchanged; `kind` names the source.
+	 */
+	appendUsage(kind: string, provider: string, model: string, usage: Usage, note?: string): void;
+
 	// =========================================================================
 	// Session Metadata
 	// =========================================================================
@@ -2114,6 +2121,8 @@ export type SendUserMessageHandler = (
 
 export type AppendEntryHandler = <T = unknown>(customType: string, data?: T) => void;
 
+export type AppendUsageHandler = (kind: string, provider: string, model: string, usage: Usage, note?: string) => void;
+
 export type SetSessionNameHandler = (name: string) => void;
 
 export type GetSessionNameHandler = () => string | undefined;
@@ -2192,6 +2201,7 @@ export interface ExtensionActions {
 	sendMessage: SendMessageHandler;
 	sendUserMessage: SendUserMessageHandler;
 	appendEntry: AppendEntryHandler;
+	appendUsage: AppendUsageHandler;
 	setSessionName: SetSessionNameHandler;
 	getSessionName: GetSessionNameHandler;
 	setLabel: SetLabelHandler;

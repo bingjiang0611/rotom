@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-import type { Api, AssistantMessage, Context, Model, ProviderStreamOptions } from "@earendil-works/pi-ai";
+import type { Api, AssistantMessage, Context, Model, ProviderStreamOptions, Usage } from "@earendil-works/pi-ai";
 import { complete as completeCompat } from "@earendil-works/pi-ai/compat";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { ArchiveObject } from "./archive.ts";
@@ -44,6 +44,10 @@ export interface ProviderResult {
 	readonly ok: boolean;
 	readonly outputText: string;
 	readonly provider: string;
+	/** Concrete model that served the request, for usage attribution. */
+	readonly responseModel: string;
+	/** Provider-reported usage including cost, recorded unchanged in Pi's usage entries. */
+	readonly responseUsage: Usage;
 	readonly stopReason: AssistantMessage["stopReason"];
 	readonly usage: NormalizedUsage;
 }
@@ -154,6 +158,8 @@ export async function callReducer(
 			ok: response.stopReason === "stop" || response.stopReason === "length",
 			outputText: responseOutputText(response),
 			provider: response.provider,
+			responseModel: response.responseModel ?? response.model,
+			responseUsage: response.usage,
 			stopReason: response.stopReason,
 			usage: normalizedUsage(response),
 		};

@@ -4,6 +4,7 @@
  */
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ExtensionAPI, ExtensionContext, SessionEntry, Theme, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { Usage } from "@earendil-works/pi-ai";
 import type { Component } from "@earendil-works/pi-tui";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -81,6 +82,32 @@ export class FakeSessionManager {
 		return id;
 	}
 
+	appendUsage(kind: string, provider: string, model: string, usage: Usage, note?: string): string {
+		const id = `usage-${this.nextId++}`;
+		this.entries.push({
+			type: "usage",
+			id,
+			parentId: this.leafId,
+			timestamp: new Date().toISOString(),
+			kind,
+			provider,
+			model,
+			usage,
+			...(note ? { note } : {}),
+		} as unknown as SessionEntry);
+		this.leafId = id;
+		return id;
+	}
+
+	/** Usage entries appended so far, in order. */
+	usageEntries(): Array<{ kind: string; provider: string; model: string; usage: Usage }> {
+		return this.entries.flatMap((entry) =>
+			(entry as { type: string }).type === "usage"
+				? [entry as unknown as { kind: string; provider: string; model: string; usage: Usage }]
+				: [],
+		);
+	}
+
 	appendMessage(message: AgentMessage): string {
 		const id = `message-${this.nextId++}`;
 		this.entries.push({
@@ -133,6 +160,10 @@ export class FakePi {
 
 	appendEntry(customType: string, data?: unknown): void {
 		this.sessionManager.appendCustomEntry(customType, data);
+	}
+
+	appendUsage(kind: string, provider: string, model: string, usage: Usage, note?: string): void {
+		this.sessionManager.appendUsage(kind, provider, model, usage, note);
 	}
 
 	sendMessage(

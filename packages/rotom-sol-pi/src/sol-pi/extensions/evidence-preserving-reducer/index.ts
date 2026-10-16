@@ -39,7 +39,7 @@ import {
 	type ReducerConfigOptions,
 	sha256,
 } from "./config.ts";
-import { createJournal, type Journal } from "./journal.ts";
+import { createJournal, createUsageRecorder, type Journal, type UsageRecorder } from "./journal.ts";
 import { callReducer, type ProviderResult } from "./provider.ts";
 import { receiptText, validateReceipt } from "./receipt.ts";
 
@@ -57,6 +57,7 @@ function errorName(error: unknown): string | undefined {
 
 export async function reduceToolResult(
 	journal: Journal,
+	recordUsage: UsageRecorder,
 	config: ReducerConfig,
 	event: ToolResultEvent,
 	context: ExtensionContext,
@@ -103,6 +104,7 @@ export async function reduceToolResult(
 		return undefined;
 	}
 
+	recordUsage(provider);
 	journal("provider_response", {
 		toolCallId: event.toolCallId,
 		sourceSha256: archive.hash,
@@ -179,6 +181,7 @@ export async function reduceToolResult(
 export function createEvidencePreservingReducerExtension(options: EvidencePreservingReducerOptions = {}): ExtensionFactory {
 	return (pi: ExtensionAPI) => {
 		const states = new Map<string, { config: ReducerConfig; journal: Journal }>();
+		const recordUsage = createUsageRecorder(pi);
 		pi.on("tool_result", (event, context) => {
 			let root: string;
 			try {
@@ -192,7 +195,7 @@ export function createEvidencePreservingReducerExtension(options: EvidencePreser
 				state = { config, journal: createJournal(pi, config) };
 				states.set(root, state);
 			}
-			return reduceToolResult(state.journal, state.config, event, context);
+			return reduceToolResult(state.journal, recordUsage, state.config, event, context);
 		});
 	};
 }

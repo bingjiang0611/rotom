@@ -51,7 +51,7 @@
 coding-agent 全量：
 
 - `interactive-mode-compaction` 因上游新增 `maybeSuggestBugReport` 调用而失败，已在测试替身中补上，现通过。
-- `agent-session-concurrent` steering 与 `agent-session-runtime` settles 两个失败与 1.1 迁移记录中的既有失败相同，原因是 rotom agent loop 的 abort 守卫；纯净 `v1.3.0` 通过。本次没有修。
+- `agent-session-concurrent` steering 与 `agent-session-runtime` settles 两个失败与 1.1 迁移记录中的既有失败相同，原因是 rotom agent loop 的 abort 守卫；纯净 `v1.3.0` 通过。`1.3.0-rotom.1` 没有修，`1.3.0-rotom.2` 已修，见下节。
 
 ## 事件记录
 
@@ -64,3 +64,45 @@ coding-agent 全量：
 - `pack:release`、tgz 安装、升级与卸载。
 
 本次没有推送、npm 发布、全局安装切换或存活会话迁移。
+
+## `1.3.0-rotom.2`
+
+在 `1.3.0-rotom.1`（rotom 0.1.24 发布）之上的两项修改，随下一个 rotom 版本发布。
+
+### 中止后不再请求 provider
+
+- 问题：rotom 的旧守卫在 `turn_end` 之后发现 signal 已中止，就直接结束，不写入任何助手消息。这样有两个后果：
+  - steering 消息排在中止之后时，会被丢弃。
+  - 工具执行中途切换会话时，被切走的会话以 `toolResult` 结尾，没有收尾的助手消息。
+- 修改：把守卫移到 `streamAssistantResponse` 的入口（`agent/src/agent-loop.ts`）。signal 已中止时：
+  - 不解析 API key，也不请求 provider。
+  - 在本地写入一条 0 用量的 `aborted` 助手消息，和 provider 收到中止请求时返回的结果相同。
+  - 排队的 steering 消息仍写入对话。
+- 结果：既保留了 rotom 原有的保证（中止后不再发请求），也恢复了上游的约定（中止的轮次以 `aborted` 助手消息结尾，UI 和 Goal 都按中断处理）。
+- 测试调整：
+  - `agent-session-runtime` 的 settles 用例不改，现在通过。
+  - `agent-session-concurrent` 的 steering 用例原本断言 mock provider 在中止后仍收到请求。这正是 rotom 要避免的行为，所以改为验证三点：steering 消息已写入对话、provider 没有收到请求、对话以 `aborted` 结尾。
+  - `agent-loop` 的 turn-end 中止用例改为断言多一条 `aborted` 消息，并且仍然只有 1 次 provider 请求。
+- 对照：去掉守卫后，这两个 coding-agent 用例 19/19 通过，证明失败确实来自守卫。
+
+### `pi.appendUsage`
+
+- 扩展 API 增加 `pi.appendUsage(kind, provider, model, usage, note?)`，写入原生 `usage` 条目，并发出 `entry_appended`。footer、`getSessionStats`、按模型的用量拆分和 Goal 预算本来就会汇总这类条目。文档：`coding-agent/docs/extensions.md`。
+- SoL-Pi `0.1.0-rotom.1` 用它记录 Reducer 的每次模型回复（`sol_pi_reducer`）。详见 `packages/rotom-sol-pi/UPSTREAM.md`。
+
+### 验证（macOS arm64 / Node 24.18.0，干净 env）
+
+| 检查 | 结果 |
+|---|---|
+| `npm run build:pi` / `check:pi` / `build-pi-fork.test.mjs` | PASS；`1.3.0-rotom.2`，builder 内 focused 回归全部通过；2/2 |
+| coding-agent 全量 vitest | 2781 passed、50 skipped、0 failed（两个既有失败已消除） |
+| agent 全量 vitest | 95 passed |
+| 新增 `pi.appendUsage` 测试 | PASS；去掉 runner 里的接线后失败（runtime not initialized） |
+| `rotom/bin/check-personal` | 329 + 87 PASS，default footprint PASS（第一次运行时 `process-tree` 超时用例在系统 load ≈168 下失败，单独重跑 3 次均 5/5，整套重跑全部通过） |
+| full / scoped footprint | PASS（36,432 / 35,656 normalized schema bytes，与合同一致） |
+| default / full `smoke-runtime.mjs` | PASS |
+| `npm run test:distribution` | 25/25 |
+| SoL-Pi 上游测试 + `tsc` | 依赖锁定的上游 Pi `0.85.1`（没有 `appendUsage`）：165 通过，另 2 个 `install-guide` 失败只因缺少上游 `AGENTS.md`/`CLAUDE.md`；`tsc` 0 错误。换成 fork `1.3.0-rotom.2` 包并补齐这两个文件：167/167，`tsc` 0 错误 |
+| 离线端到端 | 用 `rotom/bin/rotom -p` 加 faux provider（主模型和 Reducer 都是 faux），走产品自带 SoL-Pi：Reducer 回复写入 1 条 `usage`（`sol_pi_reducer`、`fauxr/reducer`、1,935 token）；工具结果替换为 receipt；运行时的 `getUsageCostBreakdown` 单列 `fauxr/reducer` |
+
+未验证：真实 Reducer 请求（需要 Codex 额度），以及真实 TUI 中 footer 的显示。footer 的汇总逻辑与 `getSessionStats` 读取同一类条目，这一点来自读代码，没有在真实 TUI 中看过。

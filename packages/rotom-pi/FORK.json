@@ -2,7 +2,7 @@
   "upstream": "https://github.com/earendil-works/pi",
   "revision": "71023aec1546d6d677a65669c5665c0927ce0dd0",
   "upstreamVersion": "1.3.0",
-  "forkVersion": "1.3.0-rotom.1",
+  "forkVersion": "1.3.0-rotom.2",
   "modelData": {
     "package": "@earendil-works/pi-ai@1.3.0",
     "integrity": "sha512-KaBI8x7q7sPoFUXICNGD9efHzDG+oRNwVvkA9jdIsSQWH1RjFssOlEGsbLtewUPPgCrvmz0l2KTgSLXTyj3acw==",
@@ -16,7 +16,8 @@
     "Retain Rotom branding, startup, product updates, session ID, Qoder metering/catalog and abort/compaction fixes across the 1.0.4 merge",
     "Merge v1.1.0 over the 1.0.4 fork; earlier selective 1.1.0 backports are now part of the base",
     "Retain upstream classifier models/APIs, virtual model routing and the built-in MCP extension; Rotom adds no classifier or virtual model of its own",
-    "Merge v1.3.0 over the 1.1.0 fork; upstream removed the experimental client/protocol/server stack and the chord runtime dependency"
+    "Merge v1.3.0 over the 1.1.0 fork; upstream removed the experimental client/protocol/server stack and the chord runtime dependency",
+    "Settle aborted turns locally instead of dispatching a provider request with an aborted signal; expose pi.appendUsage for extension-made model requests"
   ],
   "omittedMaintenanceFiles": [
     ".github/APPROVED_CONTRIBUTORS",

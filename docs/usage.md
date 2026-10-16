@@ -86,7 +86,7 @@ scoped 执行是执行归属与资源关闭管理，**不是安全沙箱**；首
 rotom 内置两个上下文相关的第三方扩展，安装后即可使用，不需要再 `rotom install`：
 
 - **`/context`**（[pi-context-view](https://github.com/dimk90/pi-context-view) `0.7.1`，原样内置）：查看当前上下文的组成和占用。它只是用户命令，不增加模型工具。
-- **SoL-Pi**（[NVlabs/SoL-Pi](https://github.com/NVlabs/SoL-Pi) 的维护导入版 `0.1.0-rotom.0`，来源见 `packages/rotom-sol-pi/UPSTREAM.md`）。
+- **SoL-Pi**（[NVlabs/SoL-Pi](https://github.com/NVlabs/SoL-Pi) 的维护导入版 `0.1.0-rotom.1`，来源见 `packages/rotom-sol-pi/UPSTREAM.md`）。
 
 没有 SoL-Pi 配置文件时，rotom 默认开启：
 
@@ -97,7 +97,7 @@ rotom 内置两个上下文相关的第三方扩展，安装后即可使用，�
 | Evidence-Preserving Reducer | 开 | 对较大的失败构建/测试输出调用 `openai-codex/gpt-5.6-luna` 生成保留证据的精简版 |
 | Online Context Compact | 关 | — |
 
-Reducer 会额外请求模型，按该 provider 正常计费或消耗订阅额度。没有登录 `openai-codex` 时请求失败，SoL-Pi 保留原始输出，不影响任务。Reducer 的 token 只记在 SoL-Pi 自己的会话记录里，**不计入** footer 和会话用量统计。
+Reducer 会额外请求模型，按该 provider 正常计费或消耗订阅额度。没有登录 `openai-codex` 时请求失败，SoL-Pi 保留原始输出，不影响任务。Reducer 每次拿到模型回复（无论结果是否被采用）都会写入一条 Pi 原生用量记录，计入 footer、会话用量统计、按模型的用量拆分和 Goal 预算。请求在拿到回复前失败（超时、未登录、模型不可用）时没有用量可记。rotom 0.1.24 不计入这部分 token。
 
 要改默认值，写 `~/.pi/agent/sol-pi.json`（受信项目也可用 `.pi/sol-pi.json`）。只要文件存在，rotom 就完全按文件生效，省略的功能按 SoL-Pi 原生默认值关闭。例如全部关闭：
 

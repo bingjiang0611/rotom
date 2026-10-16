@@ -319,6 +319,15 @@ describe("evidence-preserving reducer", () => {
 		expect(await readFile(sourcePath, "utf8")).toBe(body);
 		expect((await stat(sourcePath)).mode & 0o777).toBe(0o600);
 		expect(events.filter((entry) => entry.kind === "applied")).toHaveLength(1);
+		// The reducer spend is recorded once as a Pi usage entry, attributed to the reducer model.
+		expect(manager.usageEntries()).toEqual([
+			expect.objectContaining({
+				kind: "sol_pi_reducer",
+				provider: REDUCER_MODEL.provider,
+				model: REDUCER_MODEL.id,
+				usage: expect.objectContaining({ output: 90, totalTokens: Math.ceil(body.length / 4) + 90 }),
+			}),
+		]);
 		expect(notify).toHaveBeenCalledTimes(1);
 		expect(notify.mock.calls[0]?.[0]).toMatch(
 			/^⚡ SoL-Pi · Luna Delegating\nMoney saved · .+ removed from future prompts$/u,
@@ -440,6 +449,28 @@ describe("evidence-preserving reducer", () => {
 					: entry.reason === "unverifiable-quote",
 			),
 		).toBe(true);
+		// A returned response is billed even when its receipt is rejected.
+		expect(manager.usageEntries()).toHaveLength(1);
+	});
+
+	it("keeps only the journal record on Pi releases without pi.appendUsage", async () => {
+		const root = await storeRoot();
+		const body = `ERROR real failure\n${"x".repeat(5000)}`;
+		const manager = new FakeSessionManager([], "reducer", root);
+		const pi = new FakePi(manager);
+		Object.defineProperty(pi, "appendUsage", { value: undefined });
+		createEvidencePreservingReducerExtension()(pi.asExtensionApi());
+		const context = fakeContext(manager, {
+			model: ACTIVE_MODEL,
+			modelRegistry: {
+				find: () => REDUCER_MODEL,
+				complete: modelComplete(body, () => ({}) as ModelReceipt, "error"),
+			} as unknown as ExtensionContext["modelRegistry"],
+		});
+
+		expect(await pi.emit("tool_result", bashEvent(body), context)).toBeUndefined();
+		expect(manager.usageEntries()).toEqual([]);
+		expect(manager.customEntryData()).toContainEqual(expect.objectContaining({ kind: "provider_response" }));
 	});
 
 	it("fails open when Pi cannot complete the nested model call", async () => {
@@ -453,6 +484,7 @@ describe("evidence-preserving reducer", () => {
 		expect(manager.customEntryData()).toContainEqual(
 			expect.objectContaining({ kind: "fallback", reason: "model-call-exception" }),
 		);
+		expect(manager.usageEntries()).toEqual([]);
 	});
 
 	it("fails open when the configured reducer model is unavailable", async () => {

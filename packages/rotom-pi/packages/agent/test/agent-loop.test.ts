@@ -511,15 +511,25 @@ describe("agentLoop with AgentMessage", () => {
 		);
 
 		expect(providerRequests).toBe(1);
-		// Pi 1.0 declares tools in a system message before the user prompt.
-		expect(messages.map((message) => message.role)).toEqual(["system", "user", "assistant", "toolResult"]);
+		// Pi 1.0 declares tools in a system message before the user prompt. The
+		// aborted continuation settles locally, like the provider's aborted reply.
+		expect(messages.map((message) => message.role)).toEqual([
+			"system",
+			"user",
+			"assistant",
+			"toolResult",
+			"assistant",
+		]);
+		const last = messages.at(-1);
+		expect(last?.role === "assistant" ? last.stopReason : undefined).toBe("aborted");
+		expect(last?.role === "assistant" ? last.usage.totalTokens : undefined).toBe(0);
 		expect(events.at(-1)?.type).toBe("agent_end");
 		expect(
 			events.some(
 				(event) =>
 					event.type === "message_end" &&
 					event.message.role === "assistant" &&
-					(event.message.stopReason === "error" || event.message.stopReason === "aborted"),
+					event.message.stopReason === "error",
 			),
 		).toBe(false);
 	});

@@ -285,7 +285,20 @@ describe("AgentSession concurrent prompt guard", () => {
 		await session.abort();
 		await firstPrompt.catch(() => {});
 
-		expect(sawSteeringMessage).toBe(true);
+		// rotom: the queued steer is still delivered into the transcript, but no
+		// provider request is dispatched with the already-aborted signal; the turn
+		// settles with an aborted assistant message instead.
+		expect(sawSteeringMessage).toBe(false);
+		const messages = session.messages;
+		const steerIndex = messages.findIndex(
+			(message) =>
+				message.role === "user" &&
+				JSON.stringify(message.content).includes("Steer from extension"),
+		);
+		expect(steerIndex).toBeGreaterThan(-1);
+		const last = messages.at(-1);
+		expect(last?.role === "assistant" ? last.stopReason : undefined).toBe("aborted");
+		expect(messages.length - 1).toBeGreaterThan(steerIndex);
 	});
 
 	it("should allow prompt() after previous completes", async () => {

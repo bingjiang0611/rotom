@@ -291,14 +291,6 @@ async function runLoop(
 				return;
 			}
 
-			// A turn-end listener may abort to stop before the next provider request
-			// (for example, to compact at a completed tool boundary). Do not dispatch
-			// another request with a signal that is already aborted.
-			if (signal?.aborted) {
-				await emit({ type: "agent_end", messages: newMessages });
-				return;
-			}
-
 			explicitContinuation = decision?.action === "continue";
 			pendingMessages = (await config.getSteeringMessages?.()) || [];
 			if (hasMoreToolCalls || pendingMessages.length > 0) {
@@ -393,6 +385,37 @@ async function streamAssistantResponse(
 	emit: AgentEventSink,
 	streamFunction: StreamFn,
 ): Promise<AssistantMessage> {
+	// rotom: never dispatch a provider request (or resolve an API key, which may
+	// refresh OAuth) with a signal that is already aborted, for example after an
+	// abort during tool execution or from a turn-end listener. Settle the turn with
+	// the aborted message a provider would return, so the transcript still ends in
+	// an aborted assistant message that consumers (UI, Goal) treat as an interruption.
+	if (signal?.aborted) {
+		const aborted: AssistantMessage = {
+			role: "assistant",
+			content: [],
+			api: config.model.api,
+			provider: config.model.provider,
+			model: config.model.id,
+			usage: {
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 0,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			stopReason: "aborted",
+			errorMessage: "Request was aborted",
+			timestamp: Date.now(),
+			thinkingLevel: config.reasoning ?? "off",
+		};
+		context.messages.push(aborted);
+		await emit({ type: "message_start", message: { ...aborted } });
+		await emit({ type: "message_end", message: aborted });
+		return aborted;
+	}
+
 	// Apply context transform if configured (AgentMessage[] → AgentMessage[])
 	let messages = context.messages;
 	if (config.transformContext) {
