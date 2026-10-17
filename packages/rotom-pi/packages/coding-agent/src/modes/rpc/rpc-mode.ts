@@ -379,9 +379,6 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 		}
 	};
 
-	await rebindSession();
-	registerSignalHandlers();
-
 	// Handle a single command
 	const handleCommand = async (command: RpcCommand): Promise<RpcResponse | undefined> => {
 		const id = command.id;
@@ -747,6 +744,10 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 		await shutdown();
 	}
 
+	// Start binding on the next microtask, after stdin is listening. session_start may
+	// await an extension UI response; ordinary commands must still wait for binding.
+	const initialized = Promise.resolve().then(rebindSession);
+
 	const handleInputLine = async (line: string) => {
 		let parsed: unknown;
 		try {
@@ -781,6 +782,8 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 
 		const command = parsed as RpcCommand;
 		try {
+			await initialized;
+			if (shuttingDown) return;
 			const response = await handleCommand(command);
 			if (response) {
 				output(response);
@@ -813,6 +816,16 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			process.stdin.off("end", onInputEnd);
 		};
 	})();
+
+	registerSignalHandlers();
+	try {
+		await initialized;
+	} catch (error) {
+		detachInput();
+		process.stdin.pause();
+		for (const cleanup of signalCleanupHandlers) cleanup();
+		throw error;
+	}
 
 	// Keep process alive forever
 	return new Promise(() => {});

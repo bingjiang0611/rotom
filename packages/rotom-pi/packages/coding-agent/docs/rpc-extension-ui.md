@@ -9,6 +9,8 @@ There are two categories of extension UI methods:
 
 If a dialog method includes a `timeout` field, the agent-side will auto-resolve with a default value when the timeout expires. The client does not need to track timeouts.
 
+Startup handlers can also open dialogs. RPC reads `extension_ui_response` while the initial `session_start` handlers are running; ordinary commands wait until initialization finishes. A non-interactive client should cancel startup dialogs rather than approve setup or permissions. If initialization fails, RPC detaches its input and signal handlers and reports the failure to its caller.
+
 ## Limitations
 
 Some `ExtensionUIContext` methods are not supported or degraded in RPC mode because they require direct terminal UI access:
