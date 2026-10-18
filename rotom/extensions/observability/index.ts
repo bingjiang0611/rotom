@@ -20,6 +20,7 @@ const QODER_TRACE_ERROR_MESSAGES = new Map([
 	["Qoder: upstream_error_event", "upstream_error_event"],
 	["Qoder: upstream_error_frame", "upstream_error_frame"],
 	["Qoder: request_failed", "transport_failure"],
+	["Qoder: connection_failed", "transport_failure"],
 	["Qoder: stream_failed", "transport_failure"],
 ]);
 
@@ -34,7 +35,7 @@ const PROVIDER_ERROR_CATEGORIES: ReadonlyArray<readonly [category: string, patte
 	["websocket", /^WebSocket (?:error|closed)\b/u],
 	["aborted", /^This operation was aborted$/u],
 	["overloaded", /overloaded/iu],
-	["network", /^(?:fetch failed|terminated|Connection error\.)$|^Qoder: (?:request|stream)_failed$|\b(?:ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN)\b|socket hang up|^upstream connect error/u],
+	["network", /^(?:fetch failed|terminated|Connection error\.)(?: \(caused by: .*\))?$|^Qoder: (?:request|stream|connection)_failed$|\b(?:ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN)\b|socket hang up|^upstream connect error/u],
 	["auth", /^API key auth failed\b/u],
 	["provider_error", /^Codex error:|^\{"type":"error"|^Qoder: /u],
 ];

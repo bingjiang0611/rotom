@@ -137,6 +137,36 @@ test('network failures emit only a stable phase classification', async () => {
   assert.equal(JSON.stringify(diagnostics).includes('PRIVATE'), false);
 });
 
+test('only failures that prove the request was never sent become connection_failed', async () => {
+  const failing = cause => createQoderFetch({ getToken: async () => 'fixture-token', fetchImpl: async () => { throw new TypeError('fetch failed', { cause }); } });
+  for (const cause of [Object.assign(new Error('dns'), { code: 'ENOTFOUND' }), new AggregateError([Object.assign(new Error('refused'), { code: 'ECONNREFUSED' })]), Object.assign(new Error('Client network socket disconnected before secure TLS connection was established'), { code: 'ECONNRESET' })]) {
+    await assert.rejects(failing(cause)(CHAT_URL, request()), { code: 'connection_failed', message: 'Qoder: connection_failed' });
+  }
+  // A reset may follow an already-sent (and billed) request: never auto-retried.
+  for (const cause of [Object.assign(new Error('reset'), { code: 'ECONNRESET' }), undefined]) {
+    await assert.rejects(failing(cause)(CHAT_URL, request()), { code: 'request_failed' });
+  }
+});
+
+test('response headers are reported once before the body is consumed', async () => {
+  const seen = [];
+  const fetch = createQoderFetch({
+    getToken: async () => 'fixture-token',
+    onResponse: response => seen.push(response),
+    fetchImpl: async () => new Response(body(frame(chunk({ content: 'ok' })) + frame(chunk({}, 'stop')) + ending, 64), { status: 200, headers: { 'content-type': 'text/event-stream' } }),
+  });
+  const response = await fetch(CHAT_URL, request());
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].status, 200);
+  assert.equal(seen[0].headers['content-type'], 'text/event-stream');
+  assert.match(await response.text(), /ok/);
+});
+
+test('a token lookup failure is never classified as a connection failure', async () => {
+  const fetch = createQoderFetch({ getToken: async () => { throw new TypeError('fetch failed', { cause: Object.assign(new Error('dns'), { code: 'ENOTFOUND' }) }); }, fetchImpl: () => assert.fail('network') });
+  await assert.rejects(fetch(CHAT_URL, request()), { code: 'request_failed' });
+});
+
 test('post-hook output budgets must be positive safe integers when provided', async () => {
   const fetch = createQoderFetch({ getToken: () => assert.fail('auth called'), fetchImpl: () => assert.fail('network called') });
   for (const max_tokens of [-1, 0, 1.5, null, '4096', Number.MAX_SAFE_INTEGER + 1]) {

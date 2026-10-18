@@ -399,7 +399,22 @@ export async function* normalizeSSE(body, options) {
 // stream-time failures. It never yields STREAM_DONE, so normal completion of
 // `chunks` is itself proof of clean termination because qoderChunks fails
 // closed on any incomplete or malformed stream ending.
-export async function openQoderStream({ payload, getToken, getLegacyCredential, legacyModel, fetchImpl = globalThis.fetch, modelId = 'lite', sessionId = randomUUID(), timeoutMs = 60000, onDiagnostic, onMetering, reasoningMode, signal } = {}) {
+// Same connect-phase rule as Pi's `connectFailureCause` (this module stays
+// dependency-free): socket codes that only occur while connecting, or a proxy
+// tunnel / TLS setup that failed before any request bytes were sent. undici
+// nests these in `cause`, as an AggregateError for multi-address connects.
+const UNSENT_CONNECT_ERROR_CODES = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'ENETUNREACH', 'ENETDOWN', 'EHOSTUNREACH', 'EADDRNOTAVAIL', 'UND_ERR_CONNECT_TIMEOUT']);
+const UNSENT_CONNECT_ERROR_MESSAGE = /before secure TLS connection was established|when HTTP Tunneling/;
+function neverSent(error) {
+  let current = error;
+  for (let depth = 0; depth < 5 && current instanceof Error; depth++) {
+    if (UNSENT_CONNECT_ERROR_CODES.has(current.code) || UNSENT_CONNECT_ERROR_MESSAGE.test(current.message)) return true;
+    current = current.cause ?? (current instanceof AggregateError ? current.errors[0] : undefined);
+  }
+  return false;
+}
+
+export async function openQoderStream({ payload, getToken, getLegacyCredential, legacyModel, fetchImpl = globalThis.fetch, modelId = 'lite', sessionId = randomUUID(), timeoutMs = 60000, onDiagnostic, onMetering, onResponse, reasoningMode, signal } = {}) {
   // Models.json, onPayload and SDK overrides must never redirect credentials.
   const input = inputCapabilities(legacyModel?.id === modelId ? legacyModel : undefined);
   if (signal?.aborted) fail('aborted');
@@ -490,6 +505,9 @@ export async function openQoderStream({ payload, getToken, getLegacyCredential, 
       if (controller.signal.aborted) { void result.body?.cancel().catch(() => {}); fail('aborted'); }
       return result;
     }, controller.signal);
+    // Response-header timing for observability (status only matters there); the
+    // body is untouched, so this cannot alter the stream.
+    await onResponse?.({ status: response.status, headers: Object.fromEntries(response.headers) });
     if (!response.ok) {
       void response.body?.cancel().catch(() => {});
       fail(`http_${response.status}`);
@@ -501,7 +519,12 @@ export async function openQoderStream({ payload, getToken, getLegacyCredential, 
     if (!controller.signal.aborted) {
       try { void Promise.resolve(onDiagnostic?.({ code: 'transport_failure', phase: 'request' })).catch(() => {}); } catch { /* Allowlisted metadata only. */ }
     }
-    throw new QoderError(controller.signal.aborted ? 'aborted' : 'request_failed');
+    // Only failures that prove the request never left this machine (offline,
+    // DNS, refused/unroutable connect) become connection_failed, which Pi waits
+    // out without a retry limit. A reset after the body was sent may already be
+    // billed upstream, so it stays the generic, non-retried request_failed.
+    const unreachable = dispatchStarted && neverSent(error);
+    throw new QoderError(controller.signal.aborted ? 'aborted' : unreachable ? 'connection_failed' : 'request_failed');
   }
   const frames = qoderChunks(response.body, { signal: controller.signal, onDiagnostic, onCreditUsage: usage => meter.observe(usage), allowReasoning: allowReasoning && reasoningMode?.enabled !== false, allowOpaqueReasoning: OPAQUE_MODEL_IDS.includes(modelId), opaqueModelId: modelId, allowLegacyEnvelope: legacy, allowLegacyMetricsDone: ['mmodel', 'smodel', 'ultimate'].includes(modelId), toolNames: (payload.tools ?? []).map(t => t.function?.name) });
   async function* chunks() {

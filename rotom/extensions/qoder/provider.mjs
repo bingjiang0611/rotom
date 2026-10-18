@@ -194,7 +194,7 @@ export async function createQoderProvider({ piAI, clampMaxTokens, getToken, getC
     // encoding and HTTP dispatch, then yields validated chunk records; a
     // pre-stream failure rejects here and lazyStream turns it into an error
     // event carrying the stable "Qoder: <code>" message the session-policy reads.
-    const { chunks } = await openQoderStream({ payload, getToken: requestToken, getLegacyCredential: () => requestCredential, legacyModel: entry, reasoningMode, fetchImpl, signal: options.signal, modelId: model.id, timeoutMs: reasoning ? 180000 : 60000, onDiagnostic, sessionId: options.sessionId, onMetering(data) {
+    const { chunks } = await openQoderStream({ payload, getToken: requestToken, getLegacyCredential: () => requestCredential, legacyModel: entry, reasoningMode, fetchImpl, signal: options.signal, modelId: model.id, timeoutMs: reasoning ? 180000 : 60000, onDiagnostic, sessionId: options.sessionId, onResponse: options.onResponse && (response => options.onResponse(response, model)), onMetering(data) {
       for (const notify of [() => recordMetering?.({ ...data, fingerprint: requestCredential?.fingerprint }), () => onMetering?.(data)]) {
         try { void Promise.resolve(notify()).catch(() => {}); } catch { /* Scoped metadata only; never retry a model request. */ }
       }
