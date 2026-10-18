@@ -1,13 +1,13 @@
 # Locked Subagent distribution
 
-The default product selects **`pi-subagents@0.52.1-rotom.5`**, independently maintained in the repository's `packages/rotom-subagents/`. New builds consume its reviewed archive, not installed source or a patch stack. This is a Subagent fork, not a Pi fork.
+The default product selects **`pi-subagents@0.52.1-rotom.8`**, independently maintained in the repository's `packages/rotom-subagents/`. New builds consume its reviewed archive, not installed source or a patch stack. This is a Subagent fork, not a Pi fork.
 
-- Archive: `pi-subagents-0.52.1-rotom.5.tgz`
-- SHA256: `558daa602ce2efa96fdee0564f55bf1a07c166ef330056c922c3fd9bcbab1f5d`
-- SHA512 SRI: `sha512-MT2a8nF5ppzL8MGU+0mwMQpdx/cxtpFgny12EOC2FVt3J46gaCE1I5mUT6EU66rzI9pfJYnS55n3MgSxM+Gg8w==`
-- Source digest: `59e755f9c5dd6c317529d337a5da9894e8ef9ec7562e5074f4fc0fd32b29249c`
+- Archive: `pi-subagents-0.52.1-rotom.8.tgz`
+- SHA256: `14ce02d63982f2e2badf02a223386d29b5bfd7dbb7f190b12f5cf7ded223e506`
+- SHA512 SRI: `sha512-kIuGqH611noYV5UI/cUKB86hsL1gudd6ZXAUgABxQwhqoKiYy6gc93zbF1Kno7vex3ljYB0+gx7+kU6917QkrQ==`
+- Source digest: `4cdd552aed9b515aa1226c2b37b6a87eedcdbba8950da32b782e1503feb48009`
 
-This batch removes schedule execution and automatic goal-mission continuation, including legacy opt-out sessions; old data remains untouched. Targeted status uses bounded current-session output and native recovery preflight, which is not launch authorization. Shared legacy mission/inspector readers remain. Product schema and prompt guidance are scoped by the product wrapper; raw execution still passes the original fences.
+This batch pauses the retiring runtime's live runners and awaits close finalization before cleanup on quit/reload/session replacement/disposal. It never signals historical PIDs or repairs missing old-run proof. Retired schedule execution and automatic goal-mission continuation remain disabled, including legacy opt-out sessions; old data remains untouched. Targeted status uses bounded current-session output and native recovery preflight, which is not launch authorization. Shared legacy mission/inspector readers remain. Product schema and prompt guidance are scoped by the product wrapper; raw execution still passes the original fences.
 - Upstream: <https://github.com/nicobailon/pi-subagents>
 - License: MIT, Copyright (c) 2026 Nico Bailon. Original notice remains in `package/LICENSE`; provenance and maintenance notes are in `package/UPSTREAM.md`.
 - Source baseline: validated `0.52.1-dev-agent-owned-flat.7`; 213 TS and four existing mjs files retained byte-for-byte. The component has independent metadata, lockfile, tests and packaging. In `.rotom.1`, worker/scout/reviewer declare empty ambient extensions and fresh default context without expanding tools; explicit user/project overrides remain effective. `.rotom.3` explicitly loads the verified product Qoder provider for Qoder child models, preserving ambient isolation, tool ceilings, model choice and launch identity. Other custom providers still require explicit child configuration. Offline CLI/RPC coverage does not claim live inference acceptance.
@@ -18,7 +18,7 @@ The former `pi-subagents-0.52.1-rotom.0.tgz` and `pi-subagents-0.52.1-dev-agent-
 
 Do not use `--replace-registry-host=always`: npm 11 rewrites even local archive URLs into registry URLs. The product launcher now selects `owned-process-groups-v2` for new sessions and anchors its store under `~/.local/state/rotom/subagent-store`; see `node_modules/pi-subagents/docs/owned-execution.md` for the admitted topologies. That default neither migrates live sessions nor authorizes replay, and unknown ownership remains fenced. Unselected upstream tools/templates/skills remain disabled by product policy.
 
-The selected `.rotom.5` also includes the later terminal-projection fix: projection failure preserves unknown and observed closure evidence, never authorizing replay. It is subsequent development and is **not** included in the already frozen rotom 0.1.17 artifact. Component unit/SDK/type checks and current product gates are separate from the unavailable historical `test:compat` discovery path documented in the component README.
+The `.rotom.5` baseline also included the terminal-projection fix: projection failure preserves unknown and observed closure evidence, never authorizing replay. It is subsequent development and is **not** included in the already frozen rotom 0.1.17 artifact. Component unit/SDK/type checks and current product gates are separate from the unavailable historical `test:compat` discovery path documented in the component README.
 
 ## Locked Computer Use distribution
 

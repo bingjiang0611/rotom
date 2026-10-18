@@ -22,11 +22,12 @@
 | --- | --- | --- |
 | 组件 unit（含实际离线打包） | 56/56 | `component-unit-v8.log` |
 | 五种 shutdown reason | 等到 close 才清理、拒绝新任务、另一运行时不受影响 | `retired-runtime.test.mjs`，包含在 unit 中 |
-| 组件 SDK/真实本地进程 | 6/6 | `component-sdk-v8.log`；公共 Pi 0.85.1 测试依赖 |
+| 组件 SDK/真实本地进程 | 两套入口各 6/6 | `component-sdk-v8.log`（公共 Pi 0.85.1）；`sdk-pi-1.3.log`（安装包 Pi 1.3.0-rotom.2） |
 | 新 parent-shutdown 场景 | 正在执行工具的 Pi 进程及进程组退出；drain 返回时证明已落盘；新运行时恢复同一 canonical session | SDK 场景；另在安装包中的 Pi 1.3.0-rotom.2 入口 focused 通过 |
 | 行为负对照 | 私有源码快照去掉 live runner 登记，新场景立即因返回时缺少关闭证明失败 | `negative-control.log`；不修改真实工作区保护逻辑 |
 | strict/noEmit | 212 TS 输入通过 | `typecheck-v8.log` |
 | 私有组件归档 | 白名单文件集、离线 npm pack、实际 tgz 隐私审计通过 | `component-pack.log`、`component/` receipt |
+| 产品 archive/distribution 合同 | 33/33 | `product-contracts.log`；版本、lock、integrity 与资源白名单同步 `.rotom.8` |
 
 ### 首次失败与未通过入口
 
