@@ -21,6 +21,9 @@ function normalizeEventOrder(events: Harness["events"]): string[] {
 	return normalized;
 }
 
+const offline = "fetch failed (caused by: getaddrinfo ENOTFOUND chatgpt.com)";
+const proxyDown = "Connection error. (caused by: connect ECONNREFUSED 127.0.0.1:10808)";
+
 describe("AgentSession retry and event characterization", () => {
 	const harnesses: Harness[] = [];
 
@@ -120,6 +123,78 @@ describe("AgentSession retry and event characterization", () => {
 		expect(harness.eventsOfType("agent_end").map((event) => event.willRetry)).toEqual([true, true, false]);
 		expect(harness.faux.state.callCount).toBe(3);
 		expect(harness.session.isRetrying).toBe(false);
+	});
+
+	it("waits for the network past the retry budget on connection failures", async () => {
+		const harness = await createHarness({ settings: { retry: { enabled: true, maxRetries: 1, baseDelayMs: 1 } } });
+		harnesses.push(harness);
+
+		harness.setResponses([
+			fauxAssistantMessage("", { stopReason: "error", errorMessage: "terminated" }),
+			fauxAssistantMessage("", { stopReason: "error", errorMessage: offline }),
+			fauxAssistantMessage("", { stopReason: "error", errorMessage: proxyDown }),
+			fauxAssistantMessage("", { stopReason: "error", errorMessage: offline }),
+			fauxAssistantMessage("back online"),
+		]);
+
+		await harness.session.prompt("test");
+
+		// One bounded retry for the mid-stream drop, then three network waits that
+		// would each have exceeded maxRetries=1.
+		expect(
+			harness.eventsOfType("auto_retry_start").map((event) => [event.attempt, event.maxAttempts, event.waitingForNetwork]),
+		).toEqual([
+			[1, 1, undefined],
+			[1, 0, true],
+			[2, 0, true],
+			[3, 0, true],
+		]);
+		expect(harness.eventsOfType("auto_retry_end")).toMatchObject([{ success: true, attempt: 4 }]);
+		expect(harness.eventsOfType("agent_end").map((event) => event.willRetry)).toEqual([true, true, true, true, false]);
+		expect(harness.faux.state.callCount).toBe(5);
+		expect(harness.session.retryAttempt).toBe(0);
+	});
+
+	it("keeps the bounded budget for mid-stream failures after network waits", async () => {
+		const harness = await createHarness({ settings: { retry: { enabled: true, maxRetries: 1, baseDelayMs: 1 } } });
+		harnesses.push(harness);
+
+		harness.setResponses([
+			fauxAssistantMessage("", { stopReason: "error", errorMessage: offline }),
+			fauxAssistantMessage("", { stopReason: "error", errorMessage: "terminated" }),
+			fauxAssistantMessage("", { stopReason: "error", errorMessage: "terminated" }),
+		]);
+
+		await harness.session.prompt("test");
+
+		expect(harness.faux.state.callCount).toBe(3);
+		expect(harness.eventsOfType("auto_retry_end")).toMatchObject([{ success: false, attempt: 2, finalError: "terminated" }]);
+		expect(harness.eventsOfType("agent_end").map((event) => event.willRetry)).toEqual([true, true, false]);
+	});
+
+	it("keeps the bounded budget for an opaque fetch failure that may have been sent", async () => {
+		const harness = await createHarness({ settings: { retry: { enabled: true, maxRetries: 1, baseDelayMs: 1 } } });
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage("", { stopReason: "error", errorMessage: "fetch failed" }),
+			fauxAssistantMessage("", { stopReason: "error", errorMessage: "fetch failed" }),
+		]);
+
+		await harness.session.prompt("test");
+
+		expect(harness.faux.state.callCount).toBe(2);
+		expect(harness.eventsOfType("auto_retry_end")).toMatchObject([{ success: false, attempt: 1 }]);
+	});
+
+	it("does not wait for the network when retry is disabled", async () => {
+		const harness = await createHarness({ settings: { retry: { enabled: false } } });
+		harnesses.push(harness);
+		harness.setResponses([fauxAssistantMessage("", { stopReason: "error", errorMessage: offline })]);
+
+		await harness.session.prompt("test");
+
+		expect(harness.faux.state.callCount).toBe(1);
+		expect(harness.eventsOfType("auto_retry_start")).toEqual([]);
 	});
 
 	it("prompt waits for retry completion even when assistant message_end handling is delayed", async () => {

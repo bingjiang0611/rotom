@@ -48,9 +48,48 @@ export function normalizeProviderError(error: unknown): NormalizedProviderError 
 	return {
 		status,
 		body,
-		message: error.message,
+		message: withConnectFailureCause(error.message, error),
 		messageCarriesBody,
 	} satisfies NormalizedProviderError;
+}
+
+// Socket errors that only occur while connecting, so the request never left
+// this machine: DNS, refused/unroutable connects, connect timeouts.
+const UNSENT_CONNECT_ERROR_CODES = new Set([
+	"ENOTFOUND",
+	"EAI_AGAIN",
+	"ECONNREFUSED",
+	"ENETUNREACH",
+	"ENETDOWN",
+	"EHOSTUNREACH",
+	"EADDRNOTAVAIL",
+	"UND_ERR_CONNECT_TIMEOUT",
+]);
+// Node/undici wording for a proxy tunnel or TLS handshake that failed before
+// any request bytes were sent (local proxy up, upstream unreachable).
+const UNSENT_CONNECT_ERROR_MESSAGE = /before secure TLS connection was established|when HTTP Tunneling/;
+
+/**
+ * Message of the error in `error`'s cause chain that proves the request never
+ * reached the provider, or undefined. SDKs and fetch report these as opaque
+ * "fetch failed" / "Connection error." with the socket error only in `cause`.
+ */
+export function connectFailureCause(error: unknown): string | undefined {
+	let current = error;
+	for (let depth = 0; depth < 5 && current instanceof Error; depth++) {
+		const code = (current as { code?: unknown }).code;
+		if ((typeof code === "string" && UNSENT_CONNECT_ERROR_CODES.has(code)) || UNSENT_CONNECT_ERROR_MESSAGE.test(current.message)) {
+			return current.message;
+		}
+		current = current.cause ?? (current instanceof AggregateError ? current.errors[0] : undefined);
+	}
+	return undefined;
+}
+
+/** Append the connect-phase cause so retry policy can tell "never sent" apart. */
+export function withConnectFailureCause(message: string, error: unknown): string {
+	const cause = connectFailureCause(error);
+	return cause === undefined || message.includes(cause) ? message : `${message} (caused by: ${cause})`;
 }
 
 /**

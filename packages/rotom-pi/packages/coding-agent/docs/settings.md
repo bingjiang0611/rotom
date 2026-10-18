@@ -126,7 +126,7 @@ See [Themes](themes.md) and [Terminal Setup](terminal-setup.md) for format and p
 | `httpIdleTimeoutMs` | number | `300000` | HTTP header and body idle timeout in milliseconds. Set to `0` to disable. |
 | `websocketConnectTimeoutMs` | number | `15000` | WebSocket connection timeout in milliseconds. Set to `0` to disable. |
 | `retry.enabled` | boolean | `true` | Enable automatic agent-level retry for transient failures. |
-| `retry.maxRetries` | number | `3` | Maximum agent-level retry attempts. |
+| `retry.maxRetries` | number | `3` | Maximum agent-level retry attempts. Connection failures (request never sent, see below) do not count. |
 | `retry.baseDelayMs` | number | `2000` | Initial exponential-backoff delay in milliseconds. |
 | `retry.maxAgentDelayMs` | number | `60000` | Maximum agent-level retry delay in milliseconds. |
 | `retry.provider.timeoutMs` | number | `httpIdleTimeoutMs` | Provider request timeout in milliseconds. |
@@ -134,6 +134,8 @@ See [Themes](themes.md) and [Terminal Setup](terminal-setup.md) for format and p
 | `retry.provider.maxRetryDelayMs` | number | `60000` | Maximum server-requested delay in milliseconds. Set to `0` to disable the limit. |
 
 Keep `retry.provider.maxRetries` at `0` unless provider-level retries are required. Provider retries can delay Pi from handling quota and usage-limit errors itself.
+
+When a request provably never reached the provider (DNS failure, connection refused or unroutable, connect timeout, or a proxy tunnel/TLS setup failure; for example while offline, right after the machine wakes from sleep, or when the local proxy is down), Pi waits for the network instead of giving up: it keeps retrying with the same capped backoff until a response arrives or you press the interrupt key. Such errors show the socket cause, e.g. `fetch failed (caused by: getaddrinfo ENOTFOUND ...)`. An opaque `fetch failed` or a reset after the request was sent may already have been processed and billed, so it keeps the `retry.maxRetries` budget, as do mid-stream failures (`terminated`, WebSocket close, timeouts). Set `retry.enabled` to `false` to disable both.
 
 ## Shell
 

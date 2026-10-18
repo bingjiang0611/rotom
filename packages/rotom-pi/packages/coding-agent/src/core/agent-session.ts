@@ -31,7 +31,12 @@ import {
 	runToolCall,
 	type ThinkingLevel,
 } from "@earendil-works/pi-agent-core";
-import { contentText, getCurrentSystemMessage, retryDelayMs } from "@earendil-works/pi-ai";
+import {
+	contentText,
+	getCurrentSystemMessage,
+	isConnectionFailureAssistantError,
+	retryDelayMs,
+} from "@earendil-works/pi-ai";
 import type {
 	AssistantMessage,
 	AuthResult,
@@ -219,7 +224,15 @@ export type AgentSessionEvent =
 			willRetry: boolean;
 			errorMessage?: string;
 	  }
-	| { type: "auto_retry_start"; attempt: number; maxAttempts: number; delayMs: number; errorMessage: string }
+	| {
+			type: "auto_retry_start";
+			attempt: number;
+			/** 0 while waiting for network: connection failures retry until success or cancel. */
+			maxAttempts: number;
+			delayMs: number;
+			errorMessage: string;
+			waitingForNetwork?: true;
+	  }
 	| { type: "auto_retry_end"; success: boolean; attempt: number; finalError?: string }
 	| {
 			type: "summarization_retry_scheduled";
@@ -417,6 +430,8 @@ export class AgentSession {
 	// Retry state
 	private _retryAbortController: AbortController | undefined = undefined;
 	private _retryAttempt = 0;
+	/** Connection-failure retries; unbounded and outside the `retry.maxRetries` budget. */
+	private _connectionRetryAttempt = 0;
 	/**
 	 * Failed response that the next request repeats, set by auto-retry and overflow recovery. The
 	 * retry is routed with it as `failed`, since the context no longer contains it.
@@ -1197,13 +1212,13 @@ export class AgentSession {
 
 				// Reset retry counter immediately on successful assistant response
 				// This prevents accumulation across multiple LLM calls within a turn
-				if (assistantMsg.stopReason !== "error" && this._retryAttempt > 0) {
+				if (assistantMsg.stopReason !== "error" && this.retryAttempt > 0) {
 					this._emit({
 						type: "auto_retry_end",
 						success: true,
-						attempt: this._retryAttempt,
+						attempt: this.retryAttempt,
 					});
-					this._retryAttempt = 0;
+					this._resetRetryAttempts();
 				}
 			}
 		}
@@ -1222,14 +1237,14 @@ export class AgentSession {
 	private _willRetryAfterAgentEnd(event: Extract<AgentEvent, { type: "agent_end" }>): boolean {
 		if (this._agentRunAbortRequested) return false;
 		const settings = this.settingsManager.getRetrySettings();
-		if (!settings.enabled || this._retryAttempt >= settings.maxRetries) {
-			return false;
-		}
+		if (!settings.enabled) return false;
 
 		for (let i = event.messages.length - 1; i >= 0; i--) {
 			const message = event.messages[i];
 			if (message.role === "assistant") {
-				return this._isRetryableError(message as AssistantMessage);
+				const assistant = message as AssistantMessage;
+				if (!this._isRetryableError(assistant)) return false;
+				return isConnectionFailureAssistantError(assistant) || this._retryAttempt < settings.maxRetries;
 			}
 		}
 		return false;
@@ -1497,7 +1512,12 @@ export class AgentSession {
 
 	/** Current retry attempt (0 if not retrying) */
 	get retryAttempt(): number {
-		return this._retryAttempt;
+		return this._retryAttempt + this._connectionRetryAttempt;
+	}
+
+	private _resetRetryAttempts(): void {
+		this._retryAttempt = 0;
+		this._connectionRetryAttempt = 0;
 	}
 
 	/**
@@ -1986,14 +2006,14 @@ export class AgentSession {
 			return false;
 		}
 
-		if (message.stopReason === "error" && this._retryAttempt > 0) {
+		if (message.stopReason === "error" && this.retryAttempt > 0) {
 			this._emit({
 				type: "auto_retry_end",
 				success: false,
-				attempt: this._retryAttempt,
+				attempt: this.retryAttempt,
 				finalError: message.errorMessage,
 			});
-			this._retryAttempt = 0;
+			this._resetRetryAttempts();
 		}
 
 		if (await this._checkCompaction(message, true, toolResults)) {
@@ -3839,9 +3859,9 @@ export class AgentSession {
 	}
 
 	private _finishCancelledRetry(): void {
-		if (this._retryAttempt === 0) return;
-		const attempt = this._retryAttempt;
-		this._retryAttempt = 0;
+		if (this.retryAttempt === 0) return;
+		const attempt = this.retryAttempt;
+		this._resetRetryAttempts();
 		this._emit({
 			type: "auto_retry_end",
 			success: false,
@@ -3860,23 +3880,43 @@ export class AgentSession {
 			return false;
 		}
 
-		this._retryAttempt++;
+		const errorMessage = message.errorMessage || "Unknown error";
+		let delayMs: number;
+		if (isConnectionFailureAssistantError(message)) {
+			// Like Codex: a provider we cannot reach (offline, asleep, proxy down) is
+			// waited for with capped backoff until it answers or the user cancels.
+			// No response arrived and tools only run after a complete assistant message,
+			// so waiting cannot replay tool effects. Same capped backoff as other retries
+			// (`maxAgentDelayMs`), but no attempt limit; `retry.enabled: false` opts out.
+			this._connectionRetryAttempt++;
+			delayMs = retryDelayMs(settings, this._connectionRetryAttempt);
+			this._emit({
+				type: "auto_retry_start",
+				attempt: this._connectionRetryAttempt,
+				maxAttempts: 0,
+				delayMs,
+				errorMessage,
+				waitingForNetwork: true,
+			});
+		} else {
+			this._retryAttempt++;
 
-		if (this._retryAttempt > settings.maxRetries) {
-			// Preserve the completed attempt count so post-run handling can emit the final failure.
-			this._retryAttempt--;
-			return false;
+			if (this._retryAttempt > settings.maxRetries) {
+				// Preserve the completed attempt count so post-run handling can emit the final failure.
+				this._retryAttempt--;
+				return false;
+			}
+
+			delayMs = retryDelayMs(settings, this._retryAttempt);
+
+			this._emit({
+				type: "auto_retry_start",
+				attempt: this._retryAttempt,
+				maxAttempts: settings.maxRetries,
+				delayMs,
+				errorMessage,
+			});
 		}
-
-		const delayMs = retryDelayMs(settings, this._retryAttempt);
-
-		this._emit({
-			type: "auto_retry_start",
-			attempt: this._retryAttempt,
-			maxAttempts: settings.maxRetries,
-			delayMs,
-			errorMessage: message.errorMessage || "Unknown error",
-		});
 
 		// Keep the failed attempt in raw history while durably omitting it from model projection.
 		this._omitRecoveryAttempt(message);

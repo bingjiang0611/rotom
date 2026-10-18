@@ -171,6 +171,12 @@ Assistant-turn retry emits:
 
 On final failure, `auto_retry_end` has `success: false` and a `finalError` string.
 
+While requests provably never reach the provider (connect-phase failures), Pi waits for the network without an attempt limit. Those events have `maxAttempts: 0` and `waitingForNetwork: true`, and `attempt` counts network waits separately:
+
+```json
+{"type":"auto_retry_start","attempt":4,"maxAttempts":0,"delayMs":16000,"errorMessage":"fetch failed (caused by: getaddrinfo ENOTFOUND chatgpt.com)","waitingForNetwork":true}
+```
+
 Compaction and branch-summary retry emit:
 
 ```json

@@ -469,6 +469,21 @@ describe("clear-on-shrink status spacing", () => {
 		}
 	});
 
+	it("labels bounded retries and unbounded network waits differently", () => {
+		initTheme("dark");
+		const tui = { requestRender: vi.fn() } as unknown as TUI;
+		const bounded = new RetryStatusIndicator(tui, 2, 3, 4000);
+		const waiting = new RetryStatusIndicator(tui, 5, 0, 16000);
+		try {
+			expect(bounded.renderInBorder(200)).toContain("Retrying (2/3) in 4s");
+			expect(waiting.renderInBorder(200)).toContain("Reconnecting... waiting for network (attempt 5), next try in 16s");
+			expect(waiting.renderInBorder(200)).not.toContain("/0");
+		} finally {
+			bounded.dispose();
+			waiting.dispose();
+		}
+	});
+
 	it.each<StatusIndicatorKind>(["working", "compaction", "branchSummary", "retry"])(
 		"does not reserve separate status height for an embedded %s indicator",
 		(kind) => {

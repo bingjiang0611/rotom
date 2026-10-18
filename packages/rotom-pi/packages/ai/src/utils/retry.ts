@@ -64,6 +64,7 @@ const RETRYABLE_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 	// "reset before headers" (#733), plus OpenRouter connection drops (#3317).
 	"network.?error",
 	"connection.?error",
+	"connection.?failed",
 	"connection.?refused",
 	"connection.?lost",
 	"other side closed",
@@ -71,6 +72,10 @@ const RETRYABLE_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 	"getaddrinfo",
 	"ENOTFOUND",
 	"EAI_AGAIN",
+	"ECONNREFUSED",
+	"ENETUNREACH",
+	"ENETDOWN",
+	"EHOSTUNREACH",
 	"upstream.?connect",
 	"reset before headers",
 	"socket hang up",
@@ -261,4 +266,35 @@ export function isRetryableAssistantError(message: AssistantMessage): boolean {
 	const errorMessage = message.errorMessage;
 	if (NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN.test(errorMessage)) return false;
 	return RETRYABLE_PROVIDER_ERROR_PATTERN.test(errorMessage);
+}
+
+// Failures that prove the request never reached the provider: DNS, refused or
+// unroutable connects, connect timeouts, and proxy tunnel/TLS setup failures
+// (providers append these as "(caused by: ...)", see `withConnectFailureCause`).
+// Like Codex's connect-only rule, an opaque "fetch failed" or a reset after the
+// request was sent is excluded: it may already be processed and billed, so it
+// keeps the bounded retry budget, as do mid-stream drops and timeouts.
+const CONNECTION_FAILURE_ERROR_PATTERN = buildProviderErrorPattern([
+	"getaddrinfo",
+	"ENOTFOUND",
+	"EAI_AGAIN",
+	"ECONNREFUSED",
+	"ENETUNREACH",
+	"ENETDOWN",
+	"EHOSTUNREACH",
+	"EADDRNOTAVAIL",
+	"UND_ERR_CONNECT_TIMEOUT",
+	"Connect Timeout Error",
+	"before secure TLS connection was established",
+	"when HTTP Tunneling",
+	"^Qoder: connection_failed$",
+]);
+
+/**
+ * Whether a retryable failure means the provider could not be reached at all.
+ * Callers may keep retrying these without consuming the bounded retry budget,
+ * waiting for connectivity until the user cancels.
+ */
+export function isConnectionFailureAssistantError(message: AssistantMessage): boolean {
+	return isRetryableAssistantError(message) && CONNECTION_FAILURE_ERROR_PATTERN.test(message.errorMessage!);
 }

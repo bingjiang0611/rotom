@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import { fauxAssistantMessage } from "../src/providers/faux.ts";
-import { isRetryableAssistantError, type RetryPolicy, retryAssistantCall, retryDelayMs } from "../src/utils/retry.ts";
+import {
+	isConnectionFailureAssistantError,
+	isRetryableAssistantError,
+	type RetryPolicy,
+	retryAssistantCall,
+	retryDelayMs,
+} from "../src/utils/retry.ts";
+import { connectFailureCause, normalizeProviderError, withConnectFailureCause } from "../src/utils/error-body.ts";
 
 const openAIExplicitRetryMessage =
 	"An error occurred while processing your request. You can retry your request, or contact us through our help center at help.openai.com if the error persists. Please include the request ID req_******** in your message.";
@@ -142,6 +149,55 @@ describe("provider retry classification", () => {
 			),
 		).toBe(true);
 		expect(isRetryableAssistantError(fauxAssistantMessage("not an error"))).toBe(false);
+	});
+});
+
+describe("connection failure classification", () => {
+	const error = (errorMessage: string) => fauxAssistantMessage("", { stopReason: "error", errorMessage });
+	it.each([
+		"fetch failed (caused by: getaddrinfo ENOTFOUND chatgpt.com)",
+		"Connection error. (caused by: connect ECONNREFUSED 127.0.0.1:10808)",
+		"fetch failed (caused by: Client network socket disconnected before secure TLS connection was established)",
+		"fetch failed (caused by: Proxy response (502) !== 200 when HTTP Tunneling)",
+		"Qoder: connection_failed",
+		wrappedDnsLookupError,
+	])("waits for the network on %s", (errorMessage) => {
+		expect(isConnectionFailureAssistantError(error(errorMessage))).toBe(true);
+	});
+	it.each([
+		// Opaque: the request may have been sent and processed upstream.
+		"fetch failed",
+		"Connection error.",
+		"fetch failed (caused by: read ECONNRESET)",
+		"terminated",
+		"WebSocket error",
+		"Request timed out.",
+		"overloaded_error",
+		"Qoder: request_failed",
+	])("keeps the bounded budget for %s", (errorMessage) => {
+		expect(isConnectionFailureAssistantError(error(errorMessage))).toBe(false);
+	});
+	it("ignores successful and aborted messages", () => {
+		const unreachable = "fetch failed (caused by: getaddrinfo ENOTFOUND chatgpt.com)";
+		expect(isConnectionFailureAssistantError(fauxAssistantMessage(unreachable))).toBe(false);
+		expect(isConnectionFailureAssistantError(fauxAssistantMessage("", { stopReason: "aborted", errorMessage: unreachable }))).toBe(false);
+	});
+});
+
+describe("connect-phase cause enrichment", () => {
+	const socketError = (code: string, message: string) => Object.assign(new Error(message), { code });
+	it("appends a connect-phase cause from fetch and SDK cause chains", () => {
+		const fetchError = new TypeError("fetch failed", { cause: socketError("ECONNREFUSED", "connect ECONNREFUSED 127.0.0.1:10808") });
+		expect(normalizeProviderError(fetchError).message).toBe("fetch failed (caused by: connect ECONNREFUSED 127.0.0.1:10808)");
+		const sdkError = new Error("Connection error.", { cause: fetchError });
+		expect(withConnectFailureCause(sdkError.message, sdkError)).toBe("Connection error. (caused by: connect ECONNREFUSED 127.0.0.1:10808)");
+		const multiAddress = new TypeError("fetch failed", { cause: new AggregateError([socketError("ENETUNREACH", "connect ENETUNREACH 2001:db8::1:443")]) });
+		expect(connectFailureCause(multiAddress)).toBe("connect ENETUNREACH 2001:db8::1:443");
+	});
+	it("leaves post-send failures opaque", () => {
+		const reset = new TypeError("fetch failed", { cause: socketError("ECONNRESET", "read ECONNRESET") });
+		expect(normalizeProviderError(reset).message).toBe("fetch failed");
+		expect(normalizeProviderError(new TypeError("fetch failed")).message).toBe("fetch failed");
 	});
 });
 

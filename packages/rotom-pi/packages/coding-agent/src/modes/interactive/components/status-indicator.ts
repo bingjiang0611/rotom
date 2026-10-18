@@ -51,9 +51,12 @@ export class WorkingStatusIndicator extends StatusIndicator {
 export class RetryStatusIndicator extends StatusIndicator {
 	private countdown: CountdownTimer | undefined;
 
+	/** `maxAttempts` 0 means an unbounded wait for the network to come back. */
 	constructor(ui: TUI, attempt: number, maxAttempts: number, delayMs: number) {
 		const retryMessage = (seconds: number) =>
-			`Retrying (${attempt}/${maxAttempts}) in ${seconds}s... (${keyText("app.interrupt")} to cancel)`;
+			maxAttempts === 0
+				? `Reconnecting... waiting for network (attempt ${attempt}), next try in ${seconds}s (${keyText("app.interrupt")} to cancel)`
+				: `Retrying (${attempt}/${maxAttempts}) in ${seconds}s... (${keyText("app.interrupt")} to cancel)`;
 		super(
 			"retry",
 			ui,
