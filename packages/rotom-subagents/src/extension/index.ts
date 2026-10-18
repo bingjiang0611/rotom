@@ -47,6 +47,7 @@ import { resolveWaitToolConfig } from "../runs/background/subagent-wait.ts";
 import { registerWaitTool } from "../runs/background/wait-tool.ts";
 import { createWaitSubscriptionManager } from "../runs/background/wait-subscriptions.ts";
 import { drainOutstandingWork } from "../runs/background/auto-drain.ts";
+import { asyncRunnerDrain } from "../runs/background/async-execution.ts";
 import registerSubagentNotify, { parseSubagentNotifyContent, type SubagentNotifyDetails } from "../runs/background/notify.ts";
 import { formatSteeringNotice, handleSubagentSteeringNotice, SUBAGENT_STEERING_MESSAGE_TYPE, type SubagentSteeringMessageDetails } from "./steering-notices.ts";
 import { SUBAGENT_CHILD_ENV, SUBAGENT_PARENT_SESSION_ENV } from "../runs/shared/pi-args.ts";
@@ -950,7 +951,13 @@ export default function registerSubagentExtension(pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_shutdown", async () => {
-		runtimeEntry.cleanup();
-		await herdrStatusBridge.flush();
+		try {
+			// Quit, reload and replacement retire this runtime's authority. Persist
+			// child close evidence before disposing the original observers.
+			await asyncRunnerDrain(pi).drain();
+		} finally {
+			runtimeEntry.cleanup();
+			await herdrStatusBridge.flush();
+		}
 	});
 }

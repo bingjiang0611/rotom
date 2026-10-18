@@ -29,7 +29,26 @@ fs.writeFileSync(path.join(retiredMissions,'goal.json'),'{}');
 fs.writeFileSync(path.join(agentDir,'extensions/subagent/config.json'),JSON.stringify({scheduledRuns:{enabled:true,storeRoot:retiredSchedules},fleetView:false,asyncWidget:false}));
 const {default:register}=await load('src/extension/index.ts');
 const {SUBAGENT_ACTIONS}=await load('src/shared/types.ts');
+const {asyncRunnerDrain}=await load('src/runs/background/async-execution.ts');
 test.after(()=>{hooks.deregister();globalThis.fetch=oldFetch;for(const k of Object.keys(process.env))if(!(k in oldEnv))delete process.env[k];Object.assign(process.env,oldEnv)});
+
+for(const reason of ['quit','reload','new','resume','dispose'])test(`runtime ${reason} waits for its own close observers before cleanup`,async()=>{
+ const handlers=new Map();let unsubscribed=0,stopped=0,returned=false,otherStopped=0;
+ const api={events:{on(){return()=>{unsubscribed++}},emit(){}},on(name,fn){handlers.set(name,[...(handlers.get(name)??[]),fn])},
+  registerTool(){},registerCommand(){},registerShortcut(){},registerMessageRenderer(){},getActiveTools(){return[]},getAllTools(){return[]},
+  sendMessage(){},sendUserMessage(){},appendEntry(){},exec(){throw Error('No external command authorized')}};
+ register(api);
+ const drain=asyncRunnerDrain(api),other=asyncRunnerDrain({});
+ const closed=drain.track(()=>{stopped++}),otherClosed=other.track(()=>{otherStopped++});
+ const shutdown=Promise.all((handlers.get('session_shutdown')??[]).map(fn=>fn({reason}))).then(()=>{returned=true});
+ try {
+  assert.equal(stopped,1,'registered shutdown handler must interrupt its live runners');
+  assert.equal(returned,false);assert.equal(unsubscribed,0,'observers must survive until close finalization');
+  assert.equal(otherStopped,0);other.assertOpen();
+  assert.throws(()=>drain.track(()=>{}),/draining/);
+ } finally {closed();await shutdown;const otherShutdown=other.drain();otherClosed();await otherShutdown}
+ assert.equal(returned,true);assert.equal(otherStopped,1);assert.ok(unsubscribed>0);
+});
 
 test('session start/end never bind retired schedules, scan missions or start legacy continuation',async()=>{
  const handlers=new Map(),tools=new Map(),publications=[],accesses=[];

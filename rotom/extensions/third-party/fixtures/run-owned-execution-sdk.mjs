@@ -16,7 +16,7 @@ function fauxEntry(root) {
 		if (path.dirname(dir) === dir) throw Error("Public faux provider unavailable");
 	}
 }
-export async function runOwnedExecutionSdk(t, { prepareCandidate, expectWorkflowClosure = false, expectForegroundClosure = false, expectStoreIsolation = false, expectStoreMismatch = false, expectSessionIsolation = false, expectFlatAdmission = false, usePublicEntry = false, controllerCrash = false, runnerTermination = false, runnerFault = false }) {
+export async function runOwnedExecutionSdk(t, { prepareCandidate, expectWorkflowClosure = false, expectForegroundClosure = false, expectStoreIsolation = false, expectStoreMismatch = false, expectSessionIsolation = false, expectFlatAdmission = false, usePublicEntry = false, controllerCrash = false, runnerTermination = false, runnerFault = false, parentShutdown = false }) {
 	assert.ok(process.env.ROTOM_PI, "ROTOM_PI must select a verified public runtime");
 	const pi = await probePiVersion({ executable: process.env.ROTOM_PI });
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "rotom-owned-sdk-"));
@@ -34,7 +34,7 @@ export async function runOwnedExecutionSdk(t, { prepareCandidate, expectWorkflow
 	if (expectStoreIsolation) (await import(pathToFileURL(path.join(source, "src/shared/execution-store.ts")))).initializeExecutionStore(runtimeBase);
 	const config = path.join(root, "config.json"), preload = path.join(root, "no-network.mjs");
 	const typeboxEntry = expectForegroundClosure ? createRequire(path.join(pi.packageRoot, "package.json")).resolve("typebox") : undefined;
-	fs.writeFileSync(config, JSON.stringify({ root, source, typeboxEntry, piEntry: pi.publicEntry, fauxEntry: fauxEntry(pi.packageRoot), expectWorkflowClosure, expectForegroundClosure, expectStoreIsolation, expectStoreMismatch, expectSessionIsolation, expectFlatAdmission, usePublicEntry, controllerCrash, runnerTermination, runnerFault }), { mode: 0o600 });
+	fs.writeFileSync(config, JSON.stringify({ root, source, typeboxEntry, piEntry: pi.publicEntry, fauxEntry: fauxEntry(pi.packageRoot), expectWorkflowClosure, expectForegroundClosure, expectStoreIsolation, expectStoreMismatch, expectSessionIsolation, expectFlatAdmission, usePublicEntry, controllerCrash, runnerTermination, runnerFault, parentShutdown }), { mode: 0o600 });
 	fs.writeFileSync(preload, "globalThis.fetch=()=>{throw Error('Network forbidden in owned fixture')};");
 	const log = fs.openSync(path.join(root, "driver.log"), "wx", 0o600); let result;
 	try {
@@ -70,7 +70,7 @@ export async function runOwnedExecutionSdk(t, { prepareCandidate, expectWorkflow
 		if (result.error || result.status !== 0 || !fs.existsSync(path.join(root, "result.json"))) assert.fail(`Owned fixture unverified; artifacts retained: ${root}; exit=${result.status}; error=${result.error?.code ?? "none"}`);
 		const evidence = JSON.parse(fs.readFileSync(path.join(root, "result.json")));
 		assert.equal(evidence.remoteModelCalls, 0);
-		if (runnerTermination || runnerFault) {
+		if (runnerTermination || runnerFault || parentShutdown) {
 			assert.equal(evidence.ownedClosureObserved, true);
 			assert.equal(evidence.capacityAfter, 0);
 			assert.equal(evidence.resumeAccepted, true);

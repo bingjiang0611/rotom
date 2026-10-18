@@ -68,6 +68,8 @@ import { usageBudgetState } from "../shared/usage-budget.ts";
 import type { ImportedAsyncRoot } from "./chain-root-attachment.ts";
 import type { SessionLeaseRequest } from "../shared/session-lease.ts";
 import { finalizeProcessTerminal, readProcessTerminal } from "./process-terminal.ts";
+import { createRunnerDrain } from "./runner-drain.ts";
+
 import type { ActiveAsyncCapacityHandle } from "./active-async-capacity.ts";
 import { assertExecutionStoreScope, scopedSessionRoot, assertScopedSessionPath } from "../../shared/execution-store.ts";
 import { OWNED_EXECUTION_SCOPE, type OwnedExecutionRequest, type OwnedWorkflowParent } from "./owned-execution.ts";
@@ -75,6 +77,17 @@ import { SUBAGENT_PROCESS_TERMINAL_EVENT } from "../../shared/types.ts";
 import { assertAgentAllowedByCapabilityCeiling, decodeSubagentCapabilityCeiling, intersectSubagentCapabilityCeilings, resolveCurrentSubagentCapabilityCeiling, SUBAGENT_CAPABILITY_CEILING_ENV, type ResolvedSubagentCapabilityCeiling } from "../shared/capability-ceiling.ts";
 import { agentDefinitionDigest, launchBindingDigest } from "../../shared/launch-contract.ts";
 import { resolvePermissionRules, type PermissionConfig } from "../shared/permissions.ts";
+
+// Each runtime owns live ChildProcess handles, never historical PIDs.
+const runtimeRunnerDrains = new WeakMap<object, ReturnType<typeof createRunnerDrain>>();
+export function asyncRunnerDrain(owner: object): ReturnType<typeof createRunnerDrain> {
+	let drain = runtimeRunnerDrains.get(owner);
+	if (!drain) {
+		drain = createRunnerDrain();
+		runtimeRunnerDrains.set(owner, drain);
+	}
+	return drain;
+}
 
 const require = createRequire(import.meta.url);
 const piPackageRoot = resolvePiPackageRoot();
@@ -487,7 +500,8 @@ interface SpawnRunnerResult {
 	startupDidNotProceed?: boolean;
 }
 
-function spawnRunner(cfg: object, suffix: string, cwd: string, onProcessTerminal?: (proof: unknown) => void): SpawnRunnerResult {
+function spawnRunner(cfg: object, suffix: string, cwd: string, drain: ReturnType<typeof createRunnerDrain>, onProcessTerminal?: (proof: unknown) => void): SpawnRunnerResult {
+	drain.assertOpen();
 	if (!jitiCliPath) {
 		return { error: "upstream jiti for TypeScript execution could not be found; ensure package dependencies are installed" };
 	}
@@ -546,62 +560,72 @@ function spawnRunner(cfg: object, suffix: string, cwd: string, onProcessTerminal
 		proc.on("error", (error) => {
 			console.error(`[pi-subagents] async spawn failed: ${error.message}`);
 		});
+		const observedClose = drain.track(() => {
+			// Awaiting a Promise alone cannot keep Node alive after RPC stdin closes.
+			proc.ref();
+			if (proc.exitCode === null && proc.signalCode === null) proc.kill("SIGTERM");
+		});
 		proc.once("close", (exitCode, signal) => {
-			const launch = launchConfig as { asyncDir?: unknown; id?: unknown; nestedRoute?: NestedRouteInfo; nestedSelf?: { parentRunId: string; parentStepIndex?: number; depth: number; path?: Array<{ runId: string; stepIndex?: number; agent?: string }> } };
-			const asyncDir = launch.asyncDir;
-			const runId = launch.id;
-			if (typeof asyncDir !== "string" || typeof runId !== "string") return;
-			finalizeProcessTerminal(asyncDir, runId, {
-				processInstanceId: runnerProcessInstanceId,
-				closeObservedAt: Date.now(),
-				exitCode,
-				signal,
-			});
-			const persisted = readProcessTerminal(asyncDir, { runId, runnerProcessInstanceId });
-			if (!persisted) return;
-			if (launch.nestedRoute && launch.nestedSelf) {
-				try {
-					let status: import("../../shared/types.ts").AsyncStatus;
+			try {
+				const launch = launchConfig as { asyncDir?: unknown; id?: unknown; nestedRoute?: NestedRouteInfo; nestedSelf?: { parentRunId: string; parentStepIndex?: number; depth: number; path?: Array<{ runId: string; stepIndex?: number; agent?: string }> } };
+				const asyncDir = launch.asyncDir;
+				const runId = launch.id;
+				if (typeof asyncDir !== "string" || typeof runId !== "string") return;
+				finalizeProcessTerminal(asyncDir, runId, {
+					processInstanceId: runnerProcessInstanceId,
+					closeObservedAt: Date.now(),
+					exitCode,
+					signal,
+				});
+				const persisted = readProcessTerminal(asyncDir, { runId, runnerProcessInstanceId });
+				if (!persisted) return;
+				if (launch.nestedRoute && launch.nestedSelf) {
 					try {
-						status = JSON.parse(fs.readFileSync(path.join(asyncDir, "status.json"), "utf-8")) as import("../../shared/types.ts").AsyncStatus;
-						status.processTerminal = persisted;
-					} catch {
-						status = {
-							runId,
-							mode: "single",
-							state: persisted.state === "observed" ? "complete" : "failed",
-							startedAt: persisted.observedAt ?? Date.now(),
-							lastUpdate: Date.now(),
-							processTerminal: persisted,
-						};
-					}
-					writeNestedEvent(launch.nestedRoute, {
-						type: "subagent.nested.completed",
-						ts: Date.now(),
-						parentRunId: launch.nestedSelf.parentRunId,
-						parentStepIndex: launch.nestedSelf.parentStepIndex,
-						child: nestedSummaryFromAsyncStatus(status, asyncDir, {
-							id: runId,
+						let status: import("../../shared/types.ts").AsyncStatus;
+						try {
+							status = JSON.parse(fs.readFileSync(path.join(asyncDir, "status.json"), "utf-8")) as import("../../shared/types.ts").AsyncStatus;
+							status.processTerminal = persisted;
+						} catch {
+							status = {
+								runId,
+								mode: "single",
+								state: persisted.state === "observed" ? "complete" : "failed",
+								startedAt: persisted.observedAt ?? Date.now(),
+								lastUpdate: Date.now(),
+								processTerminal: persisted,
+							};
+						}
+						writeNestedEvent(launch.nestedRoute, {
+							type: "subagent.nested.completed",
+							ts: Date.now(),
 							parentRunId: launch.nestedSelf.parentRunId,
 							parentStepIndex: launch.nestedSelf.parentStepIndex,
-							depth: launch.nestedSelf.depth,
-							path: launch.nestedSelf.path,
-							mode: status.mode,
-							ts: Date.now(),
-						}),
-					});
-				} catch (error) {
-					console.error("Failed to emit final nested process-terminal status:", error);
+							child: nestedSummaryFromAsyncStatus(status, asyncDir, {
+								id: runId,
+								parentRunId: launch.nestedSelf.parentRunId,
+								parentStepIndex: launch.nestedSelf.parentStepIndex,
+								depth: launch.nestedSelf.depth,
+								path: launch.nestedSelf.path,
+								mode: status.mode,
+								ts: Date.now(),
+							}),
+						});
+					} catch (error) {
+						console.error("Failed to emit final nested process-terminal status:", error);
+					}
 				}
-			}
-			try {
-				onProcessTerminal?.(persisted);
-			} catch (error) {
-				// The close proof is already durable. Reload/disposal can retire the
-				// originating Pi API before this late advisory wake; never redirect it
-				// to a new session or claim a receipt. Recovery must read the record.
-				if (!(error instanceof Error)
-					|| !/extension ctx is stale|stale after session replacement or reload/i.test(error.message)) throw error;
+				try {
+					onProcessTerminal?.(persisted);
+				} catch (error) {
+					// The close proof is already durable. Reload/disposal can retire the
+					// originating Pi API before this late advisory wake; never redirect it
+					// to a new session or claim a receipt. Recovery must read the record.
+					if (!(error instanceof Error)
+						|| !/extension ctx is stale|stale after session replacement or reload/i.test(error.message)) throw error;
+				}
+			} finally {
+				// Finalization (including honest unknown) precedes runtime teardown.
+				observedClose();
 			}
 		});
 		if (typeof proc.pid !== "number") {
@@ -1202,6 +1226,7 @@ export function executeAsyncChain(
 			},
 			id,
 			runnerCwd,
+			asyncRunnerDrain(ctx.pi),
 			(proof) => ctx.pi.events.emit(SUBAGENT_PROCESS_TERMINAL_EVENT, proof),
 		);
 	} catch (error) {
@@ -1684,6 +1709,7 @@ export function executeAsyncSingle(
 			},
 			id,
 			runnerCwd,
+			asyncRunnerDrain(ctx.pi),
 			(proof) => ctx.pi.events.emit(SUBAGENT_PROCESS_TERMINAL_EVENT, proof),
 		);
 	} catch (error) {

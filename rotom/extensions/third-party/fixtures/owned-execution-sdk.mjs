@@ -21,11 +21,12 @@ eventBus.on("fixture:owned", (value) => { modules = value; });
 const entry = path.join(root, "loader.ts");
 fs.writeFileSync(entry, `import {createSubagentExecutor} from ${JSON.stringify(path.join(source,"src/runs/foreground/subagent-executor.ts"))};
 import {DIRS} from ${JSON.stringify(path.join(source,"src/shared/types.ts"))};
+import {asyncRunnerDrain} from ${JSON.stringify(path.join(source,"src/runs/background/async-execution.ts"))};
 ${config.usePublicEntry ? `import {discoverAgents as discoverDeclaredAgents} from ${JSON.stringify(path.join(source,'src/agents/agents.ts'))};` : ''}
 ${config.expectFlatAdmission ? `import {buildSubagentToolDescription,buildSubagentToolPromptMetadata} from ${JSON.stringify(path.join(source,'src/extension/tool-description.ts'))};` : ''}
 ${config.expectStoreIsolation || config.expectStoreMismatch ? `import {loadConfig,getConfigPath} from ${JSON.stringify(path.join(source,"src/extension/config.ts"))};` : ''}
 import {getActiveAsyncCapacitySnapshot} from ${JSON.stringify(path.join(source,"src/runs/background/active-async-capacity.ts"))};
-export default api=>api.events.emit('fixture:owned',{createSubagentExecutor,DIRS,getActiveAsyncCapacitySnapshot${config.usePublicEntry ? ',discoverDeclaredAgents' : ''}${config.expectStoreIsolation || config.expectStoreMismatch ? ',loadConfig,getConfigPath' : ''}${config.expectFlatAdmission ? ',buildSubagentToolDescription,buildSubagentToolPromptMetadata' : ''}});`);
+export default api=>api.events.emit('fixture:owned',{createSubagentExecutor,asyncRunnerDrain,DIRS,getActiveAsyncCapacitySnapshot${config.usePublicEntry ? ',discoverDeclaredAgents' : ''}${config.expectStoreIsolation || config.expectStoreMismatch ? ',loadConfig,getConfigPath' : ''}${config.expectFlatAdmission ? ',buildSubagentToolDescription,buildSubagentToolPromptMetadata' : ''}});`);
 const loader = new pi.DefaultResourceLoader({ cwd: root, agentDir: process.env.PI_CODING_AGENT_DIR, settingsManager: pi.SettingsManager.inMemory(), eventBus,
 	noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true, additionalExtensionPaths: [entry] });
 await loader.reload(); assert.deepEqual(loader.getExtensions().errors, []); assert.ok(modules);
@@ -86,9 +87,11 @@ if (config.usePublicEntry) {
 }
 const state = { baseCwd: root, currentSessionId: "owned-fixture", asyncJobs: new Map(), foregroundControls: new Map(), lastForegroundControlId: null };
 let onDiscovery = () => {};
-const executor = createSubagentExecutor({ pi: { events: { on() { return () => {}; }, emit() {} }, getSessionName: () => undefined }, state,
+const parentApi = { events: { on() { return () => {}; }, emit() {} }, getSessionName: () => undefined };
+const executorDeps = { pi: parentApi, state,
 	config: { maxActiveAsyncRunsPerSession: 1, asyncExecutionScope: "owned-process-groups-v2" }, asyncByDefault: true, tempArtifactsDir: root,
-	getSubagentSessionRoot: () => path.join(root, "sessions"), expandTilde: (v) => v, discoverAgents: () => { onDiscovery(); return { agents }; }, allowMutatingManagementActions: true });
+	getSubagentSessionRoot: () => path.join(root, "sessions"), expandTilde: (v) => v, discoverAgents: () => { onDiscovery(); return { agents }; }, allowMutatingManagementActions: true };
+let executor = createSubagentExecutor(executorDeps);
 let sessionId="owned-fixture";
 const ctx = { cwd: root, hasUI: false, ui: {}, model: models[0], sessionManager: { getSessionId: () => sessionId, getSessionFile: () => null }, modelRegistry: { getAvailable: () => models } };
 const json = (file) => { try { return JSON.parse(fs.readFileSync(file,"utf8")); } catch (e) { if (e.code === "ENOENT") return; throw e; } };
@@ -110,11 +113,31 @@ async function settled(id) {
 	}
 	return proof;
 }
-if (config.runnerTermination || config.runnerFault) {
-	const receipt = await execute('runner-drain', {agent:'pi',task:'local fixture',async:true});
+if (config.runnerTermination || config.runnerFault || config.parentShutdown) {
+	if (config.parentShutdown) agents[0].tools = ['fixture_hold'];
+	const receipt = await execute('runner-drain', {agent:'pi',task:config.parentShutdown?'WAIT_FOREGROUND':'local fixture',async:true});
 	assert.notEqual(receipt.isError, true, JSON.stringify(receipt));
 	const id = receipt.details.asyncId, dir = path.join(DIRS.async, id);
-	if (config.runnerTermination) {
+	if (config.parentShutdown) {
+		await until(() => fs.existsSync(path.join(root, 'foreground-ready-stop')), 'real tool cancellation readiness');
+		await modules.asyncRunnerDrain(parentApi).drain();
+		// No polling here: shutdown returning must mean finalization finished.
+		const terminal = json(path.join(dir, 'process-terminal.json'));
+		assert.equal(terminal?.state, 'observed', 'shutdown returned before final process proof');
+		assert.equal(terminal.ownedClosure?.state, 'observed');
+		// Print-mode interruption can end the process without calling a tool's abort hook.
+		const toolPid = Number(fs.readFileSync(path.join(root, 'foreground-ready-stop'), 'utf8'));
+		assert.ok(Number.isSafeInteger(toolPid) && toolPid > 1);
+		assert.ok(terminal.ownedClosure.writers.some(writer => writer.close?.processTree.processGroupId === toolPid));
+		assert.throws(() => process.kill(toolPid, 0), {code:'ESRCH'});
+		assert.throws(() => process.kill(-toolPid, 0), {code:'ESRCH'});
+		const startsBeforeLateCall = fs.readFileSync(path.join(root, 'faux-calls'), 'utf8');
+		const late = await execute('after-shutdown', {agent:'pi',task:'forbidden late spawn',async:true});
+		assert.equal(late.isError, true); assert.match(JSON.stringify(late), /draining|closed/);
+		assert.equal(fs.readFileSync(path.join(root, 'faux-calls'), 'utf8'), startsBeforeLateCall);
+		// A new runtime may resume the same canonical session after verified closure.
+		executor = createSubagentExecutor({...executorDeps, pi: {...parentApi}});
+	} else if (config.runnerTermination) {
 		// Stop while a real child is live, not after a completed result.
 		await until(() => json(path.join(dir, 'process-terminal-candidate.json'))?.ownedExecution?.writers?.some(w => w.sessionLease), 'writer registered');
 		const pid = await until(() => json(path.join(dir, 'status.json'))?.pid, 'live runner');
@@ -127,7 +150,7 @@ if (config.runnerTermination || config.runnerFault) {
 	assert.notEqual(resumed.isError, true, JSON.stringify(resumed));
 	await settled(resumed.details.asyncId);
 	await until(() => used() === 0, 'resumed closure');
-	fs.writeFileSync(path.join(root, 'result.json'), JSON.stringify({remoteModelCalls:0, mode:config.runnerFault?'runner-fault':'runner-sigterm', ownedClosureObserved:true, capacityAfter:used(), resumeAccepted:true}));
+	fs.writeFileSync(path.join(root, 'result.json'), JSON.stringify({remoteModelCalls:0, mode:config.parentShutdown?'parent-shutdown':config.runnerFault?'runner-fault':'runner-sigterm', ownedClosureObserved:true, capacityAfter:used(), resumeAccepted:true}));
 	process.exit(0);
 }
 if (config.expectStoreMismatch) {
