@@ -257,7 +257,7 @@ export function buildQoderPayload(model, context, { maxTokens, reasoningMode } =
     messages: convertMessages(model, context),
     stream: true,
     stream_options: { include_usage: true },
-    max_tokens: maxTokens,
+    ...(maxTokens !== undefined ? { max_tokens: maxTokens } : {}),
   };
   if (reasoningMode) payload.reasoning_effort = reasoningMode.effort;
   const tools = context.tools ?? [];

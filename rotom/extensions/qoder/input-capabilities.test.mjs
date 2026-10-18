@@ -17,10 +17,10 @@ async function harness(id){
  return{p,requests,model:()=>p.getModels().find(m=>m.id===id),get reads(){return reads;},async update(patch){entry={...entry,...patch};await refresh();reads=0;}};
 }
 for(const id of EXPANDED_INPUT_MODEL_IDS)test(`${id}: reviewed images and the Codex-aligned 272K managed window require current catalog, with fixed 400K COSY selector`,async()=>{
- const h=await harness(id),model=h.model();assert.deepEqual(model.input,['text','image']);assert.equal(model.contextWindow,272000);assert.equal(model.maxTokens,4096);
+ const h=await harness(id),model=h.model();assert.deepEqual(model.input,['text','image']);assert.equal(model.contextWindow,272000);assert.equal(model.maxTokens,0);
  // Upstream 403 is an eager pre-stream failure; the encoded request is captured before openQoderStream rejects.
  await assert.rejects(h.p.api.streamSimple(model,{messages:[{role:'user',content:[image]},{role:'toolResult',content:[image]}]},{}),{code:'http_403'});assert.equal(h.requests.length,1);assert.equal(h.requests[0].url,LEGACY_URL);
- const b=h.requests[0].body;assert.equal(b.parameters.context_length,400000);assert.equal(b.parameters.max_tokens,4096);
+ const b=h.requests[0].body;assert.equal(b.parameters.context_length,400000);assert.equal(Object.hasOwn(b.parameters,'max_tokens'),false);
  // The COSY image contract mirrors content into contents; text-only messages (e.g. the split tool result) legitimately carry no contents array.
  for(const m of b.messages.filter(m=>Array.isArray(m.content)))assert.deepEqual(m.contents,m.content);
  await h.update({context_config:undefined});assert.equal(h.model().contextWindow,32000);await assert.rejects(h.p.api.streamSimple(model,{messages:[]},{}),/catalog_changed_select_again/);assert.equal(h.reads,0);

@@ -24,6 +24,18 @@ test('legacy body preserves messages/tools/reasoning and fixes conservative scop
   assert.throws(()=>legacyBody({...p,unknown_override:true},entry,'a','b'),/legacy_request_field_unsupported/);
   assert.throws(()=>legacyBody(p,{...entry,reviewed:false},'a','b'),/legacy_model_metadata_required/);
 });
+test('COSY transport omits the default budget and accepts explicit output above 4096',async()=>{
+  for(const maxTokens of [undefined,16384]){
+    let sent;
+    const fetch=createQoderFetch({
+      modelId:'dfmodel',legacyModel:entry,getToken:async()=>credential.accessToken,getLegacyCredential:()=>credential,
+      fetchImpl:async(url,init)=>{assert.equal(url,LEGACY_URL);sent=decode(init.body);return new Response('',{status:403});},
+    });
+    await assert.rejects(fetch(CHAT_URL,{method:'POST',body:JSON.stringify({...payload(),max_tokens:maxTokens})}),{code:'http_403'});
+    assert.equal(sent.parameters.max_tokens,maxTokens);
+    assert.equal(Object.hasOwn(sent.parameters,'max_tokens'),maxTokens!==undefined);
+  }
+});
 test('each declared legacy route keeps exact catalog/body/header identity',()=>{
   for(const id of LEGACY_MODEL_IDS){
     const body=legacyBody({...payload(),model:id},{...entry,id},'request','session');

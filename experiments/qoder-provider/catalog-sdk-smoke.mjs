@@ -48,7 +48,7 @@ const provider = await createQoderProvider({piAI,openAI,authMode:'browser',onMet
     const alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=',custom='_doRTgHZBKcGVjlvpC,@aFSx#DPuNJme&i*MzLOEn)sUrthbf%Y^w.(kIQyXqWA!$';
     const shuffled=[...init.body].map(c=>{assert(custom.includes(c));return alphabet[custom.indexOf(c)];}).join(''),n=shuffled.length,a=Math.floor(n/3);
     body=JSON.parse(Buffer.from(shuffled.slice(n-a)+shuffled.slice(a,n-a)+shuffled.slice(0,a),'base64').toString('utf8'));
-    assert.equal(body.model_config.key,id);assert.equal(init.headers['X-Model-Key'],id);assert.equal(body.model_config.source,'system');assert.equal(body.parameters.reasoning_effort,reasoning?'high':'none');assert(body.parameters.context_length<=32000&&body.parameters.max_tokens<=4096);assert.equal(body.tools.length,1);
+    assert.equal(body.model_config.key,id);assert.equal(init.headers['X-Model-Key'],id);assert.equal(body.model_config.source,'system');assert.equal(body.parameters.reasoning_effort,reasoning?'high':'none');assert(body.parameters.context_length<=32000);assert.equal(body.parameters.max_tokens,1024);assert.equal(body.tools.length,1);
   }else{body=JSON.parse(init.body);assert.equal(body.enable_thinking,reasoning);assert.equal(body.reasoning_effort,reasoning?undefined:'none');}
   if(calls===2) {
     replayObserved=reasoning?body.messages.some(m=>m.role==='assistant'&&(opaque?m.reasoning_item!==undefined:typeof m.reasoning_content==='string'&&m.reasoning_content.length>0)):body.messages.some(m=>m.role==='tool'&&m.content.includes(marker));

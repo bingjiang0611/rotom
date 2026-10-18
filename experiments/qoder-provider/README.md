@@ -5,7 +5,7 @@
 实现与 colocated 单测已迁到 `rotom/extensions/qoder/`，不保留第二份实现或旧入口。产品将其作为第五个 bundled extension 默认加载，可用 `ROTOM_QODER=0` 停用。用户用法与边界见 [产品说明](../../docs/usage.md#qoder原生-provider默认启用)。
 
 - 正式 provider 身份为 `qoder`；新会话写入 `qoder-account-v1` 绑定，同时兼容读取旧 `qoder-experimental-account-v1` 绑定。旧浏览器登录凭据需通过 `/login qoder` 重新建立，不自动迁移活跃会话。
-- `lite` / `performance` 保留离线基线；账号目录按原始 key 发现并限制为实测白名单交集。当前 Default 目录 17 项（含 `smodel` Sonus）已适配，13 条 reasoning 路由支持原生推理，其中八条的 effort 取实测白名单与当前目录交集，其余固定 enabled；Ultimate/Sonus 的不同加密 item 完整保留，十条路线（含 Ultimate）固定 COSY 单次推理，不做失败回退。仅 Ultimate/Kimi-K3/DeepSeek-V4-Flash 的 PNG/JPEG/WebP 与 272K 管理窗口按已验证能力和当前目录交集开放，输出≤4096；未知 opaque 形状和未验证 effort 仍拒绝。当前产品合同与离线门禁见[Provider 离线验证](../../docs/agent/provider-verification.md)和[验证与交付](../../docs/agent/verification.md)。
+- `lite` / `performance` 保留离线基线；账号目录按原始 key 发现并限制为实测白名单交集。当前 Default 目录 17 项（含 `smodel` Sonus）已适配，13 条 reasoning 路由支持原生推理，其中八条的 effort 取实测白名单与当前目录交集，其余固定 enabled；Ultimate/Sonus 的不同加密 item 完整保留，十条路线（含 Ultimate）固定 COSY 单次推理，不做失败回退。仅 Ultimate/Kimi-K3/DeepSeek-V4-Flash 的 PNG/JPEG/WebP 与 272K 管理窗口按已验证能力和当前目录交集开放，所有 Qoder 路由默认不发送输出 token 上限，显式预算仍按 Pi 上下文余量裁剪；未知 opaque 形状和未验证 effort 仍拒绝。当前产品合同与离线门禁见[Provider 离线验证](../../docs/agent/provider-verification.md)和[验证与交付](../../docs/agent/verification.md)。
 - 不启动 Qoder CLI，不刷新或写回 CLI 凭据，不嵌套 agent，不添加工具。启用 provider 后默认 browser 模式使用 Pi 原生 OAuth 存储/刷新，显式 `ROTOM_QODER_AUTH=qodercli` 才使用只读 CLI 兼容路径；独立登录与强制隔离凭据本地到期后的串行真实刷新已通过；不是自然到期测试。当前认证、Credit 与额度边界以产品说明和 Provider 离线门禁为准。
 - 完整流的 allowlisted Credit 可被记录；缺失/错误/取消保持 unknown，部分 billable-reported 小计不是余额或 USD。`/qoder-credits` 仅交互 UI 显示固定只读额度快照，不进入对话/压缩/分支上下文。美元费用、接口支持/订阅适用/第三方许可未确认；Pi 必填价格零只是占位，不代表免费。
 
@@ -68,7 +68,7 @@ raw legacy 探针仍要求字面 DONE/标准 finish 才记 pass；Sonus/MiniMax 
 - `credits-tui-smoke.py --launcher <canonical-bin/rotom> --work <private-work> [--pi-entry <maintenance-Pi>]`：通过真实 CLI/PTY 输入一次额度命令，模型 dispatch 被 ledger 明确禁止；可读入本轮合成会话的私有副本验证 Credit footer，`--columns 80` 覆盖窄宽度。它验证内容/命令，不冒充桌面截图或完整布局；原始终端 bytes 含余额，不能提交。
 - `vision-sdk-probe.mjs --offline auto png jpeg` / `--live <key> png jpeg`：维护 wire 上的原生用户图像、工具图像及磁盘重放研究；需 Python Pillow，仅转换合成图，不安装依赖。失败不进入下一轮；raw/研究 adapter 的通过不是产品能力。详细状态见能力报告。
 - `long-cli-smoke.mjs --capacity`：实际launcher/RPC的≥250K实测输入+图片（272K管理窗口）、手动压缩、同session进程重启、新图片/anchor恢复；`--preflight`仍禁止模型请求。子进程明确授权固定COSY，不继承维护Pi覆盖。
-- `input-budget-smoke.mjs`：真实 SDK/假上游的输出预算回归；断言 272K 窗口下 244K 历史仍保留 4096，而 272K 历史被压成 1，明确记录悬崖而不是隐藏。
+- `input-budget-smoke.mjs`：真实 SDK/假上游的输出预算回归；断言默认省略输出上限，272K 窗口下 244K 历史可保留显式 4096/16384，272K 历史则把显式预算压成 1；真实 extension loader 同时覆盖 direct 默认省略与显式预算裁剪。
 - `vision-capacity-smoke.mjs --offline|--research|--product <ultimate|kmodel_latest|dfmodel>`：四张不同 PNG/JPEG/WebP、用户多图、工具图、两次恢复及逐请求 image/opaque replay；`ROTOM_QODER_VISION_ROWS=12600` 加入产品窗口内大输入，带填充请求的真实 input usage 须≥250K；272K 是管理窗口，不是最低输入断言。
 - `large-context-probe.mjs --live <key> 12600 250000`：八位置精确检索、工具/磁盘恢复。设置 canonical `ROTOM_QODER_PROBE_PRODUCT_ROOT` 才调用真实产品 Provider，否则仍是研究；固定272K管理窗口/400K selector/4096输出，且断言最低输入不超过窗口−8192。`ROTOM_QODER_OLD_PRODUCT_ROOT` 仅用于小型旧版direct会话桥接，不是运行时回退。
 - `vision-probe.mjs` / `probe-wire.mjs`：随机网格图片与显式 raw route/effort/context selector 调研。catalog 的 context selector 不是已验证输入容量；raw 成功不启用产品图片或其他能力。

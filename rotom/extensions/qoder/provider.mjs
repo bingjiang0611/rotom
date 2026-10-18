@@ -19,8 +19,9 @@ export const MODEL = {
   // "openai-completions" identity. Older sessions fail model_scope by design.
   api: 'qoder', provider: PROVIDER_ID, baseUrl: BASE_URL,
   reasoning: false, input: ['text'],
-  // Conservative adapter limits, not a claim about the service's capacity.
-  contextWindow: 32000, maxTokens: 4096,
+  // Managed input window; zero means no declared output maximum in Pi.
+  // The service owns the default output budget, not a guessed adapter cap.
+  contextWindow: 32000, maxTokens: 0,
   // Pi requires numeric prices. These placeholders are NOT zero-cost evidence.
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
   compat: { supportsStore: false, supportsDeveloperRole: false, supportsReasoningEffort: false, supportsStrictMode: false, maxTokensField: 'max_tokens' },
@@ -109,7 +110,7 @@ export async function createQoderProvider({ piAI, clampMaxTokens, getToken, getC
       messages: transcript.messages.filter(message => message.role !== 'system'),
     };
     const reasoning = REASONING_MODEL_IDS.includes(model.id);
-    if (!SUPPORTED_MODEL_IDS.includes(model.id) || model.provider !== PROVIDER_ID || model.baseUrl !== BASE_URL || model.api !== MODEL.api || model.reasoning !== reasoning || !Number.isSafeInteger(model.contextWindow) || model.contextWindow < 4096 || model.contextWindow > (EXPANDED_INPUT_MODEL_IDS.includes(model.id) ? 272000 : 32000) || model.maxTokens > 4096) throw new QoderError('model_scope_rejected');
+    if (!SUPPORTED_MODEL_IDS.includes(model.id) || model.provider !== PROVIDER_ID || model.baseUrl !== BASE_URL || model.api !== MODEL.api || model.reasoning !== reasoning || !Number.isSafeInteger(model.contextWindow) || model.contextWindow < 4096 || model.contextWindow > (EXPANDED_INPUT_MODEL_IDS.includes(model.id) ? 272000 : 32000) || !Number.isSafeInteger(model.maxTokens) || model.maxTokens < 0) throw new QoderError('model_scope_rejected');
     if (options.signal?.aborted) throw new QoderError('aborted');
     // Refresh through the session's native registry before building any payload,
     // including tool continuations and compaction. Never retry an inference.
@@ -173,8 +174,15 @@ export async function createQoderProvider({ piAI, clampMaxTokens, getToken, getC
     // the agent lifecycle; only request encoding and response translation move
     // in-house here.
     const nativeModel = { ...model, contextWindow: input.contextWindow, input: input.images ? ['text', 'image'] : ['text'], ...(controls ? { thinkingLevelMap: thinkingMap(controls.levels), compat: { ...MODEL.compat, supportsReasoningEffort: true } } : {}) };
-    clampMaxTokens ??= await nativeOutputBudget();
-    const maxTokens = clampMaxTokens(nativeModel, context, Math.min(options.maxTokens ?? MODEL.maxTokens, MODEL.maxTokens));
+    // Omit the default output limit, including for resumed models that still
+    // carry the former 4096 metadata. Explicit caller budgets (e.g. compaction)
+    // still use Pi's context headroom rather than an independent fixed ceiling.
+    let maxTokens;
+    if (options.maxTokens !== undefined) {
+      if (!Number.isSafeInteger(options.maxTokens) || options.maxTokens < 1) throw new QoderError('request_limits_rejected');
+      clampMaxTokens ??= await nativeOutputBudget();
+      maxTokens = clampMaxTokens(nativeModel, context, options.maxTokens);
+    }
     let payload = buildQoderPayload(nativeModel, context, { maxTokens, reasoningMode });
     // Preserve Pi's BeforeProviderRequest hook: an extension may rewrite the
     // payload, but openQoderStream re-validates the result against the bound

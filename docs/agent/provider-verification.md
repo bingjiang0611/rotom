@@ -30,7 +30,7 @@ npm --prefix rotom run test:providers -- --report /absolute/new-report.json
 | stream-cancel-replay-cli-fixture | stream-smoke | 中途取消、独立后续请求、跨 Provider 工具历史 |
 | cosy-tool-roundtrip | catalog-sdk-smoke --offline smodel | browser fixture、目录、COSY、签名回传、credits |
 | cosy-late-error | 同上 --negative-trailer | 迟到错误不能映射为完成/已知费用 |
-| native-output-budget | input-budget-smoke | 三模型 244K→4096、272K→1、调用方小上限；真实 bundled extension loader 的 direct 预算 |
+| native-output-budget | input-budget-smoke | 三模型默认省略输出上限、244K 保留显式 4096/16384、272K→1、调用方小预算；真实 bundled extension loader 的 direct 默认/显式预算 |
 
 三个历史 CLI fixture 显式指定 `authMode:qodercli`，不因产品默认 browser 改变而意外进入真实认证路径；browser 路径由独立用例覆盖。
 
@@ -49,7 +49,9 @@ npm --prefix rotom run test:providers -- --report /absolute/new-report.json
 
 ## 本次接入发现的回归
 
-Qoder 自有请求构造曾仅限制 `maxTokens<=4096`，漏掉 Pi 原生上下文预算。现通过实际 Pi 的公开 `api/simple-options` 导出复用 `clampMaxTokensToContext`，保留 4096 safety、最小输出 1 和既有窗口，不复制预算算法。
+Qoder 默认省略 `max_tokens`，不再强加 4096-token 单次输出上限；模型 `maxTokens: 0` 表示未声明输出最大值，不代表服务端无限输出。旧会话保留的 4096 模型 metadata 也不再注入默认请求。显式调用方预算（包括压缩摘要）仍通过实际 Pi 的公开 `api/simple-options` 导出复用 `clampMaxTokensToContext`，保留其 4096 safety、最小输出 1 和既有窗口，不复制预算算法。
+
+默认输出长度交给服务端，因此不能宣称默认请求仍有本地输出余量裁剪；原生压缩、输入能力、请求/响应字节边界、超时和截断工具调用拒绝保持不变。离线验证证明参数编码和预算合同，不证明各路由省略参数后的服务端默认长度或真实长输出；后者需另行授权实测。
 
 Pi 的 jiti alias 会把任意 ai 子路径错误拼接到 compat.js；因此 helper 从 launcher 的 `ROTOM_VERIFIED_PI_EXECUTABLE`（维护 SDK 使用显式 `ROTOM_PI`）所关联的 Pi 包导出解析，不从业务 cwd 找依赖。不新增 fork 导出或修改存活安装。内部 factory 的 `clampMaxTokens` 注入仅供隔离单测；原生 SDK/实际 extension loader 回归使用真实 helper。
 

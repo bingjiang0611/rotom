@@ -35,9 +35,9 @@ export function inputCapabilities(entry) {
   // so it is a managed budget, not the upstream limit. The maintainer aligned it
   // with the Codex-declared 272000 to keep one compaction percentage across
   // providers; the fixed 400K wire selector still is not an advertised capacity.
-  // Consequence, measured: full 4096 output needs input <= window - 8192, so the
-  // researched >=272K single-request input is upstream capability, not product
-  // capacity, and oversized single turns lose answer budget instead of failing.
+  // Explicit output budgets retain Pi's native context headroom clamp. With
+  // no requested budget, the service decides output length; the managed input
+  // window and native compaction reserve remain unchanged.
   return Object.freeze({ images: reviewed && entry.reportedImages === true, contextWindow: expanded ? 272000 : Math.min(32000, entry?.reportedContextWindow ?? 32000), contextLength: expanded ? 400000 : Math.min(32000, entry?.reportedContextWindow ?? 32000) });
 }
 // Only inline, canonical base64 in the three exercised codecs.
@@ -450,9 +450,8 @@ export async function openQoderStream({ payload, getToken, getLegacyCredential, 
     payload.reasoning_effort = 'none';
   }
   if (payload.tools !== undefined && (!Array.isArray(payload.tools) || payload.tools.some(t => !record(t) || t.type !== 'function' || !record(t.function) || typeof t.function.name !== 'string'))) fail('request_scope_rejected');
-  const maxTokens = payload.max_tokens ?? 4096;
-  if (!Number.isSafeInteger(maxTokens) || maxTokens < 1 || maxTokens > 4096) fail('request_limits_rejected');
-  payload.max_tokens = maxTokens;
+  const maxTokens = payload.max_tokens;
+  if (maxTokens !== undefined && (!Number.isSafeInteger(maxTokens) || maxTokens < 1)) fail('request_limits_rejected');
   const requestId = randomUUID();
   payload.metadata = { context: { request_id: requestId, request_set_id: requestId, session_id: sessionId, task_id: 'common', client_type: 'rotom' } };
   const legacy = LEGACY_MODEL_IDS.includes(modelId);

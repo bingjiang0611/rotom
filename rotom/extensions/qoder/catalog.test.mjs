@@ -95,7 +95,7 @@ test('dynamic catalog publication preserves conservative capabilities and hides 
   const f=await fixture();f.setReply(body(entry('auto'),entry('gmodel'),entry('unreviewed_fixture'),entry('lite',{enable:false}),entry('qmodel',{format:'anthropic'})));
   await f.provider.refreshModels(context());
   assert.deepEqual(f.provider.getModels().map(m=>m.id),['auto','gmodel']);
-  const m=f.provider.getModels()[1];assert.equal(m.reasoning,true);assert.equal(m.thinkingLevelMap.off,null);assert.equal(m.thinkingLevelMap.medium,'enabled');assert.deepEqual(m.input,['text']);assert.equal(m.maxTokens,4096);assert.equal(m.contextWindow,32000);
+  const m=f.provider.getModels()[1];assert.equal(m.reasoning,true);assert.equal(m.thinkingLevelMap.off,null);assert.equal(m.thinkingLevelMap.medium,'enabled');assert.deepEqual(m.input,['text']);assert.equal(m.maxTokens,0);assert.equal(m.contextWindow,32000);
   assert.equal(f.provider.getCatalogStatus().length,5);
   await f.provider.refreshModels(context());assert.equal(f.calls(),1);
   await f.provider.refreshModels(context({force:true}));assert.equal(f.calls(),2);

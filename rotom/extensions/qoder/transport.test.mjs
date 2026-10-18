@@ -137,9 +137,9 @@ test('network failures emit only a stable phase classification', async () => {
   assert.equal(JSON.stringify(diagnostics).includes('PRIVATE'), false);
 });
 
-test('onPayload cannot bypass the adapter output bound', async () => {
+test('post-hook output budgets must be positive safe integers when provided', async () => {
   const fetch = createQoderFetch({ getToken: () => assert.fail('auth called'), fetchImpl: () => assert.fail('network called') });
-  for (const max_tokens of [-1, 0, 4097, 1.5]) {
+  for (const max_tokens of [-1, 0, 1.5, null, '4096', Number.MAX_SAFE_INTEGER + 1]) {
     const init = request(); init.body = JSON.stringify({ ...JSON.parse(init.body), max_tokens });
     await assert.rejects(fetch(CHAT_URL, init), { code: 'request_limits_rejected' });
   }
@@ -209,10 +209,10 @@ test('provider uses the native context budget for both stream APIs before dispat
   const aborted = await provider.api.streamSimple(MODEL, context, { signal: AbortSignal.abort() });
   const events = []; for await (const event of aborted) events.push(event);
   assert.equal(events.at(-1).type, 'error'); assert.equal(events.at(-1).reason, 'aborted');
-  assert.deepEqual(offered, [4096, 128]); assert.deepEqual(sent, [7, 7]);
+  assert.deepEqual(offered, [99999, 128]); assert.deepEqual(sent, [7, 7]);
 });
 
-test('provider owns a single bounded dispatch, caps maxTokens, and rejects endpoint overrides', async () => {
+test('provider owns a single dispatch without a fixed output cap and rejects endpoint overrides', async () => {
   let calls = 0, body;
   const provider = await createQoderProvider({
     authMode: 'qodercli', clampMaxTokens: (_m, _c, cap) => cap,
@@ -221,10 +221,21 @@ test('provider owns a single bounded dispatch, caps maxTokens, and rejects endpo
     fetchImpl: async (_url, init) => { calls++; body = JSON.parse(init.body); return new Response('', { status: 403 }); },
   });
   assert.equal((await provider.auth.apiKey.resolve()).auth.apiKey.includes('secret-fixture'), false);
-  // maxRetries is not a transport concept here: exactly one dispatch, and the
-  // caller's maxTokens is capped to the reviewed maximum at build time.
+  // maxRetries is not a transport concept here: exactly one dispatch. Only
+  // the native context budget (injected above) bounds an explicit maxTokens.
   await assert.rejects(provider.api.streamSimple(MODEL, { messages: [] }, { maxRetries: 9, maxTokens: 99999 }), { code: 'http_403' });
-  assert.equal(calls, 1); assert.equal(body.max_tokens, 4096);
+  assert.equal(calls, 1); assert.equal(body.max_tokens, 99999);
+  for (const method of ['streamSimple', 'stream']) {
+    // Resumed sessions may retain the former model metadata; it must not
+    // silently reintroduce the retired default output limit.
+    await assert.rejects(provider.api[method]({ ...MODEL, maxTokens: 4096 }, { messages: [] }), { code: 'http_403' });
+    assert.equal(Object.hasOwn(body, 'max_tokens'), false);
+  }
+  const beforeInvalid = calls;
+  for (const maxTokens of [0, -1, 1.5, null, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+    await assert.rejects(provider.api.streamSimple(MODEL, { messages: [] }, { maxTokens }), { code: 'request_limits_rejected' });
+  }
+  assert.equal(calls, beforeInvalid);
   await assert.rejects(provider.api.streamSimple({ ...MODEL, baseUrl: 'https://example.invalid' }, { messages: [] }), { code: 'model_scope_rejected' });
   await assert.rejects(provider.api.streamSimple(MODEL, { messages: [{ content: [{ type: 'image' }] }] }), { code: 'images_not_validated' });
   await assert.rejects(provider.api.streamSimple(MODEL, { messages: [{ content: [{ type: 'thinking', thinking: 'fixture', thinkingSignature: 'opaque-fixture' }] }] }), { code: 'opaque_reasoning_replay_unsupported' });

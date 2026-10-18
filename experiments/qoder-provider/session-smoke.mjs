@@ -30,7 +30,8 @@ const fetchImpl = async (url, init) => {
   assert.ok(++summary.requests <= (extended ? (live ? 12 : 14) : (live ? 6 : 10)), 'request budget');
   const payload = JSON.parse(init.body);
   if (!live) assert.ok(!init.body.includes('a'.repeat(64)) && !init.body.includes(BINDING_TYPE));
-  assert.ok(payload.max_tokens <= 4096);
+  if (phase === 'tool') assert.equal(Object.hasOwn(payload, 'max_tokens'), false);
+  else if (payload.max_tokens !== undefined) assert.ok(Number.isSafeInteger(payload.max_tokens) && payload.max_tokens > 0);
   if (inspectNext) { inspectNext(payload); inspectNext = undefined; }
   if (live) return globalThis.fetch(url, init); // Never retry a real dispatch.
   let delta = { content: phase === 'abandoned' ? 'OK' : marker };

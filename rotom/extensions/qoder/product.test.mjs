@@ -15,7 +15,7 @@ test('reviewed catalog is text-only, reasoning off, with stable existing identit
   assert.deepEqual(MODELS.map(m=>m.name), ['Qoder Lite','Qoder Performance']);
   for (const model of MODELS) {
     assert.equal(model.provider,'qoder'); assert.equal(model.reasoning,false);
-    assert.deepEqual(model.input,['text']); assert.equal(model.maxTokens,4096);
+    assert.deepEqual(model.input,['text']); assert.equal(model.maxTokens,0);
   }
 });
 for (const [name, patch] of [
