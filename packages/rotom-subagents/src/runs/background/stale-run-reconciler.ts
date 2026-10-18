@@ -7,6 +7,7 @@ import { readStatus } from "../../shared/utils.ts";
 import { DIRS, type AsyncParallelGroupStatus, type AsyncStatus, type NestedRunSummary, type SubagentRunMode } from "../../shared/types.ts";
 import { resolveEffectiveThinking } from "../../shared/model-info.ts";
 import { normalizeParallelGroups } from "./parallel-groups.ts";
+import { hasRunnerCloseObserver } from "./process-terminal.ts";
 import { nestedSummaryFromAsyncStatus, projectNestedEvents, resolveNestedAsyncDir, writeNestedEvent, type NestedRoute } from "../shared/nested-events.ts";
 
 export type PidLiveness = "alive" | "dead" | "unknown";
@@ -141,7 +142,7 @@ function childState(overallState: ResultRepairData["state"], child: ResultChildO
 	return overallState;
 }
 
-function terminalStatusFromResult(status: AsyncStatus, resultPath: string, now: number): AsyncStatus | undefined {
+function terminalStatusFromResult(status: AsyncStatus, resultPath: string, now: number, asyncDir: string): AsyncStatus | undefined {
 	const repair = readResultRepairData(resultPath);
 	if (!repair) return undefined;
 	const steps = (status.steps ?? []).map((step, index) => {
@@ -168,7 +169,10 @@ function terminalStatusFromResult(status: AsyncStatus, resultPath: string, now: 
 	const terminalStatus: AsyncStatus = {
 		...status,
 		state: repair.state,
-		...(status.lifecycleArtifactVersion === 3 && (!status.processTerminal || status.processTerminal.state === "pending") ? {
+		...(status.lifecycleArtifactVersion === 3 && (!status.processTerminal || status.processTerminal.state === "pending")
+			// A result can precede the launching parent's native close callback.
+			// Retain pending for that actual observer; this never proves exit.
+			&& !(status.processTerminal?.state === "pending" && hasRunnerCloseObserver(asyncDir, status.runId, status.processTerminal.runnerProcessInstanceId)) ? {
 			processTerminal: { version: 1 as const, state: "unknown" as const, runId: status.runId, runnerProcessInstanceId: "observer-unavailable", reason: "observer-unavailable" as const },
 		} : {}),
 		...(repair.state === "stopped" ? { stopped: true } : {}),
@@ -379,7 +383,7 @@ export function reconcileAsyncRun(asyncDir: string, options: ReconcileAsyncRunOp
 		: regularFileExists(resultPath) ? resultPath : undefined;
 	if (existingResultPath) {
 		const terminalStatus = effectiveStatus.state === "running" || effectiveStatus.state === "queued"
-			? terminalStatusFromResult(effectiveStatus, existingResultPath, now)
+			? terminalStatusFromResult(effectiveStatus, existingResultPath, now, asyncDir)
 			: undefined;
 		if (terminalStatus) {
 			writeAtomicJson(path.join(asyncDir, "status.json"), terminalStatus);

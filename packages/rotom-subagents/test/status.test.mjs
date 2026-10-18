@@ -25,7 +25,9 @@ const {DIRS,EXECUTION_STORE}=await load('src/shared/types.ts');
 const {inspectSubagentStatus}=await load('src/runs/background/run-status.ts');
 const {acquireActiveAsyncCapacity,getActiveAsyncCapacitySnapshot}=await load('src/runs/background/active-async-capacity.ts');
 const {writePrivateAtomicJson}=await load('src/shared/atomic-json.ts');
-const {finalizeProcessTerminal,writeProcessTerminalCandidate,readProcessTerminal}=await load('src/runs/background/process-terminal.ts');
+const {finalizeProcessTerminal,writeProcessTerminalCandidate,readProcessTerminal,registerRunnerCloseObserver}=await load('src/runs/background/process-terminal.ts');
+const {reconcileAsyncRun}=await load('src/runs/background/stale-run-reconciler.ts');
+const {writeAsyncResultFile,resultFilePath}=await load('src/runs/background/result-files.ts');
 const {acquireSessionLease,canonicalSessionId}=await load('src/runs/shared/session-lease.ts');
 const {createRunFanoutBudget}=await load('src/runs/shared/run-fanout-budget.ts');
 fs.mkdirSync(DIRS.async,{recursive:true,mode:0o700});
@@ -55,6 +57,22 @@ function fixture() {
   systemPromptMode:'replace',outputMode:'inline',inheritProjectContext:true,inheritSkills:false,share:false,maxSubagentDepth:1,tools:['read'],extensions:[],runFanoutBudget:createRunFanoutBudget(id,4)});
  return {id,dir,runner,sessionFile,status,state,save,inspect,close,descriptor};
 }
+
+for(const observer of ['live','missing','wrong-instance','released'])test(`result before close: ${observer} observer never manufactures closure`,()=>{
+ const f=fixture();f.status.state='running';f.status.lifecycleArtifactVersion=3;f.status.steps[0].status='running';f.save();
+ fs.mkdirSync(DIRS.results,{recursive:true,mode:0o700});
+ writeAsyncResultFile(resultFilePath(DIRS.results,f.id),{id:f.id,sessionId:f.status.sessionId,success:true,state:'complete',results:[]});
+ const release=observer==='missing'?()=>{}:registerRunnerCloseObserver(f.dir,f.id,observer==='wrong-instance'?randomUUID():f.runner);
+ if(observer==='released')release();
+ try {
+  const reconciled=reconcileAsyncRun(f.dir,{kill(){throw Object.assign(Error('fixture exited'),{code:'ESRCH'})}});
+  assert.equal(reconciled.status.state,'complete');
+  assert.equal(reconciled.status.processTerminal.state,observer==='live'?'pending':'unknown');
+  if(observer==='live')assert.equal(reconciled.status.processTerminal.runnerProcessInstanceId,f.runner);
+  assert.equal(readProcessTerminal(f.dir),undefined,'observer registration is not a persisted exit proof');
+  assert.match(f.inspect(),/Registered-resource closure: unavailable/);
+ } finally {release()}
+});
 
 test('one status call shows task, bounded output and missing closure without inventing recovery',()=>{
  const f=fixture();f.save();fs.writeFileSync(path.join(f.dir,'output-0.log'),Array.from({length:20},(_,i)=>`line-${i}`).join('\n'));

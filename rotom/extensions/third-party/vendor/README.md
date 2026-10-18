@@ -1,13 +1,13 @@
 # Locked Subagent distribution
 
-The default product selects **`pi-subagents@0.52.1-rotom.8`**, independently maintained in the repository's `packages/rotom-subagents/`. New builds consume its reviewed archive, not installed source or a patch stack. This is a Subagent fork, not a Pi fork.
+The default product selects **`pi-subagents@0.52.1-rotom.9`**, independently maintained in the repository's `packages/rotom-subagents/`. New builds consume its reviewed archive, not installed source or a patch stack. This is a Subagent fork, not a Pi fork.
 
-- Archive: `pi-subagents-0.52.1-rotom.8.tgz`
-- SHA256: `14ce02d63982f2e2badf02a223386d29b5bfd7dbb7f190b12f5cf7ded223e506`
-- SHA512 SRI: `sha512-kIuGqH611noYV5UI/cUKB86hsL1gudd6ZXAUgABxQwhqoKiYy6gc93zbF1Kno7vex3ljYB0+gx7+kU6917QkrQ==`
-- Source digest: `4cdd552aed9b515aa1226c2b37b6a87eedcdbba8950da32b782e1503feb48009`
+- Archive: `pi-subagents-0.52.1-rotom.9.tgz`
+- SHA256: `03723a1f494c1f87777817fe0b3819d26210ffdeadbccdb3513c84020b9db3fd`
+- SHA512 SRI: `sha512-/ygLuCCAmbr+MlJE32dRDIwq2BvQox/zEG3IrR/TMTyUHPWIUXwesNg+43Ijl8UmluP4+RYvlB3ptcrAhU4Ejg==`
+- Source digest: `9e57c2f4f6781621e3cec7c3cb2329c9bb46d9cdbb54e18808c765b9a681c935`
 
-This batch pauses the retiring runtime's live runners and awaits close finalization before cleanup on quit/reload/session replacement/disposal. It never signals historical PIDs or repairs missing old-run proof. Retired schedule execution and automatic goal-mission continuation remain disabled, including legacy opt-out sessions; old data remains untouched. Targeted status uses bounded current-session output and native recovery preflight, which is not launch authorization. Shared legacy mission/inspector readers remain. Product schema and prompt guidance are scoped by the product wrapper; raw execution still passes the original fences.
+This batch pauses the retiring runtime's live runners and awaits close finalization before cleanup on quit/reload/session replacement/disposal. A result arriving before the native close callback retains pending only while this process owns the matching live observer; registration is not an exit proof. It never signals historical PIDs or repairs missing old-run proof. Retired schedule execution and automatic goal-mission continuation remain disabled, including legacy opt-out sessions; old data remains untouched. Targeted status uses bounded current-session output and native recovery preflight, which is not launch authorization. Shared legacy mission/inspector readers remain. Product schema and prompt guidance are scoped by the product wrapper; raw execution still passes the original fences.
 - Upstream: <https://github.com/nicobailon/pi-subagents>
 - License: MIT, Copyright (c) 2026 Nico Bailon. Original notice remains in `package/LICENSE`; provenance and maintenance notes are in `package/UPSTREAM.md`.
 - Source baseline: validated `0.52.1-dev-agent-owned-flat.7`; 213 TS and four existing mjs files retained byte-for-byte. The component has independent metadata, lockfile, tests and packaging. In `.rotom.1`, worker/scout/reviewer declare empty ambient extensions and fresh default context without expanding tools; explicit user/project overrides remain effective. `.rotom.3` explicitly loads the verified product Qoder provider for Qoder child models, preserving ambient isolation, tool ceilings, model choice and launch identity. Other custom providers still require explicit child configuration. Offline CLI/RPC coverage does not claim live inference acceptance.

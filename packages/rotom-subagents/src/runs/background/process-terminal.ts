@@ -13,6 +13,19 @@ import { canonicalSessionId, inspectSessionLease } from "../shared/session-lease
 import { releaseActiveRunIndex } from "./active-run-index.ts";
 import { validOwnedExecution, projectOwnedClosure, type OwnedExecutionV2 } from "./owned-execution.ts";
 
+// Process-local liveness of the original observer, not evidence of exit. A new
+// parent cannot reconstruct this registration from disk or a numeric PID.
+const runnerCloseObservers = new Set<string>();
+const observerKey = (asyncDir: string, runId: string, instanceId: string) => JSON.stringify([path.resolve(asyncDir), runId, instanceId]);
+export function registerRunnerCloseObserver(asyncDir: string, runId: string, instanceId: string): () => void {
+	const key = observerKey(asyncDir, runId, instanceId);
+	runnerCloseObservers.add(key);
+	return () => { runnerCloseObservers.delete(key); };
+}
+export function hasRunnerCloseObserver(asyncDir: string, runId: string, instanceId: string): boolean {
+	return runnerCloseObservers.has(observerKey(asyncDir, runId, instanceId));
+}
+
 export interface ProcessTerminalCandidate {
 	version: 1;
 	runId: string;

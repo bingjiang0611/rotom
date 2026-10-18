@@ -38,9 +38,9 @@ macOS 的 mount device ID 可能在重启后重新编号。store 现在只在 Da
 
 在 `.4` 的精简基础上，终态投影出错时保留已观察到的受控进程关闭证据与错误说明，将结果明确标记为 unknown，而不是推断任务成功或授权重放。本版重新归档当前源码，使后续终态修复实际进入产品；不覆盖旧 `.4` 归档，不迁移存活安装。它属于后续开发，不包含在已冻结的 rotom `0.1.17` 安装包中。
 
-## `0.52.1-rotom.8`：父运行时退出前等待关闭证明
+## `0.52.1-rotom.9`：父运行时退出前等待关闭证明
 
-正常退出、reload、new/resume 或 SDK dispose 时，先暂停当前扩展运行时实际启动的异步 runner，等待真实 `close` 回调完成终态证据处理，再清理运行时。只保留当前进程中的 ChildProcess 对象，不按历史 PID 补发信号；其他运行时的任务不受影响。回收开始后拒绝新 writer，正常关闭后可由新运行时恢复原 canonical session。后台任务不再跨越其所属运行时的销毁继续执行。
+正常退出、reload、new/resume 或 SDK dispose 时，先暂停当前扩展运行时实际启动的异步 runner，等待真实 `close` 回调完成终态证据处理，再清理运行时。只保留当前进程中的 ChildProcess 对象，不按历史 PID 补发信号；其他运行时的任务不受影响。回收开始后拒绝新 writer，正常关闭后可由新运行时恢复原 canonical session。后台任务不再跨越其所属运行时的销毁继续执行。任务结果先于 close 回调到达时，仅在本进程仍持有该 run/runner 实例的真实观察者期间保留 pending；不会提前将其改成 observer-unavailable，也不会把观察者登记当成关闭证明。
 
 强杀、异常 owner loss、缺失/写入失败的证据仍是 unknown，不从候选记录或 PID 消失推断历史退出；不补写旧任务的成功证明、不自动恢复旧任务。源码版本不会热更新当前安装。验证、首次失败与剩余限制见[父运行时关闭修复](../../docs/agent/subagent-parent-shutdown.md)。
 

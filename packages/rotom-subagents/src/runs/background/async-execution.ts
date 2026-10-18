@@ -67,7 +67,7 @@ import { validateToolBudgetConfig } from "../shared/tool-budget.ts";
 import { usageBudgetState } from "../shared/usage-budget.ts";
 import type { ImportedAsyncRoot } from "./chain-root-attachment.ts";
 import type { SessionLeaseRequest } from "../shared/session-lease.ts";
-import { finalizeProcessTerminal, readProcessTerminal } from "./process-terminal.ts";
+import { finalizeProcessTerminal, readProcessTerminal, registerRunnerCloseObserver } from "./process-terminal.ts";
 import { createRunnerDrain } from "./runner-drain.ts";
 
 import type { ActiveAsyncCapacityHandle } from "./active-async-capacity.ts";
@@ -560,6 +560,8 @@ function spawnRunner(cfg: object, suffix: string, cwd: string, drain: ReturnType
 		proc.on("error", (error) => {
 			console.error(`[pi-subagents] async spawn failed: ${error.message}`);
 		});
+		const releaseCloseObserver = typeof launchAsyncDir === "string" && typeof launchRunId === "string"
+			? registerRunnerCloseObserver(launchAsyncDir, launchRunId, runnerProcessInstanceId) : undefined;
 		const observedClose = drain.track(() => {
 			// Awaiting a Promise alone cannot keep Node alive after RPC stdin closes.
 			proc.ref();
@@ -625,6 +627,7 @@ function spawnRunner(cfg: object, suffix: string, cwd: string, drain: ReturnType
 				}
 			} finally {
 				// Finalization (including honest unknown) precedes runtime teardown.
+				releaseCloseObserver?.();
 				observedClose();
 			}
 		});

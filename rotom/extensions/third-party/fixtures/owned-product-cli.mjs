@@ -41,7 +41,7 @@ fs.writeFileSync(path.join(cwd,'.pi/agents/external.md'),`---\nname: external\nd
 fs.writeFileSync(path.join(cwd,'payload.txt'),'NATIVE_READ_CONTROL');
 if(builtinAgent)fs.writeFileSync(path.join(home,'.pi/agent/settings.json'),JSON.stringify({subagents:{agentOverrides:{[builtinAgent]:{model:'owned-local/native'}}}}),{mode:0o600});
 else fs.writeFileSync(path.join(cwd,'.pi/agents/native.md'),'---\nname: native\ndescription: Local Pi product acceptance\nmodel: owned-local/native\ntools: read\nextensions:\nasync: true\n---\nRead the local fixture only.\n');
-let requests=0,nativeRequests=0,scopedDescription=false,rejectionSeen=false,waitSeen=false,searchSeen=false,originalSession,originalSessionBytes;
+let requests=0,nativeRequests=0,scopedDescription=false,rejectionSeen=false,waitSeen=false,searchSeen=false,lateWorkflowWake=false,workflowRunId,originalSession,originalSessionBytes;
 const errors=[],events=[];
 function send(res,index,model,call,content) {
  const delta=call?{role:'assistant',tool_calls:[{index:0,id:'call-'+index,type:'function',function:call}]}:{role:'assistant',content};
@@ -71,7 +71,11 @@ const server=http.createServer(async(req,res)=>{
    const tool=body.tools.find(t=>t.function?.name==='subagent');assert.ok(tool);assert.match(tool.function.description,/Delegate one task with agent\/task; use workflowScript/);assert.match(tool.function.description,/ephemeral/);scopedDescription=true;
    if(logical===0)call={name:'subagent',arguments:JSON.stringify({agent:'external',task:'Rejected local fixture',async:false})};
    else if(logical===1){assert.match(String(result?.content),/Validation failed for tool "subagent"/);assert.match(String(result?.content),/async: must be equal to one of the allowed values/);assert.equal(fs.existsSync(marker),false);rejectionSeen=true;call={name:'subagent',arguments:JSON.stringify(scenario==='workflow'?{async:true,workflowScript:"const both = await runs.all([{key:'native-async',agent:'native',task:'Read the local fixture',async:true,acceptance:false},{key:'external',agent:'external',task:'Run the independent external fixture',async:true}]); const foreground = await runs.run('native-foreground',{agent:'native',task:'Read the local fixture',async:false,acceptance:false}); return {both,foreground};"}:{agent:scenario==='native'?(builtinAgent??'native'):'external',task:'Independent local product validation',async:true,...(scenario==='native'?{acceptance:false}:{})})};}
-   else if(logical===2){assert.ok(!String(result?.content).includes('no writer is authorized'));if(scenario!=='drain')call={name:'subagent_wait',arguments:JSON.stringify({all:true,timeoutMs:60000})};}
+   else if(logical===2){
+    assert.ok(!String(result?.content).includes('no writer is authorized'));
+    if(scenario==='workflow'){workflowRunId=String(result?.content).match(/Async workflow \[([a-f0-9-]{36})\]/)?.[1];assert.ok(workflowRunId);}
+    if(scenario!=='drain')call={name:'subagent_wait',arguments:JSON.stringify({all:true,timeoutMs:60000})};
+   }
    else if(logical===3&&scenario==='native'){
     assert.match(String(result?.content),/; done/);
     const runRoot=path.join(base,scope,'async-subagent-runs'),ids=fs.readdirSync(runRoot).filter(n=>!n.startsWith('.'));assert.equal(ids.length,1);
@@ -82,6 +86,17 @@ const server=http.createServer(async(req,res)=>{
    else if(logical===4&&scenario==='native'){assert.ok(!String(result?.content).includes('unavailable'));call={name:'subagent_wait',arguments:JSON.stringify({all:true,timeoutMs:60000})};}
    else if(logical===5&&scenario==='native'){assert.match(String(result?.content),/; done/);waitSeen=true;}
    else if(logical===3&&['wait','workflow'].includes(scenario)){assert.doesNotMatch(String(result?.content),/Nothing to wait for/);assert.match(String(result?.content),/; done/);assert.ok(fs.existsSync(marker),'Wait returned before effect');waitSeen=true;}
+   else if(logical===4&&scenario==='workflow'){
+    // Wait observes closure, not delivery of every notification. A late workflow
+    // result may legitimately wake the parent once; it must not launch more work.
+    assert.equal(waitSeen,true);const completion=body.messages.at(-1);assert.equal(completion.role,'user');
+    const text=JSON.stringify(completion.content);
+    assert.match(text,/Background tasks? completed/);assert.ok(text.includes('**workflow**'));
+    assert.ok(text.includes('Workflow completed with 3 child run(s). Return:'));
+    const workflow=JSON.parse(fs.readFileSync(path.join(base,scope,'async-subagent-runs',workflowRunId,'process-terminal-candidate.json'))).ownedWorkflow;
+    const native=workflow.admissions.find(a=>a.key==='native-async');assert.ok(native);assert.ok(text.includes(native.childRunId));
+    lateWorkflowWake=true;
+   }
    else assert.fail('Unexpected provider replay');
   }
  } catch(error) {errors.push(error.message);content='FIXTURE_REJECTED';call=undefined;}
@@ -102,9 +117,9 @@ assert.equal(storeMarker.version,3);assert.equal(storeMarker.scope,scope);assert
 const inspect=spawnSync(process.execPath,[path.join(subagentRoot,'owned-store.mjs'),'inspect','--base',base],{env,encoding:'utf8',timeout:30000});
 assert.equal(inspect.status,0,inspect.stderr);const inspected=JSON.parse(inspect.stdout);
 assert.equal(inspected.scope,scope);assert.equal(inspected.root,storeMarker.root);assert.equal(inspected.recoveryAuthorized,false);assert.equal(inspected.liveSessionMigration,false);
-const evidence={work,productVersion:manifest.version,subagentVersion:subagent.version,scenario,deferred,persistence,builtinAgent,defaultScopeFromProduct:true,storeCreatedByProduct:storeMarker.storeId.length===36,requests,nativeRequests,scopedDescription,rejectionSeen,waitSeen,searchSeen,errors,closed};
+const evidence={work,productVersion:manifest.version,subagentVersion:subagent.version,scenario,deferred,persistence,builtinAgent,defaultScopeFromProduct:true,storeCreatedByProduct:storeMarker.storeId.length===36,requests,nativeRequests,scopedDescription,rejectionSeen,waitSeen,searchSeen,lateWorkflowWake,errors,closed};
 fs.writeFileSync(path.join(work,'metadata.json'),JSON.stringify(evidence),{mode:0o600});
-assert.equal(closed.code,0,JSON.stringify(evidence));assert.deepEqual(errors,[]);assert.equal(requests,(scenario==='native'?6:scenario==='drain'?3:4)+(deferred==='1'?1:0));assert.equal(nativeRequests,['native','workflow'].includes(scenario)?4:0);
+assert.equal(closed.code,0,JSON.stringify(evidence));assert.deepEqual(errors,[]);assert.equal(requests,(scenario==='native'?6:scenario==='drain'?3:4)+(deferred==='1'?1:0)+(lateWorkflowWake?1:0));assert.equal(nativeRequests,['native','workflow'].includes(scenario)?4:0);
 assert.ok(scopedDescription&&rejectionSeen);assert.equal(waitSeen,scenario!=='drain');assert.equal(searchSeen,deferred==='1');
 if(scenario!=='native')assert.equal(fs.realpathSync(JSON.parse(fs.readFileSync(marker)).cwd),fs.realpathSync(cwd));
 const launch=events.filter(e=>e.toolName==='subagent'&&e.result?.details?.asyncId);assert.equal(launch.length,scenario==='native'?2:1);
