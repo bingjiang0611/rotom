@@ -60,6 +60,39 @@ describe("RPC startup extension UI", () => {
 		for (const { event, original } of listeners) expect(process.listeners(event)).toEqual(original);
 	});
 
+	it("answers a command written before EOF while initialization is still running", async () => {
+		const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+		try {
+			const binding = Promise.withResolvers<void>();
+			const session = {
+				agent: new Agent({
+					streamFn: () => {
+						throw new Error("Startup must not call a model");
+					},
+				}),
+				bindExtensions: () => binding.promise,
+				subscribe: vi.fn(() => () => {}),
+				extensionRunner: { getRegisteredCommands: () => [] },
+				promptTemplates: [],
+				resourceLoader: { getSkills: () => ({ skills: [] }) },
+			};
+			const host = {
+				session,
+				setRebindSession: vi.fn(),
+				dispose: vi.fn(async () => {}),
+			} as unknown as AgentSessionRuntime;
+			void runRpcMode(host);
+			await vi.waitFor(() => expect(io.input).toBeTypeOf("function"));
+			io.input!(JSON.stringify({ id: "catalog", type: "get_commands" }));
+			process.stdin.emit("end");
+			binding.resolve();
+			await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0));
+			expect(io.lines).toContainEqual(expect.objectContaining({ id: "catalog", success: true }));
+		} finally {
+			exit.mockRestore();
+		}
+	});
+
 	it.each([false, true])("handles a startup dialog (cancelled=%s) before ordinary commands", async (cancelled) => {
 		let selection: string | undefined;
 		let initialized = false;

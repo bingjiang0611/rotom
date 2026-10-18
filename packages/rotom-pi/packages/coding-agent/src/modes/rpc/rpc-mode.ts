@@ -802,14 +802,34 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 		}
 	};
 
+	// Commands read while initializing are queued behind it. A client that writes a
+	// command and closes stdin (e.g. `echo '{...}' | pi --mode rpc`) must still get
+	// its response, so EOF shutdown waits for those queued commands.
+	let initializationSettled = false;
+	void initialized.then(
+		() => {
+			initializationSettled = true;
+		},
+		() => {
+			initializationSettled = true;
+		},
+	);
+	const commandsAwaitingInitialization = new Set<Promise<void>>();
+
 	const onInputEnd = () => {
-		void shutdown();
+		void Promise.allSettled([initialized, ...commandsAwaitingInitialization]).then(([initialization]) => {
+			// A failed initialization is reported by runRpcMode's caller, not as a clean exit.
+			if (initialization.status === "fulfilled") void shutdown();
+		});
 	};
 	process.stdin.on("end", onInputEnd);
 
 	detachInput = (() => {
 		const detachJsonl = attachJsonlLineReader(process.stdin, (line) => {
-			void handleInputLine(line);
+			const handled = handleInputLine(line);
+			if (initializationSettled) return;
+			commandsAwaitingInitialization.add(handled);
+			void handled.finally(() => commandsAwaitingInitialization.delete(handled));
 		});
 		return () => {
 			detachJsonl();
