@@ -12,7 +12,7 @@ Use orchestration as parent-agent guidance, not as a runtime workflow mode. For 
 clarify → scout → worker → fresh reviewers → worker
 ```
 
-Packaged `worker`, `scout`, and `reviewer` default to fresh context. `oracle` and its `advisor` alias default to forked context when a launch omits `context`. If the parent has no persisted session file or current leaf yet, that implicit default falls back to `fresh`. Pass `context: "fresh"` when you intentionally want a fresh child run, or `context: "fork"` when fork must remain strict.
+All packaged agents (`worker`, `scout`, `reviewer`, `delegate`, `oracle` and its `advisor` alias) default to fresh context; `oracle` works from a decision brief the parent writes into the task. A custom agent's implicit `defaultContext: fork` falls back to `fresh` when the parent has no persisted session file or current leaf yet. Pass `context: "fresh"` when you intentionally want a fresh child run, or `context: "fork"` when fork must remain strict.
 
 Child-safety boundaries are enforced at runtime:
 
@@ -29,7 +29,7 @@ The package includes reusable prompt templates for common workflows. You do not 
 |--------|------------|
 | `/parallel-review` | Launch fresh-context reviewers with distinct angles, then synthesize what to fix. |
 | `/review-loop` | Run parent-controlled worker, reviewer, and fix-worker cycles until clean or capped. |
-| `/parallel-research` | Combine `researcher` and `scout` for external evidence, local code context, and practical tradeoffs. |
+| `/parallel-research` | Combine `scout` lanes for local code context and practical tradeoffs with external evidence the parent gathers. |
 | `/gather-context-and-clarify` | Scout/research first, then ask the user the clarification questions that matter. |
 | `/parallel-cleanup` | Run review-only cleanup passes after implementation. |
 

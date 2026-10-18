@@ -48,7 +48,7 @@ subagent({
 
 ```typescript
 subagent({
-  workflowScript: `return runs.run("oracle-check", { agent: "oracle", task: "Review my current direction and challenge assumptions.", context: "fork" })`
+  workflowScript: `return runs.run("continue-thread", { agent: "delegate", task: "Continue the investigation from the current conversation state.", context: "fork" })`
 })
 ```
 
@@ -86,7 +86,7 @@ Completed workflow children from this parent session stay addressable as retaine
 
 ### Async/background
 
-Prefer async mode for every subagent launch. Set `async: true` no matter the task unless the parent must block until completion. This applies to scouts, researchers, workers, reviewers, validators, oracle checks, one-off delegates, final review gates, backlog gates, and scripted workflows. Keep the write path single-threaded even when the run is async.
+Prefer async mode for every subagent launch. Set `async: true` no matter the task unless the parent must block until completion. This applies to scouts, workers, reviewers, validators, oracle checks, one-off delegates, final review gates, backlog gates, and scripted workflows. Keep the write path single-threaded even when the run is async.
 
 Use `async:false` only when the parent must block until completion. Async mode still shows progress. Do not use `async:false` because a task is short, because it is the last gate, because no other work is ready, because the user asked to finish the overall job, or because blocking is convenient.
 
@@ -358,7 +358,7 @@ worktree, first confirm dependencies were linked, installed, or provisioned by
 
 ### Oracle consultation loop
 
-For plan, design, or architecture advice that asks to ask, consult, discuss with, or come to agreement with `oracle`, start with one forked oracle run. Read its result. If it challenges the direction or leaves a material tradeoff, resume that same completed child once with a focused follow-up, then synthesize the parent decision. `resume` returns a new run id, but continues the same oracle session and inherited context. Do not force a second round for an explicit one-shot request, a trivial question, or a fully settled first answer.
+For plan, design, or architecture advice that asks to ask, consult, discuss with, or come to agreement with `oracle`, start with one fresh oracle run whose task is a decision brief: goal and acceptance criteria, decisions already made and why, hard constraints, the proposed move, the files that matter, and the specific question. Read its result. If it challenges the direction or leaves a material tradeoff, resume that same completed child once with a focused follow-up, then synthesize the parent decision. `resume` returns a new run id, but continues the same oracle session. Do not force a second round for an explicit one-shot request, a trivial question, or a fully settled first answer.
 
 ```typescript
 const first = await runs.run("oracle-consult", { agent: "oracle", task: "Review this plan and identify the strongest unresolved tradeoff." });
@@ -368,14 +368,14 @@ const final = await runs.run("oracle-consult-follow-up", { resume: first.runId, 
 The parent remains the final decision-maker. Oracle advice does not approve a direction or start implementation.
 
 The intended oracle loop is:
-1. the main agent forks to `oracle`
+1. the main agent writes a decision brief and launches `oracle` with fresh context
 2. `oracle` reviews direction, drift, assumptions, and risks
 3. `oracle` can coordinate back through `contact_supervisor` when the bridge injects it
 4. the main agent decides what direction to approve
 5. only then should `worker` implement
 
 ```typescript
-// Advisory review in a branched thread. Oracle defaults to forked context.
+// Advisory review from a parent-written decision brief. Oracle defaults to fresh context.
 subagent({
   workflowScript: `return runs.run("oracle-check", { agent: "oracle", task: "Review my current direction, challenge assumptions, and propose the best next move." })`
 })

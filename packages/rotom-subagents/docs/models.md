@@ -109,7 +109,7 @@ Project settings win over user settings. Use `agentOverrides.<name>.extensions` 
   "subagents": {
     "defaultExtensions": [],
     "agentOverrides": {
-      "researcher": {
+      "scout": {
         "extensions": ["./tools/research.ts"]
       }
     }

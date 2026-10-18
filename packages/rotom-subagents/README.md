@@ -44,6 +44,17 @@ macOS 的 mount device ID 可能在重启后重新编号。store 现在只在 Da
 
 强杀、异常 owner loss、缺失/写入失败的证据仍是 unknown，不从候选记录或 PID 消失推断历史退出；不补写旧任务的成功证明、不自动恢复旧任务。源码版本不会热更新当前安装。验证、首次失败与剩余限制见[父运行时关闭修复](../../docs/agent/subagent-parent-shutdown.md)。
 
+## `0.52.1-rotom.10`：内置角色可在 owned scope 启动
+
+会话复盘发现 `delegate` 在 owned scope 下 6/6 启动失败、`researcher` 1/1 失败，原因都是缺少显式 `extensions`。本版调整内置角色：
+
+- `delegate` 声明空 `extensions` 与 `defaultContext: fresh`，工具白名单不变。
+- `oracle`（别名 `advisor`）改为 `defaultContext: fresh`、空 `extensions`，任务由父会话写成决策简报（目标/验收、已定决策、约束、方案、相关文件、具体问题）；仍只读，不再依赖 fork。
+- `reviewer` 增加 `bash`，提示词限定只读检查（diff/log/rg、运行现有测试与类型检查），禁止写文件、Git 写操作、安装和网络；这是提示约束，不是沙箱。
+- 删除 `researcher`：它依赖的 `web_search`/`fetch_content` 在 rotom 中不存在。需要网页检索时由父会话自行完成，或配置显式声明 web 工具与 `extensions` 的自定义 agent。
+
+自定义 agent、显式 fork 请求与 admission 拒绝规则不变。
+
 ## 开发
 
 在本目录运行；依赖是固定版本及本目录 lockfile，勿复制维护者 node_modules：

@@ -4,22 +4,20 @@ description: Parallel subagents research
 
 Launch parallel research subagents to build a grounded answer to the current question or decision.
 
-Use fresh context, not forked context, unless I explicitly ask for forked context. Researchers and scouts should inspect sources directly instead of relying on the main conversation history.
+Use fresh context, not forked context, unless I explicitly ask for forked context. Scouts should inspect sources directly instead of relying on the main conversation history.
 
-Use a combination of `researcher` and `scout` subagents:
-- Use `researcher` for web, docs, standards, ecosystem, recent changes, benchmarks, and primary-source evidence.
-- Use `scout` for local codebase context, existing implementation patterns, repo constraints, and files that would be affected.
+Use `scout` subagents for local codebase context, existing implementation patterns, repo constraints, and files that would be affected. There is no builtin web-research agent: the parent gathers external evidence itself with its own tools, or uses a custom agent that explicitly declares web tools and their `extensions`.
 
 Give each subagent a distinct angle. Unless I specify angles, use these three:
 
 1. External evidence
-   Use `researcher` to find current, authoritative sources: official docs, specs, release notes, benchmarks, issue threads, or primary explanations.
+   Gathered by the parent (or a custom web-research agent): current, authoritative sources such as official docs, specs, release notes, benchmarks, issue threads, or primary explanations.
 
 2. Local code context
    Use `scout` to inspect the repository for relevant files, existing patterns, constraints, tests, and likely integration points.
 
 3. Practical tradeoffs
-   Use `researcher` or `scout`, whichever fits the question, to compare options, risks, edge cases, maintenance cost, and what would be easiest to validate.
+   Use `scout` to compare options, risks, edge cases, maintenance cost, and what would be easiest to validate.
 
 Adapt the angles when the question calls for it:
 - Library/API questions: include official docs and recent examples.
