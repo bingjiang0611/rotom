@@ -261,6 +261,9 @@ export async function* qoderChunks(body, { signal, toolNames = [], onDiagnostic,
     if (chunk.choices.length > 1) fail('multiple_choices_unsupported');
     const choices = chunk.choices.map(choice => {
       if (choice.index !== undefined && choice.index !== 0) fail('invalid_choice_index');
+      // A refusal may omit delta and even precede later tool frames. Never
+      // reinterpret that explicit refusal as a malformed delta or execute tools.
+      if (choice.finish_reason === 'refusal') fail('model_refusal');
       // Observed Sonus/Ultimate COSY frames use function_call with modern
       // tool_calls deltas. Still require complete tools and validated EOF;
       // never reinterpret the direct HTTP route or legacy function_call deltas.

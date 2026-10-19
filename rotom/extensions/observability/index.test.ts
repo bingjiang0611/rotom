@@ -306,6 +306,11 @@ test("Qoder diagnostics attach only allowlisted metadata to the active Qoder pro
 		type: "message_end",
 		message: { ...assistantMessage("error"), provider: "qoder", model: "ultimate", errorMessage: "Qoder: request_failed" },
 	}, ctx);
+	await harness.emit("before_provider_headers", { type: "before_provider_headers", headers: {} }, ctx);
+	await harness.emit("message_end", {
+		type: "message_end",
+		message: { ...assistantMessage("error"), provider: "qoder", model: "ultimate", errorMessage: "Qoder: model_refusal" },
+	}, ctx);
 	await harness.emit("session_shutdown", { type: "session_shutdown", reason: "quit" }, ctx);
 
 	const text = readFileSync(localTracePathForSessionFile(sessionFile), "utf8");
@@ -314,7 +319,7 @@ test("Qoder diagnostics attach only allowlisted metadata to the active Qoder pro
 	}
 	const providerEnds = text.trim().split("\n").map((line) => JSON.parse(line))
 		.filter((record) => record.kind === "span_end" && record.name === "pi.ai.request");
-	assert.equal(providerEnds.length, 2);
+	assert.equal(providerEnds.length, 3);
 	const providerEnd = providerEnds[0];
 	assert.ok(providerEnd);
 	assert.equal(providerEnd.status, "error");
@@ -328,6 +333,10 @@ test("Qoder diagnostics attach only allowlisted metadata to the active Qoder pro
 	assert.equal(transportEnd.attributes["pi.ai.qoder.error_code"], "transport_failure");
 	assert.equal(transportEnd.attributes["pi.ai.qoder.diagnostic_code"], "transport_failure");
 	assert.equal(transportEnd.attributes["pi.ai.qoder.transport_phase"], "request");
+	const refusalEnd = providerEnds[2];
+	assert.equal(refusalEnd.status, "error");
+	assert.equal(refusalEnd.attributes["pi.ai.qoder.error_code"], "model_refusal");
+	assert.equal(refusalEnd.attributes["pi.ai.qoder.diagnostic_code"], undefined);
 });
 
 test("tool ID diagnostics reach trace through the parser without persisting tool content", async (t) => {

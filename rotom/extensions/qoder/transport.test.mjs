@@ -66,6 +66,21 @@ for (const [label, input, code] of [
   });
 }
 
+test('explicit refusal is an error before missing delta or later tool calls can be interpreted', async () => {
+  for (const allowLegacyEnvelope of [false, true]) {
+    const emit = value => frame(allowLegacyEnvelope ? { statusCodeValue: 200, body: JSON.stringify(value) } : value);
+    for (const delta of [undefined, {}, { content: 'PRIVATE_REFUSAL_TEXT' }, toolDelta]) {
+      const choice = { index: 0, finish_reason: 'refusal', ...(delta === undefined ? {} : { delta }) };
+      const wire = emit({ choices: [choice] }) + emit(chunk(toolDelta)) + emit(chunk({}, 'tool_calls')) + emit({ choices: [], usage }) + 'data: [DONE]\n\n';
+      const emitted = [];
+      await assert.rejects(async () => {
+        for await (const value of normalizeSSE(body(wire), { allowLegacyEnvelope, allowOpaqueReasoning: true, opaqueModelId: 'ultimate', toolNames: ['echo'] })) emitted.push(value);
+      }, { code: 'model_refusal', message: 'Qoder: model_refusal' });
+      assert.deepEqual(emitted, []);
+    }
+  }
+});
+
 test('empty IDs on continuation deltas do not replace an established ID', async () => {
   const start = structuredClone(toolDelta); start.tool_calls[0].function.arguments = '{"nonce":';
   const continuation = { tool_calls: [{ index: 0, id: '', function: { name: '', arguments: '"ok"}' } }] };

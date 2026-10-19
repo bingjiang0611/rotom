@@ -23,6 +23,7 @@ const QODER_TRACE_ERROR_MESSAGES = new Map([
 	["Qoder: connection_failed", "transport_failure"],
 	["Qoder: stream_failed", "transport_failure"],
 	["Qoder: invalid_tool_id", "invalid_tool_id"],
+	["Qoder: model_refusal", "model_refusal"],
 ]);
 
 const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u;
