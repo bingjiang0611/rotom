@@ -1,8 +1,8 @@
-# npm 0.1.26 发布准备
+# npm 0.1.26 发布记录
 
 - 授权目标：`@bingjiang0611/rotom@0.1.26`，dist-tag `latest`，access `public`，许可证 `UNLICENSED`。
-- 状态：准备发布，尚未执行 npm publish。只有 registry 的精确版本、标签、摘要、可信 tarball URL 与下载字节全部匹配后，才能记录发布成功。
-- 产品变更基线：`19bebf12c2274d62b344b306a710f0985adeb81a`。正式构建源在本次发布说明冻结后由 Git 读取，记录在唯一产物的验证证据中；此前的独立诊断包不是本次正式产物。
+- 状态：维护者已在前台发布；registry 的精确版本、latest 标签、integrity、shasum、可信 tarball URL 与下载字节均已独立核验。Agent 按用户本轮明确授权完成全局安装，仅切换新启动命令，保留旧目录与正在运行的会话。
+- 唯一构建源：`16fd1842fe0379058035c1169c94927d4aa98707`。正式产物只构建一次：48669936 字节、18883 个文件；完整摘要和验证结果见 [机器可读证据](npm-0.1.26-verification.json)。正式 tgz 与此前已做真实模型验证的诊断包逐字节一致，但仍重新执行了正式发布门禁。
 - `rotom/package.json` 已为 0.1.26，保留现有 public / UNLICENSED 合同，不为准备记录再次递增版本。
 
 ## 相对 0.1.25 的主要变更
@@ -16,12 +16,21 @@
 
 Pi 包标记仍为 `1.3.0-rotom.2`；归档字节和锁定 identity 以本次实际产物为准。内置 Subagent 为 `0.52.1-rotom.10`，SoL-Pi 为 `0.1.0-rotom.2`。
 
-## 验证计划与边界
+## 验证结果和边界
 
-- 本次正式 gate 待执行：`check:pi`、分发测试、`check-personal`、实际 tgz 隐私审计、隔离 HOME/prefix 安装、default/full runtime smoke、文件逐字节核对、0.1.25 → 0.1.26 升级和卸载。
-- 功能修复参考（不是正式产物 gate）：上述产品基线的 Qoder / trace 回归 295 项通过；独立安装上的真实 Ultimate/high 双文件读取及随机标记续轮通过。另已确认上游会显式拒绝，不能承诺请求必成功。
-- 正式发行 gate 使用合成数据和离线 Provider，不再调用真实模型、浏览器或手机，不重放原业务会话或真实 TUI。
-- 不覆盖当前默认安装，不迁移活跃会话。正式发布后的本机切换仍由维护者另行执行。
+| 检查 | 结果 |
+|---|---|
+| Pi identity / 分发 | `check:pi` PASS；分发 25 项通过 |
+| 实际安装 tgz 的 Pi + `check-personal` | 产品 330 项、Goal 87 项、离线 Provider 9 组通过；源码与已编译 Pi 一致 |
+| 工具面 | 当前 runtimeContractGate / deterministicGate PASS；历史不可变参考仍标记 DRIFT，不是当前合同失败 |
+| 实际 tgz | 独立隐私审计 21,796 文件、0 发现；安装后 18,883 个文件逐字节一致 |
+| 隔离安装和运行时 | PATH 无全局 Pi；default/full smoke、RPC 的 EOF 前入队命令响应、`/context` 单次注册通过 |
+| 升级与卸载 | 已核验 registry 0.1.25 包 → 唯一 0.1.26 tgz 升级通过；卸载后包/bin 消失，HOME 哨兵保留 |
+| 用户明确授权的全局安装 | 正式包安装到新目录并原子切换命令；18,883 个文件一致，`rotom --version --verbose` 为 0.1.26 / Pi 1.3.0-rotom.2；旧目录、存活会话和已检查的配置保留 |
+
+- 初次 `check-personal` 因干净 clone 缺少 Pi 源码测试的 Vitest 而失败（329/330）；按冻结锁文件安装开发依赖后，focused 控制与完整门禁重跑通过。没有修改源码、弱化测试或重新打包。
+- 功能修复参考：同字节诊断包上的真实 Ultimate/high 双文件读取和随机标记续轮通过。另已确认上游会显式拒绝；客户端保留拒绝，不把后续工具帧当成许可，不能承诺模型请求必成功。
+- 正式发行 gate 使用合成数据和离线 Provider，没有再调用真实模型、浏览器或手机，没有重放原业务会话或真实 TUI。真实 registry `rotom update` 升级路径未执行，隔离升级使用 npm。
 
 ## 发布交接
 

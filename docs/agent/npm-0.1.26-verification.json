@@ -1,0 +1,66 @@
+{
+  "state": "published",
+  "package": "@bingjiang0611/rotom",
+  "version": "0.1.26",
+  "tag": "latest",
+  "sourceCommit": "16fd1842fe0379058035c1169c94927d4aa98707",
+  "sha256": "263e5f7bc0ee0813d62fc75ee2a81a60d4b4ff427f8aec2401a5bb911eb85bfe",
+  "shasum": "cf31322764a2cd00b7e39c69b0620025809e0aec",
+  "integrity": "sha512-G9ucwUQg6wJYmHmN20J43It9cMAGx2vGOTVju58amzmwtZveKF/ie5YI7ycVzyn2JKh+IiM5ttSyJFp3Rsrw2Q==",
+  "tarball": "https://registry.npmjs.org/@bingjiang0611/rotom/-/rotom-0.1.26.tgz",
+  "fileCount": 18883,
+  "compressedBytes": 48669936,
+  "unpackedBytes": 159468165,
+  "buildToolchain": {
+    "node": "24.18.0",
+    "npm": "12.2.0",
+    "successfulFinalPacks": 1
+  },
+  "checks": {
+    "checkPi": "PASS; Pi fork 1.3.0-rotom.2; frozen source attestation matches the installed compiled Pi",
+    "distribution": "25 passed",
+    "checkPersonal": "330 product tests and 87 Goal tests passed using the actual installed tgz Pi",
+    "offlineProviders": "9/9 PASS; compiledPiMatchesSource and inputsStable true; frozen checkout clean",
+    "footprint": "Current runtimeContractGate and deterministicGate PASS; immutable historical referenceObservationGate remains DRIFT, not a current-contract failure",
+    "defaultAndFullInstalledSdkSmoke": "PASS; actual installed resources; lifecycleErrors=0; deferredToolsEnabled true/false",
+    "installedRpcCommands": "PASS in isolated HOME; both commands queued before stdin EOF answered, /context registered once, no duplicate commands, empty stderr",
+    "isolatedInstall": "PASS; isolated HOME/prefix and PATH without global Pi or rotom",
+    "installedFilesByteIdentical": 18883,
+    "upgrade": "PASS; registry 0.1.25 tarball verified against registry integrity/shasum, then upgraded to the unique 0.1.26 tgz using an isolated npm global prefix; all files match",
+    "uninstall": "PASS; bin and package absent, isolated HOME sentinel retained",
+    "publicFrozenSourceAudit": {
+      "status": "PASS",
+      "commits": 211,
+      "findings": 0
+    },
+    "actualArtifactPrivacyAudit": {
+      "status": "PASS",
+      "filesChecked": 21796,
+      "findings": 0
+    },
+    "registryPreflight": "Target version absent and latest=0.1.25 before publication",
+    "resolvedSetupFailure": "First check-personal run lacked the Pi checkout Vitest dependency (329/330). Installed the frozen development lock; focused control and complete rerun passed. Source and artifact unchanged.",
+    "liveQoder": "Formal tgz is byte-identical to the prior real-model-tested diagnostic tgz: Ultimate/high executed two native read calls with repeated wire index 0 and returned exact random markers after tool-result continuation. No new live Provider call in the formal release gate.",
+    "refusal": "An observed upstream refusal before later tool frames is now model_refusal, not invalid_delta. Installed-artifact fixtures verify no tool blocks are emitted from that refused stream; refusal is never ignored or retried."
+  },
+  "registryVerified": true,
+  "registryVerification": "npm-release-handoff verify: exact version, latest tag, integrity, shasum, trusted tarball URL and downloaded bytes match the unique frozen tgz",
+  "publishedBy": "Maintainer in a foreground terminal; agent did not read npm credentials or execute publish",
+  "globalInstall": {
+    "state": "verified",
+    "productVersion": "0.1.26",
+    "piVersion": "1.3.0-rotom.2",
+    "installedFilesByteIdentical": 18883,
+    "note": "Explicitly authorized agent installation. Existing same-version and active-runtime directories were not replaced. Installed to a new artifact-qualified per-version directory, then atomically switched the active rotom symlink. No running session was stopped or migrated; settings.json and sol-pi.json were unchanged.",
+    "components": {
+      "pi-context-view": "0.7.1",
+      "sol-pi": "0.1.0-rotom.2",
+      "pi-subagents": "0.52.1-rotom.10"
+    }
+  },
+  "unverified": [
+    "Original business conversation, interactive terminal UI, real browser/phone and cross-platform acceptance",
+    "Actual public-registry rotom update upgrade path; isolated upgrade validation used npm",
+    "Upstream refusals remain errors; no promise of guaranteed model success or complete USD accounting"
+  ]
+}
