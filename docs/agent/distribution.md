@@ -1,6 +1,6 @@
 # rotom · npm 分发合同
 
-发行包身份和源码版本以 [`rotom/package.json`](../../rotom/package.json) 为准；维护源码版本不等于当前 PATH 安装或 registry `latest`。不要从旧实验的测试计数、临时路径或 dist-tag 快照推断现在的状态。旧发布流水可从 Git 历史追溯；最新已核验发布见 [npm-0.1.25.md](npm-0.1.25.md)，上一版记录见 [npm-0.1.24.md](npm-0.1.24.md)。
+发行包身份和源码版本以 [`rotom/package.json`](../../rotom/package.json) 为准；维护源码版本不等于当前 PATH 安装或 registry `latest`。不要从旧实验的测试计数、临时路径或 dist-tag 快照推断现在的状态。旧发布流水可从 Git 历史追溯；最新已核验发布见 [npm-0.1.25.md](npm-0.1.25.md)，上一版记录见 [npm-0.1.24.md](npm-0.1.24.md)。当前 0.1.26 候选的授权、变更和待执行门禁见 [发布准备](npm-0.1.26.md)，不代表该版本已公开。
 
 ## 包与源码边界
 
