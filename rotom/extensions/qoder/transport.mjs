@@ -309,7 +309,23 @@ export async function* qoderChunks(body, { signal, toolNames = [], onDiagnostic,
           }
           const out = { index, type: 'function', function: {} };
           if (t.id !== undefined && t.id !== '') {
-            if (typeof t.id !== 'string' || t.id.length > 512 || (call.id && call.id !== t.id)) fail('invalid_tool_id');
+            if (typeof t.id !== 'string' || t.id.length > 512 || (call.id && call.id !== t.id)) {
+              let reason = 'changed';
+              if (typeof t.id !== 'string') reason = 'non_string';
+              else if (t.id.length > 512) reason = 'oversized';
+              const diagnostic = { code: 'invalid_tool_id', reason, wireIndex };
+              if (reason === 'changed') {
+                // Describe identity/argument structure only; never emit IDs or arguments.
+                diagnostic.relation = 'distinct';
+                if (t.id.startsWith(call.id)) diagnostic.relation = 'extension';
+                else if (call.id.startsWith(t.id) || call.id.endsWith(t.id)) diagnostic.relation = 'fragment';
+                let previousArguments;
+                try { previousArguments = JSON.parse(call.arguments); } catch { /* Partial JSON is not a complete tool argument object. */ }
+                diagnostic.previousArgumentsComplete = record(previousArguments);
+              }
+              try { void Promise.resolve(onDiagnostic?.(diagnostic)).catch(() => {}); } catch { /* Optional metadata must not replace the validation error. */ }
+              fail('invalid_tool_id');
+            }
             call.id = out.id = t.id;
           }
           for (const field of ['name', 'arguments']) {

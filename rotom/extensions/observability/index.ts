@@ -22,6 +22,7 @@ const QODER_TRACE_ERROR_MESSAGES = new Map([
 	["Qoder: request_failed", "transport_failure"],
 	["Qoder: connection_failed", "transport_failure"],
 	["Qoder: stream_failed", "transport_failure"],
+	["Qoder: invalid_tool_id", "invalid_tool_id"],
 ]);
 
 const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u;
@@ -377,8 +378,23 @@ function assistantAttributes(message: any): TraceAttributes {
 
 function qoderDiagnosticAttributes(value: unknown): TraceAttributes {
 	const diagnostic = record(value);
-	const allowedCodes = ["upstream_error_frame", "legacy_error", "transport_failure"];
+	const allowedCodes = ["upstream_error_frame", "legacy_error", "transport_failure", "invalid_tool_id"];
 	if (!diagnostic || !allowedCodes.includes(String(diagnostic.code))) return {};
+	if (diagnostic.code === "invalid_tool_id") {
+		// Event payloads are untrusted: persist only fixed categories and the
+		// parser's bounded wire index, never identities, arguments or prose.
+		return {
+			"pi.ai.qoder.diagnostic_code": "invalid_tool_id",
+			...(["non_string", "oversized", "changed"].includes(diagnostic.reason)
+				? { "pi.ai.qoder.tool_id_reason": diagnostic.reason } : {}),
+			...(diagnostic.reason === "changed" && ["extension", "fragment", "distinct"].includes(diagnostic.relation)
+				? { "pi.ai.qoder.tool_id_relation": diagnostic.relation } : {}),
+			...(diagnostic.reason === "changed" && typeof diagnostic.previousArgumentsComplete === "boolean"
+				? { "pi.ai.qoder.previous_arguments_complete": diagnostic.previousArgumentsComplete } : {}),
+			...(Number.isSafeInteger(diagnostic.wireIndex) && diagnostic.wireIndex >= 0 && diagnostic.wireIndex < 64
+				? { "pi.ai.qoder.tool_wire_index": diagnostic.wireIndex } : {}),
+		};
+	}
 	const status = Number.isSafeInteger(diagnostic.status) && (diagnostic.status as number) >= 0
 		? diagnostic.status as number
 		: undefined;

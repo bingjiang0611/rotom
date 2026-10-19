@@ -75,6 +75,37 @@ test('empty IDs on continuation deltas do not replace an established ID', async 
   await assert.rejects(normalized(frame(chunk(start)) + frame(chunk(changed)), { toolNames: ['echo'] }), { code: 'invalid_tool_id' });
 });
 
+test('invalid tool IDs emit only structural diagnostics without weakening validation', async () => {
+  const opts = { toolNames: ['echo'], allowOpaqueReasoning: true, opaqueModelId: 'ultimate' };
+  const initialId = 'PRIVATE_TOOL_ID';
+  const cases = [
+    [null, '{"private":"PRIVATE_ARGS"}', 'echo', '', { reason: 'non_string' }],
+    ['x'.repeat(513), '', 'echo', '', { reason: 'oversized' }],
+    ['PRIVATE_DIFFERENT_ID', '{"private":', '', '"PRIVATE_ARGS"}', { reason: 'changed', relation: 'distinct', previousArgumentsComplete: false }],
+    [initialId + '_EXTENSION', '{}', 'echo', '{}', { reason: 'changed', relation: 'extension', previousArgumentsComplete: true }],
+    ['PRIVATE_', '{}', 'echo', '{}', { reason: 'changed', relation: 'fragment', previousArgumentsComplete: true }],
+    ['TOOL_ID', '{}', '', '{}', { reason: 'changed', relation: 'fragment', previousArgumentsComplete: true }],
+    ['PRIVATE_DIFFERENT_ID', '[]', 'echo', '{}', { reason: 'changed', relation: 'distinct', previousArgumentsComplete: false }],
+    // A complete predecessor still cannot be rebased without an explicit declared name.
+    ['PRIVATE_DIFFERENT_ID', '{}', '', '{}', { reason: 'changed', relation: 'distinct', previousArgumentsComplete: true }],
+  ];
+  for (const [id, previousArgs, name, args, expected] of cases) {
+    const start = { tool_calls: [{ index: 0, id: initialId, function: { name: 'echo', arguments: previousArgs } }] };
+    const next = { tool_calls: [{ index: 0, id, function: { name, arguments: args } }] };
+    const diagnostics = [];
+    await assert.rejects(normalized(frame(chunk(start)) + frame(chunk(next)), { ...opts, onDiagnostic: d => diagnostics.push(d) }), { code: 'invalid_tool_id' });
+    assert.deepEqual(diagnostics, [{ code: 'invalid_tool_id', ...expected, wireIndex: 0 }]);
+    assert.doesNotMatch(JSON.stringify(diagnostics), /PRIVATE|TOOL_ID/);
+  }
+  const diagnostics = [];
+  await normalized(frame(chunk(toolDelta)) + frame(chunk({}, 'tool_calls')) + ending, { ...opts, onDiagnostic: d => diagnostics.push(d) });
+  assert.deepEqual(diagnostics, []);
+  const changed = structuredClone(toolDelta); changed.tool_calls[0].id = null;
+  for (const onDiagnostic of [() => { throw new Error('PRIVATE_LISTENER'); }, async () => { throw new Error('PRIVATE_LISTENER'); }]) {
+    await assert.rejects(normalized(frame(chunk(changed)), { ...opts, onDiagnostic }), { code: 'invalid_tool_id' });
+  }
+});
+
 test('invalid tool JSON, truncation, duplicate IDs, and unknown tool type are blocked', async () => {
   const bad = structuredClone(toolDelta); bad.tool_calls[0].function.arguments = '{';
   await assert.rejects(normalized(frame(chunk(bad)) + frame(chunk({}, 'stop')) + ending, { toolNames: ['echo'] }), { code: 'invalid_tool_arguments' });

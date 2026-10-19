@@ -5,6 +5,7 @@ import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { qoderChunks } from "../qoder/transport.mjs";
 import { classifyFaultSide, createObservabilityExtensionV1, LOCAL_TRACE_SCHEMA_V1, LocalTraceWriterV1, localTracePathForSessionFile, providerErrorAttributes, QODER_DIAGNOSTIC_EVENT, runtimeVersionAttributes, toolSurfaceMetrics } from "./index.ts";
 
 type Handler = (event: any, ctx: any) => unknown | Promise<unknown>;
@@ -327,6 +328,80 @@ test("Qoder diagnostics attach only allowlisted metadata to the active Qoder pro
 	assert.equal(transportEnd.attributes["pi.ai.qoder.error_code"], "transport_failure");
 	assert.equal(transportEnd.attributes["pi.ai.qoder.diagnostic_code"], "transport_failure");
 	assert.equal(transportEnd.attributes["pi.ai.qoder.transport_phase"], "request");
+});
+
+test("tool ID diagnostics reach trace through the parser without persisting tool content", async (t) => {
+	const root = mkdtempSync(join(tmpdir(), "rotom-observability-tool-id-"));
+	t.after(() => rm(root, { recursive: true, force: true }));
+	const sessionFile = join(root, "session.jsonl");
+	writeFileSync(sessionFile, "{\"type\":\"session\"}\n", { mode: 0o600 });
+	const harness = extensionHarness();
+	const ctx = {
+		mode: "print",
+		model: { provider: "qoder", id: "ultimate", api: "qoder" },
+		sessionManager: { getSessionFile: () => sessionFile, getSessionId: () => "tool-id-session" },
+		ui: { notify() {} },
+	};
+	await harness.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
+	await harness.emit("before_agent_start", { type: "before_agent_start", prompt: "", systemPrompt: "", images: [] }, ctx);
+	await harness.emit("agent_start", { type: "agent_start" }, ctx);
+	await harness.emit("turn_start", { type: "turn_start", turnIndex: 0 }, ctx);
+	const beginRequest = () => harness.emit("before_provider_headers", { type: "before_provider_headers", headers: {} }, ctx);
+	const endRequest = () => harness.emit("message_end", {
+		type: "message_end",
+		message: { ...assistantMessage("error"), provider: "qoder", model: "ultimate", errorMessage: "Qoder: invalid_tool_id" },
+	}, ctx);
+
+	await beginRequest();
+	const frame = (id: string, name: string, args: string) => `data: ${JSON.stringify({ choices: [{ delta: {
+		tool_calls: [{ index: 0, id, function: { name, arguments: args } }],
+	}, finish_reason: null }] })}\n\n`;
+	const body = new Response(frame("PRIVATE_TOOL_ID", "read", '{"path":') + frame("PRIVATE_DIFFERENT_ID", "", '"PRIVATE_PATH"}')).body;
+	await assert.rejects(async () => {
+		for await (const _chunk of qoderChunks(body, {
+			toolNames: ["read"], allowOpaqueReasoning: true, opaqueModelId: "ultimate",
+			onDiagnostic: (diagnostic: unknown) => harness.emitDiagnostic(diagnostic),
+		})) { /* Consume validated chunks until identity validation fails. */ }
+	}, { code: "invalid_tool_id" });
+	await endRequest();
+
+	// Event payloads can be forged by other extensions. Reject unknown enum
+	// values, out-of-range indices and arbitrary extra fields at persistence.
+	for (const wireIndex of [-1, 64, 1.5, "PRIVATE_INDEX"]) {
+		await beginRequest();
+		harness.emitDiagnostic({
+			code: "invalid_tool_id", reason: "PRIVATE_REASON", relation: "PRIVATE_RELATION",
+			previousArgumentsComplete: "PRIVATE_ARGUMENTS", wireIndex,
+			id: "PRIVATE_ID", arguments: "PRIVATE_ARGS", body: "PRIVATE_BODY", status: 418,
+		});
+		await endRequest();
+	}
+	await beginRequest();
+	harness.emitDiagnostic({ code: "invalid_tool_id", reason: "changed", relation: "PRIVATE_RELATION", previousArgumentsComplete: "PRIVATE_ARGUMENTS" });
+	await endRequest();
+	await beginRequest(); // A later request must not inherit the previous diagnostic.
+	await endRequest();
+	await harness.emit("session_shutdown", { type: "session_shutdown", reason: "quit" }, ctx);
+
+	const text = readFileSync(localTracePathForSessionFile(sessionFile), "utf8");
+	assert.doesNotMatch(text, /PRIVATE_/);
+	const ends = text.trim().split("\n").map(line => JSON.parse(line))
+		.filter(record => record.kind === "span_end" && record.name === "pi.ai.request");
+	assert.equal(ends.length, 7);
+	const qoderAttributes = (index: number) => Object.fromEntries(Object.entries(ends[index].attributes)
+		.filter(([key]) => key.startsWith("pi.ai.qoder.")));
+	assert.deepEqual(qoderAttributes(0), {
+		"pi.ai.qoder.error_code": "invalid_tool_id", "pi.ai.qoder.diagnostic_code": "invalid_tool_id",
+		"pi.ai.qoder.tool_id_reason": "changed", "pi.ai.qoder.tool_id_relation": "distinct",
+		"pi.ai.qoder.previous_arguments_complete": false, "pi.ai.qoder.tool_wire_index": 0,
+	});
+	for (const index of [1, 2, 3, 4]) assert.deepEqual(qoderAttributes(index), {
+		"pi.ai.qoder.error_code": "invalid_tool_id", "pi.ai.qoder.diagnostic_code": "invalid_tool_id",
+	});
+	assert.deepEqual(qoderAttributes(5), {
+		"pi.ai.qoder.error_code": "invalid_tool_id", "pi.ai.qoder.diagnostic_code": "invalid_tool_id", "pi.ai.qoder.tool_id_reason": "changed",
+	});
+	assert.deepEqual(qoderAttributes(6), { "pi.ai.qoder.error_code": "invalid_tool_id" });
 });
 
 test("trace write failures stay passive and surface through /trace", async (t) => {
