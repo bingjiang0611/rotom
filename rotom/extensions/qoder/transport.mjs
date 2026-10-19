@@ -297,11 +297,12 @@ export async function* qoderChunks(body, { signal, toolNames = [], onDiagnostic,
           let index = wireIndexes.get(wireIndex);
           if (index === undefined) { index = calls.has(wireIndex) ? freeIndex() : wireIndex; wireIndexes.set(wireIndex, index); }
           let call = calls.get(index) ?? { id: '', name: '', arguments: '' };
-          // Observed Ultimate batches restart index 0 for each serial tool.
+          // Observed Ultimate batches restart index 0 for each serial tool,
+          // including on the fixed COSY route after unwrapping its envelope.
           // Rebase only a new full, unique identity after a complete prior call
           // and with an explicit declared function name. Never concatenate IDs,
           // alias a correction, or guess an interleaved/unfinished call's owner.
-          if (allowOpaqueReasoning && opaqueModelId === 'ultimate' && !allowLegacyEnvelope && wireIndex === 0 && t.index === 0 && call.id && typeof t.id === 'string' && t.id && call.id !== t.id) {
+          if (allowOpaqueReasoning && opaqueModelId === 'ultimate' && wireIndex === 0 && t.index === 0 && call.id && typeof t.id === 'string' && t.id && call.id !== t.id) {
             let args; try { args = JSON.parse(call.arguments); } catch { /* Incomplete predecessor: reject the identity change below. */ }
             if (record(args) && toolNames.includes(call.name) && toolNames.includes(t.function.name) && t.id.length <= 512 && !t.id.startsWith(call.id) && !call.id.startsWith(t.id) && ![...calls.values()].some(c => c.id === t.id)) {
               index = freeIndex(); wireIndexes.set(wireIndex, index); call = { id: '', name: '', arguments: '' };

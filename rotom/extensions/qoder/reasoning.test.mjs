@@ -79,24 +79,26 @@ test('Ultimate tool continuation may omit terminal delta but still requires comp
   let received='';await assert.rejects((async()=>{for await(const chunk of response.body)received+=new TextDecoder().decode(chunk);})(),/data_after_done/);
   assert.doesNotMatch(received,/\[DONE\]/);assert.equal(meters.length,1);assert.equal(meters[0].status,'unknown');assert.equal(meters[0].outcome,'error');
 });
-test('Ultimate serial tool batches reuse zero but preserve distinct full IDs and exact arguments',async()=>{
-  const opts={allowReasoning:true,allowOpaqueReasoning:true,opaqueModelId:'ultimate',toolNames:['probe']};
+for (const allowLegacyEnvelope of [false, true]) test(`Ultimate ${allowLegacyEnvelope ? 'COSY' : 'direct'} serial tool batches preserve distinct full IDs and exact arguments`,async()=>{
+  const opts={allowReasoning:true,allowOpaqueReasoning:true,opaqueModelId:'ultimate',allowLegacyEnvelope,toolNames:['probe']};
+  const run=(wire,options=opts)=>normalize(allowLegacyEnvelope ? wire.replace(/^data: (.*)$/gm,(line,data)=>data.startsWith('[') ? line : 'data: '+JSON.stringify({statusCodeValue:200,body:data})) : wire,options);
   const start=(id,args,index=0,name='probe')=>({index,id,type:'function',function:{name,arguments:args}});
   const first=start('call_first','{"n":1}'),second=start('call_second','{"n":2}');
   for(const prefix of [frame({tool_calls:[first,second]}),frame({tool_calls:[first]})+frame({tool_calls:[second]})]){
-    const output=await normalize(prefix+end,opts),tools=output.split('\n\n').filter(s=>s.startsWith('data: {')).flatMap(s=>JSON.parse(s.slice(6)).choices.flatMap(c=>c.delta.tool_calls??[]));
+    const output=await run(prefix+end),tools=output.split('\n\n').filter(s=>s.startsWith('data: {')).flatMap(s=>JSON.parse(s.slice(6)).choices.flatMap(c=>c.delta.tool_calls??[]));
     assert.deepEqual(tools.map(t=>[t.index,t.id,t.function.arguments]),[[0,'call_first','{"n":1}'],[1,'call_second','{"n":2}']]);
-    await assert.rejects(normalize(prefix+end,{...opts,opaqueModelId:'smodel'}),/invalid_tool_id/);
+    await assert.rejects(run(prefix+end,{...opts,opaqueModelId:'smodel'}),/invalid_tool_id/);
+    await assert.rejects(run(prefix+end,{...opts,allowOpaqueReasoning:false}),/invalid_tool_id/);
   }
   const chunks=frame({tool_calls:[first]})+frame({tool_calls:[start('call_second','{"n":')]})+frame({tool_calls:[{index:0,id:'',function:{arguments:'2}'}}]});
-  assert.match(await normalize(chunks+end,opts),/call_second/);
-  for(const [a,b] of [[start('call_first','{'),second],[first,start('call_first_suffix','{}')],[first,start('call_second','{}',0,'unknown')],[first,{index:0,id:'call_second',function:{arguments:'{}'}}],[first,start(null,'{}')],[first,start('x'.repeat(513),'{}')],[start('call_first','{}',1),start('call_second','{}',1)]])await assert.rejects(normalize(frame({tool_calls:[a,b]})+end,opts),/invalid_tool_id/);
-  await assert.rejects(normalize(frame({tool_calls:[first,second,first]})+end,opts),/invalid_tool_id/);
-  await assert.rejects(normalize(frame({tool_calls:[first,start('call_second','{')]})+end,opts),/invalid_tool_arguments/);
+  assert.match(await run(chunks+end),/call_second/);
+  for(const [a,b] of [[start('call_first','{'),second],[first,start('call_first_suffix','{}')],[first,start('call_second','{}',0,'unknown')],[first,{index:0,id:'call_second',function:{arguments:'{}'}}],[first,start(null,'{}')],[first,start('x'.repeat(513),'{}')],[start('call_first','{}',1),start('call_second','{}',1)]])await assert.rejects(run(frame({tool_calls:[a,b]})+end),/invalid_tool_id/);
+  await assert.rejects(run(frame({tool_calls:[first,second,first]})+end),/invalid_tool_id/);
+  await assert.rejects(run(frame({tool_calls:[first,start('call_second','{')]})+end),/invalid_tool_arguments/);
   const many=Array.from({length:65},(_,n)=>start(`call_${String(n).padStart(3,'0')}`,'{}'));
-  await assert.rejects(normalize(frame({tool_calls:many})+end,opts),/invalid_tool_delta/);
+  await assert.rejects(run(frame({tool_calls:many})+end),/invalid_tool_delta/);
   // A genuine later index 1 must not collide with a rebased slot at index 1.
-  const mixed=await normalize(frame({tool_calls:[first,second,start('call_third','{}',1)]})+end,opts);
+  const mixed=await run(frame({tool_calls:[first,second,start('call_third','{}',1)]})+end);
   assert.match(mixed,/"index":2,"type":"function","function":\{"name":"probe","arguments":"\{\}"\},"id":"call_third"/);
 });
 test('malformed/foreign/multiple signature details are rejected with sanitized errors',()=>{

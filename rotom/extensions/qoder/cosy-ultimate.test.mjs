@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {normalizeSSE,reasoningDetailsToItem,validateReasoningSignature,createQoderFetch,CHAT_URL,ULTIMATE_COSY_REASONING_FORMAT,QODER_REASONING_FORMAT} from './transport.mjs';
+import {normalizeSSE,reasoningDetailsToItem,validateReasoningSignature,createQoderFetch,openQoderStream,CHAT_URL,ULTIMATE_COSY_REASONING_FORMAT,QODER_REASONING_FORMAT} from './transport.mjs';
+import {translateQoderStream} from './translate.mjs';
 import {LEGACY_URL} from './legacy.mjs';
 import {decodeProbeBody} from '../../../experiments/qoder-provider/probe-wire.mjs';
 const item={id:'fixture',encrypted_content:'opaque-fixture',target_hash:'h'.repeat(64)};
@@ -20,6 +21,24 @@ test('the original two-field Ultimate signature remains byte-preserving',async()
 test('a direct HTTP response cannot silently acquire the COSY schema',async()=>{
  const raw='data: '+JSON.stringify({choices:[{delta:{reasoning_item:item},finish_reason:null}]})+'\n\n';
  await assert.rejects(async()=>{for await(const f of normalizeSSE(new Response(raw).body,{...options,allowLegacyEnvelope:false}))void f;},/opaque_reasoning_replay_unsupported/);
+});
+test('fixed COSY dispatch translates serial zero-index read calls into distinct native tools',async()=>{
+ const delta=tool_calls=>frame({choices:[{delta:{tool_calls},finish_reason:null}]});
+ const tool=(id,args,name='read')=>({index:0,id,type:'function',function:{name,arguments:args}});
+ const body=delta([tool('call_first','{"path":"first.md"}')])+delta([tool('call_second','{"path":')])+delta([tool('','"second.md"}','')])+frame({choices:[{delta:{},finish_reason:'function_call'}],usage:{prompt_tokens:1,completion_tokens:1,total_tokens:2}})+'data: [DONE]\n\n';
+ const diagnostics=[];let requests=0;
+ const {chunks}=await openQoderStream({
+  modelId:'ultimate',legacyModel:{id:'ultimate',name:'Ultimate',enabled:true,reviewed:true,format:'openai',reportedContextWindow:1000000,contextWindow:32000},
+  getToken:()=> 'fixture',getLegacyCredential:()=>({accessToken:'fixture',uid:'fixture',org:'',machineId:'fixture-machine'}),
+  payload:{model:'ultimate',stream:true,messages:[{role:'user',content:'Read two fixture files.'}],tools:[{type:'function',function:{name:'read',parameters:{type:'object',properties:{path:{type:'string'}},required:['path']}}}]},
+  onDiagnostic:d=>diagnostics.push(d),
+  fetchImpl:(url,init)=>{requests++;assert.equal(url,LEGACY_URL);assert.equal(decodeProbeBody(init.body).model_config.key,'ultimate');return new Response(body,{headers:{'content-type':'text/event-stream'}});},
+ });
+ let result;
+ for await(const event of translateQoderStream(chunks,{id:'ultimate',provider:'qoder',api:'qoder'}))if(event.type==='done'||event.type==='error')result=event.message??event.error;
+ assert.equal(result.stopReason,'toolUse');
+ assert.deepEqual(result.content,[{type:'toolCall',id:'call_first',name:'read',arguments:{path:'first.md'}},{type:'toolCall',id:'call_second',name:'read',arguments:{path:'second.md'}}]);
+ assert.equal(requests,1);assert.deepEqual(diagnostics,[]);
 });
 test('both Ultimate signatures use one fixed COSY dispatch; HTTP rejection never falls back',async()=>{
  const details=await collect(item),old={id:'older-fixture',encrypted_content:'older-opaque'},oldDetails=[{type:'reasoning.encrypted',format:QODER_REASONING_FORMAT,id:old.id,data:old.encrypted_content}];let auth=0,calls=0;
