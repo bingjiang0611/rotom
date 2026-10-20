@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -10,12 +10,17 @@ import { test } from "node:test";
 test("bundled ad-hoc helper cannot silently replace an existing helper", { skip: process.platform !== "darwin" }, async (t) => {
 	const root = await mkdtemp(join(tmpdir(), "rotom-helper-install-"));
 	t.after(() => rm(root, { recursive: true, force: true }));
+	// Test the pinned distribution, not ignored prebuilt files left in a
+	// maintainer checkout (which can be missing or from an older release).
+	const { version } = JSON.parse(await readFile(resolve(import.meta.dirname, "../package.json"), "utf8"));
+	const archive = resolve(import.meta.dirname, `../../../rotom/extensions/third-party/vendor/injaneity-pi-computer-use-${version}.tgz`);
+	execFileSync("tar", ["-xzf", archive, "-C", root]);
 	const app = join(root, "test-helper.app");
 	await mkdir(join(app, "Contents", "MacOS"), { recursive: true });
 	const executable = join(app, "Contents", "MacOS", "bridge");
 	const original = "existing helper fixture: must not be replaced";
 	await writeFile(executable, original, { mode: 0o755 });
-	const result = spawnSync(process.execPath, [resolve(import.meta.dirname, "../scripts/setup-helper.mjs"), "--runtime"], {
+	const result = spawnSync(process.execPath, [join(root, "package/scripts/setup-helper.mjs"), "--runtime"], {
 		env: { ...process.env, PI_COMPUTER_USE_HELPER_APP_PATH: app, PI_COMPUTER_USE_ALLOW_ADHOC_UPDATE: "0" },
 		encoding: "utf8", timeout: 15_000,
 	});
