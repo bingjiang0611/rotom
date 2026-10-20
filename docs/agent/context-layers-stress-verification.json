@@ -1,0 +1,720 @@
+{
+  "schema": "rotom-context-layers/stress-verification-v1",
+  "date": "2026-10-20",
+  "productCommit": "6c4c0724ff4c6d008e41a477529be6a875035e9d",
+  "piVersion": "1.3.0-rotom.2",
+  "model": "dfmodel",
+  "contextWindow": 272000,
+  "scope": "Qoder + native read/write; layers added in candidate; no paid Reducer; unchanged model window and native compaction settings",
+  "rawReports": [
+    {
+      "file": "rotom-context-images.json",
+      "sha256": "a9a19c1a27d4ed0171ac63f5248b53bd32ef2a6711f2ef375e52f9369789c6d0"
+    },
+    {
+      "file": "rotom-context-attachment-recheck.json",
+      "sha256": "b48bdca9b0cfa7e845e76c3d5269d4ecaf3711e8db536ad8b7d022a669eb47e9"
+    },
+    {
+      "file": "rotom-context-long.json",
+      "sha256": "c1e768aebb4c67aa7137f2a461246f45ad38afaaa010a1edfd6378cbc5d46dbd"
+    },
+    {
+      "file": "rotom-context-long-resume.json",
+      "sha256": "b604ae830cb5b6dca9b229e27aacc99b818ccddfca918032078091bbcd1bb61a"
+    }
+  ],
+  "images": {
+    "fixture": "Two random 500x500 PNG grids, two arms each; 10 synthetic padding steps after each image; manual native compaction or explicitly requested Layers compression; disk reopen before recovery.",
+    "runs": [
+      {
+        "arm": "layers",
+        "case": "retained-file",
+        "completed": true,
+        "exactPixels": true,
+        "honestUnavailable": false,
+        "originalImageHidden": true,
+        "visibleImagesBeforeRecall": 0,
+        "recalledExactImageBytes": false,
+        "recoveryTools": [
+          "context_recall",
+          "context_recall",
+          "read",
+          "write"
+        ],
+        "credits": {
+          "credits": 0.9094568991428571,
+          "reported": 10,
+          "unknown": 0
+        },
+        "providerRequests": 10,
+        "blocks": 1,
+        "nativeCompactions": 0,
+        "expectedDigest": "e5e276d219ca4e7ffe6ec837037e9518dea072734ccbfbfbc6ac7afd9c9b61a4"
+      },
+      {
+        "arm": "native",
+        "case": "retained-file",
+        "completed": true,
+        "exactPixels": true,
+        "honestUnavailable": false,
+        "originalImageHidden": true,
+        "visibleImagesBeforeRecall": 0,
+        "recalledExactImageBytes": false,
+        "recoveryTools": [
+          "read",
+          "write"
+        ],
+        "credits": {
+          "credits": 0.5328087343428571,
+          "reported": 7,
+          "unknown": 0
+        },
+        "providerRequests": 7,
+        "blocks": 0,
+        "nativeCompactions": 1,
+        "expectedDigest": "e5e276d219ca4e7ffe6ec837037e9518dea072734ccbfbfbc6ac7afd9c9b61a4"
+      },
+      {
+        "arm": "native",
+        "case": "attachment-only",
+        "completed": true,
+        "exactPixels": false,
+        "honestUnavailable": true,
+        "originalImageHidden": true,
+        "visibleImagesBeforeRecall": 0,
+        "recalledExactImageBytes": false,
+        "recoveryTools": [
+          "read",
+          "read",
+          "read",
+          "read",
+          "write"
+        ],
+        "credits": {
+          "credits": 0.5353250506285714,
+          "reported": 6,
+          "unknown": 0
+        },
+        "providerRequests": 6,
+        "blocks": 0,
+        "nativeCompactions": 1,
+        "expectedDigest": "348e4986c7a470456cae57094eda99989bac69e13aa0195ac68b97b682acc33b"
+      },
+      {
+        "arm": "layers",
+        "case": "attachment-only",
+        "completed": true,
+        "exactPixels": true,
+        "honestUnavailable": false,
+        "originalImageHidden": true,
+        "visibleImagesBeforeRecall": 0,
+        "recalledExactImageBytes": true,
+        "recoveryTools": [
+          "context_recall",
+          "context_recall",
+          "write"
+        ],
+        "credits": {
+          "credits": 0.8961194704,
+          "reported": 8,
+          "unknown": 0
+        },
+        "providerRequests": 8,
+        "blocks": 1,
+        "nativeCompactions": 0,
+        "expectedDigest": "348e4986c7a470456cae57094eda99989bac69e13aa0195ac68b97b682acc33b"
+      }
+    ],
+    "supersededAttachmentPair": [
+      {
+        "arm": "native",
+        "outcome": "verified",
+        "credits": {
+          "credits": 0.5235743678857142,
+          "reported": 5,
+          "unknown": 0
+        }
+      },
+      {
+        "arm": "layers",
+        "outcome": "incomplete",
+        "credits": {
+          "credits": 0.8665816126285714,
+          "reported": 4,
+          "unknown": 0
+        }
+      }
+    ],
+    "correction": "Carrier entries may project a summary. The first attachment candidate was rejected by an incorrect entry-presence assertion even though original pixels were hidden. Corrected to image-byte/image-content absence; restoring original pixels makes the check fail. Rechecked a fresh attachment pair; no product implementation change."
+  },
+  "long": {
+    "fixture": {
+      "rounds": 32,
+      "rows": 600,
+      "realTurns": true,
+      "sourceFilesRetained": true
+    },
+    "native": {
+      "outcome": "verified",
+      "completedRounds": 32,
+      "finalExactRecovery": true,
+      "hiddenAnswerControl": true,
+      "credits": {
+        "credits": 10.309560023657138,
+        "reported": 103,
+        "unknown": 0
+      },
+      "providerRequests": 103,
+      "observedPreRequestSamples": 99,
+      "peakObservedContextTokens": 266038,
+      "recordedSegmentSeconds": 300.329,
+      "tools": {
+        "read": 35,
+        "write": 33
+      },
+      "blocks": 0,
+      "nativeCompactions": 2,
+      "nativeEvents": [
+        {
+          "reason": "threshold",
+          "tokensBefore": 264602,
+          "summaryCallCount": 2
+        },
+        {
+          "reason": "threshold",
+          "tokensBefore": 266038,
+          "summaryCallCount": 2
+        }
+      ],
+      "checkpoints": [
+        {
+          "phase": "round-0",
+          "tokens": 23085,
+          "blocks": 0,
+          "nativeCompactions": 0,
+          "credits": 0.22944385257142857
+        },
+        {
+          "phase": "round-1",
+          "tokens": 45039,
+          "blocks": 0,
+          "nativeCompactions": 0,
+          "credits": 0.46437559857142857
+        },
+        {
+          "phase": "round-2",
+          "tokens": 67153,
+          "blocks": 0,
+          "nativeCompactions": 0,
+          "credits": 0.7133648093142857
+        },
+        {
+          "phase": "round-3",
+          "tokens": 89193,
+          "blocks": 0,
+          "nativeCompactions": 0,
+          "credits": 0.9739363134285715
+        },
+        {
+          "phase": "round-4",
+          "tokens": 111200,
+          "blocks": 0,
+          "nativeCompactions": 0,
+          "credits": 1.2470413965714287
+        },
+        {
+          "phase": "round-5",
+          "tokens": 133181,
+          "blocks": 0,
+          "nativeCompactions": 0,
+          "credits": 1.5313847558857145
+        },
+        {
+          "phase": "round-6",
+          "tokens": 155206,
+          "blocks": 0,
+          "nativeCompactions": 0,
+          "credits": 1.829437372057143
+        },
+        {
+          "phase": "round-7",
+          "tokens": 177117,
+          "blocks": 0,
+          "nativeCompactions": 0,
+          "credits": 2.1392562908
+        },
+        {
+          "phase": "round-8",
+          "tokens": 199041,
+          "blocks": 0,
+          "nativeCompactions": 0,
+          "credits": 2.461436208514286
+        },
+        {
+          "phase": "round-9",
+          "tokens": 220900,
+          "blocks": 0,
+          "nativeCompactions": 0,
+          "credits": 2.795914645885714
+        },
+        {
+          "phase": "round-10",
+          "tokens": 242792,
+          "blocks": 0,
+          "nativeCompactions": 0,
+          "credits": 3.1424630200571424
+        },
+        {
+          "phase": "round-11",
+          "tokens": 24606,
+          "blocks": 0,
+          "nativeCompactions": 1,
+          "credits": 3.900119948628571
+        },
+        {
+          "phase": "round-12",
+          "tokens": 46612,
+          "blocks": 0,
+          "nativeCompactions": 1,
+          "credits": 4.137238470628572
+        },
+        {
+          "phase": "round-13",
+          "tokens": 68535,
+          "blocks": 0,
+          "nativeCompactions": 1,
+          "credits": 4.386313780914286
+        },
+        {
+          "phase": "round-14",
+          "tokens": 90570,
+          "blocks": 0,
+          "nativeCompactions": 1,
+          "credits": 4.6474940773714275
+        },
+        {
+          "phase": "round-15",
+          "tokens": 112541,
+          "blocks": 0,
+          "nativeCompactions": 1,
+          "credits": 4.921774076399998
+        },
+        {
+          "phase": "round-16",
+          "tokens": 134452,
+          "blocks": 0,
+          "nativeCompactions": 1,
+          "credits": 5.208548414399997
+        },
+        {
+          "phase": "round-17",
+          "tokens": 156469,
+          "blocks": 0,
+          "nativeCompactions": 1,
+          "credits": 5.508117677828568
+        },
+        {
+          "phase": "round-18",
+          "tokens": 178374,
+          "blocks": 0,
+          "nativeCompactions": 1,
+          "credits": 5.8181632745714245
+        },
+        {
+          "phase": "round-19",
+          "tokens": 200321,
+          "blocks": 0,
+          "nativeCompactions": 1,
+          "credits": 6.1419550823999955
+        },
+        {
+          "phase": "round-20",
+          "tokens": 222221,
+          "blocks": 0,
+          "nativeCompactions": 1,
+          "credits": 6.477755490628566
+        },
+        {
+          "phase": "round-21",
+          "tokens": 244172,
+          "blocks": 0,
+          "nativeCompactions": 1,
+          "credits": 6.826183577828566
+        },
+        {
+          "phase": "round-22",
+          "tokens": 24795,
+          "blocks": 0,
+          "nativeCompactions": 2,
+          "credits": 7.586767509885709
+        },
+        {
+          "phase": "round-23",
+          "tokens": 46686,
+          "blocks": 0,
+          "nativeCompactions": 2,
+          "credits": 7.821122084171423
+        },
+        {
+          "phase": "round-24",
+          "tokens": 68655,
+          "blocks": 0,
+          "nativeCompactions": 2,
+          "credits": 8.069556219542852
+        },
+        {
+          "phase": "round-25",
+          "tokens": 90531,
+          "blocks": 0,
+          "nativeCompactions": 2,
+          "credits": 8.329894188171425
+        },
+        {
+          "phase": "round-26",
+          "tokens": 112503,
+          "blocks": 0,
+          "nativeCompactions": 2,
+          "credits": 8.60298365148571
+        },
+        {
+          "phase": "round-27",
+          "tokens": 134479,
+          "blocks": 0,
+          "nativeCompactions": 2,
+          "credits": 8.888715651657137
+        },
+        {
+          "phase": "round-28",
+          "tokens": 156424,
+          "blocks": 0,
+          "nativeCompactions": 2,
+          "credits": 9.187637263657138
+        },
+        {
+          "phase": "round-29",
+          "tokens": 178250,
+          "blocks": 0,
+          "nativeCompactions": 2,
+          "credits": 9.497186454628567
+        },
+        {
+          "phase": "round-30",
+          "tokens": 200173,
+          "blocks": 0,
+          "nativeCompactions": 2,
+          "credits": 9.820562241657138
+        },
+        {
+          "phase": "round-31",
+          "tokens": 222085,
+          "blocks": 0,
+          "nativeCompactions": 2,
+          "credits": 10.156137114799995
+        },
+        {
+          "phase": "final-recovery",
+          "tokens": 222918,
+          "blocks": 0,
+          "nativeCompactions": 2,
+          "credits": 10.309560023657138
+        }
+      ],
+      "diskRestarts": 3
+    },
+    "layers": {
+      "outcome": "verified",
+      "completedRounds": 32,
+      "finalExactRecovery": true,
+      "hiddenAnswerControl": true,
+      "credits": {
+        "credits": 13.426777591028575,
+        "reported": 142,
+        "unknown": 0
+      },
+      "providerRequests": 142,
+      "observedPreRequestSamples": 139,
+      "peakObservedContextTokens": 142810,
+      "recordedSegmentSeconds": 403.69800000000004,
+      "tools": {
+        "read": 35,
+        "write": 33,
+        "context_status": 18,
+        "context_compress": 25
+      },
+      "blocks": 18,
+      "nativeCompactions": 0,
+      "nativeEvents": [],
+      "checkpoints": [
+        {
+          "phase": "round-0",
+          "tokens": 23680,
+          "blocks": 0,
+          "nativeCompactions": 0,
+          "credits": 0.23327413931428573
+        },
+        {
+          "phase": "round-1",
+          "tokens": 45618,
+          "blocks": 0,
+          "nativeCompactions": 0,
+          "credits": 0.4688847764
+        },
+        {
+          "phase": "round-2",
+          "tokens": 67714,
+          "blocks": 0,
+          "nativeCompactions": 0,
+          "credits": 0.7180004696571428
+        },
+        {
+          "phase": "round-3",
+          "tokens": 24710,
+          "blocks": 1,
+          "nativeCompactions": 0,
+          "credits": 1.235137182342857
+        },
+        {
+          "phase": "round-4",
+          "tokens": 24882,
+          "blocks": 2,
+          "nativeCompactions": 0,
+          "credits": 1.711343086685714
+        },
+        {
+          "phase": "round-5",
+          "tokens": 46852,
+          "blocks": 2,
+          "nativeCompactions": 0,
+          "credits": 1.9470417281714283
+        },
+        {
+          "phase": "round-6",
+          "tokens": 25373,
+          "blocks": 3,
+          "nativeCompactions": 0,
+          "credits": 2.449041303085714
+        },
+        {
+          "phase": "round-7",
+          "tokens": 25468,
+          "blocks": 4,
+          "nativeCompactions": 0,
+          "credits": 2.929693905942857
+        },
+        {
+          "phase": "round-8",
+          "tokens": 25903,
+          "blocks": 5,
+          "nativeCompactions": 0,
+          "credits": 3.4312755551999996
+        },
+        {
+          "phase": "round-9",
+          "tokens": 47963,
+          "blocks": 5,
+          "nativeCompactions": 0,
+          "credits": 3.6841727708571423
+        },
+        {
+          "phase": "round-10",
+          "tokens": 69854,
+          "blocks": 5,
+          "nativeCompactions": 0,
+          "credits": 3.931604951371428
+        },
+        {
+          "phase": "round-11",
+          "tokens": 26187,
+          "blocks": 6,
+          "nativeCompactions": 0,
+          "credits": 4.456226609714285
+        },
+        {
+          "phase": "round-12",
+          "tokens": 26827,
+          "blocks": 7,
+          "nativeCompactions": 0,
+          "credits": 4.974319560685714
+        },
+        {
+          "phase": "round-13",
+          "tokens": 48738,
+          "blocks": 7,
+          "nativeCompactions": 0,
+          "credits": 5.211976776285714
+        },
+        {
+          "phase": "round-14",
+          "tokens": 70761,
+          "blocks": 7,
+          "nativeCompactions": 0,
+          "credits": 5.4613961037714285
+        },
+        {
+          "phase": "round-15",
+          "tokens": 27326,
+          "blocks": 8,
+          "nativeCompactions": 0,
+          "credits": 6.010499748057143
+        },
+        {
+          "phase": "round-16",
+          "tokens": 27386,
+          "blocks": 9,
+          "nativeCompactions": 0,
+          "credits": 6.518845545028571
+        },
+        {
+          "phase": "round-17",
+          "tokens": 27657,
+          "blocks": 10,
+          "nativeCompactions": 0,
+          "credits": 7.0248072228
+        },
+        {
+          "phase": "round-18",
+          "tokens": 27900,
+          "blocks": 11,
+          "nativeCompactions": 0,
+          "credits": 7.528865567314284
+        },
+        {
+          "phase": "round-19",
+          "tokens": 28543,
+          "blocks": 12,
+          "nativeCompactions": 0,
+          "credits": 8.060763398971426
+        },
+        {
+          "phase": "round-20",
+          "tokens": 50453,
+          "blocks": 12,
+          "nativeCompactions": 0,
+          "credits": 8.299029787885713
+        },
+        {
+          "phase": "round-21",
+          "tokens": 72408,
+          "blocks": 12,
+          "nativeCompactions": 0,
+          "credits": 8.54986671005714
+        },
+        {
+          "phase": "round-22",
+          "tokens": 28938,
+          "blocks": 13,
+          "nativeCompactions": 0,
+          "credits": 9.106989040971428
+        },
+        {
+          "phase": "round-23",
+          "tokens": 29123,
+          "blocks": 14,
+          "nativeCompactions": 0,
+          "credits": 9.625220284571428
+        },
+        {
+          "phase": "round-25",
+          "tokens": 30215,
+          "blocks": 16,
+          "nativeCompactions": 0,
+          "credits": 10.703823926342858
+        },
+        {
+          "phase": "round-26",
+          "tokens": 30362,
+          "blocks": 17,
+          "nativeCompactions": 0,
+          "credits": 11.235929768400002
+        },
+        {
+          "phase": "round-27",
+          "tokens": 52691,
+          "blocks": 17,
+          "nativeCompactions": 0,
+          "credits": 11.499289602400001
+        },
+        {
+          "phase": "round-28",
+          "tokens": 74983,
+          "blocks": 17,
+          "nativeCompactions": 0,
+          "credits": 11.778287170628573
+        },
+        {
+          "phase": "round-29",
+          "tokens": 96808,
+          "blocks": 17,
+          "nativeCompactions": 0,
+          "credits": 12.041919399200003
+        },
+        {
+          "phase": "round-30",
+          "tokens": 118730,
+          "blocks": 17,
+          "nativeCompactions": 0,
+          "credits": 12.318154924571433
+        },
+        {
+          "phase": "round-31",
+          "tokens": 74987,
+          "blocks": 18,
+          "nativeCompactions": 0,
+          "credits": 13.35956737354286
+        },
+        {
+          "phase": "final-recovery",
+          "tokens": 75753,
+          "blocks": 18,
+          "nativeCompactions": 0,
+          "credits": 13.426777591028575
+        }
+      ],
+      "diskRestarts": 4
+    },
+    "continuation": {
+      "reason": "Initial suite soft limit of 20 Cr; observer exceptions alone did not abort the in-flight tool loop.",
+      "firstSegmentCompletedRounds": 24,
+      "independentlyVerifiedExistingFiles": 25,
+      "initialCandidateCredits": 10.150037381257144,
+      "initialSuiteCredits": 20.459597404914284,
+      "extraAllowance": 5,
+      "actualExtraCredits": 3.2767402097714307,
+      "existingWritesReplayed": false,
+      "observerBudgetErrors": 3,
+      "guardCorrection": "Explicit abort before throwing; final harness uses a 30 Cr suite guard and stops when metering is unknown."
+    },
+    "creditRatio": 1.3023618428156412
+  },
+  "checks": {
+    "extensionTests": {
+      "passed": 8,
+      "failed": 0
+    },
+    "budgetTests": {
+      "passed": 2,
+      "failed": 0
+    },
+    "budgetNegativeControl": {
+      "abortRemoved": true,
+      "expectedFailures": 1
+    },
+    "pixelCarrierNegativeControl": {
+      "summaryCarrierAccepted": true,
+      "originalPixelsRejected": true
+    }
+  },
+  "totalReportedCredits": 28.000203749714284,
+  "usd": "unknown",
+  "limitations": [
+    "One paired long workload; no statistical significance or universal cost-saving claim.",
+    "Native control includes real default-threshold auto compaction; paid Reducer and full default tool bundle were not enabled.",
+    "Only PNG grids and Qoder dfmodel; not multi-day sessions or other providers.",
+    "Native attachment failure is under read/write-only tools without a disclosed session-file path; original session JSONL is not erased.",
+    "Layers required an extra restart for budget continuation; elapsed times and cost ratio include this confound.",
+    "Context peaks are Pi observations, not a complete provider-token trace; three main-request observations were missed when the budget observer threw.",
+    "Hidden detail probes were selected after compression per arm; all 32 primary file tasks used identical packets and questions.",
+    "No runtime installation replacement or npm publication."
+  ]
+}
