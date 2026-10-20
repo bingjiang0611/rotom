@@ -17,6 +17,7 @@ BUNDLE_ROOTS = (
     "extensions/observability",
     "extensions/browser",
     "extensions/coding-policy",
+    "extensions/context-layers",
     "extensions/third-party",
 )
 
@@ -28,6 +29,7 @@ REQUIRED_PRODUCT_FILES = (
     "extensions/observability/dashboard.mjs",
     "extensions/browser/index.ts",
     "extensions/coding-policy/index.ts",
+    "extensions/context-layers/index.ts",
     "extensions/third-party/index.ts",
     "skills/pi-subagents/SKILL.md",
     "extensions/third-party/package.json",

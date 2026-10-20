@@ -19,6 +19,7 @@ if (!piExecutable || !agentDirInput) {
 const agentDir = resolve(agentDirInput);
 const goalToolNames = ["goal_complete", "goal_blocked", "goal_wait", "goal_continue"];
 const SOL_PI_SESSION_TOOL_NAMES = ["obs_recall"];
+const contextLayerTools = process.env.ROTOM_CONTEXT_LAYERS === "0" ? [] : ["context_status", "context_compress", "context_recall"];
 const deferredToolsActive = deferredToolsEnabled(process.env);
 process.env[DEFERRED_DEFAULT_SURFACE_ENV] = "1";
 const declarations = RESOURCE_DESCRIPTORS_V1.map((resource) => `${resource.kind}:${resolve(agentDir, resource.path)}`);
@@ -71,7 +72,7 @@ try {
 	const loaded = loader.getExtensions();
 	assert.deepEqual(loaded.errors, []);
 	assert.deepEqual(loaded.extensions.map((extension) => resolve(extension.path)), [...extensions, nativeExtension]);
-	assert.equal(loaded.extensions.length, 6);
+	assert.equal(loaded.extensions.length, 7);
 	assert.equal(loaded.extensions.find((extension) => resolve(extension.path) === nativeExtension)?.commands.has("native-extension-smoke"), true, "Pi agentDir extensions 必须无需产品声明即可发现");
 	assert.deepEqual(skills, [resolve(agentDir, "skills/pi-subagents")], "产品只加载自有精简版 Subagent skill");
 	assert.equal(loader.getSkills().skills.filter((skill) => skill.name === "pi-subagents").length, 1, "不得同时加载上游完整指南");
@@ -141,7 +142,7 @@ try {
 	assert.equal(thirdParty?.commands.has("context"), true, "pi-context-view 必须提供 /context 命令");
 	assert.deepEqual(new Set(extensionToolNames), new Set([
 		...RESIDENT_BROWSER_TOOL_NAMES, "ask_user_question", "codemode", ...DEFERRED_CAPABILITY_GROUPS.flatMap((group) => [...group.toolNames]),
-		...goalToolNames, ...(deferredToolsActive ? [DEFERRED_TOOL_SEARCH_NAME] : []),
+		...goalToolNames, ...contextLayerTools, ...(deferredToolsActive ? [DEFERRED_TOOL_SEARCH_NAME] : []),
 	]), "公开工具面必须精确匹配保留的能力，不得加载未声明的业务平台工具");
 	assert.equal(thirdParty?.tools.has(DEFERRED_TOOL_SEARCH_NAME), deferredToolsActive, "deferred loader 默认注册且必须可显式关闭");
 	for (const command of ["computer-use", "goal", ...PRODUCT_SUBAGENT_ALLOWED_COMMANDS]) assert.equal(thirdParty?.commands.has(command), true);
@@ -176,18 +177,18 @@ try {
 	// rotom Goal keeps all four schemas stable from startup. Visibility is
 	// not Goal activation: the inactive-call rejection is checked below.
 	if (deferredToolsActive) {
-		assert.deepEqual(new Set(activeTools), new Set([...DEFERRED_INITIAL_TOOL_NAMES, ...SOL_PI_SESSION_TOOL_NAMES, ...goalToolNames, DEFERRED_TOOL_SEARCH_NAME]), "默认初始工具面必须保留 core + Ask + Browser/Computer Use + Goal + loader");
+		assert.deepEqual(new Set(activeTools), new Set([...DEFERRED_INITIAL_TOOL_NAMES, ...SOL_PI_SESSION_TOOL_NAMES, ...goalToolNames, ...contextLayerTools, DEFERRED_TOOL_SEARCH_NAME]), "默认初始工具面必须保留 core + Ask + Browser/Computer Use + Goal + loader");
 		for (const tool of RESIDENT_BROWSER_TOOL_NAMES) assert.equal(activeTools.includes(tool), true, `默认必须预加载 ${tool}`);
 		for (const tool of DEFERRED_CAPABILITY_GROUPS.flatMap((group) => [...group.toolNames])) assert.equal(activeTools.includes(tool), false, `默认不得预加载 ${tool}`);
 	} else {
 		assert.deepEqual(new Set(activeTools), new Set([
-			...DEFERRED_INITIAL_TOOL_NAMES, ...SOL_PI_SESSION_TOOL_NAMES, ...goalToolNames,
+			...DEFERRED_INITIAL_TOOL_NAMES, ...SOL_PI_SESSION_TOOL_NAMES, ...goalToolNames, ...contextLayerTools,
 			...DEFERRED_CAPABILITY_GROUPS.flatMap((group) => [...group.toolNames]),
 		]), "full opt-out 必须保留 Goal 与 Subagent，且不注册 loader");
 	}
 	// Exercise the real worker and nested tool dispatch without a provider request.
 	assert.ok(activeTools.includes("codemode"));
-	for (const name of [...goalToolNames, "ask_user_question", ...RESIDENT_BROWSER_TOOL_NAMES]) {
+	for (const name of [...goalToolNames, ...contextLayerTools, "ask_user_question", ...RESIDENT_BROWSER_TOOL_NAMES]) {
 		assert.equal(realToolInfos.find(tool => tool.name === name)?.exposure, "model-only");
 	}
 	await writeFile(resolve(businessCwd, "codemode-fixture.txt"), "codemode-without-mcp");

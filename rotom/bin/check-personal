@@ -52,6 +52,7 @@ PI_SUBAGENTS_EXECUTION_SCOPE= PI_SUBAGENTS_TEMP_ROOT= ROTOM_PI="$pi_command" ROT
 	rotom/extensions/browser/ownership.test.mjs \
 	rotom/extensions/coding-policy/index.test.ts \
 	rotom/extensions/coding-policy/repair-hints.test.ts \
+	rotom/extensions/context-layers/index.test.ts \
 	rotom/extensions/third-party/deferred-tools/register.test.ts \
 	rotom/extensions/third-party/subagent/skill.test.ts \
 	rotom/extensions/third-party/index.test.ts \

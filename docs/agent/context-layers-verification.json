@@ -1,0 +1,315 @@
+{
+  "schema": "rotom-context-layers/live-v1",
+  "model": "dfmodel",
+  "repetitions": 2,
+  "scope": "Qoder + context-layers + native read/write; no paid reducer",
+  "runs": [
+    {
+      "arm": "layers",
+      "repetition": 1,
+      "outcome": "verified",
+      "calls": [
+        "context_status",
+        "context_compress",
+        "context_recall",
+        "write"
+      ],
+      "usage": [
+        {
+          "estimatedInput": 10729
+        },
+        {
+          "estimatedInput": 14657
+        },
+        {
+          "estimatedInput": 3429
+        },
+        {
+          "estimatedInput": 4377
+        },
+        {
+          "estimatedInput": 7439
+        },
+        {
+          "estimatedInput": 8517
+        }
+      ],
+      "blocks": 1,
+      "hiddenAnswerControl": true,
+      "artifactSha256": "ef2366227992b54fbbf6f57b06074743a2c2171c11101cbfed73ec50b1a0d4ab",
+      "phases": [
+        "prepare",
+        "resume-recall-write"
+      ],
+      "credits": {
+        "credits": 0.23263753605714282,
+        "reported": 6,
+        "unknown": 0
+      },
+      "nativeCompactions": 0,
+      "reportedUsage": [
+        {
+          "stopReason": "toolUse",
+          "input": 14053,
+          "output": 22,
+          "cacheRead": 512,
+          "cacheWrite": 0
+        },
+        {
+          "stopReason": "toolUse",
+          "input": 226,
+          "output": 278,
+          "cacheRead": 14464,
+          "cacheWrite": 0
+        },
+        {
+          "stopReason": "stop",
+          "input": 2731,
+          "output": 36,
+          "cacheRead": 1536,
+          "cacheWrite": 0
+        },
+        {
+          "stopReason": "toolUse",
+          "input": 148,
+          "output": 124,
+          "cacheRead": 4224,
+          "cacheWrite": 0
+        },
+        {
+          "stopReason": "toolUse",
+          "input": 3911,
+          "output": 117,
+          "cacheRead": 4480,
+          "cacheWrite": 0
+        },
+        {
+          "stopReason": "stop",
+          "input": 206,
+          "output": 43,
+          "cacheRead": 8320,
+          "cacheWrite": 0
+        }
+      ],
+      "extensionErrors": [],
+      "finished": true
+    },
+    {
+      "arm": "native",
+      "repetition": 1,
+      "outcome": "verified",
+      "calls": [
+        "write"
+      ],
+      "usage": [
+        {
+          "estimatedInput": 10047
+        },
+        {
+          "estimatedInput": 14329
+        },
+        {
+          "estimatedInput": 14497
+        }
+      ],
+      "blocks": 0,
+      "hiddenAnswerControl": null,
+      "artifactSha256": "5b012e2fc71d50213ae26f03d896b1279ef3eb7ec200c4bc7f489d3983dba5b4",
+      "phases": [
+        "prepare",
+        "resume-recall-write"
+      ],
+      "credits": {
+        "credits": 0.1595603585714286,
+        "reported": 3,
+        "unknown": 0
+      },
+      "nativeCompactions": 0,
+      "reportedUsage": [
+        {
+          "stopReason": "stop",
+          "input": 13567,
+          "output": 304,
+          "cacheRead": 384,
+          "cacheWrite": 0
+        },
+        {
+          "stopReason": "toolUse",
+          "input": 244,
+          "output": 164,
+          "cacheRead": 14080,
+          "cacheWrite": 0
+        },
+        {
+          "stopReason": "stop",
+          "input": 170,
+          "output": 81,
+          "cacheRead": 14336,
+          "cacheWrite": 0
+        }
+      ],
+      "extensionErrors": [],
+      "finished": true
+    },
+    {
+      "arm": "native",
+      "repetition": 2,
+      "outcome": "verified",
+      "calls": [
+        "write"
+      ],
+      "usage": [
+        {
+          "estimatedInput": 10047
+        },
+        {
+          "estimatedInput": 14225
+        },
+        {
+          "estimatedInput": 14368
+        }
+      ],
+      "blocks": 0,
+      "hiddenAnswerControl": null,
+      "artifactSha256": "d818aad98e904ece816be26e213154338a6cacbf7e54d7a220fab5cff83ebe5f",
+      "phases": [
+        "prepare",
+        "resume-recall-write"
+      ],
+      "credits": {
+        "credits": 0.15484050354285714,
+        "reported": 3,
+        "unknown": 0
+      },
+      "nativeCompactions": 0,
+      "reportedUsage": [
+        {
+          "stopReason": "stop",
+          "input": 13527,
+          "output": 240,
+          "cacheRead": 384,
+          "cacheWrite": 0
+        },
+        {
+          "stopReason": "toolUse",
+          "input": 140,
+          "output": 139,
+          "cacheRead": 14080,
+          "cacheWrite": 0
+        },
+        {
+          "stopReason": "stop",
+          "input": 169,
+          "output": 83,
+          "cacheRead": 14208,
+          "cacheWrite": 0
+        }
+      ],
+      "extensionErrors": [],
+      "finished": true
+    },
+    {
+      "arm": "layers",
+      "repetition": 2,
+      "outcome": "verified",
+      "calls": [
+        "context_status",
+        "context_compress",
+        "context_status",
+        "context_recall",
+        "write"
+      ],
+      "usage": [
+        {
+          "estimatedInput": 10729
+        },
+        {
+          "estimatedInput": 14626
+        },
+        {
+          "estimatedInput": 3452
+        },
+        {
+          "estimatedInput": 4454
+        },
+        {
+          "estimatedInput": 4572
+        },
+        {
+          "estimatedInput": 7649
+        },
+        {
+          "estimatedInput": 8725
+        }
+      ],
+      "blocks": 1,
+      "hiddenAnswerControl": true,
+      "artifactSha256": "ffc358e96838a86b4fbe756c2071853fa5f261c5b61711ee3b7f10be81fbbf22",
+      "phases": [
+        "prepare",
+        "resume-recall-write"
+      ],
+      "credits": {
+        "credits": 0.23963521925714285,
+        "reported": 7,
+        "unknown": 0
+      },
+      "nativeCompactions": 0,
+      "reportedUsage": [
+        {
+          "stopReason": "toolUse",
+          "input": 14022,
+          "output": 22,
+          "cacheRead": 512,
+          "cacheWrite": 0
+        },
+        {
+          "stopReason": "toolUse",
+          "input": 194,
+          "output": 342,
+          "cacheRead": 14464,
+          "cacheWrite": 0
+        },
+        {
+          "stopReason": "stop",
+          "input": 2814,
+          "output": 30,
+          "cacheRead": 1536,
+          "cacheWrite": 0
+        },
+        {
+          "stopReason": "toolUse",
+          "input": 225,
+          "output": 58,
+          "cacheRead": 4224,
+          "cacheWrite": 0
+        },
+        {
+          "stopReason": "toolUse",
+          "input": 255,
+          "output": 99,
+          "cacheRead": 4352,
+          "cacheWrite": 0
+        },
+        {
+          "stopReason": "toolUse",
+          "input": 3987,
+          "output": 121,
+          "cacheRead": 4608,
+          "cacheWrite": 0
+        },
+        {
+          "stopReason": "stop",
+          "input": 158,
+          "output": 13,
+          "cacheRead": 8576,
+          "cacheWrite": 0
+        }
+      ],
+      "extensionErrors": [],
+      "finished": true
+    }
+  ],
+  "startedAt": "2026-10-20T11:46:44.989Z",
+  "finishedAt": "2026-10-20T11:47:52.382Z"
+}

@@ -52,7 +52,7 @@ class ProductBundleTest(unittest.TestCase):
             self.assertEqual((destination / archive).read_bytes(), (product / archive).read_bytes())
             self.assertEqual(
                 {path.name for path in (destination / "extensions").iterdir()},
-                {"observability", "browser", "coding-policy", "third-party"},
+                {"observability", "browser", "coding-policy", "context-layers", "third-party"},
             )
             persisted = json.loads((destination / "dev-agent-benchmark-manifest.json").read_text())
             self.assertEqual(persisted["bundleSha256"], manifest["bundleSha256"])

@@ -27,7 +27,7 @@
        -> resource path/no-symlink contract
        -> exact third-party package/lock/installed identity
   -> 按固定顺序加载产品 extension
-       observability -> browser -> coding-policy -> third-party -> qoder（provider 默认启用，可 opt-out）
+       observability -> browser -> coding-policy -> context-layers -> third-party -> qoder（provider 默认启用，可 opt-out）
   -> Pi 原生发现用户/受信项目 package 与 extension（也可用 -e 临时追加）
   -> 加载 1 个产品 skill + Pi 用户/项目资源 + Claude Code skill bridge（不加载产品 bundled prompt templates）
   -> Pi session（仍以业务 cwd 为项目上下文）
@@ -102,6 +102,8 @@ Computer Use wrapper 替换而非叠加上游模糊焦点提示：只有同一 `
 Native host 在任何 socket 探测/回收前持有进程寿命的 OS 文件锁：macOS 使用 `/usr/bin/lockf`，Linux 使用 `/usr/bin/flock` 的继承 FD 模式；辅助命令退出不释放 Node 保留的锁，正常退出和 SIGKILL 均由内核释放，不删除持久 `relay.lock`。工具不可用或锁身份异常时 fail closed，不用 PID/超时猜测来破锁。退出时仍检查 socket inode，保留其他 publisher 的端点；同 UID 任意进程不属于隔离承诺。
 
 ## 代码地图
+
+- `rotom/extensions/context-layers/`：默认启用的增量摘要、最多三级合并/改写、分页原文回查。使用 Pi session 和 `context_edit`，不增加代理或数据库；细节及实测限制见 [Context Layers](context-layers.md)。
 
 - `rotom/package.json`：npm 产品元数据、公开 bin 和显式发行文件清单；不声明任何 npm dependency，也没有产品级 lockfile（npm 12 不再打包或读取 `npm-shrinkwrap.json`），固定通过公开作用域包 `@bingjiang0611/rotom` 分发。
 - `packages/rotom-pi/`：仓内 Pi 源码 fork、上游来源与 MIT 许可证、锁定公开模型目录；`rotom/scripts/build-pi-fork.mjs` 隔离构建八个 CLI/SDK runtime 归档。

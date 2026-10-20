@@ -369,6 +369,7 @@ test("launcher 保留业务 cwd 与用户参数，并固定加载 bundled resour
 			"--extension", resolve(AGENT_DIR, "extensions/observability"),
 			"--extension", resolve(AGENT_DIR, "extensions/browser/index.ts"),
 			"--extension", resolve(AGENT_DIR, "extensions/coding-policy/index.ts"),
+			"--extension", resolve(AGENT_DIR, "extensions/context-layers/index.ts"),
 			"--extension", resolve(AGENT_DIR, "extensions/third-party"),
 			"--extension", resolve(AGENT_DIR, "extensions/qoder/index.ts"),
 			"--skill", resolve(AGENT_DIR, "skills/pi-subagents"),
@@ -520,7 +521,7 @@ test("launcher 不因 HOME 中存在未声明的 recorder 就自动加载它", (
 		const invocation = JSON.parse(readFileSync(capture, "utf8"));
 		const extensionPaths = invocation.argv.flatMap((argument, index, argv) => argument === "--extension" ? [argv[index + 1]] : []);
 		assert.equal(extensionPaths.includes(realpathSync(extension)), false);
-		assert.equal(extensionPaths.length, 5);
+		assert.equal(extensionPaths.length, 6);
 		await assert.rejects(verifyPiRuntime({ executable: process.env.ROTOM_PI, agentDir: AGENT_DIR,
 			resourceDeclarations: [...resourceDeclarations(), `unknown-extension:${extension}`] }), /可选资源声明不受支持/u);
 	} finally {
@@ -792,10 +793,11 @@ test("launcher 保留 Pi 原生 resource 参数并继续固定加载产品资源
 	});
 	const invocation = JSON.parse(readFileSync(capture, "utf8"));
 	assert.deepEqual(invocation.argv.slice(-userArgs.length), userArgs);
-	assert.deepEqual(invocation.argv.slice(0, 10), [
+	assert.deepEqual(invocation.argv.slice(0, 12), [
 		"--extension", resolve(AGENT_DIR, "extensions/observability"),
 		"--extension", resolve(AGENT_DIR, "extensions/browser/index.ts"),
 		"--extension", resolve(AGENT_DIR, "extensions/coding-policy/index.ts"),
+		"--extension", resolve(AGENT_DIR, "extensions/context-layers/index.ts"),
 		"--extension", resolve(AGENT_DIR, "extensions/third-party"),
 		"--extension", resolve(AGENT_DIR, "extensions/qoder/index.ts"),
 	]);
