@@ -257,6 +257,7 @@ try {
 		execution: "native-host",
 		thirdPartyRuntimeHandlersLoaded: true,
 		deferredToolsEnabled: deferredToolsActive,
+		contextLayersEnabled: process.env.ROTOM_CONTEXT_LAYERS !== "0",
 		subagentExecutionScope: process.env.PI_SUBAGENTS_EXECUTION_SCOPE === "owned-process-groups-v2" ? "owned-process-groups-v2" : "unscoped",
 		browserHandlersLoaded: true,
 		observabilityHandlersLoaded: true,

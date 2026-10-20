@@ -27,32 +27,35 @@ export const REFERENCE_CONTEXT_FOOTPRINT_V1 = {
 // (+1 tool, 320 schema bytes, 2 guideline bytes) and replace the builtin
 // edit/write schemas (+923 schema bytes), +1,243 normalized schema bytes in
 // total on default/full/scoped SDK smoke.
+// Context Layers adds three model-only tools: 1,833 schema bytes and 447
+// guideline bytes, measured against the opt-out control in real SDK smoke.
 // Preserve this checkout's Subagent contract; these are bytes, not provider tokens.
+const CONTEXT_LAYERS_FOOTPRINT = { activeToolCount: 3, activeToolSchemaBytes: 1_833, activeToolGuidelineBytes: 447 };
 export const CURRENT_RUNTIME_CONTEXT_CONTRACT_V1 = {
 	// Four stable Goal schemas, including explicit continuation. Measured by
 	// real SDK smoke, including the shared Browser expectation enum and operation
 	// parameter requirements; static bytes are not provider tokens.
-	activeToolCount: 25,
-	activeToolSchemaBytes: 24_351,
-	activeToolGuidelineBytes: 9_497,
+	activeToolCount: 28,
+	activeToolSchemaBytes: 26_184,
+	activeToolGuidelineBytes: 9_944,
 	schemaPathNormalization: "Codemode documentation path -> <pi-docs>/codemode.md; current measurements remain raw bytes",
-	note: "The default product surface keeps core (edit/write from bundled SoL-Pi Action Fusion), SoL-Pi obs_recall, Codemode, Ask, Browser/Computer Use, the four stable Goal schemas, and search_tools active while deferring only the retained Subagent group. Visible Goal schemas do not authorize Goal execution without an active Goal. Guideline bytes include the product's observe_ui/read_text/act_ui/wait_for/search_ui contract guidelines, which state the real per-call focus scope, condition combinations, observe-first requirement, untrusted status of observed screen text, structured-interface-first routing, and the dispatch-versus-effect evidence ladder of the Computer Use package, plus the browser relay's ref-bound Enter/Tab/Escape keypress, target-state/page-alert evidence and no-replay boundary for unknown writes. Includes Relay-first launch_browser fallback metadata, HTTP-only local-page guidance, isolated-login disclosure and pre-dispatch/no-replay boundaries; measured static bytes are not provider tokens.",
+	note: "The default product surface keeps core (edit/write from bundled SoL-Pi Action Fusion), SoL-Pi obs_recall, Codemode, Ask, Browser/Computer Use, the four stable Goal schemas, Context Layers, and search_tools active while deferring only the retained Subagent group. Visible Goal schemas do not authorize Goal execution without an active Goal. Guideline bytes include the product's observe_ui/read_text/act_ui/wait_for/search_ui contract guidelines, which state the real per-call focus scope, condition combinations, observe-first requirement, untrusted status of observed screen text, structured-interface-first routing, and the dispatch-versus-effect evidence ladder of the Computer Use package, plus the browser relay's ref-bound Enter/Tab/Escape keypress, target-state/page-alert evidence and no-replay boundary for unknown writes. Includes Relay-first launch_browser fallback metadata, HTTP-only local-page guidance, isolated-login disclosure and pre-dispatch/no-replay boundaries; measured static bytes are not provider tokens.",
 };
 
 export const FULL_TOOL_CONTEXT_CONTRACT_V1 = {
-	activeToolCount: 26,
-	activeToolSchemaBytes: 36_432,
-	activeToolGuidelineBytes: 10_148,
+	activeToolCount: 29,
+	activeToolSchemaBytes: 38_265,
+	activeToolGuidelineBytes: 10_595,
 	schemaPathNormalization: CURRENT_RUNTIME_CONTEXT_CONTRACT_V1.schemaPathNormalization,
-	note: "ROTOM_DEFERRED_TOOLS=0 restores the reviewed full startup surface for retained product tools, including the four stable Goal schemas. This contract is for an unscoped maintenance load; Measured with the Browser keypress schema, Relay-first isolated-browser fallback metadata and compact descriptions, after removing the enterprise platform extensions and bundled skills; the default deferred surface only routes Subagent. These are static bytes, not provider tokens. Retired capabilities stay absent even with deferred loading disabled.",
+	note: "ROTOM_DEFERRED_TOOLS=0 restores the reviewed full startup surface for retained product tools, including the four stable Goal schemas and Context Layers. This contract is for an unscoped maintenance load; Measured with the Browser keypress schema, Relay-first isolated-browser fallback metadata and compact descriptions, after removing the enterprise platform extensions and bundled skills; the default deferred surface only routes Subagent. These are static bytes, not provider tokens. Retired capabilities stay absent even with deferred loading disabled.",
 };
 
 // Measured with pi-subagents .4: product-owned descriptions/guidelines replace
 // inherited metadata; scoped schemas omit unavailable fields. Not token savings.
 export const SCOPED_FULL_TOOL_CONTEXT_CONTRACT_V1 = {
 	...FULL_TOOL_CONTEXT_CONTRACT_V1,
-	activeToolSchemaBytes: 35_656,
-	activeToolGuidelineBytes: 10_783,
+	activeToolSchemaBytes: 37_489,
+	activeToolGuidelineBytes: 11_230,
 	note: "Full startup surface under the product owned-process-groups-v2 Subagent scope, with four stable Goal schemas. Static bytes, not provider tokens.",
 };
 
@@ -87,7 +90,18 @@ export function gitIdentity(agentDir) {
 export function buildContextFootprintReport({ runtime, identity, elapsedMs }) {
 	const footprint = runtime.contextFootprint;
 	const deferredToolsEnabled = runtime.deferredToolsEnabled === true;
-	const selectedRuntimeContract = deferredToolsEnabled ? CURRENT_RUNTIME_CONTEXT_CONTRACT_V1 : runtime.subagentExecutionScope === "owned-process-groups-v2" ? SCOPED_FULL_TOOL_CONTEXT_CONTRACT_V1 : FULL_TOOL_CONTEXT_CONTRACT_V1;
+	const contextLayersEnabled = runtime.contextLayersEnabled !== false;
+	let selectedRuntimeContract = deferredToolsEnabled ? CURRENT_RUNTIME_CONTEXT_CONTRACT_V1 : runtime.subagentExecutionScope === "owned-process-groups-v2" ? SCOPED_FULL_TOOL_CONTEXT_CONTRACT_V1 : FULL_TOOL_CONTEXT_CONTRACT_V1;
+	// Only an explicit opt-out selects the smaller contract. Inferring it from
+	// missing tools would conceal a broken default-enabled registration.
+	if (!contextLayersEnabled) {
+		selectedRuntimeContract = { ...selectedRuntimeContract,
+			activeToolCount: selectedRuntimeContract.activeToolCount - CONTEXT_LAYERS_FOOTPRINT.activeToolCount,
+			activeToolSchemaBytes: selectedRuntimeContract.activeToolSchemaBytes - CONTEXT_LAYERS_FOOTPRINT.activeToolSchemaBytes,
+			activeToolGuidelineBytes: selectedRuntimeContract.activeToolGuidelineBytes - CONTEXT_LAYERS_FOOTPRINT.activeToolGuidelineBytes,
+			note: `${selectedRuntimeContract.note} Context Layers explicitly disabled; its measured tool metadata is excluded.`,
+		};
+	}
 	const normalizedToolSchemaBytes = footprint.activeToolSchemaBytes - (runtime.toolSchemaPathOverheadBytes ?? 0);
 	const contract = {
 		activeToolCount: footprint.activeToolCount === selectedRuntimeContract.activeToolCount,
@@ -105,6 +119,7 @@ export function buildContextFootprintReport({ runtime, identity, elapsedMs }) {
 		measurement: { realModelCalls: 0, fauxProviderCalls: runtime.fauxProviderCalls ?? null, networkRequired: false, providerExactTokens: false, elapsedMs, normalizedToolSchemaBytes },
 		referenceObservation: REFERENCE_CONTEXT_FOOTPRINT_V1,
 		deferredToolsEnabled,
+		contextLayersEnabled,
 		runtimeContract: selectedRuntimeContract,
 		referenceDifference: {
 			systemPromptBytes: footprint.systemPromptBytes - REFERENCE_CONTEXT_FOOTPRINT_V1.referenceSystemPromptBytes,

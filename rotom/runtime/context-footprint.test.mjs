@@ -132,6 +132,30 @@ test("owned Subagent scope has an independently measured full contract", () => {
 	assert.equal(buildContextFootprintReport({ runtime: { contextFootprint, deferredToolsEnabled: false }, identity: {}, elapsedMs: 0 }).runtimeContractGate, "REGRESSION");
 });
 
+test("Context Layers requires its measured tool metadata unless explicitly disabled in each tool surface", () => {
+	for (const [deferredToolsEnabled, subagentExecutionScope, contract] of [
+		[true, "unscoped", CURRENT_RUNTIME_CONTEXT_CONTRACT_V1],
+		[false, "unscoped", FULL_TOOL_CONTEXT_CONTRACT_V1],
+		[false, "owned-process-groups-v2", SCOPED_FULL_TOOL_CONTEXT_CONTRACT_V1],
+	]) {
+		const contextFootprint = { ...measurement(["read"]),
+			activeToolCount: contract.activeToolCount - 3,
+			activeToolSchemaBytes: contract.activeToolSchemaBytes - 1_833,
+			activeToolGuidelineBytes: contract.activeToolGuidelineBytes - 447,
+		};
+		const runtime = { contextFootprint, deferredToolsEnabled, subagentExecutionScope };
+		const report = value => buildContextFootprintReport({ runtime: value, identity: {}, elapsedMs: 0 });
+		assert.equal(report(runtime).runtimeContractGate, "REGRESSION", "missing default-enabled tools must not select opt-out");
+		assert.equal(report({ ...runtime, contextLayersEnabled: true }).runtimeContractGate, "REGRESSION");
+		const disabled = { ...runtime, contextLayersEnabled: false };
+		assert.equal(report(disabled).runtimeContractGate, "PASS");
+		assert.equal(report(disabled).contextLayersEnabled, false);
+		for (const field of ["activeToolCount", "activeToolSchemaBytes", "activeToolGuidelineBytes"]) {
+			assert.equal(report({ ...disabled, contextFootprint: { ...contextFootprint, [field]: contextFootprint[field] + 1 } }).runtimeContractGate, "REGRESSION");
+		}
+	}
+});
+
 test("omitting the four stable Goal schemas fails both startup contracts", () => {
 	for (const [deferredToolsEnabled, contract] of [[true, CURRENT_RUNTIME_CONTEXT_CONTRACT_V1], [false, FULL_TOOL_CONTEXT_CONTRACT_V1]]) {
 		const contextFootprint = {
