@@ -1,7 +1,7 @@
 {
 	"name": "@injaneity/pi-computer-use",
-	"version": "0.5.1-rotom.0",
-	"description": "rotom-maintained fork of @injaneity/pi-computer-use: same native bridge, with the speculative typeText/keypress foreground re-dispatch disabled by default.",
+	"version": "0.5.1-rotom.1",
+	"description": "rotom-maintained Computer Use fork with bounded IDEA background text input and no implicit foreground replay.",
 	"type": "module",
 	"keywords": [
 		"pi-package",
@@ -30,7 +30,7 @@
 		"src",
 		"scripts/build-native.mjs",
 		"scripts/setup-helper.mjs",
-		"native/macos/bridge.swift",
+		"native/macos/*.swift",
 		"native/windows/bridge-rs/Cargo.lock",
 		"native/windows/bridge-rs/Cargo.toml",
 		"native/windows/bridge-rs/src",

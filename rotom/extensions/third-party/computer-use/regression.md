@@ -1,6 +1,6 @@
 # Computer Use 结果证据与 stale 恢复
 
-实现位置：`computer-use/recovery.ts`；在公开 `registerTool` 的 execute 边界组合的恢复层，不修改 native helper 或 Pi。（注：产品当前锁定的 Computer Use 已是 `@injaneity/pi-computer-use@0.5.1-rotom.0` fork，见 `vendor/README.md` 与包内 `UPSTREAM.md`；本恢复层与该 fork 是相互独立的两处改动。）
+实现位置：`computer-use/recovery.ts`；在公开 `registerTool` 的 execute 边界组合的恢复层，不修改 native helper 或 Pi。（注：产品当前锁定的 Computer Use 已是 `@injaneity/pi-computer-use@0.5.1-rotom.1` fork，见 `vendor/README.md` 与包内 `UPSTREAM.md`；本恢复层与该 fork 是相互独立的两处改动。）
 
 ## 已修复的组合层缺口
 

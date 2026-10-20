@@ -21,6 +21,7 @@ test("opt-in still respects headless and outcome and action-type gates", () => {
 	const env = { ROTOM_CU_SPECULATIVE_FOREGROUND_RETRY: "true" };
 	assert.equal(canRetryInForeground(typeText, "didnt", true, env), false, "headless never escalates");
 	assert.equal(canRetryInForeground(typeText, "worked", false, env), false, "only didnt escalates");
+	assert.equal(canRetryInForeground(typeText, "unknown", false, env), false, "unknown writes never replay even with legacy opt-in");
 	assert.equal(canRetryInForeground(click, "didnt", false, env), false, "only typeText/keypress escalate");
 });
 

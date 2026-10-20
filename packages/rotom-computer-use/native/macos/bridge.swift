@@ -369,7 +369,7 @@ final class InputSuppressionGuard {
 }
 
 final class Bridge {
-	private let protocolVersion = 6
+	private let protocolVersion = 7
 	private let refStore = AXRefStore()
 	private let inputSuppressionGuard = InputSuppressionGuard()
 	private let physicalInputLock = NSRecursiveLock()
@@ -1866,10 +1866,11 @@ final class Bridge {
 		let params = request["params"] as? [String: Any] ?? [:]
 		let policy = optionalStringArg(request, "policy") ?? "default"
 		let deferRootDelta = boolArg(request, "deferRootDelta") ?? false
-		let delivery = policy == "background" ? "pid" : ((params["delivery"] as? String) == "pid" ? "pid" : "hid")
+		let axStylePolicy = policy == "ax_only" || policy == "background_text"
+		let delivery = policy == "background" || policy == "background_text" ? "pid" : ((params["delivery"] as? String) == "pid" ? "pid" : "hid")
 		var holdsPhysicalInput = false
 		func acquirePhysicalInputIfNeeded() {
-			if delivery == "hid" && !holdsPhysicalInput {
+			if (delivery == "hid" || policy == "background_text") && !holdsPhysicalInput {
 				physicalInputLock.lock()
 				holdsPhysicalInput = true
 			}
@@ -1936,7 +1937,7 @@ final class Bridge {
 			guard supportsAgentCursor,
 				(request["cursorOverlay"] as? Bool ?? true),
 				delivery == "pid",
-				policy != "ax_only",
+				!axStylePolicy,
 				["press", "click", "moveMouse", "scroll", "drag"].contains(action)
 			else { return }
 			Task { @MainActor in AgentCursor.shared.animate(to: point, above: record.windowId) }
@@ -2016,11 +2017,23 @@ final class Bridge {
 			return refreshed
 		}
 
+		// Select the IDEA route BEFORE any AXValue write. An accepted AX write
+		// with missing readback is not proof of non-execution and must not fall back.
+		if policy == "background_text", ["setText", "typeText"].contains(action),
+			NSRunningApplication(processIdentifier: pid)?.bundleIdentifier == "com.jetbrains.intellij" {
+			guard let element, let window = windowElement(pid: pid, windowId: record.windowId) else {
+				throw BridgeFailure(message: BackgroundTextCopy.exactTargetRequired, code: "background_unsupported")
+			}
+			physicalInputLock.lock()
+			defer { physicalInputLock.unlock() }
+			return finish(backgroundIdeaText(pid: pid, window: window, windowID: record.windowId, element: element, text: params["text"] as? String ?? "", replace: action == "setText"))
+		}
+
 		if let element, action == "press" || action == "click" {
 			let elementRole = stringAttribute(element, attribute: kAXRoleAttribute as CFString) ?? ""
 			let textRoles: Set<String> = ["AXTextField", "AXTextArea", "AXTextView", "AXSearchField", "AXComboBox", "AXEditableText", "AXSecureTextField"]
 			let requiresPointerFocus = hasAncestorRole(element, role: "AXWebArea") || textRoles.contains(elementRole)
-			if requiresPointerFocus && policy != "ax_only" {
+			if requiresPointerFocus && !axStylePolicy {
 				if policy == "foreground" {
 					try executeCoordinates(coordinatePoint())
 				} else {
@@ -2077,7 +2090,7 @@ final class Bridge {
 				performed["delivery"] = "ax"
 				let value = stringAttribute(targetElement, attribute: kAXValueAttribute as CFString) ?? ""
 				if value != text && policy != "foreground" {
-					throw BridgeFailure(message: "The background accessibility value write was accepted but did not take effect", code: "foreground_required")
+					return finish(["outcome": "unknown", "performed": performed, "error": ["code": "background_input_unknown", "message": BackgroundTextCopy.axReadbackUnknown]])
 				}
 				return finish(["outcome": value == text ? "worked" : "didnt", "performed": performed, "evidence": ["value": value]])
 			}
@@ -2191,7 +2204,7 @@ final class Bridge {
 			do {
 				let step = try act(deferred)
 				steps.append(step)
-				if (step["outcome"] as? String) == "didnt" { stoppedAt = index; break }
+				if (step["outcome"] as? String) != "worked" { stoppedAt = index; break }
 			} catch let failure as BridgeFailure {
 				steps.append(["outcome": "didnt", "error": ["code": failure.code, "message": failure.message]])
 				stoppedAt = index

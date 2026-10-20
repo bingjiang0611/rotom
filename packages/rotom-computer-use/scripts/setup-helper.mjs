@@ -21,7 +21,7 @@ const windowsCrateDir = path.join(rootDir, "native", "windows", "bridge-rs");
 const windowsHelperDestPath = process.env.PI_COMPUTER_USE_WINDOWS_HELPER_PATH || path.join(os.homedir(), ".pi", "agent", "helpers", "pi-computer-use", "windows-bridge.exe");
 const linuxCrateDir = path.join(rootDir, "native", "linux", "bridge-rs");
 const linuxHelperDestPath = process.env.PI_COMPUTER_USE_LINUX_HELPER_PATH || path.join(os.homedir(), ".pi", "agent", "helpers", "pi-computer-use", "linux-bridge");
-const helperSourcePaths = ["agent_cursor.swift", "agent_cursor_motion.swift", "bridge.swift"]
+const helperSourcePaths = ["agent_cursor.swift", "agent_cursor_motion.swift", "background_text.swift", "bridge.swift"]
 	.map((file) => path.join(rootDir, "native", "macos", file));
 const packageJsonPath = path.join(rootDir, "package.json");
 const releaseRepo = "injaneity/pi-computer-use";
@@ -342,8 +342,8 @@ async function signHelper(outputPath, identifier = defaultCodeSignIdentifier) {
 	return identity;
 }
 
-async function helperHasAdhocSignature() {
-	const output = await execFile("codesign", ["-dv", "--verbose=4", helperAppPath], { encoding: "utf8" }).then(
+async function helperHasAdhocSignature(appPath = helperAppPath) {
+	const output = await execFile("codesign", ["-dv", "--verbose=4", appPath], { encoding: "utf8" }).then(
 		(result) => `${result.stdout ?? ""}\n${result.stderr ?? ""}`,
 		(error) => `${error.stdout ?? ""}\n${error.stderr ?? ""}`,
 	);
@@ -377,11 +377,13 @@ async function installPrebuiltHelperApp(sourceAppPath) {
 	// The sealed bundle must arrive intact — a broken signature would burn
 	// the user's TCC grants on an identity that can never validate.
 	await run("codesign", ["--verify", "--strict", sourceAppPath]);
+	if (existingExecutable && await helperHasAdhocSignature(sourceAppPath) && process.env.PI_COMPUTER_USE_ALLOW_ADHOC_UPDATE !== "1") {
+		throw new Error("Refusing to replace an existing helper with an ad-hoc bundle. Close its owning sessions and explicitly authorize PI_COMPUTER_USE_ALLOW_ADHOC_UPDATE=1, or use a separately signed helper app and socket. macOS permissions may require review.");
+	}
 	await fs.rm(helperAppPath, { force: true, recursive: true });
-	// ditto preserves the bundle byte-for-byte (signature + stapled
-	// notarization ticket). The sealed app is NEVER re-signed here: its
-	// Developer ID designated requirement (identifier + team) is exactly
-	// what gives release builds their best chance of retaining TCC grants.
+	// Preserve the source signature byte-for-byte. rotom's bundle is ad-hoc;
+	// a separately signed bundle retains its own identity. This does not promise
+	// TCC continuity, and no certificate or system trust is changed here.
 	await run("/usr/bin/ditto", [sourceAppPath, helperAppPath]);
 	await registerHelperApp();
 	return true;
@@ -537,9 +539,8 @@ async function setup() {
 	}
 
 	const arch = normalizeArch(process.arch);
-	// Prefer the release-signed universal bundle (one artifact for both
-	// arches, produced by .github/workflows/release.yml) over
-	// per-arch bundles, over loose binaries (dev fallback).
+	// Prefer the universal bundle built alongside the per-arch executables.
+	// The replacement guard above also applies to this bundled ad-hoc artifact.
 	const universalAppPath = prebuiltAppPathForArch("universal");
 	const prebuiltAppPath = (await exists(universalAppPath))
 		? universalAppPath

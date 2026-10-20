@@ -145,7 +145,7 @@ export interface PlatformObserveRequest {
 }
 
 export type PlatformActTarget = { ref: string } | { x: number; y: number } | { focus: PlatformPoint };
-type PlatformDeliveryPolicy = "ax_only" | "background" | "default" | "foreground";
+export type PlatformDeliveryPolicy = "ax_only" | "background_text" | "background" | "default" | "foreground";
 type PlatformMouseButton = "left" | "right" | "middle";
 type PlatformActDeliveryParam = { delivery?: NativeInputDelivery };
 export type PlatformPoint = { x: number; y: number };

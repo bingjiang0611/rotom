@@ -10,6 +10,7 @@ const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const macosSourcePaths = [
 	"agent_cursor.swift",
 	"agent_cursor_motion.swift",
+	"background_text.swift",
 	"bridge.swift",
 ].map((file) => path.join(rootDir, "native", "macos", file));
 const windowsCrateDir = path.join(rootDir, "native", "windows", "bridge-rs");
@@ -259,6 +260,29 @@ async function main() {
 		for (const nextArch of ["x64", "arm64"]) {
 			await buildForArch(nextArch, defaultOutputPath(nextArch));
 		}
+		// The installer prefers this bundle over per-arch executables. Build all
+		// three from the same sources so an old signed app cannot shadow a fix.
+		const bundle = path.join(rootDir, "prebuilt", "macos", "universal", "pi-computer-use.app");
+		const contents = path.join(bundle, "Contents");
+		await fs.mkdir(path.join(contents, "MacOS"), { recursive: true });
+		await run("lipo", ["-create", "-output", path.join(contents, "MacOS", "bridge"), defaultOutputPath("arm64"), defaultOutputPath("x64")]);
+		const { version } = JSON.parse(await fs.readFile(path.join(rootDir, "package.json"), "utf8"));
+		await fs.writeFile(path.join(contents, "Info.plist"), `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>${defaultCodeSignIdentifier}</string>
+<key>CFBundleName</key><string>pi-computer-use</string>
+<key>CFBundleExecutable</key><string>bridge</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleShortVersionString</key><string>${version.split("-")[0]}</string>
+<key>CFBundleVersion</key><string>${version.split("-")[0]}</string>
+<key>RotomForkVersion</key><string>${version}</string>
+<key>LSMinimumSystemVersion</key><string>${deploymentTarget}</string>
+<key>LSUIElement</key><true/>
+<key>NSHighResolutionCapable</key><true/>
+</dict></plist>
+`);
+		await signBinary(bundle);
 		return;
 	}
 

@@ -8,9 +8,10 @@ import { fileURLToPath } from "node:url";
 import { toBoolean, toFiniteNumber, toOptionalString } from "../coerce.ts";
 import type { PlatformDiagnostics } from "../types.ts";
 import { resolveMacosHelperAppPath } from "./helper-path.mjs";
+import { helperMismatchMessage } from "../../constants/copy.ts";
 
 const COMMAND_TIMEOUT_MS = 15_000;
-const HELPER_PROTOCOL_VERSION = 6;
+const HELPER_PROTOCOL_VERSION = 7;
 const HELPER_SETUP_TIMEOUT_MS = 60_000;
 
 export const HELPER_BUNDLE_ID = "com.injaneity.pi-computer-use";
@@ -267,24 +268,15 @@ export class MacosHelperClient {
 	}
 
 	async ensureProtocol(signal?: AbortSignal): Promise<PlatformDiagnostics> {
-		let diagnostics = await this.diagnosticsCommand(signal);
+		const diagnostics = await this.diagnosticsCommand(signal);
 		const executableMatches = await isResolvedHelperExecutable(diagnostics.executablePath);
 		if (diagnostics.protocolVersion === HELPER_PROTOCOL_VERSION && executableMatches) return diagnostics;
 
-		// The helper daemon outlives Pi, so restarting/reloading Pi alone does not
-		// replace a stale daemon or one launched from the legacy system location.
-		// Stop it through the backwards-compatible command channel and relaunch
-		// the exact app bundle that ensureInstalled() resolved.
-		await this.restart(signal);
-		diagnostics = await this.diagnosticsCommand(signal);
-		const relaunchedExecutableMatches = await isResolvedHelperExecutable(diagnostics.executablePath);
-		if (diagnostics.protocolVersion !== HELPER_PROTOCOL_VERSION || !relaunchedExecutableMatches) {
-			this.daemonAvailable = false;
-			throw new Error(
-				`pi-computer-use helper mismatch after relaunch: expected protocol ${HELPER_PROTOCOL_VERSION} and executable ${HELPER_APP_EXECUTABLE_PATH}; got protocol ${diagnostics.protocolVersion} and executable ${diagnostics.executablePath ?? "unknown"}. Reinstall or rebuild the helper app at ${HELPER_APP_PATH}.`,
-			);
-		}
-		return diagnostics;
+		// A different session may own this daemon. Never stop/relaunch it merely
+		// because this package needs the new background-text protocol.
+		throw new Error(
+			helperMismatchMessage(HELPER_PROTOCOL_VERSION, HELPER_APP_EXECUTABLE_PATH, diagnostics.protocolVersion, diagnostics.executablePath),
+		);
 	}
 }
 

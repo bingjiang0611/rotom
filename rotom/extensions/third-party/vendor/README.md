@@ -22,12 +22,14 @@ The `.rotom.5` baseline also included the terminal-projection fix: projection fa
 
 ## Locked Computer Use distribution
 
-The default product selects **`@injaneity/pi-computer-use@0.5.1-rotom.0`**, independently maintained in `packages/rotom-computer-use/`. This is a Computer Use fork, not a Pi fork.
+The default product selects **`@injaneity/pi-computer-use@0.5.1-rotom.1`**, independently maintained in `packages/rotom-computer-use/`. This is a Computer Use fork, not a Pi fork.
 
-- Archive: `injaneity-pi-computer-use-0.5.1-rotom.0.tgz`
-- SHA512 SRI: `sha512-CNmDZatjUImvODkmVUZPMTx/exzojHdDNZGXSqk9yqpAtR54lnaUULbPvBtrqunhZnee+mGJwQW2wVkLVTEDtw==`
+- Archive: `injaneity-pi-computer-use-0.5.1-rotom.1.tgz`
+- SHA512 SRI: `sha512-gAGchi9F4Ha9H+xo7XLeFktVxoNnhKh3Z2QrdmoujKQgUgyge/mrcisBTXzMs+W9fNkulNCowvQteB7QrEZxsA==`
 - Upstream: `@injaneity/pi-computer-use`, License MIT (original notice retained in `package/LICENSE`; provenance in `package/UPSTREAM.md`).
-- Source baseline: upstream `0.5.1` tarball extracted byte-for-byte (77 files incl. the prebuilt macOS/Windows/Linux native bridge binaries and Swift/Rust native source), absorbing the `0.5.1` window-selection fix (`src/root-selection.ts`). Native code is unchanged and was not recompiled or re-signed. The only change is in `src/actions.ts`: the speculative `typeText`/`keypress` foreground re-dispatch is disabled by default to avoid replaying already-delivered input (`ROTOM_CU_SPECULATIVE_FOREGROUND_RETRY=1` restores upstream). The explicit `foreground_required` escalation path is unchanged. That desktop behaviour is L1-only here; real-device effect is unverified.
+- Adds bounded IDEA background text via exact window/ref binding, synthetic internal focus and per-character full readback. Accepted AX writes without matching readback are unknown, never a reason to replay. Batches stop on unknown as well as refusal. Legacy speculative foreground retry remains off by default and unavailable in headless mode.
+- macOS arm64/x64/universal artifacts are rebuilt and **ad-hoc signed**; Windows/Linux artifacts are unchanged. Replacing an existing helper with the ad-hoc bundle needs explicit authorization. Protocol 7 mismatch no longer restarts another session's daemon. No personal certificate signatures are shipped.
+- Rebuilt arm64 code passed bounded real-plugin input checks using an isolated, separately signed helper. Installed upgrade, final-version concurrent input, x64 execution and Swift deterministic assertions remain unverified. See [verification and limits](../../../../docs/agent/computer-use-background-text.md).
 
 ## Locked Goal distribution
 

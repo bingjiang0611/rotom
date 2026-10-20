@@ -3,7 +3,7 @@ import { copyFile, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } fr
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { VERIFIED_THIRD_PARTY_PACKAGES } from "./product-config.mjs";
 import { verifyThirdPartyPackageContract } from "./verify-pi-runtime.mjs";
 
@@ -26,6 +26,28 @@ test("selected Subagent archive includes current closure projection, runner drai
 		const tracked = resolve(import.meta.dirname, "../../packages/rotom-subagents", file);
 		assert.deepEqual(execFileSync("tar", ["-xOf", archive, `package/${file}`], { maxBuffer: 512_000 }), await readFile(tracked), file);
 	}
+});
+
+test("Computer Use archive carries the current native, routing, installer and package sources", async () => {
+	const archive = join(source, VERIFIED_THIRD_PARTY_PACKAGES["@injaneity/pi-computer-use"].archive);
+	for (const file of ["package.json", "UPSTREAM.md", "native/macos/agent_cursor.swift", "native/macos/agent_cursor_motion.swift", "native/macos/background_text.swift", "native/macos/bridge.swift", "src/bridge.ts", "src/constants/copy.ts", "src/platform/types.ts", "src/platform/macos/helper.ts", "scripts/build-native.mjs", "scripts/setup-helper.mjs"]) {
+		const tracked = resolve(import.meta.dirname, "../../packages/rotom-computer-use", file);
+		assert.deepEqual(execFileSync("tar", ["-xOf", archive, `package/${file}`], { maxBuffer: 1_000_000 }), await readFile(tracked), file);
+	}
+});
+
+test("Computer Use universal artifact is valid, dual-architecture and contains no personal signing identity", { skip: process.platform !== "darwin" }, async (t) => {
+	const root = await mkdtemp(join(tmpdir(), "rotom-computer-archive-"));
+	t.after(() => rm(root, { recursive: true, force: true }));
+	const archive = join(source, VERIFIED_THIRD_PARTY_PACKAGES["@injaneity/pi-computer-use"].archive);
+	execFileSync("tar", ["-xzf", archive, "-C", root, "package/prebuilt/macos/universal"]);
+	const app = join(root, "package/prebuilt/macos/universal/pi-computer-use.app");
+	execFileSync("codesign", ["--verify", "--strict", app]);
+	const signature = spawnSync("codesign", ["-dv", "--verbose=4", app], { encoding: "utf8" });
+	assert.equal(signature.status, 0);
+	assert.ok(signature.stderr.includes("Signature=adhoc") && !signature.stderr.includes("Authority="), "public helper must not carry a personal certificate");
+	const architectures = execFileSync("lipo", ["-archs", join(app, "Contents/MacOS/bridge")], { encoding: "utf8" }).trim().split(/\s+/u);
+	assert.deepEqual(new Set(architectures), new Set(["arm64", "x86_64"]));
 });
 
 async function fixture(t) {

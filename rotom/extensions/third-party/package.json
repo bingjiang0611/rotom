@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@injaneity/pi-computer-use": "0.5.1-rotom.0",
+    "@injaneity/pi-computer-use": "0.5.1-rotom.1",
     "@juicesharp/rpiv-ask-user-question": "2.6.2",
     "@narumitw/pi-goal": "0.54.4-rotom.8",
     "pi-context-view": "0.7.1",

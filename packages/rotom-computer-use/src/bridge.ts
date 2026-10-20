@@ -15,7 +15,7 @@ import { applyOutputEnvelope, boundToolError, clearStoredOutputs, readStoredOutp
 import { AGENT_TOOL_NAMES, type ActParams, type EvaluateBrowserParams, type ExpandUiParams, type ImageMode, type InspectUiParams, type LaunchBrowserParams, type FindParams, type NavigateBrowserParams, type ObserveParams, type ObserveTargetParams, type ReadTextParams, type RootSelector, type SearchUiParams, type UiAction, type WaitForParams } from "./contract.ts";
 import { toFiniteNumber } from "./platform/coerce.ts";
 import { currentPlatformBackend } from "./platform/index.ts";
-import type { FramePoints, HelperActPerformed, HelperActResult, NativeInputDelivery, PlatformActRequest, PlatformApp as HelperApp, PlatformDiagnostics, PlatformFrontmostResult as FrontmostResult, PlatformRoot as HelperWindow } from "./platform/types.ts";
+import type { FramePoints, HelperActPerformed, HelperActResult, NativeInputDelivery, PlatformActRequest, PlatformDeliveryPolicy as DeliveryPolicy, PlatformApp as HelperApp, PlatformDiagnostics, PlatformFrontmostResult as FrontmostResult, PlatformRoot as HelperWindow } from "./platform/types.ts";
 import type { PermissionStatus } from "./permissions.ts";
 import { ResourceScheduler } from "./runtime.ts";
 import { scoreWindow, shouldPreferForegroundModalWindow } from "./root-selection.ts";
@@ -31,7 +31,6 @@ interface ActivationFlags {
 
 type ExecutionVariant = "stealth" | "default";
 type ActionDelivery = "ax" | NativeInputDelivery;
-type DeliveryPolicy = "ax_only" | "background" | "default" | "foreground";
 type ActOutcome = "worked" | "didnt" | "unknown";
 
 interface ExecutionTrace {
@@ -361,7 +360,7 @@ function currentRuntimeMode(): ExecutionVariant {
 }
 
 function currentDeliveryPolicy(): DeliveryPolicy {
-	if (isHeadlessMode()) return "background";
+	if (isHeadlessMode()) return process.platform === "darwin" ? "background_text" : "ax_only";
 	const value = (process.env.PI_COMPUTER_USE_DELIVERY_POLICY ?? process.env.PI_COMPUTER_USE_EVENT_DELIVERY ?? "default").toLowerCase();
 	return value === "background" || value === "pid" ? "background" : value === "foreground" || value === "hid" ? "foreground" : value === "ax_only" || value === "ax-only" ? "ax_only" : "default";
 }
@@ -1177,7 +1176,7 @@ async function helperAct(
 		return trace;
 	}
 	try {
-		const initialPolicy = headless ? "ax_only" : "background";
+		const initialPolicy = headless ? currentDeliveryPolicy() : "background";
 		const result = checked(await currentPlatformBackend.act(helperActRequest(target, action, initialPolicy), { signal, timeoutMs }));
 		if (canRetryInForeground(action, result.outcome, headless)) {
 			const foreground = checked(await currentPlatformBackend.act(helperActRequest(target, action, "foreground"), { signal, timeoutMs }));
@@ -1794,12 +1793,13 @@ async function dispatchUiTransaction(actions: UiAction[], target: ResolvedTarget
 	// background prefix is never replayed as part of a foreground batch.
 	if (headless && currentPlatformBackend.actBatch) {
 		const actionState: ActionState = { currentFocus: false };
-		const requests = actions.map((action) => helperActRequest(target, prepareUiAction(action, actionState, look, true) as NativePreparedAction, "ax_only"));
+		const policy = currentDeliveryPolicy();
+		const requests = actions.map((action) => helperActRequest(target, prepareUiAction(action, actionState, look, true) as NativePreparedAction, policy));
 		const textLength = actions.reduce((sum, action) => sum + (action.text?.length ?? 0), 0);
 		const result = await currentPlatformBackend.actBatch(requests, { signal, timeoutMs: Math.max(COMMAND_TIMEOUT_MS, textLength * 25 + 6_000) });
 		if (!result.steps || result.steps.length === 0) throw new Error("Native action transaction returned no checked steps.");
-		const execution = aggregateExecutions(result.steps.map((step) => executionTraceFromAct(step, "ax_only")));
-		const batchTrace = executionTraceFromAct(result, "ax_only");
+		const execution = aggregateExecutions(result.steps.map((step) => executionTraceFromAct(step, policy)));
+		const batchTrace = executionTraceFromAct(result, policy);
 		execution.outcome = result.outcome;
 		execution.performed = result.performed;
 		execution.rootDelta = batchTrace.rootDelta;
@@ -1811,7 +1811,7 @@ async function dispatchUiTransaction(actions: UiAction[], target: ResolvedTarget
 	for (const action of actions) {
 		const step = await dispatchUiAction(action, target, look, headless, actionState, signal);
 		steps.push(step);
-		if (step.outcome === "didnt") break;
+		if (step.outcome !== "worked") break;
 	}
 	return aggregateExecutions(steps);
 }
