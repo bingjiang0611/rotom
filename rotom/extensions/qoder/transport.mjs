@@ -199,9 +199,14 @@ export async function* qoderChunks(body, { signal, toolNames = [], onDiagnostic,
     for (const call of calls.values()) {
       if (!call.id || ids.has(call.id) || !toolNames.includes(call.name)) fail('invalid_tool_call');
       ids.add(call.id);
-      let args;
-      try { args = JSON.parse(call.arguments); } catch { fail('invalid_tool_arguments'); }
-      if (!record(args)) fail('invalid_tool_arguments');
+      // Pi's finished-tool contract treats omitted/blank arguments as {}.
+      // Only that representation is normalized; malformed JSON is never repaired.
+      let args, reason;
+      try { args = JSON.parse(call.arguments.trim() ? call.arguments : '{}'); } catch { reason = 'invalid_json'; }
+      if (!record(args)) {
+        try { void Promise.resolve(onDiagnostic?.({ code: 'invalid_tool_arguments', reason: reason ?? 'non_object', argumentBytes: encoder.encode(call.arguments).length })).catch(() => {}); } catch { /* Structural metadata only; listener failures cannot replace validation. */ }
+        fail('invalid_tool_arguments');
+      }
     }
   };
   const convert = (data) => {
@@ -306,7 +311,7 @@ export async function* qoderChunks(body, { signal, toolNames = [], onDiagnostic,
           // and with an explicit declared function name. Never concatenate IDs,
           // alias a correction, or guess an interleaved/unfinished call's owner.
           if (allowOpaqueReasoning && opaqueModelId === 'ultimate' && wireIndex === 0 && t.index === 0 && call.id && typeof t.id === 'string' && t.id && call.id !== t.id) {
-            let args; try { args = JSON.parse(call.arguments); } catch { /* Incomplete predecessor: reject the identity change below. */ }
+            let args; try { args = JSON.parse(call.arguments.trim() ? call.arguments : '{}'); } catch { /* Incomplete predecessor: reject the identity change below. */ }
             if (record(args) && toolNames.includes(call.name) && toolNames.includes(t.function.name) && t.id.length <= 512 && !t.id.startsWith(call.id) && !call.id.startsWith(t.id) && ![...calls.values()].some(c => c.id === t.id)) {
               index = freeIndex(); wireIndexes.set(wireIndex, index); call = { id: '', name: '', arguments: '' };
             }
@@ -324,7 +329,7 @@ export async function* qoderChunks(body, { signal, toolNames = [], onDiagnostic,
                 if (t.id.startsWith(call.id)) diagnostic.relation = 'extension';
                 else if (call.id.startsWith(t.id) || call.id.endsWith(t.id)) diagnostic.relation = 'fragment';
                 let previousArguments;
-                try { previousArguments = JSON.parse(call.arguments); } catch { /* Partial JSON is not a complete tool argument object. */ }
+                try { previousArguments = JSON.parse(call.arguments.trim() ? call.arguments : '{}'); } catch { /* Partial JSON is not a complete tool argument object. */ }
                 diagnostic.previousArgumentsComplete = record(previousArguments);
               }
               try { void Promise.resolve(onDiagnostic?.(diagnostic)).catch(() => {}); } catch { /* Optional metadata must not replace the validation error. */ }

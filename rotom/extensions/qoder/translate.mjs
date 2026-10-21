@@ -141,7 +141,7 @@ export async function* translateQoderStream(chunks, model) {
       // qoderChunks already proved these arguments parse to an object at DONE;
       // this re-parse only materializes the object for the persisted tool call.
       let args;
-      try { args = JSON.parse(block.partialArgs || '{}'); } catch { throw new QoderError('invalid_tool_arguments'); }
+      try { args = JSON.parse(block.partialArgs.trim() ? block.partialArgs : '{}'); } catch { throw new QoderError('invalid_tool_arguments'); }
       if (args === null || typeof args !== 'object' || Array.isArray(args)) throw new QoderError('invalid_tool_arguments');
       block.arguments = args;
       delete block.partialArgs;

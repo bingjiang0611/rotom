@@ -339,6 +339,65 @@ test("Qoder diagnostics attach only allowlisted metadata to the active Qoder pro
 	assert.equal(refusalEnd.attributes["pi.ai.qoder.diagnostic_code"], undefined);
 });
 
+test("tool argument diagnostics reach trace without persisting malformed content", async (t) => {
+	const root = mkdtempSync(join(tmpdir(), "rotom-observability-tool-arguments-"));
+	t.after(() => rm(root, { recursive: true, force: true }));
+	const sessionFile = join(root, "session.jsonl");
+	writeFileSync(sessionFile, "{\"type\":\"session\"}\n", { mode: 0o600 });
+	const harness = extensionHarness();
+	const ctx = {
+		mode: "print", model: { provider: "qoder", id: "ultimate", api: "qoder" },
+		sessionManager: { getSessionFile: () => sessionFile, getSessionId: () => "tool-arguments-session" },
+		ui: { notify() {} },
+	};
+	await harness.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
+	await harness.emit("agent_start", { type: "agent_start" }, ctx);
+	await harness.emit("turn_start", { type: "turn_start", turnIndex: 0 }, ctx);
+	const beginRequest = () => harness.emit("before_provider_headers", { type: "before_provider_headers", headers: {} }, ctx);
+	const endRequest = () => harness.emit("message_end", {
+		type: "message_end",
+		message: { ...assistantMessage("error"), provider: "qoder", model: "ultimate", errorMessage: "Qoder: invalid_tool_arguments" },
+	}, ctx);
+	const frame = (value: unknown) => `data: ${JSON.stringify(value)}\n\n`;
+	for (const args of ['{\"PRIVATE_ARGUMENT\":\"秘密\"', 'null']) {
+		await beginRequest();
+		const wire = frame({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "PRIVATE_ID", function: { name: "read", arguments: args } }] }, finish_reason: "tool_calls" }] })
+			+ frame({ choices: [], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }) + "data: [DONE]\n\n";
+		await assert.rejects(async () => {
+			for await (const _chunk of qoderChunks(new Response(wire).body, {
+				toolNames: ["read"], onDiagnostic: (diagnostic: unknown) => harness.emitDiagnostic(diagnostic),
+			})) { /* Consume until final argument validation. */ }
+		}, { code: "invalid_tool_arguments" });
+		await endRequest();
+	}
+	// Other extensions can forge events. Only fixed reasons and safe byte counts survive.
+	for (const argumentBytes of [-1, 1.5, Infinity, "PRIVATE_LENGTH"]) {
+		await beginRequest();
+		harness.emitDiagnostic({ code: "invalid_tool_arguments", reason: "PRIVATE_REASON", argumentBytes, arguments: "PRIVATE_ARGUMENTS", id: "PRIVATE_ID", status: 418 });
+		await endRequest();
+	}
+	await beginRequest(); // Diagnostics cannot leak across requests.
+	await endRequest();
+	await harness.emit("session_shutdown", { type: "session_shutdown", reason: "quit" }, ctx);
+
+	const text = readFileSync(localTracePathForSessionFile(sessionFile), "utf8");
+	assert.doesNotMatch(text, /PRIVATE_|秘密/);
+	const ends = text.trim().split("\n").map(line => JSON.parse(line))
+		.filter(record => record.kind === "span_end" && record.name === "pi.ai.request");
+	assert.equal(ends.length, 7);
+	const attributes = ends.map(end => Object.fromEntries(Object.entries(end.attributes).filter(([key]) => key.startsWith("pi.ai.qoder."))));
+	for (const [index, reason, bytes] of [[0, "invalid_json", Buffer.byteLength('{\"PRIVATE_ARGUMENT\":\"秘密\"')], [1, "non_object", 4]] as const) {
+		assert.deepEqual(attributes[index], {
+			"pi.ai.qoder.error_code": "invalid_tool_arguments", "pi.ai.qoder.diagnostic_code": "invalid_tool_arguments",
+			"pi.ai.qoder.tool_arguments_reason": reason, "pi.ai.qoder.tool_arguments_bytes": bytes,
+		});
+	}
+	for (const index of [2, 3, 4, 5]) assert.deepEqual(attributes[index], {
+		"pi.ai.qoder.error_code": "invalid_tool_arguments", "pi.ai.qoder.diagnostic_code": "invalid_tool_arguments",
+	});
+	assert.deepEqual(attributes[6], { "pi.ai.qoder.error_code": "invalid_tool_arguments" });
+});
+
 test("tool ID diagnostics reach trace through the parser without persisting tool content", async (t) => {
 	const root = mkdtempSync(join(tmpdir(), "rotom-observability-tool-id-"));
 	t.after(() => rm(root, { recursive: true, force: true }));

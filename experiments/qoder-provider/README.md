@@ -9,6 +9,8 @@
 - 不启动 Qoder CLI，不刷新或写回 CLI 凭据，不嵌套 agent，不添加工具。启用 provider 后默认 browser 模式使用 Pi 原生 OAuth 存储/刷新，显式 `ROTOM_QODER_AUTH=qodercli` 才使用只读 CLI 兼容路径；独立登录与强制隔离凭据本地到期后的串行真实刷新已通过；不是自然到期测试。当前认证、Credit 与额度边界以产品说明和 Provider 离线门禁为准。
 - 完整流的 allowlisted Credit 可被记录；缺失/错误/取消保持 unknown，部分 billable-reported 小计不是余额或 USD。`/qoder-credits` 仅交互 UI 显示固定只读额度快照，不进入对话/压缩/分支上下文。美元费用、接口支持/订阅适用/第三方许可未确认；Pi 必填价格零只是占位，不代表免费。
 
+- 工具参数遵循 Pi 的空参数合同：省略、空串或纯空白表示 `{}`；残缺 JSON、非对象仍拒绝，不修复 JSON。空对象仍须通过 Pi 的工具 schema 校验，不跳过必填参数。流的 finish、usage、DONE/已验证服务尾帧与干净 EOF 要求不变。参数错误 trace 只记录固定类别（`invalid_json` / `non_object`）和 UTF-8 字节数，不保存参数正文、工具 ID 或解析器错误正文。定向回归见 `rotom/extensions/qoder/tool-arguments.test.mjs`，包含假上游下的原生 Agent 执行和校验失败续轮；不代表真实 Qoder 重放已通过。
+
 ## 离线检查
 
 预先设置 canonical `ROTOM_PI`（当前验证 Pi 0.85.1）。没有全局/PATH fallback，不安装依赖：

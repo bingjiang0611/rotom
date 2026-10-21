@@ -23,6 +23,7 @@ const QODER_TRACE_ERROR_MESSAGES = new Map([
 	["Qoder: connection_failed", "transport_failure"],
 	["Qoder: stream_failed", "transport_failure"],
 	["Qoder: invalid_tool_id", "invalid_tool_id"],
+	["Qoder: invalid_tool_arguments", "invalid_tool_arguments"],
 	["Qoder: model_refusal", "model_refusal"],
 ]);
 
@@ -379,8 +380,18 @@ function assistantAttributes(message: any): TraceAttributes {
 
 function qoderDiagnosticAttributes(value: unknown): TraceAttributes {
 	const diagnostic = record(value);
-	const allowedCodes = ["upstream_error_frame", "legacy_error", "transport_failure", "invalid_tool_id"];
+	const allowedCodes = ["upstream_error_frame", "legacy_error", "transport_failure", "invalid_tool_id", "invalid_tool_arguments"];
 	if (!diagnostic || !allowedCodes.includes(String(diagnostic.code))) return {};
+	if (diagnostic.code === "invalid_tool_arguments") {
+		// Persist structure only, never malformed JSON, tool identity or parser prose.
+		return {
+			"pi.ai.qoder.diagnostic_code": "invalid_tool_arguments",
+			...(["invalid_json", "non_object"].includes(diagnostic.reason)
+				? { "pi.ai.qoder.tool_arguments_reason": diagnostic.reason } : {}),
+			...(Number.isSafeInteger(diagnostic.argumentBytes) && diagnostic.argumentBytes >= 0
+				? { "pi.ai.qoder.tool_arguments_bytes": diagnostic.argumentBytes } : {}),
+		};
+	}
 	if (diagnostic.code === "invalid_tool_id") {
 		// Event payloads are untrusted: persist only fixed categories and the
 		// parser's bounded wire index, never identities, arguments or prose.
