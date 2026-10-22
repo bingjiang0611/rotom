@@ -26,7 +26,6 @@ export function qoderEnabled(env = process.env) {
 
 export const BINDING_TYPE = 'qoder-account-v1';
 const LEGACY_BINDING_TYPE = 'qoder-experimental-account-v1';
-const LEGACY_PROVIDER_ID = 'qoder-experimental';
 const fingerprintValid = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const accountBindings = entries => entries.filter(e => e.type === 'custom' && [BINDING_TYPE, LEGACY_BINDING_TYPE].includes(e.customType));
 
@@ -39,9 +38,8 @@ export function bindSessionAccount(manager, append, fingerprint) {
   if (bindings.some(e => e.data?.version !== 1 || !fingerprintValid(e.data?.fingerprint))) throw new QoderError('account_binding_invalid');
   if (bindings.some(e => e.data.fingerprint !== fingerprint)) throw new QoderError('account_changed_start_new_session');
   if (bindings.length) return;
-  // Never silently assign an old, unbound Qoder transcript to today's account.
-  // Compacted legacy histories can hide provenance, so those fail closed too.
-  if (entries.some(e => e.type === 'compaction' || (e.type === 'message' && e.message?.role === 'assistant' && [PROVIDER_ID, LEGACY_PROVIDER_ID].includes(e.message.provider) && !['error', 'aborted'].includes(e.message.stopReason)))) throw new QoderError('legacy_session_unbound_start_new_session');
+  // First use binds the current account, including previously unbound histories.
+  // This records the binding going forward, not the provenance of older messages.
   append(BINDING_TYPE, { version: 1, fingerprint, pricing: 'unknown' });
   if (!manager.getEntries().some(e => e.type === 'custom' && e.customType === BINDING_TYPE && e.data?.fingerprint === fingerprint)) throw new QoderError('account_binding_not_saved');
 }
@@ -71,7 +69,6 @@ export function installSessionPolicy(pi) {
       oauth_refresh_unproven_login_required: 'Qoder refresh outcome is unproven. It will not be replayed. Use /login qoder, then start a new session.',
       oauth_refresh_already_attempted_login_required: 'This Qoder refresh token was already attempted. Re-login and start a new session; do not delete refresh-attempt guards to retry.',
       account_changed_start_new_session: 'Qoder account changed. Restore the original account or start a new session; existing history was not dispatched.',
-      legacy_session_unbound_start_new_session: 'This legacy session has no Qoder account binding. Start a new session; do not silently attach old history to the current account.',
     };
     if (help[code]) ctx.ui.notify(help[code], 'warning');
   });

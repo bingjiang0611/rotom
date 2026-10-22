@@ -64,9 +64,10 @@ try {
       { type: 'text', text: 'Visible previous answer' }, { type: 'toolCall', id: foreignToolId, name: tool.name, arguments: {}, thoughtSignature: 'FOREIGN_TOOL' }],
   };
   manager.appendModelChange(source.provider, source.id);
-  manager.appendMessage({ role: 'user', content: 'Previous task', timestamp: Date.now() });
+  const firstKeptEntryId = manager.appendMessage({ role: 'user', content: 'Previous task', timestamp: Date.now() });
   manager.appendMessage(foreign);
   manager.appendMessage({ role: 'toolResult', toolCallId: foreignToolId, toolName: tool.name, content: [{ type: 'text', text: 'Previous result' }], isError: false, timestamp: Date.now() });
+  manager.appendCompaction('Earlier task summary.', firstKeptEntryId, 100);
   const original = JSON.stringify(foreign);
   const open = async (manager, model) => {
     await loader.reload(); assert.equal(loader.getExtensions().errors.length, 0);
@@ -82,7 +83,7 @@ try {
   assert.equal(summary.dispatches, 2); assert.equal(summary.toolExecutions, 1);
   const unchanged = manager.getEntries().find(e => e.type === 'message' && e.message.role === 'assistant' && e.message.provider === source.provider).message;
   assert.equal(JSON.stringify(unchanged), original);
-  summary.checks.push('native switch to Ultimate high', 'foreign signatures absent on COSY wire', 'foreign OpenAI Responses tool ID normalized with result pairing', 'own opaque signature and tool pairing preserved', 'source history unchanged');
+  summary.checks.push('unbound compacted history accepts first Qoder use', 'native switch to Ultimate high', 'foreign signatures absent on COSY wire', 'foreign OpenAI Responses tool ID normalized with result pairing', 'own opaque signature and tool pairing preserved', 'source history unchanged');
   const file = manager.getSessionFile(); assert(file);
   assert((await readFile(file, 'utf8')).includes('FOREIGN_TOOL'));
   session.dispose(); session = await open(sdk.SessionManager.open(file, dir));

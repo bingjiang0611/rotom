@@ -55,6 +55,12 @@ Qoder 默认省略 `max_tokens`，不再强加 4096-token 单次输出上限；�
 
 Pi 的 jiti alias 会把任意 ai 子路径错误拼接到 compat.js；因此 helper 从 launcher 的 `ROTOM_VERIFIED_PI_EXECUTABLE`（维护 SDK 使用显式 `ROTOM_PI`）所关联的 Pi 包导出解析，不从业务 cwd 找依赖。不新增 fork 导出或修改存活安装。内部 factory 的 `clampMaxTokens` 注入仅供隔离单测；原生 SDK/实际 extension loader 回归使用真实 helper。
 
+## 未绑定会话首次使用 Qoder
+
+没有 Qoder 账号绑定记录的会话允许首次绑定当前账号，包括已压缩、曾使用其他 Provider 或旧版 Qoder 的历史。新绑定只记录今后的账号约束，不证明旧消息或摘要的账号归属。已有绑定的账号不匹配、损坏记录和未持久化写入仍拒绝；不删除或改写历史。
+
+`framing-identity.test.mjs` 覆盖首次绑定、重复绑定与绑定后的账号切换拒绝；`history-handoff-smoke.mjs` 使用真实 Pi SDK、合成上游验证已压缩的其他 Provider 会话首次切入 Qoder、工具续轮和磁盘恢复。它不证明真实服务或现有安装已更新。
+
 ## 真实请求
 
 仍使用 [Qoder 维护探针](../../experiments/qoder-provider/README.md) 的独立入口。必须先明确目标 model/route/effort、预算和外部权限，复用有界 ledger、串行执行、unknown 不重放；离线 PASS 不授予真实调用权限。现有账本是特定 Node/Undici 路径的请求次数约束，不是货币预算或通用网络隔离。

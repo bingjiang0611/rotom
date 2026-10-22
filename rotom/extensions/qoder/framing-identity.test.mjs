@@ -144,11 +144,24 @@ test('whole-tree binding survives compaction and detects conflicting abandoned b
   assert.throws(() => bindSessionAccount(manager, manager.append, A), { code: 'account_changed_start_new_session' });
 });
 
-test('legacy, corrupt and unproven writes fail closed', () => {
-  for (const entry of [{ type: 'compaction' }, { type: 'message', message: { role: 'assistant', provider: 'qoder', stopReason: 'stop' } }, { type: 'message', message: { role: 'assistant', provider: 'qoder-experimental', stopReason: 'stop' } }]) {
-    const manager = memory([entry]);
-    assert.throws(() => bindSessionAccount(manager, manager.append, A), { code: 'legacy_session_unbound_start_new_session' });
+test('unbound histories bind once without rewriting messages or compaction', () => {
+  const histories = [{ type: 'compaction' }];
+  for (const provider of ['openai-codex', 'qoder', 'qoder-experimental']) {
+    for (const stopReason of ['stop', 'error', 'aborted']) {
+      histories.push({ type: 'message', message: { role: 'assistant', provider, stopReason } });
+    }
   }
+  for (const entry of histories) {
+    const manager = memory([entry]);
+    const original = structuredClone(entry);
+    bindSessionAccount(manager, manager.append, A);
+    bindSessionAccount(manager, manager.append, A);
+    assert.deepEqual(manager.getEntries(), [original, { type: 'custom', customType: BINDING_TYPE, data: { version: 1, fingerprint: A, pricing: 'unknown' } }]);
+    assert.throws(() => bindSessionAccount(manager, manager.append, B), { code: 'account_changed_start_new_session' });
+  }
+});
+
+test('legacy bindings remain valid; corrupt and unproven writes fail closed', () => {
   const legacyBound = memory([{ type: 'custom', customType: 'qoder-experimental-account-v1', data: { version: 1, fingerprint: A } }]);
   bindSessionAccount(legacyBound, legacyBound.append, A);
   assert.equal(legacyBound.getEntries().length, 1);
