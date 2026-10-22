@@ -180,6 +180,38 @@ describe("RPC prompt response semantics", () => {
 		rpcIo.lineHandler = undefined;
 	});
 
+	it("does not tell an RPC host to close before a settled-handler follow-up completes", async () => {
+		let queued = false;
+		const { lineHandler, cleanup } = await startRpcMode({
+			withAuth: true,
+			responseDelayMs: 20,
+			extensionsResult: await createTestExtensionsResult([
+				(pi) => {
+					pi.on("agent_settled", () => {
+						if (queued) return;
+						queued = true;
+						pi.sendUserMessage("continue the goal", { deliverAs: "followUp" });
+					});
+				},
+			]),
+		});
+
+		try {
+			lineHandler(JSON.stringify({ id: "follow-up", type: "prompt", message: "start" }));
+			await vi.waitFor(() => {
+				expect(parseOutputLines(rpcIo.outputLines).filter((event) => event.type === "agent_end")).toHaveLength(2);
+				expect(parseOutputLines(rpcIo.outputLines).some((event) => event.type === "agent_settled")).toBe(true);
+			});
+
+			const lifecycle = parseOutputLines(rpcIo.outputLines)
+				.map((event) => event.type)
+				.filter((type) => type === "agent_start" || type === "agent_end" || type === "agent_settled");
+			expect(lifecycle).toEqual(["agent_start", "agent_end", "agent_start", "agent_end", "agent_settled"]);
+		} finally {
+			await cleanup();
+		}
+	});
+
 	it("emits one failure response when prompt preflight rejects", async () => {
 		const { lineHandler, cleanup } = await startRpcMode({
 			withAuth: false,

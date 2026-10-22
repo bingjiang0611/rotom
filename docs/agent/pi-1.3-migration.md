@@ -106,3 +106,24 @@ coding-agent 全量：
 | 离线端到端 | 用 `rotom/bin/rotom -p` 加 faux provider（主模型和 Reducer 都是 faux），走产品自带 SoL-Pi：Reducer 回复写入 1 条 `usage`（`sol_pi_reducer`、`fauxr/reducer`、1,935 token）；工具结果替换为 receipt；运行时的 `getUsageCostBreakdown` 单列 `fauxr/reducer` |
 
 未验证：真实 Reducer 请求（需要 Codex 额度），以及真实 TUI 中 footer 的显示。footer 的汇总逻辑与 `getSessionStats` 读取同一类条目，这一点来自读代码，没有在真实 TUI 中看过。
+
+## Goal 续跑的公开 settlement 边界
+
+Scry 的非复用入口会在 RPC `agent_settled` 后关闭 Pi。原实现先发布该事件，再执行扩展 settlement handler 排入的续跑：Goal 的下一条原生 user 消息已经持久化，但续跑会被宿主收尾中止。问题不靠把 wrapper 改名为 `rotom` 解决；复用进程也不能补回已经结束的宿主观察范围。
+
+修复在 `AgentSession._emitAgentSettled`：保留扩展逐段收到的 settlement 回调；SDK/JSON/RPC 订阅者只在整条延期续跑（包括同级多个动作）完成后收到一次公开事件。事件携带最后一段的取消状态，不用前一段成功覆盖后续中止。这是公开事件时序修正，不修改 schema，不重发历史工具，不伪造旧归档。
+
+验证（离线，无真实模型费用）：
+
+| 检查 | 结果 |
+| --- | --- |
+| 新增 session/RPC 回归的旧实现负对照 | 3 个失败，均捕获续跑前多出的公开 settlement |
+| 真实 Goal + 原产品 Pi 的负对照 | 模型调用次数 2 和 5 时各发一次 settlement；应仅在 5 时发出 |
+| 修复后的边界/RPC focused tests | 44/44；相邻并发、重试、runtime、状态报告 51/51 |
+| `build:pi` / `check:pi` / builder tests / TypeScript / Biome | 通过；构建器 957 通过、3 个原有 skip；builder tests 2/2 |
+| 隔离安装新 fork 的完整 Goal 测试 | 87/87，包含 100-response 上限、取消、恢复、不重放与 reviewer |
+| Scry 真实适配器 + 新 fork CLI + `default.sh` + 离线流式模型 | 临时集成夹具通过；两次 `agent_start` / `agent_end` 后只有一次 `agent_settled`；第二段回复进入 Scry events，原生文件保留两条 assistant |
+
+RPC 测试 helper 多次启动 `runRpcMode` 后会触发 Node listener 数量告警；断言均通过，不把该夹具告警当作真实进程泄漏结论。零延迟测试模型另触发 Scry 已有的“多个新增 user entries”身份歧义拒绝；集成验证使用流式速率，匹配本次先接纳首条输入、再执行续跑的场景，不宣称解决该独立身份问题。
+
+未验证/未执行：真实账号模型、桌面 UI 重放、活跃安装替换、旧会话恢复。旧归档缺口仍按 unknown 保留；升级不自动补写旧记录或恢复任务。

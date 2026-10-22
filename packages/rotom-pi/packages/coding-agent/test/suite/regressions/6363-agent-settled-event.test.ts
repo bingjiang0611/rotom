@@ -89,6 +89,68 @@ describe("regression #6363: agent settled event and idle waiting", () => {
 		expect(settledIdleStates).toEqual([true]);
 	});
 
+	it("publishes settlement only after all settled-handler continuations finish", async () => {
+		let queued = false;
+		const extensionIdleStates: boolean[] = [];
+		const completedRunsAtSettlement: number[] = [];
+		const harness = await createHarness({
+			extensionFactories: [
+				(pi) => {
+					pi.on("agent_settled", (_event, ctx) => {
+						extensionIdleStates.push(ctx.isIdle());
+						if (queued) return;
+						queued = true;
+						pi.sendUserMessage("first continuation", { deliverAs: "followUp" });
+						pi.sendUserMessage("second continuation", { deliverAs: "followUp" });
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		harness.session.subscribe((event) => {
+			if (event.type === "agent_settled") {
+				completedRunsAtSettlement.push(harness.eventsOfType("agent_end").length);
+			}
+		});
+		harness.setResponses([
+			fauxAssistantMessage("first"),
+			fauxAssistantMessage("second"),
+			fauxAssistantMessage("third"),
+		]);
+
+		await harness.session.prompt("start");
+
+		expect(getUserTexts(harness)).toEqual(["start", "first continuation", "second continuation"]);
+		expect(extensionIdleStates).toEqual([true, true, true]);
+		expect(completedRunsAtSettlement).toEqual([3]);
+		expect(harness.eventsOfType("agent_settled")).toEqual([{ type: "agent_settled", aborted: false }]);
+	});
+
+	it("publishes the abort of a settled-handler continuation, not the earlier successful segment", async () => {
+		let queued = false;
+		const harness = await createHarness({
+			extensionFactories: [
+				(pi) => {
+					pi.on("agent_settled", () => {
+						if (queued) return;
+						queued = true;
+						pi.sendUserMessage("continuation", { deliverAs: "followUp" });
+					});
+					pi.on("before_agent_start", (_event, ctx) => {
+						if (queued) ctx.abort();
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		harness.setResponses([fauxAssistantMessage("first")]);
+
+		await harness.session.prompt("start");
+
+		expect(getUserTexts(harness)).toEqual(["start", "continuation"]);
+		expect(harness.eventsOfType("agent_settled")).toEqual([{ type: "agent_settled", aborted: true }]);
+	});
+
 	it("extension command waitForIdle waits for session-level settlement", async () => {
 		let releaseTool = () => {};
 		const released = new Promise<void>((resolve) => {

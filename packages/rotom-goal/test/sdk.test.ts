@@ -110,7 +110,9 @@ test(
 		const done = new Promise<void>((resolve) => {
 			resolveDone = resolve;
 		});
+		const callsAtSettlement: number[] = [];
 		const unsubscribe = session.subscribe((event) => {
+			if (event.type === "agent_settled") callsAtSettlement.push(provider.state.callCount);
 			if (
 				event.type === "agent_settled" &&
 				manager.getBranch().some((e: any) => e.customType === "goal-review-result")
@@ -123,6 +125,7 @@ test(
 		assert.deepEqual(errors, []);
 		assert.equal(reviewRequests, 2);
 		assert.equal(provider.state.callCount, 5);
+		assert.deepEqual(callsAtSettlement, [5]);
 		assert.equal(currentId(), undefined);
 		const outcome = manager
 			.getBranch()

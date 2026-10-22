@@ -453,6 +453,7 @@ export class AgentSession {
 	private _isBeforeSettle = false;
 	private _abortDuringBeforeSettle = false;
 	private _isEmittingAgentSettled = false;
+	private _agentSettlementDepth = 0;
 	private readonly _deferredSettledActions: Array<() => Promise<void>> = [];
 
 	private _resourceLoader: ResourceLoader;
@@ -1098,27 +1099,29 @@ export class AgentSession {
 	}
 
 	private async _emitAgentSettled(): Promise<void> {
-		this._cacheWarmer?.onAgentSettled();
-		this._isAgentRunActive = false;
-		this._isEmittingAgentSettled = true;
+		this._agentSettlementDepth++;
 		try {
-			const aborted = this._agentRunAbortRequested;
-			await this._extensionRunner.emit({ type: "agent_settled", aborted });
-			this._emit({ type: "agent_settled", aborted });
-		} finally {
-			this._isEmittingAgentSettled = false;
-		}
-
-		const deferred = this._deferredSettledActions.splice(0);
-		if (deferred.length > 0) {
+			this._cacheWarmer?.onAgentSettled();
+			this._isAgentRunActive = false;
+			this._isEmittingAgentSettled = true;
 			try {
-				for (const action of deferred) await action();
+				await this._extensionRunner.emit({ type: "agent_settled", aborted: this._agentRunAbortRequested });
 			} finally {
+				this._isEmittingAgentSettled = false;
+			}
+
+			const deferred = this._deferredSettledActions.splice(0);
+			for (const action of deferred) await action();
+		} finally {
+			this._agentSettlementDepth--;
+			// Extension handlers can start another run (for example Goal). RPC/SDK hosts
+			// may close the process on settlement, so publish only after the whole chain,
+			// including sibling deferred actions, has finished.
+			if (this._agentSettlementDepth === 0) {
+				this._emit({ type: "agent_settled", aborted: this._agentRunAbortRequested });
 				this._resolveIdleWaitIfIdle();
 			}
-			return;
 		}
-		this._resolveIdleWaitIfIdle();
 	}
 
 	/** Internal handler for agent events - shared by subscribe and reconnect */

@@ -45,7 +45,7 @@ A basic run produces records like these:
 {"type":"agent_settled","aborted":false}
 ```
 
-`agent_end` closes one low-level agent run. Automatic retry, overflow recovery, compaction retry, steering, or follow-up work can still continue. `agent_settled` means Pi has no remaining automatic work for that session-level run. Its `aborted` flag reports cancellation, including an abort after the last assistant response succeeded.
+`agent_end` closes one low-level agent run. Automatic retry, overflow recovery, compaction retry, steering, or follow-up work can still continue. `agent_settled` means Pi has no remaining automatic work for that session-level run, including runs queued by extension `agent_settled` handlers. Extensions still receive their per-run settlement callback; JSON/RPC and SDK subscribers receive one final settlement after those continuations finish. Its `aborted` flag reports cancellation, including an abort after the last assistant response succeeded.
 
 ## Agent and turn events
 
