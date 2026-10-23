@@ -27,8 +27,8 @@ The `.rotom.5` baseline also included the terminal-projection fix: projection fa
 The default product selects **`@injaneity/pi-computer-use@0.5.1-rotom.2`**, independently maintained in `packages/rotom-computer-use/`. This is a Computer Use fork, not a Pi fork.
 
 - Archive: `injaneity-pi-computer-use-0.5.1-rotom.2.tgz`
-- SHA256: `b9b4a7b808094474aa9cfde58c0f2b5af84d9d9f76edfa1c28052e138eb89ae9`
-- SHA512 SRI: `sha512-L+OdYakACdJVwpIpU9fZG+gWhBSI3VGZWoSlwDgVzxLD5jx89kvlVPgb7iTVBFgW1vrO9leYJ8cWWajosgr3lA==`
+- SHA256: `6c401991d1854180954663621ba85cde978608b14abe7297c993f1de1fded9b8`
+- SHA512 SRI: `sha512-dcJn+H5u9jwvrrDPeAC38NsyaZzJ17cNxqxFtaaW41DzHh+pxmh0p6r497L5DFNp+0+iKkmPD9Kpcc7wFo9QfQ==`
 - `.rotom.2` moves schema descriptions, recovery and result evidence into the component. Relay-first browser fallback stays product-specific. This TS-only rebuild retains all prior native helper bytes and signatures; no helper is installed or launched.
 - Upstream: `@injaneity/pi-computer-use`, License MIT (original notice retained in `package/LICENSE`; provenance in `package/UPSTREAM.md`).
 - Adds bounded IDEA background text via exact window/ref binding, synthetic internal focus and per-character full readback. Accepted AX writes without matching readback are unknown, never a reason to replay. Batches stop on unknown as well as refusal. Legacy speculative foreground retry remains off by default and unavailable in headless mode.

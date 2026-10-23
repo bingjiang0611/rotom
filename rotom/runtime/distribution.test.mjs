@@ -67,6 +67,21 @@ test("archives are build-only inputs; installed-code identity is not a file chec
 	await assert.rejects(verifyDistributionContract(root, { verifyArchives: true }), /archive integrity/u);
 });
 
+test("current notices and maintenance guides agree with selected component versions", () => {
+	const notices = readFileSync(join(SOURCE, "THIRD_PARTY_NOTICES.md"), "utf8");
+	for (const [name, entry] of Object.entries(VERIFIED_THIRD_PARTY_PACKAGES)) {
+		const row = notices.split("\n").find(line => line.startsWith(`| \`${name}\``));
+		assert.ok(row?.includes(`| \`${entry.version}\` |`), name);
+	}
+	assert.ok(notices.includes(`| \`${DISTRIBUTION_PI_VERSION}\` |`));
+	const subagent = VERIFIED_THIRD_PARTY_PACKAGES["pi-subagents"].version;
+	for (const file of ["../docs/usage.md", "../docs/agent/change-checklists.md", "extensions/third-party/history/README.md"]) {
+		assert.ok(readFileSync(join(SOURCE, file), "utf8").includes(subagent), file);
+	}
+	const computer = VERIFIED_THIRD_PARTY_PACKAGES["@injaneity/pi-computer-use"].version;
+	assert.ok(readFileSync(join(SOURCE, "../packages/rotom-computer-use/README.md"), "utf8").includes(computer));
+});
+
 test("release npm environment preserves proxy routing without inheriting credentials", () => {
 	const env = releaseNpmEnvironment("/release", "/release/isolated", {
 		PATH: "/usr/bin",

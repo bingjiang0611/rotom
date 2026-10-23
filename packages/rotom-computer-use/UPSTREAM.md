@@ -41,7 +41,7 @@ The installer refuses to replace an existing helper with the bundled ad-hoc app 
 From this package directory, restore only the unchanged Windows/Linux artifacts from the pinned archive, then rebuild every macOS artifact:
 
 ```sh
-tar xzf ../../rotom/extensions/third-party/vendor/injaneity-pi-computer-use-0.5.1-rotom.1.tgz \
+tar xzf ../../rotom/extensions/third-party/vendor/injaneity-pi-computer-use-0.5.1-rotom.2.tgz \
   --strip-components=1 package/prebuilt/windows package/prebuilt/linux
 node scripts/build-native.mjs --arch all --sign-identity -
 npm pack --ignore-scripts

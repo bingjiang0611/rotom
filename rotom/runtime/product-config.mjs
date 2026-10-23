@@ -4,7 +4,7 @@ export const DISTRIBUTION_PI_BUILD_SHA256 = "13dbf5d9fe4dfbf63d80f0a30b35c3342d8
 export const MINIMUM_NODE_VERSION = "24.0.0";
 
 export const VERIFIED_THIRD_PARTY_PACKAGES = {
-	"@injaneity/pi-computer-use": { version: "0.5.1-rotom.2", integrity: "sha512-L+OdYakACdJVwpIpU9fZG+gWhBSI3VGZWoSlwDgVzxLD5jx89kvlVPgb7iTVBFgW1vrO9leYJ8cWWajosgr3lA==", archive: "vendor/injaneity-pi-computer-use-0.5.1-rotom.2.tgz" },
+	"@injaneity/pi-computer-use": { version: "0.5.1-rotom.2", integrity: "sha512-dcJn+H5u9jwvrrDPeAC38NsyaZzJ17cNxqxFtaaW41DzHh+pxmh0p6r497L5DFNp+0+iKkmPD9Kpcc7wFo9QfQ==", archive: "vendor/injaneity-pi-computer-use-0.5.1-rotom.2.tgz" },
 	"@juicesharp/rpiv-ask-user-question": { version: "2.6.2", integrity: "sha512-DS9yZHcaPr+/nf0x2CCfiXBod/1aWjGyakGM3lZAObuGDhYI0nFRE5gxTcCOfQug6JtJXjt1GlzyX8Pljefdzg==" },
 	"pi-subagents": { version: "0.52.1-rotom.11", integrity: "sha512-QsfO3DJV9ghMfVQXLBHjaT8sOWORa56BmUA5B1w32SZM8ycvA8KfOResQJtSmm6YNxCo6mIdw0vmd5DJQo7ptA==", archive: "vendor/pi-subagents-0.52.1-rotom.11.tgz" },
 	"@narumitw/pi-goal": { version: "0.54.4-rotom.8", integrity: "sha512-nEQhj4obyLpYRUUpqZF9co8UeX7Jc1iPKrI0D3hSMW9cEXDrIzv+ZnrhGWqwyWWk4GB7cZ7NzO5LAjC5uNTI8g==", archive: "vendor/narumitw-pi-goal-0.54.4-rotom.8.tgz" },
