@@ -2,7 +2,7 @@ import * as transcript from '../../runtime/pi/node_modules/@earendil-works/pi-ai
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac, randomUUID } from 'node:crypto';
-import { installQoderExtension, BINDING_TYPE, QODER_DIAGNOSTIC_EVENT } from './session-policy.mjs';
+import { installQoderExtension, BINDING_TYPE, PROVIDER_METADATA_EVENT } from './session-policy.mjs';
 import { CATALOG_TTL_MS } from './catalog.mjs';
 import { CATALOG_URL } from './catalog-auth.mjs';
 import { CHAT_URL } from './transport.mjs';
@@ -90,13 +90,34 @@ test('refresh failure keeps stale catalog but blocks inference without retry or 
   assert.deepEqual(f.counts(), { catalogReads: 3, dispatches: 1, refreshCalls: 3 });
 });
 
+test('terminal metadata precedes streamed errors and setup rejection', async t => {
+  const f = await fixture(t);
+  f.setChatHook(() => new Response('data: {"choices":[{"index":0,"delta":{},"finish_reason":"refusal"}]}\n\n', { headers: { 'content-type': 'text/event-stream' } }));
+  const stream = await f.provider.api.streamSimple(f.model, { messages: [] }, { sessionId: 'fixture-session' });
+  let sawError = false;
+  for await (const event of stream) if (event.type === 'error') {
+    sawError = true;
+    assert.equal(f.diagnostics.at(-1).data.attributes['pi.ai.qoder.error_code'], 'model_refusal');
+  }
+  assert.equal(sawError, true);
+  f.setChatHook(() => { throw new Error('PRIVATE_NETWORK_BODY'); });
+  await assert.rejects(f.run(), /Qoder: request_failed/);
+  assert.equal(f.diagnostics.at(-1).data.attributes['pi.ai.qoder.error_code'], 'transport_failure');
+  assert.doesNotMatch(JSON.stringify(f.diagnostics), /PRIVATE_NETWORK_BODY/);
+});
+
 test('upstream error frames publish bounded diagnostics without the private body', async t => {
   const f = await fixture(t);
   f.setChatHook(() => new Response('data: '+JSON.stringify({ code: 503, error: { message: 'PRIVATE_UPSTREAM_BODY' } })+'\n\n', { headers: { 'content-type': 'text/event-stream' } }));
   const result = await f.run();
   assert.equal(result.type, 'error');
   assert.equal(result.error.errorMessage, 'Qoder: upstream_error_frame');
-  assert.deepEqual(f.diagnostics, [{ channel: QODER_DIAGNOSTIC_EVENT, data: { code: 'upstream_error_frame', status: 503, hasError: true } }]);
+  assert.deepEqual(f.diagnostics, [{ channel: PROVIDER_METADATA_EVENT, data: { provider: 'qoder', attributes: {
+    'pi.ai.qoder.diagnostic_code': 'upstream_error_frame', 'pi.ai.qoder.frame_status_code': 503,
+    'pi.ai.qoder.frame_has_error': true, 'pi.ai.error.category': 'http', 'pi.ai.error.http_status': 503,
+  } } }, { channel: PROVIDER_METADATA_EVENT, data: { provider: 'qoder', attributes: {
+    'pi.ai.qoder.error_code': 'upstream_error_frame', 'pi.ai.error.category': 'http', 'pi.ai.error.http_status': 503,
+  } } }]);
   assert.doesNotMatch(JSON.stringify(f.diagnostics), /PRIVATE_UPSTREAM_BODY/);
 });
 

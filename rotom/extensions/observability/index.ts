@@ -13,21 +13,15 @@ const CAPABILITY_GROUP_BY_TOOL = new Map(
 );
 
 export const LOCAL_TRACE_SCHEMA_V1 = "rotom-local-trace/v1";
-export const QODER_DIAGNOSTIC_EVENT = "rotom:qoder:diagnostic:v1";
+export const PROVIDER_METADATA_EVENT = "rotom:provider:metadata:v1";
 const TRACE_DIRECTORY = "observability";
 const TRACE_FLUSH_TIMEOUT_MS = 500;
-const QODER_TRACE_ERROR_MESSAGES = new Map([
-	["Qoder: upstream_error_event", "upstream_error_event"],
-	["Qoder: upstream_error_frame", "upstream_error_frame"],
-	["Qoder: request_failed", "transport_failure"],
-	["Qoder: connection_failed", "transport_failure"],
-	["Qoder: stream_failed", "transport_failure"],
-	["Qoder: invalid_tool_id", "invalid_tool_id"],
-	["Qoder: invalid_tool_arguments", "invalid_tool_arguments"],
-	["Qoder: model_refusal", "model_refusal"],
-]);
 
 const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u;
+
+type TraceStatus = "ok" | "error" | "aborted" | "unknown";
+type TraceAttribute = string | number | boolean | string[] | number[] | boolean[];
+type TraceAttributes = Record<string, TraceAttribute>;
 
 // Bounded category of a failed provider request. Patterns match error texts seen
 // in real rotom sessions; only the label (and an HTTP status parsed from a
@@ -38,17 +32,20 @@ const PROVIDER_ERROR_CATEGORIES: ReadonlyArray<readonly [category: string, patte
 	["websocket", /^WebSocket (?:error|closed)\b/u],
 	["aborted", /^This operation was aborted$/u],
 	["overloaded", /overloaded/iu],
-	["network", /^(?:fetch failed|terminated|Connection error\.)(?: \(caused by: .*\))?$|^Qoder: (?:request|stream|connection)_failed$|\b(?:ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN)\b|socket hang up|^upstream connect error/u],
+	["network", /^(?:fetch failed|terminated|Connection error\.)(?: \(caused by: .*\))?$|\b(?:ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN)\b|socket hang up|^upstream connect error/u],
 	["auth", /^API key auth failed\b/u],
-	["provider_error", /^Codex error:|^\{"type":"error"|^Qoder: /u],
+	["provider_error", /^Codex error:|^\{"type":"error"/u],
 ];
 const LEADING_HTTP_STATUS = /^([45]\d\d)\b/u;
 // Compaction failures wrap the provider error: "Compaction failed: Summarization failed: <error>".
 const SUMMARY_FAILURE_PREFIX = /^Compaction failed: (?:[A-Za-z ]+ failed: )?/u;
 
-type TraceStatus = "ok" | "error" | "aborted" | "unknown";
-type TraceAttribute = string | number | boolean | string[] | number[] | boolean[];
-type TraceAttributes = Record<string, TraceAttribute>;
+export function providerErrorAttributes(errorMessage: unknown, httpStatus: number | undefined): TraceAttributes {
+	const text = typeof errorMessage === "string" ? errorMessage.replace(SUMMARY_FAILURE_PREFIX, "").trim() : "";
+	const status = Number(LEADING_HTTP_STATUS.exec(text)?.[1]) || (httpStatus !== undefined && httpStatus >= 400 ? httpStatus : undefined);
+	if (status) return { "pi.ai.error.category": "http", "pi.ai.error.http_status": status };
+	return { "pi.ai.error.category": PROVIDER_ERROR_CATEGORIES.find(([, pattern]) => pattern.test(text))?.[0] ?? "unknown" };
+}
 
 type ActiveSpan = {
 	traceId: string;
@@ -92,13 +89,6 @@ export function runtimeVersionAttributes(env: NodeJS.ProcessEnv = process.env): 
 		...(product && EXACT_VERSION.test(product) ? { "rotom.product.version": product } : {}),
 		...(pi && EXACT_VERSION.test(pi) ? { "pi.runtime.version": pi } : {}),
 	};
-}
-
-export function providerErrorAttributes(errorMessage: unknown, httpStatus: number | undefined): TraceAttributes {
-	const text = typeof errorMessage === "string" ? errorMessage.replace(SUMMARY_FAILURE_PREFIX, "").trim() : "";
-	const status = Number(LEADING_HTTP_STATUS.exec(text)?.[1]) || (httpStatus !== undefined && httpStatus >= 400 ? httpStatus : undefined);
-	if (status) return { "pi.ai.error.category": "http", "pi.ai.error.http_status": status };
-	return { "pi.ai.error.category": PROVIDER_ERROR_CATEGORIES.find(([, pattern]) => pattern.test(text))?.[0] ?? "unknown" };
 }
 
 /** Per-request timing of a built-in compaction, keyed by summary kind. */
@@ -365,66 +355,12 @@ function statusFromAssistant(message: any): TraceStatus {
 
 function assistantAttributes(message: any): TraceAttributes {
 	if (!message || message.role !== "assistant") return {};
-	const qoderErrorCode = message.provider === "qoder" && typeof message.errorMessage === "string"
-		? QODER_TRACE_ERROR_MESSAGES.get(message.errorMessage)
-		: undefined;
 	return {
 		...(boundedTag(message.provider, 128) ? { "pi.ai.provider": boundedTag(message.provider, 128)! } : {}),
 		...(boundedTag(message.model) ? { "pi.ai.model": boundedTag(message.model)! } : {}),
 		...(boundedTag(message.api, 128) ? { "pi.ai.api": boundedTag(message.api, 128)! } : {}),
 		...(boundedTag(message.stopReason, 64) ? { "pi.ai.response.stop_reason": boundedTag(message.stopReason, 64)! } : {}),
-		...(qoderErrorCode ? { "pi.ai.qoder.error_code": qoderErrorCode } : {}),
 		...usageAttributes(message.usage),
-	};
-}
-
-function qoderDiagnosticAttributes(value: unknown): TraceAttributes {
-	const diagnostic = record(value);
-	const allowedCodes = ["upstream_error_frame", "legacy_error", "transport_failure", "invalid_tool_id", "invalid_tool_arguments"];
-	if (!diagnostic || !allowedCodes.includes(String(diagnostic.code))) return {};
-	if (diagnostic.code === "invalid_tool_arguments") {
-		// Persist structure only, never malformed JSON, tool identity or parser prose.
-		return {
-			"pi.ai.qoder.diagnostic_code": "invalid_tool_arguments",
-			...(["invalid_json", "non_object"].includes(diagnostic.reason)
-				? { "pi.ai.qoder.tool_arguments_reason": diagnostic.reason } : {}),
-			...(Number.isSafeInteger(diagnostic.argumentBytes) && diagnostic.argumentBytes >= 0
-				? { "pi.ai.qoder.tool_arguments_bytes": diagnostic.argumentBytes } : {}),
-		};
-	}
-	if (diagnostic.code === "invalid_tool_id") {
-		// Event payloads are untrusted: persist only fixed categories and the
-		// parser's bounded wire index, never identities, arguments or prose.
-		return {
-			"pi.ai.qoder.diagnostic_code": "invalid_tool_id",
-			...(["non_string", "oversized", "changed"].includes(diagnostic.reason)
-				? { "pi.ai.qoder.tool_id_reason": diagnostic.reason } : {}),
-			...(diagnostic.reason === "changed" && ["extension", "fragment", "distinct"].includes(diagnostic.relation)
-				? { "pi.ai.qoder.tool_id_relation": diagnostic.relation } : {}),
-			...(diagnostic.reason === "changed" && typeof diagnostic.previousArgumentsComplete === "boolean"
-				? { "pi.ai.qoder.previous_arguments_complete": diagnostic.previousArgumentsComplete } : {}),
-			...(Number.isSafeInteger(diagnostic.wireIndex) && diagnostic.wireIndex >= 0 && diagnostic.wireIndex < 64
-				? { "pi.ai.qoder.tool_wire_index": diagnostic.wireIndex } : {}),
-		};
-	}
-	const status = Number.isSafeInteger(diagnostic.status) && (diagnostic.status as number) >= 0
-		? diagnostic.status as number
-		: undefined;
-	const allowedCategories = ["tool", "content", "null", "reasoning", "model", "parameter", "quota", "permission", "invalid"];
-	const categories = diagnostic.code === "legacy_error" && Array.isArray(diagnostic.categories)
-		? allowedCategories.filter((category) => diagnostic.categories.includes(category))
-		: [];
-	const phase = diagnostic.code === "transport_failure" && (diagnostic.phase === "request" || diagnostic.phase === "stream")
-		? diagnostic.phase
-		: undefined;
-	return {
-		"pi.ai.qoder.diagnostic_code": String(diagnostic.code),
-		...(status !== undefined ? { "pi.ai.qoder.frame_status_code": status } : {}),
-		...(diagnostic.code === "upstream_error_frame" && typeof diagnostic.hasError === "boolean"
-			? { "pi.ai.qoder.frame_has_error": diagnostic.hasError }
-			: {}),
-		...(categories.length ? { "pi.ai.qoder.error_categories": categories } : {}),
-		...(phase ? { "pi.ai.qoder.transport_phase": phase } : {}),
 	};
 }
 
@@ -499,29 +435,11 @@ async function ensurePrivateTraceDirectory(path: string): Promise<void> {
 		metadata = await lstat(path);
 	}
 	if (metadata.isSymbolicLink() || !metadata.isDirectory()) throw new Error("trace directory is not a private directory");
-	if ((metadata.mode & 0o077) !== 0) throw new Error("trace directory permissions are not private");
+	if ((metadata.mode & 0o077) !== 0 || !ownerIsCurrent(metadata)) throw new Error("trace directory permissions are not private");
 }
 
-async function appendTraceLineSafely(path: string, line: string): Promise<void> {
-	const directory = dirname(path);
-	await ensurePrivateTraceDirectory(directory);
-	try {
-		const existing = await lstat(path);
-		if (existing.isSymbolicLink() || !existing.isFile() || (existing.mode & 0o077) !== 0) {
-			throw new Error("trace path is not a private regular file");
-		}
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-	}
-	const flags = constants.O_APPEND | constants.O_CREAT | constants.O_WRONLY | (constants.O_NOFOLLOW ?? 0);
-	const handle = await open(path, flags, 0o600);
-	try {
-		const opened = await handle.stat();
-		if (!opened.isFile() || (opened.mode & 0o077) !== 0) throw new Error("opened trace is not a private regular file");
-		await handle.writeFile(line, { encoding: "utf8" });
-	} finally {
-		await handle.close();
-	}
+function ownerIsCurrent(metadata: any): boolean {
+	return !process.getuid || metadata.uid === process.getuid();
 }
 
 export class LocalTraceWriterV1 {
@@ -529,24 +447,66 @@ export class LocalTraceWriterV1 {
 	private chain: Promise<void> = Promise.resolve();
 	private failed = false;
 	private enqueued = 0;
-	private readonly appendLine: (path: string, line: string) => Promise<void>;
+	private closeRequested = false;
+	private handle?: Awaited<ReturnType<typeof open>>;
+	private readonly appendLine?: (path: string, line: string) => Promise<void>;
 	recordsWritten = 0;
 	recordsDropped = 0;
 
-	constructor(path: string, appendLine = appendTraceLineSafely) {
+	constructor(path: string, appendLine?: (path: string, line: string) => Promise<void>) {
 		this.path = path;
 		this.appendLine = appendLine;
 	}
 
+	private async openPrivateHandle(): Promise<Awaited<ReturnType<typeof open>>> {
+		await ensurePrivateTraceDirectory(dirname(this.path));
+		const flags = constants.O_APPEND | constants.O_CREAT | constants.O_WRONLY | (constants.O_NOFOLLOW ?? 0);
+		const handle = await open(this.path, flags, 0o600);
+		try {
+			const opened = await handle.stat();
+			const current = await lstat(this.path);
+			if (!opened.isFile() || (opened.mode & 0o077) !== 0 || !ownerIsCurrent(opened)
+				|| current.isSymbolicLink() || !current.isFile() || (current.mode & 0o077) !== 0 || !ownerIsCurrent(current)
+				|| opened.dev !== current.dev || opened.ino !== current.ino) throw new Error("trace path changed or is not private");
+			return handle;
+		} catch (error) { await handle.close().catch(() => {}); throw error; }
+	}
+
+	private async verifyHandle(): Promise<void> {
+		if (!this.handle) return;
+		await ensurePrivateTraceDirectory(dirname(this.path));
+		const opened = await this.handle.stat();
+		const current = await lstat(this.path);
+		if (!opened.isFile() || (opened.mode & 0o077) !== 0 || !ownerIsCurrent(opened)
+			|| current.isSymbolicLink() || !current.isFile() || (current.mode & 0o077) !== 0 || !ownerIsCurrent(current)
+			|| opened.dev !== current.dev || opened.ino !== current.ino) throw new Error("trace path changed or is not private");
+	}
+
+	private async writeLine(line: string): Promise<void> {
+		if (this.appendLine) { await this.appendLine(this.path, line); return; }
+		const handle = this.handle ?? (this.handle = await this.openPrivateHandle());
+		await this.verifyHandle();
+		await handle.writeFile(line, { encoding: "utf8" });
+		await this.verifyHandle();
+	}
+
+	private noteDrop(): void {
+		if (this.recordsDropped < this.enqueued - this.recordsWritten) this.recordsDropped += 1;
+	}
+
+	private async closeHandle(): Promise<void> {
+		const handle = this.handle;
+		this.handle = undefined;
+		if (handle) await handle.close().catch(() => {});
+	}
+
 	append(record: TraceRecord): void {
 		this.enqueued += 1;
-		if (this.failed) { this.recordsDropped += 1; return; }
+		if (this.failed || this.closeRequested) { this.noteDrop(); return; }
 		this.chain = this.chain.then(async () => {
-			await this.appendLine(this.path, `${JSON.stringify(record)}\n`);
-			this.recordsWritten += 1;
-		}).catch(() => {
-			this.failed = true;
-			this.recordsDropped += 1;
+			if (this.failed) { this.noteDrop(); return; }
+			try { await this.writeLine(`${JSON.stringify(record)}\n`); this.recordsWritten += 1; }
+			catch { this.failed = true; this.noteDrop(); }
 		});
 	}
 
@@ -554,10 +514,7 @@ export class LocalTraceWriterV1 {
 		let timer: NodeJS.Timeout | undefined;
 		const completed = await Promise.race([
 			this.chain.then(() => true),
-			new Promise<false>((resolve) => {
-				timer = setTimeout(() => resolve(false), timeoutMs);
-				timer.unref?.();
-			}),
+			new Promise<false>((resolve) => { timer = setTimeout(() => resolve(false), timeoutMs); timer.unref?.(); }),
 		]);
 		if (timer) clearTimeout(timer);
 		if (!completed) {
@@ -565,6 +522,16 @@ export class LocalTraceWriterV1 {
 			this.recordsDropped = Math.max(this.recordsDropped, this.enqueued - this.recordsWritten);
 		}
 		return completed;
+	}
+
+	async close(timeoutMs = TRACE_FLUSH_TIMEOUT_MS): Promise<boolean> {
+		if (!this.closeRequested) {
+			this.closeRequested = true;
+			// Drain already accepted writes; reject later appends immediately. Closing
+			// remains queued even when the bounded caller stops waiting.
+			this.chain = this.chain.then(() => this.closeHandle());
+		}
+		return this.flush(timeoutMs);
 	}
 	get healthy(): boolean { return !this.failed; }
 }
@@ -579,11 +546,11 @@ class LocalTraceRecorderV1 {
 	private turnSpan?: ActiveSpan;
 	private providerSpan?: ActiveSpan;
 	private providerStatus?: number;
+	private providerName?: string;
 	private providerFirstUpdateAt?: number;
 	private providerFirstContentAt?: number;
 	private providerResponseAt?: number;
-	private providerName?: string;
-	private providerDiagnostics: TraceAttributes = {};
+	private providerAttributes: TraceAttributes = {};
 	private startupSpan?: ActiveSpan;
 	private prefillSpan?: ActiveSpan;
 	private streamPhaseSpan?: ActiveSpan;
@@ -692,8 +659,8 @@ class LocalTraceRecorderV1 {
 		this.providerFirstUpdateAt = undefined;
 		this.providerFirstContentAt = undefined;
 		this.providerResponseAt = undefined;
-		this.providerName = boundedTag((ctx.model as any)?.provider, 128);
-		this.providerDiagnostics = {};
+		this.providerAttributes = {};
+		this.providerName = ctx.model?.provider;
 		const digest = typeof surface["pi.tools.schema_digest"] === "string" ? surface["pi.tools.schema_digest"] : undefined;
 		this.providerSpan = this.startSpan("pi.ai.request", parent, {
 			...modelAttributes(ctx),
@@ -708,9 +675,31 @@ class LocalTraceRecorderV1 {
 		});
 	}
 
-	qoderDiagnostic(value: unknown): void {
-		if (!this.providerSpan || this.providerName !== "qoder") return;
-		this.providerDiagnostics = { ...this.providerDiagnostics, ...qoderDiagnosticAttributes(value) };
+	providerMetadata(value: unknown): void {
+		const event = record(value);
+		if (!this.providerSpan || event?.provider !== this.providerName) return;
+		const attributes = record(event?.attributes);
+		if (!attributes) return;
+		// Trusted product-provider contract: producers own content removal and exact
+		// enum allowlists. This layer enforces only generic metadata shape/bounds,
+		// never consumes raw diagnostics, error bodies, headers or tool arguments.
+		const metadata: TraceAttributes = {};
+		const tag = (value: unknown): value is string => typeof value === "string" && /^[a-z0-9_.-]{1,64}$/u.test(value);
+		for (const [key, candidate] of Object.entries(attributes).slice(0, 32)) {
+			if (!/^pi\.ai\.[a-z0-9_.]{1,96}$/u.test(key)) continue;
+			if (key === "pi.ai.error.category" && this.providerAttributes[key] === "http" && candidate !== "http") continue;
+			if (tag(candidate) || typeof candidate === "boolean"
+				|| (typeof candidate === "number" && Number.isSafeInteger(candidate) && candidate >= 0)) metadata[key] = candidate;
+			else if (Array.isArray(candidate) && candidate.length <= 16 && candidate.every(tag)) metadata[key] = candidate;
+		}
+		this.providerAttributes = { ...this.providerAttributes, ...metadata };
+	}
+
+	private failureAttributes(errorMessage: unknown): TraceAttributes {
+		const generic = providerErrorAttributes(errorMessage, this.providerStatus);
+		if (generic["pi.ai.error.category"] === "http") return { ...this.providerAttributes, ...generic };
+		const provided = this.providerAttributes["pi.ai.error.category"];
+		return provided && provided !== "unknown" ? { ...generic, ...this.providerAttributes } : { ...this.providerAttributes, ...generic };
 	}
 
 	providerResponse(status: unknown): void {
@@ -767,7 +756,7 @@ class LocalTraceRecorderV1 {
 		if (status !== "ok") this.operationStatus = status;
 		this.finishProvider(status, {
 			...assistantAttributes(message),
-			...(status === "error" ? providerErrorAttributes(message.errorMessage, this.providerStatus) : {}),
+			...(status === "error" ? this.failureAttributes(message.errorMessage) : {}),
 			...contextUsageAttributes(ctx),
 		});
 	}
@@ -861,8 +850,8 @@ class LocalTraceRecorderV1 {
 		if (!this.compactionSpan) return;
 		const status: TraceStatus = failed ? (event.aborted === true ? "aborted" : "error") : "ok";
 		const sequence = this.activeCompactionSequence;
-		const errorAttributes = status === "error" ? providerErrorAttributes(event.errorMessage, this.providerStatus) : {};
-		this.finishProvider(status, { ...usageAttributes(event.compactionEntry?.usage), ...errorAttributes });
+		const errorAttributes = status === "error" ? this.failureAttributes(event.errorMessage) : {};
+		this.finishProvider(status, { ...errorAttributes, ...usageAttributes(event.compactionEntry?.usage) });
 		this.endSpan(this.compactionSpan, status, {
 			...errorAttributes,
 			...(sequence !== undefined ? { "pi.compaction.sequence": sequence } : {}),
@@ -893,13 +882,12 @@ class LocalTraceRecorderV1 {
 			...(this.providerResponseAt !== undefined ? { "pi.ai.http.time_to_response_ms": Math.max(0, this.providerResponseAt - this.providerSpan.startedAt) } : {}),
 			...(this.providerFirstUpdateAt !== undefined ? { "pi.ai.stream.time_to_first_chunk_ms": Math.max(0, this.providerFirstUpdateAt - this.providerSpan.startedAt) } : {}),
 			...(this.providerFirstContentAt !== undefined ? { "pi.ai.stream.time_to_first_content_ms": Math.max(0, this.providerFirstContentAt - this.providerSpan.startedAt) } : {}),
-			...this.providerDiagnostics,
+			...this.providerAttributes,
 			...attributes,
 		});
 		this.providerSpan = undefined;
 		this.providerStatus = undefined;
-		this.providerName = undefined;
-		this.providerDiagnostics = {};
+		this.providerAttributes = {};
 		this.providerFirstUpdateAt = undefined;
 		this.providerFirstContentAt = undefined;
 		this.providerResponseAt = undefined;
@@ -940,7 +928,7 @@ class LocalTraceRecorderV1 {
 		}
 		if (this.operationSpan) this.finishOperation("aborted");
 		this.endSpan(this.sessionSpan, "ok", { "pi.session.shutdown_reason": boundedTag(reason, 32) ?? "unknown" });
-		await this.writer.flush();
+		await this.writer.close();
 	}
 }
 
@@ -961,7 +949,7 @@ export function createObservabilityExtensionV1() {
 			},
 		});
 
-		pi.events.on(QODER_DIAGNOSTIC_EVENT, (diagnostic) => recorder?.qoderDiagnostic(diagnostic));
+		pi.events.on(PROVIDER_METADATA_EVENT, (metadata) => recorder?.providerMetadata(metadata));
 
 		pi.on("session_start", async (event, ctx) => {
 			if (recorder) await recorder.shutdown("reload");

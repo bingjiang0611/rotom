@@ -2,8 +2,9 @@ import { QoderError } from './auth.mjs';
 import { MODEL, PROVIDER_ID, createQoderProvider } from './provider.mjs';
 import { CREDIT_ENTRY } from './credits.mjs';
 import { abortable, SUPPORTED_MODEL_IDS } from './transport.mjs';
+import { PROVIDER_METADATA_EVENT, qoderDiagnosticAttributes } from './diagnostics.mjs';
 
-export const QODER_DIAGNOSTIC_EVENT = 'rotom:qoder:diagnostic:v1';
+export { PROVIDER_METADATA_EVENT } from './diagnostics.mjs';
 
 async function refreshRegistry(ctx, { force = false, signal } = {}) {
   const deadline = AbortSignal.timeout(30000);
@@ -124,15 +125,20 @@ export function installSessionPolicy(pi) {
 export async function installQoderExtension(pi, options = {}) {
   const policy = installSessionPolicy(pi);
   const externalDiagnostic = options.onDiagnostic;
+  const emitMetadata = attributes => {
+    if (!attributes || !Object.keys(attributes).length) return;
+    try { pi.events.emit(PROVIDER_METADATA_EVENT, { provider: PROVIDER_ID, attributes }); } catch { /* Optional diagnostics are fail-open. */ }
+  };
   const provider = await createQoderProvider({
     ...options,
     captureBinding: policy.captureBinding,
     captureMetering: policy.captureMetering,
     refreshCatalog: policy.refreshCatalog,
     onDiagnostic(diagnostic) {
-      pi.events.emit(QODER_DIAGNOSTIC_EVENT, diagnostic);
+      emitMetadata(qoderDiagnosticAttributes(diagnostic));
       return externalDiagnostic?.(diagnostic);
     },
+    onMetadata: emitMetadata,
   });
   pi.registerProvider(provider);
   const refresh = async (ctx, force = false) => {

@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { qoderChunks } from "../qoder/transport.mjs";
-import { classifyFaultSide, createObservabilityExtensionV1, LOCAL_TRACE_SCHEMA_V1, LocalTraceWriterV1, localTracePathForSessionFile, providerErrorAttributes, QODER_DIAGNOSTIC_EVENT, runtimeVersionAttributes, toolSurfaceMetrics } from "./index.ts";
+import { qoderDiagnosticAttributes, qoderErrorAttributes, PROVIDER_METADATA_EVENT } from "../qoder/diagnostics.mjs";
+import { providerErrorAttributes, classifyFaultSide, createObservabilityExtensionV1, LOCAL_TRACE_SCHEMA_V1, LocalTraceWriterV1, localTracePathForSessionFile, runtimeVersionAttributes, toolSurfaceMetrics } from "./index.ts";
 
 type Handler = (event: any, ctx: any) => unknown | Promise<unknown>;
 
@@ -34,7 +35,8 @@ function extensionHarness(toolApi: Record<string, unknown> = {}) {
 	return {
 		handlers,
 		commands,
-		emitDiagnostic(value: unknown) { pi.events.emit(QODER_DIAGNOSTIC_EVENT, value); },
+		emitDiagnostic(value: unknown) { pi.events.emit(PROVIDER_METADATA_EVENT, { provider: "qoder", attributes: qoderDiagnosticAttributes(value) }); },
+		emitMetadata(value: unknown, provider = "qoder") { pi.events.emit(PROVIDER_METADATA_EVENT, { provider, attributes: value }); },
 		async emit(event: string, value: any, ctx: any) {
 			for (const handler of handlers.get(event) ?? []) await handler(value, ctx);
 		},
@@ -296,17 +298,20 @@ test("Qoder diagnostics attach only allowlisted metadata to the active Qoder pro
 		error: { message: "PRIVATE_UPSTREAM_MESSAGE" },
 		categories: ["PRIVATE_CATEGORY"],
 	});
+	harness.emitMetadata(qoderErrorAttributes("Qoder: upstream_error_frame", 503));
 	await harness.emit("message_end", {
 		type: "message_end",
 		message: { ...assistantMessage("error"), provider: "qoder", model: "ultimate", errorMessage: "Qoder: upstream_error_frame" },
 	}, ctx);
 	await harness.emit("before_provider_headers", { type: "before_provider_headers", headers: {} }, ctx);
 	harness.emitDiagnostic({ code: "transport_failure", phase: "request", error: "PRIVATE_TRANSPORT_DETAIL" });
+	harness.emitMetadata(qoderErrorAttributes("Qoder: request_failed"));
 	await harness.emit("message_end", {
 		type: "message_end",
 		message: { ...assistantMessage("error"), provider: "qoder", model: "ultimate", errorMessage: "Qoder: request_failed" },
 	}, ctx);
 	await harness.emit("before_provider_headers", { type: "before_provider_headers", headers: {} }, ctx);
+	harness.emitMetadata(qoderErrorAttributes("Qoder: model_refusal"));
 	await harness.emit("message_end", {
 		type: "message_end",
 		message: { ...assistantMessage("error"), provider: "qoder", model: "ultimate", errorMessage: "Qoder: model_refusal" },
@@ -354,10 +359,10 @@ test("tool argument diagnostics reach trace without persisting malformed content
 	await harness.emit("agent_start", { type: "agent_start" }, ctx);
 	await harness.emit("turn_start", { type: "turn_start", turnIndex: 0 }, ctx);
 	const beginRequest = () => harness.emit("before_provider_headers", { type: "before_provider_headers", headers: {} }, ctx);
-	const endRequest = () => harness.emit("message_end", {
+	const endRequest = () => { harness.emitMetadata(qoderErrorAttributes("Qoder: invalid_tool_arguments")); return harness.emit("message_end", {
 		type: "message_end",
 		message: { ...assistantMessage("error"), provider: "qoder", model: "ultimate", errorMessage: "Qoder: invalid_tool_arguments" },
-	}, ctx);
+	}, ctx); };
 	const frame = (value: unknown) => `data: ${JSON.stringify(value)}\n\n`;
 	for (const args of ['{\"PRIVATE_ARGUMENT\":\"秘密\"', 'null']) {
 		await beginRequest();
@@ -415,10 +420,10 @@ test("tool ID diagnostics reach trace through the parser without persisting tool
 	await harness.emit("agent_start", { type: "agent_start" }, ctx);
 	await harness.emit("turn_start", { type: "turn_start", turnIndex: 0 }, ctx);
 	const beginRequest = () => harness.emit("before_provider_headers", { type: "before_provider_headers", headers: {} }, ctx);
-	const endRequest = () => harness.emit("message_end", {
+	const endRequest = () => { harness.emitMetadata(qoderErrorAttributes("Qoder: invalid_tool_id")); return harness.emit("message_end", {
 		type: "message_end",
 		message: { ...assistantMessage("error"), provider: "qoder", model: "ultimate", errorMessage: "Qoder: invalid_tool_id" },
-	}, ctx);
+	}, ctx); };
 
 	await beginRequest();
 	const frame = (id: string, name: string, args: string) => `data: ${JSON.stringify({ choices: [{ delta: {
@@ -546,8 +551,7 @@ test("failed provider errors map to a bounded category from real error texts", (
 		["terminated", undefined, { "pi.ai.error.category": "network" }],
 		["Connection error.", undefined, { "pi.ai.error.category": "network" }],
 		["upstream connect error or disconnect/reset before headers. reset reason: overflow", undefined, { "pi.ai.error.category": "network" }],
-		["Qoder: request_failed", undefined, { "pi.ai.error.category": "network" }],
-		["Qoder: connection_failed", undefined, { "pi.ai.error.category": "network" }],
+		["opaque provider failure", undefined, { "pi.ai.error.category": "unknown" }],
 		["fetch failed (caused by: Client network socket disconnected before secure TLS connection was established)", undefined, { "pi.ai.error.category": "network" }],
 		["Connection error. (caused by: connect ECONNREFUSED 127.0.0.1:10808)", undefined, { "pi.ai.error.category": "network" }],
 		["WebSocket closed 1012", undefined, { "pi.ai.error.category": "websocket" }],
@@ -557,7 +561,6 @@ test("failed provider errors map to a bounded category from real error texts", (
 		["Codex error: Our servers are currently overloaded. Please try again later.", undefined, { "pi.ai.error.category": "overloaded" }],
 		["{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\"}}", undefined, { "pi.ai.error.category": "overloaded" }],
 		["Codex error: An error occurred while processing your request.", undefined, { "pi.ai.error.category": "provider_error" }],
-		["Qoder: upstream_error_frame", 200, { "pi.ai.error.category": "provider_error" }],
 		["API key auth failed for provider cc-switch: Failed to resolve API key", undefined, { "pi.ai.error.category": "auth" }],
 		["This operation was aborted", undefined, { "pi.ai.error.category": "aborted" }],
 		["403 data: {\"error\":{\"message\":\"PRIVATE\"}}", undefined, { "pi.ai.error.category": "http", "pi.ai.error.http_status": 403 }],
@@ -567,7 +570,9 @@ test("failed provider errors map to a bounded category from real error texts", (
 		["Compaction failed: Turn prefix summarization failed: 403 data: {}", undefined, { "pi.ai.error.category": "http", "pi.ai.error.http_status": 403 }],
 		["<html> <head> <meta name=viewport>", undefined, { "pi.ai.error.category": "unknown" }],
 	];
-	for (const [message, status, expected] of cases) assert.deepEqual(providerErrorAttributes(message, status), expected, message);
+	for (const [message, status, expected] of cases) {
+		assert.deepEqual(providerErrorAttributes(message, status), expected, message);
+	}
 	assert.deepEqual(providerErrorAttributes(undefined, undefined), { "pi.ai.error.category": "unknown" });
 });
 
@@ -588,7 +593,7 @@ test("failed requests and compactions carry the error category and version witho
 	const harness = extensionHarness();
 	const ctx = {
 		mode: "print",
-		model: { provider: "cc-switch", id: "test-model", api: "anthropic-messages" },
+		model: { provider: "qoder", id: "test-model", api: "qoder" },
 		thinkingLevel: "high",
 		sessionManager: { getSessionFile: () => sessionFile, getSessionId: () => "error-category" },
 		ui: { notify() {} },
@@ -598,12 +603,14 @@ test("failed requests and compactions carry the error category and version witho
 	await harness.emit("agent_start", { type: "agent_start" }, ctx);
 	await harness.emit("turn_start", { type: "turn_start", turnIndex: 0 }, ctx);
 	await harness.emit("before_provider_headers", { type: "before_provider_headers", headers: {} }, ctx);
-	await harness.emit("message_end", { type: "message_end", message: { ...assistantMessage("error"), errorMessage: "403 data: PRIVATE_BAN_NOTICE" } }, ctx);
+	harness.emitMetadata(qoderErrorAttributes("403 data: PRIVATE_BAN_NOTICE"));
+	await harness.emit("message_end", { type: "message_end", message: { ...assistantMessage("error"), provider: "qoder", errorMessage: "Qoder: http_403" } }, ctx);
 	await harness.emit("before_provider_headers", { type: "before_provider_headers", headers: {} }, ctx);
 	await harness.emit("message_end", { type: "message_end", message: assistantMessage("stop") }, ctx);
 	await harness.emit("session_before_compact", { type: "session_before_compact", reason: "threshold", willRetry: false, preparation: { tokensBefore: 254_111 } }, ctx);
 	await harness.emit("before_provider_headers", { type: "before_provider_headers", headers: {} }, ctx);
-	await harness.emit("session_compact_failed", { type: "session_compact_failed", reason: "threshold", errorMessage: "Compaction failed: Summarization failed: 503 <html>PRIVATE_DETAIL</html>", aborted: false, willRetry: false, fromExtension: false }, ctx);
+	harness.emitMetadata(qoderErrorAttributes("503 <html>PRIVATE_DETAIL</html>"));
+	await harness.emit("session_compact_failed", { type: "session_compact_failed", reason: "threshold", errorMessage: "Compaction failed: Summarization failed: Qoder: http_503", aborted: false, willRetry: false, fromExtension: false }, ctx);
 	await harness.emit("session_shutdown", { type: "session_shutdown", reason: "quit" }, ctx);
 
 	const text = readFileSync(localTracePathForSessionFile(sessionFile), "utf8");
@@ -696,6 +703,34 @@ test("trace paths reject directory and file symlinks without touching their targ
 	await fileHarness.commands.get("trace").handler("", fileCtx);
 	assert.equal(readFileSync(externalFile, "utf8"), "unchanged");
 	assert.equal(statSync(externalFile).mode & 0o777, externalMode);
+});
+
+test("provider metadata is scoped and generic failures still work without a provider producer", async (t) => {
+	const root = mkdtempSync(join(tmpdir(), "rotom-provider-scope-"));
+	t.after(() => rm(root, { recursive: true, force: true }));
+	const sessionFile = join(root, "session.jsonl");
+	writeFileSync(sessionFile, "{}\n", { mode: 0o600 });
+	const harness = extensionHarness();
+	const ctx = { mode: "print", model: { provider: "fixture", id: "model", api: "fixture" },
+		sessionManager: { getSessionFile: () => sessionFile, getSessionId: () => "fixture" }, ui: { notify() {} } };
+	await harness.emit("session_start", {}, ctx);
+	await harness.emit("before_agent_start", { systemPromptOptions: { selectedTools: [] } }, ctx);
+	await harness.emit("agent_start", {}, ctx);
+	await harness.emit("turn_start", { turnIndex: 0 }, ctx);
+	await harness.emit("before_provider_headers", {}, ctx);
+	harness.emitMetadata({ "pi.ai.fixture.error_code": "wrong-provider" }, "unrelated");
+	await harness.emit("message_end", { message: { ...assistantMessage("error"), errorMessage: "fetch failed" } }, ctx);
+	await harness.emit("before_provider_headers", {}, ctx);
+	harness.emitMetadata({ "pi.ai.error.category": "network", "pi.ai.fixture.error_code": "transport" }, "fixture");
+	await harness.emit("after_provider_response", { status: 503 }, ctx);
+	await harness.emit("message_end", { message: { ...assistantMessage("error"), errorMessage: "fetch failed" } }, ctx);
+	await harness.emit("session_shutdown", {}, ctx);
+	const requests = readFileSync(localTracePathForSessionFile(sessionFile), "utf8").trim().split("\n").map(line => JSON.parse(line)).filter(r => r.name === "pi.ai.request" && r.kind === "span_end");
+	assert.equal(requests[0].attributes["pi.ai.error.category"], "network");
+	assert.equal(requests[0].attributes["pi.ai.fixture.error_code"], undefined);
+	assert.equal(requests[1].attributes["pi.ai.error.category"], "http");
+	assert.equal(requests[1].attributes["pi.ai.error.http_status"], 503);
+	assert.equal(requests[1].attributes["pi.ai.fixture.error_code"], "transport");
 });
 
 test("shutdown closes active compaction children before their operation parent", async (t) => {
@@ -835,6 +870,79 @@ test("request metadata changes and independent result evidence survive trace wit
 	assert.equal(results[8].attributes["pi.tool.followup_status"], undefined);
 	assert.equal(results[9].attributes["pi.tool.mutation_status"], undefined);
 	assert.equal(results[9].attributes["pi.tool.coding_evidence_source"], undefined);
+});
+
+test("the persistent writer rejects post-open chmod/replacement and stops queued writes", async (t) => {
+	const root = mkdtempSync(join(tmpdir(), "rotom-observability-writer-integrity-"));
+	t.after(() => rm(root, { recursive: true, force: true }));
+	const file = join(root, "trace.jsonl");
+	writeFileSync(file, "", { mode: 0o600 });
+	const record = (name: string) => ({ schema: LOCAL_TRACE_SCHEMA_V1, kind: "span_start", timestamp: new Date().toISOString(), traceId: "0".repeat(32), spanId: name.padEnd(16, "0").slice(0, 16), name } as any);
+	const writer = new LocalTraceWriterV1(file);
+	writer.append(record("first"));
+	assert.equal(await writer.flush(), true);
+	chmodSync(file, 0o644);
+	writer.append(record("chmod"));
+	assert.equal(await writer.flush(), true);
+	assert.equal(writer.healthy, false);
+	assert.equal(writer.recordsWritten, 1);
+	assert.equal(statSync(file).mode & 0o777, 0o644);
+	await writer.close();
+
+	const replacement = join(root, "replacement.jsonl");
+	writeFileSync(replacement, "", { mode: 0o600 });
+	const second = new LocalTraceWriterV1(replacement);
+	second.append(record("first"));
+	await second.flush();
+	renameSync(replacement, join(root, "old.jsonl"));
+	writeFileSync(replacement, "", { mode: 0o600 });
+	second.append(record("replaced"));
+	await second.flush();
+	assert.equal(second.healthy, false);
+	assert.equal(readFileSync(replacement, "utf8"), "");
+	await second.close();
+
+	let calls = 0;
+	const queued = new LocalTraceWriterV1("/unused", async () => { calls += 1; throw new Error("write failed"); });
+	queued.append(record("failed")); queued.append(record("must-not-run"));
+	assert.equal(await queued.flush(), true);
+	assert.equal(calls, 1);
+	assert.equal(queued.recordsDropped, 2);
+});
+
+test("close drains accepted writes, rejects new appends and closes the pinned descriptor once", async (t) => {
+	const root = mkdtempSync(join(tmpdir(), "rotom-trace-close-"));
+	t.after(() => rm(root, { recursive: true, force: true }));
+	const writer = new LocalTraceWriterV1(join(root, "trace.jsonl"));
+	const record = { schema: LOCAL_TRACE_SCHEMA_V1, kind: "span_start", name: "fixture" } as any;
+	writer.append(record);
+	await writer.flush();
+	const handle = (writer as any).handle;
+	assert.ok(handle);
+	writer.append(record);
+	await writer.flush();
+	assert.equal((writer as any).handle, handle, "flush reuses the descriptor");
+	writer.append(record);
+	const pending = writer.close();
+	writer.append(record);
+	assert.equal(await pending, true);
+	assert.equal(writer.recordsWritten, 3);
+	assert.equal(writer.recordsDropped, 1);
+	assert.equal(handle.fd, -1);
+	assert.equal(await writer.close(), true);
+	assert.equal((writer as any).handle, undefined);
+});
+
+test("directory permission drift stops an open writer before another record", async (t) => {
+	const root = mkdtempSync(join(tmpdir(), "rotom-trace-directory-"));
+	t.after(() => rm(root, { recursive: true, force: true }));
+	const writer = new LocalTraceWriterV1(join(root, "trace.jsonl"));
+	const record = { schema: LOCAL_TRACE_SCHEMA_V1, kind: "span_start", name: "fixture" } as any;
+	writer.append(record); await writer.flush();
+	chmodSync(root, 0o755);
+	writer.append(record); await writer.close();
+	assert.equal(writer.recordsWritten, 1);
+	assert.equal(writer.healthy, false);
 });
 
 test("flush has a bounded best-effort deadline", async () => {

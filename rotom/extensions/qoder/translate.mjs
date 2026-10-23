@@ -46,7 +46,7 @@ function parseSignatureDetails(signature) {
   try { const parsed = JSON.parse(signature); return Array.isArray(parsed) ? parsed : []; } catch { return []; }
 }
 
-export async function* translateQoderStream(chunks, model) {
+export async function* translateQoderStream(chunks, model, { onError } = {}) {
   const output = {
     role: 'assistant', content: [], api: model.api, provider: model.provider, model: model.id,
     usage: zeroUsage(), stopReason: 'pending', timestamp: Date.now(),
@@ -127,6 +127,7 @@ export async function* translateQoderStream(chunks, model) {
     for (const block of blocks) if (block.type === 'toolCall') delete block.partialArgs;
     output.stopReason = error instanceof QoderError && error.code === 'aborted' ? 'aborted' : 'error';
     output.errorMessage = error instanceof Error ? error.message : String(error);
+    try { onError?.(error); } catch { /* Optional metadata cannot replace terminal inference state. */ }
     yield { type: 'error', reason: output.stopReason, error: output };
     return;
   }

@@ -75,6 +75,7 @@
     "extensions/qoder/catalog.mjs",
     "extensions/qoder/catalog-auth.mjs",
     "extensions/qoder/credits.mjs",
+    "extensions/qoder/diagnostics.mjs",
     "extensions/qoder/legacy.mjs",
     "extensions/qoder/oauth.mjs",
     "extensions/qoder/refresh-guard.mjs",
