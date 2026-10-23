@@ -219,6 +219,9 @@ if [ "$#" -eq 1 ] && [ "$1" = "--trace" ]; then
 fi
 
 for argument in "$@"; do
+	if [ "$argument" = "--" ]; then
+		break
+	fi
 	if [ "$argument" = "--trace" ]; then
 		echo "rotom: --trace 必须单独使用" >&2
 		exit 2
