@@ -187,7 +187,11 @@ export function registerDeferredTools(pi: ExtensionAPI, environment: NodeJS.Proc
 		const registered = new Set(allTools.map((tool) => tool.name));
 		const active = pi.getActiveTools();
 		const required = [...DEFERRED_INITIAL_TOOL_NAMES, DEFERRED_TOOL_SEARCH_NAME, ...DEFERRED_TOOL_NAMES];
-		if (!required.every((name) => registered.has(name) && active.includes(name))) return;
+		const missing = required.filter((name) => !registered.has(name) || !active.includes(name));
+		if (missing.length > 0) {
+			process.emitWarning(`Deferred tool loading skipped; required tools unavailable: ${missing.join(", ")}`, { code: "ROTOM_DEFERRED_PRECONDITION" });
+			return;
+		}
 
 		restoredGroups.clear();
 		for (const id of restoreGroups(ctx)) restoredGroups.add(id);

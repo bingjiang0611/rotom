@@ -83,6 +83,20 @@ test("deferred tools 默认开启，稳定 opt-out 优先并兼容旧环境变�
 	assert.equal(disabled.tools.has(DEFERRED_TOOL_SEARCH_NAME), false);
 });
 
+test("missing prerequisites warn without changing tool selection or compatibility state", async (t) => {
+	const warning = t.mock.method(process, "emitWarning", () => {});
+	const runtime = fakeRuntime();
+	registerDeferredTools(runtime.api);
+	runtime.tools.delete("subagent");
+	const before = runtime.active();
+	await runtime.start();
+	assert.deepEqual(runtime.active(), before);
+	assert.equal(runtime.entries.length, 0);
+	assert.equal(warning.mock.callCount(), 1);
+	assert.match(String(warning.mock.calls[0].arguments[0]), /subagent/u);
+	assert.deepEqual(warning.mock.calls[0].arguments[1], { code: "ROTOM_DEFERRED_PRECONDITION" });
+});
+
 test("中英文 capability map 只命中保留的 deferred groups", () => {
 	for (const retired of ["旧工单平台", "历史服务目录", "旧配置中心", "legacy platform", "内部包发布", "退役业务平台"]) {
 		assert.deepEqual(matchDeferredCapabilityGroups(retired), [], `退出产品的能力不得被搜索加载：${retired}`);
