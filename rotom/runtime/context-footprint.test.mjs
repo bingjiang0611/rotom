@@ -140,7 +140,7 @@ test("Context Layers requires its measured tool metadata unless explicitly disab
 	]) {
 		const contextFootprint = { ...measurement(["read"]),
 			activeToolCount: contract.activeToolCount - 3,
-			activeToolSchemaBytes: contract.activeToolSchemaBytes - 1_833,
+			activeToolSchemaBytes: contract.activeToolSchemaBytes - 2_074,
 			activeToolGuidelineBytes: contract.activeToolGuidelineBytes - 598,
 		};
 		const runtime = { contextFootprint, deferredToolsEnabled, subagentExecutionScope };

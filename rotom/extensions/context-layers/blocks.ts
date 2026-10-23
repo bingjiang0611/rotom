@@ -24,6 +24,7 @@ export interface Unit {
   ids: string[];
   messages: AgentMessage[];
   eligible: boolean;
+  protection?: string;
   block?: Block;
 }
 export interface View {
@@ -101,21 +102,31 @@ export function buildView(branch: SessionEntry[], projection: SessionProjection)
     if (!block && message.role === "toolResult" && previous && !previous.block && previous.messages[0].role === "assistant") {
       previous.ids.push(id);
       previous.messages.push(...entry.messages);
-      previous.eligible &&= !owned.has(id) && !edited.has(id);
     } else {
       const editable = entry.sourceEntry.type === "message" && ["user", "assistant"].includes(message.role);
-      units.push({ ref: block?.id ?? `@${id}`, ids: [id], messages: entry.messages, block,
-        eligible: !block && editable && !owned.has(id) && !edited.has(id) });
+      units.push({ ref: block?.id ?? `@${id}`, ids: [id], messages: entry.messages, block, eligible: false,
+        protection: block ? COPY.protection.summary : editable ? undefined :
+          COPY.protection.noneditable(message.role, message.role === "custom" ? message.customType : undefined) });
     }
   }
   const latestUser = units.findLastIndex(u => u.messages.some(m => m.role === "user"));
   const firstUser = units.findIndex(u => u.messages.some(m => m.role === "user"));
   units.forEach((u, index) => {
     // Keep the task anchor, latest request, and last four complete/in-flight steps.
-    if (index === latestUser || index === firstUser || index >= units.length - 4 || !closed(u.messages)) u.eligible = false;
+    if (u.protection === undefined) {
+      if (u.ids.some(id => owned.has(id))) u.protection = COPY.protection.owned;
+      else if (u.ids.some(id => edited.has(id))) u.protection = COPY.protection.edited;
+      else if (index === firstUser) u.protection = COPY.protection.firstUser;
+      else if (index === latestUser) u.protection = COPY.protection.latestUser;
+      else if (index >= units.length - 4) u.protection = COPY.protection.recent;
+      else if (!closed(u.messages)) u.protection = COPY.protection.incomplete;
+    }
+    u.eligible = u.protection === undefined;
   });
   return { branch, projection, blocks, states, units };
 }
+// One row is one maximal legal interval; only a protected step splits rows.
+// Pagination bounds the row count, without disguising safe ranges as gaps.
 export function candidates(view: View, estimate: Estimate) {
   const ranges: { start: string; end: string; steps: number; estimatedTokens: number; preview: string }[] = [];
   let group: Unit[] = [];
@@ -127,10 +138,29 @@ export function candidates(view: View, estimate: Estimate) {
   for (const unit of view.units) {
     if (!unit.eligible) { flush(); continue; }
     group.push(unit);
-    if (group.length === 16) flush(); // Bounded candidate units, not a history truncation.
   }
   flush();
   return ranges;
+}
+function blockActions(view: View) {
+  const actions = new Map<string, { rewriteAllowed: boolean; mergeWithNext: string | null }>();
+  view.units.forEach((unit, index) => {
+    if (!unit.block) return;
+    const next = view.units[index + 1]?.block;
+    actions.set(unit.block.id, {
+      rewriteAllowed: index < view.units.length - 4,
+      mergeWithNext: index + 1 < view.units.length - 4 && next && next.tier === unit.block.tier && unit.block.tier < 3 ? next.id : null,
+    });
+  });
+  return actions;
+}
+function rangeIndex(view: View, ref: string): number {
+  const index = view.units.findIndex(u => u.ref === ref);
+  if (index >= 0) return index;
+  const step = view.units.find(u => u.ids.some(id => `@${id}` === ref));
+  if (step) throw new Error(COPY.stepBoundary(ref, step.ref));
+  if (view.branch.some(e => `@${e.id}` === ref)) throw new Error(COPY.staleRef(ref));
+  throw new Error(COPY.unknownRef(ref));
 }
 function selectedFingerprint(view: View, targets: string[]): string {
   const ids = new Set(targets);
@@ -143,27 +173,28 @@ export function planCompression(view: View, selection: Selection, estimate: Esti
   let targets: string[], direct: string[], covered: string[], children: string[] = [], replaces: string | undefined, tier = 1;
   if (byBlocks) {
     const ids = selection.blocks!;
-    const units = ids.map(b => view.units.find(u => u.block?.id === b));
-    const indexes = units.map(u => u ? view.units.indexOf(u) : -1);
-    if (new Set(ids).size !== ids.length || indexes.some((index, n) => index < 0 || (n > 0 && index !== indexes[n - 1] + 1)) ||
-      units.some(u => !u?.block || view.states.get(u.block.id) !== "active") ||
-      units.some(u => u!.block!.tier !== units[0]!.block!.tier)) throw new Error(COPY.blocks);
-    // Do not merge carriers in the recent protected suffix either.
-    if (indexes.at(-1)! >= view.units.length - 4) throw new Error(COPY.protected);
-    tier = units[0]!.block!.tier + (ids.length > 1 ? 1 : 0);
-    if (tier > 3) throw new Error(COPY.blocks);
-    targets = units.flatMap(u => u!.ids);
-    covered = [...new Set(units.flatMap(u => u!.block!.covered))];
+    const actions = blockActions(view);
+    for (const [index, id] of ids.entries()) {
+      const action = actions.get(id);
+      if (!action) throw new Error(COPY.inactiveBlock(id, view.states.get(id) ?? "missing"));
+      if (!action.rewriteAllowed) throw new Error(COPY.blockProtected(id));
+      if (index > 0 && actions.get(ids[index - 1])!.mergeWithNext !== id) throw new Error(COPY.blockMerge(ids[index - 1], id));
+    }
+    const units = ids.map(b => view.units.find(u => u.block?.id === b)!);
+    tier = units[0].block!.tier + (ids.length > 1 ? 1 : 0);
+    targets = units.flatMap(u => u.ids);
+    covered = [...new Set(units.flatMap(u => u.block!.covered))];
     if (ids.length === 1) {
-      const prior = units[0]!.block!;
+      const prior = units[0].block!;
       direct = prior.direct; children = prior.children; replaces = prior.id;
     } else { direct = []; children = ids; }
   } else {
-    const first = view.units.findIndex(u => u.ref === selection.start);
-    const last = view.units.findIndex(u => u.ref === selection.end);
-    if (first < 0 || last < first) throw new Error(COPY.range);
+    const first = rangeIndex(view, selection.start!);
+    const last = rangeIndex(view, selection.end!);
+    if (last < first) throw new Error(COPY.reversedRange(selection.start!, selection.end!));
     const units = view.units.slice(first, last + 1);
-    if (units.some(u => !u.eligible)) throw new Error(COPY.protected);
+    const blocked = units.find(u => !u.eligible);
+    if (blocked) throw new Error(COPY.rangeBlocked(blocked.ref, blocked.protection!));
     targets = units.flatMap(u => u.ids);
     direct = targets; covered = targets;
   }
@@ -186,8 +217,11 @@ export function commitDrafts(view: View, plan: Plan): SessionBoundaryDraft[] {
   ];
 }
 export function status(view: View, estimate: Estimate, offset = 0) {
+  const actions = blockActions(view);
   const items = [
-    ...[...view.blocks.values()].map(b => ({ kind: "block", id: b.id, tier: b.tier, state: view.states.get(b.id), summary: b.summary.slice(0, 320), estimatedSavedTokens: b.before - b.after })),
+    ...[...view.blocks.values()].map(b => ({ kind: "block", id: b.id, tier: b.tier, state: view.states.get(b.id),
+      rewriteAllowed: actions.get(b.id)?.rewriteAllowed ?? false, mergeWithNext: actions.get(b.id)?.mergeWithNext ?? null,
+      summary: b.summary.slice(0, 320), estimatedSavedTokens: b.before - b.after })),
     ...candidates(view, estimate).map(r => ({ kind: "range", ...r })),
   ];
   if (offset > items.length) throw new Error(COPY.offset);
