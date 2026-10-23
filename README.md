@@ -91,6 +91,10 @@ package 可包含 extension、skill、prompt template 和 theme；使用 `rotom 
 | **模型切换** | 登录模型服务、切换模型，并选择该模型支持的思考档位。 |
 | **本地观测** | 查看执行状态、耗时和用量，不在 trace 中记录 prompt 或工具正文。 |
 
+## 开发提交检查
+
+仓库维护者在根目录运行 `node scripts/install-git-hooks.mjs`，启用暂存文件大小检查（20,000 字节上限）。新检出需手动安装，详见 [Git hook 使用说明](docs/git-hooks.md)。
+
 ## 许可说明
 
 本仓库及 npm 包不提供统一的开源许可，当前标记为 `UNLICENSED`。此前已经授予的 MIT 权利不受影响；源码和安装包公开不代表获得新的统一开源许可。
