@@ -9,8 +9,8 @@ import { evalHarnessTable } from "../src/vitest-evals/harness-table.ts";
 /**
  * Paired A/B for the product's Computer Use contract guidelines.
  *
- * The guideline projection is extracted from each product's own
- * `extensions/third-party/computer-use/recovery.ts`, so the compared text is
+ * The guideline projection comes from each product's native installed
+ * Computer Use recovery contract (or its frozen pre-move wrapper), so the text is
  * exactly what that product would attach to act_ui/wait_for/search_ui — not a
  * hand-written variant. Tools stay disabled: this measures the decision the
  * text produces, and it does not replace real desktop Computer Use L2/L3 or
