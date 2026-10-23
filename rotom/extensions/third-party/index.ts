@@ -5,7 +5,8 @@ import goal from "./node_modules/@narumitw/pi-goal/src/index.ts";
 import subagents from "./node_modules/pi-subagents/index.ts";
 import contextView from "./node_modules/pi-context-view/src/index.ts";
 import { createSolPiExtension } from "./node_modules/sol-pi/src/sol-pi/index.ts";
-import { ASK_AUTO_CONTINUATION_MESSAGE, ASK_CONTINUATION_GUIDELINE, ASK_OPTION_CONTINUATION_DESCRIPTION, createAskContinuationController, selectedOptionsRequireContinuation, stripAskContinuationMetadata } from "./ask/continuation.ts";
+import { ASK_AUTO_CONTINUATION_MESSAGE, ASK_CONTINUATION_GUIDELINE, createAskContinuationController, selectedOptionsRequireContinuation, stripAskContinuationMetadata } from "./ask/continuation.ts";
+import { askContinuationParameters } from "./ask/schema.ts";
 import { computerUseRecoveryApi } from "./computer-use/recovery.ts";
 import { registerDeferredTools } from "./deferred-tools/register.ts";
 import { loadRotomSolPiConfig } from "./sol-pi.ts";
@@ -18,27 +19,7 @@ function sequentialAskCompatApi(pi: ExtensionAPI, askContinuation: ReturnType<ty
 				const sequential = { ...definition, executionMode: "sequential" as const };
 				if (definition.name !== "ask_user_question") return target.registerTool(sequential);
 				const execute = definition.execute.bind(definition);
-				const baseParameters = definition.parameters as any;
-				const questionsSchema = baseParameters.properties?.questions ?? {};
-				const questionSchema = questionsSchema.items ?? {};
-				const optionsSchema = questionSchema.properties?.options ?? {};
-				const optionSchema = optionsSchema.items ?? {};
-				const parameters = {
-					...baseParameters,
-					properties: {
-						...(baseParameters.properties ?? {}),
-						questions: {
-							...questionsSchema,
-							items: {
-								...questionSchema,
-								properties: {
-									...(questionSchema.properties ?? {}),
-									options: { ...optionsSchema, items: { ...optionSchema, properties: { ...(optionSchema.properties ?? {}), continueExecution: { type: "boolean", description: ASK_OPTION_CONTINUATION_DESCRIPTION } } } },
-								},
-							},
-						},
-					},
-				};
+				const parameters = askContinuationParameters(definition.parameters);
 				return target.registerTool({
 					...sequential,
 					parameters,
@@ -66,7 +47,8 @@ function sequentialAskCompatApi(pi: ExtensionAPI, askContinuation: ReturnType<ty
 
 /**
  * One explicit composition root for the third-party runtime selected by the
- * product. Package code remains unmodified and version-pinned by the launcher.
+ * product. Owned forks define their own contracts; this layer selects product
+ * surfaces and cross-component exposure. All packages remain version-pinned.
  */
 export default function thirdPartyRuntime(pi: ExtensionAPI): void {
 	// Interactive and lifecycle tools need a model/observation boundary, not a script batch.
@@ -84,7 +66,7 @@ export default function thirdPartyRuntime(pi: ExtensionAPI): void {
 	});
 	createCodemodeExtension()(controlApi);
 	computerUse(computerUseRecoveryApi(controlApi));
-	subagents(subagentPolicyApi(controlApi));
+	subagents(subagentPolicyApi(controlApi), { surface: "ephemeral" });
 	goal(controlApi);
 	const askContinuation = createAskContinuationController();
 	const sequentialAskCompat = sequentialAskCompatApi(controlApi, askContinuation);

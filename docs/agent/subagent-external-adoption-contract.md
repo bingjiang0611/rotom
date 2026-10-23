@@ -1,6 +1,6 @@
 # External CLI 采用合同：调度释放不等于恢复授权
 
-> **历史设计与采用合同**：下文“当前安装 `.2` / 仅 opt-in”描述第十二批结束时的状态。后续已内化 `pi-subagents`（当前 `0.52.1-rotom.10`），并从 `alpha.3` 起由 launcher 默认启用 scoped 执行，见 [当前默认与限制](subagent-owned-default.md)。本页保留采用过程、授权范围与证据，不作为当前安装操作指南。
+> **历史设计与采用合同**：下文“当前安装 `.2` / 仅 opt-in”描述第十二批结束时的状态。后续已内化 `pi-subagents`（当前 `0.52.1-rotom.11`），并从 `alpha.3` 起由 launcher 默认启用 scoped 执行，见 [当前默认与限制](subagent-owned-default.md)。本页保留采用过程、授权范围与证据，不作为当前安装操作指南。
 
 **状态：隔离首版采用门已通过；仅供显式 opt-in 的新隔离会话，不是当前默认运行时合同。** 用户在采用审查后选择“先重设采用合同”；本文件确定设计与验收线，不授权立即更新依赖、放宽旧记录、迁移活跃会话或修复本机 VM。历史候选报告不属于当前权威文档；当前默认行为与维护入口见[当前默认与限制](subagent-owned-default.md)、[源维护](subagent-source-maintenance.md)和[验证入口](verification.md)。
 

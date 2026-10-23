@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { subagentPolicyApi, subagentEvidenceResult, prepareProductSubagentArguments, constrainSubagentParameters, PRODUCT_SUBAGENT_DESCRIPTION, PRODUCT_SUBAGENT_POLICY_GUIDELINE, PRODUCT_SUBAGENT_SCOPED_GUIDELINE, PRODUCT_SUBAGENT_ACCEPTANCE_GUIDELINE, PRODUCT_HANDOFF_GUIDELINE } from "./policy.ts";
+import { createEphemeralSubagentTool, subagentEvidenceResult, prepareProductSubagentArguments, constrainSubagentParameters, PRODUCT_SUBAGENT_DESCRIPTION, PRODUCT_SUBAGENT_POLICY_GUIDELINE, PRODUCT_SUBAGENT_SCOPED_GUIDELINE, PRODUCT_SUBAGENT_ACCEPTANCE_GUIDELINE, PRODUCT_HANDOFF_GUIDELINE } from "../../../../packages/rotom-subagents/src/extension/ephemeral-surface.ts";
+import { subagentPolicyApi } from "./policy.ts";
 
 test("shorter optional-parameter descriptions preserve validation and disclosure", () => {
 	const descriptions = {
@@ -41,7 +42,8 @@ function fixture() {
 		sendUserMessage(message: unknown) { published.push(message); },
 		appendEntry(type: string, data: unknown) { published.push({ type, data }); },
 	} as any);
-	return { api, tools, published, retire: () => handlers.get("session_shutdown")!.forEach((handler) => handler()) };
+	const nativeApi = { ...api, registerTool: (definition: any) => api.registerTool(createEphemeralSubagentTool(definition)) };
+	return { api: nativeApi, tools, published, retire: () => handlers.get("session_shutdown")!.forEach((handler) => handler()) };
 }
 
 test("retired publication throws synchronously, cannot revive on A-B-A or affect independent SDK instances", () => {

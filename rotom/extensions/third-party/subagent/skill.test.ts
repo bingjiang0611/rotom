@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { subagentPolicyApi } from "./policy.ts";
+import { createEphemeralSubagentTool } from "../../../../packages/rotom-subagents/src/extension/ephemeral-surface.ts";
 
 const skill = readFileSync(new URL("../../../skills/pi-subagents/SKILL.md", import.meta.url), "utf8");
 const upstream = readFileSync(new URL("../node_modules/pi-subagents/skills/pi-subagents/SKILL.md", import.meta.url), "utf8");
@@ -39,7 +40,7 @@ test("single-task skill example is forwarded once without synthesizing a workflo
 	// forwarding and receipt semantics, not model behavior or child completion.
 	const receipt = { content: [], details: { asyncId: "fixture-run", mode: "single", results: [] } };
 	const api = subagentPolicyApi({ on() {}, registerTool(definition: any) { tool = definition; } } as any);
-	api.registerTool({ name: "subagent", execute(_id: string, args: unknown) { calls.push(args); return receipt; } } as any);
+	api.registerTool(createEphemeralSubagentTool({ name: "subagent", execute(_id: string, args: unknown) { calls.push(args); return receipt; } } as any));
 	const result = await tool.execute("fixture", input);
 	assert.deepEqual(calls, [{ ...input, mission: false }]);
 	assert.equal(input.mission, undefined, "do not mutate the caller's request");

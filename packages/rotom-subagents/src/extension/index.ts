@@ -28,6 +28,7 @@ import { clearLegacyResultAnimationTimer, renderSubagentResult, renderSubagentSu
 import { openSubagentFleet } from "../tui/fleet.ts";
 import { SubagentFleetStatus, resolveFleetViewPlacement } from "../tui/fleet-status.ts";
 import { createSubagentParamsSchema } from "./schemas.ts";
+import { createEphemeralSubagentTool } from "./ephemeral-surface.ts";
 import { createSubagentExecutor, type SubagentParamsLike } from "../runs/foreground/subagent-executor.ts";
 import { createAsyncJobTracker } from "../runs/background/async-job-tracker.ts";
 import { getActiveAsyncCapacitySnapshot, resolveMaxActiveAsyncRunsPerSession } from "../runs/background/active-async-capacity.ts";
@@ -386,7 +387,9 @@ export function projectActiveHerdrRuns(state: SubagentState): HerdrStatusRun[] {
 		});
 }
 
-export default function registerSubagentExtension(pi: ExtensionAPI): void {
+export default function registerSubagentExtension(pi: ExtensionAPI, options: { surface?: "ephemeral" } = {}): void {
+	const ephemeral = options.surface === "ephemeral";
+	const scoped = process.env.PI_SUBAGENTS_EXECUTION_SCOPE === "owned-process-groups-v2";
 	if (process.env[SUBAGENT_CHILD_ENV] === "1") {
 		return;
 	}
@@ -656,13 +659,13 @@ export default function registerSubagentExtension(pi: ExtensionAPI): void {
 
 	};
 
-	pi.registerTool(tool);
+	pi.registerTool(ephemeral ? createEphemeralSubagentTool(tool, scoped) : tool);
 
 	registerWaitTool(pi, state, waitToolConfig.enabled, waitSubscriptionManager, () => {
 		// Reuse the channel's owner-scoped pending set; progress_update never enters it.
 		supervisorChannel.activateTransport();
 		return [...supervisorChannel.pending.values()].filter((request) => request.expectsReply).map((request) => request.runId);
-	});
+	}, ephemeral);
 
 	pi.on("agent_end", async (_event, ctx) => {
 		if (!ctx.hasUI) await drainOutstandingWork({ state, events: pi.events });

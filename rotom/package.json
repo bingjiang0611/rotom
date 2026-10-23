@@ -85,6 +85,7 @@
     "extensions/qoder/translate.mjs",
     "extensions/third-party/index.ts",
     "extensions/third-party/ask/continuation.ts",
+    "extensions/third-party/ask/schema.ts",
     "extensions/third-party/computer-use/recovery.ts",
     "extensions/third-party/deferred-tools/register.ts",
     "extensions/third-party/subagent/policy.ts",

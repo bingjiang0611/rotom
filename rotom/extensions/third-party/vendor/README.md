@@ -1,13 +1,15 @@
 # Locked Subagent distribution
 
-The default product selects **`pi-subagents@0.52.1-rotom.10`**, independently maintained in the repository's `packages/rotom-subagents/`. New builds consume its reviewed archive, not installed source or a patch stack. This is a Subagent fork, not a Pi fork.
+The default product selects **`pi-subagents@0.52.1-rotom.11`**, independently maintained in the repository's `packages/rotom-subagents/`. New builds consume its reviewed archive, not installed source or a patch stack. This is a Subagent fork, not a Pi fork.
 
-- Archive: `pi-subagents-0.52.1-rotom.10.tgz`
-- SHA256: `aee008364cb159c4424678c37a2f77e75a78d292937f0354f318ce483fd5dede`
-- SHA512 SRI: `sha512-5mXSC3zXponiWE+NP16rJ4zo1j1mHS04bbFO+fOc31RVVHA8rKvZ3nvemDOHT9qCBqINAiRcXJuhpZCNNNeoHg==`
-- Source digest: `3474af84fa16bf546df3438066571a51b25698b099f53f8c50ddf34ffe291070`
+- Archive: `pi-subagents-0.52.1-rotom.11.tgz`
+- SHA256: `834c462374e3491ddaf6bb62e6f95e6dc11778065bc45b127483859a0f7f4da7`
+- SHA512 SRI: `sha512-QsfO3DJV9ghMfVQXLBHjaT8sOWORa56BmUA5B1w32SZM8ycvA8KfOResQJtSmm6YNxCo6mIdw0vmd5DJQo7ptA==`
+- Source digest: `20000ef31aa6f269d9667aa0579bcad177d368d9cae38930c3c43fa1a68511ca`
 
-`.rotom.10` makes the builtin roles launchable in owned scope: `delegate` and `oracle`/`advisor` declare empty ambient extensions and fresh default context (oracle now works from a parent-written decision brief), `reviewer` gains prompt-restricted read-only `bash`, and `researcher` is removed because its web tools do not exist in rotom. `.rotom.9` pauses the retiring runtime's live runners and awaits close finalization before cleanup on quit/reload/session replacement/disposal. A result arriving before the native close callback retains pending only while this process owns the matching live observer; registration is not an exit proof. It never signals historical PIDs or repairs missing old-run proof. Retired schedule execution and automatic goal-mission continuation remain disabled, including legacy opt-out sessions; old data remains untouched. Targeted status uses bounded current-session output and native recovery preflight, which is not launch authorization. Shared legacy mission/inspector readers remain. Product schema and prompt guidance are scoped by the product wrapper; raw execution still passes the original fences.
+`.rotom.11` owns the explicitly selected ephemeral tool surface and evidence projection. Product wrappers retain only host publication fencing and product command/shortcut selection; standalone defaults remain unchanged.
+
+`.rotom.10` makes the builtin roles launchable in owned scope: `delegate` and `oracle`/`advisor` declare empty ambient extensions and fresh default context (oracle now works from a parent-written decision brief), `reviewer` gains prompt-restricted read-only `bash`, and `researcher` is removed because its web tools do not exist in rotom. `.rotom.9` pauses the retiring runtime's live runners and awaits close finalization before cleanup on quit/reload/session replacement/disposal. A result arriving before the native close callback retains pending only while this process owns the matching live observer; registration is not an exit proof. It never signals historical PIDs or repairs missing old-run proof. Retired schedule execution and automatic goal-mission continuation remain disabled, including legacy opt-out sessions; old data remains untouched. Targeted status uses bounded current-session output and native recovery preflight, which is not launch authorization. Shared legacy mission/inspector readers remain. The product selects the native ephemeral schema and prompt guidance; raw execution still passes the original fences.
 - Upstream: <https://github.com/nicobailon/pi-subagents>
 - License: MIT, Copyright (c) 2026 Nico Bailon. Original notice remains in `package/LICENSE`; provenance and maintenance notes are in `package/UPSTREAM.md`.
 - Source baseline: validated `0.52.1-dev-agent-owned-flat.7`; 213 TS and four existing mjs files retained byte-for-byte. The component has independent metadata, lockfile, tests and packaging. In `.rotom.1`, worker/scout/reviewer declare empty ambient extensions and fresh default context without expanding tools; explicit user/project overrides remain effective. `.rotom.3` explicitly loads the verified product Qoder provider for Qoder child models, preserving ambient isolation, tool ceilings, model choice and launch identity. Other custom providers still require explicit child configuration. Offline CLI/RPC coverage does not claim live inference acceptance.
@@ -22,10 +24,12 @@ The `.rotom.5` baseline also included the terminal-projection fix: projection fa
 
 ## Locked Computer Use distribution
 
-The default product selects **`@injaneity/pi-computer-use@0.5.1-rotom.1`**, independently maintained in `packages/rotom-computer-use/`. This is a Computer Use fork, not a Pi fork.
+The default product selects **`@injaneity/pi-computer-use@0.5.1-rotom.2`**, independently maintained in `packages/rotom-computer-use/`. This is a Computer Use fork, not a Pi fork.
 
-- Archive: `injaneity-pi-computer-use-0.5.1-rotom.1.tgz`
-- SHA512 SRI: `sha512-gAGchi9F4Ha9H+xo7XLeFktVxoNnhKh3Z2QrdmoujKQgUgyge/mrcisBTXzMs+W9fNkulNCowvQteB7QrEZxsA==`
+- Archive: `injaneity-pi-computer-use-0.5.1-rotom.2.tgz`
+- SHA256: `b9b4a7b808094474aa9cfde58c0f2b5af84d9d9f76edfa1c28052e138eb89ae9`
+- SHA512 SRI: `sha512-L+OdYakACdJVwpIpU9fZG+gWhBSI3VGZWoSlwDgVzxLD5jx89kvlVPgb7iTVBFgW1vrO9leYJ8cWWajosgr3lA==`
+- `.rotom.2` moves schema descriptions, recovery and result evidence into the component. Relay-first browser fallback stays product-specific. This TS-only rebuild retains all prior native helper bytes and signatures; no helper is installed or launched.
 - Upstream: `@injaneity/pi-computer-use`, License MIT (original notice retained in `package/LICENSE`; provenance in `package/UPSTREAM.md`).
 - Adds bounded IDEA background text via exact window/ref binding, synthetic internal focus and per-character full readback. Accepted AX writes without matching readback are unknown, never a reason to replay. Batches stop on unknown as well as refusal. Legacy speculative foreground retry remains off by default and unavailable in headless mode.
 - macOS arm64/x64/universal artifacts are rebuilt and **ad-hoc signed**; Windows/Linux artifacts are unchanged. Replacing an existing helper with the ad-hoc bundle needs explicit authorization. Protocol 7 mismatch no longer restarts another session's daemon. No personal certificate signatures are shipped.

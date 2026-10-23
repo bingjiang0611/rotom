@@ -56,6 +56,8 @@ PI_SUBAGENTS_EXECUTION_SCOPE= PI_SUBAGENTS_TEMP_ROOT= ROTOM_PI="$pi_command" ROT
 	rotom/extensions/third-party/deferred-tools/register.test.ts \
 	rotom/extensions/third-party/subagent/skill.test.ts \
 	rotom/extensions/third-party/index.test.ts \
+	rotom/extensions/third-party/ask/schema.test.ts \
+	packages/rotom-computer-use/test/recovery.test.ts \
 	rotom/extensions/third-party/subagent/publication.test.ts \
 	rotom/extensions/third-party/subagent/runtime-ownership.test.ts \
 	rotom/extensions/third-party/subagent/external-cli-evidence.test.mjs \
