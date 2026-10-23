@@ -30,7 +30,7 @@ assert.equal(JSON.parse(fs.readFileSync(path.join(config.source, "package.json")
 const entry = path.join(root, "fixture-extension.ts");
 fs.writeFileSync(entry, `import { createSubagentExecutor } from ${JSON.stringify(path.join(config.source, "src/runs/foreground/subagent-executor.ts"))};
 import { DIRS } from ${JSON.stringify(path.join(config.source, "src/shared/types.ts"))};
-import { subagentEvidenceResult } from ${JSON.stringify(path.resolve(import.meta.dirname, "../subagent/policy.ts"))};
+import { subagentEvidenceResult } from ${JSON.stringify(path.resolve(import.meta.dirname, "../../../../packages/rotom-subagents/src/extension/ephemeral-surface.ts"))};
 import { resolveAsyncResumeTarget } from ${JSON.stringify(path.join(config.source, "src/runs/background/async-resume.ts"))};
 export default (api) => api.events.emit('fixture:modules', { createSubagentExecutor, DIRS, subagentEvidenceResult, resolveAsyncResumeTarget });`);
 const eventBus = pi.createEventBus(); let modules;
