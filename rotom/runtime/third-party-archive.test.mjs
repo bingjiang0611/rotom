@@ -90,6 +90,6 @@ for (const scenario of ["missing", "bytes", "source", "file-symlink", "directory
 			await rename(join(thirdParty, "vendor"), join(root, "outside"));
 			await symlink(join(root, "outside"), join(thirdParty, "vendor"));
 		}
-		await assert.rejects(verifyThirdPartyPackageContract(root), /archive.*(?:缺失|integrity|source|canonical)/u);
+		await assert.rejects(verifyThirdPartyPackageContract(root, { verifyArchives: true }), /archive.*(?:缺失|integrity|source|canonical)/u);
 	});
 }

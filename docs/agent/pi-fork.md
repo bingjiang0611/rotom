@@ -5,7 +5,7 @@
 - 源码：`packages/rotom-pi/`，上游 revision 和导入差异见 `FORK.json`，维护流程见 `ROTOM-FORK.md`。不复制上游 Git 历史或维护者安装；录制会话 fixture 已替换/省略。
 - runtime：`rotom/runtime/pi/`，七包版本 `1.3.0-rotom.2`，来源摘要与各归档 integrity 见 `fork-build.json`，由 product config 锚定。保留上游包名、普通聊天/图片 API、配置/会话格式与 MIT 许可证；上游分类器、虚拟模型路由与内置 MCP 均保留。
 - 构建：`cd rotom && npm run build:pi`，从 Git 可见源码清单复制到隔离 staging，按 lock 新安装并 offline build；不复制 ignored state、node_modules 或旁边的 Pi checkout。fork 内部包从本地归档安装，其他依赖锁定公共 registry。
-- 打包：`npm run check:pi && npm run test:distribution`，再 `npm run pack:release -- /absolute/output-directory`。源码/构建器漂移需重建；archive/lock/source/version/installed identity 或 canonical 路径漂移均阻断，不回退官方/全局/旁路 Pi。
+- 打包：`npm run check:pi && npm run test:distribution`，再 `npm run pack:release -- /absolute/output-directory`。源码/构建器漂移需重建；构建期验证 archive/lock/source/version，启动期验证元数据、installed package identity、capability 和 canonical 路径，不回退官方/全局/旁路 Pi。vendor tgz 仅用于隔离 npm ci，不进入发行包。启动检查不是 installed 文件完整性验证；本地文件修改不能靠 package identity 检出。`rotom update` 以 registry SRI 验证整个下载产物（包含 installed 文件），不重新安装嵌套 lock。
 - 安装：用 `scripts/install-release.sh` 安装新版本目录并只切换命令链接。升级走新的 rotom 发行包；不要用 Pi 自更新命令替换内置 fork。`ROTOM_PI` 仍为显式维护覆盖。
 - 产品源码在 `rotom/`，Pi **维护源码**在仓库的 `packages/rotom-pi/`；npm 产品只携带构建后的独立 runtime，不要求用户编译。
 

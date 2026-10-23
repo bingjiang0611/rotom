@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { DISTRIBUTION_PI_VERSION, RESOURCE_DESCRIPTORS_V1, VERIFIED_PI_PACKAGE, VERIFIED_THIRD_PARTY_PACKAGES } from "./product-config.mjs";
 import { PI_MODULES, PI_RUNTIME, resolveInstalledPi, verifyDistributionContract } from "./resolve-installed-pi.mjs";
-import { EMBEDDED_MODULES, releaseFiles, releaseNpmEnvironment, stageRelease, verifyPackList } from "../scripts/pack-release.mjs";
+import { EMBEDDED_MODULES, releaseFiles, releaseNpmEnvironment, stageRelease, stageBuildArchives, verifyPackList } from "../scripts/pack-release.mjs";
 
 const SOURCE = resolve(import.meta.dirname, "..");
 const manifest = JSON.parse(readFileSync(join(SOURCE, "package.json"), "utf8"));
@@ -24,7 +24,7 @@ function fixture(t) {
 	const root = join(work, "node_modules/rotom");
 	put(join(root, "package.json"), manifest);
 	const build = JSON.parse(readFileSync(join(SOURCE, PI_RUNTIME, "fork-build.json"), "utf8"));
-	for (const file of ["package.json", "package-lock.json", "fork-build.json", ...Object.values(build.artifacts).map((a) => a.file)]) {
+	for (const file of ["package.json", "package-lock.json", "fork-build.json"]) {
 		const target = join(root, PI_RUNTIME, file);
 		mkdirSync(dirname(target), { recursive: true });
 		cpSync(join(SOURCE, PI_RUNTIME, file), target);
@@ -51,6 +51,20 @@ test("distribution is public-scoped, owns its Pi fork, has no installation hooks
 	assert.deepEqual(manifest.bin, { rotom: "bin/rotom" });
 	for (const hook of ["preinstall", "install", "postinstall", "prepare"]) assert.equal(manifest.scripts[hook], undefined);
 	await verifyDistributionContract(SOURCE);
+});
+
+test("archives are build-only inputs; installed-code identity is not a file checksum", async (t) => {
+	assert.ok(!manifest.files.some((path) => path.endsWith(".tgz")));
+	const { root, pi } = fixture(t);
+	await resolveInstalledPi(root);
+	put(join(pi, "index.js"), "export const changed = true;");
+	await resolveInstalledPi(root); // Explicitly document the narrowed promise.
+	await assert.rejects(verifyDistributionContract(root, { verifyArchives: true }), /ENOENT/u);
+	const archives = await stageBuildArchives(SOURCE, root);
+	assert.equal(archives.length, 11);
+	await verifyDistributionContract(root, { verifyArchives: true });
+	put(join(root, archives.find((path) => path.startsWith(PI_RUNTIME))), "corrupt");
+	await assert.rejects(verifyDistributionContract(root, { verifyArchives: true }), /archive integrity/u);
 });
 
 test("release npm environment preserves proxy routing without inheriting credentials", () => {
@@ -141,11 +155,10 @@ test("rejects manifest and shrinkwrap drift, not just installed version", async 
 	await assert.rejects(resolveInstalledPi(root), /transitive source\/integrity/);
 });
 
-for (const drift of ["archive", "build-metadata", "installed-source", "sibling-package", "hidden-official", "local-url"]) {
+for (const drift of ["build-metadata", "installed-source", "sibling-package", "hidden-official", "local-url"]) {
 	test(`rejects fork ${drift} drift`, async (t) => {
 		const { root, pi, pkg } = fixture(t);
 		const build = JSON.parse(readFileSync(join(root, PI_RUNTIME, "fork-build.json"), "utf8"));
-		if (drift === "archive") put(join(root, PI_RUNTIME, build.artifacts[VERIFIED_PI_PACKAGE].file), "bad archive");
 		if (drift === "build-metadata") put(join(root, PI_RUNTIME, "fork-build.json"), { ...build, sourceSha256: "wrong" });
 		if (drift === "installed-source") { pkg.rotomFork.sourceSha256 = "wrong"; put(join(pi, "package.json"), pkg); }
 		if (drift === "sibling-package") put(join(root, PI_MODULES, "@earendil-works/pi-ai/package.json"), { name: "@earendil-works/pi-ai", version: "0.85.1" });

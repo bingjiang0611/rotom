@@ -38,7 +38,9 @@ async function readStrictJsonFile(filePath, description) {
 	}
 }
 
-export async function verifyThirdPartyPackageContract(agentDir) {
+// Installed identity/capability gate, not an installed-code checksum. npm ci verifies
+// locked archive bytes during release construction; archives are not shipped twice.
+export async function verifyThirdPartyPackageContract(agentDir, { verifyArchives = false } = {}) {
 	const root = resolve(agentDir, "extensions/third-party");
 	const packageJson = await readStrictJsonFile(resolve(root, "package.json"), "third-party package.json");
 	const lock = await readStrictJsonFile(resolve(root, "package-lock.json"), "third-party package-lock.json");
@@ -55,14 +57,15 @@ export async function verifyThirdPartyPackageContract(agentDir) {
 		if (locked?.version !== expected.version || locked.integrity !== expected.integrity) throw new Error(`third-party lockfile ${name} identity/integrity 不匹配`);
 		if (expected.archive) {
 			if (locked.resolved !== `file:${expected.archive}`) throw new Error(`third-party ${name} archive source 不匹配`);
+		}
+		if (expected.archive && verifyArchives) {
 			const archive = resolve(root, expected.archive);
 			assertInside(root, archive, "third-party archive");
 			const info = await lstat(archive).catch(() => undefined);
 			if (!info?.isFile() || info.isSymbolicLink() || info.size > 8 * 1024 * 1024) throw new Error(`third-party archive 缺失、symlink 或超过大小上限：${name}`);
 			const canonicalRoot = await realpath(root);
 			if (await realpath(archive) !== resolve(canonicalRoot, expected.archive)) throw new Error(`third-party archive canonical 漂移：${name}`);
-			// Ship the exact reviewed artifact, not a machine-local pack or a newly
-			// repacked approximation. npm ci and launcher share the same integrity.
+			// Maintenance/build verification only; runtime does not read archives.
 			const integrity = `sha512-${createHash("sha512").update(await readFile(archive)).digest("base64")}`;
 			if (integrity !== expected.integrity) throw new Error(`third-party archive integrity 不匹配：${name}`);
 		}
