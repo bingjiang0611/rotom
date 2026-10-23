@@ -7,7 +7,8 @@ import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { measureContextFootprint } from "./context-footprint.mjs";
 import { DEFERRED_CAPABILITY_GROUPS, DEFERRED_DEFAULT_SURFACE_ENV, DEFERRED_INITIAL_TOOL_NAMES, DEFERRED_TOOL_SEARCH_NAME, RESIDENT_BROWSER_TOOL_NAMES, deferredToolsEnabled } from "../extensions/third-party/deferred-tools/register.ts";
-import { PRODUCT_SUBAGENT_ALLOWED_ACTIONS, PRODUCT_SUBAGENT_ALLOWED_COMMANDS, PRODUCT_SUBAGENT_BLOCKED_FIELDS } from "../extensions/third-party/subagent/policy.ts";
+import { PRODUCT_SUBAGENT_ALLOWED_ACTIONS, PRODUCT_SUBAGENT_BLOCKED_FIELDS } from "../../packages/rotom-subagents/src/extension/ephemeral-surface.ts";
+import { PRODUCT_SUBAGENT_ALLOWED_COMMANDS } from "../extensions/third-party/subagent/policy.ts";
 import { RESOURCE_DESCRIPTORS_V1 } from "./product-config.mjs";
 import { verifyPiRuntime } from "./verify-pi-runtime.mjs";
 
