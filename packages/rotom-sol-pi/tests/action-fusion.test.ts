@@ -169,6 +169,7 @@ describe("action fusion then_run", () => {
 			createContext(dir),
 		);
 
+		expect(result.details).toMatchObject({ actionFusion: { version: 1, mutation: "applied", followup: "succeeded" } });
 		expect(commands).toEqual(["check write"]);
 		expect(text(result)).toContain("[then_run:succeeded]");
 		expect(text(result)).toContain("write check passed");
@@ -256,15 +257,11 @@ describe("action fusion then_run", () => {
 		const operations: BashOperations = { exec };
 		const { write } = loadFusedTools({ bashOptions: { operations } });
 
-		await expect(
-			write.execute(
-				"write-2",
-				{ path: filePath, content: "keep me\n", then_run: { command: "exit 7" } },
-				undefined,
-				undefined,
-				createContext(dir),
-			),
-		).rejects.toThrow(/\[then_run:failed\][\s\S]*validation failed[\s\S]*Command exited with code 7/u);
+		const result = await write.execute("write-2",
+			{ path: filePath, content: "keep me\n", then_run: { command: "exit 7" } },
+			undefined, undefined, createContext(dir));
+		expect(result).toMatchObject({ isError: true, details: { actionFusion: { version: 1, mutation: "applied", followup: "failed" } } });
+		expect(text(result)).toMatch(/\[then_run:failed\][\s\S]*validation failed[\s\S]*Command exited with code 7/u);
 		expect(exec).toHaveBeenCalledTimes(1);
 		expect(await readFile(filePath, "utf8")).toBe("keep me\n");
 	});

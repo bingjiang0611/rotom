@@ -9,7 +9,7 @@ export const VERIFIED_THIRD_PARTY_PACKAGES = {
 	"pi-subagents": { version: "0.52.1-rotom.10", integrity: "sha512-5mXSC3zXponiWE+NP16rJ4zo1j1mHS04bbFO+fOc31RVVHA8rKvZ3nvemDOHT9qCBqINAiRcXJuhpZCNNNeoHg==", archive: "vendor/pi-subagents-0.52.1-rotom.10.tgz" },
 	"@narumitw/pi-goal": { version: "0.54.4-rotom.8", integrity: "sha512-nEQhj4obyLpYRUUpqZF9co8UeX7Jc1iPKrI0D3hSMW9cEXDrIzv+ZnrhGWqwyWWk4GB7cZ7NzO5LAjC5uNTI8g==", archive: "vendor/narumitw-pi-goal-0.54.4-rotom.8.tgz" },
 	"pi-context-view": { version: "0.7.1", integrity: "sha512-74bg+Tb5SOVdjeUSW70I/yieDtAKcNeEETPj5zU3UFWlYnE3NCjGgA/fLCi6vsO9vmwbRcFmCINJBaoksxH1aw==" },
-	"sol-pi": { version: "0.1.0-rotom.2", integrity: "sha512-9SOaxYtxnfbnU+IByPpz8dmk95eDsGs4dvi1sq9i2g3VrGxIok0sGatlhPLhiOUgETWZyRBtRHULCm+yZiOu2g==", archive: "vendor/sol-pi-0.1.0-rotom.2.tgz" },
+	"sol-pi": { version: "0.1.0-rotom.3", integrity: "sha512-0VdUzHtsICuHIp/Sp77Qem5snQH63PY/XbwxY8fLgweLlFM/uE65OnRhhHvQ9c0Wi0PWWUqGWMXlkqTkgqSntw==", archive: "vendor/sol-pi-0.1.0-rotom.3.tgz" },
 };
 
 export const RESOURCE_DESCRIPTORS_V1 = [

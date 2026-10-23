@@ -3,7 +3,7 @@
 - Upstream: SoL-Pi, <https://github.com/NVlabs/SoL-Pi>. License: MIT, Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES; the original notice stays in `LICENSE`.
 - Upstream base: `2b791687` ("Update Pi to 0.85.1 and verify 0.84.2 compatibility (#63)").
 - Source: the maintainer's SoL-Pi branch at `b463fad0ffab6e42488f5c80687adab67174a0ee`, imported from its tracked files. On top of the upstream base it carries five commits: recalled pages keep source references (`81b80b0`), the Pi 0.85 compaction-reason test (`83c5426`), the 0.85.1 baseline merge (`807ad60`), selected upstream reliability backports (`32840b2`), and Pi error-result handling plus runtime compatibility repairs (`b463fad`).
-- Maintained version: `0.1.0-rotom.1`, a private component of [rotom](https://github.com/bingjiang0611/rotom). It is not an upstream or npm release.
+- Maintained version: `0.1.0-rotom.3`, a private component of [rotom](https://github.com/bingjiang0611/rotom). It is not an upstream or npm release.
 
 ## Changes in this import
 
@@ -12,6 +12,8 @@
 - `src/` and `tests/` were byte-identical to the source commit in `0.1.0-rotom.0`.
 
 ## rotom changes
+
+- `.rotom.3`: Action Fusion supplies versioned `details.actionFusion` with applied mutation and succeeded/failed/skipped follow-up. Failed follow-ups return explicit error results, preserving mutation details; consumers no longer need to parse receipts. Development baseline moves to Pi 1.3.0, whose tool host honors error results. Two upstream install-guide tests remain unavailable because the imported tree intentionally omits AGENTS.md/CLAUDE.md.
 
 - `0.1.0-rotom.1`: the Evidence-Preserving Reducer records each returned reducer response (applied or rejected) as a Pi `usage` entry of kind `sol_pi_reducer`, attributed to the reducer provider/model with the provider-reported usage unchanged. Pi's footer, session stats, usage breakdown and Goal budgets then include the reducer spend. It uses `pi.appendUsage`, which the rotom Pi fork exposes from `1.3.0-rotom.2`; on Pi releases without it (upstream Pi) only the SoL-Pi journal entry is written, as before. Calls that throw before a response (timeout, unavailable model, missing auth) record no usage. Files: `evidence-preserving-reducer/{provider,journal,index}.ts`, `tests/helpers.ts`, `tests/evidence-preserving-reducer.test.ts`.
 - `0.1.0-rotom.2`: an `unverifiable-quote` fallback journal entry now carries a `quoteDiagnostic` for the first rejected evidence item: `cause` (`invalid-kind`, `not-a-string`, `empty`, `too-long` or `not-in-source`), its index and the evidence count, the quote length and SHA-256, and for `not-in-source` the longest leading part found in the log with its line, plus whether the quote would match after removing ANSI escapes or collapsing whitespace. It never stores quote or log text. Acceptance is unchanged: a receipt is still rejected unless every quote appears byte for byte. Files: `evidence-preserving-reducer/{receipt,index}.ts`, `tests/evidence-preserving-reducer.test.ts`.

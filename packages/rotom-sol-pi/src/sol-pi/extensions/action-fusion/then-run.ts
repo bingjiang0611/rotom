@@ -107,7 +107,13 @@ export async function executeMutationThenRun<TDetails>({
 			return mutationResult;
 		}
 
-		await assertUnchangedBeforeCommand(absolutePath);
+		try {
+			await assertUnchangedBeforeCommand(absolutePath);
+		} catch (error) {
+			return { ...mutationResult, isError: true,
+				details: { ...mutationResult.details, actionFusion: { version: 1, mutation: "applied", followup: "skipped" } },
+				content: [...mutationResult.content, { type: "text", text: errorText(error) }] };
+		}
 		const bash = createBashToolDefinition(ctx.cwd, bashOptions);
 		try {
 			const bashResult = await bash.execute(`${toolCallId}:then_run`, thenRun, signal, undefined, ctx);
@@ -116,14 +122,17 @@ export async function executeMutationThenRun<TDetails>({
 			if ("isError" in bashResult && bashResult.isError === true) throw new Error(output);
 			return {
 				...mutationResult,
+				details: { ...mutationResult.details, actionFusion: { version: 1, mutation: "applied", followup: "succeeded" } },
 				content: [
 					...mutationResult.content,
 					{ type: "text", text: output ? `${THEN_RUN_SUCCEEDED}\n${output}` : THEN_RUN_SUCCEEDED },
 				],
 			};
 		} catch (error) {
-			const mutationOutput = resultText(mutationResult);
-			throw new Error([mutationOutput, THEN_RUN_FAILED, errorText(error)].filter(Boolean).join("\n\n"));
+			return { ...mutationResult, isError: true,
+				details: { ...mutationResult.details, actionFusion: { version: 1, mutation: "applied", followup: "failed" } },
+				content: [...mutationResult.content, { type: "text", text: `${THEN_RUN_FAILED}\n${errorText(error)}` }] };
+
 		}
 	});
 }
