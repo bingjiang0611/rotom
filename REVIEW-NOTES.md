@@ -175,3 +175,9 @@ npm --prefix rotom run pack:release -- /private/tmp/rotom-review-artifact
 - `(cd packages/rotom-pi/packages/coding-agent && ../../node_modules/.bin/vitest run test/bash-internal-env.test.ts)`：**4 pass / 0 fail**，真实 shell 覆盖八项剔除与 headless 两个值（默认、显式 hook）。
 - 新源码升 fork **1.3.0-rotom.4**；`npm --prefix rotom run build:pi` 成功重建七包，六批分别 170/42/156/95/81/417 pass，0 fail、3 个原有在线 skip；`npm --prefix rotom run check:pi` 通过。manifest/lock/integrity/product-config/当前文档同步，产品仍 0.1.26，没有覆盖活跃安装。
 - `node --test rotom/runtime/distribution.test.mjs`：最终 **27 pass / 0 fail**。中间忘记同步 product-config 的版本常量时为 18 pass / 9 fail；已修正，说明版本/精确基线门禁确实拒绝不一致。
+
+### D / #3：Ask schema 漂移只关闭 continuation
+
+- 原有结构断言保留；引入明确的 `UnsupportedAskSchemaError`，组合层仅处理该预期错误，其他异常仍抛出。漂移时原版 Ask schema/execute/result 保持不变，不附加 continuation guideline，也不武装自动续跑。后续 SoL-Pi、context-view、延迟加载器继续注册。
+- 在 `session_start` 发可观测告警：有 UI 时 `ctx.ui.notify(..., "warning")`；无 UI 时发 `ROTOM_ASK_SCHEMA` warning，不直接在交互式终端写 stderr。
+- `node --test --test-concurrency=1 rotom/extensions/third-party/index.test.ts rotom/extensions/third-party/ask/schema.test.ts`（固定当前 Pi、清除继承 scope）：**12 pass / 0 fail**。新增真实 SDK session 测试只替换 upstream Ask 为不兼容 schema，其余组件仍加载真实代码；断言 native Ask 可执行、无 continuation、告警一次，Computer Use/Subagent/Goal/SoL edit-write/obs_recall/search_tools 和 `/context` 均正常注册。未调用模型。

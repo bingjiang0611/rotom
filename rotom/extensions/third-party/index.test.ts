@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -306,4 +306,58 @@ test("真实第三方 loader 的 Ask 只补发正常结束；Goal 中止事件�
 	assert.equal(sent.length, 1);
 	assert.deepEqual((sent[0] as any).options, { deliverAs: "followUp", triggerTurn: true });
 	assert.equal((sent[0] as any).message.customType, "ask-user-continuation");
+});
+
+test("unsupported Ask schema keeps native Ask and all later components in a real session", async (t) => {
+	const workspace = mkdtempSync(join(tmpdir(), "rotom-ask-schema-drift-"));
+	t.after(() => rmSync(workspace, { recursive: true, force: true }));
+	const fixture = join(workspace, "ask.ts");
+	writeFileSync(fixture, `export default function(pi) { pi.registerTool({
+		name: "ask_user_question", label: "Ask", description: "upstream fixture",
+		parameters: { type: "object", properties: { changed: { type: "string" } } },
+		execute: async () => ({ content: [{ type: "text", text: "native result" }], details: { native: true } })
+	}); }`);
+	const piDist = findPiDist();
+	const pi = await import(pathToFileURL(join(piDist, "index.js")).href);
+	// Only replace the upstream Ask module. Load the real composition and all
+	// other components through the host's normal SDK loader/resolution path.
+	const runtime = join(workspace, "runtime");
+	mkdirSync(runtime);
+	for (const name of readdirSync(import.meta.dirname)) {
+		if (name !== "index.ts" && name !== "node_modules") symlinkSync(join(import.meta.dirname, name), join(runtime, name));
+	}
+	writeFileSync(join(runtime, "index.ts"), readFileSync(join(import.meta.dirname, "index.ts")));
+	mkdirSync(join(runtime, "node_modules/@juicesharp/rpiv-ask-user-question"), { recursive: true });
+	symlinkSync(fixture, join(runtime, "node_modules/@juicesharp/rpiv-ask-user-question/index.ts"));
+	for (const name of readdirSync(join(import.meta.dirname, "node_modules"))) {
+		if (name !== "@juicesharp") symlinkSync(join(import.meta.dirname, "node_modules", name), join(runtime, "node_modules", name));
+	}
+	const settingsManager = pi.SettingsManager.inMemory();
+	const loader = new pi.DefaultResourceLoader({ cwd: workspace, agentDir: workspace, settingsManager,
+		noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
+		additionalExtensionPaths: [runtime],
+	});
+	await loader.reload();
+	assert.deepEqual(loader.getExtensions().errors, []);
+	const modelRuntime = await pi.ModelRuntime.create({ authPath: join(workspace, "auth.json"), modelsPath: null, refreshOnCreate: false });
+	const warnings = t.mock.method(process, "emitWarning", () => {});
+	const { session, extensionsResult } = await pi.createAgentSession({ cwd: workspace, agentDir: workspace,
+		resourceLoader: loader, modelRuntime, settingsManager, sessionManager: pi.SessionManager.inMemory(workspace),
+	});
+	t.after(() => session.dispose());
+	const errors: unknown[] = [];
+	await session.bindExtensions({ mode: "print", onError: (error: unknown) => errors.push(error) });
+	assert.deepEqual(errors, []);
+	const extension = extensionsResult.extensions.find((extension: any) => extension.tools.has("ask_user_question"));
+	const ask = extension.tools.get("ask_user_question").definition;
+	assert.deepEqual(ask.parameters, { type: "object", properties: { changed: { type: "string" } } });
+	assert.equal(ask.promptGuidelines?.includes(ASK_CONTINUATION_GUIDELINE) ?? false, false);
+	assert.deepEqual(await ask.execute(), { content: [{ type: "text", text: "native result" }], details: { native: true } });
+	for (const name of ["act_ui", "subagent", "goal_continue", "ask_user_question", "edit", "write", "obs_recall", "search_tools"]) {
+		assert.ok(extension.tools.has(name), `${name} must still register after schema drift`);
+	}
+	assert.ok(extension.commands.has("context"));
+	const schemaWarnings = warnings.mock.calls.filter(call => (call.arguments[1] as any)?.code === "ROTOM_ASK_SCHEMA");
+	assert.equal(schemaWarnings.length, 1);
+	assert.match(String(schemaWarnings[0].arguments[0]), /Continuation disabled; using the original Ask tool/u);
 });

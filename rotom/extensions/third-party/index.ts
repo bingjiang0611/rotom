@@ -6,7 +6,7 @@ import subagents from "./node_modules/pi-subagents/index.ts";
 import contextView from "./node_modules/pi-context-view/src/index.ts";
 import { createSolPiExtension } from "./node_modules/sol-pi/src/sol-pi/index.ts";
 import { ASK_AUTO_CONTINUATION_MESSAGE, ASK_CONTINUATION_GUIDELINE, createAskContinuationController, selectedOptionsRequireContinuation, stripAskContinuationMetadata } from "./ask/continuation.ts";
-import { askContinuationParameters } from "./ask/schema.ts";
+import { askContinuationParameters, UnsupportedAskSchemaError } from "./ask/schema.ts";
 import { computerUseRecoveryApi } from "./computer-use/recovery.ts";
 import { registerDeferredTools } from "./deferred-tools/register.ts";
 import { loadRotomSolPiConfig } from "./sol-pi.ts";
@@ -19,7 +19,19 @@ function sequentialAskCompatApi(pi: ExtensionAPI, askContinuation: ReturnType<ty
 				const sequential = { ...definition, executionMode: "sequential" as const };
 				if (definition.name !== "ask_user_question") return target.registerTool(sequential);
 				const execute = definition.execute.bind(definition);
-				const parameters = askContinuationParameters(definition.parameters);
+				let parameters;
+				try { parameters = askContinuationParameters(definition.parameters); }
+				catch (error) {
+					if (!(error instanceof UnsupportedAskSchemaError)) throw error;
+					// Upstream schema drift disables only our optional continuation.
+					// Keep the original schema/execute and let all later components load.
+					const warning = error.message;
+					target.on("session_start", (_event, ctx) => {
+						if (ctx.hasUI) ctx.ui.notify(warning, "warning");
+						else process.emitWarning(warning, { code: "ROTOM_ASK_SCHEMA" });
+					});
+					return target.registerTool(sequential);
+				}
 				return target.registerTool({
 					...sequential,
 					parameters,
