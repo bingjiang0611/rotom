@@ -85,6 +85,12 @@ export function deferredToolsEnabled(environment: NodeJS.ProcessEnv = process.en
 	return enabledByEnvironment(environment[LEGACY_EXPERIMENTAL_DEFERRED_TOOLS_ENV]);
 }
 
+// Pi 1.4 restores never-mentioned, default-active extension tools on tree navigation.
+// Express product deferral at registration, not only by shrinking the first loadout.
+export function isDeferredByDefault(name: string, environment: NodeJS.ProcessEnv = process.env): boolean {
+	return environment[DEFERRED_DEFAULT_SURFACE_ENV] === "1" && deferredToolsEnabled(environment) && DEFERRED_TOOL_NAMES.has(name);
+}
+
 export function matchDeferredCapabilityGroups(query: string, limit = 2): DeferredCapabilityGroupId[] {
 	const needle = normalized(query);
 	if (!needle) return [];
@@ -187,7 +193,10 @@ export function registerDeferredTools(pi: ExtensionAPI, environment: NodeJS.Proc
 		const registered = new Set(allTools.map((tool) => tool.name));
 		const active = pi.getActiveTools();
 		const required = [...DEFERRED_INITIAL_TOOL_NAMES, DEFERRED_TOOL_SEARCH_NAME, ...DEFERRED_TOOL_NAMES];
-		const missing = required.filter((name) => !registered.has(name) || !active.includes(name));
+		// Native defaults start the whole deferred group inactive. A partially active
+		// group instead indicates a narrower caller selection; preserve that policy.
+		const hasActiveDeferredTools = active.some((name) => DEFERRED_TOOL_NAMES.has(name));
+		const missing = required.filter((name) => !registered.has(name) || ((!DEFERRED_TOOL_NAMES.has(name) || hasActiveDeferredTools) && !active.includes(name)));
 		if (missing.length > 0) {
 			const warning = `Deferred tool loading skipped; required tools unavailable: ${missing.join(", ")}`;
 			if (ctx.hasUI) ctx.ui.notify(warning, "warning");
@@ -198,7 +207,17 @@ export function registerDeferredTools(pi: ExtensionAPI, environment: NodeJS.Proc
 		restoredGroups.clear();
 		for (const id of restoreGroups(ctx)) restoredGroups.add(id);
 		const restoredTools = toolsForGroups(canonicalGroupIds(restoredGroups), registered);
+		// A replacement/reload derives capability state only from its selected branch,
+		// not the outgoing live loadout (which may include abandoned discoveries).
 		const initial = active.filter((name) => !DEFERRED_TOOL_NAMES.has(name));
 		pi.setActiveTools(canonicalActiveTools([...initial, ...restoredTools]));
+	});
+
+	pi.on("session_tree", () => {
+		// Pi restores the selected branch's loadout first. Discovery is additive in
+		// this live session, but must not be journaled onto the newly selected branch.
+		if (restoredGroups.size === 0) return;
+		const registered = new Set(pi.getAllTools().map((tool) => tool.name));
+		pi.setActiveTools(canonicalActiveTools([...pi.getActiveTools(), ...toolsForGroups(restoredGroups, registered)]));
 	});
 }

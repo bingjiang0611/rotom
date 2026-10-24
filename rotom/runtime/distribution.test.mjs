@@ -84,7 +84,7 @@ test("current notices and maintenance guides agree with selected component versi
 
 test("fork current baseline exactly matches the selected version, not a historical mention", () => {
 	const document = readFileSync(join(SOURCE, "../packages/rotom-pi/ROTOM-FORK.md"), "utf8");
-	const expected = `- 当前基线：Pi 1.3.0，fork \`${DISTRIBUTION_PI_VERSION}\`。`;
+	const expected = `- 当前基线：Pi 1.4.0，fork \`${DISTRIBUTION_PI_VERSION}\`。`;
 	const check = (text) => assert.deepEqual(text.split("\n").filter(line => line.startsWith("- 当前基线：")), [expected]);
 	check(document);
 	assert.throws(() => check(document.replace(expected, expected.replace(DISTRIBUTION_PI_VERSION, "0.0.0-obsolete")) + `\n历史记录：${DISTRIBUTION_PI_VERSION}\n`));

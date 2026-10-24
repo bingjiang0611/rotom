@@ -43,6 +43,27 @@ test("owned components define native contracts without product interception", as
 	assert.notEqual(standalone.description, PRODUCT_SUBAGENT_DESCRIPTION);
 });
 
+test("product registration uses native deferred defaults only with the launcher handshake", async () => {
+	const { loadExtensions } = await import(pathToFileURL(join(findPiDist(), "core/extensions/loader.js")).href);
+	const savedDefault = process.env.ROTOM_DEFERRED_DEFAULT_SURFACE;
+	const savedEnabled = process.env.ROTOM_DEFERRED_TOOLS;
+	try {
+		for (const [handshake, enabled, deferred] of [["1", "1", true], ["0", "1", false], ["1", "0", false]] as const) {
+			process.env.ROTOM_DEFERRED_DEFAULT_SURFACE = handshake;
+			process.env.ROTOM_DEFERRED_TOOLS = enabled;
+			const loaded = await loadExtensions([import.meta.dirname], process.cwd());
+			assert.deepEqual(loaded.errors, []);
+			for (const name of ["subagent", "subagent_wait"]) assert.equal(loaded.extensions[0].tools.get(name)?.definition.defaultActive === false, deferred, name);
+			assert.equal(loaded.extensions[0].tools.get("codemode")?.definition.defaultActive, true);
+		}
+	} finally {
+		if (savedDefault === undefined) delete process.env.ROTOM_DEFERRED_DEFAULT_SURFACE;
+		else process.env.ROTOM_DEFERRED_DEFAULT_SURFACE = savedDefault;
+		if (savedEnabled === undefined) delete process.env.ROTOM_DEFERRED_TOOLS;
+		else process.env.ROTOM_DEFERRED_TOOLS = savedEnabled;
+	}
+});
+
 test("真实 Pi loader 注册保留的第三方运行时并排除 MCP、Background/Fusion 与 LSP", async () => {
 	const piDist = findPiDist();
 	const { loadExtensions } = await import(pathToFileURL(join(piDist, "core/extensions/loader.js")).href);

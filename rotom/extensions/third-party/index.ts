@@ -8,7 +8,7 @@ import { createSolPiExtension } from "./node_modules/sol-pi/src/sol-pi/index.ts"
 import { ASK_AUTO_CONTINUATION_MESSAGE, ASK_CONTINUATION_GUIDELINE, createAskContinuationController, selectedOptionsRequireContinuation, stripAskContinuationMetadata } from "./ask/continuation.ts";
 import { askContinuationParameters, UnsupportedAskSchemaError } from "./ask/schema.ts";
 import { computerUseRecoveryApi } from "./computer-use/recovery.ts";
-import { registerDeferredTools } from "./deferred-tools/register.ts";
+import { isDeferredByDefault, registerDeferredTools } from "./deferred-tools/register.ts";
 import { loadRotomSolPiConfig } from "./sol-pi.ts";
 import { subagentPolicyApi } from "./subagent/policy.ts";
 
@@ -70,7 +70,7 @@ export default function thirdPartyRuntime(pi: ExtensionAPI): void {
 			if (property === "registerTool") return (definition: Parameters<ExtensionAPI["registerTool"]>[0]) => target.registerTool(
 				definition.name === "codemode"
 					? { ...definition, defaultActive: true }
-					: { ...definition, exposure: "model-only" },
+					: { ...definition, exposure: "model-only", ...(isDeferredByDefault(definition.name) ? { defaultActive: false } : {}) },
 			);
 			const value = Reflect.get(target, property, receiver);
 			return typeof value === "function" ? value.bind(target) : value;
@@ -85,7 +85,7 @@ export default function thirdPartyRuntime(pi: ExtensionAPI): void {
 	askUserQuestion(sequentialAskCompat);
 	// SoL-Pi edit/write/obs_recall stay ordinary tools so Codemode can still call them.
 	// SoL-Pi registers them on session_start, so its handler must run before the
-	// deferred loader narrows the startup tool set.
+	// deferred loader restores the startup capability state.
 	createSolPiExtension(loadRotomSolPiConfig)(pi);
 	contextView(pi);
 	registerDeferredTools(pi);

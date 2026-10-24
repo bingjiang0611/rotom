@@ -11,6 +11,7 @@ import {
 	LEGACY_EXPERIMENTAL_DEFERRED_TOOLS_ENV,
 	RESIDENT_BROWSER_TOOL_NAMES,
 	deferredToolsEnabled,
+	isDeferredByDefault,
 	matchDeferredCapabilityGroups,
 	registerDeferredTools as registerDeferredToolsBase,
 } from "./register.ts";
@@ -27,16 +28,16 @@ const ALL_PRODUCT_TOOLS = [
 	...DEFERRED_CAPABILITY_GROUPS.flatMap((group) => [...group.toolNames]),
 ];
 
-function fakeRuntime(branch: any[] = []) {
+function fakeRuntime(branch: any[] = [], environment: NodeJS.ProcessEnv = DEFAULT_DEFERRED_ENV) {
 	const tools = new Map<string, any>();
 	const handlers = new Map<string, Array<(event: any, ctx: any) => unknown>>();
 	const entries = [...branch];
-	let active = [...new Set(ALL_PRODUCT_TOOLS)];
+	let active = [...new Set(ALL_PRODUCT_TOOLS)].filter((name) => !isDeferredByDefault(name, environment));
 	for (const name of ALL_PRODUCT_TOOLS) tools.set(name, { name, description: name, parameters: { type: "object" } });
 	const api = {
 		registerTool(definition: any) {
 			tools.set(definition.name, definition);
-			active = [...new Set([...active, definition.name])];
+			if (definition.defaultActive !== false) active = [...new Set([...active, definition.name])];
 		},
 		on(event: string, handler: (event: any, ctx: any) => unknown) {
 			const current = handlers.get(event) ?? [];
@@ -58,6 +59,8 @@ function fakeRuntime(branch: any[] = []) {
 		setActive(names: string[]) { active = [...names]; },
 		async tree(branch: any[]) {
 			entries.splice(0, entries.length, ...branch);
+			// Model Pi's loadout restoration, not just the extension event.
+			active = active.filter((name) => !isDeferredByDefault(name, environment));
 			for (const handler of handlers.get("session_tree") ?? []) await handler({ type: "session_tree" }, context);
 		},
 		async start(reason = "startup") {
@@ -82,6 +85,15 @@ test("deferred tools 默认开启，稳定 opt-out 优先并兼容旧环境变�
 	const disabled = fakeRuntime();
 	registerDeferredTools(disabled.api, { [DEFERRED_TOOLS_ENV]: "0" });
 	assert.equal(disabled.tools.has(DEFERRED_TOOL_SEARCH_NAME), false);
+});
+
+test("native defaultActive is scoped to the authorized product default", () => {
+	for (const name of ["subagent", "subagent_wait"]) {
+		assert.equal(isDeferredByDefault(name, DEFAULT_DEFERRED_ENV), true);
+		assert.equal(isDeferredByDefault(name, {}), false, "SDK and explicit CLI selections retain native defaults");
+		assert.equal(isDeferredByDefault(name, { ...DEFAULT_DEFERRED_ENV, ROTOM_DEFERRED_TOOLS: "0" }), false);
+	}
+	assert.equal(isDeferredByDefault("user_extension", DEFAULT_DEFERRED_ENV), false);
 });
 
 test("missing prerequisites warn without changing tool selection or compatibility state", async (t) => {
@@ -264,7 +276,7 @@ test("loader 不重新激活被显式排除的 Goal 工具", async () => {
 });
 
 test("显式 full allowlist 与 narrowed runtime policy 都优先于默认 deferred", async () => {
-	const fullAllowlist = fakeRuntime();
+	const fullAllowlist = fakeRuntime([], {});
 	registerDeferredToolsBase(fullAllowlist.api, {});
 	await fullAllowlist.start();
 	assert.deepEqual(new Set(fullAllowlist.active()), new Set([...ALL_PRODUCT_TOOLS, DEFERRED_TOOL_SEARCH_NAME]), "没有 launcher default-surface handshake 时不得缩减完整显式 allowlist");
