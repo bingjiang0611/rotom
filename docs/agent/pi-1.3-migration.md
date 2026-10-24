@@ -107,7 +107,14 @@ coding-agent 全量：
 
 未验证：真实 Reducer 请求（需要 Codex 额度），以及真实 TUI 中 footer 的显示。footer 的汇总逻辑与 `getSessionStats` 读取同一类条目，这一点来自读代码，没有在真实 TUI 中看过。
 
-## Goal 续跑的公开 settlement 边界
+## `1.3.0-rotom.3`
+
+该版本收录 `06697a9` 的 RPC 修复与设计审查 #2 的 bash 环境隔离。`06697a9` 当时重建了同名 `.2` 归档；这里记录 `.3` 实际包含的变更，不改写当时的提交记录。
+
+- RPC：扩展延期续跑全部完成后才对 SDK/JSON/RPC 发布一次 `agent_settled`；扩展仍逐段收到回调，最终取消状态不能被前段成功覆盖。细节与验证见下节。
+- bash：共享 shell spawn 边界复制环境并剔除七个内部变量，含显式 spawn-hook env；宿主与显式子 Pi 所需环境保留。变量和理由见 [internal-environment.md](internal-environment.md)。新增真实 `env` 检查 2/2；`.3` 构建六批测试 959 pass、0 fail、3 个原有在线 skip，见根 `REVIEW-NOTES.md` 第一轮。
+
+### Goal 续跑的公开 settlement 边界
 
 Scry 的非复用入口会在 RPC `agent_settled` 后关闭 Pi。原实现先发布该事件，再执行扩展 settlement handler 排入的续跑：Goal 的下一条原生 user 消息已经持久化，但续跑会被宿主收尾中止。问题不靠把 wrapper 改名为 `rotom` 解决；复用进程也不能补回已经结束的宿主观察范围。
 

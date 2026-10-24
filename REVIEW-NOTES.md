@@ -160,3 +160,9 @@ npm --prefix rotom run pack:release -- /private/tmp/rotom-review-artifact
 - `node --test rotom/extensions/observability/index.test.ts`：**28 pass / 0 fail**。保留 replacement、权限漂移、queue/close 检查；新增文件/父目录 symlink 漂移和“打开后零 fstat”断言。将新断言用于 d023f69 的旧 writer：**1 个预期失败**，观察到 4 次多余 fstat，证明该检查能抓住旧实现。
 - 同机 macOS arm64、Node v24.18.0，打开 FD 后每批 2,000 条 append + flush（不含 fsync），每侧 1 次 warm-up + 10 批，交替先后顺序。`node /tmp/rotom-round2-trace-bench.mjs`：中位数 **97.911 → 39.798 μs/条**，约降低 **59.4%**。不是持久化落盘延迟或模型端到端收益。
 - 原始 μs/条：改前 `[137.111,112.783,98.840,100.966,93.379,100.230,95.076,96.666,96.982,96.940]`；改后 `[38.822,40.852,42.500,39.757,39.839,46.515,41.340,37.475,38.818,37.615]`。脚本/JSON 与测试日志保留于 `/tmp/rotom-round2-*`；旧 writer 由 `git show d023f69:rotom/extensions/observability/index.ts` 提取，不是模拟旧路径。
+
+### B / #8：fork 文档和精确漂移断言
+
+- `packages/rotom-pi/ROTOM-FORK.md` 将“当前基线”独立成唯一一行；与 `product-config.mjs` 的版本精确相等，不再用 contains 证明当前版本。两份 fork/migration 文档补齐 `.3` 的 `06697a9` RPC settlement 修复与 #2 shell 环境剔除说明。
+- `node --test rotom/runtime/distribution.test.mjs`：**27 pass / 0 fail**。新测试在改文档前 **1 个预期失败**；还拒绝“旧基线 + 别处出现新版本”、同一基线行混入版本说明、重复基线行。
+- B 提交时当前基线为 `.3`；后续 C 的新源码修复依法升 fork `.4`，该精确断言随 product-config 检查 `.4`，而 `.3` 的历史条目保留。

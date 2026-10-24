@@ -2,7 +2,9 @@
 
 本目录是 rotom 仓内维护的 Pi 源码，不是 sibling checkout、Git submodule 或已安装 node_modules 的副本。来源、上游 revision、fork 版本及明确省略的维护文件见 `FORK.json`；保留上游 MIT `LICENSE` 与 package identity。此目录的上游 README/CHANGELOG 描述上游工具，rotom 的实际产品合同以仓库根指南为准。
 
-- 当前基线：Pi 1.3.0，fork `1.3.0-rotom.2`。`1.3.0-rotom.1` 由 `1.1.0-rotom.2` 以上游 `v1.1.0` 为 base 三方合并 `v1.3.0` 得到。OSC 7501 程序状态的 `app` 固定为 Pi 兼容身份 `pi`。上游功能代码全部保留，包括分类器模型/API、虚拟模型路由与内置 MCP；rotom 不自带分类器调用或虚拟模型。
+- 当前基线：Pi 1.3.0，fork `1.3.0-rotom.3`。
+- `1.3.0-rotom.3`：包含 `06697a9` 的 RPC settlement 修复（扩展延期续跑完成后才发布一次公开 `agent_settled`，保留最终取消状态），以及设计审查 #2 的 bash 内部环境变量剔除（默认与显式 spawn-hook env 均清理，宿主 env 不变）。
+- 上游来源：`1.3.0-rotom.1` 由 `1.1.0-rotom.2` 以上游 `v1.1.0` 为 base 三方合并 `v1.3.0` 得到。OSC 7501 程序状态的 `app` 固定为 Pi 兼容身份 `pi`。上游功能代码全部保留，包括分类器模型/API、虚拟模型路由与内置 MCP；rotom 不自带分类器调用或虚拟模型。
 - `1.3.0-rotom.2`：中止后的轮次在本地以 aborted 助手消息收尾，不再携带已中止的 signal 请求 provider；扩展 API 增加 `pi.appendUsage`，把扩展自行发起的模型请求写入原生 `usage` 条目。见 `docs/agent/pi-1.3-migration.md`。
 - 保留差异：原生 `/model` 与 `/scoped-models` 统一优先显示名称并保留 ID/provider；支持 picker-local thinking 草稿、确认/取消及能力限制；带定向回归。
 - 原始会话 fixture 不带入；大型压缩测试改为合成数据。未导入上游 Git 历史、个人状态、安装目录、CI 发布配置或 agent 指令。其余源码与开发 workspace 保留；上游已删除实验性 client/protocol/server，`chord` 仍在 workspace 中但不再是运行时依赖。
