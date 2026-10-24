@@ -919,6 +919,7 @@ test("close drains accepted writes, rejects new appends and closes the pinned de
 	await writer.flush();
 	const handle = (writer as any).handle;
 	assert.ok(handle);
+	const descriptorStats = t.mock.method(handle, "stat");
 	writer.append(record);
 	await writer.flush();
 	assert.equal((writer as any).handle, handle, "flush reuses the descriptor");
@@ -927,6 +928,7 @@ test("close drains accepted writes, rejects new appends and closes the pinned de
 	writer.append(record);
 	assert.equal(await pending, true);
 	assert.equal(writer.recordsWritten, 3);
+	assert.equal(descriptorStats.mock.callCount(), 0, "open descriptor identity needs no per-write fstat");
 	assert.equal(writer.recordsDropped, 1);
 	assert.equal(handle.fd, -1);
 	assert.equal(await writer.close(), true);
@@ -943,6 +945,25 @@ test("directory permission drift stops an open writer before another record", as
 	writer.append(record); await writer.close();
 	assert.equal(writer.recordsWritten, 1);
 	assert.equal(writer.healthy, false);
+});
+
+test("symlink replacement of an open file or its parent stops subsequent writes", async (t) => {
+	const root = mkdtempSync(join(tmpdir(), "rotom-trace-symlink-drift-"));
+	t.after(() => rm(root, { recursive: true, force: true }));
+	for (const target of ["file", "directory"]) {
+		const directory = join(root, target);
+		mkdirSync(directory, { mode: 0o700 });
+		const path = join(directory, "trace.jsonl");
+		const writer = new LocalTraceWriterV1(path);
+		const record = { schema: LOCAL_TRACE_SCHEMA_V1, kind: "span_start", name: "fixture" } as any;
+		writer.append(record); await writer.flush();
+		const replaced = target === "file" ? path : directory;
+		renameSync(replaced, `${replaced}.original`);
+		symlinkSync(`${replaced}.original`, replaced);
+		writer.append(record); await writer.close();
+		assert.equal(writer.healthy, false, target);
+		assert.equal(writer.recordsWritten, 1, target);
+	}
 });
 
 test("flush has a bounded best-effort deadline", async () => {

@@ -148,3 +148,15 @@ npm --prefix rotom run pack:release -- /private/tmp/rotom-review-artifact
 - SoL-Pi `.3`：`bb352d13af8d51354aa1257277f81b4be377be95c4279dbe55e2300e152c98ab`。
 
 推送前检查分支、暂存 diff、公开审计和待推送提交。唯一目标为 `HEAD:refs/heads/fix/design-review`，不 force-push；最终提交/推送状态以交付回复和远端 SHA 回读为准。
+
+## 第二轮（基于 d023f69）
+
+本轮只更新 `fix/design-review`；产品版本仍为 0.1.26。上一节的 tgz 摘要和安装结果仅属于第一轮产物，不能证明本轮代码。
+
+### A / #6：trace 热路径
+
+- 打开 FD 时完成目录/文件权限、uid、dev/ino 校验并缓存 FD identity。后续每条写入只做一次路径检查：并行 `lstat(parent)` 与 `lstat(file)`，对文件做一次 cached dev/ino 比对，同时检查二者的类型/权限/uid；不再 `fstat`，不做写后检查。保留两个 pathname 查询是为了及时检测父目录权限或 symlink 漂移，不能仅看文件 inode。写入仍绑定原 FD，不能消除检查与写入间的所有竞争窗口。
+- 稳态每条记录从 6 次 stat-family 调用 + 1 次 write，降到 2 次 lstat + 1 次 write（这是代码路径的 Node FS 操作数，不是内核 tracing 结果）。
+- `node --test rotom/extensions/observability/index.test.ts`：**28 pass / 0 fail**。保留 replacement、权限漂移、queue/close 检查；新增文件/父目录 symlink 漂移和“打开后零 fstat”断言。将新断言用于 d023f69 的旧 writer：**1 个预期失败**，观察到 4 次多余 fstat，证明该检查能抓住旧实现。
+- 同机 macOS arm64、Node v24.18.0，打开 FD 后每批 2,000 条 append + flush（不含 fsync），每侧 1 次 warm-up + 10 批，交替先后顺序。`node /tmp/rotom-round2-trace-bench.mjs`：中位数 **97.911 → 39.798 μs/条**，约降低 **59.4%**。不是持久化落盘延迟或模型端到端收益。
+- 原始 μs/条：改前 `[137.111,112.783,98.840,100.966,93.379,100.230,95.076,96.666,96.982,96.940]`；改后 `[38.822,40.852,42.500,39.757,39.839,46.515,41.340,37.475,38.818,37.615]`。脚本/JSON 与测试日志保留于 `/tmp/rotom-round2-*`；旧 writer 由 `git show d023f69:rotom/extensions/observability/index.ts` 提取，不是模拟旧路径。

@@ -449,6 +449,7 @@ export class LocalTraceWriterV1 {
 	private enqueued = 0;
 	private closeRequested = false;
 	private handle?: Awaited<ReturnType<typeof open>>;
+	private identity?: { dev: number; ino: number };
 	private readonly appendLine?: (path: string, line: string) => Promise<void>;
 	recordsWritten = 0;
 	recordsDropped = 0;
@@ -468,26 +469,26 @@ export class LocalTraceWriterV1 {
 			if (!opened.isFile() || (opened.mode & 0o077) !== 0 || !ownerIsCurrent(opened)
 				|| current.isSymbolicLink() || !current.isFile() || (current.mode & 0o077) !== 0 || !ownerIsCurrent(current)
 				|| opened.dev !== current.dev || opened.ino !== current.ino) throw new Error("trace path changed or is not private");
+			this.identity = { dev: opened.dev, ino: opened.ino };
 			return handle;
 		} catch (error) { await handle.close().catch(() => {}); throw error; }
 	}
 
-	private async verifyHandle(): Promise<void> {
-		if (!this.handle) return;
-		await ensurePrivateTraceDirectory(dirname(this.path));
-		const opened = await this.handle.stat();
-		const current = await lstat(this.path);
-		if (!opened.isFile() || (opened.mode & 0o077) !== 0 || !ownerIsCurrent(opened)
-			|| current.isSymbolicLink() || !current.isFile() || (current.mode & 0o077) !== 0 || !ownerIsCurrent(current)
-			|| opened.dev !== current.dev || opened.ino !== current.ino) throw new Error("trace path changed or is not private");
+	private async verifyPath(): Promise<void> {
+		// The open descriptor's identity is immutable. Two pathname lstats are
+		// sufficient to detect file replacement/symlinks and permission drift on
+		// both the file and its parent, without another fstat or post-write probe.
+		const [directory, current] = await Promise.all([lstat(dirname(this.path)), lstat(this.path)]);
+		if (!directory.isDirectory() || (directory.mode & 0o077) !== 0 || !ownerIsCurrent(directory)
+			|| !current.isFile() || (current.mode & 0o077) !== 0 || !ownerIsCurrent(current)
+			|| this.identity!.dev !== current.dev || this.identity!.ino !== current.ino) throw new Error("trace path changed or is not private");
 	}
 
 	private async writeLine(line: string): Promise<void> {
 		if (this.appendLine) { await this.appendLine(this.path, line); return; }
-		const handle = this.handle ?? (this.handle = await this.openPrivateHandle());
-		await this.verifyHandle();
-		await handle.writeFile(line, { encoding: "utf8" });
-		await this.verifyHandle();
+		if (this.handle) await this.verifyPath();
+		else this.handle = await this.openPrivateHandle();
+		await this.handle.writeFile(line, { encoding: "utf8" });
 	}
 
 	private noteDrop(): void {
