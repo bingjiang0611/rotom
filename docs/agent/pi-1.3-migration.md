@@ -107,6 +107,10 @@ coding-agent 全量：
 
 未验证：真实 Reducer 请求（需要 Codex 额度），以及真实 TUI 中 footer 的显示。footer 的汇总逻辑与 `getSessionStats` 读取同一类条目，这一点来自读代码，没有在真实 TUI 中看过。
 
+## `1.3.0-rotom.4`
+
+设计审查第二轮 #2：bash 额外剔除 `ROTOM_PRODUCT_VERSION`，保留公开 `PI_COMPUTER_USE_HEADLESS` 的默认/用户覆盖语义。环境回归 4/4。为新源码重建七个 fork 包，产品版本不变；变量合同与动态名单方案的取舍见 [internal-environment.md](internal-environment.md)。
+
 ## `1.3.0-rotom.3`
 
 该版本收录 `06697a9` 的 RPC 修复与设计审查 #2 的 bash 环境隔离。`06697a9` 当时重建了同名 `.2` 归档；这里记录 `.3` 实际包含的变更，不改写当时的提交记录。

@@ -166,3 +166,12 @@ npm --prefix rotom run pack:release -- /private/tmp/rotom-review-artifact
 - `packages/rotom-pi/ROTOM-FORK.md` 将“当前基线”独立成唯一一行；与 `product-config.mjs` 的版本精确相等，不再用 contains 证明当前版本。两份 fork/migration 文档补齐 `.3` 的 `06697a9` RPC settlement 修复与 #2 shell 环境剔除说明。
 - `node --test rotom/runtime/distribution.test.mjs`：**27 pass / 0 fail**。新测试在改文档前 **1 个预期失败**；还拒绝“旧基线 + 别处出现新版本”、同一基线行混入版本说明、重复基线行。
 - B 提交时当前基线为 `.3`；后续 C 的新源码修复依法升 fork `.4`，该精确断言随 product-config 检查 `.4`，而 `.3` 的历史条目保留。
+
+### C / #2：补充环境边界与机制评估
+
+- `ROTOM_PRODUCT_VERSION` 是宿主品牌/trace 元数据，加入默认与显式 hook 环境的剔除列表；过滤项从七项变八项，宿主不被修改。
+- `PI_COMPUTER_USE_HEADLESS` 保留：原生 `packages/rotom-computer-use/src/config.ts` 默认 `headless:false`，环境覆盖具有公开跨进程语义。剔除会使从 bash 启动的 Pi/Computer Use 丢失后台策略；显式 `0`/`1` 都应传递。没有声称 arbitrary GUI 都能后台运行。
+- 不引入 `PI_INTERNAL_ENV_KEYS`：技术上可行，但名单缺失/旧宿主/显式子 Pi/hook 覆盖都新增传播合同，保留旧名单又形成双轨。目前八项稳定名称不值得新增该协议。若多宿主确需不同名单或频繁增项，再评估显式 tool-construction 参数；理由与触发条件已写入 `docs/agent/internal-environment.md`。
+- `(cd packages/rotom-pi/packages/coding-agent && ../../node_modules/.bin/vitest run test/bash-internal-env.test.ts)`：**4 pass / 0 fail**，真实 shell 覆盖八项剔除与 headless 两个值（默认、显式 hook）。
+- 新源码升 fork **1.3.0-rotom.4**；`npm --prefix rotom run build:pi` 成功重建七包，六批分别 170/42/156/95/81/417 pass，0 fail、3 个原有在线 skip；`npm --prefix rotom run check:pi` 通过。manifest/lock/integrity/product-config/当前文档同步，产品仍 0.1.26，没有覆盖活跃安装。
+- `node --test rotom/runtime/distribution.test.mjs`：最终 **27 pass / 0 fail**。中间忘记同步 product-config 的版本常量时为 18 pass / 9 fail；已修正，说明版本/精确基线门禁确实拒绝不一致。
