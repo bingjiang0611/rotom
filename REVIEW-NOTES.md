@@ -181,3 +181,12 @@ npm --prefix rotom run pack:release -- /private/tmp/rotom-review-artifact
 - 原有结构断言保留；引入明确的 `UnsupportedAskSchemaError`，组合层仅处理该预期错误，其他异常仍抛出。漂移时原版 Ask schema/execute/result 保持不变，不附加 continuation guideline，也不武装自动续跑。后续 SoL-Pi、context-view、延迟加载器继续注册。
 - 在 `session_start` 发可观测告警：有 UI 时 `ctx.ui.notify(..., "warning")`；无 UI 时发 `ROTOM_ASK_SCHEMA` warning，不直接在交互式终端写 stderr。
 - `node --test --test-concurrency=1 rotom/extensions/third-party/index.test.ts rotom/extensions/third-party/ask/schema.test.ts`（固定当前 Pi、清除继承 scope）：**12 pass / 0 fail**。新增真实 SDK session 测试只替换 upstream Ask 为不兼容 schema，其余组件仍加载真实代码；断言 native Ask 可执行、无 continuation、告警一次，Computer Use/Subagent/Goal/SoL edit-write/obs_recall/search_tools 和 `/context` 均正常注册。未调用模型。
+
+### E / #5、#7：真实交互启动与告警路由
+
+- 用 Python PTY 启动真实 `rotom/bin/rotom --no-session`，不是 `--print`/RPC/faux session：独立空 HOME、独立 cwd、120×40 终端、只含 Node/系统命令的 PATH；分别捕获 stdout 的 ANSI 渲染与 stderr，回应终端查询，等待启动后用 Ctrl-D 退出。未提供任何模型认证或 prompt；界面显示 `No model selected`，未调用模型。
+- `python3 /tmp/rotom-round2-tui.py`：默认启动正常，stderr **0 bytes**。为覆盖警告分支，用临时 `-e` fixture 调用真实 deferred 注册器，仅从前置检查视图中去掉 Subagent，不改安装包或实际工具实现。`python3 /tmp/rotom-round2-tui.py forced`：改前 **192 bytes stderr**，确认告警绕过 TUI renderer。
+- deferred 缺少前置工具时改为：有 UI 用 `ctx.ui.notify(..., "warning")`；无 UI 保留 `ROTOM_DEFERRED_PRECONDITION` warning。未恢复全局吞噬 Node warnings，未改变 active tools 或兼容 state。
+- 修改后强制缺失场景：stderr **0 bytes**，同一条告警可在 TUI 渲染输出中读到；最终默认启动再次验证 stderr **0 bytes**。两次都进入 raw/bracketed-paste 交互模式、显示 rotom 主界面，并以 exit 0 正常退出，无强制终止。空 HOME 触发的 fd/rg 下载提示也在 UI 输出中，不在 stderr。
+- `node --test rotom/extensions/third-party/deferred-tools/register.test.ts`：**12 pass / 0 fail**，覆盖 UI notify、非 UI warning、工具集合/持久 state 不变。PTY 脚本与三份有效的 default/before/after JSON 及原始流保留在 `/tmp/rotom-round2-*` 指向的独立临时目录。最早一次注入 fixture 使用错误导出名导致启动失败，已更正后取得上述结果；不把该失败算作 TUI 告警验证。
+- 验证范围是当前 macOS arm64 / Node v24.18.0 下的真实交互终端协议和 stderr，不是 OS 终端窗口的像素截图，也不保证未来任意 Node/用户扩展 warning 均不会直接写 stderr。

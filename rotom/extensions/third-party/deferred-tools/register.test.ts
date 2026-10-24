@@ -51,6 +51,7 @@ function fakeRuntime(branch: any[] = []) {
 	const context = { sessionManager: { getBranch: () => entries, getEntries: () => { throw new Error("must derive from selected branch, not file order"); } } };
 	return {
 		api: api as any,
+		context,
 		tools,
 		entries,
 		active: () => [...active],
@@ -95,6 +96,21 @@ test("missing prerequisites warn without changing tool selection or compatibilit
 	assert.equal(warning.mock.callCount(), 1);
 	assert.match(String(warning.mock.calls[0].arguments[0]), /subagent/u);
 	assert.deepEqual(warning.mock.calls[0].arguments[1], { code: "ROTOM_DEFERRED_PRECONDITION" });
+});
+
+test("interactive missing prerequisites use the UI renderer, not stderr", async (t) => {
+	const warning = t.mock.method(process, "emitWarning", () => {});
+	const runtime = fakeRuntime();
+	const notices: unknown[][] = [];
+	Object.assign(runtime.context, { hasUI: true, ui: { notify: (...args: unknown[]) => notices.push(args) } });
+	registerDeferredTools(runtime.api);
+	runtime.tools.delete("subagent");
+	const before = runtime.active();
+	await runtime.start();
+	assert.deepEqual(runtime.active(), before);
+	assert.equal(runtime.entries.length, 0);
+	assert.equal(warning.mock.callCount(), 0);
+	assert.deepEqual(notices, [["Deferred tool loading skipped; required tools unavailable: subagent", "warning"]]);
 });
 
 test("中英文 capability map 只命中保留的 deferred groups", () => {

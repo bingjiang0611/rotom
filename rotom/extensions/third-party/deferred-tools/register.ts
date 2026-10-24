@@ -189,7 +189,9 @@ export function registerDeferredTools(pi: ExtensionAPI, environment: NodeJS.Proc
 		const required = [...DEFERRED_INITIAL_TOOL_NAMES, DEFERRED_TOOL_SEARCH_NAME, ...DEFERRED_TOOL_NAMES];
 		const missing = required.filter((name) => !registered.has(name) || !active.includes(name));
 		if (missing.length > 0) {
-			process.emitWarning(`Deferred tool loading skipped; required tools unavailable: ${missing.join(", ")}`, { code: "ROTOM_DEFERRED_PRECONDITION" });
+			const warning = `Deferred tool loading skipped; required tools unavailable: ${missing.join(", ")}`;
+			if (ctx.hasUI) ctx.ui.notify(warning, "warning");
+			else process.emitWarning(warning, { code: "ROTOM_DEFERRED_PRECONDITION" });
 			return;
 		}
 
