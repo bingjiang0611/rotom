@@ -23,7 +23,9 @@ function inside(root, path) {
 	return path;
 }
 
-export async function verifyDistributionContract(agentDir) {
+// Startup checks provenance metadata and installed identity, not installed file integrity.
+// Archive hashing is a build-time gate only; release packages omit these duplicate inputs.
+export async function verifyDistributionContract(agentDir, { verifyArchives = false } = {}) {
 	const root = await realpath(agentDir);
 	const manifest = await json(resolve(root, "package.json"));
 	// The product declares no npm dependencies; Pi comes only from the fixed fork runtime below.
@@ -43,6 +45,7 @@ export async function verifyDistributionContract(agentDir) {
 		const spec = `file:${artifact.file}`;
 		const locked = lock.packages?.[`node_modules/${name}`];
 		if (!/^vendor\/[a-z0-9.-]+\.tgz$/u.test(artifact.file) || artifact.version !== build.version || pkg.dependencies[name] !== spec || lock.packages?.[""]?.dependencies?.[name] !== spec || pkg.overrides?.[name] !== spec || locked?.resolved !== spec || locked?.version !== artifact.version || locked?.integrity !== artifact.integrity || locked?.link) throw new Error(`Pi fork dependency/version/shrinkwrap integrity 不匹配：${name}`);
+		if (!verifyArchives) continue;
 		const archive = inside(runtime, resolve(runtime, artifact.file));
 		await ordinaryFile(archive, 32 * 1024 * 1024);
 		const integrity = `sha512-${createHash("sha512").update(await readFile(archive)).digest("base64")}`;

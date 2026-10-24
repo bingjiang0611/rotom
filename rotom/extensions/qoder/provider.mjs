@@ -9,6 +9,7 @@ import { translateQoderStream } from './translate.mjs';
 import { catalogMetadata, fetchCatalog, parseCatalogMetadata, CATALOG_TTL_MS } from './catalog.mjs';
 import { createBrowserOAuth, createOAuthEnvelope } from './oauth.mjs';
 import { fetchQuota } from './credits.mjs';
+import { qoderMetadataForError } from './diagnostics.mjs';
 
 export const PROVIDER_ID = 'qoder';
 export const MODEL = {
@@ -71,7 +72,7 @@ async function nativeOutputBudget() {
   return (await import(new URL(exported.replace('*', 'simple-options'), pathToFileURL(metadata)).href)).clampMaxTokensToContext;
 }
 
-export async function createQoderProvider({ piAI, clampMaxTokens, getToken, getCredential, captureBinding, captureMetering, fetchImpl, onDiagnostic, onMetering,
+export async function createQoderProvider({ piAI, clampMaxTokens, getToken, getCredential, captureBinding, captureMetering, fetchImpl, onDiagnostic, onMetadata, onMetering,
   authMode = process.env.ROTOM_QODER_AUTH ?? 'browser', oauthOptions = {}, refreshCatalog } = {}) {
   if (!['browser', 'qodercli'].includes(authMode)) throw new QoderError('invalid_auth_mode');
   const envelope = authMode === 'browser' ? createOAuthEnvelope() : undefined;
@@ -99,6 +100,9 @@ export async function createQoderProvider({ piAI, clampMaxTokens, getToken, getC
     const access = createCredentialAccess({ readCredential: readCLI, captureBinding: browserBinding });
     getToken = access.getToken; checkAuth = access.check;
   }
+  const publishTerminalError = (error, status) => {
+    try { onMetadata?.(qoderMetadataForError(error, status)); } catch { /* Optional diagnostics cannot alter inference. */ }
+  };
   const prepare = async (method, model, context, options) => {
     // Pi 1.0 carries prompt/tool deltas in system messages. Qoder's wire API
     // needs one current prompt and tool set; replay through Pi's native helpers
@@ -194,20 +198,36 @@ export async function createQoderProvider({ piAI, clampMaxTokens, getToken, getC
     // encoding and HTTP dispatch, then yields validated chunk records; a
     // pre-stream failure rejects here and lazyStream turns it into an error
     // event carrying the stable "Qoder: <code>" message the session-policy reads.
-    const { chunks } = await openQoderStream({ payload, getToken: requestToken, getLegacyCredential: () => requestCredential, legacyModel: entry, reasoningMode, fetchImpl, signal: options.signal, modelId: model.id, timeoutMs: reasoning ? 180000 : 60000, onDiagnostic, sessionId: options.sessionId, onResponse: options.onResponse && (response => options.onResponse(response, model)), onMetering(data) {
+    let responseStatus, terminalMetadataPublished = false;
+    const reportDiagnostic = diagnostic => {
+      const status = Number.isSafeInteger(diagnostic?.status) && diagnostic.status >= 400 ? diagnostic.status : undefined;
+      const result = onDiagnostic?.(diagnostic);
+      if (diagnostic?.code === 'upstream_error_frame' && status !== undefined) {
+        publishTerminalError(new QoderError('upstream_error_frame'), status);
+        terminalMetadataPublished = true;
+      }
+      return result;
+    };
+    const { chunks } = await openQoderStream({ payload, getToken: requestToken, getLegacyCredential: () => requestCredential, legacyModel: entry, reasoningMode, fetchImpl, signal: options.signal, modelId: model.id, timeoutMs: reasoning ? 180000 : 60000, onDiagnostic: reportDiagnostic, sessionId: options.sessionId, onResponse: response => {
+      responseStatus = response.status;
+      return options.onResponse?.(response, model);
+    }, onMetering(data) {
       for (const notify of [() => recordMetering?.({ ...data, fingerprint: requestCredential?.fingerprint }), () => onMetering?.(data)]) {
         try { void Promise.resolve(notify()).catch(() => {}); } catch { /* Scoped metadata only; never retry a model request. */ }
       }
     } });
-    return translateQoderStream(chunks, model);
+    return translateQoderStream(chunks, model, { onError: error => {
+      if (!terminalMetadataPublished) publishTerminalError(error, responseStatus);
+    } });
   };
   const wrap = method => (model, context, options = {}) => piAI.lazyStream(model, async () => {
     try { return await prepare(method, model, context, options); }
     catch (error) {
-      // Pi lazyStream labels setup exceptions as errors. Cancellation during
-      // pre-dispatch discovery/auth must instead remain a native aborted event.
+      // Pi lazyStream labels setup exceptions as errors. Publish bounded metadata
+      // before the synthetic stream delivers its terminal error event.
+      publishTerminalError(error);
       if (!(error instanceof QoderError) || error.code !== 'aborted') throw error;
-      return translateQoderStream((async function* () { throw error; })(), model);
+      return translateQoderStream((async function* () { throw error; })(), model, { onError: terminal => publishTerminalError(terminal) });
     }
   });
   const provider = piAI.createProvider({

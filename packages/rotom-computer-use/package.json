@@ -1,6 +1,6 @@
 {
 	"name": "@injaneity/pi-computer-use",
-	"version": "0.5.1-rotom.1",
+	"version": "0.5.1-rotom.2",
 	"description": "rotom-maintained Computer Use fork with bounded IDEA background text input and no implicit foreground replay.",
 	"type": "module",
 	"keywords": [

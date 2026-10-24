@@ -229,7 +229,7 @@ npm run eval -- bash-tool-surface.eval.ts \
 
 这个 2 题、默认 2 次的 paired smoke 只能发现明显工具面回归，不能证明 Bash-only 对常规 coding workload 整体更好。
 
-`tool-error-repair.eval.ts` 与 `computer-use-contract.eval.ts` 是 coding-policy repair hints 与 Computer Use 契约 guideline 的 paired A/B。两者都用 `ROTOM_EVAL_BASELINE_PRODUCT` 指定 baseline 产品目录，baseline/candidate 使用同一 prompt、同一 workspace、同一工具白名单，只有加载的产品不同。`tool-error-repair` 在隔离临时工作区真实执行 `read`/`edit`：`missing-path-recovery` 故意不放行 `bash`，强制第一次 read 失败，并保留 `src/index.ts` 的 re-export 让 baseline 也能在没有 hint 的情况下恢复；`ambiguous-edit-target` 放行 `bash`，因此谨慎的模型可能整轮都不触发 edit 失败，此时该题只能报告“hint 未被触发”，不能当作 hint 无效。`computer-use-contract` 从各自产品的 `extensions/third-party/computer-use/recovery.ts` 抽取真实 `COMPUTER_USE_*_GUIDELINE` 常量作为投影，`noTools` 运行，只证明这段文本对固定决策题的影响，不代替真实桌面 Computer Use L2/L3。两者都必须显式启用：
+`tool-error-repair.eval.ts` 与 `computer-use-contract.eval.ts` 是 coding-policy repair hints 与 Computer Use 契约 guideline 的 paired A/B。两者都用 `ROTOM_EVAL_BASELINE_PRODUCT` 指定 baseline 产品目录，baseline/candidate 使用同一 prompt、同一 workspace、同一工具白名单，只有加载的产品不同。`tool-error-repair` 在隔离临时工作区真实执行 `read`/`edit`：`missing-path-recovery` 故意不放行 `bash`，强制第一次 read 失败，并保留 `src/index.ts` 的 re-export 让 baseline 也能在没有 hint 的情况下恢复；`ambiguous-edit-target` 放行 `bash`，因此谨慎的模型可能整轮都不触发 edit 失败，此时该题只能报告“hint 未被触发”，不能当作 hint 无效。`computer-use-contract` 优先从各自产品安装的 `@injaneity/pi-computer-use/src/recovery.ts` 抽取真实 `COMPUTER_USE_*_GUIDELINE` 常量作为投影；只有改造前的 frozen baseline 才读取旧产品 wrapper，`noTools` 运行，只证明这段文本对固定决策题的影响，不代替真实桌面 Computer Use L2/L3。两者都必须显式启用：
 
 ```sh
 ROTOM_EVAL_TOOL_ERROR_REPAIR=1 \

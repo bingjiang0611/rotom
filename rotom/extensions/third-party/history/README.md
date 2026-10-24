@@ -5,7 +5,7 @@
 ## 当前入口
 
 - [发行包默认 scope 与限制](../../../../docs/agent/subagent-owned-default.md)：launcher 默认选择 `owned-process-groups-v2`；不是安全沙箱，不迁移旧会话。
-- [维护源码](../../../../packages/rotom-subagents/README.md)：产品默认内化组件为 `pi-subagents@0.52.1-rotom.1`，不再由历史 patch 堆栈构建。
+- [维护源码](../../../../packages/rotom-subagents/README.md)：产品默认内化组件为 `pi-subagents@0.52.1-rotom.11`，不再由历史 patch 堆栈构建。
 - [产品资源合同](../../../runtime/product-config.mjs)与[验证入口](../../../../docs/agent/verification.md)是当前路径/版本的权威来源。
 
 ## 如何阅读旧命令

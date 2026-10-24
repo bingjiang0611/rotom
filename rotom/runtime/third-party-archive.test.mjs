@@ -22,7 +22,7 @@ test("maintained Goal source and selected vendor archive are byte-identical", as
 
 test("selected Subagent archive includes current closure projection, runner drain and supervisor schema fixes", async () => {
 	const archive = join(source, VERIFIED_THIRD_PARTY_PACKAGES["pi-subagents"].archive);
-	for (const file of ["src/runs/background/process-terminal.ts", "src/runs/background/runner-drain.ts", "src/runs/background/subagent-runner.ts", "src/runs/background/active-async-capacity.ts", "src/intercom/native-supervisor-channel.ts"]) {
+	for (const file of ["src/extension/ephemeral-surface.ts", "src/extension/index.ts", "src/runs/background/wait-tool.ts", "src/runs/background/process-terminal.ts", "src/runs/background/runner-drain.ts", "src/runs/background/subagent-runner.ts", "src/runs/background/active-async-capacity.ts", "src/intercom/native-supervisor-channel.ts"]) {
 		const tracked = resolve(import.meta.dirname, "../../packages/rotom-subagents", file);
 		assert.deepEqual(execFileSync("tar", ["-xOf", archive, `package/${file}`], { maxBuffer: 512_000 }), await readFile(tracked), file);
 	}
@@ -30,7 +30,7 @@ test("selected Subagent archive includes current closure projection, runner drai
 
 test("Computer Use archive carries the current native, routing, installer and package sources", async () => {
 	const archive = join(source, VERIFIED_THIRD_PARTY_PACKAGES["@injaneity/pi-computer-use"].archive);
-	for (const file of ["package.json", "UPSTREAM.md", "native/macos/agent_cursor.swift", "native/macos/agent_cursor_motion.swift", "native/macos/background_text.swift", "native/macos/bridge.swift", "src/bridge.ts", "src/constants/copy.ts", "src/platform/types.ts", "src/platform/macos/helper.ts", "scripts/build-native.mjs", "scripts/setup-helper.mjs"]) {
+	for (const file of ["package.json", "UPSTREAM.md", "extensions/computer-use.ts", "src/recovery.ts", "native/macos/agent_cursor.swift", "native/macos/agent_cursor_motion.swift", "native/macos/background_text.swift", "native/macos/bridge.swift", "src/bridge.ts", "src/constants/copy.ts", "src/platform/types.ts", "src/platform/macos/helper.ts", "scripts/build-native.mjs", "scripts/setup-helper.mjs"]) {
 		const tracked = resolve(import.meta.dirname, "../../packages/rotom-computer-use", file);
 		assert.deepEqual(execFileSync("tar", ["-xOf", archive, `package/${file}`], { maxBuffer: 1_000_000 }), await readFile(tracked), file);
 	}
@@ -90,6 +90,6 @@ for (const scenario of ["missing", "bytes", "source", "file-symlink", "directory
 			await rename(join(thirdParty, "vendor"), join(root, "outside"));
 			await symlink(join(root, "outside"), join(thirdParty, "vendor"));
 		}
-		await assert.rejects(verifyThirdPartyPackageContract(root), /archive.*(?:缺失|integrity|source|canonical)/u);
+		await assert.rejects(verifyThirdPartyPackageContract(root, { verifyArchives: true }), /archive.*(?:缺失|integrity|source|canonical)/u);
 	});
 }

@@ -44,6 +44,26 @@ function packResult(output) {
 	return results[0];
 }
 
+// Build inputs are deliberately absent from manifest.files. Only staging receives
+// them for locked npm ci; never copy maintainer node_modules or ship duplicate tgz.
+export async function stageBuildArchives(source, target) {
+	const root = await realpath(source);
+	const build = JSON.parse(await readFile(resolve(root, PI_RUNTIME, "fork-build.json"), "utf8"));
+	const paths = [
+		...Object.values(build.artifacts).map((artifact) => `${PI_RUNTIME}/${artifact.file}`),
+		...Object.values(VERIFIED_THIRD_PARTY_PACKAGES).filter((entry) => entry.archive).map((entry) => `extensions/third-party/${entry.archive}`),
+	];
+	for (const file of paths) {
+		if (!/^(runtime\/pi|extensions\/third-party)\/vendor\/[a-z0-9.-]+\.tgz$/u.test(file)) throw new Error("Unsafe build archive path");
+		const from = resolve(root, file);
+		const info = await lstat(from);
+		if (!info.isFile() || info.isSymbolicLink() || await realpath(from) !== from) throw new Error(`Untrusted build archive: ${file}`);
+		await mkdir(dirname(resolve(target, file)), { recursive: true });
+		await copyFile(from, resolve(target, file));
+	}
+	return paths;
+}
+
 export async function stageRelease(source, target) {
 	const root = await realpath(source);
 	const manifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
@@ -112,13 +132,14 @@ async function main() {
 		}
 	};
 	audit(["--root", resolve(source, "..")]);
-	await verifyDistributionContract(source);
+	await verifyDistributionContract(source, { verifyArchives: true });
 	await verifyForkSource();
 	await mkdir(output, { recursive: true });
 	const work = await mkdtemp(resolve(tmpdir(), "rotom-release-"));
 	try {
 		const stage = resolve(work, "product");
 		const manifest = await stageRelease(source, stage);
+		const archives = await stageBuildArchives(source, stage);
 		const home = resolve(work, "home");
 		await mkdir(home);
 		await writeFile(resolve(home, "user.npmrc"), "", { mode: 0o600 });
@@ -130,6 +151,7 @@ async function main() {
 		await rejectLinks(resolve(stage, EMBEDDED_MODULES));
 		npm(["ci", ...flags, "--bin-links=false"], resolve(stage, PI_RUNTIME));
 		await rejectLinks(resolve(stage, PI_MODULES));
+		for (const archive of archives) await rm(resolve(stage, archive));
 		const executable = await resolveInstalledPi(stage);
 		// Even the SDK capability import runs with the staging HOME/environment,
 		// not the maintainer's credentials or optional integrations.

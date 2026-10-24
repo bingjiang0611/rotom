@@ -6,7 +6,8 @@ import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import test from "node:test";
-import { subagentPolicyApi, prepareProductSubagentArguments } from "./policy.ts";
+import { subagentPolicyApi } from "./policy.ts";
+import { prepareProductSubagentArguments } from "../../../../packages/rotom-subagents/src/extension/ephemeral-surface.ts";
 import { VERIFIED_THIRD_PARTY_PACKAGES } from "../../../runtime/product-config.mjs";
 
 function publicPi() {

@@ -1,10 +1,11 @@
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { createEphemeralSubagentTool } from "../../extension/ephemeral-surface.ts";
 import { SubagentWaitParams } from "../../extension/schemas.ts";
 import type { Details, SubagentState } from "../../shared/types.ts";
 import { resolveWaitToolConfig, waitForSubagents } from "./subagent-wait.ts";
 import type { WaitSubscriptionManager } from "./wait-subscriptions.ts";
 
-export function registerWaitTool(pi: ExtensionAPI, state: SubagentState, enabled = resolveWaitToolConfig().enabled, subscriptions?: Pick<WaitSubscriptionManager, "arm">, blockingRunIds?: () => readonly string[]): void {
+export function registerWaitTool(pi: ExtensionAPI, state: SubagentState, enabled = resolveWaitToolConfig().enabled, subscriptions?: Pick<WaitSubscriptionManager, "arm">, blockingRunIds?: () => readonly string[], ephemeral = false): void {
 	const tool: ToolDefinition<typeof SubagentWaitParams, Details> = {
 		name: "subagent_wait",
 		label: "Subagent Wait",
@@ -32,5 +33,5 @@ Non-blocking subscriptions are visible in subagent status and differ from disabl
 			});
 		},
 	};
-	pi.registerTool(tool);
+	pi.registerTool(ephemeral ? createEphemeralSubagentTool(tool) : tool);
 }

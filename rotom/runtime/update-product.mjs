@@ -193,6 +193,9 @@ async function updateReleaseLayout({ layout, metadata, latest, current, packageR
 	let staged = false;
 	try {
 		const tarballName = `rotom-${latest}.tgz`;
+		// Registry SRI covers the complete product, including installed runtime files.
+		// Releases omit build-only vendor tgz; update never reinstalls their nested locks.
+		// Startup checks identity/capabilities, not post-install file integrity.
 		const tarball = await downloadVerifiedTarball(fetchImpl, expectedTarball, integrity, `rotom/${current.version}`);
 		await writeFile(join(staging, tarballName), tarball);
 		await writeFile(join(staging, "package.json"), `${JSON.stringify({ name: `rotom-release-${latest}`, private: true, dependencies: { rotom: `file:${tarballName}` } }, null, 2)}\n`);

@@ -3,7 +3,8 @@
 This is a rotom-maintained fork, not an upstream release.
 
 - Upstream baseline: `@injaneity/pi-computer-use` **0.5.1** (MIT; original `LICENSE` retained).
-- Fork version: **0.5.1-rotom.1**.
+- Fork version: **0.5.1-rotom.2**.
+- `.rotom.2`: tool schemas, focus/condition guidance, recovery state and result evidence now live in the native component. Product composition retains only Relay-first browser fallback. Native helper bytes/signatures are unchanged from `.rotom.1`.
 - Windows and Linux native artifacts remain byte-for-byte from upstream 0.5.1.
 - macOS arm64, x64 and universal helper artifacts are now rebuilt from this source tree and **ad-hoc signed**, not Developer ID signed or notarized.
 
@@ -40,7 +41,7 @@ The installer refuses to replace an existing helper with the bundled ad-hoc app 
 From this package directory, restore only the unchanged Windows/Linux artifacts from the pinned archive, then rebuild every macOS artifact:
 
 ```sh
-tar xzf ../../rotom/extensions/third-party/vendor/injaneity-pi-computer-use-0.5.1-rotom.1.tgz \
+tar xzf ../../rotom/extensions/third-party/vendor/injaneity-pi-computer-use-0.5.1-rotom.2.tgz \
   --strip-components=1 package/prebuilt/windows package/prebuilt/linux
 node scripts/build-native.mjs --arch all --sign-identity -
 npm pack --ignore-scripts

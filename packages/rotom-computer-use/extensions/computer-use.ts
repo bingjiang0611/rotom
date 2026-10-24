@@ -17,6 +17,7 @@ import {
 	shutdownComputerUseSession,
 } from "../src/bridge.ts";
 import { getLoadedComputerUseConfig, loadComputerUseConfig } from "../src/config.ts";
+import { createComputerUseToolRuntime } from "../src/recovery.ts";
 
 const stateId = Type.String({ description: "Required state id owning every @e ref used by this operation" });
 const point = { x: Type.Number(), y: Type.Number() };
@@ -28,8 +29,8 @@ const uiAction = Type.Union([
 	clickByRef,
 	clickByPoint,
 	Type.Object({ action: Type.Literal("setText"), ref: Type.String({ description: "Editable outline ref" }), text: Type.String() }),
-	Type.Object({ action: Type.Literal("typeText"), ref: Type.Optional(Type.String({ description: "Omit after a click to type into the focus established by that click" })), text: Type.String() }),
-	Type.Object({ action: Type.Literal("keypress"), ref: Type.Optional(Type.String({ description: "Omit to send keys to the focused control" })), keys: Type.Array(Type.String(), { minItems: 1 }) }),
+	Type.Object({ action: Type.Literal("typeText"), ref: Type.Optional(Type.String({ description: "Omit only for same-batch ref-bound editable focus." })), text: Type.String() }),
+	Type.Object({ action: Type.Literal("keypress"), ref: Type.Optional(Type.String({ description: "Omit only for same-batch ref-bound editable focus." })), keys: Type.Array(Type.String(), { minItems: 1 }) }),
 	Type.Object({ action: Type.Literal("scroll"), ref: Type.Optional(Type.String()), scrollX: Type.Optional(Type.Number()), scrollY: Type.Optional(Type.Number()) }),
 	Type.Object({ action: Type.Literal("drag"), path: Type.Array(Type.Object(point), { minItems: 2 }) }),
 	Type.Object({ action: Type.Literal("moveMouse"), ...point }),
@@ -113,7 +114,6 @@ const actTool = defineTool({
 	label: "Act",
 	description: "Perform one or more precisely targeted checked actions and return the successor state.",
 	promptSnippet: "Pass dependent click/type steps together and use expect for observable completion.",
-	promptGuidelines: ["After clicking an editable region, omit ref from typeText/keypress so input follows the established focus."],
 	parameters: Type.Object({ stateId, expect: Type.Optional(Type.Object(conditionProperties)), actions: Type.Array(uiAction, { minItems: 1, maxItems: 20 }) }),
 	execute: executeAct,
 });
@@ -180,7 +180,10 @@ function formatConfigStatus(): string {
 }
 
 export default function computerUseExtension(pi: ExtensionAPI): void {
-	for (const tool of [findTool, observeTool, searchUiTool, expandUiTool, inspectUiTool, actTool, readTextTool, waitForTool, launchBrowserTool, navigateBrowserTool, evaluateBrowserTool]) pi.registerTool(tool);
+	const runtime = createComputerUseToolRuntime();
+	pi.on("session_start", () => runtime.resetSession());
+	pi.on("session_shutdown", () => runtime.resetSession());
+	for (const tool of [findTool, observeTool, searchUiTool, expandUiTool, inspectUiTool, actTool, readTextTool, waitForTool, launchBrowserTool, navigateBrowserTool, evaluateBrowserTool]) pi.registerTool(runtime.wrapTool(tool));
 
 	pi.registerCommand("computer-use", {
 		description: "Show pi-computer-use configuration",

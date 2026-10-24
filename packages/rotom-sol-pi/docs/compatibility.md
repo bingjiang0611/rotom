@@ -1,6 +1,6 @@
 # Pi Compatibility
 
-SoL-Pi's locked development baseline is `@earendil-works/pi-coding-agent` 0.85.1. The current source is also verified against Rotom 0.1.15's Pi `1.0.4-rotom.2`; 0.84.2 was previously supported but was not rerun for this repair. The earlier compatibility run's 19 test files (140 tests), type checking, package inspection, public API checks, and offline extension startup passed on both releases. Previous checks covered the public API surface of Pi 0.81.1, the base used by the original Pi fork; they are not a current full-suite compatibility guarantee. The runtime range is deliberately expressed as a peer dependency because Pi owns installation and upgrade of its packages; it is not a guarantee for every Pi version.
+Current development baseline: Pi 1.3.0. Action Fusion now returns `isError: true` with versioned `details.actionFusion` after an applied write whose follow-up fails or is skipped. Hosts must honor error results; older Pi 0.85 is no longer supported by this maintained component. The sections below record earlier compatibility runs, not current guarantees.
 
 ## Current compatibility repair (2026-10-09)
 

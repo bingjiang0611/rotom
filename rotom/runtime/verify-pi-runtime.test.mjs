@@ -51,6 +51,7 @@ function fakePi(options = {}) {
 	].join("\n"));
 	writeFileSync(join(dist, "cli.js"), `#!/usr/bin/env node
 import { writeFileSync } from "node:fs";
+${options.emitWarning ? 'process.emitWarning("fixture warning", { code: "ROTOM_TEST_WARNING" });' : ""}
 writeFileSync(process.env.ROTOM_TEST_CAPTURE, JSON.stringify({ cwd: process.cwd(), argv: process.argv.slice(2), nodeExecutable: process.execPath, nodeVersion: process.versions.node, verifiedPiExecutable: process.env.ROTOM_VERIFIED_PI_EXECUTABLE, verifiedPiVersion: process.env.ROTOM_VERIFIED_PI_VERSION, productVersion: process.env.ROTOM_PRODUCT_VERSION, importedProductVersion: process.env.ROTOM_TEST_IMPORTED_PRODUCT_VERSION, maxSubagentSpawnsPerSession: process.env.PI_SUBAGENT_MAX_SPAWNS_PER_SESSION, cacheRetention: process.env.PI_CACHE_RETENTION, deferredDefaultSurface: process.env.ROTOM_DEFERRED_DEFAULT_SURFACE, computerUseHeadless: process.env.PI_COMPUTER_USE_HEADLESS, executionScope: process.env.PI_SUBAGENTS_EXECUTION_SCOPE, subagentTempRoot: process.env.PI_SUBAGENTS_TEMP_ROOT, subagentQoderExtension: process.env.ROTOM_SUBAGENT_QODER_EXTENSION }));
 `);
 	chmodSync(join(dist, "cli.js"), 0o700);
@@ -96,6 +97,16 @@ async function withFakePi(options, run) {
 		rmSync(fake.root, { recursive: true, force: true });
 	}
 }
+
+test("launcher preserves Node warnings and treats flags after -- as message text", () => withFakePi({ emitWarning: true }, async ({ root }) => {
+	const capture = join(root, "capture.json");
+	const result = spawnSync(LAUNCHER, ["--", "--trace", "--no-approve", "--approve"], {
+		encoding: "utf8", env: { ...process.env, HOME: root, ROTOM_NODE: process.execPath, ROTOM_TEST_CAPTURE: capture },
+	});
+	assert.equal(result.status, 0, result.stderr);
+	assert.match(result.stderr, /ROTOM_TEST_WARNING.*fixture warning/u);
+	assert.deepEqual(JSON.parse(readFileSync(capture, "utf8")).argv.slice(-4), ["--", "--trace", "--no-approve", "--approve"]);
+}));
 
 test("精确 package identity、semver、bin、public exports 和 capability 通过本地 gate", () => withFakePi({}, async ({ executable }) => {
 	const result = await verifyPiRuntime({ executable, agentDir: AGENT_DIR, resourceDeclarations: resourceDeclarations() });

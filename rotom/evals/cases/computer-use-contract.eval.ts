@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe } from "vitest";
 import { createJudge, describeEval } from "vitest-evals";
@@ -9,8 +9,8 @@ import { evalHarnessTable } from "../src/vitest-evals/harness-table.ts";
 /**
  * Paired A/B for the product's Computer Use contract guidelines.
  *
- * The guideline projection is extracted from each product's own
- * `extensions/third-party/computer-use/recovery.ts`, so the compared text is
+ * The guideline projection comes from each product's native installed
+ * Computer Use recovery contract (or its frozen pre-move wrapper), so the text is
  * exactly what that product would attach to act_ui/wait_for/search_ui — not a
  * hand-written variant. Tools stay disabled: this measures the decision the
  * text produces, and it does not replace real desktop Computer Use L2/L3 or
@@ -28,7 +28,9 @@ if (!Number.isSafeInteger(repetitions) || repetitions < 1 || repetitions > 5) th
 const GUIDELINE_CONSTANT = /export const (COMPUTER_USE_[A-Z_]*GUIDELINE)\s*=\s*\n?\s*"((?:[^"\\]|\\.)*)"\s*;/gu;
 
 function guidelineProjection(productAgentDir: string): string {
-	const source = readFileSync(join(productAgentDir, "extensions/third-party/computer-use/recovery.ts"), "utf8");
+	// Paired evals deliberately support frozen pre-move products as the baseline.
+	const native = join(productAgentDir, "extensions/third-party/node_modules/@injaneity/pi-computer-use/src/recovery.ts");
+	const source = readFileSync(existsSync(native) ? native : join(productAgentDir, "extensions/third-party/computer-use/recovery.ts"), "utf8");
 	const lines: string[] = [];
 	for (const match of source.matchAll(GUIDELINE_CONSTANT)) {
 		lines.push(`- ${JSON.parse(`"${match[2]}"`) as string}`);

@@ -136,7 +136,7 @@ async function runPi(verified, args) {
 	process.title = "pi";
 	process.env.PI_CODING_AGENT = "true";
 	process.env.AI_AGENT = "pi";
-	process.emitWarning = () => {};
+	// Preserve Node diagnostics. No warning currently has evidence warranting suppression.
 	const runtime = await import(pathToFileURL(verified.runtimeEntry).href);
 	await runtime.main(args);
 }

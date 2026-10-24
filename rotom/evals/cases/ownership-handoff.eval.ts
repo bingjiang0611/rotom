@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe } from "vitest";
 import { createJudge, describeEval } from "vitest-evals";
@@ -15,7 +15,9 @@ const model = process.env.ROTOM_EVAL_MODEL;
 if (selected && !ownershipHandoffCases.some((item) => item.id === selected)) throw new Error("Unknown fixed ownership case");
 
 function policy(product: string) {
-	const source = readFileSync(join(product, "extensions/third-party/subagent/policy.ts"), "utf8");
+	// Paired evals deliberately support frozen pre-move products as the baseline.
+	const native = join(product, "extensions/third-party/node_modules/pi-subagents/src/extension/ephemeral-surface.ts");
+	const source = readFileSync(existsSync(native) ? native : join(product, "extensions/third-party/subagent/policy.ts"), "utf8");
 	const lines = [...source.matchAll(/export const (?:PRODUCT_SUBAGENT_POLICY_GUIDELINE|PRODUCT_HANDOFF_GUIDELINE)\s*=\s*"((?:[^"\\]|\\.)*)";/gu)].map((match) => JSON.parse(`"${match[1]}"`) as string);
 	if (!lines.length) throw new Error("Product policy projection missing");
 	return lines.join("\n");
