@@ -1,5 +1,7 @@
 # Design review #1–#8
 
+> 前半部分是第一轮历史记录；第二轮的当前版本、增量修改和验证见文末“第二轮”。
+
 ## 范围与提交
 
 - 分支：`fix/design-review`。只交付该分支，不合入或推送 `main`。
@@ -190,3 +192,19 @@ npm --prefix rotom run pack:release -- /private/tmp/rotom-review-artifact
 - 修改后强制缺失场景：stderr **0 bytes**，同一条告警可在 TUI 渲染输出中读到；最终默认启动再次验证 stderr **0 bytes**。两次都进入 raw/bracketed-paste 交互模式、显示 rotom 主界面，并以 exit 0 正常退出，无强制终止。空 HOME 触发的 fd/rg 下载提示也在 UI 输出中，不在 stderr。
 - `node --test rotom/extensions/third-party/deferred-tools/register.test.ts`：**12 pass / 0 fail**，覆盖 UI notify、非 UI warning、工具集合/持久 state 不变。PTY 脚本与三份有效的 default/before/after JSON 及原始流保留在 `/tmp/rotom-round2-*` 指向的独立临时目录。最早一次注入 fixture 使用错误导出名导致启动失败，已更正后取得上述结果；不把该失败算作 TUI 告警验证。
 - 验证范围是当前 macOS arm64 / Node v24.18.0 下的真实交互终端协议和 stderr，不是 OS 终端窗口的像素截图，也不保证未来任意 Node/用户扩展 warning 均不会直接写 stderr。
+
+### 第二轮集成验证与交付
+
+最终可执行源码提交：`e3e4e6cbef6fcd7289daadff4ba8491a8c25de5a`。A–E 分别提交为 `fbf9bdd`、`670d8da`、`2ed2be6`、`6548dc8`、`e3e4e6c`；本记录更新不改变源码。包含记录的最终提交 SHA 由交付回复提供。
+
+| 检查 | 命令 / 证据 | 结果 |
+| --- | --- | --- |
+| 最终综合门禁 | `rotom/bin/check-personal`；`/tmp/rotom-round2-check-personal-final.log` | 主组 **361/361**、Qoder **265/265**、Pi AI **74/74**、Goal **87/87**；离线 provider 与 footprint gate PASS，0 fail |
+| 最终 runtime identity/launcher | `node --test --test-concurrency=1 rotom/runtime/verify-pi-runtime.test.mjs` | **40 pass / 0 fail** |
+| fork 归档与源码一致 | `npm --prefix rotom run check:pi` | PASS；fork `.4`，产品 0.1.26 |
+| 公开树和历史审计 | `python3 scripts/audit-public.py --root . --history` | PASS，0 finding；不是任意秘密/所有权保证 |
+| 最终 diff | `git diff --check` | PASS |
+
+本轮没有调用在线模型、操作真实桌面/手机或启动 native helper，也没有重建/发布产品 tgz；这些不是本次 A–E 的验收范围。新的 fork 七包已重建，当前源码组合已完成真实 PTY 启动，但第一轮 tgz 的安装结果不替代本轮发行安装验证。macOS bash 已验证，Windows/PowerShell 未在目标系统重放。未重跑无源码改动的 SoL-Pi 全量上游安装文档测试或 Computer Use 缺失工具链的完整 typecheck，第一轮相应限制仍保留。
+
+只允许 fast-forward 推送 `HEAD:refs/heads/fix/design-review`。未合并 main、未 force-push、未发布或改产品版本，未覆盖活跃安装；临时 PTY 进程均已正常退出，隔离 HOME、原始终端流和日志留在本机临时目录供检查。
