@@ -234,3 +234,11 @@
 - 全量测试的 10 项既有失败和 npm 漏洞提示保持原记录，不在本轮修复；人工 verdict 与规则一致程度仍等 bob 完成标注后再评估。
 
 使用公开 `eval/system` 干净 clone 重放本次 diff，以 GitHub noreply 身份提交，只推该分支，不推 main、不 force push。额外全历史审计仍仅有已确认的 `fc53915` author / committer 两项既有发现，不新增问题，也不宣称全历史 PASS。请规划者核验本轮 5 项修改；不宣称 accepted。
+
+## 第二轮核验结论（规划者，2026-10-25）
+
+结论：**accepted**。规划者重跑 73/73 通过，typecheck 退出 0；`harness-fault` 的合同分支已核对源码和注释。同一份冻结样本前后对比的做法很好。
+
+- 解析错误从 33 降到 0，lineTooLong 和 danglingParent 都归零，说明截图长行就是断链的原因，修复有效。
+- 28 个无效 header 文件现在都能看出来源：10 个是子代理事件日志（`agent,childIndex,…,runId`），18 个是工具输出压缩的记录（`contentHash,event,…,originalTokens`）。它们首条记录都没有 `type` 字段，Pi 也不会当会话加载，跳过是对的。
+- 各规则 unknown 明显下降，剩下的来自 2 份 partial trace，以及错误 outcome 本身没写故障方，这些都是合理的 unknown。
