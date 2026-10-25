@@ -123,7 +123,7 @@ function usageAttributes(value: unknown): TraceAttributes {
 	].filter((entry): entry is [string, number] => entry[1] !== undefined));
 }
 
-type ToolOutcome = "ok" | "schema" | "permission" | "timeout" | "transport" | "tool_error" | "aborted" | "unknown_outcome" | "incomplete" | "unspecified";
+type ToolOutcome = "ok" | "schema" | "permission" | "timeout" | "transport" | "tool_error" | "followup_failed" | "aborted" | "unknown_outcome" | "incomplete" | "unspecified";
 
 function record(value: unknown): Record<string, unknown> | undefined {
 	return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
@@ -161,6 +161,10 @@ function classifyToolOutcome(event: any): ToolOutcome {
 		|| record(execution?.verification)?.status === "failed") return "unknown_outcome";
 	if (status === "aborted") return "aborted";
 	if (event.isError !== true) return event.isError === false ? (status === "failed" ? "tool_error" : "ok") : "unspecified";
+	// edit/write applied the file change and only its `then_run` command failed.
+	// That is a failed build/test step, not a failed file tool.
+	const phases = record(details?.codingPhases);
+	if (phases?.source === "tool-reported" && phases.mutation === "applied" && phases.followup === "failed") return "followup_failed";
 	const code = structuredToolCode(details);
 	if (code === "aborted" || code === "abort_error" || code === "cancelled") return "aborted";
 	if (code === "schema" || code === "schema_validation" || code === "validation_error" || code === "invalid_arguments") return "schema";
@@ -543,6 +547,10 @@ class LocalTraceRecorderV1 {
 	private sessionSpan: ActiveSpan;
 	private operationSpan?: ActiveSpan;
 	private operationStatus: TraceStatus = "ok";
+	// Failed or aborted provider requests inside the operation. Pi retries in a
+	// new agent run of the same operation, so a final successful run supersedes
+	// these failures; the count keeps the recovery visible.
+	private operationFailedRequests = 0;
 	private agentSpan?: ActiveSpan;
 	private turnSpan?: ActiveSpan;
 	private providerSpan?: ActiveSpan;
@@ -619,6 +627,7 @@ class LocalTraceRecorderV1 {
 			: 0;
 		const systemPrompt = typeof event.systemPrompt === "string" ? event.systemPrompt : "";
 		this.operationStatus = "ok";
+		this.operationFailedRequests = 0;
 		this.operationSpan = this.startSpan("pi.agent.operation", this.sessionSpan, {
 			...modelAttributes(ctx),
 			"pi.prompt.user_bytes": typeof event.prompt === "string" ? Buffer.byteLength(event.prompt, "utf8") : 0,
@@ -754,7 +763,10 @@ class LocalTraceRecorderV1 {
 	messageEnd(message: any, ctx: ExtensionContext): void {
 		if (message?.role !== "assistant" || !this.providerSpan) return;
 		const status = statusFromAssistant(message);
-		if (status !== "ok") this.operationStatus = status;
+		if (status !== "ok") {
+			this.operationStatus = status;
+			this.operationFailedRequests++;
+		}
 		this.finishProvider(status, {
 			...assistantAttributes(message),
 			...(status === "error" ? this.failureAttributes(message.errorMessage) : {}),
@@ -826,7 +838,9 @@ class LocalTraceRecorderV1 {
 			? [...event.messages].reverse().find((message) => message?.role === "assistant")
 			: undefined;
 		const status = statusFromAssistant(lastAssistant);
-		if (status !== "ok") this.operationStatus = status;
+		// The latest run decides the operation: an automatic retry that succeeds
+		// recovers the earlier failed run instead of leaving the operation failed.
+		this.operationStatus = status;
 		this.endSpan(this.agentSpan, status, assistantAttributes(lastAssistant));
 		this.agentSpan = undefined;
 	}
@@ -913,9 +927,12 @@ class LocalTraceRecorderV1 {
 		this.finishTurn(status === "ok" ? "unknown" : status);
 		if (this.agentSpan) this.endSpan(this.agentSpan, status);
 		this.agentSpan = undefined;
-		this.endSpan(this.operationSpan, status);
+		this.endSpan(this.operationSpan, status, this.operationFailedRequests > 0
+			? { "pi.operation.failed_request_count": this.operationFailedRequests }
+			: {});
 		this.operationSpan = undefined;
 		this.operationStatus = "ok";
+		this.operationFailedRequests = 0;
 	}
 
 	async shutdown(reason: string): Promise<void> {

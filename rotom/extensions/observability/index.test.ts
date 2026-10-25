@@ -661,6 +661,41 @@ test("aborted assistant closes turn and operation as aborted", async (t) => {
 	assert.equal(ends.find((record) => record.name === "pi.agent.operation")?.status, "aborted");
 });
 
+for (const finalStop of ["stop", "error"] as const) {
+	test(`operation status follows the last agent run after a failed request (final ${finalStop})`, async (t) => {
+		const root = mkdtempSync(join(tmpdir(), "rotom-observability-retry-"));
+		t.after(() => rm(root, { recursive: true, force: true }));
+		const sessionFile = join(root, "session.jsonl");
+		writeFileSync(sessionFile, "{}\n", { mode: 0o600 });
+		const harness = extensionHarness();
+		const ctx = {
+			mode: "print",
+			model: { provider: "test", id: "test", api: "test" },
+			thinkingLevel: "off",
+			sessionManager: { getSessionFile: () => sessionFile, getSessionId: () => `retry-${finalStop}` },
+			ui: { notify() {} },
+		};
+		await harness.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
+		await harness.emit("before_agent_start", { type: "before_agent_start", prompt: "work", systemPrompt: "system", systemPromptOptions: { selectedTools: [] } }, ctx);
+		// Pi's automatic retry runs agent.continue(): a new run in the same operation.
+		for (const stopReason of ["error", finalStop]) {
+			await harness.emit("agent_start", { type: "agent_start" }, ctx);
+			await harness.emit("turn_start", { type: "turn_start", turnIndex: 0 }, ctx);
+			await harness.emit("before_provider_headers", { type: "before_provider_headers", headers: {} }, ctx);
+			await harness.emit("message_end", { message: assistantMessage(stopReason) }, ctx);
+			await harness.emit("turn_end", { type: "turn_end", turnIndex: 0, message: assistantMessage(stopReason) }, ctx);
+			await harness.emit("agent_end", { type: "agent_end", messages: [assistantMessage(stopReason)] }, ctx);
+		}
+		await harness.emit("agent_settled", { type: "agent_settled" }, ctx);
+		await harness.emit("session_shutdown", { type: "session_shutdown", reason: "quit" }, ctx);
+		const ends = readFileSync(localTracePathForSessionFile(sessionFile), "utf8").trim().split("\n").map((line) => JSON.parse(line)).filter((record) => record.kind === "span_end");
+		assert.deepEqual(ends.filter((record) => record.name === "pi.agent.run").map((record) => record.status), ["error", finalStop === "stop" ? "ok" : "error"]);
+		const operation = ends.find((record) => record.name === "pi.agent.operation");
+		assert.equal(operation?.status, finalStop === "stop" ? "ok" : "error");
+		assert.equal(operation?.attributes?.["pi.operation.failed_request_count"], finalStop === "stop" ? 1 : 2);
+	});
+}
+
 test("trace paths reject directory and file symlinks without touching their targets", async (t) => {
 	if (process.platform === "win32") { t.skip("symlink creation is privilege-dependent on Windows"); return; }
 	const root = mkdtempSync(join(tmpdir(), "rotom-observability-symlink-"));
@@ -1143,6 +1178,7 @@ test("tool error codes are recorded only from the allowlist and drive outcome an
 		{ code: "tool_not_found" },
 		{ code: "aborted" },
 		{ code: "secret-looking-value" },
+		{ codingPhases: { mutation: "applied", followup: "failed", source: "tool-reported" } },
 	];
 	for (const [index, details] of cases.entries()) {
 		await harness.emit("tool_execution_start", { toolCallId: `call-${index}`, toolName: "bash" }, ctx);
@@ -1163,6 +1199,7 @@ test("tool error codes are recorded only from the allowlist and drive outcome an
 		["tool_not_found", undefined, "tool_error", "harness"],
 		["aborted", undefined, "aborted", undefined],
 		[undefined, undefined, "tool_error", "unknown"],
+		[undefined, undefined, "followup_failed", "unknown"],
 	]);
 });
 
