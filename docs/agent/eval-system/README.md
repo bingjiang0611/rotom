@@ -31,12 +31,13 @@
 |---|---|---|---|
 | 01 | [会话卡片 + 标注汇总](tasks/01-session-cards.md) | Phase 1 读会话 | accepted |
 | 02a | [逐条提问的标注命令](tasks/02a-interactive-review.md) | Phase 1 | accepted |
-| 02 | [bob 标注 30–50 个会话](tasks/02-label-sessions.md)（用 02a 的 `review` 回答 y/n，分类由规划者根据原因归纳） | Phase 1 | 首轮完成：27 张，25 pass / 2 fail；定向补标 ready（bob） |
+| 02 | [bob 标注 30–50 个会话](tasks/02-label-sessions.md)（用 02a 的 `review` 回答 y/n，分类由规划者根据原因归纳） | Phase 1 | 累计 44 张：40 pass / 4 fail（3 个指向工具出错多，1 个 UI 未先出设计稿）；剩 12 张可疑卡片可随时补标 |
 | 03 | [规则检查（code evals）接入卡片](tasks/03-trace-assertions.md) | Phase 2 | accepted |
 | 04 | [规则与人工标注的一致性报告](tasks/04-agreement-report.md) | Phase 2 | accepted |
-| 05 | 第一个 LLM judge | Phase 2 | 失败样本不足（2 个），等定向补标 |
+| 05 | 第一个 LLM judge | Phase 2 | 失败样本不足（4 个，需约 20 个），暂缓 |
 | 06 | [GitHub Actions L1（只跑 eval 相关测试）](tasks/06-ci-l1.md) | Phase 3 | accepted |
 | 07 | 每周失败闭环 | Phase 4 | 待规划 |
 | 08 | [每周效率统计 + 只挑可疑会话补标](tasks/08-efficiency-stats.md) | Phase 2 | accepted |
+| 09 | [工具出错与 provider 出错拆解](tasks/09-error-breakdown.md) | Phase 2 | ready |
 
 状态取值：`ready`（可开工）· `in-review`（执行者已提交，等核验）· `changes-requested` · `accepted`。
