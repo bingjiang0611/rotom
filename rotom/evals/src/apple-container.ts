@@ -202,7 +202,7 @@ export function parseAppleContainerEvalArgs(
 	if (options.authFile) options.authFile = assertOptionalAbsolutePath("Container auth file", options.authFile);
 	if (options.modelsFile) options.modelsFile = assertOptionalAbsolutePath("Container models file", options.modelsFile);
 	if (options.evalArgs.some((value) => value === "--pi" || value.startsWith("--pi="))) {
-		throw new TypeError("--pi is controlled by the container image; use --container-image for a custom Pi runtime.");
+		throw new TypeError("--pi is controlled by the container runner; use --container-product to select the product's bundled Pi runtime.");
 	}
 	options.environmentNames = [...environmentNames].sort();
 	return options;
@@ -272,7 +272,6 @@ export function buildAppleContainerRunArgs(
 	}
 	for (const name of options.environmentNames) args.push("--env", name);
 	if (options.command === "test") {
-		args.push(...environmentArgument("ROTOM_TEST_PI", "/opt/dev-agent-evals/node_modules/.bin/pi"));
 		args.push(options.image, "__infrastructure_test__", ...options.evalArgs);
 	} else {
 		args.push(options.image, ...options.evalArgs);

@@ -42,9 +42,13 @@ done
 
 ## 安装与基础设施验证
 
-依赖精确跟随 Pi `0.84.3` 上游已验证组合，尤其固定 `vitest-evals@0.15.0`：
+评测工具依赖保持精确版本（包括 `vitest-evals@0.15.0`），不再另装旧版 Pi。执行时默认使用候选产品 `runtime/pi` 锁定的 fork，类型检查也使用该 fork 的公开声明；不会搜索 PATH。宿主机的显式 `--pi` / `ROTOM_PI` 覆盖仍须通过原有 identity/capability gate。
+
+从仓库根安装候选产品与评测依赖：
 
 ```sh
+npm --prefix rotom/runtime/pi ci --ignore-scripts
+npm --prefix rotom/extensions/third-party ci --ignore-scripts --omit=optional --legacy-peer-deps
 cd rotom/evals
 npm ci --ignore-scripts --registry=https://registry.npmjs.org --replace-registry-host=always
 ROTOM_NODE=/absolute/path/to/node npm test
@@ -298,7 +302,7 @@ npm run eval -- computer-use-contract.eval.ts \
   --pi=/absolute/path/to/pi --provider=provider-id --model=model-id
 ```
 
-baseline 产品目录需要包含已安装的 `extensions/third-party/node_modules`；`git worktree` 检出后从当前工作树复制该目录（不要用 symlink，product verifier 会拒绝）。
+baseline 产品目录需要包含按各自 lockfile 安装的 `runtime/pi/node_modules` 与 `extensions/third-party/node_modules`。`git worktree` 检出后在该候选目录分别运行上述 `npm ci`；不要用 symlink，product verifier 会拒绝。
 
 发布面不包含依赖私人业务仓库结构的评测案例。新的大仓场景须使用可公开的独立 fixture，不得把公司项目路径、业务代码或会话正文作为公开测试数据。
 
@@ -331,7 +335,7 @@ ROTOM_NODE=/absolute/path/to/node npm run eval:container -- \
 runner 每次会增量构建 `dev-agent-evals:local`，并执行以下隔离：
 
 - 镜像固定到 `node:24.18.0-bookworm-slim` 的 OCI digest，依赖继续使用精确 lockfile；
-- 目标 `rotom` 目录只读挂载到 `/workspace/product`，不挂载宿主机 Home 或完整 `~/.pi`；
+- 目标 `rotom` 目录只读挂载到 `/workspace/product`，Pi 来自该候选的 `runtime/pi`，不再使用镜像内的另一套旧 Pi；候选依赖必须已安装且可在 Linux 中运行，不挂载宿主机 Home 或完整 `~/.pi`；
 - rootfs 只读、Linux capabilities 全部移除，`/tmp` 使用 2 GiB tmpfs；Vite 启动所需的
   `node_modules/.vite-temp` 单独覆盖为 64 MiB tmpfs；
 - 默认限制 4 CPU、8 GiB 内存，artifact 是唯一宿主机可写挂载；

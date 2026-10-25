@@ -27,13 +27,14 @@ describe("parseAppleContainerEvalArgs", () => {
 	it("requires explicit absolute host paths and protects runner-owned values", () => {
 		expect(() => parseAppleContainerEvalArgs(["--container-auth=relative.json"])).toThrow("absolute path");
 		expect(() => parseAppleContainerEvalArgs(["--container-env=ROTOM_PI"])).toThrow("controlled");
-		expect(() => parseAppleContainerEvalArgs(["--pi=/host/pi"])).toThrow("controlled by the container image");
+		expect(() => parseAppleContainerEvalArgs(["--pi=/host/pi"])).toThrow("controlled by the container runner");
 		expect(() => parseAppleContainerEvalArgs(["--container-image=--debug"])).toThrow("unsupported characters");
 	});
 });
 
-it("builds a least-privilege Apple container run command", () => {
+it.each(["eval", "test"] as const)("builds a least-privilege Apple container %s command using candidate Pi", (command) => {
 	const options = parseAppleContainerEvalArgs([
+		`--container-command=${command}`,
 		"--container-env=OPENAI_API_KEY",
 		"--provider=openai",
 		"--model=gpt-5.6-sol",
@@ -63,6 +64,8 @@ it("builds a least-privilege Apple container run command", () => {
 	expect(args).toContain("type=tmpfs,target=/opt/dev-agent-evals/node_modules/.vite-temp,size=64M,mode=1777");
 	expect(args).toContain("ROTOM_EVAL_EXECUTION_KIND=apple-container");
 	expect(args).toContain("OPENAI_API_KEY");
+	expect(args.some((arg) => /^(?:ROTOM_PI|ROTOM_TEST_PI)=/u.test(arg))).toBe(false);
+	expect(args.includes("__infrastructure_test__")).toBe(command === "test");
 	expect(args.slice(-2)).toEqual([
 		"--provider=openai",
 		"--model=gpt-5.6-sol",

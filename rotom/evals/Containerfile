@@ -12,7 +12,6 @@ RUN chmod 0755 bin/eval bin/test bin/typecheck bin/eval-container scripts/contai
 
 ENV HOME=/tmp/home \
 	ROTOM_NODE=/usr/local/bin/node \
-	ROTOM_PI=/opt/dev-agent-evals/node_modules/.bin/pi \
 	ROTOM_PRODUCT_AGENT_DIR=/workspace/product \
 	PI_CODING_AGENT_DIR=/tmp/rotom-auth \
 	TMPDIR=/tmp \

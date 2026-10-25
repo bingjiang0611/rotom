@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { constants } from "node:fs";
 import { access, lstat, opendir, readFile, readlink, realpath } from "node:fs/promises";
-import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type * as PiCodingAgent from "@earendil-works/pi-coding-agent";
@@ -137,20 +137,12 @@ async function assertExecutable(candidate: string): Promise<string> {
 
 export async function resolvePiExecutable(
 	explicit = process.env.ROTOM_PI,
-	environmentPath = process.env.PATH,
+	agentDir = defaultProductAgentDir(),
 ): Promise<string> {
 	const selected = explicit?.trim();
 	if (selected) return assertExecutable(selected);
-	for (const directory of (environmentPath ?? "").split(delimiter)) {
-		if (!directory) continue;
-		const candidate = resolve(directory, "pi");
-		try {
-			return await assertExecutable(candidate);
-		} catch {
-			// Continue through PATH. The authoritative verifier performs package identity checks later.
-		}
-	}
-	throw new Error("Cannot find pi on PATH; set ROTOM_PI to an absolute executable path.");
+	const { resolveInstalledPi } = await import(pathToFileURL(resolve(agentDir, "runtime/resolve-installed-pi.mjs")).href);
+	return resolveInstalledPi(agentDir);
 }
 
 export function selectProductResources(
@@ -167,7 +159,7 @@ export async function loadProductRuntime(input: {
 	excludedResourceKeys?: readonly string[];
 } = {}): Promise<ProductRuntimeSelection> {
 	const agentDir = resolve(input.agentDir ?? defaultProductAgentDir());
-	const piExecutable = await resolvePiExecutable(input.piExecutable);
+	const piExecutable = await resolvePiExecutable(input.piExecutable, agentDir);
 	const configUrl = pathToFileURL(resolve(agentDir, "runtime/product-config.mjs")).href;
 	const verifierUrl = pathToFileURL(resolve(agentDir, "runtime/verify-pi-runtime.mjs")).href;
 	const config = (await import(configUrl)) as ProductConfigModule;

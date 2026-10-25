@@ -81,7 +81,7 @@ const vitestCliPath = resolve(dirname(vitestPackagePath), "vitest.mjs");
 
 mkdirSync(artifactDirectory, { recursive: true, mode: 0o700 });
 console.error(`[eval] default-model=${provider && model ? `${provider}/${model}` : "none"}`);
-console.error(`[eval] pi=${piExecutable ?? "PATH"}`);
+console.error(`[eval] pi=${piExecutable ?? "candidate product's bundled fork"}`);
 console.error(`[eval] host-side-effects=${allowHostSideEffects ? "allowed" : "blocked-by-default"}`);
 console.error(`[eval] artifacts=${artifactDirectory}`);
 

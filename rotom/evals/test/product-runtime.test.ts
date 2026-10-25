@@ -1,7 +1,7 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { dirname, join, resolve } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	createProductRunManifest,
 	defaultProductAgentDir,
@@ -10,6 +10,7 @@ import {
 	loadProductRuntime,
 	productResourceKey,
 	resolveExecutionManifest,
+	resolvePiExecutable,
 	selectProductResources,
 	type ProductResourceDescriptor,
 } from "../src/product-runtime.ts";
@@ -40,6 +41,57 @@ describe("product resource selection", () => {
 
 it("uses an explicit mounted product path inside Apple container", () => {
 	expect(defaultProductAgentDir({ ROTOM_PRODUCT_AGENT_DIR: "/workspace/product" })).toBe("/workspace/product");
+});
+
+describe("product-owned Pi resolution", () => {
+	afterEach(() => vi.unstubAllEnvs());
+
+	it("ignores a shadow pi on PATH and selects the candidate's locked fork", async () => {
+		const root = await mkdtemp(join(tmpdir(), "rotom-eval-pi-path-"));
+		const agentDir = defaultProductAgentDir();
+		try {
+			await writeFile(join(root, "pi"), "#!/bin/sh\nexit 97\n", { mode: 0o755 });
+			vi.stubEnv("PATH", root);
+			vi.stubEnv("ROTOM_PI", undefined);
+			vi.stubEnv("ROTOM_PRODUCT_AGENT_DIR", agentDir);
+			const packageRoot = resolve(agentDir, "runtime/pi/node_modules/@earendil-works/pi-coding-agent");
+			const metadata = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
+			expect(await resolvePiExecutable()).toBe(await realpath(resolve(packageRoot, metadata.bin.pi)));
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
+	it("rejects a candidate missing its installed fork instead of falling back to PATH", async () => {
+		const root = await mkdtemp(join(tmpdir(), "rotom-eval-pi-missing-"));
+		try {
+			for (const path of [
+				"package.json", "runtime/product-config.mjs", "runtime/verify-pi-runtime.mjs",
+				"runtime/resolve-installed-pi.mjs", "runtime/pi/package.json",
+				"runtime/pi/package-lock.json", "runtime/pi/fork-build.json",
+			]) {
+				const target = resolve(root, path);
+				await mkdir(dirname(target), { recursive: true });
+				await copyFile(resolve(defaultProductAgentDir(), path), target);
+			}
+			await writeFile(join(root, "pi"), "#!/bin/sh\nexit 97\n", { mode: 0o755 });
+			vi.stubEnv("PATH", root);
+			await expect(resolvePiExecutable("", root)).rejects.toThrow("缺少 rotom 随附的 Pi fork");
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
+	it("preserves explicit executable and ROTOM_PI overrides", async () => {
+		const executable = await resolvePiExecutable("", defaultProductAgentDir());
+		vi.stubEnv("ROTOM_PI", executable);
+		expect(await resolvePiExecutable(undefined, "/missing-candidate")).toBe(executable);
+		expect(await resolvePiExecutable(executable, "/missing-candidate")).toBe(executable);
+	});
+
+	it.each(["relative-pi", "/missing-rotom-pi/executable"])("rejects invalid explicit override %s without fallback", async (executable) => {
+		await expect(resolvePiExecutable(executable)).rejects.toThrow(/absolute|missing or not executable/u);
+	});
 });
 
 it("binds every required browser helper to the resource digest and fails when one is missing", async () => {

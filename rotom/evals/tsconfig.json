@@ -8,6 +8,9 @@
 		"allowImportingTsExtensions": true,
 		"verbatimModuleSyntax": true,
 		"skipLibCheck": true,
+		"paths": {
+			"@earendil-works/pi-coding-agent": ["../runtime/pi/node_modules/@earendil-works/pi-coding-agent/dist/index.d.ts"]
+		},
 		"types": ["node", "vitest"]
 	},
 	"include": ["src/**/*.ts", "test/**/*.ts", "cases/**/*.ts", "vitest*.ts"]
