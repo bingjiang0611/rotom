@@ -90,3 +90,9 @@ limit 作为卡片数上限、stdout 不含 session id、`stats.md`／`stats.jso
 - 大量 `skippedInvalidHeader`（`stats` 323、`focus` 181）来自 sessions 目录下的非会话 `.jsonl`；行为符合既有 build 规则（只认可 session header），但如果后续要统计子会话，需要单独定义。
 - 补标额度仍由 bob 手动触发：`build --focus --limit 40` 之后运行 `review`，本次未代为执行。
 - 本报告补充 CI 结果的那次提交只改本文档，不命中 workflow 的 `paths` 过滤，因此最新一次 `Evals L1` 运行对应代码提交 `b664680`。
+
+## 核验结论（规划者，2026-10-25）
+
+结论：**accepted**。规划者重跑 eval 相关 5 组测试，137/137 通过，typecheck 退出 0；`gh run view 40202585518` 显示 headSha `b664680`、结果 success。已核对：ISO 周用 UTC 并按周四所在年份计算；总出错率用 span 加总而不是平均各会话比率；`costUsd` 在 partial 时不做部分求和；p90 用最近秩法。
+
+需要注意的口径：`costUsd` 来自 Pi `usage.cost`，是按模型目录价估算的，不是实际账单；Qoder 计 credits，不能当作美元。
