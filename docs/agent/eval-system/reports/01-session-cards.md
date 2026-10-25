@@ -190,3 +190,23 @@ node rotom/evals/scripts/session-cards.mjs build --limit 5 --out <仓库外私�
 沿用首轮隔离公开历史的方式：从远端 `eval/system` 建干净 clone，只重放本次修订 diff，以 GitHub noreply 身份提交，目标仅为 `origin/eval/system`。不推 main，不 force push，不更改已公开历史。干净副本额外运行 `--history` 审计：仍只有核验意见已确认的 `fc53915` author / committer 两项既有发现，本次不新增；不将其表述为全历史 PASS。
 
 全量测试的 10 项既有失败及 npm 漏洞提示按核验意见留在原范围，不处理。真实人工标签流程仍由 bob 在任务 02 执行；本轮请规划者复核这 6 项修订和新冒烟计数，不宣称 accepted。
+
+## 第二轮核验意见（规划者，2026-10-25）
+
+结论：**changes-requested**，最后一小轮。上一轮 6 项都按要求完成了，流式读取和计数拆分已核对源码，规划者重跑 23/23 通过。新冒烟数字暴露了两个新问题：20 个会话里 9 个因 header 无效被跳过，另有 66 个 session 解析错误。第二个问题有一部分是规划者任务说明的遗漏，不是执行者的错。
+
+### 原因分析（规划者已查 Pi 源码）
+
+- `packages/rotom-pi/packages/coding-agent/src/core/messages.ts` 里，`message` entry 的 role 除了 `user` / `assistant` / `toolResult`，还有 `bashExecution`（用户用 `!cmd` 直接跑的命令，会持久化）和 `custom`（v2→v3 迁移后的旧 hookMessage）。另外 `system` 也可能出现。现在这些都计成 `sessionParseErrors`，内容也没有渲染。
+- `session-manager.ts` 的 `migrateV1ToV2`：v1 会话没有 `id` / `parentId`，Pi 加载时按文件顺序生成线性链。当前实现会把这类 entry 全部判为解析错误。
+- 9 个 invalid header 的原因还不知道，可能是 sessions 目录里混了非会话的 `.jsonl` 文件，也可能是 header 合法但没通过 `/^[\w-]+$/` 检查。
+
+### 必须修改
+
+1. **补齐 message role**：`bashExecution` 渲染一行 `$ <command 截断 200> → exit=<exitCode|unknown><cancelled 时加 " cancelled"> · 输出：<output 截断 300>`；`custom` 按 `custom_message[<customType>]` 同样渲染；`system` 静默跳过。其它未知 role 计入 `unknownEntries`，**不计**解析错误。
+2. **兼容旧版本会话**：header 没有 `version` 或 `version < 2` 时，按 Pi `migrateV1ToV2` 的做法，按文件顺序给 entry 生成线性 `id` / `parentId` 再回溯分支。不需要处理 compaction 的 `firstKeptEntryIndex`。
+3. **诊断无效 header**：summary 增加 `invalidHeaderKinds` 计数表，key 取第一条记录的 `type` 字段（只接受 `^[a-z_]{1,32}$`，否则记 `other`），首行无法解析时记 `unparseable`。header 是 `session`、但 id 没通过正则的记 `session-bad-id`。另外增加 `sessionVersions` 计数表（`1` / `2` / `3` / `missing`），只统计生成的卡片。
+4. **单测**：上面每条至少一个合成用例；断言 bashExecution 和 custom 能渲染、不计错误，v1 会话能正常生成卡片。
+5. **重做冒烟**：`--limit 20`，报告写出全部计数，包括两个新计数表。如果 `session-bad-id` 大于 0，就放宽 id 校验（id 只用作文件名，改成拒绝 `/`、`\`、`..` 和控制字符即可），然后再跑一次。
+
+验收命令和提交方式同前。完成后状态改回 `in-review`，追加「第二轮修订记录」。
