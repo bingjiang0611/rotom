@@ -2,6 +2,7 @@ import type { FindingStatus, RuleId } from "./trace-assertions.mjs";
 import type { Readable, Writable } from "node:stream";
 import type { ReviewCounts } from "./review.mjs";
 import type { AggregateMetrics } from "./session-metrics.mjs";
+import type { AggregateBreakdown } from "./error-breakdown.mjs";
 
 export interface BuildSummary {
 	generated: number;
@@ -61,6 +62,24 @@ export function sessionStats(options?: {
 	since?: string;
 	out?: string;
 }): Promise<StatsSummary>;
+
+export interface BreakdownSummary extends AggregateBreakdown {
+	skipped: number;
+	skippedOversized: number;
+	skippedInvalidHeader: number;
+	skippedEmpty: number;
+	skippedDuplicate: number;
+	traceMissing: number;
+	tracePartial: number;
+	parseErrors: number;
+}
+
+/** Tool and provider error breakdown from trace metadata; session ids stay in `<out>/../breakdown.md`. */
+export function errorBreakdown(options?: {
+	root?: string;
+	since?: string;
+	out?: string;
+}): Promise<BreakdownSummary>;
 
 export function reviewCards(options?: {
 	out?: string;

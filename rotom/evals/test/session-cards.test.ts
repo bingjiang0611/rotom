@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildCards, collectLabels, sessionStats } from "../scripts/session-cards.mjs";
+import { buildCards, collectLabels, errorBreakdown, sessionStats } from "../scripts/session-cards.mjs";
 
 const cli = fileURLToPath(new URL("../scripts/session-cards.mjs", import.meta.url));
 const timestamp = "2026-01-01T00:00:00.000Z";
@@ -544,6 +544,60 @@ describe("session cards", () => {
 			expect.objectContaining({ sessionId: "alpha", toolErrors: 1, endedToolSpans: 2, week: "2026-W01" }),
 			expect.objectContaining({ sessionId: "beta", toolErrors: null, toolErrorRate: null, costUsd: null, costPartial: true }),
 		]);
+	});
+
+	it("breaks tool and provider errors down on stdout and keeps session ids in the private file", async () => {
+		const record = (kind: string, spanId: string, name: string, attributes: Record<string, string | number>, status?: string, parentSpanId?: string) => ({
+			schema: "rotom-local-trace/v1", kind, spanId, traceId: "trace", name, ...(status ? { status } : {}), ...(parentSpanId ? { parentSpanId } : {}), attributes,
+		});
+		const tool = (callId: string, outcome: string) => [
+			record("span_start", callId, "pi.tool.execute", { "pi.tool.name": "bash" }),
+			record("span_end", callId, "pi.tool.execute", { "pi.tool.name": "bash", "pi.tool.outcome": outcome, "pi.tool.fault_side": "unknown", "pi.tool.error_code": "nonzero_exit" }, "error"),
+		];
+		const request = (spanId: string, status: string, attributes: Record<string, string | number> = {}) => [
+			record("span_start", spanId, "pi.ai.request", { "pi.ai.provider": "synthetic", "pi.ai.model": "fixture", ...attributes }, undefined, "turn"),
+			record("span_end", spanId, "pi.ai.request", { "pi.ai.provider": "synthetic", "pi.ai.model": "fixture", ...attributes }, status, "turn"),
+		];
+		await session("alpha", [header("alpha"), message("u", null, "user", "SYNTHETIC_REQUEST"), assistant("a", "u", [text("SYNTHETIC_REPLY")], { stopReason: "error" })]);
+		await trace("alpha", [
+			record("span_start", "run", "pi.agent.run", {}),
+			record("span_start", "turn", "pi.agent.turn", {}, undefined, "run"),
+			...tool("c1", "tool_error"), ...tool("c2", "tool_error"),
+			...request("r1", "error", { "pi.ai.error.category": "timeout" }),
+			...request("r2", "error", { "pi.ai.error.category": "timeout" }),
+		]);
+		await session("beta", [header("beta"), message("u", null, "user", "SYNTHETIC_REQUEST"), assistant("a", "u", [text("SYNTHETIC_REPLY")])]);
+		const result = run("breakdown", "--root", root, "--out", out);
+		expect(result.status).toBe(0);
+		expect(result.stderr).toBe("");
+		expect(result.stdout).not.toContain("alpha");
+		expect(result.stdout).not.toContain("beta");
+		expect(result.stdout).not.toContain("SYNTHETIC");
+		expect(result.stdout).not.toContain("sessionId");
+		const printed = JSON.parse(result.stdout);
+		expect(printed.sessions).toBe(2);
+		expect(printed.toolTotals).toEqual({ endedSpans: 2, errors: 2, aborted: 0 });
+		expect(printed.tools[0]).toMatchObject({ tool: "bash", errors: 2, rate: 1, share: 1 });
+		expect(printed.concentration).toMatchObject({ sessionsWithErrors: 1, topErrors: 2, share: 1 });
+		expect(printed.providerTotals).toEqual({ requests: 2, errors: 2, abortedRequests: 0 });
+		expect(printed.providers[0]).toMatchObject({ provider: "synthetic", model: "fixture", category: "timeout", count: 2 });
+		expect(printed.providerEnd).toEqual({ sessions: 1, runRetried: 1, sessionRetried: 1, single: 0 });
+		const markdown = join(dirname(out), "breakdown.md");
+		const page = await readFile(markdown, "utf8");
+		expect(page).toContain("alpha");
+		expect(page).toContain("## 工具出错集中度");
+		expect(page).toContain("## provider 请求出错");
+		expect(((await stat(markdown)).mode & 0o777)).toBe(0o600);
+	});
+
+	it("rejects breakdown output inside a Git worktree and the build-only arguments", async () => {
+		await session("breakdown-cli");
+		const repo = join(directory, "repo");
+		await mkdir(join(repo, ".git"), { recursive: true });
+		await expect(errorBreakdown({ root, out: join(repo, "cards") })).rejects.toThrow("Git worktrees");
+		expect(run("breakdown", "--root", root, "--out", out, "--limit", "5").status).not.toBe(0);
+		expect(run("breakdown", "--root", root, "--out", out, "--focus").status).not.toBe(0);
+		expect(run("breakdown", "--root", root, "--out", out, "--since", "28d").status).toBe(0);
 	});
 
 	it("rejects stats output inside a Git worktree and the build-only limit argument", async () => {

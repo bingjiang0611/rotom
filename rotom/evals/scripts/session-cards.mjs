@@ -11,6 +11,7 @@ import { evaluateSession, RULE_IDS } from "./trace-assertions.mjs";
 import { computeAgreement, renderAgreementMarkdown } from "./agreement.mjs";
 import { runReview } from "./review.mjs";
 import { aggregateMetrics, focusCandidate, sessionMetrics } from "./session-metrics.mjs";
+import { aggregateBreakdown, PROVIDER_SPAN, providerErrorRows, TOOL_SPAN, toolErrorRows, TOP_COMBINATIONS, TOP_VALUES } from "./error-breakdown.mjs";
 
 const MAX_FILE = 256 * 1024 * 1024;
 const MAX_LINE = 64 * 1024 * 1024;
@@ -151,7 +152,7 @@ function currentBranch(records, summary) {
 async function readTrace(sessionPath, summary) {
 	const path = join(dirname(sessionPath), "observability", `${basename(sessionPath, ".jsonl")}.trace.jsonl`);
 	const info = await statIfPresent(path);
-	if (!info) return { status: "missing", tools: new Map() };
+	if (!info) return { status: "missing", tools: new Map(), records: [] };
 	const loaded = await readBounded(path);
 	summary.traceParseErrors += loaded.errors;
 	let partial = loaded.oversized || loaded.errors > 0;
@@ -175,7 +176,9 @@ async function readTrace(sessionPath, summary) {
 		const digest = attributes["pi.tool.call_id_digest"];
 		if (typeof digest === "string") tools.set(digest, span.ended ? attributes : {});
 	}
-	return { status: partial ? "partial" : "ok", tools };
+	// Raw records are returned for metadata-only breakdowns; callers that only
+	// need tool attributes ignore them.
+	return { status: partial ? "partial" : "ok", tools, records: loaded.records };
 }
 
 function truncate(value, maximum) {
@@ -505,6 +508,104 @@ export async function sessionStats({ root = join(homedir(), ".pi/agent/sessions"
 	};
 }
 
+function formatCount(values) {
+	if (!values?.length) return "n/a";
+	return values.slice(0, TOP_VALUES).map((item) => `${item.value} (${item.count})`).join(", ");
+}
+
+function formatCombinations(combinations) {
+	if (!combinations.length) return "n/a";
+	return combinations.slice(0, TOP_COMBINATIONS).map((item) => `${item.outcome} / ${item.faultSide} / ${item.errorCode} (${item.count})`).join("; ");
+}
+
+function formatPercent(value) {
+	return value === null ? "n/a" : `${(value * 100).toFixed(1)}%`;
+}
+
+// n < 10 samples stay visible but flagged, so small buckets cannot be read as trends.
+const sampleMark = (n) => n < 10 ? "*" : "";
+
+function renderBreakdownMarkdown(aggregate, sessions, summary) {
+	const toolRow = (row) => `| ${markdownCell(row.tool)} | ${row.endedSpans}${sampleMark(row.endedSpans)} | ${row.errors} | ${formatPercent(row.rate)} | ${formatPercent(row.share)} | ${row.aborted} | ${markdownCell(formatCombinations(row.combinations))} |`;
+	const providerRow = (row) => `| ${markdownCell(`${row.provider}/${row.model}`)} | ${markdownCell(row.category)} | ${row.count}${sampleMark(row.count)} | ${formatPercent(row.share)} | ${markdownCell(formatCount(row.httpStatus))} | ${markdownCell(formatCount(row.qoderErrorCode))} | ${markdownCell(formatCount(row.transportPhase))} |`;
+	const sessionRow = (row, extra) => `| ${markdownCell(row.sessionId)} | ${row.toolErrors} | ${row.providerErrors} | ${extra} |`;
+	return [
+		"# 工具与 provider 出错拆解", "",
+		`会话数 ${aggregate.sessions}；已结束工具 span ${aggregate.toolTotals.endedSpans}，出错 ${aggregate.toolTotals.errors}（其中 aborted ${aggregate.toolTotals.aborted}）。`,
+		`provider 请求 span ${aggregate.providerTotals.requests}，出错 ${aggregate.providerTotals.errors}；aborted 请求 ${aggregate.providerTotals.abortedRequests}（不计入出错）。`,
+		`属性缺失记为 \`(none)\`；n < 10 的行标 \`*\`。工具 span \`${TOOL_SPAN}\`，provider 请求 span \`${PROVIDER_SPAN}\`。`,
+		`sessions skipped ${summary.skipped}，trace missing ${summary.traceMissing}，trace partial ${summary.tracePartial}，parse errors ${summary.parseErrors}。`, "",
+		"## 工具出错（outcome 不是 ok，aborted 单列）", "",
+		"| 工具 | 已结束 span | 出错 | 出错率 | 占全部出错 | aborted | 前 5 组合 outcome / fault_side / error_code (count) |",
+		"| --- | --- | --- | --- | --- | --- | --- |",
+		...aggregate.tools.map(toolRow), "",
+		"## 工具出错集中度", "",
+		aggregate.concentration.share === null
+			? "没有工具出错，无法计算集中度。"
+			: `出错会话 ${aggregate.concentration.sessionsWithErrors} 个；出错最多的前 ${aggregate.concentration.topSessions} 个会话（前 10%）贡献 ${aggregate.concentration.topErrors}/${aggregate.concentration.errors}（${formatPercent(aggregate.concentration.share)}）。`, "",
+		"## provider 请求出错（status=error）", "",
+		"| provider/model | category | 计数 | 占比 | http_status 前 5 | qoder.error_code 前 5 | transport_phase 前 5 |",
+		"| --- | --- | --- | --- | --- | --- | --- |",
+		...aggregate.providers.map(providerRow), "",
+		"## 会话以 provider 错误结束", "",
+		`${aggregate.providerEnd.sessions} 个会话；最后出错请求所在 run 有 ≥2 次出错（run 内重试）${aggregate.providerEnd.runRetried} 个；整个会话 ≥2 次出错请求 ${aggregate.providerEnd.sessionRetried} 个，只有 1 次 ${aggregate.providerEnd.single} 个。`, "",
+		"## 私有 session 列表（仅本文件，不进 stdout）", "",
+		"| session | 工具出错 | provider 请求出错 | 最后 run 出错请求数 |",
+		"| --- | --- | --- | --- |",
+		...sessions.tools.map((row) => sessionRow(row, row.lastRunErrors)),
+		...sessions.providers.map((row) => sessionRow(row, row.lastRunErrors)), "",
+	].join("\n");
+}
+
+/** Tool and provider error breakdown from trace metadata only: no session text,
+ * no tool arguments, no error bodies. Session ids stay in the private Markdown. */
+export async function errorBreakdown({ root = join(homedir(), ".pi/agent/sessions"), since = "28d", out = DEFAULT_OUT } = {}) {
+	if (!/^\d+[dh]$/.test(since)) throw new Error("Since must be Nd or Nh");
+	const cutoff = Date.now() - Number(since.slice(0, -1)) * (since.endsWith("d") ? 86400000 : 3600000);
+	root = await openSessionRoot(root);
+	out = await outputDirectory(out);
+	const rel = relative(root, out);
+	if (rel === "" || (!rel.startsWith(`..${sep}`) && rel !== ".." && !isAbsolute(rel))) throw new Error("Output must not be inside session root");
+	await mkdir(out, { recursive: true, mode: 0o700 });
+	await chmod(out, 0o700);
+	await rejectGit(dirname(out));
+	const summary = newSummary();
+	const seen = new Set();
+	const sessions = [];
+	for (const { path } of await discover(root, cutoff, 500)) {
+		const loaded = await loadSession(path, summary, seen);
+		if (loaded.reason) { countSkip(summary, loaded.reason); continue; }
+		seen.add(loaded.header.id);
+		const provider = providerErrorRows(loaded.trace.records);
+		const toolRows = toolErrorRows(loaded.trace.records);
+		sessions.push({
+			sessionId: loaded.header.id,
+			toolErrors: toolRows.reduce((sum, row) => sum + row.errors, 0),
+			providerErrors: provider.errors,
+			lastRunErrors: provider.lastFailedRequest.runErrorRequests,
+			toolRows,
+			provider,
+			endedOnProviderError: loaded.findings.some((finding) => finding.rule === "ended-on-provider-error" && finding.status === "hit"),
+		});
+	}
+	finishSummary(summary);
+	const aggregate = aggregateBreakdown(sessions);
+	const bySession = (key) => (a, b) => b[key] - a[key] || a.sessionId.localeCompare(b.sessionId);
+	const top = {
+		tools: sessions.filter((row) => row.toolErrors > 0).sort(bySession("toolErrors")).slice(0, 10),
+		providers: sessions.filter((row) => row.providerErrors > 0).sort(bySession("providerErrors")).slice(0, 10),
+	};
+	await privateWrite(join(dirname(out), "breakdown.md"), renderBreakdownMarkdown(aggregate, top, summary));
+	return {
+		sessions: aggregate.sessions, toolTotals: aggregate.toolTotals, tools: aggregate.tools,
+		concentration: aggregate.concentration, providerTotals: aggregate.providerTotals,
+		providers: aggregate.providers, providerEnd: aggregate.providerEnd,
+		skipped: summary.skipped, skippedOversized: summary.skippedOversized, skippedInvalidHeader: summary.skippedInvalidHeader,
+		skippedEmpty: summary.skippedEmpty, skippedDuplicate: summary.skippedDuplicate,
+		traceMissing: summary.traceMissing, tracePartial: summary.tracePartial, parseErrors: summary.parseErrors,
+	};
+}
+
 /** Export filled labels; no model calls or automatic classification. */
 export async function collectLabels({ out = DEFAULT_OUT } = {}) {
 	out = await outputDirectory(out);
@@ -584,8 +685,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
 	try {
 		const { values, positionals } = parseArgs({ options: { root: { type: "string" }, out: { type: "string" }, since: { type: "string" }, limit: { type: "string" }, focus: { type: "boolean" } }, allowPositionals: true });
 		const [command] = positionals;
-		if (positionals.length !== 1 || !["build", "labels", "agreement", "review", "stats"].includes(command) ||
-			(!["build", "stats"].includes(command) && (values.root !== undefined || values.since !== undefined)) ||
+		if (positionals.length !== 1 || !["build", "labels", "agreement", "review", "stats", "breakdown"].includes(command) ||
+			(!["build", "stats", "breakdown"].includes(command) && (values.root !== undefined || values.since !== undefined)) ||
 			(!["build", "review"].includes(command) && values.limit !== undefined) ||
 			(command !== "build" && values.focus === true)) throw new Error("Invalid CLI arguments");
 		if (command === "review") {
@@ -595,6 +696,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
 			let result;
 			if (command === "build") result = await buildCards({ ...values, limit: values.limit === undefined ? 50 : Number(values.limit) });
 			else if (command === "stats") result = await sessionStats(values);
+			else if (command === "breakdown") result = await errorBreakdown(values);
 			else if (command === "labels") result = await collectLabels(values);
 			else result = await writeAgreement(values);
 			console.log(JSON.stringify(result));
