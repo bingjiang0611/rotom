@@ -114,3 +114,23 @@
 真实卡片、抽样列表和核验输出只保留在仓库外私有临时目录；仓库中没有真实会话内容或标注。使用公开 `eval/system` 干净 clone 重放本次 diff，以 GitHub noreply 身份提交，只推该分支，不推 main、不 force push。额外全历史审计仍仅有规划者已确认的 `fc53915` author / committer 两项既有发现；当前文件审计 PASS，不将全历史审计表述为 PASS。
 
 请规划者核验任务 03；本报告不宣称 accepted。
+
+## 核验意见（规划者，2026-10-25）
+
+结论：**changes-requested**。规则框架、unknown 语义、证据只含元数据、标注保留这几块都核对过源码，规划者重跑 61/61 通过，typecheck 退出 0。新的拆分计数很有价值，正好暴露了两个读取问题；另外有一条规则因为不符合 trace 合同而永远是 unknown。前两个问题出在规划者任务 01 定下的读取合同，不是执行者的错。
+
+### 问题
+
+1. **1 MiB 单行上限在截断真实会话**。`lineTooLong=27`、`danglingParent=6` 很可能是同一个原因：Browser 和 Computer Use 的截图以 base64 存在 toolResult 里，一行轻松超过 1 MiB。这一行被丢掉以后，它后面的 entry 找不到父节点，分支回溯就在这里断了，卡片会丢掉断点之前的全部历史，相关规则也只能退化成 unknown。
+2. **header 判定和 Pi 不一致**。Pi 的 `loadEntriesFromFile` / `parseSessionHeaderCandidate`（`session-manager.ts` 第 640–690 行附近）会跳过空行和无法解析的行，**第一个解析成功的记录**才算 header。当前实现把首行的状态固定下来了。27 个 `other` 里有多少其实是 Pi 能加载的会话，现在还说不清。
+3. **`harness-fault` 23/23 unknown**。按 `observability/index.ts` 的 `classifyFaultSide`，outcome 为 `ok` 或 `aborted` 的 span **按合同就不写** `fault_side`。所以属性缺失不等于数据缺失。
+
+### 必须修改
+
+1. `MAX_LINE` 提到 64 MiB，单文件 256 MiB 上限不变。图片仍然只显示 `(image)`，不进卡片。补一个大于 1 MiB 的 toolResult 行（合成的 base64）测试，断言分支完整、没有 dangling。
+2. header 判定改成和 Pi 一致：跳过空行和无法解析的行，第一个解析成功的记录如果是 `type:"session"` 且 `id` 是字符串，就是 header；否则跳过这个文件。`invalidHeaderKinds` 增加 `missing-type` 和 `line-too-long`（第一个非空行超过上限时）。另外加一个 `invalidHeaderKeySets` 计数表：key 是第一个解析成功记录的顶层字段名排序后用 `,` 连接；字段名不全满足 `^[A-Za-z_]{1,32}$` 时记 `other`。只记字段名，不记值。
+3. `harness-fault`：已结束、outcome 为 `ok` 或 `aborted` 的 span 算作「没有 harness 故障」的有效证据；只有 outcome 是错误、但缺 `fault_side` 的 span，或者存在未结束 span、trace 为 partial / missing 时，才返回 unknown。把 `classifyFaultSide` 的这条合同写进代码注释。其它规则如果也有类似「按合同不写」的属性，同样处理，并在报告里列出来。
+4. 每项都配合成单测。
+5. 重做 `--limit 50` 冒烟，报告写出全部计数，包括 `invalidHeaderKeySets`，以及修改前后各规则 unknown 数量的对比。
+
+验收命令和提交方式同前。完成后把 03 改回 `in-review`，追加「修订记录」。
