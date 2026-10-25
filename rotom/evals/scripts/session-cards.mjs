@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { StringDecoder } from "node:string_decoder";
 import { evaluateSession, RULE_IDS } from "./trace-assertions.mjs";
+import { computeAgreement, renderAgreementMarkdown } from "./agreement.mjs";
 
 const MAX_FILE = 256 * 1024 * 1024;
 const MAX_LINE = 64 * 1024 * 1024;
@@ -411,12 +412,32 @@ export async function collectLabels({ out = DEFAULT_OUT } = {}) {
 	return summary;
 }
 
+async function writeAgreement({ out = DEFAULT_OUT } = {}) {
+	out = await outputDirectory(out);
+	const loaded = await readBounded(join(dirname(out), "labels.jsonl"));
+	// A partial label set would bias the report. Unlike session rendering, do not
+	// skip malformed/oversized input and silently report statistics for a subset.
+	if (loaded.oversized || loaded.errors) throw new Error("Invalid labels input");
+	const result = computeAgreement(loaded.records.map((row) => ({
+		sessionId: row.sessionId, verdict: row.verdict, categories: row.categories ?? [], signals: row.findings ?? {},
+	})));
+	await privateWrite(join(dirname(out), "agreement.md"), renderAgreementMarkdown(result));
+	// Review IDs belong only in the private Markdown, never stdout.
+	return {
+		totalRows: result.totalRows, evaluatedRows: result.evaluatedRows, ignoredVerdicts: result.ignoredVerdicts,
+		signals: result.signals, categories: result.categories, uncoveredCategories: result.uncoveredCategories.length,
+	};
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
 	try {
 		const { values, positionals } = parseArgs({ options: { root: { type: "string" }, out: { type: "string" }, since: { type: "string" }, limit: { type: "string" } }, allowPositionals: true });
 		const [command] = positionals;
-		if (positionals.length !== 1 || !["build", "labels"].includes(command) || (command === "labels" && (values.root || values.since || values.limit))) throw new Error("Invalid CLI arguments");
-		const result = command === "build" ? await buildCards({ ...values, limit: values.limit === undefined ? 50 : Number(values.limit) }) : await collectLabels(values);
+		if (positionals.length !== 1 || !["build", "labels", "agreement"].includes(command) || (command !== "build" && (values.root || values.since || values.limit))) throw new Error("Invalid CLI arguments");
+		let result;
+		if (command === "build") result = await buildCards({ ...values, limit: values.limit === undefined ? 50 : Number(values.limit) });
+		else if (command === "labels") result = await collectLabels(values);
+		else result = await writeAgreement(values);
 		console.log(JSON.stringify(result));
 	} catch {
 		// Filesystem/JSON errors can contain private paths or source text; never echo them.

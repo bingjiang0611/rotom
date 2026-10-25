@@ -102,6 +102,14 @@ header 跳过空行和坏 JSON 后查找；`sessionVersions` 只统计已生成�
 
 卡片、build 汇总及 labels 导出均包含 findings；旧卡片缺少 findings 时导出为全 unknown。
 
+### 标注一致性报告（零模型）
+
+从仓库根执行 `node rotom/evals/scripts/session-cards.mjs agreement`；可用 `--out <cards dir>` 指定卡片目录。
+读取卡片目录上一级的 `labels.jsonl`，不修改标注；默认读取 `~/.rotom/evals/labels.jsonl`。
+stdout 只含计数和比例；同级 `agreement.md` 以 0600 写入，包含信号统计、类别覆盖及 FP/FN 会话 ID。
+仅 pass/fail 参与统计；unknown 或缺少某个信号不进入四格。零分母显示 n/a，小分母标 `(n<10)`。
+信号名自动从有效标注发现，不限于当前规则；报告不生成总分、不代填 verdict，输出仍拒绝 Git 工作树。
+
 ## 运行评测
 
 以后在 `cases/**/*.eval.ts` 增加评测集后执行：
