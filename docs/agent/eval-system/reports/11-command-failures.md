@@ -39,7 +39,7 @@
 | `git diff --check` | 通过 |
 | `python3 scripts/audit-public.py --root .` | PASS，7,833 个文件，0 finding（新增文件暂存后检查） |
 
-CI 仅修改已有测试命令的过滤词。未另跑 actionlint（本机不可用）；实际 Actions 结果将在推送后补入本报告。
+CI 仅修改已有测试命令的过滤词。未另跑 actionlint（本机不可用）；实际 GitHub Actions 已通过，运行链接见下方提交验证记录。
 
 ## 真实数据
 
@@ -106,4 +106,8 @@ n=44（40 pass / 4 fail），只计数，不计算 precision/recall。
 
 ## 提交验证记录
 
-本地最终 diff 已核对：只包含上表 eval、CI 与文档文件；产品目录无改动。树审计 PASS、0 finding。仅推送 `eval/system`，不推 main、不发布；推送后的 Actions 结果将追加在此。
+- 本地最终 diff 已核对：只包含上表 eval、CI 与文档文件；产品目录无改动。树审计 PASS、7,833 文件、0 finding；`git diff --check origin/main...HEAD` 通过。
+- 从独立公开 clone 重放本次 diff，12 个文件与本机已测试版本逐字节相同；以 GitHub noreply 身份提交。`python3 scripts/audit-public.py --root . --history` 为 BLOCKED：14 项，全为此前已公开的 7 个提交的 author/committer 身份 finding（与任务 10 一致），本次没有新增命中，未改写历史。
+- 实现提交：`79f2824a0b4aa9b3bcd407c580c7f28ce130c22c`，仅推到 `origin/eval/system`。
+- GitHub Actions `Evals L1`：[run 40212980672](https://github.com/bingjiang0611/rotom/actions/runs/40212980672)，该实现提交上 success；job 29 秒，安装、7 文件测试、typecheck、树审计全部通过。随后只补本报告的验证记录，不修改已验证代码。
+- 没有推 main、安装或发布。私有 `~/.rotom/evals/breakdown.md` 保留供本机查看；标签文件未改。临时聚合 JSON 与公开 clone 在交付前清理，用户原有 `.idea/` 未暂存。
