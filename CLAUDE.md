@@ -148,10 +148,4 @@ Browser relay 的后台标签、AX/DOM ref、viewport、document generation 和 
 
 ## 代码风格与品味
 
-- 先理解真实能力边界，再选择最小合适改动面；组合层与 Pi 源码修改均可。
-- 优先扩展现有小合同和 wrapper；需要新增 registry 或 lifecycle 实现时，说明必要性与维护成本，避免 speculative abstraction。
-- fail closed 用于 executable/resource identity、路径、授权 scope；fail open 只用于不应阻断用户工作的可选观测附加路径。
-- `unknown`、unavailable、partial 和 blocked 是一等状态，不压成布尔成功/失败。
-- 注释解释信任边界、失败模式、为何必须如此，不逐行翻译代码。
-- 中文用于维护/用户边界说明，代码 identifier 与稳定合同保持英文。
-- 本次明确请求覆盖一般流程与偏好，无需对同一决定重复确认。仅当冲突会引入尚未授权的数据损失、外部写入、费用或权限变化时，说明具体影响并询问缺少的决定。
+先理解真实需求和调用链，在正确抽象层选择最小实现。机械合同交给确定性检查；需要判断的最小实现、失败边界、授权与表达规则只维护在 [质量规则与 Review](docs/agent/verification.md#质量规则与-review)，不再叠加另一套提示词。该节列出检查入口、例外和未覆盖范围；测试通过不替代真实任务验收。

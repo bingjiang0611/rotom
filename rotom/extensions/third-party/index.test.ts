@@ -43,6 +43,36 @@ test("owned components define native contracts without product interception", as
 	assert.notEqual(standalone.description, PRODUCT_SUBAGENT_DESCRIPTION);
 });
 
+test("product wrappers preserve owned tool contracts, with only the Relay composition exception", async (t) => {
+	const workspace = mkdtempSync(join(tmpdir(), "rotom-native-contracts-"));
+	t.after(() => rmSync(workspace, { recursive: true, force: true }));
+	const fixture = join(workspace, "native.ts");
+	const modulePath = (relative: string) => JSON.stringify(join(import.meta.dirname, "node_modules", relative));
+	writeFileSync(fixture, `
+		import computerUse from ${modulePath("@injaneity/pi-computer-use/extensions/computer-use.ts")};
+		import subagents from ${modulePath("pi-subagents/index.ts")};
+		import goal from ${modulePath("@narumitw/pi-goal/src/index.ts")};
+		export default function(pi) { computerUse(pi); subagents(pi, { surface: "ephemeral" }); goal(pi); }
+	`);
+	const { loadExtensions } = await import(pathToFileURL(join(findPiDist(), "core/extensions/loader.js")).href);
+	const native = await loadExtensions([fixture], workspace);
+	const product = await loadExtensions([import.meta.dirname], workspace);
+	assert.deepEqual(native.errors, []);
+	assert.deepEqual(product.errors, []);
+	for (const name of ["act_ui", "subagent", "goal_continue"]) assert.ok(native.extensions[0].tools.has(name), `native component missing: ${name}`);
+	for (const [name, tool] of native.extensions[0].tools) {
+		const actual = product.extensions[0].tools.get(name)?.definition;
+		assert.ok(actual, `owned tool missing: ${name}`);
+		assert.deepEqual(JSON.parse(JSON.stringify(actual.parameters)), JSON.parse(JSON.stringify(tool.definition.parameters)), `${name}: schema/action drift`);
+		if (name !== "launch_browser") {
+			assert.equal(actual.description, tool.definition.description, `${name}: description drift`);
+			assert.deepEqual(actual.promptGuidelines, tool.definition.promptGuidelines, `${name}: guideline drift`);
+		} else {
+			assert.match(actual.description, /Chrome Relay is unavailable/u);
+		}
+	}
+});
+
 test("product registration uses native deferred defaults only with the launcher handshake", async () => {
 	const { loadExtensions } = await import(pathToFileURL(join(findPiDist(), "core/extensions/loader.js")).href);
 	const savedDefault = process.env.ROTOM_DEFERRED_DEFAULT_SURFACE;
@@ -329,13 +359,17 @@ test("真实第三方 loader 的 Ask 只补发正常结束；Goal 中止事件�
 	assert.equal((sent[0] as any).message.customType, "ask-user-continuation");
 });
 
-test("unsupported Ask schema keeps native Ask and all later components in a real session", async (t) => {
+for (const parameters of [
+	{ type: "object", properties: { changed: { type: "string" } } },
+	{ type: "object", properties: { questions: { type: "array", items: { type: "string" } } } },
+	{ type: "object" },
+]) test(`unsupported Ask schema ${JSON.stringify(parameters)} keeps native Ask and all later components`, async (t) => {
 	const workspace = mkdtempSync(join(tmpdir(), "rotom-ask-schema-drift-"));
 	t.after(() => rmSync(workspace, { recursive: true, force: true }));
 	const fixture = join(workspace, "ask.ts");
 	writeFileSync(fixture, `export default function(pi) { pi.registerTool({
 		name: "ask_user_question", label: "Ask", description: "upstream fixture",
-		parameters: { type: "object", properties: { changed: { type: "string" } } },
+		parameters: ${JSON.stringify(parameters)},
 		execute: async () => ({ content: [{ type: "text", text: "native result" }], details: { native: true } })
 	}); }`);
 	const piDist = findPiDist();
@@ -371,7 +405,7 @@ test("unsupported Ask schema keeps native Ask and all later components in a real
 	assert.deepEqual(errors, []);
 	const extension = extensionsResult.extensions.find((extension: any) => extension.tools.has("ask_user_question"));
 	const ask = extension.tools.get("ask_user_question").definition;
-	assert.deepEqual(ask.parameters, { type: "object", properties: { changed: { type: "string" } } });
+	assert.deepEqual(ask.parameters, parameters);
 	assert.equal(ask.promptGuidelines?.includes(ASK_CONTINUATION_GUIDELINE) ?? false, false);
 	assert.deepEqual(await ask.execute(), { content: [{ type: "text", text: "native result" }], details: { native: true } });
 	for (const name of ["act_ui", "subagent", "goal_continue", "ask_user_question", "edit", "write", "obs_recall", "search_tools"]) {

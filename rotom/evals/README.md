@@ -221,6 +221,37 @@ npm run eval -- --provider=<provider> --model=<model> cases/follow-through.eval.
 - 汇报段加入“最终汇报会结束回合；下一步属于自己且已授权时直接做”（即已推送的 `89cbfea`）：candidate 0/3，同轮 baseline 2/3；改为同时要求“未决项仍放最后一节”后为 1/5 对 5/5。
 - 推进段再加“已授权时不要以‘我接下来会做’的汇报结束回合”：candidate 0/5，同轮 baseline 3/5。
 
+### 历史纠正回归：`quality-regressions.eval.ts`
+
+七个纯合成任务复现历史纠正的机制，不携带真实会话文本、ID、地址、配置或凭据。复用现有 Pi harness，模型实际读写隔离工作目录；不是只回答 JSON 选择题。
+
+| case ID | 要检验的行为 |
+|---|---|
+| `finish-all-stages` | 两个阶段全部完成，不在第一阶段结束后停跑 |
+| `check-real-connection-path` | 检查实际配置，不能把直连失败当成所有连接不可用 |
+| `add-without-replacing` | 新增模型，保留旧配置与默认值 |
+| `structured-write-evidence` | 按版本化 details 判断写入，不看成功文案 |
+| `version-not-a-historical-mention` | 验证唯一当前字段，不接受历史版本命中 |
+| `optional-schema-isolation` | schema 漂移仅禁用可选增强，不破坏后续注册或吞未知异常 |
+| `warning-channel-boundary` | 交互通知与 Node warning 分流，不全局吞告警 |
+
+**确定性检查（零模型）**：`npm run check:quality`。每个任务验证旧错误失败、真实修复通过、清空测试伪造绿色仍失败；另外验证只完成第一个阶段不能通过。验收器使用评测端保存的原始断言，不信任模型修改后的 `test.mjs` 或最终回复。所有任务须同时满足行为验收与文件修改范围，不能靠部分分数获判通过。
+
+**模型运行（需另行授权 provider、模型和预算）**：默认不开启；显式开启但缺必要配置或 case ID 错误时报错。示例从 `rotom/evals/` 执行，模型和 provider 使用已授权值：
+
+```bash
+ROTOM_EVAL_QUALITY_REGRESSIONS=1 \
+ROTOM_EVAL_CANDIDATE_PRODUCT="$(cd .. && pwd)" \
+ROTOM_PI="$(node ../runtime/resolve-installed-pi.mjs "$(cd .. && pwd)")" \
+ROTOM_EVAL_PROVIDER="<authorized-provider>" \
+ROTOM_EVAL_MODEL="<authorized-model>" \
+./bin/eval cases/quality-regressions.eval.ts
+```
+
+可用 `ROTOM_EVAL_QUALITY_CASE` 选择单个 case。每个任务会产生模型和工具续轮调用，不提供费用硬上限；确定性测试另用离线脚本 provider 驱动真实 Pi 写入工具，证明文件产物确实进入验收器；这不是模型能力评测。本轮未调用真实模型，不声称改善率或 A/B 收益。工具仍按本机权限执行，隔离目录不是 OS 沙箱。对恶意生成代码的防篡改不在验收器保证范围。
+
+机械规则和真实 runtime 边界测试统一见 [质量规则与 Review](../../docs/agent/verification.md#质量规则与-review)。本套任务不替代真实服务、设备、Goal/RPC 长会话及所有 TUI 告警路径的验证。
+
 ## 已归档结论：context-efficient tool-use policy（无对应 case）
 
 曾在 `coding-policy` 注入过一段 `CONTEXT_EFFICIENT_TOOL_USE_POLICY`（引导"能聚合的问题写一条 pipeline、先 `rg` 定位再按窗口读取、在源头限流"，并附"需逐字复现的内容照常精确读取"的反向约束）。该 policy 与验证它的 paired 行为 A/B 均已按维护者决定移除，仅保留下面的实测结论，避免后人重踩。
