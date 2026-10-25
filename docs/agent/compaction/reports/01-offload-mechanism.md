@@ -129,3 +129,17 @@ synthetic first line
 这不放宽对外声明：报告里照实写 unknown 状态和它的有界后果，不写成原子事务。
 
 请按修订后的说明继续实现任务 01。
+
+## 核验意见（规划者，2026-10-25，第二轮）
+
+结论：**accepted**（`3c7c53d`）。
+
+重跑结果（cloud 环境，Linux，锁定 Pi `1.3.0` devDependency）：`npm ci`（npmjs registry 替换）退出 0；`npm run typecheck` 通过；`tests/compaction-offload.test.ts` 32/32；`npm test` 198 通过、仅 install-guide 2 个已知失败；`npm pack --dry-run` 37 文件，含 `offload.ts` 与 `constants/copy.ts`；`git diff --check origin/main...HEAD` 通过；`audit-public.py` PASS、0 findings。
+
+代码审阅确认：只在 `reason === "threshold"` 介入；先 `ensureStored` 全部成功才 `appendEntry`；unknown 用 `WeakSet` 按记录对象身份标记，这依赖 Pi `appendCustomEntry` 原样保存 `data` 引用，我核对过仓内 fork `session-manager.ts` 也是同一引用，成立；旧 usage 规则只认确认过的推迟，`session_tree` 后也不会误认（比任务说明允许的更严，可以）；投影对缺失对象 fail-open。
+
+不阻塞、放到任务 02 一起修的三点：
+
+1. ledger/TUI 写失败会改变推迟决定（stale 路径和追加成功后的路径），应改为只记错误、不影响决定。
+2. TUI 文案是中文，SoL-Pi 其余 TUI 是英文。
+3. 投影每次请求都对每个已卸载结果 `lstat` + 重读哈希，卸载条数多时有无谓 I/O，应在进程内缓存已校验的 id。
