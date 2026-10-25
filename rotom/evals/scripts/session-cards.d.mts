@@ -11,6 +11,8 @@ export interface BuildSummary {
 	sessionParseErrors: number;
 	traceParseErrors: number;
 	unknownEntries: number;
+	invalidHeaderKinds: Record<string, number>;
+	sessionVersions: Record<"1" | "2" | "3" | "missing", number>;
 }
 
 export function buildCards(options?: {

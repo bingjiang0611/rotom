@@ -210,3 +210,68 @@ node rotom/evals/scripts/session-cards.mjs build --limit 5 --out <仓库外私�
 5. **重做冒烟**：`--limit 20`，报告写出全部计数，包括两个新计数表。如果 `session-bad-id` 大于 0，就放宽 id 校验（id 只用作文件名，改成拒绝 `/`、`\`、`..` 和控制字符即可），然后再跑一次。
 
 验收命令和提交方式同前。完成后状态改回 `in-review`，追加「第二轮修订记录」。
+
+## 第二轮修订记录（执行者，2026-10-25）
+
+按第二轮核验意见完成 5 项修改，状态恢复为 `in-review`。新增 8 项合成测试，当前 31/31 通过；全量测试仍有原先确认的 10 项运行时依赖失败。以下为本轮结果，不覆盖此前历史记录。
+
+### 逐项修改
+
+| 核验项 | 修改及证据 |
+|---|---|
+| 1. 补齐 message role | `bashExecution` 渲染 command（200 字符）、exitCode（缺失为 unknown）、cancelled 和 output（300 字符）；`custom` 与 custom_message 使用相同格式，兼容字符串和数组 content；system 静默跳过；其它未知 role 计 unknownEntries，不计解析错误。合成用例验证 exit=0、未知退出码、取消、截断、custom 图片占位和未知 role，sessionParseErrors 为 0。不会执行记录中的命令。 |
+| 2. v1 兼容 | 缺少 version 或 version < 2 时，在内存中按文件顺序生成 `v1-<index>` ID 及线性 parentId，再调用已有分支回溯；不迁移 firstKeptEntryIndex，不回写源文件。version=1 和缺少 version 的无 ID/parentId 合成会话均生成卡片，解析错误为 0，输入字节不变。 |
+| 3. 无效 header 与版本诊断 | 流式解析器保留首行解析状态，不把损坏首行之后的有效记录提升为 header。新增 invalidHeaderKinds：type 只接受 `^[a-z_]{1,32}$`，否则 other；首行不可解析为 unparseable；session 的无效 ID 为 session-bad-id。sessionVersions 只在卡片写入成功后累计 1/2/3/missing；空会话和重复 ID 不累计。声明文件和使用说明同步。 |
+| 4. 合成单测 | 新增角色渲染 1 项、v1/缺版本 2 项、版本计数 1 项、受限 header 类别及 stdout 隐私 1 项、坏/空/超长首行不被后续记录替代 3 项，共 8 项。更新已有完整 summary 断言以包含新计数表，未弱化原验收。 |
+| 5. 真实冒烟及条件式 ID 校验 | 已用新的仓库外目录运行 `--limit 20`，完整计数见下表。session-bad-id 为 0，未触发放宽 ID 校验的条件，保留原校验；未额外扩大文件名接纳范围。 |
+
+改动范围仅为 session-cards 实现、声明和测试，`rotom/evals/README.md` 的相关说明、协作 README 状态及本报告追加内容。未修改 trace 合同、运行时安装、依赖、锁文件或其它功能。
+
+### 全部验收命令
+
+环境：macOS，Node `v24.18.0`，npm `12.2.0`，Vitest `4.1.9`。
+
+| 命令 | 结果 |
+|---|---|
+| `cd rotom/evals` | 成功；以下 npm 命令在该目录执行。 |
+| `npm ci --ignore-scripts --registry=https://registry.npmjs.org --replace-registry-host=always` | 退出 0；安装 180 个包，仍提示 8 项既有漏洞（3 moderate、5 high）；未做额外升级。 |
+| `npm test -- test/session-cards.test.ts` | 退出 0，31/31 通过。 |
+| `npm test` | 退出 1；15 个文件中 11 通过、4 失败；130 项中 119 通过、10 失败、1 跳过。失败仍全部为已记录的 Computer Use identity/version 不匹配，涉及相同 4 个测试文件，无新增失败。 |
+| `npm run typecheck` | 退出 0；独立执行，不被全量测试失败短路。 |
+| `cd ../..` | 返回仓库根，后续 Git / audit 命令在根目录执行。 |
+| `git diff --check origin/main...HEAD` | 退出 0；提交后再次核验，另检查工作区和暂存区 whitespace。 |
+| `python3 scripts/audit-public.py --root .` | PASS，0 finding；本次全部改动暂存后复查。 |
+
+额外执行 `node --check rotom/evals/scripts/session-cards.mjs`，通过。真实冒烟不替代合成测试；本轮真实样本的旧版本计数为 0，v1 兼容结论仅由合成测试支持。
+
+### 真实数据冒烟计数
+
+命令：`node rotom/evals/scripts/session-cards.mjs build --limit 20 --out <仓库外私有临时目录>/cards`。
+
+| 字段 | 计数 |
+|---|---:|
+| generated | 10 |
+| skipped | 10 |
+| skippedOversized | 0 |
+| skippedInvalidHeader | 10 |
+| skippedEmpty | 0 |
+| skippedDuplicate | 0 |
+| traceMissing | 0 |
+| tracePartial | 2 |
+| parseErrors | 36 |
+| sessionParseErrors | 36 |
+| traceParseErrors | 0 |
+| unknownEntries | 0 |
+| invalidHeaderKinds | `{"other":10}` |
+| sessionVersions | `{"1":0,"2":0,"3":10,"missing":0}` |
+| session-bad-id（未出现） | 0 |
+| 输出卡片 | 10 |
+| 完整人工阅读卡片 | 1 |
+
+本节只记录计数，不记录真实会话正文、ID、文件名或本机路径。输出仍保留在仓库外私有临时目录，不加入提交；未填写真实标注或导出真实标签。
+
+### 提交与交接
+
+仍从公开 `eval/system` 干净 clone 重放本次 diff，核对与已测试文件一致，以 GitHub noreply 身份提交；只推 `origin/eval/system`，不推 main、不 force push。额外 `--history` 审计仍只有已确认的 `fc53915` author / committer 两项既有发现，不新增问题，也不宣称全历史 PASS。
+
+已知的 10 项全量测试失败和 npm 漏洞提示不在本轮修订范围，保持原记录。请规划者核验这 5 项及新计数；真实人工标签流程仍由 bob 在任务 02 完成，本轮不宣称 accepted。

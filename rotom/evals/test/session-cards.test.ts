@@ -219,6 +219,7 @@ describe("session cards", () => {
 		expect(await buildCards({ root, out })).toEqual({
 			generated: 1, skipped: 4, skippedOversized: 1, skippedInvalidHeader: 1, skippedEmpty: 1, skippedDuplicate: 1,
 			traceMissing: 0, tracePartial: 1, parseErrors: 4, sessionParseErrors: 3, traceParseErrors: 1, unknownEntries: 0,
+			invalidHeaderKinds: { other: 1 }, sessionVersions: { "1": 0, "2": 0, "3": 1, missing: 0 },
 		});
 		expect(await card("good")).toContain("AFTER_CORRUPTION");
 	});
@@ -274,6 +275,79 @@ describe("session cards", () => {
 		expect(rendered).not.toContain("HIDDEN_IMAGE_DATA");
 	});
 
+	it("renders bashExecution and custom roles, skips system and counts unknown roles without parse errors", async () => {
+		await session("roles", [
+			...basic("roles"),
+			message("bash-ok", "a", "bashExecution", undefined, { command: "echo fixture", output: "BASH_OUTPUT", exitCode: 0, cancelled: false }),
+			message("custom-string", "bash-ok", "custom", "C".repeat(301), { customType: "hook" }),
+			message("bash-cancelled", "custom-string", "bashExecution", undefined, { command: "D".repeat(201), output: "O".repeat(301), cancelled: true }),
+			message("custom-array", "bash-cancelled", "custom", [text("CUSTOM_TEXT"), { type: "image", data: "HIDDEN_IMAGE" }], { customType: "extension" }),
+			message("system", "custom-array", "system", "HIDDEN_SYSTEM"),
+			message("future", "system", "future_role", "HIDDEN_UNKNOWN"),
+			assistant("last", "future", [text("done")]),
+		]);
+		expect(await buildCards({ root, out })).toMatchObject({ generated: 1, parseErrors: 0, sessionParseErrors: 0, unknownEntries: 1 });
+		const rendered = await card("roles");
+		expect(rendered).toContain("$ echo fixture → exit=0 · 输出：BASH_OUTPUT");
+		expect(rendered).toContain(`$ ${"D".repeat(200)}…[截断 1 字符] → exit=unknown cancelled · 输出：${"O".repeat(300)}…[截断 1 字符]`);
+		expect(rendered).toContain(`custom_message[hook]：${"C".repeat(300)}…[截断 1 字符]`);
+		expect(rendered).toContain("custom_message[extension]：CUSTOM_TEXT (image)");
+		for (const hidden of ["HIDDEN_IMAGE", "HIDDEN_SYSTEM", "HIDDEN_UNKNOWN"]) expect(rendered).not.toContain(hidden);
+	});
+
+	it.each([1, undefined])("migrates version=%s entries into an in-memory linear branch", async (version) => {
+		const path = await session("legacy", [
+			{ ...header("legacy"), version },
+			{ type: "message", timestamp, message: { role: "user", content: "LEGACY_REQUEST" } },
+			{ type: "compaction", timestamp, tokensBefore: 100, firstKeptEntryIndex: 1 },
+			{ type: "message", timestamp, message: { role: "assistant", content: [text("LEGACY_REPLY")], stopReason: "stop" } },
+		]);
+		const before = await readFile(path);
+		const result = await buildCards({ root, out });
+		expect(result).toMatchObject({ generated: 1, skipped: 0, sessionParseErrors: 0, unknownEntries: 0 });
+		expect(result.sessionVersions).toEqual({ "1": version === 1 ? 1 : 0, "2": 0, "3": 0, missing: version === undefined ? 1 : 0 });
+		const rendered = await card("legacy");
+		for (const value of ["LEGACY_REQUEST", "LEGACY_REPLY", "tokensBefore=100", "turns: 1"]) expect(rendered).toContain(value);
+		expect(await readFile(path)).toEqual(before);
+	});
+
+	it("counts session versions only after a card is generated", async () => {
+		for (const version of [1, 2, 3, undefined]) {
+			const id = `version-${version ?? "missing"}`;
+			await session(id, [{ ...header(id), version }, ...basic(id).slice(1)]);
+		}
+		await session("empty-version", [{ ...header("empty-version"), version: 2 }]);
+		const duplicate = await session("duplicate-version", basic("version-3"));
+		await utimes(duplicate, 1, 1);
+		expect(await buildCards({ root, out })).toMatchObject({
+			generated: 4, skipped: 2, skippedEmpty: 1, skippedDuplicate: 1, parseErrors: 0,
+			sessionVersions: { "1": 1, "2": 1, "3": 1, missing: 1 },
+		});
+	});
+
+	it("reports bounded invalid-header kinds without exposing arbitrary type values", async () => {
+		const headers = [
+			{ type: "span_start" }, { type: "custom" }, { type: "PRIVATE TYPE VALUE" },
+			{ type: "x".repeat(33) }, { type: 7 }, null, { type: "session", id: "bad/id" },
+		];
+		for (const [index, value] of headers.entries()) await session(`invalid-${index}`, [value]);
+		const result = run("build", "--root", root, "--out", out);
+		expect(result.status).toBe(0);
+		expect(JSON.parse(result.stdout)).toMatchObject({
+			generated: 0, skippedInvalidHeader: 7,
+			invalidHeaderKinds: { span_start: 1, custom: 1, other: 4, "session-bad-id": 1 },
+			sessionVersions: { "1": 0, "2": 0, "3": 0, missing: 0 },
+		});
+		for (const hidden of ["PRIVATE TYPE VALUE", "x".repeat(33), "bad/id"]) expect(result.stdout).not.toContain(hidden);
+	});
+
+	it.each(["{broken", "", " ".repeat(1024 * 1024 + 1)])("does not promote a later record when the first line cannot be parsed (case %#)", async (firstLine) => {
+		const path = await session("bad-first");
+		await writeFile(path, firstLine + "\n" + await readFile(path, "utf8"));
+		expect(await buildCards({ root, out })).toMatchObject({ generated: 0, skippedInvalidHeader: 1, invalidHeaderKinds: { unparseable: 1 } });
+		await expect(stat(join(out, "bad-first.md"))).rejects.toMatchObject({ code: "ENOENT" });
+	});
+
 	it.each(["toolUse", "error", "aborted", undefined])("explains a textless final assistant with stopReason=%s", async (stopReason) => {
 		await session("no-final", [...basic("no-final"), assistant("last", "a", [{ type: "toolCall", id: "call", name: "bash", arguments: {} }], { stopReason })]);
 		await buildCards({ root, out });
@@ -314,6 +388,7 @@ describe("session cards", () => {
 		expect(JSON.parse(result.stdout)).toEqual({
 			generated: 1, skipped: 0, skippedOversized: 0, skippedInvalidHeader: 0, skippedEmpty: 0, skippedDuplicate: 0,
 			traceMissing: 1, tracePartial: 0, parseErrors: 0, sessionParseErrors: 0, traceParseErrors: 0, unknownEntries: 0,
+			invalidHeaderKinds: {}, sessionVersions: { "1": 0, "2": 0, "3": 1, missing: 0 },
 		});
 		const rendered = await card("truncate");
 		for (const value of ["U".repeat(2000) + "…[截断 1 字符]", "V".repeat(1000) + "…[截断 1 字符]", "A".repeat(400) + "…[截断 3601 字符]", "A".repeat(4000) + "…[截断 1 字符]", "R".repeat(300) + "…[截断 1 字符]", "…[截断 61 字符]", "(thinking 15 字符)"]) expect(rendered).toContain(value);

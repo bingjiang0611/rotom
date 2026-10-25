@@ -46,6 +46,9 @@ async function readBounded(path) {
 		if (info.size > MAX_FILE) return { oversized: true, records: [], errors: 0 };
 		const records = [];
 		let errors = 0;
+		let firstLine = true;
+		let firstLineParsed = false;
+		let firstRecord;
 		let segments = [];
 		let lineBytes = 0;
 		function finishLine() {
@@ -55,11 +58,13 @@ async function readBounded(path) {
 				if (line) {
 					try {
 						const record = JSON.parse(line);
+						if (firstLine) { firstRecord = record; firstLineParsed = true; }
 						if (!record || typeof record !== "object" || Array.isArray(record)) errors++;
 						else records.push(record);
 					} catch { errors++; }
 				}
 			}
+			firstLine = false;
 			segments = [];
 			lineBytes = 0;
 		}
@@ -80,7 +85,7 @@ async function readBounded(path) {
 			}
 			if (lineBytes > 0) finishLine();
 		}
-		return { oversized: false, records, errors };
+		return { oversized: false, records, errors, firstRecord, firstLineParsed };
 	} finally { await handle.close(); }
 }
 
@@ -205,7 +210,15 @@ function renderCard(header, path, branch, trace, summary) {
 		if (SILENT_ENTRY_TYPES.has(entry.type)) continue;
 		if (entry.type !== "message") { summary.unknownEntries++; continue; }
 		const message = entry.message;
-		if (!message || !["user", "assistant", "toolResult"].includes(message.role)) { summary.sessionParseErrors++; continue; }
+		if (!message) { summary.sessionParseErrors++; continue; }
+		if (message.role === "system") continue;
+		if (message.role === "bashExecution") {
+			process.push(quote(`$ ${truncate(message.command, 200)} → exit=${message.exitCode ?? "unknown"}${message.cancelled ? " cancelled" : ""} · 输出：${truncate(message.output, 300)}`.replace(/\r?\n/g, " "))); continue;
+		}
+		if (message.role === "custom") {
+			process.push(quote(`custom_message[${message.customType}]：${truncate(contentText(message.content), 300).replace(/\r?\n/g, " ")}`)); continue;
+		}
+		if (!["user", "assistant", "toolResult"].includes(message.role)) { summary.unknownEntries++; continue; }
 		if (message.role === "user") {
 			process.push(`### 第 ${++turn} 轮 · user`);
 			if (turn > 1) process.push(quote(truncate(contentText(message.content), 1000)));
@@ -285,14 +298,28 @@ export async function buildCards({ root = join(homedir(), ".pi/agent/sessions"),
 	const summary = {
 		generated: 0, skipped: 0, skippedOversized: 0, skippedInvalidHeader: 0, skippedEmpty: 0, skippedDuplicate: 0,
 		traceMissing: 0, tracePartial: 0, parseErrors: 0, sessionParseErrors: 0, traceParseErrors: 0, unknownEntries: 0,
+		invalidHeaderKinds: Object.create(null), sessionVersions: { "1": 0, "2": 0, "3": 0, missing: 0 },
 	};
 	const written = new Set();
 	for (const { path } of await discover(root, cutoff, limit)) {
 		const loaded = await readBounded(path);
 		summary.sessionParseErrors += loaded.errors;
 		if (loaded.oversized) { summary.skippedOversized++; continue; }
-		const [header, ...entries] = loaded.records;
-		if (header?.type !== "session" || typeof header.id !== "string" || !/^[\w-]+$/.test(header.id)) { summary.sessionParseErrors++; summary.skippedInvalidHeader++; continue; }
+		const header = loaded.firstRecord;
+		if (header?.type !== "session" || typeof header.id !== "string" || !/^[\w-]+$/.test(header.id)) {
+			const kind = !loaded.firstLineParsed ? "unparseable" : header?.type === "session" ? "session-bad-id"
+				: typeof header?.type === "string" && /^[a-z_]{1,32}$/.test(header.type) ? header.type : "other";
+			increment(summary.invalidHeaderKinds, kind);
+			summary.sessionParseErrors++; summary.skippedInvalidHeader++; continue;
+		}
+		const entries = loaded.records.slice(1);
+		if ((header.version ?? 1) < 2) {
+			// v1 is a linear log. Only migrate this in-memory copy, never the source file.
+			for (const [index, entry] of entries.entries()) {
+				entry.id = `v1-${index}`;
+				entry.parentId = index === 0 ? null : `v1-${index - 1}`;
+			}
+		}
 		const branch = currentBranch(entries, summary);
 		if (!branch.length) { summary.skippedEmpty++; continue; }
 		if (written.has(header.id)) { summary.skippedDuplicate++; continue; }
@@ -308,6 +335,7 @@ export async function buildCards({ root = join(homedir(), ".pi/agent/sessions"),
 		await privateWrite(cardPath, renderCard(header, path, branch, trace, summary) + label);
 		written.add(header.id);
 		summary.generated++;
+		if (header.version === undefined || [1, 2, 3].includes(header.version)) increment(summary.sessionVersions, header.version ?? "missing");
 	}
 	summary.skipped = summary.skippedOversized + summary.skippedInvalidHeader + summary.skippedEmpty + summary.skippedDuplicate;
 	summary.parseErrors = summary.sessionParseErrors + summary.traceParseErrors;

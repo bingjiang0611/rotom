@@ -82,6 +82,8 @@ node rotom/evals/scripts/session-cards.mjs labels
 缺少 trace 标 missing，损坏、超限或未结束工具 span 标 partial，不把未知工具结果当成功。
 stdout 仅输出计数（labels 另含人工填写的类别计数），不输出会话正文。
 跳过按超限、无效 header、空会话、重复 ID 拆分；解析错误分别统计 session / trace，并保留总数。
+`invalidHeaderKinds` 仅输出受限 type 类别；`sessionVersions` 只统计已生成卡片的 1/2/3/missing 版本。
+缺少 version 或 version < 2 的会话在内存中重建线性分支，不回写输入；支持 bashExecution / custom 消息。
 真实卡片、标注及会话内容只留本机私有目录，绝不加入仓库或公开报告。
 
 ## 运行评测
