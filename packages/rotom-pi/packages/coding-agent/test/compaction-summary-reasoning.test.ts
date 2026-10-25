@@ -229,6 +229,41 @@ describe("generateSummary reasoning options", () => {
 		expect(JSON.stringify(requestContext.messages)).toContain("Additional focus: keep migration decisions");
 	});
 
+	it("keeps standing user directives and labels extension context in every summary prompt", async () => {
+		const history: AgentMessage[] = [
+			{ role: "user", content: "don't stop until M6 is done", timestamp: 1 },
+			{
+				role: "custom",
+				customType: "goal-contract",
+				content: "Goal mode is inactive.",
+				display: false,
+				timestamp: 2,
+			},
+		];
+		const preparation: CompactionPreparation = {
+			firstKeptEntryId: "entry-keep",
+			messagesToSummarize: history,
+			turnPrefixMessages: history,
+			isSplitTurn: true,
+			tokensBefore: 100,
+			previousSummary: "previous checkpoint",
+			fileOps: { read: new Set(), written: new Set(), edited: new Set() },
+			settings: { enabled: true, reserveTokens: 2000, keepRecentTokens: 20 },
+		};
+
+		await generateSummary(history, createModel(false), undefined, "test-key");
+		await compact(preparation, createModel(false), "test-key");
+
+		// Initial history, updated history and turn-prefix prompts.
+		expect(completeSimpleMock).toHaveBeenCalledTimes(3);
+		for (const [, context] of completeSimpleMock.mock.calls) {
+			const prompt = JSON.stringify((context as TranscriptContext).messages);
+			expect(prompt).toContain("[Extension message (goal-contract)]: Goal mode is inactive.");
+			expect(prompt).not.toContain("[User]: Goal mode is inactive.");
+			expect(prompt).toContain("a later status question, a finished milestone, or a pause does not revoke them");
+		}
+	});
+
 	it("rejects tool calls from conversation summaries", async () => {
 		completeSimpleMock.mockResolvedValueOnce(mockToolCallResponse);
 

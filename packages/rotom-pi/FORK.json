@@ -2,7 +2,7 @@
   "upstream": "https://github.com/earendil-works/pi",
   "revision": "4a080252f06caf63a525d7873c5d94d3c23887e0",
   "upstreamVersion": "1.4.0",
-  "forkVersion": "1.4.0-rotom.1",
+  "forkVersion": "1.4.0-rotom.2",
   "modelData": {
     "package": "@earendil-works/pi-ai@1.4.0",
     "integrity": "sha512-hQM/C4+1w8rHYACzDDf+0vQMnEnpzIop1tptIERVgR3ZeT/hHSzBNG8PaWPgxWQjqSeKCyBZSyp8uTT6eKK1pQ==",

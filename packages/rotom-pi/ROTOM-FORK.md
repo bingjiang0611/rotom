@@ -2,7 +2,8 @@
 
 本目录是 rotom 仓内维护的 Pi 源码，不是 sibling checkout、Git submodule 或已安装 node_modules 的副本。来源、上游 revision、fork 版本及明确省略的维护文件见 `FORK.json`；保留上游 MIT `LICENSE` 与 package identity。此目录的上游 README/CHANGELOG 描述上游工具，rotom 的实际产品合同以仓库根指南为准。
 
-- 当前基线：Pi 1.4.0，fork `1.4.0-rotom.1`。
+- 当前基线：Pi 1.4.0，fork `1.4.0-rotom.2`。
+- `1.4.0-rotom.2`：内置压缩、split-turn 前缀与分支摘要把扩展消息标为 `[Extension message (<customType>)]`，不再序列化成 `[User]`；摘要提示要求保留用户关于范围、自主推进和交付方式的长期指令，直到用户撤销或工作完成。见 `docs/agent/pi-1.4-migration.md`。
 - `1.4.0-rotom.1`：以上游 `v1.3.0` 为 base 三方合并 `v1.4.0`；保留压缩计时/usage、思考档位、并发 split-turn 摘要及 sibling 取消、文件列表去重、连接恢复与 Codemode direct-only 边界。产品层用原生 `defaultActive` 和 additive tree 恢复维持按需工具合同。见 `docs/agent/pi-1.4-migration.md`。
 - `1.3.0-rotom.4`：bash 额外剔除内部 `ROTOM_PRODUCT_VERSION`；公开 `PI_COMPUTER_USE_HEADLESS` 配置保持继承，避免 shell 子程序的 Computer Use 意外恢复前台模式。环境回归 4/4。
 - `1.3.0-rotom.3`：包含 `06697a9` 的 RPC settlement 修复（扩展延期续跑完成后才发布一次公开 `agent_settled`，保留最终取消状态），以及设计审查 #2 的 bash 内部环境变量剔除（默认与显式 spawn-hook env 均清理，宿主 env 不变）。

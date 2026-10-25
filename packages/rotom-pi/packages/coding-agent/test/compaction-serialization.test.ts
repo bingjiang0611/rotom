@@ -1,6 +1,6 @@
 import type { Message } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
-import { serializeConversation } from "../src/core/compaction/utils.ts";
+import { serializeConversation, serializeMessagesForSummary } from "../src/core/compaction/utils.ts";
 
 describe("serializeConversation", () => {
 	it("should truncate long tool results", () => {
@@ -105,5 +105,24 @@ describe("serializeConversation", () => {
 		const result = serializeConversation(messages);
 
 		expect(result).toBe('[Assistant]: visible reply\n\n[Assistant tool calls]: read(path="a.ts")');
+	});
+});
+
+describe("serializeMessagesForSummary", () => {
+	it("labels extension messages apart from user messages", () => {
+		const result = serializeMessagesForSummary([
+			{ role: "user", content: "don't stop until M6 is done", timestamp: 1 },
+			{
+				role: "custom",
+				customType: "goal-contract",
+				content: "Goal mode is inactive.",
+				display: false,
+				timestamp: 2,
+			},
+		]);
+
+		expect(result).toBe(
+			"[User]: don't stop until M6 is done\n\n[Extension message (goal-contract)]: Goal mode is inactive.",
+		);
 	});
 });

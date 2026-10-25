@@ -4,6 +4,7 @@
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { contentText, type Message } from "@earendil-works/pi-ai";
+import { convertToLlm } from "../messages.ts";
 
 // ============================================================================
 // File Operation Tracking
@@ -153,6 +154,36 @@ export function serializeConversation(messages: Message[]): string {
 
 	return parts.join("\n\n");
 }
+
+/**
+ * Serialize session messages for summarization.
+ *
+ * convertToLlm() turns extension messages into user messages, so the plain
+ * serializer labeled them `[User]`. Summarizers then recorded injected runtime
+ * context (for example a Goal-mode contract) as the user's own goals and
+ * constraints. Extension messages keep their own label here.
+ */
+export function serializeMessagesForSummary(messages: AgentMessage[]): string {
+	const parts: string[] = [];
+	for (const message of messages) {
+		if (message.role === "custom") {
+			const text = contentText(message.content, "");
+			if (text) parts.push(`[Extension message (${message.customType})]: ${text}`);
+			continue;
+		}
+		const serialized = serializeConversation(convertToLlm([message]));
+		if (serialized) parts.push(serialized);
+	}
+	return parts.join("\n\n");
+}
+
+/**
+ * Rules shared by every summarization prompt. Long tasks stalled after a
+ * compaction rewrote "don't stop until it is done" away because the latest user
+ * message was a status question.
+ */
+export const SUMMARY_SOURCE_RULES = `Standing user directives about scope, autonomy, or delivery (for example "don't stop until X is done" or "deliver everything at the end") belong in Constraints & Preferences, in the user's own words. They stay in force until the user revokes or replaces them or the work they cover is done; a later status question, a finished milestone, or a pause does not revoke them.
+[Extension message] entries are runtime context injected by extensions, not something the user said. Do not record them as the user's goals, constraints, or preferences.`;
 
 // ============================================================================
 // Summarization System Prompt

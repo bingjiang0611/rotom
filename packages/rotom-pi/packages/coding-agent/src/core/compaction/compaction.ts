@@ -24,7 +24,6 @@ import type {
 	Usage,
 } from "@earendil-works/pi-ai/compat";
 import { completeSimple } from "@earendil-works/pi-ai/compat";
-import { convertToLlm } from "../messages.ts";
 import {
 	buildSessionProjection,
 	type CompactionEntry,
@@ -41,7 +40,8 @@ import {
 	type FileOperations,
 	formatFileOperations,
 	SUMMARIZATION_SYSTEM_PROMPT,
-	serializeConversation,
+	SUMMARY_SOURCE_RULES,
+	serializeMessagesForSummary,
 } from "./utils.ts";
 
 // ============================================================================
@@ -547,7 +547,9 @@ Use this EXACT format:
 - [Any data, examples, or references needed to continue]
 - [Or "(none)" if not applicable]
 
-Keep each section concise. Preserve exact file paths, function names, and error messages.`;
+Keep each section concise. Preserve exact file paths, function names, and error messages.
+
+${SUMMARY_SOURCE_RULES}`;
 
 const UPDATE_SUMMARIZATION_INSTRUCTIONS = `Update the existing structured summary with new information. RULES:
 - REWRITE the summary as the current state of the work, not as a log that only grows
@@ -587,7 +589,9 @@ Use this EXACT format:
 ## Critical Context
 - [Preserve important context, add new if needed]
 
-Keep each section concise. Preserve exact file paths, function names, and error messages.`;
+Keep each section concise. Preserve exact file paths, function names, and error messages.
+
+${SUMMARY_SOURCE_RULES}`;
 
 const UPDATE_SUMMARIZATION_PROMPT = `The messages above are NEW conversation messages to incorporate into the existing summary provided in <previous-summary> tags.
 
@@ -784,8 +788,7 @@ export async function generateSummaryWithUsage(
 
 	// Serialize conversation to text so model doesn't try to continue it
 	// Convert to LLM messages first (handles custom types like bashExecution, custom, etc.)
-	const llmMessages = convertToLlm(currentMessages);
-	const conversationText = serializeConversation(llmMessages);
+	const conversationText = serializeMessagesForSummary(currentMessages);
 
 	// Build the prompt with conversation wrapped in tags
 	let promptText = `<conversation>\n${conversationText}\n</conversation>\n\n`;
@@ -1011,7 +1014,9 @@ Create a concise checkpoint of the user's request and the progress shown above. 
 ## Context Needed to Continue
 - [Information from these messages needed to understand the later work]
 
-Only summarize information explicitly present above. Do not infer or recreate later messages.`;
+Only summarize information explicitly present above. Do not infer or recreate later messages.
+
+${SUMMARY_SOURCE_RULES}`;
 
 /**
  * Generate summaries for compaction using prepared data.
@@ -1162,8 +1167,7 @@ async function generateTurnPrefixSummary(
 	sessionId?: string,
 	customInstructions?: string,
 ): Promise<{ text: string; usage: Usage; metrics: SummarizationCallMetrics }> {
-	const llmMessages = convertToLlm(messages);
-	const conversationText = serializeConversation(llmMessages);
+	const conversationText = serializeMessagesForSummary(messages);
 	let promptText = `# Conversation\n${conversationText}\n\n# Instructions\n${TURN_PREFIX_SUMMARIZATION_PROMPT}`;
 	if (customInstructions) {
 		promptText = `${promptText}\n\nAdditional focus: ${customInstructions}`;

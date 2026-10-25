@@ -281,16 +281,17 @@ path/to/changed.ts
 
 ### Message Serialization
 
-Before summarization, messages are serialized to text via [`serializeConversation()`](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/src/core/compaction/utils.ts):
+Before summarization, built-in compaction and branch summaries serialize messages to text via `serializeMessagesForSummary()` in [`utils.ts`](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/src/core/compaction/utils.ts). It uses `serializeConversation()` for ordinary messages and labels extension messages separately, so injected runtime context is not summarized as something the user said:
 
 ```
 [User]: What they said
+[Extension message (goal-contract)]: Context injected by an extension
 [Assistant]: Response text
 [Assistant tool calls]: read(path="foo.ts"); edit(path="bar.ts", ...)
 [Tool result]: Output from tool
 ```
 
-This prevents the model from treating it as a conversation to continue.
+This prevents the model from treating it as a conversation to continue. Every built-in summary prompt also asks the model to keep standing user directives about scope, autonomy, or delivery in Constraints & Preferences until the user revokes them or the work is done.
 
 Thinking blocks are omitted. Providers return summaries of the real reasoning, and replayed thinking is often not part of the model's live context, so including it could make the summarization request larger than the context it summarizes.
 

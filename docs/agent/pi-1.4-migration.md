@@ -61,3 +61,17 @@ macOS checkout 位于 `/tmp` 时先 `cd` 到 `pwd -P` 的 canonical 路径，避
 本次提交的文件大小门禁报告 103 个文件超过 20,000 bytes，其中 101 个为 Pi fork 文件，另外两个为已有的 `CLAUDE.md` 与第三方集成测试。用户明确批准仅此次同步的一次性豁免；不修改门禁规则，不把上游大文件机械拆分，也不豁免构建、行为测试或公开审计。
 
 未做真实 Provider/付费调用、真实 Chrome 或桌面 TUI 验收；没有执行 npm publish、pack:release 或替换存活安装。分类器图片、CJK 显示、并发对话框及压缩费用/延迟的真实外部结果仍未验证；离线测试不替代这些验收。
+
+## 1.4.0-rotom.2：压缩摘要保留长期指令
+
+真实会话中出现两类摘要偏差：
+
+- 扩展消息（如 Goal 的 `goal-contract`）经 `convertToLlm()` 变成 user 消息，摘要输入里标成 `[User]`。摘要把“Goal 模式未启用、不得调用 Goal 工具”写进 `## Goal`，像是用户本人的目标。
+- 用户先说“不要停下，直到完成整体功能”，之后问“目前什么进度了”。下一次压缩按最新消息重写，丢掉了这条长期指令，随后模型多次停下等待。
+
+修复：
+
+- `compaction/utils.ts` 新增 `serializeMessagesForSummary()`。扩展消息标为 `[Extension message (<customType>)]`，其他消息仍用 `serializeConversation()`。公开的 `serializeConversation()` 行为不变。
+- 初次、增量、split-turn 前缀和分支摘要提示都追加 `SUMMARY_SOURCE_RULES`：范围、自主推进和交付方式的长期指令按用户原话放进 Constraints & Preferences，直到用户撤销、替换或工作完成；进度询问、阶段完成或暂停不算撤销；扩展消息不是用户目标或约束。
+
+验证：`compaction-serialization` 与 `compaction-summary-reasoning` 新增回归，回退源码后两者失败；压缩、分支摘要与 bug-report 相关 vitest 25 文件通过。这只证明提示与序列化输入正确，不证明真实模型一定照做；摘要质量需要真实长会话回放验证。
