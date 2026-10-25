@@ -4,6 +4,15 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { createPiCodingAgentHarness, type PiCodingAgentHarnessOptions, type PiCodingAgentScenario } from "./pi-harness.ts";
 import { createReplayMetrics } from "./compaction-offload-metrics.ts";
+import type { ReplayAuthorization } from "./compaction-offload-budget.ts";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+
+// Synchronized with tasks/04-paid-replay.md, commit 3a919229. Execution is
+// separately gated; this implementation/testing task does not consume it.
+export const LIVE_AUTHORIZATION: Readonly<ReplayAuthorization> | null = Object.freeze({
+	id: "3a919229e91eb6a5b935cf02ec38f271dee21b17", provider: "openai-codex", model: "gpt-5.6-luna", thinking: "low",
+	maxRepetitions: 3, maxRequests: 2000, maxInputTokens: 100_000_000,
+});
 
 export const REPLAY_PRODUCT = resolve(import.meta.dirname, "../..");
 // A 40K line leaves too little room for default 20K recent history plus product
@@ -85,12 +94,17 @@ export async function gradeReplay(selected: ReplayTask, workspace: string, respo
 	return !selected.check || spawnSync(process.execPath, [selected.check], { cwd: workspace, timeout: 5000 }).status === 0;
 }
 
-export function createReplayHarness(selected: ReplayTask, candidate: boolean, options: Required<Pick<PiCodingAgentHarnessOptions, "model" | "modelRuntimeFactory">> & Pick<PiCodingAgentHarnessOptions, "piExecutable">) {
+export function createReplayHarness(selected: ReplayTask, candidate: boolean, options: Required<Pick<PiCodingAgentHarnessOptions, "model" | "modelRuntimeFactory">> & Pick<PiCodingAgentHarnessOptions, "piExecutable" | "thinkingLevel">) {
 	const metrics = createReplayMetrics();
+	let lastBranch: SessionEntry[] | undefined;
+	let hasPricing = false;
 	const harness = createPiCodingAgentHarness({
 		...options, name: candidate ? "candidate" : "baseline", productAgentDir: REPLAY_PRODUCT,
 		piExecutable: options.piExecutable ?? resolve(REPLAY_PRODUCT, "runtime/pi/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js"),
-		thinkingLevel: "off", tools: [...REPLAY_TOOLS], inlineExtensions: [metrics.extension], inlineExtensionsFirst: true,
+		thinkingLevel: options.thinkingLevel ?? "off", tools: [...REPLAY_TOOLS],
+		inlineExtensions: [metrics.extension, (pi) => {
+			pi.on("session_shutdown", (_event, ctx) => { lastBranch = ctx.sessionManager.getBranch(); });
+		}], inlineExtensionsFirst: true,
 		environment: { ROTOM_COMPACTION_OFFLOAD: candidate ? "1" : "0", PI_CODING_AGENT_DIR: undefined },
 		async setupWorkspace({ workspace, configDir }) {
 			// Executed inside the harness's exclusive/restoring environment scope.
@@ -108,15 +122,19 @@ export function createReplayHarness(selected: ReplayTask, candidate: boolean, op
 		async output({ session, workspace, response }) {
 			const correct = await gradeReplay(selected, workspace, response);
 			const cost = session.model?.cost;
-			const hasPricing = !!cost && Object.values(cost).some((n) => typeof n === "number" && n > 0);
+			hasPricing = !!cost && Object.values(cost).some((n) => typeof n === "number" && n > 0);
 			return metrics.output(session.sessionManager.getBranch(), correct, hasPricing);
 		},
 	});
 	const run: typeof harness.run = async (input, context) => {
 		const started = performance.now();
+		lastBranch = undefined;
+		hasPricing = false;
 		const result = await harness.run(input, context);
 		// Include workspace/loader setup, grading, shutdown and artifact capture.
 		return { ...result, output: { ...result.output, wallMs: performance.now() - started } };
 	};
-	return { ...harness, run };
+	return { ...harness, run,
+		failureMetrics: () => lastBranch ? metrics.output(lastBranch, false, hasPricing) : null,
+	};
 }

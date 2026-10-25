@@ -1,6 +1,6 @@
-# 任务 04a · 零费用受控回放报告
+# 任务 04 · 受控回放报告
 
-## 结论与范围
+## 04a 历史结论（最新状态见末节）
 
 基于 `8c10047a` 完成 04a：三个固定合成任务、确定性判分、同产品开关对照、事件/usage 指标、faux 测试与费用量级预估。专项 12/12、实际 case 的 N=3 faux 回放 18/18 通过；全量 eval 单测在显式选择当前产品 Pi 后 110 passed / 1 既有条件跳过，typecheck 通过。
 
@@ -179,3 +179,23 @@ ROTOM_EVAL_COMPACTION_OFFLOAD=1 ROTOM_EVAL_PROVIDER=rotom-offload-faux \
 提醒（不阻塞）：faux 的 input 代理量每次运行约 1.8M，是因为 50 多轮、每轮重发 40–64K 上下文。真实 provider 通常有前缀缓存，大部分会计成 cacheRead；04b 报告要把 input / cacheRead / cacheWrite 分开列，不能只看 input 总量判断费用。
 
 规划者自身问题：`ba9288f` 等 6 个规划提交使用了 `Claude <noreply@anthropic.com>` 身份，触发历史审计。已不改写历史，之后的规划提交改用 `bingjiang0611@users.noreply.github.com`。
+
+## 04b 实现补记：本轮仅零费用
+
+已 pull 到 `3a919229`。授权常量同步为 `openai-codex/gpt-5.6-luna`、low、N≤3、2,000 请求、100M 合计输入；本轮不执行真实回放，不消费该授权。
+
+- 入口须原开关和 `ROTOM_EVAL_COMPACTION_OFFLOAD_LIVE=1` 同时启用；逐字核对模型/思考档位，拒绝空授权或超额 N。原凭据路径在隔离配置前捕获，只有执行时才读取。
+- 单 campaign 共享请求尝试及四项 usage 计数，含原生摘要；等待在途流结算，未知 usage 停止。当前失败行保留，剩余标 `not-run`。两臂固定 **SSE、maxRetries=0**：Codex 默认 WebSocket 内部重试/回退会绕过 SDK 调用计数，因此不能用来代表默认 WebSocket 性能。
+- 每行落盘并 fsync；默认 `~/.rotom/evals/compaction-offload/<时间戳>.jsonl`，0700/0600，拒绝工作树和符号链接目标。只保留指标、状态、源码版本和运行配置，不向 reporter 转交模型正文。本机独占 receipt 拦截同目录重跑；写入未知不补写、不续跑。
+- 从实际 model 元数据计算 `reserveTokens=contextWindow-64000`；faux 的 192K/320K 窗口均验证通过，SDK 摘要参数 maxTokens 均为空，keepRecent 默认不变。真实 adapter 的模型自身输出限制不等于 reserveTokens。
+
+| 检查 | 结果 |
+|---|---|
+| npm ci / typecheck | 通过；lock 未变，npm 仍报既有 8 项依赖告警 |
+| 原 04a 专项 / N=3 faux case | 12/12；18/18 |
+| live / entry 新专项 | 20/20：门禁、N、缓存计数、原生摘要、私有落盘、故障封停 |
+| npm test（按上文指定产品 Pi） | 130 passed / 1 既有条件 skip |
+| 预算负对照 | 暂停 admission 后 N+1 测试失败；逐字恢复后通过 |
+| diff / 公开审计 | diff 通过；tree 7,816 项 PASS；history 仅既有 12 项身份，0 新增，非全绿 |
+
+日志在 `/tmp/rotom-offload-04b.atvVW4`。仅修改 eval 与本报告，不改 packages/extensions，不安装、不升级。请求数上限严格阻止下一次派发；token 在回包后计量，在途请求可能越过 token 线。强杀或落盘失败只保证此前已同步行保留，当前行可能 unknown。真实账户、路由、服务端行为及性能尚未验证；评测模型费用为零，美元报价仍 unknown。需要执行真实回放时，由 bob 另行发起；中断后重新执行须新确认。

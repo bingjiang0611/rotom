@@ -1,4 +1,5 @@
 import { readFile, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { PiCodingAgentHarnessOptions } from "./pi-harness.ts";
@@ -8,13 +9,16 @@ export const FAUX_MODEL = { provider: "rotom-offload-faux", id: "replay" };
 export type FauxObservation = {
 	requests: { system: string; tools: string; summary: boolean; maxTokens: number | null; reads: number }[];
 	config: unknown; agentDirMatches: boolean; summaryCalls: number; workspace?: string;
+	settings?: { compaction: { reserveTokens: number; keepRecentTokens?: number }; retry: { enabled: boolean } };
+	reasoning?: string;
+	requestControls?: { transport?: string; maxRetries?: number }[];
 };
 /** Only scripted local responses. No credentials, network provider, or generated judgment. */
-export function replayFaux(selected: ReplayTask, observation: FauxObservation, stress = false): NonNullable<PiCodingAgentHarnessOptions["modelRuntimeFactory"]> {
+export function replayFaux(selected: ReplayTask, observation: FauxObservation, stress = false, profile = { model: FAUX_MODEL, contextWindow: 256_000, reasoning: false }): NonNullable<PiCodingAgentHarnessOptions["modelRuntimeFactory"]> {
 	return async ({ product, configDir }) => {
 		const { fauxProvider, fauxAssistantMessage, fauxToolCall } = await import(pathToFileURL(resolve(product.verified.packageRoot, "../pi-ai/dist/providers/faux.js")).href);
 		const { getCurrentSystemPrompt, getCurrentTools } = await import(pathToFileURL(resolve(product.verified.packageRoot, "../pi-ai/dist/index.js")).href);
-		const faux = fauxProvider({ provider: FAUX_MODEL.provider, models: [{ id: FAUX_MODEL.id, contextWindow: 256_000, maxTokens: 4096 }] });
+		const faux = fauxProvider({ provider: profile.model.provider, models: [{ id: profile.model.id, contextWindow: profile.contextWindow, maxTokens: 4096, reasoning: profile.reasoning }] });
 		observation.config = JSON.parse(await readFile(join(configDir, "sol-pi.json"), "utf8"));
 		observation.agentDirMatches = product.runtime.getAgentDir() === configDir;
 		observation.workspace = resolve(configDir, "../workspace");
@@ -27,6 +31,9 @@ export function replayFaux(selected: ReplayTask, observation: FauxObservation, s
 		let callId = 0, ordinaryWait = 0;
 		const call = (name: string, args: Record<string, unknown>) => fauxAssistantMessage(fauxToolCall(name, args, { id: `scripted-${++callId}` }), { stopReason: "toolUse" });
 		const response = (context: any, options: any) => {
+			observation.settings ??= JSON.parse(readFileSync(join(configDir, "settings.json"), "utf8"));
+			observation.reasoning = options.reasoning;
+			(observation.requestControls ??= []).push({ transport: options.transport, maxRetries: options.maxRetries });
 			// Fix faux accounting to uncached input; this is not a cache-price prediction.
 			options.cacheRetention = "none";
 			const systems = context.messages.filter((m: any) => m.role === "system");
