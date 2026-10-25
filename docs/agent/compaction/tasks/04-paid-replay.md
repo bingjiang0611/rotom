@@ -92,6 +92,15 @@ python3 scripts/audit-public.py --root .
 - 运行产物（session、trace）只留在本机私有目录，不进仓库；报告只写聚合表和每次运行的指标行（不含任何模型输出正文）。
 - 记录两臂的源码 commit、模型/provider、thinking、阈值设置、N、实际花费（provider 报告的或按 usage 估算，注明哪种）。
 
+## 04b 实现要求（零费用部分，可在授权前完成）
+
+04a 的入口故意拒绝真实 provider。04b 要先补一条真实运行路径，补完后用 faux 证明预算停止生效，再等授权记录：
+
+1. 新开关 `ROTOM_EVAL_COMPACTION_OFFLOAD_LIVE=1` 才允许真实 provider；同时要求 `ROTOM_EVAL_PROVIDER`、`ROTOM_EVAL_MODEL`、`ROTOM_EVAL_THINKING` 与本文件「授权记录」里的值逐字一致，`ROTOM_EVAL_REPETITIONS` 不超过授权的 N，否则启动即报错、不发请求。授权值写在 `src/compaction-offload-cases.ts` 的常量里（由规划者填写的记录同步过去），不要从文档运行时解析。
+2. 预算熔断：进程内累计所有运行的 provider 请求数和 usage（input、output、cacheRead、cacheWrite 分开），任一项超过授权上限就在下一次请求前中止当前运行，并跳过剩余运行（标 `not-run`）。用 faux 写测试证明：上限设得很小时，第 N 次请求后确实停下，且已完成运行的指标完整写出。
+3. 每次运行结束把指标行追加到本机私有目录（默认 `~/.rotom/evals/compaction-offload/<时间戳>.jsonl`，目录 0700、文件 0600，拒绝位于 Git 工作树内），这样中途停下也不丢数据。只写指标，不写模型输出正文。
+4. 阈值：按所选模型的真实 `contextWindow` 重算 `reserveTokens`，保持阈值 64K；重新核实该运行时下摘要请求不设 maxTokens。
+
 ## 授权记录
 
 （空。bob 确认后由规划者填写。）

@@ -158,3 +158,24 @@ ROTOM_EVAL_COMPACTION_OFFLOAD=1 ROTOM_EVAL_PROVIDER=rotom-offload-faux \
 从 GitHub 单分支、无 tags 的独立公开 clone 重放本次 diff；暂存树须与通过验证的 worktree 一致，不携带共享维护仓其他 refs。仅向 compaction/offload-first 提交/推送，不推 main，提交后历史复核不得新增命中。会话、trace、完整本机检查日志不提交；没有后台服务、真实模型请求或安装升级。
 
 **04b 下一步 owner：bob / 规划者。** 先确认模型、thinking=off 是否适用、N 和预算上限并填写任务末尾授权记录；执行者后续还需接真实模型 runtime、累计预算停止/失败保留与授权核对，重新验证所选模型的阈值/摘要预算。当前入口故意不提供真实模型执行路径，不把 04a 完成冒充 04b 可直接收费运行。
+
+## 核验意见（规划者，2026-10-25）
+
+结论：**04a accepted**（`bc41304`）。
+
+重跑结果（cloud 环境，Linux；先在 Node 22 上跑，专项因产品 Node ≥24 门禁失败，换 Node v24.22.1 后重跑）：
+
+- `npm ci` 通过；`test/compaction-offload-eval.test.ts` 12/12。
+- 按报告方法选当前产品 Pi 后 `npm test`：15 文件，110 passed / 1 skipped；`npm run typecheck` 通过。
+- 显式启用 faux case、N=3：18/18。
+- `git diff --check origin/main...HEAD` 通过；`packages/` 与 `rotom/extensions/` 相对 `8c10047` 无改动；`audit-public.py` tracked-tree PASS。
+
+审阅要点：
+
+- 两处 harness 修复理由成立。`session_before_compact` 被取消后不再调用后续 handler，探针必须排在产品 extension 前面；压缩会重建 messages，按 `messages.length` 找回复确实会丢。改动都是 opt-in 或保持原语义，既有 harness 测试仍过。
+- 阈值从 40K 调到 64K 有负对照证据，合理。摘要请求不设 maxTokens 的结论绑定当前 Pi 版本，04b 换运行时要重验，报告已写明。
+- 用 `PI_CODING_AGENT_DIR` 让 SoL-Pi 配置读到本次 configDir，两臂配置逐项断言一致，可以。
+
+提醒（不阻塞）：faux 的 input 代理量每次运行约 1.8M，是因为 50 多轮、每轮重发 40–64K 上下文。真实 provider 通常有前缀缓存，大部分会计成 cacheRead；04b 报告要把 input / cacheRead / cacheWrite 分开列，不能只看 input 总量判断费用。
+
+规划者自身问题：`ba9288f` 等 6 个规划提交使用了 `Claude <noreply@anthropic.com>` 身份，触发历史审计。已不改写历史，之后的规划提交改用 `bingjiang0611@users.noreply.github.com`。
