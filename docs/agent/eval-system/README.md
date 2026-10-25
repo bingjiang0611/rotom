@@ -36,7 +36,7 @@
 | 04 | [规则与人工标注的一致性报告](tasks/04-agreement-report.md) | Phase 2 | accepted |
 | 05 | 第一个 LLM judge | Phase 2 | 失败样本不足（4 个，需约 20 个），暂缓 |
 | 06 | [GitHub Actions L1（只跑 eval 相关测试）](tasks/06-ci-l1.md) | Phase 3 | accepted |
-| 07 | [每周闭环：周报 + 每周 10 张卡片](tasks/07-weekly-loop.md) | Phase 4 | ready（等 bob 确认方向） |
+| 07 | [每周闭环：周报 + 每周 10 张卡片](tasks/07-weekly-loop.md) | Phase 4 | 已规划，暂停（bob 2026-10-25 选择先停在这里） |
 | 08 | [每周效率统计 + 只挑可疑会话补标](tasks/08-efficiency-stats.md) | Phase 2 | accepted |
 | 09 | [工具出错与 provider 出错拆解](tasks/09-error-breakdown.md) | Phase 2 | accepted |
 | 10 | [给 edit 失败补上原因码](tasks/10-edit-error-codes.md) | Phase 2 | accepted |
