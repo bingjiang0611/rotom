@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { appendFile, chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, truncate, utimes, writeFile } from "node:fs/promises";
+import { appendFile, chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, truncate, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildCards, collectLabels } from "../scripts/session-cards.mjs";
+import { buildCards, collectLabels, sessionStats } from "../scripts/session-cards.mjs";
 
 const cli = fileURLToPath(new URL("../scripts/session-cards.mjs", import.meta.url));
 const timestamp = "2026-01-01T00:00:00.000Z";
@@ -27,7 +27,7 @@ const assistant = (id: string, parentId: string, content: unknown, extra = {}) =
 });
 const basic = (id: string) => [header(id), message("u", null, "user", "SYNTHETIC_REQUEST"), assistant("a", "u", [text("SYNTHETIC_REPLY")])];
 const digest = (id: string) => createHash("sha256").update(id).digest("hex");
-const span = (kind: string, spanId: string, attributes: Record<string, string>, traceId = "trace") => ({
+const span = (kind: string, spanId: string, attributes: Record<string, string | number>, traceId = "trace") => ({
 	schema: "rotom-local-trace/v1", kind, spanId, traceId, name: "pi.tool.execute", attributes,
 });
 
@@ -515,4 +515,89 @@ describe("session cards", () => {
 		expect(await collectLabels({ out })).toMatchObject({ labeled: 0 });
 		expect((await card("spoof")).match(/<!-- label:begin -->/g)).toHaveLength(1);
 	});
+	it("aggregates weekly and per-model metrics on stdout and keeps session ids in private files", async () => {
+		const calls = ["c1", "c2"];
+		await session("alpha", [header("alpha"), message("u", null, "user", "SYNTHETIC_REQUEST"),
+			assistant("a", "u", [text("SYNTHETIC_REPLY"), ...calls.map((id) => ({ type: "toolCall", id, name: "bash", arguments: {} }))])]);
+		await trace("alpha", calls.flatMap((id, index) => [
+			span("span_start", id, { "pi.tool.call_id_digest": digest(id) }),
+			span("span_end", id, { "pi.tool.call_id_digest": digest(id), "pi.tool.outcome": index === 0 ? "error" : "ok", "pi.tool.result_text_bytes": 16 }),
+		]));
+		await session("beta", [header("beta"), message("u", null, "user", "SYNTHETIC_REQUEST"), assistant("a", "u", [text("SYNTHETIC_REPLY")])]);
+		const result = run("stats", "--root", root, "--out", out);
+		expect(result.status).toBe(0);
+		expect(result.stderr).toBe("");
+		expect(result.stdout).not.toContain("alpha");
+		expect(result.stdout).not.toContain("beta");
+		const printed = JSON.parse(result.stdout);
+		expect(printed.sessions).toBe(2);
+		expect(printed.weeks).toHaveLength(1);
+		expect(printed.weeks[0]).toMatchObject({ week: "2026-W01", sessions: 2 });
+		expect(printed.weeks[0].toolErrorRate).toEqual({ n: 1, errors: 1, endedSpans: 2, rate: 0.5 });
+		expect(printed.models).toEqual([expect.objectContaining({ model: "synthetic/fixture", sessions: 2 })]);
+		const markdown = join(dirname(out), "stats.md");
+		expect(await readFile(markdown, "utf8")).toContain("alpha");
+		expect(((await stat(markdown)).mode & 0o777)).toBe(0o600);
+		const rows = (await readFile(join(dirname(out), "stats.jsonl"), "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+		expect(((await stat(join(dirname(out), "stats.jsonl"))).mode & 0o777)).toBe(0o600);
+		expect(rows.sort((a, b) => a.sessionId.localeCompare(b.sessionId))).toEqual([
+			expect.objectContaining({ sessionId: "alpha", toolErrors: 1, endedToolSpans: 2, week: "2026-W01" }),
+			expect.objectContaining({ sessionId: "beta", toolErrors: null, toolErrorRate: null, costUsd: null, costPartial: true }),
+		]);
+	});
+
+	it("rejects stats output inside a Git worktree and the build-only limit argument", async () => {
+		await session("stat-cli");
+		const repo = join(directory, "repo");
+		await mkdir(join(repo, ".git"), { recursive: true });
+		await expect(sessionStats({ root, out: join(repo, "cards") })).rejects.toThrow("Git worktrees");
+		expect(run("stats", "--root", root, "--out", out, "--limit", "5").status).not.toBe(0);
+		expect(run("stats", "--root", root, "--out", out, "--focus").status).not.toBe(0);
+	});
+
+	it("builds only suspicious cards for --focus and treats --limit as a card cap", async () => {
+		const failing = ["c1", "c2", "c3", "c4", "c5"];
+		await session("clean");
+		await session("failing", [header("failing"), message("u", null, "user", "SYNTHETIC_REQUEST"),
+			assistant("a", "u", [text("SYNTHETIC_REPLY"), ...failing.map((id) => ({ type: "toolCall", id, name: "bash", arguments: {} }))])]);
+		await trace("failing", failing.flatMap((id) => [
+			span("span_start", id, { "pi.tool.call_id_digest": digest(id) }),
+			span("span_end", id, { "pi.tool.call_id_digest": digest(id), "pi.tool.outcome": "error", "pi.tool.result_text_bytes": 1 }),
+		]));
+		await session("huge", [header("huge"), message("u", null, "user", "SYNTHETIC_REQUEST"),
+			assistant("a", "u", [text("SYNTHETIC_REPLY"), { type: "toolCall", id: "big", name: "bash", arguments: {} }])]);
+		await trace("huge", [
+			span("span_start", "big", { "pi.tool.call_id_digest": digest("big") }),
+			span("span_end", "big", { "pi.tool.call_id_digest": digest("big"), "pi.tool.outcome": "ok", "pi.tool.result_text_bytes": 60_000 }),
+		]);
+		await session("textless", [header("textless"), message("u", null, "user", "SYNTHETIC_REQUEST"), assistant("a", "u", [])]);
+		await session("provider-error", [header("provider-error"), message("u", null, "user", "SYNTHETIC_REQUEST"),
+			assistant("a", "u", [text("SYNTHETIC_REPLY")], { stopReason: "error" })]);
+		const capped = await buildCards({ root, out, focus: true, limit: 1 });
+		expect(capped).toMatchObject({ generated: 1, focusMatched: 1, skipped: 0 });
+		expect(capped.focusScanned).toBeLessThanOrEqual(5);
+		expect(Object.values(capped.focusConditions ?? {}).reduce((sum, count) => sum + count, 0)).toBeGreaterThanOrEqual(1);
+		expect((await readdir(out)).length).toBe(1);
+		const all = await buildCards({ root, out, focus: true, limit: 40 });
+		expect(all).toMatchObject({ generated: 4, focusMatched: 4, focusScanned: 5 });
+		expect(all.focusConditions).toEqual({ toolErrors: 1, ruleHit: 2, endedWithoutFinalText: 1, endedOnProviderError: 1 });
+		await expect(card("clean")).rejects.toThrow();
+		expect((await readdir(out)).sort()).toEqual(["failing.md", "huge.md", "provider-error.md", "textless.md"].sort());
+	});
+
+	it("keeps existing labels when rebuilding in focus mode", async () => {
+		const failing = ["c1", "c2", "c3", "c4", "c5"];
+		await session("labelled", [header("labelled"), message("u", null, "user", "SYNTHETIC_REQUEST"),
+			assistant("a", "u", [text("SYNTHETIC_REPLY"), ...failing.map((id) => ({ type: "toolCall", id, name: "bash", arguments: {} }))])]);
+		await trace("labelled", failing.flatMap((id) => [
+			span("span_start", id, { "pi.tool.call_id_digest": digest(id) }),
+			span("span_end", id, { "pi.tool.call_id_digest": digest(id), "pi.tool.outcome": "error", "pi.tool.result_text_bytes": "1" }),
+		]));
+		await expect(buildCards({ root, out, focus: true, limit: 5 })).resolves.toMatchObject({ generated: 1 });
+		const kept = await label("labelled", "pass", "synthetic", "kept");
+		await expect(buildCards({ root, out, focus: true, limit: 5 })).resolves.toMatchObject({ generated: 1 });
+		expect(await card("labelled")).toContain(kept);
+		expect(await collectLabels({ out })).toMatchObject({ labeled: 1, pass: 1 });
+	});
+
 });

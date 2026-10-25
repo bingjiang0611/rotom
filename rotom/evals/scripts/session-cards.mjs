@@ -10,6 +10,7 @@ import { StringDecoder } from "node:string_decoder";
 import { evaluateSession, RULE_IDS } from "./trace-assertions.mjs";
 import { computeAgreement, renderAgreementMarkdown } from "./agreement.mjs";
 import { runReview } from "./review.mjs";
+import { aggregateMetrics, focusCandidate, sessionMetrics } from "./session-metrics.mjs";
 
 const MAX_FILE = 256 * 1024 * 1024;
 const MAX_LINE = 64 * 1024 * 1024;
@@ -301,79 +302,207 @@ async function privateWrite(path, content) {
 	}
 }
 
-/** Build private cards without changing session or trace inputs. */
-export async function buildCards({ root = join(homedir(), ".pi/agent/sessions"), out = DEFAULT_OUT, since, limit = 50 } = {}) {
-	if (!Number.isInteger(limit) || limit < 1 || limit > 500) throw new Error("Limit must be between 1 and 500");
-	if (since !== undefined && !/^\d+[dh]$/.test(since)) throw new Error("Since must be Nd or Nh");
-	const cutoff = since === undefined ? -Infinity : Date.now() - Number(since.slice(0, -1)) * (since.endsWith("d") ? 86400000 : 3600000);
-	const info = await lstat(resolve(root));
-	if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("Invalid session root");
-	root = await realpath(root);
-	out = await outputDirectory(out);
-	const rel = relative(root, out);
-	if (rel === "" || (!rel.startsWith(`..${sep}`) && rel !== ".." && !isAbsolute(rel))) throw new Error("Output must not be inside session root");
-	await mkdir(out, { recursive: true, mode: 0o700 });
-	await chmod(out, 0o700);
-	const summary = {
+function newSummary() {
+	return {
 		generated: 0, skipped: 0, skippedOversized: 0, skippedInvalidHeader: 0, skippedEmpty: 0, skippedDuplicate: 0,
 		traceMissing: 0, tracePartial: 0, parseErrors: 0, sessionParseErrors: 0, traceParseErrors: 0, unknownEntries: 0,
 		invalidHeaderKinds: Object.create(null), invalidHeaderKeySets: Object.create(null), sessionVersions: { "1": 0, "2": 0, "3": 0, missing: 0 },
 		badJson: 0, lineTooLong: 0, entryMissingId: 0, danglingParent: 0, cycle: 0, messageMissing: 0,
 		findings: Object.fromEntries(RULE_IDS.map((rule) => [rule, { hit: 0, clear: 0, unknown: 0 }])),
 	};
-	const written = new Set();
-	for (const { path } of await discover(root, cutoff, limit)) {
-		const loaded = await readBounded(path);
-		summary.badJson += loaded.badJson;
-		summary.lineTooLong += loaded.lineTooLong;
-		if (loaded.oversized) { summary.skippedOversized++; continue; }
-		const header = loaded.firstRecord;
-		// A Pi-valid header ID must also stay within one output filename.
-		const safeId = typeof header?.id === "string" && !/[\/\\\u0000-\u001f\u007f]/.test(header.id) && !header.id.includes("..");
-		if (loaded.firstNonemptyTooLong || header?.type !== "session" || !safeId) {
-			let kind = "other";
-			if (loaded.firstNonemptyTooLong) kind = "line-too-long";
-			else if (!loaded.firstRecordParsed) kind = "unparseable";
-			else if (header?.type === undefined) kind = "missing-type";
-			else if (header.type === "session") kind = "session-bad-id";
-			else if (typeof header.type === "string" && /^[a-z_]{1,32}$/.test(header.type)) kind = header.type;
-			increment(summary.invalidHeaderKinds, kind);
-			const keys = header && typeof header === "object" && !Array.isArray(header) ? Object.keys(header).sort() : undefined;
-			const keySet = keys?.every((key) => /^[A-Za-z_]{1,32}$/.test(key)) ? keys.join(",") : "other";
-			increment(summary.invalidHeaderKeySets, keySet);
-			summary.skippedInvalidHeader++; continue;
+}
+
+function finishSummary(summary) {
+	summary.skipped = summary.skippedOversized + summary.skippedInvalidHeader + summary.skippedEmpty + summary.skippedDuplicate;
+	summary.sessionParseErrors = summary.badJson + summary.lineTooLong + summary.entryMissingId + summary.danglingParent + summary.cycle + summary.messageMissing;
+	summary.parseErrors = summary.sessionParseErrors + summary.traceParseErrors;
+	return summary;
+}
+
+function countSkip(summary, reason) {
+	if (reason === "oversized") summary.skippedOversized++;
+	else if (reason === "invalidHeader") summary.skippedInvalidHeader++;
+	else if (reason === "empty") summary.skippedEmpty++;
+	else summary.skippedDuplicate++;
+}
+
+/** Shared by build and stats: bounded read, header validation, branch reconstruction,
+ * trace association and rule evaluation. Never writes the session or trace input. */
+async function loadSession(path, summary, seen) {
+	const loaded = await readBounded(path);
+	summary.badJson += loaded.badJson;
+	summary.lineTooLong += loaded.lineTooLong;
+	if (loaded.oversized) return { reason: "oversized" };
+	const header = loaded.firstRecord;
+	// A Pi-valid header ID must also stay within one output filename.
+	const safeId = typeof header?.id === "string" && !/[/\\\u0000-\u001f\u007f]/.test(header.id) && !header.id.includes("..");
+	if (loaded.firstNonemptyTooLong || header?.type !== "session" || !safeId) {
+		let kind = "other";
+		if (loaded.firstNonemptyTooLong) kind = "line-too-long";
+		else if (!loaded.firstRecordParsed) kind = "unparseable";
+		else if (header?.type === undefined) kind = "missing-type";
+		else if (header.type === "session") kind = "session-bad-id";
+		else if (typeof header.type === "string" && /^[a-z_]{1,32}$/.test(header.type)) kind = header.type;
+		increment(summary.invalidHeaderKinds, kind);
+		const keys = header && typeof header === "object" && !Array.isArray(header) ? Object.keys(header).sort() : undefined;
+		const keySet = keys?.every((key) => /^[A-Za-z_]{1,32}$/.test(key)) ? keys.join(",") : "other";
+		increment(summary.invalidHeaderKeySets, keySet);
+		return { reason: "invalidHeader" };
+	}
+	const entries = loaded.records.slice(1);
+	if ((header.version ?? 1) < 2) {
+		// v1 is a linear log. Only migrate this in-memory copy, never the source file.
+		for (const [index, entry] of entries.entries()) {
+			entry.id = `v1-${index}`;
+			entry.parentId = index === 0 ? null : `v1-${index - 1}`;
 		}
-		const entries = loaded.records.slice(1);
-		if ((header.version ?? 1) < 2) {
-			// v1 is a linear log. Only migrate this in-memory copy, never the source file.
-			for (const [index, entry] of entries.entries()) {
-				entry.id = `v1-${index}`;
-				entry.parentId = index === 0 ? null : `v1-${index - 1}`;
-			}
+	}
+	const branch = currentBranch(entries, summary);
+	if (!branch.length) return { reason: "empty" };
+	if (seen.has(header.id)) return { reason: "duplicate" };
+	const trace = await readTrace(path, summary);
+	if (trace.status === "missing") summary.traceMissing++;
+	if (trace.status === "partial") summary.tracePartial++;
+	return { header, branch, trace, findings: evaluateSession({ branch, traceTools: trace.tools, traceStatus: trace.status }) };
+}
+
+function metricsOf(loaded) {
+	return sessionMetrics({ header: loaded.header, branch: loaded.branch, traceTools: loaded.trace.tools, traceStatus: loaded.trace.status, findings: loaded.findings });
+}
+
+async function openSessionRoot(root) {
+	const info = await lstat(resolve(root));
+	if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("Invalid session root");
+	return realpath(root);
+}
+
+/** Build private cards without changing session or trace inputs. */
+export async function buildCards({ root = join(homedir(), ".pi/agent/sessions"), out = DEFAULT_OUT, since, limit = 50, focus = false } = {}) {
+	if (!Number.isInteger(limit) || limit < 1 || limit > 500) throw new Error("Limit must be between 1 and 500");
+	if (since !== undefined && !/^\d+[dh]$/.test(since)) throw new Error("Since must be Nd or Nh");
+	const cutoff = since === undefined ? -Infinity : Date.now() - Number(since.slice(0, -1)) * (since.endsWith("d") ? 86400000 : 3600000);
+	root = await openSessionRoot(root);
+	out = await outputDirectory(out);
+	const rel = relative(root, out);
+	if (rel === "" || (!rel.startsWith(`..${sep}`) && rel !== ".." && !isAbsolute(rel))) throw new Error("Output must not be inside session root");
+	await mkdir(out, { recursive: true, mode: 0o700 });
+	await chmod(out, 0o700);
+	const summary = newSummary();
+	// Focus counters only appear when --focus is used, so plain builds keep the old shape.
+	const focusSummary = { focusScanned: 0, focusMatched: 0, focusConditions: { toolErrors: 0, ruleHit: 0, endedWithoutFinalText: 0, endedOnProviderError: 0 } };
+	const seen = new Set();
+	// In focus mode --limit caps generated cards, so scan the whole 500-session budget.
+	for (const { path } of await discover(root, cutoff, focus ? 500 : limit)) {
+		const loaded = await loadSession(path, summary, seen);
+		if (loaded.reason) { countSkip(summary, loaded.reason); continue; }
+		const { header, branch, trace, findings } = loaded;
+		seen.add(header.id);
+		if (focus) {
+			focusSummary.focusScanned++;
+			const candidate = focusCandidate(metricsOf(loaded));
+			for (const [condition, hit] of Object.entries(candidate.conditions)) if (hit) focusSummary.focusConditions[condition]++;
+			if (!candidate.matched) continue;
+			if (summary.generated >= limit) break;
+			focusSummary.focusMatched++;
 		}
-		const branch = currentBranch(entries, summary);
-		if (!branch.length) { summary.skippedEmpty++; continue; }
-		if (written.has(header.id)) { summary.skippedDuplicate++; continue; }
-		const trace = await readTrace(path, summary);
-		if (trace.status === "missing") summary.traceMissing++;
-		if (trace.status === "partial") summary.tracePartial++;
 		const cardPath = join(out, `${header.id}.md`);
 		let label = EMPTY_LABEL;
 		if (await statIfPresent(cardPath)) {
 			const existing = parseLabel(await readCard(cardPath));
 			if (existing.verdict) label = existing.block;
 		}
-		const findings = evaluateSession({ branch, traceTools: trace.tools, traceStatus: trace.status });
 		await privateWrite(cardPath, renderCard(header, path, branch, trace, summary, findings) + label);
 		for (const { rule, status } of findings) summary.findings[rule][status]++;
-		written.add(header.id);
 		summary.generated++;
 		if (header.version === undefined || [1, 2, 3].includes(header.version)) increment(summary.sessionVersions, header.version ?? "missing");
 	}
-	summary.skipped = summary.skippedOversized + summary.skippedInvalidHeader + summary.skippedEmpty + summary.skippedDuplicate;
-	summary.sessionParseErrors = summary.badJson + summary.lineTooLong + summary.entryMissingId + summary.danglingParent + summary.cycle + summary.messageMissing;
-	summary.parseErrors = summary.sessionParseErrors + summary.traceParseErrors;
-	return summary;
+	return finishSummary(focus ? Object.assign(summary, focusSummary) : summary);
+}
+
+function markdownCell(value) {
+	return String(value).replaceAll("|", "\\|").replaceAll("\n", " ");
+}
+
+function formatStat(stat, digits) {
+	if (stat.n === 0) return "n/a (n=0)";
+	const round = (value) => digits === 0 ? Math.round(value) : Number(value.toFixed(digits));
+	return `${round(stat.median)} / ${round(stat.p90)} (n=${stat.n})`;
+}
+
+function formatShare(stat) {
+	return stat.n === 0 ? "n/a (n=0)" : `${stat.count}/${stat.n} (${(stat.share * 100).toFixed(1)}%)`;
+}
+
+function formatRate(rate) {
+	if (rate.n === 0 || rate.rate === null) return "n/a (n=0)";
+	return `${(rate.rate * 100).toFixed(1)}% (${rate.errors}/${rate.endedSpans} span, n=${rate.n})`;
+}
+
+function renderStatsMarkdown(aggregate, top, sessions) {
+	const header = ["周", "会话", "toolCalls 中位 / p90", "时长 ms 中位 / p90", "tokens(in+out) 中位 / p90", "总出错率", "无最终文本", "provider 错误", ...RULE_IDS, "costUsd"];
+	const row = (group) => [
+		group.week ?? group.model, group.sessions, formatStat(group.toolCalls, 0), formatStat(group.durationMs, 0),
+		formatStat(group.tokens, 0), formatRate(group.toolErrorRate), formatShare(group.endedWithoutFinalText),
+		formatShare(group.endedOnProviderError), ...RULE_IDS.map((rule) => formatShare(group.ruleHits[rule])),
+		group.costUsd.total === null ? "n/a" : `${group.costUsd.total.toFixed(4)}${group.costUsd.partial ? " (partial)" : ""}`,
+	];
+	const table = (title, groups, first) => [
+		`## ${title}`, "",
+		`| ${header.map(markdownCell).join(" | ")} |`,
+		`| ${header.map(() => "---").join(" | ")} |`,
+		...groups.map((group) => `| ${row({ ...group, [first]: group[first] }).map(markdownCell).join(" | ")} |`),
+	].join("\n");
+	return [
+		"# 会话效率统计", "",
+		`会话数 ${sessions}；无 ISO 周的会话 ${aggregate.unknownWeek}；无模型信息的会话 ${aggregate.unknownModel}。`,
+		"null 不参与计算，每列括号里的 n 是该列样本数。总出错率 = 各会话 toolErrors 之和 / 已结束 span 之和。", "",
+		table("按 ISO 周", aggregate.weeks, "week"), "",
+		table("按 provider/model（同一会话使用多个模型时各计一次）", aggregate.models, "model"), "",
+		"## 工具出错最多的 10 个会话", "",
+		"| session | 开始时间 | toolCalls | toolErrors | toolErrorRate |",
+		"| --- | --- | --- | --- | --- |",
+		...top.map((item) => `| ${markdownCell(item.sessionId)} | ${markdownCell(item.startedAt ?? "unknown")} | ${item.toolCalls} | ${item.toolErrors} | ${item.toolErrorRate === null ? "n/a" : (item.toolErrorRate * 100).toFixed(1) + "%"} |`),
+		"", "",
+	].join("\n");
+}
+
+/** Aggregate efficiency metrics by week and model; the per-session rows and the
+ * session-id list stay in private files, never on stdout. */
+export async function sessionStats({ root = join(homedir(), ".pi/agent/sessions"), since = "28d", out = DEFAULT_OUT } = {}) {
+	if (!/^\d+[dh]$/.test(since)) throw new Error("Since must be Nd or Nh");
+	const cutoff = Date.now() - Number(since.slice(0, -1)) * (since.endsWith("d") ? 86400000 : 3600000);
+	root = await openSessionRoot(root);
+	out = await outputDirectory(out);
+	const rel = relative(root, out);
+	if (rel === "" || (!rel.startsWith(`..${sep}`) && rel !== ".." && !isAbsolute(rel))) throw new Error("Output must not be inside session root");
+	await mkdir(out, { recursive: true, mode: 0o700 });
+	await chmod(out, 0o700);
+	await rejectGit(dirname(out));
+	const summary = newSummary();
+	const seen = new Set();
+	const rows = [];
+	for (const { path } of await discover(root, cutoff, 500)) {
+		const loaded = await loadSession(path, summary, seen);
+		if (loaded.reason) { countSkip(summary, loaded.reason); continue; }
+		seen.add(loaded.header.id);
+		rows.push({ sessionId: loaded.header.id, ...metricsOf(loaded) });
+	}
+	finishSummary(summary);
+	const aggregate = aggregateMetrics(rows);
+	const top = rows
+		.filter((row) => Number.isFinite(row.toolErrors) && row.toolErrors > 0)
+		.sort((a, b) => b.toolErrors - a.toolErrors || a.sessionId.localeCompare(b.sessionId))
+		.slice(0, 10)
+		.map(({ sessionId, startedAt, toolCalls, toolErrors, toolErrorRate }) => ({ sessionId, startedAt, toolCalls, toolErrors, toolErrorRate }));
+	await privateWrite(join(dirname(out), "stats.jsonl"), rows.map((row) => JSON.stringify(row) + "\n").join(""));
+	await privateWrite(join(dirname(out), "stats.md"), renderStatsMarkdown(aggregate, top, rows.length));
+	return {
+		sessions: rows.length, unknownWeek: aggregate.unknownWeek, unknownModel: aggregate.unknownModel,
+		weeks: aggregate.weeks, models: aggregate.models,
+		skipped: summary.skipped, skippedOversized: summary.skippedOversized, skippedInvalidHeader: summary.skippedInvalidHeader,
+		skippedEmpty: summary.skippedEmpty, skippedDuplicate: summary.skippedDuplicate,
+		traceMissing: summary.traceMissing, tracePartial: summary.tracePartial, parseErrors: summary.parseErrors,
+	};
 }
 
 /** Export filled labels; no model calls or automatic classification. */
@@ -453,17 +582,19 @@ async function writeAgreement({ out = DEFAULT_OUT } = {}) {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
 	try {
-		const { values, positionals } = parseArgs({ options: { root: { type: "string" }, out: { type: "string" }, since: { type: "string" }, limit: { type: "string" } }, allowPositionals: true });
+		const { values, positionals } = parseArgs({ options: { root: { type: "string" }, out: { type: "string" }, since: { type: "string" }, limit: { type: "string" }, focus: { type: "boolean" } }, allowPositionals: true });
 		const [command] = positionals;
-		if (positionals.length !== 1 || !["build", "labels", "agreement", "review"].includes(command) ||
-			(command !== "build" && (values.root !== undefined || values.since !== undefined)) ||
-			(!["build", "review"].includes(command) && values.limit !== undefined)) throw new Error("Invalid CLI arguments");
+		if (positionals.length !== 1 || !["build", "labels", "agreement", "review", "stats"].includes(command) ||
+			(!["build", "stats"].includes(command) && (values.root !== undefined || values.since !== undefined)) ||
+			(!["build", "review"].includes(command) && values.limit !== undefined) ||
+			(command !== "build" && values.focus === true)) throw new Error("Invalid CLI arguments");
 		if (command === "review") {
 			if (!process.stdin.isTTY) throw new Error("Review requires a TTY");
 			await reviewCards({ ...values, limit: values.limit === undefined ? 50 : Number(values.limit) });
 		} else {
 			let result;
 			if (command === "build") result = await buildCards({ ...values, limit: values.limit === undefined ? 50 : Number(values.limit) });
+			else if (command === "stats") result = await sessionStats(values);
 			else if (command === "labels") result = await collectLabels(values);
 			else result = await writeAgreement(values);
 			console.log(JSON.stringify(result));

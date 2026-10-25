@@ -52,6 +52,30 @@ note: 声称测试通过，但过程里没有跑测试
 
 verdict 只填 pass 或 fail，note 写第一个出错的地方，categories 暂留空。不要修改标记和字段名；格式损坏会被拒绝或跳过。
 
+## 定向补标（完成任务 08 之后）
+
+首轮 27 张只有 2 张 fail，样本不足以做失败分类，也验证不了 judge。任务 08 的 `stats` 不需要标注，
+可以按周看过程有多折腾；补标则只挑可疑会话，避免把 30 到 50 张的配额再花一遍在明显正常的会话上。
+
+1. 生成可疑会话的卡片（`--limit` 是要生成多少张卡片，不是扫描多少会话）：
+
+   ```sh
+   node rotom/evals/scripts/session-cards.mjs build --focus --limit 40
+   ```
+
+   候选条件：工具出错数 ≥ 5 且出错率 ≥ 10%、任一规则命中、最终回复没有文本、或因 provider 错误结束。
+   已填 verdict 的卡片会保留原有标注，所以可以和首轮标过的卡片放在同一目录。
+
+2. 照常运行 `review`，它只问还没有 verdict 的卡片：
+
+   ```sh
+   node rotom/evals/scripts/session-cards.mjs review --limit 40
+   ```
+
+3. 补标完成后仍用 `labels` 与 `agreement` 汇总；新增样本与首轮样本一起统计，不需要分开维护。
+
+规则命中不等于人工 fail，只是可疑；最终仍由 bob 判断满意或不满意。
+
 ## 完成标准
 
 - 至少 30 张卡片有 bob 本人的 verdict。

@@ -118,6 +118,22 @@ stdout 只含计数和比例；同级 `agreement.md` 以 0600 写入，包含信
 仅 pass/fail 参与统计；unknown 或缺少某个信号不进入四格。零分母显示 n/a，小分母标 `(n<10)`。
 信号名自动从有效标注发现，不限于当前规则；报告不生成总分、不代填 verdict，输出仍拒绝 Git 工作树。
 
+### 每周效率统计与定向补标（零模型）
+
+```sh
+node rotom/evals/scripts/session-cards.mjs stats --since 28d
+node rotom/evals/scripts/session-cards.mjs build --focus --limit 40
+```
+
+`stats` 按 ISO 周和 `provider/model` 汇总会话数、toolCalls／时长／tokens 的中位数和 p90、总工具出错率、
+无最终文本与 provider 错误占比、各规则命中占比和 costUsd；stdout 只有聚合 JSON，会话 ID 只写入同级私有的
+`stats.md`（含工具出错最多的 10 个会话）与 `stats.jsonl`（每会话一行）。拿不到的指标记 null 并附样本数 n，
+cost 缺任一条时整列 null 并标 partial；总出错率是各会话 toolErrors 之和除以已结束 span 之和，不是比率平均。
+
+`build --focus` 只生成可疑会话的卡片：工具出错数 ≥ 5 且出错率 ≥ 10%、任一规则命中、无最终文本、
+或 provider 错误。此时 `--limit` 是要生成的卡片数上限，扫描仍按 500 个会话；summary 另有 `focusScanned`、
+`focusMatched` 和各条件命中计数。已填 verdict 的卡片照旧保留标注，`review` 仍只问未标注卡片。
+
 ## 运行评测
 
 以后在 `cases/**/*.eval.ts` 增加评测集后执行：

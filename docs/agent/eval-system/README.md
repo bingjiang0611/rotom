@@ -37,6 +37,6 @@
 | 05 | 第一个 LLM judge | Phase 2 | 失败样本不足（2 个），等定向补标 |
 | 06 | [GitHub Actions L1（只跑 eval 相关测试）](tasks/06-ci-l1.md) | Phase 3 | accepted |
 | 07 | 每周失败闭环 | Phase 4 | 待规划 |
-| 08 | [每周效率统计 + 只挑可疑会话补标](tasks/08-efficiency-stats.md) | Phase 2 | ready |
+| 08 | [每周效率统计 + 只挑可疑会话补标](tasks/08-efficiency-stats.md) | Phase 2 | in-review |
 
 状态取值：`ready`（可开工）· `in-review`（执行者已提交，等核验）· `changes-requested` · `accepted`。

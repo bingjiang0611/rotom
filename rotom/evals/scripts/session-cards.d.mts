@@ -1,6 +1,7 @@
 import type { FindingStatus, RuleId } from "./trace-assertions.mjs";
 import type { Readable, Writable } from "node:stream";
 import type { ReviewCounts } from "./review.mjs";
+import type { AggregateMetrics } from "./session-metrics.mjs";
 
 export interface BuildSummary {
 	generated: number;
@@ -25,6 +26,26 @@ export interface BuildSummary {
 	invalidHeaderKinds: Record<string, number>;
 	invalidHeaderKeySets: Record<string, number>;
 	sessionVersions: Record<"1" | "2" | "3" | "missing", number>;
+	/** Present only for --focus builds. */
+	focusScanned?: number;
+	focusMatched?: number;
+	focusConditions?: { toolErrors: number; ruleHit: number; endedWithoutFinalText: number; endedOnProviderError: number };
+}
+
+export interface StatsSummary {
+	sessions: number;
+	unknownWeek: number;
+	unknownModel: number;
+	weeks: AggregateMetrics["weeks"];
+	models: AggregateMetrics["models"];
+	skipped: number;
+	skippedOversized: number;
+	skippedInvalidHeader: number;
+	skippedEmpty: number;
+	skippedDuplicate: number;
+	traceMissing: number;
+	tracePartial: number;
+	parseErrors: number;
 }
 
 export function buildCards(options?: {
@@ -32,7 +53,14 @@ export function buildCards(options?: {
 	out?: string;
 	since?: string;
 	limit?: number;
+	focus?: boolean;
 }): Promise<BuildSummary>;
+
+export function sessionStats(options?: {
+	root?: string;
+	since?: string;
+	out?: string;
+}): Promise<StatsSummary>;
 
 export function reviewCards(options?: {
 	out?: string;
