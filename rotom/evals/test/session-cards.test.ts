@@ -558,11 +558,23 @@ describe("session cards", () => {
 			record("span_start", spanId, "pi.ai.request", { "pi.ai.provider": "synthetic", "pi.ai.model": "fixture", ...attributes }, undefined, "turn"),
 			record("span_end", spanId, "pi.ai.request", { "pi.ai.provider": "synthetic", "pi.ai.model": "fixture", ...attributes }, status, "turn"),
 		];
-		await session("alpha", [header("alpha"), message("u", null, "user", "SYNTHETIC_REQUEST"), assistant("a", "u", [text("SYNTHETIC_REPLY")], { stopReason: "error" })]);
+		// One failed edit whose reason exists only in the result text, joined to its
+		// trace span by the call-id digest; the text must never reach stdout.
+		const edit = (callId: string, extra: Record<string, string | number> = {}) => {
+			const attributes = { "pi.tool.name": "edit", "pi.tool.call_id_digest": digest(callId), ...extra };
+			return [
+				record("span_start", callId, "pi.tool.execute", attributes, undefined, "turn"),
+				record("span_end", callId, "pi.tool.execute", { ...attributes, "pi.tool.outcome": "tool_error", "pi.tool.fault_side": "model" }, "error", "turn"),
+			];
+		};
+		await session("alpha", [header("alpha"), message("u", null, "user", "SYNTHETIC_REQUEST"),
+			assistant("a", "u", [text("SYNTHETIC_REPLY"), { type: "toolCall", id: "e1", name: "edit", arguments: { path: "sample.ts" } }], { stopReason: "error" }),
+			message("r1", "a", "toolResult", [text("Could not find the exact text in sample.ts. The old text must match exactly including all whitespace and newlines.")], { toolCallId: "e1", isError: true })]);
 		await trace("alpha", [
 			record("span_start", "run", "pi.agent.run", {}),
 			record("span_start", "turn", "pi.agent.turn", {}, undefined, "run"),
 			...tool("c1", "tool_error"), ...tool("c2", "tool_error"),
+			...edit("e1"),
 			...request("r1", "error", { "pi.ai.error.category": "timeout" }),
 			...request("r2", "error", { "pi.ai.error.category": "timeout" }),
 		]);
@@ -576,17 +588,25 @@ describe("session cards", () => {
 		expect(result.stdout).not.toContain("sessionId");
 		const printed = JSON.parse(result.stdout);
 		expect(printed.sessions).toBe(2);
-		expect(printed.toolTotals).toEqual({ endedSpans: 2, errors: 2, aborted: 0 });
-		expect(printed.tools[0]).toMatchObject({ tool: "bash", errors: 2, rate: 1, share: 1 });
-		expect(printed.concentration).toMatchObject({ sessionsWithErrors: 1, topErrors: 2, share: 1 });
+		expect(printed.toolTotals).toEqual({ endedSpans: 3, errors: 3, aborted: 0 });
+		expect(printed.tools[0]).toMatchObject({ tool: "bash", errors: 2, rate: 1 });
+		expect(printed.tools[0].share).toBeCloseTo(2 / 3);
+		expect(printed.concentration).toMatchObject({ sessionsWithErrors: 1, topErrors: 3, share: 1 });
 		expect(printed.providerTotals).toEqual({ requests: 2, errors: 2, abortedRequests: 0 });
 		expect(printed.providers[0]).toMatchObject({ provider: "synthetic", model: "fixture", category: "timeout", count: 2 });
 		expect(printed.providerEnd).toEqual({ sessions: 1, runRetried: 1, sessionRetried: 1, single: 0 });
+		expect(printed.editFailures).toEqual({
+			total: 1, thenRunFailed: 0, uncoded: 0,
+			rows: [{ code: "old_text_not_found", trace: 0, derived: 1 }],
+		});
+		expect(result.stdout).not.toContain("Could not find");
 		const markdown = join(dirname(out), "breakdown.md");
 		const page = await readFile(markdown, "utf8");
 		expect(page).toContain("alpha");
 		expect(page).toContain("## 工具出错集中度");
 		expect(page).toContain("## provider 请求出错");
+		expect(page).toContain("## edit 失败原因");
+		expect(page).toContain("old_text_not_found");
 		expect(((await stat(markdown)).mode & 0o777)).toBe(0o600);
 	});
 

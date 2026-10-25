@@ -46,6 +46,7 @@
     "extensions/coding-policy/index.ts",
     "extensions/coding-policy/repair-hints.ts",
     "extensions/coding-policy/pi-runtime-drift.ts",
+    "extensions/coding-policy/edit-error-code.mjs",
     "extensions/context-layers/index.ts",
     "extensions/context-layers/blocks.ts",
     "extensions/context-layers/recall.ts",

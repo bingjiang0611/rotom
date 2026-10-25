@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aggregateBreakdown, MISSING, providerErrorRows, toolErrorRows } from "../scripts/error-breakdown.mjs";
+import { aggregateBreakdown, editFailureRows, MISSING, providerErrorRows, toolCallInfo, toolErrorRows } from "../scripts/error-breakdown.mjs";
 
 type Attributes = Record<string, string | number | boolean>;
 const start = (spanId: string, name: string, attributes: Attributes, parentSpanId?: string) => ({
@@ -149,5 +149,49 @@ describe("aggregate breakdown", () => {
 	it("counts a single-failure provider ending without retry evidence", () => {
 		const provider = providerErrorRows(retryChain(["a"]));
 		expect(aggregateBreakdown([session([], provider, true)]).providerEnd).toEqual({ sessions: 1, runRetried: 0, sessionRetried: 0, single: 1 });
+	});
+});
+
+describe("edit failure reasons", () => {
+	it("joins per-call trace evidence by call digest", () => {
+		const records = [
+			start("a", "pi.tool.execute", { "pi.tool.name": "edit", "pi.tool.call_id_digest": "c1" }),
+			end("a", "pi.tool.execute", "error", { "pi.tool.name": "edit", "pi.tool.call_id_digest": "c1", "pi.tool.outcome": "tool_error", "pi.tool.error_code": "old_text_ambiguous", "pi.tool.followup_status": "failed" }),
+			start("b", "pi.tool.execute", { "pi.tool.name": "bash", "pi.tool.call_id_digest": "c2" }),
+			...toolCall("c3", "edit", "tool_error"),
+		];
+		const info = toolCallInfo(records, "edit");
+		expect([...info.keys()]).toEqual(["c1"]);
+		expect(info.get("c1")).toEqual({ code: "old_text_ambiguous", followup: "failed" });
+	});
+
+	it("splits trace codes, reconstructed codes and then_run failures", () => {
+		const result = editFailureRows([
+			{ traceCode: "old_text_ambiguous" },
+			{ traceCode: "old_text_ambiguous" },
+			{ derivedCode: "old_text_not_found" },
+			{ thenRunFailed: true, derivedCode: undefined },
+			{},
+		]);
+		expect(result).toMatchObject({ total: 5, thenRunFailed: 1, uncoded: 1 });
+		expect(result.rows).toEqual([
+			{ code: "old_text_ambiguous", trace: 2, derived: 0 },
+			{ code: "old_text_not_found", trace: 0, derived: 1 },
+		]);
+		expect(editFailureRows([])).toEqual({ total: 0, thenRunFailed: 0, uncoded: 0, rows: [] });
+	});
+
+	it("merges edit reasons across sessions", () => {
+		const aggregate = aggregateBreakdown([
+			{ toolRows: [], provider: providerErrorRows([]), endedOnProviderError: false, editFailures: editFailureRows([{ traceCode: "no_change" }, { derivedCode: "old_text_not_found" }]) } as never,
+			{ toolRows: [], provider: providerErrorRows([]), endedOnProviderError: false, editFailures: editFailureRows([{ traceCode: "no_change" }, { thenRunFailed: true }]) } as never,
+		]);
+		expect(aggregate.editFailures).toEqual({
+			total: 4, thenRunFailed: 1, uncoded: 0,
+			rows: [
+				{ code: "no_change", trace: 2, derived: 0 },
+				{ code: "old_text_not_found", trace: 0, derived: 1 },
+			],
+		});
 	});
 });

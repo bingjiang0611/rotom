@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { classifyEditError } from "./edit-error-code.mjs";
 import { piRuntimeDriftDiagnosis } from "./pi-runtime-drift.ts";
-import { toolErrorRepairHint } from "./repair-hints.ts";
+import { textOf, toolErrorRepairHint } from "./repair-hints.ts";
 
 export const CODING_EXECUTION_HYGIENE_POLICY = `Coding execution hygiene:
 - Before the first code command or edit, establish the exact target Git repository root and effective cwd; never assume an aggregate launcher workspace is the target repository. Reuse that evidence until cwd or repository changes.
@@ -40,6 +41,22 @@ export const FINAL_REPORT_POLICY = `Final report:
 
 const CODING_TOOLS = new Set(["bash", "edit", "write"]);
 
+function recordOf(value: unknown): Record<string, unknown> | undefined {
+	return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+/**
+ * A failed edit carries its cause only in message text, which the trace must not
+ * record. Translate it to a fixed enum code and leave the text untouched; an
+ * unclassified message keeps no code so `(none)` stays honest.
+ */
+export function editFailureCode(event: { toolName: string; details?: unknown; content?: readonly unknown[] }): string | undefined {
+	if (event.toolName !== "edit") return undefined;
+	const existing = recordOf(event.details);
+	if (typeof existing?.code === "string" && existing.code) return undefined;
+	return classifyEditError(textOf(event.content));
+}
+
 // Read the producer's versioned evidence, never infer effects from display text.
 // Tool-reported execution evidence is not file readback or business verification.
 export function codingResultPhases(event: { toolName: string; input: Record<string, unknown>; details?: unknown; isError: boolean }) {
@@ -67,9 +84,15 @@ export default function codingPolicy(pi: ExtensionAPI): void {
 			...(phases.followup !== "succeeded" ? { content: [...event.content, { type: "text" as const, text: "The tool reports that the file mutation was applied; then_run failed or was skipped. Inspect the command error and current file. Do not replay the successful mutation or treat it as rolled back. Command exit status is not business verification." }] } : {}),
 		};
 		if (!event.isError) return undefined;
+		// The code and the hint are independent: the code makes past and future
+		// failures countable, the hint stays the existing repairable evidence.
+		const code = editFailureCode(event);
 		const hint = toolErrorRepairHint(event.toolName, event.input, event.content, ctx?.cwd);
-		if (!hint) return undefined;
-		return { content: [...event.content, { type: "text" as const, text: hint }] };
+		if (!code && !hint) return undefined;
+		return {
+			...(code ? { details: { ...recordOf(event.details), code } } : {}),
+			...(hint ? { content: [...event.content, { type: "text" as const, text: hint }] } : {}),
+		};
 	});
 	// Re-attribute the one runtime failure whose raw message names a file instead
 	// of the cause. Everything else keeps its provider-reported error verbatim.

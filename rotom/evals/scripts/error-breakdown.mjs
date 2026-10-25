@@ -81,6 +81,59 @@ function runOf(span, spans) {
 	return MISSING;
 }
 
+/** Per-call metadata for one tool, keyed by `pi.tool.call_id_digest` (sha256 of
+ * the tool call id). Used to join session-side failures to trace evidence. */
+export function toolCallInfo(traceRecords, toolName) {
+	const info = new Map();
+	for (const span of mergeSpans(traceRecords).values()) {
+		if (span.name !== TOOL_SPAN || !span.ended) continue;
+		if (none(span.attributes["pi.tool.name"]) !== toolName) continue;
+		const digest = span.attributes["pi.tool.call_id_digest"];
+		if (typeof digest !== "string") continue;
+		info.set(digest, {
+			code: span.attributes["pi.tool.error_code"] === undefined ? undefined : none(span.attributes["pi.tool.error_code"]),
+			followup: span.attributes["pi.tool.followup_status"] === undefined ? undefined : none(span.attributes["pi.tool.followup_status"]),
+		});
+	}
+	return info;
+}
+
+/** Most-attributed codes first; the code name breaks ties so output is stable. */
+const byAttribution = (a, b) => (b.trace + b.derived) - (a.trace + a.derived) || a.code.localeCompare(b.code);
+
+/** Edit failures split by evidence source: a trace code recorded by the product,
+ * a code reconstructed from the local tool result, or a failed `then_run` that
+ * left the edit itself applied. Counts only; the texts never leave the caller. */
+export function editFailureRows(entries) {
+	const rows = new Map();
+	let thenRun = 0;
+	let uncoded = 0;
+	for (const entry of entries) {
+		const traceCode = entry.traceCode;
+		const derivedCode = entry.derivedCode;
+		if (typeof traceCode === "string" && traceCode) {
+			const row = rows.get(traceCode) ?? { code: traceCode, trace: 0, derived: 0 };
+			row.trace++;
+			rows.set(traceCode, row);
+			continue;
+		}
+		if (entry.thenRunFailed === true) { thenRun++; continue; }
+		if (typeof derivedCode === "string" && derivedCode) {
+			const row = rows.get(derivedCode) ?? { code: derivedCode, trace: 0, derived: 0 };
+			row.derived++;
+			rows.set(derivedCode, row);
+			continue;
+		}
+		uncoded++;
+	}
+	return {
+		total: entries.length,
+		thenRunFailed: thenRun,
+		uncoded,
+		rows: [...rows.values()].sort(byAttribution),
+	};
+}
+
 /** Rows per provider/model × error category for failed request spans, plus how
  * many failed requests shared one run (retry evidence) and how many failures
  * preceded the trace's last failed request inside that same run. The last failed
@@ -143,6 +196,10 @@ export function aggregateBreakdown(sessions) {
 	let endedOnProviderError = 0;
 	let runRetried = 0;
 	let sessionRetried = 0;
+	const editFailures = new Map();
+	let editFailureTotal = 0;
+	let thenRunFailed = 0;
+	let editUncoded = 0;
 	for (const session of sessions) {
 		let sessionErrors = 0;
 		for (const row of session.toolRows ?? []) {
@@ -176,6 +233,15 @@ export function aggregateBreakdown(sessions) {
 			mergeValues(merged.stopReason, row.stopReason);
 			providers.set(key, merged);
 		}
+		for (const row of session.editFailures?.rows ?? []) {
+			const merged = editFailures.get(row.code) ?? { code: row.code, trace: 0, derived: 0 };
+			merged.trace += row.trace;
+			merged.derived += row.derived;
+			editFailures.set(row.code, merged);
+		}
+		editFailureTotal += session.editFailures?.total ?? 0;
+		thenRunFailed += session.editFailures?.thenRunFailed ?? 0;
+		editUncoded += session.editFailures?.uncoded ?? 0;
 		if (session.endedOnProviderError === true) {
 			endedOnProviderError++;
 			if ((provider?.lastFailedRequest?.runErrorRequests ?? 0) >= 2) runRetried++;
@@ -210,5 +276,9 @@ export function aggregateBreakdown(sessions) {
 		// Pi opens a fresh run span per attempt, so a run can hold one failure only;
 		// the session-level count keeps repeat failures visible without guessing.
 		providerEnd: { sessions: endedOnProviderError, runRetried, sessionRetried, single: endedOnProviderError - sessionRetried },
+		editFailures: {
+			total: editFailureTotal, thenRunFailed, uncoded: editUncoded,
+			rows: [...editFailures.values()].sort(byAttribution),
+		},
 	};
 }

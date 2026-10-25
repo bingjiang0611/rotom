@@ -11,7 +11,8 @@ import { evaluateSession, RULE_IDS } from "./trace-assertions.mjs";
 import { computeAgreement, renderAgreementMarkdown } from "./agreement.mjs";
 import { runReview } from "./review.mjs";
 import { aggregateMetrics, focusCandidate, sessionMetrics } from "./session-metrics.mjs";
-import { aggregateBreakdown, PROVIDER_SPAN, providerErrorRows, TOOL_SPAN, toolErrorRows, TOP_COMBINATIONS, TOP_VALUES } from "./error-breakdown.mjs";
+import { aggregateBreakdown, editFailureRows, PROVIDER_SPAN, providerErrorRows, TOOL_SPAN, toolCallInfo, toolErrorRows, TOP_COMBINATIONS, TOP_VALUES } from "./error-breakdown.mjs";
+import { classifyEditError } from "../../extensions/coding-policy/edit-error-code.mjs";
 
 const MAX_FILE = 256 * 1024 * 1024;
 const MAX_LINE = 64 * 1024 * 1024;
@@ -547,6 +548,15 @@ function renderBreakdownMarkdown(aggregate, sessions, summary) {
 		"| provider/model | category | 计数 | 占比 | http_status 前 5 | qoder.error_code 前 5 | transport_phase 前 5 |",
 		"| --- | --- | --- | --- | --- | --- | --- |",
 		...aggregate.providers.map(providerRow), "",
+		"## edit 失败原因（只列枚举码）", "",
+		aggregate.editFailures.total === 0
+			? "没有失败的 edit 调用。"
+			: `edit 失败 ${aggregate.editFailures.total} 次；其中 Action Fusion 的 edit 本身已写盘、then_run 命令失败 ${aggregate.editFailures.thenRunFailed} 次（不算 edit 失败），无法分类 ${aggregate.editFailures.uncoded} 次（记 \`(none)\`）。`,
+		"",
+		"| 原因码 | trace 码 | 从会话回推 |",
+		"| --- | --- | --- |",
+		...aggregate.editFailures.rows.map((row) => `| ${markdownCell(row.code)} | ${row.trace} | ${row.derived} |`),
+		...(aggregate.editFailures.uncoded ? [`| ${markdownCell("(none)")} | 0 | 0 |`] : []), "",
 		"## 会话以 provider 错误结束", "",
 		`${aggregate.providerEnd.sessions} 个会话；最后出错请求所在 run 有 ≥2 次出错（run 内重试）${aggregate.providerEnd.runRetried} 个；整个会话 ≥2 次出错请求 ${aggregate.providerEnd.sessionRetried} 个，只有 1 次 ${aggregate.providerEnd.single} 个。`, "",
 		"## 私有 session 列表（仅本文件，不进 stdout）", "",
@@ -555,6 +565,37 @@ function renderBreakdownMarkdown(aggregate, sessions, summary) {
 		...sessions.tools.map((row) => sessionRow(row, row.lastRunErrors)),
 		...sessions.providers.map((row) => sessionRow(row, row.lastRunErrors)), "",
 	].join("\n");
+}
+
+/** Join current-branch edit results to trace evidence. A failed edit explains
+ * itself only in text, so it is classified in memory; only enum codes leave
+ * this function and nothing is written back to the session. */
+function editFailuresOf(branch, traceRecords) {
+	const results = new Map();
+	const calls = [];
+	for (const entry of branch) {
+		const message = entry.type === "message" ? entry.message : undefined;
+		if (!message) continue;
+		if (message.role === "toolResult") results.set(message.toolCallId, message);
+		else if (message.role === "assistant" && Array.isArray(message.content)) {
+			for (const part of message.content) if (part?.type === "toolCall") calls.push(part);
+		}
+	}
+	const info = toolCallInfo(traceRecords, "edit");
+	const entries = [];
+	for (const call of calls) {
+		if (call.name !== "edit") continue;
+		const result = results.get(call.id);
+		if (result?.isError !== true) continue;
+		const evidence = info.get(createHash("sha256").update(String(call.id)).digest("hex"));
+		entries.push({
+			traceCode: evidence?.code,
+			// Action Fusion keeps the edit applied and fails on the follow-up command.
+			thenRunFailed: evidence?.followup === "failed",
+			derivedCode: classifyEditError(contentText(result.content)),
+		});
+	}
+	return editFailureRows(entries);
 }
 
 /** Tool and provider error breakdown from trace metadata only: no session text,
@@ -585,6 +626,7 @@ export async function errorBreakdown({ root = join(homedir(), ".pi/agent/session
 			lastRunErrors: provider.lastFailedRequest.runErrorRequests,
 			toolRows,
 			provider,
+			editFailures: editFailuresOf(loaded.branch, loaded.trace.records),
 			endedOnProviderError: loaded.findings.some((finding) => finding.rule === "ended-on-provider-error" && finding.status === "hit"),
 		});
 	}
@@ -599,7 +641,7 @@ export async function errorBreakdown({ root = join(homedir(), ".pi/agent/session
 	return {
 		sessions: aggregate.sessions, toolTotals: aggregate.toolTotals, tools: aggregate.tools,
 		concentration: aggregate.concentration, providerTotals: aggregate.providerTotals,
-		providers: aggregate.providers, providerEnd: aggregate.providerEnd,
+		providers: aggregate.providers, providerEnd: aggregate.providerEnd, editFailures: aggregate.editFailures,
 		skipped: summary.skipped, skippedOversized: summary.skippedOversized, skippedInvalidHeader: summary.skippedInvalidHeader,
 		skippedEmpty: summary.skippedEmpty, skippedDuplicate: summary.skippedDuplicate,
 		traceMissing: summary.traceMissing, tracePartial: summary.tracePartial, parseErrors: summary.parseErrors,

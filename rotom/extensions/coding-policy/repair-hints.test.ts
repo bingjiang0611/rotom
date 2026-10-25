@@ -117,7 +117,10 @@ test("edit 首行已漂移时用后续唯一整行定位重读，不修改文件
 	assert.match(result.content[1].text, /not a verified block match/u);
 	assert.match(result.content[1].text, /do not replay the failed edit unchanged/u);
 	assert.equal(readFileSync(path, "utf8"), original, "诊断不得执行 edit 或 then_run");
-	assert.equal(toolResult({ ...event, content: result.content }, { cwd: root }), undefined);
+	// 已附加过提示的结果不再二次附加，但原因码仍会补写（幂等，只加枚举码）。
+	const repeated = toolResult({ ...event, content: result.content }, { cwd: root });
+	assert.deepEqual(repeated.details, { code: "old_text_not_found" });
+	assert.equal(repeated.content, undefined);
 
 	// A later failure must use current file evidence, not a cached location.
 	writeFileSync(path, `Another line.\n${original}`);

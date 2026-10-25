@@ -52,6 +52,27 @@ export interface ProviderErrorRows {
 	lastFailedRequest: { status: string; runErrorRequests: number };
 }
 
+export interface ToolCallEvidence {
+	code?: string;
+	followup?: string;
+}
+
+export interface EditFailureEntry {
+	/** Code recorded by the product in the trace. */
+	traceCode?: string;
+	/** Code reconstructed from the local tool result text; the text is not kept. */
+	derivedCode?: string;
+	/** Action Fusion kept the edit applied and the follow-up command failed. */
+	thenRunFailed?: boolean;
+}
+
+export interface EditFailureRows {
+	total: number;
+	thenRunFailed: number;
+	uncoded: number;
+	rows: Array<{ code: string; trace: number; derived: number }>;
+}
+
 export interface AggregateToolRow extends ToolErrorRow {
 	/** errors / endedSpans; null when the session had no ended tool span. */
 	rate: number | null;
@@ -75,6 +96,7 @@ export interface AggregateBreakdown {
 	concentration: { sessionsWithErrors: number; topSessions: number; topErrors: number; errors: number; share: number | null };
 	providerTotals: { requests: number; errors: number; abortedRequests: number };
 	providers: AggregateProviderRow[];
+	editFailures: EditFailureRows;
 	providerEnd: {
 		sessions: number;
 		/** Sessions whose last failed request shared its run with another failure. */
@@ -87,6 +109,7 @@ export interface AggregateBreakdown {
 
 export interface BreakdownSession {
 	toolRows: ToolErrorRow[];
+	editFailures?: EditFailureRows;
 	provider: ProviderErrorRows;
 	endedOnProviderError: boolean;
 }
@@ -98,4 +121,6 @@ export const TOP_COMBINATIONS: number;
 export const TOP_VALUES: number;
 export function toolErrorRows(traceRecords: readonly TraceRecord[]): ToolErrorRow[];
 export function providerErrorRows(traceRecords: readonly TraceRecord[]): ProviderErrorRows;
+export function toolCallInfo(traceRecords: readonly TraceRecord[], toolName: string): Map<string, ToolCallEvidence>;
+export function editFailureRows(entries: readonly EditFailureEntry[]): EditFailureRows;
 export function aggregateBreakdown(sessions: readonly BreakdownSession[]): AggregateBreakdown;
