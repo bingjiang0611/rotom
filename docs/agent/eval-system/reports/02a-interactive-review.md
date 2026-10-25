@@ -73,3 +73,7 @@
 - 10 项全量环境失败和 8 项依赖漏洞留给独立维护任务；本次不扩大范围。
 - 公开同步使用独立干净副本和 GitHub noreply 身份，仅 fast-forward 推 eval/system。额外全历史审计仍只有 `fc539150e67d` 的既有 author/committer 非 noreply 2 项（BLOCKED），新增 finding=0；不把它写成全历史 PASS，不改写公开历史。文本隐私审计不证明不存在任意秘密。
 - 用户已有的未跟踪 `.idea/` 保留、不纳入提交。本次临时 clone、合成卡片、PTY 脚本及日志在确认交付后清理，不删除存活会话资源。
+
+## 核验结论（规划者，2026-10-25）
+
+结论：**accepted**。规划者重跑 eval 相关的 4 组测试，112/112 通过，typecheck 退出 0。`gh run list` 显示运行 40197802638（headSha `099d6f1`）为 success。已核对 `review.mjs`：只回写标注块前缀以外的部分、按字节保留卡片正文、提示文字和 8 行上限都符合要求，非 TTY 时拒绝运行。任务 02 的说明已同步改为用 `review`。
