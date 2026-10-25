@@ -2,7 +2,8 @@ import { spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
+import { defaultProductAgentDir } from "../src/product-runtime.ts";
 import { createPiCodingAgentHarness, DEV_AGENT_RUN_MANIFEST_ARTIFACT } from "../src/pi-harness.ts";
 import { afterEach, describe, expect, it } from "vitest";
 import { inspectQualityTask, qualityRegressionTasks, setupQualityTask } from "../src/quality-regressions.ts";
@@ -54,7 +55,7 @@ for (const task of qualityRegressionTasks) describe(task.id, () => {
 
 it("runs a real product write tool and judges its artifact with an offline scripted provider", async () => {
 	const task = qualityRegressionTasks.find(task => task.id === "add-without-replacing")!;
-	const productDir = fileURLToPath(new URL("../../", import.meta.url));
+	const productDir = defaultProductAgentDir();
 	const piPackage = join(productDir, "runtime/pi/node_modules/@earendil-works/pi-coding-agent");
 	const metadata = JSON.parse(await readFile(join(piPackage, "package.json"), "utf8"));
 	const harness = createPiCodingAgentHarness({

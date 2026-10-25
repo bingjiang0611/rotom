@@ -55,12 +55,12 @@ export function inspectQualityContracts(file: string, source: string): QualityFi
 // Deliberately bounded to the production entry points that owned these bugs.
 // Tests may mock warnings; other consumers may legitimately inspect display text.
 export const QUALITY_CONTRACT_FILES = [
-	"rotom/runtime/launch-runtime.mjs",
-	"rotom/extensions/coding-policy/index.ts",
-	"rotom/extensions/third-party/index.ts",
-	"rotom/extensions/third-party/deferred-tools/register.ts",
+	"runtime/launch-runtime.mjs",
+	"extensions/coding-policy/index.ts",
+	"extensions/third-party/index.ts",
+	"extensions/third-party/deferred-tools/register.ts",
 ] as const;
 
-export function checkQualityContracts(root: string): QualityFinding[] {
-	return QUALITY_CONTRACT_FILES.flatMap(file => inspectQualityContracts(file, readFileSync(join(root, file), "utf8")));
+export function checkQualityContracts(agentDir: string): QualityFinding[] {
+	return QUALITY_CONTRACT_FILES.flatMap(file => inspectQualityContracts(file, readFileSync(join(agentDir, file), "utf8")));
 }

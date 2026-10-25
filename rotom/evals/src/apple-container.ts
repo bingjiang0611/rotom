@@ -1,7 +1,32 @@
-import { isAbsolute } from "node:path";
+import { execFile } from "node:child_process";
+import { copyFile, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { isAbsolute, join } from "node:path";
+import { promisify } from "node:util";
 import type { ProductGitIdentity } from "./product-runtime.ts";
 
 export const DEFAULT_APPLE_CONTAINER_IMAGE = "dev-agent-evals:local";
+
+export async function withAppleContainerBuildContext<T>(
+	packageRoot: string,
+	build: (directory: string) => Promise<T>,
+): Promise<T> {
+	const directory = await mkdtemp(join(tmpdir(), "rotom-eval-build-"));
+	try {
+		for (const file of ["Containerfile", "package.json", "package-lock.json"]) {
+			await copyFile(join(packageRoot, file), join(directory, file));
+		}
+		// Apple container 1.2.2 drops nested files during directory COPY. Send one
+		// archive instead; never include installed dependencies or eval artifacts.
+		await promisify(execFile)("tar", [
+			"-cf", join(directory, "source.tar"), "--exclude=node_modules", "--exclude=.eval",
+			"-C", packageRoot, ".",
+		], { env: { ...process.env, COPYFILE_DISABLE: "1" } });
+		return await build(directory);
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+}
 
 export type AppleContainerEvalOptions = {
 	containerCli: string;

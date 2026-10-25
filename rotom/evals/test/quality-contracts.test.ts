@@ -1,5 +1,5 @@
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { defaultProductAgentDir } from "../src/product-runtime.ts";
 import { checkQualityContracts, inspectQualityContracts } from "../src/quality-contracts.ts";
 
 const inspect = (source: string) => inspectQualityContracts("fixture.ts", source).map(finding => finding.rule);
@@ -45,6 +45,6 @@ describe("quality contract guards", () => {
 	});
 
 	it("checks the real production entry points", () => {
-		expect(checkQualityContracts(fileURLToPath(new URL("../../../", import.meta.url)))).toEqual([]);
+		expect(checkQualityContracts(defaultProductAgentDir())).toEqual([]);
 	});
 });

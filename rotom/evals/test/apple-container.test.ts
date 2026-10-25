@@ -1,8 +1,54 @@
+import { execFile } from "node:child_process";
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import {
 	buildAppleContainerRunArgs,
 	parseAppleContainerEvalArgs,
+	withAppleContainerBuildContext,
 } from "../src/apple-container.ts";
+
+it.each([false, true])("archives nested working-tree files and cleans the build context (failure=%s)", async (fail) => {
+	const root = await mkdtemp(join(tmpdir(), "rotom-eval-build-test-"));
+	let buildDirectory = "";
+	try {
+		for (const [file, content] of Object.entries({
+			"Containerfile": "ADD source.tar /app/\n",
+			"package.json": "{}\n",
+			"package-lock.json": "{}\n",
+			"bin/test": "#!/bin/sh\nexit 0\n",
+			"src/nested/current.ts": "export const current = true;\n",
+			"node_modules/ignored.txt": "installed dependency\n",
+			".eval/private.txt": "private fixture artifact\n",
+		})) {
+			const path = join(root, file);
+			await mkdir(dirname(path), { recursive: true });
+			await writeFile(path, content, { mode: 0o755 });
+		}
+		await chmod(join(root, "bin/test"), 0o755);
+		const build = withAppleContainerBuildContext(root, async (directory) => {
+			buildDirectory = directory;
+			expect((await readdir(directory)).sort()).toEqual(["Containerfile", "package-lock.json", "package.json", "source.tar"]);
+			const extracted = join(root, "extracted");
+			await mkdir(extracted);
+			await promisify(execFile)("tar", ["-xpf", join(directory, "source.tar"), "-C", extracted]);
+			expect(await readFile(join(extracted, "src/nested/current.ts"), "utf8")).toBe("export const current = true;\n");
+			expect((await stat(join(extracted, "bin/test"))).mode & 0o111).toBe(0o111);
+			for (const excluded of ["node_modules", ".eval"]) {
+				await expect(stat(join(extracted, excluded))).rejects.toMatchObject({ code: "ENOENT" });
+			}
+			if (fail) throw new Error("build failed");
+			return 23;
+		});
+		if (fail) await expect(build).rejects.toThrow("build failed");
+		else expect(await build).toBe(23);
+		await expect(stat(buildDirectory)).rejects.toMatchObject({ code: "ENOENT" });
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
 
 describe("parseAppleContainerEvalArgs", () => {
 	it("keeps eval arguments separate from explicit container controls", () => {

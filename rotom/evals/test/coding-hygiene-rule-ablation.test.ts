@@ -25,8 +25,9 @@ import {
 	resolveHygieneRule,
 } from "../src/coding-hygiene-cases.ts";
 import { createPiCodingAgentHarness } from "../src/pi-harness.ts";
+import { defaultProductAgentDir } from "../src/product-runtime.ts";
 
-const productAgentDir = resolve(import.meta.dirname, "../..");
+const productAgentDir = defaultProductAgentDir();
 const policy = readHygienePolicy(productAgentDir);
 
 async function findPiAiEntry(packageRoot: string): Promise<string> {

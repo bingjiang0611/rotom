@@ -334,6 +334,8 @@ ROTOM_NODE=/absolute/path/to/node npm run eval:container -- \
 
 runner 每次会增量构建 `dev-agent-evals:local`，并执行以下隔离：
 
+- 构建前用系统 `tar` 归档当前 eval 工作树（包含未提交源码），排除 `node_modules`、`.eval` 和 macOS 扩展属性；临时构建目录只含 Containerfile、package/lock 与 `source.tar`，成功或失败均清理。不再直接把源码目录作为构建上下文，也不再使用 `.dockerignore`；
+
 - 镜像固定到 `node:24.18.0-bookworm-slim` 的 OCI digest，依赖继续使用精确 lockfile；
 - 目标 `rotom` 目录只读挂载到 `/workspace/product`，Pi 来自该候选的 `runtime/pi`，不再使用镜像内的另一套旧 Pi；候选依赖必须已安装且可在 Linux 中运行，不挂载宿主机 Home 或完整 `~/.pi`；
 - rootfs 只读、Linux capabilities 全部移除，`/tmp` 使用 2 GiB tmpfs；Vite 启动所需的
@@ -349,6 +351,10 @@ runner 每次会增量构建 `dev-agent-evals:local`，并执行以下隔离：
 ```sh
 ROTOM_NODE=/absolute/path/to/node npm run test:container
 ```
+
+当前 Apple container `1.2.2` 下，最小用例中的 `COPY .` 与显式目录 `COPY` 都遗漏嵌套文件；`ADD source.tar` 能保留深层文件和可执行权限。因此 Containerfile 由上述 runner 准备输入，不支持直接对源码目录运行 `container build`。只有后续版本的深层文件复制用例与完整 `test:container` 都通过，才移除归档适配并恢复目录 COPY 及对应排除规则。
+
+离线验证已在 macOS 和真实 `linux/arm64` 容器通过：各 **141 通过、1 项原有 sidecar 条件跳过**（Node `24.18.0`、Pi `1.4.0-rotom.2`）。测试复用候选产品路径，并显式设置权限反例，避免 `umask 077` 把“不安全文件”意外创建为安全权限；未转发凭据、未调用付费模型，不代表真实模型或桌面操作验证。
 
 常用控制参数：
 

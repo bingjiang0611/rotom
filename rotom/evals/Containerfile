@@ -6,7 +6,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts --registry=https://registry.npmjs.org --replace-registry-host=always \
 	&& npm cache clean --force
 
-COPY . ./
+ADD source.tar ./
 RUN chmod 0755 bin/eval bin/test bin/typecheck bin/eval-container scripts/container-entrypoint.sh \
 	&& mkdir -p node_modules/.vite-temp
 
