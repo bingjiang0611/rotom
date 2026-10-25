@@ -1,0 +1,52 @@
+# 压缩提速：先卸载、再摘要 · 协作看板
+
+本目录是「压缩不卡人」改造的规划与交接面，只存在于 `compaction/offload-first` 分支，不是产品运行时资源。
+
+## 背景与已定结论
+
+- 现状：Pi 原生阈值压缩要等一次摘要模型调用，本机 27 个会话、108 次真实压缩的耗时中位数约 85.6 s。
+- 回放模拟（未实装）：把旧的 ≥1.5 KB 工具结果全部移出上下文，可把上下文降到压缩前的约 50%，耗时约 0；外部 Jev 判断后移出只能到约 81%，且要外发会话内容。
+- **决定（bob 已认可）**：不接 Jev；做 A 方案「先卸载、再摘要」。阈值压缩触发时，先把旧的中等大小工具结果换成可用 `obs_recall` 取回的短指针；如果这样能腾出足够空间，就推迟这一次原生摘要，否则照常摘要。B 方案（后台提前压缩，要改 Pi fork 生命周期）**不在本轮范围**，等 A 的数据出来再议。
+- 要盯的三个数：压缩等待时长、`obs_recall` 调用次数、任务成功率，开启前后对比。
+
+## 现有机制（规划者已读源码核对）
+
+- 阈值压缩入口：`packages/rotom-pi/packages/coding-agent/src/core/agent-session.ts` 的 `_checkCompaction()` → `_runAutoCompaction("threshold")`。触发条件 `contextTokens > contextWindow - reserveTokens`，`contextTokens` 来自**最近一次 assistant 的 provider usage**。检查点有两个：一次 run 结束时，以及下一次 prompt 前（`_prepareRun`，仍用同一条 assistant 的旧 usage）。
+- 扩展可在 `session_before_compact` 里返回 `{ cancel: true }` 取消；事件带 `reason`（`manual|extension|threshold|overflow`）和 `preparation.firstKeptEntryId / messagesToSummarize / turnPrefixMessages / tokensBefore / settings`。取消后 TUI 显示 “Auto-compaction cancelled”。
+- `obs_recall` 和对象存储属于 SoL-Pi 的 Observation Pack（`packages/rotom-sol-pi/src/sol-pi/extensions/observation-pack/`）：只在投影层（`pi.on("context")`）改写，不改 session 历史；>10 KiB 的结果发满 2 次后换成占位符；对象按 session 存在 runtime root 下；ledger 记录 full/placeholder/recall 事件。rotom 默认开启 Observation Pack（`rotom/extensions/third-party/sol-pi.ts`）。
+- 观测：observability trace 已有 compaction span（含每次摘要请求耗时）和 `pi.tool.execute` span（`pi.tool.name=obs_recall` 可计数），不需要为三个指标改 trace 合同。
+
+## 协作方式
+
+| 角色 | 职责 |
+|---|---|
+| 规划者（Claude，项目线程） | 拆任务、写 `tasks/NN-*.md`、核验执行结果、更新本文件状态表 |
+| 执行者（另一个 agent） | 按任务说明实现，提交到 `compaction/offload-first`，写 `reports/NN-*.md` |
+| bob | 转发提示词、做需要人拍板的决定、授权有费用的真实模型运行 |
+
+流程：
+
+1. 规划者把任务说明推到 `compaction/offload-first`，bob 把提示词转给执行者。
+2. 执行者 `git pull origin compaction/offload-first`，只做该任务范围内的事，提交并 `git push origin compaction/offload-first`。
+3. 执行者在 `reports/NN-*.md` 写报告：改了什么、跑了哪些命令及结果、与任务说明的偏差、未验证项、遗留问题。
+4. 规划者拉取分支核验：读 diff、重跑验收命令。通过则状态改为 `accepted` 并发下一步；不通过则在报告末尾追加「核验意见」，执行者按意见修。
+
+## 共同规则（每个任务都适用）
+
+- **只推 `compaction/offload-first`**，不推 `main`、不改写历史、不 force push。
+- **真实会话内容绝不进仓库**：测试只用合成数据；真实运行只在报告里写聚合数字。提交前运行 `python3 scripts/audit-public.py --root .`。
+- 不改 observability 的 trace 合同（CLAUDE.md 第 5 条），不改 Pi fork 的压缩生命周期（那是 B 方案），除非任务说明明确要求。
+- 遵守根目录 `CLAUDE.md` 与 `docs/agent/verification.md`；报告里区分 L1（单测）、L2（本地真实进程）和 L3（真实模型/会话），不把前者写成后者。
+- 有费用的真实模型调用必须先由 bob 授权。
+- 任务说明有歧义时，选最保守的理解并在报告里写明，不扩大范围。
+
+## 阶段与状态
+
+| # | 任务 | 范围 | 状态 |
+|---|---|---|---|
+| 01 | [卸载优先机制（SoL-Pi 组件内）](tasks/01-offload-mechanism.md) | `packages/rotom-sol-pi/`，L1 | ready |
+| 02 | 接入 rotom：`0.1.0-rotom.4` 归档、product-config、rotom 默认值与关闭开关、文档 | `rotom/`，L1/L2 | 待规划，默认是否开启需 bob 决定 |
+| 03 | 指标脚本 + 开启前后对照（压缩等待、`obs_recall` 次数、任务成功率） | eval 体系，L3 | 待规划，需 bob 授权费用 |
+| 04 | B 方案（后台提前压缩） | Pi fork | 搁置，看 03 数据 |
+
+状态取值：`ready`（可开工）· `in-review`（执行者已提交，等核验）· `changes-requested` · `accepted`。
