@@ -34,7 +34,7 @@
 | 03 | [规则检查（code evals）接入卡片](tasks/03-trace-assertions.md) | Phase 2 | accepted |
 | 04 | [规则与人工标注的一致性报告](tasks/04-agreement-report.md) | Phase 2 | accepted |
 | 05 | 第一个 LLM judge：虚假完成 + 对照标注验证 | Phase 2 | 等 02 的类别和 bob 选定模型 |
-| 06 | [GitHub Actions L1（只跑 eval 相关测试）](tasks/06-ci-l1.md) | Phase 3 | in-review |
+| 06 | [GitHub Actions L1（只跑 eval 相关测试）](tasks/06-ci-l1.md) | Phase 3 | accepted |
 | 07 | 每周失败闭环 | Phase 4 | 待规划 |
 
 状态取值：`ready`（可开工）· `in-review`（执行者已提交，等核验）· `changes-requested` · `accepted`。
