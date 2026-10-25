@@ -7,9 +7,10 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
-const MAX_FILE = 32 * 1024 * 1024;
+const MAX_FILE = 256 * 1024 * 1024;
 const MAX_LINE = 1024 * 1024;
 const DEFAULT_OUT = join(homedir(), ".rotom/evals/cards");
+const SILENT_ENTRY_TYPES = new Set(["custom", "context_edit", "label", "session_info", "thinking_level_change", "usage"]);
 const EMPTY_LABEL = "<!-- label:begin -->\nverdict:\ncategories:\nnote:\n<!-- label:end -->\n";
 
 async function statIfPresent(path) {
@@ -43,22 +44,14 @@ async function readBounded(path) {
 		const info = await handle.stat();
 		if (!info.isFile()) throw new Error("Input must be a regular file");
 		if (info.size > MAX_FILE) return { oversized: true, records: [], errors: 0 };
-		// Read only the observed size: an active writer cannot grow this allocation indefinitely.
-		const buffer = Buffer.alloc(info.size);
-		let length = 0;
-		while (length < buffer.length) {
-			const { bytesRead } = await handle.read(buffer, length, buffer.length - length, length);
-			if (!bytesRead) break;
-			length += bytesRead;
-		}
 		const records = [];
 		let errors = 0;
-		for (let start = 0; start < length;) {
-			const newline = buffer.indexOf(10, start);
-			const end = newline < 0 || newline >= length ? length : newline;
-			if (end - start > MAX_LINE) errors++;
+		let segments = [];
+		let lineBytes = 0;
+		function finishLine() {
+			if (lineBytes > MAX_LINE) errors++;
 			else {
-				const line = buffer.toString("utf8", start, end).trim();
+				const line = Buffer.concat(segments, lineBytes).toString("utf8").trim();
 				if (line) {
 					try {
 						const record = JSON.parse(line);
@@ -67,7 +60,25 @@ async function readBounded(path) {
 					} catch { errors++; }
 				}
 			}
-			start = end + 1;
+			segments = [];
+			lineBytes = 0;
+		}
+		// Snapshot the byte boundary, not the whole file. Discard oversized lines until
+		// their newline; readline would buffer them before we could enforce MAX_LINE.
+		if (info.size > 0) {
+			const stream = handle.createReadStream({ autoClose: false, start: 0, end: info.size - 1, highWaterMark: 64 * 1024 });
+			for await (const chunk of stream) {
+				for (let start = 0; start < chunk.length;) {
+					const newline = chunk.indexOf(10, start);
+					const end = newline < 0 ? chunk.length : newline;
+					lineBytes += end - start;
+					if (lineBytes <= MAX_LINE) segments.push(chunk.subarray(start, end));
+					else segments = [];
+					if (newline >= 0) finishLine();
+					start = end + 1;
+				}
+			}
+			if (lineBytes > 0) finishLine();
 		}
 		return { oversized: false, records, errors };
 	} finally { await handle.close(); }
@@ -96,7 +107,7 @@ function currentBranch(records, summary) {
 	const entries = [];
 	for (const entry of records) {
 		if (typeof entry.type !== "string" || typeof entry.id !== "string" ||
-			(entry.parentId !== null && typeof entry.parentId !== "string")) { summary.parseErrors++; continue; }
+			(entry.parentId !== null && typeof entry.parentId !== "string")) { summary.sessionParseErrors++; continue; }
 		entries.push(entry);
 	}
 	const byId = new Map(entries.map((entry) => [entry.id, entry]));
@@ -104,12 +115,12 @@ function currentBranch(records, summary) {
 	const branch = [];
 	let entry = entries.at(-1);
 	while (entry) {
-		if (seen.has(entry.id)) { summary.parseErrors++; break; }
+		if (seen.has(entry.id)) { summary.sessionParseErrors++; break; }
 		seen.add(entry.id);
 		branch.push(entry);
 		if (entry.parentId === null) break;
 		entry = byId.get(entry.parentId);
-		if (!entry) summary.parseErrors++;
+		if (!entry) summary.sessionParseErrors++;
 	}
 	return branch.reverse();
 }
@@ -119,13 +130,13 @@ async function readTrace(sessionPath, summary) {
 	const info = await statIfPresent(path);
 	if (!info) return { status: "missing", tools: new Map() };
 	const loaded = await readBounded(path);
-	summary.parseErrors += loaded.errors;
+	summary.traceParseErrors += loaded.errors;
 	let partial = loaded.oversized || loaded.errors > 0;
 	const spans = new Map();
 	for (const record of loaded.records) {
 		if (record.schema !== "rotom-local-trace/v1" || typeof record.traceId !== "string" ||
 			typeof record.spanId !== "string" || !["span_start", "span_end"].includes(record.kind)) {
-			summary.parseErrors++; partial = true; continue;
+			summary.traceParseErrors++; partial = true; continue;
 		}
 		if (record.name !== "pi.tool.execute") continue;
 		const key = JSON.stringify([record.traceId, record.spanId]);
@@ -185,9 +196,16 @@ function renderCard(header, path, branch, trace, summary) {
 			models.add(`${entry.provider}/${entry.modelId}`);
 			process.push(quote(`model_change: ${entry.provider}/${entry.modelId}`)); continue;
 		}
+		if (entry.type === "custom_message") {
+			process.push(quote(`custom_message[${entry.customType}]：${truncate(contentText(entry.content), 300).replace(/\r?\n/g, " ")}`)); continue;
+		}
+		if (entry.type === "branch_summary") {
+			process.push(quote(`branch_summary：${truncate(entry.summary, 300).replace(/\r?\n/g, " ")}`)); continue;
+		}
+		if (SILENT_ENTRY_TYPES.has(entry.type)) continue;
 		if (entry.type !== "message") { summary.unknownEntries++; continue; }
 		const message = entry.message;
-		if (!message || !["user", "assistant", "toolResult"].includes(message.role)) { summary.unknownEntries++; continue; }
+		if (!message || !["user", "assistant", "toolResult"].includes(message.role)) { summary.sessionParseErrors++; continue; }
 		if (message.role === "user") {
 			process.push(`### 第 ${++turn} 轮 · user`);
 			if (turn > 1) process.push(quote(truncate(contentText(message.content), 1000)));
@@ -216,7 +234,8 @@ function renderCard(header, path, branch, trace, summary) {
 	};
 	const metadata = Object.entries(fields).map(([key, value]) => `${key}: ${key === "trace" ? value : JSON.stringify(value)}`).join("\n");
 	const request = contentText(messages.find((message) => message?.role === "user")?.content);
-	const final = contentText(assistants.at(-1)?.content);
+	const lastAssistant = assistants.at(-1);
+	const final = contentText(lastAssistant?.content) || `(最后一条 assistant 无文本，stopReason=${lastAssistant?.stopReason ?? "unknown"})`;
 	return `---\n${metadata}\n---\n\n## 用户请求\n${quote(truncate(request, 2000))}\n\n## 过程\n${process.join("\n\n")}\n\n## 最终回复\n${quote(truncate(final, 4000))}\n\n`;
 }
 
@@ -263,16 +282,20 @@ export async function buildCards({ root = join(homedir(), ".pi/agent/sessions"),
 	if (rel === "" || (!rel.startsWith(`..${sep}`) && rel !== ".." && !isAbsolute(rel))) throw new Error("Output must not be inside session root");
 	await mkdir(out, { recursive: true, mode: 0o700 });
 	await chmod(out, 0o700);
-	const summary = { generated: 0, skipped: 0, traceMissing: 0, tracePartial: 0, parseErrors: 0, unknownEntries: 0 };
+	const summary = {
+		generated: 0, skipped: 0, skippedOversized: 0, skippedInvalidHeader: 0, skippedEmpty: 0, skippedDuplicate: 0,
+		traceMissing: 0, tracePartial: 0, parseErrors: 0, sessionParseErrors: 0, traceParseErrors: 0, unknownEntries: 0,
+	};
 	const written = new Set();
 	for (const { path } of await discover(root, cutoff, limit)) {
 		const loaded = await readBounded(path);
-		summary.parseErrors += loaded.errors;
-		if (loaded.oversized) { summary.skipped++; continue; }
+		summary.sessionParseErrors += loaded.errors;
+		if (loaded.oversized) { summary.skippedOversized++; continue; }
 		const [header, ...entries] = loaded.records;
-		if (header?.type !== "session" || typeof header.id !== "string" || !/^[\w-]+$/.test(header.id)) { summary.parseErrors++; summary.skipped++; continue; }
+		if (header?.type !== "session" || typeof header.id !== "string" || !/^[\w-]+$/.test(header.id)) { summary.sessionParseErrors++; summary.skippedInvalidHeader++; continue; }
 		const branch = currentBranch(entries, summary);
-		if (!branch.length || written.has(header.id)) { summary.skipped++; continue; }
+		if (!branch.length) { summary.skippedEmpty++; continue; }
+		if (written.has(header.id)) { summary.skippedDuplicate++; continue; }
 		const trace = await readTrace(path, summary);
 		if (trace.status === "missing") summary.traceMissing++;
 		if (trace.status === "partial") summary.tracePartial++;
@@ -286,6 +309,8 @@ export async function buildCards({ root = join(homedir(), ".pi/agent/sessions"),
 		written.add(header.id);
 		summary.generated++;
 	}
+	summary.skipped = summary.skippedOversized + summary.skippedInvalidHeader + summary.skippedEmpty + summary.skippedDuplicate;
+	summary.parseErrors = summary.sessionParseErrors + summary.traceParseErrors;
 	return summary;
 }
 

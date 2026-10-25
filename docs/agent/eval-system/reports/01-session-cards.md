@@ -127,3 +127,66 @@ node rotom/evals/scripts/session-cards.mjs build --limit 5 --out <仓库外私�
 - `fc53915` 作者身份不是 GitHub noreply：规划者确认这是规划者的提交，之后的规划提交改用 noreply 身份，不改写已推送的历史。
 
 完成后把状态改回 `in-review`，在本报告末尾追加「修订记录」小节，然后推送。
+
+## 修订记录（执行者，2026-10-25）
+
+按上述 6 项必须修改完成修订，状态恢复为 `in-review`。以下结果覆盖修订后的代码；此前报告的 32 MiB 上限、旧计数和空最终回复描述仅作为首轮历史记录保留。
+
+### 逐项修改
+
+| 核验项 | 修改及验证 |
+|---|---|
+| 1. 拆分跳过和解析错误 | 保留 `skipped`、`parseErrors` 总数；新增 `skippedOversized`、`skippedInvalidHeader`、`skippedEmpty`、`skippedDuplicate` 和 `sessionParseErrors`、`traceParseErrors`。总数由分项求和。合成测试逐一触发 4 种跳过及两侧解析错误，严格比较所有计数；声明文件同步更新。 |
+| 2. 流式读取及 256 MiB 上限 | session / trace 共用 64 KiB 分块的按行读取器，不再按文件大小分配 Buffer；保留打开文件时的读取终点。单行缓冲最多 1 MiB，超长行丢弃至换行后恢复；文件超过 256 MiB 才跳过，超限 trace 仍标 partial。新增大于 32 MiB 的 session 和 trace 合成回归，核验首尾条目、跨文件首尾的工具关联、无末尾换行；原超限测试改为 256 MiB + 1 字节。 |
+| 3. 已知类型不计 unknown | `custom`、`context_edit`、`label`、`session_info`、`thinking_level_change`、`usage` 静默跳过。合成测试同时放入这 6 类和 1 个未知类型，断言 unknown 恰为 1；已知 message 类型的无效结构归 session 解析错误，不归未知 entry。 |
+| 4. 渲染上下文条目 | 增加 `custom_message[<customType>]` 和 `branch_summary` 过程行，正文截断到 300 字符，换行折为空格。测试覆盖字符串/数组 content、图片占位及两类条目的截断。仍只渲染当前分支。 |
+| 5. 空最终回复说明 | 最后一条 assistant 无文本时输出 `(最后一条 assistant 无文本，stopReason=<值>)`；缺失 stopReason 显示 unknown。4 个参数化用例验证 toolUse/error/aborted/缺失值，且不复制此前 assistant 的文本。 |
+| 6. 真实冒烟 | 使用 `--limit 20` 和新的仓库外私有目录；全部拆分计数见下表。未填写真实 verdict 或导出真实标签。 |
+
+改动仅涉及 `rotom/evals/scripts/session-cards.mjs`、对应 `.d.mts`、`rotom/evals/test/session-cards.test.ts`、`rotom/evals/README.md`（同步上限及计数说明）、协作 README 状态及本报告追加记录；未修改 observability、运行时安装、依赖或锁文件。
+
+### 验收命令
+
+环境仍为 macOS / Node `v24.18.0` / npm `12.2.0` / Vitest `4.1.9`。
+
+| 命令 | 修订后结果 |
+|---|---|
+| `cd rotom/evals` | 成功，以下 npm 命令在该目录执行。 |
+| `npm ci --ignore-scripts --registry=https://registry.npmjs.org --replace-registry-host=always` | 退出 0，安装 180 个包；仍提示 8 项既有漏洞（3 moderate、5 high），未做额外修复。 |
+| `npm test -- test/session-cards.test.ts` | 退出 0；23/23 通过。 |
+| `npm test` | 退出 1；15 个测试文件中 11 通过、4 失败；122 项中 111 通过、10 失败、1 跳过。失败仍全部为先前记录的 Computer Use identity/version 不匹配，涉及相同 4 个测试文件；没有新增失败。 |
+| `npm run typecheck` | 退出 0；独立执行，不受全量测试失败短路影响。 |
+| `cd ../..` | 返回仓库根，后续 Git / audit 命令在根目录执行。 |
+| `git diff --check origin/main...HEAD` | 退出 0，提交后复查；另检查工作区和暂存区 whitespace。 |
+| `python3 scripts/audit-public.py --root .` | PASS，0 finding；新增改动全部暂存后复查。 |
+
+额外运行 `node --check rotom/evals/scripts/session-cards.mjs`，通过。L1 只使用合成数据，23 项中含本轮新增的 6 项测试；没有用真实会话内容充当 fixture。
+
+### 真实数据冒烟计数
+
+命令：`node rotom/evals/scripts/session-cards.mjs build --limit 20 --out <仓库外私有临时目录>/cards`。
+
+| 字段 | 计数 |
+|---|---:|
+| generated | 11 |
+| skipped | 9 |
+| skippedOversized | 0 |
+| skippedInvalidHeader | 9 |
+| skippedEmpty | 0 |
+| skippedDuplicate | 0 |
+| traceMissing | 0 |
+| tracePartial | 2 |
+| parseErrors | 66 |
+| sessionParseErrors | 66 |
+| traceParseErrors | 0 |
+| unknownEntries | 0 |
+| 输出卡片 | 11 |
+| 完整人工阅读卡片 | 1 |
+
+`skippedOversized=0`，无需报告被跳过文件的大小区间。本轮跳过均归于无效 header，不再把跳过原因混成一个数字。真实数据产物只保留在仓库外私有临时目录；本节不记录任何会话正文、ID、文件名或本机路径。
+
+### 提交边界及交接
+
+沿用首轮隔离公开历史的方式：从远端 `eval/system` 建干净 clone，只重放本次修订 diff，以 GitHub noreply 身份提交，目标仅为 `origin/eval/system`。不推 main，不 force push，不更改已公开历史。干净副本额外运行 `--history` 审计：仍只有核验意见已确认的 `fc53915` author / committer 两项既有发现，本次不新增；不将其表述为全历史 PASS。
+
+全量测试的 10 项既有失败及 npm 漏洞提示按核验意见留在原范围，不处理。真实人工标签流程仍由 bob 在任务 02 执行；本轮请规划者复核这 6 项修订和新冒烟计数，不宣称 accepted。

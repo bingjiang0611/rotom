@@ -78,9 +78,10 @@ node rotom/evals/scripts/session-cards.mjs labels
 `labels` 只收 verdict 非空的卡片，写入卡片目录上一级的 `labels.jsonl`。
 `labeledAt` 是本次导出时间；重复 build 原样保留已填 verdict 的标注块，格式损坏时拒绝覆盖。
 卡片目录权限为 0700，卡片和标签文件为 0600；拒绝 Git 工作树内输出及 symlink 根/输出目录。
-输入只读；超过 32 MiB 的 session 跳过，超过 1 MiB 的行跳过并计解析错误；trace 同样有界。
+输入只读，按行流式读取；超过 256 MiB 的 session 跳过，超过 1 MiB 的行跳过并计解析错误；trace 同样有界。
 缺少 trace 标 missing，损坏、超限或未结束工具 span 标 partial，不把未知工具结果当成功。
 stdout 仅输出计数（labels 另含人工填写的类别计数），不输出会话正文。
+跳过按超限、无效 header、空会话、重复 ID 拆分；解析错误分别统计 session / trace，并保留总数。
 真实卡片、标注及会话内容只留本机私有目录，绝不加入仓库或公开报告。
 
 ## 运行评测

@@ -1,9 +1,15 @@
 export interface BuildSummary {
 	generated: number;
 	skipped: number;
+	skippedOversized: number;
+	skippedInvalidHeader: number;
+	skippedEmpty: number;
+	skippedDuplicate: number;
 	traceMissing: number;
 	tracePartial: number;
 	parseErrors: number;
+	sessionParseErrors: number;
+	traceParseErrors: number;
 	unknownEntries: number;
 }
 

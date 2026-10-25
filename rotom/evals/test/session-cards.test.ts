@@ -206,21 +206,80 @@ describe("session cards", () => {
 		expect((await stat(root)).mode & 0o777).toBe(0o755);
 	});
 
-	it("skips oversized files, oversized lines, bad JSON, and header-only sessions", async () => {
+	it("counts every skip reason and separates session and trace parse errors", async () => {
 		const huge = await session("huge");
-		await truncate(huge, 32 * 1024 * 1024 + 1);
+		await truncate(huge, 256 * 1024 * 1024 + 1);
 		await session("empty", [header("empty")]);
+		await session("invalid", [{ type: "not-a-session" }]);
+		const duplicate = await session("duplicate", basic("good"));
+		await utimes(duplicate, 1, 1);
 		const good = await session("good", [header("good"), message("u", null, "user", "kept")]);
 		await appendFile(good, "{invalid\n" + "x".repeat(1024 * 1024 + 1) + "\n" + JSON.stringify(assistant("a", "u", [text("AFTER_CORRUPTION")])) + "\n");
-		expect(await buildCards({ root, out })).toMatchObject({ generated: 1, skipped: 2, parseErrors: 2 });
+		await trace("good", [], "{invalid");
+		expect(await buildCards({ root, out })).toEqual({
+			generated: 1, skipped: 4, skippedOversized: 1, skippedInvalidHeader: 1, skippedEmpty: 1, skippedDuplicate: 1,
+			traceMissing: 0, tracePartial: 1, parseErrors: 4, sessionParseErrors: 3, traceParseErrors: 1, unknownEntries: 0,
+		});
 		expect(await card("good")).toContain("AFTER_CORRUPTION");
 	});
 
 	it("bounds trace input too and reports it as partial", async () => {
 		await session("huge-trace");
 		const path = await trace("huge-trace", []);
-		await truncate(path, 32 * 1024 * 1024 + 1);
+		await truncate(path, 256 * 1024 * 1024 + 1);
 		expect(await buildCards({ root, out })).toMatchObject({ generated: 1, tracePartial: 1 });
+	});
+
+	it("streams sessions and traces larger than 32 MiB, retaining early and late records", async () => {
+		const path = await session("large", [header("large"), message("u", null, "user", "EARLY_REQUEST")]);
+		const tracePath = await trace("large", [span("span_start", "s", { "pi.tool.call_id_digest": digest("large-call") })]);
+		const padding = "x".repeat(1024 * 1024 - 256);
+		for (let index = 0; index < 33; index++) {
+			await appendFile(path, JSON.stringify({ type: "custom", id: `pad-${index}`, parentId: index ? `pad-${index - 1}` : "u", timestamp, data: padding }) + "\n");
+			await appendFile(tracePath, JSON.stringify({ schema: "rotom-local-trace/v1", kind: "span_end", name: "pi.turn", traceId: "trace", spanId: `pad-${index}`, attributes: { padding } }) + "\n");
+		}
+		// No final newline: both stream readers must still parse their last record.
+		await appendFile(path, JSON.stringify(assistant("a", "pad-32", [text("LATE_REPLY"), { type: "toolCall", id: "large-call", name: "bash", arguments: {} }])));
+		await appendFile(tracePath, JSON.stringify(span("span_end", "s", { "pi.tool.outcome": "tool_error", "pi.tool.fault_side": "environment" })));
+		for (const file of [path, tracePath]) expect((await stat(file)).size).toBeGreaterThan(32 * 1024 * 1024);
+		expect(await buildCards({ root, out })).toMatchObject({ generated: 1, skipped: 0, parseErrors: 0, tracePartial: 0, unknownEntries: 0 });
+		const rendered = await card("large");
+		expect(rendered).toContain("EARLY_REQUEST");
+		expect(rendered).toContain("LATE_REPLY");
+		expect(rendered).toContain("outcome=tool_error fault=environment");
+		expect(rendered).toContain("trace: ok");
+	});
+
+	it("silently skips known metadata and renders context-bearing entries", async () => {
+		const entries: unknown[] = [header("context"), message("u", null, "user", "request")];
+		let parentId = "u";
+		for (const type of ["custom", "context_edit", "label", "session_info", "thinking_level_change", "usage"]) {
+			entries.push({ type, id: type, parentId, timestamp, data: "SILENT_METADATA" });
+			parentId = type;
+		}
+		entries.push(
+			{ type: "custom_message", id: "custom-string", parentId, timestamp, customType: "goal", content: "C".repeat(301) },
+			{ type: "custom_message", id: "custom-array", parentId: "custom-string", timestamp, customType: "context-layers", content: [text("INJECTED_TEXT"), { type: "image", data: "HIDDEN_IMAGE_DATA" }] },
+			{ type: "branch_summary", id: "summary", parentId: "custom-array", timestamp, summary: "B".repeat(301) },
+			{ type: "future_entry", id: "future", parentId: "summary", timestamp },
+			assistant("a", "future", [text("done")]),
+		);
+		await session("context", entries);
+		expect(await buildCards({ root, out })).toMatchObject({ generated: 1, unknownEntries: 1, sessionParseErrors: 0 });
+		const rendered = await card("context");
+		expect(rendered).toContain(`custom_message[goal]：${"C".repeat(300)}…[截断 1 字符]`);
+		expect(rendered).toContain("custom_message[context-layers]：INJECTED_TEXT (image)");
+		expect(rendered).toContain(`branch_summary：${"B".repeat(300)}…[截断 1 字符]`);
+		expect(rendered).not.toContain("SILENT_METADATA");
+		expect(rendered).not.toContain("HIDDEN_IMAGE_DATA");
+	});
+
+	it.each(["toolUse", "error", "aborted", undefined])("explains a textless final assistant with stopReason=%s", async (stopReason) => {
+		await session("no-final", [...basic("no-final"), assistant("last", "a", [{ type: "toolCall", id: "call", name: "bash", arguments: {} }], { stopReason })]);
+		await buildCards({ root, out });
+		const final = (await card("no-final")).split("## 最终回复\n")[1];
+		expect(final).toContain(`(最后一条 assistant 无文本，stopReason=${stopReason ?? "unknown"})`);
+		expect(final).not.toContain("SYNTHETIC_REPLY");
 	});
 
 	it("selects by mtime, since and limit; ignores observability and symlink descendants", async () => {
@@ -252,7 +311,10 @@ describe("session cards", () => {
 		const result = run("build", "--root", root, "--out", out);
 		expect(result.status).toBe(0);
 		expect(result.stderr).toBe("");
-		expect(JSON.parse(result.stdout)).toEqual({ generated: 1, skipped: 0, traceMissing: 1, tracePartial: 0, parseErrors: 0, unknownEntries: 0 });
+		expect(JSON.parse(result.stdout)).toEqual({
+			generated: 1, skipped: 0, skippedOversized: 0, skippedInvalidHeader: 0, skippedEmpty: 0, skippedDuplicate: 0,
+			traceMissing: 1, tracePartial: 0, parseErrors: 0, sessionParseErrors: 0, traceParseErrors: 0, unknownEntries: 0,
+		});
 		const rendered = await card("truncate");
 		for (const value of ["U".repeat(2000) + "…[截断 1 字符]", "V".repeat(1000) + "…[截断 1 字符]", "A".repeat(400) + "…[截断 3601 字符]", "A".repeat(4000) + "…[截断 1 字符]", "R".repeat(300) + "…[截断 1 字符]", "…[截断 61 字符]", "(thinking 15 字符)"]) expect(rendered).toContain(value);
 		expect(rendered).not.toContain("SECRET_THINKING");
