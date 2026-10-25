@@ -21,6 +21,7 @@ export interface BuildSummary {
 	findings: Record<RuleId, Record<FindingStatus, number>>;
 	unknownEntries: number;
 	invalidHeaderKinds: Record<string, number>;
+	invalidHeaderKeySets: Record<string, number>;
 	sessionVersions: Record<"1" | "2" | "3" | "missing", number>;
 }
 

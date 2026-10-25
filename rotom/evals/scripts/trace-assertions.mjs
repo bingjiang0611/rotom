@@ -71,7 +71,12 @@ function traceRule(rule, calls, traceTools, traceStatus, attribute, matches, thr
 	if (traceStatus === "missing") return result(rule, evidence, true, threshold);
 	incomplete ||= traceStatus !== "ok";
 	for (const item of calls) {
-		const value = toolAttributes(item, traceTools)?.[attribute];
+		const attributes = toolAttributes(item, traceTools);
+		const value = attributes?.[attribute];
+		// classifyFaultSide deliberately omits fault_side for completed ok/aborted
+		// outcomes: that is evidence of no harness fault, not a missing attribute.
+		// unknown_outcome and incomplete spans do not carry the same guarantee.
+		if (attribute === "pi.tool.fault_side" && value === undefined && ["ok", "aborted"].includes(attributes?.["pi.tool.outcome"])) continue;
 		const valid = attribute === "pi.tool.result_text_bytes" ? Number.isFinite(value) && value >= 0 : typeof value === "string";
 		if (!valid) { incomplete = true; continue; }
 		if (matches(value)) {

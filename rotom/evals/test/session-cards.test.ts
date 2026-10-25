@@ -221,13 +221,13 @@ describe("session cards", () => {
 		const duplicate = await session("duplicate", basic("good"));
 		await utimes(duplicate, 1, 1);
 		const good = await session("good", [header("good"), message("u", null, "user", "kept")]);
-		await appendFile(good, "{invalid\n" + "x".repeat(1024 * 1024 + 1) + "\n" + JSON.stringify(assistant("a", "u", [text("AFTER_CORRUPTION")])) + "\n");
+		await appendFile(good, "{invalid\n" + "x".repeat(64 * 1024 * 1024 + 1) + "\n" + JSON.stringify(assistant("a", "u", [text("AFTER_CORRUPTION")])) + "\n");
 		await trace("good", [], "{invalid");
 		expect(await buildCards({ root, out })).toEqual({
 			generated: 1, skipped: 4, skippedOversized: 1, skippedInvalidHeader: 1, skippedEmpty: 1, skippedDuplicate: 1,
 			traceMissing: 0, tracePartial: 1, parseErrors: 3, sessionParseErrors: 2, traceParseErrors: 1, unknownEntries: 0,
 			badJson: 1, lineTooLong: 1, entryMissingId: 0, danglingParent: 0, cycle: 0, messageMissing: 0, findings: basicFindingCounts,
-			invalidHeaderKinds: { other: 1 }, sessionVersions: { "1": 0, "2": 0, "3": 1, missing: 0 },
+			invalidHeaderKinds: { other: 1 }, invalidHeaderKeySets: { type: 1 }, sessionVersions: { "1": 0, "2": 0, "3": 1, missing: 0 },
 		});
 		expect(await card("good")).toContain("AFTER_CORRUPTION");
 	});
@@ -343,17 +343,56 @@ describe("session cards", () => {
 		expect(result.status).toBe(0);
 		expect(JSON.parse(result.stdout)).toMatchObject({
 			generated: 0, skippedInvalidHeader: 7,
-			invalidHeaderKinds: { span_start: 1, custom: 1, other: 4, "session-bad-id": 1 },
+			invalidHeaderKinds: { span_start: 1, custom: 1, other: 3, unparseable: 1, "session-bad-id": 1 },
+			invalidHeaderKeySets: { type: 5, other: 1, "id,type": 1 },
 			sessionVersions: { "1": 0, "2": 0, "3": 0, missing: 0 },
 		});
 		for (const hidden of ["PRIVATE TYPE VALUE", "x".repeat(33), "bad/id"]) expect(result.stdout).not.toContain(hidden);
 	});
 
-	it.each(["{broken", "", " ".repeat(1024 * 1024 + 1)])("does not promote a later record when the first line cannot be parsed (case %#)", async (firstLine) => {
-		const path = await session("bad-first");
+	it.each(["{broken", "", " ".repeat(1024 * 1024 + 1), "null", "false"])("finds the first Pi header after skipped prefix lines (case %#)", async (firstLine) => {
+		const path = await session("prefixed");
 		await writeFile(path, firstLine + "\n" + await readFile(path, "utf8"));
-		expect(await buildCards({ root, out })).toMatchObject({ generated: 0, skippedInvalidHeader: 1, invalidHeaderKinds: { unparseable: 1 } });
-		await expect(stat(join(out, "bad-first.md"))).rejects.toMatchObject({ code: "ENOENT" });
+		expect(await buildCards({ root, out })).toMatchObject({ generated: 1, skippedInvalidHeader: 0, invalidHeaderKinds: {}, invalidHeaderKeySets: {} });
+		expect(await card("prefixed")).toContain("SYNTHETIC_REQUEST");
+	});
+
+	it("reports a first nonempty line above 64 MiB without accepting a later header", async () => {
+		const path = await session("long-prefix");
+		await writeFile(path, " \n" + "x".repeat(64 * 1024 * 1024 + 1) + "\n" + await readFile(path, "utf8"));
+		expect(await buildCards({ root, out })).toMatchObject({ generated: 0, skippedInvalidHeader: 1, lineTooLong: 1, invalidHeaderKinds: { "line-too-long": 1 } });
+	});
+
+	it("keeps the full branch across a screenshot toolResult larger than 1 MiB", async () => {
+		const base64 = Buffer.alloc(1024 * 1024, 0x61).toString("base64");
+		const screenshot = message("image", "a", "toolResult", [{ type: "image", data: base64, mimeType: "image/png" }, text("VISIBLE_RESULT")], { toolCallId: "screenshot", isError: false });
+		expect(Buffer.byteLength(JSON.stringify(screenshot))).toBeGreaterThan(1024 * 1024);
+		await session("screenshot", [header("screenshot"), message("u", null, "user", "EARLY_REQUEST"), assistant("a", "u", [{ type: "toolCall", id: "screenshot", name: "browser_inspect", arguments: {} }]), screenshot, assistant("last", "image", [text("FINAL_REPLY")])]);
+		expect(await buildCards({ root, out })).toMatchObject({ generated: 1, sessionParseErrors: 0, lineTooLong: 0, danglingParent: 0 });
+		const rendered = await card("screenshot");
+		for (const value of ["EARLY_REQUEST", "browser_inspect", "(image)", "VISIBLE_RESULT", "FINAL_REPLY"]) expect(rendered).toContain(value);
+		expect(rendered).not.toContain(base64.slice(0, 128));
+	});
+
+	it("diagnoses sorted header keys without exposing values or unsafe field names", async () => {
+		const candidates = [
+			{ z: "PRIVATE_VALUE", Alpha: 1 }, { Alpha: 2, z: "PRIVATE_VALUE" },
+			{ type: "trace", "PRIVATE-FIELD": "PRIVATE_VALUE" }, { ["x".repeat(33)]: "PRIVATE_VALUE" },
+		];
+		for (const [index, value] of candidates.entries()) await session(`keyset-${index}`, [value, ...basic(`later-${index}`)]);
+		const result = run("build", "--root", root, "--out", out);
+		expect(result.status).toBe(0);
+		expect(JSON.parse(result.stdout)).toMatchObject({ generated: 0, skippedInvalidHeader: 4, invalidHeaderKinds: { "missing-type": 3, trace: 1 }, invalidHeaderKeySets: { "Alpha,z": 2, other: 2 } });
+		for (const hidden of ["PRIVATE_VALUE", "PRIVATE-FIELD", "x".repeat(33)]) expect(result.stdout).not.toContain(hidden);
+	});
+
+	it("accepts filename-safe string IDs while rejecting traversal and control characters", async () => {
+		await session("safe-file", [{ ...header("safe id.1") }, ...basic("safe id.1").slice(1)]);
+		for (const [index, id] of ["../escape", "a/b", "a\\b", "a\u0000b", "a\nb"].entries()) await session(`unsafe-${index}`, [header(id), ...basic(id).slice(1)]);
+		expect(await buildCards({ root, out })).toMatchObject({ generated: 1, skippedInvalidHeader: 5, invalidHeaderKinds: { "session-bad-id": 5 } });
+		await label("safe id.1", "pass", "");
+		await collectLabels({ out });
+		expect(JSON.parse((await readFile(join(dirname(out), "labels.jsonl"), "utf8")).trim()).sessionId).toBe("safe id.1");
 	});
 
 	it.each(["toolUse", "error", "aborted", undefined])("explains a textless final assistant with stopReason=%s", async (stopReason) => {
@@ -397,7 +436,7 @@ describe("session cards", () => {
 			generated: 1, skipped: 0, skippedOversized: 0, skippedInvalidHeader: 0, skippedEmpty: 0, skippedDuplicate: 0,
 			traceMissing: 1, tracePartial: 0, parseErrors: 0, sessionParseErrors: 0, traceParseErrors: 0, unknownEntries: 0,
 			badJson: 0, lineTooLong: 0, entryMissingId: 0, danglingParent: 0, cycle: 0, messageMissing: 0, findings: basicFindingCounts,
-			invalidHeaderKinds: {}, sessionVersions: { "1": 0, "2": 0, "3": 1, missing: 0 },
+			invalidHeaderKinds: {}, invalidHeaderKeySets: {}, sessionVersions: { "1": 0, "2": 0, "3": 1, missing: 0 },
 		});
 		const rendered = await card("truncate");
 		for (const value of ["U".repeat(2000) + "…[截断 1 字符]", "V".repeat(1000) + "…[截断 1 字符]", "A".repeat(400) + "…[截断 3601 字符]", "A".repeat(4000) + "…[截断 1 字符]", "R".repeat(300) + "…[截断 1 字符]", "…[截断 61 字符]", "(thinking 15 字符)"]) expect(rendered).toContain(value);

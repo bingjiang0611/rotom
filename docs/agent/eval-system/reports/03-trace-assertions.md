@@ -134,3 +134,103 @@
 5. 重做 `--limit 50` 冒烟，报告写出全部计数，包括 `invalidHeaderKeySets`，以及修改前后各规则 unknown 数量的对比。
 
 验收命令和提交方式同前。完成后把 03 改回 `in-review`，追加「修订记录」。
+
+## 修订记录（执行者，2026-10-25）
+
+完成本轮 5 项必须修改，状态恢复为 `in-review`。定向测试 73/73 通过，类型检查通过；全量测试仍仅有原有 10 项依赖失败。以下记录覆盖修订版，不覆盖前文的历史结果。
+
+### 逐项修改及范围
+
+| 核验项 | 修改及证据 |
+|---|---|
+| 1. 单行上限及图片 | MAX_LINE 改为 64 MiB，MAX_FILE 仍为 256 MiB；保持分块读取和文件大小快照边界。新增大于 1 MiB 的合成 base64 toolResult 用例，断言早期请求、工具结果和最后回复都在分支中，lineTooLong/danglingParent 均为 0，图片只显示 `(image)`。旧的超长行测试提高到 64 MiB + 1 字节，未删除上限检查。 |
+| 2. header 及字段名诊断 | 按 Pi 的 loadEntriesFromFile / parseSessionHeaderCandidate 跳过空行、无法解析的行及其跳过的 falsy 解析值；首个候选记录若不是 session/string-id，就拒绝文件，不继续寻找更晚 header。新增 missing-type、line-too-long；首个非空行超限时保守拒绝。新增 invalidHeaderKeySets，字段名排序后逗号连接，任何字段名不满足规定正则则整个集合归 other；没有可用对象字段时同样归 other。只输出字段名，不输出值。 |
+| 3. fault_side 合同 | 在规则代码中注明 classifyFaultSide 合同：已结束且 outcome 为 ok/aborted 时，缺失 fault_side 是有效的“无 harness 故障”证据。错误/unknown_outcome/incomplete 缺失 fault_side、未结束 span、partial/missing trace 仍不能据此给 clear；已有明确 harness 命中仍保留 hit。 |
+| 4. 合成测试 | 覆盖长图片、64 MiB 边界、坏 JSON/空白/null/false 前缀、首个非 session 候选不得被后续 header 替代、字段名排序与隐私、safe string ID 和路径字符拒绝、ok/aborted 的省略合同，以及错误/partial/missing 不得误判 clear。共 73 项定向测试，无真实会话 fixture。 |
+| 5. 同样本冒烟 | 修改前先把按 mtime 选出的 50 个真实输入及对应 trace 冻结到仓库外私有目录，保留相对路径和 mtime；旧版与新版均对该副本执行 build --limit 50。前后比较不混用不同时间采样；全部计数见下表。 |
+
+改动文件：`rotom/evals/scripts/session-cards.mjs`、其 `.d.mts`、`rotom/evals/scripts/trace-assertions.mjs`、两份对应测试、`rotom/evals/README.md`、协作 README 状态及本报告追加内容。未修改 observability、其它规则的命中条件、CI、依赖或锁文件。
+
+### 其它属性的省略合同核对
+
+已核对 `observability/index.ts` 的 classifyFaultSide、toolResultMetrics 和工具结束写入路径：
+
+- unknown_outcome 也可能按合同不写 fault_side，但这表示故障侧尚未确定，不是“可证明无 harness 故障”；保持 unknown，不能照搬 ok/aborted 的处理。
+- 正常工具结束的 toolResultMetrics 始终写 result_text_bytes，空文本/纯图片也写 0。缺失该属性不等价于 0，oversized-tool-result 保持 unknown；新增用例明确验证这一点。
+- 正常工具结束写入 outcome；未结束工具没有可用终态属性。schema-errors 和 ended-after-tool-error 不把缺失 outcome 推断为非错误。
+- 因此其它规则没有需要新增的“按合同省略即为 clear”分支，没有为了降低 unknown 改动它们的条件。
+
+### 验收命令及结果
+
+环境：macOS，Node `v24.18.0`，npm `12.2.0`，Vitest `4.1.9`。
+
+| 命令 | 结果 |
+|---|---|
+| `cd rotom/evals` | 成功；以下 npm 命令在该目录执行。 |
+| `npm ci --ignore-scripts --registry=https://registry.npmjs.org --replace-registry-host=always` | 退出 0，安装 180 个包；仍提示既有 8 项漏洞（3 moderate、5 high），未做额外升级。 |
+| `npm test -- test/trace-assertions.test.ts test/session-cards.test.ts` | 退出 0；2 个文件，73/73 通过。 |
+| `npm test` | 退出 1；16 个文件中 12 通过、4 失败；172 项中 161 通过、10 失败、1 跳过。失败仍为同一批 Computer Use identity/version 不匹配，无新增失败。 |
+| `npm run typecheck` | 退出 0；独立运行，不被前一失败短路。 |
+| `cd ../..` | 返回仓库根，后续 Git / audit 命令在根目录执行。 |
+| `git diff --check origin/main...HEAD` | 退出 0，提交后复查；另检查工作区和暂存区 whitespace。 |
+| `python3 scripts/audit-public.py --root .` | PASS，0 finding；本次改动全部暂存后复查。 |
+
+另对两个实现 `.mjs` 运行 `node --check`，通过。原测试中“坏首行之后不得使用 header”的断言按本轮明确的新合同调整为成功加载；仍保留“首个已解析非 header 候选”和“首个非空行超过 64 MiB”不得被后续 header 替代的断言。
+
+### 同样本真实冒烟（仅计数）
+
+前后命令均为 `node rotom/evals/scripts/session-cards.mjs build --root <仓库外冻结输入目录> --limit 50 --out <仓库外私有输出目录>`；修改前基线为 `9e8dbbfa` 的实现。
+
+| 字段 | 修改前 | 修改后 |
+|---|---:|---:|
+| 输入文件 | 50 | 50 |
+| 对应 trace 文件 | 22 | 22 |
+| generated | 22 | 22 |
+| skipped | 28 | 28 |
+| skippedOversized | 0 | 0 |
+| skippedInvalidHeader | 28 | 28 |
+| skippedEmpty | 0 | 0 |
+| skippedDuplicate | 0 | 0 |
+| traceMissing | 0 | 0 |
+| tracePartial | 2 | 2 |
+| parseErrors | 33 | 0 |
+| sessionParseErrors | 33 | 0 |
+| traceParseErrors | 0 | 0 |
+| badJson | 0 | 0 |
+| lineTooLong | 27 | 0 |
+| entryMissingId | 0 | 0 |
+| danglingParent | 6 | 0 |
+| cycle | 0 | 0 |
+| messageMissing | 0 | 0 |
+| unknownEntries | 0 | 0 |
+| invalidHeaderKinds | `{"other":28}` | `{"missing-type":28}` |
+| sessionVersions | `{"1":0,"2":0,"3":22,"missing":0}` | `{"1":0,"2":0,"3":22,"missing":0}` |
+
+`invalidHeaderKeySets`（修改前没有此计数表）：
+
+| 字段名集合 | 修改后计数 |
+|---|---:|
+| `agent,childIndex,cwd,message,recordType,role,runId,source,sourceEventType,text,timestamp,ts,version` | 10 |
+| `event,id,originalBytes,originalLines,originalTokens,placeholderBytes,placeholderTokens,removedTokens,request,sendNumber,timestamp,tool` | 1 |
+| `contentHash,event,id,originalBytes,originalLines,originalTokens,request,timestamp,tool` | 17 |
+
+| rule | 修改后 hit | 修改后 clear | 修改前 unknown | 修改后 unknown |
+|---|---:|---:|---:|---:|
+| repeat-after-error | 1 | 21 | 6 | 0 |
+| ended-after-tool-error | 0 | 16 | 8 | 6 |
+| ended-on-provider-error | 2 | 20 | 6 | 0 |
+| schema-errors | 0 | 18 | 7 | 4 |
+| oversized-tool-result | 8 | 12 | 5 | 2 |
+| harness-fault | 0 | 17 | 22 | 5 |
+
+修改后含 hit 的卡片 **9** 张；随机抽查 **3** 张，**3 张里 3 张命中合理**。抽查仍只表示规则条件成立，不自动推断人工 verdict。
+
+### 边界、偏差及交接
+
+- Pi 的 header 候选定位已对齐；作为本地文件输出的额外安全边界，string ID 仍拒绝 `/`、`\\`、`..` 和控制字符。原来过窄的字母数字正则已移除，含空格/普通点号的安全 ID 可以生成卡片并导出标签。
+- 冻结输入逐文件复制，不宣称原活跃会话和 trace 的跨文件原子快照；前后两次确实读取同一份固定副本。源 session/trace 未回写；冻结副本、卡片和抽样列表全部位于仓库外私有目录，不进入提交。
+- 保留 256 MiB 文件上限及新的 64 MiB 行上限。若后续真实数据仍超限，由规划者另定读取合同和验证，不在本轮继续扩大。
+- 真实前后生成数量相同；前缀行兼容及 unsafe ID 拒绝由合成用例证明，不宣称这些路径在本次真实样本中都有命中。
+- 全量测试的 10 项既有失败和 npm 漏洞提示保持原记录，不在本轮修复；人工 verdict 与规则一致程度仍等 bob 完成标注后再评估。
+
+使用公开 `eval/system` 干净 clone 重放本次 diff，以 GitHub noreply 身份提交，只推该分支，不推 main、不 force push。额外全历史审计仍仅有已确认的 `fc53915` author / committer 两项既有发现，不新增问题，也不宣称全历史 PASS。请规划者核验本轮 5 项修改；不宣称 accepted。

@@ -6,10 +6,11 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { StringDecoder } from "node:string_decoder";
 import { evaluateSession, RULE_IDS } from "./trace-assertions.mjs";
 
 const MAX_FILE = 256 * 1024 * 1024;
-const MAX_LINE = 1024 * 1024;
+const MAX_LINE = 64 * 1024 * 1024;
 const DEFAULT_OUT = join(homedir(), ".rotom/evals/cards");
 const SILENT_ENTRY_TYPES = new Set(["custom", "context_edit", "label", "session_info", "thinking_level_change", "usage"]);
 const EMPTY_LABEL = "<!-- label:begin -->\nverdict:\ncategories:\nnote:\n<!-- label:end -->\n";
@@ -48,25 +49,35 @@ async function readBounded(path) {
 		const records = [];
 		let badJson = 0;
 		let lineTooLong = 0;
-		let firstLine = true;
-		let firstLineParsed = false;
+		let firstRecordParsed = false;
 		let firstRecord;
+		let sawNonemptyLine = false;
+		let firstNonemptyTooLong = false;
+		let lineHasContent = false;
+		let lineDecoder = new StringDecoder("utf8");
 		let segments = [];
 		let lineBytes = 0;
 		function finishLine() {
+			if (!lineHasContent) lineHasContent = lineDecoder.end().trim().length > 0;
+			if (lineHasContent && !sawNonemptyLine) {
+				sawNonemptyLine = true;
+				firstNonemptyTooLong = lineBytes > MAX_LINE;
+			}
 			if (lineBytes > MAX_LINE) lineTooLong++;
 			else {
 				const line = Buffer.concat(segments, lineBytes).toString("utf8").trim();
 				if (line) {
 					try {
 						const record = JSON.parse(line);
-						if (firstLine) { firstRecord = record; firstLineParsed = true; }
+						// Pi skips blank/malformed lines and falsy parsed values while locating a header.
+						if (record && !firstRecordParsed) { firstRecord = record; firstRecordParsed = true; }
 						if (!record || typeof record !== "object" || Array.isArray(record)) badJson++;
 						else records.push(record);
 					} catch { badJson++; }
 				}
 			}
-			firstLine = false;
+			lineHasContent = false;
+			lineDecoder = new StringDecoder("utf8");
 			segments = [];
 			lineBytes = 0;
 		}
@@ -78,8 +89,10 @@ async function readBounded(path) {
 				for (let start = 0; start < chunk.length;) {
 					const newline = chunk.indexOf(10, start);
 					const end = newline < 0 ? chunk.length : newline;
-					lineBytes += end - start;
-					if (lineBytes <= MAX_LINE) segments.push(chunk.subarray(start, end));
+					const segment = chunk.subarray(start, end);
+					lineBytes += segment.length;
+					if (!lineHasContent) lineHasContent = lineDecoder.write(segment).trim().length > 0;
+					if (lineBytes <= MAX_LINE) segments.push(segment);
 					else segments = [];
 					if (newline >= 0) finishLine();
 					start = end + 1;
@@ -87,7 +100,7 @@ async function readBounded(path) {
 			}
 			if (lineBytes > 0) finishLine();
 		}
-		return { oversized: false, records, errors: badJson + lineTooLong, badJson, lineTooLong, firstRecord, firstLineParsed };
+		return { oversized: false, records, errors: badJson + lineTooLong, badJson, lineTooLong, firstRecord, firstRecordParsed, firstNonemptyTooLong };
 	} finally { await handle.close(); }
 }
 
@@ -302,7 +315,7 @@ export async function buildCards({ root = join(homedir(), ".pi/agent/sessions"),
 	const summary = {
 		generated: 0, skipped: 0, skippedOversized: 0, skippedInvalidHeader: 0, skippedEmpty: 0, skippedDuplicate: 0,
 		traceMissing: 0, tracePartial: 0, parseErrors: 0, sessionParseErrors: 0, traceParseErrors: 0, unknownEntries: 0,
-		invalidHeaderKinds: Object.create(null), sessionVersions: { "1": 0, "2": 0, "3": 0, missing: 0 },
+		invalidHeaderKinds: Object.create(null), invalidHeaderKeySets: Object.create(null), sessionVersions: { "1": 0, "2": 0, "3": 0, missing: 0 },
 		badJson: 0, lineTooLong: 0, entryMissingId: 0, danglingParent: 0, cycle: 0, messageMissing: 0,
 		findings: Object.fromEntries(RULE_IDS.map((rule) => [rule, { hit: 0, clear: 0, unknown: 0 }])),
 	};
@@ -313,10 +326,19 @@ export async function buildCards({ root = join(homedir(), ".pi/agent/sessions"),
 		summary.lineTooLong += loaded.lineTooLong;
 		if (loaded.oversized) { summary.skippedOversized++; continue; }
 		const header = loaded.firstRecord;
-		if (header?.type !== "session" || typeof header.id !== "string" || !/^[\w-]+$/.test(header.id)) {
-			const kind = !loaded.firstLineParsed ? "unparseable" : header?.type === "session" ? "session-bad-id"
-				: typeof header?.type === "string" && /^[a-z_]{1,32}$/.test(header.type) ? header.type : "other";
+		// A Pi-valid header ID must also stay within one output filename.
+		const safeId = typeof header?.id === "string" && !/[\/\\\u0000-\u001f\u007f]/.test(header.id) && !header.id.includes("..");
+		if (loaded.firstNonemptyTooLong || header?.type !== "session" || !safeId) {
+			let kind = "other";
+			if (loaded.firstNonemptyTooLong) kind = "line-too-long";
+			else if (!loaded.firstRecordParsed) kind = "unparseable";
+			else if (header?.type === undefined) kind = "missing-type";
+			else if (header.type === "session") kind = "session-bad-id";
+			else if (typeof header.type === "string" && /^[a-z_]{1,32}$/.test(header.type)) kind = header.type;
 			increment(summary.invalidHeaderKinds, kind);
+			const keys = header && typeof header === "object" && !Array.isArray(header) ? Object.keys(header).sort() : undefined;
+			const keySet = keys?.every((key) => /^[A-Za-z_]{1,32}$/.test(key)) ? keys.join(",") : "other";
+			increment(summary.invalidHeaderKeySets, keySet);
 			summary.skippedInvalidHeader++; continue;
 		}
 		const entries = loaded.records.slice(1);

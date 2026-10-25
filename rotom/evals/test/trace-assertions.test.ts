@@ -63,6 +63,20 @@ describe("trace assertions", () => {
 		expect(get("harness-fault", completed(), tools([{ "pi.tool.fault_side": faultSide }])).status).toBe(status);
 	});
 
+	it.each(["ok", "aborted"])("treats omitted fault_side on completed %s as valid non-harness evidence", (outcome) => {
+		expect(get("harness-fault", completed(), tools([{ "pi.tool.outcome": outcome }]))).toMatchObject({ status: "clear", count: 0 });
+		expect(get("harness-fault", completed(), tools([{ "pi.tool.outcome": outcome }]), "partial").status).toBe("unknown");
+		expect(get("harness-fault", completed(), tools([{ "pi.tool.outcome": outcome }]), "missing").status).toBe("unknown");
+	});
+
+	it.each(["tool_error", "unknown_outcome", "incomplete"])("keeps omitted fault_side unknown for %s", (outcome) => {
+		expect(get("harness-fault", completed(), tools([{ "pi.tool.outcome": outcome }])).status).toBe("unknown");
+	});
+
+	it("does not treat missing result-text metrics as zero even on an ok span", () => {
+		expect(get("oversized-tool-result", completed(), tools([{ "pi.tool.outcome": "ok" }])).status).toBe("unknown");
+	});
+
 	it("keeps array order and tool identity, including adjacent calls in one assistant message", () => {
 		const changedArguments = retry(true);
 		changedArguments[2] = assistant("next", [call("c1", { nested: { a: 1, b: 2 }, list: [2, 1] })]);

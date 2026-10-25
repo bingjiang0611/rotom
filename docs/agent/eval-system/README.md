@@ -31,7 +31,7 @@
 |---|---|---|---|
 | 01 | [会话卡片 + 标注汇总](tasks/01-session-cards.md) | Phase 1 读会话 | accepted |
 | 02 | [bob 标注 30–50 个会话，归纳失败类别](tasks/02-label-sessions.md) | Phase 1 | ready（bob） |
-| 03 | [规则检查（code evals）接入卡片](tasks/03-trace-assertions.md) | Phase 2 | changes-requested |
+| 03 | [规则检查（code evals）接入卡片](tasks/03-trace-assertions.md) | Phase 2 | in-review |
 | 04 | 第一个 LLM judge：虚假完成 + 对照标注验证 | Phase 2 | 待规划 |
 | 05 | GitHub Actions L1 | Phase 3 | 待规划，需 bob 决定 |
 | 06 | 每周失败闭环 | Phase 4 | 待规划 |
