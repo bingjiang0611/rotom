@@ -59,6 +59,8 @@
 | `python3 scripts/audit-public.py --root .` | 树审计 PASS，0 处命中（7,825 个文件） |
 | `node rotom/runtime/smoke-runtime.mjs <pi> rotom` | **跑不起来**：在 `verifyThirdPartyPackageContract` 处报 `已安装 … identity/version 不匹配`，是既有装机状态，与本次改动无关。用 `git worktree` 在 `origin/eval/system` 干净树上对照跑 `rotom/runtime/verify-pi-runtime.test.mjs`：基线 6 passed / 34 failed，本次 7 passed / 33 failed，同一环境门槛，未引入新失败 |
 
+GitHub Actions `Evals L1`：[run 40210736379](https://github.com/bingjiang0611/rotom/actions/runs/40210736379) 在 `550c09d` 上通过（35 秒：npm ci、6 个测试文件过滤运行、typecheck、树审计）。CI 只覆盖 eval；coding-policy、observability 与 `distribution.test.mjs` 只能在本地跑，命令与结果见上表。
+
 ## 真实数据冒烟
 
 命令：`node scripts/session-cards.mjs breakdown --since 28d --out <仓库外临时目录>/cards`，退出码 0，stderr 空，stdout 只有聚合 JSON，私有 `breakdown.md` 权限 `0600`，位于 Git 工作树外。
