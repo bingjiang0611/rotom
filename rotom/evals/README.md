@@ -42,7 +42,7 @@ done
 
 ## 安装与基础设施验证
 
-GitHub Actions `Evals L1` 只跑 session-cards、trace-assertions、agreement 合成测试、typecheck 和公开树隐私审计。
+GitHub Actions `Evals L1` 只跑 session-cards、trace-assertions、agreement、review 合成测试、typecheck 和公开树隐私审计。
 CI 不跑全量测试、真实会话或付费 eval，不代表产品运行时及 L2/L3 通过；不需要 secret。
 
 依赖精确跟随 Pi `0.84.3` 上游已验证组合，尤其固定 `vitest-evals@0.15.0`：
@@ -76,19 +76,24 @@ node rotom/evals/scripts/session-cards.mjs labels
 ```
 
 以上命令从仓库根执行。默认读取 `~/.pi/agent/sessions`，输出 `~/.rotom/evals/cards`；
-可用 `--root`（仅 build）和 `--out` 指定目录。单次最多 500 个会话，按文件修改时间倒序。
+可用 `--root`（仅 build）和 `--out` 指定目录。build 单次最多 500 个会话，按文件修改时间倒序。
 在卡片末尾填写 `verdict: pass` 或 `verdict: fail`；`categories:` 用逗号分隔，`note:` 可多行。
 `labels` 只收 verdict 非空的卡片，写入卡片目录上一级的 `labels.jsonl`。
 `labeledAt` 是本次导出时间；重复 build 原样保留已填 verdict 的标注块，格式损坏时拒绝覆盖。
 卡片目录权限为 0700，卡片和标签文件为 0600；拒绝 Git 工作树内输出及 symlink 根/输出目录。
 输入只读，按行流式读取；超过 256 MiB 的 session 跳过，超过 64 MiB 的行跳过并计解析错误；trace 同样有界。
 缺少 trace 标 missing，损坏、超限或未结束工具 span 标 partial，不把未知工具结果当成功。
-stdout 仅输出计数（labels 另含人工填写的类别计数），不输出会话正文。
+build/labels 的 stdout 仅输出计数（labels 另含人工填写的类别计数），不输出会话正文。
 跳过按超限、无效 header、空会话、重复 ID 拆分；解析错误分别统计 session / trace，并保留总数。
 `invalidHeaderKinds` 输出受限 header 类别，`invalidHeaderKeySets` 只输出排序后的安全字段名，不输出字段值。
 header 跳过空行和坏 JSON 后查找；`sessionVersions` 只统计已生成卡片的 1/2/3/missing 版本。
 缺少 version 或 version < 2 的会话在内存中重建线性分支，不回写输入；支持 bashExecution / custom 消息。
 真实卡片、标注及会话内容只留本机私有目录，绝不加入仓库或公开报告。
+
+在交互终端运行 `node rotom/evals/scripts/session-cards.mjs review`，可传 `--out <cards dir>`、`--limit N`；默认按 started 从新到旧问最多 50 张未标注卡片。
+`y` 满意，`n` 不满意后补一句原因（可回车留空）；categories 留空，分类交给规划者。
+`s` 跳过，`o` 显示完整卡片绝对路径，`q` 退出；逐张保存，Ctrl+C 保留已保存回答，损坏标注块不覆盖。
+需 TTY 输入；review 输出含私有摘要，不要复制进仓库。完成后运行 `labels` 汇总，仍可手工编辑标注块。
 
 ### 卡片规则检查（零模型）
 

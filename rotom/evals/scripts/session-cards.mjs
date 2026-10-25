@@ -9,6 +9,7 @@ import { parseArgs } from "node:util";
 import { StringDecoder } from "node:string_decoder";
 import { evaluateSession, RULE_IDS } from "./trace-assertions.mjs";
 import { computeAgreement, renderAgreementMarkdown } from "./agreement.mjs";
+import { runReview } from "./review.mjs";
 
 const MAX_FILE = 256 * 1024 * 1024;
 const MAX_LINE = 64 * 1024 * 1024;
@@ -279,9 +280,9 @@ function parseLabel(card) {
 	return { block, verdict: match[1].trim(), categories: [...new Set(match[2].split(/[,，]/).map((value) => value.trim()).filter(Boolean))], note: match[3].trim() };
 }
 
-async function readCard(path) {
+async function readCard(path, encoding = "utf8") {
 	const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-	try { return await handle.readFile("utf8"); }
+	try { return await handle.readFile(encoding); }
 	finally { await handle.close(); }
 }
 
@@ -412,6 +413,27 @@ export async function collectLabels({ out = DEFAULT_OUT } = {}) {
 	return summary;
 }
 
+/** Review only existing cards. Streams are injectable; CLI enforces the TTY gate. */
+export async function reviewCards({ out = DEFAULT_OUT, limit = 50, input = process.stdin, output = process.stdout } = {}) {
+	if (!Number.isSafeInteger(limit) || limit < 1) throw new Error("Invalid review limit");
+	out = await outputDirectory(out);
+	await mkdir(out, { recursive: true, mode: 0o700 });
+	await chmod(out, 0o700);
+	const cards = [];
+	let damaged = 0;
+	for await (const entry of await opendir(out)) {
+		if (!entry.name.endsWith(".md")) continue;
+		const path = join(out, entry.name);
+		const content = await readCard(path, null);
+		let label;
+		try { label = parseLabel(content.toString("utf8")); }
+		catch { damaged++; continue; }
+		if (label.verdict) continue;
+		cards.push({ path, content, labelStart: content.lastIndexOf("\n<!-- label:begin -->") + 1 });
+	}
+	return runReview(cards, { limit, input, output, writeCard: privateWrite, damaged });
+}
+
 async function writeAgreement({ out = DEFAULT_OUT } = {}) {
 	out = await outputDirectory(out);
 	const loaded = await readBounded(join(dirname(out), "labels.jsonl"));
@@ -433,12 +455,19 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
 	try {
 		const { values, positionals } = parseArgs({ options: { root: { type: "string" }, out: { type: "string" }, since: { type: "string" }, limit: { type: "string" } }, allowPositionals: true });
 		const [command] = positionals;
-		if (positionals.length !== 1 || !["build", "labels", "agreement"].includes(command) || (command !== "build" && (values.root || values.since || values.limit))) throw new Error("Invalid CLI arguments");
-		let result;
-		if (command === "build") result = await buildCards({ ...values, limit: values.limit === undefined ? 50 : Number(values.limit) });
-		else if (command === "labels") result = await collectLabels(values);
-		else result = await writeAgreement(values);
-		console.log(JSON.stringify(result));
+		if (positionals.length !== 1 || !["build", "labels", "agreement", "review"].includes(command) ||
+			(command !== "build" && (values.root !== undefined || values.since !== undefined)) ||
+			(!["build", "review"].includes(command) && values.limit !== undefined)) throw new Error("Invalid CLI arguments");
+		if (command === "review") {
+			if (!process.stdin.isTTY) throw new Error("Review requires a TTY");
+			await reviewCards({ ...values, limit: values.limit === undefined ? 50 : Number(values.limit) });
+		} else {
+			let result;
+			if (command === "build") result = await buildCards({ ...values, limit: values.limit === undefined ? 50 : Number(values.limit) });
+			else if (command === "labels") result = await collectLabels(values);
+			else result = await writeAgreement(values);
+			console.log(JSON.stringify(result));
+		}
 	} catch {
 		// Filesystem/JSON errors can contain private paths or source text; never echo them.
 		console.error("session-cards: invalid arguments, input, output path, permissions, or label format");

@@ -42,7 +42,7 @@ jobs:
       - name: Install eval dependencies
         run: npm ci --ignore-scripts --registry=https://registry.npmjs.org --replace-registry-host=always
       - name: Test eval tools
-        run: npm test -- session-cards trace-assertions agreement
+        run: npm test -- session-cards trace-assertions agreement review
       - name: Typecheck
         run: npm run typecheck
       - name: Audit public tree

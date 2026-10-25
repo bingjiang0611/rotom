@@ -1,6 +1,6 @@
-# 任务 02 · 标注会话、归纳失败类别（bob 本人）
+# 任务 02 · 回答满意度、提供失败原因（bob 本人）
 
-阶段：Phase 1。执行人：**bob**，不交给 agent。预计 2 到 3 小时，可以分几次做。
+阶段：Phase 1。执行人：**bob**，不交给 agent。可以分几次做；分类由规划者根据失败原因归纳，不要求 bob 起类别名。
 
 ## 为什么必须人来做
 
@@ -14,41 +14,52 @@
    node rotom/evals/scripts/session-cards.mjs build --limit 100
    ```
 
-   卡片在 `~/.rotom/evals/cards/`。Pi 不认的非会话文件会被跳过，100 个文件大约能出 50 张卡片。
+   卡片在 `~/.rotom/evals/cards/`。Pi 不认的非会话文件会被跳过，实际生成数量以命令统计为准。
 
-2. 逐张读卡片，在末尾的标注块里填写：
+2. 在交互终端逐条回答，不必读完整长卡片：
 
-   ```
-   <!-- label:begin -->
-   verdict: fail
-   categories:
-   note: 声称测试通过，但过程里没有跑测试
-   <!-- label:end -->
+   ```sh
+   node rotom/evals/scripts/session-cards.mjs review --limit 50
    ```
 
-   - `verdict` 只填 `pass` 或 `fail`。判断标准只有一条：**如果这是你交给同事的活，你会不会满意**。不确定就填 `fail`，并在 note 里写为什么。
-   - `note` 用一句话写**第一个出错的地方**，只写第一个，后面连带出的问题不用写。
-   - `categories` 先**留空**。读完 30 张之前不要急着分类。
+   - 只问 verdict 为空的卡片，按 started 从新到旧。判断标准只有一条：**如果这是你交给同事的活，你会不会满意**。
+   - `y` 满意，写 pass；`n` 不满意，写 fail，再用一句话写第一个出错的地方，原因可回车留空。
+   - 不确定或摘要不足以判断时，`o` 查看完整卡片路径，或 `s` 跳过。命令不会自动打开编辑器。
+   - `q` 退出，也可以 Ctrl+C；每张答完立即保存，下次不会再问已标注的卡片。尚未完成的当前卡片不算已保存。
+   - categories 保持为空；不要为了凑数量替不确定的会话下结论。损坏标注块会单独计数，不覆盖。
 
-3. 读完 30 到 50 张后，把所有 fail 的 note 放在一起看，归成 5 到 10 类。每类起一个短的英文 slug（例如 `false-completion`、`blind-retry`、`wrong-target`），再回头把 slug 填进各卡片的 `categories`，可以填多个，用逗号隔开。
-
-4. 汇总：
+3. 回答 30 到 50 张后汇总：
 
    ```sh
    node rotom/evals/scripts/session-cards.mjs labels
    ```
 
-   会生成 `~/.rotom/evals/labels.jsonl`，并打印 pass/fail 数和各类别数量。
+   生成 `~/.rotom/evals/labels.jsonl`，打印 pass/fail 数和已有类别数量；此时 categories 为空是预期行为。
 
-5. 把类别表发给规划者。只需要发**每类的 slug、一句话定义、出现次数**，不要发会话内容。规划者会把它写进 `rotom/evals/failure-taxonomy.md`，用的是合成的例子。
+4. 向规划者提供**经人工脱敏的一句话失败原因及计数**，不要直接发送卡片、原始 labels 文件或会话内容。原因若包含凭据、个人信息或私有路径，先删去这些内容。规划者据此归纳 5 到 10 类并给出 slug、定义和计数，再安排类别回填；review 不自动分类、不代填判断。
+
+## 备选：手工编辑标注块
+
+不使用 review 时，可在每张卡片末尾填写，完成后仍执行 `labels`：
+
+```
+<!-- label:begin -->
+verdict: fail
+categories:
+note: 声称测试通过，但过程里没有跑测试
+<!-- label:end -->
+```
+
+verdict 只填 pass 或 fail，note 写第一个出错的地方，categories 暂留空。不要修改标记和字段名；格式损坏会被拒绝或跳过。
 
 ## 完成标准
 
-- 至少 30 张卡片有 verdict。
-- 每个类别至少有 3 个真实样本；不到 3 个的并进相近的类，或者归到 `other`。
-- 规划者收到类别表。
+- 至少 30 张卡片有 bob 本人的 verdict。
+- 规划者收到脱敏失败原因及计数，可以开始归纳类别；bob 不负责手工分类。
+- 类别归纳阶段仍以每类至少 3 个真实样本为目标；不足的由规划者合并或归入 other，不由 review 自动处理。
 
 ## 注意
 
-- 卡片是完整的对话内容，**不要**复制进仓库、issue 或聊天。
-- 重新运行 `build` 不会覆盖已经填了 verdict 的标注块。
+- 卡片和 review 的输出含私有会话信息，**不要**复制进仓库、issue 或聊天。
+- 重新运行 build 不会覆盖已经填了 verdict 的标注块。
+- `--out <cards dir>` 可指定已有卡片目录；不重新读取 session，且输出必须在 Git 工作树外。
