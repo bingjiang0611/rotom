@@ -39,6 +39,6 @@
 | 07 | 每周失败闭环 | Phase 4 | 待规划 |
 | 08 | [每周效率统计 + 只挑可疑会话补标](tasks/08-efficiency-stats.md) | Phase 2 | accepted |
 | 09 | [工具出错与 provider 出错拆解](tasks/09-error-breakdown.md) | Phase 2 | accepted |
-| 10 | [给 edit 失败补上原因码](tasks/10-edit-error-codes.md) | Phase 2 | ready |
+| 10 | [给 edit 失败补上原因码](tasks/10-edit-error-codes.md) | Phase 2 | in-review |
 
 状态取值：`ready`（可开工）· `in-review`（执行者已提交，等核验）· `changes-requested` · `accepted`。
