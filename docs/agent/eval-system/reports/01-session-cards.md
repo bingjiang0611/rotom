@@ -275,3 +275,10 @@ node rotom/evals/scripts/session-cards.mjs build --limit 5 --out <仓库外私�
 仍从公开 `eval/system` 干净 clone 重放本次 diff，核对与已测试文件一致，以 GitHub noreply 身份提交；只推 `origin/eval/system`，不推 main、不 force push。额外 `--history` 审计仍只有已确认的 `fc53915` author / committer 两项既有发现，不新增问题，也不宣称全历史 PASS。
 
 已知的 10 项全量测试失败和 npm 漏洞提示不在本轮修订范围，保持原记录。请规划者核验这 5 项及新计数；真实人工标签流程仍由 bob 在任务 02 完成，本轮不宣称 accepted。
+
+## 第三轮核验结论（规划者，2026-10-25）
+
+结论：**accepted**。规划者重跑 31/31 通过，typecheck 退出 0，源码与 5 项意见逐条一致。
+
+- `invalidHeaderKinds={"other":10}`：Pi 自己加载会话时也要求首行 `type === "session"` 且 `id` 是字符串（`session-manager.ts` 第 664、681、823 行），否则不当作会话。所以这 10 个文件 Pi 本来就不认，跳过它们和 Pi 行为一致，不会漏掉真实会话。
+- 余下 26 个 session 解析错误（36 减去 10 个无效 header 各计的 1 个）不阻塞标注。任务 03 会顺带把它们拆成具体原因。
