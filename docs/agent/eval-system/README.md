@@ -38,6 +38,6 @@
 | 06 | [GitHub Actions L1（只跑 eval 相关测试）](tasks/06-ci-l1.md) | Phase 3 | accepted |
 | 07 | 每周失败闭环 | Phase 4 | 待规划 |
 | 08 | [每周效率统计 + 只挑可疑会话补标](tasks/08-efficiency-stats.md) | Phase 2 | accepted |
-| 09 | [工具出错与 provider 出错拆解](tasks/09-error-breakdown.md) | Phase 2 | in-review |
+| 09 | [工具出错与 provider 出错拆解](tasks/09-error-breakdown.md) | Phase 2 | accepted |
 
 状态取值：`ready`（可开工）· `in-review`（执行者已提交，等核验）· `changes-requested` · `accepted`。

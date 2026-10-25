@@ -63,3 +63,18 @@ GitHub Actions `Evals L1`：[run 40206497180](https://github.com/bingjiang0611/r
 
 - browser_interact 出错率 100%（451/451 全是非 `ok`），但其中 406 次是 `unknown_outcome`：这个工具的错误面需要在后续任务里单独定口径（是工具问题还是「写操作结果未证明」的诚实标记），本任务只做计数。
 - 真正决定「修什么」还缺 fail 样本：bob 目前 44 张里 4 个 fail，仍不足以训练 judge；本报告只提供出错分布。
+
+## 核验（规划者，2026-10-25）
+
+结论：**accepted**。
+
+- 拉取 `eb03d32` 后本地重跑 `npm test -- session-cards trace-assertions agreement review session-metrics error-breakdown`：6 文件 / 150 用例通过；`npm run typecheck` 通过。
+- 读了 `error-breakdown.mjs` 与 `session-cards.mjs` 的 diff：只读 allowlist 里的 trace 属性，不碰会话正文和错误正文；缺失记 `(none)`；stdout 只有聚合，session id 只进 0600 的 `breakdown.md`；`readTrace` 只是多返回已读的记录，没有新增读取。
+- 三处偏差都认可：run 口径恒为 0 的原因（Pi 每次尝试新建 `pi.agent.run`）讲得清楚，并补了会话级计数；provider 出错按 `status=error` 判定比按 category 更完整；aborted 单列。
+- 集中度的分母是「有工具出错的会话」（114 个里的前 12 个），不是全部 175 个会话。这个口径更严格，可以接受，但以后引用时要写成「有出错会话的前 10%」。
+- 历史审计的 14 条 finding：只有 `fc53915` 是以 `noreply@anthropic.com` 为 author/committer，其余来自规划者提交信息里的 `Co-Authored-By` trailer。都是已公开历史，不改写。若以后要把 eval 工具合进 `main`，用 squash merge 并写干净的提交信息即可。
+
+读数要点（给后续任务）：
+- `bash nonzero_exit` 1,998 次里包含 grep 无匹配、测试失败等「正常的非 0」，不能直接当作 agent 犯错。
+- `edit` 724 次出错里有 706 次没有 `error_code`：edit 失败的原因目前在 trace 里看不见，这是 bob 反馈「出错太多」最可能直接对应、又最可能修得动的部分。
+- provider 侧是 `openai-codex` 超时为主（57.0%），与 agent 行为无关，属于网络/超时配置问题。
