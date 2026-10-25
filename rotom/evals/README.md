@@ -275,6 +275,17 @@ baseline 产品目录需要包含已安装的 `extensions/third-party/node_modul
 
 宿主机 eval 默认把 Agent tool surface 设为 `noTools`。case 可以用 `tools: [...]` 显式声明最小工具白名单；只有确实要让模型访问完整宿主工具面时，才使用 harness 的 `allowHostSideEffects: true`，或在 CLI 中显式传 `--allow-host-side-effects`。仅配置 `excludeTools` 不构成安全白名单。Apple container 内仍默认加载完整产品工具面，但不会继承宿主 Home 或未点名的环境变量。
 
+## Compaction Offload：04a 零费用受控回放
+
+`cases/compaction-offload.eval.ts` 比较同一产品的卸载开/关，默认跳过。
+显式运行：`ROTOM_EVAL_COMPACTION_OFFLOAD=1 npm run eval -- cases/compaction-offload.eval.ts`；当前只接受本地 faux provider，不调用真实模型。
+`ROTOM_EVAL_REPETITIONS=3|5`（默认 3），按任务交替两臂顺序，每次新工作区；三个合成任务和判分固定在 `src/compaction-offload-cases.ts`。
+两臂均关闭 Reducer，使用相同工具、thinking=off、默认 keepRecentTokens；阈值压到 64K，reserve 不改变摘要输出上限。
+专项：`npx vitest run test/compaction-offload-eval.test.ts`。全量 `npm test` 需将 `ROTOM_PI`/`ROTOM_TEST_PI` 指向当前产品 Pi，不能使用 npm PATH 中的旧 devDependency Pi。
+报告和授权记录见 `../../docs/agent/compaction/reports/04-paid-replay.md` 与 `../../docs/agent/compaction/tasks/04-paid-replay.md`。
+04b 须先填模型、N、预算授权，并实现累计预算控制/真实模型适配；填写记录不会自动启用付费调用。
+faux usage 为合成字符估算，不证明真实速度、任务成功率、缓存或费用收益；小样本不作显著性结论。原始会话与 trace 只留本机忽略目录。
+
 ## Context footprint
 
 无模型、无网络的重复验证：

@@ -3,6 +3,8 @@ import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
+import { contentText, normalizeSteps, createCustomMessageWaiter, promptAgent, latestAssistantResponse } from "./pi-harness-lifecycle.ts";
+export { latestAssistantResponse } from "./pi-harness-lifecycle.ts";
 import type { AgentSession, CreateAgentSessionOptions, InlineExtension } from "@earendil-works/pi-coding-agent";
 import {
 	createHarness,
@@ -82,6 +84,8 @@ export type PiCodingAgentHarnessOptions = {
 	 * do, so an arm built this way is positionally faithful to the real path.
 	 */
 	inlineExtensions?: InlineExtension[];
+	/** Read-only eval probes may need to observe events before a product handler cancels them. */
+	inlineExtensionsFirst?: boolean;
 	setupWorkspace?: (context: PiEvalWorkspaceContext) => void | Promise<void>;
 	modelRuntimeFactory?: (context: {
 		product: ProductRuntimeSelection;
@@ -169,18 +173,6 @@ function modelBaseOrigin(baseUrl: unknown): string | undefined {
 	}
 }
 
-function contentText(content: unknown): string {
-	if (typeof content === "string") return content;
-	if (!Array.isArray(content)) return "";
-	return content
-		.map((part) => {
-			if (!part || typeof part !== "object") return "";
-			const candidate = part as Record<string, unknown>;
-			return candidate.type === "text" && typeof candidate.text === "string" ? candidate.text : "";
-		})
-		.join("");
-}
-
 export function toTranscriptEvents(messages: AgentSession["messages"]): TranscriptEvent[] {
 	const events: TranscriptEvent[] = [];
 	for (const message of messages) {
@@ -223,73 +215,6 @@ export function toTranscriptEvents(messages: AgentSession["messages"]): Transcri
 		}
 	}
 	return events;
-}
-
-function normalizeSteps(input: PiCodingAgentInput): PiCodingAgentStep[] {
-	if (typeof input === "string") return [{ type: "prompt", content: input }];
-	return Array.isArray(input) ? input : input.steps;
-}
-
-export function latestAssistantResponse(session: AgentSession, previousMessageCount: number, allowEmpty = false): string {
-	const assistant = session.messages
-		.slice(previousMessageCount)
-		.reverse()
-		.find((message) => message.role === "assistant");
-	if (!assistant) throw new Error("Agent run completed without an assistant message.");
-	if (assistant.stopReason !== "stop") {
-		throw new Error(assistant.errorMessage ?? `Agent run ended with unexpected stop reason: ${assistant.stopReason}.`);
-	}
-	const output = contentText(assistant.content);
-	if (!output && !allowEmpty) throw new Error("Agent run produced no assistant text.");
-	return output;
-}
-
-function createCustomMessageWaiter(session: AgentSession, customType: string) {
-	let received = false;
-	let notify: (() => void) | undefined;
-	const unsubscribe = session.subscribe((event) => {
-		if (event.type !== "message_end" || event.message.role !== "custom" || event.message.customType !== customType) return;
-		received = true;
-		notify?.();
-	});
-	return {
-		async wait(timeoutMs: number, signal: AbortSignal | undefined): Promise<void> {
-			if (received) return;
-			await new Promise<void>((resolveWait, rejectWait) => {
-				const cleanup = () => {
-					clearTimeout(timer);
-					signal?.removeEventListener("abort", onAbort);
-					notify = undefined;
-				};
-				const onAbort = () => {
-					cleanup();
-					rejectWait(signal?.reason ?? new Error("Eval custom-message wait aborted."));
-				};
-				const timer = setTimeout(() => {
-					cleanup();
-					rejectWait(new Error(`Timed out waiting for custom message ${customType} after ${String(timeoutMs)}ms.`));
-				}, timeoutMs);
-				notify = () => {
-					cleanup();
-					resolveWait();
-				};
-				if (signal?.aborted) onAbort();
-				else signal?.addEventListener("abort", onAbort, { once: true });
-			});
-		},
-		cancel(): void {
-			unsubscribe();
-			notify = undefined;
-		},
-	};
-}
-
-async function promptAgent(session: AgentSession, input: string, signal: AbortSignal | undefined, allowEmpty = false): Promise<string> {
-	signal?.throwIfAborted();
-	const previousMessageCount = session.messages.length;
-	await session.prompt(input);
-	await session.waitForIdle();
-	return latestAssistantResponse(session, previousMessageCount, allowEmpty);
 }
 
 function resourcePaths(selection: Awaited<ReturnType<typeof loadProductRuntime>>) {
@@ -357,6 +282,9 @@ async function runPiCodingAgent<TOutput extends JsonValue>(
 					: {}),
 			});
 			await loader.reload();
+			if (options.inlineExtensionsFirst) {
+				loader.getExtensions().extensions.sort((a, b) => Number(b.path.startsWith("<inline:")) - Number(a.path.startsWith("<inline:")));
+			}
 			const extensionLoadErrors = loader.getExtensions().errors;
 			if (extensionLoadErrors.length > 0) {
 				throw new AggregateError(extensionLoadErrors.map((item) => item.error), "Product extensions failed to load.");
@@ -439,7 +367,7 @@ async function runPiCodingAgent<TOutput extends JsonValue>(
 			}
 
 			const evalSession = session;
-			const scenarioStartMessageCount = evalSession.messages.length;
+			const scenarioStartEntryCount = evalSession.sessionManager.getBranch().length;
 			const customMessageWaiter = options.awaitCustomMessage
 				? createCustomMessageWaiter(evalSession, options.awaitCustomMessage.customType)
 				: undefined;
@@ -459,7 +387,7 @@ async function runPiCodingAgent<TOutput extends JsonValue>(
 				if (customMessageWaiter && options.awaitCustomMessage) {
 					await customMessageWaiter.wait(options.awaitCustomMessage.timeoutMs ?? 60_000, signal);
 					await evalSession.waitForIdle();
-					response = latestAssistantResponse(evalSession, scenarioStartMessageCount);
+					response = latestAssistantResponse(evalSession, scenarioStartEntryCount);
 				}
 				if (response === undefined) throw new Error("Pi eval input must include at least one prompt step.");
 				if (lifecycleErrors.length > 0) throw new AggregateError(lifecycleErrors, "Extension lifecycle failed.");
