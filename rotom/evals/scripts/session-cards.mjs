@@ -6,6 +6,7 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { evaluateSession, RULE_IDS } from "./trace-assertions.mjs";
 
 const MAX_FILE = 256 * 1024 * 1024;
 const MAX_LINE = 1024 * 1024;
@@ -43,25 +44,26 @@ async function readBounded(path) {
 	try {
 		const info = await handle.stat();
 		if (!info.isFile()) throw new Error("Input must be a regular file");
-		if (info.size > MAX_FILE) return { oversized: true, records: [], errors: 0 };
+		if (info.size > MAX_FILE) return { oversized: true, records: [], errors: 0, badJson: 0, lineTooLong: 0 };
 		const records = [];
-		let errors = 0;
+		let badJson = 0;
+		let lineTooLong = 0;
 		let firstLine = true;
 		let firstLineParsed = false;
 		let firstRecord;
 		let segments = [];
 		let lineBytes = 0;
 		function finishLine() {
-			if (lineBytes > MAX_LINE) errors++;
+			if (lineBytes > MAX_LINE) lineTooLong++;
 			else {
 				const line = Buffer.concat(segments, lineBytes).toString("utf8").trim();
 				if (line) {
 					try {
 						const record = JSON.parse(line);
 						if (firstLine) { firstRecord = record; firstLineParsed = true; }
-						if (!record || typeof record !== "object" || Array.isArray(record)) errors++;
+						if (!record || typeof record !== "object" || Array.isArray(record)) badJson++;
 						else records.push(record);
-					} catch { errors++; }
+					} catch { badJson++; }
 				}
 			}
 			firstLine = false;
@@ -85,7 +87,7 @@ async function readBounded(path) {
 			}
 			if (lineBytes > 0) finishLine();
 		}
-		return { oversized: false, records, errors, firstRecord, firstLineParsed };
+		return { oversized: false, records, errors: badJson + lineTooLong, badJson, lineTooLong, firstRecord, firstLineParsed };
 	} finally { await handle.close(); }
 }
 
@@ -111,8 +113,8 @@ async function discover(root, since, limit) {
 function currentBranch(records, summary) {
 	const entries = [];
 	for (const entry of records) {
-		if (typeof entry.type !== "string" || typeof entry.id !== "string" ||
-			(entry.parentId !== null && typeof entry.parentId !== "string")) { summary.sessionParseErrors++; continue; }
+		if (typeof entry.type !== "string") { summary.badJson++; continue; }
+		if (typeof entry.id !== "string" || (entry.parentId !== null && typeof entry.parentId !== "string")) { summary.entryMissingId++; continue; }
 		entries.push(entry);
 	}
 	const byId = new Map(entries.map((entry) => [entry.id, entry]));
@@ -120,12 +122,12 @@ function currentBranch(records, summary) {
 	const branch = [];
 	let entry = entries.at(-1);
 	while (entry) {
-		if (seen.has(entry.id)) { summary.sessionParseErrors++; break; }
+		if (seen.has(entry.id)) { summary.cycle++; break; }
 		seen.add(entry.id);
 		branch.push(entry);
 		if (entry.parentId === null) break;
 		entry = byId.get(entry.parentId);
-		if (!entry) summary.sessionParseErrors++;
+		if (!entry) summary.danglingParent++;
 	}
 	return branch.reverse();
 }
@@ -179,7 +181,7 @@ function quote(text) {
 
 function increment(counts, key) { counts[key] = (counts[key] ?? 0) + 1; }
 
-function renderCard(header, path, branch, trace, summary) {
+function renderCard(header, path, branch, trace, summary, findings) {
 	const messages = branch.filter((entry) => entry.type === "message").map((entry) => entry.message);
 	const assistants = messages.filter((message) => message?.role === "assistant");
 	const results = new Map(messages.filter((message) => message?.role === "toolResult").map((message) => [message.toolCallId, message]));
@@ -210,7 +212,7 @@ function renderCard(header, path, branch, trace, summary) {
 		if (SILENT_ENTRY_TYPES.has(entry.type)) continue;
 		if (entry.type !== "message") { summary.unknownEntries++; continue; }
 		const message = entry.message;
-		if (!message) { summary.sessionParseErrors++; continue; }
+		if (!message) { summary.messageMissing++; continue; }
 		if (message.role === "system") continue;
 		if (message.role === "bashExecution") {
 			process.push(quote(`$ ${truncate(message.command, 200)} → exit=${message.exitCode ?? "unknown"}${message.cancelled ? " cancelled" : ""} · 输出：${truncate(message.output, 300)}`.replace(/\r?\n/g, " "))); continue;
@@ -244,12 +246,14 @@ function renderCard(header, path, branch, trace, summary) {
 		session: header.id, file: path, cwd: header.cwd ?? null, started: header.timestamp ?? null,
 		duration: Number.isFinite(elapsed) ? `${elapsed}ms` : "unknown", models: [...models], turns: assistants.length,
 		tool_calls: toolCalls, tool_errors: toolErrors, tokens, stop_reasons: stopReasons, trace: trace.status,
+		findings: Object.fromEntries(findings.map(({ rule, status }) => [rule, status])),
 	};
 	const metadata = Object.entries(fields).map(([key, value]) => `${key}: ${key === "trace" ? value : JSON.stringify(value)}`).join("\n");
 	const request = contentText(messages.find((message) => message?.role === "user")?.content);
 	const lastAssistant = assistants.at(-1);
 	const final = contentText(lastAssistant?.content) || `(最后一条 assistant 无文本，stopReason=${lastAssistant?.stopReason ?? "unknown"})`;
-	return `---\n${metadata}\n---\n\n## 用户请求\n${quote(truncate(request, 2000))}\n\n## 过程\n${process.join("\n\n")}\n\n## 最终回复\n${quote(truncate(final, 4000))}\n\n`;
+	const hits = findings.filter(({ status }) => status === "hit").map(({ rule, count, evidence }) => `- ${rule}（count=${count}）：${truncate(JSON.stringify(evidence), 600)}`);
+	return `---\n${metadata}\n---\n\n## 用户请求\n${quote(truncate(request, 2000))}\n\n## 过程\n${process.join("\n\n")}\n\n## 规则命中\n${hits.join("\n") || "(无)"}\n\n## 最终回复\n${quote(truncate(final, 4000))}\n\n`;
 }
 
 function parseLabel(card) {
@@ -299,18 +303,21 @@ export async function buildCards({ root = join(homedir(), ".pi/agent/sessions"),
 		generated: 0, skipped: 0, skippedOversized: 0, skippedInvalidHeader: 0, skippedEmpty: 0, skippedDuplicate: 0,
 		traceMissing: 0, tracePartial: 0, parseErrors: 0, sessionParseErrors: 0, traceParseErrors: 0, unknownEntries: 0,
 		invalidHeaderKinds: Object.create(null), sessionVersions: { "1": 0, "2": 0, "3": 0, missing: 0 },
+		badJson: 0, lineTooLong: 0, entryMissingId: 0, danglingParent: 0, cycle: 0, messageMissing: 0,
+		findings: Object.fromEntries(RULE_IDS.map((rule) => [rule, { hit: 0, clear: 0, unknown: 0 }])),
 	};
 	const written = new Set();
 	for (const { path } of await discover(root, cutoff, limit)) {
 		const loaded = await readBounded(path);
-		summary.sessionParseErrors += loaded.errors;
+		summary.badJson += loaded.badJson;
+		summary.lineTooLong += loaded.lineTooLong;
 		if (loaded.oversized) { summary.skippedOversized++; continue; }
 		const header = loaded.firstRecord;
 		if (header?.type !== "session" || typeof header.id !== "string" || !/^[\w-]+$/.test(header.id)) {
 			const kind = !loaded.firstLineParsed ? "unparseable" : header?.type === "session" ? "session-bad-id"
 				: typeof header?.type === "string" && /^[a-z_]{1,32}$/.test(header.type) ? header.type : "other";
 			increment(summary.invalidHeaderKinds, kind);
-			summary.sessionParseErrors++; summary.skippedInvalidHeader++; continue;
+			summary.skippedInvalidHeader++; continue;
 		}
 		const entries = loaded.records.slice(1);
 		if ((header.version ?? 1) < 2) {
@@ -332,12 +339,15 @@ export async function buildCards({ root = join(homedir(), ".pi/agent/sessions"),
 			const existing = parseLabel(await readCard(cardPath));
 			if (existing.verdict) label = existing.block;
 		}
-		await privateWrite(cardPath, renderCard(header, path, branch, trace, summary) + label);
+		const findings = evaluateSession({ branch, traceTools: trace.tools, traceStatus: trace.status });
+		await privateWrite(cardPath, renderCard(header, path, branch, trace, summary, findings) + label);
+		for (const { rule, status } of findings) summary.findings[rule][status]++;
 		written.add(header.id);
 		summary.generated++;
 		if (header.version === undefined || [1, 2, 3].includes(header.version)) increment(summary.sessionVersions, header.version ?? "missing");
 	}
 	summary.skipped = summary.skippedOversized + summary.skippedInvalidHeader + summary.skippedEmpty + summary.skippedDuplicate;
+	summary.sessionParseErrors = summary.badJson + summary.lineTooLong + summary.entryMissingId + summary.danglingParent + summary.cycle + summary.messageMissing;
 	summary.parseErrors = summary.sessionParseErrors + summary.traceParseErrors;
 	return summary;
 }
@@ -362,7 +372,15 @@ export async function collectLabels({ out = DEFAULT_OUT } = {}) {
 		const sessionId = JSON.parse(session[1]);
 		if (sessionId !== basename(name, ".md")) throw new Error("Card identity mismatch");
 		const { verdict, categories, note } = label;
-		labels.push({ sessionId, verdict, categories, note, cardPath, labeledAt: new Date().toISOString() });
+		const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/.exec(card)?.[1];
+		const field = /^findings: (.+)$/m.exec(frontmatter ?? "");
+		const stored = field ? JSON.parse(field[1]) : undefined;
+		const findings = Object.fromEntries(RULE_IDS.map((rule) => {
+			const status = field ? stored?.[rule] : "unknown";
+			if (!["hit", "clear", "unknown"].includes(status)) throw new Error("Invalid findings metadata");
+			return [rule, status];
+		}));
+		labels.push({ sessionId, verdict, categories, note, cardPath, labeledAt: new Date().toISOString(), findings });
 		summary.labeled++;
 		if (verdict === "pass" || verdict === "fail") summary[verdict]++;
 		for (const category of categories) increment(summary.categories, category);

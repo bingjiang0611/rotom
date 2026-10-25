@@ -9,6 +9,13 @@ import { buildCards, collectLabels } from "../scripts/session-cards.mjs";
 
 const cli = fileURLToPath(new URL("../scripts/session-cards.mjs", import.meta.url));
 const timestamp = "2026-01-01T00:00:00.000Z";
+const basicFindings = {
+	"repeat-after-error": "clear", "ended-after-tool-error": "unknown", "ended-on-provider-error": "clear",
+	"schema-errors": "unknown", "oversized-tool-result": "unknown", "harness-fault": "unknown",
+};
+const basicFindingCounts = Object.fromEntries(Object.entries(basicFindings).map(([rule, status]) => [rule, {
+	hit: 0, clear: status === "clear" ? 1 : 0, unknown: status === "unknown" ? 1 : 0,
+}]));
 const text = (value: string) => ({ type: "text", text: value });
 const header = (id: string) => ({ type: "session", id, timestamp, cwd: "/synthetic/project", version: 3 });
 const message = (id: string, parentId: string | null, role: string, content: unknown, extra = {}) => ({
@@ -218,7 +225,8 @@ describe("session cards", () => {
 		await trace("good", [], "{invalid");
 		expect(await buildCards({ root, out })).toEqual({
 			generated: 1, skipped: 4, skippedOversized: 1, skippedInvalidHeader: 1, skippedEmpty: 1, skippedDuplicate: 1,
-			traceMissing: 0, tracePartial: 1, parseErrors: 4, sessionParseErrors: 3, traceParseErrors: 1, unknownEntries: 0,
+			traceMissing: 0, tracePartial: 1, parseErrors: 3, sessionParseErrors: 2, traceParseErrors: 1, unknownEntries: 0,
+			badJson: 1, lineTooLong: 1, entryMissingId: 0, danglingParent: 0, cycle: 0, messageMissing: 0, findings: basicFindingCounts,
 			invalidHeaderKinds: { other: 1 }, sessionVersions: { "1": 0, "2": 0, "3": 1, missing: 0 },
 		});
 		expect(await card("good")).toContain("AFTER_CORRUPTION");
@@ -388,6 +396,7 @@ describe("session cards", () => {
 		expect(JSON.parse(result.stdout)).toEqual({
 			generated: 1, skipped: 0, skippedOversized: 0, skippedInvalidHeader: 0, skippedEmpty: 0, skippedDuplicate: 0,
 			traceMissing: 1, tracePartial: 0, parseErrors: 0, sessionParseErrors: 0, traceParseErrors: 0, unknownEntries: 0,
+			badJson: 0, lineTooLong: 0, entryMissingId: 0, danglingParent: 0, cycle: 0, messageMissing: 0, findings: basicFindingCounts,
 			invalidHeaderKinds: {}, sessionVersions: { "1": 0, "2": 0, "3": 1, missing: 0 },
 		});
 		const rendered = await card("truncate");
@@ -402,6 +411,63 @@ describe("session cards", () => {
 		expect(await card("unicode")).toContain("😀".repeat(2000) + "…[截断 1 字符]");
 		expect(await card("unicode")).toContain("(thinking 1 字符)");
 		expect(await card("unicode")).not.toContain("�");
+	});
+
+	it("puts findings in the card, summary and labels while preserving annotations on rebuild", async () => {
+		const path = await session("findings", [header("findings"), message("u", null, "user", "request"),
+			assistant("a", "u", [{ type: "toolCall", id: "c1", name: "bash", arguments: { command: "PRIVATE_ARGUMENT" } }]),
+			message("r", "a", "toolResult", "PRIVATE_RESULT", { toolCallId: "c1", isError: true }),
+			assistant("end", "r", [text("done")]),
+		]);
+		await trace("findings", [span("span_start", "s", { "pi.tool.call_id_digest": digest("c1") }), span("span_end", "s", { "pi.tool.outcome": "tool_error", "pi.tool.fault_side": "harness" })]);
+		const result = await buildCards({ root, out });
+		expect(result.findings["ended-after-tool-error"]).toEqual({ hit: 1, clear: 0, unknown: 0 });
+		expect(result.findings["harness-fault"].hit).toBe(1);
+		const rendered = await card("findings");
+		const statuses = JSON.parse(/^findings: (.+)$/m.exec(rendered)![1]);
+		expect(Object.keys(statuses)).toHaveLength(6);
+		expect(statuses["ended-after-tool-error"]).toBe("hit");
+		const section = rendered.split("## 规则命中\n")[1].split("## 最终回复")[0];
+		expect(section).toContain("ended-after-tool-error（count=1）");
+		expect(section).toContain("harness-fault（count=1）");
+		expect(section).not.toMatch(/PRIVATE_|command/);
+		const block = await label("findings", "pass", "reviewed");
+		await collectLabels({ out });
+		const exported = JSON.parse((await readFile(join(dirname(out), "labels.jsonl"), "utf8")).trim());
+		expect(exported.findings).toEqual(statuses);
+		expect(exported.verdict).toBe("pass");
+		await appendFile(path, JSON.stringify(assistant("new", "end", [], { stopReason: "error" })) + "\n");
+		await buildCards({ root, out });
+		expect((await card("findings")).endsWith(block)).toBe(true);
+		await collectLabels({ out });
+		expect(JSON.parse((await readFile(join(dirname(out), "labels.jsonl"), "utf8")).trim()).findings["ended-on-provider-error"]).toBe("hit");
+	});
+
+	it("shows no hits explicitly and exports old cards as unknown without trusting body text", async () => {
+		await session("old-card");
+		await buildCards({ root, out });
+		expect(await card("old-card")).toContain("## 规则命中\n(无)\n");
+		await label("old-card", "pass", "");
+		const old = (await card("old-card")).replace(/^findings: .+\n/m, "").replace("## 用户请求", 'findings: {"harness-fault":"hit"}\n\n## 用户请求');
+		await writeFile(join(out, "old-card.md"), old);
+		await collectLabels({ out });
+		const path = join(dirname(out), "labels.jsonl");
+		const before = await readFile(path, "utf8");
+		expect(Object.values(JSON.parse(before).findings)).toEqual(Array(6).fill("unknown"));
+		await writeFile(join(out, "old-card.md"), old.replace("\n---\n", '\nfindings: {"harness-fault":"invalid"}\n---\n'));
+		await expect(collectLabels({ out })).rejects.toThrow("Invalid findings metadata");
+		expect(await readFile(path, "utf8")).toBe(before);
+	});
+
+	it("splits structural session errors and does not count valid non-session headers as bad JSON", async () => {
+		await session("bad-header", [{ type: "metadata" }]);
+		await session("missing-id", [header("missing-id"), { type: "message", parentId: null, timestamp }, ...basic("missing-id").slice(1)]);
+		await session("dangling", [header("dangling"), assistant("a", "absent", [])]);
+		await session("cycle", [header("cycle"), assistant("a", "b", []), assistant("b", "a", [])]);
+		await session("missing-message", [header("missing-message"), { type: "message", id: "missing", parentId: null, timestamp }]);
+		const result = await buildCards({ root, out });
+		expect(result).toMatchObject({ generated: 4, skippedInvalidHeader: 1, badJson: 0, lineTooLong: 0, entryMissingId: 1, danglingParent: 1, cycle: 1, messageMissing: 1, sessionParseErrors: 4 });
+		expect(result.sessionParseErrors).toBe(result.badJson + result.lineTooLong + result.entryMissingId + result.danglingParent + result.cycle + result.messageMissing);
 	});
 
 	it("does not let source text impersonate a label block", async () => {

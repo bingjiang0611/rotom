@@ -86,6 +86,21 @@ stdout 仅输出计数（labels 另含人工填写的类别计数），不输出
 缺少 version 或 version < 2 的会话在内存中重建线性分支，不回写输入；支持 bashExecution / custom 消息。
 真实卡片、标注及会话内容只留本机私有目录，绝不加入仓库或公开报告。
 
+### 卡片规则检查（零模型）
+
+规则只检查当前分支；hit 不等于人工 fail，缺少所需证据为 unknown，不能视为 clear。
+
+| 规则 | 命中条件 |
+|---|---|
+| `repeat-after-error` | 错误结果后，紧接着调用相同工具及按 key 排序后相同的参数 |
+| `ended-after-tool-error` | 最后工具的 trace outcome 非 ok，后续最后 assistant 以 stop 收尾 |
+| `ended-on-provider-error` | 最后 assistant 为 error，或 aborted 后没有新 user |
+| `schema-errors` | 当前分支工具的 schema outcome 至少 2 次 |
+| `oversized-tool-result` | 工具结果文本字节数大于 50 000 |
+| `harness-fault` | 工具 fault_side 为 harness |
+
+卡片、build 汇总及 labels 导出均包含 findings；旧卡片缺少 findings 时导出为全 unknown。
+
 ## 运行评测
 
 以后在 `cases/**/*.eval.ts` 增加评测集后执行：

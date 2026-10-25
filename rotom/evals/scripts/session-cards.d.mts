@@ -1,3 +1,5 @@
+import type { FindingStatus, RuleId } from "./trace-assertions.mjs";
+
 export interface BuildSummary {
 	generated: number;
 	skipped: number;
@@ -10,6 +12,13 @@ export interface BuildSummary {
 	parseErrors: number;
 	sessionParseErrors: number;
 	traceParseErrors: number;
+	badJson: number;
+	lineTooLong: number;
+	entryMissingId: number;
+	danglingParent: number;
+	cycle: number;
+	messageMissing: number;
+	findings: Record<RuleId, Record<FindingStatus, number>>;
 	unknownEntries: number;
 	invalidHeaderKinds: Record<string, number>;
 	sessionVersions: Record<"1" | "2" | "3" | "missing", number>;
