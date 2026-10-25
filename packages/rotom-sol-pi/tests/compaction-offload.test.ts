@@ -194,15 +194,16 @@ describe("compaction offload handlers", () => {
 		await pi.emit("session_start", {}, resumedCtx);
 		expect(await pi.emitContext(messages, resumedCtx)).toEqual(messages);
 	});
-	it("ledger failure after append does not cancel or confirm the defer", async () => {
+	it("ledger failure after append or stale check preserves a confirmed defer", async () => {
 		const { pi, ctx, event, manager } = await fixture();
 		vi.spyOn(console, "error").mockImplementation(() => {});
 		const path = join(runtimeRoot(ctx), "observation-pack/ledger.jsonl");
 		await mkdir(path, { recursive: true });
-		expect(await pi.emit("session_before_compact", event, ctx)).toBeUndefined();
+		expect(await pi.emit("session_before_compact", event, ctx)).toEqual({ cancel: true });
 		expect(offloadRecords(manager.getBranch())).toHaveLength(1);
+		expect(await pi.emit("session_before_compact", event, ctx)).toEqual({ cancel: true });
 		await rm(path, { recursive: true });
-		expect(await pi.emit("session_before_compact", event, ctx)).toBeUndefined();
+		expect(await pi.emit("session_before_compact", event, ctx)).toEqual({ cancel: true });
 	});
 	it("forked sessions do not borrow archives from another runtime root", async () => {
 		const { pi, ctx, event, manager, messages } = await fixture(true);

@@ -3,7 +3,7 @@
 - Upstream: SoL-Pi, <https://github.com/NVlabs/SoL-Pi>. License: MIT, Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES; the original notice stays in `LICENSE`.
 - Upstream base: `2b791687` ("Update Pi to 0.85.1 and verify 0.84.2 compatibility (#63)").
 - Source: the maintainer's SoL-Pi branch at `b463fad0ffab6e42488f5c80687adab67174a0ee`, imported from its tracked files. On top of the upstream base it carries five commits: recalled pages keep source references (`81b80b0`), the Pi 0.85 compaction-reason test (`83c5426`), the 0.85.1 baseline merge (`807ad60`), selected upstream reliability backports (`32840b2`), and Pi error-result handling plus runtime compatibility repairs (`b463fad`).
-- Maintained version: `0.1.0-rotom.3`, a private component of [rotom](https://github.com/bingjiang0611/rotom). It is not an upstream or npm release.
+- Maintained version: `0.1.0-rotom.4`, a private component of [rotom](https://github.com/bingjiang0611/rotom). It is not an upstream or npm release.
 
 ## Changes in this import
 
@@ -13,6 +13,8 @@
 
 ## rotom changes
 
+- `.rotom.4`: default-off Compaction Offload requires Observation Pack. Before threshold compaction it stores eligible older text results, then persists metadata and defers only when estimated savings suffice. Append failures are unknown (possible in-memory record), never retried; only confirmed defers can cancel stale-usage checks. Ledger/TUI are best-effort; projection verification is cached per runtime root/object until session start/tree changes. rotom exposes an explicit `ROTOM_COMPACTION_OFFLOAD` override; real-model benefits are not yet measured.
+
 - `.rotom.3`: Action Fusion supplies versioned `details.actionFusion` with applied mutation and succeeded/failed/skipped follow-up. Failed follow-ups return explicit error results, preserving mutation details; consumers no longer need to parse receipts. Development baseline moves to Pi 1.3.0, whose tool host honors error results. Two upstream install-guide tests remain unavailable because the imported tree intentionally omits AGENTS.md/CLAUDE.md.
 
 - `0.1.0-rotom.1`: the Evidence-Preserving Reducer records each returned reducer response (applied or rejected) as a Pi `usage` entry of kind `sol_pi_reducer`, attributed to the reducer provider/model with the provider-reported usage unchanged. Pi's footer, session stats, usage breakdown and Goal budgets then include the reducer spend. It uses `pi.appendUsage`, which the rotom Pi fork exposes from `1.3.0-rotom.2`; on Pi releases without it (upstream Pi) only the SoL-Pi journal entry is written, as before. Calls that throw before a response (timeout, unavailable model, missing auth) record no usage. Files: `evidence-preserving-reducer/{provider,journal,index}.ts`, `tests/helpers.ts`, `tests/evidence-preserving-reducer.test.ts`.
@@ -20,8 +22,8 @@
 
 ## How rotom uses it
 
-rotom loads SoL-Pi from the third-party composition root (`rotom/extensions/third-party/sol-pi.ts`). The SoL-Pi loader is unchanged: a project `.pi/sol-pi.json` (trusted projects only) or `~/.pi/agent/sol-pi.json` wins. Only when neither file exists does rotom supply its own default instead of SoL-Pi's all-off default: Action Fusion, Observation Pack and the Evidence-Preserving Reducer on, Online Context Compact off.
+rotom loads SoL-Pi from the third-party composition root (`rotom/extensions/third-party/sol-pi.ts`). The SoL-Pi loader is unchanged: a project `.pi/sol-pi.json` (trusted projects only) or `~/.pi/agent/sol-pi.json` wins. Only when neither file exists does rotom supply its own default instead of SoL-Pi's all-off default: Action Fusion, Observation Pack and the Evidence-Preserving Reducer on, Online Context Compact and Compaction Offload off. rotom applies `ROTOM_COMPACTION_OFFLOAD=1|0` after loading that configuration; enabling still requires Observation Pack.
 
 ## Verification
 
-`npm ci && npm run typecheck && npm test` runs the upstream suite against the Pi `0.85.1` devDependencies pinned in `package-lock.json`, not against rotom's Pi fork. Compatibility with the rotom Pi fork is covered by rotom's own runtime tests and smoke runs.
+`npm ci && npm run typecheck && npm test` runs the upstream suite against the Pi `1.3.0` devDependencies pinned in `package-lock.json`, not against rotom's Pi fork. Compatibility with the rotom Pi fork is covered by rotom's own runtime tests and smoke runs.

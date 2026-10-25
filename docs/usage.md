@@ -86,7 +86,7 @@ scoped 执行是执行归属与资源关闭管理，**不是安全沙箱**；首
 rotom 内置两个上下文相关的第三方扩展，安装后即可使用，不需要再 `rotom install`：
 
 - **`/context`**（[pi-context-view](https://github.com/dimk90/pi-context-view) `0.7.1`，原样内置）：查看当前上下文的组成和占用。它只是用户命令，不增加模型工具。
-- **SoL-Pi**（[NVlabs/SoL-Pi](https://github.com/NVlabs/SoL-Pi) 的维护导入版 `0.1.0-rotom.2`，来源见 `packages/rotom-sol-pi/UPSTREAM.md`）。
+- **SoL-Pi**（[NVlabs/SoL-Pi](https://github.com/NVlabs/SoL-Pi) 的维护导入版 `0.1.0-rotom.4`，来源见 `packages/rotom-sol-pi/UPSTREAM.md`）。
 
 没有 SoL-Pi 配置文件时，rotom 默认开启：
 
@@ -99,13 +99,21 @@ rotom 内置两个上下文相关的第三方扩展，安装后即可使用，�
 
 Reducer 会额外请求模型，按该 provider 正常计费或消耗订阅额度。没有登录 `openai-codex` 时请求失败，SoL-Pi 保留原始输出，不影响任务。Reducer 每次拿到模型回复（无论结果是否被采用）都会写入一条 Pi 原生用量记录，计入 footer、会话用量统计、按模型的用量拆分和 Goal 预算。请求在拿到回复前失败（超时、未登录、模型不可用）时没有用量可记。rotom 0.1.24 不计入这部分 token。
 
-要改默认值，写 `~/.pi/agent/sol-pi.json`（受信项目也可用 `.pi/sol-pi.json`）。只要文件存在，rotom 就完全按文件生效，省略的功能按 SoL-Pi 原生默认值关闭。例如全部关闭：
+要改默认值，写 `~/.pi/agent/sol-pi.json`（受信项目也可用 `.pi/sol-pi.json`）。只要文件存在，rotom 就以文件取代默认配置，省略的功能按 SoL-Pi 原生默认值关闭；下述压缩卸载环境变量最后覆盖。例如全部关闭：
 
 ```json
 { "version": 1 }
 ```
 
 字段说明见 `extensions/third-party/node_modules/sol-pi/docs/configuration.md`。
+
+### 压缩卸载（默认关闭）
+
+阈值压缩前，先将待摘要历史中的中等大小工具结果存档并换成可用 `obs_recall` 取回的短指针；估算节省足够时推迟本次摘要，否则照常摘要。它不改原始会话，不调用额外模型。
+用 `ROTOM_COMPACTION_OFFLOAD=1 rotom` 开启，或在配置文件中设 `"observationPack": true, "compactionOffload": true`（仍需 `"version": 1`）。它依赖 Observation Pack；环境变量要求开启但该功能关闭时，仅提示并保持卸载关闭，不阻止启动。
+`ROTOM_COMPACTION_OFFLOAD=0` 强制关闭；未设置或空串保留配置，非法值提示后忽略。
+推迟时 TUI 会出现 “Auto-compaction cancelled”，以及 “compaction deferred, ~… context tokens offloaded”；这里的 cancelled 表示推迟摘要，不是任务取消。
+收益未经真实会话验证；估算 token 不代表精确费用，模型是否频繁取回原文及任务成功率仍待对照测试。
 
 **升级注意：** 如果以前自己安装过 `pi-context-view` 或 SoL-Pi（`~/.pi/agent/settings.json` 的 `packages` 里有它们），升级后请用 `rotom remove` 删掉。否则同一扩展会加载两次：`/context` 会出现重复命令，SoL-Pi 的结果处理也会执行两遍。
 

@@ -3,7 +3,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { OFFLOAD_COPY } from "../../constants/copy.ts";
 import { runtimeRoot } from "../../runtime-paths.ts";
-import { showSolPiSavings } from "../../tui.ts";
+import { formatSavingsCount, showSolPiSavings } from "../../tui.ts";
 import type { Ledger } from "./ledger.ts";
 import {
 	createObservation, ensureStored, estimateTokens, isObservationId, isPureTextResult,
@@ -90,13 +90,25 @@ export function createCompactionOffload(pi: ExtensionAPI, ledgerFor: (ctx: Exten
 	// Pi may publish an entry to its in-memory branch before appendEntry throws.
 	// Keep that record usable for recall, but never treat it as a confirmed defer.
 	const unknown = new WeakSet<OffloadRecord>();
+	const verified = new Set<string>();
+	const log = async (ctx: ExtensionContext, entry: Record<string, unknown>) => {
+		try {
+			await ledgerFor(ctx)(entry);
+		} catch {
+			console.error("[observationpack] offload ledger write failed");
+		}
+	};
 	const restore = (ctx: ExtensionContext) => {
 		const records = offloadRecords(ctx.sessionManager.getBranch());
 		offloaded = new Set(records.flatMap((record) => record.toolCallIds));
 		latest = records.at(-1);
 	};
-	pi.on("session_start", (_event, ctx) => restore(ctx));
-	pi.on("session_tree", (_event, ctx) => restore(ctx));
+	const reset = (ctx: ExtensionContext) => {
+		verified.clear();
+		restore(ctx);
+	};
+	pi.on("session_start", (_event, ctx) => reset(ctx));
+	pi.on("session_tree", (_event, ctx) => reset(ctx));
 
 	pi.on("session_before_compact", async (event, ctx) => {
 		if (event.reason !== "threshold") return undefined;
@@ -104,20 +116,14 @@ export function createCompactionOffload(pi: ExtensionAPI, ledgerFor: (ctx: Exten
 		let after = before;
 		let threshold: number | undefined;
 		let reason = "store_failed";
-		const native = async () => {
-			try {
-				await ledgerFor(ctx)({ event: "offload_native", reason, before, after, T: threshold ?? null });
-			} catch {
-				console.error("[observationpack] offload_native ledger write failed");
-			}
-		};
+		const native = () => log(ctx, { event: "offload_native", reason, before, after, T: threshold ?? null });
 		try {
 			restore(ctx);
 			const assistant = ctx.sessionManager.getBranch().findLast(
 				(entry) => entry.type === "message" && entry.message.role === "assistant",
 			);
 			if (latest && !unknown.has(latest) && assistant?.id === latest.afterAssistantEntryId) {
-				await ledgerFor(ctx)({ event: "offload_defer_stale", afterAssistantEntryId: assistant.id });
+				await log(ctx, { event: "offload_defer_stale", afterAssistantEntryId: assistant.id });
 				return { cancel: true };
 			}
 			const window = ctx.getContextUsage()?.contextWindow ?? ctx.model?.contextWindow;
@@ -155,16 +161,19 @@ export function createCompactionOffload(pi: ExtensionAPI, ledgerFor: (ctx: Exten
 			reason = "record_append_failed";
 			unknown.add(record);
 			pi.appendEntry(OFFLOAD_ENTRY, record);
+			unknown.delete(record);
 			restore(ctx);
-			reason = "notification_failed";
-			await ledgerFor(ctx)({
+			await log(ctx, {
 				event: "offload_defer", candidates: candidates.length, offloaded: candidates.length,
 				originalBytes: candidates.reduce((sum, c) => sum + c.observation.bytes, 0),
 				placeholderBytes: candidates.reduce((sum, c) => sum + Buffer.byteLength(c.placeholder, "utf8"), 0),
 				before, after, T: threshold,
 			});
-			showSolPiSavings(ctx, "Observation Pack", OFFLOAD_COPY.deferred(saved));
-			unknown.delete(record);
+			try {
+				showSolPiSavings(ctx, "Observation Pack", OFFLOAD_COPY.deferred(formatSavingsCount(saved, OFFLOAD_COPY.offloadedTokens)));
+			} catch {
+				console.error("[observationpack] offload savings notification failed");
+			}
 			return { cancel: true };
 		} catch {
 			console.error(`[observationpack] compaction offload failed: ${reason}`);
@@ -175,15 +184,20 @@ export function createCompactionOffload(pi: ExtensionAPI, ledgerFor: (ctx: Exten
 
 	const project = async (message: AgentMessage, ctx: ExtensionContext) => {
 		if (message.role !== "toolResult" || !offloaded.has(message.toolCallId)) return undefined;
-		const candidate = offloadCandidate(message, runtimeRoot(ctx));
+		const root = runtimeRoot(ctx);
+		const candidate = offloadCandidate(message, root);
 		if (!candidate) return undefined;
 		const { observation, placeholder } = candidate;
 		try {
 			// Missing archived data must not become a dangling pointer. Forks whose
 			// new runtime root has no object keep the raw session result instead.
-			await lstat(observation.filePath);
-			await ensureStored(observation);
-			await ledgerFor(ctx)({ event: "offload_placeholder", id: observation.id, tool: observation.toolName,
+			const key = `${root}\0${observation.id}`;
+			if (!verified.has(key)) {
+				await lstat(observation.filePath);
+				await ensureStored(observation);
+				verified.add(key);
+			}
+			await log(ctx, { event: "offload_placeholder", id: observation.id, tool: observation.toolName,
 				originalBytes: observation.bytes, placeholderBytes: Buffer.byteLength(placeholder, "utf8") });
 			return { ...message, content: [{ type: "text" as const, text: placeholder }] };
 		} catch {

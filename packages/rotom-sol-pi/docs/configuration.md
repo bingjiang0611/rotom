@@ -59,14 +59,17 @@ Candidates come from the history and turn prefix selected for summarization, not
 Only successful, pure-text tool results >1.5 KiB and ≤10 KiB qualify; recall results and Reducer receipts stay intact.
 Already offloaded results are not counted again.
 The estimate uses chars/4; defer only when estimated remaining tokens are ≤60% of (context window − reserve).
-Insufficient savings, missing context-window data or any failure leave native compaction in control.
+Insufficient savings, missing context-window data, storage or record-append failure leave native compaction in control.
+Ledger and TUI failures are logged but do not change a confirmed defer.
 All candidate objects are stored before appending a metadata-only session record.
 The provider context then uses a ≤512-byte pointer with up to 200 bytes of complete opening lines.
 Original session messages are unchanged; `obs_recall` retrieves their stored UTF-8 bytes.
 A confirmed defer also cancels the next threshold check against the same assistant's stale usage.
 A new assistant response requires a fresh decision.
 Branch-local records restore projection on resume/tree changes; a fork without its objects keeps raw results.
-Missing, corrupt or unreadable objects leave the original result visible.
+The first projection verifies each object; subsequent projections cache that check by runtime root and object id.
+Session start/tree changes clear the cache. Missing, corrupt or unreadable objects found on verification leave raw results visible.
+External deletion or corruption after verification is not detected until the cache clears; recall can fail in that interval.
 An append failure is **unknown**, not atomic rollback: memory may contain a record while disk does not.
 It is not retried or compensated; its record cannot stale-cancel in that process, including after a tree change.
 If only memory has the record, projection can still recall the previously stored objects; restart uses raw results.
