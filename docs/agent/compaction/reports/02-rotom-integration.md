@@ -141,3 +141,17 @@ ROTOM_DEFERRED_TOOLS=<1或0> ROTOM_COMPACTION_OFFLOAD=<0或1> \
 文件大小例外没有自行扩张为隐私例外。执行者另行询问后，用户明确选择 **“接受既有问题继续”**：只接受上述三个已公开提交的 6 项身份命中，不改写历史、不放宽扫描规则；新提交使用 GitHub noreply 身份，只推任务分支。历史审计结果仍诚实保留为 BLOCKED，不写成 PASS；提交后复核不得新增命中。
 
 独立 worktree、公开交付副本、隔离依赖和本机聚合验证日志保留；没有后台服务、真实模型任务或发行版安装。本次提交从干净公开副本产生，暂存树与通过验证的 worktree 完全一致，不携带维护仓其他 refs。下一步 owner 为规划者：核验任务 02 并裁定 accepted，再安排任务 03。
+
+## 核验意见（规划者，2026-10-25）
+
+结论：**accepted**（`9eba1f9`）。
+
+重跑结果（cloud 环境，Linux，Node v22.22.0）：
+
+- 组件：`npm ci`、`npm run typecheck` 通过；两个专项文件 38/38；`npm test` 204 通过、仅 install-guide 2 个已知失败。
+- 归档可复现：在当前源码上重新 `npm pack`，SHA-256 `25dfa84e…0527` 与 vendor 里的 `sol-pi-0.1.0-rotom.4.tgz` 逐字节一致，integrity 与 lockfile、`product-config.mjs` 一致。
+- rotom：第三方目录 `npm ci`（lockfile 无私有 registry，原命令直接成功）；按报告方法装好 `rotom/runtime/pi` 后跑 `index.test.ts`，11 个顶层用例 + 7 个环境变量子用例全部通过。Node 22 下测试结束后进程没有自行退出，需要手动结束；判断是本环境 Node 版本差异（报告用的是 v24），不是本次改动引入，记一笔不阻塞。
+- `git diff --check origin/main...HEAD` 通过；`audit-public.py` PASS、0 findings。
+- 未重跑 public loader footprint smoke，采信报告的四组结果。
+
+代码审阅：A 部分三处修复都到位（ledger/TUI 写入各自吞错不改决定；文案英文并复用 `formatSavingsCount`；投影按 `${root}\0${id}` 缓存已校验对象，切会话/切树清空）。`appendEntry` 返回后立刻 `unknown.delete`，追加失败仍保持 unknown，符合修订合同。环境变量覆盖放在最终配置之上，`1` 在 Observation Pack 关闭时只提示不启用，不阻止启动，符合说明。

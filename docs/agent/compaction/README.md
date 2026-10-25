@@ -45,7 +45,7 @@
 | # | 任务 | 范围 | 状态 |
 |---|---|---|---|
 | 01 | [卸载优先机制（SoL-Pi 组件内）](tasks/01-offload-mechanism.md) | `packages/rotom-sol-pi/`，L1 | accepted（`3c7c53d`） |
-| 02 | [接入 rotom：`0.1.0-rotom.4` 归档、product-config、`ROTOM_COMPACTION_OFFLOAD` 开关、文档](tasks/02-rotom-integration.md) | `packages/rotom-sol-pi/` + `rotom/`，L1/L2 | ready（rotom 默认先关，等 03 数据再定） |
+| 02 | [接入 rotom：`0.1.0-rotom.4` 归档、product-config、`ROTOM_COMPACTION_OFFLOAD` 开关、文档](tasks/02-rotom-integration.md) | `packages/rotom-sol-pi/` + `rotom/`，L1/L2 | accepted（`9eba1f9`，rotom 默认关） |
 | 03 | 指标脚本 + 开启前后对照（压缩等待、`obs_recall` 次数、任务成功率） | eval 体系，L3 | 待规划，需 bob 授权费用 |
 | 04 | B 方案（后台提前压缩） | Pi fork | 搁置，看 03 数据 |
 
