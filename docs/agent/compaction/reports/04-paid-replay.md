@@ -1,6 +1,6 @@
 # 任务 04 · 受控回放报告
 
-04a 的实现、费用预估和核验记录完整归档于 [04a 零费用回放](04a-faux-replay.md)。以下保留 04b 实现与开跑说明。
+04a 的实现、费用预估和核验记录完整归档于 [04a 零费用回放](04a-faux-replay.md)。本轮唯一一次真实回放已完成，结果与限制见文末「04b 结果」。以下较早阶段的实现、核验与开跑说明保留作历史记录。
 
 ## 04b 实现补记：本轮仅零费用
 
@@ -69,3 +69,60 @@
 | diff / 大小门禁 / 公开审计 | 通过；tracked-tree 7,817 项 PASS；历史仍只有此前接受的 12 项旧身份记录，无新增 |
 
 完整测试日志保存在本机 `/tmp/rotom-offload-04b-run.JqL6LH`，不提交运行产物。
+
+## 04b 结果
+
+仅执行一次，源码 `e26e41d415f0c3d0a9325682c5e3b6c111df8244`。开跑前工作树干净；全部 18 行 `sourceDirty=false` 且源码版本一致。UTC 2026-10-25T17:10:24+00:00 至 2026-10-25T17:25:48+00:00，case suite 墙钟 924.205 秒。
+
+`openai-codex/gpt-5.6-luna`，thinking=low，N=3，两臂交替；SSE、provider maxRetries=0。真实模型元数据 contextWindow=272,000、reserveTokens=208,000、阈值=64,000；keepRecentTokens 保持默认。
+
+CLI exit=0，Vitest 18/18 passed；18 completed、0 failed、0 not-run，确定性判分 18/18。没有触发预算/unknown 熔断，没有重跑。累计请求尝试 **219/2,000**；累计 input=1,091,987、cacheRead=2,756,352、cacheWrite=0、output=34,251。合计输入 **3,848,339/100,000,000**。四项 usage 均完整，逐行求和与累计计数一致。它们是 provider 经 SDK 归一化的 token 记录，不是字符估算；未取得美元账单/有效报价，美元费用 unknown，不记为 $0。
+
+### 每次运行
+
+时间单位为毫秒，显示到小数点后三位；token 为整数。threshold/native 对应 thresholdCompactions/nativeCompactions，wait 对应 compactionWaitMs，obsRecall 对应 obsRecallCalls，offloaded 对应 offloadedResults。
+
+| 任务 | 臂 | 轮次 | 状态 | correct | threshold | native | deferred | wait(ms) | obsRecall | recalledOffloaded | offloaded | turns | toolCalls | input | cacheRead | cacheWrite | output | wall(ms) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| config-aggregate | baseline | 1 | completed | true | 2 | 2 | 0 | 7105.852 | 0 | 0 | 0 | 16 | 58 | 283382 | 175872 | 0 | 5645 | 82408.057 |
+| config-aggregate | candidate | 1 | completed | true | 2 | 2 | 0 | 8067.459 | 0 | 0 | 0 | 12 | 58 | 261845 | 85632 | 0 | 5067 | 73528.703 |
+| config-aggregate | candidate | 2 | completed | true | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 13 | 15 | 41105 | 169728 | 0 | 1808 | 106073.047 |
+| config-aggregate | baseline | 2 | completed | true | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 12 | 10 | 19256 | 130816 | 0 | 1536 | 38811.698 |
+| config-aggregate | baseline | 3 | completed | true | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 10 | 13 | 37714 | 91008 | 0 | 1600 | 34044.970 |
+| config-aggregate | candidate | 3 | completed | true | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 10 | 13 | 33857 | 93952 | 0 | 1794 | 35243.012 |
+| deferred-exact | baseline | 1 | completed | true | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 8 | 6 | 14617 | 57088 | 0 | 1135 | 26131.940 |
+| deferred-exact | candidate | 1 | completed | true | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 8 | 6 | 17081 | 62336 | 0 | 1252 | 26871.292 |
+| deferred-exact | candidate | 2 | completed | true | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 10 | 8 | 25434 | 112512 | 0 | 1418 | 30644.326 |
+| deferred-exact | baseline | 2 | completed | true | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 8 | 6 | 17864 | 63232 | 0 | 1197 | 24097.085 |
+| deferred-exact | baseline | 3 | completed | true | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 10 | 8 | 21997 | 106496 | 0 | 1544 | 165961.340 |
+| deferred-exact | candidate | 3 | completed | true | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 8 | 6 | 46353 | 91776 | 0 | 1266 | 28908.267 |
+| multi-file-fix | baseline | 1 | completed | true | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 14 | 12 | 28535 | 219136 | 0 | 1523 | 41929.915 |
+| multi-file-fix | candidate | 1 | completed | true | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 15 | 13 | 60384 | 261376 | 0 | 1225 | 39094.497 |
+| multi-file-fix | candidate | 2 | completed | true | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 16 | 16 | 39431 | 315904 | 0 | 1991 | 44989.011 |
+| multi-file-fix | baseline | 2 | completed | true | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 15 | 13 | 50288 | 237568 | 0 | 1301 | 42726.991 |
+| multi-file-fix | baseline | 3 | completed | true | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 16 | 14 | 36489 | 282368 | 0 | 1358 | 44112.074 |
+| multi-file-fix | candidate | 3 | completed | true | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 14 | 12 | 56355 | 199552 | 0 | 1591 | 37922.100 |
+
+### 按臂汇总
+
+分母均为实际完成的 9 次运行；均值/中位数包含未触发压缩的 0 值，不挑选有利运行。
+
+| 臂 | 成功率 | wait 均值(ms) | wait 中位数(ms) | wall 均值(ms) | obs_recall 均值 | input 均值 | cacheRead 均值 | cacheWrite 均值 | output 均值 |
+|---|---|---|---|---|---|---|---|---|---|
+| baseline | 9/9 | 789.539 | 0 | 55580.452 | 0.000 | 56682.444 | 151509.333 | 0.000 | 1871.000 |
+| candidate | 9/9 | 896.384 | 0 | 47030.473 | 0.000 | 64649.444 | 154752.000 | 0.000 | 1934.667 |
+
+| 臂 | 触发阈值的运行 | threshold 总数 | native 总数 | deferred 总数 | offloaded 总数 | recalledOffloaded 总数 |
+|---|---|---|---|---|---|---|
+| baseline | 1/9 | 2 | 2 | 0 | 0 | 0 |
+| candidate | 1/9 | 2 | 2 | 0 | 0 | 0 |
+
+### 解释与限制
+
+仅 config-aggregate 第 1 轮的两臂各触发 2 次阈值事件，candidate 也全部走原生压缩；其余 16 次运行没有阈值事件。candidate 的 9 次运行均没有成功卸载，deferred、offloadedResults、recalledOffloaded 全部为 0。因此，本次没有取得有效的“实际卸载 vs 不卸载”效果样本。不能把两臂时间或 token 的差异归因为卸载，也不能据此宣称收益或回归；测到的原生摘要等待仅对应 SSE。真实轨迹并不稳定触发阈值，faux 的稳定触发不能推广到真实模型。
+
+最长 case 为 165961.340 ms，超过旧 120 秒限制且正常完成，为本次超时修复提供真实运行证据。请求量 219 明显低于 04a 脚本的 N=3 规划基线 987；原规划区间不是硬界限，本次未修改历史预估以迁就结果。
+
+现有指标只证明未卸载，不能确定每次拒绝/不触发的原因；原始 session/trace 在 harness 清理时删除，本次只保留指标，不补采、不重放。后续 owner 为规划者/bob：如需判断卸载收益，先决定是否开展零费用的触发/拒绝条件与 fixture 审查，再另行授权新的真实实验。当前授权已使用，不能再次启动或补跑。
+
+本机指标保留于 `~/.rotom/evals/compaction-offload/2026-10-25T17-10-24.142Z.jsonl`，实查目录 0700、文件 0600；授权 receipt 保留。CLI/结构化 reporter 产物留在 `/tmp/rotom-offload-04b-run.JqL6LH`。JSONL、receipt、日志和 reporter JSON 均不提交；本节仅含指标和运行元数据。
