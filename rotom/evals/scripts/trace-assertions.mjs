@@ -11,7 +11,7 @@ function result(rule, evidence, incomplete = false, threshold = 1) {
 	return { rule, status: evidence.length >= threshold ? "hit" : incomplete ? "unknown" : "clear", count: evidence.length, evidence };
 }
 
-function canonicalJson(value) {
+export function canonicalJson(value) {
 	if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
 	if (value !== null && typeof value === "object") {
 		return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;

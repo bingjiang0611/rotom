@@ -13,6 +13,7 @@ import { runReview } from "./review.mjs";
 import { aggregateMetrics, focusCandidate, sessionMetrics } from "./session-metrics.mjs";
 import { aggregateBreakdown, editFailureRows, PROVIDER_SPAN, providerErrorRows, TOOL_SPAN, toolCallInfo, toolErrorRows, TOP_COMBINATIONS, TOP_VALUES } from "./error-breakdown.mjs";
 import { classifyEditError } from "../../extensions/coding-policy/edit-error-code.mjs";
+import { aggregateCommandFailures, COMMAND_CATEGORIES, FAILURE_STREAK_THRESHOLD, RETRY_FAILURE_THRESHOLD, sessionCommandFailures } from "./command-failures.mjs";
 
 const MAX_FILE = 256 * 1024 * 1024;
 const MAX_LINE = 64 * 1024 * 1024;
@@ -598,8 +599,29 @@ function editFailuresOf(branch, traceRecords) {
 	return editFailureRows(entries);
 }
 
-/** Tool and provider error breakdown from trace metadata only: no session text,
- * no tool arguments, no error bodies. Session ids stay in the private Markdown. */
+function renderCommandFailures(result, sessions) {
+	const cell = (count) => `${count.calls} / ${count.failures} / ${count.unknown} / ${formatPercent(count.rate)} / ${formatPercent(count.share)} / ${count.searchExit1}`;
+	return [
+		"## 命令失败类别", "",
+		"每格：调用 / 失败 / 未知或未执行 / 已知结果失败率 / 占全部已知命令失败 / 搜索 exit 1。then_run 只统计 edit；没有阶段证据不推断命令已执行。", "",
+		"| 类别 | bash | then_run |", "| --- | --- | --- |",
+		...COMMAND_CATEGORIES.map((category) => `| ${category} | ${cell(result.categories[category].bash)} | ${cell(result.categories[category].then_run)} |`), "",
+		"## 重复失败信号", "",
+		`范围：当前分支的全部工具调用。trace outcome 非 ok 记失败；缺 outcome 时回退 toolResult.isError。来源 trace ${result.sources.trace} / toolResult ${result.sources.toolResult} / 未知 ${result.sources.unknown}。未知中断连续失败，也中断同参数重试链。`,
+		`原样重试仍失败 ${result.loops.retries} 次；最长连续失败 median ${result.loops.longest.median ?? "n/a"} / p90 ${result.loops.longest.p90 ?? "n/a"}；连续失败 ≥ ${FAILURE_STREAK_THRESHOLD} 的会话 ${result.loops.longStreakSessions}。`,
+		`打转阈值：原样重试仍失败 ≥ ${RETRY_FAILURE_THRESHOLD} 或连续失败 ≥ ${FAILURE_STREAK_THRESHOLD}。${result.loops.loopingSessions}/${result.loops.sessions} 个会话命中，贡献工具失败 ${result.loops.loopingFailures}/${result.loops.failures}（${formatPercent(result.loops.failureShare)}），命令失败 ${result.loops.loopingCommandFailures}/${result.commandFailures}（${formatPercent(result.loops.commandFailureShare)}）。这些是过程信号，不是失败原因或用户不满意的证明。`, "",
+		"## 与人工标注对照", "",
+		"| 会话 | pass | fail |", "| --- | --- | --- |",
+		`| 打转 | ${result.labels.looping.pass} | ${result.labels.looping.fail} |`,
+		`| 非打转 | ${result.labels.nonLooping.pass} | ${result.labels.nonLooping.fail} |`,
+		`n=${result.labels.n}；labels.jsonl ${result.labels.available ? "存在" : "不存在，未做标注对照"}。只计扫描范围内匹配的 pass/fail。`, "",
+		"## 打转会话（仅私有文件）", "",
+		...sessions.filter((row) => row.commandFailures.loops.looping).map((row) => `- ${markdownCell(row.sessionId)}`), "",
+	].join("\n");
+}
+
+/** Command/legacy edit classification reads local text in memory only. Outputs
+ * retain enum counts; session ids stay in the private Markdown. */
 export async function errorBreakdown({ root = join(homedir(), ".pi/agent/sessions"), since = "28d", out = DEFAULT_OUT } = {}) {
 	if (!/^\d+[dh]$/.test(since)) throw new Error("Since must be Nd or Nh");
 	const cutoff = Date.now() - Number(since.slice(0, -1)) * (since.endsWith("d") ? 86400000 : 3600000);
@@ -610,6 +632,17 @@ export async function errorBreakdown({ root = join(homedir(), ".pi/agent/session
 	await mkdir(out, { recursive: true, mode: 0o700 });
 	await chmod(out, 0o700);
 	await rejectGit(dirname(out));
+	const labelPath = join(dirname(out), "labels.jsonl");
+	const labelsAvailable = Boolean(await statIfPresent(labelPath));
+	const labels = new Map();
+	if (labelsAvailable) {
+		const loaded = await readBounded(labelPath);
+		if (loaded.oversized || loaded.errors) throw new Error("Invalid labels input");
+		for (const row of loaded.records) {
+			if (typeof row.sessionId !== "string" || labels.has(row.sessionId)) throw new Error("Invalid or duplicate label session id");
+			labels.set(row.sessionId, row.verdict);
+		}
+	}
 	const summary = newSummary();
 	const seen = new Set();
 	const sessions = [];
@@ -627,6 +660,7 @@ export async function errorBreakdown({ root = join(homedir(), ".pi/agent/session
 			toolRows,
 			provider,
 			editFailures: editFailuresOf(loaded.branch, loaded.trace.records),
+			commandFailures: { ...sessionCommandFailures(loaded.branch, loaded.trace.tools), verdict: labels.get(loaded.header.id) },
 			endedOnProviderError: loaded.findings.some((finding) => finding.rule === "ended-on-provider-error" && finding.status === "hit"),
 		});
 	}
@@ -637,11 +671,13 @@ export async function errorBreakdown({ root = join(homedir(), ".pi/agent/session
 		tools: sessions.filter((row) => row.toolErrors > 0).sort(bySession("toolErrors")).slice(0, 10),
 		providers: sessions.filter((row) => row.providerErrors > 0).sort(bySession("providerErrors")).slice(0, 10),
 	};
-	await privateWrite(join(dirname(out), "breakdown.md"), renderBreakdownMarkdown(aggregate, top, summary));
+	const commandFailures = aggregateCommandFailures(sessions.map((row) => row.commandFailures));
+	commandFailures.labels.available = labelsAvailable;
+	await privateWrite(join(dirname(out), "breakdown.md"), renderBreakdownMarkdown(aggregate, top, summary) + "\n" + renderCommandFailures(commandFailures, sessions));
 	return {
 		sessions: aggregate.sessions, toolTotals: aggregate.toolTotals, tools: aggregate.tools,
 		concentration: aggregate.concentration, providerTotals: aggregate.providerTotals,
-		providers: aggregate.providers, providerEnd: aggregate.providerEnd, editFailures: aggregate.editFailures,
+		providers: aggregate.providers, providerEnd: aggregate.providerEnd, editFailures: aggregate.editFailures, commandFailures,
 		skipped: summary.skipped, skippedOversized: summary.skippedOversized, skippedInvalidHeader: summary.skippedInvalidHeader,
 		skippedEmpty: summary.skippedEmpty, skippedDuplicate: summary.skippedDuplicate,
 		traceMissing: summary.traceMissing, tracePartial: summary.tracePartial, parseErrors: summary.parseErrors,

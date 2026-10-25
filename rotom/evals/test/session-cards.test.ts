@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildCards, collectLabels, errorBreakdown, sessionStats } from "../scripts/session-cards.mjs";
+import { callFingerprint } from "../scripts/command-failures.mjs";
 
 const cli = fileURLToPath(new URL("../scripts/session-cards.mjs", import.meta.url));
 const timestamp = "2026-01-01T00:00:00.000Z";
@@ -66,6 +67,48 @@ beforeEach(async () => {
 afterEach(async () => { await rm(directory, { recursive: true, force: true }); });
 
 describe("session cards", () => {
+	it("breakdown classifies commands in memory, joins labels and excludes abandoned calls", async () => {
+		const command = "rg SYNTHETIC_COMMAND_SECRET";
+		const args = { command };
+		const entries: unknown[] = [header("private-loop-session"), message("u", null, "user", "PRIVATE_USER_TEXT"),
+			assistant("abandoned", "u", [{ type: "toolCall", id: "abandoned-call", name: "bash", arguments: { command: "npm test" } }])];
+		let parent = "u";
+		for (let index = 0; index < 4; index++) {
+			entries.push(assistant(`a${index}`, parent, [{ type: "toolCall", id: `c${index}`, name: "bash", arguments: args }]));
+			entries.push(message(`r${index}`, `a${index}`, "toolResult", [text("PRIVATE_RESULT_TEXT")], { toolCallId: `c${index}`, isError: true, details: { exitCode: 1 } }));
+			parent = `r${index}`;
+		}
+		await session("private-loop-session", entries);
+		await session("private-good-session");
+		await trace("private-loop-session", [span("span_end", "c0", { "pi.tool.call_id_digest": digest("c0"), "pi.tool.outcome": "tool_error", "pi.tool.exit_code": 1 })]);
+		await mkdir(dirname(out), { recursive: true });
+		const labelPath = join(dirname(out), "labels.jsonl");
+		const labelText = [{ sessionId: "private-loop-session", verdict: "fail", note: "PRIVATE_LABEL_NOTE" }, { sessionId: "private-good-session", verdict: "pass" }, { sessionId: "outside-window", verdict: "fail" }].map((row) => JSON.stringify(row)).join("\n");
+		await writeFile(labelPath, labelText);
+		const result = run("breakdown", "--root", root, "--out", out);
+		expect(result.status).toBe(0);
+		expect(result.stderr).toBe("");
+		const data = JSON.parse(result.stdout).commandFailures;
+		expect(data.categories.search.bash).toEqual({ calls: 4, failures: 4, unknown: 0, searchExit1: 4, rate: 1, share: 1 });
+		expect(data.categories.test.bash.calls).toBe(0);
+		expect(data.sources).toEqual({ trace: 1, toolResult: 3, unknown: 0 });
+		expect(data.loops).toMatchObject({ retries: 3, loopingSessions: 1, longest: { n: 2, median: 2, p90: 4 } });
+		expect(data.labels).toEqual({ available: true, n: 2, looping: { pass: 0, fail: 1 }, nonLooping: { pass: 1, fail: 0 } });
+		const markdown = await readFile(join(dirname(out), "breakdown.md"), "utf8");
+		for (const secret of [command, "SYNTHETIC_COMMAND_SECRET", "PRIVATE_USER_TEXT", "PRIVATE_RESULT_TEXT", "PRIVATE_LABEL_NOTE", digest("c0"), callFingerprint("bash", args)]) {
+			expect(result.stdout).not.toContain(secret);
+			expect(markdown).not.toContain(secret);
+		}
+		expect(result.stdout).not.toContain("private-loop-session");
+		expect(result.stdout).not.toContain("private-good-session");
+		expect(markdown).toContain("private-loop-session");
+		expect(markdown).toContain("n=2");
+		expect((await stat(join(dirname(out), "breakdown.md"))).mode & 0o777).toBe(0o600);
+		expect(await readFile(labelPath, "utf8")).toBe(labelText);
+		await writeFile(labelPath, "invalid labels\n");
+		await expect(errorBreakdown({ root, out })).rejects.toThrow("Invalid labels input");
+		expect(await readFile(join(dirname(out), "breakdown.md"), "utf8")).toBe(markdown);
+	});
 	it("renders only the leaf branch, including its aggregates and final assistant", async () => {
 		await session("branches", [
 			header("branches"), message("u", null, "user", "ROOT_REQUEST"),

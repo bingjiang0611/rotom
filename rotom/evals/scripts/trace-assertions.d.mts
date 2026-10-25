@@ -1,3 +1,4 @@
+export function canonicalJson(value: unknown): string;
 export type RuleId = "repeat-after-error" | "ended-after-tool-error" | "ended-on-provider-error" | "schema-errors" | "oversized-tool-result" | "harness-fault";
 export type FindingStatus = "hit" | "clear" | "unknown";
 export type FindingStatuses = Record<RuleId, FindingStatus>;

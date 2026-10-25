@@ -42,7 +42,7 @@ done
 
 ## 安装与基础设施验证
 
-GitHub Actions `Evals L1` 只跑 session-cards、trace-assertions、agreement、review、session-metrics、error-breakdown 合成测试、typecheck 和公开树隐私审计。
+GitHub Actions `Evals L1` 只跑 session-cards、trace-assertions、agreement、review、session-metrics、error-breakdown、command-failures 合成测试、typecheck 和公开树隐私审计。
 CI 不跑全量测试、真实会话或付费 eval，不代表产品运行时及 L2/L3 通过；不需要 secret。
 
 依赖精确跟随 Pi `0.84.3` 上游已验证组合，尤其固定 `vitest-evals@0.15.0`：
@@ -130,8 +130,9 @@ node rotom/evals/scripts/session-cards.mjs build --focus --limit 40
 `stats.md`（含工具出错最多的 10 个会话）与 `stats.jsonl`（每会话一行）。拿不到的指标记 null 并附样本数 n，
 cost 缺任一条时整列 null 并标 partial；总出错率是各会话 toolErrors 之和除以已结束 span 之和，不是比率平均。
 
-工具与 provider 出错来源见 `session-cards.mjs breakdown --since 28d`：只读 trace metadata 属性，
-按工具名和 `provider/model` × 错误类别拆分，stdout 只有聚合 JSON，会话 ID 只写入同级私有的 `breakdown.md`。
+工具与 provider 出错来源见 `session-cards.mjs breakdown --since 28d`：按工具名和 `provider/model` × 错误类别拆分。
+命令与旧 edit 错误只在内存里分类；命令类别、重复失败信号及同级 `labels.jsonl` 标注对照只输出聚合计数。
+stdout 不含命令、参数、fingerprint 或会话 ID；会话 ID 只写入同级私有的 `breakdown.md`。
 
 `build --focus` 只生成可疑会话的卡片：工具出错数 ≥ 5 且出错率 ≥ 10%、任一规则命中、无最终文本、
 或 provider 错误。此时 `--limit` 是要生成的卡片数上限，扫描仍按 500 个会话；summary 另有 `focusScanned`、
