@@ -30,7 +30,8 @@
 | # | 任务 | 阶段 | 状态 |
 |---|---|---|---|
 | 01 | [会话卡片 + 标注汇总](tasks/01-session-cards.md) | Phase 1 读会话 | accepted |
-| 02 | [bob 标注 30–50 个会话，归纳失败类别](tasks/02-label-sessions.md) | Phase 1 | ready（bob） |
+| 02a | [逐条提问的标注命令](tasks/02a-interactive-review.md) | Phase 1 | ready |
+| 02 | [bob 标注 30–50 个会话](tasks/02-label-sessions.md)（用 02a 的 `review` 回答 y/n，分类由规划者根据原因归纳） | Phase 1 | 等 02a |
 | 03 | [规则检查（code evals）接入卡片](tasks/03-trace-assertions.md) | Phase 2 | accepted |
 | 04 | [规则与人工标注的一致性报告](tasks/04-agreement-report.md) | Phase 2 | accepted |
 | 05 | 第一个 LLM judge：虚假完成 + 对照标注验证 | Phase 2 | 等 02 的类别和 bob 选定模型 |
