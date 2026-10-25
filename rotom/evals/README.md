@@ -42,6 +42,9 @@ done
 
 ## 安装与基础设施验证
 
+GitHub Actions `Evals L1` 只跑 session-cards、trace-assertions、agreement 合成测试、typecheck 和公开树隐私审计。
+CI 不跑全量测试、真实会话或付费 eval，不代表产品运行时及 L2/L3 通过；不需要 secret。
+
 依赖精确跟随 Pi `0.84.3` 上游已验证组合，尤其固定 `vitest-evals@0.15.0`：
 
 ```sh
