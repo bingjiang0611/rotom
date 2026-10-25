@@ -103,4 +103,15 @@ python3 scripts/audit-public.py --root .
 
 ## 授权记录
 
-（空。bob 确认后由规划者填写。）
+bob 于 2026-10-25 14:37 UTC 在项目线程的决策卡上选择「gpt-5.6-luna 跑满 3 次」。卡片上写明的固定方案即为授权范围：
+
+| 项 | 授权值 |
+|---|---|
+| provider / model | `openai-codex` / `gpt-5.6-luna` |
+| thinking | `low` |
+| N（每臂每任务重复次数） | 3（3 任务 × 2 臂 × 3 = 18 次运行） |
+| 请求数上限 | 2,000 次 provider 请求（含压缩摘要请求） |
+| 输入 token 上限 | 100,000,000（input + cacheRead + cacheWrite 合计） |
+| 停止规则 | 任一上限先到即停，剩余运行标 `not-run` |
+
+这只授权本表所列的一次完整执行。中途因熔断、基础设施故障停下后，重跑或补跑需要 bob 另行确认。不授权换模型、提高 N 或放宽上限。
