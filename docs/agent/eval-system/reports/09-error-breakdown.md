@@ -29,6 +29,8 @@
 | `python3 scripts/audit-public.py --root .` | 树审计 PASS，0 处命中（7,824 个文件） |
 | `python3 scripts/audit-public.py --root . --history`（隔离公开 clone 内） | BLOCKED：14 条 finding，全部是 `eval/system` 已公开历史里 7 个规划者提交的 `noreply@anthropic.com` author/committer 身份（6 个 compaction 文档提交 + `fc539150e67d`）。本次提交用 GitHub noreply 身份，未新增 finding，也未改写已公开历史。注：本次拉取后这 6 个 compaction 提交已在该分支历史里，比之前记录的 1 个提交多 |
 
+GitHub Actions `Evals L1`：[run 40206497180](https://github.com/bingjiang0611/rotom/actions/runs/40206497180) 在 `5bdd5cc` 上通过（31 秒内完成 npm ci、6 个测试文件过滤运行、typecheck 与树审计）。
+
 ## 真实数据冒烟
 
 命令：`node scripts/session-cards.mjs breakdown --since 28d --out <仓库外临时目录>/cards`，退出码 0，stderr 空，stdout 只有聚合 JSON（已断言不含 `sessionId`）。私有 `breakdown.md` 权限 0600，位于 Git 工作树外。
