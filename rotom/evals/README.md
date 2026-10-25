@@ -63,6 +63,26 @@ npm run benchmark -- doctor --live
 `doctor --live` 会用一个很小的 Alpine 镜像实际验证 `linux/amd64 + Rosetta`；普通 `doctor` 只检查
 Harbor、Apple container、adapter import 和 product 文件。
 
+## 本机会话卡片与标注（零模型）
+
+Node ≥ 24；从 Pi session 当前分支生成 Markdown 卡片，按工具调用 ID 的 SHA-256 关联 trace。
+
+```sh
+node rotom/evals/scripts/session-cards.mjs build --since 7d --limit 50
+node rotom/evals/scripts/session-cards.mjs labels
+```
+
+以上命令从仓库根执行。默认读取 `~/.pi/agent/sessions`，输出 `~/.rotom/evals/cards`；
+可用 `--root`（仅 build）和 `--out` 指定目录。单次最多 500 个会话，按文件修改时间倒序。
+在卡片末尾填写 `verdict: pass` 或 `verdict: fail`；`categories:` 用逗号分隔，`note:` 可多行。
+`labels` 只收 verdict 非空的卡片，写入卡片目录上一级的 `labels.jsonl`。
+`labeledAt` 是本次导出时间；重复 build 原样保留已填 verdict 的标注块，格式损坏时拒绝覆盖。
+卡片目录权限为 0700，卡片和标签文件为 0600；拒绝 Git 工作树内输出及 symlink 根/输出目录。
+输入只读；超过 32 MiB 的 session 跳过，超过 1 MiB 的行跳过并计解析错误；trace 同样有界。
+缺少 trace 标 missing，损坏、超限或未结束工具 span 标 partial，不把未知工具结果当成功。
+stdout 仅输出计数（labels 另含人工填写的类别计数），不输出会话正文。
+真实卡片、标注及会话内容只留本机私有目录，绝不加入仓库或公开报告。
+
 ## 运行评测
 
 以后在 `cases/**/*.eval.ts` 增加评测集后执行：
