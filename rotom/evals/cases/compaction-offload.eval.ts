@@ -1,6 +1,6 @@
 import { describe, it } from "vitest";
 import { createJudge, describeEval } from "vitest-evals";
-import { createReplayHarness, REPLAY_TASKS, LIVE_AUTHORIZATION } from "../src/compaction-offload-cases.ts";
+import { createReplayHarness, REPLAY_TASKS, LIVE_AUTHORIZATION, LIVE_REPLAY_TIMEOUT_MS } from "../src/compaction-offload-cases.ts";
 import { FAUX_MODEL, replayFaux, type FauxObservation } from "../src/compaction-offload-faux.ts";
 import type { ReplayMetrics } from "../src/compaction-offload-metrics.ts";
 import type { PiCodingAgentInput } from "../src/pi-harness.ts";
@@ -26,7 +26,7 @@ if (process.env.ROTOM_EVAL_COMPACTION_OFFLOAD !== "1" && !live) {
 				judges: [createJudge<PiCodingAgentInput, LiveReplayRow>(task.id, ({ output }) => ({
 					score: output.status === "completed" && output.metrics?.correct ? 1 : 0, metadata: { output },
 				}))], judgeThreshold: 1,
-			}, (test) => { test(task.id, async ({ run }) => { await run(task.scenario); }); });
+			}, (test) => { test(task.id, { timeout: LIVE_REPLAY_TIMEOUT_MS }, async ({ run }) => { await run(task.scenario); }); });
 		}
 	}
 } else {

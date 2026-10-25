@@ -18,6 +18,7 @@ export const REPLAY_PRODUCT = resolve(import.meta.dirname, "../..");
 // A 40K line leaves too little room for default 20K recent history plus product
 // prompt overhead under the offloader's 0.6 target. Keep recent history untouched.
 export const REPLAY_THRESHOLD = 64_000;
+export const LIVE_REPLAY_TIMEOUT_MS = 30 * 60_000;
 export const REPLAY_TOOLS = ["read", "bash", "edit", "write", "obs_recall"];
 export const REPLAY_CONFIG = Object.freeze({ version: 1, actionFusion: true, observationPack: true, evidencePreservingReducer: false, onlineContextCompact: false });
 export const EXACT_CODE = createHash("sha256").update("synthetic-offload-replay-exact-detail-v1").digest("hex").slice(0, 40);
