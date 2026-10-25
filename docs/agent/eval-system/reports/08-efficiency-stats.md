@@ -32,6 +32,7 @@
 | `npm run typecheck` | 通过（exit 0） |
 | `git diff --check` | 通过 |
 | `python3 scripts/audit-public.py --root .` | `PASS`，tracked-tree，7815 files / 139 125 816 bytes，findingCount 0 |
+| GitHub Actions `Evals L1`（commit `b664680`，run [40202585518](https://github.com/bingjiang0611/rotom/actions/runs/40202585518)） | success；`Install eval dependencies`、`Test eval tools`、`Typecheck`、`Audit public tree` 四步均通过 |
 
 新增测试覆盖：每个指标的正常值与 null、`costPartial`、总出错率按 span 加总而非平均各会话比率、ISO 周跨年边界
 （2026-12-31 与 2027-01-01 同为 `2026-W53`）、中位数与 p90 在 n = 0/1/偶数/10 时的结果、`--focus` 四个条件各自命中与都不命中、
@@ -79,7 +80,6 @@ limit 作为卡片数上限、stdout 不含 session id、`stats.md`／`stats.jso
 
 ## 未验证项
 
-- CI（`.github/workflows/evals-l1.yml`）在真实 GitHub runner 上的运行结果，仅本地按同一命令组合验证。
 - `stats` 的 stdout 形状只在合成 fixture 与本机真实数据上验证过，未对「所有会话都无 trace」「所有 usage 都缺 cost」等极端数据组合做真实数据覆盖（这些组合只有单测）。
 - 未验证 `build --focus` 与本机 `review` 的完整联合流程；任务明确要求不运行 `review`。
 
@@ -89,3 +89,4 @@ limit 作为卡片数上限、stdout 不含 session id、`stats.md`／`stats.jso
 - 真实数据里 `2026-W41` 只有 1 个会话却占 824 次工具调用、约 13% 出错率，周中位数容易被单条长会话主导；样本量小时看 p90 与 n 更有意义，报告已附 n。
 - 大量 `skippedInvalidHeader`（`stats` 323、`focus` 181）来自 sessions 目录下的非会话 `.jsonl`；行为符合既有 build 规则（只认可 session header），但如果后续要统计子会话，需要单独定义。
 - 补标额度仍由 bob 手动触发：`build --focus --limit 40` 之后运行 `review`，本次未代为执行。
+- 本报告补充 CI 结果的那次提交只改本文档，不命中 workflow 的 `paths` 过滤，因此最新一次 `Evals L1` 运行对应代码提交 `b664680`。
