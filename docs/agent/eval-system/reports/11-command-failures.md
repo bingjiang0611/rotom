@@ -111,3 +111,16 @@ n=44（40 pass / 4 fail），只计数，不计算 precision/recall。
 - 实现提交：`79f2824a0b4aa9b3bcd407c580c7f28ce130c22c`，仅推到 `origin/eval/system`。
 - GitHub Actions `Evals L1`：[run 40212980672](https://github.com/bingjiang0611/rotom/actions/runs/40212980672)，该实现提交上 success；job 29 秒，安装、7 文件测试、typecheck、树审计全部通过。随后只补本报告的验证记录，不修改已验证代码。
 - 没有推 main、安装或发布。私有 `~/.rotom/evals/breakdown.md` 保留供本机查看；标签文件未改。临时聚合 JSON 与公开 clone 在交付前清理，用户原有 `.idea/` 未暂存。
+
+## 核验（规划者，2026-10-25）
+
+结论：**accepted**。
+
+- 拉取 `b46efd7` 后本地重跑 eval 定向测试：7 文件 / 241 用例通过；typecheck 通过。
+- 读了 `command-failures.mjs`：命令文本只用来查固定程序表，fingerprint 只在 `sessionCommandFailures` 里用，不会返回；遇到命令替换、重定向、未知 wrapper 一律归 `other`；then_run 没有阶段证据就记为未知，不会因为 `isError` 被算成命令失败。原样重试的判定是「同 fingerprint 的上一次失败，这次又失败」，成功或未知会重置。和任务说明一致。
+- 读数时要注意三点：
+  1. `other` 占命令失败约 42%，所以类别表只能说明下限，不能说明分布全貌。
+  2. then_run 的「已知结果失败率」偏高（test 90.7%），因为 891 次未知里大概率多数是成功但没留下阶段证据（旧 trace），这个比率有幸存者偏差，不能拿来下结论。
+  3. 打转会话 11 个里人工 fail 1 个（25%），非打转 40 个里 fail 3 个（7.5%），方向一致，但 n 太小，不能当作证据。
+
+阶段性结论（09–11）：工具出错大多数**不是**原地打转。能确认的打转只占命令失败的约 23%，集中在 11 个会话；能确认的正常迭代（搜索无结果、测试失败）约占 25%；剩下的一半靠 metadata 分不清。bob 标了 40 个 pass 的会话里也有大量出错，说明「工具出错多」本身不能代表「不满意」。继续往细里拆，回报在下降。
