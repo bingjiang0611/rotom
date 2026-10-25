@@ -2,6 +2,7 @@
 	"version": 1,
 	"actionFusion": false,
 	"observationPack": false,
+	"compactionOffload": false,
 	"evidencePreservingReducer": false,
 	"evidencePreservingReducerProvider": "provider-id",
 	"evidencePreservingReducerModel": "model-id",
