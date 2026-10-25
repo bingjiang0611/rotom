@@ -4,7 +4,7 @@
 - Repository: <https://github.com/narumiruna/pi-extensions> (`packages/pi-goal`)
 - Baseline: upstream `0.54.4`, 22 TypeScript source files.
 - License: MIT; original notice retained in `LICENSE`.
-- Maintained version: `0.54.4-rotom.8`, private component of [rotom](https://github.com/bingjiang0611/rotom), not an upstream or npm release.
+- Maintained version: `0.54.4-rotom.9`, private component of [rotom](https://github.com/bingjiang0611/rotom), not an upstream or npm release.
 - `.rotom.2`: Qoder Ultimate live evaluation exposed missing verdict markers when the request contained only JSON. The request now carries the same review contract outside the untrusted payload, and file tools explain the project-root path. Bounded `goal_continue`/`goal_wait` tool results and text-only user/host announcements are now visible to the reviewer for procedural requirements, but remain excluded from candidate identity and progress. The request also clarifies pre-completion timing and native control semantics; evidence retains complete records up to the existing 12KB bound instead of prematurely dropping them after six records. Strict verdict parsing, model-call/attempt limits and token/byte budgets are unchanged.
 
 ## Retained upstream behavior
@@ -45,6 +45,10 @@ The default automatic-response allowance becomes 100; explicitly saved limits ar
 ### `.rotom.8`: host recovery visibility and explicit resume
 
 Host-owned retries remain bounded by Pi settings; no Goal retry loop or automatic tool replay is added. Recovery exhaustion pauses with a persisted stop code, active-session restoration requires explicit continuation, and idle-active resume is supported without duplicating pending work. Managed-run state events add activity/recovery/wait metadata without changing terminal status semantics. Successful threshold compaction cannot clear a pending provider failure. Source and real SDK/faux-provider regressions cover cancellation and successful/unknown effect non-replay. No live provider or external-service reliability improvement is claimed.
+
+### `.rotom.9`: no trailing inactive contract after compaction
+
+After threshold compaction summarizes the persisted inactive Goal contract away, the contract is no longer appended again as the newest message. Models read that trailing "Goal mode is inactive" message as a fresh instruction and stopped unrelated in-progress work. The context hook still places the inactive contract right after the compaction summary without persisting it. A real SDK/faux-provider regression covers the compaction path; live-model stop behavior is not re-measured.
 
 ## Compatibility and verification
 

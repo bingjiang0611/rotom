@@ -1023,7 +1023,11 @@ export class GoalRuntime {
 		const hasHistory =
 			hasGoalContextContractHistory(contextEntries) ||
 			hasGoalContextContractHistory(historyEntries);
-		if (!hasHistory || hasInactiveGoalContextContract(contextEntries)) return undefined;
+		// Check the persisted branch, not the compacted context: compaction summarizes
+		// the inactive contract away, and re-appending it as the newest message reads
+		// like a fresh instruction that ends unrelated work. The context hook already
+		// re-inserts it right after the compaction summary without persisting it.
+		if (!hasHistory || hasInactiveGoalContextContract(historyEntries)) return undefined;
 		return createInactiveGoalContextContract();
 	}
 
