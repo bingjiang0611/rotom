@@ -201,7 +201,7 @@ describe("session cards", () => {
 		await label("two", "fail", "shared, timeout, shared", "note two\ncontinued");
 		const result = run("labels", "--out", out);
 		expect(result.status).toBe(0);
-		expect(JSON.parse(result.stdout)).toEqual({ labeled: 2, pass: 1, fail: 1, categories: { shared: 2, timeout: 1 } });
+		expect(JSON.parse(result.stdout)).toEqual({ labeled: 2, pass: 1, fail: 1, failSet: 0, conflicts: 0, categories: { shared: 2, timeout: 1 } });
 		expect(result.stdout).not.toContain("note");
 		const path = join(dirname(out), "labels.jsonl");
 		const labels = (await readFile(path, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
@@ -246,7 +246,7 @@ describe("session cards", () => {
 		await expect(buildCards({ root, out })).rejects.toThrow();
 		await rm(join(out, "links.md"));
 		await symlink(target, join(dirname(out), "labels.jsonl"));
-		await expect(collectLabels({ out })).rejects.toThrow("Invalid output file");
+		await expect(collectLabels({ out })).rejects.toThrow("Invalid labels input");
 		expect(await readFile(target, "utf8")).toBe("KEEP");
 	});
 

@@ -5,12 +5,14 @@ on:
     paths:
       - 'rotom/evals/**'
       - 'rotom/extensions/observability/**'
+      - 'rotom/extensions/coding-policy/**'
       - '.github/workflows/evals-l1.yml'
   push:
     branches: [main, eval/system]
     paths:
       - 'rotom/evals/**'
       - 'rotom/extensions/observability/**'
+      - 'rotom/extensions/coding-policy/**'
       - '.github/workflows/evals-l1.yml'
   workflow_dispatch:
 
@@ -43,6 +45,9 @@ jobs:
         run: npm ci --ignore-scripts --registry=https://registry.npmjs.org --replace-registry-host=always
       - name: Test eval tools
         run: npm test -- session-cards trace-assertions agreement review session-metrics error-breakdown command-failures
+      - name: Test dashboard and eval API
+        working-directory: .
+        run: node --test rotom/extensions/observability/dashboard.test.mjs rotom/extensions/observability/eval.test.mjs
       - name: Typecheck
         run: npm run typecheck
       - name: Audit public tree

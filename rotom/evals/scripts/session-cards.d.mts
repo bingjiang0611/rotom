@@ -94,5 +94,7 @@ export function collectLabels(options?: { out?: string }): Promise<{
 	labeled: number;
 	pass: number;
 	fail: number;
+	failSet: number;
+	conflicts: number;
 	categories: Record<string, number>;
 }>;

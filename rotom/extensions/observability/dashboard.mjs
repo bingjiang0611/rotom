@@ -8,6 +8,8 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { LEGACY_MODEL_IDS } from "../qoder/legacy.mjs";
+import { createEvalService, evalError, MAX_RESPONSE_BYTES } from "./eval/service.mjs";
+import { evalMarkup, evalScript, evalStyles } from "./eval/ui.mjs";
 
 const TRACE_SCHEMA = "rotom-local-trace/v1";
 
@@ -781,9 +783,11 @@ function dashboardHtml(nonce) {
 body{background:#090a0a;font-family:var(--mono);letter-spacing:0}body:before{display:none}.app-shell{grid-template-rows:58px 78px minmax(0,1fr) 28px;background:#101112}.topbar{padding:0 20px;background:#101112;border-color:#424744}.brand{min-width:auto}.brand-mark{border-color:#f1f2ef;color:#f1f2ef;box-shadow:none}.brand-copy strong{font-family:var(--mono);font-size:13px}.brand-copy span{font-family:var(--mono);font-size:9px}.top-context{margin-left:12px}.local-dot{border:2px solid #2fd39d;background:transparent;border-radius:50%;box-shadow:0 0 12px rgba(47,211,157,.35)}.top-actions{gap:12px}.view-switch{display:flex;padding:3px;border:1px solid #424744;background:#0d0e0f}.view-button{border:0;background:transparent;color:#a1a6a4;padding:7px 13px;font:10px var(--mono);letter-spacing:.05em}.view-button.active{background:#ecefed;color:#111;font-weight:700}.view-button:focus-visible{outline:1px solid #2eb4ed;outline-offset:-1px}.refresh-button{border-color:#424744;background:transparent;border-radius:0;font:10px var(--mono)}.key-hint{display:none}.signal-strip{grid-template-columns:1.25fr repeat(4,1fr);padding:0 20px;background:#0c0e0e;border-color:#424744;overflow:hidden}.signal-cell{padding:11px 18px;border-color:#2a2e2c}.signal-cell .label{font:9px var(--mono)}.signal-cell .value{font:550 20px/1 var(--mono)}.signal-cell .sub{font:9px var(--mono)}.signal-cell.health .value{font:600 12px var(--mono)}.health-orb{border-radius:50%}.workspace{grid-template-columns:292px minmax(0,1fr)}.session-panel{background:#0e1010;border-color:#424744}.panel-heading{padding:20px 15px 12px}.panel-heading h2{font:600 11px var(--mono)}.search-input{border-radius:0;background:#0a0b0b}.trace-item{border-radius:0;padding:10px 8px}.trace-item.active{background:#191c1b}.trace-item.active:before{background:#55d97b;box-shadow:0 0 9px rgba(85,217,123,.28)}.trace-stage{background:#101112}.trace-view{display:block;min-height:100%}.trace-hero{min-height:103px;display:block;position:relative;padding:18px 128px 18px 27px;background:#101112;border-color:#424744}.trace-title{margin-top:7px}.trace-title h1{font:550 23px/1.15 var(--mono)}.trace-kicker{color:#a1a6a4}.trace-caption{font:10px var(--mono)}.trace-status{border-radius:0}.context-gauge{position:absolute;right:27px;top:50%;transform:translateY(-50%);display:flex;align-items:center;gap:10px}.context-ring{--context:0;width:43px;height:43px;position:relative;display:grid;place-items:center;border-radius:50%;background:conic-gradient(#2eb4ed calc(var(--context)*1%),#263034 0)}.context-ring:after{content:"";position:absolute;inset:5px;border-radius:50%;background:#101112}.context-ring span{position:relative;z-index:1;font:9px var(--mono)}.context-gauge-copy{display:grid}.context-gauge-copy strong{font:16px var(--mono)}.context-gauge-copy span{color:#646a68;font:9px var(--mono);letter-spacing:.08em}.session-stats{border-bottom:1px solid #424744}.stats-section{border-bottom:1px solid #424744}.stats-heading{height:52px;display:flex;align-items:center;gap:10px;padding:0 27px}.stats-heading h2{margin:0;font:500 13px var(--mono)}.stats-heading .count{margin-left:auto;color:#a1a6a4}.stats-page-nav{display:flex;align-items:center;gap:4px;margin-left:8px}.stats-page-nav button{border:1px solid #2a2e2c;background:#0d0e0f;padding:4px 7px;color:#a1a6a4;font:9px var(--mono)}.stats-page-nav button:disabled{opacity:.35}.stats-page-nav span{color:#2eb4ed;font:9px var(--mono)}.stats-chevron{color:#a1a6a4;font-size:16px}.stats-content{padding:0 27px 22px}.stats-speed{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:26px;padding:3px 0 18px}.stats-speed-item{display:flex;align-items:baseline;justify-content:space-between;padding-bottom:7px;border-bottom:1px solid #2a2e2c}.stats-speed-item span{color:#a1a6a4}.stats-speed-item strong{font:500 16px var(--mono)}.stats-columns,.token-columns{display:grid;grid-template-columns:1fr 1fr;gap:42px}.token-columns{margin-top:20px}.stat-group h3{margin:0 0 8px;color:#a1a6a4;font:500 10px var(--mono);letter-spacing:.09em}.stat-grid{display:grid;grid-template-columns:1fr auto;gap:7px 18px}.stat-label{display:flex;align-items:center;gap:9px;color:#a1a6a4}.stat-dot{width:8px;height:8px;flex:none;border:2px solid currentColor;border-radius:50%}.stat-dot.fill{border:0;background:currentColor}.stat-value{text-align:right}.tone-gray{color:#aeb8c5}.tone-cyan{color:#2eb4ed}.tone-reasoning{color:#2fd39d}.tone-generation{color:#55d97b}.tone-tool{color:#ff9f1c}.tone-compaction{color:#8c4ee8}.activity-content{padding:2px 27px 28px}.activity-caption{display:flex;gap:12px;margin-bottom:18px;color:#a1a6a4}.activity-caption .primary{margin-right:auto;color:#f1f2ef}.activity-grid{display:grid;grid-template-columns:190px minmax(360px,1fr) 72px;align-items:center;row-gap:7px}.activity-label{text-align:right;padding-right:14px;color:#a1a6a4;white-space:nowrap}.activity-label.major{color:#f1f2ef}.activity-track{height:18px;position:relative;border-bottom:1px solid #202322;background-image:linear-gradient(90deg,#2a2e2c 1px,transparent 1px);background-size:25% 100%;overflow:hidden}.activity-track.all{height:31px;border:0;border-radius:15px;background:#18211f}.activity-segment{position:absolute;top:5px;bottom:4px;left:var(--start);width:var(--width);min-width:2px;background:var(--segment)}.activity-track.all .activity-segment{top:0;bottom:0}.activity-value{text-align:right;color:#a1a6a4}.activity-axis{grid-column:2;display:flex;justify-content:space-between;padding-top:4px;color:#646a68;font:9px var(--mono)}.trace-detail{display:block}.trace-metrics{grid-template-columns:repeat(6,minmax(0,1fr))}.trace-metric{background:#0d0f0f}.toolbar{background:#131516}.status-tab,.page-button,.span-search,.family-select{border-radius:0}.app-footer{background:#0e1010;border-color:#424744}.span-dot.tool,.span-bar.tool{background:#ff9f1c}.span-dot.agent,.span-bar.agent{background:#55d97b}.span-dot.session,.span-bar.session{background:#8c4ee8}
 @media(max-width:1120px){.app-shell{grid-template-rows:58px 112px minmax(0,1fr) 28px}.signal-strip{grid-template-columns:1.2fr repeat(2,1fr);overflow:hidden}.stats-speed{grid-template-columns:repeat(2,1fr)}.activity-grid{grid-template-columns:150px minmax(300px,1fr) 60px}}
 @media(max-width:760px){body{overflow:auto}.app-shell{display:block;min-height:100%}.topbar{height:60px;padding-inline:12px}.top-context{display:none}.view-button{padding:7px 8px}.signal-strip{grid-template-columns:repeat(2,1fr);padding:0 12px}.signal-cell.health{grid-column:1/-1}.workspace{grid-template-columns:1fr}.trace-hero{padding:18px 16px}.stats-columns,.token-columns{grid-template-columns:1fr}.activity-content{overflow:auto}.activity-grid{min-width:540px;grid-template-columns:120px minmax(300px,1fr) 56px}}
+${evalStyles}
 </style>
 </head>
 <body>
+${evalMarkup}
 <div class="app-shell">
 <header class="topbar"><div class="brand"><div class="brand-mark">R</div><div class="brand-copy"><strong>ROTOM TRACE</strong><span>LONG-HORIZON OBSERVABILITY</span></div></div><div class="top-context"><i class="local-dot"></i><span id="state">正在连接本地记录…</span></div><div class="top-actions"><nav class="view-switch" aria-label="会话视图"><button class="view-button active" id="view-stats" type="button" aria-pressed="true">SESSION STATS</button><button class="view-button" id="view-trace" type="button" aria-pressed="false">EXECUTION TRACE</button></nav><span class="key-hint">R</span><button class="refresh-button" id="refresh" type="button"><span class="refresh-icon">↻</span><span>刷新数据</span></button></div></header>
 <div class="signal-region"><section class="signal-strip" id="signals"></section><section class="efficiency-strip" id="efficiency"></section></div>
@@ -843,13 +847,40 @@ function selectSessionView(next){sessionView=next==='trace'?'trace':'stats';var 
 document.getElementById('view-stats').onclick=function(){selectSessionView('stats')};document.getElementById('view-trace').onclick=function(){selectSessionView('trace')};document.getElementById('refresh').onclick=load;document.getElementById('filter').oninput=renderTraceList;document.getElementById('orphan-toggle').onclick=function(){showOrphans=!showOrphans;if(!showOrphans&&traces.some(function(trace){return trace.id===selectedTrace&&trace.orphan})){selectedTrace=(traces.find(function(trace){return !trace.orphan})||{}).id||'';selectedSpan='';if(selectedTrace)loadDetail(selectedTrace);else{currentDetail=null;renderDetail()}}renderTraceList()};document.addEventListener('keydown',function(event){if(event.key==='r'&&!event.metaKey&&!event.ctrlKey&&document.activeElement.tagName!=='INPUT'){event.preventDefault();load()}if(event.key==='/'&&document.activeElement.tagName!=='INPUT'){event.preventDefault();document.getElementById('filter').focus()}});load();
 })();
 </script>
+<script nonce="${nonce}">${evalScript}</script>
 </body>
 </html>`;
+}
+
+const MAX_ANNOTATION_BODY_BYTES = 4096;
+function annotationBody(request) {
+	return new Promise((accept, reject) => {
+		let bytes = 0, chunks = [], settled = false;
+		const finish = (error, value) => {
+			if (settled) return;
+			settled = true; clearTimeout(timer);
+			if (error) { chunks = []; request.resume(); reject(error); } else accept(value);
+		};
+		const timer = setTimeout(() => finish(evalError(408, "body_timeout")), 5000);
+		request.on("data", (chunk) => {
+			if (settled) return;
+			bytes += chunk.length;
+			if (bytes > MAX_ANNOTATION_BODY_BYTES) finish(evalError(413, "body_too_large"));
+			else chunks.push(chunk);
+		});
+		request.on("end", () => {
+			if (settled) return;
+			try { finish(null, JSON.parse(Buffer.concat(chunks).toString("utf8"))); }
+			catch { finish(evalError(400, "invalid_json")); }
+		});
+		request.on("error", () => finish(evalError(400, "invalid_body")));
+	});
 }
 
 export async function startTraceDashboard(options = {}) {
 	const rootState = await canonicalTraceRoot(options.root ?? resolve(homedir(), ".pi/agent/sessions"));
 	const root = rootState.root;
+	const evalService = createEvalService(root, options.evalDirectory);
 	const token = options.token ?? randomBytes(24).toString("base64url");
 	const nonce = randomBytes(18).toString("base64url");
 	let expectedHosts = new Set();
@@ -874,8 +905,10 @@ export async function startTraceDashboard(options = {}) {
 	const server = createServer(async (request, response) => {
 		try {
 			if (!expectedHosts.has(request.headers.host ?? "")) { textResponse(response, 421, "Invalid Host\n"); return; }
-			if (request.method !== "GET") { textResponse(response, 405, "Method Not Allowed\n", { allow: "GET" }); return; }
 			const url = new URL(request.url ?? "/", "http://127.0.0.1");
+			const annotationRoute = url.pathname === "/api/eval/annotation";
+			const allowedMethod = annotationRoute ? "POST" : "GET";
+			if (request.method !== allowedMethod) { textResponse(response, 405, "Method Not Allowed\n", { allow: allowedMethod }); return; }
 			if (url.pathname === "/") {
 				const body = dashboardHtml(nonce);
 				response.writeHead(200, {
@@ -889,11 +922,23 @@ export async function startTraceDashboard(options = {}) {
 				response.end(body);
 				return;
 			}
-			if (url.pathname !== "/api/traces" && url.pathname !== "/api/trace" && url.pathname !== "/api/trace-page") { jsonResponse(response, 404, { error: "not_found" }); return; }
+			if (!["/api/traces", "/api/trace", "/api/trace-page", "/api/eval/sessions", "/api/eval/session", "/api/eval/annotation"].includes(url.pathname)) { jsonResponse(response, 404, { error: "not_found" }); return; }
 			if (!authorized(request, token)) { jsonResponse(response, 401, { error: "unauthorized" }); return; }
 			if (activeApiRequests >= MAX_API_CONCURRENCY) { jsonResponse(response, 429, { error: "too_many_requests" }); return; }
 			activeApiRequests += 1;
 			try {
+				if (url.pathname.startsWith("/api/eval/")) {
+					let value;
+					if (annotationRoute) {
+						if (request.headers["content-type"]?.split(";")[0].trim().toLowerCase() !== "application/json") throw evalError(415, "invalid_content_type");
+						if (request.headers.origin !== undefined && request.headers.origin !== `http://${request.headers.host}`) throw evalError(403, "invalid_origin");
+						if (Number(request.headers["content-length"]) > MAX_ANNOTATION_BODY_BYTES) throw evalError(413, "body_too_large");
+						value = await evalService.annotate(await annotationBody(request));
+					} else if (url.pathname === "/api/eval/sessions") value = await evalService.sessions(url.searchParams.get("cursor"), url.searchParams.get("filter") ?? "all");
+					else value = await evalService.session(url.searchParams.get("id"), url.searchParams.get("cursor"));
+					if (Buffer.byteLength(JSON.stringify(value)) > MAX_RESPONSE_BYTES) throw evalError(413, "response_too_large");
+					jsonResponse(response, 200, value); return;
+				}
 				if (url.pathname === "/api/traces") {
 					const scanned = await sharedSummaryScan(true);
 					const summaries = scanned.traces.map(({ summary }) => summary);
@@ -922,7 +967,7 @@ export async function startTraceDashboard(options = {}) {
 				};
 				jsonResponse(response, 200, { summary: summarizeTrace(scanned.root, trace.path, detail), records: detail.records, page });
 			} finally { activeApiRequests -= 1; }
-		} catch { jsonResponse(response, 500, { error: "internal_error" }); }
+		} catch (error) { jsonResponse(response, error.status ?? 500, { error: error.status ? error.code : "internal_error" }); }
 	});
 	server.on("clientError", (_error, socket) => socket.destroy());
 	await new Promise((accept, reject) => {

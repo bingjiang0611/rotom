@@ -42,7 +42,7 @@ done
 
 ## 安装与基础设施验证
 
-GitHub Actions `Evals L1` 只跑 session-cards、trace-assertions、agreement、review、session-metrics、error-breakdown、command-failures 合成测试、typecheck 和公开树隐私审计。
+GitHub Actions `Evals L1` 跑 session-cards、trace-assertions、agreement、review、session-metrics、error-breakdown、command-failures 合成测试，以及 observability dashboard / Eval API 测试、typecheck 和公开树隐私审计。
 CI 不跑全量测试、真实会话或付费 eval，不代表产品运行时及 L2/L3 通过；不需要 secret。
 
 依赖精确跟随 Pi `0.84.3` 上游已验证组合，尤其固定 `vitest-evals@0.15.0`：
@@ -133,6 +133,11 @@ cost 缺任一条时整列 null 并标 partial；总出错率是各会话 toolEr
 工具与 provider 出错来源见 `session-cards.mjs breakdown --since 28d`：按工具名和 `provider/model` × 错误类别拆分。
 命令与旧 edit 错误只在内存里分类；命令类别、重复失败信号及同级 `labels.jsonl` 标注对照只输出聚合计数。
 stdout 不含命令、参数、fingerprint 或会话 ID；会话 ID 只写入同级私有的 `breakdown.md`。
+
+`rotom --trace` 后台的 Eval 页支持本机会话复盘与人工标注；active/unknown 会话禁止写标注。
+标注写入 `~/.rotom/evals/annotations/`；`labels` 统一合并卡片与 annotation，冲突以 annotation 为准并计 `conflicts`，新增 `failSet`。
+`review` 跳过已有 annotation；agreement/breakdown 复用同一合并逻辑。无卡片时仍支持已有 labels.jsonl 导出文件，不把它覆盖实时卡片。
+共享读取、分支、规则、指标仅在 `extensions/observability/eval/` 保留一份源码，eval 脚本通过 import/re-export 复用。
 
 `build --focus` 只生成可疑会话的卡片：工具出错数 ≥ 5 且出错率 ≥ 10%、任一规则命中、无最终文本、
 或 provider 错误。此时 `--limit` 是要生成的卡片数上限，扫描仍按 500 个会话；summary 另有 `focusScanned`、

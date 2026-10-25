@@ -80,6 +80,7 @@
 - span start/end、parent/child、compaction sequence、shutdown flush 是否仍配对？
 - partial page 是否避免跨页生命周期推断？
 - parser、文件大小、flush deadline、权限、symlink、loopback/auth/CSP 是否有界？
+- Eval 页现读会话内容是否仅经鉴权后有界返回、只用 textContent？标注 POST 是否校验 Origin/JSON/body/id/状态，并拒绝 symlink？合成 UI 验证与真实会话只读计数是否分开，真实截图和代标注是否禁止？
 - 无 trace、disabled、temporary session、orphan empty launch 是否诚实表示？
 
 ### Eval / capability evidence
