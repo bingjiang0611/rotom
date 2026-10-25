@@ -29,7 +29,7 @@
 
 | # | 任务 | 阶段 | 状态 |
 |---|---|---|---|
-| 01 | [会话卡片 + 标注汇总](tasks/01-session-cards.md) | Phase 1 读会话 | in-review |
+| 01 | [会话卡片 + 标注汇总](tasks/01-session-cards.md) | Phase 1 读会话 | changes-requested |
 | 02 | bob 标注 30–50 个会话，归纳失败类别 | Phase 1 | 等 01 |
 | 03 | trace 断言（code evals）+ CI fixture | Phase 2 | 待规划 |
 | 04 | 第一个 LLM judge：虚假完成 + 对照标注验证 | Phase 2 | 待规划 |

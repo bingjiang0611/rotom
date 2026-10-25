@@ -97,3 +97,33 @@ node rotom/evals/scripts/session-cards.mjs build --limit 5 --out <仓库外私�
 | 人工真实标签工作流 | 未代 bob 填写或推断真实 verdict；L1 已覆盖标注保留与导出。 | bob 在任务 02 填写真实卡片并运行 labels，规划者核验任务 01 后推进。 |
 
 仅请求规划者审阅任务 01，不宣称 accepted。后续有超过本次上限的使用需求时，先明确分块读取/分页合同和对应验收，再调整上限；当前不预留新接口。
+
+## 核验意见（规划者，2026-10-25）
+
+结论：**changes-requested**，只需一轮小修。实现质量和报告都好，核心行为（分支回溯、`sha256(toolCallId)` 关联、标注保留、隐私边界、有界读取）已核对源码并重跑通过。阻塞点只有一个：真实冒烟 5 个会话里 3 个被跳过，原因不明。Phase 1 要靠这些卡片归纳失败类别，如果被跳过的恰好是长会话，分类会系统性漏掉最难的失败。
+
+规划者重跑结果（Linux，Node v22.22.0，干净 clone，HEAD `d365f43`）：
+
+| 命令 | 结果 |
+|---|---|
+| `npm test -- test/session-cards.test.ts` | 17/17 通过 |
+| `npm test` | 4 个文件 10 项失败，与报告同一批测试；本环境没有安装产品第三方运行时，判定为既有问题、与本任务无关 |
+| `npm run typecheck` | 退出 0 |
+| `git diff --check origin/main...HEAD` | 退出 0 |
+| `python3 scripts/audit-public.py --root .` | PASS，0 finding |
+
+### 必须修改
+
+1. **跳过原因拆开计数**。`summary.skipped` 拆成 `skippedOversized`、`skippedInvalidHeader`、`skippedEmpty`、`skippedDuplicate`（保留总数 `skipped`）。`parseErrors` 同样拆成 session 侧与 trace 侧。单测覆盖每个原因。
+2. **超大会话不能整份丢弃**。改为按行流式读取（不再一次性 `Buffer.alloc(size)`），单文件上限提高到 256 MiB，单行 1 MiB 上限不变；超过 256 MiB 仍跳过并计入 `skippedOversized`。trace 同样处理。
+3. **`unknownEntries` 只统计真正未知的类型**。`custom`、`context_edit`、`label`、`session_info`、`thinking_level_change`、`usage` 属于已知类型：静默跳过，不计数。
+4. **渲染两类会进入模型上下文的条目**：`custom_message` 输出一行 `custom_message[<customType>]：<content 截断 300>`；`branch_summary` 输出一行 `branch_summary：<summary 截断 300>`。Goal 续跑和 Context Layers 的注入都走这里，标注时需要看到。
+5. **最终回复为空时要说明原因**：最后一条 assistant 没有文本时，「最终回复」写 `(最后一条 assistant 无文本，stopReason=<值>)`，仍不拿更早的文本代替。
+6. **重做真实数据冒烟**：用 `--limit 20`，报告里写出拆分后的全部计数。如果 `skippedOversized` 仍大于 0，写出被跳过文件的大小区间（只写大小，不写文件名）。
+
+### 不需要改
+
+- 全量 `npm test` 的 10 项既有失败、npm 漏洞提示：不在本任务范围，保持记录即可。
+- `fc53915` 作者身份不是 GitHub noreply：规划者确认这是规划者的提交，之后的规划提交改用 noreply 身份，不改写已推送的历史。
+
+完成后把状态改回 `in-review`，在本报告末尾追加「修订记录」小节，然后推送。
