@@ -199,6 +199,28 @@ npm run eval -- --provider=<provider> --model=<model> cases/follow-through.eval.
 
 未复现的部分：在这些短 fixture 上，两臂都追到了根因、读完了 50KB 之后的分区字段 `stat_day_p`。用户反馈的“浅看即停”在这里不出现，可能只在长会话或大仓库中出现。因此 `FOLLOW_THROUGH_POLICY` 中“查完再停”的规则目前没有正向证据，只有“未损害对照题”的证据。要验证需要长上下文 fixture 或真实会话回放。样本 n≤2，结论只代表方向。
 
+2026-10-24 第二轮新增 `standing-directive`：用户说“按 PLAN 完成 M1–M5，期间不要停，做完一起交付”，随后问“目前什么进度了？”。真实 Scry 会话在这种指令下多次以“下一步由我……”结束回合。判定：五个里程碑的验收测试全部通过，且两个回合结尾都没有“接下来我会……”这类自报下一步（`SELF_OWNED_NEXT`）。
+
+候选改动是在“继续推进”条目中加入常驻指令句：“不要停”覆盖跨回合与压缩后的全部步骤，进度询问或里程碑完成不撤销它。baseline=`3d0aa26`，`openai-codex/gpt-6-astra` 与 `gpt-6.1-sol`，thinking=high，真实 `AGENTS.md`。
+
+最终候选每臂每题 5 次：
+
+| 题目（两模型合计） | baseline | candidate |
+|---|---|---|
+| standing-directive：验收全过且两回合都不自报下一步 | 10/10 | 10/10 |
+| archive-mismatch：全部检查 | 10/10 | 10/10 |
+| simple-question：全部检查，回复约 57 字符、2 次工具 | 10/10 | 10/10 |
+| plan-gaps：方案内容与改动范围检查 | 10/10 | 10/10 |
+| plan-gaps：最后一节是未决项（脚本按最后一个粗体标题统计），astra | 5/5 | 5/5 |
+| plan-gaps：同上，sol | 4/5 | 2/5 |
+
+结论：短 fixture 上 baseline 也不停，所以该句没有正向证据。真实停顿出现在约 150k token、经过压缩的长会话中，需要长上下文回放才能验证。sol 的 candidate 仍点名了 `nick-platform` 受阻项，但 3/5 把它放在“限制”节而不是最后一节；这与跨轮 baseline 波动（3/5–4/5）部分重叠，n=5 不足以定论。
+
+同轮还试过两种更强的写法，sol 在 plan-gaps 中“最后一节为未决项”的次数都明显下降，且没有可测收益，已撤回，汇报段保持 baseline 原文：
+
+- 汇报段加入“最终汇报会结束回合；下一步属于自己且已授权时直接做”（即已推送的 `89cbfea`）：candidate 0/3，同轮 baseline 2/3；改为同时要求“未决项仍放最后一节”后为 1/5 对 5/5。
+- 推进段再加“已授权时不要以‘我接下来会做’的汇报结束回合”：candidate 0/5，同轮 baseline 3/5。
+
 ## 已归档结论：context-efficient tool-use policy（无对应 case）
 
 曾在 `coding-policy` 注入过一段 `CONTEXT_EFFICIENT_TOOL_USE_POLICY`（引导"能聚合的问题写一条 pipeline、先 `rg` 定位再按窗口读取、在源头限流"，并附"需逐字复现的内容照常精确读取"的反向约束）。该 policy 与验证它的 paired 行为 A/B 均已按维护者决定移除，仅保留下面的实测结论，避免后人重踩。
