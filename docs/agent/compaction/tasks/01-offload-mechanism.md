@@ -68,6 +68,16 @@
 
 不满足时返回 `undefined`（原生摘要照常），并写一条 ledger 记录说明原因。
 
+### 持久化合同（修订，2026-10-25，取代原「全有或全无」措辞）
+
+执行者已证实 Pi 的 `appendEntry` 先改内存分支、再写磁盘，写盘失败时内存里仍留着记录（报告 01 的复现）。这是 Pi 的现状，本任务不改 Pi fork，按下面的合同处理：
+
+1. **顺序固定**：先对全部入选候选 `ensureStored`，全部成功后才 `appendEntry`，最后返回 `{ cancel: true }`。所以任何能被看见的记录都只引用已存好的对象。
+2. **追加抛错**：捕获异常，返回 `undefined`（让原生摘要照常跑），写 `offload_native`，`reason: "record_append_failed"`。不重试、不补写撤销记录、不反射修改 Pi 私有字段、不改写历史。这一次推迟的状态记为 **unknown**：内存分支可能有这条记录，磁盘上没有。
+3. **unknown 状态为什么可以接受**：内存里有记录 → 投影显示指针，对象在、可取回；重启后磁盘上没有 → 投影显示原文。两种都不丢信息。磁盘写不进去时原生压缩自己的 `appendCompaction` 多半也会失败，那是 Pi 现有的故障面，不归本任务处理。
+4. **旧 usage 规则只认确认过的推迟**：只有本进程里 `appendEntry` 正常返回后记下的推迟，或 `session_start` 时从磁盘恢复出来的记录，才能触发下一节的「再次取消」。追加抛过错的那次不算（在内存里记一个标志即可）。`session_tree` 之后内存分支里可能还留着失败的那条记录，按下一节规则最多多推迟一次；这时投影确实已经换成指针，上下文确实变小了，所以后果有界，报告里写明这一点。
+5. 投影端照旧 fail-open：对象缺失或哈希不符时保留原文。
+
 ### 旧 usage 导致的重复触发（必须处理）
 
 run 结束时推迟之后，下一次 prompt 前 Pi 会用**同一条 assistant 的旧 usage** 再检查一次阈值，此时候选已全部卸载，`saved≈0`，若不处理就会立刻跑原生摘要，推迟白做。
@@ -91,7 +101,7 @@ run 结束时推迟之后，下一次 prompt 前 Pi 会用**同一条 assistant 
 1. `compactionOffload` 关闭时，现有测试全部原样通过，`createObservation` 默认行为逐字节不变。
 2. 永不修改 session 历史里的原始工具结果，只改投影。
 3. 推迟只发生在 `reason === "threshold"`。
-4. 任何异常 → 不取消、原生摘要照常。一个推迟要么完整（对象已落盘 + 记录已写 + 取消），要么完全没发生。
+4. 任何异常 → 不取消、原生摘要照常。**「可见即安全」**：任何可见的卸载记录（内存分支或磁盘）只引用已经落盘并校验过的对象，所以无论记录是否写成，投影都只有两种结果：原文，或可用 `obs_recall` 取回原文的指针。追加记录失败时的处理见「持久化合同（修订）」一节。不要求 Pi 的追加本身是原子的。
 5. 不读取、不外发任何内容到网络；不新增 npm 依赖。
 
 ## 测试至少覆盖
@@ -102,6 +112,7 @@ run 结束时推迟之后，下一次 prompt 前 Pi 会用**同一条 assistant 
 - 占位符 ≤ 512 字节、含 `obs_recall` 取回指令；占位符 > 原文 50% 时跳过。
 - 推迟判定：够低 → 返回 `{cancel:true}` 且写了记录；不够低 / 无 contextWindow / 无候选 → 返回 `undefined`、无记录、有 `offload_native` ledger。
 - `ensureStored` 失败（例如对象路径预置为目录或 symlink）→ 不取消、无记录。
+- `appendEntry` 抛错（用报告 01 的方法：把 session 文件换成目录制造真实 `EISDIR`，不要 mock）→ 返回 `undefined`、有 `record_append_failed` ledger、对象文件已存在；随后不会因为这条记录触发「再次取消」；无论投影用原文还是指针，`obs_recall` 都能取回原文字节。
 - `reason` 为 `manual` / `extension` / `overflow` → 不介入。
 - 配置：`compactionOffload: true` + `observationPack: false` 报错；非 boolean 报错；默认 `false`。
 
