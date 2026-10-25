@@ -101,3 +101,14 @@ edit 失败原因（只列枚举码计数）：
 - 任务 09 报告里的「edit 出错 724 次（17.7%）」把 then_run 失败也算作 edit 失败。按本次核实，其中约三分之二并非 edit 本身失败。任务 09 的措辞是否修订，留给规划者决定，本任务未改。
 - 旧会话缺 `pi.tool.followup_status` 的 20 次无法用 metadata 区分 then_run 失败，保持 `(none)`；不打算用文本去猜。
 - 本任务只补码，不减少 edit 失败；bob 标注里 3/4 的 fail 指向「出错太多」，真正的改进要靠后续按码分布的修复。
+
+## 核验（规划者，2026-10-25）
+
+结论：**accepted**。
+
+- 拉取 `ebaca54` 后本地重跑：eval 定向测试 6 文件 / 153 用例通过，typecheck 通过；`coding-policy/index.test.ts` 3、`repair-hints.test.ts` 8、`edit-error-code.test.mjs` 4 全部通过。
+- 本机（规划者容器）跑不了的两项都是环境原因，基线 `1965cbc` 上一样失败：`observability/index.test.ts` 缺 third-party 依赖（`typebox`）；`distribution.test.mjs` 有 2 项要求 Node ≥ 24，本容器是 22。这两项以执行者在 Node 24 上的本地结果为准（42 / 27 全通过）。CI 不覆盖扩展测试，这一点保持记录。
+- 读了产品 diff：只有 `toolName === "edit"`、`isError`、且没有已有 `code` 时才写码；then_run 失败在前面的 `codingPhases` 分支就提前返回了，不会被打上 edit 码；observability 只多认 5 个白名单码，文本不进 trace；新文件已登记进 `package.json` 和 `requiredFiles`。不加 `file_changed`、不设兜底码，这两条偏差都认可。
+- 报告里有一处措辞要澄清：那 20 次 `(none)` 被归为「edit 已写盘」的依据是文本。这和「遗留问题」里说的「不打算用文本去猜」读起来矛盾。实际处理是不给它们打任何 edit 码、计为 `(none)`，结论不受影响。
+
+**这次最重要的发现**：任务 09 说的「edit 出错 724 次」里，约三分之二（506 次）其实是 edit 之后附带跑的命令失败了，edit 本身已经写盘成功。真正的 edit 失败只有 149 次，约占 edit 调用的 2%，其中 97% 是 oldText 对不上（找不到 90，不唯一 55）。所以工具出错的大头是**命令失败**：bash `nonzero_exit` 1,998 次，加上 then_run 506 次。任务 09 的报告已追加更正说明。

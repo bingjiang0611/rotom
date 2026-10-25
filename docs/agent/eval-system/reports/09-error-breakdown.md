@@ -78,3 +78,7 @@ GitHub Actions `Evals L1`：[run 40206497180](https://github.com/bingjiang0611/r
 - `bash nonzero_exit` 1,998 次里包含 grep 无匹配、测试失败等「正常的非 0」，不能直接当作 agent 犯错。
 - `edit` 724 次出错里有 706 次没有 `error_code`：edit 失败的原因目前在 trace 里看不见，这是 bob 反馈「出错太多」最可能直接对应、又最可能修得动的部分。
 - provider 侧是 `openai-codex` 超时为主（57.0%），与 agent 行为无关，属于网络/超时配置问题。
+
+## 更正（规划者，任务 10 之后）
+
+任务 10 核实后发现，上文「edit 出错 724 次」把 Action Fusion 的 then_run 失败也算了进去（edit 已写盘，只是后面跟的命令失败了）。按任务 10 的口径，28 天内真正的 edit 失败约 149 次，then_run 失败约 506 次。原数字保留不改，引用时以任务 10 为准。
