@@ -164,6 +164,8 @@ node rotom/extensions/observability/eval-launcher-check.mjs --faux
 
 ## 运行评测
 
+`cases/session-review.eval.ts` 是五题决策探针，来源是近一周人工复盘里反复出现的不满模式：把启动回执当成后台任务仍在运行、同一失败参数连续重试不换手段、被中断后空回复不交代进度、交付报告与源数据不一致、把明文凭据发给第三方分类器。题目由 `src/session-review-cases.ts` 定义，**只保留模式**：提示词、标识符和数据行全部为合成内容，私有会话原文、标注与工具参数不进入仓库。判定是确定性的 JSON 字段检查，因此回归表现为答案改变而不是判词文风变化。`test/session-review.test.ts` 在 CI 中对每题同时跑“合规答案得 1 分”和“复盘中的失败答案低于 1 分”，避免判定恒真；真实模型运行仍需 `ROTOM_EVAL_PROVIDER`、`ROTOM_EVAL_MODEL` 与 `ROTOM_EVAL_BASELINE_PRODUCT`，并计入 provider 用量。
+
 以后在 `cases/**/*.eval.ts` 增加评测集后执行：
 
 ```sh

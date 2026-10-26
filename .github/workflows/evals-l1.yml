@@ -50,7 +50,7 @@ jobs:
       - name: Install eval dependencies
         run: npm ci --ignore-scripts --registry=https://registry.npmjs.org --replace-registry-host=always
       - name: Test eval tools
-        run: npm test -- session-cards trace-assertions agreement review session-metrics error-breakdown command-failures
+        run: npm test -- session-cards trace-assertions agreement review session-metrics error-breakdown command-failures session-review
       - name: Test dashboard and eval API
         working-directory: .
         run: node --test rotom/extensions/observability/dashboard.test.mjs rotom/extensions/observability/eval.test.mjs rotom/extensions/observability/judge.test.mjs rotom/runtime/process-tree.test.ts
