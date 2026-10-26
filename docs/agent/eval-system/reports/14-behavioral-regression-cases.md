@@ -305,3 +305,25 @@ OPENAI_API_KEY / GITHUB_TOKEN / AWS_SECRET_ACCESS_KEY  old-kw=false
 
 - 真实模型仍未运行（约束不变），区分度证据依然缺失。
 - 本轮没有扩大规则覆盖面：`sk-` 之后不足 20 位的短 key、非 `sk-` 前缀的自定义 key、拆行/拼接的密钥仍然不会被拦截。脱敏仍是 denylist，不能证明提示词无秘密。
+
+---
+
+## 核验（第 3 轮）：changes-requested（一处新回归，必须修）
+
+核验对象 `ea06dd1`。node 测试 56 项通过。我用第 2 轮的漏报样例复测，五条都已能脱敏（小写十六进制 `sk-`、只含小写和数字的 `sk-proj-`、带前缀的环境变量、两条纯数字密码）。计数仍然正确：同一个密钥出现 2 处就报 2 处。第 2 轮把我那节里的 key 字面量换成文字描述，意思没变，接受；核验文字里出现像真 key 的字面量是我的疏忽。
+
+### 必须修
+
+1. **同一字段里第二种密钥会漏掉（本轮新回归）。** 新加的守卫 `(match, identifier, value) => { if (value.includes("[已脱敏:")) return match; … }` 只对有捕获组的 `assigned-secret` 成立。其余 8 条规则没有捕获组，`String.replace` 回调的参数实际是 `(match, offset, wholeString)`，于是 `value` 变成了整段文本。只要前面任何一条规则已经在这段文本里留下标记，后面所有规则都会原样放行。合成样例实测：
+   - `sk-ant-…` 和 `ghp_…` 在同一段文本里：只脱了 anthropic，GitHub token 原样留下
+   - `ghp_…` 和 `AKIA…` 在同一段文本里：AWS key 原样留下
+
+   `env` 输出、配置文件这类工具结果，经常一段里就有好几种凭据，所以这是最常见的场景。修法：守卫只用于 `assigned-secret`，并且只看它自己的值捕获组；或者给每条规则显式声明值所在的组。测试要覆盖「同一段文本里两三种不同类型的密钥全部被替换，各自计数正确」。
+
+2. **单独的 `token` 被整体豁免。** `NOT_SECRET_IDENTIFIER = /^(?:max|min|top|num|total|budget)?[_-]?tokens?$/` 前缀是可选的，所以单独的 `token` 也会命中。结果 `token: abcd1234efgh5678` 不会被脱敏。本意只是放过 token 预算。改成前缀必填，或者只放过复数 `tokens`，例如 `^(?:(?:max|min|top|num|total|budget)[_-]?tokens?|tokens)$`。单独的 `token` 必须照常脱敏，加进必须脱敏的测试。
+
+### 记为已知限制（这一轮可以不修）
+
+- JSON 里带引号的键，比如 `{"apiKey": "…"}`，关键词和冒号之间隔着一个 `"`，所以 `assigned-secret` 匹配不到。这个缺口第一版就有。如果顺手，可以允许关键词后面跟一个可选引号；不修的话就写进报告的限制里。
+
+行为用例部分不变，仍然接受。
