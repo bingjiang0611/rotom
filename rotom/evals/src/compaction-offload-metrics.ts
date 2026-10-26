@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { ExtensionFactory, SessionEntry } from "@earendil-works/pi-coding-agent";
 
 export const OFFLOAD_ENTRY = "sol-pi-compaction-offload";
@@ -34,10 +34,14 @@ export type ReplayMetrics = {
 	turns: number; toolCalls: number; inputTokens: number; outputTokens: number; cacheRead: number; cacheWrite: number;
 	estimatedCostUsd: number | null; usageComplete: boolean; wallMs: number; thresholdAtTurns: number[];
 	offloadDecisions: OffloadDecision[];
+	toolNames: Record<string, number>;
+	phase1Coverage: { readFiles: number; totalFiles: number; partialReads: number };
+	contextPeak: number; contextByTurn: number[];
 };
 
 /** Must be installed before cancellable product handlers; never changes an event. */
-export function createReplayMetrics(now = () => performance.now()) {
+export function createReplayMetrics(now = () => performance.now(), manifestFiles: Readonly<Record<string, string>> = {}) {
+	let workspace = "";
 	let started = 0;
 	let pending: number | undefined;
 	let thresholdCompactions = 0, nativeCompactions = 0, deferred = 0, compactionWaitMs = 0;
@@ -48,7 +52,8 @@ export function createReplayMetrics(now = () => performance.now()) {
 		pending = undefined;
 	};
 	const extension: ExtensionFactory = (pi) => {
-		pi.on("session_start", () => {
+		pi.on("session_start", (_event, ctx) => {
+			workspace = ctx.cwd;
 			started = now(); pending = undefined;
 			thresholdCompactions = nativeCompactions = deferred = compactionWaitMs = 0;
 			thresholdAtTurns.length = 0;
@@ -77,6 +82,12 @@ export function createReplayMetrics(now = () => performance.now()) {
 			let turns = 0, toolCalls = 0, obsRecallCalls = 0, recalledOffloaded = 0, offloadedResults = 0;
 			let inputTokens = 0, outputTokens = 0, cacheRead = 0, cacheWrite = 0, cost = 0, usageComplete = true;
 			const ids = new Set<string>();
+			const toolNames: Record<string, number> = Object.create(null);
+			const contextByTurn: number[] = [];
+			const manifest = new Map(Object.entries(manifestFiles).map(([path, body]) => [resolve(workspace, path), body.split("\n").length]));
+			const readFiles = new Set<string>();
+			const phase1Reads = new Map<string, { path: string; partial: boolean }>();
+			let phase: "before" | "reading" | "done" = "before", partialReads = 0;
 			const addUsage = (usage: Usage) => {
 				inputTokens += usage.input; outputTokens += usage.output;
 				cacheRead += usage.cacheRead; cacheWrite += usage.cacheWrite; cost += usage.cost.total;
@@ -84,6 +95,15 @@ export function createReplayMetrics(now = () => performance.now()) {
 			// Read the persisted branch, not session.messages (which loses compacted turns).
 			// Recall attribution is temporal: a later offload cannot relabel an earlier recall.
 			for (const entry of entries as Entry[]) {
+				if (entry.type === "message" && entry.message.role === "user") phase = phase === "before" ? "reading" : "done";
+				if (entry.type === "message" && entry.message.role === "toolResult") {
+					const read = phase1Reads.get(entry.message.toolCallId);
+					if (read && !entry.message.isError) {
+						readFiles.add(read.path);
+						const details = entry.message.details as { truncation?: { truncated: boolean } } | undefined;
+						if (read.partial || details?.truncation?.truncated) partialReads++;
+					}
+				}
 				if (entry.type === "custom" && entry.customType === OFFLOAD_ENTRY) {
 					for (const id of entry.data!.observationIds) ids.add(id);
 					offloadedResults += entry.data!.toolCallIds.length;
@@ -91,14 +111,25 @@ export function createReplayMetrics(now = () => performance.now()) {
 				if (entry.type === "message" && entry.message.role === "assistant") {
 					turns++;
 					addUsage(entry.message.usage);
+					const usage = entry.message.usage;
+					contextByTurn.push(usage.input + usage.cacheRead + usage.cacheWrite);
 					if (["error", "aborted"].includes(entry.message.stopReason)) usageComplete = false;
 					for (const part of entry.message.content) if (part.type === "toolCall") {
 						toolCalls++;
+						toolNames[part.name] = (toolNames[part.name] ?? 0) + 1;
+						if (phase === "reading" && part.name === "read" && typeof part.arguments.path === "string") {
+							// Fixtures have ASCII paths; accept relative/absolute paths and Pi's @ prefix.
+							const path = resolve(workspace, part.arguments.path.replace(/^@/u, ""));
+							const lines = manifest.get(path);
+							if (lines !== undefined) phase1Reads.set(part.id, { path,
+								partial: Number(part.arguments.offset ?? 1) > 1 || (part.arguments.limit !== undefined && Number(part.arguments.limit) < lines) });
+						}
 						if (part.name === "obs_recall") {
 							obsRecallCalls++;
 							if (ids.has(String(part.arguments.id))) recalledOffloaded++;
 						}
 					}
+					if (phase === "reading" && entry.message.stopReason !== "toolUse") phase = "done";
 				}
 				if (entry.type === "compaction" || entry.type === "usage") {
 					if (entry.usage) addUsage(entry.usage);
@@ -108,7 +139,9 @@ export function createReplayMetrics(now = () => performance.now()) {
 			return { correct, thresholdCompactions, nativeCompactions, deferred, compactionWaitMs,
 				obsRecallCalls, recalledOffloaded, offloadedResults, turns, toolCalls, inputTokens, outputTokens,
 				cacheRead, cacheWrite, estimatedCostUsd: hasPricing && usageComplete ? cost : null,
-				usageComplete, wallMs: now() - started, thresholdAtTurns: [...thresholdAtTurns], offloadDecisions };
+				usageComplete, wallMs: now() - started, thresholdAtTurns: [...thresholdAtTurns], offloadDecisions,
+				toolNames, phase1Coverage: { readFiles: readFiles.size, totalFiles: manifest.size, partialReads },
+				contextPeak: Math.max(0, ...contextByTurn), contextByTurn };
 		},
 	};
 }

@@ -7,14 +7,14 @@ import { REPLAY_CONFIG, type ReplayTask } from "./compaction-offload-cases.ts";
 
 export const FAUX_MODEL = { provider: "rotom-offload-faux", id: "replay" };
 export type FauxObservation = {
-	requests: { system: string; tools: string; summary: boolean; maxTokens: number | null; reads: number }[];
+	requests: { system: string; tools: string; summary: boolean; maxTokens: number | null; reads: number; phase1: boolean }[];
 	config: unknown; agentDirMatches: boolean; summaryCalls: number; workspace?: string;
 	settings?: { compaction: { reserveTokens: number; keepRecentTokens?: number }; retry: { enabled: boolean } };
 	reasoning?: string;
 	requestControls?: { transport?: string; maxRetries?: number }[];
 };
 /** Only scripted local responses. No credentials, network provider, or generated judgment. */
-export function replayFaux(selected: ReplayTask, observation: FauxObservation, stress = false, profile = { model: FAUX_MODEL, contextWindow: 256_000, reasoning: false }, script: { batchSize?: number; pressure?: "no_candidates" | "insufficient_savings" } = {}): NonNullable<PiCodingAgentHarnessOptions["modelRuntimeFactory"]> {
+export function replayFaux(selected: ReplayTask, observation: FauxObservation, stress = false, profile = { model: FAUX_MODEL, contextWindow: 256_000, reasoning: false }, script: { batchSize?: number; phase1ReadLimit?: number; pressure?: "no_candidates" | "insufficient_savings" } = {}): NonNullable<PiCodingAgentHarnessOptions["modelRuntimeFactory"]> {
 	return async ({ product, configDir }) => {
 		const { fauxProvider, fauxAssistantMessage, fauxToolCall } = await import(pathToFileURL(resolve(product.verified.packageRoot, "../pi-ai/dist/providers/faux.js")).href);
 		const { getCurrentSystemPrompt, getCurrentTools } = await import(pathToFileURL(resolve(product.verified.packageRoot, "../pi-ai/dist/index.js")).href);
@@ -25,9 +25,9 @@ export function replayFaux(selected: ReplayTask, observation: FauxObservation, s
 		if (JSON.stringify(observation.config) !== JSON.stringify(REPLAY_CONFIG) || !observation.agentDirMatches) throw new Error("SoL-Pi configuration is not bound to the isolated agent directory");
 		if (stress) await writeFile(resolve(configDir, "../workspace/ordinary.txt"), "ordinary synthetic data\n".repeat(600));
 		const normalize = (text: string) => text.split(resolve(configDir, "..")).join("<run>");
-		let readIndex = 0, manifestRead = false, ready = false, checkedFailure = false, recalled = false;
+		let readIndex = 0, manifestRead = false, ready = false, recalled = false;
 		let detailChecked = false;
-		let solutionIndex = 0, checked = false, ordinaryRead = false, ordinaryRecall = false, inflated = false;
+		let solutionIndex = 0, ordinaryRead = false, ordinaryRecall = false, inflated = false;
 		let callId = 0, ordinaryWait = 0, pressureSent = false;
 		const readCallIds = new Map<string, string>();
 		const call = (name: string, args: Record<string, unknown>) => fauxAssistantMessage(fauxToolCall(name, args, { id: `scripted-${++callId}` }), { stopReason: "toolUse" });
@@ -40,7 +40,7 @@ export function replayFaux(selected: ReplayTask, observation: FauxObservation, s
 			const systems = context.messages.filter((m: any) => m.role === "system");
 			const text = (m: any) => typeof m.content === "string" ? m.content : m.content.filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n");
 			const summary = systems.some((m: any) => text(m).includes("context summarization assistant"));
-			observation.requests.push({ system: normalize(getCurrentSystemPrompt(context.messages)), tools: normalize(JSON.stringify(getCurrentTools(context.messages))), summary, maxTokens: options.maxTokens ?? null, reads: readIndex });
+			observation.requests.push({ system: normalize(getCurrentSystemPrompt(context.messages)), tools: normalize(JSON.stringify(getCurrentTools(context.messages))), summary, maxTokens: options.maxTokens ?? null, reads: readIndex, phase1: !ready });
 			if (summary) {
 				observation.summaryCalls++;
 				return fauxAssistantMessage("## Goal\nFinish the synthetic audit.\n## Progress\nRead files and continue the requested follow-up.\n## Next steps\nUse the workspace to finish and validate.");
@@ -49,19 +49,19 @@ export function replayFaux(selected: ReplayTask, observation: FauxObservation, s
 				pressureSent = true;
 				return fauxAssistantMessage([
 					{ type: "text", text: "unoffloadable synthetic explanation\n".repeat(10_000) },
-					fauxToolCall("bash", { command: "printf checkpoint" }, { id: `scripted-${++callId}` }),
+					fauxToolCall("read", { path: "manifest.json" }, { id: `scripted-${++callId}` }),
 				], { stopReason: "toolUse" });
 			}
 			if (!manifestRead) { manifestRead = true; return call("read", { path: "manifest.json" }); }
-			if (readIndex < selected.reading.length) {
-				const paths = selected.reading.slice(readIndex, readIndex + (script.batchSize ?? 1));
+			const readLimit = script.phase1ReadLimit ?? selected.reading.length;
+			if (readIndex < readLimit) {
+				const paths = selected.reading.slice(readIndex, Math.min(readLimit, readIndex + (script.batchSize ?? 1)));
 				readIndex += paths.length;
 				return fauxAssistantMessage(paths.map(path => {
 					const id = `scripted-${++callId}`; readCallIds.set(path, id);
 					return fauxToolCall("read", { path }, { id });
 				}), { stopReason: "toolUse" });
 			}
-			if (selected.check === "test.mjs" && !checkedFailure) { checkedFailure = true; return call("bash", { command: "node test.mjs" }); }
 			if (!ready) { ready = true; return fauxAssistantMessage("READY"); }
 			if (!recalled) {
 				recalled = true;
@@ -79,10 +79,9 @@ export function replayFaux(selected: ReplayTask, observation: FauxObservation, s
 			}
 			const solution = Object.entries(selected.solution)[solutionIndex];
 			if (solution) { solutionIndex++; return call("write", { path: solution[0], content: solution[1] }); }
-			if (selected.check && !checked) { checked = true; return call("bash", { command: `node ${selected.check}` }); }
 			if (stress && !ordinaryRead) { ordinaryRead = true; return call("read", { path: "ordinary.txt" }); }
 			// Ordinary Observation Pack sends raw content twice before projecting it.
-			if (stress && ordinaryWait++ < 2) return call("bash", { command: "printf 'synthetic checkpoint\\n'" });
+			if (stress && ordinaryWait++ < 2) return call("read", { path: "manifest.json" });
 			if (stress && !ordinaryRecall) {
 				ordinaryRecall = true;
 				const pointer = context.messages.filter((m: any) => m.role === "toolResult").map(text).find((s: string) => s.includes("large tool result replaced"));

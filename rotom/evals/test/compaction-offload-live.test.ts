@@ -128,7 +128,7 @@ it("persists completed, budget-failed and not-run rows, without model bodies", a
 	expect(first.output.metrics?.correct).toBe(true);
 	expect(first.output.transport).toBe("sse");
 	expect(first.output.repetitions).toBe(3);
-	expect(first.output.cumulative.requests).toBe(17);
+	expect(first.output.cumulative.requests).toBe(16); // checker runs only in the grader, not via a model bash turn
 	expect((await rows(directory)).lines).toHaveLength(1); // durable before run 2
 	const second = await campaign.harness(task, true, 1).run(task.scenario, context());
 	const third = await campaign.harness(task, false, 2).run(task.scenario, context());
@@ -200,16 +200,22 @@ it("preserves a failed row and stops when decision metadata is missing", async (
  expect(fetch).not.toHaveBeenCalled();
 });
 
-it("stops an otherwise correct campaign when the threshold was never reached", async () => {
+it.each(REPLAY_TASKS)("$id: five phase-one reads stop the campaign before another run", async (task) => {
  const directory = await temporary(), observation = observed();
- const factory = vi.fn(replayFaux(small, observation, false, profile()));
+ const factory = vi.fn(replayFaux(task, observation, false, profile(), { batchSize: 20, phase1ReadLimit: 5 }));
  const campaign = createLiveReplayCampaign(auth(), { directory, runtimeFactory: factory });
- const first = await campaign.harness(small, false, 1).run(small.scenario, context());
+ const first = await campaign.harness(task, false, 1).run(task.scenario, context());
  expect(first.output).toMatchObject({ status: "failed", reason: "threshold-not-reached", metrics: { correct: true, thresholdCompactions: 0 } });
- const second = await campaign.harness(small, true, 1).run(small.scenario, context());
+ const second = await campaign.harness(task, true, 1).run(task.scenario, context());
  expect(second.output).toMatchObject({ status: "not-run", reason: "threshold-not-reached", metrics: null });
  expect(factory).toHaveBeenCalledTimes(1);
- expect(observation.requests).toHaveLength(5);
+ const m = first.output.metrics!;
+ expect(m.phase1Coverage).toEqual({ readFiles: 5, totalFiles: task.reading.length, partialReads: 0 });
+ expect(m.toolNames).toEqual({ read: 7, ...(Object.keys(task.solution).length ? { write: Object.keys(task.solution).length } : {}) });
+ expect(m.contextPeak).toBeLessThan(REPLAY_THRESHOLD);
+ expect(observation.requests).toHaveLength(m.turns);
+ expect(first.output.cumulative.requests).toBe(m.turns);
+ console.log(JSON.stringify({ syntheticLazyReplay: task.id, phase1Context: m.contextByTurn.slice(0, observation.requests.filter(r => r.phase1).length), metrics: m, requests: first.output.cumulative.requests }));
  expect((await rows(directory)).lines).toEqual([first.output, second.output]);
  expect(fetch).not.toHaveBeenCalled();
 });

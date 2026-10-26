@@ -75,7 +75,9 @@ it.each(REPLAY_TASKS)("$id: real product faux arms share prompt/schema and cross
 	expect(results[1]!.offloadDecisions.some(d => d.decision === "defer" && d.after <= 0.6 * d.T! && d.originalBytes > 0)).toBe(true);
 	expect(observations[0]!.workspace).not.toBe(observations[1]!.workspace);
 	expect(fetch).not.toHaveBeenCalled();
-	expect(JSON.parse(regular[0]![0]!.tools).map((tool: { name: string }) => tool.name).sort()).toEqual(["bash", "edit", "obs_recall", "read", "write"]);
+	const tools = JSON.parse(regular[0]![0]!.tools);
+	expect(tools.map((tool: { name: string }) => tool.name).sort()).toEqual(["edit", "obs_recall", "read", "write"]);
+	for (const tool of tools) expect(tool.parameters.properties).not.toHaveProperty("then_run");
 	for (const [i, result] of results.entries()) expect(observations[i]!.requests.length).toBe(result.turns + observations[i]!.summaryCalls);
 	console.log(JSON.stringify({ syntheticReplay: task.id, threshold: REPLAY_THRESHOLD, requests: observations.map((o) => o.requests.length), baseline: results[0], candidate: results[1] }));
 }, 90_000);
@@ -93,24 +95,40 @@ it("faux trajectory has deferral, native fallback and both kinds of recall", asy
 	expect(observed.summaryCalls).toBe(2);
 }, 90_000);
 
-it.each(REPLAY_TASKS)("$id: ten reads per turn still cross the threshold in both arms", async (task) => {
+it.each(REPLAY_TASKS.flatMap(task => [10, 20].map(batchSize => ({ id: task.id, task, batchSize }))))("$id: $batchSize reads per turn cross the threshold in phase one", async ({ task, batchSize }) => {
 	vi.stubGlobal("fetch", vi.fn(() => { throw new Error("05 forbids model/network requests"); }));
 	for (const candidate of [false, true]) {
 		const observed = freshObservation();
 		const { output } = await createReplayHarness(task, candidate, { model: FAUX_MODEL,
-			modelRuntimeFactory: replayFaux(task, observed, false, undefined, { batchSize: 10 }) }).run(task.scenario, context());
+			modelRuntimeFactory: replayFaux(task, observed, false, undefined, { batchSize }) }).run(task.scenario, context());
 		expect(output.correct).toBe(true);
 		expect(output.thresholdCompactions).toBeGreaterThan(0);
 		expect(output.thresholdAtTurns[0]).toBeLessThanOrEqual(9);
 		expect(observed.settings!.compaction.keepRecentTokens).toBe(REPLAY_KEEP_RECENT);
-		const reads = observed.requests.filter(r => !r.summary).map(r => r.reads);
-		expect(reads).toContain(80);
-		expect(reads.filter((n, i) => i > 0 && n > reads[i - 1]!)).toEqual([10, 20, 30, 40, 50, 60, 70, 80]);
+		const regular = observed.requests.filter(r => !r.summary);
+		const reads = regular.map(r => r.reads);
+		const phase1Turns = regular.filter(r => r.phase1).length;
+		const materialTokens = task.reading.reduce((n, path) => n + Math.ceil(task.files[path]!.length / 4), 0);
+		expect(materialTokens).toBeGreaterThanOrEqual(83_000);
+		expect(reads.filter((n, i) => i > 0 && n > reads[i - 1]!)).toEqual(Array.from({ length: Math.ceil(task.reading.length / batchSize) }, (_, i) => Math.min((i + 1) * batchSize, task.reading.length)));
+		expect(output.thresholdAtTurns[0]).toBeLessThan(phase1Turns);
+		expect(output.phase1Coverage).toEqual({ readFiles: task.reading.length, totalFiles: task.reading.length, partialReads: 0 });
+		expect(output.toolNames).toEqual({ read: task.reading.length + 2 - output.obsRecallCalls,
+			...(Object.keys(task.solution).length ? { write: Object.keys(task.solution).length } : {}),
+			...(output.obsRecallCalls ? { obs_recall: output.obsRecallCalls } : {}) });
+		expect(output.contextByTurn).toHaveLength(output.turns);
+		expect(output.contextPeak).toBe(Math.max(...output.contextByTurn));
+		console.log(JSON.stringify({ phase1Pressure: task.id, candidate, batchSize, materialTokens, phase1Context: output.contextByTurn.slice(0, phase1Turns) }));
 		if (candidate) {
 			expect(output.offloadDecisions).toHaveLength(output.thresholdCompactions);
-			expect(output.offloadDecisions.some(d => d.decision === "defer")).toBe(true);
+			if (batchSize === 10) expect(output.offloadDecisions.some(d => d.decision === "defer")).toBe(true);
+			else {
+				// Twenty results share one retained turn: crossing T need not save enough to defer.
+				expect(output.nativeCompactions).toBe(output.thresholdCompactions);
+				expect(output.offloadDecisions.every(d => d.decision === "native" && d.reason === "insufficient_savings")).toBe(true);
+			}
 		}
-		console.log(JSON.stringify({ syntheticBatchedReplay: task.id, candidate, requests: observed.requests.length, metrics: output }));
+		console.log(JSON.stringify({ syntheticBatchedReplay: task.id, candidate, batchSize, requests: observed.requests.length, metrics: output }));
 	}
 	expect(fetch).not.toHaveBeenCalled();
 }, 90_000);
@@ -156,7 +174,7 @@ it("metrics sum summary usage once, attribute recall temporally, and time cancel
 	let time = 10;
 	const metrics = createReplayMetrics(() => time);
 	(metrics.extension as Function)({ on: (name: string, fn: Function) => handlers.set(name, fn) });
-	const event = (name: string, fields = {}) => handlers.get(name)!({ reason: "threshold", ...fields }, { sessionManager: { getBranch: () => [] } });
+	const event = (name: string, fields = {}) => handlers.get(name)!({ reason: "threshold", ...fields }, { cwd: "/synthetic", sessionManager: { getBranch: () => [] } });
 	event("session_start");
 	event("session_before_compact"); time = 12; event("session_compact_failed", { aborted: true });
 	event("session_before_compact"); time = 42; event("session_compact", { fromExtension: false });
@@ -170,7 +188,8 @@ it("metrics sum summary usage once, attribute recall temporally, and time cancel
 	const output = metrics.output(entries as any, true, true);
 	expect(output).toMatchObject({ thresholdCompactions: 2, nativeCompactions: 1, deferred: 1, compactionWaitMs: 32, wallMs: 32,
 		turns: 2, toolCalls: 2, obsRecallCalls: 2, recalledOffloaded: 1, offloadedResults: 2,
-		inputTokens: 300, outputTokens: 30, cacheRead: 60, cacheWrite: 15, estimatedCostUsd: 0.75, usageComplete: true });
+		inputTokens: 300, outputTokens: 30, cacheRead: 60, cacheWrite: 15, estimatedCostUsd: 0.75, usageComplete: true,
+		toolNames: { obs_recall: 2 }, phase1Coverage: { readFiles: 0, totalFiles: 0, partialReads: 0 }, contextByTurn: [125, 125], contextPeak: 125 });
 	expect(summarizeReplay([output, { ...output, correct: false, compactionWaitMs: 10 }])).toMatchObject({ correct: 1, runs: 2, compactionWaitMsMean: 21, compactionWaitMsMedian: 21 });
 	expect(metrics.output([...entries, { type: "compaction" }] as any, true, true).estimatedCostUsd).toBeNull();
 	event("session_start");
@@ -179,7 +198,8 @@ it("metrics sum summary usage once, attribute recall temporally, and time cancel
 
 it("frozen fixtures are medium text results, and prompts do not coach retrieval", () => {
 	for (const task of REPLAY_TASKS) {
-		expect(task.reading).toHaveLength(80);
+		expect(task.reading).toHaveLength(task.id === "multi-file-fix" ? 81 : 80);
+		expect(JSON.stringify(task.scenario)).not.toMatch(/run (node|the tests)/iu);
 		for (const path of task.reading) expect(task.files[path]).not.toMatch(/^\/\/ [a-f0-9]{64}$/mu);
 		for (const path of task.reading) expect(Buffer.byteLength(task.files[path]!)).toBeGreaterThan(1536);
 		for (const path of task.reading) expect(Buffer.byteLength(task.files[path]!)).toBeLessThan(10 * 1024);

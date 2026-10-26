@@ -16,8 +16,9 @@ export const REPLAY_THRESHOLD = 64_000;
 // Match the production retained-tail fraction, not the candidate's target.
 export const REPLAY_KEEP_RECENT = Math.round(REPLAY_THRESHOLD * 0.08);
 export const LIVE_REPLAY_TIMEOUT_MS = 30 * 60_000;
-export const REPLAY_TOOLS = ["read", "bash", "edit", "write", "obs_recall"];
-export const REPLAY_CONFIG = Object.freeze({ version: 1, actionFusion: true, observationPack: true, evidencePreservingReducer: false, onlineContextCompact: false });
+export const REPLAY_TOOLS = ["read", "edit", "write", "obs_recall"];
+// Removing bash alone leaves Action Fusion's edit/write then_run shell path open.
+export const REPLAY_CONFIG = Object.freeze({ version: 1, actionFusion: false, observationPack: true, evidencePreservingReducer: false, onlineContextCompact: false });
 export const EXACT_CODE = createHash("sha256").update("synthetic-offload-replay-exact-detail-v1").digest("hex").slice(0, 40);
 
 function padded(key: string, body: string) {
@@ -70,19 +71,20 @@ function task(id: string, files: Record<string, string>, finish: string, answer:
 	files["manifest.json"] = JSON.stringify(reading, null, 2);
 	return Object.freeze<ReplayTask>({ id, files: Object.freeze(files), reading: Object.freeze(reading), answer, solution: Object.freeze(solution), check,
 		scenario: { id, steps: [
-			{ type: "prompt", content: `First audit phase: read manifest.json, then read every listed file individually, in order, without editing files. ${check === "test.mjs" ? "Also run node test.mjs and inspect its failure diagnostics. " : ""}Do not skip middle sections. When finished reply READY. A separate follow-up will specify the final deliverable.` },
+			{ type: "prompt", content: `First audit phase: read manifest.json, then read every listed file individually, in order, without editing files. ${check === "test.mjs" ? "Read logs/test-output.txt to understand the failures. " : ""}Do not skip middle sections. When finished reply READY. A separate follow-up will specify the final deliverable.` },
 			{ type: "prompt", content: finish },
 		] } });
 }
 export const REPLAY_TASKS: readonly ReplayTask[] = Object.freeze([
 	task("config-aggregate", { ...modules, ...background, "summary.mjs": summary(0),
 		"check.mjs": `import assert from 'node:assert/strict'; import { total, untouched } from './summary.mjs'; assert.equal(total, ${sum}); assert.equal(untouched, 'synthetic stable suffix'); console.log('PASS');\n` },
-		"Set total in summary.mjs to the sum of VALUE from modules 2, 7, 13 and 19. Preserve every other byte and file. Run node check.mjs; finish with DONE.", "DONE", { "summary.mjs": summary(sum) }, "check.mjs"),
+		"Set total in summary.mjs to the sum of VALUE from modules 2, 7, 13 and 19. Preserve every other byte and file. When finished reply DONE.", "DONE", { "summary.mjs": summary(sum) }, "check.mjs"),
 	task("deferred-exact", { ...Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`logs/log-${i}.txt`, padded(`log-${i}`, i === 0 ? `EXACT_CODE=${EXACT_CODE}` : `EVENT_CODE=synthetic-${i}`)])), ...background },
 		"Return only the exact 40-character EXACT_CODE from logs/log-0.txt. Do not change files or add explanations.", EXACT_CODE, {}),
 	task("multi-file-fix", { ...Object.fromEntries(Object.entries(bugs).map(([path, body]) => [path, padded(path, body)])),
-		...Object.fromEntries(Object.entries(modules).slice(0, 17)), ...background, "test.mjs": testScript },
-		"Repair add, scale and label to satisfy node test.mjs. Preserve comments and all other files, especially test.mjs. Run the tests and finish with DONE.", "DONE", fixFiles, "test.mjs"),
+		...Object.fromEntries(Object.entries(modules).slice(0, 17)), ...background, "test.mjs": testScript,
+		"logs/test-output.txt": `${failureLog}\nFailing test expectations for n in [-5, 0, 1, 17, 103]:\nassert.equal(add(n, 4), n + 4);\nassert.equal(scale(n), n * 3);\nassert.equal(label(n), 'value:' + n);\n` },
+		"Repair add, scale and label to satisfy the assertions in logs/test-output.txt. Preserve comments and all other files, especially test.mjs. When finished reply DONE.", "DONE", fixFiles, "test.mjs"),
 ]);
 
 export async function writeReplayFixture(workspace: string, selected: ReplayTask) {
@@ -107,7 +109,7 @@ export async function gradeReplay(selected: ReplayTask, workspace: string, respo
 }
 
 export function createReplayHarness(selected: ReplayTask, candidate: boolean, options: Required<Pick<PiCodingAgentHarnessOptions, "model" | "modelRuntimeFactory">> & Pick<PiCodingAgentHarnessOptions, "piExecutable" | "thinkingLevel">) {
-	const metrics = createReplayMetrics();
+	const metrics = createReplayMetrics(undefined, Object.fromEntries(selected.reading.map((path) => [path, selected.files[path]!])));
 	let lastBranch: SessionEntry[] | undefined;
 	let offloadDecisions: OffloadDecision[] = [];
 	let hasPricing = false;
