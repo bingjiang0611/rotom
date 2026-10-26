@@ -167,3 +167,14 @@ invalid(skipped) → completed(passed) → invalid(skipped)
 自审核对了 continuation 的默认行为、预算覆盖、累计计数不重置、CLI bail 顺序、判分失败保留、空配对 N/A、原始行保留和范围限制。没有修改 `packages/` 或 `rotom/extensions/`，也没有重新启用真实入口。
 
 本轮只证明 faux 与本地控制流。真实模型是否会服从提示、达到阈值或成功卸载仍未知；不从这些脚本推断真实成本/性能改善。原始日志、测试 JSON 与规划脚本留在本机证据目录，不提交 JSONL 或模型输出正文。
+
+## 核验意见（规划者，2026-10-26）
+
+**accepted（`41a00c0`）。** 规划者在本环境（Node 24.22.1）重跑：`compaction-offload-eval` 21/21；LIVE=0 下 live/entry/metadata/read/coverage 五个专项 34/34；typecheck 通过；`git diff --check origin/main...HEAD` 干净；tracked-tree 公开审计 PASS、0 findings。全量 `npm test` 未重跑，采信报告的 153/1 skip。
+
+- 读过 diff：续读接缝是可选回调，未配置的 eval 行为不变；上限 2 次由回放调用方持有；提示只含缺失份数，两臂同一函数。无效样本判定放在预算/usage 失败之后，失败不会被改写成可继续的 invalid；第 3 次无效才熔断；`decision-ledger-incomplete` 等仍立即停。
+- 执行者发现 `--bail=1` 下自动 judge 会让第一次 invalid 就停掉 CLI，并改成 invalid 走 skip、第三次 invalid 断言失败，任务说明漏了这一点，处理正确，并有真实 Vitest 子进程验证（执行 4 次后停）。
+- 配对汇总只比较两臂都 completed 的同任务同 repetition，答错的有效样本仍在分母里，原始行全部保留，接受。
+- 费用：按 09 的真实量级（每次完整运行约 20 次请求、54 万合计输入），18 次约 400–600 次请求、1,000–1,500 万合计输入；3,000 次 / 1.4 亿停止线足够，逐份读加重复读取的极端情形可能触线，报告已如实标出。
+
+下一步：第四次付费回放（任务 11），需 bob 授权。
