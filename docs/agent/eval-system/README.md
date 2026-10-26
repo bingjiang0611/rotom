@@ -44,5 +44,6 @@
 | 12 | [trace 后台加 Eval 页（标注与复盘）](tasks/12-dashboard-eval-tab.md) | Phase 4 | accepted |
 | 13 | [Eval 页修正 + 让模型先分析一轮](tasks/13-eval-tab-fixes-and-judge.md) | Phase 4 | accepted（等 bob 首次真实分析） |
 | 14 | [5 个复盘问题 → 行为回归用例 + judge 脱敏](tasks/14-behavioral-regression-cases.md)（[报告](reports/14-behavioral-regression-cases.md)，已按第 1–3 轮核验修改） | Phase 4 | accepted（真实模型 A/B 未跑） |
+| 15 | [行为用例真实模型 A/B（10 次运行）](tasks/15-behavioral-ab-real-model.md) | Phase 4 | ready |
 
 状态取值：`ready`（可开工）· `in-review`（执行者已提交，等核验）· `changes-requested` · `accepted`。
