@@ -5,7 +5,7 @@ import { join, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { executeProcessTreeV1 } from "../../../runtime/process-tree.ts";
-import { buildJudgeInput, JUDGE_PROMPT_VERSION, validateJudgment } from "./judge-prompt.mjs";
+import { buildJudgeInput, JUDGE_MAX_INPUT_CHARS, JUDGE_PROMPT_VERSION, validateJudgment } from "./judge-prompt.mjs";
 import { writeJudgment } from "./judge-store.mjs";
 import { evalError, preview } from "./service.mjs";
 
@@ -69,7 +69,7 @@ export function parseJudgeEvents(stdout, eventIds) {
 	}
 }
 
-export function createJudgeService({ evalService, directory, launcher = JUDGE_LAUNCHER, timeoutMs = JUDGE_TIMEOUT_MS, maxOutputBytes = JUDGE_MAX_OUTPUT_BYTES }) {
+export function createJudgeService({ evalService, directory, launcher = JUDGE_LAUNCHER, timeoutMs = JUDGE_TIMEOUT_MS, maxOutputBytes = JUDGE_MAX_OUTPUT_BYTES, maxInputChars = JUDGE_MAX_INPUT_CHARS }) {
 	let modelPromise, pending, run, unsafeTermination = false;
 	const discoveryController = new AbortController();
 	async function invoke(args, input, signal, deadline) {
@@ -136,7 +136,7 @@ export function createJudgeService({ evalService, directory, launcher = JUDGE_LA
 			if (!catalog.models.some((item) => item.id === input.model)) throw evalError(400, "invalid_model");
 			const { loaded } = await evalService.snapshot(input.sessionId);
 			available();
-			const source = buildJudgeInput(loaded);
+			const source = buildJudgeInput(loaded, maxInputChars);
 			pending = { ...source, sessionId: input.sessionId, atEntryId: loaded.branch.at(-1)?.id ?? null, model: input.model, confirmationId: randomUUID(), createdAt: Date.now() };
 			return { confirmationId: pending.confirmationId, model: pending.model, inputChars: source.inputChars, truncated: source.truncated, atEntryId: pending.atEntryId };
 		},

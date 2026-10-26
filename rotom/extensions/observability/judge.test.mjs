@@ -236,6 +236,19 @@ test("truncated model replies are reported as truncation, not format errors", as
 	}
 });
 
+test("the input ceiling is a service option, not a hardcoded contract", async (t) => {
+	const { evalService, fake } = await fixture(t);
+	const { mkdtemp } = await import("node:fs/promises");
+	const { tmpdir } = await import("node:os");
+	const { join } = await import("node:path");
+	const directory = await mkdtemp(join(tmpdir(), "rotom-judge-limit-"));
+	const narrow = createJudgeService({ evalService, directory, launcher: fake.launcher, maxInputChars: 10 });
+	await assert.rejects(narrow.prepare({ sessionId: input.sessionId, model: "fake/model" }), /judge_input_too_large/);
+	const wide = createJudgeService({ evalService, directory, launcher: fake.launcher, maxInputChars: 400_000 });
+	const prepared = await wide.prepare({ sessionId: input.sessionId, model: "fake/model" });
+	assert.ok(prepared.inputChars > 10);
+});
+
 test("judgment storage rejects symlinks, preserves history and agreement excludes unsure/failed", async (t) => {
 	const { directory, dir } = await fixture(t);
 	const outside = join(dir, "outside"); await mkdir(outside);
