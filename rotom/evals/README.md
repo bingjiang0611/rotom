@@ -139,6 +139,17 @@ stdout 不含命令、参数、fingerprint 或会话 ID；会话 ID 只写入同
 
 「让模型分析」先展示模型、发送字符数与截断情况，逐次确认后才启动产品 launcher。摘要只含当前分支，不含人工标注，最多 80,000 字符。长会话保留全部用户消息与助手文本、非 ok 工具及前后各 2 个事件、首尾各 20 个事件，其余连续 ok 工具折叠为保留原序号范围和工具计数的 `tool_run`；只能引用未折叠的事件，折叠后仍超限才拒绝。只有一个分析可运行，180 秒超时，可取消，不自动重试。原生 `--single-request` 关闭工具、会话落盘、自动压缩/预热及两层重试；默认模型仍由 Pi 解析，选定模型使用精确 `provider/model`，不模糊匹配或回退。模型目录只缓存成功结果；读取失败可点「重试读取模型」，不自动重试，也不触发分析。成功目录在更新安装/登录后需重启后台刷新；不会复制 API-key/token 环境变量或凭据文件，认证由子进程的原生登录存储处理。
 
+模型目录失败会区分 launcher 执行权限、运行时校验、超时、非零退出、空 stdout、非法 JSON、重复 id 和默认模型缺失，并显示可复制的同路径排查命令。子进程 stderr 只写后台进程日志，不进入 API 响应或 trace。空模型目录是有效协议响应，页面提示配置/登录后重启后台以刷新目录缓存。
+
+真实 launcher 的可复跑检查（先按架构文档安装当前锁定运行时）：
+
+```bash
+node rotom/extensions/observability/eval-launcher-check.mjs --faux
+# 可选：--launcher /absolute/isolated-checkout/rotom/bin/rotom-launcher
+```
+
+默认使用临时空 HOME、空工作目录与 Node 网络拦截，执行后台相同 argv 的模型列表检查；`--faux` 另用原生离线 faux provider 检查非空目录、默认模型、单次 JSON 事件流及 stderr 分离。复用后台校验函数，只输出计数/状态，结束后清理隔离数据，不使用用户凭据、会话或付费模型。该检查也进入 Evals L1 CI。
+
 合成 UI 检查默认使用 Playwright 自带的 Chromium（先用对应 Playwright CLI 安装 `chromium`）；可用 `PLAYWRIGHT_CHANNEL=chrome` 显式选择本机 Chrome，`PLAYWRIGHT_MODULE` 指定已有 Playwright 模块路径。
 
 分析以私有追加记录写入 `~/.rotom/evals/judgments/<sessionId>/<timestamp>.json`，不改原始会话/trace，不覆盖历史。结果格式不合格、失败、超时、取消均单列；缺失费用为未知，Pi 计算费用仅显示为估算，不冒充服务商账单。「采纳建议」仅预填，仍须人工保存。`agreement` 追加最新成功且非 unsure 分析与人工标注的 TP/FP/FN/TN；n < 10 标星，未对齐不同进度的结论不代表模型可靠性。

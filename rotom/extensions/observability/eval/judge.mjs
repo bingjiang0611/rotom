@@ -14,11 +14,25 @@ export const JUDGE_MAX_OUTPUT_BYTES = 512 * 1024;
 export const JUDGE_LAUNCHER = fileURLToPath(new URL("../../../bin/rotom-launcher", import.meta.url));
 export const JUDGE_BASE_ARGS = ["--single-request", "-p", "--mode", "json", "--no-session", "--no-tools", "--no-skills", "--no-context-files", "--no-prompt-templates", "--no-extensions", "--no-themes", "--no-mcp", "--no-approve"];
 
-function childEnvironment() {
+export function childEnvironment() {
 	// Authentication is resolved by rotom in the child. Never read auth files or
 	// copy API-key/token variables into a new credential-bearing interface.
 	const names = ["HOME", "PATH", "TMPDIR", "TEMP", "LANG", "LC_ALL", "TZ", "USER", "LOGNAME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "PI_CODING_AGENT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy", "ROTOM_QODER", "ROTOM_QODER_AUTH"];
 	return { ...Object.fromEntries(names.filter((name) => process.env[name] !== undefined).map((name) => [name, process.env[name]])), ROTOM_NODE: process.execPath };
+}
+export function parseModelCatalog(output) {
+	if (!output.terminal.confirmed) throw evalError(503, "termination_unknown");
+	if (output.terminal.outcome === "timeout") throw evalError(503, "models_timeout");
+	if (output.terminal.outcome === "spawn-error") throw evalError(503, "launcher_unavailable");
+	if (output.terminal.outcome !== "exited" || output.code !== 0) {
+		throw evalError(503, /^rotom: \[runtime_validation_failed\]/mu.test(output.stderr) ? "models_identity_failed" : "models_exit_failed");
+	}
+	if (!output.stdout.trim()) throw evalError(503, "models_stdout_empty");
+	let data; try { data = JSON.parse(output.stdout); } catch { throw evalError(503, "models_invalid_json"); }
+	if (!data || !Array.isArray(data.models) || data.models.some((item) => !item || typeof item.id !== "string" || item.id.length > 512 || !item.id.includes("/") || /[\u0000-\u001f\u007f]/u.test(item.id))) throw evalError(503, "models_invalid_catalog");
+	if (new Set(data.models.map((item) => item.id)).size !== data.models.length) throw evalError(503, "models_duplicate_ids");
+	if (!(data.defaultModel === null || data.models.some((item) => item.id === data.defaultModel))) throw evalError(503, "models_default_missing");
+	return { models: data.models.map(({ id }) => ({ id })), defaultModel: data.defaultModel };
 }
 function usageOf(message) {
 	const usage = message?.usage;
@@ -47,9 +61,10 @@ export function createJudgeService({ evalService, directory, launcher = JUDGE_LA
 	const discoveryController = new AbortController();
 	async function invoke(args, input, signal, deadline) {
 		if (!isAbsolute(launcher)) throw evalError(503, "launcher_unavailable");
-		const info = await lstat(launcher);
+		let info;
+		try { info = await lstat(launcher); await access(launcher, constants.X_OK); }
+		catch { throw evalError(503, "launcher_unavailable"); }
 		if (!info.isFile() || info.isSymbolicLink()) throw evalError(503, "launcher_unavailable");
-		await access(launcher, constants.X_OK);
 		const executable = await realpath(launcher);
 		const cwd = await mkdtemp(join(tmpdir(), "rotom-judge-"));
 		await chmod(cwd, 0o700);
@@ -69,11 +84,11 @@ export function createJudgeService({ evalService, directory, launcher = JUDGE_LA
 		if (!modelPromise && unsafeTermination) throw evalError(409, "termination_unknown");
 		if (!modelPromise) modelPromise = (async () => {
 			const output = await invoke([...JUDGE_BASE_ARGS, "--list-models"], "", discoveryController.signal, 30_000);
-			if (output.terminal.outcome !== "exited" || output.code !== 0) throw evalError(503, "models_unavailable");
-			let data; try { data = JSON.parse(output.stdout); } catch { throw evalError(503, "models_unavailable"); }
-			if (!Array.isArray(data.models) || !data.models.length || data.models.some((item) => typeof item.id !== "string" || item.id.length > 512 || !item.id.includes("/") || /[\u0000-\u001f\u007f]/u.test(item.id)) || new Set(data.models.map((item) => item.id)).size !== data.models.length || !(data.defaultModel === null || data.models.some((item) => item.id === data.defaultModel))) throw evalError(503, "models_unavailable");
-			return { models: data.models.map(({ id }) => ({ id })), defaultModel: data.defaultModel };
-		})().catch(() => { modelPromise = undefined; throw evalError(503, "models_unavailable"); });
+			// Local diagnostic paths stay in process stderr, never the API,
+			// trace records, or persisted judgments.
+			if (output.stderr) console.error("[rotom-eval model discovery]\n" + output.stderr);
+			return parseModelCatalog(output);
+		})().catch((error) => { modelPromise = undefined; throw error; });
 		return modelPromise;
 	}
 	function available() {

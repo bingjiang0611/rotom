@@ -8,6 +8,7 @@ import { pathToFileURL } from "node:url";
 import { startTraceDashboard } from "./dashboard.mjs";
 import { fixtureSession, ATTACK } from "./eval-fixtures.mjs";
 import { fakeJudgeLauncher } from "./judge-fixtures.mjs";
+import { COPY } from "./eval/copy.mjs";
 if (!isAbsolute(process.env.PLAYWRIGHT_MODULE ?? "")) throw new Error("Set PLAYWRIGHT_MODULE to the installed Playwright entry");
 const { chromium } = await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE).href);
 const directory = await realpath(await mkdtemp(join(tmpdir(), "rotom-eval-ui-")));
@@ -26,7 +27,7 @@ const screenshot = async (name) => { const path = join(directory, name); await p
 const stored = async () => JSON.parse(await readFile(join(evalDirectory, "annotations/synthetic-active.json"), "utf8"));
 const launcherCalls = async () => (await readFile(fake.calls, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
 const inferenceCount = async () => (await launcherCalls()).filter((row) => !row.args.includes("--list-models")).length;
-await writeFile(fake.control, JSON.stringify({ modelsFail: true }));
+await writeFile(fake.control, JSON.stringify({ modelsStderr: true }));
 try {
 	browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_CHANNEL ? { channel: process.env.PLAYWRIGHT_CHANNEL } : {}) });
 	page = await browser.newPage({ viewport: { width: 1440, height: 1050 } });
@@ -50,7 +51,10 @@ try {
 	await page.getByRole("button", { name: "重试读取模型", exact: true }).waitFor();
 	assert.equal((await launcherCalls()).length, 1); assert.equal(await inferenceCount(), 0);
 	assert.equal(await page.locator("#eval-analyze").isDisabled(), true);
-	await screenshot("eval-model-retry.png");
+	await page.getByText(COPY.errors.models_stdout_empty, { exact: true }).waitFor();
+	assert.equal(await page.locator(".eval-model-diagnostic pre").textContent(), COPY.modelCheckCommand);
+	assert.ok(!(await page.locator("body").innerText()).includes('"models":['));
+	await screenshot("eval-model-stdout-diagnostic.png");
 	await page.getByRole("button", { name: "重试读取模型", exact: true }).click();
 	await page.getByRole("button", { name: "重试读取模型", exact: true }).waitFor();
 	assert.equal((await launcherCalls()).length, 2); assert.equal(await inferenceCount(), 0);

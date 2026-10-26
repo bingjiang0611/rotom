@@ -142,13 +142,17 @@ async function runPi(verified, args) {
 	await runtime.main(args);
 }
 
+function runtimeValidationError(cause) {
+	return Object.assign(new Error(cause.message, { cause }), { code: "runtime_validation_failed" });
+}
+
 export async function launchRuntime(rawArgs = process.argv.slice(2)) {
 	const options = parseLauncherArgs(rawArgs);
 	const agentDir = resolve(import.meta.dirname, "..");
 	const resourceDeclarations = RESOURCE_DESCRIPTORS_V1.map((resource) => `${resource.kind}:${resolve(agentDir, resource.path)}`);
 	if (options.herdrExtension) resourceDeclarations.push(`herdr-extension:${options.herdrExtension}`);
 	const bundledPi = process.env.ROTOM_PI === undefined;
-	const executable = bundledPi ? await resolveInstalledPi(agentDir) : process.env.ROTOM_PI;
+	const executable = bundledPi ? await resolveInstalledPi(agentDir).catch((error) => { throw runtimeValidationError(error); }) : process.env.ROTOM_PI;
 	if (!isAbsolute(executable)) throw new UsageError("ROTOM_PI 必须是绝对 Pi 可执行文件路径");
 	// Verification imports the Pi SDK. Set trusted product identity first so
 	// import-time branding (including the exit resume command) cannot freeze as "pi".
@@ -163,7 +167,7 @@ export async function launchRuntime(rawArgs = process.argv.slice(2)) {
 			// reviewed entry satisfies the same capability gate while sharing the CLI's
 			// module graph, instead of evaluating the unbundled SDK a second time.
 			...(bundledPi ? { runtimeEntry: resolve(dirname(executable), "index.js") } : {}),
-		}));
+		})).catch((error) => { throw runtimeValidationError(error); });
 	process.env.ROTOM_VERIFIED_PI_EXECUTABLE = verified.executable;
 	// Identity-gated Pi version for local trace attribution; never read from ambient env.
 	process.env.ROTOM_VERIFIED_PI_VERSION = verified.version;
@@ -175,7 +179,7 @@ export async function launchRuntime(rawArgs = process.argv.slice(2)) {
 	if (!options.versionMode) {
 		const runtime = await import(pathToFileURL(verified.runtimeEntry).href);
 		if (options.userArgs.includes("--single-request")) {
-			if (runtime.parseArgs?.(["--single-request"]).singleRequest !== true) throw new Error("Pi fork 不支持 single-request；请按发行流程更新运行时");
+			if (runtime.parseArgs?.(["--single-request"]).singleRequest !== true) throw runtimeValidationError(new Error("Pi fork 不支持 single-request；请按发行流程更新运行时"));
 			if (runtime.parseArgs(options.userArgs).singleRequest) {
 				// Identity validation above still covers the complete product. Only
 				// provider registration participates in this one inference process.
@@ -203,7 +207,7 @@ export async function launchRuntime(rawArgs = process.argv.slice(2)) {
 const invokedPath = process.argv[1] ? await realpath(process.argv[1]).catch(() => undefined) : undefined;
 if (invokedPath === await realpath(import.meta.filename)) {
 	launchRuntime().catch((error) => {
-		process.stderr.write(`rotom: ${error instanceof Error ? error.message : String(error)}\n`);
+		process.stderr.write(`rotom: ${error?.code === "runtime_validation_failed" ? "[runtime_validation_failed] " : ""}${error instanceof Error ? error.message : String(error)}\n`);
 		process.exitCode = error?.exitCode === 2 ? 2 : 1;
 	});
 }

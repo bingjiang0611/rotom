@@ -6,11 +6,12 @@ import { tmpdir } from "node:os";
 import { fixtureSession } from "./eval-fixtures.mjs";
 import { fakeJudgeLauncher } from "./judge-fixtures.mjs";
 import { createEvalService } from "./eval/service.mjs";
-import { createJudgeService, JUDGE_BASE_ARGS, parseJudgeEvents } from "./eval/judge.mjs";
+import { createJudgeService, JUDGE_BASE_ARGS, parseJudgeEvents, parseModelCatalog } from "./eval/judge.mjs";
 import { buildJudgeInput, JUDGE_MAX_INPUT_CHARS, validateJudgment } from "./eval/judge-prompt.mjs";
 import { latestJudgments, judgeAgreement, writeJudgment } from "./eval/judge-store.mjs";
 import { startTraceDashboard } from "./dashboard.mjs";
 import { productRuntimeArgs } from "../../runtime/launch-runtime.mjs";
+import { COPY } from "./eval/copy.mjs";
 
 async function fixture(t, options = {}) {
 	const dir = await realpath(await mkdtemp(join(tmpdir(), "rotom-judge-test-")));
@@ -102,6 +103,52 @@ test("long histories fold only unprotected ok runs and reject citations into fol
 	assert.equal(validateJudgment({ ...valid, evidence: [{ event: 1, quote: "合成初始要求" }] }, built.eventIds).evidence[0].event, 1);
 	const irreducible = { branch: Array.from({ length: 3000 }, () => ({ type: "message", message: { role: "user", content: "合成要求" } })), trace: { tools: new Map() } };
 	assert.throws(() => buildJudgeInput(irreducible), /judge_input_too_large/);
+});
+
+test("model catalog diagnostics distinguish protocol and process failures without exposing stderr", () => {
+	const valid = { models: [{ id: "fake/model" }], defaultModel: "fake/model" };
+	const output = { code: 0, terminal: { outcome: "exited", confirmed: true }, stdout: JSON.stringify(valid), stderr: "" };
+	assert.deepEqual(parseModelCatalog(output), valid);
+	assert.deepEqual(parseModelCatalog({ ...output, stdout: '{"models":[],"defaultModel":null}' }), { models: [], defaultModel: null });
+	const cases = [
+		[{ terminal: { outcome: "timeout", confirmed: true } }, "models_timeout"],
+		[{ terminal: { outcome: "spawn-error", confirmed: true } }, "launcher_unavailable"],
+		[{ terminal: { outcome: "unavailable", confirmed: false } }, "termination_unknown"],
+		[{ code: 1, stderr: "rotom: [runtime_validation_failed] synthetic private path" }, "models_identity_failed"],
+		[{ code: 7 }, "models_exit_failed"],
+		[{ stdout: "", stderr: JSON.stringify(valid) }, "models_stdout_empty"],
+		[{ stdout: "not json" }, "models_invalid_json"],
+		[{ stdout: '{"models":[null],"defaultModel":null}' }, "models_invalid_catalog"],
+		[{ stdout: JSON.stringify({ ...valid, models: [...valid.models, ...valid.models] }) }, "models_duplicate_ids"],
+		[{ stdout: JSON.stringify({ ...valid, defaultModel: "missing/model" }) }, "models_default_missing"],
+	];
+	for (const [change, code] of cases) {
+		assert.throws(() => parseModelCatalog({ ...output, ...change }), (error) => error.status === 503 && error.code === code && error.message === code);
+		assert.ok(COPY.errors[code]);
+	}
+	assert.equal(COPY.modelCheckCommand, "rotom/bin/rotom-launcher " + [...JUDGE_BASE_ARGS, "--list-models"].join(" "));
+});
+
+test("stderr-only catalog is logged locally, never merged into stdout or returned by the API", async (t) => {
+	const { root, directory, fake } = await fixture(t);
+	const diagnostics = [];
+	t.mock.method(console, "error", (text) => diagnostics.push(text));
+	await writeFile(fake.control, JSON.stringify({ modelsStderr: true }));
+	const dashboard = await startTraceDashboard({ root, evalDirectory: directory, judge: { launcher: fake.launcher } });
+	t.after(() => dashboard.close());
+	const response = await fetch(dashboard.baseUrl + "/api/eval/models", { headers: { Authorization: "Bearer " + dashboard.token } });
+	assert.equal(response.status, 503);
+	assert.deepEqual(await response.json(), { error: "models_stdout_empty" });
+	assert.equal(diagnostics.length, 1);
+	assert.ok(diagnostics[0].includes('"models"'));
+	assert.equal((await calls(fake)).length, 1);
+});
+
+test("missing launcher has an explicit actionable failure", async (t) => {
+	const { dir, evalService, directory } = await fixture(t);
+	const judge = createJudgeService({ evalService, directory, launcher: join(dir, "missing-launcher") });
+	await assert.rejects(judge.models(), { code: "launcher_unavailable" });
+	await judge.close();
 });
 
 test("failed model discovery is not cached or automatically retried; a successful retry is shared", async (t) => {

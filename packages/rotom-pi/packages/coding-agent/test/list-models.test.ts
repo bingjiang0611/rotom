@@ -7,6 +7,7 @@ vi.mock("@earendil-works/pi-tui", () => ({
 
 import { listModels } from "../src/cli/list-models.ts";
 import type { ModelRuntime } from "../src/core/model-runtime.ts";
+import { restoreStdout, takeOverStdout } from "../src/core/output-guard.ts";
 
 function model(provider: string, id: string): Model<Api> {
 	return {
@@ -24,20 +25,27 @@ function model(provider: string, id: string): Model<Api> {
 }
 
 describe("JSON model listing", () => {
-	afterEach(() => vi.restoreAllMocks());
+	afterEach(() => { restoreStdout(); vi.restoreAllMocks(); });
 
-	it("emits non-sensitive models and the resolver-selected default", async () => {
+	it.each([false, true])("emits JSON only on real stdout, takeover=%s", async (takeover) => {
 		const models = [model("zeta", "model-b"), model("alpha", "model-a")];
 		const runtime = {
 			getError: () => undefined,
 			getAvailable: async () => models,
 		} as unknown as ModelRuntime;
-		const output: string[] = [];
-		vi.spyOn(console, "log").mockImplementation((line?: unknown) => output.push(String(line)));
+		const output: string[] = [], diagnostics: string[] = [];
+		const capture = (destination: string[]) => ((chunk: string, callback?: () => void) => {
+			destination.push(String(chunk)); callback?.(); return true;
+		}) as typeof process.stdout.write;
+		vi.spyOn(process.stdout, "write").mockImplementation(capture(output));
+		vi.spyOn(process.stderr, "write").mockImplementation(capture(diagnostics));
+		if (takeover) { takeOverStdout(); process.stdout.write("diagnostic\n"); }
 
 		await listModels(runtime, undefined, undefined, { json: true, defaultModel: models[0] });
 
-		expect(JSON.parse(output[0]!)).toEqual({
+		expect(output.join("").trim().split("\n")).toHaveLength(1);
+		expect(diagnostics.join("")).toBe(takeover ? "diagnostic\n" : "");
+		expect(JSON.parse(output.join(""))).toEqual({
 			models: [
 				expect.objectContaining({ id: "alpha/model-a", contextWindow: 128000, maxTokens: 4096 }),
 				expect.objectContaining({ id: "zeta/model-b", contextWindow: 128000, maxTokens: 4096 }),

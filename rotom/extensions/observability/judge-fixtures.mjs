@@ -11,7 +11,7 @@ for await(const chunk of process.stdin)input.push(chunk);
 const body=Buffer.concat(input).toString('utf8');
 await appendFile(${JSON.stringify(calls)},JSON.stringify({args,body,cwd:process.cwd(),files:await readdir(process.cwd()),mode:(await stat(process.cwd())).mode&511,pid:process.pid,node:process.env.ROTOM_NODE,secret:Object.hasOwn(process.env,'ROTOM_FAKE_SECRET')})+'\\n',{mode:384});
 const control=JSON.parse(await readFile(${JSON.stringify(control)},'utf8'));
-if(args.includes('--list-models')){if(control.modelsFail)process.exit(7);console.log(JSON.stringify({models:[{id:'fake/model'}],defaultModel:'fake/model'}));process.exit(0);}
+if(args.includes('--list-models')){if(control.modelsFail)process.exit(7);const catalog=JSON.stringify({models:[{id:'fake/model'}],defaultModel:'fake/model'});if(control.modelsStderr)console.error(catalog);else console.log(catalog);process.exit(0);}
 if(control.mode==='hang'){setInterval(()=>{},1000);}
 else if(control.mode==='fail'){console.error('synthetic launcher failure');process.exit(7);}
 else if(control.mode==='oversized'){process.stdout.write('x'.repeat(2*1024*1024));setInterval(()=>{},1000);}

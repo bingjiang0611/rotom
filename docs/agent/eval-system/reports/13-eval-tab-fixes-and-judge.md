@@ -169,3 +169,52 @@ rotom/bin/rotom-launcher --single-request -p --mode json --no-session --no-tools
 4. **检查推理路径有没有同类问题**：`-p --mode json` 的事件流是否确实写到真正的 stdout。用 Pi 自带的 faux provider（`packages/ai/src/providers/faux.ts`）或其它离线方式，经真实 launcher 跑一次 `--single-request`，确认 `parseJudgeEvents` 能从 stdout 解析出 `message_end` 和 `agent_end`。做不到完全离线时，说明原因，不要调用真实付费模型。
 
 给 bob：本轮修好之后，worktree 里需要重新 `git pull` 并重装 `rotom/runtime/pi`（归档会变），然后重启后台。
+
+## 第二次核验修正与复验（执行者）
+
+上述四条已逐条修正；前面的核验意见保留。以下结果针对本轮新归档，不沿用前两轮验证。
+
+### 修改
+
+1. **stdout 根因**：Pi `list-models.ts` 的所有 JSON 路径统一使用 `writeRawStdout`，并在返回前 `flushRawStdout`，避免 `main` 立即退出丢写。空列表返回合法 JSON；过滤掉默认模型时返回 `null`。新增 takeover 开/关两种测试，断言 stdout 只有一行合法 JSON、诊断只在 stderr。已重建七个归档，同步 lock、fork-build 与产品摘要；版本保持 `1.4.0-rotom.2`，source SHA-256 为 `2d41890137654594966602eeeee021d1a3714fc78adbf0ca97490c59660b5924`。
+2. **真实路径脚本**：新增 `rotom/extensions/observability/eval-launcher-check.mjs`，真实 launcher、同 Node、同 `JUDGE_BASE_ARGS`、argv 数组、stdin、空 cwd，复用后台 `parseModelCatalog` / `parseJudgeEvents`。默认隔离 HOME 并拦截 Node 网络；`--faux` 仅注册 Pi 自带的离线 provider。脚本处理 `/tmp` 等 canonical 路径差异，防止直接入口判断跳过执行。CI 新增运行时安装、`check:pi` 和真实离线检查，fork/runtime/launcher 变化也触发此工作流。
+3. **明确诊断**：后台保留分类错误码；页面分别说明执行权限、identity gate、超时、异常退出、空 stdout、非法 JSON、非法目录结构、重复 id、默认模型缺失。launcher 为 identity/capability 校验失败输出稳定 `[runtime_validation_failed]` 标记，不放宽 gate。stderr 原文只写后台进程日志，不进入 API/trace/judgment；不合并 stdout 与 stderr。页面给出与后台 argv 一致的可复制命令；空目录提示配置/登录。fake 测试保留，并补 stderr-only 场景、分类边界与 API 不泄漏原文的断言。
+4. **推理事件流**：真实 launcher 经单次模式加载原生 faux，`parseJudgeEvents` 成功解析合法结果；扩展主动打印的诊断只在 stderr，事件流保持纯 JSON stdout。未改推理路径来适配假结果，未调用任何付费模型。
+
+### 真实 launcher 证据
+
+在独立公开 clone 按当前 lock 新装 Pi 和第三方依赖；不覆盖正在运行的维护/试用安装。Node `24.18.0`，macOS。
+
+可复跑命令：
+
+```bash
+node rotom/extensions/observability/eval-launcher-check.mjs --faux
+```
+
+| 检查 | 结果 | 证据 |
+|---|---|---|
+| 后台原样 list-models argv，隔离空 HOME | exit 0，stdout 34 bytes，校验通过 | 0 个模型、无默认模型（`defaultInList: null`）；无凭据时不是协议失败 |
+| 真实 launcher + 原生 faux 目录 | exit 0，stdout 167 bytes，校验通过 | 1 个模型，默认模型在列表中 |
+| 真实 launcher + faux 单次推理 | exit 0，stdout 11,985 bytes，`parseJudgeEvents.status=ok` | assistant `message_end=1`、`agent_end=1`、faux 调用 1 次；诊断在 stderr、不在 stdout |
+| 完全离线保护 | 网络尝试 0 | fetch/http/https/net/tls 连接被测试预加载器禁止；临时 HOME/cwd/provider 数据已清理 |
+| 原试用版负对照（只读 list-models） | exit 0，stdout 0 bytes，校验失败 | 正确归类 `models_stdout_empty`，复现 bob 故障；没有修改该安装 |
+| 陈旧维护安装负对照（只读 list-models） | exit 1，stdout 0 bytes，校验失败 | 正确归类 `models_identity_failed`，没有绕过 gate |
+| 已配置模型目录，只读真实 launcher | exit 0，stdout 7,244 bytes，校验通过 | 54 个模型，默认模型在列表中；仅原生子进程处理登录，后台不读取凭据；本次验收只报告数量与默认命中状态，不输出模型名称或会话内容，不进行推理 |
+
+付费模型调用 **0**；真实会话分析请求 **0**；人工标注请求 **0**。faux 是离线合成实现，不宣称付费 provider 的端到端分析已验证。
+
+### 回归与边界
+
+| 检查 | 结果 | 范围 |
+|---|---|---|
+| `npm --prefix rotom run build:pi` / `check:pi` | 通过 | 构建期既有主要组 419 passed / 2 skipped；含本次 list-models 的 focused 组 227 passed，其他构建组亦通过 |
+| `node --test --test-concurrency=1 …` | 76 passed | dashboard / Eval API / judge / process-tree / distribution |
+| `node --test rotom/scripts/build-pi-fork.test.mjs` | 2 passed | 构建器合同 |
+| 独立已安装 clone 的 `verify-pi-runtime.test.mjs` | 40 passed | 运行时 identity、资源、cwd/argv、启动合同 |
+| eval 七文件测试与 `npm run typecheck` | 242 passed；类型检查通过 | session-cards / trace-assertions / agreement / review / session-metrics / error-breakdown / command-failures |
+| Playwright 合成 UI，显式 Chrome channel | 通过 | stderr-only 错误提示、可复制命令、失败手动重试、完整确认/结果/标注流程；0 页面错误、0 页面外部请求、1 次 fake 推理 |
+| Impeccable 定向检测 | `[]` | 本次 UI/copy 文件；截图另经目视检查 |
+
+合成截图保留在 `/tmp/rotom-task13-second-M2A25b/screenshots/`，包括 `eval-model-stdout-diagnostic.png`，没有真实会话截图。安装报告 Pi 依赖 2 项既有漏洞（1 moderate、1 high），未借机升级依赖。产品实际模型调用仍必须由页面逐次确认，本轮只读模型目录不等于付费推理验收。
+
+最终 diff 已检查；准备上传的公开树审计 **7,858 文件、0 发现**（包含新增检查脚本）。历史审计仍有公开基线 `fc539150e67d` 的 2 个既有 author/committer 非 noreply 发现，未新增、未改写历史。CI 结果与精确 SHA 在交付消息中提供。原试用 worktree 仍运行旧版：bob 需先停止该试用后台，再更新源码、按新 lock 重装其 Pi 运行时并重启；不要重装活跃的日常运行时。

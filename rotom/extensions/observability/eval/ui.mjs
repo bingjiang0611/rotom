@@ -202,7 +202,9 @@ function evalClient(C, matchesFilter) {
 		const analyze = button(C.analyze, start); analyze.id = 'eval-analyze'; analyze.disabled = true;
 		const cancel = button(C.cancel, async () => { cancel.disabled = true; try { await api('/api/eval/judge/cancel', { runId: data.activeJudge.runId }); message.textContent = C.cancelling; } catch (error) { message.textContent = error.message || C.judgeStatusUnknown; } }); cancel.hidden = true;
 		const retryModels = button(C.retryModels, readModels); retryModels.id = 'eval-retry-models'; retryModels.hidden = true;
-		box.append(model, analyze, retryModels, cancel, message);
+		const diagnostic = make('div', 'eval-model-diagnostic'); diagnostic.hidden = true;
+		diagnostic.append(make('p', 'eval-muted', C.modelCheckLabel), make('pre', 'eval-text', C.modelCheckCommand));
+		box.append(model, analyze, retryModels, cancel, message, diagnostic);
 		function running(job) { data.activeJudge = job; analyze.disabled = model.disabled = true; cancel.hidden = false; message.textContent = C.judging; pollJudge(job, message, cancel); }
 		async function start() {
 			analyze.disabled = true; message.textContent = C.preparing;
@@ -215,18 +217,23 @@ function evalClient(C, matchesFilter) {
 			} catch (error) { message.textContent = error.message || C.readError; analyze.disabled = false; }
 		}
 		function readModels() {
-			retryModels.hidden = retryModels.disabled = true; model.disabled = analyze.disabled = true;
+			diagnostic.hidden = true; retryModels.hidden = retryModels.disabled = true; model.disabled = analyze.disabled = true;
 			model.replaceChildren(make('option', '', C.modelsLoading)); message.textContent = '';
 			if (!modelPromise) modelPromise = api('/api/eval/models').catch((error) => { modelPromise = undefined; throw error; });
 			modelPromise.then((catalog) => {
 				model.replaceChildren();
+				if (!catalog.models.length) {
+					message.textContent = C.modelsEmpty;
+					diagnostic.hidden = false;
+					model.append(make('option', '', C.modelsEmpty)); return;
+				}
 				if (!catalog.defaultModel) { const empty = make('option', '', C.chooseModel); empty.value = ''; model.append(empty); }
 				for (const row of catalog.models) { const option = make('option', '', row.id); option.value = row.id; model.append(option); }
 				model.value = catalog.defaultModel || ''; model.disabled = !!data.activeJudge; analyze.disabled = !!data.activeJudge || !model.value;
 				model.onchange = () => { analyze.disabled = !model.value; };
 			}).catch((error) => {
 				model.replaceChildren(make('option', '', C.modelsUnavailable));
-				message.textContent = error.message || C.readError; retryModels.hidden = retryModels.disabled = false;
+				message.textContent = error.message || C.readError; diagnostic.hidden = retryModels.hidden = retryModels.disabled = false;
 			});
 		}
 		readModels();
