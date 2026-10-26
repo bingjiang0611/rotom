@@ -218,3 +218,14 @@ node rotom/extensions/observability/eval-launcher-check.mjs --faux
 合成截图保留在 `/tmp/rotom-task13-second-M2A25b/screenshots/`，包括 `eval-model-stdout-diagnostic.png`，没有真实会话截图。安装报告 Pi 依赖 2 项既有漏洞（1 moderate、1 high），未借机升级依赖。产品实际模型调用仍必须由页面逐次确认，本轮只读模型目录不等于付费推理验收。
 
 最终 diff 已检查；准备上传的公开树审计 **7,858 文件、0 发现**（包含新增检查脚本）。历史审计仍有公开基线 `fc539150e67d` 的 2 个既有 author/committer 非 noreply 发现，未新增、未改写历史。CI 结果与精确 SHA 在交付消息中提供。原试用 worktree 仍运行旧版：bob 需先停止该试用后台，再更新源码、按新 lock 重装其 Pi 运行时并重启；不要重装活跃的日常运行时。
+
+## 第二次复核（规划者，2026-10-26）
+
+结论：**accepted**。
+
+- 在规划者自己复现问题的那套环境里（Node 24.11、按锁文件新装的 worktree、空 HOME）更新到 `65ab1e5` 并重装 `rotom/runtime/pi`：原来的复现命令 `... --list-models 2>/dev/null | wc -c` 从 0 变成 31,616 字节；`eval-launcher-check.mjs --faux` 输出 `passed: true`，诊断信息没有混进 stdout，阻断的网络请求 0 次。
+- dashboard / eval / judge / process-tree 49/49 通过。
+- Actions run 40299301713 success，而且 CI 现在会跑 `check:pi`、按锁文件安装产品 runtime、用**真实 launcher** 读取模型列表并跑一次离线 faux 推理。fake launcher 测不到的这类问题，以后在 CI 里就能发现。
+- `listModels` 的 json 分支改为 `writeRawStdout` + flush；默认模型不在可用列表里时输出 null，避免触发后台的校验失败。失败时页面按类别显示原因，stderr 原文只进后台日志。
+
+仍未验证：在 bob 的真实账号上做一次真实模型分析（L3），由 bob 在页面上点。
