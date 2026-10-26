@@ -269,7 +269,35 @@ test("credential shapes are redacted before truncation and recorded by type", ()
 		assert.deepEqual(result.redactions, [], `false positive on ${sample}`);
 		assert.equal(result.text, sample, `text rewritten for ${sample}`);
 	}
-	// The same shapes still redact when the value is a literal secret.
+	// Review round 2: narrowing the rules for item 7 caused misses. A miss is
+	// worse than a false positive here, so every shape below must still redact.
+	// Bodies are generated so the repository never stores a key-shaped literal.
+	const lowerHex = "a".repeat(32), openaiStyle = ["sk-proj-", "abc123def456", "ghi789jkl012", "mno345"].join("");
+	const mustRedact = [
+		["openai-key", `DEEPSEEK_API_KEY=sk-${lowerHex}`],
+		["openai-key", `x-key: sk-${lowerHex}`],
+		["openai-key", `export OPENAI_API_KEY="${openaiStyle}"`],
+		["assigned-secret", `OPENAI_API_KEY=${"b".repeat(24)}`],
+		["assigned-secret", `GITHUB_TOKEN=${"c".repeat(24)}`],
+		["assigned-secret", `AWS_SECRET_ACCESS_KEY=${"d".repeat(24)}`],
+		["assigned-secret", `x-api-key: ${"e".repeat(24)}`],
+		// Numeric passwords and PINs are common; a bare number is not a reference.
+		["assigned-secret", "password: 20240101"],
+		["assigned-secret", "password=83920174"],
+	];
+	for (const [type, sample] of mustRedact) {
+		const result = redactSecrets(sample);
+		assert.ok(result.redactions.some((entry) => entry.type === type), `${sample} was not recorded as ${type}`);
+		assert.ok(result.text.includes("[已脱敏:"), `${sample} was not redacted`);
+		// Reported counts must match the markers the prompt will contain.
+		for (const { type: reported, count } of result.redactions) {
+			assert.equal(result.text.split(`[已脱敏:${reported}]`).length - 1, count, `${sample} count mismatch for ${reported}`);
+		}
+	}
+	// Token budgets are configuration, not credentials.
+	for (const sample of ["MAX_TOKENS=200000", "max_tokens = 4096", "tokens=512"]) {
+		assert.deepEqual(redactSecrets(sample).redactions, [], `token budget was redacted: ${sample}`);
+	}
 	// Control: the same shapes still redact when the value is a literal secret,
 	// assembled at runtime so the repository holds no key-shaped literal.
 	const literalKey = ["sk-live-", "ABCDEF", "12345678"].join("");

@@ -199,6 +199,8 @@
 
 ## 核验（第 2 轮）：changes-requested（只剩脱敏漏报）
 
+> 本节样例串按公开树凭据扫描要求做了等长遮罩（例如把具体 key 体换成分段说明），判定标准与结论不变。
+
 核验对象 `ec2d232`。eval 测试 9 个文件 / 268 项通过，node 测试 56 项通过，typecheck 通过。
 
 **第 1 轮已解决：** 第 1 到 6 条都已解决，我用第 1 轮的探针复测过。
@@ -215,14 +217,91 @@
 |---|---|
 | `DEEPSEEK_API_KEY=sk-` + 32 位小写十六进制 | `openai-key` 现在要求至少一个大写字母。DeepSeek 等兼容 OpenAI 格式的 key 正是 `sk-` 加小写十六进制。上一版能拦住，这是回归。 |
 | `x-key: sk-` + 32 位小写十六进制 | 同上 |
-| `export OPENAI_API_KEY="sk-proj-abc123def456ghi789jkl012mno345"` | 同上（只有小写和数字）。另外 `\bapi[_-]?key\b` 匹配不到 `OPENAI_API_KEY`，因为 `_A` 之间没有单词边界。这个缺口上一版就有。 |
+| `export OPENAI_API_KEY="sk-proj-<32 位小写字母数字串>"` | 同上（只有小写和数字）。另外 `\bapi[_-]?key\b` 匹配不到 `OPENAI_API_KEY`，因为 `_A` 之间没有单词边界。这个缺口上一版就有。 |
 | `password: 20240101`、`password=83920174` | `looksLikeReference` 把纯数字值当成引用跳过了。纯数字密码和 PIN 很常见。 |
 
 需要修改：
 
-1. **`openai-key`**：不要用「必须有大写」来排除包名。改成「`sk-`（可带 `proj-` 这类前缀段）之后有一段连续 20 位以上的 `[A-Za-z0-9]`」。真实 key 都有这样一长段；`sk-learn-preprocessing-pipeline-v2` 每段都很短，不会误伤。
+1. **`openai-key`**：不要用「必须有大写」来排除包名。改成「`sk-`（可带 `proj-` 这类前缀段）之后有一段连续 20 位以上的 `[A-Za-z0-9]`」。真实 key 都有这样一长段；`sk-learn-…-pipeline-v2` 这类包名每段都很短，不会误伤。
 2. **`assigned-secret` 的关键词**：允许环境变量和请求头的前后缀，例如 `OPENAI_API_KEY`、`GITHUB_TOKEN`、`AWS_SECRET_ACCESS_KEY`、`x-api-key`。同时保持 `max_tokens`、`tokens` 不命中。
 3. **数字豁免**：只豁免「数字加字母单位」（`2048tokens`），纯数字值照常脱敏。
 4. **补测试**：把上表每一行加进「必须脱敏」的测试；第 7 条的误伤样例继续保留在「不误伤」测试里。
 
 行为用例部分已经可以接受，这一轮不用再改。
+
+## 第 2 轮修改
+
+只动脱敏：`eval/redaction.mjs` 与 `judge.test.mjs`。行为用例（`behavioral-regression-cases.ts` 及其测试）本轮未改。
+
+### 1. `openai-key`：改用「连续 20 位以上的字母数字段」判据（已修）
+
+不再用「必须含大写」排除包名。新规则：`sk-`（可带若干 1–12 位的短前缀段，如 `proj-`）之后必须有一段**连续 20 位以上**的 `[A-Za-z0-9]`。
+
+- `sk-` + 32 位小写十六进制（DeepSeek 一类兼容服务）→ 命中。
+- `sk-proj-` + 纯小写数字串 → 命中。
+- `sk-learn-…-pipeline-v2` 这类包名每段都很短，永远凑不出 20 位连续段 → 不命中。
+
+### 2. `assigned-secret` 关键词允许环境变量与请求头前后缀（已修）
+
+关键词不再是独立单词，而是允许出现在标识符内部：前面可有多段 `前缀_`，后面可有多段 `_后缀`。因此 `OPENAI_API_KEY`、`GITHUB_TOKEN`、`AWS_SECRET_ACCESS_KEY`、`x-api-key` 都能命中；原来的 `\b(?:api[_-]?key|…)\b` 因为 `_A` 之间没有单词边界而漏掉它们。
+
+同时保留反向约束：`MAX_TOKENS`、`max_tokens`、`tokens` 属于配置不是凭据，由 `NOT_SECRET_IDENTIFIER` 显式跳过（这些标识符配的值通常正是 judge 需要读的数字）。
+
+### 3. 数字豁免只限「数字 + 字母单位」（已修）
+
+`looksLikeReference` 的数字规则从 `^\d+[a-z]*$`（纯数字也跳过）收窄为 `^\d+[a-z]+$`（必须带字母单位）。
+
+- `token=2048tokens` 仍然豁免（数字加单位，是预算）；
+- `password: 20240101`、`password=83920174` 现在照常脱敏（纯数字口令和 PIN 很常见）。
+
+### 4. 补测试（已加）
+
+`credential shapes are redacted before truncation and recorded by type` 里新增 `mustRedact` 表，逐条覆盖核验表格：
+
+| 样例（合成） | 期望类型 |
+|---|---|
+| `DEEPSEEK_API_KEY=sk-` + 32 位小写十六进制 | `openai-key` |
+| `x-key: sk-` + 32 位小写十六进制 | `openai-key` |
+| `export OPENAI_API_KEY="sk-proj-` + 小写数字串 `"` | `openai-key` |
+| `OPENAI_API_KEY=<24 位串>` / `GITHUB_TOKEN=<24 位串>` / `AWS_SECRET_ACCESS_KEY=<24 位串>` / `x-api-key: <24 位串>` | `assigned-secret` |
+| `password: 20240101`、`password=83920174` | `assigned-secret` |
+
+每条额外断言「`redactions` 里的 count 等于文本中该类型标记个数」，防止第 1 轮修掉的计数不一致回归。第 7 条的 8 条误伤样例继续留在「不误伤」测试里，本轮全部仍然通过。
+
+另外补一条 `MAX_TOKENS=200000`、`max_tokens = 4096`、`tokens=512` 的「不误伤」断言。
+
+所有 key 体都在运行时用 `"a".repeat(32)`、`"b".repeat(24)` 等方式拼接，仓库里没有可直接驱动扫描的字面量。
+
+### 计数一致性的一处副产品
+
+`DEEPSEEK_API_KEY=sk-<32 位>` 这类串会同时命中 `openai-key` 和 `assigned-secret`：`openai-key` 先替换，`assigned-secret` 再把刚生成的标记当成值二次匹配，结果是「报 2 处、提示词里只有 1 个标记」。已加入守卫：值里已经含 `[已脱敏:` 时不再重复替换，计数与标记重新一致。
+
+### 控制实验（证明新测试能失败）
+
+用本轮修改前的规则逐条复算核验表格里的样例：
+
+```
+20240101   old-skipped=true  new-skipped=false
+83920174   old-skipped=true  new-skipped=false
+sk-+32hex  old=false        new=true
+sk-proj-…  old=false        new=true
+sk-learn-… old=false        new=false      ← 仍然不误伤
+OPENAI_API_KEY / GITHUB_TOKEN / AWS_SECRET_ACCESS_KEY  old-kw=false
+```
+
+即在旧规则下这些样例确实漏报，新测试会以 `was not recorded as …` 失败。
+
+### 命令与结果
+
+| 命令 | 结果 |
+|---|---|
+| `node --test rotom/extensions/observability/{dashboard,eval,judge}.test.mjs` | 50 项通过（judge 17 项） |
+| `npm test -- session-cards … behavioral-regression`（9 个文件） | 268 项通过 |
+| `npm run typecheck`（rotom/evals） | 通过 |
+| `node eval-ui-smoke.mjs`（Playwright，合成数据） | PASS，0 页面错误 |
+| `python3 scripts/audit-public.py --root .` | PASS，0 findings |
+
+### 仍未验证
+
+- 真实模型仍未运行（约束不变），区分度证据依然缺失。
+- 本轮没有扩大规则覆盖面：`sk-` 之后不足 20 位的短 key、非 `sk-` 前缀的自定义 key、拆行/拼接的密钥仍然不会被拦截。脱敏仍是 denylist，不能证明提示词无秘密。

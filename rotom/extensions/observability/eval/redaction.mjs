@@ -14,31 +14,45 @@
 export const CREDENTIAL_PATTERNS = [
 	{ type: "private-key", pattern: /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----/gu },
 	{ type: "anthropic-key", pattern: /sk-ant-[A-Za-z0-9_-]{16,}/gu },
-	// OpenAI keys always carry upper-case or digit groups; all-lowercase
-	// `sk-…` strings are normally package names (`sk-learn-preprocessing-…`).
-	{ type: "openai-key", pattern: /\bsk-(?!ant-)(?=[A-Za-z0-9_-]{16,})(?=[A-Za-z0-9_-]*[A-Z])[A-Za-z0-9_-]{16,}/gu },
+	// `sk-`, optionally a few dash-separated prefix segments (`proj-`), then one
+	// contiguous 20+ alphanumeric run. Compatible-OpenAI services (DeepSeek and
+	// others) issue `sk-` plus lowercase hex, so case cannot be the signal. A
+	// package name such as `sk-learn-…-pipeline-v2` never has a run that long:
+	// every dash-separated segment is short.
+	{ type: "openai-key", pattern: /\bsk-(?!ant-)(?:[A-Za-z0-9]{1,12}-)*[A-Za-z0-9]{20,}/gu },
 	{ type: "github-token", pattern: /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}/gu },
 	{ type: "aws-access-key", pattern: /\bAKIA[0-9A-Z]{16}\b/gu },
 	{ type: "slack-token", pattern: /\bxox[abprs]-[A-Za-z0-9-]{10,}/gu },
 	{ type: "jwt", pattern: /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/gu },
 	{ type: "bearer-token", pattern: /\bBearer\s+[A-Za-z0-9._~+/=-]{12,}/gu },
-	// Keyword assignment. `pwd` is deliberately absent: printing the working
-	// directory is normal work, not a secret. Values that are paths, shell
-	// expansions, placeholders or environment lookups are left alone.
-	{ type: "assigned-secret", pattern: /\b(?:api[_-]?key|apikey|access[_-]?key|secret|token|password|passwd)\b\s*[:=]\s*["']?([^\s"',;]{8,})["']?/giu },
+	// Keyword assignment. The keyword may sit inside a longer identifier so
+	// environment variables and headers are covered: `OPENAI_API_KEY`,
+	// `GITHUB_TOKEN`, `AWS_SECRET_ACCESS_KEY`, `x-api-key`. `pwd` is deliberately
+	// absent: printing the working directory is normal work, not a secret.
+	// Group 1 is the full identifier, group 2 the candidate value.
+	{ type: "assigned-secret", pattern: /(?<![A-Za-z0-9])((?:[A-Za-z0-9]+[_-])*(?:api[_-]?key|apikey|access[_-]?key|secret|token|password|passwd)(?:[_-][A-Za-z0-9]+)*)\s*[:=]\s*["']?([^\s"',;]{8,})["']?/giu },
 ];
 
 /**
  * Values that look like a secret reference, not a secret. Redacting them would
  * corrupt the code and paths a judge needs to read (`PWD=/Users/...`,
  * `secret = os.environ['X']`, `password: ********`, `token=2048tokens`).
+ * A bare number is *not* a reference: numeric passwords and PINs are common, so
+ * only "digits plus a unit" (`2048tokens`) is skipped.
  */
 export function looksLikeReference(value) {
 	const candidate = String(value ?? "").replace(/^["']|["']$/gu, "");
 	return candidate.startsWith("/") || candidate.startsWith("$") || candidate.startsWith("<") || candidate.startsWith("*") ||
 		candidate.startsWith(".") || /^(?:os\.environ|process\.env|os\.getenv|env\[|env\.|import\.meta\.env)/u.test(candidate) ||
-		/^\d+[a-z]*$/iu.test(candidate) || /^[*x.]+$/iu.test(candidate);
+		/^\d+[a-z]+$/iu.test(candidate) || /^[*x.]+$/iu.test(candidate);
 }
+
+/**
+ * Identifiers that only look like credentials: token *budgets* are ordinary
+ * configuration, and redacting `MAX_TOKENS=200000` would hide the very numbers a
+ * judge needs to read.
+ */
+const NOT_SECRET_IDENTIFIER = /^(?:max|min|top|num|total|budget)?[_-]?tokens?$/iu;
 
 /** Replacement keeps the type visible so the operator can see what was caught. */
 export function redactionMarker(type) { return `[已脱敏:${type}]`; }
@@ -53,8 +67,11 @@ export function redactSecrets(value) {
 	for (const { type, pattern } of CREDENTIAL_PATTERNS) {
 		// Rebuild the RegExp so the shared literal never keeps `lastIndex` state.
 		const matcher = new RegExp(pattern.source, pattern.flags);
-		text = text.replace(matcher, (match, value) => {
-			if (type === "assigned-secret" && looksLikeReference(value)) return match;
+		text = text.replace(matcher, (match, identifier, value) => {
+			// A value already replaced by an earlier pattern is not a new secret;
+			// re-matching it would report two hits for one credential.
+			if (value.includes("[已脱敏:")) return match;
+			if (type === "assigned-secret" && (NOT_SECRET_IDENTIFIER.test(identifier) || looksLikeReference(value))) return match;
 			counts.set(type, (counts.get(type) ?? 0) + 1);
 			return redactionMarker(type);
 		});

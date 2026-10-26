@@ -43,6 +43,6 @@
 | 11 | [命令失败是正常迭代还是在原地打转](tasks/11-command-failures.md) | Phase 2 | accepted |
 | 12 | [trace 后台加 Eval 页（标注与复盘）](tasks/12-dashboard-eval-tab.md) | Phase 4 | accepted |
 | 13 | [Eval 页修正 + 让模型先分析一轮](tasks/13-eval-tab-fixes-and-judge.md) | Phase 4 | accepted（等 bob 首次真实分析） |
-| 14 | [5 个复盘问题 → 行为回归用例 + judge 脱敏](tasks/14-behavioral-regression-cases.md)（[报告](reports/14-behavioral-regression-cases.md)，已按第 1 轮核验修改） | Phase 4 | changes-requested |
+| 14 | [5 个复盘问题 → 行为回归用例 + judge 脱敏](tasks/14-behavioral-regression-cases.md)（[报告](reports/14-behavioral-regression-cases.md)，已按第 1、2 轮核验修改） | Phase 4 | in-review |
 
 状态取值：`ready`（可开工）· `in-review`（执行者已提交，等核验）· `changes-requested` · `accepted`。
