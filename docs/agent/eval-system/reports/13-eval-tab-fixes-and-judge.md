@@ -147,3 +147,25 @@ Playwright 完整流程：中文界面 → 默认未标注 → 标注进行中�
 - 真实会话的本地对比（不调模型）：168 个会话里，修改前拒绝 20 个，修改后 6 个，没有新增拒绝。剩下的 6 个在保留规定内容后仍超过 80,000 字符，会被明确拒绝。以后如果 bob 需要复盘这类会话，再单独设计分段复盘，不在这里放宽预算。
 
 仍未验证：真实模型调用（L3）。需要在单独的 worktree 里按锁文件安装新 runtime 后，由 bob 在页面上点第一次。
+
+## bob 试用反馈与第二次核验意见（规划者，2026-10-26）
+
+bob 在 worktree 里试用：页面显示「模型列表暂不可用」，点「重试读取模型」也一样，所以「让模型分析」一直是灰的。
+
+**规划者已复现并定位根因**（Node 24.11、按锁文件新装的 worktree、隔离的空 HOME，不涉及凭据和模型调用）：
+
+```
+rotom/bin/rotom-launcher --single-request -p --mode json --no-session --no-tools --no-extensions --no-mcp --list-models 2>/dev/null | wc -c
+0
+```
+
+`--mode json` 会触发 `takeOverStdout()`，把 `console.log` 改写到 stderr；而 `listModels()` 的 JSON 输出用的是 `console.log`，所以 JSON 全部进了 **stderr**，stdout 是空的。后台只解析 stdout，因此必然报 `models_unavailable`。fake launcher 直接把 JSON 写到 stdout，所以测试没能发现。合并 stdout 和 stderr 看时一切正常，这也是这个 bug 容易被看漏的原因。
+
+结论：**changes-requested**。
+
+1. **修根因**：`listModels` 的 json 分支改用 `output-guard.ts` 的 `writeRawStdout`（或等价方式），保证 JSON 只写到真正的 stdout，stderr 不混入。在 Pi fork 里补一个测试：在 stdout takeover 生效的前提下调用 json 模式的 list-models，断言 stdout 是一行合法 JSON、stderr 里没有它。改完按流程 `build:pi` / `check:pi` 并同步归档与 lock。
+2. **补真实路径检查（不调模型）**：新增一个可复跑的脚本（例如 `observability/eval-launcher-check.mjs`），用**真实的** launcher（不是 fake）跑后台用的同一条 `--list-models` 命令，复用后台的校验函数，输出：退出码、stdout 字节数、是否通过校验、模型数、默认模型是否在列表里。报告附运行结果。fake launcher 的测试保留，但要另加一个用例，模拟「JSON 写在 stderr、stdout 为空」的情况，断言页面给出明确的诊断，而不是笼统的「暂不可用」。
+3. **页面给出诊断原因**：模型列表失败时，按类别显示原因：launcher 不可执行、运行时校验失败（identity gate）、超时、退出码非 0、stdout 为空、JSON 不合法、模型 id 重复、默认模型不在列表中。再附一句可复制的排查命令（就是上面那条，不带 `2>/dev/null`）。stderr 原文可能含本机路径，**只在后台进程日志里打印，不进 API 响应**。
+4. **检查推理路径有没有同类问题**：`-p --mode json` 的事件流是否确实写到真正的 stdout。用 Pi 自带的 faux provider（`packages/ai/src/providers/faux.ts`）或其它离线方式，经真实 launcher 跑一次 `--single-request`，确认 `parseJudgeEvents` 能从 stdout 解析出 `message_end` 和 `agent_end`。做不到完全离线时，说明原因，不要调用真实付费模型。
+
+给 bob：本轮修好之后，worktree 里需要重新 `git pull` 并重装 `rotom/runtime/pi`（归档会变），然后重启后台。
