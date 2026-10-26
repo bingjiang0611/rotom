@@ -50,8 +50,9 @@
 | 04 | [付费受控回放：开/关两臂 × 3 个会触发压缩的合成任务](tasks/04-paid-replay.md) | `rotom/evals/`；04a 零费用，04b 需 bob 确认模型/次数/预算 | 04a accepted；04b 已执行一次（`609cfc1`），candidate 0 次卸载，无有效样本 |
 | 05 | [校准推迟判定 + 重新设计回放（零费用）](tasks/05-calibrate-and-rerun.md) | sol-pi `.rotom.5` + `rotom/` + `rotom/evals/` | accepted（`ebb5aa6`，sol-pi `.rotom.5`） |
 | 06 | [第二次付费回放](tasks/06-second-replay.md) | bob 本机 | 已执行一次（`57889d2`），首个 baseline 未达阈值即熔断，11 次请求，无有效样本；授权已消费 |
-| 07 | [让真实模型必然越过阈值（零费用）](tasks/07-pressure-redesign.md) | `rotom/evals/` | ready |
-| 08 | 第三次付费回放 | bob 本机 | 等 07 accepted 后申请授权 |
-| 09 | B 方案（后台提前压缩） | Pi fork | 搁置，看回放数据 |
+| 07 | [让真实模型必然越过阈值（零费用）](tasks/07-pressure-redesign.md) | `rotom/evals/` | accepted（`9c93646`）；发现每轮 20 次 read 时单批已超推迟目标 |
+| 08 | [单批读取占比接近生产（零费用）](tasks/08-batch-share.md) | `rotom/evals/` | ready |
+| 09 | 第三次付费回放 | bob 本机 | 等 08 accepted 后申请授权 |
+| 10 | B 方案（后台提前压缩） | Pi fork | 搁置，看回放数据 |
 
 状态取值：`ready`（可开工）· `in-review`（执行者已提交，等核验）· `changes-requested` · `accepted`。
