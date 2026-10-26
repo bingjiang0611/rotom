@@ -197,7 +197,7 @@ function evalClient(C, matchesFilter) {
 		box.append(make('h3', '', C.judge));
 		const latest = data.judgment?.latest;
 		if (latest) {
-			box.append(make('p', 'eval-meta', latest.model + ' · ' + C.judgeStatuses[latest.status] + ' · ' + C.elapsed + ' ' + Math.round(latest.durationMs / 1000)), make('p', 'eval-error', C.judgeFailures[latest.failure] || C.judgeStatuses[latest.status]), make('p', 'eval-muted', C.judgeFailureHint), make('p', 'eval-meta', C.historyCount + ' ' + data.judgment.historyCount), make('p', 'eval-meta', C.tokenCount + ' ' + number(latest.usage?.input) + ' / ' + number(latest.usage?.output)), make('p', 'eval-meta', latest.usage?.costUsd == null ? C.actualCost : format(C.estimatedCost, { cost: latest.usage.costUsd })));
+			box.append(make('p', 'eval-meta', latest.model + ' · ' + C.judgeStatuses[latest.status] + ' · ' + C.elapsed + ' ' + Math.round(latest.durationMs / 1000)), make('p', 'eval-error', C.judgeFailures[latest.failure] || C.judgeStatuses[latest.status]), make('p', 'eval-muted', C.judgeFailureHint), ...(latest.rawOutput ? [make('pre', 'eval-detail-error', latest.rawOutput)] : []), make('p', 'eval-meta', C.historyCount + ' ' + data.judgment.historyCount), make('p', 'eval-meta', C.tokenCount + ' ' + number(latest.usage?.input) + ' / ' + number(latest.usage?.output)), make('p', 'eval-meta', latest.usage?.costUsd == null ? C.actualCost : format(C.estimatedCost, { cost: latest.usage.costUsd })));
 			if (latest.atEntryId !== data.atEntryId) box.append(make('p', 'eval-notice', C.analysisProgressed));
 			if (latest.status === 'ok') {
 				const result = latest.result;

@@ -31,7 +31,7 @@ export const COPY = {
 	confirmTitle: "确认发送会话内容", confirmDetails: "模型：{model}\n发送字符数：{count}\n内容截断：{truncated}", yes: "是", no: "否",
 	consent: "会话内容会发送给所选模型的服务商；费用以服务商报告为准，缺失时显示未知。", confirmJudge: "确认并分析", cancel: "取消",
 	judging: "正在分析，请勿重复提交", judgingElapsed: "正在分析 · 已等待 {seconds} 秒 · 请勿重复提交", cancelling: "正在取消，等待子进程结束", judgeStartUnknown: "分析是否启动尚不确定，请刷新会话核对；不要重复提交。",
-	judgeFailures: { output_truncated: "模型回复被截断（达到输出上限或超长），没有拿到完整结论", invalid_output: "模型回复不是符合要求的 JSON", incomplete_model_response: "模型回复不完整，没有正常结束", launcher_failed: "分析进程异常退出", launcher_unavailable: "找不到可执行的分析入口" },
+	judgeFailures: { provider_error: "服务商返回错误，本次分析没有拿到回复", output_truncated: "模型回复被截断（达到输出上限或超长），没有拿到完整结论", invalid_output: "模型回复不是符合要求的 JSON", incomplete_model_response: "模型回复不完整，没有正常结束", launcher_failed: "分析进程异常退出", launcher_unavailable: "找不到可执行的分析入口" },
 	judgeFailureHint: "换一个上下文更长或更简洁的模型重试；失败记录已保留，可在历史中查看。",
 	judgeStatusUnknown: "无法读取分析状态，请刷新核对；不要重复提交。", judgmentSaved: "分析已结束", alreadyJudged: "已有模型分析",
 	judgeStatuses: { ok: "已完成", invalid_output: "输出格式不合格", failed: "分析失败", timeout: "分析超时", cancelled: "已取消" },

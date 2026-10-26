@@ -226,13 +226,13 @@ test("failure, invalid JSON, timeout, cancellation and output limits are termina
 test("truncated model replies are reported as truncation, not format errors", async (t) => {
 	const { judge, fake, directory } = await fixture(t);
 	await judge.models();
-	for (const mode of ["truncated", "oversized"]) {
+	for (const mode of ["truncated", "oversized", "provider-error"]) {
 		await writeFile(fake.control, JSON.stringify({ mode }));
 		const prepared = await judge.prepare(input), job = judge.start({ confirmationId: prepared.confirmationId });
 		const terminal = await done(judge, job.runId);
 		assert.equal(terminal.status, "failed");
 		const stored = (await latestJudgments(directory)).get(input.sessionId);
-		assert.equal(stored.latest.failure, "output_truncated", mode);
+		assert.equal(stored.latest.failure, mode === "provider-error" ? "provider_error" : "output_truncated", mode);
 	}
 });
 

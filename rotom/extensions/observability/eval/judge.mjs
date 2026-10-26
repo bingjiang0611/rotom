@@ -54,7 +54,13 @@ export function parseJudgeEvents(stdout, eventIds) {
 		rawOutput = (message?.content ?? []).filter((part) => part.type === "text").map((part) => part.text).join("");
 		usage = usageOf(message);
 		if (!ended || messages.length !== 1) return { status: "failed", result: null, usage, failure: "incomplete_model_response" };
-		if (message.stopReason !== "stop") return { status: "failed", result: null, usage, failure: "output_truncated" };
+		if (message.stopReason !== "stop") {
+			// Keep the provider's own bounded reason so the operator can act on it;
+			// "error"/"aborted" are not truncation and must not be reported as such.
+			const reason = message.stopReason === "length" || message.stopReason === "max_tokens" ? "output_truncated" : message.stopReason === "aborted" ? "cancelled" : "provider_error";
+			const detail = preview(String(message.errorMessage ?? rawOutput ?? ""), 800);
+			return { status: "failed", result: null, usage, failure: reason, ...(detail.text ? { rawOutput: detail.text } : {}) };
+		}
 		return { status: "ok", result: validateJudgment(JSON.parse(rawOutput), eventIds), usage };
 	} catch {
 		// A JSON body that stops mid-object is a truncation, not a format error.
@@ -107,6 +113,9 @@ export function createJudgeService({ evalService, directory, launcher = JUDGE_LA
 		let value;
 		try {
 			const output = await invoke([...JUDGE_BASE_ARGS, "--model", prepared.model], prepared.prompt, current.controller.signal, timeoutMs);
+			// Local-only diagnostics: never forwarded to the API, trace records,
+			// or judgments.
+			if (output.stderr) console.error("[rotom-eval judge]\n" + preview(output.stderr, 2_000).text);
 			const outcome = output.terminal.outcome;
 			value = outcome === "exited" && output.code === 0 ? parseJudgeEvents(output.stdout, prepared.eventIds)
 				: { status: outcome === "timeout" ? "timeout" : outcome === "aborted" ? "cancelled" : "failed", result: null, usage: usageOf(null), failure: outcome === "output-limit" ? "output_truncated" : outcome === "exited" ? "launcher_failed" : outcome };

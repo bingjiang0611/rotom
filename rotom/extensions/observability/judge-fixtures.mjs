@@ -15,6 +15,10 @@ if(args.includes('--list-models')){if(control.modelsFail)process.exit(7);const c
 if(control.mode==='hang'){setInterval(()=>{},1000);}
 else if(control.mode==='fail'){console.error('synthetic launcher failure');process.exit(7);}
 else if(control.mode==='oversized'){process.stdout.write('x'.repeat(6*1024*1024));setInterval(()=>{},1000);}
+else if(control.mode==='provider-error'){
+ const message={role:'assistant',stopReason:'error',errorMessage:'synthetic provider rejected the request',content:[],usage:{input:0,output:0}};
+ console.log(JSON.stringify({type:'message_end',message}));console.log(JSON.stringify({type:'agent_end',messages:[message]}));
+}
 else if(control.mode==='truncated'){
  const message={role:'assistant',stopReason:'length',content:[{type:'text',text:'{"suggestedVerdict":"pass","summary":"合成复盘被截'}],usage:{input:100,output:8000}};
  console.log(JSON.stringify({type:'message_end',message}));console.log(JSON.stringify({type:'agent_end',messages:[message]}));
