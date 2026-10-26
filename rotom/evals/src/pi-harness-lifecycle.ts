@@ -18,6 +18,9 @@ export function normalizeSteps(input: PiCodingAgentInput): PiCodingAgentStep[] {
 	return Array.isArray(input) ? input : input.steps;
 }
 
+// Distinguish a persisted incomplete response from setup, grading or cleanup failures.
+export class IncompleteAssistantResponseError extends Error {}
+
 export function latestAssistantResponse(session: AgentSession, previousEntryCount: number, allowEmpty = false): string {
 	const assistant = session.sessionManager.getBranch()
 		.slice(previousEntryCount)
@@ -25,7 +28,7 @@ export function latestAssistantResponse(session: AgentSession, previousEntryCoun
 		.flatMap((entry) => entry.type === "message" && entry.message.role === "assistant" ? [entry.message] : [])[0];
 	if (!assistant) throw new Error("Agent run completed without an assistant message.");
 	if (assistant.stopReason !== "stop") {
-		throw new Error(assistant.errorMessage ?? `Agent run ended with unexpected stop reason: ${assistant.stopReason}.`);
+		throw new IncompleteAssistantResponseError(assistant.errorMessage ?? `Agent run ended with unexpected stop reason: ${assistant.stopReason}.`);
 	}
 	const output = contentText(assistant.content);
 	if (!output && !allowEmpty) throw new Error("Agent run produced no assistant text.");

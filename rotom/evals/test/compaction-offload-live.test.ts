@@ -55,7 +55,7 @@ it("captures the original credential/model paths without reading them during reg
 	expect(fetch).not.toHaveBeenCalled();
 });
 
-const model = { provider: FAUX_MODEL.provider, id: FAUX_MODEL.id, api: "faux" } as any;
+const model = { provider: FAUX_MODEL.provider, id: FAUX_MODEL.id, api: "faux", contextWindow: 256_000 } as any;
 function message(): AssistantMessage {
 	return { role: "assistant", provider: model.provider, model: model.id, api: model.api, content: [], stopReason: "stop", timestamp: 1,
 		usage: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, totalTokens: 10, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } };
@@ -73,7 +73,7 @@ it("stops exactly before N+1 and counts separate usage before the next request",
 	expect(() => (runtime.streamSimple as any)(model, { messages: [] })).toThrow("request-limit");
 	expect(original).toHaveBeenCalledTimes(2);
 	await budget.settled();
-	expect(budget.snapshot()).toEqual({ requests: 2, input: 2, output: 4, cacheRead: 6, cacheWrite: 8, usageKnown: true, stopReason: "request-limit" });
+	expect(budget.snapshot()).toEqual({ requests: 2, input: 2, output: 4, cacheRead: 6, cacheWrite: 8, usageKnown: true, pessimisticRequests: 0, stopReason: "request-limit" });
 });
 
 it("the token fuse includes cacheRead and cacheWrite, not just input", async () => {
@@ -86,14 +86,14 @@ it("the token fuse includes cacheRead and cacheWrite, not just input", async () 
 	expect(budget.snapshot().requests).toBe(1);
 });
 
-it("unknown stream usage settles as failure and cannot silently reuse the budget", async () => {
+it("unknown stream usage is charged a context window and reaches the input limit", async () => {
 	const budget = new ReplayBudget({ maxRequests: 20, maxInputTokens: 100 });
 	const runtime = { streamSimple: () => { const stream = new AssistantMessageEventStream(); stream.end(); return stream; } };
 	budget.instrument(runtime as any, AssistantMessageEventStream, { provider: model.provider, model: model.id });
 	const result = await (runtime.streamSimple as any)(model, { messages: [] }).result();
 	expect(result.stopReason).toBe("error");
-	expect(budget.snapshot()).toMatchObject({ requests: 1, usageKnown: false, stopReason: "usage-unknown" });
-	expect(() => (runtime.streamSimple as any)(model, { messages: [] })).toThrow("usage-unknown");
+	expect(budget.snapshot()).toMatchObject({ requests: 1, input: 256_000, usageKnown: false, pessimisticRequests: 1, stopReason: "input-limit" });
+	expect(() => (runtime.streamSimple as any)(model, { messages: [] })).toThrow("input-limit");
 });
 
 it("waits for in-flight usage even after another request was refused", async () => {

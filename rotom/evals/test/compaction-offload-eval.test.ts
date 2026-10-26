@@ -55,6 +55,9 @@ it.each(REPLAY_TASKS)("$id: real product faux arms share prompt/schema and cross
 		expect(output.correct).toBe(true);
 		expect(output.usageComplete).toBe(true);
 		expect(output.coverageNudges).toBe(0);
+		expect(output.errors).toEqual([]);
+		expect(output.recalls).toHaveLength(output.obsRecallCalls);
+		for (const recall of output.recalls) expect(recall).toMatchObject({ offloaded: true, offloadIndex: 1, resultError: false });
 		expect(output.phase1ReadCallsByTurn).toEqual([1, ...Array(task.reading.length).fill(1), 0]);
 		expect(output.estimatedCostUsd).toBeNull(); // faux zero price is not a real provider quote
 		expect(observations[index]!.config).toEqual(REPLAY_CONFIG);

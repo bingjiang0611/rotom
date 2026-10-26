@@ -6,6 +6,7 @@ import { createHarness } from "vitest-evals/harness";
 import { createReplayHarness, REPLAY_KEEP_RECENT, REPLAY_PRODUCT, REPLAY_THRESHOLD, type ReplayTask } from "./compaction-offload-cases.ts";
 import { ReplayBudget, type ReplayAuthorization } from "./compaction-offload-budget.ts";
 import { summarizeLiveReplay } from "./compaction-offload-metrics.ts";
+import { IncompleteAssistantResponseError } from "./pi-harness-lifecycle.ts";
 import { createReplayStore, type LiveReplayRow } from "./compaction-offload-store.ts";
 import type { PiCodingAgentHarnessOptions, PiCodingAgentInput } from "./pi-harness.ts";
 
@@ -27,7 +28,7 @@ export function createLiveReplayCampaign(authorization: ReplayAuthorization, opt
 	let storePromise: ReturnType<typeof createReplayStore> | undefined;
 	let persistenceFailed = false;
 	let running = false;
-	let invalidRuns = 0;
+	let unusableRuns = 0;
 	const rows: LiveReplayRow[] = [];
 	const git = (args: string[]) => {
 		const result = spawnSync("git", ["-C", REPLAY_PRODUCT, ...args], { encoding: "utf8" });
@@ -38,8 +39,9 @@ export function createLiveReplayCampaign(authorization: ReplayAuthorization, opt
 	const sourceDirty = git(["status", "--porcelain"]) !== "";
 	return {
 		budget,
-		summary: () => ({ ...summarizeLiveReplay(rows), stopReason: budget.snapshot().stopReason }),
+		summary: () => ({ ...summarizeLiveReplay(rows), cumulative: budget.snapshot(), stopReason: budget.snapshot().stopReason }),
 		harness(task: ReplayTask, candidate: boolean, repetition: number) {
+			if (authorization.tasks && !authorization.tasks.includes(task.id)) throw new Error("Replay task is not authorized");
 			let contextWindow: number | null = null;
 			const harness = createReplayHarness(task, candidate, {
 				model: { provider: authorization.provider, id: authorization.model }, thinkingLevel: authorization.thinking,
@@ -68,6 +70,7 @@ export function createLiveReplayCampaign(authorization: ReplayAuthorization, opt
 						metrics: null, cumulative: budget.snapshot(),
 					};
 					const before = budget.snapshot();
+					const providerFailuresBefore = budget.providerFailures;
 					if (running) budget.halt("run-error"); // This campaign requires serial runs.
 					const abort = () => budget.halt("run-error");
 					if (signal?.aborted) abort();
@@ -85,9 +88,13 @@ export function createLiveReplayCampaign(authorization: ReplayAuthorization, opt
 								budget.halt("decision-ledger-incomplete");
 								row.status = "failed";
 							}
-						} catch {
-							budget.halt("run-error");
+						} catch (error) {
+							// Require both a provider failure and an incomplete persisted response.
+							// Setup/grading/cleanup errors (including AggregateError) still halt.
+							const providerError = !signal?.aborted && error instanceof IncompleteAssistantResponseError && budget.providerFailures > providerFailuresBefore;
+							if (!providerError) budget.halt("run-error");
 							row.status = "failed";
+							row.reason = providerError ? "provider-error" : "run-error";
 							row.metrics = harness.failureMetrics();
 						} finally {
 							// Include any aborted sibling summary/cache-warming stream.
@@ -97,14 +104,16 @@ export function createLiveReplayCampaign(authorization: ReplayAuthorization, opt
 						}
 					}
 					const after = budget.snapshot();
-					if (row.status === "completed" && (!after.usageKnown || signal?.aborted)) row.status = "failed";
+					if (row.status === "completed" && (signal?.aborted || after.stopReason === "run-error")) row.status = "failed";
 					if (row.status === "completed" && row.metrics!.thresholdCompactions === 0) {
 						if (after.stopReason) row.status = "failed";
 						else {
 							row.status = "invalid";
 							row.reason = "threshold-not-reached";
-							if (++invalidRuns >= 3) budget.halt("threshold-not-reached");
 						}
+					}
+					if (row.status === "invalid" || (row.status === "failed" && row.reason === "provider-error")) {
+						if (++unusableRuns >= 3) budget.halt(row.reason!);
 					}
 					if (row.metrics) {
 						// Dispatch usage also covers failed summaries not committed as a
@@ -113,7 +122,7 @@ export function createLiveReplayCampaign(authorization: ReplayAuthorization, opt
 						row.metrics.outputTokens = after.output - before.output;
 						row.metrics.cacheRead = after.cacheRead - before.cacheRead;
 						row.metrics.cacheWrite = after.cacheWrite - before.cacheWrite;
-						row.metrics.usageComplete = after.usageKnown;
+						row.metrics.usageComplete = after.pessimisticRequests === before.pessimisticRequests;
 						row.metrics.estimatedCostUsd = null;
 						row.metrics.wallMs = performance.now() - started;
 					}
@@ -121,7 +130,7 @@ export function createLiveReplayCampaign(authorization: ReplayAuthorization, opt
 					row.reserveTokens = contextWindow !== null && contextWindow > REPLAY_THRESHOLD ? contextWindow - REPLAY_THRESHOLD : null;
 					row.keepRecentTokens = row.reserveTokens !== null ? REPLAY_KEEP_RECENT : null;
 					row.cumulative = budget.snapshot();
-					row.reason = row.cumulative.stopReason ?? row.reason;
+					if (row.reason !== "provider-error") row.reason = row.cumulative.stopReason ?? row.reason;
 					try { await store.append(row); rows.push(row); }
 					catch (error) { persistenceFailed = true; budget.halt("persistence-error"); throw error; }
 					// The outer transcript identifies the case, not a simulated assistant reply.

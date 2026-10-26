@@ -15,7 +15,7 @@ export type FauxObservation = {
 	requestControls?: { transport?: string; maxRetries?: number }[];
 };
 /** Only scripted local responses. No credentials, network provider, or generated judgment. */
-export function replayFaux(selected: ReplayTask, observation: FauxObservation, stress = false, profile = { model: FAUX_MODEL, contextWindow: 256_000, reasoning: false }, script: { batchSize?: number; phase1ReadLimit?: number; resumeAfterNudge?: boolean; pressure?: "no_candidates" | "insufficient_savings" } = {}): NonNullable<PiCodingAgentHarnessOptions["modelRuntimeFactory"]> {
+export function replayFaux(selected: ReplayTask, observation: FauxObservation, stress = false, profile = { model: FAUX_MODEL, contextWindow: 256_000, reasoning: false }, script: { batchSize?: number; phase1ReadLimit?: number; resumeAfterNudge?: boolean; recallBatches?: boolean; pressure?: "no_candidates" | "insufficient_savings" } = {}): NonNullable<PiCodingAgentHarnessOptions["modelRuntimeFactory"]> {
 	return async ({ product, configDir }) => {
 		const { fauxProvider, fauxAssistantMessage, fauxToolCall } = await import(pathToFileURL(resolve(product.verified.packageRoot, "../pi-ai/dist/providers/faux.js")).href);
 		const { getCurrentSystemPrompt, getCurrentTools } = await import(pathToFileURL(resolve(product.verified.packageRoot, "../pi-ai/dist/index.js")).href);
@@ -31,6 +31,7 @@ export function replayFaux(selected: ReplayTask, observation: FauxObservation, s
 		let readLimit = script.phase1ReadLimit ?? selected.reading.length;
 		let solutionIndex = 0, ordinaryRead = false, ordinaryRecall = false, inflated = false;
 		let callId = 0, ordinaryWait = 0, pressureSent = false;
+		let extraReads = 0, batchRecalls = 0;
 		const readCallIds = new Map<string, string>();
 		const call = (name: string, args: Record<string, unknown>) => fauxAssistantMessage(fauxToolCall(name, args, { id: `scripted-${++callId}` }), { stopReason: "toolUse" });
 		const response = (context: any, options: any) => {
@@ -71,7 +72,23 @@ export function replayFaux(selected: ReplayTask, observation: FauxObservation, s
 					return fauxToolCall("read", { path }, { id });
 				}), { stopReason: "toolUse" });
 			}
+			// A test-only trajectory adds reads, not fixture bytes or prompt changes,
+			// to produce a second offload batch before checking both original IDs.
+			if (script.recallBatches && extraReads < 40) {
+				const paths = selected.reading.slice(-40).slice(extraReads, extraReads + 10);
+				extraReads += paths.length;
+				return fauxAssistantMessage(paths.map(path => fauxToolCall("read", { path }, { id: `scripted-${++callId}` })), { stopReason: "toolUse" });
+			}
 			if (!ready) { ready = true; return fauxAssistantMessage("READY"); }
+			if (script.recallBatches && batchRecalls < 3) {
+				const index = batchRecalls++;
+				if (index === 2) { recalled = true; return call("obs_recall", { id: "obs_000000000000000000000000", offset: 0 }); }
+				const target = selected.reading[index === 0 ? 0 : 100]!;
+				const result = context.messages.find((m: any) => m.role === "toolResult" && m.toolCallId === readCallIds.get(target));
+				const id = result && text(result).match(/obs_[a-f0-9]{24}/u)?.[0];
+				if (!id) throw new Error("Expected batch offload pointer");
+				return call("obs_recall", { id, offset: 0 });
+			}
 			if (!recalled) {
 				recalled = true;
 				const target = selected.id === "config-aggregate" ? "modules/module-2.mjs" : selected.reading[0]!;

@@ -29,6 +29,18 @@ export async function readOffloadDecisions(sessionDir: string, sessionId: string
 	});
 }
 
+export type RecallMetric = { turn: number; offloaded: boolean; offloadIndex: number | null; resultError: boolean | null };
+export type ReplayErrorCategory = "timeout" | "connection" | "rate_limit" | "http_4xx" | "http_5xx" | "stream_terminated" | "other";
+export function classifyReplayError(text = ""): ReplayErrorCategory {
+	if (/timeout|timed? out|ETIMEDOUT/iu.test(text)) return "timeout";
+	if (/rate.?limit|too many requests|\b429\b/iu.test(text)) return "rate_limit";
+	if (/(?:^|\b(?:http|status(?:code)?)\s*[:=]?\s*)4\d\d\b/iu.test(text)) return "http_4xx";
+	if (/(?:^|\b(?:http|status(?:code)?)\s*[:=]?\s*)5\d\d\b/iu.test(text)) return "http_5xx";
+	if (/Replay stream failed|\bterminated\b|unexpected (?:EOF|end)|stream.*(?:closed|ended|abort)/iu.test(text)) return "stream_terminated";
+	if (/connection|fetch failed|network|socket|ECONN|ENOTFOUND|EAI_AGAIN|\bDNS\b|\bTLS\b/iu.test(text)) return "connection";
+	return "other";
+}
+
 export type ReplayMetrics = {
 	correct: boolean; thresholdCompactions: number; nativeCompactions: number; deferred: number;
 	compactionWaitMs: number; obsRecallCalls: number; recalledOffloaded: number; offloadedResults: number;
@@ -40,6 +52,8 @@ export type ReplayMetrics = {
 	contextPeak: number; contextByTurn: number[];
 	phase1ReadCallsByTurn: number[];
 	coverageNudges: number;
+	recalls: RecallMetric[];
+	errors: { turn: number; stopReason: "error" | "aborted"; category: ReplayErrorCategory }[];
 };
 
 /** Must be installed before cancellable product handlers; never changes an event. */
@@ -86,7 +100,11 @@ export function createReplayMetrics(now = () => performance.now(), manifestFiles
 			if (pending !== undefined) throw new Error("Unfinished compaction observation");
 			let turns = 0, toolCalls = 0, obsRecallCalls = 0, recalledOffloaded = 0, offloadedResults = 0;
 			let inputTokens = 0, outputTokens = 0, cacheRead = 0, cacheWrite = 0, cost = 0, usageComplete = true;
-			const ids = new Set<string>();
+			const ids = new Map<string, number>();
+			let offloadIndex = 0;
+			const recalls: RecallMetric[] = [];
+			const recallCalls = new Map<string, RecallMetric>();
+			const errors: ReplayMetrics["errors"] = [];
 			const toolNames: Record<string, number> = Object.create(null);
 			const contextByTurn: number[] = [];
 			const phase1ReadCallsByTurn: number[] = [];
@@ -103,6 +121,8 @@ export function createReplayMetrics(now = () => performance.now(), manifestFiles
 			for (const entry of entries as Entry[]) {
 				if (entry.type === "message" && entry.message.role === "user") phase = ++userTurns <= 1 + coverageNudges ? "reading" : "done";
 				if (entry.type === "message" && entry.message.role === "toolResult") {
+					const recall = recallCalls.get(entry.message.toolCallId);
+					if (recall) recall.resultError = entry.message.isError;
 					const read = phase1Reads.get(entry.message.toolCallId);
 					if (read && !entry.message.isError) {
 						readFiles.add(read.path);
@@ -111,7 +131,8 @@ export function createReplayMetrics(now = () => performance.now(), manifestFiles
 					}
 				}
 				if (entry.type === "custom" && entry.customType === OFFLOAD_ENTRY) {
-					for (const id of entry.data!.observationIds) ids.add(id);
+					offloadIndex++;
+					for (const id of entry.data!.observationIds) ids.set(id, offloadIndex);
 					offloadedResults += entry.data!.toolCallIds.length;
 				}
 				if (entry.type === "message" && entry.message.role === "assistant") {
@@ -119,7 +140,10 @@ export function createReplayMetrics(now = () => performance.now(), manifestFiles
 					addUsage(entry.message.usage);
 					const usage = entry.message.usage;
 					contextByTurn.push(usage.input + usage.cacheRead + usage.cacheWrite);
-					if (["error", "aborted"].includes(entry.message.stopReason)) usageComplete = false;
+					if (entry.message.stopReason === "error" || entry.message.stopReason === "aborted") {
+						usageComplete = false;
+						errors.push({ turn: turns, stopReason: entry.message.stopReason, category: classifyReplayError(entry.message.errorMessage) });
+					}
 					let readCalls = 0;
 					for (const part of entry.message.content) if (part.type === "toolCall") {
 						if (part.name === "read") readCalls++;
@@ -134,7 +158,11 @@ export function createReplayMetrics(now = () => performance.now(), manifestFiles
 						}
 						if (part.name === "obs_recall") {
 							obsRecallCalls++;
-							if (ids.has(String(part.arguments.id))) recalledOffloaded++;
+							const index = ids.get(String(part.arguments.id)) ?? null;
+							if (index !== null) recalledOffloaded++;
+							const recall = { turn: turns, offloaded: index !== null, offloadIndex: index, resultError: null };
+							recalls.push(recall);
+							recallCalls.set(part.id, recall);
 						}
 					}
 					if (phase === "reading") {
@@ -153,7 +181,7 @@ export function createReplayMetrics(now = () => performance.now(), manifestFiles
 				cacheRead, cacheWrite, estimatedCostUsd: hasPricing && usageComplete ? cost : null,
 				usageComplete, wallMs: now() - started, thresholdAtTurns: [...thresholdAtTurns], offloadDecisions,
 				toolNames, phase1Coverage: { readFiles: readFiles.size, totalFiles: manifest.size, partialReads },
-				contextPeak: Math.max(0, ...contextByTurn), contextByTurn, phase1ReadCallsByTurn, coverageNudges };
+				contextPeak: Math.max(0, ...contextByTurn), contextByTurn, phase1ReadCallsByTurn, coverageNudges, recalls, errors };
 		},
 	};
 }
@@ -188,6 +216,10 @@ export function summarizeLiveReplay(rows: readonly LiveReplayRow[]) {
 		executedRuns: executed.length,
 		rawRuns: executed.map(({ task, arm, repetition, status, reason, metrics }) => ({ task, arm, repetition, status, reason, metrics })),
 		invalidRuns: rows.filter(row => row.status === "invalid").length,
+		providerErrorRuns: rows.filter(row => row.status === "failed" && row.reason === "provider-error").length,
+		unusableRuns: rows.filter(row => row.status === "invalid" || (row.status === "failed" && row.reason === "provider-error")).length,
+		inputAccounting: "reported-or-context-window" as const,
+		outputAccounting: "reported-subtotal" as const,
 		validPairs: pairs.length,
 		baseline: pairs.length ? summarizeReplay(pairs.map(pair => pair.baseline!)) : null,
 		candidate: pairs.length ? summarizeReplay(pairs.map(pair => pair.candidate!)) : null,

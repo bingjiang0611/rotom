@@ -17,9 +17,11 @@ if (process.env.ROTOM_EVAL_COMPACTION_OFFLOAD !== "1" && !live) {
 	});
 } else if (live) {
 	const plan = validateLiveReplay(process.env, LIVE_AUTHORIZATION);
+	if (plan.tasks?.some(id => !REPLAY_TASKS.some(task => task.id === id))) throw new Error("Unknown authorized replay task");
+	const tasks = REPLAY_TASKS.filter(task => !plan.tasks || plan.tasks.includes(task.id));
 	const campaign = createLiveReplayCampaign(plan.authorization, { repetitions: plan.repetitions });
 	afterAll(() => { console.log(JSON.stringify({ compactionOffloadPairedSummary: campaign.summary() })); });
-	for (const task of REPLAY_TASKS) for (let repetition = 1; repetition <= plan.repetitions; repetition++) {
+	for (const task of tasks) for (let repetition = 1; repetition <= plan.repetitions; repetition++) {
 		for (const candidate of repetition % 2 ? [false, true] : [true, false]) {
 			const arm = candidate ? "candidate" : "baseline";
 			describeEval(`${task.id}: ${arm} repetition ${repetition}`, {
@@ -29,9 +31,9 @@ if (process.env.ROTOM_EVAL_COMPACTION_OFFLOAD !== "1" && !live) {
 				}))], judgeThreshold: null,
 			}, (test) => { test(task.id, { timeout: LIVE_REPLAY_TIMEOUT_MS }, async ({ run, skip }) => {
 				const { output } = await run(task.scenario);
-				// An invalid sample is recorded but not a success or a --bail failure.
-				// The third invalid sample has a campaign stopReason and must stop the CLI.
-				if (output.status === "invalid" && !output.cumulative.stopReason) skip("Invalid compaction sample: threshold not reached");
+				// Unusable samples stay recorded; only the campaign stop triggers --bail.
+				const unusable = output.status === "invalid" || (output.status === "failed" && output.reason === "provider-error");
+				if (unusable && !output.cumulative.stopReason) skip("Unusable replay sample");
 				expect(output.status).toBe("completed");
 				expect(output.metrics?.correct).toBe(true);
 			}); });

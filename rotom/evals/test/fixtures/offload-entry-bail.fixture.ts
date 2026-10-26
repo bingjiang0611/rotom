@@ -10,12 +10,14 @@ vi.mock("../../src/compaction-offload-cases.ts", async () => ({
 vi.mock("../../src/compaction-offload-live.ts", async () => {
 	const { createHarness } = await import("vitest-evals/harness");
 	return { createLiveReplayCampaign: () => ({
-		summary: () => ({ executedRuns: state.executed }),
+		summary: () => ({ executedRuns: state.executed, unusableRuns: 3 }),
 		harness: () => createHarness({ name: "entry-faux", run() {
 			const index = ++state.executed;
 			if (index > 4) throw new Error("Bail did not stop the campaign");
-			return { output: { status: index === 2 ? "completed" : "invalid", metrics: { correct: true },
-				cumulative: { stopReason: index === 4 ? "threshold-not-reached" : null } },
+			const provider = index === 1 || index === 4;
+			return { output: { status: provider ? "failed" : index === 2 ? "completed" : "invalid",
+				reason: provider ? "provider-error" : index === 3 ? "threshold-not-reached" : null, metrics: { correct: !provider },
+				cumulative: { stopReason: index === 4 ? "provider-error" : null } },
 				events: [{ type: "message" as const, role: "user" as const, content: "synthetic case" }] };
 		} }),
 	}) };
