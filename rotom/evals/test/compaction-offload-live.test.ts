@@ -122,20 +122,20 @@ it("persists completed, budget-failed and not-run rows, without model bodies", a
 	const directory = await temporary();
 	const observation = observed();
 	const factory = vi.fn(replayFaux(task, observation, false, profile(), { batchSize: 10 }));
-	const campaign = createLiveReplayCampaign({ ...auth(), maxRequests: 18 }, { directory, runtimeFactory: factory });
+	const campaign = createLiveReplayCampaign({ ...auth(), maxRequests: 20 }, { directory, runtimeFactory: factory });
 	const first = await campaign.harness(task, false, 1).run(task.scenario, context());
 	expect(first.output.status).toBe("completed");
 	expect(first.output.metrics?.correct).toBe(true);
 	expect(first.output.transport).toBe("sse");
 	expect(first.output.repetitions).toBe(3);
-	expect(first.output.cumulative.requests).toBe(16); // checker runs only in the grader, not via a model bash turn
+	expect(first.output.cumulative.requests).toBe(18); // leave two requests for the next run's budget-failure fixture
 	expect((await rows(directory)).lines).toHaveLength(1); // durable before run 2
 	const second = await campaign.harness(task, true, 1).run(task.scenario, context());
 	const third = await campaign.harness(task, false, 2).run(task.scenario, context());
-	expect(second.output).toMatchObject({ status: "failed", reason: "request-limit", cumulative: { requests: 18 } });
-	expect(third.output).toMatchObject({ status: "not-run", metrics: null, contextWindow: null, cumulative: { requests: 18 } });
+	expect(second.output).toMatchObject({ status: "failed", reason: "request-limit", cumulative: { requests: 20 } });
+	expect(third.output).toMatchObject({ status: "not-run", metrics: null, contextWindow: null, cumulative: { requests: 20 } });
 	expect(factory).toHaveBeenCalledTimes(2);
-	expect(observation.requests).toHaveLength(18);
+	expect(observation.requests).toHaveLength(20);
 	const saved = await rows(directory);
 	expect(saved.lines).toEqual([first.output, second.output, third.output]);
 	expect((await stat(directory)).mode & 0o777).toBe(0o700);
@@ -158,12 +158,12 @@ it("the observed input-token cap stops an actual faux run before its next reques
 
 it("the shared fuse also prevents a native summary dispatch at the limit", async () => {
 	const directory = await temporary(); const observation = observed(); const task = REPLAY_TASKS[0]!;
-	const campaign = createLiveReplayCampaign({ ...auth(), maxRequests: 30 }, { directory, runtimeFactory: replayFaux(task, observation, false, profile()) });
+	const campaign = createLiveReplayCampaign({ ...auth(), maxRequests: 5 }, { directory, runtimeFactory: replayFaux(task, observation, false, profile(), { batchSize: 20 }) });
 	const result = await campaign.harness(task, false, 1).run(task.scenario, context());
-	expect(result.output).toMatchObject({ status: "failed", reason: "request-limit", cumulative: { requests: 30 }, metrics: { thresholdCompactions: 2, nativeCompactions: 0 } });
+	expect(result.output).toMatchObject({ status: "failed", reason: "request-limit", cumulative: { requests: 5 }, metrics: { thresholdCompactions: 2, nativeCompactions: 0 } });
 	// Pi checks the threshold before and after the failed turn; neither
 	// preparation is allowed to become a provider summary request.
-	expect(observation.requests).toHaveLength(30); expect(observation.summaryCalls).toBe(0);
+	expect(observation.requests).toHaveLength(5); expect(observation.summaryCalls).toBe(0);
 }, 90_000);
 
 it.each([192_000, 320_000])("uses actual model window %s, and budgets native summaries too", async (window) => {
@@ -176,7 +176,7 @@ it.each([192_000, 320_000])("uses actual model window %s, and budgets native sum
 	expect(observation.reasoning).toBe("low");
 	expect(observation.requestControls).toHaveLength(observation.requests.length);
 	expect(observation.requestControls!.every((o) => o.transport === "sse" && o.maxRetries === 0)).toBe(true);
-	expect(observation.summaryCalls).toBe(2);
+	expect(observation.summaryCalls).toBe(1);
 	expect(observation.requests.filter((r) => r.summary).every((r) => r.maxTokens === null)).toBe(true);
 	expect(result.output.cumulative.requests).toBe(observation.requests.length);
 	expect(result.output.cumulative.requests).toBe(result.output.metrics!.turns + observation.summaryCalls);

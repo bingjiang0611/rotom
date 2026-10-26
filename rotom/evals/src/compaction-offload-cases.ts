@@ -26,8 +26,8 @@ function padded(key: string, body: string) {
 	const next = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed; };
 	const code = key.startsWith("module-") || key.startsWith("src/");
 	const lines: string[] = [];
-	let bytes = 0;
-	while (bytes < 8192) {
+	let bytes = Buffer.byteLength(body) + 1;
+	while (bytes < 3072) {
 		const i = lines.length, worker = next() % 32, duration = next() % 900, count = next() % 10000;
 		const line = i % 3 === 0
 			? `2026-01-15T12:${String(i % 60).padStart(2, "0")}:00Z INFO worker-${worker} processed audit batch ${count}; duration_ms=${duration}; status=ok`
@@ -35,19 +35,21 @@ function padded(key: string, body: string) {
 				? JSON.stringify({ component: key, batch: count, worker, durationMs: duration, retries: i % 4, cache: i % 2 ? "hit" : "miss" })
 				: `const checkpoint${i} = { accepted: ${count}, elapsed: ${duration}, worker: ${worker} }; // Validate before reporting the result.`;
 		const formatted = code ? `// ${line}` : line;
-		lines.push(formatted); bytes += Buffer.byteLength(formatted) + 1;
+		const lineBytes = Buffer.byteLength(formatted) + 1;
+		if (bytes + lineBytes > 3072) break;
+		lines.push(formatted); bytes += lineBytes;
 	}
 	lines.splice(Math.floor(lines.length / 2), 0, body);
 	return `${lines.join("\n")}\n`;
 }
-const background = Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`notes/note-${i}.txt`, padded(`note-${i}`, `// Synthetic audit note ${i}; no executable behavior.`)]));
+const background = Object.fromEntries(Array.from({ length: 100 }, (_, i) => [`notes/note-${i}.txt`, padded(`note-${i}`, `// Synthetic audit note ${i}; no executable behavior.`)]));
 const modules = Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`modules/module-${i}.mjs`, padded(`module-${i}`, `export const VALUE = ${(i + 1) * 17};`)]));
 const sum = [2, 7, 13, 19].reduce((n, i) => n + (i + 1) * 17, 0);
 const summary = (n: number) => `export const total = ${n};\nexport const untouched = "synthetic stable suffix";\n`;
 const fixes = { "src/add.mjs": "export const add = (a, b) => a + b;", "src/scale.mjs": "export const scale = (n) => n * 3;", "src/label.mjs": "export const label = (n) => `value:${n}`;" };
 const bugs = { "src/add.mjs": "export const add = (a, b) => a - b;", "src/scale.mjs": "export const scale = (n) => n * 2;", "src/label.mjs": "export const label = (n) => `value=${n}`;" };
 const fixFiles = Object.fromEntries(Object.entries(fixes).map(([path, body]) => [path, padded(path, body)]));
-const failureLog = padded("synthetic failure diagnostics", "// Check the three exported functions against the assertions below.").slice(0, 4500);
+const failureLog = padded("synthetic failure diagnostics", "// Check the three exported functions against the assertions below.").slice(0, 2400);
 const testScript = `import assert from 'node:assert/strict';
 import { add } from './src/add.mjs';
 import { scale } from './src/scale.mjs';

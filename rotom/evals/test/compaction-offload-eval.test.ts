@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import type { HarnessContext } from "vitest-evals/harness";
-import { createReplayHarness, gradeReplay, REPLAY_CONFIG, REPLAY_KEEP_RECENT, REPLAY_TASKS, REPLAY_THRESHOLD, writeReplayFixture } from "../src/compaction-offload-cases.ts";
+import { createReplayHarness, gradeReplay, EXACT_CODE, REPLAY_CONFIG, REPLAY_KEEP_RECENT, REPLAY_TASKS, REPLAY_THRESHOLD, writeReplayFixture } from "../src/compaction-offload-cases.ts";
 import { FAUX_MODEL, replayFaux, type FauxObservation } from "../src/compaction-offload-faux.ts";
 import { createReplayMetrics, readOffloadDecisions, summarizeReplay, type ReplayMetrics } from "../src/compaction-offload-metrics.ts";
 
@@ -69,7 +69,7 @@ it.each(REPLAY_TASKS)("$id: real product faux arms share prompt/schema and cross
 	expect(results[1]!.offloadedResults).toBeGreaterThan(0);
 	expect(results[1]!.deferred).toBeGreaterThan(0);
 	expect(results[1]!.thresholdAtTurns[0]).toBe(results[0]!.thresholdAtTurns[0]);
-	expect(results[0]!.thresholdAtTurns[0]).toBeLessThan(task.reading.length / 2);
+	expect(results[0]!.thresholdAtTurns[0]).toBeLessThan(observations[0]!.requests.filter(r => !r.summary && r.phase1).length);
 	expect(results[0]!.offloadDecisions).toEqual([]);
 	expect(results[1]!.offloadDecisions).toHaveLength(results[1]!.thresholdCompactions);
 	expect(results[1]!.offloadDecisions.some(d => d.decision === "defer" && d.after <= 0.6 * d.T! && d.originalBytes > 0)).toBe(true);
@@ -97,13 +97,16 @@ it("faux trajectory has deferral, native fallback and both kinds of recall", asy
 
 it.each(REPLAY_TASKS.flatMap(task => [10, 20].map(batchSize => ({ id: task.id, task, batchSize }))))("$id: $batchSize reads per turn cross the threshold in phase one", async ({ task, batchSize }) => {
 	vi.stubGlobal("fetch", vi.fn(() => { throw new Error("05 forbids model/network requests"); }));
+	const firstThresholds: number[] = [];
 	for (const candidate of [false, true]) {
 		const observed = freshObservation();
 		const { output } = await createReplayHarness(task, candidate, { model: FAUX_MODEL,
 			modelRuntimeFactory: replayFaux(task, observed, false, undefined, { batchSize }) }).run(task.scenario, context());
+		// Keep decision metadata available even if the core defer assertion fails.
+		console.log(JSON.stringify({ syntheticBatchedReplay: task.id, candidate, batchSize, requests: observed.requests.length, metrics: output }));
+		firstThresholds.push(output.thresholdAtTurns[0]!);
 		expect(output.correct).toBe(true);
 		expect(output.thresholdCompactions).toBeGreaterThan(0);
-		expect(output.thresholdAtTurns[0]).toBeLessThanOrEqual(9);
 		expect(observed.settings!.compaction.keepRecentTokens).toBe(REPLAY_KEEP_RECENT);
 		const regular = observed.requests.filter(r => !r.summary);
 		const reads = regular.map(r => r.reads);
@@ -121,15 +124,11 @@ it.each(REPLAY_TASKS.flatMap(task => [10, 20].map(batchSize => ({ id: task.id, t
 		console.log(JSON.stringify({ phase1Pressure: task.id, candidate, batchSize, materialTokens, phase1Context: output.contextByTurn.slice(0, phase1Turns) }));
 		if (candidate) {
 			expect(output.offloadDecisions).toHaveLength(output.thresholdCompactions);
-			if (batchSize === 10) expect(output.offloadDecisions.some(d => d.decision === "defer")).toBe(true);
-			else {
-				// Twenty results share one retained turn: crossing T need not save enough to defer.
-				expect(output.nativeCompactions).toBe(output.thresholdCompactions);
-				expect(output.offloadDecisions.every(d => d.decision === "native" && d.reason === "insufficient_savings")).toBe(true);
-			}
-		}
-		console.log(JSON.stringify({ syntheticBatchedReplay: task.id, candidate, batchSize, requests: observed.requests.length, metrics: output }));
+			expect(output.deferred).toBeGreaterThan(0);
+			expect(output.offloadDecisions.some(d => d.decision === "defer" && d.after <= 0.6 * d.T!)).toBe(true);
+		} else expect(output.nativeCompactions).toBeGreaterThan(0);
 	}
+	expect(firstThresholds[1]).toBe(firstThresholds[0]);
 	expect(fetch).not.toHaveBeenCalled();
 }, 90_000);
 
@@ -197,12 +196,22 @@ it("metrics sum summary usage once, attribute recall temporally, and time cancel
 });
 
 it("frozen fixtures are medium text results, and prompts do not coach retrieval", () => {
+	for (let i = 0; i < 20; i++) expect(REPLAY_TASKS[0]!.files[`modules/module-${i}.mjs`]).toContain(`export const VALUE = ${(i + 1) * 17};`);
+	const logLines = REPLAY_TASKS[1]!.files["logs/log-0.txt"]!.trimEnd().split("\n");
+	expect(logLines.indexOf(`EXACT_CODE=${EXACT_CODE}`)).toBe(Math.floor((logLines.length - 1) / 2));
 	for (const task of REPLAY_TASKS) {
-		expect(task.reading).toHaveLength(task.id === "multi-file-fix" ? 81 : 80);
+		expect(task.reading).toHaveLength(task.id === "multi-file-fix" ? 121 : 120);
 		expect(JSON.stringify(task.scenario)).not.toMatch(/run (node|the tests)/iu);
 		for (const path of task.reading) expect(task.files[path]).not.toMatch(/^\/\/ [a-f0-9]{64}$/mu);
 		for (const path of task.reading) expect(Buffer.byteLength(task.files[path]!)).toBeGreaterThan(1536);
-		for (const path of task.reading) expect(Buffer.byteLength(task.files[path]!)).toBeLessThan(10 * 1024);
+		const sizes = task.reading.map(path => Buffer.byteLength(task.files[path]!));
+		const proxies = task.reading.map(path => Math.ceil(task.files[path]!.length / 4));
+		const largestBatch = [...proxies].sort((a, b) => b - a).slice(0, 20).reduce((sum, n) => sum + n, 0);
+		const materialTokens = proxies.reduce((sum, n) => sum + n, 0);
+		expect(largestBatch).toBeLessThanOrEqual(0.25 * REPLAY_THRESHOLD);
+		expect(Math.max(...sizes)).toBeLessThanOrEqual(3072);
+		expect(materialTokens).toBeGreaterThanOrEqual(83_000);
+		console.log(JSON.stringify({ fixtureShare: task.id, files: sizes.length, minBytes: Math.min(...sizes), maxBytes: Math.max(...sizes), minTokens: Math.min(...proxies), largestBatch, materialTokens }));
 		expect(JSON.stringify(task.scenario)).not.toMatch(/obs_recall|compaction|offload|压缩|卸载/u);
 	}
 });
