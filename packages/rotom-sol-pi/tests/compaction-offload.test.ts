@@ -9,9 +9,9 @@ import { createOffloadSession, result } from "./compaction-offload-session.ts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_CONFIG, loadSolPiConfig } from "../src/sol-pi/config.ts";
 import { createObservationPackExtension } from "../src/sol-pi/extensions/observation-pack/index.ts";
-import { OFFLOAD_ENTRY, OFFLOAD_MIN_BYTES, OFFLOAD_TARGET_RATIO, offloadCandidate, offloadPlaceholderFor,
-	offloadRecords, selectOffloadCandidates } from "../src/sol-pi/extensions/observation-pack/offload.ts";
-import { createObservation, estimateTokens, THRESHOLD_BYTES } from "../src/sol-pi/extensions/observation-pack/observation.ts";
+import { OFFLOAD_ENTRY, OFFLOAD_MIN_BYTES, OFFLOAD_TARGET_RATIO, offloadCandidate,
+	offloadRecords } from "../src/sol-pi/extensions/observation-pack/offload.ts";
+import { estimateTokens } from "../src/sol-pi/extensions/observation-pack/observation.ts";
 import { runtimeRoot } from "../src/sol-pi/runtime-paths.ts";
 import { FakePi, FakeSessionManager, fakeContext, type ToolContext } from "./helpers.ts";
 
@@ -53,6 +53,7 @@ async function fixture(real = false) {
 	createObservationPackExtension({ compactionOffload: true })(pi.asExtensionApi());
 	await pi.emit("session_start", {}, ctx);
 	const messages = [result(8192, "call-a"), result(8192, "call-b")];
+	for (const message of messages) manager.appendMessage(message);
 	const event = { type: "session_before_compact", reason: "threshold", preparation: {
 		messagesToSummarize: [messages[0]], turnPrefixMessages: [messages[1]],
 		tokensBefore: 4500, settings: { reserveTokens: 500 },
@@ -61,36 +62,6 @@ async function fixture(real = false) {
 		.trim().split("\n").map((line) => JSON.parse(line));
 	return { pi, ctx, manager, event, messages, ledger };
 }
-
-describe("compaction offload selection and placeholder", () => {
-	it.each([[1536, false], [1537, true], [10240, true], [10241, false]])("selects UTF-8 boundary %i", (bytes, selected) => {
-		const message = result(bytes as number);
-		expect(!!offloadCandidate(message, "/unused")).toBe(selected);
-	});
-	it("uses UTF-8 bytes, complete lines and <=512 bytes; skips uneconomic or oversized headers", () => {
-		const message = result();
-		message.content = [{ type: "text", text: "中文行\n".repeat(300) }];
-		const candidate = offloadCandidate(message, "/unused")!;
-		expect(candidate.observation.bytes).toBe(3000);
-		expect(Buffer.byteLength(candidate.placeholder)).toBeLessThanOrEqual(512);
-		expect(candidate.placeholder).toContain('retrieve: call obs_recall with {"id":');
-		expect(candidate.placeholder.split("next_offset\n")[1]).toMatch(/^(中文行\n)+$/u);
-		expect(offloadPlaceholderFor({ ...candidate.observation, text: "x", bytes: 100 })).toBeUndefined();
-		expect(offloadPlaceholderFor({ ...candidate.observation, toolName: "a".repeat(600) })).toBeUndefined();
-	});
-	it("excludes error, image, recall, reducer receipts, duplicates and offloaded calls", () => {
-		const ordinary = result();
-		const image = { ...ordinary, content: [{ type: "image" as const, data: "AA==", mimeType: "image/png" }] };
-		const receipt = { ...ordinary, content: [{ type: "text" as const, text: "sol_pi_evidence_receipt_v1\n" + body(ordinary) }] };
-		for (const message of [{ ...ordinary, isError: true }, image, receipt, result(8192, "recall", "obs_recall")]) {
-			expect(offloadCandidate(message, "/unused")).toBeUndefined();
-		}
-		expect(selectOffloadCandidates([ordinary, ordinary], "/unused", new Set())).toHaveLength(1);
-		expect(selectOffloadCandidates([ordinary], "/unused", new Set([ordinary.toolCallId]))).toHaveLength(0);
-		expect(createObservation(ordinary, "/unused")).toBeUndefined();
-		expect(createObservation(result(10241), "/unused")).toEqual(createObservation(result(10241), "/unused", THRESHOLD_BYTES));
-	});
-});
 
 describe("compaction offload handlers", () => {
 	it("disabled adds no lifecycle handlers and preserves the existing context output", async () => {
@@ -109,10 +80,12 @@ describe("compaction offload handlers", () => {
 		const records = offloadRecords(manager.getBranch());
 		expect(records).toHaveLength(1);
 		expect(records[0]!.toolCallIds).toEqual(["call-a", "call-b"]);
-		expect(records[0]!.estimatedTokensAfter).toBe(4500 - messages.reduce((sum, m) => {
+		const saved = messages.reduce((sum, m) => {
 			const c = offloadCandidate(m, runtimeRoot(ctx))!;
 			return sum + c.observation.tokens - estimateTokens(c.placeholder);
-		}, 0));
+		}, 0);
+		const contextEstimate = estimateTokens("synthetic request") + estimateTokens("synthetic response") + 2 * estimateTokens(body(messages[0]!));
+		expect(records[0]!.estimatedTokensAfter).toBe(4500 * (1 - saved / contextEstimate));
 		const projected = await pi.emitContext(messages, ctx);
 		expect(body(projected[0]!)).toContain("[older tool result offloaded before compaction]");
 		expect(body(messages[0]!)).not.toContain("offloaded");
@@ -134,10 +107,17 @@ describe("compaction offload handlers", () => {
 		const { pi, ctx, event, manager, ledger } = await fixture();
 		if (reason === "no_context_window") ctx.getContextUsage = () => undefined;
 		if (reason === "no_candidates") event.preparation.messagesToSummarize = event.preparation.turnPrefixMessages = [];
-		if (reason === "insufficient_savings") event.preparation.tokensBefore = 10000;
+		if (reason === "insufficient_savings") {
+			event.preparation.tokensBefore = 10000;
+			ctx.getSystemPrompt = () => "retained system instructions\n".repeat(500);
+		}
 		expect(await pi.emit("session_before_compact", event, ctx)).toBeUndefined();
 		expect(offloadRecords(manager.getBranch())).toHaveLength(0);
-		expect((await ledger()).at(-1)).toMatchObject({ event: "offload_native", reason });
+		expect((await ledger()).at(-1)).toMatchObject({ event: "offload_native", reason,
+			before: event.preparation.tokensBefore,
+			candidates: ["no_context_window", "no_candidates"].includes(reason) ? 0 : 2,
+			originalBytes: ["no_context_window", "no_candidates"].includes(reason) ? 0 : 16384,
+		});
 	});
 	it("falls back to model.contextWindow", async () => {
 		const { pi, ctx, event } = await fixture();

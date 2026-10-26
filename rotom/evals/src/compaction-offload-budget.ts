@@ -5,7 +5,7 @@ export type ReplayAuthorization = {
 	thinking: NonNullable<PiCodingAgentHarnessOptions["thinkingLevel"]>;
 	maxRepetitions: number; maxRequests: number; maxInputTokens: number;
 };
-export type BudgetStop = "request-limit" | "input-limit" | "usage-unknown" | "model-mismatch" | "run-error" | "persistence-error";
+export type BudgetStop = "request-limit" | "input-limit" | "usage-unknown" | "model-mismatch" | "run-error" | "persistence-error" | "threshold-not-reached" | "decision-ledger-incomplete";
 export type BudgetSnapshot = {
 	requests: number; input: number; output: number; cacheRead: number; cacheWrite: number;
 	usageKnown: boolean; stopReason: BudgetStop | null;

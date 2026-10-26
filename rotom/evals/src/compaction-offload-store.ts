@@ -12,7 +12,7 @@ export type LiveReplayRow = {
 	version: 1; authorizationId: string; timestamp: string; task: string; arm: "baseline" | "candidate"; repetition: number; repetitions: number;
 	status: "completed" | "failed" | "not-run"; reason: BudgetSnapshot["stopReason"];
 	provider: string; model: string; thinking: string; transport: "sse"; sourceCommit: string; sourceDirty: boolean;
-	contextWindow: number | null; thresholdTokens: number; reserveTokens: number | null;
+	contextWindow: number | null; thresholdTokens: number; reserveTokens: number | null; keepRecentTokens: number | null;
 	metrics: ReplayMetrics | null; cumulative: BudgetSnapshot;
 };
 export const defaultReplayDirectory = () => join(homedir(), ".rotom/evals/compaction-offload");

@@ -1,12 +1,12 @@
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import type { HarnessContext } from "vitest-evals/harness";
-import { createReplayHarness, gradeReplay, REPLAY_CONFIG, REPLAY_TASKS, REPLAY_THRESHOLD, writeReplayFixture } from "../src/compaction-offload-cases.ts";
+import { createReplayHarness, gradeReplay, REPLAY_CONFIG, REPLAY_KEEP_RECENT, REPLAY_TASKS, REPLAY_THRESHOLD, writeReplayFixture } from "../src/compaction-offload-cases.ts";
 import { FAUX_MODEL, replayFaux, type FauxObservation } from "../src/compaction-offload-faux.ts";
-import { createReplayMetrics, summarizeReplay, type ReplayMetrics } from "../src/compaction-offload-metrics.ts";
+import { createReplayMetrics, readOffloadDecisions, summarizeReplay, type ReplayMetrics } from "../src/compaction-offload-metrics.ts";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -69,7 +69,10 @@ it.each(REPLAY_TASKS)("$id: real product faux arms share prompt/schema and cross
 	expect(results[1]!.offloadedResults).toBeGreaterThan(0);
 	expect(results[1]!.deferred).toBeGreaterThan(0);
 	expect(results[1]!.thresholdAtTurns[0]).toBe(results[0]!.thresholdAtTurns[0]);
-	expect(results[0]!.thresholdAtTurns[0]).toBe(40);
+	expect(results[0]!.thresholdAtTurns[0]).toBeLessThan(task.reading.length / 2);
+	expect(results[0]!.offloadDecisions).toEqual([]);
+	expect(results[1]!.offloadDecisions).toHaveLength(results[1]!.thresholdCompactions);
+	expect(results[1]!.offloadDecisions.some(d => d.decision === "defer" && d.after <= 0.6 * d.T! && d.originalBytes > 0)).toBe(true);
 	expect(observations[0]!.workspace).not.toBe(observations[1]!.workspace);
 	expect(fetch).not.toHaveBeenCalled();
 	expect(JSON.parse(regular[0]![0]!.tools).map((tool: { name: string }) => tool.name).sort()).toEqual(["bash", "edit", "obs_recall", "read", "write"]);
@@ -77,17 +80,76 @@ it.each(REPLAY_TASKS)("$id: real product faux arms share prompt/schema and cross
 	console.log(JSON.stringify({ syntheticReplay: task.id, threshold: REPLAY_THRESHOLD, requests: observations.map((o) => o.requests.length), baseline: results[0], candidate: results[1] }));
 }, 90_000);
 
-it("faux trajectory has one defer, one native compaction and both kinds of recall", async () => {
+it("faux trajectory has deferral, native fallback and both kinds of recall", async () => {
 	const task = REPLAY_TASKS[1]!;
 	const observed = freshObservation();
 	const scenario = { ...task.scenario, steps: [...task.scenario.steps, { type: "prompt" as const, content: "Now give the final exact answer only." }] };
 	const result = await createReplayHarness(task, true, { model: FAUX_MODEL, modelRuntimeFactory: replayFaux(task, observed, true) }).run(scenario, context());
 	const output = result.output as ReplayMetrics;
-	expect(output).toMatchObject({ correct: true, nativeCompactions: 1, deferred: 1, obsRecallCalls: 2, recalledOffloaded: 1, usageComplete: true });
-	expect(output.thresholdCompactions).toBe(2);
+	expect(output).toMatchObject({ correct: true, nativeCompactions: 1, obsRecallCalls: 2, recalledOffloaded: 1, usageComplete: true });
+	expect(output.deferred).toBeGreaterThan(0);
+	expect(output.thresholdCompactions).toBe(output.nativeCompactions + output.deferred);
 	// A split-turn native compaction performs history + turn-prefix summaries.
 	expect(observed.summaryCalls).toBe(2);
 }, 90_000);
+
+it.each(REPLAY_TASKS)("$id: ten reads per turn still cross the threshold in both arms", async (task) => {
+	vi.stubGlobal("fetch", vi.fn(() => { throw new Error("05 forbids model/network requests"); }));
+	for (const candidate of [false, true]) {
+		const observed = freshObservation();
+		const { output } = await createReplayHarness(task, candidate, { model: FAUX_MODEL,
+			modelRuntimeFactory: replayFaux(task, observed, false, undefined, { batchSize: 10 }) }).run(task.scenario, context());
+		expect(output.correct).toBe(true);
+		expect(output.thresholdCompactions).toBeGreaterThan(0);
+		expect(output.thresholdAtTurns[0]).toBeLessThanOrEqual(9);
+		expect(observed.settings!.compaction.keepRecentTokens).toBe(REPLAY_KEEP_RECENT);
+		const reads = observed.requests.filter(r => !r.summary).map(r => r.reads);
+		expect(reads).toContain(80);
+		expect(reads.filter((n, i) => i > 0 && n > reads[i - 1]!)).toEqual([10, 20, 30, 40, 50, 60, 70, 80]);
+		if (candidate) {
+			expect(output.offloadDecisions).toHaveLength(output.thresholdCompactions);
+			expect(output.offloadDecisions.some(d => d.decision === "defer")).toBe(true);
+		}
+		console.log(JSON.stringify({ syntheticBatchedReplay: task.id, candidate, requests: observed.requests.length, metrics: output }));
+	}
+	expect(fetch).not.toHaveBeenCalled();
+}, 90_000);
+
+it.each(["no_candidates", "insufficient_savings"] as const)("collects %s from a real product faux session before cleanup", async (reason) => {
+	vi.stubGlobal("fetch", vi.fn(() => { throw new Error("05 forbids model/network requests"); }));
+	const task = REPLAY_TASKS[0]!, observed = freshObservation();
+	const { output } = await createReplayHarness(task, true, { model: FAUX_MODEL,
+		modelRuntimeFactory: replayFaux(task, observed, false, undefined, { pressure: reason }) }).run(task.scenario, context());
+	expect(output.correct).toBe(true);
+	const decision = output.offloadDecisions.find(d => d.decision === "native" && d.reason === reason);
+	expect(decision).toBeDefined();
+	expect(decision!.T).toBe(REPLAY_THRESHOLD);
+	expect(decision!.before).toBeGreaterThan(REPLAY_THRESHOLD);
+	if (reason === "no_candidates") expect(decision).toMatchObject({ candidates: 0, originalBytes: 0 });
+	else { expect(decision!.candidates).toBeGreaterThan(0); expect(decision!.after).toBeGreaterThan(0.6 * REPLAY_THRESHOLD); }
+	expect(output.offloadDecisions).toHaveLength(output.thresholdCompactions);
+	expect(fetch).not.toHaveBeenCalled();
+}, 90_000);
+
+it("captures only threshold decision metadata before session files disappear", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "offload-ledger-")); roots.push(dir);
+	const path = join(dir, "sol-pi/session/observation-pack");
+	await mkdir(path, { recursive: true });
+	const common = { before: 65000, after: 30000, T: 64000, candidates: 25, originalBytes: 150000 };
+	const rows = [
+		{ event: "offload_defer", ...common },
+		{ event: "offload_defer_stale", ...common, candidates: 0, originalBytes: 0 },
+		{ event: "offload_native", reason: "insufficient_savings", ...common, after: 62000 },
+		{ event: "offload_native", reason: "no_candidates", ...common, after: 65000, candidates: 0, originalBytes: 0 },
+	];
+	await writeFile(join(path, "ledger.jsonl"), rows.map(r => JSON.stringify({ ...r, content: "NEVER EXPORT BODY" })).join("\n"));
+	const decisions = await readOffloadDecisions(dir, "session");
+	expect(decisions).toEqual(rows.map(({ event, ...row }) => ({ decision: event.slice(8), ...row })));
+	await rm(path, { recursive: true });
+	expect(createReplayMetrics().output([], true, false, decisions).offloadDecisions).toEqual(decisions);
+	expect(JSON.stringify(decisions)).not.toContain("NEVER EXPORT BODY");
+	expect(await readOffloadDecisions(dir, "missing")).toEqual([]);
+});
 
 it("metrics sum summary usage once, attribute recall temporally, and time cancellations", () => {
 	const handlers = new Map<string, Function>();
@@ -117,6 +179,8 @@ it("metrics sum summary usage once, attribute recall temporally, and time cancel
 
 it("frozen fixtures are medium text results, and prompts do not coach retrieval", () => {
 	for (const task of REPLAY_TASKS) {
+		expect(task.reading).toHaveLength(80);
+		for (const path of task.reading) expect(task.files[path]).not.toMatch(/^\/\/ [a-f0-9]{64}$/mu);
 		for (const path of task.reading) expect(Buffer.byteLength(task.files[path]!)).toBeGreaterThan(1536);
 		for (const path of task.reading) expect(Buffer.byteLength(task.files[path]!)).toBeLessThan(10 * 1024);
 		expect(JSON.stringify(task.scenario)).not.toMatch(/obs_recall|compaction|offload|压缩|卸载/u);

@@ -3,7 +3,7 @@
 - Upstream: SoL-Pi, <https://github.com/NVlabs/SoL-Pi>. License: MIT, Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES; the original notice stays in `LICENSE`.
 - Upstream base: `2b791687` ("Update Pi to 0.85.1 and verify 0.84.2 compatibility (#63)").
 - Source: the maintainer's SoL-Pi branch at `b463fad0ffab6e42488f5c80687adab67174a0ee`, imported from its tracked files. On top of the upstream base it carries five commits: recalled pages keep source references (`81b80b0`), the Pi 0.85 compaction-reason test (`83c5426`), the 0.85.1 baseline merge (`807ad60`), selected upstream reliability backports (`32840b2`), and Pi error-result handling plus runtime compatibility repairs (`b463fad`).
-- Maintained version: `0.1.0-rotom.4`, a private component of [rotom](https://github.com/bingjiang0611/rotom). It is not an upstream or npm release.
+- Maintained version: `0.1.0-rotom.5`, a private component of [rotom](https://github.com/bingjiang0611/rotom). It is not an upstream or npm release.
 
 ## Changes in this import
 
@@ -12,6 +12,8 @@
 - `src/` and `tests/` were byte-identical to the source commit in `0.1.0-rotom.0`.
 
 ## rotom changes
+
+- `.rotom.5`: calibrates offload savings to `tokensBefore` through the chars/4 savings fraction of the current Pi branch projection (including system context and confirmed offloads). The 0.6 target and candidate/storage/usage contracts stay unchanged. Every threshold decision records counts, bytes, before/after and threshold metadata, including native fallback and stale defer. This is an estimate, not a provider tokenizer or evidence of real-model benefit.
 
 - `.rotom.4`: default-off Compaction Offload requires Observation Pack. Before threshold compaction it stores eligible older text results, then persists metadata and defers only when estimated savings suffice. Append failures are unknown (possible in-memory record), never retried; only confirmed defers can cancel stale-usage checks. Ledger/TUI are best-effort; projection verification is cached per runtime root/object until session start/tree changes. rotom exposes an explicit `ROTOM_COMPACTION_OFFLOAD` override; real-model benefits are not yet measured.
 

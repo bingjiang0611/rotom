@@ -6,6 +6,7 @@ import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
 import { afterEach, expect, it, vi } from "vitest";
 import { createCompactionOffload, offloadCandidate, offloadRecords } from "../src/sol-pi/extensions/observation-pack/offload.ts";
 import { runtimeRoot } from "../src/sol-pi/runtime-paths.ts";
+import { estimateTokens } from "../src/sol-pi/extensions/observation-pack/observation.ts";
 import { result } from "./compaction-offload-session.ts";
 import { FakePi, FakeSessionManager, fakeContext } from "./helpers.ts";
 
@@ -24,6 +25,7 @@ async function setup() {
 	const ctx = fakeContext(manager, { getContextUsage: () => ({ contextWindow: 4000, tokens: 4500, percent: 112.5, usageTokens: 4500, trailingTokens: 0 }) });
 	const offload = createCompactionOffload(pi.asExtensionApi(), () => ledger);
 	const messages = [result(8192, "a"), result(8192, "b")];
+	for (const message of messages) manager.appendMessage(message);
 	const event = { reason: "threshold", preparation: { messagesToSummarize: messages, turnPrefixMessages: [], tokensBefore: 4500, settings: { reserveTokens: 500 } } };
 	return { root, manager, pi, ledger, ctx, offload, messages, event };
 }
@@ -42,13 +44,16 @@ it("TUI failure does not undo a confirmed defer or stale cancellation", async ()
 });
 
 it("TUI formats the English offload estimate with grouped digits", async () => {
-	const { pi, ctx, manager, event } = await setup();
+	const { pi, ctx, messages, event } = await setup();
 	const notify = vi.fn();
 	ctx.mode = "tui";
 	ctx.ui = { notify, setStatus: vi.fn() } as unknown as ExtensionContext["ui"];
 	expect(await pi.emit("session_before_compact", event, ctx)).toEqual({ cancel: true });
-	const record = offloadRecords(manager.getBranch())[0]!;
-	const saved = record.estimatedTokensBefore - record.estimatedTokensAfter;
+	// The existing TUI still displays chars/4 savings; only the defer decision is calibrated.
+	const saved = messages.reduce((sum, message) => {
+		const candidate = offloadCandidate(message, runtimeRoot(ctx))!;
+		return sum + candidate.observation.tokens - estimateTokens(candidate.placeholder);
+	}, 0);
 	expect(notify.mock.calls[0]![0]).toContain(`compaction deferred, ~${saved.toLocaleString("en-US")} context tokens offloaded`);
 	expect(notify.mock.calls[0]![0]).toMatch(/~\d,\d{3} context tokens/u);
 });

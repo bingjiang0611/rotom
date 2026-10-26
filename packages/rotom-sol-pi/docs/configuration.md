@@ -58,7 +58,9 @@ It only handles threshold-triggered compaction, never manual, extension or overf
 Candidates come from the history and turn prefix selected for summarization, not the retained tail.
 Only successful, pure-text tool results >1.5 KiB and ≤10 KiB qualify; recall results and Reducer receipts stay intact.
 Already offloaded results are not counted again.
-The estimate uses chars/4; defer only when estimated remaining tokens are ≤60% of (context window − reserve).
+Estimate the saved fraction with chars/4 in both numerator and denominator: `after = tokensBefore × (1 − savedEstimate / contextEstimate)`.
+The denominator covers the current Pi branch projection plus its current system context (falling back to the active system prompt), with confirmed offloads projected. It is not a provider tokenizer or a simulation of arbitrary other extensions' transient context transforms.
+Defer only when estimated remaining tokens are ≤60% of (context window − reserve).
 Insufficient savings, missing context-window data, storage or record-append failure leave native compaction in control.
 Ledger and TUI failures are logged but do not change a confirmed defer.
 All candidate objects are stored before appending a metadata-only session record.

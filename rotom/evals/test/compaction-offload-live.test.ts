@@ -5,18 +5,20 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { pathToFileURL } from "node:url";
 import type { ReplayMessage as AssistantMessage, ReplayStream } from "../src/compaction-offload-budget.ts";
 import { ReplayBudget, validateLiveReplay, type ReplayAuthorization } from "../src/compaction-offload-budget.ts";
-import { LIVE_AUTHORIZATION, REPLAY_PRODUCT, REPLAY_TASKS, REPLAY_THRESHOLD, type ReplayTask } from "../src/compaction-offload-cases.ts";
+import { LIVE_AUTHORIZATION, REPLAY_KEEP_RECENT, REPLAY_PRODUCT, REPLAY_TASKS, REPLAY_THRESHOLD, type ReplayTask } from "../src/compaction-offload-cases.ts";
 import { authorizedRuntimeFactory, createLiveReplayCampaign } from "../src/compaction-offload-live.ts";
 import { createReplayStore, type LiveReplayRow } from "../src/compaction-offload-store.ts";
 import { FAUX_MODEL, replayFaux, type FauxObservation } from "../src/compaction-offload-faux.ts";
+import * as metrics from "../src/compaction-offload-metrics.ts";
 
 const { AssistantMessageEventStream } = await import(pathToFileURL(resolve(REPLAY_PRODUCT, "runtime/pi/node_modules/@earendil-works/pi-ai/dist/index.js")).href) as { AssistantMessageEventStream: new () => ReplayStream };
 const roots: string[] = [];
 beforeEach(() => { vi.stubGlobal("fetch", vi.fn(() => { throw new Error("Zero-network test"); })); });
-afterEach(async () => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+afterEach(async () => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 async function temporary() { const root = await mkdtemp(join(tmpdir(), "offload-live-test-")); roots.push(root); return root; }
 const env = { ROTOM_EVAL_COMPACTION_OFFLOAD: "1", ROTOM_EVAL_COMPACTION_OFFLOAD_LIVE: "1", ROTOM_EVAL_PROVIDER: "openai-codex", ROTOM_EVAL_MODEL: "gpt-5.6-luna", ROTOM_EVAL_THINKING: "low", ROTOM_EVAL_REPETITIONS: "3" };
-const auth = (): ReplayAuthorization => ({ ...LIVE_AUTHORIZATION!, id: "faux-only-test", provider: FAUX_MODEL.provider, model: FAUX_MODEL.id });
+const testAuthorization: ReplayAuthorization = { id: "validation-test-only", provider: "openai-codex", model: "gpt-5.6-luna", thinking: "low", maxRepetitions: 3, maxRequests: 2000, maxInputTokens: 100_000_000 };
+const auth = (): ReplayAuthorization => ({ ...testAuthorization, id: "faux-only-test", provider: FAUX_MODEL.provider, model: FAUX_MODEL.id });
 const observed = (): FauxObservation => ({ requests: [], config: null, agentDirMatches: false, summaryCalls: 0 });
 const profile = (contextWindow = 256_000) => ({ model: FAUX_MODEL, contextWindow, reasoning: true });
 const context = () => ({ artifacts: {}, setArtifact: vi.fn() });
@@ -32,16 +34,16 @@ async function rows(directory: string) {
 	return { path, lines: (await readFile(path, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as LiveReplayRow) };
 }
 
-it("copies the exact authorization but never enables it implicitly", () => {
-	expect(LIVE_AUTHORIZATION).toEqual({ id: "3a919229e91eb6a5b935cf02ec38f271dee21b17", provider: "openai-codex", model: "gpt-5.6-luna", thinking: "low", maxRepetitions: 3, maxRequests: 2000, maxInputTokens: 100_000_000 });
-	expect(validateLiveReplay(env, LIVE_AUTHORIZATION).repetitions).toBe(3);
-	expect(validateLiveReplay({ ...env, ROTOM_EVAL_REPETITIONS: "1" }, LIVE_AUTHORIZATION).repetitions).toBe(1);
-	expect(() => validateLiveReplay(env, null)).toThrow("no authorization");
+it("retires the spent authorization and validates only explicit synthetic test grants", () => {
+	expect(LIVE_AUTHORIZATION).toBeNull();
+	expect(() => validateLiveReplay(env, LIVE_AUTHORIZATION)).toThrow("no authorization");
+	expect(validateLiveReplay(env, testAuthorization).repetitions).toBe(3);
+	expect(validateLiveReplay({ ...env, ROTOM_EVAL_REPETITIONS: "1" }, testAuthorization).repetitions).toBe(1);
 	for (const key of ["ROTOM_EVAL_COMPACTION_OFFLOAD", "ROTOM_EVAL_COMPACTION_OFFLOAD_LIVE", "ROTOM_EVAL_PROVIDER", "ROTOM_EVAL_MODEL", "ROTOM_EVAL_THINKING"]) {
-		expect(() => validateLiveReplay({ ...env, [key]: undefined }, LIVE_AUTHORIZATION)).toThrow();
-		expect(() => validateLiveReplay({ ...env, [key]: env[key as keyof typeof env] + " " }, LIVE_AUTHORIZATION)).toThrow();
+		expect(() => validateLiveReplay({ ...env, [key]: undefined }, testAuthorization)).toThrow();
+		expect(() => validateLiveReplay({ ...env, [key]: env[key as keyof typeof env] + " " }, testAuthorization)).toThrow();
 	}
-	for (const value of ["4", "0", "-1", "1.5", "3 ", "", "NaN"]) expect(() => validateLiveReplay({ ...env, ROTOM_EVAL_REPETITIONS: value }, LIVE_AUTHORIZATION)).toThrow();
+	for (const value of ["4", "0", "-1", "1.5", "3 ", "", "NaN"]) expect(() => validateLiveReplay({ ...env, ROTOM_EVAL_REPETITIONS: value }, testAuthorization)).toThrow();
 });
 
 it("captures the original credential/model paths without reading them during registration", async () => {
@@ -117,29 +119,30 @@ it("a different model is rejected before dispatch", () => {
 });
 
 it("persists completed, budget-failed and not-run rows, without model bodies", async () => {
+	const task = { ...REPLAY_TASKS[0]!, answer: small.answer };
 	const directory = await temporary();
 	const observation = observed();
-	const factory = vi.fn(replayFaux(small, observation, false, profile()));
-	const campaign = createLiveReplayCampaign({ ...auth(), maxRequests: 6 }, { directory, runtimeFactory: factory });
-	const first = await campaign.harness(small, false, 1).run(small.scenario, context());
+	const factory = vi.fn(replayFaux(task, observation, false, profile(), { batchSize: 10 }));
+	const campaign = createLiveReplayCampaign({ ...auth(), maxRequests: 18 }, { directory, runtimeFactory: factory });
+	const first = await campaign.harness(task, false, 1).run(task.scenario, context());
 	expect(first.output.status).toBe("completed");
 	expect(first.output.metrics?.correct).toBe(true);
 	expect(first.output.transport).toBe("sse");
 	expect(first.output.repetitions).toBe(3);
-	expect(first.output.cumulative.requests).toBe(5);
+	expect(first.output.cumulative.requests).toBe(17);
 	expect((await rows(directory)).lines).toHaveLength(1); // durable before run 2
-	const second = await campaign.harness(small, true, 1).run(small.scenario, context());
-	const third = await campaign.harness(small, false, 2).run(small.scenario, context());
-	expect(second.output).toMatchObject({ status: "failed", reason: "request-limit", cumulative: { requests: 6 } });
-	expect(third.output).toMatchObject({ status: "not-run", metrics: null, contextWindow: null, cumulative: { requests: 6 } });
+	const second = await campaign.harness(task, true, 1).run(task.scenario, context());
+	const third = await campaign.harness(task, false, 2).run(task.scenario, context());
+	expect(second.output).toMatchObject({ status: "failed", reason: "request-limit", cumulative: { requests: 18 } });
+	expect(third.output).toMatchObject({ status: "not-run", metrics: null, contextWindow: null, cumulative: { requests: 18 } });
 	expect(factory).toHaveBeenCalledTimes(2);
-	expect(observation.requests).toHaveLength(6);
+	expect(observation.requests).toHaveLength(18);
 	const saved = await rows(directory);
 	expect(saved.lines).toEqual([first.output, second.output, third.output]);
 	expect((await stat(directory)).mode & 0o777).toBe(0o700);
 	expect((await stat(saved.path)).mode & 0o777).toBe(0o600);
-	expect(JSON.stringify(first)).not.toContain(small.answer);
-	expect(await readFile(saved.path, "utf8")).not.toContain(small.answer);
+	expect(JSON.stringify(first)).not.toContain(task.answer);
+	expect(await readFile(saved.path, "utf8")).not.toContain(task.answer);
 	expect(fetch).not.toHaveBeenCalled();
 }, 90_000);
 
@@ -156,12 +159,12 @@ it("the observed input-token cap stops an actual faux run before its next reques
 
 it("the shared fuse also prevents a native summary dispatch at the limit", async () => {
 	const directory = await temporary(); const observation = observed(); const task = REPLAY_TASKS[0]!;
-	const campaign = createLiveReplayCampaign({ ...auth(), maxRequests: 40 }, { directory, runtimeFactory: replayFaux(task, observation, false, profile()) });
+	const campaign = createLiveReplayCampaign({ ...auth(), maxRequests: 30 }, { directory, runtimeFactory: replayFaux(task, observation, false, profile()) });
 	const result = await campaign.harness(task, false, 1).run(task.scenario, context());
-	expect(result.output).toMatchObject({ status: "failed", reason: "request-limit", cumulative: { requests: 40 }, metrics: { thresholdCompactions: 2, nativeCompactions: 0 } });
+	expect(result.output).toMatchObject({ status: "failed", reason: "request-limit", cumulative: { requests: 30 }, metrics: { thresholdCompactions: 2, nativeCompactions: 0 } });
 	// Pi checks the threshold before and after the failed turn; neither
 	// preparation is allowed to become a provider summary request.
-	expect(observation.requests).toHaveLength(40); expect(observation.summaryCalls).toBe(0);
+	expect(observation.requests).toHaveLength(30); expect(observation.summaryCalls).toBe(0);
 }, 90_000);
 
 it.each([192_000, 320_000])("uses actual model window %s, and budgets native summaries too", async (window) => {
@@ -170,17 +173,47 @@ it.each([192_000, 320_000])("uses actual model window %s, and budgets native sum
 	const result = await campaign.harness(task, false, 1).run(task.scenario, context());
 	expect(result.output.status).toBe("completed");
 	expect(result.output).toMatchObject({ contextWindow: window, reserveTokens: window - REPLAY_THRESHOLD, thinking: "low" });
-	expect(observation.settings).toEqual({ retry: { enabled: false }, compaction: { enabled: true, reserveTokens: window - REPLAY_THRESHOLD } });
+	expect(observation.settings).toEqual({ retry: { enabled: false }, compaction: { enabled: true, reserveTokens: window - REPLAY_THRESHOLD, keepRecentTokens: REPLAY_KEEP_RECENT } });
 	expect(observation.reasoning).toBe("low");
 	expect(observation.requestControls).toHaveLength(observation.requests.length);
 	expect(observation.requestControls!.every((o) => o.transport === "sse" && o.maxRetries === 0)).toBe(true);
-	expect(observation.summaryCalls).toBe(1);
+	expect(observation.summaryCalls).toBe(2);
 	expect(observation.requests.filter((r) => r.summary).every((r) => r.maxTokens === null)).toBe(true);
 	expect(result.output.cumulative.requests).toBe(observation.requests.length);
-	expect(result.output.cumulative.requests).toBe(result.output.metrics!.turns + 1);
+	expect(result.output.cumulative.requests).toBe(result.output.metrics!.turns + observation.summaryCalls);
+	expect(result.output.keepRecentTokens).toBe(REPLAY_KEEP_RECENT);
 	for (const [total, metric] of [["input", "inputTokens"], ["output", "outputTokens"], ["cacheRead", "cacheRead"], ["cacheWrite", "cacheWrite"]] as const) expect(result.output.cumulative[total]).toBe(result.output.metrics![metric]);
 	expect(fetch).not.toHaveBeenCalled();
 }, 90_000);
+
+it("preserves a failed row and stops when decision metadata is missing", async () => {
+ vi.spyOn(metrics, "readOffloadDecisions").mockResolvedValue([]);
+ const directory = await temporary(), observation = observed(), task = REPLAY_TASKS[0]!;
+ const factory = vi.fn(replayFaux(task, observation, false, profile(), { batchSize: 10 }));
+ const campaign = createLiveReplayCampaign(auth(), { directory, runtimeFactory: factory });
+ const first = await campaign.harness(task, true, 1).run(task.scenario, context());
+ expect(first.output).toMatchObject({ status: "failed", reason: "decision-ledger-incomplete", metrics: { correct: true, offloadDecisions: [] } });
+ expect(first.output.metrics!.thresholdCompactions).toBeGreaterThan(0);
+ const second = await campaign.harness(task, false, 1).run(task.scenario, context());
+ expect(second.output.status).toBe("not-run");
+ expect(factory).toHaveBeenCalledTimes(1);
+ expect((await rows(directory)).lines).toEqual([first.output, second.output]);
+ expect(fetch).not.toHaveBeenCalled();
+});
+
+it("stops an otherwise correct campaign when the threshold was never reached", async () => {
+ const directory = await temporary(), observation = observed();
+ const factory = vi.fn(replayFaux(small, observation, false, profile()));
+ const campaign = createLiveReplayCampaign(auth(), { directory, runtimeFactory: factory });
+ const first = await campaign.harness(small, false, 1).run(small.scenario, context());
+ expect(first.output).toMatchObject({ status: "failed", reason: "threshold-not-reached", metrics: { correct: true, thresholdCompactions: 0 } });
+ const second = await campaign.harness(small, true, 1).run(small.scenario, context());
+ expect(second.output).toMatchObject({ status: "not-run", reason: "threshold-not-reached", metrics: null });
+ expect(factory).toHaveBeenCalledTimes(1);
+ expect(observation.requests).toHaveLength(5);
+ expect((await rows(directory)).lines).toEqual([first.output, second.output]);
+ expect(fetch).not.toHaveBeenCalled();
+});
 
 it("rejects a window at the threshold without dispatching or clamping it", async () => {
 	const directory = await temporary(); const observation = observed();
@@ -200,13 +233,14 @@ it("rejects worktrees and symlink destinations; a used authorization cannot reru
 });
 
 it("a log failure preserves earlier rows and seals the campaign before further requests", async () => {
-	const directory = await temporary(); const observation = observed();
-	const campaign = createLiveReplayCampaign(auth(), { directory, runtimeFactory: replayFaux(small, observation, false, profile()) });
-	const first = await campaign.harness(small, false, 1).run(small.scenario, context());
+	const directory = await temporary(); const observation = observed(); const task = REPLAY_TASKS[0]!;
+	const campaign = createLiveReplayCampaign(auth(), { directory, runtimeFactory: replayFaux(task, observation, false, profile(), { batchSize: 10 }) });
+	const first = await campaign.harness(task, false, 1).run(task.scenario, context());
+	expect(first.output.status).toBe("completed");
 	const saved = await rows(directory); await chmod(saved.path, 0o644);
-	await expect(campaign.harness(small, true, 1).run(small.scenario, context())).rejects.toThrow("private regular file");
+	await expect(campaign.harness(task, true, 1).run(task.scenario, context())).rejects.toThrow("private regular file");
 	const dispatched = observation.requests.length;
-	await expect(campaign.harness(small, false, 2).run(small.scenario, context())).rejects.toThrow("no further writes or requests");
+	await expect(campaign.harness(task, false, 2).run(task.scenario, context())).rejects.toThrow("no further writes or requests");
 	expect(observation.requests).toHaveLength(dispatched);
 	expect((await rows(directory)).lines).toEqual([first.output]);
 	expect(campaign.budget.snapshot().stopReason).toBe("persistence-error");

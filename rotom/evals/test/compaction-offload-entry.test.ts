@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { LIVE_AUTHORIZATION, LIVE_REPLAY_TIMEOUT_MS } from "../src/compaction-offload-cases.ts";
 import evalConfig from "../vitest.config.ts";
 
+const testAuthorization = { id: "registration-test-only", provider: "openai-codex", model: "gpt-5.6-luna", thinking: "low", maxRepetitions: 3, maxRequests: 2000, maxInputTokens: 100_000_000 };
 const registrations: { name: string; options: any }[] = [];
 const registeredTests: unknown[][] = [];
 const campaign = { harness: vi.fn((task, candidate, repetition) => ({ name: candidate ? "candidate" : "baseline", task: task.id, repetition })) };
@@ -18,14 +19,15 @@ vi.mock("vitest-evals", () => ({
 }));
 afterEach(() => { vi.resetModules(); vi.clearAllMocks(); vi.unstubAllEnvs(); registrations.length = 0; registeredTests.length = 0; vi.doUnmock("../src/compaction-offload-cases.ts"); });
 function liveEnv() {
+	vi.doMock("../src/compaction-offload-cases.ts", async () => ({ ...await vi.importActual("../src/compaction-offload-cases.ts"), LIVE_AUTHORIZATION: testAuthorization }));
 	vi.stubEnv("ROTOM_EVAL_COMPACTION_OFFLOAD", "1"); vi.stubEnv("ROTOM_EVAL_COMPACTION_OFFLOAD_LIVE", "1");
-	vi.stubEnv("ROTOM_EVAL_PROVIDER", LIVE_AUTHORIZATION!.provider); vi.stubEnv("ROTOM_EVAL_MODEL", LIVE_AUTHORIZATION!.model);
-	vi.stubEnv("ROTOM_EVAL_THINKING", LIVE_AUTHORIZATION!.thinking); vi.stubEnv("ROTOM_EVAL_REPETITIONS", "3");
+	vi.stubEnv("ROTOM_EVAL_PROVIDER", testAuthorization.provider); vi.stubEnv("ROTOM_EVAL_MODEL", testAuthorization.model);
+	vi.stubEnv("ROTOM_EVAL_THINKING", testAuthorization.thinking); vi.stubEnv("ROTOM_EVAL_REPETITIONS", "3");
 }
 it("live entry shares exactly one campaign across all 18 alternating runs", async () => {
 	liveEnv();
 	await import("../cases/compaction-offload.eval.ts");
-	expect(create).toHaveBeenCalledExactlyOnceWith(LIVE_AUTHORIZATION, { repetitions: 3 });
+	expect(create).toHaveBeenCalledExactlyOnceWith(testAuthorization, { repetitions: 3 });
 	expect(campaign.harness).toHaveBeenCalledTimes(18);
 	expect(LIVE_REPLAY_TIMEOUT_MS).toBe(30 * 60_000);
 	expect(registeredTests).toHaveLength(18);
@@ -56,10 +58,11 @@ it("faux registration keeps the global deadline and does not construct a live ca
 it("a smaller authorized N is passed to the campaign and only schedules that N", async () => {
 	liveEnv(); vi.stubEnv("ROTOM_EVAL_REPETITIONS", "1");
 	await import("../cases/compaction-offload.eval.ts");
-	expect(create).toHaveBeenCalledExactlyOnceWith(LIVE_AUTHORIZATION, { repetitions: 1 });
+	expect(create).toHaveBeenCalledExactlyOnceWith(testAuthorization, { repetitions: 1 });
 	expect(registrations).toHaveLength(6);
 });
-it("empty authorization rejects the entry before any campaign is constructed", async () => {
+it("spent 04b authorization rejects the entry before any campaign is constructed", async () => {
+	expect(LIVE_AUTHORIZATION).toBeNull();
 	liveEnv();
 	vi.doMock("../src/compaction-offload-cases.ts", async () => ({ ...await vi.importActual("../src/compaction-offload-cases.ts"), LIVE_AUTHORIZATION: null }));
 	await expect(import("../cases/compaction-offload.eval.ts")).rejects.toThrow("no authorization");

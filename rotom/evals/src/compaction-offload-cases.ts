@@ -3,32 +3,43 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { createPiCodingAgentHarness, type PiCodingAgentHarnessOptions, type PiCodingAgentScenario } from "./pi-harness.ts";
-import { createReplayMetrics } from "./compaction-offload-metrics.ts";
+import { createReplayMetrics, readOffloadDecisions, type OffloadDecision } from "./compaction-offload-metrics.ts";
 import type { ReplayAuthorization } from "./compaction-offload-budget.ts";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
-// Synchronized with tasks/04-paid-replay.md, commit 3a919229. Execution is
-// separately gated; this implementation/testing task does not consume it.
-export const LIVE_AUTHORIZATION: Readonly<ReplayAuthorization> | null = Object.freeze({
-	id: "3a919229e91eb6a5b935cf02ec38f271dee21b17", provider: "openai-codex", model: "gpt-5.6-luna", thinking: "low",
-	maxRepetitions: 3, maxRequests: 2000, maxInputTokens: 100_000_000,
-});
+// 04b consumed its one campaign. A new written authorization is required;
+// the old receipt stays intact and must not be bypassed with a fresh directory.
+export const LIVE_AUTHORIZATION: Readonly<ReplayAuthorization> | null = null;
 
 export const REPLAY_PRODUCT = resolve(import.meta.dirname, "../..");
-// A 40K line leaves too little room for default 20K recent history plus product
-// prompt overhead under the offloader's 0.6 target. Keep recent history untouched.
 export const REPLAY_THRESHOLD = 64_000;
+// Match the production retained-tail fraction, not the candidate's target.
+export const REPLAY_KEEP_RECENT = Math.round(REPLAY_THRESHOLD * 0.08);
 export const LIVE_REPLAY_TIMEOUT_MS = 30 * 60_000;
 export const REPLAY_TOOLS = ["read", "bash", "edit", "write", "obs_recall"];
 export const REPLAY_CONFIG = Object.freeze({ version: 1, actionFusion: true, observationPack: true, evidencePreservingReducer: false, onlineContextCompact: false });
 export const EXACT_CODE = createHash("sha256").update("synthetic-offload-replay-exact-detail-v1").digest("hex").slice(0, 40);
 
 function padded(key: string, body: string) {
-	const lines = Array.from({ length: 90 }, (_, i) => `// ${createHash("sha256").update(`${key}/${i}`).digest("hex")}`);
-	lines.splice(45, 0, body);
+	let seed = createHash("sha256").update(`replay-v2/${key}`).digest().readUInt32LE(0);
+	const next = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed; };
+	const code = key.startsWith("module-") || key.startsWith("src/");
+	const lines: string[] = [];
+	let bytes = 0;
+	while (bytes < 8192) {
+		const i = lines.length, worker = next() % 32, duration = next() % 900, count = next() % 10000;
+		const line = i % 3 === 0
+			? `2026-01-15T12:${String(i % 60).padStart(2, "0")}:00Z INFO worker-${worker} processed audit batch ${count}; duration_ms=${duration}; status=ok`
+			: i % 3 === 1
+				? JSON.stringify({ component: key, batch: count, worker, durationMs: duration, retries: i % 4, cache: i % 2 ? "hit" : "miss" })
+				: `const checkpoint${i} = { accepted: ${count}, elapsed: ${duration}, worker: ${worker} }; // Validate before reporting the result.`;
+		const formatted = code ? `// ${line}` : line;
+		lines.push(formatted); bytes += Buffer.byteLength(formatted) + 1;
+	}
+	lines.splice(Math.floor(lines.length / 2), 0, body);
 	return `${lines.join("\n")}\n`;
 }
-const background = Object.fromEntries(Array.from({ length: 28 }, (_, i) => [`notes/note-${i}.txt`, padded(`note-${i}`, `// Synthetic audit note ${i}; no executable behavior.`)]));
+const background = Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`notes/note-${i}.txt`, padded(`note-${i}`, `// Synthetic audit note ${i}; no executable behavior.`)]));
 const modules = Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`modules/module-${i}.mjs`, padded(`module-${i}`, `export const VALUE = ${(i + 1) * 17};`)]));
 const sum = [2, 7, 13, 19].reduce((n, i) => n + (i + 1) * 17, 0);
 const summary = (n: number) => `export const total = ${n};\nexport const untouched = "synthetic stable suffix";\n`;
@@ -98,13 +109,17 @@ export async function gradeReplay(selected: ReplayTask, workspace: string, respo
 export function createReplayHarness(selected: ReplayTask, candidate: boolean, options: Required<Pick<PiCodingAgentHarnessOptions, "model" | "modelRuntimeFactory">> & Pick<PiCodingAgentHarnessOptions, "piExecutable" | "thinkingLevel">) {
 	const metrics = createReplayMetrics();
 	let lastBranch: SessionEntry[] | undefined;
+	let offloadDecisions: OffloadDecision[] = [];
 	let hasPricing = false;
 	const harness = createPiCodingAgentHarness({
 		...options, name: candidate ? "candidate" : "baseline", productAgentDir: REPLAY_PRODUCT,
 		piExecutable: options.piExecutable ?? resolve(REPLAY_PRODUCT, "runtime/pi/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js"),
 		thinkingLevel: options.thinkingLevel ?? "off", tools: [...REPLAY_TOOLS],
 		inlineExtensions: [metrics.extension, (pi) => {
-			pi.on("session_shutdown", (_event, ctx) => { lastBranch = ctx.sessionManager.getBranch(); });
+			pi.on("session_shutdown", async (_event, ctx) => {
+				lastBranch = ctx.sessionManager.getBranch();
+				offloadDecisions = await readOffloadDecisions(ctx.sessionManager.getSessionDir(), ctx.sessionManager.getSessionId());
+			});
 		}], inlineExtensionsFirst: true,
 		environment: { ROTOM_COMPACTION_OFFLOAD: candidate ? "1" : "0", PI_CODING_AGENT_DIR: undefined },
 		async setupWorkspace({ workspace, configDir }) {
@@ -117,25 +132,27 @@ export function createReplayHarness(selected: ReplayTask, candidate: boolean, op
 			const runtime = await options.modelRuntimeFactory(context);
 			const model = runtime.getModel(options.model.provider, options.model.id);
 			if (!model || model.contextWindow <= REPLAY_THRESHOLD) throw new Error("Replay model must have a window greater than the fixed threshold");
-			await writeFile(join(context.configDir, "settings.json"), JSON.stringify({ retry: { enabled: false }, compaction: { enabled: true, reserveTokens: model.contextWindow - REPLAY_THRESHOLD } }));
+			await writeFile(join(context.configDir, "settings.json"), JSON.stringify({ retry: { enabled: false }, compaction: { enabled: true, reserveTokens: model.contextWindow - REPLAY_THRESHOLD, keepRecentTokens: REPLAY_KEEP_RECENT } }));
 			return runtime;
 		},
 		async output({ session, workspace, response }) {
 			const correct = await gradeReplay(selected, workspace, response);
 			const cost = session.model?.cost;
 			hasPricing = !!cost && Object.values(cost).some((n) => typeof n === "number" && n > 0);
-			return metrics.output(session.sessionManager.getBranch(), correct, hasPricing);
+			offloadDecisions = await readOffloadDecisions(session.sessionManager.getSessionDir(), session.sessionManager.getSessionId());
+			return metrics.output(session.sessionManager.getBranch(), correct, hasPricing, offloadDecisions);
 		},
 	});
 	const run: typeof harness.run = async (input, context) => {
 		const started = performance.now();
 		lastBranch = undefined;
+		offloadDecisions = [];
 		hasPricing = false;
 		const result = await harness.run(input, context);
 		// Include workspace/loader setup, grading, shutdown and artifact capture.
 		return { ...result, output: { ...result.output, wallMs: performance.now() - started } };
 	};
 	return { ...harness, run,
-		failureMetrics: () => lastBranch ? metrics.output(lastBranch, false, hasPricing) : null,
+		failureMetrics: () => lastBranch ? metrics.output(lastBranch, false, hasPricing, offloadDecisions) : null,
 	};
 }

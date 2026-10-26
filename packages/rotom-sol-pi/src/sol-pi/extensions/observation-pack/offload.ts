@@ -1,6 +1,7 @@
 import { lstat } from "node:fs/promises";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
+import { getCurrentSystemMessage } from "@earendil-works/pi-ai";
+import { buildSessionContext, estimateTokens as estimateMessageTokens, type ExtensionAPI, type ExtensionContext, type SessionEntry } from "@earendil-works/pi-coding-agent";
 import { OFFLOAD_COPY } from "../../constants/copy.ts";
 import { runtimeRoot } from "../../runtime-paths.ts";
 import { formatSavingsCount, showSolPiSavings } from "../../tui.ts";
@@ -116,26 +117,31 @@ export function createCompactionOffload(pi: ExtensionAPI, ledgerFor: (ctx: Exten
 		let after = before;
 		let threshold: number | undefined;
 		let reason = "store_failed";
-		const native = () => log(ctx, { event: "offload_native", reason, before, after, T: threshold ?? null });
+		let candidateCount = 0, originalBytes = 0;
+		const metadata = () => ({ before, after, T: threshold ?? null, candidates: candidateCount, originalBytes });
+		const native = () => log(ctx, { event: "offload_native", reason, ...metadata() });
 		try {
 			restore(ctx);
+			const window = ctx.getContextUsage()?.contextWindow ?? ctx.model?.contextWindow;
+			if (window !== undefined) threshold = window - event.preparation.settings.reserveTokens;
 			const assistant = ctx.sessionManager.getBranch().findLast(
 				(entry) => entry.type === "message" && entry.message.role === "assistant",
 			);
 			if (latest && !unknown.has(latest) && assistant?.id === latest.afterAssistantEntryId) {
-				await log(ctx, { event: "offload_defer_stale", afterAssistantEntryId: assistant.id });
+				after = latest.estimatedTokensAfter;
+				await log(ctx, { event: "offload_defer_stale", afterAssistantEntryId: assistant.id, ...metadata() });
 				return { cancel: true };
 			}
-			const window = ctx.getContextUsage()?.contextWindow ?? ctx.model?.contextWindow;
-			if (window === undefined) {
+			if (threshold === undefined) {
 				reason = "no_context_window";
 				await native();
 				return undefined;
 			}
-			threshold = window - event.preparation.settings.reserveTokens;
 			const candidates = selectOffloadCandidates([
 				...event.preparation.messagesToSummarize, ...event.preparation.turnPrefixMessages,
 			], runtimeRoot(ctx), offloaded);
+			candidateCount = candidates.length;
+			originalBytes = candidates.reduce((sum, c) => sum + c.observation.bytes, 0);
 			if (candidates.length === 0) {
 				reason = "no_candidates";
 				await native();
@@ -143,7 +149,14 @@ export function createCompactionOffload(pi: ExtensionAPI, ledgerFor: (ctx: Exten
 			}
 			const saved = candidates.reduce((sum, { observation, placeholder }) =>
 				sum + observation.tokens - estimateTokens(placeholder), 0);
-			after = before - saved;
+			// Use Pi's current branch projection (including context edits/compaction),
+			// then our confirmed offloads. Never reuse provider usage as the denominator.
+			const messages = await Promise.all(buildSessionContext(ctx.sessionManager.getBranch()).messages
+				.map(async (message) => await project(message, ctx) ?? message));
+			const system = getCurrentSystemMessage(messages);
+			const contextEstimate = (system ? estimateMessageTokens(system) : estimateTokens(ctx.getSystemPrompt())) +
+				messages.reduce((sum, message) => sum + (message.role === "system" ? 0 : estimateMessageTokens(message)), 0);
+			after = before * (1 - saved / contextEstimate);
 			// No assistant means no usage anchor: do not invent a successful defer.
 			if (!assistant || threshold <= 0 || after > OFFLOAD_TARGET_RATIO * threshold) {
 				reason = "insufficient_savings";
@@ -164,10 +177,9 @@ export function createCompactionOffload(pi: ExtensionAPI, ledgerFor: (ctx: Exten
 			unknown.delete(record);
 			restore(ctx);
 			await log(ctx, {
-				event: "offload_defer", candidates: candidates.length, offloaded: candidates.length,
-				originalBytes: candidates.reduce((sum, c) => sum + c.observation.bytes, 0),
+				event: "offload_defer", offloaded: candidates.length,
 				placeholderBytes: candidates.reduce((sum, c) => sum + Buffer.byteLength(c.placeholder, "utf8"), 0),
-				before, after, T: threshold,
+				...metadata(),
 			});
 			try {
 				showSolPiSavings(ctx, "Observation Pack", OFFLOAD_COPY.deferred(formatSavingsCount(saved, OFFLOAD_COPY.offloadedTokens)));

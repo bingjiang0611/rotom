@@ -14,7 +14,7 @@ export type FauxObservation = {
 	requestControls?: { transport?: string; maxRetries?: number }[];
 };
 /** Only scripted local responses. No credentials, network provider, or generated judgment. */
-export function replayFaux(selected: ReplayTask, observation: FauxObservation, stress = false, profile = { model: FAUX_MODEL, contextWindow: 256_000, reasoning: false }): NonNullable<PiCodingAgentHarnessOptions["modelRuntimeFactory"]> {
+export function replayFaux(selected: ReplayTask, observation: FauxObservation, stress = false, profile = { model: FAUX_MODEL, contextWindow: 256_000, reasoning: false }, script: { batchSize?: number; pressure?: "no_candidates" | "insufficient_savings" } = {}): NonNullable<PiCodingAgentHarnessOptions["modelRuntimeFactory"]> {
 	return async ({ product, configDir }) => {
 		const { fauxProvider, fauxAssistantMessage, fauxToolCall } = await import(pathToFileURL(resolve(product.verified.packageRoot, "../pi-ai/dist/providers/faux.js")).href);
 		const { getCurrentSystemPrompt, getCurrentTools } = await import(pathToFileURL(resolve(product.verified.packageRoot, "../pi-ai/dist/index.js")).href);
@@ -28,7 +28,8 @@ export function replayFaux(selected: ReplayTask, observation: FauxObservation, s
 		let readIndex = 0, manifestRead = false, ready = false, checkedFailure = false, recalled = false;
 		let detailChecked = false;
 		let solutionIndex = 0, checked = false, ordinaryRead = false, ordinaryRecall = false, inflated = false;
-		let callId = 0, ordinaryWait = 0;
+		let callId = 0, ordinaryWait = 0, pressureSent = false;
+		const readCallIds = new Map<string, string>();
 		const call = (name: string, args: Record<string, unknown>) => fauxAssistantMessage(fauxToolCall(name, args, { id: `scripted-${++callId}` }), { stopReason: "toolUse" });
 		const response = (context: any, options: any) => {
 			observation.settings ??= JSON.parse(readFileSync(join(configDir, "settings.json"), "utf8"));
@@ -44,14 +45,28 @@ export function replayFaux(selected: ReplayTask, observation: FauxObservation, s
 				observation.summaryCalls++;
 				return fauxAssistantMessage("## Goal\nFinish the synthetic audit.\n## Progress\nRead files and continue the requested follow-up.\n## Next steps\nUse the workspace to finish and validate.");
 			}
+			if (script.pressure && !pressureSent && (script.pressure === "no_candidates" || readIndex >= 3)) {
+				pressureSent = true;
+				return fauxAssistantMessage([
+					{ type: "text", text: "unoffloadable synthetic explanation\n".repeat(10_000) },
+					fauxToolCall("bash", { command: "printf checkpoint" }, { id: `scripted-${++callId}` }),
+				], { stopReason: "toolUse" });
+			}
 			if (!manifestRead) { manifestRead = true; return call("read", { path: "manifest.json" }); }
-			if (readIndex < selected.reading.length) return call("read", { path: selected.reading[readIndex++] });
+			if (readIndex < selected.reading.length) {
+				const paths = selected.reading.slice(readIndex, readIndex + (script.batchSize ?? 1));
+				readIndex += paths.length;
+				return fauxAssistantMessage(paths.map(path => {
+					const id = `scripted-${++callId}`; readCallIds.set(path, id);
+					return fauxToolCall("read", { path }, { id });
+				}), { stopReason: "toolUse" });
+			}
 			if (selected.check === "test.mjs" && !checkedFailure) { checkedFailure = true; return call("bash", { command: "node test.mjs" }); }
 			if (!ready) { ready = true; return fauxAssistantMessage("READY"); }
 			if (!recalled) {
 				recalled = true;
 				const target = selected.id === "config-aggregate" ? "modules/module-2.mjs" : selected.reading[0]!;
-				const originalCallId = `scripted-${selected.reading.indexOf(target) + 2}`;
+				const originalCallId = readCallIds.get(target);
 				const result = context.messages.find((m: any) => m.role === "toolResult" && m.toolCallId === originalCallId);
 				const pointer = result ? text(result) : "";
 				const id = pointer.includes("offloaded before compaction") ? pointer.match(/obs_[a-f0-9]{24}/u)?.[0] : undefined;

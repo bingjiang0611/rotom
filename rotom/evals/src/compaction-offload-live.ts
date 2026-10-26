@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { createHarness } from "vitest-evals/harness";
-import { createReplayHarness, REPLAY_PRODUCT, REPLAY_THRESHOLD, type ReplayTask } from "./compaction-offload-cases.ts";
+import { createReplayHarness, REPLAY_KEEP_RECENT, REPLAY_PRODUCT, REPLAY_THRESHOLD, type ReplayTask } from "./compaction-offload-cases.ts";
 import { ReplayBudget, type ReplayAuthorization } from "./compaction-offload-budget.ts";
 import { createReplayStore, type LiveReplayRow } from "./compaction-offload-store.ts";
 import type { PiCodingAgentHarnessOptions, PiCodingAgentInput } from "./pi-harness.ts";
@@ -60,7 +60,7 @@ export function createLiveReplayCampaign(authorization: ReplayAuthorization, opt
 						version: 1, authorizationId: authorization.id, timestamp: new Date().toISOString(), task: task.id,
 						arm: candidate ? "candidate" : "baseline", repetition, repetitions, status: "not-run", reason: budget.snapshot().stopReason,
 						provider: authorization.provider, model: authorization.model, thinking: authorization.thinking, transport: "sse",
-						sourceCommit, sourceDirty, contextWindow: null, thresholdTokens: REPLAY_THRESHOLD, reserveTokens: null,
+						sourceCommit, sourceDirty, contextWindow: null, thresholdTokens: REPLAY_THRESHOLD, reserveTokens: null, keepRecentTokens: null,
 						metrics: null, cumulative: budget.snapshot(),
 					};
 					const before = budget.snapshot();
@@ -77,6 +77,14 @@ export function createLiveReplayCampaign(authorization: ReplayAuthorization, opt
 							const result = await harness.run(input, { signal, artifacts: {}, setArtifact() {} });
 							row.metrics = result.output;
 							row.status = "completed";
+							if (row.metrics.thresholdCompactions === 0) {
+								// Correct output alone is not a compaction experiment.
+								budget.halt("threshold-not-reached");
+								row.status = "failed";
+							} else if (candidate && row.metrics.offloadDecisions.length !== row.metrics.thresholdCompactions) {
+								budget.halt("decision-ledger-incomplete");
+								row.status = "failed";
+							}
 						} catch {
 							budget.halt("run-error");
 							row.status = "failed";
@@ -103,6 +111,7 @@ export function createLiveReplayCampaign(authorization: ReplayAuthorization, opt
 					}
 					row.contextWindow = contextWindow;
 					row.reserveTokens = contextWindow !== null && contextWindow > REPLAY_THRESHOLD ? contextWindow - REPLAY_THRESHOLD : null;
+					row.keepRecentTokens = row.reserveTokens !== null ? REPLAY_KEEP_RECENT : null;
 					row.cumulative = budget.snapshot();
 					row.reason = row.cumulative.stopReason;
 					try { await store.append(row); }
