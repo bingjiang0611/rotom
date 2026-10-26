@@ -167,6 +167,11 @@ function labelOf(label, lastEntryId) {
 		atEntryId: label.atEntryId ?? null, atEntryCount: label.atEntryCount ?? null,
 		progressed: label.atEntryId !== undefined && lastEntryId !== undefined && label.atEntryId !== lastEntryId };
 }
+export function matchesSessionFilter(row, filter) {
+	return filter === "all" || (filter === "unlabeled" && !row.annotation) ||
+		(filter === "fail" && row.annotation?.verdict === "fail") || (filter === "failSet" && row.annotation?.failSet) ||
+		(filter === "hits" && row.findings.some((finding) => finding.status === "hit"));
+}
 export function createEvalService(root, directory = DEFAULT_EVAL_DIRECTORY) {
 	// Cache only bounded list metadata, never raw messages or tool arguments.
 	const summaries = new Map();
@@ -216,9 +221,7 @@ export function createEvalService(root, directory = DEFAULT_EVAL_DIRECTORY) {
 				if (row.annotation?.failSet) counts.failSet++;
 				if (row.findings.some((finding) => finding.status === "hit")) counts.hits++;
 			}
-			const items = rows.slice(offset, offset + LIST_PAGE_SIZE).filter((row) => filter === "all" ||
-				(filter === "unlabeled" && !row.annotation) || (filter === "fail" && row.annotation?.verdict === "fail") ||
-				(filter === "failSet" && row.annotation?.failSet) || (filter === "hits" && row.findings.some((finding) => finding.status === "hit")));
+			const items = rows.slice(offset, offset + LIST_PAGE_SIZE).filter((row) => matchesSessionFilter(row, filter));
 			const next = Math.min(rows.length, offset + LIST_PAGE_SIZE);
 			return { items, total: rows.length, counts, labeled: rows.length - counts.unlabeled, unavailable: rows.filter((row) => row.unavailable).length,
 				states, limited: scanned.limited, nextCursor: next < rows.length ? encodeCursor(next, version) : null };

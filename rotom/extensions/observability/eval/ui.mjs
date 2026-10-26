@@ -1,4 +1,5 @@
 import { COPY } from "./copy.mjs";
+import { matchesSessionFilter } from "./service.mjs";
 export const evalMarkup = '<section id="eval-workspace" hidden></section>';
 export const evalStyles = `
 [hidden]{display:none!important}
@@ -22,7 +23,7 @@ body.eval-active .app-shell{grid-template-rows:58px minmax(0,1fr) 28px}
 @media(max-width:800px){#eval-workspace{grid-template-columns:1fr}.eval-sidebar{max-height:45vh;border-bottom:1px solid #424744}.eval-detail{overflow:visible}.eval-active .app-shell{display:block}.eval-active .top-context,.eval-active .key-hint{display:none}.eval-active .topbar{height:auto;min-height:60px;flex-wrap:wrap}.eval-active .top-actions{margin-left:0;min-width:0;flex-wrap:wrap}.eval-active .view-switch{flex-wrap:wrap}.eval-active .app-footer{height:auto;min-height:28px;flex-wrap:wrap;overflow-wrap:anywhere}.eval-active .security{white-space:normal}}
 `;
 
-function evalClient(C) {
+function evalClient(C, matchesFilter) {
 	'use strict';
 	const root = document.getElementById('eval-workspace');
 	const token = new URLSearchParams(location.hash.slice(1)).get('token');
@@ -64,7 +65,8 @@ function evalClient(C) {
 	}
 	function renderList() {
 		list.replaceChildren();
-		for (const row of rows) {
+		const visibleRows = rows.filter((row) => matchesFilter(row, filter));
+		for (const row of visibleRows) {
 			const node = button('', () => openSession(row.id), 'eval-session' + (selected === row.id ? ' selected' : ''));
 			node.dataset.sessionId = row.id; node.dataset.label = row.annotation?.failSet ? 'failSet' : row.annotation?.verdict || 'unlabeled';
 			node.append(make('small', 'eval-meta', row.started), make('span', 'eval-badge', C.activity + '：' + C.activityNames[row.state]), make('strong', '', row.request || (row.unavailable ? C.unavailable : C.noRequest)), make('small', 'eval-meta', metricsText(row.metrics)));
@@ -76,12 +78,12 @@ function evalClient(C) {
 			if (row.judgment) node.append(make('small', 'eval-meta', C.alreadyJudged + ' · ' + (C[row.judgment.verdict] || C.judgeStatuses[row.judgment.status])));
 			list.append(node);
 		}
-		if (!rows.length) list.append(make('p', 'eval-muted', C.empty));
+		if (!visibleRows.length) list.append(make('p', 'eval-muted', C.empty));
 		more.hidden = !nextCursor;
 	}
 	async function loadList(reset, recovered = false) {
 		const request = ++generation;
-		if (reset) { rows = []; nextCursor = null; sidebar.scrollTop = 0; }
+		if (reset) { rows = []; nextCursor = null; sidebar.scrollTop = 0; list.replaceChildren(); more.hidden = true; }
 		status.textContent = C.loading; more.disabled = true;
 		try {
 			let data;
@@ -199,7 +201,8 @@ function evalClient(C) {
 		model.append(make('option', '', C.modelsLoading));
 		const analyze = button(C.analyze, start); analyze.id = 'eval-analyze'; analyze.disabled = true;
 		const cancel = button(C.cancel, async () => { cancel.disabled = true; try { await api('/api/eval/judge/cancel', { runId: data.activeJudge.runId }); message.textContent = C.cancelling; } catch (error) { message.textContent = error.message || C.judgeStatusUnknown; } }); cancel.hidden = true;
-		box.append(model, analyze, cancel, message);
+		const retryModels = button(C.retryModels, readModels); retryModels.id = 'eval-retry-models'; retryModels.hidden = true;
+		box.append(model, analyze, retryModels, cancel, message);
 		function running(job) { data.activeJudge = job; analyze.disabled = model.disabled = true; cancel.hidden = false; message.textContent = C.judging; pollJudge(job, message, cancel); }
 		async function start() {
 			analyze.disabled = true; message.textContent = C.preparing;
@@ -211,14 +214,22 @@ function evalClient(C) {
 				catch (error) { message.textContent = !error.status || error.status >= 500 ? C.judgeStartUnknown : error.message; if (error.status && error.status < 500) analyze.disabled = false; }
 			} catch (error) { message.textContent = error.message || C.readError; analyze.disabled = false; }
 		}
-		if (!modelPromise) modelPromise = api('/api/eval/models');
-		modelPromise.then((catalog) => {
-			model.replaceChildren();
-			if (!catalog.defaultModel) { const empty = make('option', '', C.chooseModel); empty.value = ''; model.append(empty); }
-			for (const row of catalog.models) { const option = make('option', '', row.id); option.value = row.id; model.append(option); }
-			model.value = catalog.defaultModel || ''; model.disabled = !!data.activeJudge; analyze.disabled = !!data.activeJudge || !model.value;
-			model.onchange = () => { analyze.disabled = !model.value; };
-		}).catch((error) => { message.textContent = error.message || C.readError; });
+		function readModels() {
+			retryModels.hidden = retryModels.disabled = true; model.disabled = analyze.disabled = true;
+			model.replaceChildren(make('option', '', C.modelsLoading)); message.textContent = '';
+			if (!modelPromise) modelPromise = api('/api/eval/models').catch((error) => { modelPromise = undefined; throw error; });
+			modelPromise.then((catalog) => {
+				model.replaceChildren();
+				if (!catalog.defaultModel) { const empty = make('option', '', C.chooseModel); empty.value = ''; model.append(empty); }
+				for (const row of catalog.models) { const option = make('option', '', row.id); option.value = row.id; model.append(option); }
+				model.value = catalog.defaultModel || ''; model.disabled = !!data.activeJudge; analyze.disabled = !!data.activeJudge || !model.value;
+				model.onchange = () => { analyze.disabled = !model.value; };
+			}).catch((error) => {
+				model.replaceChildren(make('option', '', C.modelsUnavailable));
+				message.textContent = error.message || C.readError; retryModels.hidden = retryModels.disabled = false;
+			});
+		}
+		readModels();
 		if (data.activeJudge) running(data.activeJudge);
 		return box;
 	}
@@ -227,6 +238,8 @@ function evalClient(C) {
 		try {
 			const data = await api('/api/eval/session?id=' + encodeURIComponent(id) + (options.cursor ? '&cursor=' + encodeURIComponent(options.cursor) : '') + (options.eventIndex !== undefined ? '&event=' + options.eventIndex : ''));
 			if (request !== detailGeneration) return;
+			rows = rows.map((row) => row.id === data.id ? { ...row, annotation: data.annotation, findings: data.findings } : row);
+			renderList();
 			const annotation = annotationForm(data);
 			detail.replaceChildren(make('h2', '', C.title), make('p', 'eval-meta', data.started + ' · ' + C.activity + '：' + C.activityNames[data.state]), annotation.node, judgePanel(data, annotation));
 			if (options.notice) detail.append(make('p', 'eval-notice', options.notice));
@@ -251,4 +264,4 @@ function evalClient(C) {
 	select.onchange = () => { filter = select.value; loadList(true); };
 	document.getElementById('refresh').addEventListener('click', (event) => { if (enabled) { event.stopImmediatePropagation(); loadList(true); if (selected) openSession(selected); } }, true);
 }
-export const evalScript = '(' + evalClient.toString() + ')(' + JSON.stringify(COPY) + ');';
+export const evalScript = '(' + evalClient.toString() + ')(' + JSON.stringify(COPY) + ', ' + matchesSessionFilter.toString() + ');';

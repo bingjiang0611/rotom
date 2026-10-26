@@ -24,9 +24,11 @@ let browser, page;
 const errors = [], external = [], screenshots = [];
 const screenshot = async (name) => { const path = join(directory, name); await page.screenshot({ path, fullPage: false }); screenshots.push(path); };
 const stored = async () => JSON.parse(await readFile(join(evalDirectory, "annotations/synthetic-active.json"), "utf8"));
-const inferenceCount = async () => (await readFile(fake.calls, "utf8")).trim().split("\n").map((line) => JSON.parse(line)).filter((row) => !row.args.includes("--list-models")).length;
+const launcherCalls = async () => (await readFile(fake.calls, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+const inferenceCount = async () => (await launcherCalls()).filter((row) => !row.args.includes("--list-models")).length;
+await writeFile(fake.control, JSON.stringify({ modelsFail: true }));
 try {
-	browser = await chromium.launch({ channel: "chrome", headless: true });
+	browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_CHANNEL ? { channel: process.env.PLAYWRIGHT_CHANNEL } : {}) });
 	page = await browser.newPage({ viewport: { width: 1440, height: 1050 } });
 	page.on("pageerror", (error) => errors.push(error.message));
 	page.on("request", (request) => { if (!request.url().startsWith(dashboard.baseUrl)) external.push(request.url()); });
@@ -45,7 +47,31 @@ try {
 	await page.getByText("当前：满意（来自终端 review）", { exact: true }).waitFor();
 	assert.equal(await page.locator("#eval-pass").getAttribute("aria-pressed"), "true");
 	assert.equal(await page.locator("#eval-pass").isDisabled(), false);
-	await page.locator("#eval-filter").selectOption("unlabeled");
+	await page.getByRole("button", { name: "重试读取模型", exact: true }).waitFor();
+	assert.equal((await launcherCalls()).length, 1); assert.equal(await inferenceCount(), 0);
+	assert.equal(await page.locator("#eval-analyze").isDisabled(), true);
+	await screenshot("eval-model-retry.png");
+	await page.getByRole("button", { name: "重试读取模型", exact: true }).click();
+	await page.getByRole("button", { name: "重试读取模型", exact: true }).waitFor();
+	assert.equal((await launcherCalls()).length, 2); assert.equal(await inferenceCount(), 0);
+	await writeFile(fake.control, JSON.stringify({ mode: "ok" }));
+	await page.getByRole("button", { name: "重试读取模型", exact: true }).click();
+	await page.waitForFunction(() => !document.getElementById('eval-analyze').disabled);
+	assert.equal((await launcherCalls()).length, 3); assert.equal(await inferenceCount(), 0);
+	// The current labeled detail must not be pinned into an unmatched filter,
+	// including the interval while the next list response is still pending.
+	let filterRoute, signalFilter;
+	const filterHeld = new Promise((resolve) => { signalFilter = resolve; });
+	const filterUrl = "**/api/eval/sessions?filter=unlabeled";
+	await page.route(filterUrl, (route) => { filterRoute = route; signalFilter(); });
+	await page.locator("#eval-filter").selectOption("unlabeled"); await filterHeld;
+	assert.equal(await page.locator('.eval-session').count(), 0);
+	await filterRoute.continue(); await page.unroute(filterUrl);
+	await page.waitForFunction(() => {
+		const rows = [...document.querySelectorAll('.eval-session')];
+		return rows.length > 0 && rows.every((row) => row.dataset.label === 'unlabeled');
+	});
+	assert.equal(await page.locator('[data-session-id="synthetic-a-review"]').count(), 0);
 	await screenshot("eval-default-progress.png");
 	// A late failed detail request cannot replace a newer selection.
 	let pendingRoute, signalHeld;
@@ -71,6 +97,8 @@ try {
 	await page.getByText("标注已保存", { exact: true }).waitFor();
 	assert.equal((await stored()).atEntryId, "entry-53"); assert.equal((await stored()).atEntryCount, 54);
 	await page.getByText("当前：满意（来自后台）", { exact: true }).waitFor();
+	await page.locator('[data-session-id="synthetic-active"]').waitFor({ state: 'detached' });
+	assert.equal(await page.locator('.eval-session:not([data-label="unlabeled"])').count(), 0);
 	// Appending invalidates only this timeline, not the list snapshot.
 	await appendFile(activePath, JSON.stringify({ type: "message", id: "new-progress", parentId: "entry-53", message: { role: "user", content: "合成追加进度" } }) + "\n");
 	await page.getByRole("button", { name: "更多会话", exact: true }).click();
@@ -92,6 +120,7 @@ try {
 	await page.getByRole("dialog").getByRole("button", { name: "确认并分析", exact: true }).click();
 	await page.locator("#eval-adopt").waitFor();
 	assert.equal(await inferenceCount(), 1); assert.equal((await stored()).verdict, "pass", "judge must not annotate");
+	assert.equal((await launcherCalls()).filter((row) => row.args.includes('--list-models')).length, 3, "successful discovery stays cached across detail changes");
 	await screenshot("eval-judge-result.png");
 	await page.locator("#eval-adopt").click();
 	assert.equal(await page.locator("#eval-fail").getAttribute("aria-pressed"), "true");

@@ -137,7 +137,9 @@ stdout 不含命令、参数、fingerprint 或会话 ID；会话 ID 只写入同
 `rotom --trace` 后台的「评测」页支持本机会话复盘与人工标注。活动状态与人工结论分开；active 会话允许按当前进度标注，记录 `atEntryId` / `atEntryCount`，unknown 状态仍禁止写入。标注后追加内容会显示「标注后有新进展」。默认筛选未标注，筛选计数与已标注进度独立显示；列表按会话身份/开始时间稳定分页，时间线变化最多自动重载一次。
 标注写入 `~/.rotom/evals/annotations/`；`labels` 统一合并卡片与 annotation，冲突以 annotation 为准并计 `conflicts`，新增 `failSet`。
 
-「让模型分析」先展示模型、发送字符数与截断情况，逐次确认后才启动产品 launcher。摘要只含当前分支，不含人工标注，最多 80,000 字符；只有一个分析可运行，180 秒超时，可取消，不自动重试。原生 `--single-request` 关闭工具、会话落盘、自动压缩/预热及两层重试；默认模型仍由 Pi 解析，选定模型使用精确 `provider/model`，不模糊匹配或回退。模型目录及读取失败在后台进程内缓存，更新安装/登录后需重启后台；不会复制 API-key/token 环境变量或凭据文件，认证由子进程的原生登录存储处理。
+「让模型分析」先展示模型、发送字符数与截断情况，逐次确认后才启动产品 launcher。摘要只含当前分支，不含人工标注，最多 80,000 字符。长会话保留全部用户消息与助手文本、非 ok 工具及前后各 2 个事件、首尾各 20 个事件，其余连续 ok 工具折叠为保留原序号范围和工具计数的 `tool_run`；只能引用未折叠的事件，折叠后仍超限才拒绝。只有一个分析可运行，180 秒超时，可取消，不自动重试。原生 `--single-request` 关闭工具、会话落盘、自动压缩/预热及两层重试；默认模型仍由 Pi 解析，选定模型使用精确 `provider/model`，不模糊匹配或回退。模型目录只缓存成功结果；读取失败可点「重试读取模型」，不自动重试，也不触发分析。成功目录在更新安装/登录后需重启后台刷新；不会复制 API-key/token 环境变量或凭据文件，认证由子进程的原生登录存储处理。
+
+合成 UI 检查默认使用 Playwright 自带的 Chromium（先用对应 Playwright CLI 安装 `chromium`）；可用 `PLAYWRIGHT_CHANNEL=chrome` 显式选择本机 Chrome，`PLAYWRIGHT_MODULE` 指定已有 Playwright 模块路径。
 
 分析以私有追加记录写入 `~/.rotom/evals/judgments/<sessionId>/<timestamp>.json`，不改原始会话/trace，不覆盖历史。结果格式不合格、失败、超时、取消均单列；缺失费用为未知，Pi 计算费用仅显示为估算，不冒充服务商账单。「采纳建议」仅预填，仍须人工保存。`agreement` 追加最新成功且非 unsure 分析与人工标注的 TP/FP/FN/TN；n < 10 标星，未对齐不同进度的结论不代表模型可靠性。
 `review` 跳过已有 annotation；agreement/breakdown 复用同一合并逻辑。无卡片时仍支持已有 labels.jsonl 导出文件，不把它覆盖实时卡片。

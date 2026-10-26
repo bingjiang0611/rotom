@@ -18,12 +18,12 @@ async function fixture(t, options = {}) {
 	await fixtureSession(root, "synthetic-active", { active: true, large: true });
 	const fake = await fakeJudgeLauncher(dir);
 	const evalService = createEvalService(root, directory);
-	const judge = createJudgeService({ evalService, directory, launcher: fake.launcher, timeoutMs: 1000, ...options });
+	const judge = createJudgeService({ evalService, directory, launcher: fake.launcher, timeoutMs: 5000, ...options });
 	t.after(async () => { try { await judge.close(); } finally { await rm(dir, { recursive: true, force: true }); } });
 	return { dir, root, directory, fake, evalService, judge };
 }
 async function done(judge, id) {
-	const deadline = Date.now() + 6000;
+	const deadline = Date.now() + 12000;
 	while (judge.status(id).status === "running") {
 		if (Date.now() > deadline) throw new Error("Fake judge failed to settle");
 		await new Promise((resolve) => setTimeout(resolve, 10));
@@ -49,6 +49,75 @@ test("bounded independent judge input has numbered events, explicit truncation a
 	assert.equal(validateJudgment(valid, [1]), valid);
 	for (const change of [{ confidence: 2 }, { confidence: "0.1" }, { summary: "字".repeat(301) }, { firstProblem: { event: 2, description: "越界" } }, { categories: ["other", "other"] }, { evidence: [{ event: 1, quote: "字".repeat(201) }] }, { extra: 1 }]) assert.throws(() => validateJudgment({ ...valid, ...change }, [1]));
 	assert.equal(parseJudgeEvents('{"type":"agent_end"}\n', [1]).status, "failed");
+});
+
+test("long histories fold only unprotected ok runs and reject citations into folded ranges", () => {
+	const branch = [], expected = [];
+	function message(role, text) {
+		branch.push({ type: "message", message: { role, content: [{ type: "text", text }] } });
+		expected.push({ kind: role });
+	}
+	message("user", "合成初始要求");
+	for (let index = 0; index < 1300; index++) {
+		if (index === 400) message("user", "合成后续约束");
+		if (index === 700) message("assistant", "合成进度说明");
+		const name = index % 2 ? "read" : "bash", id = "call-" + index;
+		branch.push({ type: "message", message: { role: "assistant", content: [{ type: "toolCall", id, name, arguments: { index } }] } });
+		if (index !== 900) branch.push({ type: "message", message: { role: "toolResult", toolCallId: id, isError: index === 600, content: [{ type: "text", text: "合成结果" }] } });
+		expected.push({ kind: "tool", name, outcome: index === 900 ? "unknown" : index === 600 ? "tool_error" : "ok" });
+	}
+	message("assistant", "合成最终回复");
+	const built = buildJudgeInput({ branch, trace: { tools: new Map() } });
+	const data = JSON.parse(built.prompt.split("会话数据（不含人工标注）：\n")[1]);
+	assert.ok(built.inputChars <= JUDGE_MAX_INPUT_CHARS); assert.equal(built.truncated, true);
+	assert.ok(data.events.length < 70);
+	const protectedIndices = new Set();
+	for (let index = 0; index < expected.length; index++) {
+		if (expected[index].kind !== "tool" || index < 20 || index >= expected.length - 20) protectedIndices.add(index);
+		if (expected[index].kind === "tool" && expected[index].outcome !== "ok") {
+			for (let near = index - 2; near <= index + 2; near++) protectedIndices.add(near);
+		}
+	}
+	const covered = [], folded = [];
+	for (const event of data.events) {
+		if (event.kind !== "tool_run") { covered.push(event.event); continue; }
+		const [first, last] = event.events.split("-").map(Number), tools = {};
+		assert.equal(event.count, last - first + 1);
+		for (let number = first; number <= last; number++) {
+			assert.ok(!protectedIndices.has(number - 1));
+			assert.equal(expected[number - 1].outcome, "ok");
+			const name = expected[number - 1].name; tools[name] = (tools[name] ?? 0) + 1;
+			covered.push(number); folded.push(number);
+		}
+		assert.deepEqual(event.tools, tools);
+	}
+	assert.deepEqual(covered, expected.map((_, index) => index + 1));
+	assert.deepEqual(built.eventIds, data.events.filter((event) => event.kind !== "tool_run").map((event) => event.event));
+	for (const index of protectedIndices) assert.ok(built.eventIds.includes(index + 1));
+	const valid = { suggestedVerdict: "fail", confidence: 0.7, summary: "合成判断", firstProblem: null, categories: [], evidence: [], suggestions: [] };
+	for (const event of folded) {
+		assert.throws(() => validateJudgment({ ...valid, firstProblem: { event, description: "不能引用已折叠事件" } }, built.eventIds));
+		assert.throws(() => validateJudgment({ ...valid, evidence: [{ event, quote: "不能引用已折叠事件" }] }, built.eventIds));
+	}
+	assert.equal(validateJudgment({ ...valid, evidence: [{ event: 1, quote: "合成初始要求" }] }, built.eventIds).evidence[0].event, 1);
+	const irreducible = { branch: Array.from({ length: 3000 }, () => ({ type: "message", message: { role: "user", content: "合成要求" } })), trace: { tools: new Map() } };
+	assert.throws(() => buildJudgeInput(irreducible), /judge_input_too_large/);
+});
+
+test("failed model discovery is not cached or automatically retried; a successful retry is shared", async (t) => {
+	const { judge, fake } = await fixture(t);
+	await writeFile(fake.control, JSON.stringify({ modelsFail: true }));
+	const failures = await Promise.allSettled([judge.models(), judge.models()]);
+	assert.ok(failures.every((result) => result.status === "rejected"));
+	assert.equal((await calls(fake)).length, 1);
+	await writeFile(fake.control, JSON.stringify({ mode: "ok" }));
+	assert.deepEqual(await Promise.all([judge.models(), judge.models()]), [
+		{ models: [{ id: "fake/model" }], defaultModel: "fake/model" }, { models: [{ id: "fake/model" }], defaultModel: "fake/model" },
+	]);
+	await judge.models();
+	const logs = await calls(fake);
+	assert.equal(logs.length, 2);
+	assert.ok(logs.every((row) => row.args.includes("--list-models")), "retry never starts inference");
 });
 
 test("fake launcher proves exact argv, private empty cwd, stdin, model caching, confirmation, permissions, and no annotation write", async (t) => {
@@ -86,8 +155,9 @@ test("failure, invalid JSON, timeout, cancellation and output limits are termina
 		await writeFile(fake.control, JSON.stringify({ mode }));
 		const prepared = await judge.prepare(input), job = judge.start({ confirmationId: prepared.confirmationId });
 		if (expected === "cancelled") {
-			const deadline = Date.now() + 2000;
+			const deadline = Date.now() + 8000;
 			while ((await calls(fake)).length < cases.findIndex((row) => row[1] === "cancelled") + 2 && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10));
+			assert.equal((await calls(fake)).length, cases.findIndex((row) => row[1] === "cancelled") + 2, "wait for the owned fake process before cancelling");
 			judge.cancel({ runId: job.runId });
 		}
 		const terminal = await done(judge, job.runId);
@@ -140,8 +210,9 @@ test("closing the dashboard cancels and records its owned in-flight judge", asyn
 	const prepared = await (await fetch(dashboard.baseUrl + "/api/eval/judge/prepare", { method: "POST", headers, body: JSON.stringify(input) })).json();
 	const response = await fetch(dashboard.baseUrl + "/api/eval/judge", { method: "POST", headers, body: JSON.stringify({ confirmationId: prepared.confirmationId }) });
 	assert.equal(response.status, 202); await response.json();
-	const deadline = Date.now() + 2000;
+	const deadline = Date.now() + 8000;
 	while ((await calls(fake)).length < 2 && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10));
+	assert.equal((await calls(fake)).length, 2, "wait for the in-flight fake process before closing");
 	const pid = (await calls(fake)).at(-1).pid;
 	await dashboard.close();
 	assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });

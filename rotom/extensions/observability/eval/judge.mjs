@@ -66,13 +66,14 @@ export function createJudgeService({ evalService, directory, launcher = JUDGE_LA
 		}
 	}
 	async function models() {
+		if (!modelPromise && unsafeTermination) throw evalError(409, "termination_unknown");
 		if (!modelPromise) modelPromise = (async () => {
 			const output = await invoke([...JUDGE_BASE_ARGS, "--list-models"], "", discoveryController.signal, 30_000);
 			if (output.terminal.outcome !== "exited" || output.code !== 0) throw evalError(503, "models_unavailable");
 			let data; try { data = JSON.parse(output.stdout); } catch { throw evalError(503, "models_unavailable"); }
 			if (!Array.isArray(data.models) || !data.models.length || data.models.some((item) => typeof item.id !== "string" || item.id.length > 512 || !item.id.includes("/") || /[\u0000-\u001f\u007f]/u.test(item.id)) || new Set(data.models.map((item) => item.id)).size !== data.models.length || !(data.defaultModel === null || data.models.some((item) => item.id === data.defaultModel))) throw evalError(503, "models_unavailable");
 			return { models: data.models.map(({ id }) => ({ id })), defaultModel: data.defaultModel };
-		})().catch(() => { throw evalError(503, "models_unavailable"); });
+		})().catch(() => { modelPromise = undefined; throw evalError(503, "models_unavailable"); });
 		return modelPromise;
 	}
 	function available() {

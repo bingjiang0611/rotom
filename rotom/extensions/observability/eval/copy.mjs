@@ -16,7 +16,7 @@ export const COPY = {
 	ruleNames: { "repeat-after-error": "工具出错后重复调用", "ended-after-tool-error": "工具出错后结束", "ended-on-provider-error": "服务商报错后结束", "schema-errors": "工具参数不符合要求", "oversized-tool-result": "工具结果过大", "harness-fault": "执行环境故障" },
 	findingNames: { hit: "命中", clear: "未命中", unknown: "未知" },
 	outcomes: { ok: "完成", tool_error: "工具出错", unknown: "未知", aborted: "已中断", cancelled: "已取消", failed: "失败", timeout: "超时" },
-	judge: "模型分析", preparing: "正在整理摘要，尚未发送给模型", analyze: "让模型分析", model: "分析模型", chooseModel: "请选择模型（默认模型未知）", modelsLoading: "正在读取可用模型…",
+	judge: "模型分析", preparing: "正在整理摘要，尚未发送给模型", analyze: "让模型分析", model: "分析模型", chooseModel: "请选择模型（默认模型未知）", modelsLoading: "正在读取可用模型…", retryModels: "重试读取模型", modelsUnavailable: "模型列表暂不可用",
 	confirmTitle: "确认发送会话内容", confirmDetails: "模型：{model}\n发送字符数：{count}\n内容截断：{truncated}", yes: "是", no: "否",
 	consent: "会话内容会发送给所选模型的服务商；费用以服务商报告为准，缺失时显示未知。", confirmJudge: "确认并分析", cancel: "取消",
 	judging: "正在分析，请勿重复提交", cancelling: "正在取消，等待子进程结束", judgeStartUnknown: "分析是否启动尚不确定，请刷新会话核对；不要重复提交。",
