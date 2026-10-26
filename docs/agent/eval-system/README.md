@@ -41,6 +41,6 @@
 | 09 | [工具出错与 provider 出错拆解](tasks/09-error-breakdown.md) | Phase 2 | accepted |
 | 10 | [给 edit 失败补上原因码](tasks/10-edit-error-codes.md) | Phase 2 | accepted |
 | 11 | [命令失败是正常迭代还是在原地打转](tasks/11-command-failures.md) | Phase 2 | accepted |
-| 12 | [trace 后台加 Eval 页（标注与复盘）](tasks/12-dashboard-eval-tab.md) | Phase 4 | in-review |
+| 12 | [trace 后台加 Eval 页（标注与复盘）](tasks/12-dashboard-eval-tab.md) | Phase 4 | accepted（等 bob 试用） |
 
 状态取值：`ready`（可开工）· `in-review`（执行者已提交，等核验）· `changes-requested` · `accepted`。

@@ -101,3 +101,15 @@
 公开历史审计仍为 **BLOCKED / 14 findings**：均为此前 7 个公开提交的 author/committer identity（`8c10047a7b1e`、`ec14cce51612`、`dd68b62d8a94`、`b358d3c15964`、`e6da2afa5739`、`ba9288fd2b2d`、`fc539150e67d`）；本次不重写历史、不新增该类问题。树审计为 7,848 文件 / 0 findings。
 
 仅同步 `eval/system`，不推 main、不 force push、不发布。提交后由 [Evals L1](https://github.com/bingjiang0611/rotom/actions/workflows/evals-l1.yml) 验证；交付消息回报该提交的实际 Actions 结果及链接，不用本地测试替代远端状态。
+
+## 核验（规划者，2026-10-26）
+
+结论：**accepted**。
+
+- 拉取 `1e4afa9`。本地重跑：`dashboard.test.mjs` + `eval.test.mjs` 30/30；eval 定向测试 7 文件 / 241 用例；typecheck 通过。Actions [run 40218582445](https://github.com/bingjiang0611/rotom/actions/runs/40218582445) 在该提交上 success，CI 已包含 dashboard / Eval API 测试和 coding-policy 路径。
+- 安全面逐项读过：Eval 下的 `.mjs` 没有 `innerHTML` / `insertAdjacentHTML` / `outerHTML` / `document.write` / `eval`；CSP 保持 nonce 不放宽；POST 依次校验 Host、方法、Bearer、并发、Content-Type、Origin、Content-Length 与流式 4 KiB 上限、5 秒截止；`validSessionId` 拒绝 `/`、`\`、控制字符和 `..`，且会话 id 只映射到目录扫描得到的会话；annotation 文件名与内容 id 不一致时拒读。
+- 在规划者容器里用预装 Chromium（不是 Chrome channel，脚本里的 `channel: "chrome"` 临时去掉）复跑 `eval-ui-smoke.mjs`：PASS，pageErrors 0、externalRequests 0。看了复盘与时间线截图：注入的 `<script>` / `<img onerror>` 都按文本显示，第一次出错标红，截断有提示。
+- 代码只有一份：规则、指标、会话读取搬进产品目录，`rotom/evals/scripts` 改为 re-export；新文件已登记发行清单。CLAUDE.md 第 5 条的补充与 bob 的授权范围一致。
+- 小建议（不阻塞）：`eval-ui-smoke.mjs` 写死了 `channel: "chrome"`，没装 Chrome 的机器跑不了，以后可改成环境变量可选；截图链接指向执行者本机的 `/tmp`，别人打不开，属预期。
+
+未验证：安装后的 `rotom --trace`（受既有 identity gate 阻断）、bob 本人在真实会话上的使用体验。
