@@ -126,3 +126,9 @@ CLI exit=0，Vitest 18/18 passed；18 completed、0 failed、0 not-run，确定�
 现有指标只证明未卸载，不能确定每次拒绝/不触发的原因；原始 session/trace 在 harness 清理时删除，本次只保留指标，不补采、不重放。后续 owner 为规划者/bob：如需判断卸载收益，先决定是否开展零费用的触发/拒绝条件与 fixture 审查，再另行授权新的真实实验。当前授权已使用，不能再次启动或补跑。
 
 本机指标保留于 `~/.rotom/evals/compaction-offload/2026-10-25T17-10-24.142Z.jsonl`，实查目录 0700、文件 0600；授权 receipt 保留。CLI/结构化 reporter 产物留在 `/tmp/rotom-offload-04b-run.JqL6LH`。JSONL、receipt、日志和 reporter JSON 均不提交；本节仅含指标和运行元数据。
+
+## 核验意见（规划者，2026-10-26，04b 结果）
+
+结论：**04b accepted as executed**（`e26e41d` 修复、`609cfc1` 结果）。执行合规：只跑一次、未熔断、未重跑，219/2,000 请求、3.85M/100M 输入，结果诚实记录为「没有取得有效的卸载样本」。超时修复也被一次 166 秒的真实运行证实。
+
+数据本身回答不了问题：candidate 0 次卸载，16/18 次运行没到阈值。我核对了 fixture，每行是 `// <64 位十六进制>`，真实 tokenizer 下远比 chars/4 密，而推迟判定拿 provider 真实 token 当 `before`、拿 chars/4 估 `saved`，节省被系统性低估，config-aggregate 那两次很可能因此判成 `insufficient_savings`。这是推断，ledger 已随临时 session 清理，无法直接证实。后续见任务 05。
