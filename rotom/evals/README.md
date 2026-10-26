@@ -134,8 +134,12 @@ cost 缺任一条时整列 null 并标 partial；总出错率是各会话 toolEr
 命令与旧 edit 错误只在内存里分类；命令类别、重复失败信号及同级 `labels.jsonl` 标注对照只输出聚合计数。
 stdout 不含命令、参数、fingerprint 或会话 ID；会话 ID 只写入同级私有的 `breakdown.md`。
 
-`rotom --trace` 后台的 Eval 页支持本机会话复盘与人工标注；active/unknown 会话禁止写标注。
+`rotom --trace` 后台的「评测」页支持本机会话复盘与人工标注。活动状态与人工结论分开；active 会话允许按当前进度标注，记录 `atEntryId` / `atEntryCount`，unknown 状态仍禁止写入。标注后追加内容会显示「标注后有新进展」。默认筛选未标注，筛选计数与已标注进度独立显示；列表按会话身份/开始时间稳定分页，时间线变化最多自动重载一次。
 标注写入 `~/.rotom/evals/annotations/`；`labels` 统一合并卡片与 annotation，冲突以 annotation 为准并计 `conflicts`，新增 `failSet`。
+
+「让模型分析」先展示模型、发送字符数与截断情况，逐次确认后才启动产品 launcher。摘要只含当前分支，不含人工标注，最多 80,000 字符；只有一个分析可运行，180 秒超时，可取消，不自动重试。原生 `--single-request` 关闭工具、会话落盘、自动压缩/预热及两层重试；默认模型仍由 Pi 解析，选定模型使用精确 `provider/model`，不模糊匹配或回退。模型目录及读取失败在后台进程内缓存，更新安装/登录后需重启后台；不会复制 API-key/token 环境变量或凭据文件，认证由子进程的原生登录存储处理。
+
+分析以私有追加记录写入 `~/.rotom/evals/judgments/<sessionId>/<timestamp>.json`，不改原始会话/trace，不覆盖历史。结果格式不合格、失败、超时、取消均单列；缺失费用为未知，Pi 计算费用仅显示为估算，不冒充服务商账单。「采纳建议」仅预填，仍须人工保存。`agreement` 追加最新成功且非 unsure 分析与人工标注的 TP/FP/FN/TN；n < 10 标星，未对齐不同进度的结论不代表模型可靠性。
 `review` 跳过已有 annotation；agreement/breakdown 复用同一合并逻辑。无卡片时仍支持已有 labels.jsonl 导出文件，不把它覆盖实时卡片。
 共享读取、分支、规则、指标仅在 `extensions/observability/eval/` 保留一份源码，eval 脚本通过 import/re-export 复用。
 

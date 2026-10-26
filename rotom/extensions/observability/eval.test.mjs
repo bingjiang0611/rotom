@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, realpath, mkdir, readFile, readdir, rm, stat, symlink, writeFile, utimes } from "node:fs/promises";
+import { mkdtemp, realpath, mkdir, readFile, readdir, rm, stat, symlink, writeFile, utimes, appendFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { request as httpRequest } from "node:http";
@@ -29,6 +29,16 @@ async function api(t) {
 	return { ...paths, dashboard, headers, post };
 }
 
+test("header-only active sessions remain readable and can anchor progress at null/0", async (t) => {
+	const { root, dashboard, headers, post } = await api(t);
+	await writeFile(join(root, "synthetic-empty.jsonl"), JSON.stringify({ type: "session", version: 3, id: "synthetic-empty", timestamp: "2026-01-01T00:00:00.000Z" }) + "\n");
+	const response = await fetch(dashboard.baseUrl + "/api/eval/session?id=synthetic-empty", { headers });
+	assert.equal(response.status, 200);
+	const data = await response.json(); assert.equal(data.state, "active"); assert.equal(data.timeline.total, 0);
+	const saved = await post(annotation("synthetic-empty"));
+	assert.equal(saved.status, 200); const record = await saved.json(); assert.equal(record.atEntryId, null); assert.equal(record.atEntryCount, 0);
+});
+
 test("activity evidence has three states and inclusive five-minute boundary", () => {
 	const now = 1_000_000;
 	assert.equal(sessionState(undefined, NaN, now), "unknown");
@@ -52,6 +62,7 @@ test("timeline marks first error, bounds Unicode previews and validates snapshot
 	const second = timelinePage(branch, new Map(), first.nextCursor, "v1");
 	assert.equal(second.items[0].index, first.items.length);
 	assert.throws(() => timelinePage(branch, new Map(), first.nextCursor, "v2"), /session_changed/);
+	assert.throws(() => timelinePage(branch.slice(0, 3), new Map(), first.nextCursor, "v2"), /session_changed/);
 	assert.throws(() => timelinePage(branch, new Map(), "bad", "v1"), /invalid_cursor/);
 	assert.equal(preview("😀".repeat(2001)).truncated, true);
 });
@@ -75,7 +86,6 @@ test("Eval reads require auth/Host and POST rejects invalid headers, origins, ID
 	assert.equal((await post(annotation(undefined, { note: 1 }))).status, 400);
 	assert.equal((await post(annotation(undefined, { failSet: "true" }))).status, 400);
 	assert.equal((await post(annotation(undefined, { note: "x".repeat(5000) }))).status, 413);
-	assert.equal((await post(annotation("synthetic-active"))).status, 409);
 	assert.equal((await fetch(dashboard.baseUrl + "/api/eval/annotation", { headers })).headers.get("allow"), "POST");
 	assert.equal((await fetch(dashboard.baseUrl + "/api/eval/sessions", { method: "POST", headers })).headers.get("allow"), "GET");
 	await assert.rejects(stat(join(evalDirectory, "annotations")), { code: "ENOENT" });
@@ -106,7 +116,7 @@ test("chunked body limit rejects without annotation", async (t) => {
 	assert.equal(status, 413);
 	await assert.rejects(stat(join(evalDirectory, "annotations")), { code: "ENOENT" });
 });
-test("valid POST persists atomically at 0600, truncates note, survives refresh and rejects newly active trace", async (t) => {
+test("valid POST persists atomically at 0600, truncates note, survives refresh and accepts active progress", async (t) => {
 	const { root, dashboard, evalDirectory, headers, post } = await api(t);
 	const response = await post(annotation(undefined, { note: "字".repeat(600) }), { origin: dashboard.baseUrl });
 	assert.equal(response.status, 200);
@@ -120,8 +130,15 @@ test("valid POST persists atomically at 0600, truncates note, survives refresh a
 	const detail = await (await fetch(dashboard.baseUrl + "/api/eval/session?id=synthetic-idle", { headers })).json();
 	assert.equal(detail.annotation.failSet, true); assert.equal(detail.annotation.note, "更新");
 	await mkdir(join(root, "observability")); await writeFile(join(root, "observability/synthetic-idle.trace.jsonl"), "");
-	assert.equal((await post(annotation())).status, 409);
-	assert.equal(JSON.parse(await readFile(path, "utf8")).note, "更新");
+	assert.equal((await post(annotation())).status, 200);
+	assert.equal(JSON.parse(await readFile(path, "utf8")).atEntryId, "entry-3");
+	assert.equal(JSON.parse(await readFile(path, "utf8")).atEntryCount, 4);
+	assert.equal((await post(annotation("synthetic-active", { verdict: "pass", failSet: false }))).status, 200);
+	await appendFile(join(root, "synthetic-active.jsonl"), JSON.stringify({ type: "message", id: "new-progress", parentId: "entry-3", message: { role: "user", content: "新的合成进度" } }) + "\n");
+	const active = await (await fetch(dashboard.baseUrl + "/api/eval/session?id=synthetic-active", { headers })).json();
+	assert.equal(active.state, "active"); assert.equal(active.annotation.source, "dashboard"); assert.equal(active.annotation.progressed, true);
+	const listing = await (await fetch(dashboard.baseUrl + "/api/eval/sessions", { headers })).json();
+	assert.equal(listing.labeled, 2); assert.equal(listing.counts.unlabeled, 0); assert.equal(listing.items.length, 0);
 });
 test("Eval pagination stays bounded, filters beyond page one and rejects stale detail cursors", async (t) => {
 	const { root, dashboard, headers, post } = await api(t);
@@ -129,9 +146,10 @@ test("Eval pagination stays bounded, filters beyond page one and rejects stale d
 	assert.equal((await post(annotation("synthetic-page-0"))).status, 200);
 	let cursor = null, total = 0;
 	do {
-		const response = await fetch(dashboard.baseUrl + "/api/eval/sessions" + (cursor ? "?cursor=" + cursor : ""), { headers });
+		const response = await fetch(dashboard.baseUrl + "/api/eval/sessions?filter=all" + (cursor ? "&cursor=" + cursor : ""), { headers });
 		const body = await response.text(); assert.ok(Buffer.byteLength(body) <= MAX_RESPONSE_BYTES);
 		const page = JSON.parse(body); total += page.items.length; cursor = page.nextCursor;
+		await appendFile(join(root, "synthetic-page-0.jsonl"), "\n");
 	} while (cursor);
 	assert.equal(total, 14);
 	cursor = null; const matches = [];

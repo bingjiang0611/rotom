@@ -6,224 +6,249 @@ body.eval-active .signal-region,body.eval-active .workspace{display:none}
 body.eval-active .app-shell{grid-template-rows:58px minmax(0,1fr) 28px}
 #eval-workspace{min-height:0;display:grid;grid-template-columns:340px minmax(0,1fr);background:#101112}
 .eval-sidebar{border-right:1px solid #424744;overflow:auto;padding:20px}
-.eval-heading{font-size:20px;margin:0 0 6px;font-weight:600;letter-spacing:-.02em}
-.eval-muted{overflow-wrap:anywhere;color:#aab1ad;font-size:12px;line-height:1.7}
-.eval-filter,.eval-note{width:100%;background:#181c1a;color:#e6ede7;border:1px solid #68716b;padding:10px;margin:10px 0;font:inherit;border-radius:3px}
-.eval-session{display:block;width:100%;text-align:left;background:transparent;color:inherit;border:0;border-bottom:1px solid #424744;padding:16px 8px;cursor:pointer;font:inherit}
-.eval-session:hover,.eval-session[aria-current=true]{background:#252e27;border-left:3px solid #b5e57a;padding-left:5px}
-.eval-request{font-size:14px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;margin:8px 0}
-.eval-detail{overflow:auto;min-width:0;padding:28px clamp(20px,4vw,64px)}
-.eval-detail h2{font-size:22px;margin:0 0 18px}.eval-detail h3{font-size:15px;margin:24px 0 12px}
-.eval-button{padding:9px 14px;border:1px solid #68716b;border-radius:3px;background:#1b211d;color:#e6ede7;font:inherit;cursor:pointer;margin:4px 8px 4px 0}
-.eval-button.primary,.eval-button[aria-pressed=true]{background:#b5e57a;color:#13200e;border-color:#b5e57a}.eval-button:disabled{opacity:.45;cursor:not-allowed}
-.eval-button:focus-visible,.eval-session:focus-visible{outline:2px solid #b5e57a;outline-offset:3px}
-.eval-review{padding:18px;border:1px solid #59645c;background:#181e19;margin-bottom:24px;max-width:900px}
-.eval-review label{display:block}.eval-review input[type=checkbox]{margin-right:8px}.eval-note{min-height:64px;resize:vertical}
-.eval-text{white-space:pre-wrap;overflow-wrap:anywhere;margin:8px 0;color:#dbe3dc;line-height:1.75;max-width:960px}
-.eval-event{border-left:2px solid #536358;padding:0 0 18px 18px;margin:16px 0}.eval-event.error{border-color:#ee8c7e}.eval-error{color:#ffac9f}.eval-event pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 var(--mono);max-height:360px;overflow:auto;background:#090c0a;padding:12px}.eval-event summary{cursor:pointer;color:#b8c9bd;padding:6px 0}
-.eval-status{min-height:22px}.eval-badges{display:flex;gap:8px;flex-wrap:wrap}.eval-badge{padding:2px 7px;background:#252e27;color:#c8ddb2;border-radius:3px;font-size:11px}
+.eval-detail{min-width:0;overflow:auto;padding:32px 4vw}.eval-detail>section{margin:24px 0}
+.eval-session{display:block;width:100%;text-align:left;padding:16px 8px;margin:8px 0;background:transparent;color:inherit;border:0;border-left:4px solid #e6ba68;border-bottom:1px solid #424744;cursor:pointer;overflow-wrap:anywhere}
+.eval-session[data-label=pass]{border-left-color:#9dcc84}.eval-session[data-label=fail]{border-left-color:#ef9d93}.eval-session[data-label=failSet]{border-left-color:#b6a1ed}.eval-session.selected{background:#242e24}
+.eval-session strong,.eval-session small{display:block;margin:8px 0}.eval-muted,.eval-meta{color:#b6bdb8;font-size:12px;overflow-wrap:anywhere}.eval-text{white-space:pre-wrap;overflow-wrap:anywhere}
+.eval-badge{display:inline-block;padding:3px 7px;margin:4px 6px 4px 0;border:1px solid #586556;border-radius:2px;font-size:12px}
+.eval-form,.eval-judge{border:1px solid #586556;padding:18px}.eval-form button,.eval-judge button,.eval-next,.eval-dialog button{padding:10px 14px;margin:6px 8px 6px 0;background:transparent;border:1px solid #65745f;color:inherit;cursor:pointer}
+.eval-form button[aria-pressed=true],.eval-primary{background:#58713f!important;color:#fff!important}.eval-form button:disabled,.eval-judge button:disabled{opacity:.5;cursor:not-allowed}
+.eval-form>label{display:block;margin-top:12px}
+.eval-form input[type=text],.eval-judge select,.eval-sidebar select{display:block;width:100%;padding:10px;margin:10px 0;background:#171d19;color:#eff3ef;border:1px solid #65745f;box-sizing:border-box}
+.eval-event{padding:16px;border-left:2px solid #586556;margin:16px 0;min-width:0}.eval-event.failed{border-color:#ef9d93}.eval-event.focused{outline:2px solid #d7c079;outline-offset:3px}.eval-error{color:#ffad9f}
+.eval-event details{margin:12px 0}.eval-event summary{cursor:pointer}.eval-event pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#0b0e0b;padding:12px;max-height:360px;overflow:auto}
+.eval-dialog{max-width:560px;background:#171d19;color:#eff3ef;border:1px solid #819779;padding:24px}.eval-dialog::backdrop{background:#000a}
+.eval-notice{color:#e6cf98}button:focus-visible,select:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid #d7c079;outline-offset:3px}
 @media(max-width:800px){#eval-workspace{grid-template-columns:1fr}.eval-sidebar{max-height:45vh;border-bottom:1px solid #424744}.eval-detail{overflow:visible}.eval-active .app-shell{display:block}.eval-active .top-context,.eval-active .key-hint{display:none}.eval-active .topbar{height:auto;min-height:60px;flex-wrap:wrap}.eval-active .top-actions{margin-left:0;min-width:0;flex-wrap:wrap}.eval-active .view-switch{flex-wrap:wrap}.eval-active .app-footer{height:auto;min-height:28px;flex-wrap:wrap;overflow-wrap:anywhere}.eval-active .security{white-space:normal}}
 `;
 
-export const evalScript = `(() => {
-    'use strict';
-    const C = ${JSON.stringify(COPY)};
-    const traceSecurity = document.querySelector('.security').textContent;
-    const token = new URLSearchParams(location.hash.slice(1)).get('token') || '';
-    const root = document.getElementById('eval-workspace');
-    const header = document.querySelector('.topbar');
-    header.after(root);
-    const make = (tag, cls, text) => { const node = document.createElement(tag); if (cls)
-        node.className = cls; if (text !== undefined)
-        node.textContent = String(text); return node; };
-    const button = (text, action, cls = '') => { const node = make('button', 'eval-button ' + cls, text); node.type = 'button'; node.onclick = action; return node; };
-    const tab = make('button', 'view-button', C.tab);
-    tab.id = 'view-eval';
-    tab.type = 'button';
-    tab.setAttribute('aria-pressed', 'false');
-    document.querySelector('.view-switch').append(tab);
-    let enabled = false, rows = [], cursor = null, selected = null, filter = 'all', generation = 0, detailGeneration = 0;
-    const sidebar = make('aside', 'eval-sidebar'), detail = make('main', 'eval-detail');
-    root.append(sidebar, detail);
-    sidebar.append(make('h2', 'eval-heading', C.title), make('div', 'eval-muted', C.subtitle));
-    const select = make('select', 'eval-filter');
-    select.id = 'eval-filter';
-    select.setAttribute('aria-label', C.filters);
-    for (const key of ['all', 'unlabeled', 'fail', 'failSet', 'hits']) {
-        const option = make('option', '', C[key]);
-        option.value = key;
-        select.append(option);
-    }
-    sidebar.append(select);
-    const status = make('div', 'eval-status eval-muted');
-    status.setAttribute('role', 'status');
-    const list = make('div', 'eval-list');
-    sidebar.append(status, list);
-    const more = button(C.more, () => loadList(false));
-    more.id = 'eval-more';
-    sidebar.append(more);
-    detail.append(make('p', 'eval-muted', C.choose));
-    const label = row => row.annotation?.failSet ? C.failSet : row.annotation?.verdict === 'fail' ? C.fail : row.annotation?.verdict === 'pass' ? C.pass : C.noLabel;
-    const number = value => value === null || value === undefined ? C.unknown : new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(value);
-    const metricText = row => C.tools + ' ' + number(row.metrics?.toolCalls) + ' / ' + number(row.metrics?.toolErrors) + ' · ' + C.duration + ' ' + number(row.metrics?.durationMs == null ? null : row.metrics.durationMs / 60000) + ' · ' + C.cost + ' ' + number(row.metrics?.costUsd);
-    async function get(path) { const response = await fetch(path, { headers: { authorization: 'Bearer ' + token }, cache: 'no-store' }); if (!response.ok)
-        throw new Error(C.readError + ' (HTTP ' + response.status + ')'); return response.json(); }
-    function renderList() { list.replaceChildren(); for (const row of rows) {
-        if ((filter === 'unlabeled' && row.annotation) || (filter === 'fail' && row.annotation?.verdict !== 'fail') || (filter === 'failSet' && !row.annotation?.failSet))
-            continue;
-        const node = make('button', 'eval-session');
-        node.type = 'button';
-        node.dataset.sessionId = row.id;
-        node.setAttribute('aria-current', String(selected === row.id));
-        node.append(make('div', 'eval-muted', row.started + ' · ' + row.state), make('p', 'eval-request', row.request || C.unavailable), make('div', 'eval-muted', metricText(row)));
-        const badges = make('div', 'eval-badges');
-        badges.append(make('span', 'eval-badge', label(row)));
-        for (const hit of row.findings.filter(x => x.status === 'hit'))
-            badges.append(make('span', 'eval-badge', hit.rule));
-        node.append(badges);
-        node.onclick = () => openSession(row.id);
-        list.append(node);
-    } if (!rows.length)
-        list.append(make('p', 'eval-muted', C.empty)); more.hidden = !cursor; }
-    async function loadList(reset) { const seq = ++generation; more.disabled = true; select.disabled = true; status.textContent = C.loading; if (reset) {
-        rows = [];
-        cursor = null;
-    } try {
-        let data;
-        do {
-            data = await get('/api/eval/sessions?filter=' + encodeURIComponent(filter) + (cursor ? '&cursor=' + encodeURIComponent(cursor) : ''));
-            if (seq !== generation)
-                return;
-            rows.push(...data.items);
-            cursor = data.nextCursor;
-        } while (!rows.length && cursor);
-        status.textContent = C.listCount + ' ' + rows.length + ' / ' + data.total + ' · ' + C.states + ' ' + C.activeShort + ' ' + data.states.active + ' / ' + C.idleShort + ' ' + data.states.idle + ' / ' + C.unknown + ' ' + data.states.unknown + (data.limited ? ' · ' + C.partial : '');
-        renderList();
-    }
-    catch (error) {
-        status.textContent = error.message;
-    }
-    finally {
-        more.disabled = false;
-        select.disabled = false;
-    } }
-    function textBlock(title, value) { const box = make('section'); box.append(make('h3', '', title), make('p', 'eval-text', value.text)); if (value.truncated)
-        box.append(make('span', 'eval-muted', C.truncated)); return box; }
-    function timeline(data) { const section = make('section'); section.id = 'eval-timeline'; section.append(make('h3', '', C.timeline), make('p', 'eval-muted', C.pageEvents + ' ' + data.timeline.items.length + ' / ' + data.timeline.total)); for (const event of data.timeline.items) {
-        const box = make('article', 'eval-event' + (event.failed ? ' error' : ''));
-        box.dataset.index = event.index;
-        if (event.kind === 'tool') {
-            box.append(make('strong', event.failed ? 'eval-error' : '', event.name + ' · ' + event.outcome));
-            if (event.firstError)
-                box.append(make('p', 'eval-error', C.firstError));
-            for (const key of ['args', 'result']) {
-                const folded = make('details');
-                folded.append(make('summary', '', C[key]), make('pre', '', event[key].text));
-                if (event[key].truncated)
-                    folded.append(make('span', 'eval-muted', C.truncated));
-                box.append(folded);
-            }
-        }
-        else {
-            box.append(make('strong', '', C[event.kind]), make('p', 'eval-text', event.content.text));
-            if (event.firstError)
-                box.append(make('p', 'eval-error', C.firstError));
-            if (event.content.truncated)
-                box.append(make('span', 'eval-muted', C.truncated));
-        }
-        section.append(box);
-    } if (data.timeline.nextCursor)
-        section.append(button(C.moreEvents, () => openSession(data.id, data.timeline.nextCursor))); return section; }
-    function reviewForm(data) {
-        const form = make('section', 'eval-review');
-        form.append(make('h3', '', C.annotation));
-        let verdict = data.annotation?.verdict || '', saving = false;
-        const pass = button(C.pass, () => choose('pass')), fail = button(C.fail, () => choose('fail'));
-        pass.id = 'eval-pass';
-        fail.id = 'eval-fail';
-        form.append(pass, fail);
-        const noteLabel = make('label', '', C.reason), note = make('textarea', 'eval-note');
-        note.id = 'eval-note';
-        note.maxLength = 500;
-        note.placeholder = C.reasonPlaceholder;
-        note.value = data.annotation?.note || '';
-        noteLabel.htmlFor = note.id;
-        form.append(noteLabel, note);
-        const checkLabel = make('label'), check = make('input');
-        check.type = 'checkbox';
-        check.id = 'eval-failset';
-        check.checked = data.annotation?.failSet === true;
-        checkLabel.append(check, document.createTextNode(C.addFailSet));
-        form.append(checkLabel);
-        const message = make('p', 'eval-status eval-muted');
-        message.setAttribute('role', 'status');
-        const save = button(C.save, async () => { if (saving)
-            return; saving = true; update(); message.textContent = C.loading; try {
-            const response = await fetch('/api/eval/annotation', { method: 'POST', headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' }, body: JSON.stringify({ sessionId: data.id, verdict, note: note.value, failSet: check.checked }) });
-            if (!response.ok) {
-                message.textContent = response.status >= 500 ? C.saveUnknown : C.readError + ' (HTTP ' + response.status + ')';
-                return;
-            }
-            const written = await response.json();
-            data.annotation = written;
-            for (const row of rows)
-                if (row.id === data.id)
-                    row.annotation = written;
-            renderList();
-            saving = false;
-            update();
-            message.textContent = C.saved;
-        }
-        catch {
-            message.textContent = C.saveUnknown;
-        } }, 'primary');
-        save.id = 'eval-save';
-        form.append(save, message);
-        function update() { const blocked = data.state !== 'idle' || saving; pass.disabled = blocked; fail.disabled = blocked; note.disabled = blocked || verdict !== 'fail'; check.disabled = blocked || verdict !== 'fail'; save.disabled = blocked || !verdict; pass.setAttribute('aria-pressed', String(verdict === 'pass')); fail.setAttribute('aria-pressed', String(verdict === 'fail')); noteLabel.hidden = note.hidden = verdict !== 'fail'; checkLabel.hidden = verdict !== 'fail'; }
-        function choose(value) { verdict = value; if (value === 'pass') {
-            check.checked = false;
-            note.value = '';
-        } update(); }
-        if (data.state !== 'idle')
-            message.textContent = data.state === 'active' ? C.active : C.unknownState;
-        update();
-        return form;
-    }
-    async function openSession(id, page) { const request = ++detailGeneration; selected = id; renderList(); detail.replaceChildren(make('p', 'eval-muted', C.loading)); try {
-        const data = await get('/api/eval/session?id=' + encodeURIComponent(id) + (page ? '&cursor=' + encodeURIComponent(page) : ''));
-        if (request !== detailGeneration)
-            return;
-        detail.replaceChildren(make('h2', '', C.title), make('p', 'eval-muted', data.started + ' · ' + data.state), reviewForm(data), textBlock(C.request, data.summary.request), textBlock(C.final, data.summary.final));
-        const rules = make('section');
-        rules.append(make('h3', '', C.rules));
-        for (const rule of data.findings)
-            rules.append(make('div', 'eval-muted', rule.rule + ' · ' + rule.status + ' · ' + rule.count));
-        detail.append(rules, make('h3', '', C.metrics), make('p', 'eval-muted', metricText(data)), make('p', 'eval-muted', C.tokenCount + ' ' + number(data.metrics?.tokens ? data.metrics.tokens.input + data.metrics.tokens.output : null)), timeline(data));
-        if (page)
-            detail.querySelector('#eval-timeline').scrollIntoView({ block: 'start' });
-        else
-            detail.scrollTop = 0;
-    }
-    catch (error) {
-        if (request === detailGeneration)
-            detail.replaceChildren(make('p', 'eval-error', error.message));
-    } }
-    function switchEval(value) { enabled = value; root.hidden = !value; document.body.classList.toggle('eval-active', value); tab.setAttribute('aria-pressed', String(value)); tab.classList.toggle('active', value); document.querySelector('.security').textContent = value ? C.security : traceSecurity; if (value) {
-        for (const id of ['view-stats', 'view-trace']) {
-            document.getElementById(id).classList.remove('active');
-            document.getElementById(id).setAttribute('aria-pressed', 'false');
-        }
-        loadList(true);
-    } }
-    tab.onclick = () => switchEval(true);
-    for (const id of ['view-stats', 'view-trace'])
-        document.getElementById(id).addEventListener('click', () => switchEval(false));
-    select.onchange = () => { filter = select.value; loadList(true); };
-    document.getElementById('refresh').addEventListener('click', event => { if (enabled) {
-        event.stopImmediatePropagation();
-        loadList(true);
-        if (selected)
-            openSession(selected);
-    } }, true);
-})();
-`;
+function evalClient(C) {
+	'use strict';
+	const root = document.getElementById('eval-workspace');
+	const token = new URLSearchParams(location.hash.slice(1)).get('token');
+	const traceSecurity = document.querySelector('.security').textContent;
+	let enabled = false, rows = [], nextCursor = null, filter = 'unlabeled', selected = null;
+	let generation = 0, detailGeneration = 0, draft = null, modelPromise, pollingRun = null;
+	const format = (pattern, values) => pattern.replace(/\{(\w+)\}/g, (_, key) => String(values[key]));
+	const number = (value) => value === null || value === undefined ? C.unknown : String(value);
+	const make = (tag, className = '', text) => {
+		const node = document.createElement(tag); node.className = className;
+		if (text !== undefined) node.textContent = text;
+		return node;
+	};
+	const button = (text, action, className = '') => {
+		const node = make('button', className, text); node.type = 'button'; node.onclick = action; return node;
+	};
+	const labelName = (annotation) => !annotation ? C.unlabeled : annotation.failSet ? C.failSet : C[annotation.verdict];
+	const ruleName = (rule) => (C.ruleNames[rule] || C.rules) + '（' + rule + '）';
+	const tab = button(C.tab, () => switchEval(true));
+	tab.id = 'view-eval'; tab.setAttribute('aria-pressed', 'false'); document.querySelector('.view-switch').append(tab);
+	const sidebar = make('aside', 'eval-sidebar'), detail = make('main', 'eval-detail');
+	const select = make('select'); select.id = 'eval-filter'; select.setAttribute('aria-label', C.filters);
+	for (const value of ['all', 'unlabeled', 'fail', 'failSet', 'hits']) { const option = make('option', '', C[value]); option.value = value; select.append(option); }
+	select.value = filter;
+	const progress = make('p', 'eval-meta'), status = make('p', 'eval-muted'), list = make('div');
+	status.setAttribute('role', 'status');
+	const more = button(C.more, () => loadList(false), 'eval-next'); more.hidden = true;
+	sidebar.append(make('h2', '', C.title), make('p', 'eval-muted', C.subtitle), progress, select, status, list, more);
+	detail.append(make('p', 'eval-muted', C.choose)); root.append(sidebar, detail);
+
+	async function api(path, body) {
+		const response = await fetch(path, { method: body === undefined ? 'GET' : 'POST', headers: { Authorization: 'Bearer ' + token, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+		const data = await response.json();
+		if (!response.ok) throw Object.assign(new Error(C.errors[data.error] || (response.status === 401 ? C.errors.unauthorized : C.readError)), { status: response.status, code: data.error });
+		return data;
+	}
+	function metricsText(metrics) {
+		return C.tools + ' ' + number(metrics?.toolCalls) + ' / ' + number(metrics?.toolErrors) + ' · ' + C.duration + ' ' + (metrics?.durationMs == null ? C.unknown : Math.round(metrics.durationMs / 60000)) + ' · ' + C.cost + ' ' + number(metrics?.costUsd);
+	}
+	function renderList() {
+		list.replaceChildren();
+		for (const row of rows) {
+			const node = button('', () => openSession(row.id), 'eval-session' + (selected === row.id ? ' selected' : ''));
+			node.dataset.sessionId = row.id; node.dataset.label = row.annotation?.failSet ? 'failSet' : row.annotation?.verdict || 'unlabeled';
+			node.append(make('small', 'eval-meta', row.started), make('span', 'eval-badge', C.activity + '：' + C.activityNames[row.state]), make('strong', '', row.request || (row.unavailable ? C.unavailable : C.noRequest)), make('small', 'eval-meta', metricsText(row.metrics)));
+			node.append(make('span', 'eval-badge', C.labelState + '：' + labelName(row.annotation)));
+			if (row.annotation) node.append(make('small', 'eval-meta', C.sources[row.annotation.source]));
+			if (row.annotation?.progressed) node.append(make('small', 'eval-notice', C.progressed));
+			const hits = row.findings.filter((finding) => finding.status === 'hit');
+			if (hits.length) node.append(make('small', 'eval-notice', hits.map((finding) => ruleName(finding.rule)).join('；')));
+			if (row.judgment) node.append(make('small', 'eval-meta', C.alreadyJudged + ' · ' + (C[row.judgment.verdict] || C.judgeStatuses[row.judgment.status])));
+			list.append(node);
+		}
+		if (!rows.length) list.append(make('p', 'eval-muted', C.empty));
+		more.hidden = !nextCursor;
+	}
+	async function loadList(reset, recovered = false) {
+		const request = ++generation;
+		if (reset) { rows = []; nextCursor = null; sidebar.scrollTop = 0; }
+		status.textContent = C.loading; more.disabled = true;
+		try {
+			let data;
+			do {
+				data = await api('/api/eval/sessions?filter=' + filter + (nextCursor ? '&cursor=' + encodeURIComponent(nextCursor) : ''));
+				if (request !== generation) return;
+				rows.push(...data.items); nextCursor = data.nextCursor;
+			} while (!rows.length && nextCursor);
+			progress.textContent = format(C.labelProgress, data);
+			for (const option of select.options) option.textContent = format(C.countOption, { label: C[option.value], count: data.counts[option.value] });
+			status.textContent = (recovered ? C.listUpdated + ' · ' : '') + C.listCount + ' ' + rows.length + ' / ' + data.total + (data.limited ? ' · ' + C.partial : '');
+			renderList();
+		} catch (error) {
+			if (request !== generation) return;
+			if (error.status === 409 && !recovered) return loadList(true, true);
+			status.textContent = error.message || C.readError;
+		} finally { if (request === generation) more.disabled = false; }
+	}
+	function annotationForm(data) {
+		if (draft?.sessionId !== data.id || !draft.dirty) draft = { sessionId: data.id, verdict: data.annotation?.verdict || null, note: data.annotation?.note || '', failSet: !!data.annotation?.failSet, dirty: false };
+		const currentDraft = draft;
+		const box = make('section', 'eval-form'), current = make('p', 'eval-meta'), message = make('p', 'eval-muted'), progressNotice = make('p', 'eval-notice', C.progressed);
+		message.setAttribute('role', 'status');
+		const pass = button(C.pass, () => choose('pass')), fail = button(C.fail, () => choose('fail')), save = button(C.save, saveLabel, 'eval-primary');
+		pass.id = 'eval-pass'; fail.id = 'eval-fail'; save.id = 'eval-save';
+		const noteLabel = make('label', '', C.reason), note = make('input'); note.type = 'text'; note.id = 'eval-note'; note.maxLength = 500; note.placeholder = C.reasonPlaceholder; noteLabel.htmlFor = note.id;
+		const failSetLabel = make('label', '', C.addFailSet), failSet = make('input'); failSet.type = 'checkbox'; failSet.id = 'eval-failset'; failSetLabel.prepend(failSet);
+		function currentLabel() { current.textContent = data.annotation ? format(C.current, { verdict: labelName(data.annotation), source: C.sources[data.annotation.source] }) : C.unlabeled; }
+		function update() {
+			pass.setAttribute('aria-pressed', String(currentDraft.verdict === 'pass')); fail.setAttribute('aria-pressed', String(currentDraft.verdict === 'fail'));
+			note.value = currentDraft.note; failSet.checked = currentDraft.failSet;
+			noteLabel.hidden = note.hidden = failSetLabel.hidden = currentDraft.verdict !== 'fail';
+			pass.disabled = fail.disabled = data.state === 'unknown'; save.disabled = data.state === 'unknown' || !currentDraft.verdict;
+		}
+		function choose(verdict) { currentDraft.verdict = verdict; currentDraft.dirty = true; if (verdict === 'pass') { currentDraft.note = ''; currentDraft.failSet = false; } update(); }
+		note.oninput = () => { currentDraft.note = note.value; currentDraft.dirty = true; };
+		failSet.onchange = () => { currentDraft.failSet = failSet.checked; currentDraft.dirty = true; };
+		async function saveLabel() {
+			save.disabled = true;
+			try {
+				const saved = await api('/api/eval/annotation', { sessionId: data.id, verdict: currentDraft.verdict, note: currentDraft.note, failSet: currentDraft.failSet });
+				data.annotation = { ...saved, source: 'dashboard' }; currentDraft.dirty = false; currentLabel(); progressNotice.hidden = true; message.textContent = C.saved;
+				await loadList(true); save.disabled = false;
+			} catch (error) {
+				message.textContent = !error.status || error.status >= 500 ? C.saveUnknown : error.message;
+				if (error.status && error.status < 500) update();
+			}
+		}
+		box.append(make('h3', '', C.annotation), current, pass, fail, save, noteLabel, note, failSetLabel);
+		if (data.state === 'active') box.append(make('p', 'eval-notice', C.activeWarning));
+		if (data.state === 'unknown') box.append(make('p', 'eval-notice', C.unknownState));
+		progressNotice.hidden = !data.annotation?.progressed; box.append(progressNotice);
+		box.append(message); currentLabel(); update();
+		return { node: box, adopt(result) { if (result.suggestedVerdict === 'unsure') return; choose(result.suggestedVerdict); currentDraft.note = result.suggestedVerdict === 'fail' ? result.firstProblem?.description || result.summary : ''; update(); message.textContent = C.adopted; box.scrollIntoView({ block: 'start' }); } };
+	}
+	function timeline(data, eventIndex) {
+		const box = make('section'); box.id = 'eval-timeline'; box.append(make('h3', '', C.timeline), make('p', 'eval-muted', C.pageEvents + ' ' + data.timeline.items.length + ' / ' + data.timeline.total));
+		if (!data.timeline.total) box.append(make('p', 'eval-muted', C.noEvents));
+		for (const event of data.timeline.items) {
+			const item = make('article', 'eval-event' + (event.failed ? ' failed' : '') + (event.index === eventIndex ? ' focused' : '')); item.dataset.eventIndex = String(event.index);
+			item.append(make('small', 'eval-meta', format(C.event, { event: event.index + 1 })));
+			if (event.kind === 'tool') {
+				item.append(make('strong', event.failed ? 'eval-error' : '', event.name + ' · ' + (C.outcomes[event.outcome] || C.unknown) + '（' + event.outcome + '）'));
+				if (event.firstError) item.append(make('p', 'eval-error', C.firstError));
+				for (const [key, label] of [['args', C.args], ['result', C.result]]) { const folded = make('details'); folded.append(make('summary', '', label), make('pre', '', event[key].text)); if (event[key].truncated) folded.append(make('p', 'eval-muted', C.truncated)); item.append(folded); }
+			} else { item.append(make('strong', '', C[event.kind]), make('p', 'eval-text', event.content.text)); if (event.firstError) item.append(make('p', 'eval-error', C.firstError)); if (event.content.truncated) item.append(make('p', 'eval-muted', C.truncated)); }
+			box.append(item);
+		}
+		if (data.timeline.nextCursor) box.append(button(C.moreEvents, () => openSession(data.id, { cursor: data.timeline.nextCursor }), 'eval-next'));
+		return box;
+	}
+	function confirmJudge(prepared) {
+		return new Promise((resolve) => {
+			const dialog = make('dialog', 'eval-dialog'); dialog.setAttribute('aria-label', C.confirmTitle);
+			dialog.append(make('h2', '', C.confirmTitle), make('p', 'eval-text', format(C.confirmDetails, { model: prepared.model, count: prepared.inputChars, truncated: prepared.truncated ? C.yes : C.no })), make('p', '', C.consent), button(C.cancel, () => dialog.close()), button(C.confirmJudge, () => dialog.close('confirm'), 'eval-primary'));
+			dialog.addEventListener('close', () => { const accepted = dialog.returnValue === 'confirm'; dialog.remove(); resolve(accepted); }, { once: true });
+			document.body.append(dialog); dialog.showModal();
+		});
+	}
+	async function pollJudge(job, message, cancel) {
+		if (pollingRun === job.runId) return;
+		pollingRun = job.runId;
+		try {
+			let state;
+			do { await new Promise((resolve) => setTimeout(resolve, 1000)); state = await api('/api/eval/judge/status?runId=' + encodeURIComponent(job.runId)); } while (state.status === 'running');
+			cancel.disabled = true;
+			if (state.error) { message.textContent = C.errors[state.error] || C.judgeStatusUnknown; return; }
+			if (selected === job.sessionId) await openSession(job.sessionId);
+			await loadList(true);
+		} catch { message.textContent = C.judgeStatusUnknown; }
+		finally { pollingRun = null; }
+	}
+	function judgePanel(data, annotation) {
+		const box = make('section', 'eval-judge'), message = make('p', 'eval-muted'); message.setAttribute('role', 'status');
+		box.append(make('h3', '', C.judge));
+		const latest = data.judgment?.latest;
+		if (latest) {
+			box.append(make('p', 'eval-meta', latest.model + ' · ' + C.judgeStatuses[latest.status] + ' · ' + C.elapsed + ' ' + Math.round(latest.durationMs / 1000)), make('p', 'eval-meta', C.historyCount + ' ' + data.judgment.historyCount), make('p', 'eval-meta', C.tokenCount + ' ' + number(latest.usage?.input) + ' / ' + number(latest.usage?.output)), make('p', 'eval-meta', latest.usage?.costUsd == null ? C.actualCost : format(C.estimatedCost, { cost: latest.usage.costUsd })));
+			if (latest.atEntryId !== data.atEntryId) box.append(make('p', 'eval-notice', C.analysisProgressed));
+			if (latest.status === 'ok') {
+				const result = latest.result;
+				box.append(make('p', '', C.suggestion + '：' + C[result.suggestedVerdict] + ' · ' + C.confidence + ' ' + Math.round(result.confidence * 100) + '%'), make('h4', '', C.judgeSummary), make('p', 'eval-text', result.summary));
+				const jump = (event) => openSession(data.id, { eventIndex: event - 1 });
+				if (result.firstProblem) { const first = button(C.firstProblem + ' · ' + format(C.event, result.firstProblem) + '：' + result.firstProblem.description, () => jump(result.firstProblem.event)); first.id = 'eval-first-problem'; first.disabled = !data.judgment.anchorAvailable; box.append(first); }
+				else box.append(make('p', 'eval-muted', C.noProblem));
+				if (!data.judgment.anchorAvailable) box.append(make('p', 'eval-notice', C.oldAnalysis));
+				box.append(make('h4', '', C.evidence));
+				for (const evidence of result.evidence) box.append(make('p', 'eval-text', format(C.event, evidence) + '：' + evidence.quote));
+				box.append(make('h4', '', C.suggestions));
+				for (const suggestion of result.suggestions) box.append(make('p', 'eval-text', suggestion));
+				const adopt = button(C.adopt, () => annotation.adopt(result)); adopt.id = 'eval-adopt'; adopt.disabled = result.suggestedVerdict === 'unsure' || data.state === 'unknown'; box.append(adopt);
+			}
+		} else box.append(make('p', 'eval-muted', C.nothingJudged));
+		const model = make('select'); model.setAttribute('aria-label', C.model); model.id = 'eval-model'; model.disabled = true;
+		model.append(make('option', '', C.modelsLoading));
+		const analyze = button(C.analyze, start); analyze.id = 'eval-analyze'; analyze.disabled = true;
+		const cancel = button(C.cancel, async () => { cancel.disabled = true; try { await api('/api/eval/judge/cancel', { runId: data.activeJudge.runId }); message.textContent = C.cancelling; } catch (error) { message.textContent = error.message || C.judgeStatusUnknown; } }); cancel.hidden = true;
+		box.append(model, analyze, cancel, message);
+		function running(job) { data.activeJudge = job; analyze.disabled = model.disabled = true; cancel.hidden = false; message.textContent = C.judging; pollJudge(job, message, cancel); }
+		async function start() {
+			analyze.disabled = true; message.textContent = C.preparing;
+			try {
+				const prepared = await api('/api/eval/judge/prepare', { sessionId: data.id, model: model.value });
+				if (selected !== data.id || !box.isConnected) return;
+				if (!await confirmJudge(prepared)) { analyze.disabled = false; message.textContent = ''; return; }
+				try { running(await api('/api/eval/judge', { confirmationId: prepared.confirmationId })); }
+				catch (error) { message.textContent = !error.status || error.status >= 500 ? C.judgeStartUnknown : error.message; if (error.status && error.status < 500) analyze.disabled = false; }
+			} catch (error) { message.textContent = error.message || C.readError; analyze.disabled = false; }
+		}
+		if (!modelPromise) modelPromise = api('/api/eval/models');
+		modelPromise.then((catalog) => {
+			model.replaceChildren();
+			if (!catalog.defaultModel) { const empty = make('option', '', C.chooseModel); empty.value = ''; model.append(empty); }
+			for (const row of catalog.models) { const option = make('option', '', row.id); option.value = row.id; model.append(option); }
+			model.value = catalog.defaultModel || ''; model.disabled = !!data.activeJudge; analyze.disabled = !!data.activeJudge || !model.value;
+			model.onchange = () => { analyze.disabled = !model.value; };
+		}).catch((error) => { message.textContent = error.message || C.readError; });
+		if (data.activeJudge) running(data.activeJudge);
+		return box;
+	}
+	async function openSession(id, options = {}) {
+		const request = ++detailGeneration; selected = id; renderList();
+		try {
+			const data = await api('/api/eval/session?id=' + encodeURIComponent(id) + (options.cursor ? '&cursor=' + encodeURIComponent(options.cursor) : '') + (options.eventIndex !== undefined ? '&event=' + options.eventIndex : ''));
+			if (request !== detailGeneration) return;
+			const annotation = annotationForm(data);
+			detail.replaceChildren(make('h2', '', C.title), make('p', 'eval-meta', data.started + ' · ' + C.activity + '：' + C.activityNames[data.state]), annotation.node, judgePanel(data, annotation));
+			if (options.notice) detail.append(make('p', 'eval-notice', options.notice));
+			for (const [key, label] of [['request', C.request], ['final', C.final]]) { const box = make('section'); box.append(make('h3', '', label), make('p', 'eval-text', data.summary[key].text)); if (data.summary[key].truncated) box.append(make('p', 'eval-muted', C.truncated)); detail.append(box); }
+			const rules = make('section'); rules.append(make('h3', '', C.rules));
+			for (const finding of data.findings) rules.append(make('p', 'eval-meta', ruleName(finding.rule) + ' · ' + C.findingNames[finding.status] + ' · ' + finding.count));
+			const metrics = make('section'); metrics.append(make('h3', '', C.metrics), make('p', 'eval-meta', metricsText(data.metrics)), make('p', 'eval-meta', C.tokenCount + ' ' + number(data.metrics?.tokens ? data.metrics.tokens.input + data.metrics.tokens.output : null)));
+			detail.append(rules, metrics, timeline(data, options.eventIndex));
+			if (options.eventIndex !== undefined) detail.querySelector('[data-event-index="' + options.eventIndex + '"]')?.scrollIntoView({ block: 'center' });
+			else if (options.cursor) detail.querySelector('#eval-timeline').scrollIntoView({ block: 'start' }); else detail.scrollTop = 0;
+		} catch (error) {
+			if (request !== detailGeneration) return;
+			if (error.status === 409 && !options.recovered) return openSession(id, { recovered: true, notice: C.timelineUpdated });
+			detail.replaceChildren(make('p', 'eval-error', error.status === 409 ? C.busy : error.message || C.readError));
+		}
+	}
+	function switchEval(value) {
+		enabled = value; root.hidden = !value; document.body.classList.toggle('eval-active', value); tab.setAttribute('aria-pressed', String(value)); tab.classList.toggle('active', value); document.querySelector('.security').textContent = value ? C.security : traceSecurity;
+		if (value) { for (const id of ['view-stats', 'view-trace']) { document.getElementById(id).classList.remove('active'); document.getElementById(id).setAttribute('aria-pressed', 'false'); } loadList(true); }
+	}
+	for (const id of ['view-stats', 'view-trace']) document.getElementById(id).addEventListener('click', () => switchEval(false));
+	select.onchange = () => { filter = select.value; loadList(true); };
+	document.getElementById('refresh').addEventListener('click', (event) => { if (enabled) { event.stopImmediatePropagation(); loadList(true); if (selected) openSession(selected); } }, true);
+}
+export const evalScript = '(' + evalClient.toString() + ')(' + JSON.stringify(COPY) + ');';

@@ -218,9 +218,14 @@ if [ "$#" -eq 1 ] && [ "$1" = "--trace" ]; then
 	exec "$node_command" "$trace_dashboard"
 fi
 
+single_request=0
 for argument in "$@"; do
 	if [ "$argument" = "--" ]; then
 		break
+	fi
+	if [ "$argument" = "--single-request" ]; then
+		single_request=1
+		herdr_extension=
 	fi
 	if [ "$argument" = "--trace" ]; then
 		echo "rotom: --trace 必须单独使用" >&2
@@ -262,7 +267,7 @@ claude_user_skill_dir=
 if [ "${HOME+x}" = x ]; then
 	claude_user_skill_dir="$HOME/.claude/skills"
 fi
-if [ "$package_management_command" -eq 0 ] && [ "$load_claude_project_skills" -eq 1 ]; then
+if [ "$package_management_command" -eq 0 ] && [ "$single_request" -eq 0 ] && [ "$load_claude_project_skills" -eq 1 ]; then
 	claude_repo_root=
 	claude_probe_dir=$PWD
 	while :; do
@@ -292,7 +297,7 @@ if [ "$package_management_command" -eq 0 ] && [ "$load_claude_project_skills" -e
 		claude_scan_dir=$claude_parent_dir
 	done
 fi
-if [ "$package_management_command" -eq 0 ] && [ -n "$claude_user_skill_dir" ] && [ -d "$claude_user_skill_dir" ]; then
+if [ "$package_management_command" -eq 0 ] && [ "$single_request" -eq 0 ] && [ -n "$claude_user_skill_dir" ] && [ -d "$claude_user_skill_dir" ]; then
 	set -- --skill "$claude_user_skill_dir" "$@"
 fi
 

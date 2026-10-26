@@ -37,6 +37,7 @@ export interface Args {
 	noExtensions?: boolean;
 	noMcp?: boolean;
 	print?: boolean;
+	singleRequest?: boolean;
 	export?: string;
 	noSkills?: boolean;
 	skills?: string[];
@@ -174,6 +175,8 @@ export function parseArgs(args: string[]): Args {
 					message: `Invalid thinking level "${level}". Valid values: ${VALID_THINKING_LEVELS.join(", ")}`,
 				});
 			}
+		} else if (arg === "--single-request") {
+			result.singleRequest = true;
 		} else if (arg === "--print" || arg === "-p") {
 			result.print = true;
 			const next = args[i + 1];
@@ -305,6 +308,7 @@ ${chalk.bold("Options:")}
   --append-system-prompt <text>  Append text or file contents to the system prompt (can be used multiple times)
   --mode <mode>                  Output mode: text (default), json, or rpc
   --print, -p                    Non-interactive mode: process prompt and exit
+  --single-request               One non-interactive request: no session, tools, user resources, or retries
   --continue, -c                 Continue previous session
   --resume, -r                   Select a session to resume
   --session <path|id>            Use specific session file or partial UUID

@@ -1,6 +1,6 @@
 export const VERIFIED_PI_PACKAGE = "@earendil-works/pi-coding-agent";
 export const DISTRIBUTION_PI_VERSION = "1.4.0-rotom.2";
-export const DISTRIBUTION_PI_BUILD_SHA256 = "9790c512c0b66dbf7e688e4d8d6981573c7ff14b90fac2acc2277a2c3ff8312a";
+export const DISTRIBUTION_PI_BUILD_SHA256 = "66ae5b8c9b57761e7f14528d7ddc92fa6cb4705e051864124d2a66b12335b6a7";
 export const MINIMUM_NODE_VERSION = "24.0.0";
 
 export const VERIFIED_THIRD_PARTY_PACKAGES = {
@@ -13,7 +13,7 @@ export const VERIFIED_THIRD_PARTY_PACKAGES = {
 };
 
 export const RESOURCE_DESCRIPTORS_V1 = [
-	{ id: "observability", kind: "extension", path: "extensions/observability", requiredFiles: ["index.ts", "dashboard.mjs", "eval/annotations.mjs", "eval/service.mjs", "eval/copy.mjs", "eval/ui.mjs", "eval/session-data.mjs", "eval/session-metrics.mjs", "eval/trace-assertions.mjs"] },
+	{ id: "observability", kind: "extension", path: "extensions/observability", requiredFiles: ["index.ts", "dashboard.mjs", "dashboard-copy.mjs", "eval/judge.mjs", "eval/judge-prompt.mjs", "eval/judge-store.mjs", "eval/annotations.mjs", "eval/service.mjs", "eval/copy.mjs", "eval/ui.mjs", "eval/session-data.mjs", "eval/session-metrics.mjs", "eval/trace-assertions.mjs"] },
 	{ id: "browser", kind: "extension", path: "extensions/browser", loadPath: "extensions/browser/index.ts", requiredFiles: ["index.ts", "browser-relay.ts", "native-host.mjs", "install-chrome-relay.mjs", "chrome-extension/manifest.json", "chrome-extension/service-worker.js", "chrome-extension/operation-chrome.js", "chrome-extension/coordinate-click.js", "chrome-extension/full-read.js", "chrome-extension/interaction-scroll-target.js", "chrome-extension/relay-deadline.js", "chrome-extension/rendered-text.js", "chrome-extension/scoped-ax-ref.js", "chrome-extension/shared-tab-group.js"] },
 	{ id: "coding-policy", kind: "extension", path: "extensions/coding-policy", loadPath: "extensions/coding-policy/index.ts", requiredFiles: ["index.ts", "repair-hints.ts", "pi-runtime-drift.ts", "edit-error-code.mjs"] },
 	{ id: "context-layers", kind: "extension", path: "extensions/context-layers", loadPath: "extensions/context-layers/index.ts", requiredFiles: ["index.ts", "blocks.ts", "recall.ts", "copy.ts"] },

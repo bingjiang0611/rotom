@@ -180,7 +180,7 @@ describe("agreement CLI", () => {
 	it("supports empty labels and treats missing findings as unknown for observed names", async () => {
 		const path = join(dirname(out), "labels.jsonl");
 		await writeFile(path, "");
-		expect(JSON.parse(run("--out", out).stdout)).toEqual({ totalRows: 0, evaluatedRows: 0, ignoredVerdicts: 0, signals: {}, categories: {}, uncoveredCategories: 0 });
+		expect(JSON.parse(run("--out", out).stdout)).toEqual({ totalRows: 0, evaluatedRows: 0, ignoredVerdicts: 0, signals: {}, categories: {}, uncoveredCategories: 0, judge: { tp: 0, fp: 0, fn: 0, tn: 0, n: 0 } });
 		await writeFile(path, [
 			{ sessionId: "old-private", verdict: "fail" },
 			{ sessionId: "new-private", verdict: "pass", findings: { future: "clear" } },
@@ -204,6 +204,27 @@ describe("agreement CLI", () => {
 		expect(run("--out", out).status).not.toBe(0);
 		expect(await readFile(target, "utf8")).toBe("KEEP_TARGET");
 		await expect(stat(destination)).rejects.toMatchObject({ code: "ENOENT" });
+	});
+
+	it("adds the latest successful definite judge/human matrix without exposing sessions", async () => {
+		const rows = [
+			{ sessionId: "synthetic-tp", verdict: "fail", suggested: "fail" },
+			{ sessionId: "synthetic-fp", verdict: "pass", suggested: "fail" },
+			{ sessionId: "synthetic-fn", verdict: "fail", suggested: "pass" },
+			{ sessionId: "synthetic-tn", verdict: "pass", suggested: "pass" },
+			{ sessionId: "synthetic-unsure", verdict: "pass", suggested: "unsure" },
+		];
+		await writeFile(join(dirname(out), "labels.jsonl"), rows.map(({ sessionId, verdict }) => JSON.stringify({ sessionId, verdict })).join("\n"));
+		for (const row of rows) {
+			const folder = join(dirname(out), "judgments", row.sessionId);
+			await mkdir(folder, { recursive: true, mode: 0o700 });
+			await writeFile(join(folder, "2026-01-01T00-00-00.000Z.json"), JSON.stringify({ schema: "rotom-eval-judgment/v1", sessionId: row.sessionId, status: "ok", result: { suggestedVerdict: row.suggested } }), { mode: 0o600 });
+		}
+		const result = run("--out", out);
+		expect(result.status).toBe(0);
+		expect(JSON.parse(result.stdout).judge).toEqual({ tp: 1, fp: 1, fn: 1, tn: 1, n: 4 });
+		expect(result.stdout).not.toContain("synthetic-");
+		expect(await readFile(join(dirname(out), "agreement.md"), "utf8")).toContain("| 4* | 1 | 1 | 1 | 1 |");
 	});
 
 	it("does not accept build-only flags", async () => {

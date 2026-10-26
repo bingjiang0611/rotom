@@ -30,6 +30,7 @@ export async function listModels(
 	modelRuntime: ModelRuntime,
 	searchPattern?: string,
 	signal?: AbortSignal,
+	options?: { json?: boolean; defaultModel?: Model<Api> },
 ): Promise<void> {
 	const loadError = modelRuntime.getError();
 	if (loadError) {
@@ -39,7 +40,11 @@ export async function listModels(
 	const models = [...(await modelRuntime.getAvailable(undefined, { signal }))];
 
 	if (models.length === 0) {
-		console.log(formatNoModelsAvailableMessage());
+		if (options?.json) {
+			console.log(JSON.stringify({ models: [], defaultModel: null }));
+		} else {
+			console.log(formatNoModelsAvailableMessage());
+		}
 		return;
 	}
 
@@ -50,16 +55,48 @@ export async function listModels(
 	}
 
 	if (filteredModels.length === 0) {
-		console.log(`No models matching "${searchPattern}"`);
+		if (options?.json) {
+			console.log(
+				JSON.stringify({
+					models: [],
+					defaultModel: options.defaultModel
+						? `${options.defaultModel.provider}/${options.defaultModel.id}`
+						: null,
+				}),
+			);
+		} else {
+			console.log(`No models matching "${searchPattern}"`);
+		}
 		return;
 	}
 
 	// Sort by provider, then by model id
 	filteredModels.sort((a, b) => {
+		if (options?.json) return `${a.provider}/${a.id}`.localeCompare(`${b.provider}/${b.id}`);
+
 		const providerCmp = a.provider.localeCompare(b.provider);
 		if (providerCmp !== 0) return providerCmp;
 		return a.id.localeCompare(b.id);
 	});
+
+	if (options?.json) {
+		console.log(
+			JSON.stringify({
+				models: filteredModels.map((model) => ({
+					id: `${model.provider}/${model.id}`,
+					name: model.name,
+					contextWindow: model.contextWindow,
+					maxTokens: model.maxTokens,
+					reasoning: model.reasoning,
+					input: model.input,
+				})),
+				defaultModel: options.defaultModel
+					? `${options.defaultModel.provider}/${options.defaultModel.id}`
+					: null,
+			}),
+		);
+		return;
+	}
 
 	// Calculate column widths
 	const rows = filteredModels.map((m) => ({

@@ -442,7 +442,7 @@ describe("session cards", () => {
 		await session("no-final", [...basic("no-final"), assistant("last", "a", [{ type: "toolCall", id: "call", name: "bash", arguments: {} }], { stopReason })]);
 		await buildCards({ root, out });
 		const final = (await card("no-final")).split("## 最终回复\n")[1];
-		expect(final).toContain(`(最后一条 assistant 无文本，stopReason=${stopReason ?? "unknown"})`);
+		expect(final).toContain(`最后一条助手消息无文本（stopReason=${stopReason ?? "unknown"}）`);
 		expect(final).not.toContain("SYNTHETIC_REPLY");
 	});
 

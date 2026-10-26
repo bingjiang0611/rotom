@@ -473,6 +473,8 @@ export function resolveCliModel(options: {
 	cliThinking?: ThinkingLevel;
 	/** `--api-key` was supplied for the selected provider. */
 	inlineApiKey?: boolean;
+	/** Require a literal provider/model, without fuzzy matching or custom fallback. */
+	exact?: boolean;
 	modelRuntime: ModelRuntime;
 }): ResolveCliModelResult {
 	const { cliProvider, cliModel, cliThinking, inlineApiKey, modelRuntime } = options;
@@ -490,6 +492,11 @@ export function resolveCliModel(options: {
 			warning: undefined,
 			error: "No models available. Check your installation or add models to models.json.",
 		};
+	}
+
+	if (options.exact) {
+		const model = models.find((item) => `${item.provider}/${item.id}` === cliModel && (!cliProvider || item.provider === cliProvider));
+		return { model, warning: undefined, error: model ? undefined : "Exact provider/model is unavailable. Refresh the model list before confirming another request." };
 	}
 
 	const provider = cliProvider

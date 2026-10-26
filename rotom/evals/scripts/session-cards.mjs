@@ -11,6 +11,7 @@ import { RULE_IDS } from "./trace-assertions.mjs";
 import { computeAgreement, renderAgreementMarkdown } from "./agreement.mjs";
 import { runReview } from "./review.mjs";
 import { aggregateMetrics, focusCandidate } from "./session-metrics.mjs";
+import { latestJudgments, judgeAgreement } from "../../extensions/observability/eval/judge-store.mjs";
 import { aggregateBreakdown, editFailureRows, PROVIDER_SPAN, providerErrorRows, TOOL_SPAN, toolCallInfo, toolErrorRows, TOP_COMBINATIONS, TOP_VALUES } from "./error-breakdown.mjs";
 import { classifyEditError } from "../../extensions/coding-policy/edit-error-code.mjs";
 import { aggregateCommandFailures, COMMAND_CATEGORIES, FAILURE_STREAK_THRESHOLD, RETRY_FAILURE_THRESHOLD, sessionCommandFailures } from "./command-failures.mjs";
@@ -378,11 +379,13 @@ async function writeAgreement({ out = DEFAULT_OUT } = {}) {
 	const result = computeAgreement(loaded.rows.map((row) => ({
 		sessionId: row.sessionId, verdict: row.verdict, categories: row.categories ?? [], signals: row.findings ?? {},
 	})));
-	await privateWrite(join(dirname(out), "agreement.md"), renderAgreementMarkdown(result));
+	const judge = judgeAgreement(loaded.rows, await latestJudgments(dirname(out), new Set(loaded.rows.map((row) => row.sessionId))));
+	const judgeTable = `\n## 模型分析与人工标注\n\n仅统计成功、非 unsure 的最新分析；以不满意为阳性。\n\n| n | TP | FP | FN | TN |\n|---:|---:|---:|---:|---:|\n| ${judge.n}${judge.n < 10 ? "*" : ""} | ${judge.tp} | ${judge.fp} | ${judge.fn} | ${judge.tn} |\n\n* n < 10，样本少，不代表分析可靠性。\n`;
+	await privateWrite(join(dirname(out), "agreement.md"), renderAgreementMarkdown(result) + judgeTable);
 	// Review IDs belong only in the private Markdown, never stdout.
 	return {
 		totalRows: result.totalRows, evaluatedRows: result.evaluatedRows, ignoredVerdicts: result.ignoredVerdicts,
-		signals: result.signals, categories: result.categories, uncoveredCategories: result.uncoveredCategories.length,
+		signals: result.signals, categories: result.categories, uncoveredCategories: result.uncoveredCategories.length, judge,
 	};
 }
 

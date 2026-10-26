@@ -4,6 +4,7 @@ import { lstat, open, opendir, realpath, rename, unlink } from "node:fs/promises
 import { basename, dirname, join, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { evaluateSession, RULE_IDS } from "./trace-assertions.mjs";
+import { COPY } from "./copy.mjs";
 import { sessionMetrics } from "./session-metrics.mjs";
 const MAX_FILE = 256 * 1024 * 1024;
 const MAX_LINE = 64 * 1024 * 1024;
@@ -177,7 +178,7 @@ export function sessionSummary(branch) {
 	const last = messages.filter((message) => message?.role === "assistant").at(-1);
 	return {
 		request: contentText(messages.find((message) => message?.role === "user")?.content),
-		final: contentText(last?.content) || `(最后一条 assistant 无文本，stopReason=${last?.stopReason ?? "unknown"})`,
+		final: contentText(last?.content) || COPY.noFinal.replace("{reason}", last?.stopReason ?? "unknown"),
 	};
 }
 
@@ -310,7 +311,7 @@ export function countSkip(summary, reason) {
 
 /** Shared by build and stats: bounded read, header validation, branch reconstruction,
  * trace association and rule evaluation. Never writes the session or trace input. */
-export async function loadSession(path, summary, seen, maximumBytes = MAX_FILE) {
+export async function loadSession(path, summary, seen, maximumBytes = MAX_FILE, allowEmpty = false) {
 	const loaded = await readBounded(path, maximumBytes);
 	summary.badJson += loaded.badJson;
 	summary.lineTooLong += loaded.lineTooLong;
@@ -340,7 +341,9 @@ export async function loadSession(path, summary, seen, maximumBytes = MAX_FILE) 
 		}
 	}
 	const branch = currentBranch(entries, summary);
-	if (!branch.length) return { reason: "empty" };
+	// CLI cards still skip empty logs. The dashboard must show a newly started
+	// session before its first message, and can anchor a progress label at null/0.
+	if (!branch.length && !allowEmpty) return { reason: "empty" };
 	if (seen.has(header.id)) return { reason: "duplicate" };
 	const trace = await readTrace(path, summary, maximumBytes);
 	if (trace.status === "missing") summary.traceMissing++;

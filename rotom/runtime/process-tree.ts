@@ -26,6 +26,7 @@ export interface ProcessTreeOptionsV1 {
 	cwd?: string;
 	env?: NodeJS.ProcessEnv;
 	maxOutputBytes?: number;
+	stdin?: string;
 }
 
 function signalGroup(child: ChildProcessWithoutNullStreams, signal: NodeJS.Signals): void {
@@ -88,10 +89,11 @@ export async function executeProcessTreeV1(
 		cwd: options.cwd,
 		env: options.env,
 		detached: process.platform !== "win32",
-		stdio: ["ignore", "pipe", "pipe"],
+		stdio: ["pipe", "pipe", "pipe"],
 	});
-	let stdout = "";
-	let stderr = "";
+	const closed = new Promise<void>((resolve) => child.once("close", () => resolve()));
+	const stdoutChunks: Buffer[] = [];
+	const stderrChunks: Buffer[] = [];
 	let capturedBytes = 0;
 	let outcome: ProcessTreeTerminalOutcomeV1 = "exited";
 	let terminationStarted = false;
@@ -110,8 +112,7 @@ export async function executeProcessTreeV1(
 		const remaining = maxOutputBytes - capturedBytes;
 		const accepted = remaining > 0 ? chunk.subarray(0, remaining) : chunk.subarray(0, 0);
 		capturedBytes += accepted.byteLength;
-		if (stream === "stdout") stdout += accepted.toString("utf8");
-		else stderr += accepted.toString("utf8");
+		(stream === "stdout" ? stdoutChunks : stderrChunks).push(accepted);
 		if (accepted.byteLength < chunk.byteLength) requestTermination("output-limit");
 	};
 	child.stdout.on("data", (chunk: Buffer) => capture("stdout", chunk));
@@ -121,6 +122,8 @@ export async function executeProcessTreeV1(
 	const timeout = setTimeout(() => requestTermination("timeout"), options.timeoutMs);
 
 	let spawnError: unknown;
+	child.stdin.on("error", (error) => { spawnError = error; requestTermination("spawn-error"); });
+	child.stdin.end(options.stdin ?? "");
 	await new Promise<void>((resolve) => {
 		child.once("error", (error) => { spawnError = error; outcome = "spawn-error"; resolve(); });
 		child.once("exit", () => resolve());
@@ -131,6 +134,10 @@ export async function executeProcessTreeV1(
 
 	const confirmed = await terminateAndConfirm(child).catch(() => false);
 	if (!confirmed) outcome = "unavailable";
+	else await closed;
+	// Decode only after collecting bytes: a UTF-8 character can span chunks.
+	const stdout = Buffer.concat(stdoutChunks).toString("utf8");
+	let stderr = Buffer.concat(stderrChunks).toString("utf8");
 	if (spawnError && !stderr) stderr = spawnError instanceof Error ? spawnError.message : String(spawnError);
 	return {
 		code: child.exitCode ?? -1,

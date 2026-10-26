@@ -24,7 +24,7 @@ export async function assertPrivatePath(path) {
 	}
 }
 
-async function readPrivate(path, maximum) {
+export async function readPrivate(path, maximum) {
 	await assertPrivatePath(path);
 	const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
 	try {
@@ -59,12 +59,13 @@ export async function readAnnotations(directory = DEFAULT_EVAL_DIRECTORY) {
 		const row = JSON.parse(await readPrivate(join(folder, name), 8192));
 		const input = annotationInput({ sessionId: row.sessionId, verdict: row.verdict, note: row.note, failSet: row.failSet });
 		if (name !== `${input.sessionId}.json` || row.schema !== ANNOTATION_SCHEMA || row.source !== "dashboard" || !Number.isFinite(Date.parse(row.updatedAt))) throw new Error("Invalid stored annotation");
+		if (Object.hasOwn(row, "atEntryId") && (!(row.atEntryId === null || typeof row.atEntryId === "string") || !Number.isSafeInteger(row.atEntryCount) || row.atEntryCount < 0)) throw new Error("Invalid annotation anchor");
 		result.set(input.sessionId, { ...row, ...input });
 	}
 	return result;
 }
 
-export async function writeAnnotation(directory, input) {
+export async function writeAnnotation(directory, input, anchor = {}) {
 	const value = annotationInput(input);
 	const folder = join(directory, "annotations");
 	await assertPrivatePath(folder);
@@ -74,7 +75,7 @@ export async function writeAnnotation(directory, input) {
 	await chmod(folder, 0o700);
 	const target = join(folder, `${value.sessionId}.json`);
 	await assertPrivatePath(target);
-	const row = { schema: ANNOTATION_SCHEMA, ...value, updatedAt: new Date().toISOString(), source: "dashboard" };
+	const row = { schema: ANNOTATION_SCHEMA, ...value, ...anchor, updatedAt: new Date().toISOString(), source: "dashboard" };
 	await privateWrite(target, JSON.stringify(row) + "\n");
 	return row;
 }
@@ -113,13 +114,13 @@ export async function mergedLabels({ out = join(DEFAULT_EVAL_DIRECTORY, "cards")
 			if (!["hit", "clear", "unknown"].includes(status)) throw new Error("Invalid findings metadata");
 			return [rule, status];
 		}));
-		rows.set(sessionId, { sessionId, verdict: label.verdict, categories: label.categories, note: label.note, cardPath, labeledAt: new Date().toISOString(), findings, failSet: false });
+		rows.set(sessionId, { sessionId, verdict: label.verdict, categories: label.categories, note: label.note, cardPath, labeledAt: new Date().toISOString(), findings, failSet: false, source: "review" });
 	}
 	let conflicts = 0;
 	for (const [id, annotation] of await readAnnotations(dirname(out))) {
 		const card = rows.get(id);
 		if (card && (card.verdict !== annotation.verdict || card.note !== annotation.note || card.failSet !== annotation.failSet)) conflicts++;
-		rows.set(id, { ...(card ?? { sessionId: id, categories: [], findings: Object.fromEntries(RULE_IDS.map((rule) => [rule, "unknown"])) }), verdict: annotation.verdict, note: annotation.note, failSet: annotation.failSet, labeledAt: annotation.updatedAt, source: "dashboard" });
+		rows.set(id, { ...(card ?? { sessionId: id, categories: [], findings: Object.fromEntries(RULE_IDS.map((rule) => [rule, "unknown"])) }), verdict: annotation.verdict, note: annotation.note, failSet: annotation.failSet, labeledAt: annotation.updatedAt, source: "dashboard", atEntryId: annotation.atEntryId, atEntryCount: annotation.atEntryCount });
 	}
 	return { rows: [...rows.values()], conflicts };
 }

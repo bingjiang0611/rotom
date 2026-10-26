@@ -95,7 +95,7 @@ Pi 原生工具、Browser 和 Computer Use 都以启动 Pi 的本机用户权限
 - 只记录关联 ID、耗时、状态、模型、usage 和 allowlisted metadata/digest。
 - 文件与目录保持私有权限；拒绝 symlink；写入有界并可禁用。
 - `--no-session` 不落 trace，`ROTOM_OBSERVABILITY=0` 关闭写入。
-- dashboard 只监听随机 loopback 端口，要求 Bearer token，不开放 CORS、不加载外部资源、不自动开浏览器。Eval 页经明确授权可按请求现读本机会话内容，使用 textContent、有界分页；这不改变 trace metadata-only 合同。标注仅写私有 annotations，拒绝 active/unknown 会话、路径注入和 symlink，并校验 POST Origin、JSON 类型与体积。
+- dashboard 只监听随机 loopback 端口，要求 Bearer token，不开放 CORS、不加载外部资源、不自动开浏览器。Eval 页经明确授权可按请求现读本机会话内容，使用 textContent、有界分页；这不改变 trace metadata-only 合同。标注仅写私有 annotations，允许 active 会话按当前进度标注并保存 atEntryId / atEntryCount，unknown 活动状态仍拒绝；拒绝路径注入和 symlink，并校验 POST Origin、JSON 类型与体积。Eval 页仅在用户逐次确认模型、发送字符数和截断情况后，才把有界当前分支摘要发给用户所选的模型；不发送人工标注。单次推理不自动重试、不用工具、不落新会话或 trace，可取消；分析历史写私有 judgments，采纳仅预填，保存人工标注仍须用户明确操作。
 - 分页窗口中的跨页生命周期结论显示 `N/A`，不能把 partial window 冒充完整 session。
 
 ### 6. Browser 必须 observation-bound

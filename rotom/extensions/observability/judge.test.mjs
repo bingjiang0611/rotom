@@ -1,0 +1,154 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtemp, mkdir, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { fixtureSession } from "./eval-fixtures.mjs";
+import { fakeJudgeLauncher } from "./judge-fixtures.mjs";
+import { createEvalService } from "./eval/service.mjs";
+import { createJudgeService, JUDGE_BASE_ARGS, parseJudgeEvents } from "./eval/judge.mjs";
+import { buildJudgeInput, JUDGE_MAX_INPUT_CHARS, validateJudgment } from "./eval/judge-prompt.mjs";
+import { latestJudgments, judgeAgreement, writeJudgment } from "./eval/judge-store.mjs";
+import { startTraceDashboard } from "./dashboard.mjs";
+import { productRuntimeArgs } from "../../runtime/launch-runtime.mjs";
+
+async function fixture(t, options = {}) {
+	const dir = await realpath(await mkdtemp(join(tmpdir(), "rotom-judge-test-")));
+	const root = join(dir, "sessions"), directory = join(dir, "evals");
+	await fixtureSession(root, "synthetic-active", { active: true, large: true });
+	const fake = await fakeJudgeLauncher(dir);
+	const evalService = createEvalService(root, directory);
+	const judge = createJudgeService({ evalService, directory, launcher: fake.launcher, timeoutMs: 1000, ...options });
+	t.after(async () => { try { await judge.close(); } finally { await rm(dir, { recursive: true, force: true }); } });
+	return { dir, root, directory, fake, evalService, judge };
+}
+async function done(judge, id) {
+	const deadline = Date.now() + 6000;
+	while (judge.status(id).status === "running") {
+		if (Date.now() > deadline) throw new Error("Fake judge failed to settle");
+		await new Promise((resolve) => setTimeout(resolve, 10));
+	}
+	return judge.status(id);
+}
+async function calls(fake) { return (await readFile(fake.calls, "utf8")).trim().split("\n").map((line) => JSON.parse(line)); }
+const input = { sessionId: "synthetic-active", model: "fake/model" };
+
+test("bounded independent judge input has numbered events, explicit truncation and strict output validation", async (t) => {
+	const { evalService } = await fixture(t);
+	const { loaded } = await evalService.snapshot(input.sessionId);
+	const built = buildJudgeInput({ ...loaded, annotation: { note: "PRIVATE_LABEL_SENTINEL" } });
+	assert.ok(built.inputChars <= JUDGE_MAX_INPUT_CHARS); assert.equal(built.truncated, true);
+	assert.ok(built.prompt.includes("[已截断")); assert.ok(built.prompt.includes('"event":3')); assert.ok(!built.prompt.includes("PRIVATE_LABEL_SENTINEL"));
+	assert.match(built.inputDigest, /^[a-f0-9]{64}$/);
+	assert.equal(built.eventIds.length, 54, "retain all events, including every late user message");
+	assert.ok(built.prompt.includes('"event":54'));
+	assert.throws(() => buildJudgeInput(loaded, 100), /judge_input_too_large/);
+	loaded.branch.push({ type: "message", id: "empty-user", message: { role: "user", content: [] } });
+	assert.equal(buildJudgeInput(loaded).eventIds.length, 55, "empty-text user events are not discarded");
+	const valid = { suggestedVerdict: "unsure", confidence: 0.5, summary: "缺少证据", firstProblem: null, categories: [], evidence: [], suggestions: [] };
+	assert.equal(validateJudgment(valid, [1]), valid);
+	for (const change of [{ confidence: 2 }, { confidence: "0.1" }, { summary: "字".repeat(301) }, { firstProblem: { event: 2, description: "越界" } }, { categories: ["other", "other"] }, { evidence: [{ event: 1, quote: "字".repeat(201) }] }, { extra: 1 }]) assert.throws(() => validateJudgment({ ...valid, ...change }, [1]));
+	assert.equal(parseJudgeEvents('{"type":"agent_end"}\n', [1]).status, "failed");
+});
+
+test("fake launcher proves exact argv, private empty cwd, stdin, model caching, confirmation, permissions, and no annotation write", async (t) => {
+	const { judge, fake, directory } = await fixture(t);
+	process.env.ROTOM_FAKE_SECRET = "synthetic-secret"; t.after(() => { delete process.env.ROTOM_FAKE_SECRET; });
+	await Promise.all([judge.models(), judge.models()]);
+	assert.equal((await calls(fake)).length, 1);
+	await assert.rejects(judge.prepare({ ...input, model: "not/in-list" }), /invalid_model/);
+	assert.throws(() => judge.start({ confirmationId: "invented" }), /confirmation_expired/);
+	const prepared = await judge.prepare(input);
+	assert.equal((await calls(fake)).length, 1, "preview never runs inference");
+	const job = judge.start({ confirmationId: prepared.confirmationId });
+	assert.throws(() => judge.start({ confirmationId: prepared.confirmationId }), /judge_busy/);
+	assert.equal((await done(judge, job.runId)).status, "ok");
+	assert.throws(() => judge.start({ confirmationId: prepared.confirmationId }), /confirmation_expired/);
+	const logs = await calls(fake); assert.equal(logs.length, 2);
+	assert.deepEqual(logs[0].args, [...JUDGE_BASE_ARGS, "--list-models"]);
+	assert.deepEqual(logs[1].args, [...JUDGE_BASE_ARGS, "--model", "fake/model"]);
+	assert.deepEqual(logs[1].files, []); assert.equal(logs[1].mode, 0o700); assert.equal(logs[1].node, process.execPath); assert.equal(logs[1].secret, false);
+	assert.ok(logs[1].body.includes("如果这是交给同事的活")); assert.ok(logs[1].body.length > 100);
+	await assert.rejects(stat(logs[1].cwd), { code: "ENOENT" });
+	await assert.rejects(stat(join(directory, "annotations")), { code: "ENOENT" });
+	const folder = join(directory, "judgments", input.sessionId), names = await readdir(folder);
+	assert.equal(names.length, 1); assert.equal((await stat(folder)).mode & 0o777, 0o700); assert.equal((await stat(join(folder, names[0]))).mode & 0o777, 0o600);
+	const record = (await latestJudgments(directory)).get(input.sessionId).latest;
+	assert.equal(record.schema, "rotom-eval-judgment/v1"); assert.equal(record.atEntryId, "entry-53"); assert.equal(record.result.suggestedVerdict, "fail");
+	assert.equal(record.usage.input, 100); assert.equal(record.usage.costSource, "pi_estimate"); assert.equal(record.usage.billing, "unknown");
+});
+
+test("failure, invalid JSON, timeout, cancellation and output limits are terminal without retry", async (t) => {
+	const { judge, fake, directory } = await fixture(t);
+	await judge.models();
+	const cases = [["fail", "failed"], ["invalid", "invalid_output"], ["hang", "timeout"], ["hang", "cancelled"], ["oversized", "failed"]];
+	for (const [mode, expected] of cases) {
+		await writeFile(fake.control, JSON.stringify({ mode }));
+		const prepared = await judge.prepare(input), job = judge.start({ confirmationId: prepared.confirmationId });
+		if (expected === "cancelled") {
+			const deadline = Date.now() + 2000;
+			while ((await calls(fake)).length < cases.findIndex((row) => row[1] === "cancelled") + 2 && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10));
+			judge.cancel({ runId: job.runId });
+		}
+		const terminal = await done(judge, job.runId);
+		assert.equal(terminal.status, expected); assert.equal(terminal.processConfirmed, true);
+		const all = await calls(fake), last = all.at(-1);
+		assert.throws(() => process.kill(last.pid, 0), { code: "ESRCH" });
+		const stored = (await latestJudgments(directory)).get(input.sessionId);
+		assert.equal(stored.latest.status, expected);
+		if (expected === "invalid_output") {
+			const names = (await readdir(join(directory, "judgments", input.sessionId))).sort();
+			const row = JSON.parse(await readFile(join(directory, "judgments", input.sessionId, names.at(-1)), "utf8"));
+			assert.ok(row.rawOutput.includes("不是 JSON")); assert.equal(stored.latest.rawOutput, undefined);
+		}
+	}
+	assert.equal((await calls(fake)).length, 6, "one discovery plus exactly one invocation per explicit confirmation");
+	assert.equal((await latestJudgments(directory)).get(input.sessionId).historyCount, 5);
+});
+
+test("judgment storage rejects symlinks, preserves history and agreement excludes unsure/failed", async (t) => {
+	const { directory, dir } = await fixture(t);
+	const outside = join(dir, "outside"); await mkdir(outside);
+	await mkdir(directory); await symlink(outside, join(directory, "judgments"));
+	await assert.rejects(writeJudgment(directory, { sessionId: "synthetic", status: "ok" }), /Symlink/);
+	assert.deepEqual(await readdir(outside), []);
+	const judgments = new Map([["a", { latest: { status: "ok", result: { suggestedVerdict: "fail" } } }], ["b", { latest: { status: "ok", result: { suggestedVerdict: "pass" } } }], ["c", { latest: { status: "ok", result: { suggestedVerdict: "unsure" } } }], ["d", { latest: { status: "failed", result: { suggestedVerdict: "fail" } } }]]);
+	assert.deepEqual(judgeAgreement([{ sessionId: "a", verdict: "pass" }, { sessionId: "b", verdict: "fail" }, { sessionId: "c", verdict: "pass" }, { sessionId: "d", verdict: "fail" }], judgments), { tp: 0, fp: 1, fn: 1, tn: 0, n: 2 });
+});
+
+test("judge HTTP routes share auth, Origin, body bounds and are not launched by detail reads", async (t) => {
+	const { root, directory, fake } = await fixture(t);
+	const dashboard = await startTraceDashboard({ root, evalDirectory: directory, judge: { launcher: fake.launcher } }); t.after(() => dashboard.close());
+	const headers = { Authorization: "Bearer " + dashboard.token, "Content-Type": "application/json" };
+	for (const path of ["/api/eval/judge/prepare", "/api/eval/judge", "/api/eval/judge/cancel"]) {
+		assert.equal((await fetch(dashboard.baseUrl + path, { method: "POST", body: "{}" })).status, 401);
+		assert.equal((await fetch(dashboard.baseUrl + path, { method: "POST", headers: { ...headers, Origin: "https://evil.invalid" }, body: "{}" })).status, 403);
+		assert.equal((await fetch(dashboard.baseUrl + path, { method: "POST", headers: { ...headers, "Content-Type": "text/plain" }, body: "{}" })).status, 415);
+		assert.equal((await fetch(dashboard.baseUrl + path, { method: "POST", headers, body: '"' + "x".repeat(5000) + '"' })).status, 413);
+		const response = await fetch(dashboard.baseUrl + path, { headers }); assert.equal(response.status, 405); assert.equal(response.headers.get("allow"), "POST");
+	}
+	assert.equal((await fetch(dashboard.baseUrl + "/api/eval/session?id=synthetic-active", { headers })).status, 200);
+	await assert.rejects(stat(fake.calls), { code: "ENOENT" });
+});
+
+test("closing the dashboard cancels and records its owned in-flight judge", async (t) => {
+	const { root, directory, fake } = await fixture(t);
+	await writeFile(fake.control, JSON.stringify({ mode: "hang" }));
+	const dashboard = await startTraceDashboard({ root, evalDirectory: directory, judge: { launcher: fake.launcher } });
+	t.after(() => dashboard.close());
+	const headers = { Authorization: "Bearer " + dashboard.token, "Content-Type": "application/json" };
+	const prepared = await (await fetch(dashboard.baseUrl + "/api/eval/judge/prepare", { method: "POST", headers, body: JSON.stringify(input) })).json();
+	const response = await fetch(dashboard.baseUrl + "/api/eval/judge", { method: "POST", headers, body: JSON.stringify({ confirmationId: prepared.confirmationId }) });
+	assert.equal(response.status, 202); await response.json();
+	const deadline = Date.now() + 2000;
+	while ((await calls(fake)).length < 2 && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10));
+	const pid = (await calls(fake)).at(-1).pid;
+	await dashboard.close();
+	assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
+	assert.equal((await latestJudgments(directory)).get(input.sessionId).latest.status, "cancelled");
+});
+
+test("single-request product resources select only the identity-declared Qoder provider", () => {
+	assert.deepEqual(productRuntimeArgs("/synthetic-product", true), ["--extension", "/synthetic-product/extensions/qoder/index.ts"]);
+	assert.ok(productRuntimeArgs("/synthetic-product").length > 2);
+});

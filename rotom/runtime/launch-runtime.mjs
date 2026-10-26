@@ -121,9 +121,10 @@ async function initializeSubagentStore(agentDir) {
 	}
 }
 
-function productRuntimeArgs(agentDir) {
+export function productRuntimeArgs(agentDir, singleRequest = false) {
 	const args = [];
 	for (const resource of RESOURCE_DESCRIPTORS_V1) {
+		if (singleRequest && resource.id !== "qoder") continue;
 		const path = resolve(agentDir, resource.loadPath ?? resource.path);
 		if (resource.kind === "extension") args.push("--extension", path);
 		else if (resource.kind === "skill") args.push("--skill", path);
@@ -171,6 +172,18 @@ export async function launchRuntime(rawArgs = process.argv.slice(2)) {
 		return;
 	}
 
+	if (!options.versionMode) {
+		const runtime = await import(pathToFileURL(verified.runtimeEntry).href);
+		if (options.userArgs.includes("--single-request")) {
+			if (runtime.parseArgs?.(["--single-request"]).singleRequest !== true) throw new Error("Pi fork 不支持 single-request；请按发行流程更新运行时");
+			if (runtime.parseArgs(options.userArgs).singleRequest) {
+				// Identity validation above still covers the complete product. Only
+				// provider registration participates in this one inference process.
+				await runPi(verified, [...productRuntimeArgs(agentDir, true), ...options.userArgs]);
+				return;
+			}
+		}
+	}
 	const userAgentDir = productUserAgentDir();
 	await applySubagentBudget(userAgentDir);
 	await applyComputerUseDefault(userAgentDir);

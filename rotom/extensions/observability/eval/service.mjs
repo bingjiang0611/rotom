@@ -4,6 +4,8 @@ import { basename, dirname, join, relative, sep } from "node:path";
 import { contentText, loadSession, metricsOf, newSummary, readBounded, sessionSummary, statIfPresent } from "./session-data.mjs";
 import { annotationInput, DEFAULT_EVAL_DIRECTORY, mergedLabels, validSessionId, writeAnnotation } from "./annotations.mjs";
 
+import { latestJudgments } from "./judge-store.mjs";
+
 export const ACTIVE_WINDOW_MS = 5 * 60 * 1000;
 export const MAX_PREVIEW_CHARS = 2000;
 export const MAX_RESPONSE_BYTES = 256 * 1024;
@@ -22,8 +24,12 @@ export function sessionState(sessionMtime, traceMtime, now = Date.now()) {
 	return now - Math.max(...times) <= ACTIVE_WINDOW_MS ? "active" : "idle";
 }
 export function preview(value, maximum = MAX_PREVIEW_CHARS) {
-	const chars = Array.from(String(value ?? ""));
-	return { text: chars.slice(0, maximum).join(""), truncated: chars.length > maximum };
+	let text = "", length = 0;
+	for (const character of String(value ?? "")) {
+		if (length === maximum) return { text, truncated: true };
+		text += character; length++;
+	}
+	return { text, truncated: false };
 }
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 function encodeCursor(offset, version) { return Buffer.from(JSON.stringify({ offset, version })).toString("base64url"); }
@@ -31,11 +37,12 @@ export function decodeCursor(cursor, version, total) {
 	if (!cursor) return 0;
 	let value;
 	try { value = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")); } catch { throw evalError(400, "invalid_cursor"); }
-	if (!Number.isSafeInteger(value?.offset) || value.offset < 0 || value.offset >= total) throw evalError(400, "invalid_cursor");
+	if (!Number.isSafeInteger(value?.offset) || value.offset < 0) throw evalError(400, "invalid_cursor");
 	if (value.version !== version) throw evalError(409, "session_changed");
+	if (value.offset >= total) throw evalError(400, "invalid_cursor");
 	return value.offset;
 }
-export function timelinePage(branch, traceTools, cursor, version) {
+export function timelineEvents(branch, traceTools) {
 	const results = new Map(branch.filter((entry) => entry.message?.role === "toolResult").map((entry) => [entry.message.toolCallId, entry.message]));
 	const events = [];
 	let firstError = null;
@@ -45,7 +52,7 @@ export function timelinePage(branch, traceTools, cursor, version) {
 		if (message.role === "user" || message.role === "assistant") {
 			const failed = message.role === "assistant" && message.stopReason === "error";
 			const body = contentText(message.content) || (failed ? message.errorMessage ?? "" : "");
-			if (body || failed) {
+			if (body || failed || message.role === "user") {
 				if (failed && firstError === null) firstError = events.length;
 				events.push({ kind: message.role, content: body, failed });
 			}
@@ -60,7 +67,12 @@ export function timelinePage(branch, traceTools, cursor, version) {
 			events.push({ kind: "tool", name: call.name, outcome, failed, args: call.arguments, result: result?.content });
 		}
 	}
-	const offset = decodeCursor(cursor, version, events.length);
+	return { events, firstError };
+}
+export function timelinePage(branch, traceTools, cursor, version, eventIndex) {
+	const { events, firstError } = timelineEvents(branch, traceTools);
+	if (eventIndex !== undefined && (!Number.isSafeInteger(eventIndex) || eventIndex < 0 || eventIndex >= events.length)) throw evalError(400, "invalid_event");
+	const offset = eventIndex ?? decodeCursor(cursor, version, events.length);
 	const items = [];
 	let bytes = 0;
 	for (let index = offset; index < events.length && items.length < TIMELINE_PAGE_SIZE; index++) {
@@ -118,17 +130,18 @@ async function catalog(root) {
 		const trace = await statIfPresent(tracePath);
 		sessions.set(header.id, { id: header.id, header, path, info, tracePath, trace, state: sessionState(info.mtimeMs, trace?.mtimeMs) });
 	}
-	return { sessions: [...sessions.values()], limited: paths.length > MAX_SESSIONS || visited >= MAX_SCAN_ENTRIES };
+	return { sessions: [...sessions.values()].sort((a, b) => String(b.header.timestamp ?? "").localeCompare(String(a.header.timestamp ?? "")) || a.id.localeCompare(b.id)), limited: paths.length > MAX_SESSIONS || visited >= MAX_SCAN_ENTRIES };
 }
 function versionOf(session) { return hash(JSON.stringify([session.id, session.info.ino, session.info.size, session.info.mtimeMs, session.trace?.size, session.trace?.mtimeMs])); }
 async function load(root, session) {
 	await safePath(root, session.path); await safePath(root, session.tracePath);
-	const loaded = await loadSession(session.path, newSummary(), new Set(), MAX_SESSION_BYTES);
+	const loaded = await loadSession(session.path, newSummary(), new Set(), MAX_SESSION_BYTES, true);
 	if (loaded.reason) throw evalError(413, "session_unavailable_or_too_large");
 	if (loaded.header.id !== session.id) throw evalError(409, "session_changed");
 	const current = await lstat(session.path);
-	const trace = await statIfPresent(session.tracePath);
-	if (current.ino !== session.info.ino || current.mtimeMs !== session.info.mtimeMs || current.size !== session.info.size || trace?.size !== session.trace?.size || trace?.mtimeMs !== session.trace?.mtimeMs) throw evalError(409, "session_changed");
+	// The shared reader pins its byte boundary. Appends do not invalidate this
+	// first-page snapshot; subsequent timeline cursors still compare versions.
+	if (current.ino !== session.info.ino) throw evalError(409, "session_changed");
 	return loaded;
 }
 function rowOf(session, loaded, labels) {
@@ -138,54 +151,94 @@ function rowOf(session, loaded, labels) {
 		request: loaded ? preview(sessionSummary(loaded.branch).request, 80).text : "",
 		metrics: metrics ? { durationMs: metrics.durationMs, toolCalls: metrics.toolCalls, toolErrors: metrics.toolErrors, costUsd: metrics.costUsd, costPartial: metrics.costPartial, tokens: metrics.tokens } : null,
 		findings: loaded ? loaded.findings.map(({ rule, status, count }) => ({ rule, status, count })) : [],
-		annotation: labels.get(session.id) ? { verdict: labels.get(session.id).verdict, note: preview(labels.get(session.id).note, 500).text, failSet: labels.get(session.id).failSet === true } : null,
+		atEntryId: loaded?.branch.at(-1)?.id ?? null,
+		atEntryCount: loaded?.branch.length ?? null,
+		annotation: labelOf(labels.get(session.id), loaded?.branch.at(-1)?.id),
 	};
 }
+async function loadLabels(directory) {
+	const merged = await mergedLabels({ out: join(directory, "cards") });
+	return new Map(merged.rows.filter((row) => ["pass", "fail"].includes(row.verdict)).map((row) => [row.sessionId, row]));
+}
+function labelOf(label, lastEntryId) {
+	if (!label) return null;
+	return { verdict: label.verdict, note: preview(label.note, 500).text, failSet: label.failSet === true,
+		source: label.source === "dashboard" ? "dashboard" : "review",
+		atEntryId: label.atEntryId ?? null, atEntryCount: label.atEntryCount ?? null,
+		progressed: label.atEntryId !== undefined && lastEntryId !== undefined && label.atEntryId !== lastEntryId };
+}
 export function createEvalService(root, directory = DEFAULT_EVAL_DIRECTORY) {
+	// Cache only bounded list metadata, never raw messages or tool arguments.
+	const summaries = new Map();
+	async function lookup(id) {
+		if (!validSessionId(id)) throw evalError(400, "invalid_session_id");
+		const session = (await catalog(root)).sessions.find((row) => row.id === id);
+		if (!session) throw evalError(404, "session_not_found");
+		return session;
+	}
 	return {
+		async snapshot(id) {
+			const session = await lookup(id);
+			return { session, loaded: await load(root, session) };
+		},
 		async sessions(cursor, filter = "all") {
 			if (!["all", "unlabeled", "fail", "failSet", "hits"].includes(filter)) throw evalError(400, "invalid_filter");
 			const scanned = await catalog(root);
-			const merged = await mergedLabels({ out: join(directory, "cards") });
-			const labels = new Map(merged.rows.map((row) => [row.sessionId, row]));
+			const labels = await loadLabels(directory);
 			const version = hash(JSON.stringify(scanned.sessions.map((session) => session.id)));
 			const offset = decodeCursor(cursor, version, scanned.sessions.length);
-			const items = [];
-			for (const session of scanned.sessions.slice(offset, offset + LIST_PAGE_SIZE)) {
-				const annotation = labels.get(session.id);
-				if ((filter === "unlabeled" && annotation) || (filter === "fail" && annotation?.verdict !== "fail") || (filter === "failSet" && !annotation?.failSet)) continue;
-				try {
-					const row = rowOf(session, await load(root, session), labels);
-					if (filter !== "hits" || row.findings.some((finding) => finding.status === "hit")) items.push(row);
+			const ids = new Set(scanned.sessions.map((session) => session.id));
+			for (const id of summaries.keys()) if (!ids.has(id)) summaries.delete(id);
+			const judgments = await latestJudgments(directory, ids);
+			const rows = [];
+			for (const session of scanned.sessions) {
+				const key = versionOf(session);
+				let cached = summaries.get(session.id);
+				if (cached?.key !== key) {
+					let row;
+					try { row = rowOf(session, await load(root, session), new Map()); }
+					catch (error) {
+						if (![409, 413].includes(error.status)) throw error;
+						row = { ...rowOf(session, null, new Map()), unavailable: error.code };
+					}
+					cached = { key, row }; summaries.set(session.id, cached);
 				}
-				catch (error) {
-					if (![409, 413].includes(error.status)) throw error;
-					items.push({ ...rowOf(session, null, labels), unavailable: error.code });
-				}
+				const judgment = judgments.get(session.id);
+				rows.push({ ...cached.row, state: session.state, annotation: labelOf(labels.get(session.id), cached.row.atEntryId),
+					judgment: judgment ? { status: judgment.latest.status, verdict: judgment.latest.result?.suggestedVerdict ?? null } : null });
 			}
-			const next = Math.min(scanned.sessions.length, offset + LIST_PAGE_SIZE);
+			const counts = { all: rows.length, unlabeled: 0, fail: 0, failSet: 0, hits: 0 };
 			const states = { active: 0, idle: 0, unknown: 0 };
-			for (const session of scanned.sessions) states[session.state]++;
-			return { items, total: scanned.sessions.length, states, limited: scanned.limited, nextCursor: next < scanned.sessions.length ? encodeCursor(next, version) : null };
+			for (const row of rows) {
+				states[row.state]++;
+				if (!row.annotation) counts.unlabeled++;
+				if (row.annotation?.verdict === "fail") counts.fail++;
+				if (row.annotation?.failSet) counts.failSet++;
+				if (row.findings.some((finding) => finding.status === "hit")) counts.hits++;
+			}
+			const items = rows.slice(offset, offset + LIST_PAGE_SIZE).filter((row) => filter === "all" ||
+				(filter === "unlabeled" && !row.annotation) || (filter === "fail" && row.annotation?.verdict === "fail") ||
+				(filter === "failSet" && row.annotation?.failSet) || (filter === "hits" && row.findings.some((finding) => finding.status === "hit")));
+			const next = Math.min(rows.length, offset + LIST_PAGE_SIZE);
+			return { items, total: rows.length, counts, labeled: rows.length - counts.unlabeled, unavailable: rows.filter((row) => row.unavailable).length,
+				states, limited: scanned.limited, nextCursor: next < rows.length ? encodeCursor(next, version) : null };
 		},
-		async session(id, cursor) {
-			if (!validSessionId(id)) throw evalError(400, "invalid_session_id");
-			const session = (await catalog(root)).sessions.find((row) => row.id === id);
-			if (!session) throw evalError(404, "session_not_found");
+		async session(id, cursor, eventIndex) {
+			const session = await lookup(id);
 			const loaded = await load(root, session);
-			const labels = new Map((await mergedLabels({ out: join(directory, "cards") })).rows.map((row) => [row.sessionId, row]));
+			const labels = await loadLabels(directory);
 			const summary = sessionSummary(loaded.branch);
-			return { ...rowOf(session, loaded, labels), summary: { request: preview(summary.request), final: preview(summary.final) }, timeline: timelinePage(loaded.branch, loaded.trace.tools, cursor, versionOf(session)) };
+			const judgment = (await latestJudgments(directory, [id])).get(id) ?? null;
+			if (judgment) judgment.anchorAvailable = loaded.branch.some((entry) => entry.id === judgment.latest.atEntryId);
+			return { judgment, ...rowOf(session, loaded, labels), summary: { request: preview(summary.request), final: preview(summary.final) },
+				timeline: timelinePage(loaded.branch, loaded.trace.tools, cursor, versionOf(session), eventIndex) };
 		},
 		async annotate(input) {
 			let value; try { value = annotationInput(input); } catch { throw evalError(400, "invalid_annotation"); }
-			const session = (await catalog(root)).sessions.find((row) => row.id === value.sessionId);
-			if (!session) throw evalError(404, "session_not_found");
-			if (session.state !== "idle") throw evalError(409, "session_not_idle");
-			await safePath(root, session.path); await safePath(root, session.tracePath);
-			const current = await lstat(session.path), trace = await statIfPresent(session.tracePath);
-			if (sessionState(current.mtimeMs, trace?.mtimeMs) !== "idle") throw evalError(409, "session_not_idle");
-			return writeAnnotation(directory, value);
+			const session = await lookup(value.sessionId);
+			if (session.state === "unknown") throw evalError(409, "session_state_unknown");
+			const loaded = await load(root, session);
+			return writeAnnotation(directory, value, { atEntryId: loaded.branch.at(-1)?.id ?? null, atEntryCount: loaded.branch.length });
 		},
 	};
 }
