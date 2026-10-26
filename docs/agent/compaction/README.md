@@ -54,7 +54,9 @@
 | 08 | [单批读取占比接近生产（零费用）](tasks/08-batch-share.md) | `rotom/evals/` | accepted（`d372a40`）；20/10/1 次 read 每轮下 candidate 均 defer |
 | 09 | [第三次付费回放](tasks/09-third-replay.md) | bob 本机 | 已执行一次（`0e08e52`）：baseline 读满并触发 2 次阈值；candidate 只读 50/120 未达阈值，熔断；35 次请求；授权已消费 |
 | 10 | [续读提示 + 无效样本不停回放（零费用）](tasks/10-coverage-nudge.md) | `rotom/evals/` | accepted（`41a00c0`） |
-| 11 | [第四次付费回放](tasks/11-fourth-replay.md) | bob 本机 | 已授权（3,000 次 / 1.4 亿），ready |
-| 12 | B 方案（后台提前压缩） | Pi fork | 搁置，看回放数据 |
+| 11 | [第四次付费回放](tasks/11-fourth-replay.md) | bob 本机 | 已执行一次（`f3d9d0f`）：6 个有效配对，两臂 6/6 正确，candidate 9 次推迟、等待 -67%；第 13 次 provider 错误熔断，multi-file-fix 无数据；授权已消费 |
+| 12 | [召回归属、错误类别、单次错误不停回放、按任务授权（零费用）](tasks/12-recall-and-infra.md) | `rotom/evals/` | ready |
+| 13 | 只跑 multi-file-fix 的小回放 | bob 本机 | 等 12 accepted 后申请授权 |
+| 14 | B 方案（后台提前压缩） | Pi fork | 搁置，看回放数据 |
 
 状态取值：`ready`（可开工）· `in-review`（执行者已提交，等核验）· `changes-requested` · `accepted`。

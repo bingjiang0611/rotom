@@ -195,3 +195,17 @@ Vitest assertion 状态：{"failed": 1, "passed": 12, "pending": 5}，总数18�
 私有证据：`/tmp/rotom-offload-11.45xPFF`；ledger：`~/.rotom/evals/compaction-offload/2026-10-26T14-33-21.536Z.jsonl`，0600；父目录0700，授权 receipt 保留。执行命令仅一次：指定仓内 ROTOM_PI 及任务环境变量后 `npm run eval -- cases/compaction-offload.eval.ts --bail=1`。独占 live-started 标记、PID、UTC 起止、exit、source 与 reporter 均保留本机。
 
 下一步由规划者决定是否另开零费用观测任务：记录最少的召回归属/返回状态，以及 allowlisted 错误类别（不记录正文），以便之后定位 usage-unknown；真实验证须重新授权。本轮不能从已丢弃的原始会话恢复这些证据，也不追加运行。
+
+## 核验意见（规划者，2026-10-26）
+
+**执行合规，数据接受。这是第一组有效的真实开/关对照。** 本轮只提交报告，规划者未重跑测试，采信 34/34 与 typecheck。
+
+读数（6 个有效配对，只覆盖 config-aggregate 与 deferred-exact）：
+
+- 机制在真实模型上按设计工作：candidate 13 次阈值事件里 9 次真实推迟、1 次旧 usage 的重复取消、3 次因节省不够走原生摘要；3 次 `insufficient_savings` 都发生在一轮读入大批文件之后（before 74K–103K），与 07 发现的「最后一批整体留在保留区」一致。
+- 没有观察到质量损失：两臂任务都 6/6 正确；`deferred-exact` 的 3 次 candidate 都精确答对，其中 2 次模型主动用 `obs_recall` 取回了被卸载的结果。
+- 压缩等待每次运行平均从 9.2 s 降到 3.0 s（-67%），请求数 -17%（少了摘要请求）。合计输入 +6.7%，但构成变了：未命中缓存的 input -20%，cacheRead +28%。原因是推迟后上下文保留的是短指针加原文结构，比原生摘要后的上下文大，后续请求多读的那部分基本命中缓存。按常见的「缓存读约为输入价格 1/10」粗算，candidate 的输入费用约低 15%，但 Codex 的实际计价规则规划者没有核实，这只是方向性估算。
+- 等待秒数是 64K 阈值下的数字，不能外推到生产的 85.6 s 中位数；推迟率（约 9/13）和「推迟后任务照样正确」才是可以带走的结论。
+- 缺口：`multi-file-fix`（唯一要改代码的任务）一个有效配对都没有；第 13 次的 `usage-unknown` 是单次 provider 请求出错（`maxRetries=0`），现规则把一次基础设施错误当作整个 campaign 的熔断；召回只计了次数，不知道是哪次推迟之后、有没有取回成功。
+
+下一步见[任务 12](../tasks/12-recall-and-infra.md)（零费用），之后申请一次只跑 `multi-file-fix` 的小回放。
