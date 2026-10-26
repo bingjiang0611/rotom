@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { contentText, sessionSummary } from "./session-data.mjs";
 import { timelineEvents, preview, evalError } from "./service.mjs";
+import { mergeRedactions, redactionList, redactSecrets } from "./redaction.mjs";
 
 export const JUDGE_PROMPT_VERSION = "rotom-eval-judge/v3";
 export const JUDGE_MAX_INPUT_CHARS = 80_000;
@@ -17,7 +18,9 @@ export function buildJudgeInput(loaded, maximum = JUDGE_MAX_INPUT_CHARS) {
 	const lastAssistant = loaded.branch.findLast((entry) => entry.message?.role === "assistant")?.message;
 	const requestEvent = summary.request ? events.findIndex((event) => event.kind === "user") + 1 : null;
 	const finalEvent = contentText(lastAssistant?.content) ? events.findLastIndex((event) => event.kind === "assistant") + 1 : null;
-	const request = preview(summary.request, 2000), final = preview(summary.final, 2000);
+	// Raw text is kept here and redacted per field inside render(), so a secret is
+	// replaced before that field is truncated.
+	const request = { text: summary.request ?? "", truncated: false }, final = { text: summary.final ?? "", truncated: false };
 	const keep = events.map((event, index) => event.kind !== "tool" || index < 20 || index >= events.length - 20);
 	for (let index = 0; index < events.length; index++) {
 		if (events[index].kind !== "tool" || events[index].outcome === "ok") continue;
@@ -36,14 +39,17 @@ export function buildJudgeInput(loaded, maximum = JUDGE_MAX_INPUT_CHARS) {
 		}
 		const event = events[index];
 		rows.push(event.kind === "tool"
-			? { base: { event: index + 1, kind: "tool", name: event.name, outcome: event.outcome }, fields: { args: preview(JSON.stringify(event.args), 2000), result: preview(contentText(event.result), 2000) } }
-			: { base: { event: index + 1, kind: event.kind, failed: event.failed }, fields: { content: preview(event.content, 2000) } });
+			? { base: { event: index + 1, kind: "tool", name: event.name, outcome: event.outcome }, fields: { args: { text: JSON.stringify(event.args), truncated: false }, result: { text: contentText(event.result) ?? "", truncated: false } } }
+			: { base: { event: index + 1, kind: event.kind, failed: event.failed }, fields: { content: { text: event.content ?? "", truncated: false } } });
 		index++;
 	}
+	const redactions = new Map();
 	function render(limit) {
 		let truncated = rows.some((row) => row.base.kind === "tool_run");
 		const text = (field, cap = limit) => {
-			const part = preview(field.text, cap), cut = field.truncated || part.truncated;
+			const redacted = redactSecrets(field.text);
+			mergeRedactions(redactions, redacted.redactions);
+			const part = preview(redacted.text, cap), cut = field.truncated || part.truncated;
 			truncated ||= cut;
 			return part.text + (cut ? "\\n[已截断]" : "");
 		};
@@ -62,7 +68,9 @@ export function buildJudgeInput(loaded, maximum = JUDGE_MAX_INPUT_CHARS) {
 		if (candidate.inputChars <= maximum) { result = candidate; low = mid + 1; }
 		else high = mid - 1;
 	}
-	return { ...result, inputDigest: createHash("sha256").update(result.prompt).digest("hex"), eventIds: rows.map((row) => row.base.event).filter(Number.isSafeInteger) };
+	// Counts are collected across render() calls because the size search
+	// re-renders the same fields; the digest covers the redacted prompt.
+	return { ...result, redactions: redactionList(redactions), inputDigest: createHash("sha256").update(result.prompt).digest("hex"), eventIds: rows.map((row) => row.base.event).filter(Number.isSafeInteger) };
 }
 
 const exact = (value, keys) => value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));

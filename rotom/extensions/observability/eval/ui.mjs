@@ -178,7 +178,8 @@ function evalClient(C, matchesFilter) {
 	function confirmJudge(prepared) {
 		return new Promise((resolve) => {
 			const dialog = make('dialog', 'eval-dialog'); dialog.setAttribute('aria-label', C.confirmTitle);
-			dialog.append(make('h2', '', C.confirmTitle), make('p', 'eval-text', format(C.confirmDetails, { model: prepared.model, count: prepared.inputChars, truncated: prepared.truncated ? C.yes : C.no })), make('p', '', C.consent), button(C.cancel, () => dialog.close()), button(C.confirmJudge, () => dialog.close('confirm'), 'eval-primary'));
+			const redactions = prepared.redactions ?? [], total = redactions.reduce((sum, entry) => sum + entry.count, 0);
+			dialog.append(make('h2', '', C.confirmTitle), make('p', 'eval-text', format(C.confirmDetails, { model: prepared.model, count: prepared.inputChars, truncated: prepared.truncated ? C.yes : C.no })), ...(total ? [make('p', 'eval-meta', format(C.redacted, { count: total, types: redactions.map((entry) => entry.type).join('、') }))] : []), make('p', '', C.consent), button(C.cancel, () => dialog.close()), button(C.confirmJudge, () => dialog.close('confirm'), 'eval-primary'));
 			dialog.addEventListener('close', () => { const accepted = dialog.returnValue === 'confirm'; dialog.remove(); resolve(accepted); }, { once: true });
 			document.body.append(dialog); dialog.showModal();
 		});

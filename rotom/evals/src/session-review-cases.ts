@@ -1,4 +1,9 @@
-// Decision probes derived from one week of reviewed sessions.
+// Decision probes (cheap smoke check, not behaviour evidence).
+//
+// These are single-turn quizzes: the answer fields themselves hint at the right
+// answer, so a competent model passes without ever behaving that way. They stay
+// as a fast smoke check. Real behaviour is measured by
+// `behavioral-regression-cases.ts`, which gives the agent a workspace and tools.
 //
 // Provenance: five recurring dissatisfaction patterns found by judging rule-hit
 // sessions in the private dashboard store. Only the *pattern* is reproduced

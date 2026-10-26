@@ -121,7 +121,7 @@ export function createJudgeService({ evalService, directory, launcher = JUDGE_LA
 				: { status: outcome === "timeout" ? "timeout" : outcome === "aborted" ? "cancelled" : "failed", result: null, usage: usageOf(null), failure: outcome === "output-limit" ? "output_truncated" : outcome === "exited" ? "launcher_failed" : outcome };
 		} catch { value = { status: "failed", result: null, usage: usageOf(null), failure: "launcher_unavailable" }; }
 		const record = { sessionId: prepared.sessionId, atEntryId: prepared.atEntryId, model: prepared.model, promptVersion: JUDGE_PROMPT_VERSION,
-			inputDigest: prepared.inputDigest, inputChars: prepared.inputChars, truncated: prepared.truncated, durationMs: Date.now() - started, ...value };
+			inputDigest: prepared.inputDigest, inputChars: prepared.inputChars, truncated: prepared.truncated, redactions: prepared.redactions ?? [], durationMs: Date.now() - started, ...value };
 		try { await writeJudgment(directory, record); current.status = record.status; }
 		catch { current.status = "failed"; current.error = "judgment_storage_unknown"; }
 		current.processConfirmed = !unsafeTermination;
@@ -138,7 +138,7 @@ export function createJudgeService({ evalService, directory, launcher = JUDGE_LA
 			available();
 			const source = buildJudgeInput(loaded, maxInputChars);
 			pending = { ...source, sessionId: input.sessionId, atEntryId: loaded.branch.at(-1)?.id ?? null, model: input.model, confirmationId: randomUUID(), createdAt: Date.now() };
-			return { confirmationId: pending.confirmationId, model: pending.model, inputChars: source.inputChars, truncated: source.truncated, atEntryId: pending.atEntryId };
+			return { confirmationId: pending.confirmationId, model: pending.model, inputChars: source.inputChars, truncated: source.truncated, redactions: source.redactions, atEntryId: pending.atEntryId };
 		},
 		start(input) {
 			available();

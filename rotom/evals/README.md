@@ -137,7 +137,7 @@ stdout 不含命令、参数、fingerprint 或会话 ID；会话 ID 只写入同
 `rotom --trace` 后台的「评测」页支持本机会话复盘与人工标注。活动状态与人工结论分开；active 会话允许按当前进度标注，记录 `atEntryId` / `atEntryCount`，unknown 状态仍禁止写入。标注后追加内容会显示「标注后有新进展」。默认筛选未标注，筛选计数与已标注进度独立显示；列表按会话身份/开始时间稳定分页，时间线变化最多自动重载一次。
 标注写入 `~/.rotom/evals/annotations/`；`labels` 统一合并卡片与 annotation，冲突以 annotation 为准并计 `conflicts`，新增 `failSet`。
 
-「让模型分析」先展示模型、发送字符数与截断情况，逐次确认后才启动产品 launcher。摘要只含当前分支，不含人工标注，最多 80,000 字符。长会话保留全部用户消息与助手文本、非 ok 工具及前后各 2 个事件、首尾各 20 个事件，其余连续 ok 工具折叠为保留原序号范围和工具计数的 `tool_run`；只能引用未折叠的事件，折叠后仍超限才拒绝。只有一个分析可运行，180 秒超时，可取消，不自动重试。原生 `--single-request` 关闭工具、会话落盘、自动压缩/预热及两层重试；默认模型仍由 Pi 解析，选定模型使用精确 `provider/model`，不模糊匹配或回退。模型目录只缓存成功结果；读取失败可点「重试读取模型」，不自动重试，也不触发分析。分析失败会区分「模型回复被截断」与「回复格式不合格」，并在页面显示原因与处理建议；截断检测同时覆盖 `stopReason` 非正常结束、半截 JSON 和 stdout 超限（4 MiB）。判词长度上限为 summary 120 字、evidence 6 条各 80 字、suggestions 4 条各 80 字，避免输出被服务端上限截断。成功目录在更新安装/登录后需重启后台刷新；不会复制 API-key/token 环境变量或凭据文件，认证由子进程的原生登录存储处理。
+「让模型分析」先展示模型、发送字符数与截断情况，逐次确认后才启动产品 launcher。摘要只含当前分支，不含人工标注，最多 80,000 字符。长会话保留全部用户消息与助手文本、非 ok 工具及前后各 2 个事件、首尾各 20 个事件，其余连续 ok 工具折叠为保留原序号范围和工具计数的 `tool_run`；只能引用未折叠的事件，折叠后仍超限才拒绝。只有一个分析可运行，180 秒超时，可取消，不自动重试。原生 `--single-request` 关闭工具、会话落盘、自动压缩/预热及两层重试；默认模型仍由 Pi 解析，选定模型使用精确 `provider/model`，不模糊匹配或回退。模型目录只缓存成功结果；读取失败可点「重试读取模型」，不自动重试，也不触发分析。分析失败会区分「模型回复被截断」与「回复格式不合格」，并在页面显示原因与处理建议；截断检测同时覆盖 `stopReason` 非正常结束、半截 JSON 和 stdout 超限（4 MiB）。判词输入在截断之前先做凭据脱敏（`eval/redaction.mjs` 的具名模式表：PEM 私钥、`sk-`/`sk-ant-`、GitHub token、AWS `AKIA`、Slack `xox[a-z]-`、JWT、`Bearer`、`key|token|secret|password` 赋值），替换为 `[已脱敏:类型]`；确认弹窗显示脱敏处数，judgment 记录只保存 `redactions` 的类型与次数，不保存原文。这是尽力而为的黑名单过滤，不能证明提示词里没有秘密。判词长度上限为 summary 120 字、evidence 6 条各 80 字、suggestions 4 条各 80 字，避免输出被服务端上限截断。成功目录在更新安装/登录后需重启后台刷新；不会复制 API-key/token 环境变量或凭据文件，认证由子进程的原生登录存储处理。
 
 后台性能合同：目录扫描按层并行（最多 64 并发）、跳过符号链接，只校验一次 canonical 根目录；会话 header 按 `(inode, size, mtime)` 缓存，列表只解析当前页会话，不再为整库构造行。一次列目录结果缓存 1.5 秒，供「打开列表 → 打开详情 → 保存后刷新」的突发请求复用；`refresh=1` 强制重新列目录，写入前也会重新校验。筛选在分页之前完成，所以「未标注」等筛选页仍是完整的 10 条，游标指向筛选后的序列。`counts` 中 `all` / `unlabeled` / `fail` / `failSet` 来自标注，始终精确；`hits` 需要完整 branch，未测量前返回 `null`，页面显示「按需统计」，首次进入该筛选时才计算并缓存。列表现已附带 `matched`、`elapsedMs` 与 `hits: null` 语义。Trace 扫描同样并行读 tail，并按文件 `(size, mtime)` 缓存摘要，20 秒内重复请求直接复用；「刷新数据」会重新扫描，但未变化的 trace 不会重读。页面加载时显示已等待秒数、骨架行与「用时」，加载期间禁用筛选以避免排队请求。
 
@@ -164,7 +164,9 @@ node rotom/extensions/observability/eval-launcher-check.mjs --faux
 
 ## 运行评测
 
-`cases/session-review.eval.ts` 是五题决策探针，来源是近一周人工复盘里反复出现的不满模式：把启动回执当成后台任务仍在运行、同一失败参数连续重试不换手段、被中断后空回复不交代进度、交付报告与源数据不一致、把明文凭据发给第三方分类器。题目由 `src/session-review-cases.ts` 定义，**只保留模式**：提示词、标识符和数据行全部为合成内容，私有会话原文、标注与工具参数不进入仓库。判定是确定性的 JSON 字段检查，因此回归表现为答案改变而不是判词文风变化。`test/session-review.test.ts` 在 CI 中对每题同时跑“合规答案得 1 分”和“复盘中的失败答案低于 1 分”，避免判定恒真；真实模型运行仍需 `ROTOM_EVAL_PROVIDER`、`ROTOM_EVAL_MODEL` 与 `ROTOM_EVAL_BASELINE_PRODUCT`，并计入 provider 用量。
+`cases/behavioral-regression.eval.ts` 是同一批模式的**行为**版本：给 agent 一个合成工作区和真实工具（`bash`/`read`/`edit`/`write`），让它真的做事，判定只看实际工具调用、写出的文件和最终回复。题目在 `src/behavioral-regression-cases.ts`，prompt 只描述任务，不出现判定词，也不提示正确做法；用例检查「声明的工作是否真的发生」。判定同样是确定性的，`test/behavioral-regression.test.ts` 在 CI 里对每个用例跑「合规证据得 1 分」和「复盘中的失败证据低于 1 分」，避免判定恒真。运行需要 `ROTOM_EVAL_BEHAVIORAL_REGRESSION=1`、`ROTOM_EVAL_PROVIDER`、`ROTOM_EVAL_MODEL`、`ROTOM_EVAL_BASELINE_PRODUCT`，重复次数由 `ROTOM_EVAL_BEHAVIORAL_REGRESSION_REPEATS` 控制。真实运行时 baseline 与 candidate 都满分只说明当前版本没退化，不证明用例有区分度，需在报告里如实写明。
+
+决策探针只是便宜的冒烟检查，不代表真实行为。它们来源是近一周人工复盘里反复出现的不满模式：把启动回执当成后台任务仍在运行、同一失败参数连续重试不换手段、被中断后空回复不交代进度、交付报告与源数据不一致、把明文凭据发给第三方分类器。题目由 `src/session-review-cases.ts` 定义，**只保留模式**：提示词、标识符和数据行全部为合成内容，私有会话原文、标注与工具参数不进入仓库。判定是确定性的 JSON 字段检查，但字段名本身提示了正确答案，所以任何像样的模型都会答对：它测的是「知不知道规则」，不是「做事时会不会这样做」。真正起回归作用的是上面的行为用例。`test/session-review.test.ts` 在 CI 中对每题同时跑“合规答案得 1 分”和“复盘中的失败答案低于 1 分”，避免判定恒真；真实模型运行仍需 `ROTOM_EVAL_PROVIDER`、`ROTOM_EVAL_MODEL` 与 `ROTOM_EVAL_BASELINE_PRODUCT`，并计入 provider 用量。
 
 以后在 `cases/**/*.eval.ts` 增加评测集后执行：
 

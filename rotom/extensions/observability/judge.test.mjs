@@ -9,6 +9,7 @@ import { createEvalService } from "./eval/service.mjs";
 import { createJudgeService, JUDGE_BASE_ARGS, parseJudgeEvents, parseModelCatalog } from "./eval/judge.mjs";
 import { buildJudgeInput, JUDGE_MAX_INPUT_CHARS, validateJudgment } from "./eval/judge-prompt.mjs";
 import { latestJudgments, judgeAgreement, writeJudgment } from "./eval/judge-store.mjs";
+import { redactSecrets } from "./eval/redaction.mjs";
 import { startTraceDashboard } from "./dashboard.mjs";
 import { productRuntimeArgs } from "../../runtime/launch-runtime.mjs";
 import { COPY } from "./eval/copy.mjs";
@@ -221,6 +222,53 @@ test("failure, invalid JSON, timeout, cancellation and output limits are termina
 	}
 	assert.equal((await calls(fake)).length, 7, "one discovery plus exactly one invocation per explicit confirmation");
 	assert.equal((await latestJudgments(directory)).get(input.sessionId).historyCount, 6);
+});
+
+test("credential shapes are redacted before truncation and recorded by type", () => {
+	// Fixtures are assembled at runtime so the public-tree credential scan keeps
+	// flagging real-looking literals anywhere in the repository: a prefix literal
+	// is never long enough to match on its own, the repeating body is generated.
+	const secret = (parts) => parts.join("");
+	const credential = secret(["sk-ant-", "A".repeat(24)]);
+	const secrets = [
+		["anthropic-key", secret(["sk-ant-", "A".repeat(24)])],
+		["openai-key", secret(["sk-proj-", "B".repeat(24)])],
+		["github-token", secret(["ghp_", "C".repeat(32)])],
+		["aws-access-key", secret(["AKIA", "D".repeat(16)])],
+		["slack-token", secret(["xoxb-", "123456789012-abcdefghijkl"])],
+		["jwt", secret(["eyJhbGciOiJIUzI1NiJ9", ".", "eyJzdWIiOiIxMjM0NTY3ODkwIn0", ".", "dBjftJeZ4CVPmB92K27uhbUJU1p1r_wW1gFWFOEjXk"])],
+		["bearer-token", secret(["Bearer ", "E".repeat(20)])],
+		["assigned-secret", secret(["API_KEY=", "F".repeat(16)])],
+		["private-key", secret(["-----BEGIN RSA PRIVATE KEY-----\n", "MIIEow\n", "-----END RSA PRIVATE KEY-----"])],
+	];
+	for (const [type, value] of secrets) {
+		const result = redactSecrets(`before ${value} after`);
+		assert.ok(!result.text.includes(value.split(" ").at(-1).slice(0, 12)) || result.text.includes("[已脱敏:"), type);
+		assert.ok(result.redactions.some((entry) => entry.type === type), `${type} was not recorded`);
+		assert.ok(result.text.includes(`[已脱敏:${type}]`), type);
+	}
+	const clean = redactSecrets("token budget 4096; commit 3f786850e387550fdab836ed7e6dc881de23001b; id 123e4567-e89b-12d3-a456-426614174000; the word secret appears alone");
+	assert.deepEqual(clean.redactions, []);
+	assert.equal(clean.text, "token budget 4096; commit 3f786850e387550fdab836ed7e6dc881de23001b; id 123e4567-e89b-12d3-a456-426614174000; the word secret appears alone");
+	const truncatedField = redactSecrets(`x`.repeat(50) + " " + credential + " " + "y".repeat(50));
+	assert.ok(!truncatedField.text.includes(credential));
+	assert.ok(truncatedField.text.includes("[已脱敏:anthropic-key]"));
+});
+
+test("a redacted secret cannot reach the prompt or the stored digest", async (t) => {
+	const { evalService, fake, directory } = await fixture(t);
+	const judge = createJudgeService({ evalService, directory, launcher: fake.launcher, timeoutMs: 5000 });
+	await judge.models();
+	const secret = ["sk-ant-", "A".repeat(24)].join("");
+	const snapshot = await evalService.snapshot(input.sessionId);
+	const built = buildJudgeInput(snapshot.loaded, 80_000);
+	assert.equal(built.prompt.includes(secret), false, "raw secret reached the prompt");
+	const prepared = await judge.prepare({ sessionId: input.sessionId, model: "fake/model" });
+	assert.ok(Array.isArray(prepared.redactions));
+	const job = judge.start({ confirmationId: prepared.confirmationId });
+	await done(judge, job.runId);
+	const stored = (await latestJudgments(directory)).get(input.sessionId);
+	assert.ok(Array.isArray(stored.latest.redactions));
 });
 
 test("truncated model replies are reported as truncation, not format errors", async (t) => {

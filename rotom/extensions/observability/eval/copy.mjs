@@ -28,7 +28,7 @@ export const COPY = {
 	modelCheckLabel: "在当前产品仓库根目录执行以下命令排查（可选中复制）：",
 	modelCheckCommand: "rotom/bin/rotom-launcher --single-request -p --mode json --no-session --no-tools --no-skills --no-context-files --no-prompt-templates --no-extensions --no-themes --no-mcp --no-approve --list-models",
 	modelsEmpty: "没有可用模型，请在 rotom 中完成模型配置或登录，再重启后台",
-	confirmTitle: "确认发送会话内容", confirmDetails: "模型：{model}\n发送字符数：{count}\n内容截断：{truncated}", yes: "是", no: "否",
+	confirmTitle: "确认发送会话内容", confirmDetails: "模型：{model}\n发送字符数：{count}\n内容截断：{truncated}", redacted: "已脱敏 {count} 处（{types}）", yes: "是", no: "否",
 	consent: "会话内容会发送给所选模型的服务商；费用以服务商报告为准，缺失时显示未知。", confirmJudge: "确认并分析", cancel: "取消",
 	judging: "正在分析，请勿重复提交", judgingElapsed: "正在分析 · 已等待 {seconds} 秒 · 请勿重复提交", cancelling: "正在取消，等待子进程结束", judgeStartUnknown: "分析是否启动尚不确定，请刷新会话核对；不要重复提交。",
 	judgeFailures: { provider_error: "服务商返回错误，本次分析没有拿到回复", output_truncated: "模型回复被截断（达到输出上限或超长），没有拿到完整结论", invalid_output: "模型回复不是符合要求的 JSON", incomplete_model_response: "模型回复不完整，没有正常结束", launcher_failed: "分析进程异常退出", launcher_unavailable: "找不到可执行的分析入口" },
