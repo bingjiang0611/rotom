@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { contentText, sessionSummary } from "./session-data.mjs";
 import { timelineEvents, preview, evalError } from "./service.mjs";
-import { mergeRedactions, redactionList, redactSecrets } from "./redaction.mjs";
+import { redactionList, redactionMarker, redactSecrets } from "./redaction.mjs";
 
 export const JUDGE_PROMPT_VERSION = "rotom-eval-judge/v3";
 export const JUDGE_MAX_INPUT_CHARS = 80_000;
@@ -43,20 +43,28 @@ export function buildJudgeInput(loaded, maximum = JUDGE_MAX_INPUT_CHARS) {
 			: { base: { event: index + 1, kind: event.kind, failed: event.failed }, fields: { content: { text: event.content ?? "", truncated: false } } });
 		index++;
 	}
-	const redactions = new Map();
 	function render(limit) {
+		// Counts belong to one render: the size search re-renders the same fields
+		// many times, so accumulating across renders multiplies the reported total.
+		const redactions = new Map();
 		let truncated = rows.some((row) => row.base.kind === "tool_run");
 		const text = (field, cap = limit) => {
 			const redacted = redactSecrets(field.text);
-			mergeRedactions(redactions, redacted.redactions);
 			const part = preview(redacted.text, cap), cut = field.truncated || part.truncated;
 			truncated ||= cut;
-			return part.text + (cut ? "\\n[已截断]" : "");
+			const shown = part.text + (cut ? "\\n[已截断]" : "");
+			// Count only the markers that survived truncation, so the reported
+			// number matches what the model actually received.
+			for (const { type } of redacted.redactions) {
+				const present = shown.split(redactionMarker(type)).length - 1;
+				if (present) redactions.set(type, (redactions.get(type) ?? 0) + present);
+			}
+			return shown;
 		};
 		const data = { request: { event: requestEvent, content: text(request, 2000) }, final: { event: finalEvent, content: text(final, 2000) },
 			events: rows.map((row) => ({ ...row.base, ...Object.fromEntries(Object.entries(row.fields).map(([key, value]) => [key, text(value)])) })) };
 		const prompt = instruction + JSON.stringify({ ...data, truncation: truncated ? "[已截断：仅依据提供的内容判断]" : "" });
-		return { prompt, inputChars: chars(prompt), truncated };
+		return { prompt, inputChars: chars(prompt), truncated, redactions: redactionList(redactions) };
 	}
 	// Only refuse after folding when the protected events and run summaries,
 	// with one character per text field, still cannot fit.
@@ -68,9 +76,9 @@ export function buildJudgeInput(loaded, maximum = JUDGE_MAX_INPUT_CHARS) {
 		if (candidate.inputChars <= maximum) { result = candidate; low = mid + 1; }
 		else high = mid - 1;
 	}
-	// Counts are collected across render() calls because the size search
-	// re-renders the same fields; the digest covers the redacted prompt.
-	return { ...result, redactions: redactionList(redactions), inputDigest: createHash("sha256").update(result.prompt).digest("hex"), eventIds: rows.map((row) => row.base.event).filter(Number.isSafeInteger) };
+	// `result` is the adopted render, so its counts and its prompt agree; the
+	// digest covers the redacted prompt.
+	return { ...result, inputDigest: createHash("sha256").update(result.prompt).digest("hex"), eventIds: rows.map((row) => row.base.event).filter(Number.isSafeInteger) };
 }
 
 const exact = (value, keys) => value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));

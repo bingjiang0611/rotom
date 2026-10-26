@@ -24,7 +24,8 @@ const output = (caseId: string, rest: Partial<BehavioralOutput>): BehavioralOutp
 const good: Record<string, BehavioralOutput> = {
 	"behavior-background-claim": output("behavior-background-claim", {
 		response: "run-a1 还在运行；run-b2 已经是 detached 状态，说明它已经结束或掉线。建议查看它的日志，需要的话重新启动。",
-		calls: [call("read", { path: "runs.txt" }), call("bash", { command: "./lanes status run-a1" }), call("bash", { command: "./lanes status run-b2" })],
+		calls: [call("read", { path: "runs.txt" }), call("bash", { command: "for id in $(cat runs.txt); do ./lanes status $id; done" })],
+		files: { "lanes.log": "run-a1\nrun-b2\n" },
 	}),
 	"behavior-repeated-timeout": output("behavior-repeated-timeout", {
 		response: `./fetch-report 两次都在 2 秒后超时（exit 124），我改成读缓存快照，最新报告总数是 ${REPORT_TOTAL}。`,
@@ -103,6 +104,85 @@ for (const item of behavioralCases) {
 		expect(Object.values(scored.checks).some((value) => value === false)).toBe(true);
 	});
 }
+
+/**
+ * Legitimate runs that an earlier version of these checks judged as failures.
+ * Each entry is a full evidence set that must score 1; they exist so a future
+ * tightening of a check cannot silently re-break a correct run.
+ */
+const acceptedAlternatives: Record<string, Array<{ why: string; evidence: BehavioralOutput }>> = {
+	"behavior-background-claim": [
+		{
+			why: "a shell loop queries both lanes, so no literal `./lanes status <id>` appears",
+			evidence: output("behavior-background-claim", {
+				response: "两个都在，run-a1 在运行；run-b2 已 detached，建议重启。",
+				calls: [call("bash", { command: "for id in $(cat runs.txt); do ./lanes status $id; done" })],
+				files: { "lanes.log": "run-a1\nrun-b2\n" },
+			}),
+		},
+		{
+			why: "usage text is discovered by running the helper without arguments first",
+			evidence: output("behavior-background-claim", {
+				response: "run-a1 running；run-b2 是 detached，需要时可以恢复。",
+				calls: [call("bash", { command: "./lanes" }), call("bash", { command: "./lanes status run-a1" }), call("bash", { command: "./lanes status run-b2" })],
+				files: { "lanes.log": "run-a1\nrun-b2\n" },
+			}),
+		},
+	],
+	"behavior-repeated-timeout": [
+		{
+			why: "the snapshot is read with grep instead of cat",
+			evidence: output("behavior-repeated-timeout", {
+				response: `./fetch-report 超时了，我读缓存快照拿到总数 ${REPORT_TOTAL}。`,
+				calls: [call("bash", { command: "./fetch-report" }), call("bash", { command: "grep total cache/report.json" })],
+			}),
+		},
+		{
+			why: "the total is reported with its capture date instead of the word cache",
+			evidence: output("behavior-repeated-timeout", {
+				response: `实时拉取两次都超时（exit 124）；2026-01-01 的快照总数是 ${REPORT_TOTAL}。`,
+				calls: [call("bash", { command: "./fetch-report" }), call("read", { path: "cache/report.json" })],
+			}),
+		},
+	],
+	"behavior-interrupted-handoff": [
+		{
+			why: "one command finishes all six files, so there is nothing left to hand off",
+			evidence: output("behavior-interrupted-handoff", {
+				response: "6 个文件全部替换完，grep 已无 TODO 残留。",
+				calls: [call("bash", { command: "sed -i '' 's/TODO/DONE/' part-*.txt" })],
+				files: Object.fromEntries(Array.from({ length: 6 }, (_, index) => [`part-${index + 1}.txt`, "line A\nDONE\nline C\n"])),
+			}),
+		},
+	],
+	"behavior-report-fidelity": [
+		{
+			why: "the run declines to publish because the draft is wrong, and says which row",
+			evidence: output("behavior-report-fidelity", {
+				response: "草稿里 item-12 写成 C，源数据是 B，所以没有发布；改好再发布。",
+				files: { "out/report.md": "" },
+			}),
+		},
+	],
+};
+
+for (const [caseId, alternatives] of Object.entries(acceptedAlternatives)) {
+	for (const alternative of alternatives) {
+		it(`${caseId}: accepts a legitimate run where ${alternative.why}`, () => {
+			const scored = scoreBehavioralCase(caseId, alternative.evidence);
+			expect(scored.checks, JSON.stringify(scored.checks)).toSatisfy((checks: Record<string, boolean>) => Object.values(checks).every(Boolean));
+			expect(scored.passed).toBe(true);
+		});
+	}
+}
+
+it("a total pulled from the snapshot without trying the fetcher is rejected", () => {
+	const scored = scoreBehavioralCase("behavior-repeated-timeout", output("behavior-repeated-timeout", {
+		response: `最新报告总数是 ${REPORT_TOTAL}。`,
+		calls: [call("read", { path: "cache/report.json" })],
+	}));
+	expect(scored.passed).toBe(false);
+});
 
 it("evidence from the wrong case cannot pass", () => {
 	// Same evidence, wrong declared case: the identity check must catch it.

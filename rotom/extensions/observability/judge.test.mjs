@@ -247,28 +247,78 @@ test("credential shapes are redacted before truncation and recorded by type", ()
 		assert.ok(result.redactions.some((entry) => entry.type === type), `${type} was not recorded`);
 		assert.ok(result.text.includes(`[已脱敏:${type}]`), type);
 	}
-	const clean = redactSecrets("token budget 4096; commit 3f786850e387550fdab836ed7e6dc881de23001b; id 123e4567-e89b-12d3-a456-426614174000; the word secret appears alone");
+	const cleanText = "token budget 4096; commit 3f786850e387550fdab836ed7e6dc881de23001b; id 123e4567-e89b-12d3-a456-426614174000; the word secret appears alone";
+	const clean = redactSecrets(cleanText);
 	assert.deepEqual(clean.redactions, []);
-	assert.equal(clean.text, "token budget 4096; commit 3f786850e387550fdab836ed7e6dc881de23001b; id 123e4567-e89b-12d3-a456-426614174000; the word secret appears alone");
+	assert.equal(clean.text, cleanText);
+	// Review round 1: these ordinary coding strings were being rewritten, which
+	// corrupts the paths and code the judge needs to read.
+	const packageName = ["sk-learn-", "preprocessing", "-pipeline-v2"].join("");
+	const untouched = [
+		"pwd: /srv/app/rotom-eval",
+		"PWD=/srv/app/rotom-eval",
+		"secret = os.environ['X']",
+		"password: ********",
+		"token=2048tokens",
+		packageName,
+		"token: $GITHUB_TOKEN",
+		"api_key = process.env.API_KEY",
+	];
+	for (const sample of untouched) {
+		const result = redactSecrets(sample);
+		assert.deepEqual(result.redactions, [], `false positive on ${sample}`);
+		assert.equal(result.text, sample, `text rewritten for ${sample}`);
+	}
+	// The same shapes still redact when the value is a literal secret.
+	// Control: the same shapes still redact when the value is a literal secret,
+	// assembled at runtime so the repository holds no key-shaped literal.
+	const literalKey = ["sk-live-", "ABCDEF", "12345678"].join("");
+	assert.ok(redactSecrets(`api_key = ${literalKey}`).redactions.length > 0);
+	const literalPassword = ["hunter2", "hunter2"].join("");
+	assert.ok(redactSecrets(`password: ${literalPassword}`).redactions.some((entry) => entry.type === "assigned-secret"));
 	const truncatedField = redactSecrets(`x`.repeat(50) + " " + credential + " " + "y".repeat(50));
 	assert.ok(!truncatedField.text.includes(credential));
 	assert.ok(truncatedField.text.includes("[已脱敏:anthropic-key]"));
 });
 
-test("a redacted secret cannot reach the prompt or the stored digest", async (t) => {
-	const { evalService, fake, directory } = await fixture(t);
+test("a real secret in the session is redacted before it reaches the prompt", async (t) => {
+	const { evalService, fake, directory, root } = await fixture(t);
+	// Two occurrences of the same credential: one in the request, one in the tool
+	// arguments. The fixture writes them into the session so absence in the prompt
+	// is evidence rather than a property of an empty fixture.
+	const secret = ["sk-ant-", "A".repeat(24)].join("");
+	await fixtureSession(root, "synthetic-secret", { secrets: [secret, secret] });
 	const judge = createJudgeService({ evalService, directory, launcher: fake.launcher, timeoutMs: 5000 });
 	await judge.models();
-	const secret = ["sk-ant-", "A".repeat(24)].join("");
-	const snapshot = await evalService.snapshot(input.sessionId);
-	const built = buildJudgeInput(snapshot.loaded, 80_000);
+	const { loaded } = await evalService.snapshot("synthetic-secret");
+	assert.ok(JSON.stringify(loaded.branch).includes(secret), "fixture must actually contain the secret");
+	const built = buildJudgeInput(loaded, 400_000);
 	assert.equal(built.prompt.includes(secret), false, "raw secret reached the prompt");
-	const prepared = await judge.prepare({ sessionId: input.sessionId, model: "fake/model" });
-	assert.ok(Array.isArray(prepared.redactions));
+	assert.ok(built.prompt.includes("[已脱敏:anthropic-key]"));
+	const occurrences = built.prompt.split("[已脱敏:anthropic-key]").length - 1;
+	const reported = built.redactions.find((entry) => entry.type === "anthropic-key")?.count ?? 0;
+	// Item 1 of the review: counts must match the markers actually sent, not the
+	// number of render() passes performed during the size search.
+	assert.equal(reported, occurrences, "reported count must equal the markers in the prompt");
+	const prepared = await judge.prepare({ sessionId: "synthetic-secret", model: "fake/model" });
+	assert.deepEqual(prepared.redactions, built.redactions, "the dialog must show the same count");
 	const job = judge.start({ confirmationId: prepared.confirmationId });
 	await done(judge, job.runId);
-	const stored = (await latestJudgments(directory)).get(input.sessionId);
-	assert.ok(Array.isArray(stored.latest.redactions));
+	const stored = (await latestJudgments(directory)).get("synthetic-secret");
+	assert.deepEqual(stored.latest.redactions, built.redactions, "the record must carry the same count");
+	const sent = (await calls(fake)).at(-1).body;
+	assert.equal(sent.includes(secret), false, "the launcher received the raw secret");
+});
+
+test("repeated renders do not multiply the reported redaction count", async (t) => {
+	const { evalService, root } = await fixture(t);
+	const secret = ["sk-ant-", "B".repeat(24)].join("");
+	await fixtureSession(root, "synthetic-secret-wide", { secrets: [secret, secret], large: true });
+	const { loaded } = await evalService.snapshot("synthetic-secret-wide");
+	// A tight ceiling forces the binary search through many render() passes.
+	const tight = buildJudgeInput(loaded, 120_000);
+	const loose = buildJudgeInput(loaded, 400_000);
+	assert.equal(tight.redactions.find((entry) => entry.type === "anthropic-key")?.count, loose.redactions.find((entry) => entry.type === "anthropic-key")?.count);
 });
 
 test("truncated model replies are reported as truncation, not format errors", async (t) => {
