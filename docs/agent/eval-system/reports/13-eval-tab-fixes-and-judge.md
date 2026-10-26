@@ -72,3 +72,21 @@ Playwright 完整流程：中文界面 → 默认未标注 → 标注进行中�
 - 摘要保留事件编号，但正文可能被缩短；超过最低事件信息上限则拒绝。若需要分析这种超长分支，应单独设计可核对的分段复盘，不静默扩大预算或调用次数。
 - judgment 是第二意见，不是真实验收；agreement 未按不同标注进度对齐，不能当作模型可靠性结论。
 - 未重启之前打开的后台实例，未安装、未发布。CI 的实际提交 SHA 与 Actions 链接在交接消息中给出。
+
+## 核验意见（规划者，2026-10-26）
+
+结论：**changes-requested**（主体通过，有 1 个需要修的功能缺口和 3 个小问题）。
+
+已核实：
+- 拉取 `9994a44`。本地重跑 dashboard / eval / judge / process-tree 44/44、eval 定向 242/242、typecheck 通过；Actions run 40278147869 success（同一 SHA）。
+- 用预装 Chromium 复跑合成 Playwright：PASS，0 页面错误、0 外部请求、1 次 fake 推理。看了截图：界面已中文化；活动状态与标注状态分开，并标出来源；「会话仍在进行，这次标注针对目前的进度」「标注后有新进展」都正确显示；分析结果、第一个问题、证据、采纳建议（仅预填）都正常。
+- judge 调用路径：绝对路径 launcher、拒绝 symlink、argv 数组、私有空 cwd、子进程环境变量只用白名单（不转交 API key / token）、确认令牌一次性且 5 分钟过期、同一时间只跑一个、无法确认进程退出时禁止再启动、模型 id 精确匹配。prompt 明确把会话当作不可信引用，不含人工标注。
+- `--single-request`：Pi fork 改动的理由成立（`--no-tools` 不能保证只发一次请求，provider / agent 重试会让一次点击产生多笔费用）。普通模式不受影响：`applyOverrides` 只有 single-request 和 `--theme` 两个调用方；`process-tree` 新增 stdin 后，原调用方（`check-providers.mjs`）等价于空 stdin。build:pi / check:pi 的结果以执行者报告为准，规划者容器没有重跑。
+
+需要修改：
+1. **长会话无法分析（功能缺口）**。`buildJudgeInput` 要求每个事件的头部（序号、类型、工具名、outcome）全部放进 80,000 字符，一个事件约 60–100 字符，超过约 1,000 个事件就直接 413。bob 最想复盘的正是长会话（p90 工具调用 627 次，最长的超过 700 次，加上消息远超 1,000 个事件），现在恰好全部分析不了。请改成**折叠连续成功的工具调用**：保留全部 user 消息、assistant 文本、所有非 ok 的工具事件及其前后各 2 个事件、开头和结尾各 20 个事件；其余连续的 ok 工具事件合并成一行 `{ "events": "a-b", "kind": "tool_run", "count": n, "tools": { "read": 12, "bash": 3 } }`。事件序号保持不变；evidence 和 firstProblem 只能引用未被折叠的事件（校验同步更新）；prompt 说明折叠规则。只有折叠后仍然放不下时才 413。报告里写出：在 bob 的真实会话窗口里，用 `buildJudgeInput` **本地**（不调模型）算一遍，修改前和修改后分别有多少会话会被拒绝（只报计数）。
+2. **模型列表失败会永久缓存**：`models()` 失败后，被拒绝的 promise 一直留在缓存里，只能重启后台。失败不要缓存；页面上给一个「重试读取模型」。
+3. **筛选里混进不符合条件的行**：在「未标注」筛选下，当前打开的已标注会话仍留在列表顶部（合成截图里第一行是「标注状态：满意」）。bob 上次就是因为分不清才提的反馈。要么移出列表，要么明确标成「当前打开（不在此筛选中）」。
+4. `eval-ui-smoke.mjs` 写死了 `channel: "chrome"`，没装 Chrome 的机器跑不了（任务 12 的核验里提过）。改成可选的环境变量，默认用 Playwright 自带的 Chromium。
+
+给 bob 的试用说明（不在本任务改动范围，记在这里备查）：这次重建了 Pi fork 归档，旧的 `runtime/pi/node_modules` 会被 identity gate 拒绝。试用时不要在正在跑会话的 checkout 里重装（CLAUDE.md：不要覆盖存活会话使用的安装），应另开 `git worktree`，按 `docs/agent/architecture.md` 的源码维护安装步骤装 runtime 和 third-party。
