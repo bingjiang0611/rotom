@@ -8,7 +8,7 @@ body.eval-active .app-shell{grid-template-rows:58px minmax(0,1fr) 28px}
 #eval-workspace{min-height:0;display:grid;grid-template-columns:340px minmax(0,1fr);background:#101112}
 .eval-sidebar{border-right:1px solid #424744;overflow:auto;padding:20px}
 .eval-detail{min-width:0;overflow:auto;padding:32px 4vw}.eval-detail>section{margin:24px 0}
-.eval-session{display:block;width:100%;text-align:left;padding:16px 8px;margin:8px 0;background:transparent;color:inherit;border:0;border-left:4px solid #e6ba68;border-bottom:1px solid #424744;cursor:pointer;overflow-wrap:anywhere}
+.eval-skeleton{display:block;min-height:86px;margin:8px 0;background:linear-gradient(90deg,#141716,#1b201d,#141716);background-size:200% 100%;animation:eval-shimmer 1.2s linear infinite;border-left-color:#3a423c}@keyframes eval-shimmer{from{background-position:200% 0}to{background-position:-200% 0}}@media(prefers-reduced-motion:reduce){.eval-skeleton{animation:none}}.eval-session{display:block;width:100%;text-align:left;padding:16px 8px;margin:8px 0;background:transparent;color:inherit;border:0;border-left:4px solid #e6ba68;border-bottom:1px solid #424744;cursor:pointer;overflow-wrap:anywhere}
 .eval-session[data-label=pass]{border-left-color:#9dcc84}.eval-session[data-label=fail]{border-left-color:#ef9d93}.eval-session[data-label=failSet]{border-left-color:#b6a1ed}.eval-session.selected{background:#242e24}
 .eval-session strong,.eval-session small{display:block;margin:8px 0}.eval-muted,.eval-meta{color:#b6bdb8;font-size:12px;overflow-wrap:anywhere}.eval-text{white-space:pre-wrap;overflow-wrap:anywhere}
 .eval-badge{display:inline-block;padding:3px 7px;margin:4px 6px 4px 0;border:1px solid #586556;border-radius:2px;font-size:12px}
@@ -78,29 +78,45 @@ function evalClient(C, matchesFilter) {
 			if (row.judgment) node.append(make('small', 'eval-meta', C.alreadyJudged + ' · ' + (C[row.judgment.verdict] || C.judgeStatuses[row.judgment.status])));
 			list.append(node);
 		}
-		if (!visibleRows.length) list.append(make('p', 'eval-muted', C.empty));
+		if (!visibleRows.length) list.append(make('p', 'eval-muted', nextCursor ? C.loading : C.empty));
 		more.hidden = !nextCursor;
+	}
+	function countText(label, count) {
+		return count === null || count === undefined ? label + '（' + C.seeCount + '）' : format(C.countOption, { label, count });
+	}
+	function timingText(ms) {
+		return ms < 1_000 ? format(C.loadTimingMs, { value: ms }) : format(C.loadTimingSeconds, { value: (ms / 1_000).toFixed(1) });
+	}
+	function placeholders() {
+		list.replaceChildren();
+		for (let index = 0; index < 3; index++) list.append(make('div', 'eval-skeleton', ' '));
 	}
 	async function loadList(reset, recovered = false) {
 		const request = ++generation;
-		if (reset) { rows = []; nextCursor = null; sidebar.scrollTop = 0; list.replaceChildren(); more.hidden = true; }
-		status.textContent = C.loading; more.disabled = true;
+		// A reset keeps the previous list visible until data arrives; blanking it
+		// made every filter change look like a broken page.
+		if (reset) { rows = []; nextCursor = null; more.hidden = true; list.replaceChildren(); placeholders(); }
+		select.disabled = true; more.disabled = true;
+		const startedAt = Date.now();
+		status.textContent = format(C.loadingElapsed, { seconds: 0 });
+		const ticker = setInterval(() => { if (request === generation) status.textContent = format(C.loadingElapsed, { seconds: Math.floor((Date.now() - startedAt) / 1000) }); }, 500);
 		try {
 			let data;
 			do {
-				data = await api('/api/eval/sessions?filter=' + filter + (nextCursor ? '&cursor=' + encodeURIComponent(nextCursor) : ''));
+				data = await api('/api/eval/sessions?filter=' + filter + (nextCursor ? '&cursor=' + encodeURIComponent(nextCursor) : '') + (reset && recovered ? '&refresh=1' : ''));
 				if (request !== generation) return;
 				rows.push(...data.items); nextCursor = data.nextCursor;
 			} while (!rows.length && nextCursor);
 			progress.textContent = format(C.labelProgress, data);
-			for (const option of select.options) option.textContent = format(C.countOption, { label: C[option.value], count: data.counts[option.value] });
-			status.textContent = (recovered ? C.listUpdated + ' · ' : '') + C.listCount + ' ' + rows.length + ' / ' + data.total + (data.limited ? ' · ' + C.partial : '');
+			for (const option of select.options) option.textContent = countText(C[option.value], data.counts[option.value]);
+			const matched = data.matched ?? data.total;
+			status.textContent = (recovered ? C.listUpdated + ' · ' : '') + (filter === 'all' ? C.listCount + ' ' + rows.length + ' / ' + data.total : format(C.matchedCount, { matched, loaded: rows.length })) + (data.limited ? ' · ' + C.partial : '') + (data.elapsedMs === undefined ? '' : ' · ' + timingText(data.elapsedMs));
 			renderList();
 		} catch (error) {
 			if (request !== generation) return;
 			if (error.status === 409 && !recovered) return loadList(true, true);
 			status.textContent = error.message || C.readError;
-		} finally { if (request === generation) more.disabled = false; }
+		} finally { clearInterval(ticker); if (request === generation) { more.disabled = false; select.disabled = false; } }
 	}
 	function annotationForm(data) {
 		if (draft?.sessionId !== data.id || !draft.dirty) draft = { sessionId: data.id, verdict: data.annotation?.verdict || null, note: data.annotation?.note || '', failSet: !!data.annotation?.failSet, dirty: false };
@@ -242,6 +258,7 @@ function evalClient(C, matchesFilter) {
 	}
 	async function openSession(id, options = {}) {
 		const request = ++detailGeneration; selected = id; renderList();
+		if (!options.cursor && options.eventIndex === undefined) detail.replaceChildren(make('h2', '', C.title), make('p', 'eval-muted', C.loadingDetail));
 		try {
 			const data = await api('/api/eval/session?id=' + encodeURIComponent(id) + (options.cursor ? '&cursor=' + encodeURIComponent(options.cursor) : '') + (options.eventIndex !== undefined ? '&event=' + options.eventIndex : ''));
 			if (request !== detailGeneration) return;

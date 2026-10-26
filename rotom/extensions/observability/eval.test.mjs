@@ -168,6 +168,37 @@ test("Eval pagination stays bounded, filters beyond page one and rejects stale d
 	assert.equal((await post(annotation("outside"))).status, 404);
 });
 
+test("filtered pages are full pages, not holes, and on-demand counts stay explicit", async (t) => {
+	const { root, dashboard, headers, post } = await api(t);
+	for (let i = 0; i < 24; i++) await fixtureSession(root, `synthetic-filter-${i}`);
+	assert.equal((await post(annotation("synthetic-filter-0"))).status, 200);
+	// "unlabeled" must page over matches: slicing first returned three rows per page.
+	const first = await (await fetch(dashboard.baseUrl + "/api/eval/sessions?filter=unlabeled", { headers })).json();
+	assert.equal(first.items.length, 10);
+	assert.equal(first.matched, first.total - 1);
+	assert.ok(first.items.every((row) => !row.annotation));
+	const second = await (await fetch(dashboard.baseUrl + "/api/eval/sessions?filter=unlabeled&cursor=" + encodeURIComponent(first.nextCursor), { headers })).json();
+	assert.equal(second.items.length, 10);
+	assert.equal(new Set([...first.items, ...second.items].map((row) => row.id)).size, 20);
+	// Rule-hit counts need every branch; they are reported only once measured.
+	assert.equal(first.counts.hits, null);
+	const hits = await (await fetch(dashboard.baseUrl + "/api/eval/sessions?filter=hits", { headers })).json();
+	assert.equal(typeof hits.counts.hits, "number");
+	assert.ok(hits.items.every((row) => row.findings.some((finding) => finding.status === "hit")));
+});
+
+test("a cached listing still surfaces new sessions and appends", async (t) => {
+	const { root, dashboard, headers } = await api(t);
+	const list = () => fetch(dashboard.baseUrl + "/api/eval/sessions?filter=all", { headers }).then((response) => response.json());
+	const before = await list();
+	await fixtureSession(root, "synthetic-appended-after-cache");
+	const after = await new Promise((resolve) => setTimeout(resolve, 1_700)).then(list);
+	assert.equal(after.total, before.total + 1);
+	assert.ok(after.items.some((row) => row.id === "synthetic-appended-after-cache"));
+	const target = after.items.find((row) => row.id === "synthetic-appended-after-cache");
+	assert.equal((await fetch(dashboard.baseUrl + "/api/eval/session?id=" + encodeURIComponent(target.id), { headers })).status, 200);
+});
+
 test("annotation storage rejects file and ancestor symlinks without touching their targets", async (t) => {
 	const { directory, evalDirectory } = await workspace(t);
 	await mkdir(evalDirectory); const target = join(directory, "target"); await mkdir(target);

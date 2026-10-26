@@ -38,15 +38,29 @@ const MAX_SCAN_ENTRIES = 50_000;
 const MAX_TRACE_FILES = 500;
 const MAX_TRACE_BYTES = 8 * 1024 * 1024;
 const MAX_SUMMARY_TRACE_BYTES = 512 * 1024;
-const MAX_TOTAL_SUMMARY_BYTES = 64 * 1024 * 1024;
 const MAX_TRACE_RECORDS = 5_000;
 const MAX_API_RECORDS = 2_000;
 const MAX_JSON_LINE_BYTES = 64 * 1024;
 const MAX_API_CONCURRENCY = 4;
 const MAX_SUMMARY_SNAPSHOTS = 8;
-const SUMMARY_CACHE_TTL_MS = 2_000;
+const SUMMARY_CACHE_TTL_MS = 20_000;
+// Trace summaries are cached per file identity, so a refresh only re-reads
+// changed traces; parallel tail reads keep the first scan interactive.
+const MAX_TRACE_CONCURRENCY = 12;
 // Allow the owned process group's TERM/KILL grace (750 + 2,000 ms) to settle.
 const SHUTDOWN_TIMEOUT_MS = 5_000;
+
+function mapLimit(items, limit, run) {
+	const results = new Array(items.length);
+	let next = 0;
+	return Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+		for (;;) {
+			const index = next++;
+			if (index >= items.length) return;
+			results[index] = await run(items[index], index);
+		}
+	})).then(() => results);
+}
 
 function jsonResponse(response, status, value) {
 	const body = `${JSON.stringify(value)}\n`;
@@ -134,34 +148,33 @@ async function canonicalTraceRoot(root) {
 
 async function collectTracePaths(root) {
 	const paths = [];
-	const stack = [root];
-	const visitedDirectories = new Set();
+	let level = [root];
 	let visited = 0;
-	while (stack.length && paths.length < MAX_TRACE_FILES && visited < MAX_SCAN_ENTRIES) {
-		const directory = stack.pop();
-		if (visitedDirectories.has(directory)) continue;
-		visitedDirectories.add(directory);
-		let handle;
-		try { handle = await opendir(directory); }
-		catch { continue; }
-		for await (const entry of handle) {
-			visited += 1;
-			if (visited > MAX_SCAN_ENTRIES) break;
-			const lexicalPath = resolve(directory, entry.name);
-			let metadata;
-			try { metadata = await lstat(lexicalPath); }
-			catch { continue; }
-			if (metadata.isSymbolicLink()) continue;
-			let canonicalPath;
-			try { canonicalPath = await realpath(lexicalPath); }
-			catch { continue; }
-			if (!containedBy(root, canonicalPath)) continue;
-			if (metadata.isDirectory()) stack.push(canonicalPath);
-			else if (metadata.isFile() && entry.name.endsWith(".trace.jsonl") && basename(dirname(canonicalPath)) === "observability") paths.push(canonicalPath);
-			if (paths.length >= MAX_TRACE_FILES) break;
+	let truncated = false;
+	while (level.length && paths.length < MAX_TRACE_FILES && !truncated) {
+		const children = [];
+		const listings = await mapLimit(level, MAX_TRACE_CONCURRENCY, async (directory) => {
+			const entries = [];
+			try {
+				for await (const entry of await opendir(directory)) {
+					if (++visited > MAX_SCAN_ENTRIES) { truncated = true; break; }
+					// Dirent already reports the type; resolving every entry with
+					// realpath made a first scan take tens of seconds. Links are skipped
+					// and the walk only ever descends from the canonical root.
+					if (!entry.isSymbolicLink()) entries.push(entry);
+				}
+			} catch { /* unreadable directory: skip */ }
+			return entries;
+		});
+		for (const [index, entries] of listings.entries()) for (const entry of entries) {
+			const path = resolve(level[index], entry.name);
+			if (!containedBy(root, path)) continue;
+			if (entry.isDirectory()) children.push(path);
+			else if (entry.isFile() && entry.name.endsWith(".trace.jsonl") && basename(level[index]) === "observability" && paths.length < MAX_TRACE_FILES) paths.push(path);
 		}
+		level = children;
 	}
-	return { paths, scanLimited: stack.length > 0 || visited >= MAX_SCAN_ENTRIES || paths.length >= MAX_TRACE_FILES };
+	return { paths, scanLimited: level.length > 0 || truncated || paths.length >= MAX_TRACE_FILES };
 }
 
 async function assertNoSymlinkComponents(root, path) {
@@ -742,28 +755,32 @@ export function summarizeFleet(traces, scanLimited = false) {
 	};
 }
 
-export async function scanTraceFiles(root) {
+export async function scanTraceFiles(root, cache) {
 	const canonical = await canonicalTraceRoot(root);
 	if (canonical.missing) return { root: canonical.root, traces: [], scanLimited: false, bytesRead: 0 };
 	const absoluteRoot = canonical.root;
 	const collected = await collectTracePaths(absoluteRoot);
+	const summaries = await mapLimit(collected.paths, MAX_TRACE_CONCURRENCY, async (path) => {
+		const info = await stat(path).catch(() => undefined);
+		if (!info?.isFile()) return undefined;
+		const key = `${info.size}:${info.mtimeMs}`;
+		const cached = cache?.get(path);
+		if (cached?.key === key) return { summary: cached.summary, bytesRead: 0 };
+		const loaded = await readTraceTail(absoluteRoot, path, MAX_SUMMARY_TRACE_BYTES, MAX_API_RECORDS);
+		const session = await traceSessionMetadata(absoluteRoot, path);
+		loaded.orphan = !session.exists;
+		loaded.sessionSizeBytes = session.sizeBytes;
+		const summary = summarizeTrace(absoluteRoot, path, loaded);
+		cache?.set(path, { key, summary });
+		return { summary, bytesRead: loaded.bytesRead };
+	});
 	const traces = [];
 	let bytesRead = 0;
-	let budgetLimited = false;
-	for (const path of collected.paths) {
-		const remaining = MAX_TOTAL_SUMMARY_BYTES - bytesRead;
-		if (remaining <= 0) { budgetLimited = true; break; }
-		try {
-			const loaded = await readTraceTail(absoluteRoot, path, Math.min(MAX_SUMMARY_TRACE_BYTES, remaining), MAX_API_RECORDS);
-			const session = await traceSessionMetadata(absoluteRoot, path);
-			loaded.orphan = !session.exists;
-			loaded.sessionSizeBytes = session.sizeBytes;
-			bytesRead += loaded.bytesRead;
-			traces.push({ summary: summarizeTrace(absoluteRoot, path, loaded), path });
-		} catch { /* changing or unreadable trace: omit this refresh */ }
-	}
+	const collectedSet = new Set(collected.paths);
+	for (const [index, entry] of summaries.entries()) if (entry) { traces.push({ summary: entry.summary, path: collected.paths[index] }); bytesRead += entry.bytesRead; }
+	if (cache) for (const path of cache.keys()) if (!collectedSet.has(path)) cache.delete(path);
 	traces.sort((left, right) => right.summary.modifiedAt.localeCompare(left.summary.modifiedAt));
-	return { root: absoluteRoot, traces, scanLimited: collected.scanLimited || budgetLimited, bytesRead };
+	return { root: absoluteRoot, traces, scanLimited: collected.scanLimited, bytesRead };
 }
 
 function authorized(request, token) {
@@ -899,10 +916,11 @@ export async function startTraceDashboard(options = {}) {
 	let cachedSummaryScan;
 	let summaryCacheExpiresAt = 0;
 	const summarySnapshots = new Map();
+	const traceSummaryCache = new Map();
 	const sharedSummaryScan = (force = false) => {
 		if (inFlightSummaryScan) return inFlightSummaryScan;
 		if (!force && cachedSummaryScan && Date.now() < summaryCacheExpiresAt) return Promise.resolve(cachedSummaryScan);
-		inFlightSummaryScan = scanTraceFiles(root).then((result) => {
+		inFlightSummaryScan = scanTraceFiles(root, traceSummaryCache).then((result) => {
 			const snapshot = { ...result, snapshotId: randomBytes(12).toString("base64url") };
 			summarySnapshots.set(snapshot.snapshotId, snapshot);
 			while (summarySnapshots.size > MAX_SUMMARY_SNAPSHOTS) summarySnapshots.delete(summarySnapshots.keys().next().value);
@@ -948,7 +966,7 @@ export async function startTraceDashboard(options = {}) {
 						else if (url.pathname === "/api/eval/judge/prepare") value = await judgeService.prepare(input);
 						else if (url.pathname === "/api/eval/judge/cancel") value = judgeService.cancel(input);
 						else value = judgeService.start(input);
-					} else if (url.pathname === "/api/eval/sessions") value = await evalService.sessions(url.searchParams.get("cursor"), url.searchParams.get("filter") ?? "unlabeled");
+					} else if (url.pathname === "/api/eval/sessions") value = await evalService.sessions(url.searchParams.get("cursor"), url.searchParams.get("filter") ?? "unlabeled", url.searchParams.get("refresh") === "1");
 					else if (url.pathname === "/api/eval/models") value = await judgeService.models();
 					else if (url.pathname === "/api/eval/judge/status") value = judgeService.status(url.searchParams.get("runId"));
 					else {
