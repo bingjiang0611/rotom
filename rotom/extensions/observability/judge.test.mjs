@@ -294,6 +294,39 @@ test("credential shapes are redacted before truncation and recorded by type", ()
 			assert.equal(result.text.split(`[已脱敏:${reported}]`).length - 1, count, `${sample} count mismatch for ${reported}`);
 		}
 	}
+	// Review round 3, item 1: a rule without capture groups was reading
+	// `(match, offset, wholeString)` as `(match, identifier, value)`, so any text
+	// that already held a marker let every later rule pass through untouched.
+	// Several credential types in one tool result is the common case.
+	const mixed = [
+		{
+			text: `sk-ant-${"A".repeat(24)} ghp_${"C".repeat(32)}`,
+			expected: { "anthropic-key": 1, "github-token": 1 },
+		},
+		{
+			text: `ghp_${"C".repeat(32)} AKIA${"D".repeat(16)}`,
+			expected: { "github-token": 1, "aws-access-key": 1 },
+		},
+		{
+			text: `AKIA${"D".repeat(16)} sk-ant-${"A".repeat(24)} ghp_${"C".repeat(32)} password=${"9".repeat(8)}`,
+			expected: { "aws-access-key": 1, "anthropic-key": 1, "github-token": 1, "assigned-secret": 1 },
+		},
+	];
+	for (const { text, expected } of mixed) {
+		const result = redactSecrets(text);
+		const actual = Object.fromEntries(result.redactions.map((entry) => [entry.type, entry.count]));
+		assert.deepEqual(actual, expected, `wrong per-type counts for ${text.slice(0, 12)}…`);
+		for (const type of Object.keys(expected)) {
+			assert.equal(result.text.split(`[已脱敏:${type}]`).length - 1, expected[type], `${type} markers do not match the count`);
+		}
+	}
+	// Review round 3, item 2: the budget exemption had an optional prefix, so a
+	// bare `token` was exempt too. A single token assignment is a credential.
+	const singleToken = redactSecrets("token: abcd1234efgh5678");
+	assert.ok(singleToken.redactions.some((entry) => entry.type === "assigned-secret"), "bare token must be redacted");
+	// A JSON object key carries a closing quote before the colon.
+	const quotedKey = redactSecrets(`{"apiKey": "${"z".repeat(24)}"}`);
+	assert.ok(quotedKey.redactions.some((entry) => entry.type === "assigned-secret"), "quoted JSON key must be redacted");
 	// Token budgets are configuration, not credentials.
 	for (const sample of ["MAX_TOKENS=200000", "max_tokens = 4096", "tokens=512"]) {
 		assert.deepEqual(redactSecrets(sample).redactions, [], `token budget was redacted: ${sample}`);

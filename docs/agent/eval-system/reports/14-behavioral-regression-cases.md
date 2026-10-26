@@ -327,3 +327,77 @@ OPENAI_API_KEY / GITHUB_TOKEN / AWS_SECRET_ACCESS_KEY  old-kw=false
 - JSON 里带引号的键，比如 `{"apiKey": "…"}`，关键词和冒号之间隔着一个 `"`，所以 `assigned-secret` 匹配不到。这个缺口第一版就有。如果顺手，可以允许关键词后面跟一个可选引号；不修的话就写进报告的限制里。
 
 行为用例部分不变，仍然接受。
+
+## 第 3 轮修改
+
+只动 `eval/redaction.mjs` 与 `judge.test.mjs`。行为用例未改。
+
+### 1. 同一段文本里只有第一种密钥被脱敏（已修，本轮新回归）
+
+根因是我在第 2 轮加的守卫写在了通用回调里：
+
+```js
+text.replace(matcher, (match, identifier, value) => {
+  if (value.includes("[已脱敏:")) return match;   // ← 对所有规则生效
+```
+
+只有 `assigned-secret` 有捕获组，其余 8 条规则没有，`String.replace` 给它们的参数是 `(match, offset, wholeString)`。于是 `value` 拿到的是**整段文本**：只要前面的规则已经留下标记，后面每条规则都原样放行。`env` 输出、配置文件这类一段里含多种凭据的工具结果，正好是最常见的情形。
+
+改法：把守卫移进 `type === ASSIGNED_SECRET` 分支，只对声明了捕获组的规则生效。回调改为 `(match, ...rest)`，在分支内解构 `[identifier, value]`，并加注释说明「没有捕获组的规则不能读这两个参数」。
+
+测试：`mixed` 表三组同一段文本——
+
+| 文本 | 期望计数 |
+|---|---|
+| `sk-ant-…` + `ghp_…` | anthropic 1 + github 1 |
+| `ghp_…` + `AKIA…` | github 1 + aws 1 |
+| `AKIA…` + `sk-ant-…` + `ghp_…` + `password=<8 位数字>` | aws 1 + anthropic 1 + github 1 + assigned 1 |
+
+每组都额外断言「各类型计数 == 文本中该类型标记个数」。
+
+### 2. 单独的 `token` 被整体豁免（已修）
+
+`NOT_SECRET_IDENTIFIER` 的前缀是可选的，`token` 因此和 `max_tokens` 一样被放过。改成前缀必填，只留复数 `tokens` 作为预算名：
+
+```js
+/^(?:(?:max|min|top|num|total|budget)[_-]?tokens?|tokens)$/iu
+```
+
+现在 `token: abcd1234efgh5678` 照常脱敏（已加入必须脱敏的测试），`MAX_TOKENS=200000`、`max_tokens = 4096`、`tokens=512` 仍然不误伤。
+
+### 3. JSON 里带引号的键（本轮顺手修了）
+
+关键词和冒号之间可能有收尾引号（`{"apiKey": "…"}`）。`assigned-secret` 的模式在标识符后允许一个可选的收尾引号再匹配 `[:=]`：
+
+```js
+((?:[A-Za-z0-9]+[_-])*(?:api[_-]?key|apikey|…|passwd)(?:[_-][A-Za-z0-9]+)*)["']?\s*[:=]\s*["']?([^\s"',;]{8,})["']?
+```
+
+`{"apiKey": "<24 位串>"}` 与 `{"secret": "<20 位串>"}` 现在都会被脱敏，已加入测试。副作用是替换会把键名连同收尾引号一起换成标记（`{"[已脱敏:assigned-secret]}`），这是替换区的正常表现，不影响判定。
+
+### 控制实验（证明新测试能失败）
+
+把本轮修改前的两处代码放回临时副本后复算：
+
+```
+mixed  sk-ant-… + ghp_…      => [{"anthropic-key":1}]            ← GitHub token 漏掉
+mixed2 ghp_… + AKIA…         => [{"github-token":1}]             ← AWS key 漏掉
+token: abcd1234efgh5678      => []                               ← 单独 token 漏掉
+```
+
+即本轮新增的三条断言在旧代码上都会失败。
+
+### 命令与结果
+
+| 命令 | 结果 |
+|---|---|
+| `node --test rotom/extensions/observability/{dashboard,eval,judge}.test.mjs` | 50 项通过（judge 17 项） |
+| `npm test -- session-cards … behavioral-regression`（9 个文件） | 268 项通过 |
+| `npm run typecheck`（rotom/evals） | 通过 |
+| `node eval-ui-smoke.mjs`（Playwright，合成数据） | PASS，0 页面错误 |
+| `python3 scripts/audit-public.py --root .` | PASS，0 findings |
+
+### 仍未验证
+
+- 真实模型仍未运行（约束不变），区分度证据依然缺失。
+- 脱敏仍是 denylist：`sk-` 后不足 20 位的短 key、非 `sk-` 前缀的自定义 key、拆行或拼接的密钥、非关键词命名的凭据仍然拦不住。JSON 键这一缺口已修，但只覆盖关键词表内的键名。

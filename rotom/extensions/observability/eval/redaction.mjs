@@ -30,7 +30,9 @@ export const CREDENTIAL_PATTERNS = [
 	// `GITHUB_TOKEN`, `AWS_SECRET_ACCESS_KEY`, `x-api-key`. `pwd` is deliberately
 	// absent: printing the working directory is normal work, not a secret.
 	// Group 1 is the full identifier, group 2 the candidate value.
-	{ type: "assigned-secret", pattern: /(?<![A-Za-z0-9])((?:[A-Za-z0-9]+[_-])*(?:api[_-]?key|apikey|access[_-]?key|secret|token|password|passwd)(?:[_-][A-Za-z0-9]+)*)\s*[:=]\s*["']?([^\s"',;]{8,})["']?/giu },
+	// A closing quote may sit between the key and the colon, so JSON object keys
+	// (`{"apiKey": "…"}`) are covered too.
+	{ type: "assigned-secret", pattern: /(?<![A-Za-z0-9])((?:[A-Za-z0-9]+[_-])*(?:api[_-]?key|apikey|access[_-]?key|secret|token|password|passwd)(?:[_-][A-Za-z0-9]+)*)["']?\s*[:=]\s*["']?([^\s"',;]{8,})["']?/giu },
 ];
 
 /**
@@ -52,7 +54,12 @@ export function looksLikeReference(value) {
  * configuration, and redacting `MAX_TOKENS=200000` would hide the very numbers a
  * judge needs to read.
  */
-const NOT_SECRET_IDENTIFIER = /^(?:max|min|top|num|total|budget)?[_-]?tokens?$/iu;
+// The prefix is mandatory: a bare `token` is a credential, only `tokens`
+// (the plural budget name) and `max_tokens`-style identifiers are configuration.
+const NOT_SECRET_IDENTIFIER = /^(?:(?:max|min|top|num|total|budget)[_-]?tokens?|tokens)$/iu;
+
+/** Only `assigned-secret` captures an identifier and a value; the others have no groups. */
+const ASSIGNED_SECRET = "assigned-secret";
 
 /** Replacement keeps the type visible so the operator can see what was caught. */
 export function redactionMarker(type) { return `[已脱敏:${type}]`; }
@@ -67,11 +74,17 @@ export function redactSecrets(value) {
 	for (const { type, pattern } of CREDENTIAL_PATTERNS) {
 		// Rebuild the RegExp so the shared literal never keeps `lastIndex` state.
 		const matcher = new RegExp(pattern.source, pattern.flags);
-		text = text.replace(matcher, (match, identifier, value) => {
-			// A value already replaced by an earlier pattern is not a new secret;
-			// re-matching it would report two hits for one credential.
-			if (value.includes("[已脱敏:")) return match;
-			if (type === "assigned-secret" && (NOT_SECRET_IDENTIFIER.test(identifier) || looksLikeReference(value))) return match;
+		// Extra arguments are `(match, …groups, offset, wholeString)`. Reading a
+		// group on a pattern without groups would hand us the offset and the whole
+		// string, so only the rule that declares groups may look at them.
+		text = text.replace(matcher, (match, ...rest) => {
+			if (type === ASSIGNED_SECRET) {
+				const [identifier, value] = rest;
+				// A value already replaced by an earlier pattern is not a new secret;
+				// re-matching it would report two hits for one credential.
+				if (value.includes("[已脱敏:")) return match;
+				if (NOT_SECRET_IDENTIFIER.test(identifier) || looksLikeReference(value)) return match;
+			}
 			counts.set(type, (counts.get(type) ?? 0) + 1);
 			return redactionMarker(type);
 		});
