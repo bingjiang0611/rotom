@@ -10,7 +10,9 @@ import { writeJudgment } from "./judge-store.mjs";
 import { evalError, preview } from "./service.mjs";
 
 export const JUDGE_TIMEOUT_MS = 180_000;
-export const JUDGE_MAX_OUTPUT_BYTES = 512 * 1024;
+// Qoder reasoning routes stream token deltas, so a healthy run can exceed the
+// former 512 KiB stdout cap. Keep a bounded but realistic ceiling.
+export const JUDGE_MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 export const JUDGE_LAUNCHER = fileURLToPath(new URL("../../../bin/rotom-launcher", import.meta.url));
 export const JUDGE_BASE_ARGS = ["--single-request", "-p", "--mode", "json", "--no-session", "--no-tools", "--no-skills", "--no-context-files", "--no-prompt-templates", "--no-extensions", "--no-themes", "--no-mcp", "--no-approve"];
 
@@ -51,9 +53,14 @@ export function parseJudgeEvents(stdout, eventIds) {
 		ended = rows.some((row) => row.type === "agent_end");
 		rawOutput = (message?.content ?? []).filter((part) => part.type === "text").map((part) => part.text).join("");
 		usage = usageOf(message);
-		if (!ended || messages.length !== 1 || message.stopReason !== "stop") return { status: "failed", result: null, usage, failure: "incomplete_model_response" };
+		if (!ended || messages.length !== 1) return { status: "failed", result: null, usage, failure: "incomplete_model_response" };
+		if (message.stopReason !== "stop") return { status: "failed", result: null, usage, failure: "output_truncated" };
 		return { status: "ok", result: validateJudgment(JSON.parse(rawOutput), eventIds), usage };
-	} catch { return { status: "invalid_output", result: null, usage, rawOutput: preview(rawOutput || stdout, 8000).text }; }
+	} catch {
+		// A JSON body that stops mid-object is a truncation, not a format error.
+		const body = (rawOutput || stdout).trim();
+		return { status: "invalid_output", result: null, usage, rawOutput: preview(body, 8000).text, failure: body.endsWith("}") ? "invalid_output" : "output_truncated" };
+	}
 }
 
 export function createJudgeService({ evalService, directory, launcher = JUDGE_LAUNCHER, timeoutMs = JUDGE_TIMEOUT_MS, maxOutputBytes = JUDGE_MAX_OUTPUT_BYTES }) {
@@ -102,7 +109,7 @@ export function createJudgeService({ evalService, directory, launcher = JUDGE_LA
 			const output = await invoke([...JUDGE_BASE_ARGS, "--model", prepared.model], prepared.prompt, current.controller.signal, timeoutMs);
 			const outcome = output.terminal.outcome;
 			value = outcome === "exited" && output.code === 0 ? parseJudgeEvents(output.stdout, prepared.eventIds)
-				: { status: outcome === "timeout" ? "timeout" : outcome === "aborted" ? "cancelled" : "failed", result: null, usage: usageOf(null), failure: outcome === "exited" ? "launcher_failed" : outcome };
+				: { status: outcome === "timeout" ? "timeout" : outcome === "aborted" ? "cancelled" : "failed", result: null, usage: usageOf(null), failure: outcome === "output-limit" ? "output_truncated" : outcome === "exited" ? "launcher_failed" : outcome };
 		} catch { value = { status: "failed", result: null, usage: usageOf(null), failure: "launcher_unavailable" }; }
 		const record = { sessionId: prepared.sessionId, atEntryId: prepared.atEntryId, model: prepared.model, promptVersion: JUDGE_PROMPT_VERSION,
 			inputDigest: prepared.inputDigest, inputChars: prepared.inputChars, truncated: prepared.truncated, durationMs: Date.now() - started, ...value };

@@ -197,7 +197,7 @@ function evalClient(C, matchesFilter) {
 		box.append(make('h3', '', C.judge));
 		const latest = data.judgment?.latest;
 		if (latest) {
-			box.append(make('p', 'eval-meta', latest.model + ' · ' + C.judgeStatuses[latest.status] + ' · ' + C.elapsed + ' ' + Math.round(latest.durationMs / 1000)), make('p', 'eval-meta', C.historyCount + ' ' + data.judgment.historyCount), make('p', 'eval-meta', C.tokenCount + ' ' + number(latest.usage?.input) + ' / ' + number(latest.usage?.output)), make('p', 'eval-meta', latest.usage?.costUsd == null ? C.actualCost : format(C.estimatedCost, { cost: latest.usage.costUsd })));
+			box.append(make('p', 'eval-meta', latest.model + ' · ' + C.judgeStatuses[latest.status] + ' · ' + C.elapsed + ' ' + Math.round(latest.durationMs / 1000)), make('p', 'eval-error', C.judgeFailures[latest.failure] || C.judgeStatuses[latest.status]), make('p', 'eval-muted', C.judgeFailureHint), make('p', 'eval-meta', C.historyCount + ' ' + data.judgment.historyCount), make('p', 'eval-meta', C.tokenCount + ' ' + number(latest.usage?.input) + ' / ' + number(latest.usage?.output)), make('p', 'eval-meta', latest.usage?.costUsd == null ? C.actualCost : format(C.estimatedCost, { cost: latest.usage.costUsd })));
 			if (latest.atEntryId !== data.atEntryId) box.append(make('p', 'eval-notice', C.analysisProgressed));
 			if (latest.status === 'ok') {
 				const result = latest.result;
@@ -221,7 +221,13 @@ function evalClient(C, matchesFilter) {
 		const diagnostic = make('div', 'eval-model-diagnostic'); diagnostic.hidden = true;
 		diagnostic.append(make('p', 'eval-muted', C.modelCheckLabel), make('pre', 'eval-text', C.modelCheckCommand));
 		box.append(model, analyze, retryModels, cancel, message, diagnostic);
-		function running(job) { data.activeJudge = job; analyze.disabled = model.disabled = true; cancel.hidden = false; message.textContent = C.judging; pollJudge(job, message, cancel); }
+		function running(job) {
+			data.activeJudge = job; analyze.disabled = model.disabled = true; cancel.hidden = false;
+			const started = Date.now(), tick = () => { message.textContent = format(C.judgingElapsed, { seconds: Math.round((Date.now() - started) / 1000) }); };
+			tick();
+			const timer = setInterval(tick, 1000);
+			pollJudge(job, message, cancel).finally(() => clearInterval(timer));
+		}
 		async function start() {
 			analyze.disabled = true; message.textContent = C.preparing;
 			try {

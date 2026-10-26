@@ -197,7 +197,7 @@ test("fake launcher proves exact argv, private empty cwd, stdin, model caching, 
 test("failure, invalid JSON, timeout, cancellation and output limits are terminal without retry", async (t) => {
 	const { judge, fake, directory } = await fixture(t);
 	await judge.models();
-	const cases = [["fail", "failed"], ["invalid", "invalid_output"], ["hang", "timeout"], ["hang", "cancelled"], ["oversized", "failed"]];
+	const cases = [["fail", "failed"], ["invalid", "invalid_output"], ["hang", "timeout"], ["hang", "cancelled"], ["oversized", "failed"], ["truncated", "failed"]];
 	for (const [mode, expected] of cases) {
 		await writeFile(fake.control, JSON.stringify({ mode }));
 		const prepared = await judge.prepare(input), job = judge.start({ confirmationId: prepared.confirmationId });
@@ -219,8 +219,21 @@ test("failure, invalid JSON, timeout, cancellation and output limits are termina
 			assert.ok(row.rawOutput.includes("不是 JSON")); assert.equal(stored.latest.rawOutput, undefined);
 		}
 	}
-	assert.equal((await calls(fake)).length, 6, "one discovery plus exactly one invocation per explicit confirmation");
-	assert.equal((await latestJudgments(directory)).get(input.sessionId).historyCount, 5);
+	assert.equal((await calls(fake)).length, 7, "one discovery plus exactly one invocation per explicit confirmation");
+	assert.equal((await latestJudgments(directory)).get(input.sessionId).historyCount, 6);
+});
+
+test("truncated model replies are reported as truncation, not format errors", async (t) => {
+	const { judge, fake, directory } = await fixture(t);
+	await judge.models();
+	for (const mode of ["truncated", "oversized"]) {
+		await writeFile(fake.control, JSON.stringify({ mode }));
+		const prepared = await judge.prepare(input), job = judge.start({ confirmationId: prepared.confirmationId });
+		const terminal = await done(judge, job.runId);
+		assert.equal(terminal.status, "failed");
+		const stored = (await latestJudgments(directory)).get(input.sessionId);
+		assert.equal(stored.latest.failure, "output_truncated", mode);
+	}
 });
 
 test("judgment storage rejects symlinks, preserves history and agreement excludes unsure/failed", async (t) => {
