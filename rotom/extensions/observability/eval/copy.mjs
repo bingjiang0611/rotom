@@ -39,7 +39,7 @@ export const COPY = {
 	adopt: "采纳建议（仅预填）", adopted: "已预填，请核对后保存标注", noProblem: "未指出具体问题", oldAnalysis: "分析基于此前分支，无法跳到当前时间线",
 	analysisProgressed: "分析后会话有新进展", historyCount: "历史分析次数", elapsed: "耗时（秒）", actualCost: "实际费用：未知", estimatedCost: "估算费用（美元）：{cost}；实际费用未知",
 	event: "事件 {event}", nothingJudged: "尚无模型分析", confirmAgain: "确认已过期，请重新预览并确认",
-	errors: {
+	errors: { network: "后台连接已断开，请刷新页面重新打开（重启后旧链接会失效）",
 		unauthorized: "访问 token 无效，请重新打开 rotom --trace 打印的链接", invalid_origin: "请求来源不匹配，请从后台原链接打开", invalid_content_type: "请求格式不正确",
 		body_too_large: "提交内容过大，请缩短后重试", invalid_annotation: "标注内容不符合要求", invalid_session_id: "会话标识无效", session_not_found: "会话已不在当前扫描窗口，请刷新列表",
 		session_changed: "会话正在写入，请刷新查看最新进度", session_state_unknown: "无法确认活动状态，暂不能标注", session_unavailable_or_too_large: "会话暂不可读或超出读取上限",

@@ -55,8 +55,12 @@ function evalClient(C, matchesFilter) {
 	detail.append(make('p', 'eval-muted', C.choose)); root.append(sidebar, detail);
 
 	async function api(path, body) {
-		const response = await fetch(path, { method: body === undefined ? 'GET' : 'POST', headers: { Authorization: 'Bearer ' + token, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
-		const data = await response.json();
+		let response;
+		try {
+			response = await fetch(path, { method: body === undefined ? 'GET' : 'POST', headers: { Authorization: 'Bearer ' + token, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+		} catch { throw Object.assign(new Error(C.errors.network), { network: true }); }
+		let data;
+		try { data = await response.json(); } catch { throw Object.assign(new Error(C.errors.network), { network: true, status: response.status }); }
 		if (!response.ok) throw Object.assign(new Error(C.errors[data.error] || (response.status === 401 ? C.errors.unauthorized : C.readError)), { status: response.status, code: data.error });
 		return data;
 	}
