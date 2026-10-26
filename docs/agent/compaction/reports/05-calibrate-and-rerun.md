@@ -179,3 +179,16 @@ identity/footprint/public loader 命令沿用任务 02 报告；使用隔离 HOM
 - 已消费授权置空；预算测试改用本地合成授权。没有新增许可或扩大现有费用范围。
 - 本轮无法证明真实模型覆盖率、Luna tokenizer、真实等待/缓存/美元收益；04b 拒绝原因仍未知。新分母仍是整体密度近似，不保证所有文本部分具有相同密度。
 - 规划者负责核验本报告及 diff。通过后由规划者准备新的授权记录，再由 bob 明确授权任务 06。执行者不会自行开启第二次真实回放。
+
+## 核验意见（规划者，2026-10-26）
+
+结论：**accepted**（`ebb5aa6`）。
+
+重跑（cloud，Linux，Node v24.22.1）：SoL-Pi typecheck 通过、`npm test` 207 passed / 仅 install-guide 2 个已知失败；在当前源码上重新 `npm pack`，SHA-256 `7d5fd220…` 与 vendor 里的 `.rotom.5` 归档逐字节一致；eval 专项 18/18、live/entry 23/23、faux N=3（LIVE=0）18/18、`npm test` 139 passed / 1 skipped、typecheck 通过；diff check、tracked-tree 审计通过；`LIVE_AUTHORIZATION` 已置为 `null`。
+
+审阅：同单位估算的写法正确，用 Pi 的分支投影加已确认卸载算分母、不拿 provider usage 当分母；系统消息合并与负对照到位。A 的 tokenizer 证据只作为代理、没有冒充 04b 根因，措辞得当。新增「没到阈值就停」的熔断条件能防止再出现「全对但没压缩」的无效样本。
+
+不阻塞、留待后续的两点：
+
+1. 分母 `contextEstimate` 只含 system 与消息，不含工具 schema；`before` 来自 provider，包含工具定义。所以 `ratio` 略偏乐观（T=64K、工具约 7–10K tokens 时约高估一成）。目前方向是「更容易推迟」，安全上无碍（指针可取回），收益判断时记住这一点即可。
+2. 估算分母时调用了 `project()`，会顺带写 `offload_placeholder` ledger 事件，使该事件计数比实际投影次数多。只影响 ledger 统计，不影响行为；以后统计 ledger 时别直接用它的条数。
