@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { ExtensionFactory, SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { LiveReplayRow } from "./compaction-offload-store.ts";
 
 export const OFFLOAD_ENTRY = "sol-pi-compaction-offload";
 type Usage = { input: number; output: number; cacheRead: number; cacheWrite: number; cost: { total: number } };
@@ -38,11 +39,13 @@ export type ReplayMetrics = {
 	phase1Coverage: { readFiles: number; totalFiles: number; partialReads: number };
 	contextPeak: number; contextByTurn: number[];
 	phase1ReadCallsByTurn: number[];
+	coverageNudges: number;
 };
 
 /** Must be installed before cancellable product handlers; never changes an event. */
 export function createReplayMetrics(now = () => performance.now(), manifestFiles: Readonly<Record<string, string>> = {}) {
 	let workspace = "";
+	let coverageNudges = 0;
 	let started = 0;
 	let pending: number | undefined;
 	let thresholdCompactions = 0, nativeCompactions = 0, deferred = 0, compactionWaitMs = 0;
@@ -56,7 +59,7 @@ export function createReplayMetrics(now = () => performance.now(), manifestFiles
 		pi.on("session_start", (_event, ctx) => {
 			workspace = ctx.cwd;
 			started = now(); pending = undefined;
-			thresholdCompactions = nativeCompactions = deferred = compactionWaitMs = 0;
+			thresholdCompactions = nativeCompactions = deferred = compactionWaitMs = coverageNudges = 0;
 			thresholdAtTurns.length = 0;
 		});
 		pi.on("session_before_compact", (event, ctx) => {
@@ -78,6 +81,7 @@ export function createReplayMetrics(now = () => performance.now(), manifestFiles
 	};
 	return {
 		extension,
+		recordCoverageNudge() { coverageNudges++; },
 		output(entries: readonly SessionEntry[], correct: boolean, hasPricing: boolean, offloadDecisions: OffloadDecision[] = []): ReplayMetrics {
 			if (pending !== undefined) throw new Error("Unfinished compaction observation");
 			let turns = 0, toolCalls = 0, obsRecallCalls = 0, recalledOffloaded = 0, offloadedResults = 0;
@@ -89,7 +93,7 @@ export function createReplayMetrics(now = () => performance.now(), manifestFiles
 			const manifest = new Map(Object.entries(manifestFiles).map(([path, body]) => [resolve(workspace, path), body.split("\n").length]));
 			const readFiles = new Set<string>();
 			const phase1Reads = new Map<string, { path: string; partial: boolean }>();
-			let phase: "before" | "reading" | "done" = "before", partialReads = 0;
+			let phase: "reading" | "done" = "done", partialReads = 0, userTurns = 0;
 			const addUsage = (usage: Usage) => {
 				inputTokens += usage.input; outputTokens += usage.output;
 				cacheRead += usage.cacheRead; cacheWrite += usage.cacheWrite; cost += usage.cost.total;
@@ -97,7 +101,7 @@ export function createReplayMetrics(now = () => performance.now(), manifestFiles
 			// Read the persisted branch, not session.messages (which loses compacted turns).
 			// Recall attribution is temporal: a later offload cannot relabel an earlier recall.
 			for (const entry of entries as Entry[]) {
-				if (entry.type === "message" && entry.message.role === "user") phase = phase === "before" ? "reading" : "done";
+				if (entry.type === "message" && entry.message.role === "user") phase = ++userTurns <= 1 + coverageNudges ? "reading" : "done";
 				if (entry.type === "message" && entry.message.role === "toolResult") {
 					const read = phase1Reads.get(entry.message.toolCallId);
 					if (read && !entry.message.isError) {
@@ -149,7 +153,7 @@ export function createReplayMetrics(now = () => performance.now(), manifestFiles
 				cacheRead, cacheWrite, estimatedCostUsd: hasPricing && usageComplete ? cost : null,
 				usageComplete, wallMs: now() - started, thresholdAtTurns: [...thresholdAtTurns], offloadDecisions,
 				toolNames, phase1Coverage: { readFiles: readFiles.size, totalFiles: manifest.size, partialReads },
-				contextPeak: Math.max(0, ...contextByTurn), contextByTurn, phase1ReadCallsByTurn };
+				contextPeak: Math.max(0, ...contextByTurn), contextByTurn, phase1ReadCallsByTurn, coverageNudges };
 		},
 	};
 }
@@ -166,4 +170,26 @@ export function summarizeReplay(rows: ReplayMetrics[]) {
 		inputTokens: mean("inputTokens"), outputTokens: mean("outputTokens"), cacheRead: mean("cacheRead"), cacheWrite: mean("cacheWrite"),
 		estimatedCostUsd: rows.every((r) => r.estimatedCostUsd !== null) ? rows.reduce((n, r) => n + r.estimatedCostUsd!, 0) / rows.length : null,
 		wallMs: mean("wallMs") };
+}
+
+/** Compare complete within-campaign pairs; also expose all recorded executed metrics. */
+export function summarizeLiveReplay(rows: readonly LiveReplayRow[]) {
+	const groups = new Map<string, Partial<Record<LiveReplayRow["arm"], ReplayMetrics>>>();
+	for (const row of rows) {
+		if (row.status !== "completed") continue;
+		const key = JSON.stringify([row.authorizationId, row.task, row.repetition]);
+		const group = groups.get(key) ?? {};
+		group[row.arm] = row.metrics!;
+		groups.set(key, group);
+	}
+	const pairs = [...groups.values()].filter(group => group.baseline && group.candidate);
+	const executed = rows.filter(row => row.status !== "not-run");
+	return {
+		executedRuns: executed.length,
+		rawRuns: executed.map(({ task, arm, repetition, status, reason, metrics }) => ({ task, arm, repetition, status, reason, metrics })),
+		invalidRuns: rows.filter(row => row.status === "invalid").length,
+		validPairs: pairs.length,
+		baseline: pairs.length ? summarizeReplay(pairs.map(pair => pair.baseline!)) : null,
+		candidate: pairs.length ? summarizeReplay(pairs.map(pair => pair.candidate!)) : null,
+	};
 }

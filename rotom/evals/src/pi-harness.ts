@@ -87,6 +87,8 @@ export type PiCodingAgentHarnessOptions = {
 	/** Read-only eval probes may need to observe events before a product handler cancels them. */
 	inlineExtensionsFirst?: boolean;
 	setupWorkspace?: (context: PiEvalWorkspaceContext) => void | Promise<void>;
+	/** Optional bounded continuation after a successful prompt; the caller owns the bound. */
+	continuePrompt?: (context: { session: AgentSession; stepIndex: number }) => string | undefined | Promise<string | undefined>;
 	modelRuntimeFactory?: (context: {
 		product: ProductRuntimeSelection;
 		configDir: string;
@@ -380,8 +382,10 @@ async function runPiCodingAgent<TOutput extends JsonValue>(
 				signal?.throwIfAborted();
 				const steps = normalizeSteps(input);
 				let response: string | undefined;
-				for (const step of steps) {
-					if (step.type === "prompt") response = await promptAgent(evalSession, step.content, signal, customMessageWaiter !== undefined);
+				const continuation = options.continuePrompt;
+				for (const [stepIndex, step] of steps.entries()) {
+					if (step.type === "prompt") response = await promptAgent(evalSession, step.content, signal, customMessageWaiter !== undefined,
+						continuation ? () => continuation({ session: evalSession, stepIndex }) : undefined);
 					else await evalSession.reload();
 				}
 				if (customMessageWaiter && options.awaitCustomMessage) {

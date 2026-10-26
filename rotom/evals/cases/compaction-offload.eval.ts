@@ -1,4 +1,4 @@
-import { describe, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { createJudge, describeEval } from "vitest-evals";
 import { createReplayHarness, REPLAY_TASKS, LIVE_AUTHORIZATION, LIVE_REPLAY_TIMEOUT_MS } from "../src/compaction-offload-cases.ts";
 import { FAUX_MODEL, replayFaux, type FauxObservation } from "../src/compaction-offload-faux.ts";
@@ -18,6 +18,7 @@ if (process.env.ROTOM_EVAL_COMPACTION_OFFLOAD !== "1" && !live) {
 } else if (live) {
 	const plan = validateLiveReplay(process.env, LIVE_AUTHORIZATION);
 	const campaign = createLiveReplayCampaign(plan.authorization, { repetitions: plan.repetitions });
+	afterAll(() => { console.log(JSON.stringify({ compactionOffloadPairedSummary: campaign.summary() })); });
 	for (const task of REPLAY_TASKS) for (let repetition = 1; repetition <= plan.repetitions; repetition++) {
 		for (const candidate of repetition % 2 ? [false, true] : [true, false]) {
 			const arm = candidate ? "candidate" : "baseline";
@@ -25,8 +26,15 @@ if (process.env.ROTOM_EVAL_COMPACTION_OFFLOAD !== "1" && !live) {
 				harness: campaign.harness(task, candidate, repetition),
 				judges: [createJudge<PiCodingAgentInput, LiveReplayRow>(task.id, ({ output }) => ({
 					score: output.status === "completed" && output.metrics?.correct ? 1 : 0, metadata: { output },
-				}))], judgeThreshold: 1,
-			}, (test) => { test(task.id, { timeout: LIVE_REPLAY_TIMEOUT_MS }, async ({ run }) => { await run(task.scenario); }); });
+				}))], judgeThreshold: null,
+			}, (test) => { test(task.id, { timeout: LIVE_REPLAY_TIMEOUT_MS }, async ({ run, skip }) => {
+				const { output } = await run(task.scenario);
+				// An invalid sample is recorded but not a success or a --bail failure.
+				// The third invalid sample has a campaign stopReason and must stop the CLI.
+				if (output.status === "invalid" && !output.cumulative.stopReason) skip("Invalid compaction sample: threshold not reached");
+				expect(output.status).toBe("completed");
+				expect(output.metrics?.correct).toBe(true);
+			}); });
 		}
 	}
 } else {

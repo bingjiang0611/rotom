@@ -200,22 +200,22 @@ it("preserves a failed row and stops when decision metadata is missing", async (
  expect(fetch).not.toHaveBeenCalled();
 });
 
-it.each(REPLAY_TASKS)("$id: five phase-one reads stop the campaign before another run", async (task) => {
+it.each(REPLAY_TASKS)("$id: two nudges leave a stubborn sample invalid without stopping the next run", async (task) => {
  const directory = await temporary(), observation = observed();
  const factory = vi.fn(replayFaux(task, observation, false, profile(), { batchSize: 20, phase1ReadLimit: 5 }));
  const campaign = createLiveReplayCampaign(auth(), { directory, runtimeFactory: factory });
  const first = await campaign.harness(task, false, 1).run(task.scenario, context());
- expect(first.output).toMatchObject({ status: "failed", reason: "threshold-not-reached", metrics: { correct: true, thresholdCompactions: 0 } });
+ expect(first.output).toMatchObject({ status: "invalid", reason: "threshold-not-reached", metrics: { correct: true, thresholdCompactions: 0, coverageNudges: 2 } });
  const second = await campaign.harness(task, true, 1).run(task.scenario, context());
- expect(second.output).toMatchObject({ status: "not-run", reason: "threshold-not-reached", metrics: null });
- expect(factory).toHaveBeenCalledTimes(1);
+ expect(second.output).toMatchObject({ status: "invalid", cumulative: { stopReason: null }, metrics: { coverageNudges: 2 } });
+ expect(factory).toHaveBeenCalledTimes(2);
  const m = first.output.metrics!;
  expect(m.phase1Coverage).toEqual({ readFiles: 5, totalFiles: task.reading.length, partialReads: 0 });
  expect(m.toolNames).toEqual({ read: 7, ...(Object.keys(task.solution).length ? { write: Object.keys(task.solution).length } : {}) });
  expect(m.contextPeak).toBeLessThan(REPLAY_THRESHOLD);
- expect(observation.requests).toHaveLength(m.turns);
+ expect(observation.requests).toHaveLength(m.turns * 2);
  expect(first.output.cumulative.requests).toBe(m.turns);
- console.log(JSON.stringify({ syntheticLazyReplay: task.id, phase1Context: m.contextByTurn.slice(0, observation.requests.filter(r => r.phase1).length), metrics: m, requests: first.output.cumulative.requests }));
+ console.log(JSON.stringify({ syntheticLazyReplay: task.id, phase1Context: m.contextByTurn.slice(0, m.phase1ReadCallsByTurn.length), metrics: m, requests: first.output.cumulative.requests }));
  expect((await rows(directory)).lines).toEqual([first.output, second.output]);
  expect(fetch).not.toHaveBeenCalled();
 });

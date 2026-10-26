@@ -72,10 +72,19 @@ export function createCustomMessageWaiter(session: AgentSession, customType: str
 	};
 }
 
-export async function promptAgent(session: AgentSession, input: string, signal: AbortSignal | undefined, allowEmpty = false): Promise<string> {
-	signal?.throwIfAborted();
-	const previousEntryCount = session.sessionManager.getBranch().length;
-	await session.prompt(input);
-	await session.waitForIdle();
-	return latestAssistantResponse(session, previousEntryCount, allowEmpty);
+export async function promptAgent(session: AgentSession, input: string, signal: AbortSignal | undefined, allowEmpty = false,
+	continuePrompt?: () => string | undefined | Promise<string | undefined>): Promise<string> {
+	let next: string | undefined = input;
+	let response = "";
+	while (next !== undefined) {
+		signal?.throwIfAborted();
+		const previousEntryCount = session.sessionManager.getBranch().length;
+		await session.prompt(next);
+		await session.waitForIdle();
+		response = latestAssistantResponse(session, previousEntryCount, allowEmpty);
+		if (!continuePrompt) break;
+		signal?.throwIfAborted();
+		next = await continuePrompt();
+	}
+	return response;
 }

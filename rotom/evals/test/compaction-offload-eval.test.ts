@@ -16,6 +16,12 @@ afterEach(async () => {
 const freshObservation = (): FauxObservation => ({ requests: [], config: null, agentDirMatches: false, summaryCalls: 0 });
 const context = (): HarnessContext => ({ artifacts: {}, setArtifact() {} });
 const rows: Record<string, ReplayMetrics[]> = { baseline: [], candidate: [] };
+// Frozen task-08 provider request counts, including native summaries.
+const normalRequests: Record<string, Record<number, [number, number]>> = {
+	"config-aggregate": { 1: [126, 125], 10: [18, 17], 20: [12, 11] },
+	"deferred-exact": { 1: [125, 124], 10: [17, 16], 20: [11, 10] },
+	"multi-file-fix": { 1: [129, 128], 10: [21, 20], 20: [15, 14] },
+};
 
 it.each(REPLAY_TASKS)("$id grading rejects wrong output and protected-file changes", async (task) => {
 	const workspace = await mkdtemp(join(tmpdir(), "offload-grading-")); roots.push(workspace);
@@ -48,6 +54,8 @@ it.each(REPLAY_TASKS)("$id: real product faux arms share prompt/schema and cross
 		results.push(output); rows[candidate ? "candidate" : "baseline"]!.push(output);
 		expect(output.correct).toBe(true);
 		expect(output.usageComplete).toBe(true);
+		expect(output.coverageNudges).toBe(0);
+		expect(output.phase1ReadCallsByTurn).toEqual([1, ...Array(task.reading.length).fill(1), 0]);
 		expect(output.estimatedCostUsd).toBeNull(); // faux zero price is not a real provider quote
 		expect(observations[index]!.config).toEqual(REPLAY_CONFIG);
 		expect(observations[index]!.agentDirMatches).toBe(true);
@@ -64,6 +72,7 @@ it.each(REPLAY_TASKS)("$id: real product faux arms share prompt/schema and cross
 		expect(request.system).toBe(regular[0]![0]!.system);
 		expect(request.tools).toBe(regular[0]![0]!.tools);
 	}
+	expect(observations.map(o => o.requests.length)).toEqual(normalRequests[task.id]![1]);
 	expect(results[0]!.offloadedResults).toBe(0);
 	expect(results[0]!.nativeCompactions).toBeGreaterThan(0);
 	expect(results[1]!.offloadedResults).toBeGreaterThan(0);
@@ -105,6 +114,9 @@ it.each(REPLAY_TASKS.flatMap(task => [10, 20].map(batchSize => ({ id: task.id, t
 		// Keep decision metadata available even if the core defer assertion fails.
 		console.log(JSON.stringify({ syntheticBatchedReplay: task.id, candidate, batchSize, requests: observed.requests.length, metrics: output }));
 		firstThresholds.push(output.thresholdAtTurns[0]!);
+		expect(output.coverageNudges).toBe(0);
+		expect(observed.requests).toHaveLength(normalRequests[task.id]![batchSize]![candidate ? 1 : 0]);
+		expect(output.phase1ReadCallsByTurn).toEqual([1, ...Array.from({ length: Math.ceil(task.reading.length / batchSize) }, (_, i) => Math.min(batchSize, task.reading.length - i * batchSize)), 0]);
 		expect(output.correct).toBe(true);
 		expect(output.thresholdCompactions).toBeGreaterThan(0);
 		expect(observed.settings!.compaction.keepRecentTokens).toBe(REPLAY_KEEP_RECENT);

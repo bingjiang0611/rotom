@@ -10,7 +10,7 @@ import { ensurePrivateEvalArtifactDirectory } from "./vitest-evals/artifacts.ts"
 
 export type LiveReplayRow = {
 	version: 1; authorizationId: string; timestamp: string; task: string; arm: "baseline" | "candidate"; repetition: number; repetitions: number;
-	status: "completed" | "failed" | "not-run"; reason: BudgetSnapshot["stopReason"];
+	status: "completed" | "invalid" | "failed" | "not-run"; reason: BudgetSnapshot["stopReason"];
 	provider: string; model: string; thinking: string; transport: "sse"; sourceCommit: string; sourceDirty: boolean;
 	contextWindow: number | null; thresholdTokens: number; reserveTokens: number | null; keepRecentTokens: number | null;
 	metrics: ReplayMetrics | null; cumulative: BudgetSnapshot;

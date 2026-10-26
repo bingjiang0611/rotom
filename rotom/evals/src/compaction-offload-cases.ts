@@ -13,6 +13,7 @@ export const LIVE_AUTHORIZATION: Readonly<ReplayAuthorization> | null = null;
 
 export const REPLAY_PRODUCT = resolve(import.meta.dirname, "../..");
 export const REPLAY_THRESHOLD = 64_000;
+export const coverageNudgePrompt = (remaining: number) => `Audit phase is not complete: ${remaining} listed files have not been read yet. Continue reading the remaining files from manifest.json individually, then reply READY.`;
 // Match the production retained-tail fraction, not the candidate's target.
 export const REPLAY_KEEP_RECENT = Math.round(REPLAY_THRESHOLD * 0.08);
 export const LIVE_REPLAY_TIMEOUT_MS = 30 * 60_000;
@@ -131,6 +132,14 @@ export function createReplayHarness(selected: ReplayTask, candidate: boolean, op
 			process.env.PI_CODING_AGENT_DIR = configDir;
 			await writeFile(join(configDir, "sol-pi.json"), JSON.stringify(REPLAY_CONFIG));
 			await writeReplayFixture(workspace, selected);
+		},
+		continuePrompt({ session, stepIndex }) {
+			if (stepIndex !== 0) return;
+			const snapshot = metrics.output(session.sessionManager.getBranch(), false, false);
+			const remaining = snapshot.phase1Coverage.totalFiles - snapshot.phase1Coverage.readFiles;
+			if (remaining === 0 || snapshot.coverageNudges >= 2) return;
+			metrics.recordCoverageNudge();
+			return coverageNudgePrompt(remaining);
 		},
 		async modelRuntimeFactory(context) {
 			const runtime = await options.modelRuntimeFactory(context);

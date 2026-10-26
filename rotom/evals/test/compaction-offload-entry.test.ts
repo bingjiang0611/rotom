@@ -1,3 +1,7 @@
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { resolve, join } from "node:path";
+import { spawnSync } from "node:child_process";
 import { afterEach, expect, it, vi } from "vitest";
 import { LIVE_REPLAY_TIMEOUT_MS } from "../src/compaction-offload-cases.ts";
 import evalConfig from "../vitest.config.ts";
@@ -5,7 +9,7 @@ import evalConfig from "../vitest.config.ts";
 const testAuthorization = { id: "registration-test-only", provider: "openai-codex", model: "gpt-5.6-luna", thinking: "low", maxRepetitions: 3, maxRequests: 2000, maxInputTokens: 100_000_000 };
 const registrations: { name: string; options: any }[] = [];
 const registeredTests: unknown[][] = [];
-const campaign = { harness: vi.fn((task, candidate, repetition) => ({ name: candidate ? "candidate" : "baseline", task: task.id, repetition })) };
+const campaign = { harness: vi.fn((task, candidate, repetition) => ({ name: candidate ? "candidate" : "baseline", task: task.id, repetition })), summary: () => ({ validPairs: 0 }) };
 const create = vi.fn((..._args: unknown[]) => campaign);
 // The live module is replaced before the entry module can execute it. These
 // registration tests cannot create a ModelRuntime or read a credential file.
@@ -18,8 +22,8 @@ vi.mock("vitest-evals", () => ({
 	createJudge: (name: string, assess: Function) => ({ name, assess }),
 }));
 afterEach(() => { vi.resetModules(); vi.clearAllMocks(); vi.unstubAllEnvs(); registrations.length = 0; registeredTests.length = 0; vi.doUnmock("../src/compaction-offload-cases.ts"); });
-function liveEnv() {
-	vi.doMock("../src/compaction-offload-cases.ts", async () => ({ ...await vi.importActual("../src/compaction-offload-cases.ts"), LIVE_AUTHORIZATION: testAuthorization }));
+function liveEnv(authorization: typeof testAuthorization | null = testAuthorization) {
+	vi.doMock("../src/compaction-offload-cases.ts", async () => ({ ...await vi.importActual("../src/compaction-offload-cases.ts"), LIVE_AUTHORIZATION: authorization }));
 	vi.stubEnv("ROTOM_EVAL_COMPACTION_OFFLOAD", "1"); vi.stubEnv("ROTOM_EVAL_COMPACTION_OFFLOAD_LIVE", "1");
 	vi.stubEnv("ROTOM_EVAL_PROVIDER", testAuthorization.provider); vi.stubEnv("ROTOM_EVAL_MODEL", testAuthorization.model);
 	vi.stubEnv("ROTOM_EVAL_THINKING", testAuthorization.thinking); vi.stubEnv("ROTOM_EVAL_REPETITIONS", "3");
@@ -42,6 +46,16 @@ it("live entry shares exactly one campaign across all 18 alternating runs", asyn
 	}
 	const judge = registrations[0]!.options.judges[0];
 	expect(judge.assess({ output: { status: "not-run", metrics: null } }).score).toBe(0);
+	expect(registrations[0]!.options.judgeThreshold).toBeNull();
+	const body = registeredTests[0]![2] as Function;
+	const skip = vi.fn(() => { throw new Error("invalid-skipped"); });
+	const run = (status: string, correct: boolean, stopReason: string | null = null) => async () => ({ output: { status, metrics: { correct }, cumulative: { stopReason } } });
+	await expect(body({ run: run("invalid", true), skip })).rejects.toThrow("invalid-skipped");
+	await expect(body({ run: run("completed", false), skip })).rejects.toThrow();
+	await expect(body({ run: run("failed", false, "run-error"), skip })).rejects.toThrow();
+	await expect(body({ run: run("invalid", true, "threshold-not-reached"), skip })).rejects.toThrow();
+	await expect(body({ run: run("completed", true), skip })).resolves.toBeUndefined();
+	expect(skip).toHaveBeenCalledTimes(1);
 });
 it("faux registration keeps the global deadline and does not construct a live campaign", async () => {
 	liveEnv(); vi.stubEnv("ROTOM_EVAL_COMPACTION_OFFLOAD_LIVE", "0");
@@ -62,8 +76,7 @@ it("a smaller authorized N is passed to the campaign and only schedules that N",
 	expect(registrations).toHaveLength(6);
 });
 it("missing authorization rejects the entry before any campaign is constructed", async () => {
-	liveEnv();
-	vi.doMock("../src/compaction-offload-cases.ts", async () => ({ ...await vi.importActual("../src/compaction-offload-cases.ts"), LIVE_AUTHORIZATION: null }));
+	liveEnv(null);
 	await expect(import("../cases/compaction-offload.eval.ts")).rejects.toThrow("no authorization");
 	expect(create).not.toHaveBeenCalled();
 });
@@ -72,3 +85,22 @@ it("a mismatched real model is rejected at entry, not just by a helper", async (
 	await expect(import("../cases/compaction-offload.eval.ts")).rejects.toThrow("exactly match");
 	expect(create).not.toHaveBeenCalled();
 });
+
+it("the actual Vitest --bail=1 path skips invalid samples but stops on the third", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "offload-entry-bail-"));
+	try {
+		const report = join(directory, "result.json"), config = join(directory, "config.mjs");
+		await writeFile(config, `export default ${JSON.stringify({ test: { include: ["test/fixtures/offload-entry-bail.fixture.ts"], reporters: ["default", "json"], outputFile: report, fileParallelism: false } })}`);
+		const result = spawnSync(process.execPath, [resolve(import.meta.dirname, "../node_modules/vitest/vitest.mjs"), "run", "--config", config, "--bail=1"], {
+			cwd: resolve(import.meta.dirname, ".."), encoding: "utf8", timeout: 60_000,
+			env: { ...process.env, ROTOM_EVAL_COMPACTION_OFFLOAD: "1", ROTOM_EVAL_COMPACTION_OFFLOAD_LIVE: "1",
+				ROTOM_EVAL_PROVIDER: "entry-faux", ROTOM_EVAL_MODEL: "replay", ROTOM_EVAL_THINKING: "low", ROTOM_EVAL_REPETITIONS: "3" },
+		});
+		expect(result.error).toBeUndefined();
+		expect(result.status, result.stdout + result.stderr).toBe(1);
+		const data = JSON.parse(await readFile(report, "utf8"));
+		const assertions = data.testResults.flatMap((file: any) => file.assertionResults);
+		expect(assertions.map((test: any) => test.status)).toEqual(["skipped", "passed", "skipped", "failed", ...Array(14).fill("pending")]);
+		expect(result.stdout + result.stderr).toContain('"executedRuns":4');
+	} finally { await rm(directory, { recursive: true, force: true }); }
+}, 90_000);

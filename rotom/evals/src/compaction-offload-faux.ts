@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { PiCodingAgentHarnessOptions } from "./pi-harness.ts";
-import { REPLAY_CONFIG, type ReplayTask } from "./compaction-offload-cases.ts";
+import { coverageNudgePrompt, REPLAY_CONFIG, type ReplayTask } from "./compaction-offload-cases.ts";
 
 export const FAUX_MODEL = { provider: "rotom-offload-faux", id: "replay" };
 export type FauxObservation = {
@@ -11,10 +11,11 @@ export type FauxObservation = {
 	config: unknown; agentDirMatches: boolean; summaryCalls: number; workspace?: string;
 	settings?: { compaction: { reserveTokens: number; keepRecentTokens?: number }; retry: { enabled: boolean } };
 	reasoning?: string;
+	coveragePrompts?: string[];
 	requestControls?: { transport?: string; maxRetries?: number }[];
 };
 /** Only scripted local responses. No credentials, network provider, or generated judgment. */
-export function replayFaux(selected: ReplayTask, observation: FauxObservation, stress = false, profile = { model: FAUX_MODEL, contextWindow: 256_000, reasoning: false }, script: { batchSize?: number; phase1ReadLimit?: number; pressure?: "no_candidates" | "insufficient_savings" } = {}): NonNullable<PiCodingAgentHarnessOptions["modelRuntimeFactory"]> {
+export function replayFaux(selected: ReplayTask, observation: FauxObservation, stress = false, profile = { model: FAUX_MODEL, contextWindow: 256_000, reasoning: false }, script: { batchSize?: number; phase1ReadLimit?: number; resumeAfterNudge?: boolean; pressure?: "no_candidates" | "insufficient_savings" } = {}): NonNullable<PiCodingAgentHarnessOptions["modelRuntimeFactory"]> {
 	return async ({ product, configDir }) => {
 		const { fauxProvider, fauxAssistantMessage, fauxToolCall } = await import(pathToFileURL(resolve(product.verified.packageRoot, "../pi-ai/dist/providers/faux.js")).href);
 		const { getCurrentSystemPrompt, getCurrentTools } = await import(pathToFileURL(resolve(product.verified.packageRoot, "../pi-ai/dist/index.js")).href);
@@ -27,6 +28,7 @@ export function replayFaux(selected: ReplayTask, observation: FauxObservation, s
 		const normalize = (text: string) => text.split(resolve(configDir, "..")).join("<run>");
 		let readIndex = 0, manifestRead = false, ready = false, recalled = false;
 		let detailChecked = false;
+		let readLimit = script.phase1ReadLimit ?? selected.reading.length;
 		let solutionIndex = 0, ordinaryRead = false, ordinaryRecall = false, inflated = false;
 		let callId = 0, ordinaryWait = 0, pressureSent = false;
 		const readCallIds = new Map<string, string>();
@@ -40,10 +42,18 @@ export function replayFaux(selected: ReplayTask, observation: FauxObservation, s
 			const systems = context.messages.filter((m: any) => m.role === "system");
 			const text = (m: any) => typeof m.content === "string" ? m.content : m.content.filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n");
 			const summary = systems.some((m: any) => text(m).includes("context summarization assistant"));
-			observation.requests.push({ system: normalize(getCurrentSystemPrompt(context.messages)), tools: normalize(JSON.stringify(getCurrentTools(context.messages))), summary, maxTokens: options.maxTokens ?? null, reads: readIndex, phase1: !ready });
+			const lastUser = context.messages.filter((m: any) => m.role === "user").at(-1);
+			const nudge = !summary && ready && lastUser && text(lastUser) === coverageNudgePrompt(selected.reading.length - readIndex);
+			observation.requests.push({ system: normalize(getCurrentSystemPrompt(context.messages)), tools: normalize(JSON.stringify(getCurrentTools(context.messages))), summary, maxTokens: options.maxTokens ?? null, reads: readIndex, phase1: !ready || !!nudge });
 			if (summary) {
 				observation.summaryCalls++;
 				return fauxAssistantMessage("## Goal\nFinish the synthetic audit.\n## Progress\nRead files and continue the requested follow-up.\n## Next steps\nUse the workspace to finish and validate.");
+			}
+			if (nudge) {
+				(observation.coveragePrompts ??= []).push(text(lastUser));
+				if (!script.resumeAfterNudge) return fauxAssistantMessage("READY");
+				readLimit = selected.reading.length;
+				ready = false;
 			}
 			if (script.pressure && !pressureSent && (script.pressure === "no_candidates" || readIndex >= 3)) {
 				pressureSent = true;
@@ -53,7 +63,6 @@ export function replayFaux(selected: ReplayTask, observation: FauxObservation, s
 				], { stopReason: "toolUse" });
 			}
 			if (!manifestRead) { manifestRead = true; return call("read", { path: "manifest.json" }); }
-			const readLimit = script.phase1ReadLimit ?? selected.reading.length;
 			if (readIndex < readLimit) {
 				const paths = selected.reading.slice(readIndex, Math.min(readLimit, readIndex + (script.batchSize ?? 1)));
 				readIndex += paths.length;

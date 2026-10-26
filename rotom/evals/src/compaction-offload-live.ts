@@ -5,6 +5,7 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { createHarness } from "vitest-evals/harness";
 import { createReplayHarness, REPLAY_KEEP_RECENT, REPLAY_PRODUCT, REPLAY_THRESHOLD, type ReplayTask } from "./compaction-offload-cases.ts";
 import { ReplayBudget, type ReplayAuthorization } from "./compaction-offload-budget.ts";
+import { summarizeLiveReplay } from "./compaction-offload-metrics.ts";
 import { createReplayStore, type LiveReplayRow } from "./compaction-offload-store.ts";
 import type { PiCodingAgentHarnessOptions, PiCodingAgentInput } from "./pi-harness.ts";
 
@@ -26,6 +27,8 @@ export function createLiveReplayCampaign(authorization: ReplayAuthorization, opt
 	let storePromise: ReturnType<typeof createReplayStore> | undefined;
 	let persistenceFailed = false;
 	let running = false;
+	let invalidRuns = 0;
+	const rows: LiveReplayRow[] = [];
 	const git = (args: string[]) => {
 		const result = spawnSync("git", ["-C", REPLAY_PRODUCT, ...args], { encoding: "utf8" });
 		if (result.status !== 0) throw new Error("Cannot identify replay source revision");
@@ -35,6 +38,7 @@ export function createLiveReplayCampaign(authorization: ReplayAuthorization, opt
 	const sourceDirty = git(["status", "--porcelain"]) !== "";
 	return {
 		budget,
+		summary: () => ({ ...summarizeLiveReplay(rows), stopReason: budget.snapshot().stopReason }),
 		harness(task: ReplayTask, candidate: boolean, repetition: number) {
 			let contextWindow: number | null = null;
 			const harness = createReplayHarness(task, candidate, {
@@ -77,11 +81,7 @@ export function createLiveReplayCampaign(authorization: ReplayAuthorization, opt
 							const result = await harness.run(input, { signal, artifacts: {}, setArtifact() {} });
 							row.metrics = result.output;
 							row.status = "completed";
-							if (row.metrics.thresholdCompactions === 0) {
-								// Correct output alone is not a compaction experiment.
-								budget.halt("threshold-not-reached");
-								row.status = "failed";
-							} else if (candidate && row.metrics.offloadDecisions.length !== row.metrics.thresholdCompactions) {
+							if (candidate && row.metrics.offloadDecisions.length !== row.metrics.thresholdCompactions) {
 								budget.halt("decision-ledger-incomplete");
 								row.status = "failed";
 							}
@@ -98,6 +98,14 @@ export function createLiveReplayCampaign(authorization: ReplayAuthorization, opt
 					}
 					const after = budget.snapshot();
 					if (row.status === "completed" && (!after.usageKnown || signal?.aborted)) row.status = "failed";
+					if (row.status === "completed" && row.metrics!.thresholdCompactions === 0) {
+						if (after.stopReason) row.status = "failed";
+						else {
+							row.status = "invalid";
+							row.reason = "threshold-not-reached";
+							if (++invalidRuns >= 3) budget.halt("threshold-not-reached");
+						}
+					}
 					if (row.metrics) {
 						// Dispatch usage also covers failed summaries not committed as a
 						// compaction entry. Do not infer a dollar quote for this token cap.
@@ -113,8 +121,8 @@ export function createLiveReplayCampaign(authorization: ReplayAuthorization, opt
 					row.reserveTokens = contextWindow !== null && contextWindow > REPLAY_THRESHOLD ? contextWindow - REPLAY_THRESHOLD : null;
 					row.keepRecentTokens = row.reserveTokens !== null ? REPLAY_KEEP_RECENT : null;
 					row.cumulative = budget.snapshot();
-					row.reason = row.cumulative.stopReason;
-					try { await store.append(row); }
+					row.reason = row.cumulative.stopReason ?? row.reason;
+					try { await store.append(row); rows.push(row); }
 					catch (error) { persistenceFailed = true; budget.halt("persistence-error"); throw error; }
 					// The outer transcript identifies the case, not a simulated assistant reply.
 					return { output: row, events: [{ type: "message", role: "user", content: task.id }] };
