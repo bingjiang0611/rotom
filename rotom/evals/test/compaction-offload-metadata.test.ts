@@ -28,8 +28,27 @@ it("counts successful phase-one reads once per manifest file, partial calls sepa
 	const output = metrics.output(entries as any, true, false);
 	expect(output).toMatchObject({ toolNames: { read: 8 }, toolCalls: 8,
 		phase1Coverage: { readFiles: 1, totalFiles: 3, partialReads: 3 },
-		contextByTurn: [12, 29, 40, 10], contextPeak: 40 });
+		contextByTurn: [12, 29, 40, 10], contextPeak: 40, phase1ReadCallsByTurn: [6, 0] });
 	for (const text of ["alpha.txt", "beta.txt", "gamma.txt", "PRIVATE_PATH", "PRIVATE_BODY", "/synthetic"]) {
 		expect(JSON.stringify(output)).not.toContain(text);
 	}
+});
+
+it("counts read requests per phase-one assistant turn, not summaries or phase-two calls", () => {
+	const usage = { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } };
+	const assistant = (names: string[]) => ({ type: "message", message: { role: "assistant", stopReason: "toolUse", usage,
+		content: names.map((name, i) => ({ type: "toolCall", id: String(i), name, arguments: { path: "PRIVATE_PATH" } })) } });
+	const output = createReplayMetrics().output([
+		{ type: "message", message: { role: "user", content: "phase one" } },
+		assistant(["read", "edit", "read"]),
+		{ type: "compaction", usage },
+		{ type: "usage", usage },
+		assistant(["write"]),
+		// A new user message closes the phase even without a terminal READY.
+		{ type: "message", message: { role: "user", content: "phase two" } },
+		assistant(["read", "read", "read"]),
+	] as any, true, false);
+	expect(output.phase1ReadCallsByTurn).toEqual([2, 0]);
+	expect(output.toolNames.read).toBe(5);
+	expect(JSON.stringify(output)).not.toContain("PRIVATE_PATH");
 });

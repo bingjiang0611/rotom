@@ -37,6 +37,7 @@ export type ReplayMetrics = {
 	toolNames: Record<string, number>;
 	phase1Coverage: { readFiles: number; totalFiles: number; partialReads: number };
 	contextPeak: number; contextByTurn: number[];
+	phase1ReadCallsByTurn: number[];
 };
 
 /** Must be installed before cancellable product handlers; never changes an event. */
@@ -84,6 +85,7 @@ export function createReplayMetrics(now = () => performance.now(), manifestFiles
 			const ids = new Set<string>();
 			const toolNames: Record<string, number> = Object.create(null);
 			const contextByTurn: number[] = [];
+			const phase1ReadCallsByTurn: number[] = [];
 			const manifest = new Map(Object.entries(manifestFiles).map(([path, body]) => [resolve(workspace, path), body.split("\n").length]));
 			const readFiles = new Set<string>();
 			const phase1Reads = new Map<string, { path: string; partial: boolean }>();
@@ -114,7 +116,9 @@ export function createReplayMetrics(now = () => performance.now(), manifestFiles
 					const usage = entry.message.usage;
 					contextByTurn.push(usage.input + usage.cacheRead + usage.cacheWrite);
 					if (["error", "aborted"].includes(entry.message.stopReason)) usageComplete = false;
+					let readCalls = 0;
 					for (const part of entry.message.content) if (part.type === "toolCall") {
+						if (part.name === "read") readCalls++;
 						toolCalls++;
 						toolNames[part.name] = (toolNames[part.name] ?? 0) + 1;
 						if (phase === "reading" && part.name === "read" && typeof part.arguments.path === "string") {
@@ -129,7 +133,11 @@ export function createReplayMetrics(now = () => performance.now(), manifestFiles
 							if (ids.has(String(part.arguments.id))) recalledOffloaded++;
 						}
 					}
-					if (phase === "reading" && entry.message.stopReason !== "toolUse") phase = "done";
+					if (phase === "reading") {
+						// Count requested calls, including failed/non-manifest reads and zero-read turns.
+						phase1ReadCallsByTurn.push(readCalls);
+						if (entry.message.stopReason !== "toolUse") phase = "done";
+					}
 				}
 				if (entry.type === "compaction" || entry.type === "usage") {
 					if (entry.usage) addUsage(entry.usage);
@@ -141,7 +149,7 @@ export function createReplayMetrics(now = () => performance.now(), manifestFiles
 				cacheRead, cacheWrite, estimatedCostUsd: hasPricing && usageComplete ? cost : null,
 				usageComplete, wallMs: now() - started, thresholdAtTurns: [...thresholdAtTurns], offloadDecisions,
 				toolNames, phase1Coverage: { readFiles: readFiles.size, totalFiles: manifest.size, partialReads },
-				contextPeak: Math.max(0, ...contextByTurn), contextByTurn };
+				contextPeak: Math.max(0, ...contextByTurn), contextByTurn, phase1ReadCallsByTurn };
 		},
 	};
 }
