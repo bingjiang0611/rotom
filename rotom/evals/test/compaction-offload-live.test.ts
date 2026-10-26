@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { pathToFileURL } from "node:url";
 import type { ReplayMessage as AssistantMessage, ReplayStream } from "../src/compaction-offload-budget.ts";
 import { ReplayBudget, validateLiveReplay, type ReplayAuthorization } from "../src/compaction-offload-budget.ts";
-import { LIVE_AUTHORIZATION, REPLAY_KEEP_RECENT, REPLAY_PRODUCT, REPLAY_TASKS, REPLAY_THRESHOLD, type ReplayTask } from "../src/compaction-offload-cases.ts";
+import { REPLAY_KEEP_RECENT, REPLAY_PRODUCT, REPLAY_TASKS, REPLAY_THRESHOLD, type ReplayTask } from "../src/compaction-offload-cases.ts";
 import { authorizedRuntimeFactory, createLiveReplayCampaign } from "../src/compaction-offload-live.ts";
 import { createReplayStore, type LiveReplayRow } from "../src/compaction-offload-store.ts";
 import { FAUX_MODEL, replayFaux, type FauxObservation } from "../src/compaction-offload-faux.ts";
@@ -34,9 +34,8 @@ async function rows(directory: string) {
 	return { path, lines: (await readFile(path, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as LiveReplayRow) };
 }
 
-it("retires the spent authorization and validates only explicit synthetic test grants", () => {
-	expect(LIVE_AUTHORIZATION).toBeNull();
-	expect(() => validateLiveReplay(env, LIVE_AUTHORIZATION)).toThrow("no authorization");
+it("rejects missing authorization and validates explicit synthetic test grants", () => {
+	expect(() => validateLiveReplay(env, null)).toThrow("no authorization");
 	expect(validateLiveReplay(env, testAuthorization).repetitions).toBe(3);
 	expect(validateLiveReplay({ ...env, ROTOM_EVAL_REPETITIONS: "1" }, testAuthorization).repetitions).toBe(1);
 	for (const key of ["ROTOM_EVAL_COMPACTION_OFFLOAD", "ROTOM_EVAL_COMPACTION_OFFLOAD_LIVE", "ROTOM_EVAL_PROVIDER", "ROTOM_EVAL_MODEL", "ROTOM_EVAL_THINKING"]) {

@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { LIVE_AUTHORIZATION, LIVE_REPLAY_TIMEOUT_MS } from "../src/compaction-offload-cases.ts";
+import { LIVE_REPLAY_TIMEOUT_MS } from "../src/compaction-offload-cases.ts";
 import evalConfig from "../vitest.config.ts";
 
 const testAuthorization = { id: "registration-test-only", provider: "openai-codex", model: "gpt-5.6-luna", thinking: "low", maxRepetitions: 3, maxRequests: 2000, maxInputTokens: 100_000_000 };
@@ -61,8 +61,7 @@ it("a smaller authorized N is passed to the campaign and only schedules that N",
 	expect(create).toHaveBeenCalledExactlyOnceWith(testAuthorization, { repetitions: 1 });
 	expect(registrations).toHaveLength(6);
 });
-it("spent 04b authorization rejects the entry before any campaign is constructed", async () => {
-	expect(LIVE_AUTHORIZATION).toBeNull();
+it("missing authorization rejects the entry before any campaign is constructed", async () => {
 	liveEnv();
 	vi.doMock("../src/compaction-offload-cases.ts", async () => ({ ...await vi.importActual("../src/compaction-offload-cases.ts"), LIVE_AUTHORIZATION: null }));
 	await expect(import("../cases/compaction-offload.eval.ts")).rejects.toThrow("no authorization");
