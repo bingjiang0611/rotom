@@ -171,3 +171,11 @@ Node v24.18.0、Vitest 4.1.9；产品集成测试使用仓内 Pi 1.4.0-rotom.2�
 自审检查了跨运行 usageKnown 污染、停止后 not-run 误入不可用计数、硬预算优先于继续、provider 与 cleanup 错误同时发生、缺结果不冒充成功、原始文本不进入新增指标、任务范围在 dispatch 前拒绝，以及默认 faux 轨迹未改变。
 
 本轮证明本地控制流与真实产品的 faux 集成；不宣称已证明真实 provider 的故障恢复或新预算一定跑完。11 的丢失证据无法补回，本次也没有尝试补跑。
+
+## 核验意见（规划者，2026-10-27）
+
+**accepted（`aae712e`）。** 规划者在本环境（Node 24.22.1）重跑：`compaction-offload-eval` 21/21；LIVE=0 下 live/entry/metadata/read/coverage/infra/infra-metadata 七个专项 60/60；typecheck 通过；`git diff --check origin/main...HEAD` 干净；tracked-tree 公开审计 PASS、0 findings。全量 `npm test` 未重跑，采信报告的 179/1 skip。
+
+- 读过 budget/live diff：未知用量按 contextWindow 替代计入（不是叠加），output 只记已报告小计；provider 错误要同时满足「预算器看到 provider 失败」和「持久化回复不完整」才算 `provider-error`，setup/判分/清理异常仍按 `run-error` 立即停，区分方式合理。终止事件之后的适配器异常按 `run-error` 停且不重复计费，这是任务说明没写到的边界，处理正确。
+- 按任务授权：授权带 `tasks` 时环境变量必须逐项一致，campaign 层也拒绝未授权任务，双重把关，接受。
+- 停止线：执行者建议 250 次 / 1,500 万，依据是 11 的完整运行（每次 12–29 次请求）。但 11 里唯一一次 multi-file-fix（M1B）是逐份读、两次续读后仍只读 51/121、已用 24 次请求；如果这个任务上模型更倾向逐份读，单次运行可能到 100 次以上请求，250 次会在中途停下。规划者建议给 bob 两档：250 / 1,500 万，或 800 / 4,000 万（覆盖逐份读最坏情形）。
