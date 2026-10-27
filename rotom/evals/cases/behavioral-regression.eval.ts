@@ -20,6 +20,7 @@ import {
 	type PiEvalWorkspaceContext,
 } from "../src/pi-harness.ts";
 import { evalHarnessTable } from "../src/vitest-evals/harness-table.ts";
+import { createToolBudgetExtension } from "../src/tool-budget-extension.ts";
 
 /**
  * Behavioural A/B: the same workspace and tool allowlist, only the loaded
@@ -86,6 +87,9 @@ function harness(name: string, productAgentDir: string, caseDefinition: Behavior
 		thinkingLevel: "low",
 		tools: caseDefinition.tools,
 		productAgentDir,
+		// The interrupted-handoff case needs a real budget stop; the extension is
+		// identical in both arms and lives outside the product.
+		...(caseDefinition.id === "behavior-interrupted-handoff" ? { inlineExtensions: [createToolBudgetExtension(3)] } : {}),
 		setupWorkspace,
 		async output({ input, workspace, response, session }) {
 			const id = !Array.isArray(input) && typeof input === "object" ? input.id : undefined;
@@ -107,7 +111,9 @@ if (!enabled || !provider || !model || !baselineProduct) {
 } else {
 	const baselineProductPath = baselineProduct;
 	for (const caseDefinition of behavioralCases) {
-		const scenario = { id: caseDefinition.id, steps: [{ type: "prompt", content: caseDefinition.prompt }] } satisfies PiCodingAgentScenario;
+		// One user turn per prompt entry: several cases reproduce a failure that
+		// only happens after earlier work in the same session.
+		const scenario = { id: caseDefinition.id, steps: caseDefinition.prompts.map((content) => ({ type: "prompt" as const, content })) } satisfies PiCodingAgentScenario;
 		const planned = evalHarnessTable(`Behavioural regression: ${caseDefinition.label}`, {
 			baseline: harness("baseline", baselineProductPath, caseDefinition),
 			candidate: harness("candidate", candidateProduct, caseDefinition),
