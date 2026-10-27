@@ -9,7 +9,8 @@ import { tmpdir } from "node:os";
 import { after, test } from "node:test";
 import { fixtureSession } from "./eval-fixtures.mjs";
 import { loadSession } from "./eval/session-data.mjs";
-import { sessionSha256 } from "./eval/replay.mjs";
+import { replayCaseKey, sessionSha256 } from "./eval/replay.mjs";
+import { createReplayService } from "./eval/replay-service.mjs";
 import { startTraceDashboard } from "./dashboard.mjs";
 
 const scratch = [];
@@ -51,7 +52,7 @@ test("the dashboard exposes replay routes with the existing security checks", as
 	assert.equal((await fetch(url("/api/eval/replay/case"), { method: "POST", headers: { authorization: "Bearer replay-token", "content-type": "text/plain" }, body: "{}" })).status, 415);
 	assert.equal((await fetch(url("/api/eval/replay/case"), { method: "POST", headers: { ...headers, origin: "http://evil.example" }, body: "{}" })).status, 403);
 	// No ROTOM_EVAL_REPLAY_BASELINE: the comparison arm is off, with a reason.
-	assert.deepEqual(await fetch(url("/api/eval/replay/cases"), { headers }).then((response) => response.json()), { cases: [], baseline: { enabled: false, reason: "not_configured" } });
+	assert.deepEqual(await fetch(url("/api/eval/replay/cases"), { headers }).then((response) => response.json()), { cases: [], baseline: { enabled: false, reason: "not_configured" }, originalArm: true });
 	const created = await fetch(url("/api/eval/replay/case"), { method: "POST", headers, body: JSON.stringify({ sessionId: session.id, cutEntryId: first, expected: "先查状态", check: { mode: "rule", rule: "checks-before-claiming" } }) });
 	assert.equal(created.status, 200);
 	const point = await created.json();
@@ -63,10 +64,12 @@ test("the dashboard exposes replay routes with the existing security checks", as
 	assert.equal((await fetch(url("/api/eval/replay/run"), { method: "POST", headers, body: JSON.stringify({ cases: [point.key], model: "faux/faux-1", includeBaseline: true }) })).status, 400);
 	// Prepare reports the numbers the dialog shows, and starts nothing.
 	const prepared = await fetch(url("/api/eval/replay/prepare"), { method: "POST", headers, body: JSON.stringify({ cases: [point.key], repeats: 2 }) }).then((response) => response.json());
-	assert.equal(prepared.runs, 2);
+	// 2 repetitions plus the original control, which runs once per point.
+	assert.equal(prepared.runs, 3);
 	assert.equal(prepared.repeats, 2);
 	assert.equal(prepared.arms, 1);
-	assert.equal(prepared.totalChars, prepared.cases[0].chars * 2);
+	assert.equal(prepared.originalRuns, 1);
+	assert.equal(prepared.totalChars, prepared.cases[0].chars * 2 + prepared.originalChars);
 	assert.equal(prepared.perCaseChars, prepared.cases[0].chars);
 	assert.equal(prepared.maxChars, prepared.cases[0].chars);
 	assert.ok(prepared.cases[0].chars > 0);
@@ -75,12 +78,13 @@ test("the dashboard exposes replay routes with the existing security checks", as
 	const started = await fetch(url("/api/eval/replay/run"), { method: "POST", headers, body: JSON.stringify({ cases: [point.key], model: "faux/faux-1", repeats: 1 }) });
 	assert.equal(started.status, 202);
 	const job = await started.json();
-	assert.equal(job.total, 1);
+	// One product arm plus the original control, which runs once per point.
+	assert.equal(job.total, 2);
 	assert.deepEqual(await fetch(url("/api/eval/replay/cancel"), { method: "POST", headers, body: JSON.stringify({ runId: "missing" }) }).then((response) => response.json()), { cancelled: false, status: "unknown" });
 	assert.equal((await fetch(url("/api/eval/replay/run"), { method: "POST", headers, body: JSON.stringify({ cases: [], model: "faux/faux-1" }) })).status, 400);
 	const deleted = await fetch(url("/api/eval/replay/case/delete"), { method: "POST", headers, body: JSON.stringify({ sessionId: session.id, cutEntryId: first }) });
 	assert.deepEqual(await deleted.json(), { deleted: true });
-	assert.deepEqual(await fetch(url("/api/eval/replay/cases"), { headers }).then((response) => response.json()), { cases: [], baseline: { enabled: false, reason: "not_configured" } });
+	assert.deepEqual(await fetch(url("/api/eval/replay/cases"), { headers }).then((response) => response.json()), { cases: [], baseline: { enabled: false, reason: "not_configured" }, originalArm: true });
 });
 
 test("replay routes are absent when the service is disabled", async (t) => {
@@ -115,7 +119,8 @@ process.stdout.write(JSON.stringify({ runs: [], warnings: ["baseline_product_mat
 	const key = `${session.id}-${session.cutEntryId}`;
 	const prepared = await fetch(url("/api/eval/replay/prepare"), { method: "POST", headers, body: JSON.stringify({ cases: [key], repeats: 1, includeBaseline: true }) }).then((response) => response.json());
 	assert.equal(prepared.arms, 2);
-	assert.equal(prepared.runs, 2);
+	// Two products plus the control.
+	assert.equal(prepared.runs, 3);
 	assert.equal(prepared.includeBaseline, true);
 	const started = await fetch(url("/api/eval/replay/run"), { method: "POST", headers, body: JSON.stringify({ cases: [key], model: "faux/faux-1", repeats: 1, includeBaseline: true }) });
 	assert.equal(started.status, 202);
@@ -174,4 +179,41 @@ test("real sessions are found in nested project folders", async (t) => {
 		return;
 	}
 	assert.fail("the fake runner did not finish");
+});
+
+test("the dashboard service creates points from the session digest and runs the runner", async () => {
+	const home = await space();
+	const session = await synthetic(home.sessions, "replay-service");
+	// A fake runner: proves the dashboard parses progress, keeps results, and that
+	// cancellation is a kill, without loading a product runtime or a model.
+	const runner = join(home.root, "fake-runner.mjs");
+	await writeFile(runner, `process.stdout.write(JSON.stringify({progress:{done:1,total:2}})+"\\n");
+process.stdout.write(JSON.stringify({runs:[{key:"${session.id}-${session.cutEntryId}",arm:"candidate",repetition:1,verdict:"pass",reason:"fake",checkMode:"rule"}]})+"\\n");
+`, { mode: 0o600 });
+	const serviceArgs = [];
+	const service = createReplayService({ directory: home.directory, sessionsRoot: home.sessions, product: home.root, spawnProcess: (node, args) => {
+		// The recorded argv is what the dashboard would really run.
+		serviceArgs.push(args.slice(1));
+		return spawn(node, [runner]);
+	} });
+	const point = await service.add({ sessionId: session.id, cutEntryId: session.cutEntryId, expected: "先查状态", check: { mode: "rule", rule: "checks-before-claiming" } });
+	assert.equal(point.key, replayCaseKey(session.id, session.cutEntryId));
+	const listed = await service.cases();
+	assert.equal(listed.cases.length, 1);
+	assert.equal(listed.cases[0].latest, null);
+	const started = await service.start({ cases: [point.key], model: "faux/faux-1", repeats: 2 });
+	// 2 repetitions plus the original control, which runs once per point.
+	assert.equal(started.total, 3);
+	assert.match(serviceArgs[0].join(" "), /--model=faux\/faux-1/u);
+	assert.match(serviceArgs[0].join(" "), /--repeats=2/u);
+	const waitFor = async (runId, want) => { for (let tick = 0; tick < 60; tick += 1) { const now = service.status(runId).status; if (now === want) return now; await new Promise((resolveDelay) => setTimeout(resolveDelay, 100)); } return service.status(runId).status; };
+	assert.equal(await waitFor(started.runId, "done"), "done");
+	const status = service.status(started.runId);
+	assert.equal(status.status, "done");
+	assert.equal(status.results[0].verdict, "pass");
+	await assert.rejects(() => service.start({ cases: [], model: "faux/faux-1" }));
+	await assert.rejects(() => service.start({ cases: [point.key], model: "not a model" }));
+	await service.remove({ sessionId: session.id, cutEntryId: session.cutEntryId });
+	assert.deepEqual((await service.cases()).cases, []);
+	service.close();
 });

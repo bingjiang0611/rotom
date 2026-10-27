@@ -1,7 +1,7 @@
 // Replay prep: how the confirmation numbers are measured, and how the comparison
 // arm is resolved. Synthetic data only; no product runtime and no model.
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { after, test } from "node:test";
@@ -34,7 +34,9 @@ test("the plan counts characters from the redacted prefix only", () => {
 		{ key: "b", check: { mode: "model" }, entries: [entry("token: abcdefghijklmnopqrstuvwxyz012345")] },
 	];
 	const plan = measureReplayPlan({ items, repeats: 2, arms: 1 });
-	assert.equal(plan.runs, 4);
+	// 2 points × 2 repetitions for the product, plus one control run per point.
+	assert.equal(plan.runs, 6);
+	assert.equal(plan.originalRuns, 2);
 	assert.equal(plan.repeats, 2);
 	assert.equal(plan.arms, 1);
 	assert.deepEqual(plan.cases.map((item) => item.key), ["a", "b"]);
@@ -42,7 +44,11 @@ test("the plan counts characters from the redacted prefix only", () => {
 	for (const item of plan.cases) assert.match(String(item.chars), /^\d+$/u);
 	assert.ok(plan.cases[0].chars < JSON.stringify(items[0].entries).length);
 	assert.equal(plan.perCaseChars, plan.cases.reduce((total, item) => total + item.chars, 0));
-	assert.equal(plan.totalChars, plan.perCaseChars * 2);
+	// The control sends the judge input only, and only for the model-mode point.
+	assert.equal(plan.cases[0].originalChars, 0);
+	assert.ok(plan.cases[1].originalChars > 0);
+	assert.equal(plan.originalChars, plan.cases[1].originalChars);
+	assert.equal(plan.totalChars, plan.perCaseChars * 2 + plan.originalChars);
 	// The largest single point is what can blow a context window.
 	assert.equal(plan.maxChars, Math.max(...plan.cases.map((item) => item.chars)));
 	// Only the model-mode point reports masked credentials.
@@ -54,8 +60,10 @@ test("the plan counts characters from the redacted prefix only", () => {
 test("two arms double the run count and the total characters", () => {
 	const items = [{ key: "a", check: { mode: "rule", rule: "nonempty-handoff" }, entries: [entry("x")] }];
 	const plan = measureReplayPlan({ items, repeats: 1, arms: 2 });
-	assert.equal(plan.runs, 2);
+	// Two products plus the control.
+	assert.equal(plan.runs, 3);
 	assert.equal(plan.arms, 2);
+	assert.equal(plan.originalChars, 0, "a rule point sends nothing for the control");
 	assert.equal(plan.totalChars, plan.cases[0].chars * 2);
 });
 
@@ -70,6 +78,9 @@ test("the comparison arm needs an explicit, valid product directory", async () =
 	await mkdir(join(root, "product", "runtime"), { recursive: true });
 	await writeFile(join(root, "product", "runtime", "product-config.mjs"), "export default {};\n");
 	assert.deepEqual(await resolveReplayBaseline(join(root, "product")), { enabled: true, path: join(root, "product") });
+	// A symlink would make the comparison product depend on wherever it points.
+	await symlink(join(root, "product"), join(root, "linked"));
+	assert.deepEqual(await resolveReplayBaseline(join(root, "linked")), { enabled: false, reason: "symlink" });
 });
 
 test("identical product digests are stamped on every run row", async () => {
@@ -80,9 +91,11 @@ test("identical product digests are stamped on every run row", async () => {
 		sessionOf: async () => ({ status: "ready", entries: [{ type: "message", message: { role: "user", content: [{ type: "text", text: "go" }] } }], lastFailed: undefined }),
 		generate: async () => ({ message: { role: "assistant", content: [{ type: "text", text: "先查状态" }] } }) };
 	const same = await runReplayPlan({ ...base, arms: ["candidate", "baseline"], productDigests: { candidate: "d1", baseline: "d1" } });
-	assert.deepEqual(same.map((row) => row.sameProduct), [true, true]);
+	// The control row is first and carries no product at all.
+	assert.deepEqual(same.map((row) => row.sameProduct), [null, true, true]);
+	assert.deepEqual(same.map((row) => row.arm), ["original", "candidate", "baseline"]);
 	const different = await runReplayPlan({ ...base, arms: ["candidate", "baseline"], productDigests: { candidate: "d1", baseline: "d2" } });
-	assert.deepEqual(different.map((row) => row.sameProduct), [false, false]);
+	assert.deepEqual(different.map((row) => row.sameProduct), [null, false, false]);
 	const single = await runReplayPlan({ ...base, arms: ["candidate"], productDigests: { candidate: "d1" } });
-	assert.deepEqual(single.map((row) => row.sameProduct), [null]);
+	assert.deepEqual(single.map((row) => row.sameProduct), [null, null]);
 });

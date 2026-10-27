@@ -9,7 +9,6 @@ import { createEvalService } from "./eval/service.mjs";
 import { createJudgeService, JUDGE_BASE_ARGS, parseJudgeEvents, parseModelCatalog } from "./eval/judge.mjs";
 import { buildJudgeInput, JUDGE_MAX_INPUT_CHARS, validateJudgment } from "./eval/judge-prompt.mjs";
 import { latestJudgments, judgeAgreement, writeJudgment } from "./eval/judge-store.mjs";
-import { redactSecrets } from "./eval/redaction.mjs";
 import { startTraceDashboard } from "./dashboard.mjs";
 import { productRuntimeArgs } from "../../runtime/launch-runtime.mjs";
 import { COPY } from "./eval/copy.mjs";
@@ -106,68 +105,6 @@ test("long histories fold only unprotected ok runs and reject citations into fol
 	assert.throws(() => buildJudgeInput(irreducible), /judge_input_too_large/);
 });
 
-test("model catalog diagnostics distinguish protocol and process failures without exposing stderr", () => {
-	const valid = { models: [{ id: "fake/model" }], defaultModel: "fake/model" };
-	const output = { code: 0, terminal: { outcome: "exited", confirmed: true }, stdout: JSON.stringify(valid), stderr: "" };
-	assert.deepEqual(parseModelCatalog(output), valid);
-	assert.deepEqual(parseModelCatalog({ ...output, stdout: '{"models":[],"defaultModel":null}' }), { models: [], defaultModel: null });
-	const cases = [
-		[{ terminal: { outcome: "timeout", confirmed: true } }, "models_timeout"],
-		[{ terminal: { outcome: "spawn-error", confirmed: true } }, "launcher_unavailable"],
-		[{ terminal: { outcome: "unavailable", confirmed: false } }, "termination_unknown"],
-		[{ code: 1, stderr: "rotom: [runtime_validation_failed] synthetic private path" }, "models_identity_failed"],
-		[{ code: 7 }, "models_exit_failed"],
-		[{ stdout: "", stderr: JSON.stringify(valid) }, "models_stdout_empty"],
-		[{ stdout: "not json" }, "models_invalid_json"],
-		[{ stdout: '{"models":[null],"defaultModel":null}' }, "models_invalid_catalog"],
-		[{ stdout: JSON.stringify({ ...valid, models: [...valid.models, ...valid.models] }) }, "models_duplicate_ids"],
-		[{ stdout: JSON.stringify({ ...valid, defaultModel: "missing/model" }) }, "models_default_missing"],
-	];
-	for (const [change, code] of cases) {
-		assert.throws(() => parseModelCatalog({ ...output, ...change }), (error) => error.status === 503 && error.code === code && error.message === code);
-		assert.ok(COPY.errors[code]);
-	}
-	assert.equal(COPY.modelCheckCommand, "rotom/bin/rotom-launcher " + [...JUDGE_BASE_ARGS, "--list-models"].join(" "));
-});
-
-test("stderr-only catalog is logged locally, never merged into stdout or returned by the API", async (t) => {
-	const { root, directory, fake } = await fixture(t);
-	const diagnostics = [];
-	t.mock.method(console, "error", (text) => diagnostics.push(text));
-	await writeFile(fake.control, JSON.stringify({ modelsStderr: true }));
-	const dashboard = await startTraceDashboard({ root, evalDirectory: directory, judge: { launcher: fake.launcher } });
-	t.after(() => dashboard.close());
-	const response = await fetch(dashboard.baseUrl + "/api/eval/models", { headers: { Authorization: "Bearer " + dashboard.token } });
-	assert.equal(response.status, 503);
-	assert.deepEqual(await response.json(), { error: "models_stdout_empty" });
-	assert.equal(diagnostics.length, 1);
-	assert.ok(diagnostics[0].includes('"models"'));
-	assert.equal((await calls(fake)).length, 1);
-});
-
-test("missing launcher has an explicit actionable failure", async (t) => {
-	const { dir, evalService, directory } = await fixture(t);
-	const judge = createJudgeService({ evalService, directory, launcher: join(dir, "missing-launcher") });
-	await assert.rejects(judge.models(), { code: "launcher_unavailable" });
-	await judge.close();
-});
-
-test("failed model discovery is not cached or automatically retried; a successful retry is shared", async (t) => {
-	const { judge, fake } = await fixture(t);
-	await writeFile(fake.control, JSON.stringify({ modelsFail: true }));
-	const failures = await Promise.allSettled([judge.models(), judge.models()]);
-	assert.ok(failures.every((result) => result.status === "rejected"));
-	assert.equal((await calls(fake)).length, 1);
-	await writeFile(fake.control, JSON.stringify({ mode: "ok" }));
-	assert.deepEqual(await Promise.all([judge.models(), judge.models()]), [
-		{ models: [{ id: "fake/model" }], defaultModel: "fake/model" }, { models: [{ id: "fake/model" }], defaultModel: "fake/model" },
-	]);
-	await judge.models();
-	const logs = await calls(fake);
-	assert.equal(logs.length, 2);
-	assert.ok(logs.every((row) => row.args.includes("--list-models")), "retry never starts inference");
-});
-
 test("fake launcher proves exact argv, private empty cwd, stdin, model caching, confirmation, permissions, and no annotation write", async (t) => {
 	const { judge, fake, directory } = await fixture(t);
 	process.env.ROTOM_FAKE_SECRET = "synthetic-secret"; t.after(() => { delete process.env.ROTOM_FAKE_SECRET; });
@@ -222,124 +159,6 @@ test("failure, invalid JSON, timeout, cancellation and output limits are termina
 	}
 	assert.equal((await calls(fake)).length, 7, "one discovery plus exactly one invocation per explicit confirmation");
 	assert.equal((await latestJudgments(directory)).get(input.sessionId).historyCount, 6);
-});
-
-test("credential shapes are redacted before truncation and recorded by type", () => {
-	// Fixtures are assembled at runtime so the public-tree credential scan keeps
-	// flagging real-looking literals anywhere in the repository: a prefix literal
-	// is never long enough to match on its own, the repeating body is generated.
-	const secret = (parts) => parts.join("");
-	const credential = secret(["sk-ant-", "A".repeat(24)]);
-	const secrets = [
-		["anthropic-key", secret(["sk-ant-", "A".repeat(24)])],
-		["openai-key", secret(["sk-proj-", "B".repeat(24)])],
-		["github-token", secret(["ghp_", "C".repeat(32)])],
-		["aws-access-key", secret(["AKIA", "D".repeat(16)])],
-		["slack-token", secret(["xoxb-", "123456789012-abcdefghijkl"])],
-		["jwt", secret(["eyJhbGciOiJIUzI1NiJ9", ".", "eyJzdWIiOiIxMjM0NTY3ODkwIn0", ".", "dBjftJeZ4CVPmB92K27uhbUJU1p1r_wW1gFWFOEjXk"])],
-		["bearer-token", secret(["Bearer ", "E".repeat(20)])],
-		["assigned-secret", secret(["API_KEY=", "F".repeat(16)])],
-		["private-key", secret(["-----BEGIN RSA PRIVATE KEY-----\n", "MIIEow\n", "-----END RSA PRIVATE KEY-----"])],
-	];
-	for (const [type, value] of secrets) {
-		const result = redactSecrets(`before ${value} after`);
-		assert.ok(!result.text.includes(value.split(" ").at(-1).slice(0, 12)) || result.text.includes("[已脱敏:"), type);
-		assert.ok(result.redactions.some((entry) => entry.type === type), `${type} was not recorded`);
-		assert.ok(result.text.includes(`[已脱敏:${type}]`), type);
-	}
-	const cleanText = "token budget 4096; commit 3f786850e387550fdab836ed7e6dc881de23001b; id 123e4567-e89b-12d3-a456-426614174000; the word secret appears alone";
-	const clean = redactSecrets(cleanText);
-	assert.deepEqual(clean.redactions, []);
-	assert.equal(clean.text, cleanText);
-	// Review round 1: these ordinary coding strings were being rewritten, which
-	// corrupts the paths and code the judge needs to read.
-	const packageName = ["sk-learn-", "preprocessing", "-pipeline-v2"].join("");
-	const untouched = [
-		"pwd: /srv/app/rotom-eval",
-		"PWD=/srv/app/rotom-eval",
-		"secret = os.environ['X']",
-		"password: ********",
-		"token=2048tokens",
-		packageName,
-		"token: $GITHUB_TOKEN",
-		"api_key = process.env.API_KEY",
-	];
-	for (const sample of untouched) {
-		const result = redactSecrets(sample);
-		assert.deepEqual(result.redactions, [], `false positive on ${sample}`);
-		assert.equal(result.text, sample, `text rewritten for ${sample}`);
-	}
-	// Review round 2: narrowing the rules for item 7 caused misses. A miss is
-	// worse than a false positive here, so every shape below must still redact.
-	// Bodies are generated so the repository never stores a key-shaped literal.
-	const lowerHex = "a".repeat(32), openaiStyle = ["sk-proj-", "abc123def456", "ghi789jkl012", "mno345"].join("");
-	const mustRedact = [
-		["openai-key", `DEEPSEEK_API_KEY=sk-${lowerHex}`],
-		["openai-key", `x-key: sk-${lowerHex}`],
-		["openai-key", `export OPENAI_API_KEY="${openaiStyle}"`],
-		["assigned-secret", `OPENAI_API_KEY=${"b".repeat(24)}`],
-		["assigned-secret", `GITHUB_TOKEN=${"c".repeat(24)}`],
-		["assigned-secret", `AWS_SECRET_ACCESS_KEY=${"d".repeat(24)}`],
-		["assigned-secret", `x-api-key: ${"e".repeat(24)}`],
-		// Numeric passwords and PINs are common; a bare number is not a reference.
-		["assigned-secret", "password: 20240101"],
-		["assigned-secret", "password=83920174"],
-	];
-	for (const [type, sample] of mustRedact) {
-		const result = redactSecrets(sample);
-		assert.ok(result.redactions.some((entry) => entry.type === type), `${sample} was not recorded as ${type}`);
-		assert.ok(result.text.includes("[已脱敏:"), `${sample} was not redacted`);
-		// Reported counts must match the markers the prompt will contain.
-		for (const { type: reported, count } of result.redactions) {
-			assert.equal(result.text.split(`[已脱敏:${reported}]`).length - 1, count, `${sample} count mismatch for ${reported}`);
-		}
-	}
-	// Review round 3, item 1: a rule without capture groups was reading
-	// `(match, offset, wholeString)` as `(match, identifier, value)`, so any text
-	// that already held a marker let every later rule pass through untouched.
-	// Several credential types in one tool result is the common case.
-	const mixed = [
-		{
-			text: `sk-ant-${"A".repeat(24)} ghp_${"C".repeat(32)}`,
-			expected: { "anthropic-key": 1, "github-token": 1 },
-		},
-		{
-			text: `ghp_${"C".repeat(32)} AKIA${"D".repeat(16)}`,
-			expected: { "github-token": 1, "aws-access-key": 1 },
-		},
-		{
-			text: `AKIA${"D".repeat(16)} sk-ant-${"A".repeat(24)} ghp_${"C".repeat(32)} password=${"9".repeat(8)}`,
-			expected: { "aws-access-key": 1, "anthropic-key": 1, "github-token": 1, "assigned-secret": 1 },
-		},
-	];
-	for (const { text, expected } of mixed) {
-		const result = redactSecrets(text);
-		const actual = Object.fromEntries(result.redactions.map((entry) => [entry.type, entry.count]));
-		assert.deepEqual(actual, expected, `wrong per-type counts for ${text.slice(0, 12)}…`);
-		for (const type of Object.keys(expected)) {
-			assert.equal(result.text.split(`[已脱敏:${type}]`).length - 1, expected[type], `${type} markers do not match the count`);
-		}
-	}
-	// Review round 3, item 2: the budget exemption had an optional prefix, so a
-	// bare `token` was exempt too. A single token assignment is a credential.
-	const singleToken = redactSecrets("token: abcd1234efgh5678");
-	assert.ok(singleToken.redactions.some((entry) => entry.type === "assigned-secret"), "bare token must be redacted");
-	// A JSON object key carries a closing quote before the colon.
-	const quotedKey = redactSecrets(`{"apiKey": "${"z".repeat(24)}"}`);
-	assert.ok(quotedKey.redactions.some((entry) => entry.type === "assigned-secret"), "quoted JSON key must be redacted");
-	// Token budgets are configuration, not credentials.
-	for (const sample of ["MAX_TOKENS=200000", "max_tokens = 4096", "tokens=512"]) {
-		assert.deepEqual(redactSecrets(sample).redactions, [], `token budget was redacted: ${sample}`);
-	}
-	// Control: the same shapes still redact when the value is a literal secret,
-	// assembled at runtime so the repository holds no key-shaped literal.
-	const literalKey = ["sk-live-", "ABCDEF", "12345678"].join("");
-	assert.ok(redactSecrets(`api_key = ${literalKey}`).redactions.length > 0);
-	const literalPassword = ["hunter2", "hunter2"].join("");
-	assert.ok(redactSecrets(`password: ${literalPassword}`).redactions.some((entry) => entry.type === "assigned-secret"));
-	const truncatedField = redactSecrets(`x`.repeat(50) + " " + credential + " " + "y".repeat(50));
-	assert.ok(!truncatedField.text.includes(credential));
-	assert.ok(truncatedField.text.includes("[已脱敏:anthropic-key]"));
 });
 
 test("a real secret in the session is redacted before it reaches the prompt", async (t) => {

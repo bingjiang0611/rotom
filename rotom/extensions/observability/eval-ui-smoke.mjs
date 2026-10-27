@@ -29,8 +29,16 @@ await writeFile(replayRunner, `#!${process.execPath}
 import { appendFileSync } from "node:fs";
 appendFileSync(${JSON.stringify(replayMarker)}, JSON.stringify({ args: process.argv.slice(2) }) + "\\n");
 const slow = process.argv.some((item) => item === "--repeats=3");
-process.stdout.write(JSON.stringify({ progress: { done: 1, total: 3 } }) + "\\n");
-if (slow) { setTimeout(() => process.exit(0), 60000); } else { process.stdout.write(JSON.stringify({ runs: [] }) + "\\n"); }
+process.stdout.write(JSON.stringify({ progress: { done: 1, total: 2 } }) + "\\n");
+if (slow) { setTimeout(() => process.exit(0), 60000); } else {
+	// Two rows with reported usage plus one control label, so the panel's totals and
+	// conclusion line are exercised without a model.
+	const usage = (input, output) => ({ input, output, cacheRead: 0, cacheWrite: 0, costUsd: null, costSource: "unknown", billing: "unknown" });
+	process.stdout.write(JSON.stringify({ runs: [
+		{ key: "synthetic-a-review-entry-1", arm: "candidate", repetition: 1, verdict: "pass", reason: "rule", checkMode: "rule", usage: usage(120, 30) },
+		{ key: "synthetic-a-review-entry-1", arm: "original", repetition: 1, verdict: "fail", reason: "rule", checkMode: "rule", usage: usage(40, 5) },
+	], conclusions: [{ key: "synthetic-a-review-entry-1", conclusion: "caught" }] }) + "\\n");
+}
 `, { mode: 0o700 });
 const dashboard = await startTraceDashboard({ root, evalDirectory, judge: { launcher: fake.launcher }, replay: { spawnProcess: (node, args) => spawn(node, [replayRunner, ...args]) } });
 let browser, page;
@@ -188,18 +196,21 @@ try {
 	await page.getByText("未配置对照臂（ROTOM_EVAL_REPLAY_BASELINE），只能回放当前产品。", { exact: true }).waitFor();
 	await page.getByRole("button", { name: "运行回放", exact: true }).click();
 	// The dialog states the measured size before anything runs.
-	await page.getByText(/^共 1 次回放（1 个回放点 × 1 次 × 1 个产品）$/u).waitFor();
+	await page.getByText("共 2 次回放（1 个回放点 × 1 次 × 1 个产品，另加 1 次原回复对照）", { exact: true }).waitFor();
 	await page.locator('dialog[aria-label="确认运行回放"]').getByText(/^截断前内容：1 个回放点合计 [\d,]+ 字符（单个最大 [\d,]+），按上述次数总计 [\d,]+ 字符。$/u).waitFor();
 	await screenshot("eval-replay-confirm.png");
 	await page.getByRole("button", { name: "确认运行", exact: true }).click();
-	await page.getByText("回放结束 · 已运行 1 / 1", { exact: true }).waitFor();
+	await page.getByText("回放结束 · 已运行 2 / 2", { exact: true }).waitFor();
+	// Totals count only reported usage; the conclusion names what the control proved.
+	await page.getByText("总用量：输入 160 · 输出 35 · 合计 195 tokens（未报告的记为未知，不含费用）", { exact: true }).waitFor();
+	await page.getByText(/caught：原回复失败、当前产品通过，判定抓得住/u).waitFor();
 	// A slow runner proves progress is visible and cancel stops the run. The panel
 	// rebuilds its controls after each run, so the fields are filled again.
 	await page.locator("#eval-replay input[aria-label=" + JSON.stringify("模型") + "]").fill("faux/faux-1");
 	await page.locator("#eval-replay input[aria-label=" + JSON.stringify("每个回放点重复次数") + "]").fill("3");
 	await page.getByRole("button", { name: "运行回放", exact: true }).click();
 	await page.getByRole("button", { name: "确认运行", exact: true }).click();
-	await page.getByText("已运行 1 / 3", { exact: true }).waitFor();
+	await page.getByText("已运行 1 / 4", { exact: true }).waitFor();
 	await screenshot("eval-replay-progress.png");
 	await page.getByRole("button", { name: "取消回放", exact: true }).click();
 	await page.getByText(/回放已停止|回放结束/u).waitFor();

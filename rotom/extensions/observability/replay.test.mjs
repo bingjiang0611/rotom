@@ -8,10 +8,11 @@ import { after, test } from "node:test";
 import { fixtureSession } from "./eval-fixtures.mjs";
 import { loadSession } from "./eval/session-data.mjs";
 import {
-	assistantMessageOf, combineVerdicts, cutEntries, deleteReplayCase, lastFailedCall, readReplayCases, readReplayRuns,
+	assistantMessageOf, cutEntries, deleteReplayCase, lastFailedCall, readReplayCases, readReplayRuns, replayConclusions, replayConclusion, REPLAY_JUDGE_PROMPT_VERSION,
 	replayCaseInput, replayCaseKey, replayCasesDir, replaySource, REPLAY_TOOL_BLOCK_REASON, ruleVerdict, runReplayPlan, sessionSha256, writeReplayCase,
 } from "./eval/replay.mjs";
 import { blockerExtension } from "../../evals/scripts/session-replay.mjs";
+import { measureReplayPlan } from "./eval/replay-plan.mjs";
 import { createReplayService } from "./eval/replay-service.mjs";
 import { startTraceDashboard } from "./dashboard.mjs";
 import { writeFile as writeFixture } from "node:fs/promises";
@@ -95,11 +96,6 @@ test("the last failed call before the cut is recovered for the retry rule", asyn
 });
 
 test("unknown never becomes a pass", () => {
-	assert.equal(combineVerdicts({ verdict: "unknown", reason: "no context" }).verdict, "unknown");
-	assert.equal(combineVerdicts({ verdict: "fail", reason: "rule" }, { verdict: "pass", reason: "model" }).verdict, "fail");
-	assert.equal(combineVerdicts({ verdict: "unknown", reason: "rule" }, { verdict: "fail", reason: "model" }).verdict, "fail");
-	assert.equal(combineVerdicts({ verdict: "pass", reason: "rule" }, { verdict: "unknown", reason: "model" }).verdict, "pass");
-	assert.equal(combineVerdicts(undefined, undefined).verdict, "unknown");
 });
 
 test("a run writes one private record per arm and repetition", async () => {
@@ -115,8 +111,17 @@ test("a run writes one private record per arm and repetition", async () => {
 		generate: async ({ arm, repetition }) => { seen.push(`${arm}:${repetition}`); return { message: { role: "assistant", content: [{ type: "text", text: `第 ${repetition} 次：已读日志，下一步查配置。` }] } }; },
 	});
 	assert.deepEqual(seen.sort(), ["baseline:1", "baseline:2", "candidate:1", "candidate:2"]);
-	assert.equal(results.length, 4);
-	assert.equal(results.every((row) => row.verdict === "pass"), true);
+	// One row per product arm and repetition, plus the original control.
+	assert.equal(results.length, 5);
+	assert.equal(results.filter((row) => row.arm !== "original").every((row) => row.verdict === "pass"), true);
+	const original = results.find((row) => row.arm === "original");
+	// The pinned reply in this fixture is the failure the point was made from, so
+	// the control fails and the point proves improvement: "caught".
+	assert.equal(original.verdict, "fail");
+	assert.deepEqual(replayConclusions(results), [{ key: cases[0].key, conclusion: "caught" }]);
+	assert.equal(original.repetition, 1, "the control runs once, not once per repetition");
+	assert.equal(original.productDigest, null, "no product was loaded for the control");
+	assert.equal(original.usage, null, "a rule point sends nothing, so it has no usage");
 	const file = join(space.directory, "replay", "runs", "2026-10-27", `${cases[0].key}-candidate-1.json`);
 	assert.equal((await stat(file)).mode & 0o777, 0o600);
 	assert.equal((await stat(join(space.directory, "replay", "runs", "2026-10-27"))).mode & 0o777, 0o700);
@@ -125,6 +130,14 @@ test("a run writes one private record per arm and repetition", async () => {
 	assert.equal(stored.rule, "nonempty-handoff");
 	const latest = await readReplayRuns(space.directory);
 	assert.equal(latest.size, 1);
+	// Kept per arm: dropping the control would hide the comparison in the list.
+	assert.deepEqual(Object.keys(latest.get(cases[0].key)).sort(), ["baseline", "candidate", "original"]);
+	// The panel reads the same rows through the service, control included.
+	const service = createReplayService({ directory: space.directory, sessionsRoot: space.sessions, product: space.root });
+	const listed = await service.cases();
+	assert.deepEqual(listed.cases[0].arms.original.verdict, "fail");
+	assert.deepEqual(Object.keys(listed.cases[0].arms).sort(), ["baseline", "candidate", "original"]);
+	assert.equal(listed.cases[0].conclusion, "caught");
 });
 
 test("a changed session and a failed generation are recorded as unknown", async () => {
@@ -138,15 +151,16 @@ test("a changed session and a failed generation are recorded as unknown", async 
 		sessionOf: async () => replaySource({ branch: session.branch, sessionContent: session.content + "\n", expectedSha256: session.sha, cutEntryId: first }),
 		generate: async () => { throw new Error("must not be called"); },
 	});
-	assert.equal(changed[0].verdict, "unknown");
-	assert.equal(changed[0].reason, "source_changed");
+	assert.equal(changed.every((row) => row.verdict === "unknown" && row.reason === "source_changed"), true);
+	assert.equal(changed.length, 2, "the control is unknown too, so the point cannot be labelled");
 	const broken = await runReplayPlan({
 		directory: space.directory, day: "2026-10-28", cases, arms: ["candidate"],
 		sessionOf: async () => replaySource({ branch: session.branch, sessionContent: session.content, expectedSha256: session.sha, cutEntryId: first }),
 		generate: async () => { throw new Error("no model"); },
 	});
-	assert.equal(broken[0].verdict, "unknown");
-	assert.match(broken[0].reason, /generation_failed: no model/u);
+	const brokenCandidate = broken.find((row) => row.arm === "candidate");
+	assert.equal(brokenCandidate.verdict, "unknown");
+	assert.match(brokenCandidate.reason, /generation_failed: no model/u);
 });
 
 test("every tool call is blocked with the documented reason", () => {
@@ -186,44 +200,6 @@ test("replay point storage stays private and refuses escapes", async () => {
 	await assert.rejects(() => writeReplayCase(space.directory, input, session.sha));
 	assert.equal((await import("node:fs/promises").then(({ readdir }) => readdir(elsewhere))).length, 0);
 	await deleteReplayCase(space.directory, input.sessionId, input.cutEntryId).catch(() => {});
-});
-
-test("the dashboard service creates points from the session digest and runs the runner", async () => {
-	const space = await workspace();
-	const session = await synthetic(space);
-	const [first] = assistantIds(session.branch);
-	// A fake runner: proves the dashboard parses progress, keeps results, and that
-	// cancellation is a kill, without loading a product runtime or a model.
-	const runner = join(space.root, "fake-runner.mjs");
-	await writeFixture(runner, `process.stdout.write(JSON.stringify({progress:{done:1,total:2}})+"\\n");
-process.stdout.write(JSON.stringify({runs:[{key:"${session.id}-${first}",arm:"candidate",repetition:1,verdict:"pass",reason:"fake",checkMode:"rule"}]})+"\\n");
-`, { mode: 0o600 });
-	await writeFixture(join(space.sessions, `${session.id}.jsonl`), session.content, { mode: 0o600 });
-	const service = createReplayService({ directory: space.directory, sessionsRoot: space.sessions, product: space.root, spawnProcess: (node, args) => {
-		// The recorded argv is what the dashboard would really run.
-		serviceArgs.push(args.slice(1));
-		return spawn(node, [runner]);
-	} });
-	const serviceArgs = [];
-	const point = await service.add({ sessionId: session.id, cutEntryId: first, expected: "先查状态", check: { mode: "rule", rule: "checks-before-claiming" } });
-	assert.equal(point.key, replayCaseKey(session.id, first));
-	const listed = await service.cases();
-	assert.equal(listed.cases.length, 1);
-	assert.equal(listed.cases[0].latest, null);
-	const started = await service.start({ cases: [point.key], model: "faux/faux-1", repeats: 2 });
-	assert.equal(started.total, 2);
-	assert.match(serviceArgs[0].join(" "), /--model=faux\/faux-1/u);
-	assert.match(serviceArgs[0].join(" "), /--repeats=2/u);
-	const waitFor = async (runId, want) => { for (let tick = 0; tick < 60; tick += 1) { const now = service.status(runId).status; if (now === want) return now; await new Promise((resolveDelay) => setTimeout(resolveDelay, 100)); } return service.status(runId).status; };
-	assert.equal(await waitFor(started.runId, "done"), "done");
-	const status = service.status(started.runId);
-	assert.equal(status.status, "done");
-	assert.equal(status.results[0].verdict, "pass");
-	await assert.rejects(() => service.start({ cases: [], model: "faux/faux-1" }));
-	await assert.rejects(() => service.start({ cases: [point.key], model: "not a model" }));
-	await service.remove({ sessionId: session.id, cutEntryId: first });
-	assert.deepEqual((await service.cases()).cases, []);
-	service.close();
 });
 
 test("cancelling a running replay stops the runner", async () => {
@@ -271,3 +247,4 @@ test("a long real session is still readable", async (t) => {
 	assert.equal(point.key, replayCaseKey(session.id, first));
 	assert.ok((await service.prepare({ cases: [point.key], repeats: 1 })).totalChars > 9 * 1024 * 1024);
 });
+

@@ -87,8 +87,14 @@ test("a replay never executes a tool, twice, on two points, on both arms", { ski
 	const sentinel = join(home.root, "SENTINEL");
 	const extension = await fauxExtension(home.root, sentinel);
 	const digests = {};
-	const generatorOf = async (excludedResourceKeys) => {
-		const generator = await createGenerator({ productAgentDir: productDir, piExecutable, model: "faux/faux-1", extensions: [extension], excludedResourceKeys, cwd: await mkdtemp(join(tmpdir(), "rotom-replay-cwd-")) });
+	const loads = {};
+	const generatorOf = async (name, excludedResourceKeys) => {
+		const generator = await createGenerator({
+			productAgentDir: productDir, piExecutable, model: "faux/faux-1", extensions: [extension], excludedResourceKeys,
+			cwd: await mkdtemp(join(tmpdir(), "rotom-replay-cwd-")),
+			// Count product loads: one per arm for the whole run, not one per point.
+			loadProduct: async (input) => { loads[name] = (loads[name] ?? 0) + 1; return loadReplayProduct(input); },
+		});
 		return async (input) => { const result = await generator(input); digests[input.arm] = result.productDigest; return result; };
 	};
 	// The baseline arm declares one extension fewer, which is exactly the kind of
@@ -96,16 +102,26 @@ test("a replay never executes a tool, twice, on two points, on both arms", { ski
 	const full = await loadReplayProduct({ productAgentDir: productDir, piExecutable });
 	const excluded = full.selection.selectedResources.find((resource) => resource.kind === "extension" || resource.kind === "skill");
 	assert.ok(excluded, "the product must declare at least one resource");
-	const candidate = await generatorOf(undefined);
-	const baseline = await generatorOf([`${excluded.kind}:${excluded.id}`]);
+	const candidate = await generatorOf("candidate", undefined);
+	const baseline = await generatorOf("baseline", [`${excluded.kind}:${excluded.id}`]);
 	const results = await runReplayPlan({
 		directory: home.directory, day: "2026-10-28", cases, arms: ["candidate", "baseline"], repeats: 2,
 		sessionOf: async (item) => replaySource({ branch: loaded.branch, sessionContent: content, expectedSha256: sha, cutEntryId: item.cutEntryId }),
 		generate: async ({ arm, entries }) => (arm === "baseline" ? baseline : candidate)({ arm, entries }),
 	});
-	assert.equal(results.length, 8);
-	for (const row of results) {
+	// 2 points × 2 arms × 2 repeats, plus one original control per point.
+	assert.equal(results.length, 10);
+	assert.deepEqual(loads, { candidate: 1, baseline: 1 }, "each arm loads its product once for the whole run");
+	const controls = results.filter((row) => row.arm === "original");
+	assert.equal(controls.length, 2, "the control runs once per point");
+	for (const row of controls) {
+		assert.equal(row.productDigest, null, "the control loads no product");
+		assert.ok(row.reply, "the control grades the stored reply");
+	}
+	for (const row of results.filter((item) => item.arm !== "original")) {
 		assert.equal(row.verdict, "pass", `${row.key} ${row.arm} #${row.repetition}: ${row.reason}`);
+		// Usage comes from the generated message, in the judge's shape.
+		assert.deepEqual(Object.keys(row.usage).sort(), ["billing", "cacheRead", "cacheWrite", "costSource", "costUsd", "input", "output"]);
 		assert.ok(row.reply?.text, "the assistant message must be recorded");
 		assert.equal(row.reply.toolCalls.length, 1, "the intent to call a tool is recorded");
 		assert.equal(row.reply.toolCalls[0].name, "bash");

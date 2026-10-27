@@ -15,7 +15,7 @@ import { constants } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { assistantMessageOf, readReplayCases, REPLAY_SESSION_MAX_BYTES, REPLAY_TOOL_BLOCK_REASON, runReplayPlan, sessionSha256 } from "../../extensions/observability/eval/replay.mjs";
+import { assistantMessageOf, readReplayCases, replayConclusions, REPLAY_SESSION_MAX_BYTES, REPLAY_TOOL_BLOCK_REASON, runReplayPlan, sessionSha256 } from "../../extensions/observability/eval/replay.mjs";
 import { loadSession } from "../../extensions/observability/eval/session-data.mjs";
 import { redactSecrets } from "../../extensions/observability/eval/redaction.mjs";
 import { loadReplayProduct, openReplaySession, removeScratch } from "../src/replay-session.ts";
@@ -48,6 +48,8 @@ export async function loadReplaySession(sessionsRoot, sessionId, paths = {}) {
 	return { branch: loaded.branch, content: await readFile(path, "utf8") };
 }
 
+import { usageOf } from "../../extensions/observability/eval/judge.mjs";
+
 export { blockerSource as blockerExtension } from "../src/replay-session.ts";
 
 /**
@@ -55,8 +57,8 @@ export { blockerSource as blockerExtension } from "../src/replay-session.ts";
  * once per arm, but every generation gets its own scratch tree and session, so a
  * later replay can never run without the tool blocker in place.
  */
-export async function createGenerator({ productAgentDir, model, thinkingLevel, piExecutable, extensions = [], excludedResourceKeys, cwd }) {
-	const product = await loadReplayProduct({ productAgentDir, piExecutable, excludedResourceKeys });
+export async function createGenerator({ productAgentDir, model, thinkingLevel, piExecutable, extensions = [], excludedResourceKeys, cwd, loadProduct = loadReplayProduct }) {
+	const product = await loadProduct({ productAgentDir, piExecutable, excludedResourceKeys });
 	const [provider, id] = String(model).split("/");
 	if (!provider || !id) throw new Error(`model must be provider/id, got ${model}`);
 	/** Exposed on the function so a caller does not load the same product twice. */
@@ -66,7 +68,9 @@ export async function createGenerator({ productAgentDir, model, thinkingLevel, p
 		try {
 			opened = await openReplaySession({ product, model: { provider, id }, thinkingLevel, entries, scratch, extensions, cwd });
 			const result = await opened.run();
-			return { ...result, productDigest: product.digest };
+			// Usage comes from the generated assistant message, in the same shape the
+			// judge records; a missing usage stays unknown instead of becoming zero.
+			return { message: result.message, usage: usageOf(result.message), elapsedMs: result.elapsedMs, productDigest: product.digest };
 		} finally {
 			await opened?.close?.();
 			await removeScratch(scratch);
@@ -111,7 +115,8 @@ export async function createModelJudge({ model, launcher: launcherPath = undefin
 		try {
 			const value = JSON.parse(match[0]);
 			const verdict = ["pass", "fail", "unknown"].includes(value.verdict) ? value.verdict : "unknown";
-			return { verdict, reason: String(value.reason ?? "").slice(0, 300), elapsedMs: Date.now() - started };
+			// The original arm stores only the judge's own usage, so it must travel here.
+			return { verdict, reason: String(value.reason ?? "").slice(0, 300), elapsedMs: Date.now() - started, usage: parsed.usage ?? usageOf(null) };
 		} catch { return { verdict: "unknown", reason: "judge_json_invalid" }; }
 	};
 }
@@ -176,7 +181,13 @@ export async function main(argv = process.argv.slice(2)) {
 	// any difference between arms would be noise. Say so instead of letting the
 	// numbers look like a comparison.
 	const warnings = new Set(Object.values(arms)).size === 1 && Object.keys(arms).length > 1 ? ["baseline_product_matches_candidate"] : [];
-	return { arms, warnings, runs: results.map((row) => ({ key: row.key, arm: row.arm, repetition: row.repetition, verdict: row.verdict, reason: row.reason, checkMode: row.checkMode, sameProduct: row.sameProduct })) };
+	return {
+		arms, warnings,
+		// The label per point is computed from the rows just written, by the same
+		// function the dashboard list uses.
+		conclusions: replayConclusions(results),
+		runs: results.map((row) => ({ key: row.key, arm: row.arm, repetition: row.repetition, verdict: row.verdict, reason: row.reason, checkMode: row.checkMode, sameProduct: row.sameProduct, usage: row.usage })),
+	};
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {

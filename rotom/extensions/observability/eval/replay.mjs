@@ -119,13 +119,19 @@ export function ruleVerdict(rule, { reply, lastFailed }) {
 	return { verdict: "unknown", reason: "unknown rule" };
 }
 
-/** Combine one rule verdict with the model verdict; unknown never counts as pass. */
-export function combineVerdicts(ruleResult, modelResult) {
-	if (ruleResult?.verdict === "fail" || modelResult?.verdict === "fail") return { verdict: "fail", reason: ruleResult?.verdict === "fail" ? ruleResult.reason : modelResult.reason };
-	if (ruleResult?.verdict === "pass" && modelResult?.verdict === "pass") return { verdict: "pass", reason: ruleResult.reason };
-	if (ruleResult?.verdict === "pass") return { verdict: "pass", reason: ruleResult.reason };
-	if (modelResult?.verdict === "pass") return { verdict: "pass", reason: modelResult.reason };
-	return { verdict: "unknown", reason: ruleResult?.reason ?? modelResult?.reason ?? "no verdict" };
+/** The arm that re-grades the pinned reply; it never generates anything. */
+export const REPLAY_ORIGINAL_ARM = "original";
+
+/**
+ * What one replay point proves, judged from the original reply and the new one.
+ * `judge-blind` is the important one: the pinned reply did not fail the check, so
+ * the point cannot show improvement whatever the candidate does.
+ */
+export function replayConclusion({ original, candidate }) {
+	if (!original || !candidate) return "unknown";
+	if (original.verdict === "unknown" || candidate.verdict === "unknown") return "unknown";
+	if (original.verdict === "pass") return "judge-blind";
+	return candidate.verdict === "pass" ? "caught" : "still-failing";
 }
 
 async function ensurePrivate(folder) {
@@ -186,6 +192,19 @@ export function replaySource({ branch, sessionContent, expectedSha256, cutEntryI
 	return { status: "ready", entries: cut.entries, pinned: cut.pinned, lastFailed: lastFailedCall(cut.entries) };
 }
 
+/**
+ * Grade one reply. The original arm goes through this same function, so a point
+ * cannot be scored by a different rule or a different judge prompt than the one
+ * that scored its candidate.
+ */
+async function gradeReply({ item, reply, lastFailed, judgeModel, entries }) {
+	// A rule point is scored by its rule and nothing leaves the machine; only a
+	// model point sends the judge input. One check per point, as the panel says.
+	if (item.check.mode === "rule") return { verdict: ruleVerdict(item.check.rule, { reply, lastFailed }), usage: null, elapsedMs: null };
+	const model = judgeModel ? await judgeModel({ item, reply, entries }) : undefined;
+	return { verdict: model ?? { verdict: "unknown", reason: "model judge unavailable" }, usage: model?.usage ?? null, elapsedMs: model?.elapsedMs ?? null };
+}
+
 /** Run one replay point across arms and repetitions with injected model calls. */
 export async function runReplayPlan({ directory, day, cases, arms, repeats = 1, sessionOf, generate, judgeModel, onRun, now = () => new Date(), productDigests }) {
 	if (!Array.isArray(arms) || arms.length === 0) throw new Error("At least one arm is required");
@@ -196,17 +215,32 @@ export async function runReplayPlan({ directory, day, cases, arms, repeats = 1, 
 		? new Set(Object.values(productDigests)).size === 1
 		: null;
 	const count = Math.min(Math.max(Number(repeats) || 1, 1), 3);
+	// The original arm runs once per point: it grades a stored reply, so repeating
+	// it would only re-bill the judge for the same answer.
+	const total = cases.length * (arms.length * count + 1);
 	const folder = replayRunsDir(directory, day);
 	await ensurePrivate(folder);
 	const results = [];
+	const progress = (key) => onRun?.({ done: results.length, total, key });
 	for (const item of cases) {
 		const source = await sessionOf(item);
+		// Original arm first: it is the control that says whether the point can
+		// show anything at all, and it costs one judge call rather than a run.
+		const originalStartedAt = now().toISOString();
+		if (source.status !== "ready") {
+			results.push(await persist({ folder, item, arm: REPLAY_ORIGINAL_ARM, repetition: 1, startedAt: originalStartedAt, verdict: { verdict: "unknown", reason: source.reason }, checkMode: item.check.mode }));
+		} else {
+			const originalReply = assistantMessageOf(source.pinned?.message);
+			const graded = await gradeReply({ item, reply: originalReply, lastFailed: source.lastFailed, judgeModel, entries: source.entries });
+			results.push(await persist({ folder, item, arm: REPLAY_ORIGINAL_ARM, repetition: 1, startedAt: originalStartedAt, verdict: graded.verdict, checkMode: item.check.mode, reply: originalReply, usage: graded.usage, elapsedMs: graded.elapsedMs }));
+		}
+		progress(item.key);
 		for (const arm of arms) {
 			for (let repetition = 1; repetition <= count; repetition += 1) {
 				const startedAt = now().toISOString();
 				if (source.status !== "ready") {
 					results.push(await persist({ folder, item, arm, repetition, startedAt, sameProduct, verdict: { verdict: "unknown", reason: source.reason }, checkMode: item.check.mode }));
-					onRun?.({ done: results.length, total: cases.length * arms.length * count, key: item.key });
+					progress(item.key);
 					continue;
 				}
 				let message;
@@ -214,25 +248,30 @@ export async function runReplayPlan({ directory, day, cases, arms, repeats = 1, 
 					message = await generate({ entries: source.entries, arm, repetition, case: item });
 				} catch (error) {
 					results.push(await persist({ folder, item, arm, repetition, startedAt, sameProduct, verdict: { verdict: "unknown", reason: `generation_failed: ${error instanceof Error ? error.message : String(error)}` }, checkMode: item.check.mode }));
-					onRun?.({ done: results.length, total: cases.length * arms.length * count, key: item.key });
+					progress(item.key);
 					continue;
 				}
 				const reply = assistantMessageOf(message.message ?? message);
-				let verdict;
-				if (item.check.mode === "rule") {
-					const rule = ruleVerdict(item.check.rule, { reply, lastFailed: source.lastFailed });
-					const model = judgeModel ? await judgeModel({ item, reply, entries: source.entries }) : undefined;
-					verdict = model ? combineVerdicts(rule, model) : rule;
-				} else {
-					const model = judgeModel ? await judgeModel({ item, reply, entries: source.entries }) : undefined;
-					verdict = model ?? { verdict: "unknown", reason: "model judge unavailable" };
-				}
-				results.push(await persist({ folder, item, arm, repetition, startedAt, sameProduct, verdict, checkMode: item.check.mode, reply, message: message.message ?? message, usage: message.usage, elapsedMs: message.elapsedMs, productDigest: message.productDigest }));
+				const graded = await gradeReply({ item, reply, lastFailed: source.lastFailed, judgeModel, entries: source.entries });
+				results.push(await persist({ folder, item, arm, repetition, startedAt, sameProduct, verdict: graded.verdict, checkMode: item.check.mode, reply, message: message.message ?? message, usage: message.usage ?? graded.usage, elapsedMs: message.elapsedMs, productDigest: message.productDigest }));
 			}
-			onRun?.({ done: results.length, total: cases.length * arms.length * count, key: item.key });
+			progress(item.key);
 		}
 	}
 	return results;
+}
+
+/** Per-point conclusion from the rows of one run; `candidate` is the product arm. */
+export function replayConclusions(results) {
+	const byKey = new Map();
+	for (const row of results) {
+		const entry = byKey.get(row.key) ?? {};
+		// Repetitions: the first is enough to label a point; later ones are shown
+		// as separate rows, not averaged into a label that hides a flaky failure.
+		if (!entry[row.arm]) entry[row.arm] = row;
+		byKey.set(row.key, entry);
+	}
+	return [...byKey].map(([key, arms]) => ({ key, conclusion: replayConclusion({ original: arms[REPLAY_ORIGINAL_ARM], candidate: arms.candidate }) }));
 }
 
 async function persist({ folder, item, arm, repetition, startedAt, verdict, checkMode, reply, message, usage, elapsedMs, productDigest, sameProduct = null }) {
@@ -253,11 +292,13 @@ async function persist({ folder, item, arm, repetition, startedAt, verdict, chec
 	return { ...row, path: target };
 }
 
-/** Latest run per replay point, for the dashboard list. */
+/** Latest run per replay point and arm, for the dashboard list. */
 export async function readReplayRuns(directory) {
 	const root = join(replayRoot(directory), "runs");
 	await assertPrivatePath(root);
 	if (!(await statIfPresent(root))) return new Map();
+	// Keyed by point, then by arm: one point now has an original control and one
+	// row per product, and dropping any of them would hide the comparison.
 	const latest = new Map();
 	for (const day of (await readdir(root)).sort()) {
 		const folder = join(root, day);
@@ -266,8 +307,11 @@ export async function readReplayRuns(directory) {
 			if (!name.endsWith(".json")) continue;
 			const row = JSON.parse(await readPrivate(join(folder, name), 262_144));
 			if (row.schema !== REPLAY_RUN_SCHEMA) throw new Error("Invalid replay run");
-			const current = latest.get(row.key);
-			if (!current || String(row.finishedAt) > String(current.finishedAt)) latest.set(row.key, row);
+			if (![REPLAY_ORIGINAL_ARM, "candidate", "baseline"].includes(row.arm)) throw new Error("Invalid replay run arm");
+			const arms = latest.get(row.key) ?? {};
+			const current = arms[row.arm];
+			if (!current || String(row.finishedAt) > String(current.finishedAt)) arms[row.arm] = row;
+			latest.set(row.key, arms);
 		}
 	}
 	return latest;

@@ -10,21 +10,29 @@
 // still pass through. The value is that the common shapes stop leaving the
 // machine, and that the operator sees how many replacements were made.
 
-/** Named patterns so a future format is one entry, not an edit spread across code. */
+/**
+ * Named patterns so a future format is one entry, not an edit spread across code.
+ *
+ * Every quantifier is bounded. An unbounded `+` over a multi-megabyte run — a
+ * base64 blob pasted into a session, for example — overflows the regex engine's
+ * stack and throws `RangeError` instead of redacting, which took the whole judge
+ * and replay request down. The bounds sit far above any real credential, so a
+ * long run is simply not a credential; a real key inside a large field still is.
+ */
 export const CREDENTIAL_PATTERNS = [
-	{ type: "private-key", pattern: /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----/gu },
-	{ type: "anthropic-key", pattern: /sk-ant-[A-Za-z0-9_-]{16,}/gu },
+	{ type: "private-key", pattern: /-----BEGIN [A-Z0-9 ]{0,40}PRIVATE KEY-----[\s\S]{0,8192}?-----END [A-Z0-9 ]{0,40}PRIVATE KEY-----/gu },
+	{ type: "anthropic-key", pattern: /sk-ant-[A-Za-z0-9_-]{16,4096}/gu },
 	// `sk-`, optionally a few dash-separated prefix segments (`proj-`), then one
 	// contiguous 20+ alphanumeric run. Compatible-OpenAI services (DeepSeek and
 	// others) issue `sk-` plus lowercase hex, so case cannot be the signal. A
 	// package name such as `sk-learn-…-pipeline-v2` never has a run that long:
 	// every dash-separated segment is short.
-	{ type: "openai-key", pattern: /\bsk-(?!ant-)(?:[A-Za-z0-9]{1,12}-)*[A-Za-z0-9]{20,}/gu },
-	{ type: "github-token", pattern: /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}/gu },
+	{ type: "openai-key", pattern: /\bsk-(?!ant-)(?:[A-Za-z0-9]{1,12}-){0,16}[A-Za-z0-9]{20,4096}/gu },
+	{ type: "github-token", pattern: /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,4096}|\bgithub_pat_[A-Za-z0-9_]{20,4096}/gu },
 	{ type: "aws-access-key", pattern: /\bAKIA[0-9A-Z]{16}\b/gu },
-	{ type: "slack-token", pattern: /\bxox[abprs]-[A-Za-z0-9-]{10,}/gu },
-	{ type: "jwt", pattern: /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/gu },
-	{ type: "bearer-token", pattern: /\bBearer\s+[A-Za-z0-9._~+/=-]{12,}/gu },
+	{ type: "slack-token", pattern: /\bxox[abprs]-[A-Za-z0-9-]{10,4096}/gu },
+	{ type: "jwt", pattern: /\beyJ[A-Za-z0-9_-]{8,4096}\.[A-Za-z0-9_-]{8,4096}\.[A-Za-z0-9_-]{8,4096}/gu },
+	{ type: "bearer-token", pattern: /\bBearer\s+[A-Za-z0-9._~+/=-]{12,4096}/gu },
 	// Keyword assignment. The keyword may sit inside a longer identifier so
 	// environment variables and headers are covered: `OPENAI_API_KEY`,
 	// `GITHUB_TOKEN`, `AWS_SECRET_ACCESS_KEY`, `x-api-key`. `pwd` is deliberately
@@ -32,7 +40,7 @@ export const CREDENTIAL_PATTERNS = [
 	// Group 1 is the full identifier, group 2 the candidate value.
 	// A closing quote may sit between the key and the colon, so JSON object keys
 	// (`{"apiKey": "…"}`) are covered too.
-	{ type: "assigned-secret", pattern: /(?<![A-Za-z0-9])((?:[A-Za-z0-9]+[_-])*(?:api[_-]?key|apikey|access[_-]?key|secret|token|password|passwd)(?:[_-][A-Za-z0-9]+)*)["']?\s*[:=]\s*["']?([^\s"',;]{8,})["']?/giu },
+	{ type: "assigned-secret", pattern: /(?<![A-Za-z0-9])((?:[A-Za-z0-9]+[_-]){0,16}(?:api[_-]?key|apikey|access[_-]?key|secret|token|password|passwd)(?:[_-][A-Za-z0-9]+){0,16})["']?\s*[:=]\s*["']?([^\s"',;]{8,4096})["']?/giu },
 ];
 
 /**

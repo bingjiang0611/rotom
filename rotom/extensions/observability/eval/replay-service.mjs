@@ -4,12 +4,12 @@
 // product runtime and models can take minutes, so the dashboard must be able to
 // report progress, cancel, and stay responsive while a replay runs.
 import { spawn } from "node:child_process";
-import { readFile, stat } from "node:fs/promises";
+import { lstat, readFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { evalError } from "./service.mjs";
 import {
-	cutEntries, deleteReplayCase, readReplayCases, readReplayRuns, replayCaseKey, REPLAY_SESSION_MAX_BYTES, sessionSha256, writeReplayCase,
+	cutEntries, deleteReplayCase, readReplayCases, readReplayRuns, replayCaseKey, replayConclusion, REPLAY_SESSION_MAX_BYTES, sessionSha256, writeReplayCase,
 } from "./replay.mjs";
 import { clampRepeats, measureReplayPlan } from "./replay-plan.mjs";
 
@@ -25,9 +25,11 @@ const MAX_PROGRESS_LINES = 200;
 export async function resolveReplayBaseline(value) {
 	if (value === undefined || value === null || value === "") return { enabled: false, reason: "not_configured" };
 	if (typeof value !== "string" || !isAbsolute(value)) return { enabled: false, reason: "not_absolute" };
-	const info = await stat(value).catch(() => undefined);
+	const info = await lstat(value).catch(() => undefined);
+	// A symlink would make "the baseline product" depend on wherever it points.
+	if (info?.isSymbolicLink()) return { enabled: false, reason: "symlink" };
 	if (!info?.isDirectory()) return { enabled: false, reason: "not_a_directory" };
-	const marker = await stat(join(value, "runtime", "product-config.mjs")).catch(() => undefined);
+	const marker = await lstat(join(value, "runtime", "product-config.mjs")).catch(() => undefined);
 	if (!marker?.isFile()) return { enabled: false, reason: "not_a_product" };
 	return { enabled: true, path: value };
 }
@@ -55,7 +57,19 @@ export function createReplayService({ directory, sessionsRoot, product, armBasel
 	return {
 		async cases() {
 			const [cases, runs] = await Promise.all([readReplayCases(directory), readReplayRuns(directory)]);
-			return { cases: cases.map((item) => ({ ...item, latest: runs.get(item.key) ?? null })), baseline: { enabled: baseline.enabled, reason: baseline.enabled ? null : baseline.reason } };
+			return {
+				cases: cases.map((item) => {
+					const arms = runs.get(item.key) ?? {};
+					return {
+						...item,
+						// The candidate row stays `latest` for the existing list, and every
+						// arm is exposed so the panel can show the control side by side.
+						latest: arms.candidate ?? null, arms,
+						conclusion: replayConclusion({ original: arms.original, candidate: arms.candidate }),
+					};
+				}),
+				baseline: { enabled: baseline.enabled, reason: baseline.enabled ? null : baseline.reason }, originalArm: true,
+			};
 		},
 		/** Numbers for the confirmation dialog; never starts a run. */
 		async prepare(input) {
@@ -68,7 +82,7 @@ export function createReplayService({ directory, sessionsRoot, product, armBasel
 			for (const id of ids) {
 				const item = all.find((row) => row.key === id || row.sessionId === id);
 				if (!item) throw evalError(400, "invalid_replay_point");
-				items.push({ key: item.key, check: item.check, entries: await loadBranch(item.sessionId, item.cutEntryId) });
+				items.push({ key: item.key, check: item.check, expected: item.expected, entries: await loadBranch(item.sessionId, item.cutEntryId) });
 			}
 			const repeats = clampRepeats(input?.repeats);
 			return { ...measureReplayPlan({ items, repeats, arms: includeBaseline ? 2 : 1 }), includeBaseline };
@@ -100,7 +114,9 @@ export function createReplayService({ directory, sessionsRoot, product, armBasel
 			}
 			args.push(`--paths=${JSON.stringify(paths)}`);
 			const child = spawnProcess(node, args, { env: { ...env, ROTOM_REPLAY: "1" }, stdio: ["ignore", "pipe", "pipe"] });
-			const state = { runId: `replay-${Date.now().toString(36)}`, cases: ids.length, repeats, arms: input.includeBaseline === true ? 2 : 1, done: 0, total: ids.length * repeats * (input.includeBaseline === true ? 2 : 1), status: "running", results: [], warnings: [], error: null };
+			const armCount = input.includeBaseline === true ? 2 : 1;
+			// Count the original control: it runs once per point, not per repetition.
+			const state = { runId: `replay-${Date.now().toString(36)}`, cases: ids.length, repeats, arms: armCount, done: 0, total: ids.length * (repeats * armCount + 1), status: "running", results: [], conclusions: [], warnings: [], error: null };
 			const record = { child, state };
 			let buffered = "";
 			child.stdout?.setEncoding("utf8");
@@ -113,6 +129,7 @@ export function createReplayService({ directory, sessionsRoot, product, armBasel
 						const row = JSON.parse(line);
 						if (row.progress) state.done = Math.min(row.progress.done ?? state.done, state.total);
 						else if (Array.isArray(row.runs)) state.results = row.runs;
+						if (Array.isArray(row.conclusions)) state.conclusions = row.conclusions;
 						if (Array.isArray(row.warnings)) state.warnings = row.warnings;
 					} catch { /* the runner also writes human text; ignore non-JSON lines */ }
 				}
@@ -132,7 +149,7 @@ export function createReplayService({ directory, sessionsRoot, product, armBasel
 			const record = runs.get(runId);
 			if (!record) return { status: "unknown", runId: runId ?? null };
 			const { state } = record;
-			return { runId: state.runId, status: state.status, done: state.done, total: state.total, cases: state.cases, repeats: state.repeats, arms: state.arms, results: state.results, warnings: state.warnings, error: state.error };
+			return { runId: state.runId, status: state.status, done: state.done, total: state.total, cases: state.cases, repeats: state.repeats, arms: state.arms, results: state.results, conclusions: state.conclusions, warnings: state.warnings, error: state.error };
 		},
 		cancel(runId) {
 			const record = runs.get(runId);

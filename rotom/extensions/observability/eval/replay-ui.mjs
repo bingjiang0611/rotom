@@ -18,7 +18,7 @@ export function replayClient(ctx) {
 	}
 	async function replayPanel() {
 		const box = make('section'); box.id = 'eval-replay';
-		const message = make('p', 'eval-muted'), list = make('div'), progressNotice = make('p', 'eval-notice');
+		const message = make('p', 'eval-muted'), list = make('div'), progressNotice = make('p', 'eval-notice'), runResults = make('div', 'eval-notice');
 		box.append(make('h3', '', C.replay), message, list);
 		let state = { cases: [] }, activeRun = null;
 		const render = async () => {
@@ -26,10 +26,21 @@ export function replayClient(ctx) {
 			list.replaceChildren();
 			if (!state.cases.length) list.append(make('p', 'eval-muted', C.replayEmpty));
 			for (const item of state.cases) {
-				const latest = item.latest, node = make('article', 'eval-session');
+				const latest = item.latest, arms = item.arms || {}, node = make('article', 'eval-session');
 				node.append(make('strong', '', item.sessionId + ' · ' + item.cutEntryId.slice(0, 8)), make('p', 'eval-text', item.expected),
-					make('p', 'eval-meta', latest ? (C[latest.verdict] || latest.verdict) + ' · ' + latest.arm + ' · ' + latest.startedAt : C.replayNeverRun),
-					latest?.reason ? make('p', 'eval-muted', latest.reason) : make('span', ''));
+					make('p', 'eval-meta', latest ? C.replayRanAt + ' ' + latest.startedAt : C.replayNeverRun));
+				// Side by side: the control says whether the point can prove anything,
+				// so it is shown next to the product result rather than buried in it.
+				const columns = make('div', 'eval-arms');
+				for (const name of ['original', 'candidate', 'baseline']) {
+					if (name === 'baseline' && !arms.baseline) continue;
+					const row = arms[name];
+					columns.append(make('p', 'eval-meta', C.replayArmNames[name] + '：' + (row ? (C[row.verdict] || row.verdict) : C.replayNeverRun)));
+				}
+				node.append(columns);
+				const labels = { caught: C.replayCaught, 'still-failing': C.replayStillFailing, 'judge-blind': C.replayJudgeBlind, unknown: C.replayLabelUnknown };
+				if (arms.original || latest) node.append(make('p', arms.conclusion === 'judge-blind' || item.conclusion === 'judge-blind' ? 'eval-notice' : 'eval-text', C.replayConclusion + ' ' + (labels[item.conclusion] || labels.unknown)));
+				if (latest?.reason) node.append(make('p', 'eval-muted', latest.reason));
 				// Two arms that load the same product cannot show a difference.
 				if (latest?.sameProduct === true) node.append(make('p', 'eval-notice', C.replaySameProduct));
 				node.append(button(C.replayDelete, async () => { await api('/api/eval/replay/case/delete', { sessionId: item.sessionId, cutEntryId: item.cutEntryId }); await render(); }, 'eval-next'));
@@ -71,6 +82,16 @@ export function replayClient(ctx) {
 						if (status.status !== 'running') {
 							progressNotice.textContent = C[status.status === 'done' ? 'replayDone' : 'replayStopped'] + ' · ' + format(C.replayProgress, { done: status.done, total: status.total });
 							if (status.warnings?.includes('baseline_product_matches_candidate')) progressNotice.textContent += ' · ' + C.replaySameProduct;
+							// Token usage is only known for points a model judged or generated.
+							const totals = usageTotals(status.results || []);
+							runResults.replaceChildren();
+							if (totals.known) runResults.append(make('p', 'eval-text', format(C.replayUsage, { input: tokens(totals.input), output: tokens(totals.output), total: tokens(totals.input + totals.output) })));
+							else runResults.append(make('p', 'eval-muted', C.replayUsageUnknown));
+							for (const row of status.conclusions || []) {
+								const label = { caught: C.replayCaught, 'still-failing': C.replayStillFailing, 'judge-blind': C.replayJudgeBlind, unknown: C.replayLabelUnknown }[row.conclusion] || C.replayLabelUnknown;
+								runResults.append(make('p', 'eval-meta', row.key.slice(-8).replace(/^-/u, '') + ' · ' + label));
+							}
+							if ((status.conclusions || []).some((row) => row.conclusion === 'judge-blind')) runResults.append(make('p', 'eval-notice', C.replayJudgeBlindHint));
 							break;
 						}
 					}
@@ -79,11 +100,22 @@ export function replayClient(ctx) {
 				run.disabled = false;
 				await render();
 			}, 'eval-primary');
-			runBox.append(model, repeats, baseline, baselineLabel, baselineNote, run, cancel, progressNotice);
+			runBox.append(model, repeats, baseline, baselineLabel, baselineNote, run, cancel, progressNotice, runResults);
 			list.append(runBox);
 		};
 		await render();
 		return box;
+	}
+	const tokens = (value) => Math.round(value).toLocaleString('en-US');
+	// Sum only what was reported; a missing usage stays unknown rather than zero.
+	function usageTotals(results) {
+		let known = false, input = 0, output = 0;
+		for (const row of results) {
+			const usage = row && row.usage;
+			if (!usage || (usage.input === null && usage.output === null)) continue;
+			known = true; input += usage.input || 0; output += usage.output || 0;
+		}
+		return { known, input, output };
 	}
 	function confirmReplay({ plan, cases, model, repeats, baseline }) {
 		const number = (value) => new Intl.NumberFormat('zh-CN').format(value ?? 0);
@@ -96,8 +128,9 @@ export function replayClient(ctx) {
 				: [];
 			dialog.append(make('h2', '', C.replayConfirmTitle),
 				make('p', 'eval-text', format(C.replayConfirmDetails, { cases, runs: plan.runs, model: model || C.unknown, repeats, baseline: baseline ? C.yes : C.no })),
-				make('p', 'eval-text', format(C.replayPlanRuns, { runs: number(plan.runs), cases, repeats, arms: plan.arms })),
+				make('p', 'eval-text', format(C.replayPlanRuns, { runs: number(plan.runs), cases, repeats, arms: plan.arms, original: number(plan.originalRuns) })),
 				make('p', 'eval-text', format(C.replayPlanChars, { cases: number(plan.cases.length), chars: number(plan.perCaseChars), max: number(plan.maxChars), total: number(plan.totalChars) })),
+				make('p', 'eval-muted', format(C.replayPlanOriginalChars, { counts: number(plan.originalRuns), chars: number(plan.originalChars) })),
 				...redactionLine,
 				make('p', '', C.consent), button(C.cancel, () => dialog.close()), button(C.replayConfirm, () => dialog.close('confirm'), 'eval-primary'));
 			dialog.addEventListener('close', () => { const accepted = dialog.returnValue === 'confirm'; dialog.remove(); resolve(accepted); }, { once: true });

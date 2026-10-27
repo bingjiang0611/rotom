@@ -36,7 +36,8 @@ export function parseModelCatalog(output) {
 	if (!(data.defaultModel === null || data.models.some((item) => item.id === data.defaultModel))) throw evalError(503, "models_default_missing");
 	return { models: data.models.map(({ id }) => ({ id })), defaultModel: data.defaultModel };
 }
-function usageOf(message) {
+/** Token usage in the one shape the judge and replay both persist. */
+export function usageOf(message) {
 	const usage = message?.usage;
 	const number = (value) => Number.isFinite(value) && value >= 0 ? value : null;
 	return { input: number(usage?.input), output: number(usage?.output), cacheRead: number(usage?.cacheRead), cacheWrite: number(usage?.cacheWrite),
