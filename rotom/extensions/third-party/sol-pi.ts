@@ -4,7 +4,7 @@ import { DEFAULT_CONFIG, findConfigPath, loadSolPiConfig, type SolPiConfig } fro
 /**
  * rotom's default when the user has no SoL-Pi config file. It replaces
  * SoL-Pi's all-off default with the features the maintainer runs daily.
- * Online Context Compact and Compaction Offload stay off. An existing file
+ * Only Online Context Compact stays off. An existing file
  * replaces these defaults; the explicit offload environment override is last.
  */
 export const ROTOM_SOL_PI_DEFAULT_CONFIG: SolPiConfig = Object.freeze({
@@ -12,7 +12,7 @@ export const ROTOM_SOL_PI_DEFAULT_CONFIG: SolPiConfig = Object.freeze({
 	actionFusion: true,
 	observationPack: true,
 	evidencePreservingReducer: true,
-	compactionOffload: false,
+	compactionOffload: true,
 });
 
 const COPY = {

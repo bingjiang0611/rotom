@@ -176,9 +176,9 @@ test("SoL-Pi defaults, trusted config and ROTOM_COMPACTION_OFFLOAD override", as
 	const ctx = (trusted: boolean) => ({ cwd, isProjectTrusted: () => trusted });
 	const features = (config: any) => [config.actionFusion, config.observationPack, config.evidencePreservingReducer, config.onlineContextCompact, config.compactionOffload];
 
-	assert.deepEqual(features(loadRotomSolPiConfig(ctx(true), agentDir)), [true, true, true, false, false], "offload defaults off");
+	assert.deepEqual(features(loadRotomSolPiConfig(ctx(true), agentDir)), [true, true, true, false, true], "rotom offload defaults on");
 	writeFileSync(join(cwd, ".pi", "sol-pi.json"), JSON.stringify({ version: 1, observationPack: true }));
-	assert.deepEqual(features(loadRotomSolPiConfig(ctx(false), agentDir)), [true, true, true, false, false], "untrusted project config must be ignored");
+	assert.deepEqual(features(loadRotomSolPiConfig(ctx(false), agentDir)), [true, true, true, false, true], "untrusted project config must be ignored");
 	assert.deepEqual(features(loadRotomSolPiConfig(ctx(true), agentDir)), [false, true, false, false, false]);
 	writeFileSync(join(agentDir, "sol-pi.json"), JSON.stringify({ version: 1 }));
 	assert.deepEqual(features(loadRotomSolPiConfig(ctx(false), agentDir)), [false, false, false, false, false]);
@@ -189,11 +189,14 @@ test("SoL-Pi defaults, trusted config and ROTOM_COMPACTION_OFFLOAD override", as
 	const cases = [
 		{ name: "unset preserves user true", env: undefined, config: enabled, expected: true, warning: false },
 		{ name: "empty preserves user true", env: "", config: enabled, expected: true, warning: false },
-		{ name: "1 enables rotom default", env: "1", config: undefined, expected: true, warning: false },
+		{ name: "1 preserves rotom default", env: "1", config: undefined, expected: true, warning: false },
+		{ name: "unset preserves omitted user field as false", env: undefined, config: { version: 1, observationPack: true }, expected: false, warning: false },
+		{ name: "1 overrides user false with Observation Pack", env: "1", config: { version: 1, observationPack: true, compactionOffload: false }, expected: true, warning: false },
+		{ name: "0 disables rotom default", env: "0", config: undefined, expected: false, warning: false },
 		{ name: "1 with Observation Pack disabled stays off", env: "1", config: { version: 1, observationPack: false }, expected: false, warning: true },
 		{ name: "0 overrides user true", env: "0", config: enabled, expected: false, warning: false },
 		{ name: "invalid value preserves user true", env: "true", config: enabled, expected: true, warning: true },
-		{ name: "invalid value preserves rotom default false", env: "2", config: undefined, expected: false, warning: true },
+		{ name: "invalid value preserves rotom default true", env: "2", config: undefined, expected: true, warning: true },
 	];
 	for (const scenario of cases) await t.test(scenario.name, () => {
 		if (scenario.env === undefined) delete process.env.ROTOM_COMPACTION_OFFLOAD;
@@ -203,6 +206,7 @@ test("SoL-Pi defaults, trusted config and ROTOM_COMPACTION_OFFLOAD override", as
 		warnings.length = 0;
 		assert.equal(loadRotomSolPiConfig(ctx(false), agentDir).compactionOffload, scenario.expected);
 		assert.equal(warnings.length, scenario.warning ? 1 : 0);
+		if (scenario.env === "1" && scenario.warning) assert.match(warnings[0]!, /requires Observation Pack; compaction offload remains disabled$/u);
 	});
 });
 
