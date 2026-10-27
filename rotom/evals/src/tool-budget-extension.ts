@@ -14,15 +14,19 @@ import type { InlineExtension } from "@earendil-works/pi-coding-agent";
 export const TOOL_BUDGET_REASON = "tool budget for this turn is exhausted";
 
 /**
- * Registers a `tool_call` handler that blocks every call after `limit` calls.
- * Counts attempts, not successes, so a failed call still spends budget.
+ * Registers a `tool_call` handler that blocks every `edit` after `limit`
+ * edits. Only edits spend budget: reading is how the model learns what to
+ * change, so charging reads makes the run stop before it changes anything and
+ * the case would test "could not start" instead of "interrupted mid-way".
+ * Counts attempts, not successes, so a failed edit still spends budget.
  */
 export function createToolBudgetExtension(limit: number): InlineExtension {
 	return (pi) => {
-		let used = 0;
+		let edits = 0;
 		pi.on("tool_call", (event) => {
-			used += 1;
-			if (used <= limit) return;
+			if (event.toolName !== "edit") return;
+			edits += 1;
+			if (edits <= limit) return;
 			return { block: true, reason: `${TOOL_BUDGET_REASON} (${event.toolName})` };
 		});
 	};
