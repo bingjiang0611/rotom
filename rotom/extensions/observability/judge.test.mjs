@@ -31,7 +31,11 @@ async function done(judge, id) {
 	}
 	return judge.status(id);
 }
-async function calls(fake) { return (await readFile(fake.calls, "utf8")).trim().split("\n").map((line) => JSON.parse(line)); }
+async function calls(fake) {
+	const lines = (await readFile(fake.calls, "utf8")).split("\n");
+	lines.pop(); // The fake writer commits a record by appending its newline.
+	return lines.filter(Boolean).map((line) => JSON.parse(line));
+}
 const input = { sessionId: "synthetic-active", model: "fake/model" };
 
 test("bounded independent judge input has numbered events, explicit truncation and strict output validation", async (t) => {
