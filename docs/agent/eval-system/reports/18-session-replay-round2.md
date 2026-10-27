@@ -163,3 +163,16 @@ Playwright 冒烟（`eval-ui-smoke.mjs`，合成数据 + 假运行器）：把�
 - **L1（已做）**：新增/扩展的单元与路由测试、CI 列表更新、审计、体积守卫。
 - **L2（已做，离线）**：Playwright 冒烟覆盖「未配置基线 → 准备数字 → 确认 → 运行 → 取消 → 删除」；API 层覆盖配置基线后的双臂参数与警告透传。
 - **L3（未做）**：仍未真实运行模型或真实会话；两臂真实差异（真有基线产品时摘要不同）只在逻辑层验证，没有真实基线产物验证。
+
+---
+
+## 核验（第 3 轮）：accepted
+
+核验对象 `8c2953a`，CI `40480129775` 绿。本地复跑：node 测试（dashboard / eval / judge / replay / replay-api / replay-plan / process-tree）75 项通过；`replay-e2e` 3 项通过、0 项 skipped。
+
+- **基线：** 现在必须显式配置 `ROTOM_EVAL_REPLAY_BASELINE`，校验它是绝对路径、存在、是目录、里面有 `runtime/product-config.mjs`；`?? product` 兜底已经去掉。没配置时 UI 隐藏勾选框，服务端拒绝；两臂摘要相同会标 `sameProduct`，并给出警告。
+- **确认弹窗：** prepare 只做统计、不启动进程，字符数按脱敏后的截断前缀计算，乘以实际重复次数和臂数；弹窗显示总量和单个回放点的最大值。只有模型判定的回放点才显示脱敏统计。
+
+小问题（不阻塞）：`resolveReplayBaseline` 没有拒绝 symlink。这个路径由 bob 自己通过环境变量设置，风险低，以后顺手加一个 `lstat` 检查即可。
+
+**L3 待 bob：** 按 [replay-first-run.md](../replay-first-run.md) 做第一次真实回放。
