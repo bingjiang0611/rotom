@@ -13,6 +13,7 @@ import { fixtureSession } from "../../extensions/observability/eval-fixtures.mjs
 import { loadSession } from "../../extensions/observability/eval/session-data.mjs";
 import { assistantMessageOf, readReplayCases, replaySource, runReplayPlan, sessionSha256, writeReplayCase } from "../../extensions/observability/eval/replay.mjs";
 import { createGenerator, createModelJudge, parseArgs } from "../scripts/session-replay.mjs";
+import { replayJudgeContext } from "../../extensions/observability/eval/replay-judge.mjs";
 import { loadReplayProduct, openReplaySession } from "../src/replay-session.ts";
 
 // The test boots a real product runtime in-process. Qoder and trace writing are
@@ -154,11 +155,24 @@ const rows = [
 process.stdout.write(rows.map((row) => JSON.stringify(row)).join(newline) + newline);
 `, { mode: 0o700 });
 	const judge = await createModelJudge({ model: "faux/faux-1", launcher });
-	const verdict = await judge({ item: { expected: "先查状态" }, reply: assistantMessageOf({ content: [{ type: "text", text: "已完成。" }] }), entries: [] });
+	// A message carrying a screenshot: v2 must hand the judge the readable text and
+	// a placeholder, never the image payload.
+	const entries = [
+		{ type: "message", message: { role: "user", content: "先看这个报错再改" } },
+		{ type: "message", message: { role: "assistant", content: [{ type: "image", data: "iVBORw0KGgo".repeat(20000) }, { type: "text", text: "截图里有个红叉" }] } },
+	];
+	const verdict = await judge({ item: { expected: "先查状态" }, reply: assistantMessageOf({ content: [{ type: "text", text: "已完成。" }] }), entries });
 	assert.deepEqual({ verdict: verdict.verdict, reason: verdict.reason }, { verdict: "pass", reason: "先查状态" });
 	const [call] = (await readFile(marker, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
 	assert.equal(call.argv.includes("faux/faux-1"), true, "the model is passed to the launcher");
 	assert.match(call.stdin, /先查状态/u, "the prompt reaches the launcher stdin");
+	assert.match(call.stdin, /rotom-replay-judge\/v2/u, "the prompt carries its version");
+	assert.match(call.stdin, /先看这个报错再改/u, "the readable context is sent");
+	assert.match(call.stdin, /截图里有个红叉/u, "text next to an image is sent");
+	assert.equal(/[A-Za-z0-9+/]{256,}/u.test(call.stdin), false, "no base64 payload goes to the judge");
+	// The judge receives exactly what the dialog counted.
+	const expected = replayJudgeContext(entries).text;
+	assert.ok(call.stdin.includes(expected), "the dialog measurement is the text that is sent");
 });
 
 test("a blocker that cannot load refuses to generate", { skip: available ? false : "product runtimes are not installed" }, async () => {

@@ -35,7 +35,10 @@ export function replayClient(ctx) {
 				for (const name of ['original', 'candidate', 'baseline']) {
 					if (name === 'baseline' && !arms.baseline) continue;
 					const row = arms[name];
-					columns.append(make('p', 'eval-meta', C.replayArmNames[name] + '：' + (row ? (C[row.verdict] || row.verdict) : C.replayNeverRun)));
+					// The judge prompt version travels with the verdict: a v1 record was
+					// scored by a different input, so it must not read as a v2 result.
+					const version = row?.judgePromptVersion ? ' · ' + format(C.replayJudgeVersion, { version: String(row.judgePromptVersion).split('/').pop() }) : '';
+					columns.append(make('p', 'eval-meta', C.replayArmNames[name] + '：' + (row ? (C[row.verdict] || row.verdict) : C.replayNeverRun) + version));
 				}
 				node.append(columns);
 				const labels = { caught: C.replayCaught, 'still-failing': C.replayStillFailing, 'judge-blind': C.replayJudgeBlind, unknown: C.replayLabelUnknown };
@@ -82,6 +85,8 @@ export function replayClient(ctx) {
 						if (status.status !== 'running') {
 							progressNotice.textContent = C[status.status === 'done' ? 'replayDone' : 'replayStopped'] + ' · ' + format(C.replayProgress, { done: status.done, total: status.total });
 							if (status.warnings?.includes('baseline_product_matches_candidate')) progressNotice.textContent += ' · ' + C.replaySameProduct;
+							// A failed run must say why: "stopped" alone hides the runner error.
+							if (status.error) progressNotice.textContent += ' · ' + String(status.error).slice(0, 300);
 							// Token usage is only known for points a model judged or generated.
 							const totals = usageTotals(status.results || []);
 							runResults.replaceChildren();

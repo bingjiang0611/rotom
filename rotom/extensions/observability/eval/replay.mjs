@@ -14,10 +14,13 @@ import { chmod, mkdir, readdir, rm } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { assertPrivatePath, readPrivate, validSessionId } from "./annotations.mjs";
 import { privateWrite, statIfPresent } from "./session-data.mjs";
+import { REPLAY_JUDGE_PROMPT_VERSION } from "./replay-judge.mjs";
 
 export const REPLAY_CASE_SCHEMA = "rotom-replay-case/v1";
 export const REPLAY_RUN_SCHEMA = "rotom-replay-run/v1";
-export const REPLAY_JUDGE_PROMPT_VERSION = "rotom-replay-judge/v1";
+// The judge input renderer and its version live together; re-exported because the
+// run record stamps the version next to each model verdict.
+export { REPLAY_JUDGE_PROMPT_VERSION };
 /** Tool calls that gather information; a replay must not open with a write. */
 export const QUERY_TOOLS = new Set(["bash", "read", "grep", "glob", "ls", "find"]);
 export const REPLAY_RULES = ["checks-before-claiming", "no-identical-retry", "nonempty-handoff"];

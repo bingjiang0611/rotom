@@ -10,6 +10,7 @@ import { fixtureSession, ATTACK } from "./eval-fixtures.mjs";
 import { spawn } from "node:child_process";
 import { fakeJudgeLauncher } from "./judge-fixtures.mjs";
 import { COPY } from "./eval/copy.mjs";
+import { replaySmoke } from "./eval-ui-smoke-replay.mjs";
 if (!isAbsolute(process.env.PLAYWRIGHT_MODULE ?? "")) throw new Error("Set PLAYWRIGHT_MODULE to the installed Playwright entry");
 const { chromium } = await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE).href);
 const directory = await realpath(await mkdtemp(join(tmpdir(), "rotom-eval-ui-")));
@@ -35,7 +36,7 @@ if (slow) { setTimeout(() => process.exit(0), 60000); } else {
 	// conclusion line are exercised without a model.
 	const usage = (input, output) => ({ input, output, cacheRead: 0, cacheWrite: 0, costUsd: null, costSource: "unknown", billing: "unknown" });
 	process.stdout.write(JSON.stringify({ runs: [
-		{ key: "synthetic-a-review-entry-1", arm: "candidate", repetition: 1, verdict: "pass", reason: "rule", checkMode: "rule", usage: usage(120, 30) },
+		{ key: "synthetic-a-review-entry-1", arm: "candidate", repetition: 1, verdict: "pass", reason: "rule", checkMode: "rule", judgePromptVersion: "rotom-replay-judge/v2", usage: usage(120, 30) },
 		{ key: "synthetic-a-review-entry-1", arm: "original", repetition: 1, verdict: "fail", reason: "rule", checkMode: "rule", usage: usage(40, 5) },
 	], conclusions: [{ key: "synthetic-a-review-entry-1", conclusion: "caught" }] }) + "\\n");
 }
@@ -175,47 +176,7 @@ try {
 	});
 	const allowed = new Set(["ROTOM", "Rotom", "R", "fake", "model", "bash", "tool_error", "repeat-after-error", "ended-after-tool-error", "ended-on-provider-error", "schema-errors", "oversized-tool-result", "harness-fault", "unknown", "ROTOM_EVAL_REPLAY_BASELINE"]);
 	assert.deepEqual(english.filter((word) => !allowed.has(word)), [], "untranslated visible UI copy");
-	// Replay panel: pin a point on a failed step, list it, run it, cancel it, delete it.
-	// Only a reviewed failure offers a replay point, so mark this one 不满意 first.
-	await page.locator("#eval-filter").selectOption("all");
-	await page.locator('[data-session-id="synthetic-a-review"]').click();
-	await page.locator("#eval-fail").click();
-	await page.locator("#eval-save").click();
-	await page.getByRole("button", { name: "设为回放点", exact: true }).first().waitFor();
-	await page.getByRole("button", { name: "设为回放点", exact: true }).first().click();
-	await page.locator('dialog[aria-label="设为回放点"] textarea').fill("应该先查状态再回答");
-	await page.locator('dialog[aria-label="设为回放点"] select').first().selectOption("rule");
-	await page.getByRole("button", { name: "保存回放点", exact: true }).click();
-	await page.locator("#eval-replay article").first().waitFor();
-	assert.equal(await page.locator("#eval-replay article").first().innerText().then((text) => text.includes("应该先查状态再回答")), true);
-	await screenshot("eval-replay-list.png");
-	await page.locator("#eval-replay input[aria-label=" + JSON.stringify("模型") + "]").fill("faux/faux-1");
-	await page.locator("#eval-replay input[aria-label=" + JSON.stringify("每个回放点重复次数") + "]").fill("1");
-	// No ROTOM_EVAL_REPLAY_BASELINE here: the comparison arm must not be offered.
-	assert.equal(await page.locator("#eval-replay-baseline").isVisible(), false);
-	await page.getByText("未配置对照臂（ROTOM_EVAL_REPLAY_BASELINE），只能回放当前产品。", { exact: true }).waitFor();
-	await page.getByRole("button", { name: "运行回放", exact: true }).click();
-	// The dialog states the measured size before anything runs.
-	await page.getByText("共 2 次回放（1 个回放点 × 1 次 × 1 个产品，另加 1 次原回复对照）", { exact: true }).waitFor();
-	await page.locator('dialog[aria-label="确认运行回放"]').getByText(/^截断前内容：1 个回放点合计 [\d,]+ 字符（单个最大 [\d,]+），按上述次数总计 [\d,]+ 字符。$/u).waitFor();
-	await screenshot("eval-replay-confirm.png");
-	await page.getByRole("button", { name: "确认运行", exact: true }).click();
-	await page.getByText("回放结束 · 已运行 2 / 2", { exact: true }).waitFor();
-	// Totals count only reported usage; the conclusion names what the control proved.
-	await page.getByText("总用量：输入 160 · 输出 35 · 合计 195 tokens（未报告的记为未知，不含费用）", { exact: true }).waitFor();
-	await page.getByText(/caught：原回复失败、当前产品通过，判定抓得住/u).waitFor();
-	// A slow runner proves progress is visible and cancel stops the run. The panel
-	// rebuilds its controls after each run, so the fields are filled again.
-	await page.locator("#eval-replay input[aria-label=" + JSON.stringify("模型") + "]").fill("faux/faux-1");
-	await page.locator("#eval-replay input[aria-label=" + JSON.stringify("每个回放点重复次数") + "]").fill("3");
-	await page.getByRole("button", { name: "运行回放", exact: true }).click();
-	await page.getByRole("button", { name: "确认运行", exact: true }).click();
-	await page.getByText("已运行 1 / 4", { exact: true }).waitFor();
-	await screenshot("eval-replay-progress.png");
-	await page.getByRole("button", { name: "取消回放", exact: true }).click();
-	await page.getByText(/回放已停止|回放结束/u).waitFor();
-	await page.getByRole("button", { name: "删除回放点", exact: true }).click();
-	await page.getByText("还没有回放点。在失败会话的消息上点「设为回放点」。", { exact: true }).waitFor();
+	await replaySmoke(page, { evalDirectory, screenshot });
 	await page.setViewportSize({ width: 390, height: 844 });
 	assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
 	await page.evaluate(async () => { window.scrollTo({ top: 0, behavior: 'instant' }); await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))); });

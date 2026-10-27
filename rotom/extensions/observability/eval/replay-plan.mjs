@@ -7,6 +7,7 @@
 // numbers are measured from the same redacted text the runner would send, never
 // from the raw session, so nothing here reads or exposes a secret.
 import { redactSecrets, redactionTotal } from "./redaction.mjs";
+import { replayJudgeContext } from "./replay-judge.mjs";
 
 /** Matches the runner and the service: one to three repetitions. */
 export const MAX_REPLAY_REPEATS = 3;
@@ -17,9 +18,7 @@ export function clampRepeats(value) {
 	return Math.min(Math.max(number, 1), MAX_REPLAY_REPEATS);
 }
 
-/** The judge sees the last few entries plus the expected behaviour, never the prefix. */
-export const ORIGINAL_JUDGE_TAIL_ENTRIES = 6;
-export const ORIGINAL_JUDGE_TAIL_CHARS = 6000;
+// The control sends the judge context, never the prefix or the raw session text.
 
 /**
  * Measures selected replay points.
@@ -37,20 +36,20 @@ export function measureReplayPlan({ items, repeats = 1, arms = 1, original = tru
 	for (const item of items) {
 		let chars = 0;
 		for (const entry of item.entries ?? []) {
-			const { text, redactions } = redactSecrets(JSON.stringify(entry?.message ?? entry));
-			chars += text.length;
-			// Redaction counts only matter where a model reads the text; the rule
-			// check never leaves the machine.
-			if (item.check?.mode !== "model") continue;
-			for (const { type, count: hits } of redactions) masked.set(type, (masked.get(type) ?? 0) + hits);
+			// The product generates from the prefix, so its redacted size is what the
+			// generation costs; it is not judge input.
+			chars += redactSecrets(JSON.stringify(entry?.message ?? entry)).text.length;
 		}
-		// The original arm sends the judge input, not the session: a short tail of
-		// entries plus the expected behaviour. Rule points send nothing.
+		// The original arm sends the judge input, not the session: the same rendered
+		// context the judge really receives, plus the expected behaviour. Rule points
+		// send nothing.
 		let judgeChars = 0;
 		if (original && item.check?.mode === "model") {
-			const tail = (item.entries ?? []).slice(-ORIGINAL_JUDGE_TAIL_ENTRIES).map((entry) => redactSecrets(JSON.stringify(entry?.message ?? entry)).text).join("\n");
-			judgeChars = Math.min(tail.length, ORIGINAL_JUDGE_TAIL_CHARS) + (item.expected?.length ?? 0);
+			const context = replayJudgeContext(item.entries ?? []);
+			judgeChars = context.chars + (item.expected?.length ?? 0);
 			originalChars += judgeChars;
+			// Report what the judge input really hid, not what the raw prefix held.
+			for (const { type, count: hits } of context.redactions) masked.set(type, (masked.get(type) ?? 0) + hits);
 		}
 		cases.push({ key: item.key, chars, originalChars: judgeChars, runs: count * armCount + (original ? 1 : 0) });
 	}

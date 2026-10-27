@@ -44,6 +44,8 @@ export const COPY = {
 	replayPlanOriginalChars: "原回复对照只发送判定输入，不重发整段会话：{counts} 次共 {chars} 字符（仅模型判定的点）。",
 	replayPlanRedactions: "模型判定输入已脱敏 {total} 处：{detail}。",
 	replayArmNames: { original: "原回复", candidate: "当前产品", baseline: "基线产品" },
+	// Old records keep their own version, so a v1 verdict is never read as v2.
+	replayJudgeVersion: "判定输入 {version}",
 	replayRanAt: "最近一次回放", replayConclusion: "结论",
 	replayCaught: "caught：原回复失败、当前产品通过，判定抓得住",
 	replayStillFailing: "still-failing：两次都失败，问题还在",

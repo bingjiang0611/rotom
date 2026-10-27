@@ -49,6 +49,7 @@ export async function loadReplaySession(sessionsRoot, sessionId, paths = {}) {
 }
 
 import { usageOf } from "../../extensions/observability/eval/judge.mjs";
+import { replayJudgeContext, REPLAY_JUDGE_BUDGET_CHARS, REPLAY_JUDGE_PROMPT_VERSION } from "../../extensions/observability/eval/replay-judge.mjs";
 
 export { blockerSource as blockerExtension } from "../src/replay-session.ts";
 
@@ -81,16 +82,18 @@ export async function createGenerator({ productAgentDir, model, thinkingLevel, p
 }
 
 /** Model verdict for mode=model points; reuses the background judge prompt pipeline. */
-export async function createModelJudge({ model, launcher: launcherPath = undefined, timeoutMs = 180_000 }) {
+export async function createModelJudge({ model, launcher: launcherPath = undefined, timeoutMs = 180_000, budgetChars = REPLAY_JUDGE_BUDGET_CHARS }) {
 	const judge = await import("../../extensions/observability/eval/judge.mjs");
 	const { executeProcessTreeV1 } = await import("../../runtime/process-tree.ts");
 	return async ({ item, reply, entries }) => {
-		const tail = entries.slice(-6).map((entry) => redactSecrets(JSON.stringify(entry.message ?? entry)).text).join("\n").slice(-6000);
+		// Same renderer and budget the confirmation dialog measured, so the number
+		// the person approved is the number of characters the judge receives.
+		const context = replayJudgeContext(entries, budgetChars);
 		const prompt = [
-			`版本：${"rotom-replay-judge/v1"}`,
+			`版本：${REPLAY_JUDGE_PROMPT_VERSION}`,
 			"你在评审一次会话回放：会话被截断在某个 assistant 消息之前，产品重新生成了下一步。",
 			`期望行为：${redactSecrets(item.expected).text}`,
-			`截断点之前的上下文（已脱敏）：\n${redactSecrets(tail).text}`,
+			`截断点之前的上下文（已脱敏，只含可读内容）：\n${context.text}`,
 			`新的下一步：文本=${JSON.stringify(reply.text.slice(0, 2000))} 工具意图=${JSON.stringify(reply.toolCalls.slice(0, 5))}`,
 			'只输出 JSON：{"verdict":"pass|fail|unknown","reason":"一句话"}',
 		].join("\n\n");

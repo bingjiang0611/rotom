@@ -53,7 +53,7 @@ jobs:
         run: npm test -- session-cards trace-assertions agreement review session-metrics error-breakdown command-failures session-review behavioral-regression behavioral-regression-alternatives behavioral-regression-structure
       - name: Test dashboard and eval API
         working-directory: .
-        run: node --test rotom/extensions/observability/dashboard.test.mjs rotom/extensions/observability/eval.test.mjs rotom/extensions/observability/judge.test.mjs rotom/extensions/observability/judge-catalog.test.mjs rotom/extensions/observability/replay.test.mjs rotom/extensions/observability/replay-arm.test.mjs rotom/extensions/observability/replay-api.test.mjs rotom/extensions/observability/replay-plan.test.mjs rotom/runtime/process-tree.test.ts
+        run: node --test rotom/extensions/observability/dashboard.test.mjs rotom/extensions/observability/eval.test.mjs rotom/extensions/observability/judge.test.mjs rotom/extensions/observability/judge-catalog.test.mjs rotom/extensions/observability/replay.test.mjs rotom/extensions/observability/replay-arm.test.mjs rotom/extensions/observability/replay-judge.test.mjs rotom/extensions/observability/replay-api.test.mjs rotom/extensions/observability/replay-plan.test.mjs rotom/runtime/process-tree.test.ts
       - name: Check built Pi fork provenance
         working-directory: .
         run: npm --prefix rotom run check:pi
