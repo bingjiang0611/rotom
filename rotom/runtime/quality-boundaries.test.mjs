@@ -41,6 +41,8 @@ for (const headless of ["0", "1"]) test(`installed bash strips internals but pre
 
 // A real interactive launcher, not a mocked ctx.hasUI. Python's stdlib PTY keeps
 // stdin/stdout on a terminal while stderr is captured separately. No model call.
+// A clean HOME may need Computer Use permissions. Cancel its observed prompt;
+// this startup/stderr gate must neither grant OS permissions nor require them.
 const ptyDriver = `
 import errno, fcntl, json, os, selectors, struct, subprocess, sys, termios, time
 ready_path = sys.argv[1]
@@ -55,6 +57,7 @@ buffers = {'screen': bytearray(), 'stderr': bytearray()}
 start = time.monotonic()
 ready_at = None
 sent_exit = False
+permission_prompt_cancelled = False
 try:
     while selector.get_map():
         now = time.monotonic()
@@ -76,12 +79,16 @@ try:
                 selector.unregister(key.fileobj)
             else:
                 buffers[key.data].extend(data)
+                if key.data == 'screen' and ready_at is None and not permission_prompt_cancelled:
+                    if b'Recheck (restarts helper)' in buffers['screen'] and b'Cancel' in buffers['screen']:
+                        os.write(master, b'\\x1b')
+                        permission_prompt_cancelled = True
                 if len(buffers[key.data]) > 2 * 1024 * 1024:
                     raise RuntimeError('interactive output exceeded fixture limit')
     status = process.wait(timeout=5)
     with open(ready_path) as stream:
         ready = json.load(stream)
-    print(json.dumps({'status': status, 'ready': ready, **{key:value.decode(errors='replace') for key,value in buffers.items()}}))
+    print(json.dumps({'status': status, 'ready': ready, 'permissionPromptCancelled': permission_prompt_cancelled, **{key:value.decode(errors='replace') for key,value in buffers.items()}}))
 finally:
     if process.poll() is None:
         process.kill()
@@ -123,6 +130,7 @@ for (const missing of [false, true]) test(`real TUI startup keeps stderr clean (
 	const observed = JSON.parse(result.stdout);
 	assert.equal(observed.status, 0, observed.stderr);
 	assert.equal(observed.ready.hasUI, true);
+	if (observed.screen.includes("Recheck (restarts helper)")) assert.equal(observed.permissionPromptCancelled, true);
 	assert.equal(observed.stderr, "", "startup diagnostics must use the TUI renderer");
 	if (missing) assert.match(observed.screen, /Deferred tool loading skipped; required tools unavailable: subagent/u);
 	else assert.doesNotMatch(observed.screen, /Deferred tool loading skipped/u);
