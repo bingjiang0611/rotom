@@ -48,6 +48,7 @@
 | 16 | [行为用例改得接近真实会话 + 再跑 20 次](tasks/16-harder-behavioral-cases.md)（[报告](reports/16-harder-behavioral-cases.md)） | Phase 4 | accepted（3 题到顶，2 题需修题，未证实产品问题） |
 | 17 | [修好剩下的合成题（护栏）+ 重跑 12 次](tasks/17-fix-synthetic-cases.md)（[报告](reports/17-fix-synthetic-cases.md)） | Phase 4 | accepted（合成题定位为护栏；4 条小修见报告核验） |
 | 18 | [真实会话回放：标回放点 + 只生成下一步 + 判定](tasks/18-session-replay.md) | Phase 4 | ready |
+| 19 | [合成题小修 + CI 偶发失败排查](tasks/19-small-fixes-and-ci-flake.md)（与 18 同批，先做 19） | Phase 4 | ready |
 
 执行者每次推送前按 [自查清单](executor-checklist.md) 逐条检查，并在报告里写「自查」一节。
 
