@@ -210,7 +210,7 @@ process.stdout.write(JSON.stringify({runs:[{key:"${session.id}-${first}",arm:"ca
 	const listed = await service.cases();
 	assert.equal(listed.cases.length, 1);
 	assert.equal(listed.cases[0].latest, null);
-	const started = service.start({ cases: [point.key], model: "faux/faux-1", repeats: 2 });
+	const started = await service.start({ cases: [point.key], model: "faux/faux-1", repeats: 2 });
 	assert.equal(started.total, 2);
 	assert.match(serviceArgs[0].join(" "), /--model=faux\/faux-1/u);
 	assert.match(serviceArgs[0].join(" "), /--repeats=2/u);
@@ -219,8 +219,8 @@ process.stdout.write(JSON.stringify({runs:[{key:"${session.id}-${first}",arm:"ca
 	const status = service.status(started.runId);
 	assert.equal(status.status, "done");
 	assert.equal(status.results[0].verdict, "pass");
-	assert.throws(() => service.start({ cases: [], model: "faux/faux-1" }));
-	assert.throws(() => service.start({ cases: [point.key], model: "not a model" }));
+	await assert.rejects(() => service.start({ cases: [], model: "faux/faux-1" }));
+	await assert.rejects(() => service.start({ cases: [point.key], model: "not a model" }));
 	await service.remove({ sessionId: session.id, cutEntryId: first });
 	assert.deepEqual((await service.cases()).cases, []);
 	service.close();
@@ -233,7 +233,7 @@ test("cancelling a running replay stops the runner", async () => {
 	await writeFixture(join(space.sessions, `${session.id}.jsonl`), session.content, { mode: 0o600 });
 	const service = createReplayService({ directory: space.directory, sessionsRoot: space.sessions, product: space.root, spawnProcess: (node) => spawn(node, ["-e", "setTimeout(()=>{},30000)"]) });
 	const point = await service.add({ sessionId: session.id, cutEntryId: first, expected: "先查状态", check: { mode: "rule", rule: "nonempty-handoff" } });
-	const started = service.start({ cases: [point.key], model: "faux/faux-1" });
+	const started = await service.start({ cases: [point.key], model: "faux/faux-1" });
 	await new Promise((resolveDelay) => setTimeout(resolveDelay, 200));
 	assert.equal(service.status(started.runId).status, "running");
 	assert.deepEqual(service.cancel(started.runId), { cancelled: true, status: "cancelled" });

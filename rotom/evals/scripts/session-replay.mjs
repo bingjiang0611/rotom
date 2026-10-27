@@ -39,9 +39,9 @@ export function parseArgs(argv) {
 }
 
 /** Session files are read from the dashboard's session root, never from a worktree. */
-export async function loadReplaySession(sessionsRoot, sessionId) {
+export async function loadReplaySession(sessionsRoot, sessionId, paths = {}) {
 	const summary = { badJson: 0, lineTooLong: 0 };
-	const path = join(sessionsRoot, `${sessionId}.jsonl`);
+	const path = paths[sessionId] ?? join(sessionsRoot, `${sessionId}.jsonl`);
 	const loaded = await loadSession(path, summary, new Set(), 8 * 1024 * 1024);
 	if (loaded.reason || !loaded.branch) throw new Error(`cannot read session ${sessionId}: ${loaded.reason ?? "no branch"}`);
 	const { readFile } = await import("node:fs/promises");
@@ -121,6 +121,9 @@ export async function main(argv = process.argv.slice(2)) {
 	const directory = args.directory ?? join(process.env.HOME ?? tmpdir(), ".rotom", "evals");
 	const sessionsRoot = args.sessions ?? join(process.env.HOME ?? tmpdir(), ".pi", "agent", "sessions");
 	const wanted = args.cases ? new Set(args.cases.split(",").map((item) => item.trim()).filter(Boolean)) : undefined;
+	// The dashboard resolves each session file (real sessions live in nested
+	// project folders); a bare id would otherwise point at a path that is not there.
+	const paths = args.paths ? JSON.parse(args.paths) : {};
 	const cases = (await readReplayCases(directory)).filter((item) => !wanted || wanted.has(item.key) || wanted.has(item.sessionId));
 	if (!cases.length) throw new Error("no replay points selected");
 	const armList = args.arm === "baseline" ? [{ name: "baseline", product: args.armBaseline ?? args.product }] : [{ name: "candidate", product: args.product }, ...(args.armBaseline ? [{ name: "baseline", product: args.armBaseline }] : [])];
@@ -131,7 +134,7 @@ export async function main(argv = process.argv.slice(2)) {
 		const { cutEntries } = await import("../../extensions/observability/eval/replay.mjs");
 		const items = [];
 		for (const item of cases) {
-			const source = await loadReplaySession(sessionsRoot, item.sessionId);
+			const source = await loadReplaySession(sessionsRoot, item.sessionId, paths);
 			items.push({ key: item.key, check: item.check, entries: cutEntries(source.branch, item.cutEntryId)?.entries ?? [] });
 		}
 		const plan = measureReplayPlan({ items, repeats: args.repeats, arms: armList.length });
@@ -156,7 +159,7 @@ export async function main(argv = process.argv.slice(2)) {
 	const results = await runReplayPlan({
 		directory, day: args.day ?? new Date().toISOString().slice(0, 10), cases, arms: armList.map((arm) => arm.name), repeats: args.repeats,
 		sessionOf: async (item) => {
-			if (!cache.has(item.sessionId)) cache.set(item.sessionId, await loadReplaySession(sessionsRoot, item.sessionId));
+			if (!cache.has(item.sessionId)) cache.set(item.sessionId, await loadReplaySession(sessionsRoot, item.sessionId, paths));
 			const source = cache.get(item.sessionId);
 			const { replaySource } = await import("../../extensions/observability/eval/replay.mjs");
 			return replaySource({ branch: source.branch, sessionContent: source.content, expectedSha256: item.sessionSha256, cutEntryId: item.cutEntryId });

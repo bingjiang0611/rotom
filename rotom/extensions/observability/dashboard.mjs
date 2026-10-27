@@ -918,6 +918,7 @@ export async function startTraceDashboard(options = {}) {
 	const replayService = options.replay === false ? undefined : createReplayService({
 		directory: options.evalDirectory ?? DEFAULT_EVAL_DIRECTORY,
 		sessionsRoot: root,
+		sessionFile: (id) => evalService.pathOf(id),
 		product: options.replayProduct ?? fileURLToPath(new URL("../../", import.meta.url)),
 		armBaseline: replayBaseline,
 		...options.replay,
@@ -982,7 +983,7 @@ export async function startTraceDashboard(options = {}) {
 							else if (url.pathname === "/api/eval/replay/case/delete") value = await replayService.remove(input);
 							else if (url.pathname === "/api/eval/replay/cancel") value = replayService.cancel(input?.runId);
 							else if (url.pathname === "/api/eval/replay/prepare") value = await replayService.prepare(input);
-							else value = replayService.start(input);
+							else value = await replayService.start(input);
 						}
 						else if (url.pathname === "/api/eval/annotation") value = await evalService.annotate(input);
 						else if (url.pathname === "/api/eval/judge/prepare") value = await judgeService.prepare(input);

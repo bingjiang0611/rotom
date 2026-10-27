@@ -135,3 +135,43 @@ process.stdout.write(JSON.stringify({ runs: [], warnings: ["baseline_product_mat
 	}
 	assert.fail("the fake runner did not finish");
 });
+
+test("real sessions are found in nested project folders", async (t) => {
+	// Real sessions live at <root>/<project>/<timestamp>_<id>.jsonl, so a flat
+	// "<id>.jsonl" lookup would miss every one of them.
+	const home = await space();
+	const project = join(home.sessions, "--Users-example-project--");
+	await mkdir(project, { recursive: true });
+	await fixtureSession(project, "nested-session");
+	const flat = join(project, "nested-session.jsonl");
+	const nested = join(project, "2026-01-01T00-00-00-000Z_nested-session.jsonl");
+	await (await import("node:fs/promises")).rename(flat, nested);
+	const runner = join(home.root, "fake-runner.mjs");
+	await writeFile(runner, `process.stdout.write(JSON.stringify({ runs: [], paths: process.argv.slice(2).filter((item) => item.startsWith("--paths=")) }) + String.fromCharCode(10));\n`, { mode: 0o600 });
+	const dashboard = await startTraceDashboard({ root: home.sessions, token: "replay-token", evalDirectory: home.directory, replay: { spawnProcess: (node, args) => spawn(node, [runner, ...args]) } });
+	t.after(() => dashboard.close());
+	const headers = { authorization: "Bearer replay-token", "content-type": "application/json" };
+	const url = (path) => `${dashboard.baseUrl}${path}`;
+	const listed = await fetch(url("/api/eval/sessions"), { headers }).then((response) => response.json());
+	const row = listed.items.find((item) => item.id === "nested-session");
+	assert.ok(row, "the session is listed from the nested folder");
+	const detail = await fetch(url("/api/eval/session?id=nested-session"), { headers }).then((response) => response.json());
+	const step = detail.timeline.items.find((item) => item.kind === "assistant");
+	assert.ok(step?.entryId, "the assistant step exposes the entry id used as a replay point");
+	const created = await fetch(url("/api/eval/replay/case"), { method: "POST", headers, body: JSON.stringify({ sessionId: "nested-session", cutEntryId: step.entryId, expected: "先查状态", check: { mode: "rule", rule: "checks-before-claiming" } }) });
+	assert.equal(created.status, 200);
+	const point = await created.json();
+	const prepared = await fetch(url("/api/eval/replay/prepare"), { method: "POST", headers, body: JSON.stringify({ cases: [point.key], repeats: 1 }) }).then((response) => response.json());
+	assert.ok(prepared.perCaseChars >= 0);
+	const started = await fetch(url("/api/eval/replay/run"), { method: "POST", headers, body: JSON.stringify({ cases: [point.key], model: "faux/faux-1" }) });
+	assert.equal(started.status, 202);
+	const job = await started.json();
+	for (let attempt = 0; attempt < 200; attempt += 1) {
+		const status = await fetch(url(`/api/eval/replay/status?runId=${job.runId}`), { headers }).then((response) => response.json());
+		if (status.status === "running") { await new Promise((resolveDelay) => setTimeout(resolveDelay, 25)); continue; }
+		const args = await (await import("node:fs/promises")).readFile(runner, "utf8");
+		assert.match(args, /--paths=/u);
+		return;
+	}
+	assert.fail("the fake runner did not finish");
+});

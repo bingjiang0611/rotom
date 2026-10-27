@@ -275,6 +275,8 @@ export function createEvalService(root, directory = DEFAULT_EVAL_DIRECTORY) {
 		return session;
 	}
 	return {
+		/** Resolved session file; replay must not guess a flat `<id>.jsonl` path. */
+		async pathOf(id) { return (await lookup(id)).path; },
 		async snapshot(id) {
 			const session = await lookup(id);
 			return { session, loaded: await load(root, session) };

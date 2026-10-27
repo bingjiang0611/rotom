@@ -32,22 +32,20 @@ export async function resolveReplayBaseline(value) {
 	return { enabled: true, path: value };
 }
 
-export function createReplayService({ directory, sessionsRoot, product, armBaseline, spawnProcess = spawn, node = process.execPath, env = process.env }) {
+export function createReplayService({ directory, sessionsRoot, product, armBaseline, sessionFile = (id) => join(sessionsRoot, `${id}.jsonl`), spawnProcess = spawn, node = process.execPath, env = process.env }) {
 	if (!sessionsRoot || !product) throw new Error("replay service needs a session root and a product directory");
 	const runs = new Map();
 
 	async function sessionDigest(sessionId) {
-		const path = join(sessionsRoot, `${sessionId}.jsonl`);
 		// Reading only to hash: the case needs a digest, not a copy of the session.
-		return sessionSha256(await readFile(path, "utf8"));
+		return sessionSha256(await readFile(await sessionFile(sessionId), "utf8"));
 	}
 
 	const baseline = armBaseline?.enabled === true ? armBaseline : { enabled: false, reason: armBaseline?.reason ?? "not_configured" };
 
 	async function loadBranch(sessionId, cutEntryId) {
 		const { loadSession } = await import("./session-data.mjs");
-		const path = join(sessionsRoot, `${sessionId}.jsonl`);
-		const loaded = await loadSession(path, { badJson: 0, lineTooLong: 0 }, new Set(), 8 * 1024 * 1024);
+		const loaded = await loadSession(await sessionFile(sessionId), { badJson: 0, lineTooLong: 0 }, new Set(), 8 * 1024 * 1024);
 		if (loaded.reason || !loaded.branch) throw evalError(400, "cannot_read_session");
 		const cut = cutEntries(loaded.branch, cutEntryId);
 		if (!cut) throw evalError(400, "invalid_replay_point");
@@ -80,7 +78,7 @@ export function createReplayService({ directory, sessionsRoot, product, armBasel
 			return writeReplayCase(directory, input, digest);
 		},
 		async remove(input) { return deleteReplayCase(directory, input?.sessionId, input?.cutEntryId); },
-		start(input) {
+		async start(input) {
 			const ids = Array.isArray(input?.cases) ? input.cases.filter((id) => typeof id === "string") : [];
 			const repeats = Math.min(Math.max(Number(input?.repeats) || 1, 1), 3);
 			if (!ids.length) throw evalError(400, "invalid_replay_request");
@@ -90,6 +88,17 @@ export function createReplayService({ directory, sessionsRoot, product, armBasel
 			if (input.includeBaseline === true && !baseline.enabled) throw evalError(400, "baseline_unavailable");
 			const args = [RUNNER, `--product=${product}`, "--arm=candidate", `--model=${input.model}`, `--repeats=${repeats}`, `--cases=${ids.join(",")}`, `--directory=${directory}`, `--sessions=${sessionsRoot}`];
 			if (input.includeBaseline === true) args.push(`--arm-baseline=${baseline.path}`);
+			// Real sessions live in nested project folders, so the runner gets the
+			// resolved file per session instead of guessing a path. `ids` are case
+			// keys, so each one still has to be mapped back to its session.
+			const known = await readReplayCases(directory);
+			const paths = {};
+			for (const id of ids) {
+				const item = known.find((row) => row.key === id || row.sessionId === id);
+				if (!item) throw evalError(400, "invalid_replay_point");
+				paths[item.sessionId] = await sessionFile(item.sessionId);
+			}
+			args.push(`--paths=${JSON.stringify(paths)}`);
 			const child = spawnProcess(node, args, { env: { ...env, ROTOM_REPLAY: "1" }, stdio: ["ignore", "pipe", "pipe"] });
 			const state = { runId: `replay-${Date.now().toString(36)}`, cases: ids.length, repeats, arms: input.includeBaseline === true ? 2 : 1, done: 0, total: ids.length * repeats * (input.includeBaseline === true ? 2 : 1), status: "running", results: [], warnings: [], error: null };
 			const record = { child, state };
