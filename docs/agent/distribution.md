@@ -22,6 +22,8 @@ npm --prefix rotom run check:pi
 
 完整门禁和授权范围见 [verification.md](verification.md)。在隔离 prefix/私有 HOME 中验证 tgz 的全新安装、升级、启动、default/full runtime smoke 和卸载；不能覆盖维护者当前安装，不能以复用依赖的检查代替冷安装。
 
+`test:distribution` 除了核对声明与打包清单一致，还沿每个发行 `.mjs` 的相对 import 走一遍：目标必须也在 `files` 里，且发行的 `.mjs` 不得 import `.ts`（Node 不会对 `node_modules` 内的 `.ts` 剥离类型，这种写法在仓库里能跑、装完就崩）。安装态验证要真的跑一次 `rotom --trace`，只查目录里有没有文件不足以证明扩展能加载。
+
 - 检查实际 npm bin、内置组件、资源选择和源码字节，而不只看 `--version` 文本。
 - 未使用真实模型、浏览器或跨平台时如实记录，不能把 synthetic/loopback 结果外推为账号、费用或业务验收。
 - 对历史 helper 或兼容 fixture，先核对全部输入；缺少旧 preimage 时不能在当前树恢复旧框架、解除未知任务或改写验收线。
