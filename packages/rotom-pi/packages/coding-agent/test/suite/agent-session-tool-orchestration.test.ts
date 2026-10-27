@@ -130,6 +130,20 @@ describe("AgentSession tool orchestration", () => {
 		expect(initial.session.getActiveToolNames()).toEqual(["tool_search"]);
 	});
 
+	it("does not continue after a tool call in single-request mode", async () => {
+		const harness = await createHarness({ initialActiveToolNames: [], singleRequest: true });
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("missing_tool", {})], { stopReason: "toolUse" }),
+			fauxAssistantMessage("should not be requested"),
+		]);
+
+		await harness.session.prompt("go");
+
+		expect(harness.getPendingResponseCount()).toBe(1);
+		expect(harness.session.messages.filter((message) => message.role === "assistant")).toHaveLength(1);
+	});
+
 	it("leaves results without nested calls unchanged", async () => {
 		const harness = await createHarness({ initialActiveToolNames: [], extensionFactories: [orchestratorExtension] });
 		harnesses.push(harness);

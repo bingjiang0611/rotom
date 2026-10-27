@@ -1203,6 +1203,54 @@ test("tool error codes are recorded only from the allowlist and drive outcome an
 	]);
 });
 
+test("edit matcher codes reach the trace as model-side metadata and text never does", async (t) => {
+	const root = mkdtempSync(join(tmpdir(), "rotom-observability-edit-code-"));
+	t.after(() => rm(root, { recursive: true, force: true }));
+	const sessionFile = join(root, "session.jsonl");
+	writeFileSync(sessionFile, "{}\n", { mode: 0o600 });
+	const harness = extensionHarness();
+	const ctx = {
+		mode: "print",
+		model: { provider: "test", id: "test", api: "test" },
+		thinkingLevel: "off",
+		sessionManager: { getSessionFile: () => sessionFile, getSessionId: () => "edit-code" },
+		ui: { notify() {} },
+	};
+	await harness.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
+	await harness.emit("agent_start", {}, ctx);
+	await harness.emit("turn_start", { turnIndex: 0 }, ctx);
+	const secretText = "SYNTHETIC_EDIT_ERROR_TEXT_MUST_NOT_BE_RECORDED";
+	const cases = [
+		{ code: "old_text_not_found" },
+		{ code: "old_text_ambiguous" },
+		{ code: "no_change" },
+		{ code: "overlapping_edits" },
+		{ code: "invalid_edit_input" },
+		{ code: "not_an_allowed_edit_code" },
+	];
+	for (const [index, details] of cases.entries()) {
+		await harness.emit("tool_execution_start", { toolCallId: `edit-${index}`, toolName: "edit", args: { path: "sample.ts" } }, ctx);
+		await harness.emit("tool_execution_end", {
+			toolCallId: `edit-${index}`, toolName: "edit", isError: true,
+			result: { content: [{ type: "text", text: `${secretText} ${details.code}` }], details },
+		}, ctx);
+	}
+	await harness.emit("session_shutdown", { type: "session_shutdown", reason: "exit" }, ctx);
+	const raw = readFileSync(localTracePathForSessionFile(sessionFile), "utf8");
+	assert.equal(raw.includes(secretText), false, "错误文本不能进 trace");
+	assert.equal(raw.includes("sample.ts"), false, "路径参数不能进 trace");
+	const tools = raw.trim().split("\n").map((line) => JSON.parse(line))
+		.filter((record) => record.kind === "span_end" && record.name === "pi.tool.execute");
+	assert.deepEqual(tools.map((record) => [record.attributes["pi.tool.error_code"], record.attributes["pi.tool.fault_side"]]), [
+		["old_text_not_found", "model"],
+		["old_text_ambiguous", "model"],
+		["no_change", "model"],
+		["overlapping_edits", "model"],
+		["invalid_edit_input", "model"],
+		[undefined, "unknown"],
+	]);
+});
+
 test("subagent tool spans carry their deferred capability group", async (t) => {
 	const root = mkdtempSync(join(tmpdir(), "rotom-observability-group-"));
 	t.after(() => rm(root, { recursive: true, force: true }));

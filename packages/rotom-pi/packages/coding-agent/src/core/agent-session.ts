@@ -316,6 +316,8 @@ export interface AgentSessionConfig {
 	extensionRunnerRef?: { current?: ExtensionRunner };
 	/** Session start event metadata emitted when extensions bind to this runtime. */
 	sessionStartEvent?: SessionStartEvent;
+	/** Restrict a run to the initial provider request, without tool continuation or retries. */
+	singleRequest?: boolean;
 }
 
 export interface ExtensionBindings {
@@ -490,6 +492,7 @@ export class AgentSession {
 
 	private _modelRuntime: ModelRuntime;
 	private _cacheWarmer?: Pick<CacheWarmer, "cancel" | "status" | "onAgentSettled" | "onModeChanged" | "onWarmed">;
+	private _singleRequest: boolean;
 
 	// Tool registry for extension getTools/setTools
 	private _toolRegistry: Map<string, AgentTool> = new Map();
@@ -515,6 +518,7 @@ export class AgentSession {
 		this._cwd = config.cwd;
 		this._modelRuntime = config.modelRuntime;
 		this._cacheWarmer = config.cacheWarmer;
+		this._singleRequest = config.singleRequest ?? false;
 		if (this._cacheWarmer) {
 			this._cacheWarmer.onWarmed = (entry) => this._emit({ type: "entry_appended", entry });
 		}
@@ -909,6 +913,7 @@ export class AgentSession {
 	private _installAgentBoundaryHooks(): void {
 		const previousFinishTurn = this.agent.finishTurn;
 		this.agent.finishTurn = async (turn, signal) => {
+			if (this._singleRequest) return { action: "end" };
 			this._boundaryDispatchedMessages.add(turn.message);
 			const extensionContinue = await this._dispatchTurnEndBoundary(turn.message, turn.toolResults);
 			const previousDecision = await previousFinishTurn?.(turn, signal);
@@ -1946,6 +1951,7 @@ export class AgentSession {
 		this._pendingToolNames.clear();
 		try {
 			await this.agent.prompt(messages);
+			if (this._singleRequest) return;
 			while (!this._agentRunAbortRequested) {
 				if (await this._handlePostAgentRun()) {
 					if (this._agentRunAbortRequested) break;

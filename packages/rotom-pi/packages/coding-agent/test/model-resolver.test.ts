@@ -525,6 +525,17 @@ describe("resolveModelScopeWithDiagnostics", () => {
 });
 
 describe("resolveCliModel", () => {
+	test("single-request selection requires a literal provider/model and never falls back", () => {
+		const registry = { getModels: () => allModels } as unknown as Parameters<typeof resolveCliModel>[0]["modelRuntime"];
+		const model = allModels[0]!;
+		const id = `${model.provider}/${model.id}`;
+		expect(resolveCliModel({ cliModel: id, exact: true, modelRuntime: registry }).model).toBe(model);
+		for (const cliModel of [model.id, `${id}-not-registered`, `${id}:high`, "synthetic-provider/missing"]) {
+			const result = resolveCliModel({ cliModel, exact: true, modelRuntime: registry });
+			expect(result.model).toBeUndefined();
+			expect(result.error).toContain("Exact provider/model");
+		}
+	});
 	test("does not strip invalid :suffix as thinking level in --model (treat as raw id)", () => {
 		const registry = {
 			getModels: () => allModels,

@@ -13,6 +13,33 @@ describe("compaction model overrides", () => {
 		expect(manager.getCompactionSettings(model)).toEqual(defaults);
 	});
 
+	it("applies single-request overrides without persistence, including after settings writes", async () => {
+		const storage = new InMemorySettingsStorage();
+		const manager = SettingsManager.fromStorage(storage);
+
+		manager.applyOverrides({
+			retry: { enabled: false, provider: { maxRetries: 0 } },
+			compaction: { enabled: false },
+			cacheWarming: "off",
+		});
+
+		expect(manager.getRetrySettings()).toMatchObject({ enabled: false, maxRetries: 3 });
+		expect(manager.getProviderRetrySettings()).toMatchObject({ maxRetries: 0 });
+		expect(manager.getCompactionSettings().enabled).toBe(false);
+		expect(manager.getCacheWarmingMode()).toBe("off");
+		let persisted: string | undefined;
+		storage.withLock("global", (current) => { persisted = current; return undefined; });
+		expect(persisted).toBeUndefined();
+		manager.setDefaultModel("synthetic-model");
+		await manager.flush();
+		expect(manager.getRetrySettings().enabled).toBe(false);
+		expect(manager.getProviderRetrySettings().maxRetries).toBe(0);
+		expect(manager.getCompactionSettings().enabled).toBe(false);
+		expect(manager.getCacheWarmingMode()).toBe("off");
+		storage.withLock("global", (current) => { persisted = current; return undefined; });
+		expect(JSON.parse(persisted!)).toEqual({ defaultModel: "synthetic-model" });
+	});
+
 	it("resolves each field independently and keeps individual getters consistent", () => {
 		const manager = SettingsManager.inMemory({
 			compaction: {

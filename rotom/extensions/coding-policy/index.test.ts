@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import codingPolicy, { codingResultPhases, CODING_EXECUTION_HYGIENE_POLICY, FINAL_REPORT_POLICY, FOLLOW_THROUGH_POLICY } from "./index.ts";
+import codingPolicy, { editFailureCode, codingResultPhases, CODING_EXECUTION_HYGIENE_POLICY, FINAL_REPORT_POLICY, FOLLOW_THROUGH_POLICY } from "./index.ts";
 
 test("coding policy 只在编码工具激活时注入执行与证据范围约束", () => {
 	let handler: ((event: any) => any) | undefined;
@@ -49,4 +49,31 @@ test("then_run structured phases ignore output wording and reject absent or inco
 		{ details: { actionFusion: { ...actionFusion, mutation: "unknown" } } },
 	]) assert.equal(codingResultPhases({ ...event, ...changed }), undefined);
 	assert.equal(codingResultPhases({ ...event, details: {}, content: [{ type: "text", text: "Successfully replaced 1 block(s) in sample.ts.\\n\\n[then_run:failed]\\n" }] } as any), undefined);
+});
+
+test("edit 失败只补枚举码：不覆盖来源码、不改错误文本、不碰 then_run 证据", () => {
+	let handler: (event: any, ctx: any) => any;
+	codingPolicy({ on(name: string, fn: any) { if (name === "tool_result") handler = fn; } } as any);
+	const text = "Could not find the exact text in missing-file.ts. The old text must match exactly including all whitespace and newlines.";
+	const event = { toolName: "edit", input: { path: "missing-file.ts" }, content: [{ type: "text", text }], isError: true };
+	const result = handler!(event, {});
+	assert.deepEqual(result.details, { code: "old_text_not_found" });
+	assert.equal(result.content[0].text, text, "原有的错误文本不能被改写");
+	assert.equal(result.isError, undefined);
+	assert.deepEqual(editFailureCode({ toolName: "edit", content: [{ type: "text", text }] }), "old_text_not_found");
+	// 已有码不覆盖；非 edit 工具与成功结果不写码；认不出的文本保持 (none)。
+	assert.equal(editFailureCode({ toolName: "edit", details: { code: "existing" }, content: [{ type: "text", text }] }), undefined);
+	assert.equal(editFailureCode({ toolName: "write", content: [{ type: "text", text }] }), undefined);
+	assert.equal(editFailureCode({ toolName: "edit", content: [{ type: "text", text: "Successfully replaced 1 block(s) in sample.ts." }] }), undefined);
+	assert.equal(handler!({ ...event, isError: false }, {}), undefined);
+	// Action Fusion：edit 已写盘、then_run 失败时要保留 codingPhases，不写 edit 原因码。
+	const fusion = handler!({
+		toolName: "edit", input: { path: "sample.ts", then_run: { command: "check" } }, isError: true,
+		content: [{ type: "text", text: "Successfully replaced 1 block(s) in sample.ts." }],
+		details: { actionFusion: { version: 1, mutation: "applied", followup: "failed" } },
+	}, {});
+	assert.deepEqual(fusion.details, { actionFusion: { version: 1, mutation: "applied", followup: "failed" }, codingPhases: { mutation: "applied", followup: "failed", source: "tool-reported" } });
+	// 保留原有 details 字段，只加 code。
+	const kept = handler!({ ...event, details: { existing: "preserved" } }, {});
+	assert.deepEqual(kept.details, { existing: "preserved", code: "old_text_not_found" });
 });
