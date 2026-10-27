@@ -46,7 +46,7 @@
 | 14 | [5 个复盘问题 → 行为回归用例 + judge 脱敏](tasks/14-behavioral-regression-cases.md)（[报告](reports/14-behavioral-regression-cases.md)，已按第 1–3 轮核验修改） | Phase 4 | accepted（真实模型 A/B 未跑） |
 | 15 | [行为用例真实模型 A/B（10 次运行）](tasks/15-behavioral-ab-real-model.md)（[报告](reports/15-behavioral-ab-real-model.md)） | Phase 4 | accepted（4 题到顶、1 题判定误判，区分度≈0） |
 | 16 | [行为用例改得接近真实会话 + 再跑 20 次](tasks/16-harder-behavioral-cases.md)（[报告](reports/16-harder-behavioral-cases.md)） | Phase 4 | accepted（3 题到顶，2 题需修题，未证实产品问题） |
-| 17 | [修好剩下的合成题（护栏）+ 重跑 12 次](tasks/17-fix-synthetic-cases.md)（[报告](reports/17-fix-synthetic-cases.md)） | Phase 4 | in-review |
-| 18 | [真实会话回放：标回放点 + 只生成下一步 + 判定](tasks/18-session-replay.md) | Phase 4 | 已规划，17 验收后开工 |
+| 17 | [修好剩下的合成题（护栏）+ 重跑 12 次](tasks/17-fix-synthetic-cases.md)（[报告](reports/17-fix-synthetic-cases.md)） | Phase 4 | accepted（合成题定位为护栏；4 条小修见报告核验） |
+| 18 | [真实会话回放：标回放点 + 只生成下一步 + 判定](tasks/18-session-replay.md) | Phase 4 | ready |
 
 状态取值：`ready`（可开工）· `in-review`（执行者已提交，等核验）· `changes-requested` · `accepted`。
