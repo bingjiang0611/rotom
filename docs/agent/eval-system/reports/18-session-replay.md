@@ -78,3 +78,43 @@
 4. 计数与汇总：做了 —— 计数相关的是 `runReplayPlan` 的进度（`done` 取结果数组长度，不累加渲染次数），同一输入重复跑结果一致；`unknown` 单独计，不算通过也不算失败。
 5. 脱敏与隐私：做了 —— 模型判定前对上下文和 `expected` 都过 `redactSecrets`；会话原文、回放输出、判定结果只写 `~/.rotom/evals/replay/`，0700/0600；仓库里只有工具与合成会话。本轮没有改脱敏规则。
 6. 真实模型运行：不适用 —— 本批明确不跑真实模型。
+
+---
+
+## 核验：changes-requested
+
+本地重跑：`replay.test.mjs` 等 node 测试 67 项通过，eval 测试 282 项通过，typecheck 通过。存储、截断、三条规则、unknown 不算通过、权限和路径校验这些领域逻辑写得扎实，测试覆盖也够。
+
+但运行器没有端到端跑过（报告第四节已承认这是 L2 缺口）。我读代码发现了下面这些问题，其中前两条会直接让回放失效或不安全。
+
+### 必须修
+
+1. **第二次回放起，工具拦截可能失效（安全）。** `createGenerator` 返回的函数在每次生成结束时执行 `rm(scratch)`，把 `block-tools.mjs` 和 agentDir 一起删掉了。但同一个 generator 会被多个回放点和多次重复复用。所以从第二次生成开始，拦截扩展的文件已经不存在，工具可能真的被执行。如果调用方传了 `--directory`，cwd 还会是 `~/.rotom/evals`。
+
+   修法：
+   - scratch 改为按每次生成创建、用完删除，或者在所有运行结束后统一删除；
+   - **fail closed**：创建会话后检查扩展加载有没有出错，并确认拦截扩展确实注册了 `tool_call`，否则直接报错，不生成；
+   - cwd 固定用一个空的临时目录，不允许指向 eval 私有目录。
+
+2. **回放没有加载产品，A/B 比较的是同一个「裸 Pi」。** 运行器只从 `<product>/runtime/pi` 导入 Pi，`DefaultResourceLoader` 只加载拦截扩展，同时还设了 `noSkills` 和 `noContextFiles`。rotom 产品自己的 extension、guideline、deferred tools 和工具面都没有加载。两臂只要 Pi 版本相同，得到的就是同一个系统，这样做 A/B 没有意义，和原会话的工具面也对不上。
+
+   修法：复用 `rotom/evals/src/pi-harness.ts` 里已有的产品加载逻辑（`productAgentDir`、产品资源清单、`bindExtensions`），只是把会话换成 inMemory、额外挂上拦截扩展。两臂各自加载自己的产品。记录里加上产品的 SHA，或者 run manifest 的摘要。
+
+3. **模型判定一定得到 unknown。** `createModelJudge` 用 `executeProcessTreeV1(process.execPath, [JUDGE_LAUNCHER, …])` 去跑 launcher，但 `rotom-launcher` 是 `sh` 脚本，用 node 执行会直接报错，所以结果永远是 `judge_exited_*` → unknown。照 `judge.mjs` 的方式直接执行 launcher。另外，`--model … -` 末尾这个 `-` 参数要确认 launcher 接受。
+
+4. **补上端到端测试（L2）。** 参照 `eval-launcher-check.mjs --faux`：离线，用 faux provider 加一个合成会话，faux 的回复是一次工具调用，比如 `bash: touch SENTINEL`。断言：
+   - 只生成了一条 assistant 消息；
+   - 记录里有这次工具调用意图；
+   - `SENTINEL` **没有**被创建；
+   - 重复 2 次、2 个回放点时，每一次都满足以上三条；
+   - 两臂确实加载了各自的产品（比如两臂工具面或产品摘要不同）。
+
+   模型判定路径用 faux 走一遍完整回路，结果要能得到 pass 或 fail。这个测试放进 CI。
+
+### 需要 bob 决定
+
+5. **看板路由没有接线**：`dashboard.mjs` 有 115 KB，超过提交守卫的 20 KB 上限，所以任何改动都提交不了。这个决定交给 bob（是拆分，还是给它加豁免）。
+
+### 小问题
+
+6. `nonempty-handoff` 和合成题里的 `offersNextStep` 是两份代码，以后措辞会漂移。可以把词表抽成一个 JSON 或 `.mjs` 常量，两边共用。

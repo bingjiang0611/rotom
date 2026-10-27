@@ -149,3 +149,14 @@ for i in $(seq 1 30); do node rotom/extensions/observability/eval-launcher-check
 ## 顺带说明
 
 本地为了复现装了 `rotom/runtime/pi` 与 `rotom/extensions/third-party` 的 `node_modules`（CI 同参数），两者都被 ignore，不影响提交。插桩用的 Pi 副本在 `/tmp`，跑完删除。
+
+---
+
+## 核验：accepted
+
+本地重跑：eval 测试 11 个文件 / 282 项通过；node 测试（dashboard / eval / judge / replay / process-tree）67 项通过；typecheck 通过。
+
+- **A. 小修。** 预算只数 `edit`，测试覆盖了「读 30 次不花预算」和「block 之后读和 bash 仍然放行」。`claimsMatchDisk` 现在既查数量上限，也按 `part-N` 逐个核对磁盘状态。上次核验时被放过的「已改好 5 个」，现在有测试判失败。过时注释已删除。按职责拆文件只是重构，测试仍然全部通过。
+- **B. CI 偶发失败。** 复现数据（30 次失败 6 次）和带日志的时序表，能支持「两次 `refresh` 并发，后完成的覆盖快照，导致会话解析不到默认模型」这个根因。按约定没有改 Pi，也没有放宽断言或加重试，做法正确。报告也指出了这个检查抓到的是一个真实的产品缺陷：provider 由扩展注册且没有凭据时，会话可能没有默认模型。
+
+**后续：** 修复归 Pi，按报告的改法 1（`refresh` 单飞）做最小改动。需要 `build:pi` / `check:pi`，修完把 `eval-launcher-check --faux` 循环 30 次，必须 0 失败。在这之前，CI 里这个检查偶尔会红，重跑即可，不能把它改成跳过。
