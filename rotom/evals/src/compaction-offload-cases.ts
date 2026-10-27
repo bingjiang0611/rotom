@@ -9,7 +9,12 @@ import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
 // 04b consumed its one campaign. A new written authorization is required;
 // the old receipt stays intact and must not be bypassed with a fresh directory.
-export const LIVE_AUTHORIZATION: Readonly<ReplayAuthorization> | null = null;
+export const LIVE_AUTHORIZATION: Readonly<ReplayAuthorization> | null = {
+	id: "0422d9564678a97593f085ecd32db19c41657398",
+	provider: "openai-codex", model: "gpt-5.6-luna", thinking: "low",
+	tasks: ["multi-file-fix"],
+	maxRepetitions: 3, maxRequests: 800, maxInputTokens: 40_000_000,
+};
 
 export const REPLAY_PRODUCT = resolve(import.meta.dirname, "../..");
 export const REPLAY_THRESHOLD = 64_000;
