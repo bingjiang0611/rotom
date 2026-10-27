@@ -87,8 +87,7 @@ export function replayClient(ctx) {
 	}
 	function confirmReplay({ plan, cases, model, repeats, baseline }) {
 		const number = (value) => new Intl.NumberFormat('zh-CN').format(value ?? 0);
-		const perCaseChars = plan.cases.reduce((total, item) => total + item.chars, 0);
-		return new Promise((resolve) => {
+				return new Promise((resolve) => {
 			const dialog = make('dialog', 'eval-dialog'); dialog.setAttribute('aria-label', C.replayConfirmTitle);
 			// Model points also send their prefix to a judge, so the masked-credential
 			// count is stated separately instead of being folded into the total.
@@ -98,7 +97,7 @@ export function replayClient(ctx) {
 			dialog.append(make('h2', '', C.replayConfirmTitle),
 				make('p', 'eval-text', format(C.replayConfirmDetails, { cases, runs: plan.runs, model: model || C.unknown, repeats, baseline: baseline ? C.yes : C.no })),
 				make('p', 'eval-text', format(C.replayPlanRuns, { runs: number(plan.runs), cases, repeats, arms: plan.arms })),
-				make('p', 'eval-text', format(C.replayPlanChars, { chars: number(perCaseChars), total: number(plan.totalChars) })),
+				make('p', 'eval-text', format(C.replayPlanChars, { cases: number(plan.cases.length), chars: number(plan.perCaseChars), max: number(plan.maxChars), total: number(plan.totalChars) })),
 				...redactionLine,
 				make('p', '', C.consent), button(C.cancel, () => dialog.close()), button(C.replayConfirm, () => dialog.close('confirm'), 'eval-primary'));
 			dialog.addEventListener('close', () => { const accepted = dialog.returnValue === 'confirm'; dialog.remove(); resolve(accepted); }, { once: true });

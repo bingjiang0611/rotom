@@ -40,7 +40,7 @@ export const COPY = {
 	replayBaselineMissing: "未配置对照臂（ROTOM_EVAL_REPLAY_BASELINE），只能回放当前产品。",
 	replayPreparing: "正在统计回放规模…",
 	replayPlanRuns: "共 {runs} 次回放（{cases} 个回放点 × {repeats} 次 × {arms} 个产品）",
-	replayPlanChars: "截断前内容：每个回放点合计 {chars} 字符，按上述次数总计 {total} 字符。",
+	replayPlanChars: "截断前内容：{cases} 个回放点合计 {chars} 字符（单个最大 {max}），按上述次数总计 {total} 字符。",
 	replayPlanRedactions: "模型判定输入已脱敏 {total} 处：{detail}。",
 	replaySameProduct: "两臂产品摘要相同：这次对比不能说明差异。",
 	replayModel: "模型", replayRepeats: "每个回放点重复次数", replayBaseline: "同时跑基线产品",

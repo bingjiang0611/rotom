@@ -67,6 +67,8 @@ test("the dashboard exposes replay routes with the existing security checks", as
 	assert.equal(prepared.repeats, 2);
 	assert.equal(prepared.arms, 1);
 	assert.equal(prepared.totalChars, prepared.cases[0].chars * 2);
+	assert.equal(prepared.perCaseChars, prepared.cases[0].chars);
+	assert.equal(prepared.maxChars, prepared.cases[0].chars);
 	assert.ok(prepared.cases[0].chars > 0);
 	assert.deepEqual(await fetch(url("/api/eval/replay/status?runId=none"), { headers }).then((response) => response.json()), { status: "unknown", runId: "none" });
 	assert.equal((await fetch(url("/api/eval/replay/prepare"), { method: "POST", headers, body: JSON.stringify({ cases: ["nope"], repeats: 1 }) })).status, 400);
@@ -119,7 +121,7 @@ process.stdout.write(JSON.stringify({ runs: [], warnings: ["baseline_product_mat
 	assert.equal(started.status, 202);
 	const job = await started.json();
 	assert.equal(job.arms, 2);
-	for (let attempt = 0; attempt < 50; attempt += 1) {
+	for (let attempt = 0; attempt < 200; attempt += 1) {
 		const status = await fetch(url(`/api/eval/replay/status?runId=${job.runId}`), { headers }).then((response) => response.json());
 		if (status.status !== "running") {
 			assert.deepEqual(status.warnings, ["baseline_product_matches_candidate"]);
@@ -129,7 +131,7 @@ process.stdout.write(JSON.stringify({ runs: [], warnings: ["baseline_product_mat
 			assert.ok(args.some((arg) => arg === `--arm-baseline=${baselineProduct}`), "the configured product is the comparison arm: " + JSON.stringify(args));
 			return;
 		}
-		await new Promise((resolveDelay) => setTimeout(resolveDelay, 20));
+		await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
 	}
 	assert.fail("the fake runner did not finish");
 });

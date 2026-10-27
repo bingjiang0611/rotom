@@ -125,8 +125,21 @@ export async function main(argv = process.argv.slice(2)) {
 	if (!cases.length) throw new Error("no replay points selected");
 	const armList = args.arm === "baseline" ? [{ name: "baseline", product: args.armBaseline ?? args.product }] : [{ name: "candidate", product: args.product }, ...(args.armBaseline ? [{ name: "baseline", product: args.armBaseline }] : [])];
 	if (args.dryRun) {
-		const chars = cases.reduce((total, item) => total + item.expected.length, 0);
-		return { dryRun: true, cases: cases.length, arms: armList.map((arm) => arm.name), repeats: args.repeats, runs: cases.length * armList.length * args.repeats, expectedChars: chars };
+		// Count what will actually be sent: the truncated prefix after redaction,
+		// not just the expected-behaviour text.
+		const { measureReplayPlan } = await import("../../extensions/observability/eval/replay-plan.mjs");
+		const { cutEntries } = await import("../../extensions/observability/eval/replay.mjs");
+		const items = [];
+		for (const item of cases) {
+			const source = await loadReplaySession(sessionsRoot, item.sessionId);
+			items.push({ key: item.key, check: item.check, entries: cutEntries(source.branch, item.cutEntryId)?.entries ?? [] });
+		}
+		const plan = measureReplayPlan({ items, repeats: args.repeats, arms: armList.length });
+		return {
+			dryRun: true, cases: cases.length, arms: armList.map((arm) => arm.name), repeats: plan.repeats, runs: plan.runs,
+			expectedChars: cases.reduce((total, item) => total + item.expected.length, 0),
+			context: { perCaseChars: plan.perCaseChars, maxChars: plan.maxChars, totalChars: plan.totalChars, redactionTotal: plan.redactionTotal },
+		};
 	}
 	// One empty workspace per run: the replay must never see the private eval
 	// directory or a real project as its cwd.

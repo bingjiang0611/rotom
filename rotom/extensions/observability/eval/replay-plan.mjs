@@ -40,7 +40,8 @@ export function measureReplayPlan({ items, repeats = 1, arms = 1 }) {
 		}
 		cases.push({ key: item.key, chars, runs: count * armCount });
 	}
-	const totalChars = cases.reduce((total, item) => total + item.chars, 0) * count * armCount;
+	const perCaseChars = cases.reduce((total, item) => total + item.chars, 0);
+	const totalChars = perCaseChars * count * armCount;
 	const redactions = [...masked].sort(([left], [right]) => left.localeCompare(right)).map(([type, count]) => ({ type, count }));
-	return { cases, runs: cases.length * count * armCount, repeats: count, arms: armCount, totalChars, redactions, redactionTotal: redactionTotal(redactions), modelCases: items.filter((item) => item.check?.mode === "model").length };
+	return { cases, runs: cases.length * count * armCount, repeats: count, arms: armCount, perCaseChars, maxChars: cases.reduce((max, item) => Math.max(max, item.chars), 0), totalChars, redactions, redactionTotal: redactionTotal(redactions), modelCases: items.filter((item) => item.check?.mode === "model").length };
 }

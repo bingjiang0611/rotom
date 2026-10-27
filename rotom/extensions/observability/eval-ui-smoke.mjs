@@ -189,7 +189,7 @@ try {
 	await page.getByRole("button", { name: "运行回放", exact: true }).click();
 	// The dialog states the measured size before anything runs.
 	await page.getByText(/^共 1 次回放（1 个回放点 × 1 次 × 1 个产品）$/u).waitFor();
-	await page.locator('dialog[aria-label="确认运行回放"]').getByText(/^截断前内容：每个回放点合计 [\d,]+ 字符，按上述次数总计 [\d,]+ 字符。$/u).waitFor();
+	await page.locator('dialog[aria-label="确认运行回放"]').getByText(/^截断前内容：1 个回放点合计 [\d,]+ 字符（单个最大 [\d,]+），按上述次数总计 [\d,]+ 字符。$/u).waitFor();
 	await screenshot("eval-replay-confirm.png");
 	await page.getByRole("button", { name: "确认运行", exact: true }).click();
 	await page.getByText("回放结束 · 已运行 1 / 1", { exact: true }).waitFor();

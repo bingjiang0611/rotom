@@ -41,7 +41,10 @@ test("the plan counts characters from the redacted prefix only", () => {
 	// The marker is shorter than the secret, so counting the raw text would lie.
 	for (const item of plan.cases) assert.match(String(item.chars), /^\d+$/u);
 	assert.ok(plan.cases[0].chars < JSON.stringify(items[0].entries).length);
-	assert.equal(plan.totalChars, plan.cases.reduce((total, item) => total + item.chars, 0) * 2);
+	assert.equal(plan.perCaseChars, plan.cases.reduce((total, item) => total + item.chars, 0));
+	assert.equal(plan.totalChars, plan.perCaseChars * 2);
+	// The largest single point is what can blow a context window.
+	assert.equal(plan.maxChars, Math.max(...plan.cases.map((item) => item.chars)));
 	// Only the model-mode point reports masked credentials.
 	assert.equal(plan.modelCases, 1);
 	assert.equal(plan.redactionTotal, 1);
