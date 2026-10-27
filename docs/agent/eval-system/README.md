@@ -47,8 +47,9 @@
 | 15 | [行为用例真实模型 A/B（10 次运行）](tasks/15-behavioral-ab-real-model.md)（[报告](reports/15-behavioral-ab-real-model.md)） | Phase 4 | accepted（4 题到顶、1 题判定误判，区分度≈0） |
 | 16 | [行为用例改得接近真实会话 + 再跑 20 次](tasks/16-harder-behavioral-cases.md)（[报告](reports/16-harder-behavioral-cases.md)） | Phase 4 | accepted（3 题到顶，2 题需修题，未证实产品问题） |
 | 17 | [修好剩下的合成题（护栏）+ 重跑 12 次](tasks/17-fix-synthetic-cases.md)（[报告](reports/17-fix-synthetic-cases.md)） | Phase 4 | accepted（合成题定位为护栏；4 条小修见报告核验） |
-| 18 | [真实会话回放：标回放点 + 只生成下一步 + 判定](tasks/18-session-replay.md)（[报告](reports/18-session-replay.md)、[第 2/3 轮](reports/18-session-replay-round2.md)） | Phase 4 | in-review（第一次真实回放已跑通 3 个点，见 [第一次真实回放](reports/18-first-real-run.md)） |
+| 18 | [真实会话回放：标回放点 + 只生成下一步 + 判定](tasks/18-session-replay.md)（[报告](reports/18-session-replay.md)、[第 2/3 轮](reports/18-session-replay-round2.md)） | Phase 4 | accepted（第一次真实回放跑通：3/3 pass，区分度待 20 的 original 对照） |
 | 19 | [合成题小修 + CI 偶发失败排查](tasks/19-small-fixes-and-ci-flake.md)（[报告](reports/19-small-fixes-and-ci-flake.md)；与 18 同批，先做 19） | Phase 4 | accepted（CI 抖动根因在 Pi，待修） |
+| 20 | [回放加原始回复对照 + 脱敏栈溢出等修复](tasks/20-replay-original-control.md) | Phase 4 | ready |
 
 执行者每次推送前按 [自查清单](executor-checklist.md) 逐条检查，并在报告里写「自查」一节。
 
