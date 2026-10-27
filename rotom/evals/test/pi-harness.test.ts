@@ -65,7 +65,7 @@ it("disables the broad product tool surface for host evals unless access is expl
 });
 
 it("allows an empty interim assistant acknowledgement only while waiting for a custom completion message", () => {
-	const session = { messages: [{ role: "assistant", content: [{ type: "text", text: "" }], stopReason: "stop" }] } as unknown as AgentSession;
+	const session = { sessionManager: { getBranch: () => [{ type: "message", message: { role: "assistant", content: [{ type: "text", text: "" }], stopReason: "stop" } }] } } as unknown as AgentSession;
 	expect(() => latestAssistantResponse(session, 0)).toThrow("no assistant text");
 	expect(latestAssistantResponse(session, 0, true)).toBe("");
 });

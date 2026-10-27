@@ -95,11 +95,13 @@ export function isObservationId(id: string): boolean {
 	return OBSERVATION_ID_PATTERN.test(id);
 }
 
-export function createObservation(message: ToolResultMessage, runtimeRoot: string): Observation | undefined {
+export function createObservation(
+	message: ToolResultMessage, runtimeRoot: string, minBytes = THRESHOLD_BYTES,
+): Observation | undefined {
 	const text = textFromResult(message);
 	if (containsReducerReceipt(text)) return undefined;
 	const bytes = Buffer.byteLength(text, "utf8");
-	if (bytes <= THRESHOLD_BYTES) return undefined;
+	if (bytes <= minBytes) return undefined;
 	if (!runtimeRoot) throw new Error("SoL-Pi runtime directory is unavailable");
 
 	const contentHash = hash(text);

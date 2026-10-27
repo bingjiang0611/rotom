@@ -11,12 +11,15 @@ import {
 	DEFAULT_REDUCER_PROVIDER,
 } from "./extensions/evidence-preserving-reducer/config.ts";
 
+import { OFFLOAD_COPY } from "./constants/copy.ts";
+
 export const DEFAULT_CACHE_WRITE_READ_RATIO = 12.5;
 
 export interface SolPiConfig {
 	readonly version: 1;
 	readonly actionFusion: boolean;
 	readonly observationPack: boolean;
+	readonly compactionOffload: boolean;
 	readonly evidencePreservingReducer: boolean;
 	readonly evidencePreservingReducerModel: string;
 	readonly evidencePreservingReducerProvider: string;
@@ -28,6 +31,7 @@ export const DEFAULT_CONFIG: SolPiConfig = Object.freeze({
 	version: 1,
 	actionFusion: false,
 	observationPack: false,
+	compactionOffload: false,
 	evidencePreservingReducer: false,
 	evidencePreservingReducerModel: DEFAULT_REDUCER_MODEL,
 	evidencePreservingReducerProvider: DEFAULT_REDUCER_PROVIDER,
@@ -38,6 +42,7 @@ export const DEFAULT_CONFIG: SolPiConfig = Object.freeze({
 const FEATURE_KEYS = [
 	"actionFusion",
 	"observationPack",
+	"compactionOffload",
 	"evidencePreservingReducer",
 	"onlineContextCompact",
 ] as const;
@@ -88,6 +93,9 @@ export function loadSolPiConfig(
 		if (record[key] !== undefined && typeof record[key] !== "boolean") {
 			throw new Error(`SoL-Pi config ${key} must be boolean: ${path}`);
 		}
+	}
+	if (record.compactionOffload === true && record.observationPack !== true) {
+		throw new Error(OFFLOAD_COPY.dependency);
 	}
 	const cacheWriteReadRatio = Object.hasOwn(record, "cacheWriteReadRatio")
 		? record.cacheWriteReadRatio

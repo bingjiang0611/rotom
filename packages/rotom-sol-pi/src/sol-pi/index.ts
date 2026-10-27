@@ -7,12 +7,12 @@ import { getAgentDir, type ExtensionAPI, type ExtensionContext, type ExtensionFa
 import { loadSolPiConfig, type SolPiConfig } from "./config.ts";
 import { registerActionFusion } from "./extensions/action-fusion/index.ts";
 import { registerEvidencePreservingReducer } from "./extensions/evidence-preserving-reducer/index.ts";
-import { registerObservationPack } from "./extensions/observation-pack/index.ts";
+import { createObservationPackExtension } from "./extensions/observation-pack/index.ts";
 import { registerOnlineContextCompact } from "./extensions/online-context-compact/index.ts";
 
 export function registerConfiguredFeatures(pi: ExtensionAPI, config: SolPiConfig): void {
 	if (config.actionFusion) registerActionFusion(pi);
-	if (config.observationPack) registerObservationPack(pi);
+	if (config.observationPack) createObservationPackExtension({ compactionOffload: config.compactionOffload })(pi);
 	if (config.evidencePreservingReducer) {
 		registerEvidencePreservingReducer(pi, {
 			reducerModel: config.evidencePreservingReducerModel,
