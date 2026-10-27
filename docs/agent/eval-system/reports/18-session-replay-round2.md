@@ -70,3 +70,13 @@ Playwright 冒烟（`eval-ui-smoke.mjs`，合成数据 + 假运行器）：把�
 - **L1（已做）**：上述单元/集成测试、CI 单测步骤、审计、体积守卫测试。
 - **L2（已做，离线）**：真实产品运行时 + faux provider 的端到端回放（工具不执行、只一条消息、两臂产品不同、launcher 直执行）；Playwright 冒烟覆盖面板全流程。
 - **L3（未做）**：没有真实模型、没有真实会话回放。真实 provider 下的判定质量、长上下文截断后的行为仍未知，需要 bob 在后台首次触发。
+
+### 7. CI 两轮失败的原因（都已处理）
+
+第一轮（`40471906954`）：E2E 第 2 条用例挂在「真 launcher」上，14 分钟后被 15 分钟的 job 上限取消。原因是真 launcher 在 CI 的空 HOME 下不会自己退出（它需要隔离 HOME + 网络守卫才肯离线结束，见 `eval-launcher-check.mjs` 的做法）。改成 stub launcher（见上），真 launcher 的离线行为仍由 CI 既有那一步覆盖。
+
+第二轮（`40474263432`）：三条用例全部 PASS，但 `node --test` 进程不退出，又在 15 分钟被取消。查实是产品运行时留下的 `fs.watch`：`after()` 现在打印 `leftover handles: FSEventWrap × 8`（两臂各 4 个，来自产品资源/设置目录的监视）。这类句柄对真正的运行器无影响（`session-replay.mjs` 是独立进程，跑完即退），只影响「在同一进程里反复加载产品」的测试宿主，所以处理方式是：`after()` 报告剩余句柄，仅在存在非管道句柄时短暂延迟后结束测试进程；断言一条没减。同时在测试文件顶部设 `ROTOM_QODER=0`、`ROTOM_OBSERVABILITY=0`，让这条离线用例不再触网、不写 trace。
+
+第三轮（`40476428536`）：全部 success，含第 9 步这条 E2E。
+
+**留作已知限制**：产品运行时不在 `close()` 后释放 `fs.watch`。如果以后有「长驻进程里多次加载产品」的需求（例如看板进程内直接跑回放），需要先给 `loadReplayProduct` / `openReplaySession` 加真正的 dispose；当前回放走独立子进程，所以不构成功能缺陷。没有改产品代码去动这些 watcher，是因为根因在 Pi 的资源加载生命周期，属于跨边界改动。
