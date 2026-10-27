@@ -182,8 +182,14 @@ export function replaySource({ branch, sessionContent, expectedSha256, cutEntryI
 }
 
 /** Run one replay point across arms and repetitions with injected model calls. */
-export async function runReplayPlan({ directory, day, cases, arms, repeats = 1, sessionOf, generate, judgeModel, onRun, now = () => new Date() }) {
+export async function runReplayPlan({ directory, day, cases, arms, repeats = 1, sessionOf, generate, judgeModel, onRun, now = () => new Date(), productDigests }) {
 	if (!Array.isArray(arms) || arms.length === 0) throw new Error("At least one arm is required");
+	// Two arms can only be compared when their product surfaces differ. Stamping
+	// the rows keeps that visible later: "baseline" that loads the same product is
+	// a mistake, not a result.
+	const sameProduct = productDigests && Object.keys(productDigests).length > 1
+		? new Set(Object.values(productDigests)).size === 1
+		: null;
 	const count = Math.min(Math.max(Number(repeats) || 1, 1), 3);
 	const folder = replayRunsDir(directory, day);
 	await ensurePrivate(folder);
@@ -194,7 +200,7 @@ export async function runReplayPlan({ directory, day, cases, arms, repeats = 1, 
 			for (let repetition = 1; repetition <= count; repetition += 1) {
 				const startedAt = now().toISOString();
 				if (source.status !== "ready") {
-					results.push(await persist({ folder, item, arm, repetition, startedAt, verdict: { verdict: "unknown", reason: source.reason }, checkMode: item.check.mode }));
+					results.push(await persist({ folder, item, arm, repetition, startedAt, sameProduct, verdict: { verdict: "unknown", reason: source.reason }, checkMode: item.check.mode }));
 					onRun?.({ done: results.length, total: cases.length * arms.length * count, key: item.key });
 					continue;
 				}
@@ -202,7 +208,7 @@ export async function runReplayPlan({ directory, day, cases, arms, repeats = 1, 
 				try {
 					message = await generate({ entries: source.entries, arm, repetition, case: item });
 				} catch (error) {
-					results.push(await persist({ folder, item, arm, repetition, startedAt, verdict: { verdict: "unknown", reason: `generation_failed: ${error instanceof Error ? error.message : String(error)}` }, checkMode: item.check.mode }));
+					results.push(await persist({ folder, item, arm, repetition, startedAt, sameProduct, verdict: { verdict: "unknown", reason: `generation_failed: ${error instanceof Error ? error.message : String(error)}` }, checkMode: item.check.mode }));
 					onRun?.({ done: results.length, total: cases.length * arms.length * count, key: item.key });
 					continue;
 				}
@@ -216,7 +222,7 @@ export async function runReplayPlan({ directory, day, cases, arms, repeats = 1, 
 					const model = judgeModel ? await judgeModel({ item, reply, entries: source.entries }) : undefined;
 					verdict = model ?? { verdict: "unknown", reason: "model judge unavailable" };
 				}
-				results.push(await persist({ folder, item, arm, repetition, startedAt, verdict, checkMode: item.check.mode, reply, message: message.message ?? message, usage: message.usage, elapsedMs: message.elapsedMs, productDigest: message.productDigest }));
+				results.push(await persist({ folder, item, arm, repetition, startedAt, sameProduct, verdict, checkMode: item.check.mode, reply, message: message.message ?? message, usage: message.usage, elapsedMs: message.elapsedMs, productDigest: message.productDigest }));
 			}
 			onRun?.({ done: results.length, total: cases.length * arms.length * count, key: item.key });
 		}
@@ -224,7 +230,7 @@ export async function runReplayPlan({ directory, day, cases, arms, repeats = 1, 
 	return results;
 }
 
-async function persist({ folder, item, arm, repetition, startedAt, verdict, checkMode, reply, message, usage, elapsedMs, productDigest }) {
+async function persist({ folder, item, arm, repetition, startedAt, verdict, checkMode, reply, message, usage, elapsedMs, productDigest, sameProduct = null }) {
 	const name = `${item.key ?? replayCaseKey(item.sessionId, item.cutEntryId)}-${arm}-${repetition}.json`;
 	const target = join(folder, name);
 	await assertPrivatePath(target);
@@ -236,6 +242,7 @@ async function persist({ folder, item, arm, repetition, startedAt, verdict, chec
 		reply: reply ? { text: reply.text.slice(0, 8000), toolCalls: reply.toolCalls.map((call) => ({ name: call.name, args: call.args })) } : null,
 		usage: usage ?? null,
 		productDigest: typeof productDigest === "string" ? productDigest : null,
+		sameProduct,
 	};
 	await privateWrite(target, JSON.stringify(row) + "\n");
 	return { ...row, path: target };
