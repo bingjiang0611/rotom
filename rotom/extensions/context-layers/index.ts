@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Type } from "typebox";
 import { estimateTokens, type ExtensionAPI, type ExtensionContext, type SessionBoundaryDraft } from "@earendil-works/pi-coding-agent";
-import { buildView, candidates, commitDrafts, planCompression, search, status, TOOLS, type Plan } from "./blocks.ts";
+import { buildView, commitDrafts, planCompression, search, status, TOOLS, type Plan } from "./blocks.ts";
 import { recall } from "./recall.ts";
 import { COPY } from "./copy.ts";
 
@@ -11,19 +11,17 @@ const viewOf = (ctx: ExtensionContext) => buildView(ctx.sessionManager.getBranch
 
 export default function contextLayers(pi: ExtensionAPI): void {
   // Existing context_edit entries continue to be projected by Pi when opted out.
-  // No tools, reminders or additional writes are installed in that mode.
+  // No tools or additional writes are installed in that mode.
   if (process.env.ROTOM_CONTEXT_LAYERS === "0") return;
   let pending: Plan[] = [];
   let sessionId: string | undefined;
-  let lastNudgeTokens: number | undefined = 0;
   function reset(_event: unknown, ctx: ExtensionContext) {
-    pending = []; lastNudgeTokens = 0; sessionId = ctx.sessionManager.getSessionId();
+    pending = []; sessionId = ctx.sessionManager.getSessionId();
   }
   pi.on("session_start", reset);
   pi.on("session_tree", reset);
   pi.on("session_compact", reset);
   pi.on("session_shutdown", reset);
-  pi.on("model_select", () => { lastNudgeTokens = 0; });
   function current(ctx: ExtensionContext) {
     if (sessionId !== ctx.sessionManager.getSessionId()) reset(undefined, ctx);
     return viewOf(ctx);
@@ -87,31 +85,8 @@ export default function contextLayers(pi: ExtensionAPI): void {
         outcomes.push({ block: plan.block.id, state: "not-applied", reason: error instanceof Error ? error.message : String(error) });
       }
     }
-    // Rebase from the next known projected usage. Resetting to zero immediately
-    // nudges again after small folds, repeatedly rewriting a reusable cache prefix.
-    if (outcomes.some(outcome => outcome.state === "applied")) lastNudgeTokens = undefined;
     // This receipt is after all edits: it is not a pre-dispatch success promise.
     entries.push({ type: "custom", customType: RECEIPT, data: { outcomes } });
     return { entries };
-  });
-  pi.on("context", (event, ctx) => {
-    if (sessionId !== ctx.sessionManager.getSessionId()) reset(undefined, ctx);
-    if (!TOOLS.every(name => pi.getActiveTools().includes(name))) return;
-    const usage = ctx.getContextUsage();
-    if (!usage || usage.tokens === null || usage.percent === null) return;
-    if (lastNudgeTokens === undefined) {
-      lastNudgeTokens = usage.tokens;
-      return;
-    }
-    // Preserve stable history until pressure is substantial; these are reminder
-    // thresholds, not a restriction on explicit compression or native compaction.
-    if (usage.percent < 70) return;
-    const growth = Math.max(1024, usage.contextWindow * 0.1);
-    if (lastNudgeTokens && usage.tokens - lastNudgeTokens < growth) return;
-    const view = current(ctx);
-    const available = candidates(view, estimateTokens).reduce((n, r) => n + r.estimatedTokens, 0);
-    if (available < 1024 && [...view.states.values()].filter(s => s === "active").length < 2) return;
-    lastNudgeTokens = usage.tokens;
-    return { messages: [...event.messages, { role: "custom" as const, customType: "rotom-context-layers/nudge", content: COPY.nudge(Math.round(usage.percent)), display: false, timestamp: Date.now() }] };
   });
 }
