@@ -165,7 +165,7 @@ try {
 		}
 		return [...words].sort();
 	});
-	const allowed = new Set(["ROTOM", "Rotom", "R", "fake", "model", "bash", "tool_error", "repeat-after-error", "ended-after-tool-error", "ended-on-provider-error", "schema-errors", "oversized-tool-result", "harness-fault", "unknown"]);
+	const allowed = new Set(["ROTOM", "Rotom", "R", "fake", "model", "bash", "tool_error", "repeat-after-error", "ended-after-tool-error", "ended-on-provider-error", "schema-errors", "oversized-tool-result", "harness-fault", "unknown", "ROTOM_EVAL_REPLAY_BASELINE"]);
 	assert.deepEqual(english.filter((word) => !allowed.has(word)), [], "untranslated visible UI copy");
 	// Replay panel: pin a point on a failed step, list it, run it, cancel it, delete it.
 	// Only a reviewed failure offers a replay point, so mark this one 不满意 first.
@@ -183,7 +183,14 @@ try {
 	await screenshot("eval-replay-list.png");
 	await page.locator("#eval-replay input[aria-label=" + JSON.stringify("模型") + "]").fill("faux/faux-1");
 	await page.locator("#eval-replay input[aria-label=" + JSON.stringify("每个回放点重复次数") + "]").fill("1");
+	// No ROTOM_EVAL_REPLAY_BASELINE here: the comparison arm must not be offered.
+	assert.equal(await page.locator("#eval-replay-baseline").isVisible(), false);
+	await page.getByText("未配置对照臂（ROTOM_EVAL_REPLAY_BASELINE），只能回放当前产品。", { exact: true }).waitFor();
 	await page.getByRole("button", { name: "运行回放", exact: true }).click();
+	// The dialog states the measured size before anything runs.
+	await page.getByText(/^共 1 次回放（1 个回放点 × 1 次 × 1 个产品）$/u).waitFor();
+	await page.locator('dialog[aria-label="确认运行回放"]').getByText(/^截断前内容：每个回放点合计 [\d,]+ 字符，按上述次数总计 [\d,]+ 字符。$/u).waitFor();
+	await screenshot("eval-replay-confirm.png");
 	await page.getByRole("button", { name: "确认运行", exact: true }).click();
 	await page.getByText("回放结束 · 已运行 1 / 1", { exact: true }).waitFor();
 	// A slow runner proves progress is visible and cancel stops the run. The panel
