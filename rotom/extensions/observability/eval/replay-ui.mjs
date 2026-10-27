@@ -30,6 +30,8 @@ export function replayClient(ctx) {
 				node.append(make('strong', '', item.sessionId + ' · ' + item.cutEntryId.slice(0, 8)), make('p', 'eval-text', item.expected),
 					make('p', 'eval-meta', latest ? (C[latest.verdict] || latest.verdict) + ' · ' + latest.arm + ' · ' + latest.startedAt : C.replayNeverRun),
 					latest?.reason ? make('p', 'eval-muted', latest.reason) : make('span', ''));
+				// Two arms that load the same product cannot show a difference.
+				if (latest?.sameProduct === true) node.append(make('p', 'eval-notice', C.replaySameProduct));
 				node.append(button(C.replayDelete, async () => { await api('/api/eval/replay/case/delete', { sessionId: item.sessionId, cutEntryId: item.cutEntryId }); await render(); }, 'eval-next'));
 				list.append(node);
 			}
@@ -38,38 +40,67 @@ export function replayClient(ctx) {
 			const repeats = make('input'); repeats.type = 'number'; repeats.min = '1'; repeats.max = '3'; repeats.value = '1'; repeats.setAttribute('aria-label', C.replayRepeats);
 			const baseline = make('input'); baseline.type = 'checkbox'; baseline.id = 'eval-replay-baseline';
 			const baselineLabel = make('label', '', C.replayBaseline); baselineLabel.htmlFor = 'eval-replay-baseline';
+			// No configured comparison product, no checkbox: the server refuses it too.
+			const baselineAvailable = state.baseline?.enabled === true;
+			baseline.hidden = baselineLabel.hidden = !baselineAvailable;
 			const cancel = button(C.replayCancel, async () => { cancel.disabled = true; if (activeRun) { try { await api('/api/eval/replay/cancel', { runId: activeRun }); } catch { progressNotice.textContent = C.replayError; } } });
 			cancel.hidden = true;
+			const baselineNote = make('p', 'eval-muted', C.replayBaselineMissing);
+			baselineNote.hidden = baselineAvailable;
 			const run = button(C.replayRun, async () => {
 				const chosen = state.cases.filter((item) => item.selected !== false).map((item) => item.key);
-				const runs = chosen.length * Number(repeats.value || 1) * (baseline.checked ? 2 : 1);
-				const accepted = await confirmReplay({ cases: chosen.length, runs, model: model.value, repeats: repeats.value, baseline: baseline.checked });
+				const includeBaseline = baselineAvailable && baseline.checked;
+				// Measure first: the dialog states how much context and how many runs
+				// this spends, computed server-side from the redacted prefix.
+				run.disabled = true; progressNotice.textContent = C.replayPreparing;
+				let plan;
+				try { plan = await api('/api/eval/replay/prepare', { cases: chosen, repeats: Number(repeats.value || 1), includeBaseline }); }
+				catch (error) { progressNotice.textContent = error.message || C.replayError; run.disabled = false; return; }
+				progressNotice.textContent = '';
+				run.disabled = false;
+				const accepted = await confirmReplay({ plan, cases: chosen.length, model: model.value, repeats: plan.repeats, baseline: includeBaseline });
 				if (!accepted) return;
 				run.disabled = true; cancel.disabled = false; cancel.hidden = false;
 				try {
-					const started = await api('/api/eval/replay/run', { cases: chosen, model: model.value, repeats: Number(repeats.value || 1), includeBaseline: baseline.checked });
+					const started = await api('/api/eval/replay/run', { cases: chosen, model: model.value, repeats: plan.repeats, includeBaseline });
 					activeRun = started.runId;
 					while (true) {
 						await new Promise((resolveDelay) => setTimeout(resolveDelay, 1000));
 						const status = await api('/api/eval/replay/status?runId=' + encodeURIComponent(started.runId));
 						progressNotice.textContent = format(C.replayProgress, { done: status.done, total: status.total });
-						if (status.status !== 'running') { progressNotice.textContent = C[status.status === 'done' ? 'replayDone' : 'replayStopped'] + ' · ' + format(C.replayProgress, { done: status.done, total: status.total }); break; }
+						if (status.status !== 'running') {
+							progressNotice.textContent = C[status.status === 'done' ? 'replayDone' : 'replayStopped'] + ' · ' + format(C.replayProgress, { done: status.done, total: status.total });
+							if (status.warnings?.includes('baseline_product_matches_candidate')) progressNotice.textContent += ' · ' + C.replaySameProduct;
+							break;
+						}
 					}
 				} catch (error) { progressNotice.textContent = error.message || C.replayError; }
 				activeRun = null; cancel.hidden = true;
 				run.disabled = false;
 				await render();
 			}, 'eval-primary');
-			runBox.append(model, repeats, baseline, baselineLabel, run, cancel, progressNotice);
+			runBox.append(model, repeats, baseline, baselineLabel, baselineNote, run, cancel, progressNotice);
 			list.append(runBox);
 		};
 		await render();
 		return box;
 	}
-	function confirmReplay({ cases, runs, model, repeats, baseline }) {
+	function confirmReplay({ plan, cases, model, repeats, baseline }) {
+		const number = (value) => new Intl.NumberFormat('zh-CN').format(value ?? 0);
+		const perCaseChars = plan.cases.reduce((total, item) => total + item.chars, 0);
 		return new Promise((resolve) => {
 			const dialog = make('dialog', 'eval-dialog'); dialog.setAttribute('aria-label', C.replayConfirmTitle);
-			dialog.append(make('h2', '', C.replayConfirmTitle), make('p', 'eval-text', format(C.replayConfirmDetails, { cases, runs, model: model || C.unknown, repeats, baseline: baseline ? C.yes : C.no })), make('p', '', C.consent), button(C.cancel, () => dialog.close()), button(C.replayConfirm, () => dialog.close('confirm'), 'eval-primary'));
+			// Model points also send their prefix to a judge, so the masked-credential
+			// count is stated separately instead of being folded into the total.
+			const redactionLine = plan.modelCases > 0 && plan.redactionTotal > 0
+				? [make('p', 'eval-text', format(C.replayPlanRedactions, { total: number(plan.redactionTotal), detail: plan.redactions.map((entry) => entry.type + ' ' + number(entry.count)).join('、') }))]
+				: [];
+			dialog.append(make('h2', '', C.replayConfirmTitle),
+				make('p', 'eval-text', format(C.replayConfirmDetails, { cases, runs: plan.runs, model: model || C.unknown, repeats, baseline: baseline ? C.yes : C.no })),
+				make('p', 'eval-text', format(C.replayPlanRuns, { runs: number(plan.runs), cases, repeats, arms: plan.arms })),
+				make('p', 'eval-text', format(C.replayPlanChars, { chars: number(perCaseChars), total: number(plan.totalChars) })),
+				...redactionLine,
+				make('p', '', C.consent), button(C.cancel, () => dialog.close()), button(C.replayConfirm, () => dialog.close('confirm'), 'eval-primary'));
 			dialog.addEventListener('close', () => { const accepted = dialog.returnValue === 'confirm'; dialog.remove(); resolve(accepted); }, { once: true });
 			document.body.append(dialog); dialog.showModal();
 		});
