@@ -1,6 +1,6 @@
 # 压缩提速：先卸载、再摘要 · 协作看板
 
-本目录是「压缩不卡人」改造的规划与交接面，只存在于 `compaction/offload-first` 分支，不是产品运行时资源。
+本目录是「压缩不卡人」改造的规划与交接记录（随功能一并合入 main 作为证据留存），不是产品运行时资源。长期说明见 [`../compaction-offload.md`](../compaction-offload.md)。
 
 ## 背景与已定结论
 
@@ -57,8 +57,8 @@
 | 11 | [第四次付费回放](tasks/11-fourth-replay.md) | bob 本机 | 已执行一次（`f3d9d0f`）：6 个有效配对，两臂 6/6 正确，candidate 9 次推迟、等待 -67%；第 13 次 provider 错误熔断，multi-file-fix 无数据；授权已消费 |
 | 12 | [召回归属、错误类别、单次错误不停回放、按任务授权（零费用）](tasks/12-recall-and-infra.md) | `rotom/evals/` | accepted（`aae712e`） |
 | 13 | [只跑 multi-file-fix 的小回放](tasks/13-multi-file-fix-replay.md) | bob 本机 | 已执行一次（`5980e38`）：3 个有效配对，两臂 3/3 正确，2 次推迟后均成功召回；168 次请求；授权已消费 |
-| 14 | [rotom 默认开启（零费用）](tasks/14-default-on.md) | `rotom/` + 文档 | ready（bob 已选默认开启） |
-| 15 | 合入 main 的 PR | 规划者 | 等 14 accepted |
+| 14 | [rotom 默认开启（零费用）](tasks/14-default-on.md) | `rotom/` + 文档 | accepted（`677f89b`） |
+| 15 | 合入 main 的 PR | 规划者 | PR 已开，等 bob 合并 |
 | 16 | B 方案（后台提前压缩） | Pi fork | 搁置，看回放数据 |
 
 状态取值：`ready`（可开工）· `in-review`（执行者已提交，等核验）· `changes-requested` · `accepted`。

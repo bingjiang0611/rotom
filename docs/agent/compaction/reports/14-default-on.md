@@ -84,3 +84,12 @@
 | rotom/extensions/third-party/index.test.ts | 30998 | 10a3c7188f26352641bdbb3dea6aa4e749bc9f8a |
 
 临时 hook 复制原门禁，只跳过这三个精确 blob，并绑定本次起始 HEAD；任一获批 blob 变化即拒绝，提交后 HEAD 变化也不能复用。其余文件仍走原 20,000-byte 检查，仓内脚本和长期 hook 配置不变。独立临时 index 的两个负对照已证明：新增超过上限的文件仍被拒绝；换掉获批 CLAUDE blob 也被拒绝。证据为 size-negative-oversize.log、size-negative-blob.log。临时 hook 在提交后清除，不形成长期豁免。
+
+## 核验意见（规划者，2026-10-27）
+
+**accepted（`677f89b`）。** 规划者在本环境（Node 24.22.1）重跑：第三方 `index.test.ts`（指定仓内产品 `ROTOM_PI`）11/11 ok，进程随后不退出、被外层 timeout 结束，这是本环境已知的 Node 进程不退出问题，与本改动无关；`compaction-offload-eval` 21/21；新增 `compaction-offload-fusion` 1/1；typecheck 通过；`git diff --check origin/main...HEAD` 干净；tracked-tree 公开审计 PASS、0 findings。全量 `npm test` 未重跑，采信报告的 180/1 skip。
+
+- 改动面与任务一致：只改 rotom 默认（`compactionOffload: true`），sol-pi 包默认、归档、lockfile、product-config 都没动；配置文件语义保持「有文件就完全以文件为准」，文档写清了省略字段时为关。
+- CLAUDE.md 只改了指定的半句；`docs/agent/compaction-offload.md` 的汇总表数字与 11/13 报告逐项一致，局限写得充分。
+
+下一步：规划者开 PR 合入 main（任务 15）。
