@@ -216,7 +216,7 @@ export async function runReplayPlan({ directory, day, cases, arms, repeats = 1, 
 					const model = judgeModel ? await judgeModel({ item, reply, entries: source.entries }) : undefined;
 					verdict = model ?? { verdict: "unknown", reason: "model judge unavailable" };
 				}
-				results.push(await persist({ folder, item, arm, repetition, startedAt, verdict, checkMode: item.check.mode, reply, message: message.message ?? message, usage: message.usage, elapsedMs: message.elapsedMs }));
+				results.push(await persist({ folder, item, arm, repetition, startedAt, verdict, checkMode: item.check.mode, reply, message: message.message ?? message, usage: message.usage, elapsedMs: message.elapsedMs, productDigest: message.productDigest }));
 			}
 			onRun?.({ done: results.length, total: cases.length * arms.length * count, key: item.key });
 		}
@@ -224,7 +224,7 @@ export async function runReplayPlan({ directory, day, cases, arms, repeats = 1, 
 	return results;
 }
 
-async function persist({ folder, item, arm, repetition, startedAt, verdict, checkMode, reply, message, usage, elapsedMs }) {
+async function persist({ folder, item, arm, repetition, startedAt, verdict, checkMode, reply, message, usage, elapsedMs, productDigest }) {
 	const name = `${item.key ?? replayCaseKey(item.sessionId, item.cutEntryId)}-${arm}-${repetition}.json`;
 	const target = join(folder, name);
 	await assertPrivatePath(target);
@@ -235,6 +235,7 @@ async function persist({ folder, item, arm, repetition, startedAt, verdict, chec
 		startedAt, finishedAt: new Date().toISOString(), elapsedMs: elapsedMs ?? null,
 		reply: reply ? { text: reply.text.slice(0, 8000), toolCalls: reply.toolCalls.map((call) => ({ name: call.name, args: call.args })) } : null,
 		usage: usage ?? null,
+		productDigest: typeof productDigest === "string" ? productDigest : null,
 	};
 	await privateWrite(target, JSON.stringify(row) + "\n");
 	return { ...row, path: target };

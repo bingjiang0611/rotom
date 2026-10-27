@@ -89,7 +89,8 @@ export function timelineEvents(branch, traceTools) {
 			const body = contentText(message.content) || (failed ? message.errorMessage ?? "" : "");
 			if (body || failed || message.role === "user") {
 				if (failed && firstError === null) firstError = events.length;
-				events.push({ kind: message.role, content: body, failed });
+				// The entry id lets the UI pin this exact step as a replay point.
+				events.push({ kind: message.role, content: body, failed, entryId: entry.id });
 			}
 		}
 		if (message.role === "assistant") for (const call of Array.isArray(message.content) ? message.content : []) {
@@ -114,7 +115,7 @@ export function timelinePage(branch, traceTools, cursor, version, eventIndex) {
 		const event = events[index];
 		const item = event.kind === "tool"
 			? { index, kind: "tool", name: preview(event.name, 128).text, outcome: preview(event.outcome, 64).text, failed: event.failed, firstError: index === firstError, args: preview(JSON.stringify(event.args)), result: preview(contentText(event.result)) }
-			: { index, kind: event.kind, content: preview(event.content), failed: event.failed, firstError: index === firstError };
+			: { index, kind: event.kind, content: preview(event.content), failed: event.failed, firstError: index === firstError, entryId: event.entryId };
 		const size = Buffer.byteLength(JSON.stringify(item));
 		if (items.length && bytes + size > MAX_RESPONSE_BYTES / 2) break;
 		items.push(item); bytes += size;
