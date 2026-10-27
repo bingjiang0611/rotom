@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
-import { executeProcessTreeV1 } from "../../../runtime/process-tree.ts";
+import { executeProcessTreeV1 } from "../../../runtime/process-tree.mjs";
 import { buildJudgeInput, JUDGE_MAX_INPUT_CHARS, JUDGE_PROMPT_VERSION, validateJudgment } from "./judge-prompt.mjs";
 import { writeJudgment } from "./judge-store.mjs";
 import { evalError, preview } from "./service.mjs";

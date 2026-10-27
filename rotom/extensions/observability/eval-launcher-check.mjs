@@ -6,7 +6,7 @@ import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promi
 import { isAbsolute, join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { executeProcessTreeV1 } from "../../runtime/process-tree.ts";
+import { executeProcessTreeV1 } from "../../runtime/process-tree.mjs";
 import { childEnvironment, JUDGE_BASE_ARGS, JUDGE_LAUNCHER, JUDGE_MAX_OUTPUT_BYTES, parseJudgeEvents, parseModelCatalog } from "./eval/judge.mjs";
 
 function catalogResult(output) {

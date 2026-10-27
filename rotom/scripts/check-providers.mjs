@@ -9,7 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { resolveInstalledPi } from '../runtime/resolve-installed-pi.mjs';
 import { probePiVersion } from '../runtime/verify-pi-runtime.mjs';
 import { sourceDigest } from './build-pi-fork.mjs';
-import { executeProcessTreeV1 } from '../runtime/process-tree.ts';
+import { executeProcessTreeV1 } from '../runtime/process-tree.mjs';
 
 const repository = resolve(import.meta.dirname, '../..');
 const guard = join(import.meta.dirname, 'provider-offline-guard.mjs');

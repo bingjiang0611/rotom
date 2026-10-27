@@ -84,7 +84,7 @@ export async function createGenerator({ productAgentDir, model, thinkingLevel, p
 /** Model verdict for mode=model points; reuses the background judge prompt pipeline. */
 export async function createModelJudge({ model, launcher: launcherPath = undefined, timeoutMs = 180_000, budgetChars = REPLAY_JUDGE_BUDGET_CHARS }) {
 	const judge = await import("../../extensions/observability/eval/judge.mjs");
-	const { executeProcessTreeV1 } = await import("../../runtime/process-tree.ts");
+	const { executeProcessTreeV1 } = await import("../../runtime/process-tree.mjs");
 	return async ({ item, reply, entries }) => {
 		// Same renderer and budget the confirmation dialog measured, so the number
 		// the person approved is the number of characters the judge receives.

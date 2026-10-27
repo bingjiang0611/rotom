@@ -11,7 +11,7 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(), "rotom-external-group-test-")
 const source = process.env.SUBAGENT_EXTERNAL_GROUP_SOURCE || prepareExternalGroupCandidate(root);
 let retain = false;
 after(() => { if (retain) console.error(`Unverified fixtures retained: ${root}`); else fs.rmSync(root, { recursive: true, force: true }); });
-const { createOwnedProcessTreeController: controller, parseOwnedProcessGroupSnapshot: parse, inspectOwnedProcessGroup: inspectGroup } = await import(pathToFileURL(path.join(source, "src/runs/background/owned-process-tree.ts")));
+const { createOwnedProcessTreeController: controller, parseOwnedProcessGroupSnapshot: parse, inspectOwnedProcessGroup: inspectGroup } = await import(pathToFileURL(path.join(source, "src/runs/background/owned-process-tree.mjs")));
 const { runExternalCli } = await import(pathToFileURL(path.join(source, "src/runs/shared/external-cli-runner.ts")));
 
 test("preimage gate accepts the fixed base, not a version-matching patched copy", () => {

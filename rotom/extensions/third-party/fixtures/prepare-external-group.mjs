@@ -5,7 +5,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 const preimages = {
-	"src/runs/background/owned-process-tree.ts": "2eb4242149bafe04cf3409d0707466737300e109bd5af8dca4cbeb733a1e8ae9",
+	"src/runs/background/owned-process-tree.mjs": "2eb4242149bafe04cf3409d0707466737300e109bd5af8dca4cbeb733a1e8ae9",
 	"src/runs/shared/external-cli-runner.ts": "5cd3d774b72984011d19c364410c6283c7bf19bb88ed378a067144a4e7b3f4ab",
 	"src/shared/types.ts": "de149423e18e47920cca0c6b0f13ca7ed460d904da7908c24c0f8bf442e9fc4b",
 	"src/runs/background/process-terminal.ts": "c52f79ac35d018bf61b52522e5577573cff5438bf5b0ad6bc8c41f83ce9ac955",

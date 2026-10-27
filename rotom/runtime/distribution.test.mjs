@@ -53,6 +53,28 @@ test("distribution is public-scoped, owns its Pi fork, has no installation hooks
 	await verifyDistributionContract(SOURCE);
 });
 
+test("every shipped module's relative imports are shipped too", () => {
+	// pack:release validates the packed list against the declaration, not against
+	// what the code imports. A module that is imported but undeclared ships a
+	// package whose extension fails to load, and nothing else notices.
+	const shipped = new Set(["package.json", ...manifest.files]);
+	// A declared directory ships everything under it (embedded modules).
+	const covered = (target) => shipped.has(target) || [...shipped].some((entry) => target.startsWith(entry + "/"));
+	const missing = [];
+	for (const path of shipped) {
+		if (!/\.(mjs|ts)$/u.test(path) || path.endsWith(".d.mts")) continue;
+		const text = readFileSync(join(SOURCE, path), "utf8");
+		for (const match of text.matchAll(/(?:from\s*|import\s*\(\s*)["'](\.{1,2}\/[^"']+)["']/gu)) {
+			const target = join(dirname(path), match[1]);
+			if (!covered(target)) missing.push(`${path} imports ${target}`);
+			// Node refuses to strip types inside node_modules, so a shipped .mjs that
+			// imports a shipped .ts works in the checkout and dies when installed.
+			else if (path.endsWith(".mjs") && target.endsWith(".ts")) missing.push(`${path} imports TypeScript ${target}`);
+		}
+	}
+	assert.deepEqual(missing, []);
+});
+
 test("archives are build-only inputs; installed-code identity is not a file checksum", async (t) => {
 	assert.ok(!manifest.files.some((path) => path.endsWith(".tgz")));
 	const { root, pi } = fixture(t);
