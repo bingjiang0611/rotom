@@ -15,7 +15,7 @@ import { constants } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { assistantMessageOf, readReplayCases, REPLAY_TOOL_BLOCK_REASON, runReplayPlan, sessionSha256 } from "../../extensions/observability/eval/replay.mjs";
+import { assistantMessageOf, readReplayCases, REPLAY_SESSION_MAX_BYTES, REPLAY_TOOL_BLOCK_REASON, runReplayPlan, sessionSha256 } from "../../extensions/observability/eval/replay.mjs";
 import { loadSession } from "../../extensions/observability/eval/session-data.mjs";
 import { redactSecrets } from "../../extensions/observability/eval/redaction.mjs";
 import { loadReplayProduct, openReplaySession, removeScratch } from "../src/replay-session.ts";
@@ -28,7 +28,7 @@ export function parseArgs(argv) {
 		const [, name, value] = match;
 		if (name === "dry-run" || name === "json") args[name === "dry-run" ? "dryRun" : "json"] = true;
 		else if (name === "arm-baseline") args.armBaseline = value;
-		else if (["product", "arm", "model", "cases", "day", "extension", "sessions", "directory", "thinking", "pi"].includes(name)) args[name === "thinking" ? "thinkingLevel" : name] = value;
+		else if (["product", "arm", "model", "cases", "day", "extension", "sessions", "directory", "thinking", "pi", "paths"].includes(name)) args[name === "thinking" ? "thinkingLevel" : name] = value;
 		else if (name === "repeats") args.repeats = Math.min(Math.max(Number(value) || 1, 1), 3);
 		else throw new Error(`Unknown argument: ${item}`);
 	}
@@ -42,7 +42,7 @@ export function parseArgs(argv) {
 export async function loadReplaySession(sessionsRoot, sessionId, paths = {}) {
 	const summary = { badJson: 0, lineTooLong: 0 };
 	const path = paths[sessionId] ?? join(sessionsRoot, `${sessionId}.jsonl`);
-	const loaded = await loadSession(path, summary, new Set(), 8 * 1024 * 1024);
+	const loaded = await loadSession(path, summary, new Set(), REPLAY_SESSION_MAX_BYTES);
 	if (loaded.reason || !loaded.branch) throw new Error(`cannot read session ${sessionId}: ${loaded.reason ?? "no branch"}`);
 	const { readFile } = await import("node:fs/promises");
 	return { branch: loaded.branch, content: await readFile(path, "utf8") };

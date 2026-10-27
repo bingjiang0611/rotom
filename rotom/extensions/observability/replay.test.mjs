@@ -242,3 +242,32 @@ test("cancelling a running replay stops the runner", async () => {
 	assert.deepEqual(service.cancel("missing-run"), { cancelled: false, status: "unknown" });
 	service.close();
 });
+
+test("a long real session is still readable", async (t) => {
+	// Real sessions run to tens of MB; a cap sized for small project files would
+	// make every long session unreadable instead of merely slow.
+	const space = await workspace();
+	const session = await synthetic(space);
+	// Real sessions reach tens of MB through many ordinary entries, not one giant
+	// string, so pad the way a long session grows: a chain of 64 KB messages before
+	// the cut. A per-project 8 MB cap would refuse the file outright.
+	const lines = session.content.trimEnd().split("\n").map((line) => JSON.parse(line));
+	const cut = lines.findIndex((entry) => entry.message?.role === "assistant");
+	const timestamp = lines[0].timestamp;
+	let parentId = lines[cut - 1].id;
+	const padded = [];
+	for (let index = 0; index < 150; index += 1) {
+		const id = `pad-${index}`;
+		padded.push({ type: "message", id, parentId, timestamp, message: { role: "user", content: "y".repeat(64 * 1024) } });
+		parentId = id;
+	}
+	lines[cut].parentId = parentId;
+	lines.splice(cut, 0, ...padded);
+	await writeFixture(join(space.sessions, `${session.id}.jsonl`), `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`, { mode: 0o600 });
+	const service = createReplayService({ directory: space.directory, sessionsRoot: space.sessions, product: space.root, spawnProcess: () => spawn(process.execPath, ["-e", "setTimeout(()=>{},30000)"]) });
+	t.after(() => service.close());
+	const [first] = assistantIds(session.branch);
+	const point = await service.add({ sessionId: session.id, cutEntryId: first, expected: "先查状态", check: { mode: "rule", rule: "checks-before-claiming" } });
+	assert.equal(point.key, replayCaseKey(session.id, first));
+	assert.ok((await service.prepare({ cases: [point.key], repeats: 1 })).totalChars > 9 * 1024 * 1024);
+});

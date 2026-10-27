@@ -21,6 +21,11 @@ export const REPLAY_JUDGE_PROMPT_VERSION = "rotom-replay-judge/v1";
 /** Tool calls that gather information; a replay must not open with a write. */
 export const QUERY_TOOLS = new Set(["bash", "read", "grep", "glob", "ls", "find"]);
 export const REPLAY_RULES = ["checks-before-claiming", "no-identical-retry", "nonempty-handoff"];
+/**
+ * Sessions are read whole before the cut is taken, and a long real session is
+ * easily 20 MB, so the eval tab's small-project cap would refuse them all.
+ */
+export const REPLAY_SESSION_MAX_BYTES = 128 * 1024 * 1024;
 export const REPLAY_TOOL_BLOCK_REASON = "replay: tools are not executed";
 
 export function replayRoot(directory) { return join(directory, "replay"); }

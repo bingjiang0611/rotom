@@ -9,7 +9,7 @@ import { isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { evalError } from "./service.mjs";
 import {
-	cutEntries, deleteReplayCase, readReplayCases, readReplayRuns, replayCaseKey, sessionSha256, writeReplayCase,
+	cutEntries, deleteReplayCase, readReplayCases, readReplayRuns, replayCaseKey, REPLAY_SESSION_MAX_BYTES, sessionSha256, writeReplayCase,
 } from "./replay.mjs";
 import { clampRepeats, measureReplayPlan } from "./replay-plan.mjs";
 
@@ -45,7 +45,7 @@ export function createReplayService({ directory, sessionsRoot, product, armBasel
 
 	async function loadBranch(sessionId, cutEntryId) {
 		const { loadSession } = await import("./session-data.mjs");
-		const loaded = await loadSession(await sessionFile(sessionId), { badJson: 0, lineTooLong: 0 }, new Set(), 8 * 1024 * 1024);
+		const loaded = await loadSession(await sessionFile(sessionId), { badJson: 0, lineTooLong: 0 }, new Set(), REPLAY_SESSION_MAX_BYTES);
 		if (loaded.reason || !loaded.branch) throw evalError(400, "cannot_read_session");
 		const cut = cutEntries(loaded.branch, cutEntryId);
 		if (!cut) throw evalError(400, "invalid_replay_point");

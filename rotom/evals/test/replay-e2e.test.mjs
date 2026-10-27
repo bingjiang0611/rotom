@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import { fixtureSession } from "../../extensions/observability/eval-fixtures.mjs";
 import { loadSession } from "../../extensions/observability/eval/session-data.mjs";
 import { assistantMessageOf, readReplayCases, replaySource, runReplayPlan, sessionSha256, writeReplayCase } from "../../extensions/observability/eval/replay.mjs";
-import { createGenerator, createModelJudge } from "../scripts/session-replay.mjs";
+import { createGenerator, createModelJudge, parseArgs } from "../scripts/session-replay.mjs";
 import { loadReplayProduct, openReplaySession } from "../src/replay-session.ts";
 
 // The test boots a real product runtime in-process. Qoder and trace writing are
@@ -161,4 +161,21 @@ test("a blocker that cannot load refuses to generate", { skip: available ? false
 	// loaded, so the session must not be handed out for generation.
 	await mkdir(join(scratch, "blocker.marker"), { recursive: true });
 	await assert.rejects(() => openReplaySession({ product, model: { provider: "faux", id: "faux-1" }, entries, scratch, extensions: [extension] }), /extensions failed to load|blocker/iu);
+});
+
+test("the runner accepts the resolved session paths the dashboard sends", () => {
+	// The dashboard resolves each session file, because real sessions live in
+	// nested project folders; an unknown flag would fail the whole run instead.
+	const paths = { "01a1714a-43bb-7791-bbe9-e19834ac5c0b": "/tmp/pinned/2026-01-01_01a1714a.jsonl" };
+	const args = parseArgs(["--product=/tmp", "--model=faux/faux-1", "--paths=" + JSON.stringify(paths)]);
+	assert.equal(args.paths, JSON.stringify(paths));
+});
+
+test("an arm without an explicit --pi uses its own bundled Pi fork", async () => {
+	// A `pi` found on PATH is a different install; resolving it would replay both
+	// arms on the wrong Pi and hide a real product difference.
+	const explicit = await loadReplayProduct({ productAgentDir: productDir, piExecutable });
+	const implicit = await loadReplayProduct({ productAgentDir: productDir, piExecutable: undefined });
+	assert.equal(implicit.digest, explicit.digest);
+	assert.equal(implicit.selection.verified.executable, explicit.selection.verified.executable);
 });

@@ -35,12 +35,20 @@ function resourcePaths(selection: ProductRuntimeSelection) {
 
 /** Load one arm's product through the same verifier the eval harness uses. */
 export async function loadReplayProduct({ productAgentDir, piExecutable, excludedResourceKeys }: { productAgentDir: string; piExecutable?: string; excludedResourceKeys?: readonly string[] }): Promise<ReplayProduct> {
-	const selection = await loadProductRuntime({ agentDir: productAgentDir, piExecutable, excludedResourceKeys });
+	// Each arm must use its own product's Pi fork: falling back to a `pi` on PATH
+	// would silently replay both arms on whatever Pi happens to be installed.
+	const executable = piExecutable ?? process.env.ROTOM_PI?.trim() ?? (await bundledPi(productAgentDir));
+	const selection = await loadProductRuntime({ agentDir: productAgentDir, piExecutable: executable, excludedResourceKeys });
 	const paths = resourcePaths(selection);
 	const digest = createHash("sha256")
 		.update([selection.verified.version, ...paths.extensions, ...paths.skills, ...paths.prompts].join("\n"))
 		.digest("hex");
 	return { productDir: resolve(productAgentDir), selection, digest, ...paths };
+}
+
+async function bundledPi(productAgentDir: string): Promise<string> {
+	const module = (await import(`${productAgentDir}/runtime/resolve-installed-pi.mjs`)) as { resolveInstalledPi: (agentDir: string) => Promise<string> };
+	return module.resolveInstalledPi(productAgentDir);
 }
 
 /** The blocker writes this file when its factory runs; its absence fails the replay. */
