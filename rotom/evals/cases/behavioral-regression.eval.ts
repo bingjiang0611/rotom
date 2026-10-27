@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { chmod } from "node:fs/promises";
 import { describe } from "vitest";
@@ -53,9 +53,18 @@ function toolCalls(messages: PiCodingAgentOutputContext["session"]["messages"]):
 }
 
 async function readObserved(workspace: string, paths: string[]): Promise<Record<string, string>> {
+	// A path ending in `/` reads every file under that directory, sorted by name,
+	// so a case can inspect output whose file name is generated at run time.
 	const entries = await Promise.all(paths.map(async (relativePath) => {
-		try { return [relativePath, await readFile(join(workspace, relativePath), "utf8")] as const; }
-		catch { return [relativePath, ""] as const; }
+		try {
+			if (relativePath.endsWith("/")) {
+				const directory = join(workspace, relativePath);
+				const names = (await readdir(directory)).sort();
+				const bodies = await Promise.all(names.map((name) => readFile(join(directory, name), "utf8")));
+				return [relativePath, bodies.join("\n---\n")] as const;
+			}
+			return [relativePath, await readFile(join(workspace, relativePath), "utf8")] as const;
+		} catch { return [relativePath, ""] as const; }
 	}));
 	return Object.fromEntries(entries);
 }
