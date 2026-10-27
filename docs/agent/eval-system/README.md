@@ -49,4 +49,6 @@
 | 17 | [修好剩下的合成题（护栏）+ 重跑 12 次](tasks/17-fix-synthetic-cases.md)（[报告](reports/17-fix-synthetic-cases.md)） | Phase 4 | accepted（合成题定位为护栏；4 条小修见报告核验） |
 | 18 | [真实会话回放：标回放点 + 只生成下一步 + 判定](tasks/18-session-replay.md) | Phase 4 | ready |
 
+执行者每次推送前按 [自查清单](executor-checklist.md) 逐条检查，并在报告里写「自查」一节。
+
 状态取值：`ready`（可开工）· `in-review`（执行者已提交，等核验）· `changes-requested` · `accepted`。
