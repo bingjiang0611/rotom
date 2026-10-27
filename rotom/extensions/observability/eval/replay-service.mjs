@@ -4,16 +4,33 @@
 // product runtime and models can take minutes, so the dashboard must be able to
 // report progress, cancel, and stay responsive while a replay runs.
 import { spawn } from "node:child_process";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { readFile, stat } from "node:fs/promises";
+import { isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { evalError } from "./service.mjs";
 import {
-	deleteReplayCase, readReplayCases, readReplayRuns, replayCaseKey, sessionSha256, writeReplayCase,
+	cutEntries, deleteReplayCase, readReplayCases, readReplayRuns, replayCaseKey, sessionSha256, writeReplayCase,
 } from "./replay.mjs";
+import { clampRepeats, measureReplayPlan } from "./replay-plan.mjs";
 
 const RUNNER = fileURLToPath(new URL("../../../evals/scripts/session-replay.mjs", import.meta.url));
 const MAX_PROGRESS_LINES = 200;
+
+/**
+ * Resolves the comparison arm from an explicit setting. A baseline is only
+ * enabled when the value is an absolute product directory that actually looks
+ * like one; anything else stays off with the reason, so the panel can hide the
+ * option instead of silently comparing the product with itself.
+ */
+export async function resolveReplayBaseline(value) {
+	if (value === undefined || value === null || value === "") return { enabled: false, reason: "not_configured" };
+	if (typeof value !== "string" || !isAbsolute(value)) return { enabled: false, reason: "not_absolute" };
+	const info = await stat(value).catch(() => undefined);
+	if (!info?.isDirectory()) return { enabled: false, reason: "not_a_directory" };
+	const marker = await stat(join(value, "runtime", "product-config.mjs")).catch(() => undefined);
+	if (!marker?.isFile()) return { enabled: false, reason: "not_a_product" };
+	return { enabled: true, path: value };
+}
 
 export function createReplayService({ directory, sessionsRoot, product, armBaseline, spawnProcess = spawn, node = process.execPath, env = process.env }) {
 	if (!sessionsRoot || !product) throw new Error("replay service needs a session root and a product directory");
@@ -25,10 +42,38 @@ export function createReplayService({ directory, sessionsRoot, product, armBasel
 		return sessionSha256(await readFile(path, "utf8"));
 	}
 
+	const baseline = armBaseline?.enabled === true ? armBaseline : { enabled: false, reason: armBaseline?.reason ?? "not_configured" };
+
+	async function loadBranch(sessionId, cutEntryId) {
+		const { loadSession } = await import("./session-data.mjs");
+		const path = join(sessionsRoot, `${sessionId}.jsonl`);
+		const loaded = await loadSession(path, { badJson: 0, lineTooLong: 0 }, new Set(), 8 * 1024 * 1024);
+		if (loaded.reason || !loaded.branch) throw evalError(400, "cannot_read_session");
+		const cut = cutEntries(loaded.branch, cutEntryId);
+		if (!cut) throw evalError(400, "invalid_replay_point");
+		return cut.entries;
+	}
+
 	return {
 		async cases() {
 			const [cases, runs] = await Promise.all([readReplayCases(directory), readReplayRuns(directory)]);
-			return { cases: cases.map((item) => ({ ...item, latest: runs.get(item.key) ?? null })) };
+			return { cases: cases.map((item) => ({ ...item, latest: runs.get(item.key) ?? null })), baseline: { enabled: baseline.enabled, reason: baseline.enabled ? null : baseline.reason } };
+		},
+		/** Numbers for the confirmation dialog; never starts a run. */
+		async prepare(input) {
+			const ids = Array.isArray(input?.cases) ? input.cases.filter((id) => typeof id === "string" && id) : [];
+			if (!ids.length) throw evalError(400, "invalid_replay_request");
+			const includeBaseline = input?.includeBaseline === true;
+			if (includeBaseline && !baseline.enabled) throw evalError(400, "baseline_unavailable");
+			const all = await readReplayCases(directory);
+			const items = [];
+			for (const id of ids) {
+				const item = all.find((row) => row.key === id || row.sessionId === id);
+				if (!item) throw evalError(400, "invalid_replay_point");
+				items.push({ key: item.key, check: item.check, entries: await loadBranch(item.sessionId, item.cutEntryId) });
+			}
+			const repeats = clampRepeats(input?.repeats);
+			return { ...measureReplayPlan({ items, repeats, arms: includeBaseline ? 2 : 1 }), includeBaseline };
 		},
 		async add(input) {
 			const digest = await sessionDigest(input?.sessionId);
@@ -40,10 +85,13 @@ export function createReplayService({ directory, sessionsRoot, product, armBasel
 			const repeats = Math.min(Math.max(Number(input?.repeats) || 1, 1), 3);
 			if (!ids.length) throw evalError(400, "invalid_replay_request");
 			if (typeof input?.model !== "string" || !/^[a-z0-9._-]+\/[a-z0-9._-]+$/iu.test(input.model)) throw evalError(400, "invalid_replay_request");
+			// The comparison arm comes only from the explicit setting; guessing a
+			// baseline would compare the product with itself.
+			if (input.includeBaseline === true && !baseline.enabled) throw evalError(400, "baseline_unavailable");
 			const args = [RUNNER, `--product=${product}`, "--arm=candidate", `--model=${input.model}`, `--repeats=${repeats}`, `--cases=${ids.join(",")}`, `--directory=${directory}`, `--sessions=${sessionsRoot}`];
-			if (input.includeBaseline === true) args.push(`--arm-baseline=${armBaseline ?? product}`);
+			if (input.includeBaseline === true) args.push(`--arm-baseline=${baseline.path}`);
 			const child = spawnProcess(node, args, { env: { ...env, ROTOM_REPLAY: "1" }, stdio: ["ignore", "pipe", "pipe"] });
-			const state = { runId: `replay-${Date.now().toString(36)}`, cases: ids.length, repeats, arms: input.includeBaseline === true ? 2 : 1, done: 0, total: ids.length * repeats * (input.includeBaseline === true ? 2 : 1), status: "running", results: [], error: null };
+			const state = { runId: `replay-${Date.now().toString(36)}`, cases: ids.length, repeats, arms: input.includeBaseline === true ? 2 : 1, done: 0, total: ids.length * repeats * (input.includeBaseline === true ? 2 : 1), status: "running", results: [], warnings: [], error: null };
 			const record = { child, state };
 			let buffered = "";
 			child.stdout?.setEncoding("utf8");
@@ -56,6 +104,7 @@ export function createReplayService({ directory, sessionsRoot, product, armBasel
 						const row = JSON.parse(line);
 						if (row.progress) state.done = Math.min(row.progress.done ?? state.done, state.total);
 						else if (Array.isArray(row.runs)) state.results = row.runs;
+						if (Array.isArray(row.warnings)) state.warnings = row.warnings;
 					} catch { /* the runner also writes human text; ignore non-JSON lines */ }
 				}
 			});
@@ -74,7 +123,7 @@ export function createReplayService({ directory, sessionsRoot, product, armBasel
 			const record = runs.get(runId);
 			if (!record) return { status: "unknown", runId: runId ?? null };
 			const { state } = record;
-			return { runId: state.runId, status: state.status, done: state.done, total: state.total, cases: state.cases, repeats: state.repeats, arms: state.arms, results: state.results, error: state.error };
+			return { runId: state.runId, status: state.status, done: state.done, total: state.total, cases: state.cases, repeats: state.repeats, arms: state.arms, results: state.results, warnings: state.warnings, error: state.error };
 		},
 		cancel(runId) {
 			const record = runs.get(runId);

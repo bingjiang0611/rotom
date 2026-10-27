@@ -59,7 +59,8 @@ export async function createGenerator({ productAgentDir, model, thinkingLevel, p
 	const product = await loadReplayProduct({ productAgentDir, piExecutable, excludedResourceKeys });
 	const [provider, id] = String(model).split("/");
 	if (!provider || !id) throw new Error(`model must be provider/id, got ${model}`);
-	return async ({ entries }) => {
+	/** Exposed on the function so a caller does not load the same product twice. */
+	const generate = async ({ entries }) => {
 		const scratch = await realpath(await mkdtemp(join(tmpdir(), "rotom-replay-gen-")));
 		let opened;
 		try {
@@ -71,6 +72,8 @@ export async function createGenerator({ productAgentDir, model, thinkingLevel, p
 			await removeScratch(scratch);
 		}
 	};
+	generate.productDigest = product.digest;
+	return generate;
 }
 
 /** Model verdict for mode=model points; reuses the background judge prompt pipeline. */
@@ -131,9 +134,9 @@ export async function main(argv = process.argv.slice(2)) {
 	const extensions = args.extension ? String(args.extension).split(",").map((item) => item.trim()).filter(Boolean) : [];
 	const generators = new Map(), digests = new Map();
 	for (const arm of armList) {
-		generators.set(arm.name, await createGenerator({ productAgentDir: arm.product, model: args.model, thinkingLevel: args.thinkingLevel, piExecutable: args.pi, extensions, cwd: workspace }));
-		const product = await loadReplayProduct({ productAgentDir: arm.product, piExecutable: args.pi });
-		digests.set(arm.name, product.digest);
+		const generate = await createGenerator({ productAgentDir: arm.product, model: args.model, thinkingLevel: args.thinkingLevel, piExecutable: args.pi, extensions, cwd: workspace });
+		generators.set(arm.name, generate);
+		digests.set(arm.name, generate.productDigest);
 	}
 	const judgeModel = cases.some((item) => item.check.mode === "model") ? await createModelJudge({ model: args.model }) : undefined;
 	const cache = new Map();
@@ -147,11 +150,17 @@ export async function main(argv = process.argv.slice(2)) {
 		},
 		generate: async ({ entries, arm }) => generators.get(arm)({ entries }),
 		judgeModel,
+		productDigests: Object.fromEntries(digests),
 		// Progress goes to stdout so the dashboard can show it without parsing logs.
 		onRun: (progress) => process.stdout.write(JSON.stringify({ progress }) + "\n"),
 	});
 	await removeScratch(workspace);
-	return { arms: Object.fromEntries(digests), runs: results.map((row) => ({ key: row.key, arm: row.arm, repetition: row.repetition, verdict: row.verdict, reason: row.reason, checkMode: row.checkMode })) };
+	const arms = Object.fromEntries(digests);
+	// Same digest on both arms means the baseline is not a different product, so
+	// any difference between arms would be noise. Say so instead of letting the
+	// numbers look like a comparison.
+	const warnings = new Set(Object.values(arms)).size === 1 && Object.keys(arms).length > 1 ? ["baseline_product_matches_candidate"] : [];
+	return { arms, warnings, runs: results.map((row) => ({ key: row.key, arm: row.arm, repetition: row.repetition, verdict: row.verdict, reason: row.reason, checkMode: row.checkMode, sameProduct: row.sameProduct })) };
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {

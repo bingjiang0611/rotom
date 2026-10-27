@@ -13,7 +13,7 @@ import { evalMarkup, evalScript, evalStyles } from "./eval/ui.mjs";
 import { COPY } from "./dashboard-copy.mjs";
 import { DEFAULT_EVAL_DIRECTORY } from "./eval/annotations.mjs";
 import { createJudgeService } from "./eval/judge.mjs";
-import { createReplayService } from "./eval/replay-service.mjs";
+import { createReplayService, resolveReplayBaseline } from "./eval/replay-service.mjs";
 
 const TRACE_SCHEMA = "rotom-local-trace/v1";
 
@@ -912,11 +912,14 @@ export async function startTraceDashboard(options = {}) {
 	// Replay spawns a separate runner process, so the dashboard stays responsive and
 	// a run can be cancelled. `replay: false` keeps the routes off for tests that do
 	// not exercise them.
+	// The comparison arm is opt-in and explicit: an absolute product directory in
+	// ROTOM_EVAL_REPLAY_BASELINE. Absent or invalid means the panel hides it.
+	const replayBaseline = await resolveReplayBaseline(options.replayBaseline ?? process.env.ROTOM_EVAL_REPLAY_BASELINE);
 	const replayService = options.replay === false ? undefined : createReplayService({
 		directory: options.evalDirectory ?? DEFAULT_EVAL_DIRECTORY,
 		sessionsRoot: root,
 		product: options.replayProduct ?? fileURLToPath(new URL("../../", import.meta.url)),
-		armBaseline: options.replayBaseline,
+		armBaseline: replayBaseline,
 		...options.replay,
 	});
 	const token = options.token ?? randomBytes(24).toString("base64url");
@@ -945,7 +948,7 @@ export async function startTraceDashboard(options = {}) {
 		try {
 			if (!expectedHosts.has(request.headers.host ?? "")) { textResponse(response, 421, "Invalid Host\n"); return; }
 			const url = new URL(request.url ?? "/", "http://127.0.0.1");
-			const postRoute = ["/api/eval/annotation", "/api/eval/judge/prepare", "/api/eval/judge", "/api/eval/judge/cancel", "/api/eval/replay/case", "/api/eval/replay/case/delete", "/api/eval/replay/run", "/api/eval/replay/cancel"].includes(url.pathname);
+			const postRoute = ["/api/eval/annotation", "/api/eval/judge/prepare", "/api/eval/judge", "/api/eval/judge/cancel", "/api/eval/replay/case", "/api/eval/replay/case/delete", "/api/eval/replay/prepare", "/api/eval/replay/run", "/api/eval/replay/cancel"].includes(url.pathname);
 			const allowedMethod = postRoute ? "POST" : "GET";
 			if (request.method !== allowedMethod) { textResponse(response, 405, "Method Not Allowed\n", { allow: allowedMethod }); return; }
 			if (url.pathname === "/") {
@@ -961,7 +964,7 @@ export async function startTraceDashboard(options = {}) {
 				response.end(body);
 				return;
 			}
-			if (!["/api/traces", "/api/trace", "/api/trace-page", "/api/eval/sessions", "/api/eval/session", "/api/eval/annotation", "/api/eval/models", "/api/eval/judge/prepare", "/api/eval/judge", "/api/eval/judge/cancel", "/api/eval/judge/status", "/api/eval/replay/cases", "/api/eval/replay/status", "/api/eval/replay/case", "/api/eval/replay/case/delete", "/api/eval/replay/run", "/api/eval/replay/cancel"].includes(url.pathname)) { jsonResponse(response, 404, { error: "not_found" }); return; }
+			if (!["/api/traces", "/api/trace", "/api/trace-page", "/api/eval/sessions", "/api/eval/session", "/api/eval/annotation", "/api/eval/models", "/api/eval/judge/prepare", "/api/eval/judge", "/api/eval/judge/cancel", "/api/eval/judge/status", "/api/eval/replay/cases", "/api/eval/replay/status", "/api/eval/replay/case", "/api/eval/replay/case/delete", "/api/eval/replay/prepare", "/api/eval/replay/run", "/api/eval/replay/cancel"].includes(url.pathname)) { jsonResponse(response, 404, { error: "not_found" }); return; }
 			if (!authorized(request, token)) { jsonResponse(response, 401, { error: "unauthorized" }); return; }
 			if (activeApiRequests >= MAX_API_CONCURRENCY) { jsonResponse(response, 429, { error: "too_many_requests" }); return; }
 			activeApiRequests += 1;
@@ -978,6 +981,7 @@ export async function startTraceDashboard(options = {}) {
 							if (url.pathname === "/api/eval/replay/case") value = await replayService.add(input).catch((error) => { throw error?.status ? error : evalError(400, "invalid_replay_request"); });
 							else if (url.pathname === "/api/eval/replay/case/delete") value = await replayService.remove(input);
 							else if (url.pathname === "/api/eval/replay/cancel") value = replayService.cancel(input?.runId);
+							else if (url.pathname === "/api/eval/replay/prepare") value = await replayService.prepare(input);
 							else value = replayService.start(input);
 						}
 						else if (url.pathname === "/api/eval/annotation") value = await evalService.annotate(input);
