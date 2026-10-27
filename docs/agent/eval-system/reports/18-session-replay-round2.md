@@ -80,3 +80,39 @@ Playwright 冒烟（`eval-ui-smoke.mjs`，合成数据 + 假运行器）：把�
 第三轮（`40476428536`）：全部 success，含第 9 步这条 E2E。
 
 **留作已知限制**：产品运行时不在 `close()` 后释放 `fs.watch`。如果以后有「长驻进程里多次加载产品」的需求（例如看板进程内直接跑回放），需要先给 `loadReplayProduct` / `openReplaySession` 加真正的 dispose；当前回放走独立子进程，所以不构成功能缺陷。没有改产品代码去动这些 watcher，是因为根因在 Pi 的资源加载生命周期，属于跨边界改动。
+
+---
+
+## 核验（第 2 轮）：changes-requested（只剩 2 处小问题）
+
+核验对象 `8d4a37b`（`699d202`..`8d4a37b`）。
+
+本地复跑：
+- 按 CI 参数装好运行时后跑 `replay-e2e.test.mjs`：3 项通过，0 项 skipped。
+- `check-staged-file-size.test.mjs`：12 项通过。
+- 第 1 轮跑过的 node 测试和 eval 测试：仍然通过。
+
+**变异测试：** 我把拦截扩展改成不 block（`() => undefined`），e2e 立刻失败（SENTINEL 被创建，断言 ENOENT 不成立）。说明这条测试确实能抓到「工具被执行」。
+
+**后台强制退出：** `after()` 里的 `process.exit(0)` 会不会掩盖失败？我另写了一个带失败用例和 `fs.watch` 句柄的探针，退出码仍是 1，失败照样能报出来。
+
+第 1 轮核验的第 1–5 条都已解决：
+- **工具拦截：** scratch 改为每次生成单独创建；拦截扩展是否加载用 marker 校验，加载失败就拒绝生成；cwd 用空的临时目录。
+- **产品加载：** 两臂各自通过 `loadProductRuntime` 加载自己的产品，摘要写进运行记录。
+- **模型判定：** 直接执行 launcher；stub 测试证明确实直接执行、prompt 走 stdin、`--model` 传到了子进程。
+- **看板：** 豁免只加给一个文件，按完整路径匹配，测试覆盖了复制和改名；6 个路由沿用了现有的安全校验。
+
+### 还要改的 2 处（真实回放之前修完）
+
+1. **「同时跑基线」是假的 A/B。** 看板创建 `replayService` 时传的是 `armBaseline: options.replayBaseline`，但仓库里没有任何地方设置 `replayBaseline`。勾选后，运行器收到的是 `--arm-baseline=<product>`，也就是同一个产品跑两遍，记录里却标成 baseline。
+
+   修法：
+   - 提供一个显式配置，比如环境变量 `ROTOM_EVAL_REPLAY_BASELINE=<绝对产品目录>`。校验它是绝对路径、真实存在、不是 symlink、里面有产品配置。
+   - 没配置时，`status` / `cases` 接口返回 `baselineConfigured: false`，UI 隐藏这个勾选框；服务端收到 `includeBaseline` 时返回 400 `replay_baseline_unconfigured`。
+   - 两臂的 `productDigest` 相同时，运行记录和列表里都要标出「两臂相同」。
+
+2. **确认弹窗没有显示要发送多少内容。** 任务说明要求运行前显示「预计发送字符数」。现在弹窗只有用例数、次数、模型、重复次数和基线；运行器 `--dry-run` 的 `expectedChars` 也只算了 `expected` 的长度。真实回放会把截断点之前的**整段会话**发给模型，可能有几十万字符，bob 应该在点确认之前看到。
+
+   修法：加一个 prepare 步骤，在服务端读出每个回放点截断前的条目，汇总字符数，按「字符数 × 臂数 × 重复次数」算出总量，并给出单个用例的最大值。弹窗显示这些数字；模型判定那部分另外显示脱敏统计。
+
+第 6 条（两边词表共用）同意暂缓。`fs.watch` 句柄没释放已记为已知限制，同意：运行器是独立子进程，跑完就退出。
