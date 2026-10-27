@@ -7,6 +7,7 @@ import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { evalError } from "./service.mjs";
 import {
 	deleteReplayCase, readReplayCases, readReplayRuns, replayCaseKey, sessionSha256, writeReplayCase,
 } from "./replay.mjs";
@@ -37,8 +38,8 @@ export function createReplayService({ directory, sessionsRoot, product, armBasel
 		start(input) {
 			const ids = Array.isArray(input?.cases) ? input.cases.filter((id) => typeof id === "string") : [];
 			const repeats = Math.min(Math.max(Number(input?.repeats) || 1, 1), 3);
-			if (!ids.length) throw new Error("invalid_replay_request");
-			if (typeof input?.model !== "string" || !/^[a-z0-9._-]+\/[a-z0-9._-]+$/iu.test(input.model)) throw new Error("invalid_replay_request");
+			if (!ids.length) throw evalError(400, "invalid_replay_request");
+			if (typeof input?.model !== "string" || !/^[a-z0-9._-]+\/[a-z0-9._-]+$/iu.test(input.model)) throw evalError(400, "invalid_replay_request");
 			const args = [RUNNER, `--product=${product}`, "--arm=candidate", `--model=${input.model}`, `--repeats=${repeats}`, `--cases=${ids.join(",")}`, `--directory=${directory}`, `--sessions=${sessionsRoot}`];
 			if (input.includeBaseline === true) args.push(`--arm-baseline=${armBaseline ?? product}`);
 			const child = spawnProcess(node, args, { env: { ...env, ROTOM_REPLAY: "1" }, stdio: ["ignore", "pipe", "pipe"] });

@@ -36,7 +36,7 @@ export const COPY = {
 	replayRules: ["checks-before-claiming", "no-identical-retry", "nonempty-handoff"],
 	replaySave: "保存回放点", replaySaved: "已保存回放点", replayEmpty: "还没有回放点。在失败会话的消息上点「设为回放点」。",
 	replayNeverRun: "尚未回放", replayDelete: "删除回放点", replayError: "回放请求失败，请稍后重试",
-	replayRun: "运行回放", replayModel: "模型", replayRepeats: "每个回放点重复次数", replayBaseline: "同时跑基线产品",
+	replayRun: "运行回放", replayCancel: "取消回放", replayModel: "模型", replayRepeats: "每个回放点重复次数", replayBaseline: "同时跑基线产品",
 	replayProgress: "已运行 {done} / {total}", replayDone: "回放结束", replayStopped: "回放已停止",
 	replayConfirmTitle: "确认运行回放", replayConfirmDetails: "回放点：{cases} 个\n总运行次数：{runs}\n模型：{model}\n重复次数：{repeats}\n同时跑基线：{baseline}", replayConfirm: "确认运行",
 	judging: "正在分析，请勿重复提交", judgingElapsed: "正在分析 · 已等待 {seconds} 秒 · 请勿重复提交", cancelling: "正在取消，等待子进程结束", judgeStartUnknown: "分析是否启动尚不确定，请刷新会话核对；不要重复提交。",

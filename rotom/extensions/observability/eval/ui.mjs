@@ -130,7 +130,7 @@ function evalClient(C, matchesFilter, annotationClient, judgeClient, replayClien
 		} finally { clearInterval(ticker); if (request === generation) { more.disabled = false; select.disabled = false; } }
 	}
 	const draftRef = { value: null };
-	const annotationUi = annotationClient({ make, button, C, format, number, api, labelName, loadList, draftRef });
+	const annotationUi = annotationClient({ make, button, C, format, number, api, labelName, loadList, draftRef, onSaved: (id) => { void loadList(true); void openSession(id, { notice: C.saved }); } });
 	function timeline(data, eventIndex) {
 		const box = make('section'); box.id = 'eval-timeline'; box.append(make('h3', '', C.timeline), make('p', 'eval-muted', C.pageEvents + ' ' + data.timeline.items.length + ' / ' + data.timeline.total));
 		if (!data.timeline.total) box.append(make('p', 'eval-muted', C.noEvents));

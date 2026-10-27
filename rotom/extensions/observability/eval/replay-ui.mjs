@@ -20,7 +20,7 @@ export function replayClient(ctx) {
 		const box = make('section'); box.id = 'eval-replay';
 		const message = make('p', 'eval-muted'), list = make('div'), progressNotice = make('p', 'eval-notice');
 		box.append(make('h3', '', C.replay), message, list);
-		let state = { cases: [] };
+		let state = { cases: [] }, activeRun = null;
 		const render = async () => {
 			try { state = await api('/api/eval/replay/cases'); } catch (error) { message.textContent = error.message || C.replayError; return; }
 			list.replaceChildren();
@@ -38,14 +38,17 @@ export function replayClient(ctx) {
 			const repeats = make('input'); repeats.type = 'number'; repeats.min = '1'; repeats.max = '3'; repeats.value = '1'; repeats.setAttribute('aria-label', C.replayRepeats);
 			const baseline = make('input'); baseline.type = 'checkbox'; baseline.id = 'eval-replay-baseline';
 			const baselineLabel = make('label', '', C.replayBaseline); baselineLabel.htmlFor = 'eval-replay-baseline';
+			const cancel = button(C.replayCancel, async () => { cancel.disabled = true; if (activeRun) { try { await api('/api/eval/replay/cancel', { runId: activeRun }); } catch { progressNotice.textContent = C.replayError; } } });
+			cancel.hidden = true;
 			const run = button(C.replayRun, async () => {
 				const chosen = state.cases.filter((item) => item.selected !== false).map((item) => item.key);
 				const runs = chosen.length * Number(repeats.value || 1) * (baseline.checked ? 2 : 1);
 				const accepted = await confirmReplay({ cases: chosen.length, runs, model: model.value, repeats: repeats.value, baseline: baseline.checked });
 				if (!accepted) return;
-				run.disabled = true;
+				run.disabled = true; cancel.disabled = false; cancel.hidden = false;
 				try {
 					const started = await api('/api/eval/replay/run', { cases: chosen, model: model.value, repeats: Number(repeats.value || 1), includeBaseline: baseline.checked });
+					activeRun = started.runId;
 					while (true) {
 						await new Promise((resolveDelay) => setTimeout(resolveDelay, 1000));
 						const status = await api('/api/eval/replay/status?runId=' + encodeURIComponent(started.runId));
@@ -53,10 +56,11 @@ export function replayClient(ctx) {
 						if (status.status !== 'running') { progressNotice.textContent = C[status.status === 'done' ? 'replayDone' : 'replayStopped'] + ' · ' + format(C.replayProgress, { done: status.done, total: status.total }); break; }
 					}
 				} catch (error) { progressNotice.textContent = error.message || C.replayError; }
+				activeRun = null; cancel.hidden = true;
 				run.disabled = false;
 				await render();
 			}, 'eval-primary');
-			runBox.append(model, repeats, baseline, baselineLabel, run, progressNotice);
+			runBox.append(model, repeats, baseline, baselineLabel, run, cancel, progressNotice);
 			list.append(runBox);
 		};
 		await render();

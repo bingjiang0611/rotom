@@ -1,7 +1,7 @@
 // Annotation form for the eval page. Split out of ui.mjs to keep files small;
 // the browser script concatenates the functions, so dependencies arrive through ctx.
 export function annotationClient(ctx) {
-	const { make, button, C, format, number, api, labelName, loadList, draftRef } = ctx;
+	const { make, button, C, format, number, api, labelName, loadList, draftRef, onSaved } = ctx;
 	function annotationForm(data) {
 		if (draftRef.value?.sessionId !== data.id || !draftRef.value.dirty) draftRef.value = { sessionId: data.id, verdict: data.annotation?.verdict || null, note: data.annotation?.note || '', failSet: !!data.annotation?.failSet, dirty: false };
 		const currentDraft = draftRef.value;
@@ -25,7 +25,7 @@ export function annotationClient(ctx) {
 			save.disabled = true;
 			try {
 				const saved = await api('/api/eval/annotation', { sessionId: data.id, verdict: currentDraft.verdict, note: currentDraft.note, failSet: currentDraft.failSet });
-				data.annotation = { ...saved, source: 'dashboard' }; currentDraft.dirty = false; currentLabel(); progressNotice.hidden = true; message.textContent = C.saved;
+				data.annotation = { ...saved, source: 'dashboard' }; currentDraft.dirty = false; currentLabel(); progressNotice.hidden = true; message.textContent = C.saved; onSaved?.(data.id);
 				await loadList(true); save.disabled = false;
 			} catch (error) {
 				message.textContent = !error.status || error.status >= 500 ? C.saveUnknown : error.message;
