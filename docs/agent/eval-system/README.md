@@ -1,6 +1,6 @@
 # rotom eval 体系 · 协作看板
 
-本目录是 eval 体系建设的规划与交接面，只存在于 `eval/system` 分支，不是产品运行时资源。完整方案见 [rotom Eval 体系方案](https://claude.ai/artifact/KmNYQHuW8ZTtdC4v8EPRMd)（Claude Doc，需登录）。
+本目录是 eval 体系建设的规划与交接面（在 `eval/system` 分支上协作，阶段性合入 `main`），不是产品运行时资源。完整方案见 [rotom Eval 体系方案](https://claude.ai/artifact/KmNYQHuW8ZTtdC4v8EPRMd)（Claude Doc，需登录）。
 
 ## 协作方式
 
