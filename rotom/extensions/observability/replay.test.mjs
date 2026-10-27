@@ -13,6 +13,7 @@ import {
 } from "./eval/replay.mjs";
 import { blockerExtension } from "../../evals/scripts/session-replay.mjs";
 import { createReplayService } from "./eval/replay-service.mjs";
+import { startTraceDashboard } from "./dashboard.mjs";
 import { writeFile as writeFixture } from "node:fs/promises";
 
 const scratch = [];
