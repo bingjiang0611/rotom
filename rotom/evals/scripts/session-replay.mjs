@@ -10,13 +10,15 @@
 //   node session-replay.mjs --product=<dir> --arm=candidate --model=provider/id \
 //     [--arm-baseline=<dir>] [--repeats=1] [--cases=<id,id>] [--day=YYYY-MM-DD]
 //     [--extension=<file>] [--dry-run] [--json]
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, realpath, access, rm } from "node:fs/promises";
+import { constants } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { assistantMessageOf, readReplayCases, replayCaseKey, REPLAY_TOOL_BLOCK_REASON, runReplayPlan, sessionSha256 } from "../../extensions/observability/eval/replay.mjs";
-import { loadSession, privateWrite } from "../../extensions/observability/eval/session-data.mjs";
+import { assistantMessageOf, readReplayCases, REPLAY_TOOL_BLOCK_REASON, runReplayPlan, sessionSha256 } from "../../extensions/observability/eval/replay.mjs";
+import { loadSession } from "../../extensions/observability/eval/session-data.mjs";
 import { redactSecrets } from "../../extensions/observability/eval/redaction.mjs";
+import { loadReplayProduct, openReplaySession, removeScratch } from "../src/replay-session.ts";
 
 export function parseArgs(argv) {
 	const args = { repeats: 1 };
@@ -26,7 +28,7 @@ export function parseArgs(argv) {
 		const [, name, value] = match;
 		if (name === "dry-run" || name === "json") args[name === "dry-run" ? "dryRun" : "json"] = true;
 		else if (name === "arm-baseline") args.armBaseline = value;
-		else if (["product", "arm", "model", "cases", "day", "extension", "sessions", "directory", "thinking"].includes(name)) args[name === "thinking" ? "thinkingLevel" : name] = value;
+		else if (["product", "arm", "model", "cases", "day", "extension", "sessions", "directory", "thinking", "pi"].includes(name)) args[name === "thinking" ? "thinkingLevel" : name] = value;
 		else if (name === "repeats") args.repeats = Math.min(Math.max(Number(value) || 1, 1), 3);
 		else throw new Error(`Unknown argument: ${item}`);
 	}
@@ -46,45 +48,28 @@ export async function loadReplaySession(sessionsRoot, sessionId) {
 	return { branch: loaded.branch, content: await readFile(path, "utf8") };
 }
 
-export function blockerExtension() {
-	// The tool schema stays visible so the model can choose a tool; only execution
-	// is refused, which is what makes a replay reproducible and side-effect free.
-	return `export default function(pi){
-	pi.on("tool_call", () => ({ block: true, reason: ${JSON.stringify(REPLAY_TOOL_BLOCK_REASON)} }));
-}\n`;
-}
+export { blockerSource as blockerExtension } from "../src/replay-session.ts";
 
-/** Build the product-side generator: one in-memory session, one assistant message. */
-export async function createGenerator({ product, model, thinkingLevel, extension, cwd }) {
-	const entry = join(product, "runtime/pi/node_modules/@earendil-works/pi-coding-agent/dist/index.js");
-	let pi;
-	try { pi = await import(pathToFileURL(entry).href); }
-	catch (error) { throw new Error(`cannot load product runtime at ${entry}: ${error instanceof Error ? error.message : String(error)}`); }
+/**
+ * One generator per arm. The product (extensions, guidelines, tools) is loaded
+ * once per arm, but every generation gets its own scratch tree and session, so a
+ * later replay can never run without the tool blocker in place.
+ */
+export async function createGenerator({ productAgentDir, model, thinkingLevel, piExecutable, extensions = [], excludedResourceKeys, cwd }) {
+	const product = await loadReplayProduct({ productAgentDir, piExecutable, excludedResourceKeys });
 	const [provider, id] = String(model).split("/");
-	const modelRuntime = await pi.ModelRuntime.create();
-	await modelRuntime.refresh({ allowNetwork: false });
-	const selected = modelRuntime.getModel(provider, id);
-	if (!selected) throw new Error(`model ${model} is not available to the product runtime`);
-	const scratch = await mkdtemp(join(tmpdir(), "rotom-replay-"));
-	const blocker = join(scratch, "block-tools.mjs");
-	await writeFile(blocker, blockerExtension(), { mode: 0o600 });
-	const agentDir = join(scratch, "agent");
-	await mkdir(agentDir, { recursive: true, mode: 0o700 });
+	if (!provider || !id) throw new Error(`model must be provider/id, got ${model}`);
 	return async ({ entries }) => {
-		const sessionManager = pi.SessionManager.inMemory(cwd ?? scratch, {}, entries);
-		const resourceLoader = new pi.DefaultResourceLoader({ cwd: cwd ?? scratch, agentDir, additionalExtensionPaths: extension ? [blocker, extension] : [blocker], noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true, settingsManager: pi.SettingsManager.create(cwd ?? scratch, agentDir, { projectTrusted: false }) });
-		await resourceLoader.reload();
-		const { session } = await pi.createAgentSession({ cwd: cwd ?? scratch, agentDir, modelRuntime, model: selected, thinkingLevel: thinkingLevel ?? "low", sessionManager, resourceLoader, singleRequest: true });
-		const started = Date.now();
-		let captured;
-		const unsubscribe = session.agent.subscribe((event) => { if (event.type === "message_end" && event.message?.role === "assistant") captured ??= event.message; });
+		const scratch = await realpath(await mkdtemp(join(tmpdir(), "rotom-replay-gen-")));
+		let opened;
 		try {
-			await session.agent.continue();
-			for (let tick = 0; tick < 600 && !captured; tick += 1) await new Promise((resolve) => setTimeout(resolve, 100));
-		} finally { unsubscribe?.(); await session.dispose?.(); }
-		await rm(scratch, { recursive: true, force: true });
-		if (!captured) throw new Error("the product produced no assistant message");
-		return { message: captured, elapsedMs: Date.now() - started, usage: captured.usage ?? null };
+			opened = await openReplaySession({ product, model: { provider, id }, thinkingLevel, entries, scratch, extensions, cwd });
+			const result = await opened.run();
+			return { ...result, productDigest: product.digest };
+		} finally {
+			await opened?.close?.();
+			await removeScratch(scratch);
+		}
 	};
 }
 
@@ -103,7 +88,18 @@ export async function createModelJudge({ model, timeoutMs = 180_000 }) {
 			'只输出 JSON：{"verdict":"pass|fail|unknown","reason":"一句话"}',
 		].join("\n\n");
 		const started = Date.now();
-		const output = await executeProcessTreeV1(process.execPath, [judge.JUDGE_LAUNCHER, ...judge.JUDGE_BASE_ARGS, "--model", model, "-"], { env: judge.childEnvironment(), stdin: prompt, timeoutMs, maxOutputBytes: judge.JUDGE_MAX_OUTPUT_BYTES });
+		// rotom-launcher is a shell script: run it directly, never through node.
+		const launcher = await realpath(judge.JUDGE_LAUNCHER);
+		const info = await lstat(launcher);
+		await access(launcher, constants.X_OK);
+		if (!info.isFile() || info.isSymbolicLink()) throw new Error("judge launcher is not a regular file");
+		const judgeCwd = await mkdtemp(join(tmpdir(), "rotom-replay-judge-"));
+		let output;
+		try {
+			output = await executeProcessTreeV1(launcher, [...judge.JUDGE_BASE_ARGS, "--model", model], { cwd: judgeCwd, env: judge.childEnvironment(), stdin: prompt, timeoutMs, maxOutputBytes: judge.JUDGE_MAX_OUTPUT_BYTES });
+		} finally {
+			if (output?.terminal?.confirmed !== false) await removeScratch(judgeCwd);
+		}
 		if (output.code !== 0) return { verdict: "unknown", reason: `judge_exited_${output.code}` };
 		const parsed = judge.parseJudgeEvents(output.stdout, new Set());
 		const text = parsed.result ? JSON.stringify(parsed.result) : String(parsed.rawOutput ?? "");
@@ -129,8 +125,16 @@ export async function main(argv = process.argv.slice(2)) {
 		const chars = cases.reduce((total, item) => total + item.expected.length, 0);
 		return { dryRun: true, cases: cases.length, arms: armList.map((arm) => arm.name), repeats: args.repeats, runs: cases.length * armList.length * args.repeats, expectedChars: chars };
 	}
-	const generators = new Map();
-	for (const arm of armList) generators.set(arm.name, await createGenerator({ product: arm.product, model: args.model, thinkingLevel: args.thinkingLevel, extension: args.extension, cwd: args.directory }));
+	// One empty workspace per run: the replay must never see the private eval
+	// directory or a real project as its cwd.
+	const workspace = await mkdtemp(join(tmpdir(), "rotom-replay-cwd-"));
+	const extensions = args.extension ? String(args.extension).split(",").map((item) => item.trim()).filter(Boolean) : [];
+	const generators = new Map(), digests = new Map();
+	for (const arm of armList) {
+		generators.set(arm.name, await createGenerator({ productAgentDir: arm.product, model: args.model, thinkingLevel: args.thinkingLevel, piExecutable: args.pi, extensions, cwd: workspace }));
+		const product = await loadReplayProduct({ productAgentDir: arm.product, piExecutable: args.pi });
+		digests.set(arm.name, product.digest);
+	}
 	const judgeModel = cases.some((item) => item.check.mode === "model") ? await createModelJudge({ model: args.model }) : undefined;
 	const cache = new Map();
 	const results = await runReplayPlan({
@@ -146,7 +150,8 @@ export async function main(argv = process.argv.slice(2)) {
 		// Progress goes to stdout so the dashboard can show it without parsing logs.
 		onRun: (progress) => process.stdout.write(JSON.stringify({ progress }) + "\n"),
 	});
-	return { runs: results.map((row) => ({ key: row.key, arm: row.arm, repetition: row.repetition, verdict: row.verdict, reason: row.reason, checkMode: row.checkMode })) };
+	await removeScratch(workspace);
+	return { arms: Object.fromEntries(digests), runs: results.map((row) => ({ key: row.key, arm: row.arm, repetition: row.repetition, verdict: row.verdict, reason: row.reason, checkMode: row.checkMode })) };
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
