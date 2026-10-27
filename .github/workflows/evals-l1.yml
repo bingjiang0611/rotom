@@ -53,7 +53,7 @@ jobs:
         run: npm test -- session-cards trace-assertions agreement review session-metrics error-breakdown command-failures session-review behavioral-regression behavioral-regression-alternatives behavioral-regression-structure
       - name: Test dashboard and eval API
         working-directory: .
-        run: node --test rotom/extensions/observability/dashboard.test.mjs rotom/extensions/observability/eval.test.mjs rotom/extensions/observability/judge.test.mjs rotom/extensions/observability/replay.test.mjs rotom/runtime/process-tree.test.ts
+        run: node --test rotom/extensions/observability/dashboard.test.mjs rotom/extensions/observability/eval.test.mjs rotom/extensions/observability/judge.test.mjs rotom/extensions/observability/replay.test.mjs rotom/extensions/observability/replay-api.test.mjs rotom/runtime/process-tree.test.ts
       - name: Check built Pi fork provenance
         working-directory: .
         run: npm --prefix rotom run check:pi
@@ -62,6 +62,9 @@ jobs:
         run: |
           npm --prefix rotom/runtime/pi ci --ignore-scripts --bin-links=false --registry=https://registry.npmjs.org --replace-registry-host=never
           npm --prefix rotom/extensions/third-party ci --ignore-scripts --omit=optional --legacy-peer-deps --registry=https://registry.npmjs.org --replace-registry-host=never
+      - name: Offline replay end to end (faux provider, tools blocked)
+        working-directory: .
+        run: node --test rotom/evals/test/replay-e2e.test.mjs
       - name: Check real launcher stdout and offline faux inference
         working-directory: .
         run: node rotom/extensions/observability/eval-launcher-check.mjs --faux
