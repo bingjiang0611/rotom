@@ -6,13 +6,14 @@ import { lstat, opendir, open, realpath, stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { LEGACY_MODEL_IDS } from "../qoder/legacy.mjs";
 import { createEvalService, evalError, MAX_RESPONSE_BYTES } from "./eval/service.mjs";
 import { evalMarkup, evalScript, evalStyles } from "./eval/ui.mjs";
 import { COPY } from "./dashboard-copy.mjs";
 import { DEFAULT_EVAL_DIRECTORY } from "./eval/annotations.mjs";
 import { createJudgeService } from "./eval/judge.mjs";
+import { createReplayService } from "./eval/replay-service.mjs";
 
 const TRACE_SCHEMA = "rotom-local-trace/v1";
 
@@ -908,6 +909,16 @@ export async function startTraceDashboard(options = {}) {
 	const root = rootState.root;
 	const evalService = createEvalService(root, options.evalDirectory);
 	const judgeService = createJudgeService({ evalService, directory: options.evalDirectory ?? DEFAULT_EVAL_DIRECTORY, ...options.judge });
+	// Replay spawns a separate runner process, so the dashboard stays responsive and
+	// a run can be cancelled. `replay: false` keeps the routes off for tests that do
+	// not exercise them.
+	const replayService = options.replay === false ? undefined : createReplayService({
+		directory: options.evalDirectory ?? DEFAULT_EVAL_DIRECTORY,
+		sessionsRoot: root,
+		product: options.replayProduct ?? fileURLToPath(new URL("../../", import.meta.url)),
+		armBaseline: options.replayBaseline,
+		...options.replay,
+	});
 	const token = options.token ?? randomBytes(24).toString("base64url");
 	const nonce = randomBytes(18).toString("base64url");
 	let expectedHosts = new Set();
@@ -934,7 +945,7 @@ export async function startTraceDashboard(options = {}) {
 		try {
 			if (!expectedHosts.has(request.headers.host ?? "")) { textResponse(response, 421, "Invalid Host\n"); return; }
 			const url = new URL(request.url ?? "/", "http://127.0.0.1");
-			const postRoute = ["/api/eval/annotation", "/api/eval/judge/prepare", "/api/eval/judge", "/api/eval/judge/cancel"].includes(url.pathname);
+			const postRoute = ["/api/eval/annotation", "/api/eval/judge/prepare", "/api/eval/judge", "/api/eval/judge/cancel", "/api/eval/replay/case", "/api/eval/replay/case/delete", "/api/eval/replay/run", "/api/eval/replay/cancel"].includes(url.pathname);
 			const allowedMethod = postRoute ? "POST" : "GET";
 			if (request.method !== allowedMethod) { textResponse(response, 405, "Method Not Allowed\n", { allow: allowedMethod }); return; }
 			if (url.pathname === "/") {
@@ -950,7 +961,7 @@ export async function startTraceDashboard(options = {}) {
 				response.end(body);
 				return;
 			}
-			if (!["/api/traces", "/api/trace", "/api/trace-page", "/api/eval/sessions", "/api/eval/session", "/api/eval/annotation", "/api/eval/models", "/api/eval/judge/prepare", "/api/eval/judge", "/api/eval/judge/cancel", "/api/eval/judge/status"].includes(url.pathname)) { jsonResponse(response, 404, { error: "not_found" }); return; }
+			if (!["/api/traces", "/api/trace", "/api/trace-page", "/api/eval/sessions", "/api/eval/session", "/api/eval/annotation", "/api/eval/models", "/api/eval/judge/prepare", "/api/eval/judge", "/api/eval/judge/cancel", "/api/eval/judge/status", "/api/eval/replay/cases", "/api/eval/replay/status", "/api/eval/replay/case", "/api/eval/replay/case/delete", "/api/eval/replay/run", "/api/eval/replay/cancel"].includes(url.pathname)) { jsonResponse(response, 404, { error: "not_found" }); return; }
 			if (!authorized(request, token)) { jsonResponse(response, 401, { error: "unauthorized" }); return; }
 			if (activeApiRequests >= MAX_API_CONCURRENCY) { jsonResponse(response, 429, { error: "too_many_requests" }); return; }
 			activeApiRequests += 1;
@@ -962,19 +973,28 @@ export async function startTraceDashboard(options = {}) {
 						if (request.headers.origin !== undefined && request.headers.origin !== `http://${request.headers.host}`) throw evalError(403, "invalid_origin");
 						if (Number(request.headers["content-length"]) > MAX_ANNOTATION_BODY_BYTES) throw evalError(413, "body_too_large");
 						const input = await annotationBody(request);
-						if (url.pathname === "/api/eval/annotation") value = await evalService.annotate(input);
+						if (url.pathname.startsWith("/api/eval/replay/")) {
+							if (!replayService) throw evalError(409, "replay_unavailable");
+							if (url.pathname === "/api/eval/replay/case") value = await replayService.add(input).catch((error) => { throw error?.status ? error : evalError(400, "invalid_replay_request"); });
+							else if (url.pathname === "/api/eval/replay/case/delete") value = await replayService.remove(input);
+							else if (url.pathname === "/api/eval/replay/cancel") value = replayService.cancel(input?.runId);
+							else value = replayService.start(input);
+						}
+						else if (url.pathname === "/api/eval/annotation") value = await evalService.annotate(input);
 						else if (url.pathname === "/api/eval/judge/prepare") value = await judgeService.prepare(input);
 						else if (url.pathname === "/api/eval/judge/cancel") value = judgeService.cancel(input);
 						else value = judgeService.start(input);
 					} else if (url.pathname === "/api/eval/sessions") value = await evalService.sessions(url.searchParams.get("cursor"), url.searchParams.get("filter") ?? "unlabeled", url.searchParams.get("refresh") === "1");
 					else if (url.pathname === "/api/eval/models") value = await judgeService.models();
 					else if (url.pathname === "/api/eval/judge/status") value = judgeService.status(url.searchParams.get("runId"));
+					else if (url.pathname === "/api/eval/replay/cases") { if (!replayService) throw evalError(409, "replay_unavailable"); value = await replayService.cases(); }
+					else if (url.pathname === "/api/eval/replay/status") value = replayService.status(url.searchParams.get("runId"));
 					else {
 						value = await evalService.session(url.searchParams.get("id"), url.searchParams.get("cursor"), url.searchParams.has("event") ? Number(url.searchParams.get("event")) : undefined);
 						value.activeJudge = judgeService.activeFor(value.id);
 					}
 					if (Buffer.byteLength(JSON.stringify(value)) > MAX_RESPONSE_BYTES) throw evalError(413, "response_too_large");
-					jsonResponse(response, url.pathname === "/api/eval/judge" ? 202 : 200, value); return;
+					jsonResponse(response, ["/api/eval/judge", "/api/eval/replay/run"].includes(url.pathname) ? 202 : 200, value); return;
 				}
 				if (url.pathname === "/api/traces") {
 					const scanned = await sharedSummaryScan(true);
@@ -1024,6 +1044,7 @@ export async function startTraceDashboard(options = {}) {
 		baseUrl,
 		url: `${baseUrl}/#token=${encodeURIComponent(token)}`,
 		async close() {
+			replayService?.close();
 			await judgeService.close();
 			if (!server.listening) return;
 			await new Promise((resolveClose, rejectClose) => server.close((error) => error ? rejectClose(error) : resolveClose()));
