@@ -20,6 +20,14 @@ const generatedFiles = new Set([
 	"packages/rotom-pi/packages/coding-agent/src/core/export-html/vendor/marked.min.js",
 ]);
 const binaryExtensions = new Set([".png", ".jpg", ".tgz", ".node", ".wasm"]);
+// Named, single-file exemptions — never a directory or a glob. bob decided on
+// 2026-10-27 to exempt the dashboard entry point for now: at 116 KB it is far over
+// the budget, the eval replay work needs to touch it, and splitting it is its own
+// task. Every other file, including a copy of this one under another path, is still
+// checked. Remove the entry once the file is split.
+const legacyOversizedFiles = new Set([
+	"rotom/extensions/observability/dashboard.mjs",
+]);
 
 function git(args, input) {
 	return execFileSync("git", args, {
@@ -50,6 +58,7 @@ for (let index = 0; index < records.length - 1; index += 2) {
 	if (
 		lockfiles.has(basename(path)) ||
 		generatedFiles.has(path) ||
+		legacyOversizedFiles.has(path) ||
 		binaryExtensions.has(extname(path))
 	)
 		continue;
