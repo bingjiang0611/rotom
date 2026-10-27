@@ -116,3 +116,50 @@ Playwright 冒烟（`eval-ui-smoke.mjs`，合成数据 + 假运行器）：把�
    修法：加一个 prepare 步骤，在服务端读出每个回放点截断前的条目，汇总字符数，按「字符数 × 臂数 × 重复次数」算出总量，并给出单个用例的最大值。弹窗显示这些数字；模型判定那部分另外显示脱敏统计。
 
 第 6 条（两边词表共用）同意暂缓。`fs.watch` 句柄没释放已记为已知限制，同意：运行器是独立子进程，跑完就退出。
+
+## 第 3 轮修改
+
+### 1. 对照臂改成显式配置（已修）
+
+原来 `--arm-baseline` 缺失时会退回 `product` 自己，等于把产品和它自己对比；面板也永远显示勾选框。
+
+现在：
+
+- 只有 `ROTOM_EVAL_REPLAY_BASELINE` 显式给出、且能通过校验时才启用：必须是**绝对路径**、存在、是目录、且里面有 `runtime/product-config.mjs`（即真的是一个产品目录）。校验失败返回原因（`not_configured` / `not_absolute` / `not_a_directory` / `not_a_product`），全部按「未配置」处理，绝不猜。
+- `GET /api/eval/replay/cases` 多返回 `baseline: { enabled, reason }`；面板据此**隐藏勾选框**，并显示「未配置对照臂…只能回放当前产品」。
+- 服务端拒绝：`prepare` 和 `run` 带 `includeBaseline: true` 而未启用时都返回 400 `baseline_unavailable`，不依赖前端自觉。
+- `run` 时对照臂只用配置里的路径，不再有 `?? product` 兜底。
+- 两臂产品摘要相同会标出来：`runReplayPlan` 给每条运行记录写 `sameProduct`（两臂摘要相同为 `true`，单臂为 `null`），运行器输出 `warnings: ["baseline_product_matches_candidate"]`，服务状态透传，面板在列表项和进度行显示「两臂产品摘要相同：这次对比不能说明差异」。
+- 顺带去掉一次重复加载：`createGenerator` 把 `productDigest` 挂在返回的函数上，运行器不再为了拿摘要二次加载整个产品（这也少了一半 `fs.watch`）。
+
+### 2. 确认弹窗加 prepare（已修）
+
+新增 `POST /api/eval/replay/prepare`（进 POST 白名单，沿用同一套 token/Host/Origin/content-type/体积校验）。它只做统计、不启动任何进程：
+
+- 用与运行器相同的 `cutEntries` 取截断前缀，逐条 `redactSecrets(JSON.stringify(entry)).text.length` 累加 —— **按脱敏后的文本算字符数**，所以既不会把密钥原文算进总量，也不会读出来。
+- 返回 `{ cases: [{ key, chars, runs }], runs, repeats, arms, totalChars, redactions, redactionTotal, modelCases }`；`totalChars = 各点字符和 × 重复次数 × 臂数`。重复次数按运行器的 1–3 截断（`clampRepeats`），弹窗显示的是**实际会跑**的次数，不是输入框里的数字。
+- 点「运行回放」时先 prepare，弹窗显示：回放点/总运行次数/模型/重复次数/同时跑基线，再单独一行「共 N 次回放（X 个点 × Y 次 × Z 个产品）」，再一行「截断前内容：X 个回放点合计 A 字符（单个最大 M），按上述次数总计 B 字符」——单个最大值是核验要求补的，因为撑爆上下文的是最大的那个点，不是平均值；**仅当存在 model 模式的点且有命中**时，另起一行「模型判定输入已脱敏 N 处：类型 数量…」。规则判定不进模型，所以不出这行。
+- 运行器 `--dry-run` 同步修正：原来 `expectedChars` 只算期望行为文本的长度，现在额外给出 `context: { perCaseChars, maxChars, totalChars, redactionTotal }`，按脱敏后的截断前缀统计，`expectedChars` 保留原义。
+- prepare 失败（例如回放点不存在）只提示错误，不弹确认框、不启动。
+
+### 3. 测试与冒烟
+
+- `replay-plan.test.mjs`（新，5 项）：重复次数截断；字符数按脱敏后文本计且小于原始 JSON 长度；只有 model 点统计脱敏；两臂让次数和字符数翻倍；`resolveReplayBaseline` 五种取值（未配置/相对路径/不存在/非产品目录/合法产品）；`sameProduct` 三态（两臂相同 `true`、两臂不同 `false`、单臂 `null`）。
+- `replay-api.test.mjs`（3 项，扩了两处）：`cases` 返回 `baseline` 状态；未配置时 `prepare`/`run` 带基线都 400、直接请求也不行；`prepare` 的 `runs`/`totalChars`/`repeats` 与预期一致且不产生运行记录；配置了基线时 `cases` 显示 `enabled: true`、`prepare` 返回 `arms: 2`、`run` 收到 202 且子进程参数里是 `--arm-baseline=<配置的路径>`、状态里带回 `warnings`。
+- Playwright 冒烟：断言勾选框不可见、提示文案在；点运行后先出现「共 1 次回放（1 个回放点 × 1 次 × 1 个产品）」和字符数那一行（截图 `eval-replay-confirm.png`），确认后才跑，之后照旧取消/删除。PASS，0 页面错误。
+- CI 的 `node --test` 列表加了 `replay-plan.test.mjs`。
+
+### 4. 第 3 轮自查
+
+1. 测试与审计：做了 —— `node --test`（dashboard/eval/judge/replay/replay-api/replay-plan）69 项、`replay-e2e` 3 项、eval 套件 11 文件 282 项、体积守卫 12 项、typecheck、`audit-public.py` PASS 0、`git diff --check` 干净。
+2. 判定：未改三条规则；`sameProduct` 只做标记，不参与判定；`unknown` 仍单独计。
+3. 用例与 fixture：只新增合成用例；`resolveReplayBaseline` 用临时目录造产品/非产品目录；没有读真实会话。
+4. 计数与汇总：字符数取脱敏后文本长度并乘 `重复次数 × 臂数`；次数与运行器实际次数一致（同一 `clampRepeats`）；`prepare` 不落盘。
+5. 脱敏与隐私：`prepare` 只在内存里读前缀并立刻脱敏，不写文件、不返回原文，只返回长度和命中类型计数；面板文案只显示数量。
+6. 真实模型运行：不适用 —— 本批不跑真实模型；冒烟用假运行器。
+
+### 5. 第 3 轮 L1/L2/L3
+
+- **L1（已做）**：新增/扩展的单元与路由测试、CI 列表更新、审计、体积守卫。
+- **L2（已做，离线）**：Playwright 冒烟覆盖「未配置基线 → 准备数字 → 确认 → 运行 → 取消 → 删除」；API 层覆盖配置基线后的双臂参数与警告透传。
+- **L3（未做）**：仍未真实运行模型或真实会话；两臂真实差异（真有基线产品时摘要不同）只在逻辑层验证，没有真实基线产物验证。
