@@ -81,7 +81,7 @@ bob 的 3 个回放点、`qoder/dfmodel`、重复 1 次、未配基线。
 | 审计 | `python3 scripts/audit-public.py --root .` | PASS，0 命中 |
 | 面板冒烟 | `PLAYWRIGHT_MODULE=… PLAYWRIGHT_CHANNEL=chrome node rotom/extensions/observability/eval-ui-smoke.mjs` | PASS，0 page error、0 外部请求 |
 
-**L2（CI）**：`5e0cafa` 的 Evals L1 通过（run `40502677479`）；`5c2eee1`（单行输出修复）的 run 见 README 状态表的记录。
+**L2（CI）**：`5e0cafa6` 的 Evals L1 通过（run `40502677479`，success）；`5c2eee17`（单行输出修复）的 Evals L1 通过（run `40503449345`，success）。文档提交不触发 CI（`paths` 排除 `docs/**`）。
 
 **L3（真实数据）**：上面 C 节两次真实回放。真实模型、真实会话、单产品臂 + 对照，未配基线；`unknown` 1 个（点 1 跑二次），未超过任务给的阈值。
 
