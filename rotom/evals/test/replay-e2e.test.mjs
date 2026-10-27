@@ -15,11 +15,28 @@ import { assistantMessageOf, readReplayCases, replaySource, runReplayPlan, sessi
 import { createGenerator, createModelJudge } from "../scripts/session-replay.mjs";
 import { loadReplayProduct, openReplaySession } from "../src/replay-session.ts";
 
+// The test boots a real product runtime in-process. Qoder and trace writing are
+// irrelevant here and both can keep background timers alive after the run, so
+// they stay off; the replay path itself is unchanged.
+process.env.ROTOM_QODER = "0";
+process.env.ROTOM_OBSERVABILITY = "0";
+
 const productDir = fileURLToPath(new URL("../../", import.meta.url));
 const piExecutable = fileURLToPath(new URL("../../runtime/pi/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js", import.meta.url));
 const piAiEntry = fileURLToPath(new URL("../../runtime/pi/node_modules/@earendil-works/pi-ai/dist/index.js", import.meta.url));
 const scratchRoots = [];
-after(async () => { for (const path of scratchRoots) await rm(path, { recursive: true, force: true }); });
+after(async () => {
+	for (const path of scratchRoots) await rm(path, { recursive: true, force: true });
+	// A product runtime can leave keep-alive handles behind (catalog refresh
+	// timers, provider sockets). Report them rather than hanging the CI step, so a
+	// future regression is visible instead of silent.
+	const ignored = new Set(["PipeWrap", "ProcessWrap", "TTYWrap", "FSReqCallback", "FSReqPromise"]);
+	const leftover = process.getActiveResourcesInfo().filter((name) => !ignored.has(name));
+	if (leftover.length) {
+		console.error("leftover handles: " + leftover.join(","));
+		setTimeout(() => process.exit(0), 10);
+	}
+});
 
 const available = await stat(piAiEntry).then(() => true, () => false);
 
