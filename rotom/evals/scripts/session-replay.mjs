@@ -74,7 +74,7 @@ export async function createGenerator({ productAgentDir, model, thinkingLevel, p
 }
 
 /** Model verdict for mode=model points; reuses the background judge prompt pipeline. */
-export async function createModelJudge({ model, timeoutMs = 180_000 }) {
+export async function createModelJudge({ model, launcher: launcherPath = undefined, timeoutMs = 180_000 }) {
 	const judge = await import("../../extensions/observability/eval/judge.mjs");
 	const { executeProcessTreeV1 } = await import("../../runtime/process-tree.ts");
 	return async ({ item, reply, entries }) => {
@@ -89,7 +89,7 @@ export async function createModelJudge({ model, timeoutMs = 180_000 }) {
 		].join("\n\n");
 		const started = Date.now();
 		// rotom-launcher is a shell script: run it directly, never through node.
-		const launcher = await realpath(judge.JUDGE_LAUNCHER);
+		const launcher = await realpath(launcherPath ?? judge.JUDGE_LAUNCHER);
 		const info = await lstat(launcher);
 		await access(launcher, constants.X_OK);
 		if (!info.isFile() || info.isSymbolicLink()) throw new Error("judge launcher is not a regular file");

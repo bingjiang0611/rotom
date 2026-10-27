@@ -100,16 +100,32 @@ test("a replay never executes a tool, twice, on two points, on both arms", { ski
 	assert.notEqual(digests.candidate, digests.baseline, "arms must load their own product surface");
 });
 
-test("the model judge path reaches the launcher and returns a verdict", { skip: available ? false : "product runtimes are not installed" }, async () => {
+test("the model judge executes its launcher directly, never through a shell", async () => {
 	const home = await space("rotom-replay-judge-");
-	const judge = await createModelJudge({ model: "faux/faux-1" });
-	// The faux provider is not registered for the judge child, so the honest result
-	// is unknown with a reason; what matters is that the launcher itself ran.
+	// A stub launcher proves the plumbing: the judge must exec this file itself,
+	// with the prompt on stdin. The real launcher's own behaviour is checked by
+	// eval-launcher-check.mjs, which needs an isolated HOME and a network guard.
+	const marker = join(home.root, "judge-calls.jsonl");
+	const launcher = join(home.root, "stub-launcher.mjs");
+	await writeFile(launcher, `#!${process.execPath}
+import { appendFileSync } from "node:fs";
+const input = [];
+for await (const chunk of process.stdin) input.push(chunk);
+const newline = String.fromCharCode(10);
+appendFileSync(${JSON.stringify(marker)}, JSON.stringify({ argv: process.argv.slice(2), stdin: Buffer.concat(input).toString() }) + newline);
+const text = JSON.stringify({ verdict: "pass", reason: "先查状态" });
+const rows = [
+	{ type: "message_end", message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text }] } },
+	{ type: "agent_end" },
+];
+process.stdout.write(rows.map((row) => JSON.stringify(row)).join(newline) + newline);
+`, { mode: 0o700 });
+	const judge = await createModelJudge({ model: "faux/faux-1", launcher });
 	const verdict = await judge({ item: { expected: "先查状态" }, reply: assistantMessageOf({ content: [{ type: "text", text: "已完成。" }] }), entries: [] });
-	assert.ok(["pass", "fail", "unknown"].includes(verdict.verdict));
-	assert.equal(typeof verdict.reason, "string");
-	assert.doesNotMatch(String(verdict.reason), /ENOEXEC|EACCES|bad interpreter/iu, "the launcher must be executed directly");
-	void home;
+	assert.deepEqual({ verdict: verdict.verdict, reason: verdict.reason }, { verdict: "pass", reason: "先查状态" });
+	const [call] = (await readFile(marker, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+	assert.equal(call.argv.includes("faux/faux-1"), true, "the model is passed to the launcher");
+	assert.match(call.stdin, /先查状态/u, "the prompt reaches the launcher stdin");
 });
 
 test("a blocker that cannot load refuses to generate", { skip: available ? false : "product runtimes are not installed" }, async () => {
