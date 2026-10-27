@@ -70,3 +70,16 @@
 - 不读、不回放 bob 的真实会话。
 - 提交前跑公开树审计。
 - 完成后 README 第 18 行改成 `in-review`。报告里写清 L1/L2 跑了什么，以及哪些需要 bob 做真实验证（L3）。
+
+---
+
+## 第 2 轮（核验后补充）
+
+先按报告末尾「核验」的第 1–4 条修复（第 6 条可选）。第 5 条 bob 在 2026-10-27 选择了**给 dashboard.mjs 加豁免**：
+
+- 在 `scripts/check-staged-file-size.mjs` 里新增一个具名列表，例如 `legacyOversizedFiles`，**只放** `rotom/extensions/observability/dashboard.mjs` 一个文件。注释写明这是 bob 的决定，以及原因：看板主文件过大，暂不拆分。不要放宽 `maxBytes`，也不要把豁免写成目录或通配。
+- 同步更新 `scripts/check-staged-file-size.test.mjs`：豁免文件超过上限能提交；其他超限文件仍被拒；把豁免文件改名或复制到别的路径，仍然被拒。
+- 然后接上 `/api/eval/replay/*` 的 6 个路由。沿用现有安全约束：Bearer token、Host 校验、POST Origin、JSON 类型和体积上限。接口白名单要同步。
+- 用 Playwright 在合成数据上冒烟回放面板，覆盖：设回放点、列表、运行（faux provider 或假运行器）、进度、取消、删除。
+
+完成后在报告里追加「第 2 轮修改」一节，并按自查清单自查。README 第 18 行改回 `in-review`。
