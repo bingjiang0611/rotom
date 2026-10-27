@@ -188,7 +188,7 @@ test("the dashboard service creates points from the session digest and runs the 
 	// cancellation is a kill, without loading a product runtime or a model.
 	const runner = join(home.root, "fake-runner.mjs");
 	await writeFile(runner, `process.stdout.write(JSON.stringify({progress:{done:1,total:2}})+"\\n");
-process.stdout.write(JSON.stringify({runs:[{key:"${session.id}-${session.cutEntryId}",arm:"candidate",repetition:1,verdict:"pass",reason:"fake",checkMode:"rule"}]})+"\\n");
+process.stdout.write(JSON.stringify({runs:[{key:"${session.id}-${session.cutEntryId}",arm:"candidate",repetition:1,verdict:"pass",reason:"fake",checkMode:"rule"},{key:"${session.id}-${session.cutEntryId}",arm:"original",repetition:1,verdict:"fail",reason:"fake",checkMode:"rule"}],conclusions:[{key:"${session.id}-${session.cutEntryId}",conclusion:"caught"}]})+"\\n");
 `, { mode: 0o600 });
 	const serviceArgs = [];
 	const service = createReplayService({ directory: home.directory, sessionsRoot: home.sessions, product: home.root, spawnProcess: (node, args) => {
@@ -211,6 +211,10 @@ process.stdout.write(JSON.stringify({runs:[{key:"${session.id}-${session.cutEntr
 	const status = service.status(started.runId);
 	assert.equal(status.status, "done");
 	assert.equal(status.results[0].verdict, "pass");
+	// The dashboard reads JSONL: the runner's last line must arrive on one line or
+	// the rows and labels vanish while the run still reports "done".
+	assert.deepEqual(status.results.map((row) => row.arm), ["candidate", "original"]);
+	assert.deepEqual(status.conclusions, [{ key: point.key, conclusion: "caught" }]);
 	await assert.rejects(() => service.start({ cases: [], model: "faux/faux-1" }));
 	await assert.rejects(() => service.start({ cases: [point.key], model: "not a model" }));
 	await service.remove({ sessionId: session.id, cutEntryId: session.cutEntryId });

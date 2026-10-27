@@ -191,6 +191,7 @@ export async function main(argv = process.argv.slice(2)) {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
-	main().then((result) => { process.stdout.write(JSON.stringify(result, null, 2) + "\n"); })
+	// One line: the dashboard reads JSONL, so an indented object would be dropped.
+	main().then((result) => { process.stdout.write(JSON.stringify(result) + "\n"); })
 		.catch((error) => { process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`); process.exitCode = 1; });
 }
