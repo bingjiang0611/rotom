@@ -7,6 +7,7 @@ import { join, isAbsolute } from "node:path";
 import { pathToFileURL } from "node:url";
 import { startTraceDashboard } from "./dashboard.mjs";
 import { fixtureSession, ATTACK } from "./eval-fixtures.mjs";
+import { spawn } from "node:child_process";
 import { fakeJudgeLauncher } from "./judge-fixtures.mjs";
 import { COPY } from "./eval/copy.mjs";
 if (!isAbsolute(process.env.PLAYWRIGHT_MODULE ?? "")) throw new Error("Set PLAYWRIGHT_MODULE to the installed Playwright entry");
@@ -20,7 +21,18 @@ await fixtureSession(root, "synthetic-a-review", { active: true });
 await mkdir(evalDirectory, { mode: 0o700 });
 await writeFile(join(evalDirectory, "labels.jsonl"), JSON.stringify({ sessionId: "synthetic-a-review", verdict: "pass", note: "合成终端标注" }) + "\n", { mode: 0o600 });
 const fake = await fakeJudgeLauncher(directory);
-const dashboard = await startTraceDashboard({ root, evalDirectory, judge: { launcher: fake.launcher } });
+// Fake replay runner: no product runtime, no model. The first invocation reports
+// progress slowly so the panel can be cancelled, the second finishes at once.
+const replayRunner = join(directory, "fake-replay-runner.mjs");
+const replayMarker = join(directory, "fake-replay-calls.jsonl");
+await writeFile(replayRunner, `#!${process.execPath}
+import { appendFileSync } from "node:fs";
+appendFileSync(${JSON.stringify(replayMarker)}, JSON.stringify({ args: process.argv.slice(2) }) + "\\n");
+const slow = process.argv.some((item) => item === "--repeats=3");
+process.stdout.write(JSON.stringify({ progress: { done: 1, total: 3 } }) + "\\n");
+if (slow) { setTimeout(() => process.exit(0), 60000); } else { process.stdout.write(JSON.stringify({ runs: [] }) + "\\n"); }
+`, { mode: 0o700 });
+const dashboard = await startTraceDashboard({ root, evalDirectory, judge: { launcher: fake.launcher }, replay: { spawnProcess: (node, args) => spawn(node, [replayRunner, ...args]) } });
 let browser, page;
 const errors = [], external = [], screenshots = [];
 const screenshot = async (name) => { const path = join(directory, name); await page.screenshot({ path, fullPage: false }); screenshots.push(path); };
@@ -155,6 +167,37 @@ try {
 	});
 	const allowed = new Set(["ROTOM", "Rotom", "R", "fake", "model", "bash", "tool_error", "repeat-after-error", "ended-after-tool-error", "ended-on-provider-error", "schema-errors", "oversized-tool-result", "harness-fault", "unknown"]);
 	assert.deepEqual(english.filter((word) => !allowed.has(word)), [], "untranslated visible UI copy");
+	// Replay panel: pin a point on a failed step, list it, run it, cancel it, delete it.
+	// Only a reviewed failure offers a replay point, so mark this one 不满意 first.
+	await page.locator("#eval-filter").selectOption("all");
+	await page.locator('[data-session-id="synthetic-a-review"]').click();
+	await page.locator("#eval-fail").click();
+	await page.locator("#eval-save").click();
+	await page.getByRole("button", { name: "设为回放点", exact: true }).first().waitFor();
+	await page.getByRole("button", { name: "设为回放点", exact: true }).first().click();
+	await page.locator('dialog[aria-label="设为回放点"] textarea').fill("应该先查状态再回答");
+	await page.locator('dialog[aria-label="设为回放点"] select').first().selectOption("rule");
+	await page.getByRole("button", { name: "保存回放点", exact: true }).click();
+	await page.locator("#eval-replay article").first().waitFor();
+	assert.equal(await page.locator("#eval-replay article").first().innerText().then((text) => text.includes("应该先查状态再回答")), true);
+	await screenshot("eval-replay-list.png");
+	await page.locator("#eval-replay input[aria-label=" + JSON.stringify("模型") + "]").fill("faux/faux-1");
+	await page.locator("#eval-replay input[aria-label=" + JSON.stringify("每个回放点重复次数") + "]").fill("1");
+	await page.getByRole("button", { name: "运行回放", exact: true }).click();
+	await page.getByRole("button", { name: "确认运行", exact: true }).click();
+	await page.getByText("回放结束 · 已运行 1 / 1", { exact: true }).waitFor();
+	// A slow runner proves progress is visible and cancel stops the run. The panel
+	// rebuilds its controls after each run, so the fields are filled again.
+	await page.locator("#eval-replay input[aria-label=" + JSON.stringify("模型") + "]").fill("faux/faux-1");
+	await page.locator("#eval-replay input[aria-label=" + JSON.stringify("每个回放点重复次数") + "]").fill("3");
+	await page.getByRole("button", { name: "运行回放", exact: true }).click();
+	await page.getByRole("button", { name: "确认运行", exact: true }).click();
+	await page.getByText("已运行 1 / 3", { exact: true }).waitFor();
+	await screenshot("eval-replay-progress.png");
+	await page.getByRole("button", { name: "取消回放", exact: true }).click();
+	await page.getByText(/回放已停止|回放结束/u).waitFor();
+	await page.getByRole("button", { name: "删除回放点", exact: true }).click();
+	await page.getByText("还没有回放点。在失败会话的消息上点「设为回放点」。", { exact: true }).waitFor();
 	await page.setViewportSize({ width: 390, height: 844 });
 	assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
 	await page.evaluate(async () => { window.scrollTo({ top: 0, behavior: 'instant' }); await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))); });
@@ -172,5 +215,5 @@ try {
 	throw error;
 } finally {
 	await browser?.close(); await dashboard.close();
-	for (const path of [root, evalDirectory, fake.launcher, fake.control, fake.calls]) await rm(path, { recursive: true, force: true });
+	for (const path of [root, evalDirectory, fake.launcher, fake.control, fake.calls, replayRunner, replayMarker]) await rm(path, { recursive: true, force: true });
 }
