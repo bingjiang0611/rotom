@@ -76,6 +76,7 @@ it("rejects symlinked trace parents and symlinked or permissive artifact sinks",
 
 		const permissiveArtifacts = join(root, "permissive-artifacts");
 		await mkdir(permissiveArtifacts, { mode: 0o755 });
+		await chmod(permissiveArtifacts, 0o755);
 		await expect(persistEvalArtifactReferences([], "run-1", permissiveArtifacts)).rejects.toThrow("not private");
 
 		const safeArtifacts = join(root, "safe-artifacts");
@@ -107,6 +108,7 @@ it("rejects symlinked trace parents and symlinked or permissive artifact sinks",
 		await expect(persistEvalArtifactReferences(artifacts, "run-1", safeArtifacts)).rejects.toThrow("private regular file");
 		await unlink(output);
 		await writeFile(output, "permissive\n", { mode: 0o644 });
+		await chmod(output, 0o644);
 		await expect(persistEvalArtifactReferences(artifacts, "run-1", safeArtifacts)).rejects.toThrow("private regular file");
 	} finally {
 		await rm(root, { recursive: true, force: true });

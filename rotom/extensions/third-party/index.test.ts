@@ -43,6 +43,36 @@ test("owned components define native contracts without product interception", as
 	assert.notEqual(standalone.description, PRODUCT_SUBAGENT_DESCRIPTION);
 });
 
+test("product wrappers preserve owned tool contracts, with only the Relay composition exception", async (t) => {
+	const workspace = mkdtempSync(join(tmpdir(), "rotom-native-contracts-"));
+	t.after(() => rmSync(workspace, { recursive: true, force: true }));
+	const fixture = join(workspace, "native.ts");
+	const modulePath = (relative: string) => JSON.stringify(join(import.meta.dirname, "node_modules", relative));
+	writeFileSync(fixture, `
+		import computerUse from ${modulePath("@injaneity/pi-computer-use/extensions/computer-use.ts")};
+		import subagents from ${modulePath("pi-subagents/index.ts")};
+		import goal from ${modulePath("@narumitw/pi-goal/src/index.ts")};
+		export default function(pi) { computerUse(pi); subagents(pi, { surface: "ephemeral" }); goal(pi); }
+	`);
+	const { loadExtensions } = await import(pathToFileURL(join(findPiDist(), "core/extensions/loader.js")).href);
+	const native = await loadExtensions([fixture], workspace);
+	const product = await loadExtensions([import.meta.dirname], workspace);
+	assert.deepEqual(native.errors, []);
+	assert.deepEqual(product.errors, []);
+	for (const name of ["act_ui", "subagent", "goal_continue"]) assert.ok(native.extensions[0].tools.has(name), `native component missing: ${name}`);
+	for (const [name, tool] of native.extensions[0].tools) {
+		const actual = product.extensions[0].tools.get(name)?.definition;
+		assert.ok(actual, `owned tool missing: ${name}`);
+		assert.deepEqual(JSON.parse(JSON.stringify(actual.parameters)), JSON.parse(JSON.stringify(tool.definition.parameters)), `${name}: schema/action drift`);
+		if (name !== "launch_browser") {
+			assert.equal(actual.description, tool.definition.description, `${name}: description drift`);
+			assert.deepEqual(actual.promptGuidelines, tool.definition.promptGuidelines, `${name}: guideline drift`);
+		} else {
+			assert.match(actual.description, /Chrome Relay is unavailable/u);
+		}
+	}
+});
+
 test("product registration uses native deferred defaults only with the launcher handshake", async () => {
 	const { loadExtensions } = await import(pathToFileURL(join(findPiDist(), "core/extensions/loader.js")).href);
 	const savedDefault = process.env.ROTOM_DEFERRED_DEFAULT_SURFACE;
@@ -155,7 +185,13 @@ function findPiDependency(piDist: string, relativePath: string): string {
 	}
 }
 
-test("SoL-Pi 无配置文件时用 rotom 默认；存在配置文件时完全按文件，项目配置仅在受信时生效", async (t) => {
+test("SoL-Pi defaults, trusted config and ROTOM_COMPACTION_OFFLOAD override", async (t) => {
+	const originalOverride = process.env.ROTOM_COMPACTION_OFFLOAD;
+	t.after(() => {
+		if (originalOverride === undefined) delete process.env.ROTOM_COMPACTION_OFFLOAD;
+		else process.env.ROTOM_COMPACTION_OFFLOAD = originalOverride;
+	});
+	delete process.env.ROTOM_COMPACTION_OFFLOAD;
 	const workspace = mkdtempSync(join(tmpdir(), "rotom-sol-pi-config-"));
 	t.after(() => rmSync(workspace, { recursive: true, force: true }));
 	const piDist = findPiDist();
@@ -168,14 +204,40 @@ test("SoL-Pi 无配置文件时用 rotom 默认；存在配置文件时完全按
 	mkdirSync(join(cwd, ".pi"), { recursive: true });
 	mkdirSync(agentDir);
 	const ctx = (trusted: boolean) => ({ cwd, isProjectTrusted: () => trusted });
-	const features = (config: any) => [config.actionFusion, config.observationPack, config.evidencePreservingReducer, config.onlineContextCompact];
+	const features = (config: any) => [config.actionFusion, config.observationPack, config.evidencePreservingReducer, config.onlineContextCompact, config.compactionOffload];
 
-	assert.deepEqual(features(loadRotomSolPiConfig(ctx(true), agentDir)), [true, true, true, false]);
+	assert.deepEqual(features(loadRotomSolPiConfig(ctx(true), agentDir)), [true, true, true, false, true], "rotom offload defaults on");
 	writeFileSync(join(cwd, ".pi", "sol-pi.json"), JSON.stringify({ version: 1, observationPack: true }));
-	assert.deepEqual(features(loadRotomSolPiConfig(ctx(false), agentDir)), [true, true, true, false], "untrusted project config must be ignored");
-	assert.deepEqual(features(loadRotomSolPiConfig(ctx(true), agentDir)), [false, true, false, false]);
+	assert.deepEqual(features(loadRotomSolPiConfig(ctx(false), agentDir)), [true, true, true, false, true], "untrusted project config must be ignored");
+	assert.deepEqual(features(loadRotomSolPiConfig(ctx(true), agentDir)), [false, true, false, false, false]);
 	writeFileSync(join(agentDir, "sol-pi.json"), JSON.stringify({ version: 1 }));
-	assert.deepEqual(features(loadRotomSolPiConfig(ctx(false), agentDir)), [false, false, false, false]);
+	assert.deepEqual(features(loadRotomSolPiConfig(ctx(false), agentDir)), [false, false, false, false, false]);
+
+	const enabled = { version: 1, observationPack: true, compactionOffload: true };
+	const warnings: string[] = [];
+	t.mock.method(console, "error", (message: string) => warnings.push(message));
+	const cases = [
+		{ name: "unset preserves user true", env: undefined, config: enabled, expected: true, warning: false },
+		{ name: "empty preserves user true", env: "", config: enabled, expected: true, warning: false },
+		{ name: "1 preserves rotom default", env: "1", config: undefined, expected: true, warning: false },
+		{ name: "unset preserves omitted user field as false", env: undefined, config: { version: 1, observationPack: true }, expected: false, warning: false },
+		{ name: "1 overrides user false with Observation Pack", env: "1", config: { version: 1, observationPack: true, compactionOffload: false }, expected: true, warning: false },
+		{ name: "0 disables rotom default", env: "0", config: undefined, expected: false, warning: false },
+		{ name: "1 with Observation Pack disabled stays off", env: "1", config: { version: 1, observationPack: false }, expected: false, warning: true },
+		{ name: "0 overrides user true", env: "0", config: enabled, expected: false, warning: false },
+		{ name: "invalid value preserves user true", env: "true", config: enabled, expected: true, warning: true },
+		{ name: "invalid value preserves rotom default true", env: "2", config: undefined, expected: true, warning: true },
+	];
+	for (const scenario of cases) await t.test(scenario.name, () => {
+		if (scenario.env === undefined) delete process.env.ROTOM_COMPACTION_OFFLOAD;
+		else process.env.ROTOM_COMPACTION_OFFLOAD = scenario.env;
+		if (scenario.config) writeFileSync(join(agentDir, "sol-pi.json"), JSON.stringify(scenario.config));
+		else rmSync(join(agentDir, "sol-pi.json"), { force: true });
+		warnings.length = 0;
+		assert.equal(loadRotomSolPiConfig(ctx(false), agentDir).compactionOffload, scenario.expected);
+		assert.equal(warnings.length, scenario.warning ? 1 : 0);
+		if (scenario.env === "1" && scenario.warning) assert.match(warnings[0]!, /requires Observation Pack; compaction offload remains disabled$/u);
+	});
 });
 
 test("Subagent 产品策略拒绝持久管理能力并强制普通执行保持 ephemeral", () => {
@@ -329,13 +391,17 @@ test("真实第三方 loader 的 Ask 只补发正常结束；Goal 中止事件�
 	assert.equal((sent[0] as any).message.customType, "ask-user-continuation");
 });
 
-test("unsupported Ask schema keeps native Ask and all later components in a real session", async (t) => {
+for (const parameters of [
+	{ type: "object", properties: { changed: { type: "string" } } },
+	{ type: "object", properties: { questions: { type: "array", items: { type: "string" } } } },
+	{ type: "object" },
+]) test(`unsupported Ask schema ${JSON.stringify(parameters)} keeps native Ask and all later components`, async (t) => {
 	const workspace = mkdtempSync(join(tmpdir(), "rotom-ask-schema-drift-"));
 	t.after(() => rmSync(workspace, { recursive: true, force: true }));
 	const fixture = join(workspace, "ask.ts");
 	writeFileSync(fixture, `export default function(pi) { pi.registerTool({
 		name: "ask_user_question", label: "Ask", description: "upstream fixture",
-		parameters: { type: "object", properties: { changed: { type: "string" } } },
+		parameters: ${JSON.stringify(parameters)},
 		execute: async () => ({ content: [{ type: "text", text: "native result" }], details: { native: true } })
 	}); }`);
 	const piDist = findPiDist();
@@ -371,7 +437,7 @@ test("unsupported Ask schema keeps native Ask and all later components in a real
 	assert.deepEqual(errors, []);
 	const extension = extensionsResult.extensions.find((extension: any) => extension.tools.has("ask_user_question"));
 	const ask = extension.tools.get("ask_user_question").definition;
-	assert.deepEqual(ask.parameters, { type: "object", properties: { changed: { type: "string" } } });
+	assert.deepEqual(ask.parameters, parameters);
 	assert.equal(ask.promptGuidelines?.includes(ASK_CONTINUATION_GUIDELINE) ?? false, false);
 	assert.deepEqual(await ask.execute(), { content: [{ type: "text", text: "native result" }], details: { native: true } });
 	for (const name of ["act_ui", "subagent", "goal_continue", "ask_user_question", "edit", "write", "obs_recall", "search_tools"]) {

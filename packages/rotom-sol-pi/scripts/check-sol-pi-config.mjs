@@ -16,7 +16,7 @@ const DEFAULT_CACHE_WRITE_READ_RATIO = 12.5;
 const DEFAULT_EPR_REDUCER_PROVIDER = ["openai", "codex"].join("-");
 const DEFAULT_EPR_REDUCER_MODEL = ["gpt-5.6", "luna"].join("-");
 const STRING_KEYS = ["evidencePreservingReducerModel", "evidencePreservingReducerProvider"];
-const CONFIG_KEYS = new Set(["version", ...FEATURE_KEYS, ...STRING_KEYS, "cacheWriteReadRatio"]);
+const CONFIG_KEYS = new Set(["version", ...FEATURE_KEYS, ...STRING_KEYS, "cacheWriteReadRatio", "compactionOffload"]);
 
 function fail(message) {
 	throw new Error(message);
@@ -73,6 +73,14 @@ function validateConfig(value, requireAllEnabled) {
 		if (configured !== undefined && typeof configured !== "boolean") fail(`${key} must be boolean`);
 		effective[key] = configured ?? false;
 		if (requireAllEnabled && effective[key] !== true) fail(`${key} must be true`);
+	}
+	// This optional modifier is not part of the existing --require-all-enabled contract.
+	if (value.compactionOffload !== undefined && typeof value.compactionOffload !== "boolean") {
+		fail("compactionOffload must be boolean");
+	}
+	effective.compactionOffload = value.compactionOffload ?? false;
+	if (effective.compactionOffload && !effective.observationPack) {
+		fail("compactionOffload requires observationPack: true");
 	}
 	const cacheWriteReadRatio = Object.hasOwn(value, "cacheWriteReadRatio")
 		? value.cacheWriteReadRatio

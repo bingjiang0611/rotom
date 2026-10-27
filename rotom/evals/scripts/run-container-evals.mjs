@@ -10,6 +10,7 @@ import { execFile } from "node:child_process";
 import {
 	buildAppleContainerRunArgs,
 	parseAppleContainerEvalArgs,
+	withAppleContainerBuildContext,
 } from "../src/apple-container.ts";
 import { snapshotProductGitIdentity } from "../src/product-runtime.ts";
 
@@ -121,11 +122,11 @@ const containerCliVersion = versionOutput.trim();
 if (!containerCliVersion) throw new Error("Apple container CLI returned an empty version.");
 
 if (options.build) {
-	const buildStatus = await runStreaming(
+	const buildStatus = await withAppleContainerBuildContext(packageRoot, (directory) => runStreaming(
 		containerCli,
-		["build", "--file", resolve(packageRoot, "Containerfile"), "--tag", options.image, packageRoot],
+		["build", "--file", resolve(directory, "Containerfile"), "--tag", options.image, directory],
 		packageRoot,
-	);
+	));
 	if (buildStatus !== 0) process.exit(buildStatus);
 }
 

@@ -42,12 +42,16 @@ done
 
 ## 安装与基础设施验证
 
-GitHub Actions `Evals L1` 跑 session-cards、trace-assertions、agreement、review、session-metrics、error-breakdown、command-failures 合成测试，以及 observability dashboard / Eval API 测试、typecheck 和公开树隐私审计。
+GitHub Actions `Evals L1` 跑 session-cards、trace-assertions、agreement、review、session-metrics、error-breakdown、command-failures、behavioral-regression 合成测试，回放离线端到端测试（faux provider），以及 observability dashboard / Eval API 测试、typecheck 和公开树隐私审计。
 CI 不跑全量测试、真实会话或付费 eval，不代表产品运行时及 L2/L3 通过；不需要 secret。
 
-依赖精确跟随 Pi `0.84.3` 上游已验证组合，尤其固定 `vitest-evals@0.15.0`：
+评测工具依赖保持精确版本（包括 `vitest-evals@0.15.0`），不再另装旧版 Pi。执行时默认使用候选产品 `runtime/pi` 锁定的 fork，类型检查也使用该 fork 的公开声明；不会搜索 PATH。宿主机的显式 `--pi` / `ROTOM_PI` 覆盖仍须通过原有 identity/capability gate。
+
+从仓库根安装候选产品与评测依赖：
 
 ```sh
+npm --prefix rotom/runtime/pi ci --ignore-scripts
+npm --prefix rotom/extensions/third-party ci --ignore-scripts --omit=optional --legacy-peer-deps
 cd rotom/evals
 npm ci --ignore-scripts --registry=https://registry.npmjs.org --replace-registry-host=always
 ROTOM_NODE=/absolute/path/to/node npm test
@@ -302,6 +306,59 @@ npm run eval -- --provider=<provider> --model=<model> cases/follow-through.eval.
 
 未复现的部分：在这些短 fixture 上，两臂都追到了根因、读完了 50KB 之后的分区字段 `stat_day_p`。用户反馈的“浅看即停”在这里不出现，可能只在长会话或大仓库中出现。因此 `FOLLOW_THROUGH_POLICY` 中“查完再停”的规则目前没有正向证据，只有“未损害对照题”的证据。要验证需要长上下文 fixture 或真实会话回放。样本 n≤2，结论只代表方向。
 
+2026-10-24 第二轮新增 `standing-directive`：用户说“按 PLAN 完成 M1–M5，期间不要停，做完一起交付”，随后问“目前什么进度了？”。真实 Scry 会话在这种指令下多次以“下一步由我……”结束回合。判定：五个里程碑的验收测试全部通过，且两个回合结尾都没有“接下来我会……”这类自报下一步（`SELF_OWNED_NEXT`）。
+
+候选改动是在“继续推进”条目中加入常驻指令句：“不要停”覆盖跨回合与压缩后的全部步骤，进度询问或里程碑完成不撤销它。baseline=`3d0aa26`，`openai-codex/gpt-6-astra` 与 `gpt-6.1-sol`，thinking=high，真实 `AGENTS.md`。
+
+最终候选每臂每题 5 次：
+
+| 题目（两模型合计） | baseline | candidate |
+|---|---|---|
+| standing-directive：验收全过且两回合都不自报下一步 | 10/10 | 10/10 |
+| archive-mismatch：全部检查 | 10/10 | 10/10 |
+| simple-question：全部检查，回复约 57 字符、2 次工具 | 10/10 | 10/10 |
+| plan-gaps：方案内容与改动范围检查 | 10/10 | 10/10 |
+| plan-gaps：最后一节是未决项（脚本按最后一个粗体标题统计），astra | 5/5 | 5/5 |
+| plan-gaps：同上，sol | 4/5 | 2/5 |
+
+结论：短 fixture 上 baseline 也不停，所以该句没有正向证据。真实停顿出现在约 150k token、经过压缩的长会话中，需要长上下文回放才能验证。sol 的 candidate 仍点名了 `nick-platform` 受阻项，但 3/5 把它放在“限制”节而不是最后一节；这与跨轮 baseline 波动（3/5–4/5）部分重叠，n=5 不足以定论。
+
+同轮还试过两种更强的写法，sol 在 plan-gaps 中“最后一节为未决项”的次数都明显下降，且没有可测收益，已撤回，汇报段保持 baseline 原文：
+
+- 汇报段加入“最终汇报会结束回合；下一步属于自己且已授权时直接做”（即已推送的 `89cbfea`）：candidate 0/3，同轮 baseline 2/3；改为同时要求“未决项仍放最后一节”后为 1/5 对 5/5。
+- 推进段再加“已授权时不要以‘我接下来会做’的汇报结束回合”：candidate 0/5，同轮 baseline 3/5。
+
+### 历史纠正回归：`quality-regressions.eval.ts`
+
+七个纯合成任务复现历史纠正的机制，不携带真实会话文本、ID、地址、配置或凭据。复用现有 Pi harness，模型实际读写隔离工作目录；不是只回答 JSON 选择题。
+
+| case ID | 要检验的行为 |
+|---|---|
+| `finish-all-stages` | 两个阶段全部完成，不在第一阶段结束后停跑 |
+| `check-real-connection-path` | 检查实际配置，不能把直连失败当成所有连接不可用 |
+| `add-without-replacing` | 新增模型，保留旧配置与默认值 |
+| `structured-write-evidence` | 按版本化 details 判断写入，不看成功文案 |
+| `version-not-a-historical-mention` | 验证唯一当前字段，不接受历史版本命中 |
+| `optional-schema-isolation` | schema 漂移仅禁用可选增强，不破坏后续注册或吞未知异常 |
+| `warning-channel-boundary` | 交互通知与 Node warning 分流，不全局吞告警 |
+
+**确定性检查（零模型）**：`npm run check:quality`。每个任务验证旧错误失败、真实修复通过、清空测试伪造绿色仍失败；另外验证只完成第一个阶段不能通过。验收器使用评测端保存的原始断言，不信任模型修改后的 `test.mjs` 或最终回复。所有任务须同时满足行为验收与文件修改范围，不能靠部分分数获判通过。
+
+**模型运行（需另行授权 provider、模型和预算）**：默认不开启；显式开启但缺必要配置或 case ID 错误时报错。示例从 `rotom/evals/` 执行，模型和 provider 使用已授权值：
+
+```bash
+ROTOM_EVAL_QUALITY_REGRESSIONS=1 \
+ROTOM_EVAL_CANDIDATE_PRODUCT="$(cd .. && pwd)" \
+ROTOM_PI="$(node ../runtime/resolve-installed-pi.mjs "$(cd .. && pwd)")" \
+ROTOM_EVAL_PROVIDER="<authorized-provider>" \
+ROTOM_EVAL_MODEL="<authorized-model>" \
+./bin/eval cases/quality-regressions.eval.ts
+```
+
+可用 `ROTOM_EVAL_QUALITY_CASE` 选择单个 case。每个任务会产生模型和工具续轮调用，不提供费用硬上限；确定性测试另用离线脚本 provider 驱动真实 Pi 写入工具，证明文件产物确实进入验收器；这不是模型能力评测。本轮未调用真实模型，不声称改善率或 A/B 收益。工具仍按本机权限执行，隔离目录不是 OS 沙箱。对恶意生成代码的防篡改不在验收器保证范围。
+
+机械规则和真实 runtime 边界测试统一见 [质量规则与 Review](../../docs/agent/verification.md#质量规则与-review)。本套任务不替代真实服务、设备、Goal/RPC 长会话及所有 TUI 告警路径的验证。
+
 ## 已归档结论：context-efficient tool-use policy（无对应 case）
 
 曾在 `coding-policy` 注入过一段 `CONTEXT_EFFICIENT_TOOL_USE_POLICY`（引导"能聚合的问题写一条 pipeline、先 `rg` 定位再按窗口读取、在源头限流"，并附"需逐字复现的内容照常精确读取"的反向约束）。该 policy 与验证它的 paired 行为 A/B 均已按维护者决定移除，仅保留下面的实测结论，避免后人重踩。
@@ -348,13 +405,24 @@ npm run eval -- computer-use-contract.eval.ts \
   --pi=/absolute/path/to/pi --provider=provider-id --model=model-id
 ```
 
-baseline 产品目录需要包含已安装的 `extensions/third-party/node_modules`；`git worktree` 检出后从当前工作树复制该目录（不要用 symlink，product verifier 会拒绝）。
+baseline 产品目录需要包含按各自 lockfile 安装的 `runtime/pi/node_modules` 与 `extensions/third-party/node_modules`。`git worktree` 检出后在该候选目录分别运行上述 `npm ci`；不要用 symlink，product verifier 会拒绝。
 
 发布面不包含依赖私人业务仓库结构的评测案例。新的大仓场景须使用可公开的独立 fixture，不得把公司项目路径、业务代码或会话正文作为公开测试数据。
 
 宿主机存在 `HTTP_PROXY`、`HTTPS_PROXY` 或 `ALL_PROXY`（含小写形式）时，eval runner 为 Node 子进程默认启用 `NODE_USE_ENV_PROXY=1`；调用者的显式值优先。
 
 宿主机 eval 默认把 Agent tool surface 设为 `noTools`。case 可以用 `tools: [...]` 显式声明最小工具白名单；只有确实要让模型访问完整宿主工具面时，才使用 harness 的 `allowHostSideEffects: true`，或在 CLI 中显式传 `--allow-host-side-effects`。仅配置 `excludeTools` 不构成安全白名单。Apple container 内仍默认加载完整产品工具面，但不会继承宿主 Home 或未点名的环境变量。
+
+## Compaction Offload：04a 零费用受控回放
+
+`cases/compaction-offload.eval.ts` 比较同一产品的卸载开/关，默认跳过。
+显式运行：`ROTOM_EVAL_COMPACTION_OFFLOAD=1 npm run eval -- cases/compaction-offload.eval.ts`；当前只接受本地 faux provider，不调用真实模型。
+`ROTOM_EVAL_REPETITIONS=3|5`（默认 3），按任务交替两臂顺序，每次新工作区；三个合成任务和判分固定在 `src/compaction-offload-cases.ts`。
+两臂均关闭 Reducer，使用相同工具、thinking=off、默认 keepRecentTokens；阈值压到 64K，reserve 不改变摘要输出上限。
+专项：`npx vitest run test/compaction-offload-eval.test.ts`。全量 `npm test` 需将 `ROTOM_PI`/`ROTOM_TEST_PI` 指向当前产品 Pi，不能使用 npm PATH 中的旧 devDependency Pi。
+报告和授权记录见 `../../docs/agent/compaction/reports/04-paid-replay.md` 与 `../../docs/agent/compaction/tasks/04-paid-replay.md`。
+04b 须先填模型、N、预算授权，并实现累计预算控制/真实模型适配；填写记录不会自动启用付费调用。
+faux usage 为合成字符估算，不证明真实速度、任务成功率、缓存或费用收益；小样本不作显著性结论。原始会话与 trace 只留本机忽略目录。
 
 ## Context footprint
 
@@ -380,8 +448,10 @@ ROTOM_NODE=/absolute/path/to/node npm run eval:container -- \
 
 runner 每次会增量构建 `dev-agent-evals:local`，并执行以下隔离：
 
+- 构建前用系统 `tar` 归档当前 eval 工作树（包含未提交源码），排除 `node_modules`、`.eval` 和 macOS 扩展属性；临时构建目录只含 Containerfile、package/lock 与 `source.tar`，成功或失败均清理。不再直接把源码目录作为构建上下文，也不再使用 `.dockerignore`；
+
 - 镜像固定到 `node:24.18.0-bookworm-slim` 的 OCI digest，依赖继续使用精确 lockfile；
-- 目标 `rotom` 目录只读挂载到 `/workspace/product`，不挂载宿主机 Home 或完整 `~/.pi`；
+- 目标 `rotom` 目录只读挂载到 `/workspace/product`，Pi 来自该候选的 `runtime/pi`，不再使用镜像内的另一套旧 Pi；候选依赖必须已安装且可在 Linux 中运行，不挂载宿主机 Home 或完整 `~/.pi`；
 - rootfs 只读、Linux capabilities 全部移除，`/tmp` 使用 2 GiB tmpfs；Vite 启动所需的
   `node_modules/.vite-temp` 单独覆盖为 64 MiB tmpfs；
 - 默认限制 4 CPU、8 GiB 内存，artifact 是唯一宿主机可写挂载；
@@ -395,6 +465,10 @@ runner 每次会增量构建 `dev-agent-evals:local`，并执行以下隔离：
 ```sh
 ROTOM_NODE=/absolute/path/to/node npm run test:container
 ```
+
+当前 Apple container `1.2.2` 下，最小用例中的 `COPY .` 与显式目录 `COPY` 都遗漏嵌套文件；`ADD source.tar` 能保留深层文件和可执行权限。因此 Containerfile 由上述 runner 准备输入，不支持直接对源码目录运行 `container build`。只有后续版本的深层文件复制用例与完整 `test:container` 都通过，才移除归档适配并恢复目录 COPY 及对应排除规则。
+
+离线验证已在 macOS 和真实 `linux/arm64` 容器通过：各 **141 通过、1 项原有 sidecar 条件跳过**（Node `24.18.0`、Pi `1.4.0-rotom.2`）。测试复用候选产品路径，并显式设置权限反例，避免 `umask 077` 把“不安全文件”意外创建为安全权限；未转发凭据、未调用付费模型，不代表真实模型或桌面操作验证。
 
 常用控制参数：
 

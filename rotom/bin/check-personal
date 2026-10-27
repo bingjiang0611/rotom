@@ -35,6 +35,7 @@ PI_SUBAGENTS_EXECUTION_SCOPE= PI_SUBAGENTS_TEMP_ROOT= ROTOM_PI="$pi_command" ROT
 	rotom/runtime/process-tree.test.ts \
 	rotom/runtime/update-product.test.mjs \
 	rotom/runtime/distribution.test.mjs \
+	rotom/runtime/quality-boundaries.test.mjs \
 	rotom/scripts/build-pi-fork.test.mjs \
 	scripts/npm-release-handoff.test.mjs \
 	scripts/check-staged-file-size.test.mjs \

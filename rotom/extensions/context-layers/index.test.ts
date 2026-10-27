@@ -283,39 +283,7 @@ test("real SDK loader: queued tool -> turn boundary -> next request projection, 
     assert.match(JSON.stringify(boundary), /not-applied/);
     const initial = status(view(m), estimateTokens);
     assert.ok(initial.items.length > 0);
-    const branchLength = m.getBranch().length;
-    const nudgeHandler = ext.handlers.get("context")![0];
-    const nudgeAt = (tokens: number) => nudgeHandler({ messages: [] } as any,
-      { ...ctx, getContextUsage: () => ({ tokens, contextWindow: 200000, percent: tokens / 2000 }) }) as any;
-    await ext.handlers.get("session_start")![0]({} as any, ctx);
-    assert.equal(await nudgeAt(100000), undefined, "roomy context should preserve its cached prefix");
-    assert.equal(await nudgeAt(139999), undefined, "automatic reminders start at 70%, not 30%");
-    const reminder = await nudgeAt(140000);
-    assert.match(reminder.messages.at(-1).content, /Context is approximately/);
-    assert.match(reminder.messages.at(-1).content, /cache/);
-    assert.equal(m.getBranch().length, branchLength, "reminder must not persist business content");
-    assert.equal(await nudgeAt(140000), undefined, "unchanged pressure must not repeat reminders");
-    assert.equal(await nudgeAt(159999), undefined, "less than ten percentage points of growth stays quiet");
-    assert.ok(await nudgeAt(160000), "growing pressure must eventually produce another reminder");
-    // Manual compression is still allowed below the reminder threshold.
-    await ext.tools.get("context_compress")!.definition.execute("reset-growth", { start: `@${ids[4]}`, end: `@${ids[5]}`, summary: "new interval" }, undefined, undefined, ctx);
-    const committed = await ext.handlers.get("turn_end")![0]({ entries: [], outcome: "completed" } as any, ctx) as any;
-    apply(m, committed.entries);
-    assert.equal(await nudgeHandler({ messages: [] } as any, { ...ctx, getContextUsage: () => undefined }), undefined);
-    assert.equal(await nudgeHandler({ messages: [] } as any, { ...ctx, getContextUsage: () => ({ tokens: null, contextWindow: 200000, percent: null }) }), undefined);
-    assert.equal(await nudgeAt(140000), undefined, "a committed fold must not immediately trigger another compression");
-    assert.equal(await nudgeAt(159999), undefined, "growth starts from the first known post-fold usage");
-    assert.ok(await nudgeAt(160000), "a smaller baseline must not leave reminders stuck behind the old high-water mark");
-    await ext.tools.get("context_compress")!.definition.execute("failed-growth", { start: `@${ids[6]}`, end: `@${ids[7]}`, summary: "cancelled" }, undefined, undefined, ctx);
-    await ext.handlers.get("turn_end")![0]({ entries: [], outcome: "aborted" } as any, ctx);
-    assert.equal(await nudgeAt(179999), undefined, "an unapplied fold must not reset the growth interval");
-    assert.ok(await nudgeAt(180000));
-    for (const event of ["session_tree", "session_compact", "model_select"]) {
-      await ext.handlers.get(event)![0]({} as any, ctx);
-      assert.ok(await nudgeAt(140000), `${event} must not inherit an unrelated high-water mark`);
-    }
-    session.setActiveToolsByName(["context_status"]);
-    assert.equal(await nudgeHandler({ messages: session.messages } as any, { ...ctx, getContextUsage: () => ({ tokens: 180000, contextWindow: 200000, percent: 90 }) }), undefined, "explicit exclusions must win");
+    assert.equal(ext.handlers.get("context"), undefined, "no automatic context-usage reminder is injected into requests");
     process.env.ROTOM_CONTEXT_LAYERS = "0";
     await loader.reload();
     assert.equal(loader.getExtensions().extensions[0].tools.size, 0);

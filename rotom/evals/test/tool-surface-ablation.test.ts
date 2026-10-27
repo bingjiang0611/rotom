@@ -4,9 +4,10 @@ import { pathToFileURL } from "node:url";
 import { expect, it } from "vitest";
 import type { HarnessContext } from "vitest-evals/harness";
 import { createPiCodingAgentHarness } from "../src/pi-harness.ts";
+import { defaultProductAgentDir } from "../src/product-runtime.ts";
 
 const { measureContextFootprint } = await import(
-	pathToFileURL(resolve(import.meta.dirname, "../../runtime/context-footprint.mjs")).href
+	pathToFileURL(resolve(defaultProductAgentDir(), "runtime/context-footprint.mjs")).href
 ) as { measureContextFootprint: (input: Record<string, unknown>) => any };
 
 const MANAGED_CDP_TOOLS = ["launch_browser", "navigate_browser", "evaluate_browser"];

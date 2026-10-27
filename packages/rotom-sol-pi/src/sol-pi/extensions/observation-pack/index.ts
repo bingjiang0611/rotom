@@ -24,6 +24,7 @@ import { Type } from "typebox";
 import { runtimeRoot } from "../../runtime-paths.ts";
 import { formatSavingsCount, renderSolPiTool, showSolPiSavings } from "../../tui.ts";
 import { createLedger, type Ledger } from "./ledger.ts";
+import { createCompactionOffload } from "./offload.ts";
 import {
 	countLines,
 	createObservation,
@@ -93,7 +94,7 @@ async function recallPlaceholder(root: string, source: RecallReference, text: st
 	].join("\n");
 }
 
-export function createObservationPackExtension(): ExtensionFactory {
+export function createObservationPackExtension(options: { compactionOffload?: boolean } = {}): ExtensionFactory {
 	return (pi: ExtensionAPI) => {
 		const sentCounts = new Map<string, number>();
 		const ledgers = new Map<string, Ledger>();
@@ -106,6 +107,8 @@ export function createObservationPackExtension(): ExtensionFactory {
 			}
 			return ledger;
 		};
+
+		const offload = options.compactionOffload ? createCompactionOffload(pi, ledgerFor) : undefined;
 
 		pi.registerTool({
 			name: "obs_recall",
@@ -176,6 +179,7 @@ export function createObservationPackExtension(): ExtensionFactory {
 		});
 
 		pi.on("context", async (event, ctx: ExtensionContext) => {
+			offload?.restore(ctx);
 			const projected = [...event.messages];
 			const root = runtimeRoot(ctx);
 			// How many provider requests each message has already been part of,
@@ -194,6 +198,11 @@ export function createObservationPackExtension(): ExtensionFactory {
 				if (!message || !isPureTextResult(message)) continue;
 
 				try {
+					const offloaded = await offload?.project(message, ctx);
+					if (offloaded) {
+						projected[index] = offloaded;
+						continue;
+					}
 					const observation = createObservation(message, root);
 					if (!observation) continue;
 					const recall = message.toolName === "obs_recall" ? recallReference(message.details) : undefined;

@@ -1,0 +1,55 @@
+{
+  "state": "published",
+  "package": "@bingjiang0611/rotom",
+  "version": "0.1.27",
+  "tag": "latest",
+  "sourceCommit": "3f9b74d34b15b9819511c98979c7926aee8a6bf9",
+  "maintenanceTestCommit": "73a15cf58a479fd733f27098b54d8245bef495f2",
+  "sha256": "20865d93438a4ccdbbbeee8f51cfea9e8ba2453e5e3691e9896cb231ba1d365c",
+  "shasum": "148430c7160e501ec30278571bc5eb36ed2f9752",
+  "integrity": "sha512-R6JUnuolbGmc4WkgCXW5V7nX9r2UUa/zcBVnpYr5ED+isAQFz6CLWp6iGXXLOgccp2Opl4xYpNq7nWlKC/qV9g==",
+  "tarball": "https://registry.npmjs.org/@bingjiang0611/rotom/-/rotom-0.1.27.tgz",
+  "fileCount": 18910,
+  "compressedBytes": 33015460,
+  "unpackedBytes": 144248262,
+  "buildToolchain": {
+    "node": "24.18.0",
+    "npm": "12.2.0",
+    "successfulFinalPacks": 1
+  },
+  "checks": {
+    "installedFilesByteIdentical": 18910,
+    "nonEmbeddedProductSourcesMatchArtifact": true,
+    "productTests": "392 passed",
+    "goalTests": "88 passed",
+    "offlineProviders": "9 groups PASS",
+    "installedDefaultAndFullSmoke": "PASS",
+    "artifactPrivacy": "PASS, 18911 items, zero findings",
+    "sourceHistory": "BLOCKED with one explicitly accepted GitHub committer false positive at f6497ad22ebb, digest 3c205d8fc749",
+    "upgradeAndUninstall": "PASS; registry-verified 0.1.26 to unique 0.1.27 tgz; files match; home sentinel retained",
+    "currentFootprintGates": "PASS; historical reference remains DRIFT",
+    "qualityNegativeControl": "stderr leakage still fails; restored"
+  },
+  "resolvedSetupFailures": [
+    "Verification driver initially used a noncanonical /tmp path for the canonical module CLI; corrected only the driver.",
+    "Smoke driver initially lacked frozen checkout dependencies; installed the locked maintenance dependencies without changing source or artifact.",
+    "Initial check-personal: 390 passed, two isolated TUI tests timed out at Computer Use permission onboarding. User authorized a non-bundled test-only fix to cancel the observed prompt. Stderr negative control still failed as expected; full rerun: 392 product tests, 88 Goal tests and 9 offline Provider groups passed."
+  ],
+  "registryVerified": true,
+  "publishedBy": "Maintainer in a foreground terminal; agent performed read-only registry and downloaded-byte verification.",
+  "globalInstall": {
+    "state": "verified",
+    "productVersion": "0.1.27",
+    "piVersion": "1.4.0-rotom.2",
+    "installedFilesByteIdentical": 18910,
+    "note": "Explicitly authorized agent installation into a new per-version directory; active global command switched atomically. Old releases and active sessions preserved, not overwritten or migrated.",
+    "configurationsUnchanged": true,
+    "helperBindingsPreserved": true,
+    "helperNote": "Existing authorized helper app/socket and headless/overlay overrides retained in the external startup wrapper; packaged product bytes unchanged."
+  },
+  "unverified": [
+    "No new real-model, real browser/phone or cross-platform acceptance.",
+    "Public registry rotom update was not exercised; isolated npm upgrade was verified.",
+    "Active sessions do not hot-reload; new commands use 0.1.27."
+  ]
+}

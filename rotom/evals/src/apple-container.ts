@@ -1,7 +1,32 @@
-import { isAbsolute } from "node:path";
+import { execFile } from "node:child_process";
+import { copyFile, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { isAbsolute, join } from "node:path";
+import { promisify } from "node:util";
 import type { ProductGitIdentity } from "./product-runtime.ts";
 
 export const DEFAULT_APPLE_CONTAINER_IMAGE = "dev-agent-evals:local";
+
+export async function withAppleContainerBuildContext<T>(
+	packageRoot: string,
+	build: (directory: string) => Promise<T>,
+): Promise<T> {
+	const directory = await mkdtemp(join(tmpdir(), "rotom-eval-build-"));
+	try {
+		for (const file of ["Containerfile", "package.json", "package-lock.json"]) {
+			await copyFile(join(packageRoot, file), join(directory, file));
+		}
+		// Apple container 1.2.2 drops nested files during directory COPY. Send one
+		// archive instead; never include installed dependencies or eval artifacts.
+		await promisify(execFile)("tar", [
+			"-cf", join(directory, "source.tar"), "--exclude=node_modules", "--exclude=.eval",
+			"-C", packageRoot, ".",
+		], { env: { ...process.env, COPYFILE_DISABLE: "1" } });
+		return await build(directory);
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+}
 
 export type AppleContainerEvalOptions = {
 	containerCli: string;
@@ -202,7 +227,7 @@ export function parseAppleContainerEvalArgs(
 	if (options.authFile) options.authFile = assertOptionalAbsolutePath("Container auth file", options.authFile);
 	if (options.modelsFile) options.modelsFile = assertOptionalAbsolutePath("Container models file", options.modelsFile);
 	if (options.evalArgs.some((value) => value === "--pi" || value.startsWith("--pi="))) {
-		throw new TypeError("--pi is controlled by the container image; use --container-image for a custom Pi runtime.");
+		throw new TypeError("--pi is controlled by the container runner; use --container-product to select the product's bundled Pi runtime.");
 	}
 	options.environmentNames = [...environmentNames].sort();
 	return options;
@@ -272,7 +297,6 @@ export function buildAppleContainerRunArgs(
 	}
 	for (const name of options.environmentNames) args.push("--env", name);
 	if (options.command === "test") {
-		args.push(...environmentArgument("ROTOM_TEST_PI", "/opt/dev-agent-evals/node_modules/.bin/pi"));
 		args.push(options.image, "__infrastructure_test__", ...options.evalArgs);
 	} else {
 		args.push(options.image, ...options.evalArgs);

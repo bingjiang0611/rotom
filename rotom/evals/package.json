@@ -12,12 +12,12 @@
 		"eval": "./bin/eval",
 		"eval:container": "./bin/eval-container",
 		"test": "./bin/test",
+		"check:quality": "./bin/test test/quality-contracts.test.ts test/quality-regressions.test.ts",
 		"test:benchmark-adapters": "./bin/test-benchmark-adapters",
 		"test:container": "./bin/eval-container --container-command=test",
 		"typecheck": "./bin/typecheck"
 	},
 	"devDependencies": {
-		"@earendil-works/pi-coding-agent": "0.84.3",
 		"@types/node": "22.19.19",
 		"typescript": "5.9.3",
 		"vitest": "4.1.9",
