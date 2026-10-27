@@ -12,6 +12,7 @@ export async function replaySmoke(page, { evalDirectory, screenshot }) {
 	await page.locator('[data-session-id="synthetic-a-review"]').click();
 	await page.locator("#eval-fail").click();
 	await page.locator("#eval-save").click();
+	await page.locator('[data-session-id="synthetic-a-review"]').click();
 	await page.getByRole("button", { name: "设为回放点", exact: true }).first().waitFor();
 	await page.getByRole("button", { name: "设为回放点", exact: true }).first().click();
 	await page.locator('dialog[aria-label="设为回放点"] textarea').fill("应该先查状态再回答");

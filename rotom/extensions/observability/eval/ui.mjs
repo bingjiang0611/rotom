@@ -3,39 +3,20 @@ import { matchesSessionFilter } from "./service.mjs";
 import { annotationClient } from "./annotation-ui.mjs";
 import { judgeClient } from "./judge-ui.mjs";
 import { replayClient } from "./replay-ui.mjs";
+import { drawerClient } from "./drawer-ui.mjs";
+import { evalStyles } from "./styles.mjs";
 
 export const evalMarkup = '<section id="eval-workspace" hidden></section>';
-export const evalStyles = `
-[hidden]{display:none!important}
-body.eval-active .signal-region,body.eval-active .workspace{display:none}
-body.eval-active .app-shell{grid-template-rows:58px minmax(0,1fr) 28px}
-#eval-workspace{min-height:0;display:grid;grid-template-columns:340px minmax(0,1fr);background:#101112}
-.eval-sidebar{border-right:1px solid #424744;overflow:auto;padding:20px}
-.eval-detail{min-width:0;overflow:auto;padding:32px 4vw}.eval-detail>section{margin:24px 0}
-.eval-skeleton{display:block;min-height:86px;margin:8px 0;background:linear-gradient(90deg,#141716,#1b201d,#141716);background-size:200% 100%;animation:eval-shimmer 1.2s linear infinite;border-left-color:#3a423c}@keyframes eval-shimmer{from{background-position:200% 0}to{background-position:-200% 0}}@media(prefers-reduced-motion:reduce){.eval-skeleton{animation:none}}.eval-session{display:block;width:100%;text-align:left;padding:16px 8px;margin:8px 0;background:transparent;color:inherit;border:0;border-left:4px solid #e6ba68;border-bottom:1px solid #424744;cursor:pointer;overflow-wrap:anywhere}
-.eval-session[data-label=pass]{border-left-color:#9dcc84}.eval-session[data-label=fail]{border-left-color:#ef9d93}.eval-session[data-label=failSet]{border-left-color:#b6a1ed}.eval-session.selected{background:#242e24}
-.eval-session strong,.eval-session small{display:block;margin:8px 0}.eval-muted,.eval-meta{color:#b6bdb8;font-size:12px;overflow-wrap:anywhere}.eval-text{white-space:pre-wrap;overflow-wrap:anywhere}
-.eval-badge{display:inline-block;padding:3px 7px;margin:4px 6px 4px 0;border:1px solid #586556;border-radius:2px;font-size:12px}
-.eval-form,.eval-judge{border:1px solid #586556;padding:18px}.eval-form button,.eval-judge button,.eval-next,.eval-dialog button{padding:10px 14px;margin:6px 8px 6px 0;background:transparent;border:1px solid #65745f;color:inherit;cursor:pointer}
-.eval-form button[aria-pressed=true],.eval-primary{background:#58713f!important;color:#fff!important}.eval-form button:disabled,.eval-judge button:disabled{opacity:.5;cursor:not-allowed}
-.eval-form>label{display:block;margin-top:12px}
-.eval-form input[type=text],.eval-judge select,.eval-sidebar select{display:block;width:100%;padding:10px;margin:10px 0;background:#171d19;color:#eff3ef;border:1px solid #65745f;box-sizing:border-box}
-.eval-event{padding:16px;border-left:2px solid #586556;margin:16px 0;min-width:0}.eval-event.failed{border-color:#ef9d93}.eval-event.focused{outline:2px solid #d7c079;outline-offset:3px}.eval-error{color:#ffad9f}
-.eval-event details{margin:12px 0}.eval-event summary{cursor:pointer}.eval-event pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#0b0e0b;padding:12px;max-height:360px;overflow:auto}
-.eval-dialog{max-width:560px;background:#171d19;color:#eff3ef;border:1px solid #819779;padding:24px}.eval-dialog::backdrop{background:#000a}
-.eval-notice{color:#e6cf98}button:focus-visible,select:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid #d7c079;outline-offset:3px}
-@media(max-width:800px){#eval-workspace{grid-template-columns:1fr}.eval-sidebar{max-height:45vh;border-bottom:1px solid #424744}.eval-detail{overflow:visible}.eval-active .app-shell{display:block}.eval-active .top-context,.eval-active .key-hint{display:none}.eval-active .topbar{height:auto;min-height:60px;flex-wrap:wrap}.eval-active .top-actions{margin-left:0;min-width:0;flex-wrap:wrap}.eval-active .view-switch{flex-wrap:wrap}.eval-active .app-footer{height:auto;min-height:28px;flex-wrap:wrap;overflow-wrap:anywhere}.eval-active .security{white-space:normal}}
-`;
+export { evalStyles };
 
-function evalClient(C, matchesFilter, annotationClient, judgeClient, replayClient) {
+function evalClient(C, matchesFilter, annotationClient, judgeClient, replayClient, drawerClient) {
 	'use strict';
 	const root = document.getElementById('eval-workspace');
 	const token = new URLSearchParams(location.hash.slice(1)).get('token');
 	const traceSecurity = document.querySelector('.security').textContent;
 	const polling = { value: null };
 	let enabled = false, rows = [], nextCursor = null, filter = 'unlabeled', selected = null;
-	let generation = 0, detailGeneration = 0, draft = null, pollingRun = null;
-	// Shared with the extracted panels: they assign through the holder.
+	let generation = 0, detailGeneration = 0;
 	const models = { value: undefined };
 	const format = (pattern, values) => pattern.replace(/\{(\w+)\}/g, (_, key) => String(values[key]));
 	const number = (value) => value === null || value === undefined ? C.unknown : String(value);
@@ -49,17 +30,29 @@ function evalClient(C, matchesFilter, annotationClient, judgeClient, replayClien
 	};
 	const labelName = (annotation) => !annotation ? C.unlabeled : annotation.failSet ? C.failSet : C[annotation.verdict];
 	const ruleName = (rule) => (C.ruleNames[rule] || C.rules) + '（' + rule + '）';
+	const badgeTone = (value) => value === 'pass' || value === 'idle' || value === 'ok' ? ' good' : value === 'fail' || value === 'failed' ? ' bad' : value === 'active' ? ' warn' : ' info';
 	const tab = button(C.tab, () => switchEval(true));
 	tab.id = 'view-eval'; tab.setAttribute('aria-pressed', 'false'); document.querySelector('.view-switch').append(tab);
-	const sidebar = make('aside', 'eval-sidebar'), detail = make('main', 'eval-detail');
-	const select = make('select'); select.id = 'eval-filter'; select.setAttribute('aria-label', C.filters);
-	for (const value of ['all', 'unlabeled', 'fail', 'failSet', 'hits']) { const option = make('option', '', C[value]); option.value = value; select.append(option); }
-	select.value = filter;
-	const progress = make('p', 'eval-meta'), status = make('p', 'eval-muted'), list = make('div');
+
+	const sidebar = make('aside', 'eval-sidebar'), detail = make('main', 'eval-detail'), inspector = make('aside', 'eval-inspector');
+	inspector.id = 'eval-inspector-panel'; inspector.tabIndex = -1;
+	const sidebarHead = make('div', 'eval-sidebar-head');
+	sidebarHead.append(make('h2', '', C.queueTitle), make('p', 'eval-muted', C.subtitle));
+	const progress = make('p', 'eval-meta eval-progress'), status = make('p', 'eval-muted eval-list-status'), list = make('div', 'eval-list');
 	status.setAttribute('role', 'status');
-	const more = button(C.more, () => loadList(false), 'eval-next'); more.hidden = true;
-	sidebar.append(make('h2', '', C.title), make('p', 'eval-muted', C.subtitle), progress, select, status, list, more);
-	detail.append(make('p', 'eval-muted', C.choose)); root.append(sidebar, detail);
+	const filterBar = make('div', 'eval-filters'), filterButtons = new Map();
+	const select = make('select', 'eval-filter-select'); select.id = 'eval-filter'; select.setAttribute('aria-label', C.filters);
+	for (const value of ['all', 'unlabeled', 'fail', 'failSet', 'hits']) {
+		const option = make('option', '', C[value]); option.value = value; select.append(option);
+		const chip = button(C[value], () => setFilter(value), 'eval-filter-chip'); chip.dataset.filter = value; chip.setAttribute('aria-pressed', String(value === filter)); filterButtons.set(value, chip); filterBar.append(chip);
+	}
+	select.value = filter;
+	const more = button(C.more, () => loadList(false), 'eval-next eval-more'); more.hidden = true;
+	sidebar.append(sidebarHead, progress, filterBar, select, status, list, more);
+	detail.append(make('p', 'eval-muted', C.choose));
+	inspector.append(make('p', 'eval-muted', C.choose));
+	root.append(sidebar, detail, inspector);
+	const drawer = drawerClient({ sidebar, detail, inspector });
 
 	async function api(path, body) {
 		let response;
@@ -74,22 +67,29 @@ function evalClient(C, matchesFilter, annotationClient, judgeClient, replayClien
 	function metricsText(metrics) {
 		return C.tools + ' ' + number(metrics?.toolCalls) + ' / ' + number(metrics?.toolErrors) + ' · ' + C.duration + ' ' + (metrics?.durationMs == null ? C.unknown : Math.round(metrics.durationMs / 60000)) + ' · ' + C.cost + ' ' + number(metrics?.costUsd);
 	}
+	function sessionSignals(row, node) {
+		const signals = make('div', 'eval-session-signals');
+		signals.append(make('span', 'eval-badge' + badgeTone(row.state), C.activityNames[row.state]));
+		if (row.annotation) signals.append(make('span', 'eval-badge' + badgeTone(row.annotation.verdict), labelName(row.annotation)));
+		const hits = row.findings.filter((finding) => finding.status === 'hit');
+		if (hits.length) signals.append(make('span', 'eval-badge warn', format(C.ruleHitCount, { count: hits.length })));
+		if (row.judgment) signals.append(make('span', 'eval-badge info', C.alreadyJudged));
+		node.append(signals);
+	}
 	function renderList() {
 		list.replaceChildren();
 		const visibleRows = rows.filter((row) => matchesFilter(row, filter));
 		for (const row of visibleRows) {
 			const node = button('', () => openSession(row.id), 'eval-session' + (selected === row.id ? ' selected' : ''));
 			node.dataset.sessionId = row.id; node.dataset.label = row.annotation?.failSet ? 'failSet' : row.annotation?.verdict || 'unlabeled';
-			node.append(make('small', 'eval-meta', row.started), make('span', 'eval-badge', C.activity + '：' + C.activityNames[row.state]), make('strong', '', row.request || (row.unavailable ? C.unavailable : C.noRequest)), make('small', 'eval-meta', metricsText(row.metrics)));
-			node.append(make('span', 'eval-badge', C.labelState + '：' + labelName(row.annotation)));
-			if (row.annotation) node.append(make('small', 'eval-meta', C.sources[row.annotation.source]));
+			const head = make('span', 'eval-session-head');
+			head.append(make('span', '', ''), make('small', 'eval-meta', row.started)); head.firstChild.className = 'eval-label-dot';
+			node.append(head, make('strong', '', row.request || (row.unavailable ? C.unavailable : C.noRequest)), make('small', 'eval-meta', metricsText(row.metrics)));
+			sessionSignals(row, node);
 			if (row.annotation?.progressed) node.append(make('small', 'eval-notice', C.progressed));
-			const hits = row.findings.filter((finding) => finding.status === 'hit');
-			if (hits.length) node.append(make('small', 'eval-notice', hits.map((finding) => ruleName(finding.rule)).join('；')));
-			if (row.judgment) node.append(make('small', 'eval-meta', C.alreadyJudged + ' · ' + (C[row.judgment.verdict] || C.judgeStatuses[row.judgment.status])));
 			list.append(node);
 		}
-		if (!visibleRows.length) list.append(make('p', 'eval-muted', nextCursor ? C.loading : C.empty));
+		if (!visibleRows.length) list.append(make('p', 'eval-muted eval-progress', nextCursor ? C.loading : C.empty));
 		more.hidden = !nextCursor;
 	}
 	function countText(label, count) {
@@ -102,14 +102,16 @@ function evalClient(C, matchesFilter, annotationClient, judgeClient, replayClien
 		list.replaceChildren();
 		for (let index = 0; index < 3; index++) list.append(make('div', 'eval-skeleton', ' '));
 	}
+	function setFilter(value) {
+		filter = value; select.value = value;
+		for (const [name, chip] of filterButtons) chip.setAttribute('aria-pressed', String(name === value));
+		void loadList(true);
+	}
 	async function loadList(reset, recovered = false) {
 		const request = ++generation;
-		// A reset keeps the previous list visible until data arrives; blanking it
-		// made every filter change look like a broken page.
-		if (reset) { rows = []; nextCursor = null; more.hidden = true; list.replaceChildren(); placeholders(); }
+		if (reset) { rows = []; nextCursor = null; more.hidden = true; placeholders(); }
 		select.disabled = true; more.disabled = true;
-		const startedAt = Date.now();
-		status.textContent = format(C.loadingElapsed, { seconds: 0 });
+		const startedAt = Date.now(); status.textContent = format(C.loadingElapsed, { seconds: 0 });
 		const ticker = setInterval(() => { if (request === generation) status.textContent = format(C.loadingElapsed, { seconds: Math.floor((Date.now() - startedAt) / 1000) }); }, 500);
 		try {
 			let data;
@@ -119,7 +121,9 @@ function evalClient(C, matchesFilter, annotationClient, judgeClient, replayClien
 				rows.push(...data.items); nextCursor = data.nextCursor;
 			} while (!rows.length && nextCursor);
 			progress.textContent = format(C.labelProgress, data);
-			for (const option of select.options) option.textContent = countText(C[option.value], data.counts[option.value]);
+			for (const option of select.options) {
+				const text = countText(C[option.value], data.counts[option.value]); option.textContent = text; filterButtons.get(option.value).textContent = text;
+			}
 			const matched = data.matched ?? data.total;
 			status.textContent = (recovered ? C.listUpdated + ' · ' : '') + (filter === 'all' ? C.listCount + ' ' + rows.length + ' / ' + data.total : format(C.matchedCount, { matched, loaded: rows.length })) + (data.limited ? ' · ' + C.partial : '') + (data.elapsedMs === undefined ? '' : ' · ' + timingText(data.elapsedMs));
 			renderList();
@@ -129,65 +133,115 @@ function evalClient(C, matchesFilter, annotationClient, judgeClient, replayClien
 			status.textContent = error.message || C.readError;
 		} finally { clearInterval(ticker); if (request === generation) { more.disabled = false; select.disabled = false; } }
 	}
+
 	const draftRef = { value: null };
-	const annotationUi = annotationClient({ make, button, C, format, number, api, labelName, loadList, draftRef, onSaved: (id) => { void loadList(true); void openSession(id, { notice: C.saved }); } });
-	function timeline(data, eventIndex) {
-		const box = make('section'); box.id = 'eval-timeline'; box.append(make('h3', '', C.timeline), make('p', 'eval-muted', C.pageEvents + ' ' + data.timeline.items.length + ' / ' + data.timeline.total));
-		if (!data.timeline.total) box.append(make('p', 'eval-muted', C.noEvents));
-		for (const event of data.timeline.items) {
-			const item = make('article', 'eval-event' + (event.failed ? ' failed' : '') + (event.index === eventIndex ? ' focused' : '')); item.dataset.eventIndex = String(event.index);
-			item.append(make('small', 'eval-meta', format(C.event, { event: event.index + 1 })));
-			if (event.kind === 'tool') {
-				item.append(make('strong', event.failed ? 'eval-error' : '', event.name + ' · ' + (C.outcomes[event.outcome] || C.unknown) + '（' + event.outcome + '）'));
-				if (event.firstError) item.append(make('p', 'eval-error', C.firstError));
-				for (const [key, label] of [['args', C.args], ['result', C.result]]) { const folded = make('details'); folded.append(make('summary', '', label), make('pre', '', event[key].text)); if (event[key].truncated) folded.append(make('p', 'eval-muted', C.truncated)); item.append(folded); }
-			} else {
-				item.append(make('strong', '', C[event.kind]), make('p', 'eval-text', event.content.text));
-				if (event.firstError) item.append(make('p', 'eval-error', C.firstError));
-				if (event.content.truncated) item.append(make('p', 'eval-muted', C.truncated));
-				// Only a reviewed failure can become a replay point: replaying a step
-				// nobody judged wrong would just generate more unlabeled output.
-				if (event.kind === 'assistant' && event.entryId && failed(data)) item.append(button(C.replayPoint, () => replay.replayPoint(data, event), 'eval-next'));
-			}
-			box.append(item);
-		}
-		if (data.timeline.nextCursor) box.append(button(C.moreEvents, () => openSession(data.id, { cursor: data.timeline.nextCursor }), 'eval-next'));
-		return box;
+	const annotationUi = annotationClient({ make, button, C, format, number, api, labelName, loadList, draftRef, onSaved: afterSaved });
+	function afterSaved(id) {
+		const next = rows.find((row) => row.id !== id && !row.annotation);
+		return openSession(next?.id || id, { notice: C.saved });
 	}
 	const failed = (data) => data.annotation?.verdict === 'fail' || data.annotation?.failSet === true;
 	const replay = replayClient({ make, button, C, format, api, ruleName, openSession, loadList, current: () => selected });
 	const judge = judgeClient({ make, button, C, format, number, api, ruleName, openSession, loadList, current: () => selected, polling, models });
+
+	function timeline(data, eventIndex) {
+		const box = make('section'); box.id = 'eval-timeline';
+		const heading = make('div', 'eval-timeline-head'); heading.append(make('h3', '', C.timeline), make('p', 'eval-muted', C.pageEvents + ' ' + data.timeline.items.length + ' / ' + data.timeline.total)); box.append(heading);
+		const spine = make('div', 'eval-spine');
+		if (!data.timeline.total) spine.append(make('p', 'eval-muted', C.noEvents));
+		for (const event of data.timeline.items) {
+			const item = make('article', 'eval-event' + (event.failed ? ' failed' : '') + (event.index === eventIndex ? ' focused' : '')); item.dataset.eventIndex = String(event.index);
+			const head = make('div', 'eval-event-head'); head.append(make('strong', event.failed ? 'eval-error' : '', event.kind === 'tool' ? event.name : C[event.kind]), make('small', 'eval-meta', format(C.event, { event: event.index + 1 }))); item.append(head);
+			if (event.kind === 'tool') {
+				head.insertBefore(make('span', 'eval-badge' + badgeTone(event.outcome), C.outcomes[event.outcome] || C.unknown), head.lastChild);
+				if (event.firstError) item.append(make('p', 'eval-error', C.firstError));
+				for (const [key, label] of [['args', C.args], ['result', C.result]]) { const folded = make('details'); folded.append(make('summary', '', label), make('pre', '', event[key].text)); if (event[key].truncated) folded.append(make('p', 'eval-muted', C.truncated)); item.append(folded); }
+			} else {
+				item.append(make('p', 'eval-text', event.content.text));
+				if (event.firstError) item.append(make('p', 'eval-error', C.firstError));
+				if (event.content.truncated) item.append(make('p', 'eval-muted', C.truncated));
+				if (event.kind === 'assistant' && event.entryId && failed(data)) {
+					const actions = make('div', 'eval-event-actions'), point = button(C.replayPoint, () => replay.replayPoint(data, event), 'eval-button');
+					point.dataset.replayEntry = event.entryId; actions.append(point); item.append(actions);
+				}
+			}
+			spine.append(item);
+		}
+		box.append(spine);
+		if (data.timeline.nextCursor) box.append(button(C.moreEvents, () => openSession(data.id, { cursor: data.timeline.nextCursor }), 'eval-next'));
+		return box;
+	}
+	function summaryItem(label, value, tone = '') {
+		const node = make('div', 'eval-summary-item'); node.append(make('strong', tone, value), make('span', '', label)); return node;
+	}
+	function modelSummary(data) {
+		const latest = data.judgment?.latest;
+		if (!latest) return C.nothingJudged;
+		if (latest.status !== 'ok') return C.judgeStatuses[latest.status] || C.unknown;
+		return C[latest.result.suggestedVerdict] + ' · ' + Math.round(latest.result.confidence * 100) + '%';
+	}
+	function overview(data) {
+		const box = make('section', 'eval-overview'); box.id = 'eval-overview';
+		const grid = make('div', 'eval-overview-grid');
+		for (const [key, label] of [['request', C.request], ['final', C.final]]) {
+			const section = make('section'); section.id = 'eval-' + key; section.append(make('h3', '', label), make('p', 'eval-text', data.summary[key].text)); if (data.summary[key].truncated) section.append(make('p', 'eval-muted', C.truncated)); grid.append(section);
+		}
+		box.append(grid); return box;
+	}
+	function findings(data) {
+		const box = make('section'); box.id = 'eval-rules'; box.append(make('h3', '', C.rules));
+		for (const finding of data.findings) {
+			const row = make('div', 'eval-rule-row'); row.append(make('span', 'eval-meta', ruleName(finding.rule)), make('span', 'eval-badge' + (finding.status === 'hit' ? ' warn' : finding.status === 'unknown' ? ' info' : ' good'), C.findingNames[finding.status] + ' · ' + finding.count)); box.append(row);
+		}
+		return box;
+	}
+	function caseHeader(data) {
+		const head = make('header', 'eval-case-header'), text = make('div', 'eval-case-data');
+		text.append(make('h2', '', data.summary.request.text || C.noRequest), make('p', 'eval-meta', data.started + ' · ' + data.id));
+		const actions = make('div', 'eval-case-actions'), inspect = button(C.openEvaluation, () => drawer.open(inspect), 'eval-button eval-inspector-toggle');
+		drawer.bind(inspect); actions.append(inspect); head.append(text, actions); return head;
+	}
+	function sectionNav() {
+		const nav = make('nav', 'eval-section-nav'); nav.setAttribute('aria-label', C.evidenceNav);
+		for (const [id, label] of [['eval-overview', C.keyEvidence], ['eval-rules', C.rules], ['eval-timeline', C.timeline]]) nav.append(button(label, () => detail.querySelector('#' + id)?.scrollIntoView({ block: 'start', behavior: 'smooth' })));
+		return nav;
+	}
 	async function openSession(id, options = {}) {
 		const request = ++detailGeneration; selected = id; renderList();
-		if (!options.cursor && options.eventIndex === undefined) detail.replaceChildren(make('h2', '', C.title), make('p', 'eval-muted', C.loadingDetail));
+		if (!options.cursor && options.eventIndex === undefined) { detail.replaceChildren(make('p', 'eval-muted eval-progress', C.loadingDetail)); inspector.replaceChildren(make('p', 'eval-muted', C.loadingDetail)); }
 		try {
 			const data = await api('/api/eval/session?id=' + encodeURIComponent(id) + (options.cursor ? '&cursor=' + encodeURIComponent(options.cursor) : '') + (options.eventIndex !== undefined ? '&event=' + options.eventIndex : ''));
 			if (request !== detailGeneration) return;
-			rows = rows.map((row) => row.id === data.id ? { ...row, annotation: data.annotation, findings: data.findings } : row);
-			renderList();
+			rows = rows.map((row) => row.id === data.id ? { ...row, annotation: data.annotation, findings: data.findings } : row); renderList();
+			const hits = data.findings.filter((finding) => finding.status === 'hit').length;
+			const summary = make('div', 'eval-summary');
+			summary.append(summaryItem(C.labelState, labelName(data.annotation)), summaryItem(C.modelSuggestion, modelSummary(data)), summaryItem(C.ruleHits, String(hits)), summaryItem(C.toolErrors, number(data.metrics?.toolErrors)), summaryItem(C.activity, C.activityNames[data.state]));
+			const content = make('div', 'eval-content');
+			if (options.notice) content.append(make('p', 'eval-notice', options.notice));
+			content.append(overview(data), findings(data));
+			const metric = make('section'); metric.id = 'eval-metrics'; metric.append(make('h3', '', C.metrics), make('p', 'eval-meta', metricsText(data.metrics)), make('p', 'eval-meta', C.tokenCount + ' ' + number(data.metrics?.tokens ? data.metrics.tokens.input + data.metrics.tokens.output : null))); content.append(metric, timeline(data, options.eventIndex));
+			detail.replaceChildren(caseHeader(data), summary, sectionNav(), content);
 			const annotation = annotationUi.annotationForm(data);
-			detail.replaceChildren(make('h2', '', C.title), make('p', 'eval-meta', data.started + ' · ' + C.activity + '：' + C.activityNames[data.state]), annotation.node, judge.judgePanel(data, annotation));
-			if (options.notice) detail.append(make('p', 'eval-notice', options.notice));
-			for (const [key, label] of [['request', C.request], ['final', C.final]]) { const box = make('section'); box.append(make('h3', '', label), make('p', 'eval-text', data.summary[key].text)); if (data.summary[key].truncated) box.append(make('p', 'eval-muted', C.truncated)); detail.append(box); }
-			const rules = make('section'); rules.append(make('h3', '', C.rules));
-			for (const finding of data.findings) rules.append(make('p', 'eval-meta', ruleName(finding.rule) + ' · ' + C.findingNames[finding.status] + ' · ' + finding.count));
-			const metrics = make('section'); metrics.append(make('h3', '', C.metrics), make('p', 'eval-meta', metricsText(data.metrics)), make('p', 'eval-meta', C.tokenCount + ' ' + number(data.metrics?.tokens ? data.metrics.tokens.input + data.metrics.tokens.output : null)));
-			detail.append(rules, metrics, timeline(data, options.eventIndex));
-			detail.append(await replay.replayPanel());
+			const inspectorHead = make('div', 'eval-inspector-head'), closeInspector = button(C.close, () => drawer.close(), 'eval-button eval-inspector-close');
+			closeInspector.setAttribute('aria-label', C.closeEvaluation); inspectorHead.append(make('h2', '', C.evaluationTitle), make('span', 'eval-badge' + badgeTone(data.state), C.activityNames[data.state]), closeInspector);
+			inspector.replaceChildren(inspectorHead, annotation.node, judge.judgePanel(data, annotation));
+			const replayPanel = await replay.replayPanel(data.id);
+			if (request !== detailGeneration) return;
+			inspector.append(replayPanel); drawer.refreshFocus();
 			if (options.eventIndex !== undefined) detail.querySelector('[data-event-index="' + options.eventIndex + '"]')?.scrollIntoView({ block: 'center' });
-			else if (options.cursor) detail.querySelector('#eval-timeline').scrollIntoView({ block: 'start' }); else detail.scrollTop = 0;
+			else if (options.cursor) detail.querySelector('#eval-timeline')?.scrollIntoView({ block: 'start' }); else detail.scrollTop = 0;
 		} catch (error) {
 			if (request !== detailGeneration) return;
 			if (error.status === 409 && !options.recovered) return openSession(id, { recovered: true, notice: C.timelineUpdated });
-			detail.replaceChildren(make('p', 'eval-error', error.status === 409 ? C.busy : error.message || C.readError));
+			detail.replaceChildren(make('p', 'eval-error eval-progress', error.status === 409 ? C.busy : error.message || C.readError)); inspector.replaceChildren();
 		}
 	}
 	function switchEval(value) {
-		enabled = value; root.hidden = !value; document.body.classList.toggle('eval-active', value); tab.setAttribute('aria-pressed', String(value)); tab.classList.toggle('active', value); document.querySelector('.security').textContent = value ? C.security : traceSecurity;
-		if (value) { for (const id of ['view-stats', 'view-trace']) { document.getElementById(id).classList.remove('active'); document.getElementById(id).setAttribute('aria-pressed', 'false'); } loadList(true); }
+		enabled = value; root.hidden = !value; document.body.classList.toggle('eval-active', value); if (!value) drawer.close(false); tab.setAttribute('aria-pressed', String(value)); tab.classList.toggle('active', value); document.querySelector('.security').textContent = value ? C.security : traceSecurity;
+		if (value) { for (const id of ['view-stats', 'view-trace']) { document.getElementById(id).classList.remove('active'); document.getElementById(id).setAttribute('aria-pressed', 'false'); } void loadList(true); }
 	}
 	for (const id of ['view-stats', 'view-trace']) document.getElementById(id).addEventListener('click', () => switchEval(false));
-	select.onchange = () => { filter = select.value; loadList(true); };
-	document.getElementById('refresh').addEventListener('click', (event) => { if (enabled) { event.stopImmediatePropagation(); loadList(true); if (selected) openSession(selected); } }, true);
+	select.onchange = () => setFilter(select.value);
+	document.getElementById('refresh').addEventListener('click', (event) => { if (enabled) { event.stopImmediatePropagation(); void loadList(true); if (selected) void openSession(selected); } }, true);
 }
-export const evalScript = '(' + evalClient.toString() + ')(' + JSON.stringify(COPY) + ', ' + matchesSessionFilter.toString() + ', ' + annotationClient.toString() + ', ' + judgeClient.toString() + ', ' + replayClient.toString() + ');';
+export const evalScript = '(' + evalClient.toString() + ')(' + JSON.stringify(COPY) + ', ' + matchesSessionFilter.toString() + ', ' + annotationClient.toString() + ', ' + judgeClient.toString() + ', ' + replayClient.toString() + ', ' + drawerClient.toString() + ');';

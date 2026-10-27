@@ -121,9 +121,14 @@ try {
 	await page.locator("#eval-pass").click(); await page.locator("#eval-save").click();
 	await page.getByText("标注已保存", { exact: true }).waitFor();
 	assert.equal((await stored()).atEntryId, "entry-53"); assert.equal((await stored()).atEntryCount, 54);
-	await page.getByText("当前：满意（来自后台）", { exact: true }).waitFor();
+	await page.waitForFunction(() => document.querySelector('.eval-session.selected')?.dataset.sessionId !== 'synthetic-active');
 	await page.locator('[data-session-id="synthetic-active"]').waitFor({ state: 'detached' });
 	assert.equal(await page.locator('.eval-session:not([data-label="unlabeled"])').count(), 0);
+	// Saving advances triage. Reopen the labeled session to keep exercising its
+	// appended-progress and model-analysis paths.
+	await page.locator("#eval-filter").selectOption("all");
+	await page.locator('[data-session-id="synthetic-active"]').click();
+	await page.getByText("当前：满意（来自后台）", { exact: true }).waitFor();
 	// Appending invalidates only this timeline, not the list snapshot.
 	await appendFile(activePath, JSON.stringify({ type: "message", id: "new-progress", parentId: "entry-53", message: { role: "user", content: "合成追加进度" } }) + "\n");
 	await page.getByRole("button", { name: "更多会话", exact: true }).click();
@@ -169,7 +174,7 @@ try {
 		const words = new Set(), walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
 		while (walker.nextNode()) {
 			const node = walker.currentNode, parent = node.parentElement;
-			if (!parent?.checkVisibility() || parent.closest('script,style,pre,.eval-text,.eval-session strong,#root-path')) continue;
+			if (!parent?.checkVisibility() || parent.closest('script,style,pre,.eval-text,.eval-session strong,.eval-case-data,#root-path')) continue;
 			for (const word of (node.textContent || '').match(/\b[A-Za-z][A-Za-z_.-]*\b/g) || []) words.add(word);
 		}
 		return [...words].sort();
@@ -178,10 +183,30 @@ try {
 	assert.deepEqual(english.filter((word) => !allowed.has(word)), [], "untranslated visible UI copy");
 	await replaySmoke(page, { evalDirectory, screenshot });
 	await page.setViewportSize({ width: 390, height: 844 });
+	await page.evaluate(() => document.body.classList.remove('eval-inspector-open'));
 	assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
 	await page.evaluate(async () => { window.scrollTo({ top: 0, behavior: 'instant' }); await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))); });
 	assert.equal(await page.evaluate(() => window.scrollY === 0 && document.querySelector('.topbar').getBoundingClientRect().bottom < 160 && !document.elementFromPoint(20, innerHeight - 20)?.closest('.topbar')), true);
+	assert.equal(await page.evaluate(() => !document.querySelector('.eval-inspector').checkVisibility()), true);
+	const inspectorToggle = page.getByRole("button", { name: "打开评测", exact: true });
+	assert.equal(await page.locator('.eval-summary-item').count(), 5);
+	assert.equal(await page.evaluate(() => [...document.querySelectorAll('.eval-summary-item')].every((node) => node.checkVisibility())), true);
+	await screenshot("eval-mobile-closed.png");
+	await inspectorToggle.click();
+	assert.equal(await inspectorToggle.getAttribute('aria-expanded'), 'true');
+	assert.equal(await page.evaluate(() => { const box = document.querySelector('.eval-inspector').getBoundingClientRect(); return box.left <= 30 && box.right >= innerWidth - 1 && document.querySelector('.eval-detail').inert; }), true);
+	await page.getByRole("button", { name: "关闭评测工作区", exact: true }).waitFor();
+	await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === '关闭评测工作区');
+	await page.evaluate(() => { const nodes = [...document.querySelectorAll('.eval-inspector button:not(:disabled),.eval-inspector select:not(:disabled),.eval-inspector input:not(:disabled),.eval-inspector textarea:not(:disabled),.eval-inspector summary')].filter((node) => node.checkVisibility()); nodes.at(-1).focus(); });
+	await page.keyboard.press('Tab');
+	assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label') === '关闭评测工作区'), true);
+	await page.keyboard.press('Shift+Tab');
+	assert.equal(await page.evaluate(() => { const nodes = [...document.querySelectorAll('.eval-inspector button:not(:disabled),.eval-inspector select:not(:disabled),.eval-inspector input:not(:disabled),.eval-inspector textarea:not(:disabled),.eval-inspector summary')].filter((node) => node.checkVisibility()); return document.activeElement === nodes.at(-1); }), true);
+	await page.getByRole("button", { name: "关闭评测工作区", exact: true }).focus();
 	await screenshot("eval-active-mobile.png");
+	await page.keyboard.press('Escape');
+	assert.equal(await inspectorToggle.getAttribute('aria-expanded'), 'false');
+	await page.waitForFunction(() => document.activeElement?.textContent === '打开评测' && !document.querySelector('.eval-detail').inert);
 	await page.getByRole("button", { name: "执行链路", exact: true }).click();
 	assert.equal(await page.locator("#eval-workspace").isVisible(), false);
 	await page.route("**/api/traces", (route) => route.fulfill({ status: 401, contentType: "application/json", body: '{"error":"unauthorized"}' }));

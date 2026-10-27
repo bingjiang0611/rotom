@@ -29,21 +29,29 @@ export function judgeClient(ctx) {
 		box.append(make('h3', '', C.judge));
 		const latest = data.judgment?.latest;
 		if (latest) {
-			box.append(make('p', 'eval-meta', latest.model + ' · ' + C.judgeStatuses[latest.status] + ' · ' + C.elapsed + ' ' + Math.round(latest.durationMs / 1000)), make('p', 'eval-error', C.judgeFailures[latest.failure] || C.judgeStatuses[latest.status]), make('p', 'eval-muted', C.judgeFailureHint), ...(latest.rawOutput ? [make('pre', 'eval-detail-error', latest.rawOutput)] : []), make('p', 'eval-meta', C.historyCount + ' ' + data.judgment.historyCount), make('p', 'eval-meta', C.tokenCount + ' ' + number(latest.usage?.input) + ' / ' + number(latest.usage?.output)), make('p', 'eval-meta', latest.usage?.costUsd == null ? C.actualCost : format(C.estimatedCost, { cost: latest.usage.costUsd })));
-			if (latest.atEntryId !== data.atEntryId) box.append(make('p', 'eval-notice', C.analysisProgressed));
+			const summary = make('div', 'eval-judge-summary'), meta = make('div', 'eval-judge-meta');
+			meta.append(make('span', 'eval-badge info', latest.model), make('span', 'eval-badge', C.judgeStatuses[latest.status]), make('span', 'eval-badge', C.elapsed + ' ' + Math.round(latest.durationMs / 1000)));
+			summary.append(meta);
+			const details = make('details', 'eval-judge-details'); details.append(make('summary', '', C.analysisDetails));
+			details.append(make('p', 'eval-meta', C.historyCount + ' ' + data.judgment.historyCount), make('p', 'eval-meta', C.tokenCount + ' ' + number(latest.usage?.input) + ' / ' + number(latest.usage?.output)), make('p', 'eval-meta', latest.usage?.costUsd == null ? C.actualCost : format(C.estimatedCost, { cost: latest.usage.costUsd })));
 			if (latest.status === 'ok') {
 				const result = latest.result;
-				box.append(make('p', '', C.suggestion + '：' + C[result.suggestedVerdict] + ' · ' + C.confidence + ' ' + Math.round(result.confidence * 100) + '%'), make('h4', '', C.judgeSummary), make('p', 'eval-text', result.summary));
+				summary.append(make('p', '', C.suggestion + '：' + C[result.suggestedVerdict] + ' · ' + C.confidence + ' ' + Math.round(result.confidence * 100) + '%'), make('p', 'eval-text', result.summary));
 				const jump = (event) => openSession(data.id, { eventIndex: event - 1 });
-				if (result.firstProblem) { const first = button(C.firstProblem + ' · ' + format(C.event, result.firstProblem) + '：' + result.firstProblem.description, () => jump(result.firstProblem.event)); first.id = 'eval-first-problem'; first.disabled = !data.judgment.anchorAvailable; box.append(first); }
-				else box.append(make('p', 'eval-muted', C.noProblem));
-				if (!data.judgment.anchorAvailable) box.append(make('p', 'eval-notice', C.oldAnalysis));
-				box.append(make('h4', '', C.evidence));
-				for (const evidence of result.evidence) box.append(make('p', 'eval-text', format(C.event, evidence) + '：' + evidence.quote));
-				box.append(make('h4', '', C.suggestions));
-				for (const suggestion of result.suggestions) box.append(make('p', 'eval-text', suggestion));
-				const adopt = button(C.adopt, () => annotation.adopt(result)); adopt.id = 'eval-adopt'; adopt.disabled = result.suggestedVerdict === 'unsure' || data.state === 'unknown'; box.append(adopt);
+				if (result.firstProblem) { const first = button(C.firstProblem + ' · ' + format(C.event, result.firstProblem) + '：' + result.firstProblem.description, () => jump(result.firstProblem.event)); first.id = 'eval-first-problem'; first.disabled = !data.judgment.anchorAvailable; summary.append(first); }
+				else details.append(make('p', 'eval-muted', C.noProblem));
+				if (!data.judgment.anchorAvailable) details.append(make('p', 'eval-notice', C.oldAnalysis));
+				details.append(make('h4', '', C.evidence));
+				for (const evidence of result.evidence) details.append(make('p', 'eval-text', format(C.event, evidence) + '：' + evidence.quote));
+				details.append(make('h4', '', C.suggestions));
+				for (const suggestion of result.suggestions) details.append(make('p', 'eval-text', suggestion));
+				const adopt = button(C.adopt, () => annotation.adopt(result)); adopt.id = 'eval-adopt'; adopt.disabled = result.suggestedVerdict === 'unsure' || data.state === 'unknown'; summary.append(adopt);
+			} else {
+				summary.append(make('p', 'eval-error', C.judgeFailures[latest.failure] || C.judgeStatuses[latest.status]), make('p', 'eval-muted', C.judgeFailureHint));
+				if (latest.rawOutput) details.append(make('pre', 'eval-detail-error', latest.rawOutput));
 			}
+			if (latest.atEntryId !== data.atEntryId) details.append(make('p', 'eval-notice', C.analysisProgressed));
+			box.append(summary, details);
 		} else box.append(make('p', 'eval-muted', C.nothingJudged));
 		const model = make('select'); model.setAttribute('aria-label', C.model); model.id = 'eval-model'; model.disabled = true;
 		model.append(make('option', '', C.modelsLoading));
@@ -52,7 +60,8 @@ export function judgeClient(ctx) {
 		const retryModels = button(C.retryModels, readModels); retryModels.id = 'eval-retry-models'; retryModels.hidden = true;
 		const diagnostic = make('div', 'eval-model-diagnostic'); diagnostic.hidden = true;
 		diagnostic.append(make('p', 'eval-muted', C.modelCheckLabel), make('pre', 'eval-text', C.modelCheckCommand));
-		box.append(model, analyze, retryModels, cancel, message, diagnostic);
+		const controls = make('div', 'eval-judge-controls'); controls.append(model, analyze);
+		box.append(controls, retryModels, cancel, message, diagnostic);
 		function running(job) {
 			data.activeJudge = job; analyze.disabled = model.disabled = true; cancel.hidden = false;
 			const started = Date.now(), tick = () => { message.textContent = format(C.judgingElapsed, { seconds: Math.round((Date.now() - started) / 1000) }); };

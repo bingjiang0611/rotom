@@ -52,6 +52,8 @@
     "extensions/observability/eval/service.mjs",
     "extensions/observability/eval/copy.mjs",
     "extensions/observability/eval/ui.mjs",
+    "extensions/observability/eval/drawer-ui.mjs",
+    "extensions/observability/eval/styles.mjs",
     "extensions/observability/eval/session-data.mjs",
     "extensions/observability/eval/session-metrics.mjs",
     "extensions/observability/eval/trace-assertions.mjs",

@@ -25,18 +25,19 @@ export function annotationClient(ctx) {
 			save.disabled = true;
 			try {
 				const saved = await api('/api/eval/annotation', { sessionId: data.id, verdict: currentDraft.verdict, note: currentDraft.note, failSet: currentDraft.failSet });
-				data.annotation = { ...saved, source: 'dashboard' }; currentDraft.dirty = false; currentLabel(); progressNotice.hidden = true; message.textContent = C.saved; onSaved?.(data.id);
-				await loadList(true); save.disabled = false;
+				data.annotation = { ...saved, source: 'dashboard' }; currentDraft.dirty = false; currentLabel(); progressNotice.hidden = true; message.textContent = C.saved;
+				await loadList(true); await onSaved?.(data.id); save.disabled = false;
 			} catch (error) {
 				message.textContent = !error.status || error.status >= 500 ? C.saveUnknown : error.message;
 				if (error.status && error.status < 500) update();
 			}
 		}
-		box.append(make('h3', '', C.annotation), current, pass, fail, save, noteLabel, note, failSetLabel);
+		const actions = make('div', 'eval-form-actions'); actions.append(pass, fail);
+		box.append(make('h3', '', C.annotation), current, actions, noteLabel, note, failSetLabel, save);
 		if (data.state === 'active') box.append(make('p', 'eval-notice', C.activeWarning));
 		if (data.state === 'unknown') box.append(make('p', 'eval-notice', C.unknownState));
 		progressNotice.hidden = !data.annotation?.progressed; box.append(progressNotice);
-		box.append(message); currentLabel(); update();
+		message.className = 'eval-muted eval-form-message'; box.append(message); currentLabel(); update();
 		return { node: box, adopt(result) { if (result.suggestedVerdict === 'unsure') return; choose(result.suggestedVerdict); currentDraft.note = result.suggestedVerdict === 'fail' ? result.firstProblem?.description || result.summary : ''; update(); message.textContent = C.adopted; box.scrollIntoView({ block: 'start' }); } };
 	}
 	return { annotationForm };

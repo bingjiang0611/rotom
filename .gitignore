@@ -6,6 +6,10 @@
 .pi/
 .eval/
 
+# Local Impeccable review captures and decision-round state.
+.impeccable/review/
+.impeccable/questions/
+
 # Reserved for local user customization.
 AGENTS.md
 **/AGENTS.md
