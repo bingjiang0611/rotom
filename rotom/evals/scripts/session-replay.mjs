@@ -1,0 +1,155 @@
+#!/usr/bin/env node
+// Session replay runner.
+//
+// Reads replay points from the dashboard's private eval directory, cuts each
+// session at its pinned message, and asks a product build for the next assistant
+// message only. Every tool call is blocked, so a replay records the *decision* to
+// call a tool and never touches a real workspace.
+//
+// Usage:
+//   node session-replay.mjs --product=<dir> --arm=candidate --model=provider/id \
+//     [--arm-baseline=<dir>] [--repeats=1] [--cases=<id,id>] [--day=YYYY-MM-DD]
+//     [--extension=<file>] [--dry-run] [--json]
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { assistantMessageOf, readReplayCases, replayCaseKey, REPLAY_TOOL_BLOCK_REASON, runReplayPlan, sessionSha256 } from "../../extensions/observability/eval/replay.mjs";
+import { loadSession, privateWrite } from "../../extensions/observability/eval/session-data.mjs";
+import { redactSecrets } from "../../extensions/observability/eval/redaction.mjs";
+
+export function parseArgs(argv) {
+	const args = { repeats: 1 };
+	for (const item of argv) {
+		const match = /^--([a-z-]+)(?:=(.*))?$/u.exec(item);
+		if (!match) throw new Error(`Unknown argument: ${item}`);
+		const [, name, value] = match;
+		if (name === "dry-run" || name === "json") args[name === "dry-run" ? "dryRun" : "json"] = true;
+		else if (name === "arm-baseline") args.armBaseline = value;
+		else if (["product", "arm", "model", "cases", "day", "extension", "sessions", "directory", "thinking"].includes(name)) args[name === "thinking" ? "thinkingLevel" : name] = value;
+		else if (name === "repeats") args.repeats = Math.min(Math.max(Number(value) || 1, 1), 3);
+		else throw new Error(`Unknown argument: ${item}`);
+	}
+	for (const required of ["product", "model"]) if (!args[required]) throw new Error(`Missing --${required}`);
+	if (!["baseline", "candidate"].includes(args.arm ?? "candidate")) throw new Error("--arm must be baseline or candidate");
+	args.arm ??= "candidate";
+	return args;
+}
+
+/** Session files are read from the dashboard's session root, never from a worktree. */
+export async function loadReplaySession(sessionsRoot, sessionId) {
+	const summary = { badJson: 0, lineTooLong: 0 };
+	const path = join(sessionsRoot, `${sessionId}.jsonl`);
+	const loaded = await loadSession(path, summary, new Set(), 8 * 1024 * 1024);
+	if (loaded.reason || !loaded.branch) throw new Error(`cannot read session ${sessionId}: ${loaded.reason ?? "no branch"}`);
+	const { readFile } = await import("node:fs/promises");
+	return { branch: loaded.branch, content: await readFile(path, "utf8") };
+}
+
+export function blockerExtension() {
+	// The tool schema stays visible so the model can choose a tool; only execution
+	// is refused, which is what makes a replay reproducible and side-effect free.
+	return `export default function(pi){
+	pi.on("tool_call", () => ({ block: true, reason: ${JSON.stringify(REPLAY_TOOL_BLOCK_REASON)} }));
+}\n`;
+}
+
+/** Build the product-side generator: one in-memory session, one assistant message. */
+export async function createGenerator({ product, model, thinkingLevel, extension, cwd }) {
+	const entry = join(product, "runtime/pi/node_modules/@earendil-works/pi-coding-agent/dist/index.js");
+	let pi;
+	try { pi = await import(pathToFileURL(entry).href); }
+	catch (error) { throw new Error(`cannot load product runtime at ${entry}: ${error instanceof Error ? error.message : String(error)}`); }
+	const [provider, id] = String(model).split("/");
+	const modelRuntime = await pi.ModelRuntime.create();
+	await modelRuntime.refresh({ allowNetwork: false });
+	const selected = modelRuntime.getModel(provider, id);
+	if (!selected) throw new Error(`model ${model} is not available to the product runtime`);
+	const scratch = await mkdtemp(join(tmpdir(), "rotom-replay-"));
+	const blocker = join(scratch, "block-tools.mjs");
+	await writeFile(blocker, blockerExtension(), { mode: 0o600 });
+	const agentDir = join(scratch, "agent");
+	await mkdir(agentDir, { recursive: true, mode: 0o700 });
+	return async ({ entries }) => {
+		const sessionManager = pi.SessionManager.inMemory(cwd ?? scratch, {}, entries);
+		const resourceLoader = new pi.DefaultResourceLoader({ cwd: cwd ?? scratch, agentDir, additionalExtensionPaths: extension ? [blocker, extension] : [blocker], noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true, settingsManager: pi.SettingsManager.create(cwd ?? scratch, agentDir, { projectTrusted: false }) });
+		await resourceLoader.reload();
+		const { session } = await pi.createAgentSession({ cwd: cwd ?? scratch, agentDir, modelRuntime, model: selected, thinkingLevel: thinkingLevel ?? "low", sessionManager, resourceLoader, singleRequest: true });
+		const started = Date.now();
+		let captured;
+		const unsubscribe = session.agent.subscribe((event) => { if (event.type === "message_end" && event.message?.role === "assistant") captured ??= event.message; });
+		try {
+			await session.agent.continue();
+			for (let tick = 0; tick < 600 && !captured; tick += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+		} finally { unsubscribe?.(); await session.dispose?.(); }
+		await rm(scratch, { recursive: true, force: true });
+		if (!captured) throw new Error("the product produced no assistant message");
+		return { message: captured, elapsedMs: Date.now() - started, usage: captured.usage ?? null };
+	};
+}
+
+/** Model verdict for mode=model points; reuses the background judge prompt pipeline. */
+export async function createModelJudge({ model, timeoutMs = 180_000 }) {
+	const judge = await import("../../extensions/observability/eval/judge.mjs");
+	const { executeProcessTreeV1 } = await import("../../runtime/process-tree.ts");
+	return async ({ item, reply, entries }) => {
+		const tail = entries.slice(-6).map((entry) => redactSecrets(JSON.stringify(entry.message ?? entry)).text).join("\n").slice(-6000);
+		const prompt = [
+			`版本：${"rotom-replay-judge/v1"}`,
+			"你在评审一次会话回放：会话被截断在某个 assistant 消息之前，产品重新生成了下一步。",
+			`期望行为：${redactSecrets(item.expected).text}`,
+			`截断点之前的上下文（已脱敏）：\n${redactSecrets(tail).text}`,
+			`新的下一步：文本=${JSON.stringify(reply.text.slice(0, 2000))} 工具意图=${JSON.stringify(reply.toolCalls.slice(0, 5))}`,
+			'只输出 JSON：{"verdict":"pass|fail|unknown","reason":"一句话"}',
+		].join("\n\n");
+		const started = Date.now();
+		const output = await executeProcessTreeV1(process.execPath, [judge.JUDGE_LAUNCHER, ...judge.JUDGE_BASE_ARGS, "--model", model, "-"], { env: judge.childEnvironment(), stdin: prompt, timeoutMs, maxOutputBytes: judge.JUDGE_MAX_OUTPUT_BYTES });
+		if (output.code !== 0) return { verdict: "unknown", reason: `judge_exited_${output.code}` };
+		const parsed = judge.parseJudgeEvents(output.stdout, new Set());
+		const text = parsed.result ? JSON.stringify(parsed.result) : String(parsed.rawOutput ?? "");
+		const match = /\{[\s\S]*\}/u.exec(text);
+		if (!match) return { verdict: "unknown", reason: "judge_output_unparseable" };
+		try {
+			const value = JSON.parse(match[0]);
+			const verdict = ["pass", "fail", "unknown"].includes(value.verdict) ? value.verdict : "unknown";
+			return { verdict, reason: String(value.reason ?? "").slice(0, 300), elapsedMs: Date.now() - started };
+		} catch { return { verdict: "unknown", reason: "judge_json_invalid" }; }
+	};
+}
+
+export async function main(argv = process.argv.slice(2)) {
+	const args = parseArgs(argv);
+	const directory = args.directory ?? join(process.env.HOME ?? tmpdir(), ".rotom", "evals");
+	const sessionsRoot = args.sessions ?? join(process.env.HOME ?? tmpdir(), ".pi", "agent", "sessions");
+	const wanted = args.cases ? new Set(args.cases.split(",").map((item) => item.trim()).filter(Boolean)) : undefined;
+	const cases = (await readReplayCases(directory)).filter((item) => !wanted || wanted.has(item.key) || wanted.has(item.sessionId));
+	if (!cases.length) throw new Error("no replay points selected");
+	const armList = args.arm === "baseline" ? [{ name: "baseline", product: args.armBaseline ?? args.product }] : [{ name: "candidate", product: args.product }, ...(args.armBaseline ? [{ name: "baseline", product: args.armBaseline }] : [])];
+	if (args.dryRun) {
+		const chars = cases.reduce((total, item) => total + item.expected.length, 0);
+		return { dryRun: true, cases: cases.length, arms: armList.map((arm) => arm.name), repeats: args.repeats, runs: cases.length * armList.length * args.repeats, expectedChars: chars };
+	}
+	const generators = new Map();
+	for (const arm of armList) generators.set(arm.name, await createGenerator({ product: arm.product, model: args.model, thinkingLevel: args.thinkingLevel, extension: args.extension, cwd: args.directory }));
+	const judgeModel = cases.some((item) => item.check.mode === "model") ? await createModelJudge({ model: args.model }) : undefined;
+	const cache = new Map();
+	const results = await runReplayPlan({
+		directory, day: args.day ?? new Date().toISOString().slice(0, 10), cases, arms: armList.map((arm) => arm.name), repeats: args.repeats,
+		sessionOf: async (item) => {
+			if (!cache.has(item.sessionId)) cache.set(item.sessionId, await loadReplaySession(sessionsRoot, item.sessionId));
+			const source = cache.get(item.sessionId);
+			const { replaySource } = await import("../../extensions/observability/eval/replay.mjs");
+			return replaySource({ branch: source.branch, sessionContent: source.content, expectedSha256: item.sessionSha256, cutEntryId: item.cutEntryId });
+		},
+		generate: async ({ entries, arm }) => generators.get(arm)({ entries }),
+		judgeModel,
+		// Progress goes to stdout so the dashboard can show it without parsing logs.
+		onRun: (progress) => process.stdout.write(JSON.stringify({ progress }) + "\n"),
+	});
+	return { runs: results.map((row) => ({ key: row.key, arm: row.arm, repetition: row.repetition, verdict: row.verdict, reason: row.reason, checkMode: row.checkMode })) };
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+	main().then((result) => { process.stdout.write(JSON.stringify(result, null, 2) + "\n"); })
+		.catch((error) => { process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`); process.exitCode = 1; });
+}
