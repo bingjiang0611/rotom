@@ -50,7 +50,7 @@
 | 18 | [真实会话回放：标回放点 + 只生成下一步 + 判定](tasks/18-session-replay.md)（[报告](reports/18-session-replay.md)、[第 2/3 轮](reports/18-session-replay-round2.md)） | Phase 4 | accepted（第一次真实回放跑通：3/3 pass，区分度待 20 的 original 对照） |
 | 19 | [合成题小修 + CI 偶发失败排查](tasks/19-small-fixes-and-ci-flake.md)（[报告](reports/19-small-fixes-and-ci-flake.md)；与 18 同批，先做 19） | Phase 4 | accepted（CI 抖动根因在 Pi，待修） |
 | 20 | [回放加原始回复对照 + 脱敏栈溢出等修复](tasks/20-replay-original-control.md)（[报告](reports/20-replay-original-control.md)） | Phase 4 | accepted（2 点 judge-blind 待 bob 重标；点 1 判定输入问题转 21） |
-| 21 | [回放判定输入只看可读内容（judge v2）](tasks/21-replay-judge-input.md)（[报告](reports/21-replay-judge-input.md)） | Phase 4 | in-review（点 1 两次 original 均 fail，标签 caught） |
+| 21 | [回放判定输入只看可读内容（judge v2）](tasks/21-replay-judge-input.md)（[报告](reports/21-replay-judge-input.md)） | Phase 4 | accepted（点 1 两次 original 均 fail，稳定 caught；点 2/3 仍待 bob 重标） |
 
 执行者每次推送前按 [自查清单](executor-checklist.md) 逐条检查，并在报告里写「自查」一节。
 
