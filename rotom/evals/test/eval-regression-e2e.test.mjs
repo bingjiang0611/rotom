@@ -6,7 +6,7 @@
 // installed; with them absent it skips instead of pretending to pass.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { after, test } from "node:test";
@@ -89,6 +89,12 @@ test("prepare freezes the reviewed failure set and run compares two arms without
 	assert.equal((await stat(setFile)).mode & 0o777, 0o600);
 	assert.equal((await stat(join(home.directory, "replay", "sets"))).mode & 0o777, 0o700);
 
+	// The frozen set is the input, not the live store: deleting the reviewed point
+	// after prepare must not change what the confirmed plan runs.
+	const livePoint = (await readReplayCases(home.directory))[0];
+	await rm(join(home.directory, "replay", "cases", `${livePoint.key}.json`));
+	assert.equal((await readReplayCases(home.directory)).length, 0);
+
 	// The faux answer queries before concluding, so both products pass and the run is
 	// clean; the tool call must still never run.
 	const sentinel = join(home.root, "SENTINEL");
@@ -107,6 +113,9 @@ test("prepare freezes the reviewed failure set and run compares two arms without
 	assert.deepEqual(Object.keys(report.arms).sort(), ["baseline", "candidate"]);
 	assert.match(report.reportPath, /evals\/replay\/reports\/failures-/u);
 	assert.equal((await stat(report.reportPath)).mode & 0o777, 0o600);
+	assert.equal(report.points[0].check, "rule");
+	// The frozen payload is deleted; only the report is left behind.
+	assert.deepEqual((await readdir(join(home.directory, "replay", "reports"))).filter((name) => name.startsWith(".plan-")), []);
 	// A tool that ran would leave this behind; blocking is the whole safety story.
 	await assert.rejects(() => stat(sentinel), /ENOENT/u);
 

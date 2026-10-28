@@ -10,29 +10,28 @@
 // model, and knows nothing about the CLI. The product's npm package deliberately
 // excludes `evals/`, so nothing here is a runtime resource.
 import { createHash } from "node:crypto";
-import { chmod, mkdir, readdir } from "node:fs/promises";
-import { join, resolve, sep } from "node:path";
+import { chmod, mkdir, readFile, readdir, readlink } from "node:fs/promises";
+import { basename, join, relative, resolve, sep } from "node:path";
 import { assertPrivatePath, readAnnotations, readPrivate, validSessionId } from "../../extensions/observability/eval/annotations.mjs";
-import { replayRoot, REPLAY_JUDGE_PROMPT_VERSION, assistantMessageOf, readReplayCases, replayCaseInput, replayCaseKey, replaySource } from "../../extensions/observability/eval/replay.mjs";
-import { redactSecrets } from "../../extensions/observability/eval/redaction.mjs";
-import { privateWrite, readBounded, statIfPresent } from "../../extensions/observability/eval/session-data.mjs";
+import { replayRoot, REPLAY_JUDGE_PROMPT_VERSION, readReplayCases, replayCaseInput, replayCaseKey, replaySource } from "../../extensions/observability/eval/replay.mjs";
+import { assertOutsideGitWorktree, privateWrite, readBounded, statIfPresent } from "../../extensions/observability/eval/session-data.mjs";
+import { clampRepeats } from "../../extensions/observability/eval/replay-plan.mjs";
 
 export const REGRESSION_SET_SCHEMA = "rotom-replay-set/v1";
 export const REGRESSION_REPORT_SCHEMA = "rotom-replay-report/v1";
 export const SELECTORS = ["all", "fail", "failSet"];
-/** A point's arm is compared through this many repetitions at most. */
-export const MAX_SET_REPEATS = 3;
 const MAX_SET_BYTES = 1_048_576;
 const MAX_INDEX_ENTRIES = 20_000;
-const HEADER_BYTES = 1_048_576;
-const SUGGESTION_EXCERPT_CHARS = 160;
-
-/** Wording that usually marks a correction; only ever a hint for a person to confirm. */
-const CORRECTION = /不对|错了|还是(?:不行|报错|失败|没|不|会)|没(?:看到|有(?:生效|改|完成|变化))|不能|不满意|重新做|再试|又(?:错|出现|失败|报)|仍未|依然|怎么还|没有解决|still (?:failing|broken|wrong)|not working|didn't work|doesn't work/iu;
+const MAX_IDENTITY_FILES = 50_000;
+const MAX_IDENTITY_BYTES = 256 * 1024 * 1024;
+/**
+ * Installed dependencies are pinned by the lock/fork files the identity hashes, and
+ * `evals/` is not part of the product surface (the release manifest excludes it).
+ */
+const IDENTITY_SKIPPED = new Set(["node_modules", ".git", "evals"]);
 
 export function setsDir(directory) { return join(replayRoot(directory), "sets"); }
 export function reportsDir(directory) { return join(replayRoot(directory), "reports"); }
-export function suggestionsDir(directory) { return join(replayRoot(directory), "suggestions"); }
 
 function validName(name) { return typeof name === "string" && /^[a-z0-9][a-z0-9-]{0,63}$/u.test(name); }
 
@@ -57,8 +56,7 @@ function canonical(value) {
 }
 
 export function regressionSetDigest(set) {
-	const { digest: _ignored, ...payload } = set ?? {};
-	return createHash("sha256").update(canonical({ schema: set?.schema, name: set?.name, selector: set?.selector, repeats: set?.repeats, cases: set?.cases, excluded: set?.excluded, scan: set?.scan })).digest("hex");
+	return createHash("sha256").update(canonical({ schema: set?.schema, name: set?.name, selector: set?.selector, repeats: set?.repeats, judgePromptVersion: set?.judgePromptVersion, cases: set?.cases, excluded: set?.excluded, scan: set?.scan })).digest("hex");
 }
 
 /** Which saved replay points belong in the set. Explicit keys win over a selector. */
@@ -106,16 +104,62 @@ export async function buildRegressionSet({ directory, name, selector = "all", re
 	const scan = { replayPoints: saved.length, selected: selected.length, included: included.length, excluded: excluded.length, indexComplete: indexComplete === true };
 	const set = {
 		schema: REGRESSION_SET_SCHEMA, name, createdAt: now().toISOString(), selector: Array.isArray(selector?.cases) ? { cases: selector.cases.map(String) } : { kind: selector?.kind ?? selector ?? "all" },
-		repeats: Math.min(Math.max(Number(repeats) || 1, 1), MAX_SET_REPEATS), cases: included, excluded, scan,
+		repeats: clampRepeats(repeats), judgePromptVersion: REPLAY_JUDGE_PROMPT_VERSION, cases: included, excluded, scan,
 	};
 	return { ...set, digest: regressionSetDigest(set) };
 }
 
-async function ensurePrivate(folder) {
+export async function ensurePrivateFolder(folder) {
 	await assertPrivatePath(folder);
 	await mkdir(folder, { recursive: true, mode: 0o700 });
 	await assertPrivatePath(folder);
 	await chmod(folder, 0o700);
+}
+
+/**
+ * Content identity of one product directory.
+ *
+ * A path is not a build: editing the candidate in place would otherwise leave a
+ * confirmed plan valid. Everything under the directory is hashed except installed
+ * `node_modules`, whose exact versions are already pinned by the `package-lock.json`
+ * and `fork-build.json` files this digest also covers. Refuse rather than degrade if
+ * the tree is too large to hash honestly.
+ */
+export async function armIdentity(path) {
+	const root = resolve(path);
+	const files = [];
+	let bytes = 0;
+	const walk = async (folder) => {
+		for (const entry of await readdir(folder, { withFileTypes: true })) {
+			const target = join(folder, entry.name);
+			// A link is hashed as "path → target": it cannot change silently, and the
+			// installed tree's links do not make the whole arm unhashable.
+			if (entry.isSymbolicLink()) { files.push({ path: relative(root, target), link: await readlink(target) }); continue; }
+			if (entry.isDirectory()) { if (!IDENTITY_SKIPPED.has(entry.name)) await walk(target); continue; }
+			if (!entry.isFile()) continue;
+			const info = await statIfPresent(target);
+			if (!info) continue;
+			bytes += info.size;
+			files.push({ path: relative(root, target), size: info.size });
+			if (files.length > MAX_IDENTITY_FILES || bytes > MAX_IDENTITY_BYTES) throw new Error("identity_too_large");
+		}
+	};
+	// A `--extension` argument names a single file, not a tree.
+	const info = await statIfPresent(root);
+	if (info?.isFile()) {
+		const digest = createHash("sha256").update(await readFile(root)).digest("hex");
+		return { path: root, digest, files: 1 };
+	}
+	if (!info?.isDirectory()) throw new Error("identity_not_a_file_or_directory");
+	await walk(root);
+	files.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+	const digest = createHash("sha256");
+	for (const file of files) {
+		if (file.link !== undefined) { digest.update(`${file.path}\0link\0${file.link}\0`); continue; }
+		digest.update(`${file.path}\0${file.size}\0`);
+		digest.update(await readFile(join(root, file.path)));
+	}
+	return { path: root, digest: digest.digest("hex"), files: files.length };
 }
 
 /** Write the set; an existing set is only replaced when the caller says so. */
@@ -123,7 +167,7 @@ export async function writeRegressionSet(directory, set, { overwrite = false } =
 	const expected = regressionSetDigest(set);
 	if (expected !== set.digest) throw new Error("set_digest_mismatch");
 	const path = regressionSetPath(directory, set.name);
-	await ensurePrivate(setsDir(directory));
+	await ensurePrivateFolder(setsDir(directory));
 	await assertPrivatePath(path);
 	if (!overwrite && await statIfPresent(path)) throw new Error("set_exists");
 	await privateWrite(path, JSON.stringify(set) + "\n");
@@ -153,92 +197,12 @@ export async function readRegressionSet(directory, value) {
 function message(error) { return error instanceof Error ? error.message : String(error); }
 
 /**
- * Compare the arms of one point from the rows of a single run.
- *
- * The original control is unchanged: it says whether the point can show anything.
- * The new part is baseline vs candidate, which is what separates "still broken" from
- * "this build broke it".
- */
-export function compareArms(rows) {
-	const reasons = [];
-	const arm = (name) => {
-		const verdicts = rows.filter((row) => row.arm === name).map((row) => row.verdict);
-		if (!verdicts.length) { reasons.push(`missing_${name}_arm`); return null; }
-		const unique = new Set(verdicts);
-		if (unique.size > 1) { reasons.push(`${name}_repetitions_disagree`); return "flaky"; }
-		return verdicts[0];
-	};
-	const original = arm("original"), baseline = arm("baseline"), candidate = arm("candidate");
-	// A model point scored by two different judge prompts is not a comparison.
-	const versions = new Set(rows.filter((row) => row.checkMode === "model" && row.judgePromptVersion).map((row) => row.judgePromptVersion));
-	if (versions.size > 1) reasons.push("judge_prompt_mismatch");
-	const verdict = (() => {
-		if (reasons.length) return "inconclusive";
-		if ([original, baseline, candidate].includes("flaky") || [original, baseline, candidate].includes("unknown")) return "inconclusive";
-		if (original === "pass") return "judge-blind";
-		if (baseline === "pass" && candidate === "fail") return "regression";
-		if (baseline === "fail" && candidate === "pass") return "improved";
-		return baseline === "fail" && candidate === "fail" ? "still-failing" : "stable-pass";
-	})();
-	return { comparison: verdict, original, baseline, candidate, reasons };
-}
-
-const countKey = { regression: "regression", improved: "improved", "still-failing": "stillFailing", "stable-pass": "stablePass", "judge-blind": "judgeBlind", inconclusive: "inconclusive", incomplete: "incomplete" };
-
-/** 0: every point held or improved. 1: a real failure remains. 2: cannot conclude. */
-export function regressionExitCode({ total, complete, counts }) {
-	if (!total || !complete) return 2;
-	if (counts.regression || counts.stillFailing) return 1;
-	return counts.judgeBlind || counts.inconclusive || counts.incomplete ? 2 : 0;
-}
-
-function usageTotals(rows) {
-	const totals = { input: 0, output: 0, totalTokens: 0, cost: 0, known: 0, unknown: 0 };
-	for (const row of rows) {
-		const usage = row.usage;
-		if (!usage) { totals.unknown++; continue; }
-		totals.known++;
-		totals.input += Number(usage.input) || 0;
-		totals.output += Number(usage.output) || 0;
-		totals.totalTokens += Number(usage.totalTokens) || 0;
-		totals.cost += Number(usage.cost?.total) || 0;
-	}
-	return totals;
-}
-
-/** Build the report from the rows a run just produced; never re-reads old runs. */
-export function summarizeRegression({ set, rows, model, arms, startedAt, finishedAt }) {
-	const byKey = new Map();
-	for (const row of rows) {
-		const list = byKey.get(row.key) ?? [];
-		list.push(row);
-		byKey.set(row.key, list);
-	}
-	const points = set.cases.map((item) => {
-		const pointRows = byKey.get(item.key) ?? [];
-		// A point with no rows at all is incomplete, never a silent pass.
-		const compared = pointRows.length ? compareArms(pointRows) : { comparison: "incomplete", original: null, baseline: null, candidate: null, reasons: ["no_rows"] };
-		return { key: item.key, sessionId: item.sessionId, cutEntryId: item.cutEntryId, check: item.check.mode, ...compared, runs: pointRows.length, usage: usageTotals(pointRows) };
-	});
-	const counts = { total: points.length, regression: 0, improved: 0, stillFailing: 0, stablePass: 0, judgeBlind: 0, inconclusive: 0, incomplete: 0 };
-	for (const point of points) counts[countKey[point.comparison]]++;
-	const complete = set.scan?.included === set.cases.length && set.scan?.excluded === 0 && set.scan?.indexComplete === true;
-	const exitCode = regressionExitCode({ total: counts.total, complete, counts });
-	return {
-		schema: REGRESSION_REPORT_SCHEMA, setName: set.name, setDigest: set.digest, startedAt, finishedAt, model, arms,
-		points, counts, complete, exitCode,
-		usage: usageTotals(rows),
-		warnings: [...(complete ? [] : ["set_has_excluded_points"])],
-	};
-}
-
-/**
  * Index every session header under the root. The dashboard's list caps its newest
  * candidates, which can hide an older session a replay point refers to; resolving by
  * id here keeps "the set is complete" honest.
  */
 export async function sessionIndex(root, { maximum = MAX_INDEX_ENTRIES } = {}) {
-	const paths = new Map(), duplicates = [];
+	const paths = new Map(), duplicates = [], ambiguous = new Set();
 	let files = 0, truncated = false;
 	await assertPrivatePath(root);
 	const walk = async (folder) => {
@@ -250,10 +214,14 @@ export async function sessionIndex(root, { maximum = MAX_INDEX_ENTRIES } = {}) {
 			if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue;
 			if (++files > maximum) { truncated = true; return; }
 			let header;
-			try { header = (await readBounded(path, HEADER_BYTES, true)).firstRecord; } catch { continue; }
+			// Header-only, at the session size the rest of the product already supports:
+			// a 1 MiB cap here would drop valid long sessions as "not indexed".
+			try { header = (await readBounded(path, undefined, true)).firstRecord; } catch { continue; }
 			const id = header?.type === "session" ? header.id : undefined;
 			if (!validSessionId(id)) continue;
-			if (paths.has(id)) { duplicates.push(id); paths.delete(id); continue; }
+			// Ambiguity is permanent: a third copy must not make the id resolvable again.
+			if (ambiguous.has(id)) continue;
+			if (paths.has(id)) { ambiguous.add(id); duplicates.push(id); paths.delete(id); continue; }
 			paths.set(id, path);
 		}
 	};
@@ -268,66 +236,8 @@ export function sourceReader(index) {
 		if (!path) throw new Error("session_not_indexed");
 		const { readFile } = await import("node:fs/promises");
 		const { loadSession } = await import("../../extensions/observability/eval/session-data.mjs");
-		const loaded = await loadSession(path, { badJson: 0, lineTooLong: 0 }, new Set(), 128 * 1024 * 1024);
+		const loaded = await loadSession(path, { badJson: 0, lineTooLong: 0 }, new Set());
 		if (loaded.reason || !loaded.branch) throw new Error(`cannot_read_session: ${loaded.reason ?? "no_branch"}`);
 		return { branch: loaded.branch, content: await readFile(path, "utf8") };
 	};
-}
-
-/**
- * Suggest a cut for a session that is marked fail but has no replay point.
- *
- * The suggestion is evidence, not a decision: it names the assistant message before a
- * later user correction, and says which fields a person still has to supply. Nothing
- * is written to the replay store and no model is called.
- */
-export async function suggestReplayPoints({ cases, labels, loadBranch, limit = 20 }) {
-	const items = [];
-	for (const [sessionId, label] of labels) {
-		if (label.verdict !== "fail") continue;
-		const existing = cases.filter((item) => item.sessionId === sessionId);
-		let branch;
-		try { branch = await loadBranch(sessionId); }
-		catch (error) { items.push({ sessionId, hasReplayPoint: existing.length > 0, candidates: [], problem: `session_unreadable: ${message(error)}`, needs: ["channel"] }); continue; }
-		const candidates = [];
-		for (let index = 0; index < branch.length; index++) {
-			const entry = branch[index];
-			if (entry?.type !== "message" || entry.message?.role !== "assistant") continue;
-			const next = branch.slice(index + 1).find((row) => row?.type === "message" && row.message?.role === "user");
-			const correction = next && typeof next.message.content !== "undefined" ? entryText(next) : "";
-			if (!correction || !CORRECTION.test(correction)) continue;
-			candidates.push({
-				entryId: entry.id, isPinnedAssistant: true,
-				evidence: redactSecrets(correction).text.slice(0, SUGGESTION_EXCERPT_CHARS),
-				reply: redactSecrets(assistantMessageOf(entry.message).text).text.slice(0, SUGGESTION_EXCERPT_CHARS),
-			});
-		}
-		// Latest correction first: the last wrong step is usually the one to fix.
-		candidates.reverse();
-		items.push({
-			sessionId, hasReplayPoint: existing.length > 0, candidates: candidates.slice(0, 2),
-			problem: candidates.length ? null : "no_correction_evidence",
-			needs: ["expected", "check", ...(candidates.length ? [] : ["entry"])],
-			note: redactSecrets(label.note ?? "").text.slice(0, SUGGESTION_EXCERPT_CHARS),
-		});
-		if (items.length >= limit) break;
-	}
-	return items;
-}
-
-function entryText(entry) {
-	const content = entry?.message?.content;
-	if (typeof content === "string") return content;
-	if (!Array.isArray(content)) return "";
-	return content.filter((part) => part?.type === "text").map((part) => part.text).join("\n");
-}
-
-/** Suggestions are private drafts; the caller decides whether to accept one. */
-export async function writeSuggestions(directory, items, now = () => new Date()) {
-	const folder = suggestionsDir(directory);
-	await ensurePrivate(folder);
-	const at = now().toISOString(), path = join(folder, `${at.replace(/[:.]/gu, "-")}.json`);
-	await assertPrivatePath(path);
-	await privateWrite(path, JSON.stringify({ schema: "rotom-replay-suggestions/v1", createdAt: at, items }) + "\n");
-	return { path, at };
 }

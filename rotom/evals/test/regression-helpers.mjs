@@ -7,6 +7,7 @@ import { fixtureSession } from "../../extensions/observability/eval-fixtures.mjs
 import { readAnnotations, writeAnnotation } from "../../extensions/observability/eval/annotations.mjs";
 import { readReplayCases, sessionSha256, writeReplayCase } from "../../extensions/observability/eval/replay.mjs";
 import { loadSession } from "../../extensions/observability/eval/session-data.mjs";
+import { REPLAY_JUDGE_PROMPT_VERSION } from "../../extensions/observability/eval/replay.mjs";
 import { buildRegressionSet, sessionIndex, sourceReader } from "../scripts/regression-set.mjs";
 
 const scratch = [];
@@ -37,4 +38,4 @@ export async function frozenSet({ sessions, directory, name = "failures", select
 	return { set, index };
 }
 
-export const row = (arm, verdict, extra = {}) => ({ arm, verdict, checkMode: "model", judgePromptVersion: "v2", usage: null, ...extra });
+export const row = (arm, verdict, extra = {}) => ({ arm, verdict, checkMode: "model", judgePromptVersion: REPLAY_JUDGE_PROMPT_VERSION, usage: null, ...extra });

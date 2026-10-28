@@ -9,14 +9,16 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { readReplayCases } from "../../extensions/observability/eval/replay.mjs";
 import { loadSession } from "../../extensions/observability/eval/session-data.mjs";
-import { compareArms, regressionExitCode, summarizeRegression, writeRegressionSet } from "../scripts/regression-set.mjs";
+import { usageOf } from "../../extensions/observability/eval/judge.mjs";
+import { regressionSetDigest, writeRegressionSet } from "../scripts/regression-set.mjs";
+import { compareArms, regressionExitCode, summarizeRegression } from "../scripts/regression-compare.mjs";
 import { main } from "../scripts/eval-regression.mjs";
 import { frozenSet, point, row, workspace } from "./regression-helpers.mjs";
 
-async function fakeProduct(root, name) {
+async function fakeProduct(root, name, body = "export default {};\n") {
 	const dir = join(root, name);
 	await mkdir(join(dir, "runtime"), { recursive: true });
-	await writeFile(join(dir, "runtime", "product-config.mjs"), "export default {};\n");
+	await writeFile(join(dir, "runtime", "product-config.mjs"), body);
 	return dir;
 }
 
@@ -30,20 +32,30 @@ async function runnableSet() {
 }
 
 test("baseline vs candidate separates a regression from a still-broken point", () => {
-	assert.equal(compareArms([row("original", "fail"), row("baseline", "pass"), row("candidate", "fail")]).comparison, "regression");
-	assert.equal(compareArms([row("original", "fail"), row("baseline", "fail"), row("candidate", "pass")]).comparison, "improved");
-	assert.equal(compareArms([row("original", "fail"), row("baseline", "fail"), row("candidate", "fail")]).comparison, "still-failing");
-	assert.equal(compareArms([row("original", "fail"), row("baseline", "pass"), row("candidate", "pass")]).comparison, "stable-pass");
+	const pair = (baseline, candidate, original = "fail", extra = {}) => [row("original", original), row("baseline", baseline), row("candidate", candidate, extra)];
+	assert.equal(compareArms(pair("pass", "fail")).comparison, "regression");
+	assert.equal(compareArms(pair("fail", "pass")).comparison, "improved");
+	assert.equal(compareArms(pair("fail", "fail")).comparison, "still-failing");
+	assert.equal(compareArms(pair("pass", "pass")).comparison, "stable-pass");
 	// The control decides whether the point can show anything at all.
-	assert.equal(compareArms([row("original", "pass"), row("baseline", "fail"), row("candidate", "pass")]).comparison, "judge-blind");
-	// Unknown, disagreement between repetitions and a missing arm stay inconclusive.
-	assert.equal(compareArms([row("original", "fail"), row("baseline", "unknown"), row("candidate", "pass")]).comparison, "inconclusive");
-	const flaky = compareArms([row("original", "fail"), row("baseline", "pass"), row("baseline", "fail"), row("candidate", "pass")]);
+	assert.equal(compareArms(pair("fail", "pass", "pass")).comparison, "judge-blind");
+	// Unknown and disagreement between repetitions cannot be concluded.
+	assert.equal(compareArms(pair("unknown", "pass")).comparison, "inconclusive");
+	const flaky = compareArms([row("original", "fail"), row("baseline", "pass"), row("baseline", "fail"), row("candidate", "pass"), row("candidate", "pass")], { repeats: 2 });
 	assert.equal(flaky.comparison, "inconclusive");
 	assert.deepEqual(flaky.reasons, ["baseline_repetitions_disagree"]);
-	assert.deepEqual(compareArms([row("original", "fail"), row("baseline", "pass")]), { comparison: "inconclusive", original: "fail", baseline: "pass", candidate: null, reasons: ["missing_candidate_arm"] });
-	// Two judge prompt versions would score the same reply differently.
+	// Missing and short coverage is incomplete, not inconclusive: the run did not do
+	// what the plan promised.
+	const missing = compareArms([row("original", "fail"), row("baseline", "pass")]);
+	assert.equal(missing.comparison, "incomplete");
+	assert.deepEqual(missing.reasons, ["missing_candidate_arm"]);
+	assert.equal(compareArms([row("original", "fail"), row("baseline", "pass"), row("candidate", "pass")], { repeats: 2 }).comparison, "incomplete");
+	assert.deepEqual(compareArms([row("original", "fail"), row("baseline", "pass"), row("candidate", "pass")], { repeats: 2 }).reasons, ["baseline_repetitions_short", "candidate_repetitions_short"]);
+	// Two judge prompt versions, or one the set was not frozen with, would score the
+	// same reply differently.
 	assert.equal(compareArms([row("original", "fail", { judgePromptVersion: "v1" }), row("baseline", "pass"), row("candidate", "pass")]).comparison, "inconclusive");
+	assert.equal(compareArms([row("original", "fail"), row("baseline", "pass"), row("candidate", "pass")], { judgePromptVersion: "v1" }).comparison, "inconclusive");
+	assert.equal(compareArms([row("original", "fail", { judgePromptVersion: null }), row("baseline", "pass", { judgePromptVersion: null }), row("candidate", "pass", { judgePromptVersion: null })]).comparison, "inconclusive");
 });
 
 test("exit codes: real failure, cannot conclude, and clean are distinct", () => {
@@ -63,8 +75,8 @@ test("report counts every point once and keeps unknown usage unknown", async () 
 	await point({ sessions, directory });
 	const { set } = await frozenSet({ sessions, directory });
 	const rows = [
-		row("original", "fail", { key: set.cases[0].key, usage: { input: 10, output: 5, totalTokens: 15, cost: { total: 0.25 } } }),
-		row("baseline", "pass", { key: set.cases[0].key, usage: { input: 20, output: 8, totalTokens: 28, cost: { total: 0.5 } } }),
+		row("original", "fail", { key: set.cases[0].key, usage: usageOf({ usage: { input: 10, output: 5, cost: { total: 0.25 } } }) }),
+		row("baseline", "pass", { key: set.cases[0].key, usage: usageOf({ usage: { input: 20, output: 8, cost: { total: 0.5 } } }) }),
 		row("candidate", "fail", { key: set.cases[0].key, usage: null }),
 	];
 	const report = summarizeRegression({ set, rows, model: "faux/faux-2", arms: { candidate: { digest: "b" }, baseline: { digest: "a" } }, startedAt: "2026-10-28T00:00:00.000Z", finishedAt: "2026-10-28T00:01:00.000Z" });
@@ -76,11 +88,20 @@ test("report counts every point once and keeps unknown usage unknown", async () 
 	assert.equal(report.complete, true);
 	assert.equal(report.usage.known, 2);
 	assert.equal(report.usage.unknown, 1);
-	assert.equal(report.usage.totalTokens, 43);
+	assert.equal(report.usage.input, 30);
+	assert.equal(report.usage.output, 13);
+	assert.equal(report.usage.costUsd, 0.75);
+	assert.equal(report.usage.partial, true);
 	// A point the runner never reported is incomplete, never an implicit pass.
 	const missing = summarizeRegression({ set, rows: [], model: "faux/faux-2", arms: {}, startedAt: "2026-10-28T00:00:00.000Z", finishedAt: "2026-10-28T00:01:00.000Z" });
 	assert.equal(missing.points[0].comparison, "incomplete");
 	assert.equal(missing.exitCode, 2);
+	// A crashed runner still leaves a report that says so.
+	const crashed = summarizeRegression({ set, rows: [], model: "faux/faux-2", arms: {}, startedAt: "2026-10-28T00:00:00.000Z", finishedAt: "2026-10-28T00:01:00.000Z", failure: { code: 1, message: "boom" } });
+	assert.equal(crashed.complete, false);
+	assert.equal(crashed.exitCode, 2);
+	assert.deepEqual(crashed.warnings, ["runner_1"]);
+	assert.equal(crashed.failure.message, "boom");
 });
 
 test("run refuses to send before --yes and when the plan digest moved", async () => {
@@ -101,6 +122,19 @@ test("run refuses to send before --yes and when the plan digest moved", async ()
 
 	const moved = await main([...base, "--yes", `--plan-digest=${"0".repeat(64)}`], { spawnRunner, stdout: () => {}, stderr: (line) => err.push(line) });
 	assert.equal(moved.exitCode, 2);
+	assert.equal(calls.length, 0);
+
+	// The printed plan promises the calls it will make, not just the row count.
+	assert(out.some((line) => /生成 2 次/.test(line)), out.join("\n"));
+	assert(out.some((line) => /模型判定 3 次/.test(line)), out.join("\n"));
+
+	// A path is not a build: editing the candidate after confirmation invalidates it.
+	const edited = await fakeProduct(space.root, "product-edited");
+	const confirmArgs = (product) => ["run", "--set=failures", `--baseline=${space.product}`, `--candidate=${product}`, "--model=faux/faux-2", `--directory=${space.directory}`, `--sessions=${space.sessions}`];
+	const planned = await main(confirmArgs(edited), { spawnRunner, stdout: () => {}, stderr: () => {} });
+	await writeFile(join(edited, "runtime", "product-config.mjs"), "export default { changed: true };\n");
+	const stale = await main([...confirmArgs(edited), "--yes", `--plan-digest=${planned.planDigest}`], { spawnRunner, stdout: () => {}, stderr: () => {} });
+	assert.equal(stale.exitCode, 2);
 	assert.equal(calls.length, 0);
 
 	for (const [name, patch] of [["no model", { model: "" }], ["no baseline", { baseline: "" }]]) {
@@ -145,16 +179,15 @@ test("suggestions name the assistant step before a correction and never write a 
 	const out = [];
 	await main(["suggest", `--directory=${directory}`, `--sessions=${sessions}`, "--json"], { stdout: (line) => out.push(line), stderr: () => {} });
 	const summary = JSON.parse(out.at(-1));
-	assert.equal(summary.items.length, 1);
-	assert.equal(summary.items[0].sessionId, "synthetic-unsure");
-	assert.equal(summary.items[0].hasReplayPoint, true);
-	// The fixture has no user correction after the last answer, so the suggestion says
-	// what is missing instead of inventing an anchor.
-	assert.equal(summary.items[0].problem, "no_correction_evidence");
-	assert.deepEqual(summary.items[0].needs, ["expected", "check", "entry"]);
+	// This session already has a point, so it is reported as covered instead of
+	// consuming the suggestion limit.
+	assert.equal(summary.items.length, 0);
+	assert.equal(summary.stale.length, 1);
+	assert.equal(summary.stale[0].sessionId, "synthetic-unsure");
 	assert.equal((await readReplayCases(directory)).length, 1, "suggest must not create a point");
 	const draft = JSON.parse(await readFile(summary.path, "utf8"));
 	assert.equal(draft.schema, "rotom-replay-suggestions/v1");
+	assert.deepEqual(draft.items, []);
 	assert.equal((await readdir(join(directory, "replay", "suggestions"))).length, 1);
 });
 
@@ -172,9 +205,47 @@ test("add writes a point only after explicit confirmation", async () => {
 	const wrongAnchor = await run([`--entry=${userEntryId}`, "--expected=先查询再下结论", "--check=rule:checks-before-claiming", "--yes"]);
 	assert.equal(wrongAnchor.exitCode, 2);
 	assert.equal((await readReplayCases(directory)).length, before);
-	const added = await run([`--entry=${created.pinnedId}`, "--expected=先查询再下结论", "--check=rule:checks-before-claiming", "--yes"]);
+	// An existing reviewed point is never overwritten by a later suggestion.
+	const duplicate = await run([`--entry=${created.pinnedId}`, "--expected=另一条期望", "--check=rule:no-identical-retry", "--yes"]);
+	assert.equal(duplicate.exitCode, 2);
+	const unchanged = await readReplayCases(directory);
+	assert.equal(unchanged.length, before);
+	assert.equal(unchanged[0].check.mode, "model", "the reviewed point keeps its own check");
+	assert.equal(unchanged[0].expected, "先查询再下结论，并说明尚未验证的部分。");
+	// A session without a point is what this command is for.
+	const fresh = await point({ sessions, directory, id: "synthetic-fresh" });
+	await (await import("node:fs/promises")).rm(join(directory, "replay", "cases", `${fresh.key}.json`));
+	const added = await run(["--session=synthetic-fresh", `--entry=${fresh.pinnedId}`, "--expected=先查询再下结论", "--check=rule:checks-before-claiming", "--yes"]);
 	assert.equal(added.exitCode, 0);
 	const after = await readReplayCases(directory);
-	assert.equal(after.length, before);
-	assert.equal(after[0].check.rule, "checks-before-claiming");
+	assert.equal(after.length, before + 1);
+	assert(after.some((item) => item.sessionId === "synthetic-fresh" && item.check.rule === "checks-before-claiming"));
+});
+
+test("a set that cannot be complete never starts a paid run", async () => {
+	const space = await runnableSet();
+	const calls = [];
+	const spawnRunner = async (input) => { calls.push(input); return { code: 0, result: { runs: [], arms: {} } }; };
+	const base = ["run", "--set=failures", `--baseline=${space.product}`, `--candidate=${space.product}`, "--model=faux/faux-2", `--directory=${space.directory}`, `--sessions=${space.sessions}`, "--yes"];
+	const run = (args) => main(args, { spawnRunner, stdout: () => {}, stderr: () => {} });
+
+	// Points dropped while freezing make the set partial: refuse instead of warning.
+	const excluded = { ...space.set, excluded: [{ key: "x", reason: "source_changed" }] };
+	await writeRegressionSet(space.directory, { ...excluded, digest: regressionSetDigest(excluded) }, { overwrite: true });
+	assert.equal((await run(base)).exitCode, 2);
+	assert.equal(calls.length, 0);
+
+	// A set frozen with another judge prompt cannot be compared by this runner.
+	const drifted = { ...space.set, judgePromptVersion: "rotom-replay-judge/v1" };
+	await writeRegressionSet(space.directory, { ...drifted, digest: regressionSetDigest(drifted) }, { overwrite: true });
+	assert.equal((await run(base)).exitCode, 2);
+	assert.equal(calls.length, 0);
+});
+
+test("private storage inside a Git worktree is refused", async () => {
+	// A checkout would let a commit publish private expectations.
+	const inside = join(process.cwd(), ".eval-regression-should-not-exist");
+	const result = await main(["prepare", "--name=failures", `--directory=${inside}`, `--sessions=${inside}`, "--json"], { stdout: () => {}, stderr: () => {} });
+	assert.equal(result.exitCode, 2);
+	await assert.rejects(() => readdir(inside), /ENOENT/u);
 });

@@ -4,14 +4,14 @@
 // session must be reported instead of silently re-anchored, and a stored set must not
 // be editable without invalidating it.
 import assert from "node:assert/strict";
-import { mkdir, readFile, realpath, symlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fixtureSession } from "../../extensions/observability/eval-fixtures.mjs";
 import { readAnnotations, writeAnnotation } from "../../extensions/observability/eval/annotations.mjs";
 import { readReplayCases, replayCaseKey, writeReplayCase } from "../../extensions/observability/eval/replay.mjs";
 import {
-	buildRegressionSet, readRegressionSet, regressionSetDigest, regressionSetPath, resolveSetPath, selectReplayCases, sessionIndex, writeRegressionSet,
+	armIdentity, buildRegressionSet, readRegressionSet, regressionSetDigest, regressionSetPath, resolveSetPath, selectReplayCases, sessionIndex, writeRegressionSet,
 } from "../scripts/regression-set.mjs";
 import { frozenSet, point, workspace } from "./regression-helpers.mjs";
 
@@ -107,4 +107,36 @@ test("index resolution keeps sessions beyond the dashboard's newest-candidate wi
 	const labels = await readAnnotations(directory);
 	assert.equal(labels.get("synthetic-old").verdict, "fail");
 	assert.equal((await readReplayCases(directory)).length, 1);
+});
+
+test("a large session is still indexed, and duplicate ids stay ambiguous", async () => {
+	const { sessions } = await workspace();
+	const big = await fixtureSession(join(sessions, "project-a"), "index-big");
+	// Long sessions are supported up to the product's own size boundary; a smaller
+	// index-only cap would drop a usable point as "not indexed".
+	await writeFile(big, (await readFile(big, "utf8")) + JSON.stringify({ type: "message", id: "entry-pad", parentId: null, timestamp: "2026-01-02T00:00:00.000Z", message: { role: "user", content: "补".repeat(400_000) } }) + "\n");
+	const index = await sessionIndex(sessions);
+	assert(index.paths.has("index-big"), "a multi-megabyte session must still resolve");
+	// Three copies: the id must never become resolvable again after the second.
+	for (const folder of ["project-b", "project-c"]) await fixtureSession(join(sessions, folder), "index-big");
+	const third = await sessionIndex(sessions);
+	assert.equal(third.paths.has("index-big"), false);
+	assert.deepEqual(third.duplicates, ["index-big"]);
+});
+
+test("product identity follows content, not the path, and skips installed dependencies", async () => {
+	const { root } = await workspace();
+	const product = join(root, "product");
+	await mkdir(join(product, "runtime", "pi", "node_modules", "huge"), { recursive: true });
+	await writeFile(join(product, "runtime", "product-config.mjs"), "export default 1;\n");
+	await writeFile(join(product, "runtime", "pi", "package.json"), "{}\n");
+	await writeFile(join(product, "runtime", "pi", "node_modules", "huge", "dist.js"), "first");
+	const initial = await armIdentity(product);
+	assert(initial.files >= 2);
+	// Installed dependencies are pinned by the lock/fork files, not re-hashed.
+	await writeFile(join(product, "runtime", "pi", "node_modules", "huge", "dist.js"), "second");
+	assert.equal((await armIdentity(product)).digest, initial.digest);
+	// Editing a product file at the same path does change the identity.
+	await writeFile(join(product, "runtime", "product-config.mjs"), "export default 2;\n");
+	assert.notEqual((await armIdentity(product)).digest, initial.digest);
 });

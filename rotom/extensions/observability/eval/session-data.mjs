@@ -15,6 +15,17 @@ export async function statIfPresent(path) {
 }
 
 
+/**
+ * Refuse a path inside a Git worktree. Private annotations, notes and replay
+ * expectations must never land in a checkout where a commit could publish them.
+ */
+export async function assertOutsideGitWorktree(path) {
+	for (let current = path; ; current = dirname(current)) {
+		if (await statIfPresent(join(current, ".git"))) throw new Error("Output must be outside Git worktrees");
+		if (dirname(current) === current) return;
+	}
+}
+
 export async function readBounded(path, maximumBytes = MAX_FILE, headerOnly = false) {
 	const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
 	try {

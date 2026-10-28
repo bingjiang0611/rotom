@@ -8,14 +8,14 @@
 //
 // Usage:
 //   node session-replay.mjs --product=<dir> --arm=candidate --model=provider/id \
-//     [--arm-baseline=<dir>] [--repeats=1] [--cases=<id,id>] [--day=YYYY-MM-DD]
+//     [--arm-baseline=<dir>] [--repeats=1] [--cases=<id,id>] [--frozen=<file>] [--day=YYYY-MM-DD]
 //     [--extension=<file>] [--dry-run] [--json]
-import { lstat, mkdtemp, realpath, access, rm } from "node:fs/promises";
+import { lstat, mkdtemp, readFile, realpath, access, rm } from "node:fs/promises";
 import { constants } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { assistantMessageOf, readReplayCases, replayConclusions, REPLAY_SESSION_MAX_BYTES, REPLAY_TOOL_BLOCK_REASON, runReplayPlan, sessionSha256 } from "../../extensions/observability/eval/replay.mjs";
+import { assistantMessageOf, readReplayCases, replayCaseInput, replayCaseKey, replayConclusions, REPLAY_SESSION_MAX_BYTES, REPLAY_TOOL_BLOCK_REASON, runReplayPlan, sessionSha256 } from "../../extensions/observability/eval/replay.mjs";
 import { loadSession } from "../../extensions/observability/eval/session-data.mjs";
 import { redactSecrets } from "../../extensions/observability/eval/redaction.mjs";
 import { loadReplayProduct, openReplaySession, removeScratch } from "../src/replay-session.ts";
@@ -28,7 +28,7 @@ export function parseArgs(argv) {
 		const [, name, value] = match;
 		if (name === "dry-run" || name === "json") args[name === "dry-run" ? "dryRun" : "json"] = true;
 		else if (name === "arm-baseline") args.armBaseline = value;
-		else if (["product", "arm", "model", "cases", "day", "extension", "sessions", "directory", "thinking", "pi", "paths"].includes(name)) args[name === "thinking" ? "thinkingLevel" : name] = value;
+		else if (["product", "arm", "model", "cases", "day", "extension", "sessions", "directory", "thinking", "pi", "paths", "frozen"].includes(name)) args[name === "thinking" ? "thinkingLevel" : name] = value;
 		else if (name === "repeats") args.repeats = Math.min(Math.max(Number(value) || 1, 1), 3);
 		else throw new Error(`Unknown argument: ${item}`);
 	}
@@ -124,6 +124,18 @@ export async function createModelJudge({ model, launcher: launcherPath = undefin
 	};
 }
 
+/** Frozen point records, validated the same way the private store validates them. */
+async function readFrozenCases(path) {
+	const row = JSON.parse(await readFile(path, "utf8"));
+	if (row?.schema !== "rotom-replay-frozen/v1" || !Array.isArray(row.cases)) throw new Error("invalid frozen set");
+	if (row.judgePromptVersion !== REPLAY_JUDGE_PROMPT_VERSION) throw new Error("judge prompt version changed since the set was frozen");
+	return row.cases.map((item) => {
+		const value = replayCaseInput({ sessionId: item.sessionId, cutEntryId: item.cutEntryId, expected: item.expected, check: item.check });
+		if (!/^[0-9a-f]{64}$/u.test(item.sessionSha256 ?? "")) throw new Error("invalid frozen point digest");
+		return { ...value, key: replayCaseKey(value.sessionId, value.cutEntryId), sessionSha256: item.sessionSha256 };
+	});
+}
+
 export async function main(argv = process.argv.slice(2)) {
 	const args = parseArgs(argv);
 	const directory = args.directory ?? join(process.env.HOME ?? tmpdir(), ".rotom", "evals");
@@ -132,7 +144,9 @@ export async function main(argv = process.argv.slice(2)) {
 	// The dashboard resolves each session file (real sessions live in nested
 	// project folders); a bare id would otherwise point at a path that is not there.
 	const paths = args.paths ? JSON.parse(args.paths) : {};
-	const cases = (await readReplayCases(directory)).filter((item) => !wanted || wanted.has(item.key) || wanted.has(item.sessionId));
+	// `--frozen` makes the caller's frozen records the input: a point edited after it
+	// was frozen must not change what this run replays.
+	const cases = args.frozen ? await readFrozenCases(args.frozen) : (await readReplayCases(directory)).filter((item) => !wanted || wanted.has(item.key) || wanted.has(item.sessionId));
 	if (!cases.length) throw new Error("no replay points selected");
 	const armList = args.arm === "baseline" ? [{ name: "baseline", product: args.armBaseline ?? args.product }] : [{ name: "candidate", product: args.product }, ...(args.armBaseline ? [{ name: "baseline", product: args.armBaseline }] : [])];
 	if (args.dryRun) {

@@ -54,10 +54,21 @@ export function measureReplayPlan({ items, repeats = 1, arms = 1, original = tru
 		cases.push({ key: item.key, chars, originalChars: judgeChars, runs: count * armCount + (original ? 1 : 0) });
 	}
 	const perCaseChars = cases.reduce((total, item) => total + item.chars, 0);
+	// Rows are not inference calls: a model point also spends one judge call per row,
+	// and a rule point spends none. Report the two separately so a confirmation
+	// cannot promise a cheaper run than the one it starts.
+	const modelCases = items.filter((item) => item.check?.mode === "model");
+	const rowsPerPoint = count * armCount + (original ? 1 : 0);
+	const generations = items.length * count * armCount;
+	const judgments = modelCases.length * rowsPerPoint;
+	const localChecks = (items.length - modelCases.length) * rowsPerPoint;
+	// Every row of a model point sends the same judge context, the control included.
+	const judgeChars = originalChars * rowsPerPoint;
 	const totalChars = perCaseChars * count * armCount + originalChars;
 	const redactions = [...masked].sort(([left], [right]) => left.localeCompare(right)).map(([type, count]) => ({ type, count }));
 	return {
 		cases, runs: cases.length * (count * armCount + (original ? 1 : 0)), repeats: count, arms: armCount,
+		generations, judgments, localChecks, judgeChars,
 		perCaseChars, maxChars: cases.reduce((max, item) => Math.max(max, item.chars), 0), totalChars,
 		originalChars, originalRuns: original ? cases.length : 0,
 		redactions, redactionTotal: redactionTotal(redactions), modelCases: items.filter((item) => item.check?.mode === "model").length,
