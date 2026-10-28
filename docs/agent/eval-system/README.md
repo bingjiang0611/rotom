@@ -51,6 +51,7 @@
 | 19 | [合成题小修 + CI 偶发失败排查](tasks/19-small-fixes-and-ci-flake.md)（[报告](reports/19-small-fixes-and-ci-flake.md)；与 18 同批，先做 19） | Phase 4 | accepted（CI 抖动根因在 Pi，待修） |
 | 20 | [回放加原始回复对照 + 脱敏栈溢出等修复](tasks/20-replay-original-control.md)（[报告](reports/20-replay-original-control.md)） | Phase 4 | accepted（2 点 judge-blind 待 bob 重标；点 1 判定输入问题转 21） |
 | 21 | [回放判定输入只看可读内容（judge v2）](tasks/21-replay-judge-input.md)（[报告](reports/21-replay-judge-input.md)） | Phase 4 | accepted（点 1 两次 original 均 fail，稳定 caught；点 2/3 仍待 bob 重标） |
+| 22 | [失败集接入本机一键回归](tasks/22-local-failure-regression.md) | Phase 4 | ready（仅规划；实现与真实模型运行尚未执行） |
 
 执行者每次推送前按 [自查清单](executor-checklist.md) 逐条检查，并在报告里写「自查」一节。
 
