@@ -15,7 +15,7 @@ import { REGRESSION_REPORT_SCHEMA } from "./regression-set.mjs";
  * "this build broke it". Coverage is checked here, not assumed: a run that produced
  * one row per arm is not the same run as the one that was confirmed.
  */
-export function compareArms(rows, { repeats = 1, judgePromptVersion } = {}) {
+export function compareArms(rows, { repeats = 1, judgePromptVersion, check } = {}) {
 	const expected = clampRepeats(repeats);
 	const incomplete = [], reasons = [];
 	const arm = (name) => {
@@ -23,7 +23,15 @@ export function compareArms(rows, { repeats = 1, judgePromptVersion } = {}) {
 		const verdicts = mine.map((row) => row.verdict);
 		const want = name === "original" ? 1 : expected;
 		if (!verdicts.length) { incomplete.push(`missing_${name}_arm`); return null; }
+		// Distinct repetitions, not just row count: two copies of repetition 1 are not
+		// the two repetitions the person confirmed.
+		const wanted = Array.from({ length: want }, (_value, index) => index + 1);
+		const seen = [...new Set(mine.map((row) => row.repetition ?? 1))].sort((left, right) => left - right);
 		if (verdicts.length !== want) incomplete.push(`${name}_repetitions_${verdicts.length < want ? "short" : "extra"}`);
+		else if (seen.length !== wanted.length || seen.some((value, index) => value !== wanted[index])) incomplete.push(`${name}_repetitions_duplicated`);
+		// A row that claims another check mode was not scored by the frozen contract.
+		if (check?.mode && mine.some((row) => row.checkMode !== check.mode)) incomplete.push(`${name}_check_mode_mismatch`);
+		if (check?.mode === "rule" && mine.some((row) => (row.rule ?? null) !== check.rule)) incomplete.push(`${name}_rule_mismatch`);
 		if (verdicts.some((verdict) => !["pass", "fail", "unknown"].includes(verdict))) { incomplete.push(`${name}_verdict_invalid`); return null; }
 		if (new Set(verdicts).size > 1) { reasons.push(`${name}_repetitions_disagree`); return "flaky"; }
 		return verdicts[0];
@@ -32,7 +40,9 @@ export function compareArms(rows, { repeats = 1, judgePromptVersion } = {}) {
 	// A model point scored by a different judge prompt — or by one the set was not
 	// frozen with — is not the comparison that was confirmed.
 	const versions = new Set(rows.filter((row) => row.checkMode === "model").map((row) => row.judgePromptVersion ?? null));
-	if (rows.some((row) => row.checkMode === "model" && !row.judgePromptVersion)) reasons.push("judge_prompt_version_missing");
+	// Missing evidence about how a model point was scored is incomplete, not merely
+	// inconclusive: the confirmed judgement cannot be shown to have happened.
+	if (rows.some((row) => row.checkMode === "model" && !row.judgePromptVersion)) incomplete.push("judge_prompt_version_missing");
 	if (versions.size > 1) reasons.push("judge_prompt_mismatch");
 	if (judgePromptVersion && [...versions].some((version) => version !== judgePromptVersion)) reasons.push("judge_prompt_version_drift");
 	const verdict = (() => {
@@ -59,13 +69,16 @@ export function regressionExitCode({ total, complete, counts }) {
 /** Sum the one usage shape the judge and the replay both persist. */
 function usageTotals(rows) {
 	const totals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, costUsd: 0, known: 0, unknown: 0, costKnown: 0 };
+	const fields = ["input", "output", "cacheRead", "cacheWrite"];
 	for (const row of rows) {
 		const usage = row.usage;
-		if (!usage || typeof usage !== "object") { totals.unknown++; continue; }
+		const reported = usage && typeof usage === "object" && fields.some((field) => Number.isFinite(usage[field])) ? usage : undefined;
+		// `usageOf(null)` is an object with nothing in it; that is unknown, not zero.
+		if (!reported) { totals.unknown++; continue; }
 		totals.known++;
-		for (const field of ["input", "output", "cacheRead", "cacheWrite"]) if (Number.isFinite(usage[field])) totals[field] += usage[field];
+		for (const field of fields) if (Number.isFinite(reported[field])) totals[field] += reported[field];
 		// A zero placeholder cannot prove a free request, so only a positive value counts.
-		if (Number.isFinite(usage.costUsd) && usage.costUsd > 0) { totals.costUsd += usage.costUsd; totals.costKnown++; }
+		if (Number.isFinite(reported.costUsd) && reported.costUsd > 0) { totals.costUsd += reported.costUsd; totals.costKnown++; }
 	}
 	if (!totals.costKnown) totals.costUsd = null;
 	// Anything missing or unpriced keeps the total partial rather than zero.
@@ -91,7 +104,7 @@ export function summarizeRegression({ set, rows, model, arms, repeats = set?.rep
 		const pointRows = byKey.get(item.key) ?? [];
 		// A point with no rows at all is incomplete, never a silent pass.
 		const compared = pointRows.length
-			? compareArms(pointRows, { repeats: expected, judgePromptVersion: set.judgePromptVersion })
+			? compareArms(pointRows, { repeats: expected, judgePromptVersion: set.judgePromptVersion, check: item.check })
 			: { comparison: "incomplete", original: null, baseline: null, candidate: null, reasons: ["no_rows"] };
 		const verdicts = (arm) => pointRows.filter((row) => row.arm === arm).map((row) => row.verdict);
 		return {
@@ -106,6 +119,11 @@ export function summarizeRegression({ set, rows, model, arms, repeats = set?.rep
 	const counts = { total: points.length, regression: 0, improved: 0, stillFailing: 0, stablePass: 0, judgeBlind: 0, inconclusive: 0, incomplete: 0 };
 	for (const point of points) counts[countKey[point.comparison]]++;
 	const prepared = set.scan?.included === set.cases.length && set.scan?.excluded === 0 && set.scan?.indexComplete === true;
+	const usage = usageTotals(rows ?? []);
+	// Generated rows keep the generation's usage; the judge call they also spend is
+	// only recorded on the control row. A model point therefore makes the money total
+	// partial even when every recorded row was priced.
+	if (points.some((point) => point.check === "model")) usage.partial = true;
 	const ran = !failure && counts.incomplete === 0;
 	const complete = prepared && ran;
 	const exitCode = regressionExitCode({ total: counts.total, complete, counts });
@@ -115,6 +133,6 @@ export function summarizeRegression({ set, rows, model, arms, repeats = set?.rep
 	return {
 		schema: REGRESSION_REPORT_SCHEMA, setName: set.name, setDigest: set.digest, startedAt, finishedAt, model, arms, repeats: expected,
 		judgePromptVersion: set.judgePromptVersion ?? null, points, counts, complete, exitCode,
-		usage: usageTotals(rows ?? []), failure: failure ?? null, warnings,
+		usage, failure: failure ?? null, warnings,
 	};
 }

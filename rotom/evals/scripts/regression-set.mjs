@@ -11,10 +11,10 @@
 // excludes `evals/`, so nothing here is a runtime resource.
 import { createHash } from "node:crypto";
 import { chmod, mkdir, readFile, readdir, readlink } from "node:fs/promises";
-import { basename, join, relative, resolve, sep } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import { assertPrivatePath, readAnnotations, readPrivate, validSessionId } from "../../extensions/observability/eval/annotations.mjs";
-import { replayRoot, REPLAY_JUDGE_PROMPT_VERSION, readReplayCases, replayCaseInput, replayCaseKey, replaySource } from "../../extensions/observability/eval/replay.mjs";
-import { assertOutsideGitWorktree, privateWrite, readBounded, statIfPresent } from "../../extensions/observability/eval/session-data.mjs";
+import { replayRoot, REPLAY_JUDGE_PROMPT_VERSION, REPLAY_SESSION_MAX_BYTES, readReplayCases, replayCaseInput, replayCaseKey, replaySource } from "../../extensions/observability/eval/replay.mjs";
+import { privateWrite, readBounded, statIfPresent } from "../../extensions/observability/eval/session-data.mjs";
 import { clampRepeats } from "../../extensions/observability/eval/replay-plan.mjs";
 
 export const REGRESSION_SET_SCHEMA = "rotom-replay-set/v1";
@@ -134,7 +134,11 @@ export async function armIdentity(path) {
 			const target = join(folder, entry.name);
 			// A link is hashed as "path → target": it cannot change silently, and the
 			// installed tree's links do not make the whole arm unhashable.
-			if (entry.isSymbolicLink()) { files.push({ path: relative(root, target), link: await readlink(target) }); continue; }
+			if (entry.isSymbolicLink()) {
+				files.push({ path: relative(root, target), link: await readlink(target) });
+				if (files.length > MAX_IDENTITY_FILES) throw new Error("identity_too_large");
+				continue;
+			}
 			if (entry.isDirectory()) { if (!IDENTITY_SKIPPED.has(entry.name)) await walk(target); continue; }
 			if (!entry.isFile()) continue;
 			const info = await statIfPresent(target);
@@ -147,6 +151,7 @@ export async function armIdentity(path) {
 	// A `--extension` argument names a single file, not a tree.
 	const info = await statIfPresent(root);
 	if (info?.isFile()) {
+		if (info.size > MAX_IDENTITY_BYTES) throw new Error("identity_too_large");
 		const digest = createHash("sha256").update(await readFile(root)).digest("hex");
 		return { path: root, digest, files: 1 };
 	}
@@ -216,7 +221,7 @@ export async function sessionIndex(root, { maximum = MAX_INDEX_ENTRIES } = {}) {
 			let header;
 			// Header-only, at the session size the rest of the product already supports:
 			// a 1 MiB cap here would drop valid long sessions as "not indexed".
-			try { header = (await readBounded(path, undefined, true)).firstRecord; } catch { continue; }
+			try { header = (await readBounded(path, REPLAY_SESSION_MAX_BYTES, true)).firstRecord; } catch { continue; }
 			const id = header?.type === "session" ? header.id : undefined;
 			if (!validSessionId(id)) continue;
 			// Ambiguity is permanent: a third copy must not make the id resolvable again.
@@ -236,7 +241,7 @@ export function sourceReader(index) {
 		if (!path) throw new Error("session_not_indexed");
 		const { readFile } = await import("node:fs/promises");
 		const { loadSession } = await import("../../extensions/observability/eval/session-data.mjs");
-		const loaded = await loadSession(path, { badJson: 0, lineTooLong: 0 }, new Set());
+		const loaded = await loadSession(path, { badJson: 0, lineTooLong: 0 }, new Set(), REPLAY_SESSION_MAX_BYTES);
 		if (loaded.reason || !loaded.branch) throw new Error(`cannot_read_session: ${loaded.reason ?? "no_branch"}`);
 		return { branch: loaded.branch, content: await readFile(path, "utf8") };
 	};

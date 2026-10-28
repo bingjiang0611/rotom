@@ -15,22 +15,21 @@
 //   node eval-regression.mjs add --session=<id> --entry=<entryId> --expected=<text> \
 //     --check=model|rule:<rule> [--yes]
 //   node eval-regression.mjs help
-import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 import { readAnnotations } from "../../extensions/observability/eval/annotations.mjs";
-import { REPLAY_JUDGE_PROMPT_VERSION, REPLAY_RULES, cutEntries, readReplayCases, replaySource, sessionSha256, writeReplayCase } from "../../extensions/observability/eval/replay.mjs";
+import { REPLAY_JUDGE_PROMPT_VERSION, REPLAY_RULES, REPLAY_SESSION_MAX_BYTES, cutEntries, readReplayCases, replaySource, sessionSha256, writeReplayCase } from "../../extensions/observability/eval/replay.mjs";
 import { clampRepeats, measureReplayPlan } from "../../extensions/observability/eval/replay-plan.mjs";
 import { resolveReplayBaseline } from "../../extensions/observability/eval/replay-service.mjs";
 import { assertOutsideGitWorktree, loadSession, privateWrite } from "../../extensions/observability/eval/session-data.mjs";
 import { armIdentity, buildRegressionSet, ensurePrivateFolder, readRegressionSet, reportsDir, sessionIndex, sourceReader, writeRegressionSet } from "./regression-set.mjs";
+import { planDigestOf, runReplayRunner } from "./regression-runner.mjs";
 import { summarizeRegression } from "./regression-compare.mjs";
 import { suggestReplayPoints, writeSuggestions } from "./regression-suggest.mjs";
 
-const RUNNER = fileURLToPath(new URL("./session-replay.mjs", import.meta.url));
 
 const COPY = {
 	usage: `用法：
@@ -47,6 +46,8 @@ add     人工确认一条建议后写入回放点；之后需要重新 prepare 
 	empty: "集合为空：没有可回归的有效回放点。",
 	excluded: (count) => `集合中有 ${count} 个点在冻结时已失效，不能开始运行；请复核后重新 prepare。`,
 	judgeDrift: "集合冻结时的判定提示词版本与当前版本不同，重新评分不再是同一次对照；请重新 prepare。",
+	piOverride: "ROTOM_PI 会换掉 Pi 运行时，而计划摘要没有绑定它；请先 unset ROTOM_PI 再运行。",
+	setTruncated: "集合冻结时会话索引不完整，无法证明覆盖；请缩小 sessions 根目录后重新 prepare。",
 	indexTruncated: "会话索引达到上限，无法证明集合完整；请缩小 sessions 根目录后重试。",
 	git: "私有目录不能位于 Git 工作区；请用 --directory 指定工作区之外的路径。",
 	addExists: (key) => `已存在回放点 ${key}；本命令只新增，不覆盖已复核的点。`,
@@ -61,15 +62,6 @@ add     人工确认一条建议后写入回放点；之后需要重新 prepare 
 	addSaved: (key) => `已保存回放点 ${key}；运行 prepare --force 可把它冻结进集合。`,
 	setSaved: (path) => `已写入集合 ${path}`,
 };
-
-/** Everything a person confirms, including the content identity of both products. */
-function planDigestOf({ set, model, repeats, extensions, extensionIdentities, thinkingLevel, arms }) {
-	return createHash("sha256").update(JSON.stringify({
-		set: set.digest, model, repeats, extensions, thinkingLevel: thinkingLevel ?? null,
-		baseline: arms.baseline.digest, candidate: arms.candidate.digest,
-		extensionIdentities: extensionIdentities.map((item) => item.digest), cases: set.cases.map((item) => item.key),
-	})).digest("hex");
-}
 
 export function parseArgs(argv) {
 	const args = { _: [] };
@@ -95,36 +87,9 @@ function defaults(args) {
 async function loadBranch(index, sessionId) {
 	const path = index.paths.get(sessionId);
 	if (!path) throw new Error("session_not_indexed");
-	const loaded = await loadSession(path, { badJson: 0, lineTooLong: 0 }, new Set());
+	const loaded = await loadSession(path, { badJson: 0, lineTooLong: 0 }, new Set(), REPLAY_SESSION_MAX_BYTES);
 	if (loaded.reason || !loaded.branch) throw new Error(`cannot_read_session: ${loaded.reason ?? "no_branch"}`);
 	return loaded.branch;
-}
-
-/** One runner process; JSON lines carry progress, the last object carries results. */
-export function runReplayRunner({ node, args, env, onLine }) {
-	return new Promise((resolve) => {
-		const child = spawn(node, [RUNNER, ...args], { env: { ...env, ROTOM_REPLAY: "1" }, stdio: ["ignore", "pipe", "pipe"] });
-		let buffered = "", stderr = "", result;
-		const lines = [];
-		child.stdout.setEncoding("utf8");
-		child.stdout.on("data", (chunk) => {
-			buffered += chunk;
-			const parts = buffered.split("\n");
-			buffered = parts.pop() ?? "";
-			for (const line of parts) {
-				if (!line.trim()) continue;
-				let row;
-				try { row = JSON.parse(line); } catch { onLine?.({ text: line }); continue; }
-				lines.push(row);
-				if (row.progress) onLine?.(row);
-				else if (Array.isArray(row.runs)) result = row;
-			}
-		});
-		child.stderr.setEncoding("utf8");
-		child.stderr.on("data", (chunk) => { stderr = (stderr + chunk).slice(-4000); });
-		child.once("error", (error) => resolve({ code: 1, result: undefined, stderr: String(error?.message ?? error), lines }));
-		child.once("close", (code) => resolve({ code: code ?? 1, result, stderr: stderr.trim(), lines }));
-	});
 }
 
 export async function main(argv = process.argv.slice(2), deps = {}) {
@@ -168,6 +133,10 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
 		// A partial set cannot report success, so it never starts a paid run either.
 		if (set.excluded.length) { err(COPY.excluded(set.excluded.length)); for (const item of set.excluded) err(`  ${item.key}：${item.reason}`); return { exitCode: 2 }; }
 		if (set.judgePromptVersion !== REPLAY_JUDGE_PROMPT_VERSION) { err(COPY.judgeDrift); return { exitCode: 2 }; }
+		// A set frozen from a truncated scan cannot be complete, whatever today's index says.
+		if (set.scan?.indexComplete !== true || set.scan?.included !== set.cases.length) { err(COPY.setTruncated); return { exitCode: 2 }; }
+		// The Pi runtime is inherited, not hashed: a different one would run unconfirmed code.
+		if (process.env.ROTOM_PI) { err(COPY.piOverride); return { exitCode: 2 }; }
 		const [baseline, candidate] = await Promise.all([resolveReplayBaseline(text(args, "baseline")), resolveReplayBaseline(text(args, "candidate"))]);
 		if (!baseline.enabled) { err(`基线不可用：${baseline.reason}`); return { exitCode: 2 }; }
 		if (!candidate.enabled) { err(`候选产品不可用：${candidate.reason}`); return { exitCode: 2 }; }
@@ -199,10 +168,12 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
 		const planLines = [
 			`${COPY.plan}：${set.cases.length} 个点 × ${repeats} 次 × 2 个产品 + 每点 1 次原回复对照（共 ${plan.runs} 行）`,
 			`推理调用：生成 ${plan.generations} 次 + 模型判定 ${plan.judgments} 次${plan.localChecks ? `；本地规则判定 ${plan.localChecks} 次，不调用模型` : ""}`,
-			`模型 ${model}（生成与判定共用）；生成上下文 ${plan.totalChars} 字符，判定输入 ${plan.judgeChars} 字符（脱敏 ${plan.redactionTotal} 处）`,
+			`模型 ${model}（生成与判定共用）；生成上下文 ${plan.perCaseChars * repeats * 2} 字符，判定上下文与期望 ${plan.judgeChars} 字符（脱敏 ${plan.redactionTotal} 处，不含生成的回复与提示词框架）`,
 			`基线 ${baseline.path}（内容 ${arms.baseline.digest.slice(0, 12)}，${arms.baseline.files} 项）`,
 			`候选 ${candidate.path}（内容 ${arms.candidate.digest.slice(0, 12)}，${arms.candidate.files} 项）`,
-			`内容不覆盖 node_modules；Pi fork 由 lock/fork-build 的版本与 integrity 固定`,
+			...(extensions.length ? [`扩展 ${extensions.map((path, index) => `${path}（内容 ${extensionIdentities[index].digest.slice(0, 12)}，仅覆盖入口文件）`).join("、")}`] : []),
+			`内容不覆盖 node_modules、.git 与 evals/；Pi fork 由 lock/fork-build 的版本与 integrity 固定`,
+			`内容身份是校验，不是执行快照：运行期间产品文件仍可能变化`,
 			`未记录价格时费用保持未知`, `计划摘要 ${planDigest}`,
 		];
 		for (const line of planLines) (flag(args, "json") ? err : out)(line);
@@ -222,7 +193,7 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
 		const startedAt = new Date().toISOString();
 		// The runner executes these frozen records, not a second read of the live store:
 		// editing a point after `prepare` must not change what a confirmed plan runs.
-		const frozenPath = join(reportsDir(directory), `.plan-${planDigest.slice(0, 16)}.json`);
+		const frozenPath = join(reportsDir(directory), `.plan-${planDigest.slice(0, 16)}-${randomUUID().slice(0, 8)}.json`);
 		await ensurePrivateFolder(reportsDir(directory));
 		await privateWrite(frozenPath, JSON.stringify({ schema: "rotom-replay-frozen/v1", judgePromptVersion: set.judgePromptVersion, cases: set.cases }) + "\n");
 		const runnerArgs = [
@@ -243,6 +214,10 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
 		const failure = runner.code === 0 && runner.result ? undefined : { code: runner.code, message: (runner.stderr || COPY.runnerMissing).slice(0, 400) };
 		const report = summarizeRegression({ set, rows: runner.result?.runs ?? [], model, arms: runner.result?.arms ?? {}, repeats, startedAt, finishedAt, failure });
 		report.runnerWarnings = runner.result?.warnings ?? [];
+		// The confirmed provenance travels with the report: content identities, the
+		// plan digest and the extensions are what make a later question answerable.
+		report.planDigest = planDigest;
+		report.identities = { baseline: arms.baseline, candidate: arms.candidate, extensions: extensionIdentities };
 		await ensurePrivateFolder(reportsDir(directory));
 		const stamp = startedAt.replace(/[:.]/gu, "-");
 		report.reportPath = join(reportsDir(directory), `${set.name}-${stamp}.json`);

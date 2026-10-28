@@ -20,7 +20,9 @@ export async function statIfPresent(path) {
  * expectations must never land in a checkout where a commit could publish them.
  */
 export async function assertOutsideGitWorktree(path) {
-	for (let current = path; ; current = dirname(current)) {
+	// Resolve first: a relative path would otherwise walk "./" and never see the
+	// repository root that contains it.
+	for (let current = resolve(path); ; current = dirname(current)) {
 		if (await statIfPresent(join(current, ".git"))) throw new Error("Output must be outside Git worktrees");
 		if (dirname(current) === current) return;
 	}

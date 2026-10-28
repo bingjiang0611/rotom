@@ -12,6 +12,7 @@
 | 对照与报告 | `rotom/evals/scripts/regression-compare.mjs` | `compareArms`（含覆盖与判定版本核对）、退出码、usage 汇总、批次报告 |
 | 建议 | `rotom/evals/scripts/regression-suggest.mjs` | 缺点会话的截断点证据与私有草稿；已有回放点的会话单独计数 |
 | 命令 | `rotom/evals/scripts/eval-regression.mjs` | `prepare` / `run` / `suggest` / `add` / `help` |
+| 进程边界 | `rotom/evals/scripts/regression-runner.mjs` | 计划摘要（含两臂与扩展内容身份）与运行器 spawn |
 | 入口 | `rotom/evals/bin/eval-regression`、`rotom/evals/package.json`、`rotom/bin/rotom-launcher` | `rotom eval-regression …`（仅仓库 checkout，见下） |
 | 运行器报告字段 | `rotom/evals/scripts/session-replay.mjs` | 每行补 `judgePromptVersion`；新增 `--frozen=<文件>`，按冻结载荷执行而不回读回放库 |
 | 共用测量 | `rotom/extensions/observability/eval/replay-plan.mjs` | 分开报告生成次数、模型判定次数、本地规则判定次数与判定输入字符量，不再把「行数」当「调用数」 |
@@ -44,7 +45,10 @@
 |---|---|
 | `node --test rotom/evals/test/eval-regression.test.mjs`（选择器、冻结、存储、逃逸、篡改、索引、内容身份） | 7/7 通过 |
 | `node --test rotom/evals/test/eval-regression-run.test.mjs`（对照矩阵、覆盖、退出码、报告、计划门、内容身份、工作区拒绝、suggest、add） | 9/9 通过 |
+| `node --test rotom/evals/test/eval-regression-guards.test.mjs`（相对路径工作区、`ROTOM_PI` 覆盖、冻结时索引截断） | 3/3 通过；去掉 `resolve()` 的负向对照确认相对路径用例会失败 |
+| `node --test rotom/evals/test/eval-regression*.test.mjs` | 20/20 通过 |
 | `node --test rotom/evals/test/eval-regression-e2e.test.mjs`（真实 CLI + 真实 runtime + faux） | 1/1 通过（约 7.6s）：`prepare` 冻结 1 点后**删除回放库里的该点**，运行仍执行冻结内容；干净臂 `stable-pass` 退出 0，仍失败臂 `still-failing` 退出 1，原回复对照 `fail`，哨兵文件不存在，报告 0600，冻结载荷已删除 |
+| 全部相关 `node --test` 套件（含 `replay-e2e`、dashboard、judge） | 78/78 通过 |
 | 相关既有套件 `replay.test.mjs` / `replay-judge.test.mjs` / `judge.test.mjs` / `eval-api.test.mjs` / `dashboard.test.mjs` / `replay-e2e.test.mjs` | 46/46 通过 |
 | `cd rotom/evals && ./bin/typecheck` | 退出 0 |
 | `node rotom/extensions/observability/eval-launcher-check.mjs --faux` | `passed: true` |
@@ -70,15 +74,35 @@
 | 已有回放点占满建议限额 | 限额只作用于缺点的会话，已有回放点的单独计数 |
 | 重复实现 clamp、私有目录helper、未用参数 | 统一用 `clampRepeats` 与 `ensurePrivateFolder`，删除未用参数与解构 |
 
+## 第二轮 Astra 复核后修正
+
+| 复核意见 | 处理 |
+|---|---|
+| 相对私有路径仍可落在 Git 工作区 | `assertOutsideGitWorktree` 先 `resolve()` 再向上查找；新增「在 checkout 子目录里用相对路径」用例，并做去掉 `resolve()` 会失败的负向对照 |
+| 计划摘要没绑定 `ROTOM_PI` 与扩展的导入依赖 | 设置 `ROTOM_PI` 时 `run` 直接拒绝（运行时未被摘要绑定）；扩展身份在计划里明说「仅覆盖入口文件」，不假装覆盖依赖 |
+| 覆盖只数行数，重复编号可伪造；判定方式可被改写 | 按不同 `repetition` 编号核对 1..N，且校验每行的 `checkMode`／`rule` 与冻结点一致 |
+| 模型点缺判定版本时算 inconclusive | 改为 incomplete：无法证明确认过的判定发生过 |
+| 冻结时索引截断的集合仍可开跑 | `run` 先核对 `set.scan`，不依赖当前索引 |
+| 冻结载荷文件名固定，并发或取消会互相删除 | 文件名加随机后缀；`finally` 清理，信号中断的残留作为已知限制 |
+| 报告丢掉新算出的内容身份与记录引用 | 报告写入 `planDigest`、两臂与扩展身份；运行器输出补 `rule` 与记录 `path`，报告按点保留记录文件名 |
+| `usageOf(null)` 被当成 known，模型判定花费漏计 | 只有真实数值才算 known；模型点一律标 `usage.partial` 并在报告里说明生成行不含判定 usage |
+| 生成/判定字符标签与实际口径不符 | 生成只报生成上下文；判定报「判定上下文与期望」，并注明不含生成回复与提示词框架 |
+| 准备与执行会话体积上限不一致 | 统一用 `REPLAY_SESSION_MAX_BYTES` |
+| 身份上限在单文件与 symlink 分支被绕过 | 两个分支同样检查文件数与字节上限 |
+
 ## 未验证 / 已知限制
 
 - **L3 未跑**：未读取真实私有会话，未调用真实模型，未产生真实回归结论。第一次真实运行需要用户授权，并会消耗所选模型的调用。
 - **面板未接建议**：`suggest` 只有命令行；评测页的「回放点」仍按原流程人工填写。
 - **安装态无运行器**：安装包执行「运行回放」会得到明确错误，属预期限制，不是回归。
+- **不是执行快照**：内容身份是校验而不是快照，运行期间产品文件仍可能变化；计划里已写明，未做运行期漂移检测。
+- **扩展身份只覆盖入口文件**：`--extension` 指向单文件时，其导入的同级模块不进入摘要；计划里已明说。
+- **判定花费记不全**：生成行只记录生成 usage，模型判定的 usage 只在原回复对照行，报告因此把模型点标为 `usage.partial`；这是运行器既有记录方式，本轮未改。
+- **信号中断**：父进程被 SIGINT/SIGTERM 打断时可能残留私有冻结载荷（0600、随机名、位于私有目录）且不留报告；SIGKILL 无法保证清理。本轮未实现信号处理。
 - **内容身份边界**：身份哈希排除 `node_modules`，因此「已安装的 Pi fork 解压文件被就地改动」不会被发现；这与产品启动期只验证 package identity/capability 的既有边界一致，计划里会明说，未额外验证。
 - **重复的 Git 守卫**：`session-cards.mjs` 里原有的 `rejectGit` 未合并进新 helper（该文件已超过单文件提交体积上限，改动会连带触发拆分）；新代码用 `session-data.mjs` 的 `assertOutsideGitWorktree`，两处逻辑相同。要合并需先把 `session-cards.mjs` 按职责拆分，留作后续。
 - **共享状态**：`run` 与面板共享 `~/.rotom/evals`，面板里同时运行回放时未见并发保护；本轮未改这块，未验证两者并发的行为。
 
 ## 文件
 
-新增：`rotom/evals/scripts/regression-set.mjs`、`rotom/evals/scripts/regression-compare.mjs`、`rotom/evals/scripts/regression-suggest.mjs`、`rotom/evals/scripts/eval-regression.mjs`、`rotom/evals/bin/eval-regression`、`rotom/evals/test/{eval-regression,eval-regression-run,eval-regression-e2e}.test.mjs`、`rotom/evals/test/regression-helpers.mjs`；修改：`rotom/bin/rotom-launcher`、`rotom/evals/package.json`、`rotom/evals/scripts/session-replay.mjs`、`rotom/extensions/observability/eval/replay-service.mjs`、`rotom/extensions/observability/replay.test.mjs`、`rotom/extensions/observability/eval/{replay-plan,session-data}.mjs`、`.github/workflows/evals-l1.yml`、任务文档与 README。
+新增：`rotom/evals/scripts/regression-set.mjs`、`rotom/evals/scripts/regression-compare.mjs`、`rotom/evals/scripts/regression-suggest.mjs`、`rotom/evals/scripts/regression-runner.mjs`、`rotom/evals/scripts/eval-regression.mjs`、`rotom/evals/bin/eval-regression`、`rotom/evals/test/{eval-regression,eval-regression-run,eval-regression-e2e}.test.mjs`、`rotom/evals/test/regression-helpers.mjs`；修改：`rotom/bin/rotom-launcher`、`rotom/evals/package.json`、`rotom/evals/scripts/session-replay.mjs`、`rotom/extensions/observability/eval/replay-service.mjs`、`rotom/extensions/observability/replay.test.mjs`、`rotom/extensions/observability/eval/{replay-plan,session-data}.mjs`、`.github/workflows/evals-l1.yml`、任务文档与 README。

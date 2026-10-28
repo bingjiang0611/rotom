@@ -67,7 +67,7 @@ jobs:
         run: node --test rotom/evals/test/replay-e2e.test.mjs
       - name: Local failure-set regression (faux provider, tools blocked)
         working-directory: .
-        run: node --test rotom/evals/test/eval-regression.test.mjs rotom/evals/test/eval-regression-run.test.mjs rotom/evals/test/eval-regression-e2e.test.mjs
+        run: node --test rotom/evals/test/eval-regression.test.mjs rotom/evals/test/eval-regression-run.test.mjs rotom/evals/test/eval-regression-guards.test.mjs rotom/evals/test/eval-regression-e2e.test.mjs
       - name: Check real launcher stdout and offline faux inference
         working-directory: .
         run: node rotom/extensions/observability/eval-launcher-check.mjs --faux

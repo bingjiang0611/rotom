@@ -41,7 +41,7 @@ test("baseline vs candidate separates a regression from a still-broken point", (
 	assert.equal(compareArms(pair("fail", "pass", "pass")).comparison, "judge-blind");
 	// Unknown and disagreement between repetitions cannot be concluded.
 	assert.equal(compareArms(pair("unknown", "pass")).comparison, "inconclusive");
-	const flaky = compareArms([row("original", "fail"), row("baseline", "pass"), row("baseline", "fail"), row("candidate", "pass"), row("candidate", "pass")], { repeats: 2 });
+	const flaky = compareArms([row("original", "fail"), row("baseline", "pass", { repetition: 1 }), row("baseline", "fail", { repetition: 2 }), row("candidate", "pass", { repetition: 1 }), row("candidate", "pass", { repetition: 2 })], { repeats: 2 });
 	assert.equal(flaky.comparison, "inconclusive");
 	assert.deepEqual(flaky.reasons, ["baseline_repetitions_disagree"]);
 	// Missing and short coverage is incomplete, not inconclusive: the run did not do
@@ -55,7 +55,14 @@ test("baseline vs candidate separates a regression from a still-broken point", (
 	// same reply differently.
 	assert.equal(compareArms([row("original", "fail", { judgePromptVersion: "v1" }), row("baseline", "pass"), row("candidate", "pass")]).comparison, "inconclusive");
 	assert.equal(compareArms([row("original", "fail"), row("baseline", "pass"), row("candidate", "pass")], { judgePromptVersion: "v1" }).comparison, "inconclusive");
-	assert.equal(compareArms([row("original", "fail", { judgePromptVersion: null }), row("baseline", "pass", { judgePromptVersion: null }), row("candidate", "pass", { judgePromptVersion: null })]).comparison, "inconclusive");
+	// Missing evidence about how a model point was scored is incomplete, not a verdict.
+	assert.equal(compareArms([row("original", "fail", { judgePromptVersion: null }), row("baseline", "pass", { judgePromptVersion: null }), row("candidate", "pass", { judgePromptVersion: null })]).comparison, "incomplete");
+	// Rows that claim another check mode were not scored by the frozen contract.
+	assert.equal(compareArms([row("original", "fail", { checkMode: "rule" }), row("baseline", "pass", { checkMode: "rule" }), row("candidate", "pass", { checkMode: "rule" })], { check: { mode: "model" } }).comparison, "incomplete");
+	assert.equal(compareArms([row("original", "fail", { checkMode: "rule", rule: "nonempty-handoff" }), row("baseline", "pass", { checkMode: "rule", rule: "nonempty-handoff" }), row("candidate", "pass", { checkMode: "rule", rule: "nonempty-handoff" })], { check: { mode: "rule", rule: "checks-before-claiming" } }).comparison, "incomplete");
+	// Two copies of repetition 1 are not the two repetitions that were confirmed.
+	const duplicated = [row("original", "fail"), row("baseline", "pass", { repetition: 1 }), row("baseline", "pass", { repetition: 1 }), row("candidate", "pass", { repetition: 1 }), row("candidate", "pass", { repetition: 1 })];
+	assert.deepEqual(compareArms(duplicated, { repeats: 2 }).reasons, ["baseline_repetitions_duplicated", "candidate_repetitions_duplicated"]);
 });
 
 test("exit codes: real failure, cannot conclude, and clean are distinct", () => {
