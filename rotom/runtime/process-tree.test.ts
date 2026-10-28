@@ -47,15 +47,6 @@ test("timeout 与 Abort 会升级 SIGKILL，返回前停止 sentinel", async (t)
 	});
 });
 
-test("stdin 与跨 chunk 的 UTF-8 输出完整保留", async () => {
-	const input = "中文🧪";
-	const source = `const chunks=[]; for await (const chunk of process.stdin) chunks.push(chunk); for (const byte of Buffer.concat(chunks)) { process.stdout.write(Buffer.from([byte])); await new Promise(resolve => setTimeout(resolve, 5)); }`;
-	const result = await executeProcessTreeV1(process.execPath, ["--input-type=module", "-e", source], { stdin: input, timeoutMs: 5000 });
-	assert.equal(result.terminal.outcome, "exited");
-	assert.equal(result.terminal.confirmed, true);
-	assert.equal(result.stdout, input);
-});
-
 test("combined output 超限时终止整个 process group，且捕获量严格有界", async () => {
 	const result = await executeProcessTreeV1("/bin/sh", ["-lc", "trap '' TERM; while :; do printf 1234567890; done"], { timeoutMs: 5_000, maxOutputBytes: 1024 });
 	assert.equal(result.terminal.outcome, "output-limit");

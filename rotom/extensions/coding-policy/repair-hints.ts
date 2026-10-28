@@ -22,7 +22,7 @@ const MAX_REPORTED_LINES = 8;
 const MAX_LINE_PREVIEW = 160;
 const MAX_LEVENSHTEIN_INPUT = 64;
 
-export function textOf(content: readonly unknown[] | undefined): string {
+function textOf(content: readonly unknown[] | undefined): string {
 	if (!Array.isArray(content)) return "";
 	return content
 		.map((part) => (part && typeof part === "object" && (part as { type?: string }).type === "text" ? String((part as { text?: unknown }).text ?? "") : ""))

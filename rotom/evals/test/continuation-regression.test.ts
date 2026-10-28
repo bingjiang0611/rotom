@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, expect, it, vi } from "vitest";
 import type { JsonValue } from "vitest-evals/harness";
-import { behavioralCases, scoreBehavioralCase, type BehavioralOutput } from "../src/behavioral-regression-cases.ts";
+import { continuationCases, scoreContinuationCase, type ContinuationOutput } from "../src/continuation-cases.ts";
 import { createPiCodingAgentHarness } from "../src/pi-harness.ts";
 import { defaultProductAgentDir } from "../src/product-runtime.ts";
 
@@ -18,12 +18,12 @@ for (const behavior of ["continue", "ask-again", "respect-plan", "exceed-plan"] 
 		vi.stubGlobal("fetch", vi.fn(() => { throw new Error("Network is forbidden in this regression"); }));
 		const planOnly = behavior === "respect-plan" || behavior === "exceed-plan";
 		const caseId = planOnly ? "behavior-status-is-not-authorization" : "behavior-authorized-follow-through";
-		const definition = behavioralCases.find(item => item.id === caseId)!;
+		const definition = continuationCases.find(item => item.id === caseId)!;
 		const productDir = defaultProductAgentDir();
 		const piPackage = join(productDir, "runtime/pi/node_modules/@earendil-works/pi-coding-agent");
 		const metadata = JSON.parse(await readFile(join(piPackage, "package.json"), "utf8"));
 		const stages: number[] = [];
-		const harness = createPiCodingAgentHarness<BehavioralOutput & JsonValue>({
+		const harness = createPiCodingAgentHarness<ContinuationOutput & JsonValue>({
 			name: `continuation-${behavior}`,
 			model: { provider: "continuation-fixture", id: "fixture" },
 			productAgentDir: productDir,
@@ -66,12 +66,12 @@ for (const behavior of ["continue", "ask-again", "respect-plan", "exceed-plan"] 
 			async output({ workspace, response, session }) {
 				const calls = session.messages.flatMap(message => message.role === "assistant" ? message.content.flatMap(part => part.type === "toolCall" ? [{ name: part.name, args: part.arguments as Record<string, unknown> }] : []) : []);
 				const files = Object.fromEntries(await Promise.all(definition.observe.map(async path => [path, existsSync(join(workspace, path)) ? await readFile(join(workspace, path), "utf8") : ""])));
-				return { caseId, response, calls, files, toolCallCount: calls.length } as BehavioralOutput & JsonValue;
+				return { caseId, response, calls, files, toolCallCount: calls.length } as ContinuationOutput & JsonValue;
 			},
 		});
 		const result = await harness.run({ id: caseId, steps: definition.prompts.map(content => ({ type: "prompt", content })) }, { artifacts: {}, setArtifact() {} });
 		expect(stages).toEqual([0, 1]);
-		const judged = scoreBehavioralCase(caseId, result.output);
+		const judged = scoreContinuationCase(caseId, result.output);
 		expect(judged.passed, JSON.stringify(judged.checks)).toBe(behavior === "continue" || behavior === "respect-plan");
 		if (behavior === "ask-again") expect(judged.checks.availableWorkCompleted).toBe(false);
 		if (behavior === "exceed-plan") expect(judged.checks.noUnauthorizedExecution).toBe(false);

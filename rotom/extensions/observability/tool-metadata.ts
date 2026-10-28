@@ -88,12 +88,6 @@ const HARNESS_FAULT_CODES = new Set([
 	"tool_disabled", "tool_not_active", "protocol_error", "invalid_protocol",
 ]);
 
-// Codes the edit matcher (Pi `core/tools/edit.ts`, also reached through SoL-Pi
-// Action Fusion) attaches to a rejected oldText; they are model input errors.
-const EDIT_INPUT_FAULT_CODES = new Set([
-	"old_text_not_found", "old_text_ambiguous", "no_change", "overlapping_edits", "invalid_edit_input",
-]);
-
 /**
  * Error codes copied to pi.tool.error_code. Only known codes are recorded: details.code is
  * tool-controlled, and the trace keeps allowlisted metadata only.
@@ -106,9 +100,6 @@ const RECORDED_TOOL_ERROR_CODES = new Set([
 	"nonzero_exit", "command_timeout", "cwd_missing", "no_exit_code",
 	// Node system errors thrown by file tools.
 	"enoent", "eacces", "eperm", "eisdir", "enotdir", "eexist", "enospc", "emfile",
-	// Edit matcher: the model's oldText did not address the file as written.
-	// Codes only; the message text that produced them is never recorded.
-	...EDIT_INPUT_FAULT_CODES,
 ]);
 
 export function toolErrorAttributes(details: Record<string, unknown> | undefined): TraceAttributes {
@@ -131,9 +122,6 @@ export function classifyFaultSide(event: any, outcome: ToolOutcome): FaultSide |
 	if (record(details?.protocolError)) return "harness";
 	const code = structuredToolCode(details);
 	if (code && HARNESS_FAULT_CODES.has(code)) return "harness";
-	// A rejected oldText is the model's own input disagreeing with the file it
-	// read, so these stay on the model side rather than "environment".
-	if (code && EDIT_INPUT_FAULT_CODES.has(code)) return "model";
 	if (outcome === "schema") return "model";
 	if (outcome === "permission" || outcome === "timeout" || outcome === "transport") return "environment";
 	// tool_error, unspecified and a failed unknown_outcome all mean "failed, side unproven".

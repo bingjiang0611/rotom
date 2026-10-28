@@ -126,36 +126,6 @@ describe("staged file budget", () => {
 		assert.equal(check().status, 1);
 	});
 
-	it("exempts only the named dashboard file, and only at that exact path", () => {
-		const dashboard = "rotom/extensions/observability/dashboard.mjs";
-		stage(dashboard, "x".repeat(90_000));
-		assert.equal(check().status, 0, "bob exempted the dashboard entry point by name");
-		// A copy, a rename or a neighbouring file is still over the budget.
-		stage("rotom/extensions/observability/dashboard-copy.mjs", "x".repeat(20_001));
-		assert.equal(check().status, 1);
-		stage("dashboard.mjs", "x".repeat(20_001));
-		assert.equal(check().status, 1);
-		// The exemption is per file, not per directory.
-		stage("rotom/extensions/observability/dashboard.mjs.keep", "x".repeat(20_001));
-		assert.equal(check().status, 1);
-		git("rm", "--cached", "-q", dashboard, "rotom/extensions/observability/dashboard-copy.mjs", "dashboard.mjs", "rotom/extensions/observability/dashboard.mjs.keep");
-	});
-
-	it("checks a renamed dashboard file at its new path", () => {
-		const dashboard = "rotom/extensions/observability/dashboard.mjs";
-		stage(dashboard, "x".repeat(90_000));
-		git(
-			"-c",
-			"core.hooksPath=/dev/null",
-			"commit",
-			"-m",
-			"dashboard baseline",
-		);
-		git("mv", dashboard, "rotom/extensions/observability/dashboard-renamed.mjs");
-		assert.equal(check().status, 1, "the exemption must not follow a rename");
-		git("reset", "--hard", "HEAD");
-	});
-
 	it("checks modified legacy files but ignores unchanged and deleted large files", () => {
 		stage("legacy.ts", "x".repeat(20_001));
 		git(

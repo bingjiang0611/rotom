@@ -43,7 +43,6 @@ Pi resolves `@path` from the current working directory. The working directory al
 | Option | Behavior |
 |---|---|
 | `-p`, `--print` | Run the supplied prompts, write the final assistant text to stdout, then exit |
-| `--single-request` | Maintenance mode: force one non-interactive, no-session, no-tool request; require an exact `provider/model` when `--model` is supplied (no fuzzy/custom fallback); disable automatic retries, compaction, cache warming, discovered resources, and project trust |
 | `--mode text` | Select text output; still open the terminal UI when stdin and stdout are terminals |
 | `--mode json` | Run the supplied prompts, write JSONL events to stdout, then exit |
 | `--mode rpc` | Read JSONL commands from stdin and write responses and events to stdout until shutdown |
@@ -72,7 +71,7 @@ See [Choose a Model](models.md) for model selection and [Providers](providers.md
 - `--models <patterns>`<br>
   Sets a comma-separated scope for startup and cycling. It accepts exact IDs, fuzzy matches, case-insensitive globs, and optional `:<thinking>` suffixes. A model offered by several providers is added for each, with a warning.
 - `--list-models [search]`<br>
-  Lists available models, optionally filtered by a fuzzy search, then exits. With `--mode json`, writes one JSON object with `models` and `defaultModel`.
+  Lists available models, optionally filtered by a fuzzy search, then exits.
 
 <a id="session-options"></a>
 

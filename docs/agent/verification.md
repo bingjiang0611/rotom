@@ -4,7 +4,6 @@
 
 ## 测试约定
 
-- GitHub Actions `Evals L1` 覆盖 eval 工具及 observability dashboard / Eval API 的 L1，不代表全量测试或 L2/L3 通过；workflow 为 `.github/workflows/evals-l1.yml`。
 - 使用 Node 内置 test runner 的模块按现有 `*.test.ts` / `*.test.mjs` colocate；保持 `--test-concurrency=1` 的 process/runtime 确定性。
 - 外部 CLI 使用隔离 fake executable，断言精确 argv、调用次数、timeout、output budget 和 readback；不要执行真实外部写操作作为普通单测。
 - trust/identity/path 测试同时覆盖合法、symlink、越界、漂移、错误版本和命令字符串拒绝。

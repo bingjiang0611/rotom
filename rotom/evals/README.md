@@ -42,9 +42,6 @@ done
 
 ## 安装与基础设施验证
 
-GitHub Actions `Evals L1` 跑 session-cards、trace-assertions、agreement、review、session-metrics、error-breakdown、command-failures、behavioral-regression 合成测试，回放离线端到端测试（faux provider），以及 observability dashboard / Eval API 测试、typecheck 和公开树隐私审计。
-CI 不跑全量测试、真实会话或付费 eval，不代表产品运行时及 L2/L3 通过；不需要 secret。
-
 评测工具依赖保持精确版本（包括 `vitest-evals@0.15.0`），不再另装旧版 Pi。执行时默认使用候选产品 `runtime/pi` 锁定的 fork，类型检查也使用该 fork 的公开声明；不会搜索 PATH。宿主机的显式 `--pi` / `ROTOM_PI` 覆盖仍须通过原有 identity/capability gate。
 
 从仓库根安装候选产品与评测依赖：
@@ -72,18 +69,17 @@ Harbor、Apple container、adapter import 和 product 文件。
 
 ## 专题指南
 
-- [本机会话、标注与效率统计](docs/session-review.md)
 - [编码、交付与执行卫生评测](docs/coding-evals.md)
 - [上下文、工具面与历史对照](docs/context-evals.md)
 - [容器隔离与公开基准](docs/benchmarks.md)
 
+## 多轮执行回归
+
+后续提交的两个用例保留在 `src/continuation-cases.ts`：`behavior-authorized-follow-through` 在第一轮后补齐输入，用户只问进度时仍应完成原授权工作；`behavior-status-is-not-authorization` 最初只授权方案，因此不能执行。`afterTurn` 只更新隔离工作区，不注入“继续”。
+
+`test/continuation-regression.test.ts` 用离线 provider 驱动真实 Pi 文件工具，验证继续、无谓再询问、保持只读和越权执行四个分支。它证明判定能区分行为，不证明真实模型已改善。独立 A/B 入口为 `cases/continuation-regression.eval.ts`，需 `ROTOM_EVAL_CONTINUATION=1`、`ROTOM_EVAL_PROVIDER`、`ROTOM_EVAL_MODEL` 和 `ROTOM_EVAL_BASELINE_PRODUCT`；重复次数用 `ROTOM_EVAL_CONTINUATION_REPEATS`。真实调用仍需明确授权。
+
 ## 运行评测
-
-`cases/behavioral-regression.eval.ts` 是同一批模式的**行为**版本：给 agent 一个合成工作区和真实工具（`bash`/`read`/`edit`/`write`），让它真的做事，判定只看实际工具调用、写出的文件和最终回复。题目在 `src/behavioral-regression-cases.ts`，prompt 只描述任务，不出现判定词，也不提示正确做法；用例检查「声明的工作是否真的发生」。判定同样是确定性的，`test/behavioral-regression.test.ts` 在 CI 里对每个用例跑「合规证据得 1 分」和「复盘中的失败证据低于 1 分」，避免判定恒真。运行需要 `ROTOM_EVAL_BEHAVIORAL_REGRESSION=1`、`ROTOM_EVAL_PROVIDER`、`ROTOM_EVAL_MODEL`、`ROTOM_EVAL_BASELINE_PRODUCT`，重复次数由 `ROTOM_EVAL_BEHAVIORAL_REGRESSION_REPEATS` 控制。真实运行时 baseline 与 candidate 都满分只说明当前版本没退化，不证明用例有区分度，需在报告里如实写明。
-
-新增两个真实多轮用例：`behavior-authorized-follow-through` 在第一轮结束后补齐上游输入，第二轮用户只问进度，必须完成原授权工作；`behavior-status-is-not-authorization` 使用相同数据到达过程，但最初只授权出方案，因此不能执行。`afterTurn` 只更新隔离工作区，不给模型注入“继续”；判定读取实际产物和执行日志，不接受口头承诺。`test/continuation-regression.test.ts` 用离线脚本 provider 驱动真实 Pi 文件工具，验证继续、无谓再询问、保持只读和越权执行四个分支；它证明评测可区分行为，不证明真实模型已改善。两项进入现有行为 A/B，真实调用仍需明确授权。
-
-决策探针只是便宜的冒烟检查，不代表真实行为。它们来源是近一周人工复盘里反复出现的不满模式：把启动回执当成后台任务仍在运行、同一失败参数连续重试不换手段、被中断后空回复不交代进度、交付报告与源数据不一致、把明文凭据发给第三方分类器。题目由 `src/session-review-cases.ts` 定义，**只保留模式**：提示词、标识符和数据行全部为合成内容，私有会话原文、标注与工具参数不进入仓库。判定是确定性的 JSON 字段检查，但字段名本身提示了正确答案，所以任何像样的模型都会答对：它测的是「知不知道规则」，不是「做事时会不会这样做」。真正起回归作用的是上面的行为用例。`test/session-review.test.ts` 在 CI 中对每题同时跑“合规答案得 1 分”和“复盘中的失败答案低于 1 分”，避免判定恒真；真实模型运行仍需 `ROTOM_EVAL_PROVIDER`、`ROTOM_EVAL_MODEL` 与 `ROTOM_EVAL_BASELINE_PRODUCT`，并计入 provider 用量。
 
 以后在 `cases/**/*.eval.ts` 增加评测集后执行：
 

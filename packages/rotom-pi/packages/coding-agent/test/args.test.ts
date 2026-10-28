@@ -60,12 +60,6 @@ describe("parseArgs", () => {
 		});
 	});
 
-	describe("--single-request flag", () => {
-		test("parses the maintenance flag", () => {
-			expect(parseArgs(["--single-request"])).toMatchObject({ singleRequest: true });
-		});
-	});
-
 	describe("--continue flag", () => {
 		test("parses --continue flag", () => {
 			const result = parseArgs(["--continue"]);

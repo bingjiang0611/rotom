@@ -1,26 +1,23 @@
 import { spawnSync } from "node:child_process";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { chmod } from "node:fs/promises";
 import { describe } from "vitest";
 import { describeEval } from "vitest-evals";
 import type { JsonValue } from "vitest-evals/harness";
 import {
-	behavioralCases,
-	behavioralJudge,
-	type BehavioralCase,
-	type BehavioralOutput,
+	continuationCases,
+	continuationJudge,
+	type ContinuationCase,
+	type ContinuationOutput,
 	type ToolCallRecord,
-} from "../src/behavioral-regression-cases.ts";
+} from "../src/continuation-cases.ts";
 import {
 	createPiCodingAgentHarness,
-	type PiCodingAgentInput,
 	type PiCodingAgentOutputContext,
 	type PiCodingAgentScenario,
 	type PiEvalWorkspaceContext,
 } from "../src/pi-harness.ts";
 import { evalHarnessTable } from "../src/vitest-evals/harness-table.ts";
-import { createToolBudgetExtension } from "../src/tool-budget-extension.ts";
 
 /**
  * Behavioural A/B: the same workspace and tool allowlist, only the loaded
@@ -28,17 +25,17 @@ import { createToolBudgetExtension } from "../src/tool-budget-extension.ts";
  * calls, published files and final reply, so a passing score means the run
  * actually behaved, not that it knew the rule.
  *
- * Gated like the other behavioural suites: `ROTOM_EVAL_BEHAVIORAL_REGRESSION=1`
+ * Gated like the other behavioural suites: `ROTOM_EVAL_CONTINUATION=1`
  * plus provider, model and a baseline product. Nothing here touches real
  * sessions.
  */
-const enabled = process.env.ROTOM_EVAL_BEHAVIORAL_REGRESSION === "1";
+const enabled = process.env.ROTOM_EVAL_CONTINUATION === "1";
 const provider = process.env.ROTOM_EVAL_PROVIDER?.trim();
 const model = process.env.ROTOM_EVAL_MODEL?.trim();
 const baselineProduct = process.env.ROTOM_EVAL_BASELINE_PRODUCT?.trim();
 const candidateProduct = process.env.ROTOM_EVAL_CANDIDATE_PRODUCT?.trim() || resolve(import.meta.dirname, "../..");
-const repetitions = Number(process.env.ROTOM_EVAL_BEHAVIORAL_REGRESSION_REPEATS ?? "1");
-if (!Number.isSafeInteger(repetitions) || repetitions < 1 || repetitions > 5) throw new Error("ROTOM_EVAL_BEHAVIORAL_REGRESSION_REPEATS must be an integer from 1 to 5.");
+const repetitions = Number(process.env.ROTOM_EVAL_CONTINUATION_REPEATS ?? "1");
+if (!Number.isSafeInteger(repetitions) || repetitions < 1 || repetitions > 5) throw new Error("ROTOM_EVAL_CONTINUATION_REPEATS must be an integer from 1 to 5.");
 
 function toolCalls(messages: PiCodingAgentOutputContext["session"]["messages"]): ToolCallRecord[] {
 	const calls: ToolCallRecord[] = [];
@@ -69,18 +66,17 @@ async function readObserved(workspace: string, paths: string[]): Promise<Record<
 	return Object.fromEntries(entries);
 }
 
-async function writeFixture(caseDefinition: BehavioralCase, workspace: string): Promise<void> {
+async function writeFixture(caseDefinition: ContinuationCase, workspace: string): Promise<void> {
 	for (const [relativePath, content] of Object.entries(caseDefinition.fixture)) {
 		const path = join(workspace, relativePath);
 		await mkdir(dirname(path), { recursive: true });
 		await writeFile(path, content, "utf8");
 	}
-	for (const relativePath of caseDefinition.executables ?? []) await chmod(join(workspace, relativePath), 0o755);
 }
 
 async function setupWorkspace({ input, workspace }: PiEvalWorkspaceContext): Promise<void> {
 	const id = !Array.isArray(input) && typeof input === "object" ? input.id : undefined;
-	const caseDefinition = behavioralCases.find((item) => item.id === id);
+	const caseDefinition = continuationCases.find((item) => item.id === id);
 	if (!caseDefinition) throw new Error(`Unknown behavioural case: ${String(id)}`);
 	await writeFixture(caseDefinition, workspace);
 	// Cases run inside a Git worktree so the product's own hygiene rules see a
@@ -89,16 +85,13 @@ async function setupWorkspace({ input, workspace }: PiEvalWorkspaceContext): Pro
 	if (initialized.status !== 0) throw new Error(`Failed to initialize eval Git repository: ${initialized.stderr}`);
 }
 
-function harness(name: string, productAgentDir: string, caseDefinition: BehavioralCase) {
-	return createPiCodingAgentHarness<BehavioralOutput & JsonValue>({
+function harness(name: string, productAgentDir: string, caseDefinition: ContinuationCase) {
+	return createPiCodingAgentHarness<ContinuationOutput & JsonValue>({
 		name,
 		model: { provider: provider!, id: model! },
 		thinkingLevel: "low",
 		tools: caseDefinition.tools,
 		productAgentDir,
-		// The interrupted-handoff case needs a real budget stop; the extension is
-		// identical in both arms and lives outside the product.
-		...(caseDefinition.id === "behavior-interrupted-handoff" ? { inlineExtensions: [createToolBudgetExtension(3)] } : {}),
 		setupWorkspace,
 		async continuePrompt({ session, stepIndex }) {
 			await caseDefinition.afterTurn?.(session.sessionManager.getCwd(), stepIndex);
@@ -106,7 +99,7 @@ function harness(name: string, productAgentDir: string, caseDefinition: Behavior
 		},
 		async output({ input, workspace, response, session }) {
 			const id = !Array.isArray(input) && typeof input === "object" ? input.id : undefined;
-			const resolved = behavioralCases.find((item) => item.id === id) ?? caseDefinition;
+			const resolved = continuationCases.find((item) => item.id === id) ?? caseDefinition;
 			const calls = toolCalls(session.messages);
 			return {
 				caseId: resolved.id,
@@ -114,16 +107,16 @@ function harness(name: string, productAgentDir: string, caseDefinition: Behavior
 				calls: calls as unknown as JsonValue,
 				files: (await readObserved(workspace, resolved.observe)) as unknown as JsonValue,
 				toolCallCount: calls.length,
-			} as BehavioralOutput & JsonValue;
+			} as ContinuationOutput & JsonValue;
 		},
 	});
 }
 
 if (!enabled || !provider || !model || !baselineProduct) {
-	describe.skip("behavioural regression requires ROTOM_EVAL_BEHAVIORAL_REGRESSION=1, provider, model, and ROTOM_EVAL_BASELINE_PRODUCT", () => {});
+	describe.skip("behavioural regression requires ROTOM_EVAL_CONTINUATION=1, provider, model, and ROTOM_EVAL_BASELINE_PRODUCT", () => {});
 } else {
 	const baselineProductPath = baselineProduct;
-	for (const caseDefinition of behavioralCases) {
+	for (const caseDefinition of continuationCases) {
 		// One user turn per prompt entry: several cases reproduce a failure that
 		// only happens after earlier work in the same session.
 		const scenario = { id: caseDefinition.id, steps: caseDefinition.prompts.map((content) => ({ type: "prompt" as const, content })) } satisfies PiCodingAgentScenario;
@@ -139,7 +132,7 @@ if (!enabled || !provider || !model || !baselineProduct) {
 		for (const row of rows) {
 			describeEval(`${caseDefinition.label}: ${row.name} repetition ${String(row.repetition)}`, {
 				harness: row.harness,
-				judges: [behavioralJudge(caseDefinition)],
+				judges: [continuationJudge(caseDefinition)],
 				judgeThreshold: 1,
 			}, (it) => {
 				it(caseDefinition.label, async ({ run }) => { await run(scenario); });

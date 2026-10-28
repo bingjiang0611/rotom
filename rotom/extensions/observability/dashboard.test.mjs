@@ -1,27 +1,23 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { formatDashboardCompact, formatDashboardDuration, formatDashboardMoney, STALE_OPEN_SPAN_MS, summarizeFleet, summarizeTrace, toolEvidenceLabels } from "./dashboard.mjs";
-import { COPY } from "./dashboard-copy.mjs";
 import { span } from "./dashboard-test-fixtures.mjs";
 
 test("tool detail separates receipts, file mutations, checks and business evidence without changing status", () => {
 	const receipt = { name: "pi.tool.execute", status: "ok", attributes: { "pi.tool.subagent_phase": "launch" } };
-	assert.deepEqual(toolEvidenceLabels(receipt), [[COPY.phase, COPY.launchReceipt]]);
+	assert.deepEqual(toolEvidenceLabels(receipt), [["Phase", "Launch receipt — child completion unproven"]]);
 	assert.equal(receipt.status, "ok");
 	assert.deepEqual(toolEvidenceLabels({ ...receipt, attributes: {} }), [], "historical spans are not retroactively inferred");
 	const mutation = { name: "pi.tool.execute", status: "error", attributes: { "pi.tool.coding_evidence_source": "tool-reported", "pi.tool.mutation_status": "applied", "pi.tool.followup_status": "failed" } };
-	assert.deepEqual(toolEvidenceLabels(mutation), [[COPY.fileMutation, COPY.appliedToolReported], [COPY.followUpCommand, `failed ${COPY.toolReportedNotVerification}`]]);
+	assert.deepEqual(toolEvidenceLabels(mutation), [["File mutation", "Applied (tool-reported, not readback)"], ["Follow-up command", "failed (tool-reported, not verification)"]]);
 	assert.equal(mutation.status, "error");
-	const skipped = { ...mutation, attributes: { ...mutation.attributes, "pi.tool.followup_status": "skipped" } };
-	assert.deepEqual(toolEvidenceLabels(skipped), [[COPY.fileMutation, COPY.appliedToolReported], [COPY.followUpCommand, `skipped ${COPY.toolReportedNotVerification}`]]);
-	assert.equal(skipped.status, "error");
+	assert.deepEqual(toolEvidenceLabels({ ...mutation, attributes: { ...mutation.attributes, "pi.tool.followup_status": "skipped" } }), [["File mutation", "Applied (tool-reported, not readback)"], ["Follow-up command", "skipped (tool-reported, not verification)"]]);
 	assert.deepEqual(toolEvidenceLabels({ ...mutation, attributes: { ...mutation.attributes, "pi.tool.coding_evidence_source": undefined } }), []);
-	assert.deepEqual(toolEvidenceLabels({ ...receipt, attributes: { "pi.tool.subagent_phase": "stop-request", "pi.tool.process_terminal_state": "pending" } }), [[COPY.phase, COPY.stopRequested], [COPY.processTerminal, "pending"]]);
-	assert.deepEqual(toolEvidenceLabels({ ...receipt, attributes: { "pi.tool.dispatch_acknowledged": true, "pi.tool.verification_status": "preexisting", "pi.tool.business_outcome": "unverified" } }), [[COPY.dispatch, COPY.acknowledgedNotCompletion], [COPY.targetCheck, "preexisting"], [COPY.businessEffect, "unverified"]]);
+	assert.deepEqual(toolEvidenceLabels({ ...receipt, attributes: { "pi.tool.subagent_phase": "stop-request", "pi.tool.process_terminal_state": "pending" } }), [["Phase", "Stop requested — termination unproven"], ["Process terminal", "pending"]]);
+	assert.deepEqual(toolEvidenceLabels({ ...receipt, attributes: { "pi.tool.dispatch_acknowledged": true, "pi.tool.verification_status": "preexisting", "pi.tool.business_outcome": "unverified" } }), [["Dispatch", "Acknowledged — not business completion"], ["Target check", "preexisting"], ["Business effect", "unverified"]]);
 	assert.deepEqual(toolEvidenceLabels({ ...receipt, attributes: { "pi.tool.subagent_phase": "<secret>", "pi.tool.business_outcome": "<secret>" } }), []);
 	assert.deepEqual(toolEvidenceLabels({ ...receipt, name: "pi.agent.operation" }), []);
 });
-
 
 test("summary separates root, propagated, recovered, unresolved, and actionable stale outcomes", () => {
 	const now = Date.parse("2026-08-28T12:10:00.000Z");

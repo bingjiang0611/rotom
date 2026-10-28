@@ -80,8 +80,6 @@
 - span start/end、parent/child、compaction sequence、shutdown flush 是否仍配对？
 - partial page 是否避免跨页生命周期推断？
 - parser、文件大小、flush deadline、权限、symlink、loopback/auth/CSP 是否有界？
-- Eval 页现读会话内容是否仅经鉴权后有界返回、只用 textContent？活动状态与标注状态是否分开，active 标注是否记录当前分支 atEntryId / atEntryCount、unknown 是否仍拒绝？列表快照是否独立于会话内容变化，时间线更新是否有界重载？所有 POST 是否校验 Origin/JSON/body/id，并拒绝 symlink？合成 UI 验证与真实会话只读计数是否分开，真实截图和代标注是否禁止？
-- Eval 模型分析是否由用户逐次确认模型、字符数、截断和外发费用后才执行？是否只发有界当前分支摘要且排除人工标注、固定产品 launcher/Node/argv/stdin/私有空 cwd、不读复制凭据、不绕 identity gate？是否确保单个推理、无工具/自动重试/压缩/预热、取消后确认子进程结束？judgments 是否私有原子追加、严格校验结果、缺失用量为 unknown，采纳仅预填不直接写 annotation？外部 CLI 单测是否使用 fake launcher，真实合成推理是否遵守本次授权次数上限？
 - 无 trace、disabled、temporary session、orphan empty launch 是否诚实表示？
 
 ### Eval / capability evidence

@@ -7,7 +7,6 @@ import { fuzzyFilter } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import { formatNoModelsAvailableMessage } from "../core/auth-guidance.ts";
 import type { ModelRuntime } from "../core/model-runtime.ts";
-import { flushRawStdout, writeRawStdout } from "../core/output-guard.ts";
 
 /**
  * Format a number as human-readable (e.g., 200000 -> "200K", 1000000 -> "1M")
@@ -31,7 +30,6 @@ export async function listModels(
 	modelRuntime: ModelRuntime,
 	searchPattern?: string,
 	signal?: AbortSignal,
-	options?: { json?: boolean; defaultModel?: Model<Api> },
 ): Promise<void> {
 	const loadError = modelRuntime.getError();
 	if (loadError) {
@@ -40,40 +38,28 @@ export async function listModels(
 
 	const models = [...(await modelRuntime.getAvailable(undefined, { signal }))];
 
-	const filteredModels = searchPattern
-		? fuzzyFilter(models, searchPattern, (model) => `${model.provider} ${model.id}`)
-		: models;
-	filteredModels.sort((a, b) =>
-		options?.json
-			? `${a.provider}/${a.id}`.localeCompare(`${b.provider}/${b.id}`)
-			: a.provider.localeCompare(b.provider) || a.id.localeCompare(b.id),
-	);
-
-	if (options?.json) {
-		const defaultModel = filteredModels.find(
-			(model) => model.provider === options.defaultModel?.provider && model.id === options.defaultModel?.id,
-		);
-		// JSON mode redirects incidental console output to stderr. This is the
-		// protocol response, and main exits immediately after this function.
-		writeRawStdout(JSON.stringify({
-			models: filteredModels.map((model) => ({
-				id: `${model.provider}/${model.id}`, name: model.name,
-				contextWindow: model.contextWindow, maxTokens: model.maxTokens,
-				reasoning: model.reasoning, input: model.input,
-			})),
-			defaultModel: defaultModel ? `${defaultModel.provider}/${defaultModel.id}` : null,
-		}) + "\n");
-		await flushRawStdout();
-		return;
-	}
 	if (models.length === 0) {
 		console.log(formatNoModelsAvailableMessage());
 		return;
 	}
+
+	// Apply fuzzy filter if search pattern provided
+	let filteredModels: Model<Api>[] = models;
+	if (searchPattern) {
+		filteredModels = fuzzyFilter(models, searchPattern, (m) => `${m.provider} ${m.id}`);
+	}
+
 	if (filteredModels.length === 0) {
 		console.log(`No models matching "${searchPattern}"`);
 		return;
 	}
+
+	// Sort by provider, then by model id
+	filteredModels.sort((a, b) => {
+		const providerCmp = a.provider.localeCompare(b.provider);
+		if (providerCmp !== 0) return providerCmp;
+		return a.id.localeCompare(b.id);
+	});
 
 	// Calculate column widths
 	const rows = filteredModels.map((m) => ({

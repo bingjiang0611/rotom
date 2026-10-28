@@ -132,14 +132,6 @@ function toPrintOutputMode(appMode: AppMode): Exclude<Mode, "rpc"> {
 	return appMode === "json" ? "json" : "text";
 }
 
-function applySingleRequestSettings(settingsManager: SettingsManager): void {
-	settingsManager.applyOverrides({
-		retry: { enabled: false, provider: { maxRetries: 0 } },
-		compaction: { enabled: false },
-		cacheWarming: "off",
-	});
-}
-
 function isPlainRuntimeMetadataCommand(parsed: Args): boolean {
 	return !parsed.print && parsed.mode === undefined && (parsed.help === true || parsed.listModels !== undefined);
 }
@@ -375,7 +367,7 @@ export async function createSessionManager(
 	sessionDir: string | undefined,
 	settingsManager: SettingsManager,
 ): Promise<SessionManager> {
-	if (parsed.singleRequest || parsed.noSession || parsed.help || parsed.listModels !== undefined) {
+	if (parsed.noSession || parsed.help || parsed.listModels !== undefined) {
 		return SessionManager.inMemory(cwd, parsed.sessionId !== undefined ? { id: parsed.sessionId } : undefined);
 	}
 
@@ -492,7 +484,6 @@ function buildSessionOptions(
 			cliModel: parsed.model,
 			cliThinking: parsed.thinking,
 			inlineApiKey: Boolean(parsed.apiKey),
-			exact: parsed.singleRequest,
 			modelRuntime,
 		});
 		if (resolved.warning) {
@@ -553,7 +544,7 @@ function buildSessionOptions(
 	// (handled by caller before createAgentSession)
 
 	// Tools
-	if (parsed.singleRequest || parsed.noTools) {
+	if (parsed.noTools) {
 		options.noTools = "all";
 	} else if (parsed.noBuiltinTools) {
 		options.noTools = "builtin";
@@ -667,7 +658,6 @@ export async function main(args: string[], options?: MainOptions) {
 	}
 
 	let appMode = resolveAppMode(parsed, process.stdin.isTTY, process.stdout.isTTY);
-	if (parsed.singleRequest) appMode = parsed.mode === "json" ? "json" : "print";
 	const shouldTakeOverStdout = appMode !== "interactive" && !isPlainRuntimeMetadataCommand(parsed);
 	if (shouldTakeOverStdout) {
 		takeOverStdout();
@@ -758,18 +748,13 @@ export async function main(args: string[], options?: MainOptions) {
 		const cachedProjectTrust = projectTrustByCwd.get(cwd);
 		const hasTrustRequiringResources = hasTrustRequiringProjectResources(cwd);
 		const shouldResolveProjectTrust =
-			!parsed.singleRequest &&
-			parsed.projectTrustOverride === undefined &&
-			cachedProjectTrust === undefined &&
-			hasTrustRequiringResources;
+			parsed.projectTrustOverride === undefined && cachedProjectTrust === undefined && hasTrustRequiringResources;
 		const projectTrusted = shouldResolveProjectTrust
 			? false
 			: (cachedProjectTrust ??
 				parsed.projectTrustOverride ??
 				(!hasTrustRequiringResources || trustStore.get(cwd) === true));
-		const runtimeSettingsManager = SettingsManager.create(cwd, agentDir, {
-			projectTrusted: parsed.singleRequest ? false : projectTrusted,
-		});
+		const runtimeSettingsManager = SettingsManager.create(cwd, agentDir, { projectTrusted });
 		const services = await createAgentSessionServices({
 			cwd,
 			agentDir,
@@ -802,22 +787,21 @@ export async function main(args: string[], options?: MainOptions) {
 				: undefined,
 			resourceLoaderOptions: {
 				additionalExtensionPaths: resolvedExtensionPaths,
-				additionalSkillPaths: parsed.singleRequest ? undefined : resolvedSkillPaths,
-				additionalPromptTemplatePaths: parsed.singleRequest ? undefined : resolvedPromptTemplatePaths,
-				additionalThemePaths: parsed.singleRequest ? undefined : resolvedThemePaths,
-				noExtensions: parsed.singleRequest || parsed.noExtensions,
-				disabledBuiltinExtensions: parsed.singleRequest || parsed.noMcp ? ["mcp"] : undefined,
-				noSkills: parsed.singleRequest || parsed.noSkills,
-				noPromptTemplates: parsed.singleRequest || parsed.noPromptTemplates,
-				noThemes: parsed.singleRequest || parsed.noThemes,
-				noContextFiles: parsed.singleRequest || parsed.noContextFiles,
+				additionalSkillPaths: resolvedSkillPaths,
+				additionalPromptTemplatePaths: resolvedPromptTemplatePaths,
+				additionalThemePaths: resolvedThemePaths,
+				noExtensions: parsed.noExtensions,
+				disabledBuiltinExtensions: parsed.noMcp ? ["mcp"] : undefined,
+				noSkills: parsed.noSkills,
+				noPromptTemplates: parsed.noPromptTemplates,
+				noThemes: parsed.noThemes,
+				noContextFiles: parsed.noContextFiles,
 				systemPrompt: parsed.systemPrompt,
 				appendSystemPrompt: parsed.appendSystemPrompt,
 				extensionFactories,
 			},
 		});
 		const { settingsManager, modelRuntime, resourceLoader } = services;
-		if (parsed.singleRequest) applySingleRequestSettings(settingsManager);
 		const diagnostics: AgentSessionRuntimeDiagnostic[] = [
 			...projectTrustDiagnostics,
 			...services.diagnostics,
@@ -890,7 +874,6 @@ export async function main(args: string[], options?: MainOptions) {
 			excludeTools: sessionOptions.excludeTools,
 			noTools: sessionOptions.noTools,
 			customTools: sessionOptions.customTools,
-			singleRequest: parsed.singleRequest,
 		});
 		const cliThinkingOverride = parsed.thinking !== undefined || cliThinkingFromModel;
 		if (created.session.model && cliThinkingOverride) {
@@ -928,10 +911,7 @@ export async function main(args: string[], options?: MainOptions) {
 	if (parsed.listModels !== undefined) {
 		reportDiagnostics(startupSettingsDiagnostics);
 		const searchPattern = typeof parsed.listModels === "string" ? parsed.listModels : undefined;
-		await listModels(modelRuntime, searchPattern, AbortSignal.timeout(15_000), {
-			json: appMode === "json",
-			defaultModel: runtime.session.model,
-		});
+		await listModels(modelRuntime, searchPattern, AbortSignal.timeout(15_000));
 		process.exit(0);
 	}
 
@@ -946,7 +926,6 @@ export async function main(args: string[], options?: MainOptions) {
 	time("readPipedStdin");
 
 	const { initialMessage, initialImages } = await prepareInitialMessage(parsed, stdinContent);
-	if (parsed.singleRequest && parsed.messages.length > 0) throw new Error("--single-request accepts only one input message");
 	time("prepareInitialMessage");
 	initTheme(settingsManager.getTheme(), appMode === "interactive");
 	time("initTheme");
@@ -1039,7 +1018,7 @@ export async function main(args: string[], options?: MainOptions) {
 		printTimings();
 		const exitCode = await runPrintMode(runtime, {
 			mode: toPrintOutputMode(appMode),
-			messages: parsed.singleRequest ? [] : parsed.messages,
+			messages: parsed.messages,
 			initialMessage,
 			initialImages,
 		});

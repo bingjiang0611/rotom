@@ -275,7 +275,6 @@ export class SettingsManager {
 	private globalSettings: Settings;
 	private projectSettings: Settings;
 	private settings: Settings;
-	private runtimeOverrides: Partial<Settings> = {};
 	private projectTrusted: boolean;
 	private modifiedFields = new Set<keyof Settings>(); // Track global fields modified during session
 	private modifiedNestedFields = new Map<keyof Settings, Set<string>>(); // Track global nested field modifications
@@ -305,7 +304,7 @@ export class SettingsManager {
 		this.projectSettingsLoadError = projectLoadError;
 		this.errors = [...initialErrors];
 		this.settingsPaths = settingsPaths;
-		this.settings = deepMergeSettings(deepMergeSettings(this.globalSettings, this.projectSettings), this.runtimeOverrides);
+		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
 	}
 
 	/** Create a SettingsManager that loads from files */
@@ -486,7 +485,7 @@ export class SettingsManager {
 		if (!trusted) {
 			this.projectSettings = {};
 			this.projectSettingsLoadError = null;
-			this.settings = deepMergeSettings(deepMergeSettings(this.globalSettings, this.projectSettings), this.runtimeOverrides);
+			this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
 			return;
 		}
 
@@ -496,7 +495,7 @@ export class SettingsManager {
 		if (projectLoad.error) {
 			this.recordError("project", projectLoad.error);
 		}
-		this.settings = deepMergeSettings(deepMergeSettings(this.globalSettings, this.projectSettings), this.runtimeOverrides);
+		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
 	}
 
 	async reload(): Promise<void> {
@@ -524,13 +523,12 @@ export class SettingsManager {
 			this.recordError("project", projectLoad.error);
 		}
 
-		this.settings = deepMergeSettings(deepMergeSettings(this.globalSettings, this.projectSettings), this.runtimeOverrides);
+		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
 	}
 
-	/** Apply additional in-memory overrides on top of current settings. */
+	/** Apply additional overrides on top of current settings */
 	applyOverrides(overrides: Partial<Settings>): void {
-		this.runtimeOverrides = deepMergeSettings(this.runtimeOverrides, overrides);
-		this.settings = deepMergeSettings(deepMergeSettings(this.globalSettings, this.projectSettings), this.runtimeOverrides);
+		this.settings = deepMergeSettings(this.settings, overrides);
 	}
 
 	/** Mark a global field as modified during this session */
@@ -630,7 +628,7 @@ export class SettingsManager {
 	}
 
 	private save(): void {
-		this.settings = deepMergeSettings(deepMergeSettings(this.globalSettings, this.projectSettings), this.runtimeOverrides);
+		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
 
 		if (this.globalSettingsLoadError) {
 			return;
@@ -648,7 +646,7 @@ export class SettingsManager {
 	private saveProjectSettings(settings: Settings): void {
 		this.assertProjectTrustedForWrite();
 		this.projectSettings = structuredClone(settings);
-		this.settings = deepMergeSettings(deepMergeSettings(this.globalSettings, this.projectSettings), this.runtimeOverrides);
+		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
 
 		if (this.projectSettingsLoadError) {
 			return;
@@ -941,7 +939,7 @@ export class SettingsManager {
 
 	/** Read from global settings only because warming costs money. */
 	getCacheWarmingMode(): CacheWarmingMode {
-		const mode = this.runtimeOverrides.cacheWarming ?? this.globalSettings.cacheWarming;
+		const mode = this.globalSettings.cacheWarming;
 		return mode !== undefined && CACHE_WARMING_MODES.includes(mode) ? mode : SETTINGS_DEFAULTS.cacheWarming;
 	}
 
