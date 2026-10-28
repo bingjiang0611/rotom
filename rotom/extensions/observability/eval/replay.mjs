@@ -13,7 +13,7 @@ import { createHash } from "node:crypto";
 import { chmod, mkdir, readdir, rm } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { assertPrivatePath, readPrivate, validSessionId } from "./annotations.mjs";
-import { privateWrite, statIfPresent } from "./session-data.mjs";
+import { MAX_SESSION_FILE_BYTES, privateWrite, statIfPresent } from "./session-data.mjs";
 import { REPLAY_JUDGE_PROMPT_VERSION } from "./replay-judge.mjs";
 
 export const REPLAY_CASE_SCHEMA = "rotom-replay-case/v1";
@@ -24,11 +24,9 @@ export { REPLAY_JUDGE_PROMPT_VERSION };
 /** Tool calls that gather information; a replay must not open with a write. */
 export const QUERY_TOOLS = new Set(["bash", "read", "grep", "glob", "ls", "find"]);
 export const REPLAY_RULES = ["checks-before-claiming", "no-identical-retry", "nonempty-handoff"];
-/**
- * Sessions are read whole before the cut is taken, and a long real session is
- * easily 20 MB, so the eval tab's small-project cap would refuse them all.
- */
-export const REPLAY_SESSION_MAX_BYTES = 128 * 1024 * 1024;
+// Share the bounded session-reader limit. Larger files require streaming source
+// parsing/hashing, not another cap increase: replay holds source text in memory.
+export const REPLAY_SESSION_MAX_BYTES = MAX_SESSION_FILE_BYTES;
 export const REPLAY_TOOL_BLOCK_REASON = "replay: tools are not executed";
 
 export function replayRoot(directory) { return join(directory, "replay"); }

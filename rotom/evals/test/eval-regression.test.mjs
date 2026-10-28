@@ -4,16 +4,50 @@
 // session must be reported instead of silently re-anchored, and a stored set must not
 // be editable without invalidating it.
 import assert from "node:assert/strict";
-import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fixtureSession } from "../../extensions/observability/eval-fixtures.mjs";
 import { readAnnotations, writeAnnotation } from "../../extensions/observability/eval/annotations.mjs";
-import { readReplayCases, replayCaseKey, writeReplayCase } from "../../extensions/observability/eval/replay.mjs";
+import { REPLAY_SESSION_MAX_BYTES, readReplayCases, replayCaseKey, writeReplayCase } from "../../extensions/observability/eval/replay.mjs";
 import {
 	armIdentity, buildRegressionSet, readRegressionSet, regressionSetDigest, regressionSetPath, resolveSetPath, selectReplayCases, sessionIndex, writeRegressionSet,
 } from "../scripts/regression-set.mjs";
 import { frozenSet, point, workspace } from "./regression-helpers.mjs";
+import { sourceReader } from "../scripts/regression-set.mjs";
+import { loadReplaySession } from "../scripts/session-replay.mjs";
+import { MAX_SESSION_FILE_BYTES } from "../../extensions/observability/eval/session-data.mjs";
+
+test("index, prepare reader and runner share the 256 MiB session boundary", async () => {
+	const { sessions } = await workspace();
+	const id = "synthetic-over-old-limit";
+	const path = await fixtureSession(sessions, id);
+	// Blank JSONL lines preserve the fixture branch while exercising the real file
+	// size gate and whole-source read. No private session or model is involved.
+	const handle = await open(path, "a");
+	try {
+		const padding = " ".repeat(1024 * 1024 - 1) + "\n";
+		for (let index = 0; index < 129; index++) await handle.write(padding);
+	} finally { await handle.close(); }
+	assert.equal(REPLAY_SESSION_MAX_BYTES, 256 * 1024 * 1024);
+	assert.equal(REPLAY_SESSION_MAX_BYTES, MAX_SESSION_FILE_BYTES);
+	const index = await sessionIndex(sessions);
+	assert.equal(index.paths.get(id), path);
+	async function checkRead(read) {
+		const source = await read();
+		assert(source.content.length > 128 * 1024 * 1024);
+		assert(source.branch.some((entry) => entry.message?.role === "assistant"));
+	}
+	await checkRead(() => sourceReader(index)({ sessionId: id }));
+	await checkRead(() => loadReplaySession(sessions, id));
+	// Still bounded: sparse extension costs no large fixture allocation.
+	const oversized = await open(path, "r+");
+	try { await oversized.truncate(REPLAY_SESSION_MAX_BYTES + 1); }
+	finally { await oversized.close(); }
+	assert.equal((await sessionIndex(sessions)).paths.has(id), false);
+	await assert.rejects(() => sourceReader(index)({ sessionId: id }), /cannot_read_session/u);
+	await assert.rejects(() => loadReplaySession(sessions, id), /cannot read session/u);
+});
 
 test("selector picks saved points, and an explicit key list never silently shrinks", () => {
 	const labels = new Map([["a", { verdict: "fail", failSet: true }], ["b", { verdict: "fail", failSet: false }], ["c", { verdict: "pass", failSet: false }]]);

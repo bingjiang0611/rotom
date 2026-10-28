@@ -6,7 +6,8 @@ import { StringDecoder } from "node:string_decoder";
 import { evaluateSession, RULE_IDS } from "./trace-assertions.mjs";
 import { COPY } from "./copy.mjs";
 import { sessionMetrics } from "./session-metrics.mjs";
-const MAX_FILE = 256 * 1024 * 1024;
+export const MAX_SESSION_FILE_BYTES = 256 * 1024 * 1024;
+const MAX_FILE = MAX_SESSION_FILE_BYTES;
 const MAX_LINE = 64 * 1024 * 1024;
 const SILENT_ENTRY_TYPES = new Set(["custom", "context_edit", "label", "session_info", "thinking_level_change", "usage"]);
 export async function statIfPresent(path) {
