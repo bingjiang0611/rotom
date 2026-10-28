@@ -28,7 +28,7 @@
 | 可选 Ask 适配失败不影响其余组件 | `rotom/extensions/third-party/index.test.ts` 对三种 schema 漂移加载真实 session，调用原版 Ask 并检查后续组件 | 只降级已识别的 schema 不兼容；未知异常不静默吞掉 |
 | 启动告警走交互渲染，不破坏 stderr | `rotom/runtime/quality-boundaries.test.mjs` 在隔离 HOME 下启动真实 rotom PTY，覆盖正常和缺失前置工具场景 | 无模型调用；需要 POSIX + Python 3，Windows 明确 skip；不证明桌面视觉效果或运行期间所有告警路径 |
 
-边界测试已进入 `rotom/bin/check-personal`。质量 AST 和七个合成任务的验收器也随 eval 的默认 `npm test` 执行。定向入口（仓库根，Node 24+，先按现有安装说明准备依赖）：
+边界测试已进入 `rotom/bin/check-personal`。质量 AST 和合成任务的验收器也随 eval 的默认 `npm test` 执行。定向入口（仓库根，Node 24+，先按现有安装说明准备依赖）：
 
 ```bash
 npm --prefix rotom/evals run check:quality
@@ -49,7 +49,7 @@ node --experimental-strip-types --test --test-concurrency=1 \
 - **需求与抽象层**：最小实现必须满足完整需求，不以演示、占位或缩减验收替代。先复用，再考虑标准库和现有依赖；自有组件合同放源码，组合策略才留 wrapper。新增 registry/lifecycle 必须说明真实调用方和必要性。
 - **限制与失败边界**：新增限制、校验、重试须有合同、失败证据或明确安全理由。identity、路径、授权失败必须拒绝；可选增强失败只影响增强本身，并保留可观测诊断。`unknown`、unavailable、partial、blocked 不压成成功或失败。
 - **调查与授权**：查到能区分竞争解释的证据，不停在猜测。已有授权内可继续的任务继续；明确请求覆盖一般偏好，但不扩大到新的外部写入、费用、权限或数据损失。需要决定时指出缺少什么、由谁处理，不反复询问同一已定事项。
-- **验收与成本**：关键行为至少一个旧错误会失败的反例，不能改弱测试迁就实现。性能改动比较实际成本并保留安全检查。七个历史模式的合成任务见 [评测说明](../../rotom/evals/README.md#历史纠正回归quality-regressionsevalts)；验收器通过不代表模型行为改善，真实模型运行另需授权。
+- **验收与成本**：关键行为至少一个旧错误会失败的反例，不能改弱测试迁就实现。性能改动比较实际成本并保留安全检查。历史模式的合成任务见 [评测说明](../../rotom/evals/docs/coding-evals.md#历史纠正回归quality-regressionsevalts)；验收器通过不代表模型行为改善，真实模型运行另需授权。
 - **表达**：维护和用户边界用中文，identifier 与稳定合同保持英文；注释解释原因、信任边界和失败模式。交付区分实现、验证、提交、推送、安装；剩余事项给责任人和动作，不重复机械规则或用简洁掩盖未知。
 
 ## 验证与交付

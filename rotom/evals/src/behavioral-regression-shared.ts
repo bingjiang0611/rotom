@@ -5,7 +5,9 @@ export type BehavioralCaseId =
 	| "behavior-repeated-timeout"
 	| "behavior-interrupted-handoff"
 	| "behavior-report-fidelity"
-	| "behavior-secret-redaction";
+	| "behavior-secret-redaction"
+	| "behavior-authorized-follow-through"
+	| "behavior-status-is-not-authorization";
 
 /** One executed tool call, as recorded in the session transcript. */
 export type ToolCallRecord = { name: string; args: Record<string, unknown> };
@@ -33,6 +35,8 @@ export type BehavioralCase = {
 	executables?: string[];
 	/** Workspace files read back as evidence after the run. */
 	observe: string[];
+	/** External fixture state may change between real user turns; never asks the model to continue. */
+	afterTurn?: (workspace: string, stepIndex: number) => Promise<void>;
 	checks: (evidence: BehavioralEvidence) => Record<string, boolean>;
 };
 

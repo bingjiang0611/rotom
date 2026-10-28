@@ -154,6 +154,31 @@ class PrivacyAuditTests(unittest.TestCase):
             self.assertTrue(any(f['rule'] == 'non-noreply-tagger' for f in audit.findings))
             self.assertNotIn('fixture@example.invalid', json.dumps(audit.findings))
 
+    def test_github_service_noreply_exception_is_exact_and_committer_only(self):
+        cases = [
+            ('fixture@users.noreply.github.com', 'noreply@github.com', set()),
+            ('noreply@github.com', 'fixture@users.noreply.github.com', {'non-noreply-author'}),
+            ('fixture@users.noreply.github.com', 'other@github.com', {'non-noreply-committer'}),
+            ('fixture@users.noreply.github.com', 'noreply@github.com.example.invalid', {'non-noreply-committer'}),
+        ]
+        for author, committer, expected in cases:
+            with self.subTest(author=author, committer=committer), tempfile.TemporaryDirectory(prefix='rotom-audit-identity-') as work:
+                root = Path(work).resolve()
+                def git(*args):
+                    return subprocess.check_output(['git', '-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false',
+                                                    '-C', str(root), *args], stderr=subprocess.DEVNULL)
+                git('init', '-q', '--initial-branch=main')
+                git('config', 'user.name', 'Fixture')
+                git('config', 'user.email', committer)
+                git('commit', '--allow-empty', '--author', 'Fixture <' + author + '>', '-qm', 'identity fixture')
+                audit = Audit()
+                MODULE['audit_history'](root, audit)
+                self.assertEqual({item['rule'] for item in audit.findings}, expected)
+                git('-c', 'user.email=noreply@github.com', 'tag', '-a', 'service-tag', '-m', 'tag fixture')
+                tagged = Audit()
+                MODULE['audit_history'](root, tagged)
+                self.assertEqual({item['rule'] for item in tagged.findings}, expected | {'non-noreply-tagger'})
+
     def test_history_skips_only_fork_archives_recorded_by_a_passing_audit(self):
         with tempfile.TemporaryDirectory(prefix='rotom-audit-test-') as work:
             root = Path(work).resolve()

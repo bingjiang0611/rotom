@@ -26,12 +26,13 @@ import type { PiCodingAgentInput } from "./pi-harness.ts";
 import type { BehavioralCase, BehavioralCaseId, BehavioralEvidence, BehavioralOutput } from "./behavioral-regression-shared.ts";
 import { toolCases } from "./behavioral-cases-tools.ts";
 import { reportCases } from "./behavioral-cases-report.ts";
+import { continuationCases } from "./behavioral-cases-continuation.ts";
 
 export type { BehavioralCase, BehavioralCaseId, BehavioralEvidence, BehavioralOutput, ToolCallRecord } from "./behavioral-regression-shared.ts";
 export { offersNextStep } from "./behavioral-regression-shared.ts";
 export { CREDENTIAL_MARKER, REPORT_ROWS, REPORT_TOTAL } from "./behavioral-regression-fixtures.ts";
 
-export const behavioralCases: BehavioralCase[] = [...toolCases, ...reportCases];
+export const behavioralCases: BehavioralCase[] = [...toolCases, ...reportCases, ...continuationCases];
 
 export function behavioralCaseFor(id: string): BehavioralCase {
 	const found = behavioralCases.find((item) => item.id === id);

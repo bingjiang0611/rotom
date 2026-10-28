@@ -243,7 +243,9 @@ def audit_history(root, audit, audited_archives=frozenset()):
     for row in commits:
         oid, author, committer = row.split("\t")
         for kind, email in (("author", author), ("committer", committer)):
-            if not email.endswith("@users.noreply.github.com"):
+            # GitHub creates web merges with its service noreply committer.
+            # This exact exception does not cover authors, taggers or lookalikes.
+            if not email.endswith("@users.noreply.github.com") and not (kind == "committer" and email == "noreply@github.com"):
                 audit.add("commit:" + oid[:12], "non-noreply-" + kind, email)
 
 

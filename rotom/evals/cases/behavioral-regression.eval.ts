@@ -100,6 +100,10 @@ function harness(name: string, productAgentDir: string, caseDefinition: Behavior
 		// identical in both arms and lives outside the product.
 		...(caseDefinition.id === "behavior-interrupted-handoff" ? { inlineExtensions: [createToolBudgetExtension(3)] } : {}),
 		setupWorkspace,
+		async continuePrompt({ session, stepIndex }) {
+			await caseDefinition.afterTurn?.(session.sessionManager.getCwd(), stepIndex);
+			return undefined;
+		},
 		async output({ input, workspace, response, session }) {
 			const id = !Array.isArray(input) && typeof input === "object" ? input.id : undefined;
 			const resolved = behavioralCases.find((item) => item.id === id) ?? caseDefinition;

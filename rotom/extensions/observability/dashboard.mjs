@@ -360,7 +360,7 @@ export function toolEvidenceLabels(span) {
 	if (a["pi.tool.subagent_phase"] === "stop-request") labels.push([COPY.phase, COPY.stopRequested]);
 	if (a["pi.tool.coding_evidence_source"] === "tool-reported") {
 		if (a["pi.tool.mutation_status"] === "applied") labels.push([COPY.fileMutation, COPY.appliedToolReported]);
-		if (["succeeded", "failed"].includes(a["pi.tool.followup_status"])) labels.push([COPY.followUpCommand, `${a["pi.tool.followup_status"]} ${COPY.toolReportedNotVerification}`]);
+		if (["succeeded", "failed", "skipped"].includes(a["pi.tool.followup_status"])) labels.push([COPY.followUpCommand, `${a["pi.tool.followup_status"]} ${COPY.toolReportedNotVerification}`]);
 	}
 	if (typeof a["pi.tool.dispatch_acknowledged"] === "boolean") labels.push([COPY.dispatch, a["pi.tool.dispatch_acknowledged"] ? COPY.acknowledgedNotCompletion : COPY.notAcknowledgedUnknown]);
 	for (const [key, label, values] of [

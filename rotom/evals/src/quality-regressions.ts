@@ -88,6 +88,42 @@ for (const schemaVersion of [1,2,undefined]) {
 assert.throws(()=>register({schemaVersion:1},{add(){throw new Error('registry failure');}},()=>{}), /registry failure/);`,
 	},
 	{
+		id: "authenticated-cli-success-path",
+		prompt: "修复本地 CLI：启动和未登录检查正常，但登录后执行任务失败。client.mjs 的 run 应输出任务结果，并只统计 type=tool_call 的真实工具调用；result 上的空 hook_diagnostics 不是工具调用。保留未登录拒绝执行的行为。只使用本地离线输入，不访问账号或网络。",
+		editable: "src/events.mjs",
+		files: {
+			"src/events.mjs": "export function decode(frame) { if (frame.type === 'tool_call' || frame.hook_diagnostics) return { kind: 'tool', name: frame.name }; return { kind: 'result', text: frame.text }; }\n",
+			"client.mjs": `import { readFileSync } from 'node:fs';
+import { decode } from './src/events.mjs';
+const [command, sessionPath, eventsPath] = process.argv.slice(2);
+if (command === 'init') console.log('ready');
+else if (!JSON.parse(readFileSync(sessionPath, 'utf8')).authenticated) {
+ console.error('login required'); process.exitCode = 2;
+} else if (command === 'run') {
+ const events = JSON.parse(readFileSync(eventsPath, 'utf8')).map(decode);
+ const tools = events.filter(event => event.kind === 'tool');
+ if (tools.some(event => typeof event.name !== 'string' || !event.name)) {
+  console.error('invalid tool call'); process.exitCode = 3;
+ } else console.log(JSON.stringify({ tools: tools.length, result: events.filter(event => event.kind === 'result').map(event => event.text).join('') }));
+} else throw new Error('unknown command');
+`,
+			"signed-out.json": '{"authenticated":false}\n',
+			"signed-in.json": '{"authenticated":true}\n',
+			"result.json": '[{"type":"result","text":"delivery complete","hook_diagnostics":{}}]\n',
+			"with-tool.json": '[{"type":"tool_call","name":"read"},{"type":"result","text":"checked","hook_diagnostics":{}}]\n',
+		},
+		acceptance: `const { spawnSync } = await import('node:child_process');
+const run = (...args) => spawnSync(process.execPath, ['client.mjs', ...args], { encoding: 'utf8', timeout: 3000 });
+assert.equal(run('init').status, 0);
+assert.equal(run('run', 'signed-out.json', 'result.json').status, 2);
+const delivered = run('run', 'signed-in.json', 'result.json');
+assert.equal(delivered.status, 0, delivered.stderr);
+assert.deepEqual(JSON.parse(delivered.stdout), { tools: 0, result: 'delivery complete' });
+const withTool = run('run', 'signed-in.json', 'with-tool.json');
+assert.equal(withTool.status, 0, withTool.stderr);
+assert.deepEqual(JSON.parse(withTool.stdout), { tools: 1, result: 'checked' });`,
+	},
+	{
 		id: "warning-channel-boundary",
 		prompt: "修复 reportMissing(message, ctx)：交互模式 ctx.hasUI=true 时使用 ctx.ui.notify(message,'warning')，不能发 Node warning；非交互模式调用 process.emitWarning(message,{code:'MISSING_TOOL'})。不要全局覆盖或吞掉告警。",
 		editable: "src/warnings.mjs",
