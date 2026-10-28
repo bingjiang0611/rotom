@@ -261,6 +261,30 @@ test("staging uses an explicit file list and never copies source node_modules or
 	}
 });
 
+test("staged observability contains its static relative import graph", async (t) => {
+	const stage = join(temp(t), "package");
+	await stageRelease(SOURCE, stage);
+	const root = join(stage, "extensions/observability");
+	// stageRelease intentionally excludes npm dependencies. Check local source
+	// imports here; installed-package SDK smoke validates actual module loading.
+	function checkImports() {
+		const pending = [join(root, "index.ts")], visited = new Set();
+		while (pending.length) {
+			const path = pending.pop();
+			if (visited.has(path)) continue;
+			visited.add(path);
+			for (const match of readFileSync(path, "utf8").matchAll(/^import\s+[^;]*?from\s+["'](\.[^"']+)["']/gm)) {
+				const target = resolve(dirname(path), match[1]);
+				assert.ok(existsSync(target), `Missing staged import: ${target}`);
+				if (dirname(target) === root) pending.push(target);
+			}
+		}
+	}
+	checkImports();
+	rmSync(join(root, "trace-schema.ts"));
+	assert.throws(checkImports, /Missing staged import: .*trace-schema\.ts/);
+});
+
 test("packed inventory requires every runtime resource and license and excludes unexpected source artifacts", () => {
 	const paths = new Set(releaseFiles(manifest).filter((file) => file !== EMBEDDED_MODULES && file !== PI_MODULES));
 	for (const name of ["pi-telemetry", "pi-ai", "pi-tui", "pi-agent-core", "pi-codemode", "pi-mcp", "pi-coding-agent"]) for (const file of ["LICENSE", "package.json"]) paths.add(`${PI_MODULES}/@earendil-works/${name}/${file}`);
