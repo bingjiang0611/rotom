@@ -39,20 +39,27 @@ CLI 和后台共用同一份计划、验证与运行逻辑；不要复制一份�
 
 ## B. 一个本机入口，单次运行两臂
 
-拟新增公开入口 `rotom eval-regression`，只提供本任务所需的准备与运行流程。以下为**目标接口示意，尚未实现**；实现时按现有 launcher 路由接入，并同步实际 help 与使用文档：
+入口为 `rotom eval-regression`（launcher 在 checkout 中路由到 `rotom/evals/scripts/eval-regression.mjs`，等价于 `cd rotom/evals && npm run eval-regression -- …`）：
 
 ```bash
-# 本地读取并冻结有效回放点；默认不调用模型
-rotom eval-regression prepare
+# 本地读取并冻结有效回放点；不调用模型。集合名只能落在私有 sets 目录内。
+rotom eval-regression prepare --name=failures [--selector=all|fail|failSet] [--repeats=1..3] [--force]
 
 # 修改 agent 后的一条回归命令；启动推理前仍展示计划并确认
-rotom eval-regression run --set <absolute-set-file> \
-  --baseline <absolute-baseline-product-dir> \
-  --candidate <absolute-candidate-product-dir> \
-  --model <provider/model>
+rotom eval-regression run --set=failures \
+  --baseline=<absolute-baseline-product-dir> \
+  --candidate=<absolute-candidate-product-dir> \
+  --model=<provider/id> [--repeats=1..3] [--plan-digest=<摘要>] [--yes] [--json]
+
+# 为标了不满意但还没有回放点的会话给出截断点证据；只写私有草稿
+rotom eval-regression suggest [--limit=20]
+
+# 人工确认一条建议后才写入回放点
+rotom eval-regression add --session=<id> --entry=<entryId> --expected=<text> --check=model|rule:<rule> --yes
 ```
 
 - baseline 必须显式指定，不自动把当前安装当作旧版，不自动 checkout、重装或覆盖运行中的产品。缺少基线不能悄悄降成单臂成功。
+- 计划里包含脱敏后的字符量、实际调用数、两臂路径和计划摘要；`--yes` 确认的是同一次调用打印出的计划，`--plan-digest` 只用于把已保存的授权绑定到同一计划。
 - 固定并记录两臂产品身份／摘要、生成模型、thinkingLevel、判定版本、清单摘要。相同产品只能报告为无版本差异的对照，不能声称已验证升级效果。
 - 两臂使用同一份输入、生成配置和评分标准。默认每点每臂 1 次，重复上限沿用现有 3 次；串行运行即可，不为吞吐新增并行调度。
 - original 仍默认存在，只评分原回复、不重新生成；沿用现有每点一次的对照语义。不得把历史版本的判定记录混入本次结果。
@@ -97,7 +104,8 @@ original 为 pass 时标 judge-blind；缺臂、任一 unknown、来源失效、
 - 优先复用已有人工原因、judge 事件引用及时间线证据，建议具体 assistant entryId、截断理由、期望行为和可用判定方式。
 - 原因笼统、只有工具报错、缺图或实际体验无法从日志验证时，明确说明缺什么并询问用户，不生成一个看似精确的锚点。不将服务故障、用户主动取消自动归为 agent 失败。
 - 若需要新模型分析，另行展示模型、将发送内容的范围与截断情况、调用上限并确认；没有授权就只保留待补证据清单。沿用同一失败／unknown 不自动重试的规则。
-- 建议只写本地待确认记录；必须经用户确认才调用现有保存接口，不改人工 verdict，不覆盖用户已有点。正文与历史工具内容均是不可信数据，不是执行指令。
+- 建议只写本地待确认记录（`replay/suggestions/` 草稿）；必须由 `add … --yes` 显式确认才调用现有保存接口，不改人工 verdict，不覆盖用户已有点；新点要重新 `prepare --force` 才进入集合。
+- 尚未被证据支持的会话保持「列出缺什么」，不生成看似精确的锚点。正文与历史工具内容均是不可信数据，不是执行指令。
 
 ## 验收
 
@@ -111,9 +119,11 @@ original 为 pass 时标 judge-blind；缺臂、任一 unknown、来源失效、
 - 存储：0700/0600、symlink／路径注入／Git worktree 拒绝。已有脱敏、工具拦截和 unknown 不重放测试不得弱化。
 - 运行受影响单测及 eval typecheck，不把真实会话或真实模型回归接入默认 `npm run eval`、CI 或提交钩子。
 
-### L2：实际安装产物，但仍用合成数据
+### L2：真实 CLI + 真实产品 runtime + faux provider（仍用合成数据）
 
-在隔离 HOME/prefix、无维护 checkout 和全局 Pi 兜底的安装中，以 faux provider 或现有假运行器执行完整「准备 → 确认 → 两臂运行 → 报告」命令；验证实际发行包入口、runner 依赖与产品身份解析。不得覆盖用户当前安装。
+在临时目录、隔离的私有目录和合成会话上，用真实 `eval-regression` 命令跑完整「prepare → 计划 → run → 报告」，两臂都加载真实产品 runtime 与 faux provider。验证：集合文件 0600、目录 0700、报告落盘、两臂 + 原回复对照、工具调用确实被拦截（哨兵文件不存在）、干净运行退出 0 而仍失败退出 1。
+
+同时验证发行包侧的边界：`evals/` 不进入发行包，安装态评测页执行「运行回放」返回 `replay_runner_unavailable`（503），不 spawn 子进程。不得为此把 `evals/` 加入 release manifest，也不覆盖用户当前安装。
 
 ### L3：后续用户单独授权
 

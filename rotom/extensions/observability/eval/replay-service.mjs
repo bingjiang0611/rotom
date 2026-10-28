@@ -34,9 +34,16 @@ export async function resolveReplayBaseline(value) {
 	return { enabled: true, path: value };
 }
 
-export function createReplayService({ directory, sessionsRoot, product, armBaseline, sessionFile = (id) => join(sessionsRoot, `${id}.jsonl`), spawnProcess = spawn, node = process.execPath, env = process.env }) {
+export function createReplayService({ directory, sessionsRoot, product, armBaseline, sessionFile = (id) => join(sessionsRoot, `${id}.jsonl`), spawnProcess = spawn, node = process.execPath, env = process.env, runner = RUNNER }) {
 	if (!sessionsRoot || !product) throw new Error("replay service needs a session root and a product directory");
 	const runs = new Map();
+
+	// The npm package deliberately excludes evals/, so an installed product has no
+	// runner. Refusing here keeps the panel from spawning a child that cannot start.
+	async function requireRunner() {
+		const info = await lstat(runner).catch(() => undefined);
+		if (!info?.isFile() || info.isSymbolicLink()) throw evalError(503, "replay_runner_unavailable");
+	}
 
 	async function sessionDigest(sessionId) {
 		// Reading only to hash: the case needs a digest, not a copy of the session.
@@ -100,7 +107,8 @@ export function createReplayService({ directory, sessionsRoot, product, armBasel
 			// The comparison arm comes only from the explicit setting; guessing a
 			// baseline would compare the product with itself.
 			if (input.includeBaseline === true && !baseline.enabled) throw evalError(400, "baseline_unavailable");
-			const args = [RUNNER, `--product=${product}`, "--arm=candidate", `--model=${input.model}`, `--repeats=${repeats}`, `--cases=${ids.join(",")}`, `--directory=${directory}`, `--sessions=${sessionsRoot}`];
+			await requireRunner();
+			const args = [runner, `--product=${product}`, "--arm=candidate", `--model=${input.model}`, `--repeats=${repeats}`, `--cases=${ids.join(",")}`, `--directory=${directory}`, `--sessions=${sessionsRoot}`];
 			if (input.includeBaseline === true) args.push(`--arm-baseline=${baseline.path}`);
 			// Real sessions live in nested project folders, so the runner gets the
 			// resolved file per session instead of guessing a path. `ids` are case

@@ -173,6 +173,20 @@ require_supported_node() {
 	"$node_command" -e 'const [major] = process.versions.node.split(".").map(Number); if (major < 24) { console.error(`rotom: Node runtime ${process.versions.node} 不受支持；要求 >=24.0.0`); process.exit(1); }'
 }
 
+# Maintainer-only: replay the frozen failure set against two product builds. The
+# runner needs the eval harness, and evals/ is deliberately excluded from the
+# release manifest, so this must not be forwarded to Pi as a prompt.
+if [ "${1-}" = "eval-regression" ]; then
+	shift
+	regression_runner="$agent_dir/evals/scripts/eval-regression.mjs"
+	if [ ! -f "$regression_runner" ] || [ -L "$regression_runner" ]; then
+		echo "rotom: eval-regression 只在仓库 checkout 中可用（发行包不包含 evals/）" >&2
+		exit 2
+	fi
+	require_supported_node
+	exec "$node_command" "$regression_runner" "$@"
+fi
+
 if [ "$product_update" -eq 1 ]; then
 	require_supported_node
 	product_updater="$agent_dir/runtime/update-product.mjs"

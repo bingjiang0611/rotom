@@ -219,6 +219,20 @@ test("cancelling a running replay stops the runner", async () => {
 	service.close();
 });
 
+test("a release build without the replay runner refuses instead of spawning a dead child", async () => {
+	// The npm package excludes evals/, so an installed product has no runner. The
+	// panel must say so; spawning would surface a module error long after the click.
+	const space = await workspace();
+	const session = await synthetic(space);
+	const [first] = assistantIds(session.branch);
+	let spawned = 0;
+	const service = createReplayService({ directory: space.directory, sessionsRoot: space.sessions, product: space.root, runner: join(space.root, "missing", "session-replay.mjs"), spawnProcess: () => { spawned++; return spawn(process.execPath, ["-e", ""]); } });
+	const point = await service.add({ sessionId: session.id, cutEntryId: first, expected: "先查状态", check: { mode: "rule", rule: "nonempty-handoff" } });
+	await assert.rejects(() => service.start({ cases: [point.key], model: "faux/faux-1" }), (error) => error.status === 503 && error.code === "replay_runner_unavailable");
+	assert.equal(spawned, 0);
+	service.close();
+});
+
 test("a long real session is still readable", async (t) => {
 	// Real sessions run to tens of MB; a cap sized for small project files would
 	// make every long session unreadable instead of merely slow.

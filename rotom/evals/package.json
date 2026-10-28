@@ -10,6 +10,7 @@
 		"benchmark": "./bin/benchmark",
 		"benchmark:doctor": "./bin/benchmark doctor",
 		"eval": "./bin/eval",
+		"eval-regression": "./bin/eval-regression",
 		"eval:container": "./bin/eval-container",
 		"test": "./bin/test",
 		"check:quality": "./bin/test test/quality-contracts.test.ts test/quality-regressions.test.ts",

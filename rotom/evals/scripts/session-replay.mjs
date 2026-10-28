@@ -189,7 +189,7 @@ export async function main(argv = process.argv.slice(2)) {
 		// The label per point is computed from the rows just written, by the same
 		// function the dashboard list uses.
 		conclusions: replayConclusions(results),
-		runs: results.map((row) => ({ key: row.key, arm: row.arm, repetition: row.repetition, verdict: row.verdict, reason: row.reason, checkMode: row.checkMode, sameProduct: row.sameProduct, usage: row.usage })),
+		runs: results.map((row) => ({ key: row.key, arm: row.arm, repetition: row.repetition, verdict: row.verdict, reason: row.reason, checkMode: row.checkMode, judgePromptVersion: row.judgePromptVersion, sameProduct: row.sameProduct, usage: row.usage })),
 	};
 }
 
