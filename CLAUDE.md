@@ -35,17 +35,7 @@ rotom 当前通过仓内 `packages/rotom-pi/` 的 Pi fork 接入 `@earendil-work
 
 #### npm 正式发布顺序
 
-npm publish 是不可逆外部写入。只有用户明确授权精确 version 与 dist-tag 后才执行；缺少任一项就停下询问，不从“准备发布”推断写入授权。
-
-1. **先收口产品改动。** 功能、修复和非发布记录文档先各自验证并同步公开 `main`；进入发布后不再混入其他改动。从最新公开 `origin/main` 建独立干净 clone，使用 GitHub noreply identity，并用 Git 命令读取 commit SHA，禁止手填。确认远端没有不兼容移动、工作区干净、目标 npm version 尚不存在。
-2. **单独提交发布元数据并冻结。** 一次确定 package version、预期 dist-tag、`publishConfig.access=public`、`UNLICENSED` 与发行说明；同步 `rotom/package.json` 和相关文档并先 fast-forward 推送，以该 commit 作为唯一构建源。Pi 源码或构建器变化时在此之前完成 `build:pi` / `check:pi`。
-3. **只接受一个最终产物。** 在公开 clone 中仅对冻结 commit 成功执行一次 `npm run pack:release -- /absolute/output-dir`；只继承标准代理路由变量，不读用户全局 npmrc，不并发重度任务，不循环 pack。任何会改变 package 内容的后续修改都会使 tgz 失效，必须回到第 1 步重新冻结和构建。
-4. **围绕实际 tgz 验证。** 记录文件数、压缩/解包大小、SHA-256 与 SRI；审计实际 tgz，并按 [verification.md](docs/agent/verification.md) 在隔离 HOME/prefix、PATH 无全局 Pi 的环境完成安装、`rotom --version`、default/full smoke、`check-personal`、升级与卸载检查。不得用源码目录测试、dry-run 或旧 artifact 替代最终 tgz。
-5. **npm 认证只交给用户的前台终端。** 已配置 GitHub Actions Trusted Publishing 时优先使用 OIDC；否则 Agent 不运行 `npm login`、不启动 Terminal/浏览器、不代填账号，也不接触密码、OTP、恢复码或短时 token。Agent 先用 `node scripts/npm-release-handoff.mjs commands <absolute-tgz> <tag>` 生成分阶段精确命令，向用户逐段贴出；用户在自己的前台终端执行 login、`npm whoami` 与网页确认并回报结果，Agent 独立只用 registry 查询核对公开状态。除非用户在看到精确命令后另行明确要求 Agent 执行，后续发布均遵守此交接方式。
-6. **发布命令由用户执行一次。** Agent 再次确认公开 commit、目标 version 空缺、预期 dist-tag、固定 tgz 的 SHA-256/SRI 与授权一致，然后贴出 `npm publish <tgz> --ignore-scripts --access public --tag <tag> --registry=https://registry.npmjs.org`，不得自行执行。若出现 `EOTP`，用户只处理 npm 在该前台命令中显示的官方 challenge；Agent 先查 registry，不根据错误文本盲目要求重发。发布后运行 handoff helper 的 `verify`，只有 registry version/tag/digest 与下载字节全一致才进入安装阶段；本机切换命令也贴给用户执行，Agent 仅只读回验。
-7. **区分 submitted、reviewing 与 verified。** HTTP 202、CLI exit 0 或“being processed”只表示 npm 已接收，不表示已公开。目标 version 在 registry 尚不可见时，若 Browser Relay 可用，先只读检查 npm 官方 package 的 Versions 页；页面明确显示该 version 为 `Validating` 或 “Automated review hasn't finished” 时，立即告知用户“npm 正在自动审核，审核完成前版本不可用”，将状态记为 `reviewing` 并暂停当前发布流程。审核期间绝不重复 publish，也不更新本机安装、不写正式发布记录、不创建 release tag；用户后续要求继续时先只读复核页面与 registry。无法证明处于审核中时，才每 30–60 秒只读查询精确 version 与 dist-tag，最多 30 分钟；到时仍不可见则标记 `unknown` 并交接。`0.1.0` 曾实测异步处理约 25 分钟，不能把等待误判为失败。
-8. **用 registry 证明结果。** 只有精确 version、预期 dist-tag、integrity、shasum 与 tarball URL 同时出现，并且下载 tarball 的摘要及字节与最终 tgz 一致，才算 npm 发布完成。
-9. **最后记录和清理。** 在公开 clone 记录构建源 commit、验证结果和 artifact 摘要，创建注解 `v<version>` tag，并将 release commit 与 tag 原子 fast-forward push；随后同步本地 tracked tree。Agent 向用户贴出 helper 生成的 logout、`npm whoami` 失败回读及临时认证目录删除命令，由用户在同一前台终端执行并回报；随后 Agent 再删除本次创建的 clone、staging 和 artifact 路径。
+npm 发布前必须完整阅读并遵守 [npm 正式发布顺序](docs/agent/npm-release-procedure.md)。该文档是本文件的强制合同，保留精确 version/dist-tag 授权、独立公开 clone、冻结构建源、最终 tgz 验证、用户前台认证/发布、registry 核验和清理顺序；不得以本文未展开为由跳过。发布前进入 `main` 同样受下文 main 回归门禁约束。
 
 ### 2. 运行时资源必须可证明
 
@@ -65,18 +55,7 @@ extension、bundled skill 与第三方 package 是产品合同，不是“目录
 
 ### 3. 工具面要小、显式且诚实
 
-Context Layers 是用户明确要求独立实现并默认启用的新产品 extension（`ROTOM_CONTEXT_LAYERS=0` 可关闭），不是恢复旧 `ROTOM_CONTEXT_FOLD`。提供 `context_status` / `context_compress` / `context_recall` 三个 sequential、model-only 工具；使用 Pi session 原始条目和 `context_edit`，最多三级摘要，成功 turn_end 才提交，不覆盖原文。恢复只读当前分支；中断多条追加可能留下 partial，不能自动重放或冒充原子事务。默认开启不代表节省费用：Qoder 恢复测试通过，小型对照 credits 更高。合同、证据和限制见 [Context Layers](docs/agent/context-layers.md)。
-
-默认 deferred-tool loading 常驻 core、Codemode、Ask、Browser/Computer Use、Goal 四工具、Context Layers 三工具与 `search_tools`，只把 Subagent 按需 additive 激活。内置 SoL-Pi 在无用户配置文件时默认开启 Action Fusion（替换 `edit`/`write`）、Observation Pack（`obs_recall`）与会额外请求 `openai-codex/gpt-5.6-luna` 的 Reducer；Compaction Offload 默认开启（`ROTOM_COMPACTION_OFFLOAD=0` 关闭）：阈值压缩前先把旧的中等工具结果换成 `obs_recall` 指针，空间够就推迟原生摘要；回放实测见 `docs/agent/compaction-offload.md`；内置 pi-context-view 只加 `/context` 命令。Goal `0.54.4-rotom.9` 默认自动额度为 100 次模型响应（显式用户设置优先），剩余额度与最后记录的续跑计划仅供状态展示，不证明进展、不授权重放；从启动起保持四个稳定 schema；工具可见不等于 Goal 模式启用，无 active goal 时拒绝执行，也不覆盖显式工具限制。默认要求 `goal_continue` 显式声明单次续跑；缺失声明暂停，控制调用不算进展。Provider 恢复只由 Pi 统一有界重试，Goal 不叠加重试；恢复中公开 activity，耗尽后以持久 stopReason 暂停，不再伪装无截止的 active 等待。唯一例外是可证明请求未发出的连接阶段失败（DNS、拒绝/不可达连接、连接超时、代理隧道或 TLS 建立失败，错误显示为 `… (caused by: <socket 原因>)`，及 `Qoder: connection_failed`）：参照 Codex 只对 connect 错误无限重试，Pi 以同一封顶退避等待网络恢复，不占 `retry.maxRetries` 额度，TUI 显示 “Reconnecting... waiting for network”，用户中断或 `retry.enabled:false` 才停止。无原因的 `fetch failed`、发送后重置（可能已被处理计费）与流中断开（`terminated`、WebSocket、超时）仍走有界预算。会话恢复暂停非 waiting 的活跃目标；idle active 可显式 resume，但不得抢占运行、恢复或已排队工作，也不重放保存计划或成功/unknown 工具操作。共享提示合同先查证目标、验收与写入边界；缺少授权或关键决策时立即询问并暂停，不凑三轮技术 blocker；重试须有新证据或可检验假设；三轮只限制 `goal_blocked`，已证实外部前置条件且无有意义的下一步时直接暂停，不为凑轮次重复检查。外部写入 unknown 只读核验、不盲目重放；审阅拒绝只表示验收未获支持，不授权重做成功/unknown 写入，缺证据先只读核验，无新证据或合理修复则暂停。这是模型行为指引，不是权限拦截器，不缩小原始目标或降低完成标准。`goal_complete` 默认启用有界、当前模型、文件只读的 completion reviewer，不创建嵌套 AgentSession、不加载项目资源；额外用量单列且计入 Goal token admission，USD/credits unknown。审计尝试先持久化、unknown 不重放、resume/edit 不补额度，结果绑定当前 Goal/run 及实读证据；是第二意见，不是真实外部验收或 OS 沙箱。明确的用户设置 `completionReview:false` 可关闭 reviewer。它是 context-footprint 优化，不是安全沙箱。
-
-- Pi 基线为 `1.4.0-rotom.2`（上游 `v1.4.0` 合并，见 [Pi 1.4.0 对齐](docs/agent/pi-1.4-migration.md)）；Codemode 独立启用。上游分类模型/API、虚拟模型路由 API 与内置 MCP 均保留：产品不自带分类器调用或虚拟模型，只有扩展注册虚拟模型或用户在 `mcp.json` 配置 server 时才生效；`rotom mcp …` 与 Pi 包管理命令一样原样透传。Goal/Ask/Subagent/Browser/Computer Use 使用 `model-only`，不可从 Codemode 嵌套调用；普通文件工具仍可编排。显式工具选择仍优先。
-- Goal 预算计入已报告的 tool-result/model/summary usage；旧 Goal 基线一次迁移、不追收历史辅助用量。reviewer 使用当前选中的普通模型，不进行分类或自动路由；没有选中模型保持 unknown。
-- `ROTOM_DEFERRED_TOOLS=0` 必须恢复完整工具面。
-- 用户显式 `--tools`、`--exclude-tools` 或 runtime policy 优先；launcher 仅在没有 tool-selection flag 时授权 loader 收窄 reviewed default，extension/SDK 直载默认保留调用方 active set；用户 extension 新增的非 deferred 工具同样保留。
-- 已加载 specialized tools 在当前 session 内不主动移除；group state 与 active tool 子序列按 product declaration order canonicalize，相同 group 集合不因加载顺序产生不同最终 identity。
-- resume/fork 必须恢复 capability state；升级前无 deferred state 的旧 session 允许首次多一次 `search_tools`。
-- 不把静态 bytes、byte/4 或固定 canary 写成 provider 精确 token、成本或全局延迟收益。
-- 新能力只有接入完成并通过对应 L1/L2/L3 后才能对外声明为已启用；当前事实以运行时合同、测试和本文件为准。
+修改工具面、Goal、Context Layers 或默认行为前，必须完整阅读并遵守 [工具面合同](docs/agent/tool-surface-contract.md)。该文档是本节的完整强制合同，保留当前默认、显式工具选择优先、恢复/重试、辅助用量与真实验收边界，不得按摘要推断新能力已启用。
 
 ### 4. 本机执行不等于安全隔离
 
@@ -138,12 +117,15 @@ Browser relay 的后台标签、AX/DOM ref、viewport、document generation 和 
 
 按风险选能证明本次改动的最小验证；具体命令、扩大门与发布 gate 见 [verification.md](docs/agent/verification.md)。
 
-- 纯文档/Agent 配置：`git diff --check` 并核对引用路径、命令、合同与边界；不构建、不启动 App、不升版本。改可执行脚本按代码处理。
+- 纯文档/Agent 配置的本地验证：`git diff --check` 并核对引用路径、命令、合同与边界；不构建、不启动 App、不升版本。改可执行脚本按代码处理。进入 `main` 前仍须额外满足下述真实回归门禁，不受本条豁免。
 - 普通代码：运行受影响测试及本项目对应 type/lint/build，不把全量发布 gate 套到小改动。
 - UI 修复：记录原始操作、预期及相邻路径，补 focused 回归，在当前版本真实 App 重放；构建/自动测试与真实交互结果分别报告，截图/设备/Provider 不可用则明确未验证。
 - 跨核心安全/持久化边界、高风险合入或发布：真实外部操作、成本和设备授权不可由本地测试替代。
 - 可继续修授权范围内的本地失败并重跑受影响检查；既有失败单列、不顺手扩大，外部未知/授权不足/需用户决定时停下交接。
-- 本仓库已明确要求持续同步公开仓库：完成并验证每次任务后，除非用户明确要求不推送，默认将本次相关改动以可读 commit 粒度同步到公开 `origin/main`，不等到 npm 打包或 release 才集中推送；已有 WIP、敏感内容和未验证改动不混入。
+- 本仓库已明确要求持续同步公开仓库：完成并验证每次任务后，除非用户明确要求不推送，默认将本次相关改动以可读 commit 粒度同步到公开仓库；目标为 `main` 时，必须先通过下述门禁，不得以默认推送行为跳过。用户指定功能分支时仅推该分支；已有 WIP、敏感内容和未验证改动不混入。
+- **main 强制回归门禁**：每次直接推送到 `main`，或合并任何分支/PR 到 `main` 之前，必须按 [main 回归门禁](docs/agent/eval-system/main-regression-gate.md) 跑一次本机失败集真实回归。纯文档、发布元数据等变更也不豁免；L1 测试、faux、prepare 或旧报告不能代替本次运行。
+- 基线必须来自本次 fetch 得到的最新 `origin/main`；候选必须是最终拟进入 `main` 的完整代码树（合并时含目标分支的整合结果）。使用完整、有效的冻结失败集，以及同一已确认模型/配置。只有本次运行退出 0、覆盖完整且全部点为 `stable-pass` 或 `improved` 才放行；失败、unknown、缺失证据或未运行均阻止推送/合并。
+- 真实运行会发送私有上下文并产生费用：先展示计划并取得针对该计划的授权。缺模型、授权、有效失败集、可用基线或运行环境时暂停，不能静默跳过、缩小清单或用假数据通过。报告只留本机；推送/合并前复核 main 未前移、候选与计划未变，变化则重新验证。此规则是 Agent 执行门禁，不冒充 GitHub 分支保护。
 - 本地维护历史与公开历史分叉时，不直接或强制推送私有历史；从最新公开基线创建独立干净副本，以 GitHub noreply 身份重放本次 diff，运行 public audit 后仅作 fast-forward push。报告实际检查、未验证项和远端 commit，不用 L1/L2 冒充 L3。
 
 ## 代码风格与品味
