@@ -1,12 +1,13 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { createJudge, describeEval } from "vitest-evals";
-import { createReplayHarness, REPLAY_TASKS, LIVE_AUTHORIZATION, LIVE_REPLAY_TIMEOUT_MS } from "../src/compaction-offload-cases.ts";
+import { createReplayHarness, REPLAY_PRODUCT, REPLAY_TASKS, LIVE_AUTHORIZATION, LIVE_REPLAY_TIMEOUT_MS } from "../src/compaction-offload-cases.ts";
 import { FAUX_MODEL, replayFaux, type FauxObservation } from "../src/compaction-offload-faux.ts";
 import type { ReplayMetrics } from "../src/compaction-offload-metrics.ts";
 import type { PiCodingAgentInput } from "../src/pi-harness.ts";
 import { evalHarnessTable } from "../src/vitest-evals/harness-table.ts";
 import { validateLiveReplay } from "../src/compaction-offload-budget.ts";
-import { createLiveReplayCampaign } from "../src/compaction-offload-live.ts";
+import { authorizedRuntimeFactory, createLiveReplayCampaign } from "../src/compaction-offload-live.ts";
+import { loadProductRuntime } from "../src/product-runtime.ts";
 import type { LiveReplayRow } from "../src/compaction-offload-store.ts";
 
 // Authorization constants alone never enable live execution.
@@ -19,7 +20,10 @@ if (process.env.ROTOM_EVAL_COMPACTION_OFFLOAD !== "1" && !live) {
 	const plan = validateLiveReplay(process.env, LIVE_AUTHORIZATION);
 	if (plan.tasks?.some(id => !REPLAY_TASKS.some(task => task.id === id))) throw new Error("Unknown authorized replay task");
 	const tasks = REPLAY_TASKS.filter(task => !plan.tasks || plan.tasks.includes(task.id));
-	const campaign = createLiveReplayCampaign(plan.authorization, { repetitions: plan.repetitions });
+	const { runtime } = await loadProductRuntime({ agentDir: REPLAY_PRODUCT });
+	const campaign = createLiveReplayCampaign(plan.authorization, {
+		repetitions: plan.repetitions, runtimeFactory: authorizedRuntimeFactory(runtime.getAgentDir()),
+	});
 	afterAll(() => { console.log(JSON.stringify({ compactionOffloadPairedSummary: campaign.summary() })); });
 	for (const task of tasks) for (let repetition = 1; repetition <= plan.repetitions; repetition++) {
 		for (const candidate of repetition % 2 ? [false, true] : [true, false]) {

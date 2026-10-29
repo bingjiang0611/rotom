@@ -7,9 +7,13 @@ vi.mock("../../src/compaction-offload-cases.ts", async () => ({
 	...await vi.importActual("../../src/compaction-offload-cases.ts"),
 	LIVE_AUTHORIZATION: { id: "entry-fixture-only", provider: "entry-faux", model: "replay", thinking: "low", maxRepetitions: 3, maxRequests: 3000, maxInputTokens: 140_000_000 },
 }));
+vi.mock("../../src/product-runtime.ts", async (importOriginal) => ({
+	...await importOriginal<typeof import("../../src/product-runtime.ts")>(),
+	loadProductRuntime: async () => ({ runtime: { getAgentDir: () => "/synthetic-source-agent" } }),
+}));
 vi.mock("../../src/compaction-offload-live.ts", async () => {
 	const { createHarness } = await import("vitest-evals/harness");
-	return { createLiveReplayCampaign: () => ({
+	return { authorizedRuntimeFactory: () => () => { throw new Error("No runtime in entry fixture"); }, createLiveReplayCampaign: () => ({
 		summary: () => ({ executedRuns: state.executed, unusableRuns: 3 }),
 		harness: () => createHarness({ name: "entry-faux", run() {
 			const index = ++state.executed;

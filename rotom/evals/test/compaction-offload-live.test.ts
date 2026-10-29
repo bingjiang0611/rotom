@@ -1,6 +1,6 @@
 import { mkdtemp, readFile, readdir, rm, stat, symlink, rename, unlink, chmod } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { pathToFileURL } from "node:url";
 import type { ReplayMessage as AssistantMessage, ReplayStream } from "../src/compaction-offload-budget.ts";
@@ -10,6 +10,7 @@ import { authorizedRuntimeFactory, createLiveReplayCampaign } from "../src/compa
 import { createReplayStore, type LiveReplayRow } from "../src/compaction-offload-store.ts";
 import { FAUX_MODEL, replayFaux, type FauxObservation } from "../src/compaction-offload-faux.ts";
 import * as metrics from "../src/compaction-offload-metrics.ts";
+import { loadProductRuntime } from "../src/product-runtime.ts";
 
 const { AssistantMessageEventStream } = await import(pathToFileURL(resolve(REPLAY_PRODUCT, "runtime/pi/node_modules/@earendil-works/pi-ai/dist/index.js")).href) as { AssistantMessageEventStream: new () => ReplayStream };
 const roots: string[] = [];
@@ -45,13 +46,19 @@ it("rejects missing authorization and validates explicit synthetic test grants",
 	for (const value of ["4", "0", "-1", "1.5", "3 ", "", "NaN"]) expect(() => validateLiveReplay({ ...env, ROTOM_EVAL_REPETITIONS: value }, testAuthorization)).toThrow();
 });
 
-it("captures the original credential/model paths without reading them during registration", async () => {
-	vi.stubEnv("PI_CODING_AGENT_DIR", "/synthetic-original-agent");
-	const factory = authorizedRuntimeFactory();
+it.each([
+	["/synthetic-original-agent", "/synthetic-original-agent"],
+	["~/synthetic-original-agent", join(homedir(), "synthetic-original-agent")],
+])("captures verified runtime paths before isolation: %s", async (configured, expected) => {
+	vi.stubEnv("PI_CODING_AGENT_DIR", configured);
+	const { runtime } = await loadProductRuntime({ agentDir: REPLAY_PRODUCT });
+	const create = vi.spyOn(runtime.ModelRuntime, "create").mockResolvedValue({} as any);
+	const factory = authorizedRuntimeFactory(runtime.getAgentDir());
+	expect(create).not.toHaveBeenCalled();
 	vi.stubEnv("PI_CODING_AGENT_DIR", "/synthetic-isolated-agent");
-	const create = vi.fn(async () => ({}));
-	await factory({ configDir: "/synthetic-isolated-agent", product: { runtime: { ModelRuntime: { create } } } } as any);
-	expect(create).toHaveBeenCalledExactlyOnceWith({ authPath: "/synthetic-original-agent/auth.json", modelsPath: "/synthetic-original-agent/models.json", refreshOnCreate: false });
+	expect(runtime.getAgentDir()).toBe("/synthetic-isolated-agent");
+	await factory({ configDir: "/synthetic-isolated-agent", product: { runtime } } as any);
+	expect(create).toHaveBeenCalledExactlyOnceWith({ authPath: join(expected, "auth.json"), modelsPath: join(expected, "models.json"), refreshOnCreate: false });
 	expect(fetch).not.toHaveBeenCalled();
 });
 

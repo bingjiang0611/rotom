@@ -78,7 +78,7 @@ npm --prefix rotom/evals run eval -- \
 - 原生 session 独立核对：17 条 assistant 消息、27 次 read 调用，其中 18 次成功、9 次被路径门禁拒绝后纠正。`local-exact` 的 baseline/candidate 分别有 3/6 次错误读取，均已记录；不能将“答案合同通过”写成无工具错误或整体质量提升。
 - 该最终轮 reported tokens 34,597，catalog 估算 $0.00672184，不是账单。此前门禁验证轮另存且不混算：47,909 tokens、估算 $0.00971452。
 - skill 结构、链接、Pi 原生发现通过；8 个关键词路由样例通过，不代表已证明模型自动选用的准确率。启用 suite 但缺少模型/产品配置时，以失败状态退出且未运行样本。
-- 扩大检查发现公开基线已有的 `compaction-offload-live.ts` Pi package 解析失败（3 个 suite 导入失败，另 2 个测试失败）；相关代码和依赖合同未改动，本次未修复，不宣称全量 eval 测试通过。
+- 当时的扩大检查因 `compaction-offload-live.ts` 裸包导入 Pi 而失败（3 个 suite 导入失败，另 2 个测试失败）。后续已修复：改用产品已校验的 runtime，授权检查通过后才捕获原始凭据目录，不重新引入独立 Pi 依赖。干净公开 checkout 全量重跑为 **259 passed / 1 个可选 sidecar skipped**，typecheck 通过；覆盖凭据路径隔离、未授权时不加载 runtime 及原有 `--bail` 行为，未调用付费模型。
 
 ## 本次探索保留的结论
 

@@ -1,7 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { createHarness } from "vitest-evals/harness";
 import { createReplayHarness, REPLAY_KEEP_RECENT, REPLAY_PRODUCT, REPLAY_THRESHOLD, type ReplayTask } from "./compaction-offload-cases.ts";
 import { ReplayBudget, type ReplayAuthorization } from "./compaction-offload-budget.ts";
@@ -12,19 +11,18 @@ import type { PiCodingAgentHarnessOptions, PiCodingAgentInput } from "./pi-harne
 
 type RuntimeFactory = NonNullable<PiCodingAgentHarnessOptions["modelRuntimeFactory"]>;
 
-export function authorizedRuntimeFactory(): RuntimeFactory {
-	// Capture BEFORE setupWorkspace binds PI_CODING_AGENT_DIR to the isolated
-	// SoL-Pi directory. Only this deferred factory reads the real credential store.
-	const agentDir = getAgentDir();
+export function authorizedRuntimeFactory(agentDir: string): RuntimeFactory {
+	// The caller captures this path from the verified product runtime BEFORE
+	// setupWorkspace changes it. Only this deferred factory reads credentials.
 	return async ({ product }) => product.runtime.ModelRuntime.create({
 		authPath: join(agentDir, "auth.json"), modelsPath: join(agentDir, "models.json"), refreshOnCreate: false,
 	});
 }
 
-export function createLiveReplayCampaign(authorization: ReplayAuthorization, options: { directory?: string; runtimeFactory?: RuntimeFactory; repetitions?: number } = {}) {
+export function createLiveReplayCampaign(authorization: ReplayAuthorization, options: { directory?: string; runtimeFactory: RuntimeFactory; repetitions?: number }) {
 	const budget = new ReplayBudget(authorization);
 	const repetitions = options.repetitions ?? authorization.maxRepetitions;
-	const runtimeFactory = options.runtimeFactory ?? authorizedRuntimeFactory();
+	const runtimeFactory = options.runtimeFactory;
 	let storePromise: ReturnType<typeof createReplayStore> | undefined;
 	let persistenceFailed = false;
 	let running = false;

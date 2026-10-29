@@ -94,6 +94,8 @@ it("requires exact task authorization and rejects direct out-of-scope harness co
 	expect(() => validateLiveReplay(env, grant)).toThrow("tasks");
 	expect(() => validateLiveReplay({ ...env, ROTOM_EVAL_COMPACTION_OFFLOAD_TASKS: "config-aggregate" }, grant)).toThrow("tasks");
 	expect(() => validateLiveReplay({ ...env, ROTOM_EVAL_COMPACTION_OFFLOAD_TASKS: "multi-file-fix" }, authorization)).toThrow("tasks");
-	expect(() => createLiveReplayCampaign(grant).harness(REPLAY_TASKS[0]!, false, 1)).toThrow("not authorized");
+	const runtimeFactory = vi.fn();
+	expect(() => createLiveReplayCampaign(grant, { runtimeFactory }).harness(REPLAY_TASKS[0]!, false, 1)).toThrow("not authorized");
+	expect(runtimeFactory).not.toHaveBeenCalled();
 	expect(fetch).not.toHaveBeenCalled();
 });

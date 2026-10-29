@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterEach, expect, it, vi } from "vitest";
-import { LIVE_REPLAY_TIMEOUT_MS } from "../src/compaction-offload-cases.ts";
+import { LIVE_REPLAY_TIMEOUT_MS, REPLAY_PRODUCT } from "../src/compaction-offload-cases.ts";
 import evalConfig from "../vitest.config.ts";
 
 const testAuthorization = { id: "registration-test-only", provider: "openai-codex", model: "gpt-5.6-luna", thinking: "low", maxRepetitions: 3, maxRequests: 2000, maxInputTokens: 100_000_000 };
@@ -11,9 +11,19 @@ const registrations: { name: string; options: any }[] = [];
 const registeredTests: unknown[][] = [];
 const campaign = { harness: vi.fn((task, candidate, repetition) => ({ name: candidate ? "candidate" : "baseline", task: task.id, repetition })), summary: () => ({ validPairs: 0 }) };
 const create = vi.fn((..._args: unknown[]) => campaign);
-// The live module is replaced before the entry module can execute it. These
-// registration tests cannot create a ModelRuntime or read a credential file.
-vi.mock("../src/compaction-offload-live.ts", () => ({ createLiveReplayCampaign: (...args: unknown[]) => create(...args) }));
+const runtimeFactory = vi.fn();
+const resolveAgentDir = vi.fn(() => "/synthetic-source-agent");
+const loadProduct = vi.fn(async (..._args: unknown[]) => ({ runtime: { getAgentDir: resolveAgentDir } }));
+const authorizeRuntime = vi.fn((_agentDir: string) => runtimeFactory);
+// Registration cannot load a real runtime, create ModelRuntime or read credentials.
+vi.mock("../src/product-runtime.ts", async (importOriginal) => ({
+	...await importOriginal<typeof import("../src/product-runtime.ts")>(),
+	loadProductRuntime: (...args: unknown[]) => loadProduct(...args),
+}));
+vi.mock("../src/compaction-offload-live.ts", () => ({
+	createLiveReplayCampaign: (...args: unknown[]) => create(...args),
+	authorizedRuntimeFactory: (agentDir: string) => authorizeRuntime(agentDir),
+}));
 vi.mock("vitest-evals", () => ({
 	describeEval: (name: string, options: any, define: Function) => {
 		registrations.push({ name, options });
@@ -32,7 +42,10 @@ function liveEnv(authorization: (typeof testAuthorization & { tasks?: string[] }
 it("live entry shares exactly one campaign across all 18 alternating runs", async () => {
 	liveEnv();
 	await import("../cases/compaction-offload.eval.ts");
-	expect(create).toHaveBeenCalledExactlyOnceWith(testAuthorization, { repetitions: 3 });
+	expect(loadProduct).toHaveBeenCalledExactlyOnceWith({ agentDir: REPLAY_PRODUCT });
+	expect(resolveAgentDir).toHaveBeenCalledTimes(1);
+	expect(authorizeRuntime).toHaveBeenCalledExactlyOnceWith("/synthetic-source-agent");
+	expect(create).toHaveBeenCalledExactlyOnceWith(testAuthorization, { repetitions: 3, runtimeFactory });
 	expect(campaign.harness).toHaveBeenCalledTimes(18);
 	expect(LIVE_REPLAY_TIMEOUT_MS).toBe(30 * 60_000);
 	expect(registeredTests).toHaveLength(18);
@@ -65,6 +78,7 @@ it("faux registration keeps the global deadline and does not construct a live ca
 	vi.stubEnv("ROTOM_EVAL_PROVIDER", "rotom-offload-faux"); vi.stubEnv("ROTOM_EVAL_MODEL", "replay");
 	await import("../cases/compaction-offload.eval.ts");
 	expect(create).not.toHaveBeenCalled();
+	expect(loadProduct).not.toHaveBeenCalled();
 	expect(registeredTests).toHaveLength(18);
 	for (const args of registeredTests) {
 		expect(args).toHaveLength(2); expect(typeof args[1]).toBe("function");
@@ -75,7 +89,7 @@ it("faux registration keeps the global deadline and does not construct a live ca
 it("a smaller authorized N is passed to the campaign and only schedules that N", async () => {
 	liveEnv(); vi.stubEnv("ROTOM_EVAL_REPETITIONS", "1");
 	await import("../cases/compaction-offload.eval.ts");
-	expect(create).toHaveBeenCalledExactlyOnceWith(testAuthorization, { repetitions: 1 });
+	expect(create).toHaveBeenCalledExactlyOnceWith(testAuthorization, { repetitions: 1, runtimeFactory });
 	expect(registrations).toHaveLength(6);
 });
 it.each([{ tasks: ["multi-file-fix"] }, { tasks: ["multi-file-fix", "config-aggregate"] }])("selects only authorized tasks %j in the original task order", async ({ tasks }) => {
@@ -96,17 +110,20 @@ it.each([
 	liveEnv({ ...testAuthorization, tasks }); vi.stubEnv("ROTOM_EVAL_COMPACTION_OFFLOAD_TASKS", env);
 	await expect(import("../cases/compaction-offload.eval.ts")).rejects.toThrow(/task/iu);
 	expect(create).not.toHaveBeenCalled();
+	expect(loadProduct).not.toHaveBeenCalled();
 });
 
 it("missing authorization rejects the entry before any campaign is constructed", async () => {
 	liveEnv(null);
 	await expect(import("../cases/compaction-offload.eval.ts")).rejects.toThrow("no authorization");
 	expect(create).not.toHaveBeenCalled();
+	expect(loadProduct).not.toHaveBeenCalled();
 });
 it("a mismatched real model is rejected at entry, not just by a helper", async () => {
 	liveEnv(); vi.stubEnv("ROTOM_EVAL_MODEL", "unauthorized");
 	await expect(import("../cases/compaction-offload.eval.ts")).rejects.toThrow("exactly match");
 	expect(create).not.toHaveBeenCalled();
+	expect(loadProduct).not.toHaveBeenCalled();
 });
 
 it("the actual Vitest --bail=1 path skips provider errors and invalid samples but stops on the third unusable sample", async () => {
