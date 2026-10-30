@@ -138,6 +138,12 @@ npm --prefix rotom/evals run typecheck
 
 本次验证（2026-10-30）：新增 30 项离线检查通过；连同 task-closure、identity、harness、runtime 和 A/B table，在公开基线 `54a62c1` 的独立副本上共 **124 passed / 1 既有可选 skipped**，Node 24.18.0，typecheck 通过。共享文件工具边界的原有回归全部保留。禁用、缺配置、未知 case、非法重复数四项入口检查均符合预期且运行 0 模型样本。未运行真实模型 A/B，未改变运行时行为。
 
+## 收尾与目标保持的真实模型探索（2026-10-30）
+
+后续授权后完成 `qoder/dfmodel / high` 的 8 批、200 个样本。[完整结果与拒绝交付的原因](agent-behavior-ab-20261030.md)：最终两组各 27/30，完整配对 baseline 26/27、candidate 25/27，未证明收益，候选运行时提示全部撤回。
+
+两套 runner 现在都通过同一 `before_agent_start` 系统合同明确调用方的非 Git 工作区、固定命令和 JSON-only 协议，避免让低优先级 README 与产品系统提示冲突。`src/fixture-tools.ts` 集中合同；原工具门禁和隐藏 judge 不变。`test/coding-policy-request.test.ts` 在原生标准化模型请求中验证产品提示与调用方合同的组合，并提供未追加合同的对照。后续对比必须两组都使用同一版 runner，不混合修正前后的分数。
+
 ## 当前实现的验证（2026-10-28）
 
 - Node 24.18.0：新增 26 个离线测试通过；连同 harness、runtime、A/B table 检查共 58 passed、1 个既有可选 sidecar 检查 skipped；typecheck 通过。

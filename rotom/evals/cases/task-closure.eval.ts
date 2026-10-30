@@ -6,6 +6,7 @@ import { createJudge, describeEval } from "vitest-evals";
 import { createPiCodingAgentHarness, type PiCodingAgentInput } from "../src/pi-harness.ts";
 import { assertClosureTool, closureCases, closureFixtureFiles, closureFixturesIntact, closureOutputInstruction, scoreClosure, type ClosureCase, type ClosureOutput } from "../src/task-closure-regressions.ts";
 import { evalHarnessTable } from "../src/vitest-evals/harness-table.ts";
+import { fixtureExecutionPolicy } from "../src/fixture-tools.ts";
 
 const enabled = process.env.ROTOM_EVAL_TASK_CLOSURE === "1";
 if (!enabled) {
@@ -37,8 +38,9 @@ if (!enabled) {
 				verifications = [];
 				let turns = 0;
 				const admittedVerifications = new Set<string>();
-				pi.on("before_agent_start", () => {
+				pi.on("before_agent_start", (event) => {
 					if (pi.getActiveTools().slice().sort().join(",") !== "bash,edit,read") throw new Error("Unexpected active tool surface.");
+					return { systemPrompt: `${event.systemPrompt}\n\n${fixtureExecutionPolicy}` };
 				});
 				pi.on("turn_start", (_event, ctx) => { if (++turns > 12) ctx.abort(); });
 				pi.on("tool_call", async (event, ctx) => {

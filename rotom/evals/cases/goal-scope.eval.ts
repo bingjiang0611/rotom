@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url";
 import { describe } from "vitest";
 import { createJudge, describeEval } from "vitest-evals";
 import { createPiCodingAgentHarness, type PiCodingAgentInput } from "../src/pi-harness.ts";
-import { assertFixtureTool, fixturesIntact, readEditableFiles } from "../src/fixture-tools.ts";
+import { assertFixtureTool, fixtureExecutionPolicy, fixturesIntact, readEditableFiles } from "../src/fixture-tools.ts";
 import { goalScopeCases, goalScopeFixture, goalScopeOutputInstruction, goalScopeSteps, scoreGoalScope, type GoalScopeCase, type GoalScopeOutput } from "../src/goal-scope-regressions.ts";
 import { evalHarnessTable } from "../src/vitest-evals/harness-table.ts";
 
@@ -41,8 +41,9 @@ if (!enabled) {
 				editHistory = [];
 				let turns = 0;
 				const admitted = new Map<string, string>();
-				pi.on("before_agent_start", () => {
+				pi.on("before_agent_start", (event) => {
 					if (pi.getActiveTools().slice().sort().join(",") !== "bash,edit,read") throw new Error("Unexpected active tool surface.");
+					return { systemPrompt: `${event.systemPrompt}\n\n${fixtureExecutionPolicy}` };
 				});
 				pi.on("turn_start", (_event, ctx) => { if (++turns > 18) ctx.abort(); });
 				pi.on("tool_call", async (event, ctx) => {
