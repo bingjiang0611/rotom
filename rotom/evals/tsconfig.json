@@ -9,7 +9,8 @@
 		"verbatimModuleSyntax": true,
 		"skipLibCheck": true,
 		"paths": {
-			"@earendil-works/pi-coding-agent": ["../runtime/pi/node_modules/@earendil-works/pi-coding-agent/dist/index.d.ts"]
+			"@earendil-works/pi-coding-agent": ["../runtime/pi/node_modules/@earendil-works/pi-coding-agent/dist/index.d.ts"],
+			"@earendil-works/pi-ai": ["../runtime/pi/node_modules/@earendil-works/pi-ai/dist/index.d.ts"]
 		},
 		"types": ["node", "vitest"]
 	},

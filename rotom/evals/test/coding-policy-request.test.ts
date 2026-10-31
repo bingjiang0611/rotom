@@ -10,15 +10,18 @@ it.each([false, true])("preserves product policy and the caller fixture contract
 	const productDir = defaultProductAgentDir();
 	const expected = readHygienePolicy(productDir);
 	let system = "";
+	const previousVerifiedPi = process.env.ROTOM_VERIFIED_PI_EXECUTABLE;
 	const harness = createPiCodingAgentHarness({
 		name: "coding-policy-request", productAgentDir: productDir,
 		model: { provider: "coding-policy-faux", id: "fixture" }, tools: ["read", "bash", "edit"],
+		environment: { ROTOM_VERIFIED_PI_EXECUTABLE: "/not-the-selected-pi" },
 		inlineExtensions: includeFixtureContract ? [(pi) => { pi.on("before_agent_start", (event) => ({ systemPrompt: `${event.systemPrompt}\n\n${fixtureExecutionPolicy}` })); }] : [],
 		async modelRuntimeFactory({ product, configDir }) {
 			const entry = resolve(product.verified.packageRoot, "../pi-ai/dist/index.js");
 			const { fauxAssistantMessage, fauxProvider, getCurrentSystemPrompt } = await import(pathToFileURL(entry).href);
 			const faux = fauxProvider({ provider: "coding-policy-faux", models: [{ id: "fixture", contextWindow: 32000, maxTokens: 1024 }] });
 			faux.setResponses([(context: { messages: unknown[] }) => {
+				expect(process.env.ROTOM_VERIFIED_PI_EXECUTABLE).toBe(product.verified.executable);
 				system = getCurrentSystemPrompt(context.messages);
 				return fauxAssistantMessage("policy-request-ready");
 			}]);
@@ -28,6 +31,7 @@ it.each([false, true])("preserves product policy and the caller fixture contract
 		},
 	});
 	await harness.run("Reply briefly; do not call tools.", { artifacts: {}, setArtifact() {} });
+	expect(process.env.ROTOM_VERIFIED_PI_EXECUTABLE).toBe(previousVerifiedPi);
 	expect(system).toContain(expected.body);
 	expect(system).toContain(expected.followThrough);
 	expect(system).toContain(expected.finalReport);

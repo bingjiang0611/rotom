@@ -88,7 +88,7 @@ export type PiCodingAgentHarnessOptions = {
 	inlineExtensionsFirst?: boolean;
 	setupWorkspace?: (context: PiEvalWorkspaceContext) => void | Promise<void>;
 	/** Optional bounded continuation after a successful prompt; the caller owns the bound. */
-	continuePrompt?: (context: { session: AgentSession; stepIndex: number }) => string | undefined | Promise<string | undefined>;
+	continuePrompt?: (context: { session: AgentSession; stepIndex: number; signal?: AbortSignal }) => string | undefined | Promise<string | undefined>;
 	modelRuntimeFactory?: (context: {
 		product: ProductRuntimeSelection;
 		configDir: string;
@@ -236,7 +236,7 @@ async function runPiCodingAgent<TOutput extends JsonValue>(
 	setArtifact: HarnessContext["setArtifact"],
 	options: PiCodingAgentHarnessOptions | PiCodingAgentHarnessWithOutput<TOutput>,
 ): Promise<SimpleHarnessResult<string | TOutput>> {
-	return withExclusiveEnvironment(options.environment ?? {}, async () => {
+	return withExclusiveEnvironment({ ...options.environment, ROTOM_VERIFIED_PI_EXECUTABLE: undefined }, async () => {
 		const startedAt = performance.now();
 		signal?.throwIfAborted();
 		const selection = resolveModelSelection(options.model);
@@ -245,6 +245,10 @@ async function runPiCodingAgent<TOutput extends JsonValue>(
 			piExecutable: options.piExecutable,
 			excludedResourceKeys: options.excludedResourceKeys,
 		});
+		// Auxiliary requests with explicit output budgets must resolve helpers
+		// from this verified Pi, not an inherited launcher or another A/B arm.
+		// The exclusive environment restores the caller's value after teardown.
+		process.env.ROTOM_VERIFIED_PI_EXECUTABLE = product.verified.executable;
 		const paths = resourcePaths(product);
 		const runtime = product.runtime;
 
@@ -385,7 +389,7 @@ async function runPiCodingAgent<TOutput extends JsonValue>(
 				const continuation = options.continuePrompt;
 				for (const [stepIndex, step] of steps.entries()) {
 					if (step.type === "prompt") response = await promptAgent(evalSession, step.content, signal, customMessageWaiter !== undefined,
-						continuation ? () => continuation({ session: evalSession, stepIndex }) : undefined);
+						continuation ? () => continuation({ session: evalSession, stepIndex, signal }) : undefined);
 					else await evalSession.reload();
 				}
 				if (customMessageWaiter && options.awaitCustomMessage) {

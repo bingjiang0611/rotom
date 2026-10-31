@@ -144,6 +144,12 @@ npm --prefix rotom/evals run typecheck
 
 两套 runner 现在都通过同一 `before_agent_start` 系统合同明确调用方的非 Git 工作区、固定命令和 JSON-only 协议，避免让低优先级 README 与产品系统提示冲突。`src/fixture-tools.ts` 集中合同；原工具门禁和隐藏 judge 不变。`test/coding-policy-request.test.ts` 在原生标准化模型请求中验证产品提示与调用方合同的组合，并提供未追加合同的对照。后续对比必须两组都使用同一版 runner，不混合修正前后的分数。
 
+## 只读停止审查探索（2026-10-30）
+
+`cases/end-review.eval.ts` 提供默认跳过的正反状态校准，`ROTOM_EVAL_STOPPING_SHADOW=1` 可为上述两套已启用 suite 的 candidate 增加只读旁路。它不向执行器反馈、不改文件、不自动续跑；辅助用量单列并计入会话统计。模型调用仍须明确授权。
+
+最终校准 24/24 正确；真实多轮完整观察中有 1 次误拦正确修复，单段审查平均增加约 21 秒，不能默认接成完成门或续跑器。协议、原 120 秒超时记录、双方 300 秒对照、费用边界及复现命令见 [只读停止审查记录](agent-stopping-review-20261030.md)。产品默认行为未改变。
+
 ## 当前实现的验证（2026-10-28）
 
 - Node 24.18.0：新增 26 个离线测试通过；连同 harness、runtime、A/B table 检查共 58 passed、1 个既有可选 sidecar 检查 skipped；typecheck 通过。

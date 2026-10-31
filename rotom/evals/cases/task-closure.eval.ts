@@ -7,6 +7,7 @@ import { createPiCodingAgentHarness, type PiCodingAgentInput } from "../src/pi-h
 import { assertClosureTool, closureCases, closureFixtureFiles, closureFixturesIntact, closureOutputInstruction, scoreClosure, type ClosureCase, type ClosureOutput } from "../src/task-closure-regressions.ts";
 import { evalHarnessTable } from "../src/vitest-evals/harness-table.ts";
 import { fixtureExecutionPolicy } from "../src/fixture-tools.ts";
+import { createStoppingShadow } from "../src/end-review-shadow.ts";
 
 const enabled = process.env.ROTOM_EVAL_TASK_CLOSURE === "1";
 if (!enabled) {
@@ -30,11 +31,18 @@ if (!enabled) {
 	}
 	function harness(name: string, product: string, item: ClosureCase) {
 		let verifications: string[] = [];
+		const shadow = name === "candidate" && process.env.ROTOM_EVAL_STOPPING_SHADOW === "1" ? createStoppingShadow({
+			product, tasks: [`${item.task}\n\n${closureOutputInstruction}`],
+			files: [...Object.keys(closureFixtureFiles(item)), "verification.json"],
+			fixturesIntact: workspace => closureFixturesIntact(workspace, item), latestVerification: () => verifications.at(-1),
+		}) : undefined;
 		return createPiCodingAgentHarness<ClosureOutput>({
 			name, productAgentDir: product, piExecutable: executables.get(product),
 			model: { provider: provider!, id: model! }, thinkingLevel: "high", tools: ["read", "edit", "bash"],
 			environment: { ROTOM_OBSERVABILITY: "0" },
-			inlineExtensions: [(pi) => {
+			environmentProfile: shadow ? "stopping-shadow-v1" : undefined,
+			continuePrompt: shadow?.continuePrompt,
+			inlineExtensions: [...(shadow ? [shadow.extension] : []), (pi) => {
 				verifications = [];
 				let turns = 0;
 				const admittedVerifications = new Set<string>();

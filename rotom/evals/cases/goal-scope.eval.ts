@@ -7,6 +7,7 @@ import { createPiCodingAgentHarness, type PiCodingAgentInput } from "../src/pi-h
 import { assertFixtureTool, fixtureExecutionPolicy, fixturesIntact, readEditableFiles } from "../src/fixture-tools.ts";
 import { goalScopeCases, goalScopeFixture, goalScopeOutputInstruction, goalScopeSteps, scoreGoalScope, type GoalScopeCase, type GoalScopeOutput } from "../src/goal-scope-regressions.ts";
 import { evalHarnessTable } from "../src/vitest-evals/harness-table.ts";
+import { createStoppingShadow } from "../src/end-review-shadow.ts";
 
 const enabled = process.env.ROTOM_EVAL_GOAL_SCOPE === "1";
 if (!enabled) {
@@ -32,11 +33,18 @@ if (!enabled) {
 		const fixture = goalScopeFixture(item);
 		let verifications: string[] = [];
 		let editHistory: Record<string, string>[] = [];
+		const shadow = name === "candidate" && process.env.ROTOM_EVAL_STOPPING_SHADOW === "1" ? createStoppingShadow({
+			product, tasks: goalScopeSteps.map(content => `${content}\n\n${goalScopeOutputInstruction}`),
+			files: [...Object.keys(fixture.files), "verification.json"],
+			fixturesIntact: workspace => fixturesIntact(workspace, fixture), latestVerification: () => verifications.at(-1),
+		}) : undefined;
 		return createPiCodingAgentHarness<GoalScopeOutput>({
 			name, productAgentDir: product, piExecutable: executables.get(product),
 			model: { provider: provider!, id: model! }, thinkingLevel: "high", tools: ["read", "edit", "bash"],
 			environment: { ROTOM_OBSERVABILITY: "0" },
-			inlineExtensions: [(pi) => {
+			environmentProfile: shadow ? "stopping-shadow-v1" : undefined,
+			continuePrompt: shadow?.continuePrompt,
+			inlineExtensions: [...(shadow ? [shadow.extension] : []), (pi) => {
 				verifications = [];
 				editHistory = [];
 				let turns = 0;
