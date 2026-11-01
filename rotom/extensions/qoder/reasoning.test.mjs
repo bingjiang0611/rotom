@@ -36,7 +36,7 @@ test('Sonus/Ultimate function_call terminal translates only on their observed CO
   await assert.rejects(normalize('data: '+JSON.stringify(data)+'\n\ndata: [DONE]\n\n',{...opts,opaqueModelId:'ultimate',allowLegacyEnvelope:false}),/invalid_finish_reason/);
   const malformed=structuredClone(data);malformed.choices[0].delta.tool_calls[0].function.arguments='{';
   await assert.rejects(normalize('data: '+JSON.stringify({statusCodeValue:200,body:JSON.stringify(malformed)})+'\n\ndata: [DONE]\n\n',{...opts,opaqueModelId:'ultimate'}),/invalid_tool_arguments/);
-  await assert.rejects(normalize(wire,{...opts,toolNames:[]}),/invalid_tool_call/);
+  assert.match(await normalize(wire,{...opts,toolNames:[]}),/tool_calls/); // Pi reports unknown tools; COSY termination is still validated.
 });
 test('opaque support stays opt-in and duplicate/unknown/partial items fail closed',async()=>{
   await assert.rejects(normalize(frame({reasoning_item:item})+end,{allowReasoning:true}),/opaque_reasoning_replay_unsupported/);
@@ -66,7 +66,7 @@ test('Ultimate tool continuation may omit terminal delta but still requires comp
   assert.doesNotMatch(output,/reasoning_details/); // No fabricated opaque item on a non-reasoning continuation.
   await assert.rejects(normalize(terminal+usage+done,opts),/missing_tool_call/);
   await assert.rejects(normalize(tool('{')+terminal+usage+done,opts),/invalid_tool_arguments/);
-  await assert.rejects(normalize(wire,{...opts,toolNames:[]}),/invalid_tool_call/);
+  assert.match(await normalize(wire,{...opts,toolNames:[]}),/tool_calls/); // Unknown names are not malformed stream identities.
   for(const patch of [{allowOpaqueReasoning:false},{opaqueModelId:'smodel'},{opaqueModelId:'gmodel'}])await assert.rejects(normalize(wire,{...opts,...patch}),/invalid_delta/);
   for(const choice of [{delta:null,finish_reason:'tool_calls'},{message:{content:'must not drop'},finish_reason:'tool_calls'},{finish_reason:'length'},{finish_reason:'function_call'},{}])await assert.rejects(normalize(tool('{}')+event({choices:[choice]})+usage+done,opts),/invalid_delta/);
   await assert.rejects(normalize(tool('{}')+terminal+done,opts),/incomplete_stream/);

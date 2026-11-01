@@ -59,7 +59,6 @@ for (const [label, input, code] of [
   ['quota', 'data: [EXCEED_QUOTA]PRIVATE_ERROR_TEXT\n\n', 'quota_exceeded'],
   ['unknown stop', frame(chunk({}, 'mystery')), 'invalid_finish_reason'],
   ['bad usage', frame({ choices: [], usage: { ...usage, prompt_tokens: -1 } }), 'invalid_usage'],
-  ['unexpected tool', frame(chunk(toolDelta)) + frame(chunk({}, 'stop')) + ending, 'invalid_tool_call'],
 ]) {
   test(`fail closed: ${label}`, async () => {
     await assert.rejects(normalized(input), error => error.code === code && !error.message.includes('PRIVATE_ERROR_TEXT'));
@@ -118,6 +117,18 @@ test('invalid tool IDs emit only structural diagnostics without weakening valida
   const changed = structuredClone(toolDelta); changed.tool_calls[0].id = null;
   for (const onDiagnostic of [() => { throw new Error('PRIVATE_LISTENER'); }, async () => { throw new Error('PRIVATE_LISTENER'); }]) {
     await assert.rejects(normalized(frame(chunk(changed)), { ...opts, onDiagnostic }), { code: 'invalid_tool_id' });
+  }
+});
+
+test('missing tool IDs or names remain fatal even though unknown names can be corrected', async () => {
+  for (const field of ['id', 'name']) {
+    for (const value of [undefined, '']) {
+      const delta = structuredClone(toolDelta);
+      const call = delta.tool_calls[0];
+      if (field === 'id') call.id = value;
+      else call.function.name = value;
+      await assert.rejects(normalized(frame(chunk(delta)) + frame(chunk({}, 'stop')) + ending, { toolNames: ['echo'] }), { code: 'invalid_tool_call' });
+    }
   }
 });
 

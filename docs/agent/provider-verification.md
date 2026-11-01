@@ -61,6 +61,12 @@ Pi 的 jiti alias 会把任意 ai 子路径错误拼接到 compat.js；因此 he
 
 `framing-identity.test.mjs` 覆盖首次绑定、重复绑定与绑定后的账号切换拒绝；`history-handoff-smoke.mjs` 使用真实 Pi SDK、合成上游验证已压缩的其他 Provider 会话首次切入 Qoder、工具续轮和磁盘恢复。它不证明真实服务或现有安装已更新。
 
+## 未知工具名的续轮
+
+Qoder 完整响应中的未知工具名交给 Pi 原生精确名称分派：返回 `tool_not_found` 工具结果并继续模型轮次，不作为 `invalid_tool_call` 中断会话。名称与参数原样保留，不猜测别名、不执行未知工具、不自动重放同批已成功的调用。缺失/重复 ID、空名称、损坏参数、截断或不完整流仍拒绝；Ultimate 串行复用 index 的身份识别条件不变。
+
+`unknown-tool.test.mjs` 用合成 direct/COSY 响应和真实 Pi Agent 覆盖 `codemod` → 错误反馈 → 模型改发 `codemode`、混合同批合法调用只执行一次，以及迟到错误时整批不执行。它证明离线续轮合同，不保证真实模型一定纠正拼写，也不代表现有安装已更新。
+
 ## 真实请求
 
 仍使用 [Qoder 维护探针](../../experiments/qoder-provider/README.md) 的独立入口。必须先明确目标 model/route/effort、预算和外部权限，复用有界 ledger、串行执行、unknown 不重放；离线 PASS 不授予真实调用权限。现有账本是特定 Node/Undici 路径的请求次数约束，不是货币预算或通用网络隔离。

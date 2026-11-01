@@ -197,7 +197,10 @@ export async function* qoderChunks(body, { signal, toolNames = [], onDiagnostic,
   const checkCalls = () => {
     const ids = new Set();
     for (const call of calls.values()) {
-      if (!call.id || ids.has(call.id) || !toolNames.includes(call.name)) fail('invalid_tool_call');
+      // Tool availability belongs to Pi's exact-name dispatcher: an unknown
+      // name must become a tool_not_found result so the model can correct it,
+      // not a fatal provider error. Keep identity and argument checks here.
+      if (!call.id || ids.has(call.id) || !call.name) fail('invalid_tool_call');
       ids.add(call.id);
       // Pi's finished-tool contract treats omitted/blank arguments as {}.
       // Only that representation is normalized; malformed JSON is never repaired.
