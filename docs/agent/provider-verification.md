@@ -67,6 +67,12 @@ Qoder 完整响应中的未知工具名交给 Pi 原生精确名称分派：返�
 
 `unknown-tool.test.mjs` 用合成 direct/COSY 响应和真实 Pi Agent 覆盖 `codemod` → 错误反馈 → 模型改发 `codemode`、混合同批合法调用只执行一次，以及迟到错误时整批不执行。它证明离线续轮合同，不保证真实模型一定纠正拼写，也不代表现有安装已更新。
 
+## Ultimate 空 context 元数据帧
+
+Ultimate COSY 会在正文与 finish/usage 之间发送不含 `choices` 的 `extras.context_management.applied_edits: []` 帧。解析器只接受这一空元数据形状，不把它当作结束信号；非空 edits、未知字段、其他模型或 direct 路由仍拒绝。若上游出现非空 edits，须先确认其历史修改语义并补独立回放测试，不能直接忽略。
+
+`context-management.test.mjs` 覆盖正文、用量和 credits 保留、同帧换行，以及缺失结束证据、迟到错误和未验证形状拒绝。真实 Ultimate/high 合成探针共 4 次请求：短标记对照正常，两次 `hi` 复现旧解析器的 `invalid_choices`，修复后 `hi` 再次出现相同元数据帧并正常结束（24 tokens、0.02346784 Cr）。凭据只读且摘要不变，原始响应未落盘；失败请求的费用保持 unknown，美元费用未知。此结果只证明源码 transport/translator 路径，不代表运行中安装或 TUI 已更新。
+
 ## 真实请求
 
 仍使用 [Qoder 维护探针](../../experiments/qoder-provider/README.md) 的独立入口。必须先明确目标 model/route/effort、预算和外部权限，复用有界 ledger、串行执行、unknown 不重放；离线 PASS 不授予真实调用权限。现有账本是特定 Node/Undici 路径的请求次数约束，不是货币预算或通用网络隔离。

@@ -118,6 +118,14 @@ function usageOnly(usage) {
   return result;
 }
 
+function emptyContextManagement(chunk) {
+  if (Object.keys(chunk).some(key => !['created', 'extras', 'id', 'model', 'object'].includes(key))) return false;
+  const extras = chunk.extras, context = extras?.context_management;
+  return record(extras) && Object.keys(extras).length === 1
+    && record(context) && Object.keys(context).length === 1
+    && Array.isArray(context.applied_edits) && context.applied_edits.length === 0;
+}
+
 function legacyTiming(value) {
   return record(value) && Object.keys(value).length === 3 && ['firstTokenDuration', 'totalDuration', 'serverDuration'].every(k => Number.isFinite(value[k]) && value[k] >= 0);
 }
@@ -265,6 +273,10 @@ export async function* qoderChunks(body, { signal, toolNames = [], onDiagnostic,
       try { void Promise.resolve(onDiagnostic?.({ code: 'upstream_error_frame', status: Number.isSafeInteger(chunk?.code) ? chunk.code : null, hasError: Boolean(chunk?.error) })).catch(() => {}); } catch { /* Allowlisted metadata only. */ }
       fail('upstream_error_frame');
     }
+    // Ultimate COSY emits this empty metadata frame between text and finish.
+    // It carries no content or applied edits and is NOT terminal evidence.
+    // Nonempty edits and unknown shapes remain unsupported rather than dropped.
+    if (allowLegacyEnvelope && opaqueModelId === 'ultimate' && emptyContextManagement(chunk)) return;
     if (!Array.isArray(chunk.choices)) fail('invalid_choices');
     if (chunk.choices.length > 1) fail('multiple_choices_unsupported');
     const choices = chunk.choices.map(choice => {
