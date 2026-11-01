@@ -25,13 +25,13 @@ function directoryIdentity(dir: string, privateDirectory = false): { device: str
 	if (!stat.isDirectory() || stat.isSymbolicLink() || (stat.mode & (privateDirectory ? 0o077n : 0o022n)) !== 0n || (typeof process.getuid === "function" && stat.uid !== BigInt(process.getuid()))) throw new Error("Execution store directory identity unavailable.");
 	return { device: String(stat.dev), inode: String(stat.ino) };
 }
-function persistedDevicesMatch(value: Record<string, unknown>, actual: ReadonlyArray<readonly [string, string]>): boolean {
+function persistedDeviceTopologyMatches(value: Record<string, unknown>, actual: ReadonlyArray<readonly [string, string]>): boolean {
 	const pairs = actual.map(([field, device]) => [value[field], device] as const);
 	if (pairs.some(([stored]) => typeof stored !== "string" || !/^\d+$/.test(stored))) return false;
-	if (process.platform !== "darwin") return pairs.every(([stored, device]) => stored === device);
-	// Darwin's st_dev identifies the current mount and can be renumbered across a
-	// reboot. Preserve the volume topology instead of accepting independent field
-	// drift: every persisted device must map bijectively to one current device.
+	// POSIX st_dev identifies the current mount, not a stable filesystem identity.
+	// Darwin and Linux (including Btrfs on device-mapper) can renumber it across a
+	// reboot. Accept only one consistent topology remap: every persisted device
+	// must map bijectively to one current device while paths and inodes stay exact.
 	const forward = new Map<string, string>(), reverse = new Map<string, string>();
 	for (const [stored, device] of pairs as ReadonlyArray<readonly [string, string]>) {
 		if ((forward.has(stored) && forward.get(stored) !== device) || (reverse.has(device) && reverse.get(device) !== stored)) return false;
@@ -60,7 +60,7 @@ export function assertExecutionStore(store: ExecutionStore): void {
 		|| identity.device !== store.device || identity.inode !== store.inode
 		|| value.inode !== store.inode || value.baseInode !== store.baseInode
 		|| base.device !== store.baseDevice || base.inode !== store.baseInode
-		|| !persistedDevicesMatch(value, [["device", identity.device], ["baseDevice", base.device], ["leaseDevice", lease.device], ["sessionDevice", session.device]])) throw new Error("Execution store identity drift; no adoption, replay or new writer is authorized.");
+		|| !persistedDeviceTopologyMatches(value, [["device", identity.device], ["baseDevice", base.device], ["leaseDevice", lease.device], ["sessionDevice", session.device]])) throw new Error("Execution store identity drift; no adoption, replay or new writer is authorized.");
 }
 function supportedPlatform(): void {
 	if (process.platform !== "darwin" && process.platform !== "linux") throw new Error("Scoped execution store requires a supported POSIX platform.");

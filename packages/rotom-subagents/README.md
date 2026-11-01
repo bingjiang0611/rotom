@@ -4,6 +4,10 @@ rotom 独立维护的 Subagent 组件，源码单源是本目录。它是 `pi-su
 
 首次导入为已验证的 `0.52.1-dev-agent-owned-flat.7`：213 TS 文件逐字节保持不变。来源、版权和维护差异见 [UPSTREAM.md](UPSTREAM.md) / `IMPORT.json`，原始 README 保存在 [docs/upstream-readme.md](docs/upstream-readme.md)。历史八层 patch 仅用于旧版本比较，不是本组件的构建输入。
 
+## `0.52.1-rotom.12`：Linux 跨重启 store 身份
+
+Linux 的 mount device ID 也可能在重启后重新编号，已在 Btrfs/device-mapper 上复现。本版将 v3 store 已有的 device topology 双射校验扩展到全部受支持的 POSIX 平台：只接受四个持久化 device ID 到当前 ID 的一致映射，路径、四个 inode、owner、权限与 store ID 仍精确校验；marker 保持只读，不迁移、不重写，也不授权恢复或重放旧工作。
+
 ## `0.52.1-rotom.11`：原生 ephemeral 工具面
 
 组件入口可显式选择 `{ surface: "ephemeral" }`；schema、描述、action admission 与结果证据由组件定义，不再由产品 registerTool 代理修改。默认 standalone 入口保持宽工具面；执行 scope 的原有校验不变。产品仍选择命令/快捷键、model-only 暴露与宿主发布 fence。

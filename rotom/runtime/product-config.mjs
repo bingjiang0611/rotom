@@ -6,7 +6,7 @@ export const MINIMUM_NODE_VERSION = "24.0.0";
 export const VERIFIED_THIRD_PARTY_PACKAGES = {
 	"@injaneity/pi-computer-use": { version: "0.5.1-rotom.2", integrity: "sha512-dcJn+H5u9jwvrrDPeAC38NsyaZzJ17cNxqxFtaaW41DzHh+pxmh0p6r497L5DFNp+0+iKkmPD9Kpcc7wFo9QfQ==", archive: "vendor/injaneity-pi-computer-use-0.5.1-rotom.2.tgz" },
 	"@juicesharp/rpiv-ask-user-question": { version: "2.6.2", integrity: "sha512-DS9yZHcaPr+/nf0x2CCfiXBod/1aWjGyakGM3lZAObuGDhYI0nFRE5gxTcCOfQug6JtJXjt1GlzyX8Pljefdzg==" },
-	"pi-subagents": { version: "0.52.1-rotom.11", integrity: "sha512-QsfO3DJV9ghMfVQXLBHjaT8sOWORa56BmUA5B1w32SZM8ycvA8KfOResQJtSmm6YNxCo6mIdw0vmd5DJQo7ptA==", archive: "vendor/pi-subagents-0.52.1-rotom.11.tgz" },
+	"pi-subagents": { version: "0.52.1-rotom.12", integrity: "sha512-SrRHxUSjnFXA2nd6RDdbdgK9O9COVuS26eIDvYSu3P6wwKsYbU40/oU8BtqiuZc73KGdJ3U0CA/GdTc1eSf69g==", archive: "vendor/pi-subagents-0.52.1-rotom.12.tgz" },
 	"@narumitw/pi-goal": { version: "0.54.4-rotom.9", integrity: "sha512-mqoDynv2Pq6rjNCFfWl0Moylb01u+AC/f0mGp1Taxa6iMrPVUc3Xs64u/x3X4gDShnUjFGTnThtmhr+VGd27Fg==", archive: "vendor/narumitw-pi-goal-0.54.4-rotom.9.tgz" },
 	"pi-context-view": { version: "0.7.1", integrity: "sha512-74bg+Tb5SOVdjeUSW70I/yieDtAKcNeEETPj5zU3UFWlYnE3NCjGgA/fLCi6vsO9vmwbRcFmCINJBaoksxH1aw==" },
 	"sol-pi": { version: "0.1.0-rotom.5", integrity: "sha512-iPqH8a/TcapOYW9M4IidWrUVOfbg1D3vGXIEbWvF9uTU8nKDtzTm9fGrffLJImxb1FR89ulZF/uCzod+vr/Mlw==", archive: "vendor/sol-pi-0.1.0-rotom.5.tgz" },

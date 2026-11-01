@@ -53,7 +53,7 @@
 | 组件 | 最终版本 | 验证/兼容边界 |
 | --- | --- | --- |
 | Pi 七包 | `1.3.0-rotom.3` | build/check 与实际产物身份一致。 |
-| pi-subagents | `0.52.1-rotom.11` | 产品显式选择 `{ surface: "ephemeral" }`；standalone 默认保持原有宽工具面。原生选项负责工具面，产品 commands/shortcut 与宿主发布生命周期仍由组合层负责。 |
+| pi-subagents | `0.52.1-rotom.12` | 产品显式选择 `{ surface: "ephemeral" }`；standalone 默认保持原有宽工具面。受支持 POSIX 平台允许跨重启的一致 device topology 重映射，路径/inode/owner/权限仍精确校验。 |
 | Computer Use | `0.5.1-rotom.2` | TS 原生合同更新；重打时保留已验证旧归档的 native helper 字节/签名。未重编、安装或启动真实 helper。 |
 | SoL-Pi | `0.1.0-rotom.3` | 结构化 error result 在 Pi 1.3.0 验证；旧 0.85.1 host 不尊重返回的 `isError`，不再作为该能力的支持基线。 |
 | Goal | `0.54.4-rotom.8`（未变） | 审查未发现产品 wrapper 改写 Goal schema/action；仅组合 exposure，故没有无意义升版。 |

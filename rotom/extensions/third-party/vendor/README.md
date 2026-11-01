@@ -1,11 +1,11 @@
 # Locked Subagent distribution
 
-The default product selects **`pi-subagents@0.52.1-rotom.11`**, independently maintained in the repository's `packages/rotom-subagents/`. New builds consume its reviewed archive, not installed source or a patch stack. This is a Subagent fork, not a Pi fork.
+The default product selects **`pi-subagents@0.52.1-rotom.12`**, independently maintained in the repository's `packages/rotom-subagents/`. New builds consume its reviewed archive, not installed source or a patch stack. This is a Subagent fork, not a Pi fork.
 
-- Archive: `pi-subagents-0.52.1-rotom.11.tgz`
-- SHA256: `834c462374e3491ddaf6bb62e6f95e6dc11778065bc45b127483859a0f7f4da7`
-- SHA512 SRI: `sha512-QsfO3DJV9ghMfVQXLBHjaT8sOWORa56BmUA5B1w32SZM8ycvA8KfOResQJtSmm6YNxCo6mIdw0vmd5DJQo7ptA==`
-- Source digest: `20000ef31aa6f269d9667aa0579bcad177d368d9cae38930c3c43fa1a68511ca`
+- Archive: `pi-subagents-0.52.1-rotom.12.tgz`
+- SHA256: `f1a423b72e3bf5886cedb6141ddfec651de4ab72760001d8d5c609a9d1de6592`
+- SHA512 SRI: `sha512-SrRHxUSjnFXA2nd6RDdbdgK9O9COVuS26eIDvYSu3P6wwKsYbU40/oU8BtqiuZc73KGdJ3U0CA/GdTc1eSf69g==`
+- Source digest: `8b3daa673bc2aa69c5920de2a34be7584bbc9971684f8865d7685712c629e07c`
 
 `.rotom.11` owns the explicitly selected ephemeral tool surface and evidence projection. Product wrappers retain only host publication fencing and product command/shortcut selection; standalone defaults remain unchanged.
 

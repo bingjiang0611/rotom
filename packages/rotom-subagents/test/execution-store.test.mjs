@@ -11,7 +11,7 @@ const marker = (selected) => path.join(selected.baseRoot, store.EXECUTION_STORE_
 const read = (file) => JSON.parse(fs.readFileSync(file, "utf8"));
 const save = (file, value) => fs.writeFileSync(file, JSON.stringify(value), { mode: 0o600 });
 
-test("Darwin accepts one consistent persisted device remap without rewriting the anchor", { skip: process.platform !== "darwin" }, () => {
+test("supported POSIX platforms accept one consistent persisted device remap without rewriting the anchor", () => {
 	const selected = store.initializeExecutionStore(path.join(fresh(), "base")), file = marker(selected), value = read(file);
 	for (const field of ["device", "baseDevice", "leaseDevice", "sessionDevice"]) value[field] = String(BigInt(value[field]) + 2n);
 	save(file, value); const before = fs.readFileSync(file);
@@ -19,29 +19,19 @@ test("Darwin accepts one consistent persisted device remap without rewriting the
 	assert.equal(reopened.storeId, selected.storeId); assert.deepEqual(fs.readFileSync(file), before);
 });
 
-test("Darwin rejects an inconsistent persisted device remap", { skip: process.platform !== "darwin" }, () => {
+test("an inconsistent persisted device remap is rejected", () => {
 	const selected = store.initializeExecutionStore(path.join(fresh(), "base")), file = marker(selected), value = read(file);
 	value.device = String(BigInt(value.device) + 1n); save(file, value);
 	assert.throws(() => store.resolveExecutionStore(selected.baseRoot, store.OWNED_EXECUTION_SCOPE), /identity drift/);
 });
 
-test("persisted device fields remain mandatory on Darwin", { skip: process.platform !== "darwin" }, () => {
+test("persisted device fields remain mandatory", () => {
 	const selected = store.initializeExecutionStore(path.join(fresh(), "base")), file = marker(selected), value = read(file);
 	delete value.device; save(file, value);
 	assert.throws(() => store.resolveExecutionStore(selected.baseRoot, store.OWNED_EXECUTION_SCOPE), /identity drift/);
 });
 
-test("non-Darwin platforms continue to require exact persisted devices", () => {
-	const selected = store.initializeExecutionStore(path.join(fresh(), "base")), file = marker(selected), value = read(file);
-	for (const field of ["device", "baseDevice", "leaseDevice", "sessionDevice"]) value[field] = String(BigInt(value[field]) + 2n);
-	save(file, value); const descriptor = Object.getOwnPropertyDescriptor(process, "platform");
-	try {
-		Object.defineProperty(process, "platform", { value: "linux" });
-		assert.throws(() => store.resolveExecutionStore(selected.baseRoot, store.OWNED_EXECUTION_SCOPE), /identity drift/);
-	} finally { Object.defineProperty(process, "platform", descriptor); }
-});
-
-test("inode drift is still rejected when Darwin device topology is valid", () => {
+test("inode drift is still rejected when device topology is valid", () => {
 	const selected = store.initializeExecutionStore(path.join(fresh(), "base")), file = marker(selected), value = read(file);
 	value.inode = String(BigInt(value.inode) + 1n); save(file, value);
 	assert.throws(() => store.resolveExecutionStore(selected.baseRoot, store.OWNED_EXECUTION_SCOPE), /identity drift/);
