@@ -22,7 +22,7 @@ export const GOAL_STOP_REASONS = {
 	budget_limit: "Token budget reached",
 	safety_pause: "Automatic-work safety limit reached",
 	retry_exhausted: "Context recovery failed; inspect the error before resuming",
-	provider_retry_exhausted: "Provider recovery stopped; check the connection and use /goal resume",
+	provider_retry_exhausted: "Provider recovery remained exhausted after three scheduled waits; check the connection and use /goal resume",
 	tools_unavailable: "Required Goal tools unavailable",
 	blocker_report: "External blocker reported",
 	agent_interruption: "Model run interrupted",
@@ -60,6 +60,8 @@ export interface ActiveGoal {
 	stopReason?: GoalStopReason;
 	/** Display-only host recovery state; discarded on session restoration. */
 	recovery?: GoalRecoveryKind;
+	/** Consecutive exhausted provider-recovery waits already scheduled, maximum three. */
+	providerRecoveryWaitAttempts?: number;
 	safetyResetPending?: boolean;
 	waiting?: GoalWait;
 	/** Review attempts survive resume/edit; an interrupted request is not replayable. */
@@ -224,6 +226,7 @@ export function normalizeLoadedGoal(goal: ActiveGoal): ActiveGoal {
 		safetyPauseCause: normalizeSafetyPauseCause(goal.safetyPauseCause),
 		stopReason: typeof goal.stopReason === "string" && Object.hasOwn(GOAL_STOP_REASONS, goal.stopReason) ? goal.stopReason : undefined,
 		recovery: undefined,
+		providerRecoveryWaitAttempts: normalizeSafetyCounter(goal.providerRecoveryWaitAttempts),
 		safetyResetPending: goal.safetyResetPending === true ? true : undefined,
 		waiting,
 		review,
