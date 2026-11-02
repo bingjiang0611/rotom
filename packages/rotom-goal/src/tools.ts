@@ -254,9 +254,9 @@ export function registerGoalTools(
 					return stopForBudget(
 						"Goal review unavailable after token budget exhaustion; completion is unverified.",
 					);
-				if (previous?.status === "running" || previous?.status === "unknown")
+				if (previous?.status === "running")
 					return rejectReview(
-						"Previous completion review is unresolved. It will not be replayed, including after resume. Continue other work or gather new read-only evidence; completion remains unverified.",
+						"Previous completion review is still running. It will not be replayed, including after resume. Completion remains unverified.",
 					);
 				if (previous?.candidate === candidate)
 					return rejectReview(
@@ -265,10 +265,28 @@ export function registerGoalTools(
 				if (
 					(previous?.attempts ?? 0) >= REVIEW_LIMITS.attempts ||
 					(previous?.reportedTokens ?? 0) >= REVIEW_LIMITS.reportedTokens
-				)
-					return rejectReview(
-						"Goal completion-review allowance exhausted. Resume/edit does not replenish it. Continue other unfinished requirements; completion remains unverified.",
-					);
+				) {
+					const reason =
+						"Automatic completion-review allowance is exhausted. Manual acceptance is required. After manual acceptance, run /goal clear; or set completionReview:false in pi-goal.json and run /goal resume.";
+					const stoppedGoal = runtime.stopActiveGoal(ctx, {
+						kind: "agent_interruption",
+						cause: "review_exhausted",
+						expectedGoalId: completedGoal.id,
+						status: "paused",
+						reason,
+					});
+					if (!stoppedGoal) {
+						return rejectReview(
+							"Completion-review allowance is exhausted, but the active Goal changed before it could pause.",
+						);
+					}
+					notifyTerminal(ctx.ui, reason, "warning");
+					return {
+						content: toolContent(reason),
+						details: completionDetails(goal, requestedGoalId, summary),
+						terminate: true,
+					};
+				}
 				const execution = runtime.executionSignal;
 				const isCurrent = () =>
 					!execution.aborted &&

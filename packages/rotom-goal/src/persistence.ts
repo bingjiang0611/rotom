@@ -29,6 +29,7 @@ export const GOAL_STOP_REASONS = {
 	activation_rollback: "Goal activation failed",
 	missing_decision: "No continuation decision; review the last response before resuming",
 	empty_responses: "Three automatic continuations completed without performing any operation",
+	review_exhausted: "Automatic completion-review allowance exhausted; manual acceptance is required",
 	session_restored: "Session restored; use /goal resume to continue without replaying old work",
 } as const;
 export type GoalStopReason = keyof typeof GOAL_STOP_REASONS;
