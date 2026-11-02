@@ -623,10 +623,10 @@ test("rejection requires new evidence; summary edits and resume do not replenish
 	);
 	assert.equal(
 		(await h.call("goal_complete", { goal_id: id, summary: "now really done" })).terminate,
-		true,
+		false,
 	);
 	assert.equal(calls, 1);
-	assert.equal(h.runtime.activeGoal?.status, "paused");
+	assert.equal(h.runtime.activeGoal?.status, "active");
 	const next = nextGoalInstance(h.runtime.activeGoal!);
 	assert.equal(next.review?.attempts, 1);
 });
@@ -665,27 +665,28 @@ test("an evidenced local repair after rejection can still receive a second revie
 	assert.equal(h.runtime.activeGoal, undefined);
 });
 
-test("unknown review pauses and survives restore without replay", async (t) => {
+test("unknown review stays active, is not replayed, and restores without a pause", async (t) => {
 	let calls = 0;
 	const h = fixture(t, async () => {
 		calls++;
 		return decision("unknown");
 	});
 	const id = h.runtime.activeGoal!.id;
-	await h.call("goal_complete", { goal_id: id, summary: "done" });
-	assert.equal(h.runtime.activeGoal?.status, "paused");
+	const result = await h.call("goal_complete", { goal_id: id, summary: "done" });
+	assert.equal(result.terminate, false);
+	assert.equal(h.runtime.activeGoal?.status, "active");
 	assert.equal(h.runtime.activeGoal?.review?.status, "unknown");
-	h.runtime.activeGoal = { ...h.runtime.activeGoal!, status: "active" };
-	h.runtime.acquireWorkflow();
-	h.runtime.beginAgentRun(id, "manual");
-	await h.call("goal_complete", { goal_id: id, summary: "retry" });
+	const retry = await h.call("goal_complete", { goal_id: id, summary: "retry" });
+	assert.equal(retry.terminate, false);
 	assert.equal(calls, 1);
-	const restored = normalizeLoadedGoal({
+	const restoredUnknown = normalizeLoadedGoal({ ...h.runtime.activeGoal!, status: "active" });
+	assert.equal(restoredUnknown.status, "active");
+	const restoredRunning = normalizeLoadedGoal({
 		...h.runtime.activeGoal!,
 		status: "active",
 		review: { attempts: 1, candidate: digest("x"), status: "running", reportedTokens: 0 },
 	});
-	assert.equal(restored.status, "paused");
+	assert.equal(restoredRunning.status, "paused");
 });
 
 test("late approval after cancellation or file change cannot complete the goal", async (t) => {
@@ -757,9 +758,11 @@ test("review allowance is persisted, finite and fail-closed on corrupt restore",
 		status: "rejected",
 		reportedTokens: 20,
 	};
-	await h.call("goal_complete", { goal_id: h.runtime.activeGoal!.id, summary: "done" });
-	assert.equal(h.runtime.activeGoal?.status, "paused");
+	const result = await h.call("goal_complete", { goal_id: h.runtime.activeGoal!.id, summary: "done" });
+	assert.equal(result.terminate, false);
+	assert.equal(h.runtime.activeGoal?.status, "active");
 	const normalized = normalizeLoadedGoal({ ...h.runtime.activeGoal!, review: {} as any });
+	assert.equal(normalized.status, "active");
 	assert.equal(normalized.review?.attempts, REVIEW_LIMITS.attempts);
 	assert.equal(normalized.review?.status, "unknown");
 });

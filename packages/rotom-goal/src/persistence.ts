@@ -204,7 +204,7 @@ function validObjective(value: unknown): value is string {
 export function normalizeLoadedGoal(goal: ActiveGoal): ActiveGoal {
 	const now = Date.now();
 	const review = normalizeReview(goal.review);
-	const status = goal.status === "active" && (review?.status === "running" || review?.status === "unknown") ? "paused" : goal.status;
+	const status = goal.status === "active" && review?.status === "running" ? "paused" : goal.status;
 	const waiting = status === "active" ? normalizeGoalWait(goal.waiting) : undefined;
 	return {
 		...goal,

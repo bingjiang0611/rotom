@@ -75,6 +75,7 @@ for (const [entry, prompt] of Object.entries(prompts)) {
 		assert.match(prompt, /An unchanged external prerequisite is not a new retry hypothesis/);
 		assert.match(prompt, /Only call the goal_complete tool after evidence proves every requirement/);
 		assert.match(prompt, /missing or uninspectable requirements remain unverified/);
+		assert.match(prompt, /Review errors\/unknown do not complete or pause the goal/);
 		assert.doesNotMatch(prompt, /If a tool fails, try reasonable alternatives instead of yielding early/);
 	});
 

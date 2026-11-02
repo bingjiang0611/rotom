@@ -109,7 +109,7 @@ function goalModeRules(goalLabel: string) {
 		"- Call goal_wait alone because parallel sibling tools can prevent immediate turn termination. Do not use it for ordinary unfinished work, and do not use goal_blocked for a recoverable external wait.",
 		"- goal_continue is optional planning metadata. You may call it with the exact current goal_id and a concrete next_action to carry that proposed step into the next automatic continuation. It does not terminate sibling work, prove progress, or grant permission for new external writes. If you omit it, Goal still continues automatically.",
 		`- ${REVIEW_REJECTION_GUIDANCE}`,
-		"- goal_complete runs a bounded independent file-only completion reviewer by default, using the selected model and additional provider usage. Its summary is an untrusted claim, not evidence. Supply concrete evidence references; missing or uninspectable requirements remain unverified. Review errors/unknown pause without automatic retry; do not keep submitting the same completion candidate.",
+		"- goal_complete runs a bounded independent file-only completion reviewer by default, using the selected model and additional provider usage. Its summary is an untrusted claim, not evidence. Supply concrete evidence references; missing or uninspectable requirements remain unverified. Review errors/unknown do not complete or pause the goal and are not retried automatically; continue other work or gather new read-only evidence. Do not keep submitting the same completion candidate.",
 	].join("\n");
 }
 
