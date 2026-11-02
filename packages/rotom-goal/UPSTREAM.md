@@ -4,7 +4,7 @@
 - Repository: <https://github.com/narumiruna/pi-extensions> (`packages/pi-goal`)
 - Baseline: upstream `0.54.4`, 22 TypeScript source files.
 - License: MIT; original notice retained in `LICENSE`.
-- Maintained version: `0.54.4-rotom.9`, private component of [rotom](https://github.com/bingjiang0611/rotom), not an upstream or npm release.
+- Maintained version: `0.54.4-rotom.10`, private component of [rotom](https://github.com/bingjiang0611/rotom), not an upstream or npm release.
 - `.rotom.2`: Qoder Ultimate live evaluation exposed missing verdict markers when the request contained only JSON. The request now carries the same review contract outside the untrusted payload, and file tools explain the project-root path. Bounded `goal_continue`/`goal_wait` tool results and text-only user/host announcements are now visible to the reviewer for procedural requirements, but remain excluded from candidate identity and progress. The request also clarifies pre-completion timing and native control semantics; evidence retains complete records up to the existing 12KB bound instead of prematurely dropping them after six records. Strict verdict parsing, model-call/attempt limits and token/byte budgets are unchanged.
 
 ## Retained upstream behavior
@@ -50,8 +50,16 @@ Host-owned retries remain bounded by Pi settings; no Goal retry loop or automati
 
 After threshold compaction summarizes the persisted inactive Goal contract away, the contract is no longer appended again as the newest message. Models read that trailing "Goal mode is inactive" message as a fresh instruction and stopped unrelated in-progress work. The context hook still places the inactive contract right after the compaction summary without persisting it. A real SDK/faux-provider regression covers the compaction path; live-model stop behavior is not re-measured.
 
+### `.rotom.10`: automatic continuation by default
+
+Normal active Goal runs now continue after settlement without requiring `goal_continue`; a recorded `next_action` remains optional planning data and may share a tool batch with ordinary work. `stopReason: length` follows the same path, while the legacy `missing_decision` code remains readable only for old state. The response-count limit defaults to Unlimited without changing explicitly saved numeric limits or adding a token budget.
+
+Three consecutive automatic runs without a non-control tool call pause with `empty_responses`. Repeated identical behavior first receives a change-approach continuation prompt and only pauses when the configured fingerprint threshold is reached again. Goal state gains optional counters that normalize to zero for older sessions. Missing authorization or a critical user-owned decision uses Ask when available or the new optional `needs_user_decision` field on `goal_blocked`; ordinary recurring blockers still require three model-reported turns. External writes with unknown outcomes remain read-only-verified and never replayed for proof.
+
+Deterministic tests cover automatic continuation, length truncation, both guards, mixed `goal_continue`, numeric limits, legacy state and the decision schema. The maintained suite passed 95 tests plus TypeScript type checking. No live model, Qoder credit, external-service reliability or completion-quality evaluation was run.
+
 ## Compatibility and verification
 
-Restrictive tool allowlists now require `goal_continue` for Goal activation; they are never automatically widened. Previous active sessions need an explicit new decision rather than inheriting a pending authorization. Goal state gains optional review metadata; invalid metadata fails closed instead of resetting paid attempts. The three-consecutive-turn blocker count remains model-reported.
+Restrictive tool allowlists still require `goal_continue` for Goal activation so the four startup schemas remain stable; they are never automatically widened. Previous active sessions never inherit a pending authorization or replay a saved plan. Goal state gains optional review, empty-response and no-progress-warning metadata; invalid review metadata fails closed instead of resetting paid attempts, while missing new counters normalize safely. The three-consecutive-turn blocker count remains model-reported except for the explicit `needs_user_decision: true` path.
 
 `npm test` runs deterministic lifecycle, budget, reader, cancellation and restoration regressions, plus a real installed Pi SDK/faux-provider flow. `tsconfig.json` checks against the product Pi declarations. Product validation additionally checks the locked archive, default/full loader surface and context footprint. These checks do not prove live-model completion quality, lower token cost, real external verification or desktop UI behavior. Live Ultimate evaluations and their limits are recorded separately in the repository's `experiments/goal-review/`; they are not part of `npm test`. No npm publication is part of this component change.

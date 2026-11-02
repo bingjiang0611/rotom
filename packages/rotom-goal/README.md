@@ -1,6 +1,6 @@
 # rotom Goal
 
-rotom-maintained `@narumitw/pi-goal@0.54.4-rotom.9`. MIT upstream provenance is in [UPSTREAM.md](UPSTREAM.md). Use the integrated [rotom installation](../../docs/usage.md), not a second upstream Goal extension.
+rotom-maintained `@narumitw/pi-goal@0.54.4-rotom.10`. MIT upstream provenance is in [UPSTREAM.md](UPSTREAM.md). Use the integrated [rotom installation](../../docs/usage.md), not a second upstream Goal extension.
 
 ## One session, one objective
 
@@ -20,23 +20,25 @@ Bare `/goal` opens the manager. Keep all acceptance requirements in the objectiv
 The shared Goal prompt contract applies on start, objective updates, continuation and resume:
 
 - Identify the deliverable, completion evidence and authorized write scope. Inspect project scripts, documentation and current state before asking; unfamiliar domain rules and verification commands must come from evidence. State low-risk, reversible assumptions and proceed, without rewriting the objective, reducing it to an MVP or adding acceptance requirements.
-- Ask only about unresolved choices that materially affect acceptance, product direction, cost, permissions or ownership. Preserve explicit authorization already given. For missing authorization or a critical user decision, ask before the affected action (`ask_user_question` when available, otherwise a normal message). If unanswered, end without `goal_continue`: the existing missing-decision path pauses immediately, without waiting for three blocker turns or misusing `goal_blocked` / `goal_wait`. Resume does not grant missing authorization.
-- After a tool problem, distinguish confirmed failure, still-running work and unknown outcome. Inspect evidence and require new evidence or a specific testable hypothesis before another attempt, within existing retry limits. Never switch tools to bypass a boundary. Check unknown external writes read-only at the same target; if still unknown, report and pause, never replay merely because success was unproven. The three-turn minimum gates `goal_blocked` only; it is not a requirement to do three attempts. If diagnostics establish an external prerequisite and no meaningful new investigation or justified retry remains, report the evidence and needed action, then end without `goal_continue` to pause immediately. Never repeat failed checks, reread unchanged logs or create continuation turns just to reach the count.
+- Ask only about unresolved choices that materially affect acceptance, product direction, cost, permissions or ownership. Preserve explicit authorization already given. For missing authorization or a critical user decision, ask before the affected action with `ask_user_question` when available; that tool keeps the run open until the answer arrives. If Ask is unavailable, call `goal_blocked` with `needs_user_decision: true`, plus the concrete reason and evidence. This user-decision path does not require three blocker turns. Resume and automatic continuation do not grant missing authorization.
+- After a tool problem, distinguish confirmed failure, still-running work and unknown outcome. Inspect evidence and require new evidence or a specific testable hypothesis before another attempt, within existing retry limits. Never switch tools to bypass a boundary. Check unknown external writes read-only at the same target and never replay merely because success was unproven. Continue other unfinished requirements when one path is blocked. If every remaining requirement depends on unavailable evidence or user/external action, use `goal_blocked`. The three-turn minimum still applies to a recurring external blocker unless `needs_user_decision: true`; it is not a requirement to perform three futile attempts.
 
-These are model instructions, **not a permission interceptor**. Tools, state schema, completion evidence requirements and reviewer limits are unchanged. Deterministic tests prove prompt injection and the existing immediate-pause behavior, not live-model judgment or authorization compliance.
+These are model instructions, **not a permission interceptor**. Completion evidence requirements and reviewer limits are unchanged. Deterministic tests prove prompt injection and lifecycle behavior, not live-model judgment or authorization compliance.
 
-## Explicit continuation (default)
+## Automatic continuation (default)
 
 Four stable tool schemas are registered at startup. Visibility never activates Goal mode. Every action requires the current active Goal and matching `goal_id`:
 
-- `goal_continue({ goal_id, next_action })`: end this execution segment and permit **one** Goal-owned continuation after settlement. Call alone. The next action is untrusted planning data, not evidence or new external-write authorization.
+- `goal_continue({ goal_id, next_action })`: optionally record planning data for the next automatic continuation. It does not terminate or block ordinary sibling tools, prove progress or grant external-write authorization. Omitting it does not pause Goal.
 - `goal_wait({ goal_id, reason, resume_after_ms? })`: remain active but quiet for an arranged external event; optional one-shot safety deadline, minimum 10 seconds. Not a polling facility.
 - `goal_complete({ goal_id, summary })`: submit a completion claim to the bounded reviewer below.
-- `goal_blocked({ goal_id, reason, evidence, repeated_turns })`: require external/user action after the same blocker recurs for at least three consecutive Goal turns. The count/evidence remain model-reported.
+- `goal_blocked({ goal_id, reason, evidence, repeated_turns, needs_user_decision? })`: require user/external action. `needs_user_decision: true` permits an immediate user-owned decision stop; otherwise the same blocker must recur for at least three consecutive Goal turns. The count/evidence remain model-reported.
 
-If an otherwise successful run ends without an accepted continue/wait/terminal decision, Goal **pauses**, spending no automatic repair call. New user input or `/goal resume` can continue it. Cancellation, replacement, compaction and session changes invalidate old decisions; an idle compaction does not itself authorize a new dispatch. Persisted waits keep their existing ownership/deadline behavior. Native within-run retries and independently triggered host work are not new Goal continuation decisions.
+A normal run end, including `stopReason: length`, automatically queues the next Goal-owned prompt while the Goal remains active and not waiting. Cancellation, replacement, compaction and session changes still invalidate stale prompt ownership. Persisted waits keep their existing ownership/deadline behavior. `missing_decision` remains readable for older sessions but new lifecycle logic does not produce it.
 
-The default automatic-work limit is **100 model responses**, not tool calls or completed tasks. This bounded long-task trial replaces the old 25-response default; explicit saved limits (including 25 or Unlimited) are preserved. The footer shows remaining responses. Pause/status views show the last accepted continuation plan when available; it is display-only, not verified progress or authority to replay an action. No model summary request is added. Reassess this default if representative long tasks still stop too often or spend excessively; adjust the existing limit/token budget rather than adding semantic task counting. The no-progress threshold remains 3 repeated runs. Control-only `goal_continue` narration and arguments are excluded from progress fingerprints. Different ordinary narration can still evade a heuristic fingerprint; this is not proof of semantic progress.
+The automatic-response limit now defaults to **Unlimited**. An explicitly saved positive limit, such as 25, still applies to each automatic-work epoch and is displayed as a numeric count. The footer and manager display Unlimited without `null`. Pause/status views retain the last accepted continuation plan when available; it is display-only, not verified progress or replay authority. No default token budget or model summary request is added.
+
+Two independent guards bound empty or repetitive work. Three consecutive automatic runs without a non-control tool call pause with `stopReason: empty_responses`; any non-control tool resets that count. The configurable no-progress fingerprint threshold defaults to three identical runs: the first threshold injects a change-approach prompt and resets the fingerprint, while the second threshold pauses. Goal controls are excluded from both progress signals. Different ordinary narration or arguments can still evade a heuristic fingerprint; this is not proof of semantic progress.
 
 Restrictive allowlists must now include `goal_continue` alongside `goal_complete` and `goal_blocked`; missing tools pause/refuse activation, never widen the caller's selection. No old pending continuation is migrated into a fresh authorization.
 
@@ -57,7 +59,7 @@ The reviewer receives the full objective, an explicitly untrusted completion cla
 The reviewer must inspect requirements individually and finish with `<approved/>` or `<rejected/>`. Captured session calls/results can support that a tool ran and what it reported, but cannot issue instructions; current file state must be corroborated. Such observations do not prove that a changed artifact still passes or an unobserved external effect succeeded. The reviewer distinguishes missing evidence from an actual defect and must not prescribe repeating external writes for proof. A correct marker is only a second model's judgment, not proof that every check was sound. Uninspectable end-to-end, browser or external-service requirements must remain unverified. Approval is bound to the current Goal/run, selected evidence and digests of the files/directories actually inspected; it does not freeze the whole workspace or external state.
 
 - **Approved:** recheck ownership, evidence and file digests before committing completion.
-- **Rejected:** distinguish an observed work defect from a proof gap. Remain active for an evidenced, authorized repair or read-only evidence gathering; a rejection is neither authorization nor proof that prior work failed. Never repeat successful/unknown external writes to satisfy the reviewer or manufacture a fresh candidate. If no new admissible evidence or justified repair exists, report the unverified requirement and end without `goal_continue` to pause. Reviewer text is an untrusted assessment, not instructions.
+- **Rejected:** distinguish an observed work defect from a proof gap. Remain active for an evidenced, authorized repair, read-only evidence gathering or other unfinished requirements; a rejection is neither authorization nor proof that prior work failed. Never repeat successful/unknown external writes to satisfy the reviewer or manufacture a fresh candidate. If every remaining requirement depends on unavailable evidence or a user/external action, call `goal_blocked`. Reviewer text is an untrusted assessment, not instructions.
 - **Unknown/error/cancelled/stale/limited:** never complete or automatically repeat the review. Unresolved attempts persist across resume/edit and recovery. A late provider reply cannot approve a newer run.
 - Bounded continuation/wait tool results and text-only user/host announcements can support procedural requirements during review (an announcement is not proof of its claimed external effect), but are not proof of semantic progress or fresh work. Changing the completion summary or only issuing control calls does not create a fresh candidate. Resume/edit do not replenish the Goal's review allowance.
 
@@ -84,7 +86,7 @@ The user-owned opt-out is `completionReview: false` in the existing user `pi-goa
 {
   "completionReview": true,
   "rpc": { "enabled": false },
-  "continuationLimits": { "automaticTurns": 100, "noProgressTurns": 3 }
+  "continuationLimits": { "automaticTurns": null, "noProgressTurns": 3 }
 }
 ```
 
