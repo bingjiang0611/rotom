@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { ActiveGoal } from "./persistence.js";
+import { GOAL_TOOL_NAMES } from "./tool-policy.js";
 
 export interface ToolFreeRepeatState {
 	toolFreeRepeatCount: number;
@@ -16,6 +17,8 @@ export function resetGoalSafetyEpoch(goal: ActiveGoal): ActiveGoal {
 		automaticModelTurns: 0,
 		toolFreeRepeatCount: 0,
 		lastToolFreeOutputFingerprint: undefined,
+		emptyResponseCount: 0,
+		noProgressWarningIssued: undefined,
 		safetyPauseCause: undefined,
 		safetyResetPending: undefined,
 	};
@@ -53,12 +56,22 @@ export function nextToolFreeRepeatState(
 	};
 }
 
-export function hasAssistantToolCall(messages: readonly unknown[]) {
+export function hasAssistantNonControlToolCall(messages: readonly unknown[]) {
 	for (const message of messages) {
 		if (!isRecord(message) || message.role !== "assistant" || !Array.isArray(message.content)) {
 			continue;
 		}
-		if (message.content.some((block) => isRecord(block) && block.type === "toolCall" && block.name !== "goal_continue")) return true;
+		if (
+			message.content.some(
+				(block) =>
+					isRecord(block) &&
+					block.type === "toolCall" &&
+					typeof block.name === "string" &&
+					!GOAL_TOOL_NAMES.includes(block.name as (typeof GOAL_TOOL_NAMES)[number]),
+			)
+		) {
+			return true;
+		}
 	}
 	return false;
 }
@@ -99,7 +112,12 @@ export function toolCallSignature(messages: readonly unknown[]) {
 			continue;
 		}
 		for (const block of message.content) {
-			if (!isRecord(block) || block.type !== "toolCall" || block.name === "goal_continue") continue;
+			if (
+				!isRecord(block) ||
+				block.type !== "toolCall" ||
+				(typeof block.name === "string" &&
+					GOAL_TOOL_NAMES.includes(block.name as (typeof GOAL_TOOL_NAMES)[number]))
+			) continue;
 			const name =
 				(typeof block.name === "string" && block.name) ||
 				(typeof block.toolName === "string" && block.toolName) ||

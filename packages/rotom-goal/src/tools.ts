@@ -53,6 +53,7 @@ interface GoalBlockedDetails {
 	reason: string;
 	evidence: string;
 	repeated_turns: number;
+	needs_user_decision?: boolean;
 }
 
 interface GoalWaitDetails {
@@ -79,7 +80,7 @@ export function registerGoalTools(
 			name: GOAL_CONTINUE_TOOL,
 			label: "Goal Continue",
 			description:
-				"End the current active Goal execution segment with one concrete next action. Call alone, only with the latest active goal_id. This allows one Goal-owned continuation, not new permissions or proof of progress. Tool visibility alone does not activate Goal mode. Missing decision: pause without an automatic repair turn.",
+				"Optionally record one concrete next action for the next automatic Goal continuation. Use only with the latest active goal_id. This is planning data, not new permission or proof of progress. Goal continues automatically when this tool is omitted, and ordinary sibling tools may still execute.",
 			parameters: Type.Object({
 				goal_id: Type.String({ minLength: 1, maxLength: MAX_GOAL_ID_LENGTH }),
 				next_action: Type.String({ minLength: 1, maxLength: 2000 }),
@@ -102,9 +103,9 @@ export function registerGoalTools(
 						terminate: false,
 					};
 				return {
-					content: toolContent("One continuation decision accepted. Stop this execution segment."),
+					content: toolContent("Next action recorded for the next automatic continuation."),
 					details: { goal_id: params.goal_id, next_action: nextAction },
-					terminate: true,
+					terminate: false,
 				};
 			},
 		}),
@@ -392,7 +393,7 @@ export function registerGoalTools(
 		name: GOAL_BLOCKED_TOOL,
 		label: "Goal Blocked",
 		description:
-			"Stop an active /goal only when the latest effective Goal contract explicitly says Goal mode is active, supplies the matching current goal_id, and the same evidenced external blocker recurred for at least three consecutive Goal turns. Tool visibility alone does not activate Goal mode. Never call for ordinary clarification, uncertainty, incomplete work, or recoverable failures.",
+			"Stop an active /goal when the latest effective Goal contract supplies the matching current goal_id and either a user decision is required now or the same evidenced external blocker recurred for at least three consecutive Goal turns. Tool visibility alone does not activate Goal mode. Never call for ordinary uncertainty, incomplete work, or recoverable failures.",
 		parameters: Type.Object({
 			goal_id: Type.String({
 				minLength: 1,
@@ -410,9 +411,15 @@ export function registerGoalTools(
 				description: "Concrete evidence from the repeated attempts that proves the impasse.",
 			}),
 			repeated_turns: Type.Integer({
-				minimum: 3,
+				minimum: 1,
 				description: "Number of separate turns spent trying to resolve this same blocker.",
 			}),
+			needs_user_decision: Type.Optional(
+				Type.Boolean({
+					description:
+						"Set true only when missing user authorization or a critical user-owned decision prevents the affected action.",
+				}),
+			),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const blockedGoal = runtime.activeGoal;
@@ -422,12 +429,22 @@ export function registerGoalTools(
 			const evidence = typeof params.evidence === "string" ? params.evidence.trim() : "";
 			const repeatedTurns =
 				typeof params.repeated_turns === "number" ? params.repeated_turns : Number.NaN;
+			const needsUserDecision = params.needs_user_decision === true;
+			const details = () =>
+				blockerDetails(
+					goal,
+					requestedGoalId,
+					reason,
+					evidence,
+					repeatedTurns,
+					needsUserDecision,
+				);
 			const reject = (rejectionReason: string, terminate = false) => {
 				const rejection = `goal_blocked rejected: ${rejectionReason}.`;
 				notifyTerminal(ctx.ui, rejection, "warning");
 				return {
 					content: toolContent(rejection),
-					details: blockerDetails(goal, requestedGoalId, reason, evidence, repeatedTurns),
+					details: details(),
 					...(terminate ? { terminate: true as const } : {}),
 				};
 			};
@@ -448,7 +465,9 @@ export function registerGoalTools(
 			if (!evidence) return reject("evidence is empty");
 			if (evidence.length > MAX_BLOCKER_EVIDENCE_LENGTH) return reject("evidence is too long");
 			if (!Number.isInteger(repeatedTurns)) return reject("repeated_turns must be a whole number");
-			if (repeatedTurns < 3) return reject("repeated_turns must be at least 3");
+			if (!needsUserDecision && repeatedTurns < 3) {
+				return reject("repeated_turns must be at least 3 unless needs_user_decision is true");
+			}
 
 			const stoppedGoal = runtime.stopActiveGoal(ctx, {
 				kind: "blocker_report",
@@ -460,7 +479,7 @@ export function registerGoalTools(
 
 			return {
 				content: toolContent(`Goal blocked: ${reason}`),
-				details: blockerDetails(goal, requestedGoalId, reason, evidence, repeatedTurns),
+				details: details(),
 				terminate: true,
 			};
 		},
@@ -614,6 +633,7 @@ function blockerDetails(
 	reason: string,
 	evidence: string,
 	repeatedTurns: number,
+	needsUserDecision: boolean,
 ): GoalBlockedDetails {
 	return {
 		goal: goal.slice(0, MAX_GOAL_TEXT_LENGTH),
@@ -621,6 +641,7 @@ function blockerDetails(
 		reason: reason.slice(0, MAX_BLOCKER_REASON_LENGTH),
 		evidence: evidence.slice(0, MAX_BLOCKER_EVIDENCE_LENGTH),
 		repeated_turns: Number.isFinite(repeatedTurns) ? repeatedTurns : 0,
+		...(needsUserDecision ? { needs_user_decision: true } : {}),
 	};
 }
 

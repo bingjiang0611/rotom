@@ -69,7 +69,7 @@ export async function showGoalSettings(
 					{
 						id: "noProgressTurns",
 						label: "No-progress guard",
-						description: "Pause after repeated or empty tool-free automatic runs.",
+						description: "Nudge after repeated identical automatic runs, then pause if repetition continues.",
 						currentValue: formatNoProgressSettingValue(
 							runtime.settings.continuationLimits.noProgressTurns,
 						),
@@ -174,14 +174,14 @@ function limitChoiceScreen(
 				: `Current: ${formatNoProgressProtection(value)}`,
 			...(field === "automaticTurns"
 				? [
-						`Set a whole-number response limit for each automatic-work epoch. Default: ${DEFAULT_GOAL_SETTINGS.continuationLimits.automaticTurns}.`,
+						`Set a whole-number response limit for each automatic-work epoch. Default: ${formatAutomaticWork(DEFAULT_GOAL_SETTINGS.continuationLimits.automaticTurns)}.`,
 					]
 				: []),
 			...(goal
 				? [
 						field === "automaticTurns"
 							? `Active goal: ${goal.automaticModelTurns} automatic responses used`
-							: `Active goal: ${goal.toolFreeRepeatCount} repeated or empty runs detected`,
+							: `Active goal: ${goal.toolFreeRepeatCount} repeated runs detected`,
 					]
 				: []),
 		],
@@ -211,7 +211,7 @@ function limitChoices(
 			{
 				value: "custom",
 				label: "Set response limit…",
-				description: `Choose a whole-number response limit for each automatic-work epoch. Default: ${DEFAULT_GOAL_SETTINGS.continuationLimits.automaticTurns}.`,
+				description: `Choose a whole-number response limit for each automatic-work epoch. Default: ${formatAutomaticWork(DEFAULT_GOAL_SETTINGS.continuationLimits.automaticTurns)}.`,
 			},
 			{ value: "unlimited", label: "Unlimited…", description: unlimitedDescription },
 		];
@@ -221,17 +221,17 @@ function limitChoices(
 		{
 			value: "default",
 			label: `After ${defaultLimit} repeated runs (default)`,
-			description: "Pause after the default number of repeated or empty tool-free runs.",
+			description: "Nudge after the default number of identical runs, then pause if the threshold is reached again.",
 		},
 		{
 			value: "custom",
 			label: "Set threshold…",
-			description: "Choose a whole number of repeated or empty runs before pausing.",
+			description: "Choose a whole number of identical runs before the nudge and later pause.",
 		},
 		{
 			value: "off",
 			label: "Off",
-			description: "Do not pause based on repeated or empty tool-free runs.",
+			description: "Do not nudge or pause based on repeated identical runs.",
 		},
 	];
 }
@@ -367,8 +367,8 @@ async function resolveLimitSelection(
 		const raw =
 			field === "automaticTurns"
 				? await ctx.ui.editor(
-						`Automatic-work response limit (whole number greater than 0) · Default: ${DEFAULT_GOAL_SETTINGS.continuationLimits.automaticTurns}`,
-						String(previous ?? DEFAULT_GOAL_SETTINGS.continuationLimits.automaticTurns),
+						`Automatic-work response limit (whole number greater than 0) · Default: ${formatAutomaticWork(DEFAULT_GOAL_SETTINGS.continuationLimits.automaticTurns)}`,
+						previous === null ? "" : String(previous),
 					)
 				: await ctx.ui.input(
 						"Repeated-run threshold (whole number greater than 0)",

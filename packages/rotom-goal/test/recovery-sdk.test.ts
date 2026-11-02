@@ -44,7 +44,16 @@ for (const outcome of ["recovered", "exhausted", "cancelled", "unknown-tool", "c
 		provider.setResponses([
 			() => fauxAssistantMessage(fauxToolCall("record_effect", {}), { stopReason: "toolUse" }),
 			error,
-			outcome === "exhausted" || outcome === "compacted" ? error : () => fauxAssistantMessage("The prior effect must not be repeated. I need user input to proceed."),
+			outcome === "exhausted" || outcome === "compacted"
+				? error
+				: () =>
+						fauxAssistantMessage(
+							fauxToolCall("goal_wait", {
+								goal_id: currentGoal().id,
+								reason: "Provider recovery outcome inspected; await user input",
+							}),
+							{ stopReason: "toolUse" },
+						),
 			summary, summary, // History and retained split-turn prefix are summarized separately.
 		]);
 		const { session } = await createAgentSession({ cwd, agentDir: cwd, resourceLoader: loader, modelRuntime: registry, model: provider.getModel(), thinkingLevel: "off", sessionManager: manager, settingsManager });
@@ -85,10 +94,25 @@ for (const outcome of ["recovered", "exhausted", "cancelled", "unknown-tool", "c
 		}
 		assert.equal(retryEvents.filter((e) => e.type === "auto_retry_start").length, 1);
 		assert.equal(retryEvents.at(-1)?.success, outcome === "recovered" || outcome === "unknown-tool");
-		assert.equal(currentGoal()?.status, "paused");
+		assert.equal(
+			currentGoal()?.status,
+			outcome === "recovered" || outcome === "unknown-tool" ? "active" : "paused",
+		);
 		assert.equal(currentGoal()?.recovery, undefined);
-		assert.equal(currentGoal()?.waiting, undefined);
-		assert.equal(currentGoal()?.stopReason, outcome === "exhausted" || outcome === "compacted" ? "provider_retry_exhausted" : outcome === "cancelled" ? "agent_interruption" : "missing_decision");
+		assert.equal(
+			currentGoal()?.waiting?.reason,
+			outcome === "recovered" || outcome === "unknown-tool"
+				? "Provider recovery outcome inspected; await user input"
+				: undefined,
+		);
+		assert.equal(
+			currentGoal()?.stopReason,
+			outcome === "exhausted" || outcome === "compacted"
+				? "provider_retry_exhausted"
+				: outcome === "cancelled"
+					? "agent_interruption"
+					: undefined,
+		);
 		// Cancellation can reach the host before Goal receives agent_end; in that
 		// ordering the authoritative final message is already aborted, not retrying.
 		if (outcome !== "cancelled") {
