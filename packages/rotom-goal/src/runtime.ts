@@ -217,6 +217,7 @@ const BUDGET_WRAP_UP_MESSAGE_TYPE = "goal-budget-wrap-up";
 const BUDGET_WRAP_UP_PROMPT =
 	"The active /goal token budget is exhausted. Stop substantive work and do not call substantive tools. Summarize progress, verified results, remaining work, and blockers concisely. Treat completion as unproven. Do not call goal_complete unless authoritative, requirement-by-requirement evidence already proves every requirement is complete. Weak, indirect, or missing evidence is not enough. Budget exhaustion is not completion.";
 const EMPTY_RESPONSE_LIMIT = 3;
+const PROVIDER_RECOVERY_WAIT_DELAYS_MS = [5 * 60_000, 15 * 60_000, 30 * 60_000] as const;
 const NO_PROGRESS_GUIDANCE =
 	"The last automatic runs repeated the same observable operation. Change approach or inspect the authoritative current state before acting again; do not repeat an unchanged attempt merely to keep the goal moving.";
 const CONTRADICTORY_COMPLETION_PATTERNS = [
@@ -979,6 +980,23 @@ export class GoalRuntime {
 		}
 		const details = recovery.errorMessage ? `: ${truncateNotification(recovery.errorMessage)}` : "";
 		if (recovery.kind === "provider_retry") {
+			const attempts = goal.providerRecoveryWaitAttempts ?? 0;
+			const delayMs = PROVIDER_RECOVERY_WAIT_DELAYS_MS[attempts];
+			if (delayMs !== undefined) {
+				goal.providerRecoveryWaitAttempts = attempts + 1;
+				this.persistGoal(goal);
+				const waitingGoal = this.enterGoalWait(ctx, goal.id, {
+					reason: `Provider recovery exhausted; automatic retry ${attempts + 1} of ${PROVIDER_RECOVERY_WAIT_DELAYS_MS.length} scheduled`,
+					resumeAt: Date.now() + delayMs,
+				});
+				if (!waitingGoal) return false;
+				notifyTerminal(
+					ctx.ui,
+					`Provider recovery stopped${details}. Goal will retry automatically in ${formatDuration(delayMs / 1_000)} (${attempts + 1} of ${PROVIDER_RECOVERY_WAIT_DELAYS_MS.length}); user input or /goal pause cancels the wait.`,
+					"warning",
+				);
+				return true;
+			}
 			const stoppedGoal = this.stopActiveGoal(ctx, {
 				kind: "agent_interruption",
 				cause: "provider_retry_exhausted",
@@ -989,7 +1007,7 @@ export class GoalRuntime {
 			if (!stoppedGoal) return false;
 			notifyTerminal(
 				ctx.ui,
-				`Goal paused after provider recovery stopped${details}. Check the connection and run /goal resume; no automatic retry is pending.`,
+				`Goal paused after three scheduled provider-recovery waits were exhausted${details}. Check the connection and run /goal resume.`,
 				"warning",
 			);
 			return true;
@@ -1021,6 +1039,17 @@ export class GoalRuntime {
 		if (this.activeGoal?.id === goalId && this.activeGoal.recovery) {
 			this.activeGoal = { ...this.activeGoal, recovery: undefined };
 		}
+	}
+
+	resetProviderRecoveryWaitAttempts(goalId: string) {
+		if (
+			this.activeGoal?.id !== goalId ||
+			(this.activeGoal.providerRecoveryWaitAttempts ?? 0) === 0
+		) {
+			return false;
+		}
+		this.activeGoal = { ...this.activeGoal, providerRecoveryWaitAttempts: 0 };
+		return true;
 	}
 
 	canResumeIdleGoal(ctx: StatusContext) {

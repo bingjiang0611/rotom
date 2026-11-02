@@ -224,33 +224,58 @@ function failRun(h: ReturnType<typeof fixture>, errorMessage = "fetch failed") {
 	h.handlers.get("agent_end")({ messages: [{ role: "assistant", content: [], stopReason: "error", errorMessage }] }, h.ctx);
 }
 
-test("host recovery is visible; exhaustion pauses with a durable cause and no phantom wake", (t) => {
+test("host recovery exhaustion schedules a five-minute wait that user input cancels", (t) => {
 	const h = fixture(t);
+	const before = Date.now();
 	failRun(h);
 	assert.equal(h.runtime.activeGoal?.recovery, "provider_retry");
 	assert.match(formatStatus(h.runtime.activeGoal)!, /recovering/);
 	assert.match(goalSummary(h.runtime.activeGoal!), /owned by Pi/);
 	h.handlers.get("agent_settled")({ aborted: false }, h.ctx);
-	assert.equal(h.runtime.activeGoal?.status, "paused");
-	assert.equal(h.runtime.activeGoal?.waiting, undefined);
+	assert.equal(h.runtime.activeGoal?.status, "active");
 	assert.equal(h.runtime.activeGoal?.recovery, undefined);
-	assert.equal(h.runtime.activeGoal?.stopReason, "provider_retry_exhausted");
-	const restored = normalizeLoadedGoal(h.entries.at(-1).data.goal);
-	assert.equal(restored.stopReason, "provider_retry_exhausted");
-	assert.match(goalSummary(restored), /check the connection/i);
-	assert.equal(h.runtime.ownsWorkflow(), false);
-	h.handlers.get("agent_settled")({ aborted: false }, h.ctx);
+	assert.equal(h.runtime.activeGoal?.providerRecoveryWaitAttempts, 1);
+	assert.match(h.runtime.activeGoal?.waiting?.reason ?? "", /automatic retry 1 of 3/);
+	assert.ok((h.runtime.activeGoal?.waiting?.resumeAt ?? 0) >= before + 5 * 60_000);
+	h.handlers.get("input")({ source: "interactive", text: "Use the backup provider" }, h.ctx);
+	assert.equal(h.runtime.activeGoal?.waiting, undefined);
 	assert.deepEqual(h.sent, []);
 });
 
-test("successful host response clears recovering before the next tool turn", (t) => {
+test("provider recovery waits for 5, 15 and 30 minutes before the fourth exhaustion pauses", (t) => {
 	const h = fixture(t);
+	const delays = [5 * 60_000, 15 * 60_000, 30 * 60_000];
+	for (let index = 0; index < delays.length; index++) {
+		const before = Date.now();
+		failRun(h);
+		h.handlers.get("agent_settled")({ aborted: false }, h.ctx);
+		assert.equal(h.runtime.activeGoal?.status, "active");
+		assert.equal(h.runtime.activeGoal?.providerRecoveryWaitAttempts, index + 1);
+		const resumeAt = h.runtime.activeGoal?.waiting?.resumeAt ?? 0;
+		assert.ok(resumeAt >= before + delays[index]!);
+		assert.ok(resumeAt <= Date.now() + delays[index]! + 1_000);
+		assert.equal(h.runtime.clearGoalWait(h.ctx, h.runtime.activeGoal!.id), true);
+		h.runtime.beginAgentRun(h.runtime.activeGoal!.id, "automatic");
+	}
+	failRun(h);
+	h.handlers.get("agent_settled")({ aborted: false }, h.ctx);
+	assert.equal(h.runtime.activeGoal?.status, "paused");
+	assert.equal(h.runtime.activeGoal?.waiting, undefined);
+	assert.equal(h.runtime.activeGoal?.stopReason, "provider_retry_exhausted");
+	assert.match(goalSummary(h.runtime.activeGoal!), /three scheduled waits/i);
+});
+
+test("successful host response clears recovery and the scheduled-wait backoff", (t) => {
+	const h = fixture(t);
+	h.runtime.activeGoal!.providerRecoveryWaitAttempts = 1;
 	failRun(h);
 	h.handlers.get("agent_start")({}, h.ctx);
 	h.handlers.get("turn_end")({ message: { role: "assistant", stopReason: "toolUse", content: [] } }, h.ctx);
 	assert.equal(h.runtime.activeGoal?.recovery, undefined);
 	assert.equal(h.runtime.goalRecovery, undefined);
 	assert.equal(h.entries.at(-1).data.goal.recovery, undefined);
+	finish(h);
+	assert.equal(h.runtime.activeGoal?.providerRecoveryWaitAttempts, 0);
 });
 
 test("in-session compaction retains live host recovery until a successful response", async (t) => {

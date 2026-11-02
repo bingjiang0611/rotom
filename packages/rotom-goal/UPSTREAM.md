@@ -58,7 +58,9 @@ Three consecutive automatic runs without a non-control tool call pause with `emp
 
 Session restoration now defaults `resumeOnRestore` to true: an active non-waiting Goal queues one fresh continuation when the restored session is idle, without replaying saved `next_action` text or tool calls. Explicit waits remain quiet, and `resumeOnRestore: false` retains the durable `session_restored` pause.
 
-Deterministic tests cover automatic continuation, length truncation, both guards, mixed `goal_continue`, numeric limits, legacy state, restoration and the decision schema. The maintained suite passed 96 tests plus TypeScript type checking. No live model, Qoder credit, external-service reliability or completion-quality evaluation was run.
+After Pi exhausts one provider request's configured retries, Goal schedules fresh continuations after 5, 15 and 30 minute waits. User input or `/goal pause` cancels the wait, a successful run resets the sequence, and the fourth consecutive exhaustion pauses with `provider_retry_exhausted`. These waits never replay tool calls or widen Pi's per-request retry allowance.
+
+Deterministic tests cover automatic continuation, length truncation, both guards, mixed `goal_continue`, numeric limits, legacy state, restoration and the decision schema. The maintained suite passed 97 tests plus TypeScript type checking. No live model, Qoder credit, external-service reliability or completion-quality evaluation was run.
 
 ## Compatibility and verification
 

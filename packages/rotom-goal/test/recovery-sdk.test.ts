@@ -94,29 +94,30 @@ for (const outcome of ["recovered", "exhausted", "cancelled", "unknown-tool", "c
 		}
 		assert.equal(retryEvents.filter((e) => e.type === "auto_retry_start").length, 1);
 		assert.equal(retryEvents.at(-1)?.success, outcome === "recovered" || outcome === "unknown-tool");
-		assert.equal(
-			currentGoal()?.status,
-			outcome === "recovered" || outcome === "unknown-tool" ? "active" : "paused",
-		);
+		assert.equal(currentGoal()?.status, outcome === "cancelled" ? "paused" : "active");
 		assert.equal(currentGoal()?.recovery, undefined);
-		assert.equal(
-			currentGoal()?.waiting?.reason,
-			outcome === "recovered" || outcome === "unknown-tool"
-				? "Provider recovery outcome inspected; await user input"
-				: undefined,
-		);
-		assert.equal(
-			currentGoal()?.stopReason,
-			outcome === "exhausted" || outcome === "compacted"
-				? "provider_retry_exhausted"
-				: outcome === "cancelled"
-					? "agent_interruption"
-					: undefined,
-		);
+		if (outcome === "recovered" || outcome === "unknown-tool") {
+			assert.equal(
+				currentGoal()?.waiting?.reason,
+				"Provider recovery outcome inspected; await user input",
+			);
+		} else if (outcome === "exhausted" || outcome === "compacted") {
+			assert.match(currentGoal()?.waiting?.reason ?? "", /automatic retry 1 of 3/);
+			assert.equal(currentGoal()?.providerRecoveryWaitAttempts, 1);
+		} else {
+			assert.equal(currentGoal()?.waiting, undefined);
+		}
+		assert.equal(currentGoal()?.stopReason, outcome === "cancelled" ? "agent_interruption" : undefined);
 		// Cancellation can reach the host before Goal receives agent_end; in that
 		// ordering the authoritative final message is already aborted, not retrying.
 		if (outcome !== "cancelled") {
 			assert.ok(manager.getBranch().some((e: any) => e.customType === "goal-state" && e.data.goal?.recovery === "provider_retry"));
+		}
+		if (outcome === "exhausted" || outcome === "compacted") {
+			await session.prompt("/goal pause");
+			await session.waitForIdle();
+			assert.equal(currentGoal()?.status, "paused");
+			assert.equal(currentGoal()?.waiting, undefined);
 		}
 	});
 }
