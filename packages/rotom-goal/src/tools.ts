@@ -222,7 +222,7 @@ export function registerGoalTools(
 				// of the objective. Controls still cannot buy a fresh work candidate.
 				const candidate = digest(JSON.stringify([completedGoal.text, reviewEvidence(branch)]));
 				const previous = completedGoal.review;
-				const pause = (reason: string) => {
+				const stopForBudget = (reason: string) => {
 					runtime.stopActiveGoal(ctx, {
 						kind: "agent_interruption",
 						expectedGoalId: completedGoal.id,
@@ -235,29 +235,39 @@ export function registerGoalTools(
 						terminate: true,
 					};
 				};
+				const rejectReview = (reason: string) => {
+					runtime.persistGoal(completedGoal);
+					runtime.updateStatus(ctx, completedGoal);
+					notifyTerminal(ctx.ui, reason, "warning");
+					return {
+						content: toolContent(reason),
+						details: completionDetails(goal, requestedGoalId, summary),
+						terminate: false,
+					};
+				};
 				runtime.recordGoalUsage(completedGoal, ctx);
 				if (
 					completingDuringBudgetWrapUp ||
 					(completedGoal.tokenBudget !== undefined &&
 						goalBudgetTokens(completedGoal) >= completedGoal.tokenBudget)
 				)
-					return pause(
+					return stopForBudget(
 						"Goal review unavailable after token budget exhaustion; completion is unverified.",
 					);
 				if (previous?.status === "running" || previous?.status === "unknown")
-					return pause(
-						"Previous completion review is unresolved. It will not be replayed, including after resume. Completion remains unverified.",
+					return rejectReview(
+						"Previous completion review is unresolved. It will not be replayed, including after resume. Continue other work or gather new read-only evidence; completion remains unverified.",
 					);
 				if (previous?.candidate === candidate)
-					return pause(
+					return rejectReview(
 						"This evidence candidate was already reviewed. Do new verified work before requesting another review; changing the summary is insufficient.",
 					);
 				if (
 					(previous?.attempts ?? 0) >= REVIEW_LIMITS.attempts ||
 					(previous?.reportedTokens ?? 0) >= REVIEW_LIMITS.reportedTokens
 				)
-					return pause(
-						"Goal completion-review allowance exhausted. Resume/edit does not replenish it. Completion remains unverified.",
+					return rejectReview(
+						"Goal completion-review allowance exhausted. Resume/edit does not replenish it. Continue other unfinished requirements; completion remains unverified.",
 					);
 				const execution = runtime.executionSignal;
 				const isCurrent = () =>
@@ -349,9 +359,13 @@ export function registerGoalTools(
 					credits: null,
 				});
 				if (status === "unknown")
-					return pause(
-						`Completion review unresolved: ${unchanged ? outcome.report : "Review evidence changed."} No automatic retry; completion remains unverified.`,
-					);
+					return {
+						content: toolContent(
+							`Completion review unresolved: ${unchanged ? outcome.report : "Review evidence changed."} No automatic review retry; continue other unfinished work or gather new read-only evidence. Completion remains unverified.`,
+						),
+						details: { review: completedGoal.review },
+						terminate: false,
+					};
 				if (status === "rejected")
 					return {
 						content: toolContent(
