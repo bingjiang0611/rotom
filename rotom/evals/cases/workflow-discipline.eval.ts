@@ -52,6 +52,7 @@ if (!enabled) {
 			inlineExtensions: [(pi) => {
 				events = [];
 				editHistory = [];
+				phase = 0;
 				let turns = 0;
 				const admitted = new Map<string, string>();
 				pi.on("before_agent_start", (event) => {

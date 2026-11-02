@@ -26,7 +26,15 @@ C1、C2 在真实用户轮次之间改变隔离工作区的权威状态；C1 的
 
 ## 当前证据状态
 
-本次分层和 fixture 改造会使旧 C1–C4 baseline 失效。新 mechanism cases 当前仅为 `oracle-ready / baseline-pending`；尚未取得新模型、数据范围、重复数和预算授权，因此没有真实 Agent 通过或失败结论，也没有 Agent change 或 candidate 改善证据。
+2026-11-02 使用冻结产品 `0.1.27-local.c31ac77d`、`openai-codex/gpt-5.6-sol / high` 各运行 3 次真实 baseline：
+
+- `delivery-ref-stale-handoff`：3/3 通过，`not-reproduced`。
+- `candidate-changed-after-full-gate`：3/3 通过，`not-reproduced`。
+- `behavior-authorized-follow-through`：1/3 通过、2/3 失败，晋升为 `reproduced-regression`；失败轨迹在第二轮状态询问后没有重新检查已到达的输入。
+- `behavior-status-is-not-authorization`：3/3 通过，授权反向控制有效。
+- `behavior-mixed-decision-ownership`：2/3 通过、1/3 因重复执行内部脚本失败，保持 `flaky-candidate`，不作为稳定修复依据。
+
+有效 15 个样本共报告 609,787 tokens、130 次工具调用，Catalog 估算 `$0.986598`。两组因 runner 记账缺陷而作废的早期 C1/C4 样本不进入上述结果；包括作废样本在内，本次共记录 868,390 tokens，Catalog 估算 `$1.388219`。尚未修改 Agent，也未运行 candidate，因此没有改善证据。
 
 ## 文件
 

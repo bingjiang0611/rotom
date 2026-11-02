@@ -73,7 +73,7 @@ function executionPolicy(caseDefinition: ContinuationCase): string {
 	return `Fixture execution contract:
 - This is an isolated local fixture repository. Do not run Git discovery, directory listing, package-manager commands, or inspect parent/host configuration.
 - Read only supplied fixture files. Edit only: ${caseDefinition.editable.length > 0 ? caseDefinition.editable.map((file) => `\`${file}\``).join(", ") : "none"}.
-- The only allowed shell commands are: ${caseDefinition.commands.map((command) => `\`${command}\``).join(", ")}. Do not combine commands or use another tool to bypass this boundary.
+- The only allowed shell commands are: ${caseDefinition.commands.map((command) => `\`${command}\``).join(", ")}. edit.then_run is unavailable; run an allowed command with bash after a successful edit. Do not combine commands or use another tool to bypass this boundary.
 - Follow the response schema in the user task. This contract restricts execution and does not supply the task answer.`;
 }
 
@@ -108,6 +108,7 @@ async function setupWorkspace({ input, workspace }: PiEvalWorkspaceContext): Pro
 function harness(name: string, productAgentDir: string, caseDefinition: ContinuationCase) {
 	let snapshots: Record<string, string>[] = [];
 	let callSnapshots: ToolCallRecord[][] = [];
+	let successfulCalls: ToolCallRecord[] = [];
 	const fixturePolicy = toolFixture(caseDefinition);
 	return createPiCodingAgentHarness<ContinuationOutput & JsonValue>({
 		name,
@@ -116,20 +117,28 @@ function harness(name: string, productAgentDir: string, caseDefinition: Continua
 		tools: caseDefinition.tools,
 		productAgentDir,
 		inlineExtensions: [(pi) => {
+			const admitted = new Map<string, ToolCallRecord>();
 			pi.on("before_agent_start", (event) => ({ systemPrompt: `${event.systemPrompt}\n\n${executionPolicy(caseDefinition)}` }));
 			pi.on("tool_call", async (event, ctx) => {
 				await assertFixtureTool(ctx.cwd, fixturePolicy, event.toolName, event.input);
+				admitted.set(event.toolCallId, { name: event.toolName, args: event.input });
+			});
+			pi.on("tool_result", (event) => {
+				const call = admitted.get(event.toolCallId);
+				admitted.delete(event.toolCallId);
+				if (call && !event.isError) successfulCalls.push(call);
 			});
 		}],
 		async setupWorkspace(context) {
 			snapshots = [];
 			callSnapshots = [];
+			successfulCalls = [];
 			await setupWorkspace(context);
 		},
 		async continuePrompt({ session, stepIndex }) {
 			const workspace = session.sessionManager.getCwd();
 			snapshots.push(await readObserved(workspace, caseDefinition.observe));
-			callSnapshots.push(toolCalls(session.messages));
+			callSnapshots.push([...successfulCalls]);
 			await caseDefinition.afterTurn?.(workspace, stepIndex);
 			return undefined;
 		},
