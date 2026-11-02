@@ -52,6 +52,7 @@ export function fixture(t: any, review?: any) {
 		hasPendingMessages: () => false,
 		abort() {},
 	};
+	const settingsPath = join(cwd, "goal-settings.json");
 	const runtime = new GoalRuntime(pi);
 	runtime.bindWorkflowSession(sessionManager);
 	assert.equal(runtime.acquireWorkflow(), true);
@@ -59,7 +60,7 @@ export function fixture(t: any, review?: any) {
 	runtime.beginAgentRun(runtime.activeGoal.id, "automatic");
 	registerGoalTools(pi, runtime, review);
 	const controller = new GoalRunController(runtime, new GoalCommandController(runtime));
-	registerGoalLifecycle(pi, runtime, controller);
+	registerGoalLifecycle(pi, runtime, controller, { settingsPath });
 	t.after(() => {
 		runtime.clearGoalWaitTimer();
 		runtime.clearCompletionStatusTimer();
@@ -67,7 +68,7 @@ export function fixture(t: any, review?: any) {
 	});
 	const call = (name: string, args: any, signal?: AbortSignal) =>
 		tools.get(name).execute("call", args, signal, undefined, ctx);
-	return { cwd, runtime, ctx, pi, tools, entries, sent, notices, handlers, call, controller };
+	return { cwd, settingsPath, runtime, ctx, pi, tools, entries, sent, notices, handlers, call, controller };
 }
 const decision = (status: ReviewResult["status"]): ReviewResult => ({
 	status,
@@ -90,8 +91,11 @@ test("four stable tools; defaults enable completion review; excluded continue is
 	const h = fixture(t);
 	assert.equal(h.tools.size, 4);
 	assert.equal(normalizeGoalSettings({})?.completionReview, true);
+	assert.equal(normalizeGoalSettings({})?.resumeOnRestore, true);
 	assert.equal(normalizeGoalSettings({ completionReview: false })?.completionReview, false);
+	assert.equal(normalizeGoalSettings({ resumeOnRestore: false })?.resumeOnRestore, false);
 	assert.equal(normalizeGoalSettings({ completionReview: "false" }), undefined);
+	assert.equal(normalizeGoalSettings({ resumeOnRestore: "false" }), undefined);
 	h.pi.getActiveTools = () => ["goal_complete", "goal_blocked"];
 	assert.equal(h.runtime.goalToolsAvailable(), false);
 });
@@ -296,7 +300,7 @@ test("cancelled recovery and stale recovery cannot wake or overwrite another Goa
 	assert.equal(h.runtime.activeGoal, replacement);
 });
 
-test("session restoration pauses running work and explicit resume creates one fresh prompt", async (t) => {
+test("session restoration automatically continues active idle work without replaying its saved plan", async (t) => {
 	const h = fixture(t);
 	const original = h.runtime.activeGoal!;
 	original.lastContinuationAction = "OLD PLAN MUST NOT REPLAY";
@@ -304,16 +308,23 @@ test("session restoration pauses running work and explicit resume creates one fr
 	h.runtime.recordGoalUsage(original, h.ctx);
 	h.runtime.persistGoal(original);
 	await h.handlers.get("session_start")({}, h.ctx);
-	assert.equal(h.runtime.activeGoal?.status, "paused");
-	assert.equal(h.runtime.activeGoal?.stopReason, "session_restored");
-	assert.deepEqual(h.sent, []);
-	await new GoalCommandController(h.runtime).resumeGoal(h.ctx);
+	await new Promise((resolve) => setImmediate(resolve));
 	assert.equal(h.runtime.activeGoal?.status, "active");
 	assert.equal(h.runtime.activeGoal?.stopReason, undefined);
-	assert.notEqual(h.runtime.activeGoal?.id, original.id);
+	assert.equal(h.runtime.activeGoal?.id, original.id);
 	assert.equal(h.runtime.activeGoal?.tokensUsed, 321);
 	assert.equal(h.sent.length, 1);
 	assert.doesNotMatch(h.sent[0], /OLD PLAN MUST NOT REPLAY/);
+});
+
+test("resumeOnRestore false retains the explicit session-restored pause", async (t) => {
+	const h = fixture(t);
+	writeFileSync(h.settingsPath, `${JSON.stringify({ resumeOnRestore: false })}\n`);
+	h.runtime.persistGoal(h.runtime.activeGoal!);
+	await h.handlers.get("session_start")({}, h.ctx);
+	assert.equal(h.runtime.activeGoal?.status, "paused");
+	assert.equal(h.runtime.activeGoal?.stopReason, "session_restored");
+	assert.deepEqual(h.sent, []);
 });
 
 test("legacy missing-decision state without new counters loads and resumes", async (t) => {

@@ -110,13 +110,22 @@ export function registerGoalLifecycle(
 				return;
 			}
 			if (!runtime.activeGoal.waiting) {
-				runtime.stopActiveGoal(ctx, {
-					kind: "agent_interruption",
-					cause: "session_restored",
-					expectedGoalId: runtime.activeGoal.id,
-					status: "paused",
-					reason: "Session restored. Use /goal resume to continue; saved plans are not replayed.",
-				});
+				if (!runtime.settings.resumeOnRestore) {
+					runtime.stopActiveGoal(ctx, {
+						kind: "agent_interruption",
+						cause: "session_restored",
+						expectedGoalId: runtime.activeGoal.id,
+						status: "paused",
+						reason: "Session restored with resumeOnRestore disabled. Use /goal resume to continue; saved plans are not replayed.",
+					});
+					return;
+				}
+				runtime.persistGoal(runtime.activeGoal);
+				runtime.ensureGoalContextContract(ctx, runtime.activeGoal);
+				runtime.updateStatus(ctx, runtime.activeGoal);
+				if (runtime.requestContinuation(runtime.activeGoal)) {
+					runtime.scheduleContinuationDispatch(ctx, runtime.activeGoal.id);
+				}
 				return;
 			}
 			runtime.persistGoal(runtime.activeGoal);

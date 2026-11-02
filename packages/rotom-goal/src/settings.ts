@@ -10,6 +10,8 @@ export type ContinuationLimit = number | null;
 export interface GoalSettings {
 	/** User-owned opt-out; disabling review does not prove completion. */
 	completionReview: boolean;
+	/** Resume a restored active, non-waiting Goal once the session is idle. */
+	resumeOnRestore: boolean;
 	rpc: {
 		enabled: boolean;
 	};
@@ -21,6 +23,7 @@ export interface GoalSettings {
 
 export const DEFAULT_GOAL_SETTINGS: GoalSettings = {
 	completionReview: true,
+	resumeOnRestore: true,
 	rpc: { enabled: false },
 	continuationLimits: { automaticTurns: null, noProgressTurns: 3 },
 };
@@ -44,6 +47,10 @@ export function normalizeGoalSettings(value: unknown): GoalSettings | undefined 
 
 	const completionReview = Object.hasOwn(value, "completionReview") ? Reflect.get(value, "completionReview") : true;
 	if (typeof completionReview !== "boolean") return undefined;
+	const resumeOnRestore = Object.hasOwn(value, "resumeOnRestore")
+		? Reflect.get(value, "resumeOnRestore")
+		: DEFAULT_GOAL_SETTINGS.resumeOnRestore;
+	if (typeof resumeOnRestore !== "boolean") return undefined;
 	const rpcValue = Object.hasOwn(value, "rpc") ? Reflect.get(value, "rpc") : undefined;
 	if (
 		rpcValue !== undefined &&
@@ -84,6 +91,7 @@ export function normalizeGoalSettings(value: unknown): GoalSettings | undefined 
 
 	return {
 		completionReview,
+		resumeOnRestore,
 		rpc: { enabled: rpcEnabled },
 		continuationLimits: { automaticTurns, noProgressTurns },
 	};
@@ -126,6 +134,7 @@ export function saveGoalSettings(
 		{
 			...raw,
 			completionReview: normalized.completionReview,
+			resumeOnRestore: normalized.resumeOnRestore,
 			rpc: { ...rpc, enabled: normalized.rpc.enabled },
 			continuationLimits: {
 				...continuationLimits,

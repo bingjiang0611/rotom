@@ -46,7 +46,7 @@ Restrictive allowlists must now include `goal_continue` alongside `goal_complete
 
 Pi remains the only owner of provider retry/backoff and overflow compaction. Goal adds no retry loop, changes no retry allowance and never replays a tool to recover a model request. The existing host retry events carry attempt/delay information; Goal displays `recovering` until a successful response or settlement. Provider recovery that settles without success now **pauses** with `stopReason: provider_retry_exhausted`, rather than entering an active wait with no wake deadline. This also applies when retry is disabled. Check the connection or provider error, then use `/goal resume`; no automatic retry is pending. Cancelling recovery stops it, and threshold compaction after a failed request cannot erase that failure.
 
-Session restoration pauses previously active, nonwaiting work with `stopReason: session_restored`; it never replays a saved continuation plan. Explicit external waits retain their existing ownership/deadline behavior. `/goal resume` also accepts an idle active Goal (for example after manual compaction), but refuses it while a run, recovery, queued message or owned prompt/continuation is pending. Resume submits one fresh prompt and preserves cumulative usage and review allowance; it is not permission to repeat successful/unknown effects. Older persisted provider-error waits remain readable and can be explicitly resumed.
+Session restoration automatically queues one fresh continuation for a previously active, nonwaiting Goal when `resumeOnRestore` is true (the default). It never replays a saved `next_action` or tool call. Set `resumeOnRestore: false` to retain the explicit `stopReason: session_restored` pause. Explicit external waits retain their existing ownership/deadline behavior. `/goal resume` also accepts an idle active Goal (for example after manual compaction), but refuses it while a run, recovery, queued message or owned prompt/continuation is pending. Resume submits one fresh prompt and preserves cumulative usage and review allowance; it is not permission to repeat successful/unknown effects. Older persisted provider-error waits remain readable and can be explicitly resumed.
 
 Stable `stopReason` codes are stored in the existing `goal-state` entry and shown in status/menu views; raw provider error bodies are not added to this metadata. The opt-in managed-run `pi-goal:event:<runId>` state event retains its existing statuses and adds `activity` (`running`, `recovering`, `waiting`), recovery kind, optional wait `resumeAt`, and `stopReason`. Activity changes publish even when status stays active; identical snapshots are deduplicated. These are display data, not wake/replay authority. External consumers must adopt these optional fields; this change does not modify a separate dashboard application.
 
@@ -85,6 +85,7 @@ The user-owned opt-out is `completionReview: false` in the existing user `pi-goa
 ```json
 {
   "completionReview": true,
+  "resumeOnRestore": true,
   "rpc": { "enabled": false },
   "continuationLimits": { "automaticTurns": null, "noProgressTurns": 3 }
 }

@@ -48,6 +48,7 @@ export async function showGoalSettings(
 		| "open-no-progress"
 		| "choose-automatic"
 		| "choose-no-progress"
+		| "set-resume-on-restore"
 		| "set-rpc";
 	const menu = defineMenu<undefined, Screen, Action, ExtensionCommandContext>({
 		start: invalid ? "invalid" : (options.initialScreen ?? "settings"),
@@ -76,6 +77,15 @@ export async function showGoalSettings(
 						action: "open-no-progress",
 					},
 					{
+						id: "resumeOnRestore",
+						label: "Resume restored Goal",
+						description:
+							"Continue an active non-waiting Goal once after session restoration; saved plans and tools are never replayed.",
+						currentValue: runtime.settings.resumeOnRestore ? "On" : "Off",
+						values: ["Off", "On"],
+						action: "set-resume-on-restore",
+					},
+					{
 						id: "rpcEnabled",
 						label: "Managed run RPC",
 						description:
@@ -95,6 +105,7 @@ export async function showGoalSettings(
 					`Invalid settings file. Pi-goal is using built-in defaults. Fix ${safeTerminalText(settingsPath)} and run /reload. The file will not be overwritten.`,
 					`Automatic-work limit: ${formatAutomaticWork(runtime.settings.continuationLimits.automaticTurns)}`,
 					`No-progress guard: ${formatNoProgressProtection(runtime.settings.continuationLimits.noProgressTurns)}`,
+					`Resume restored Goal: ${runtime.settings.resumeOnRestore ? "On" : "Off"}`,
 					`Managed run RPC: ${runtime.settings.rpc.enabled ? "On" : "Off"}`,
 				],
 				hint: "back",
@@ -131,6 +142,24 @@ export async function showGoalSettings(
 					previewGoalIds.get("noProgressTurns") ?? null,
 					isMenuCurrent,
 				),
+			"set-resume-on-restore": async ({ value }) => {
+				const enabled = value === "On";
+				if (enabled === runtime.settings.resumeOnRestore) return { kind: "stay" };
+				try {
+					const next = {
+						...structuredClone(runtime.settings),
+						resumeOnRestore: enabled,
+					} satisfies GoalSettings;
+					applyGoalSettings(runtime, next, ctx, {
+						save: (settings) => (options.save ?? saveGoalSettings)(settings, settingsPath),
+					});
+					notifyTerminal(ctx.ui, `Resume restored Goal: ${enabled ? "On" : "Off"}.`, "info");
+					return { kind: "stay" };
+				} catch (error) {
+					notifySettingsFailure(ctx, settingsPath, error);
+					return { kind: "rejected" };
+				}
+			},
 			"set-rpc": async ({ value }) => {
 				const enabled = value === "On";
 				if (enabled === runtime.settings.rpc.enabled) return { kind: "stay" };
