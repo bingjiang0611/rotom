@@ -56,7 +56,9 @@ Normal active Goal runs now continue after settlement without requiring `goal_co
 
 Three consecutive automatic runs without a non-control tool call pause with `empty_responses`. Repeated identical behavior first receives a change-approach continuation prompt and only pauses when the configured fingerprint threshold is reached again. Goal state gains optional counters that normalize to zero for older sessions. Missing authorization or a critical user-owned decision uses Ask when available or the new optional `needs_user_decision` field on `goal_blocked`; ordinary recurring blockers still require three model-reported turns. External writes with unknown outcomes remain read-only-verified and never replayed for proof.
 
-Deterministic tests cover automatic continuation, length truncation, both guards, mixed `goal_continue`, numeric limits, legacy state and the decision schema. The maintained suite passed 95 tests plus TypeScript type checking. No live model, Qoder credit, external-service reliability or completion-quality evaluation was run.
+Session restoration now defaults `resumeOnRestore` to true: an active non-waiting Goal queues one fresh continuation when the restored session is idle, without replaying saved `next_action` text or tool calls. Explicit waits remain quiet, and `resumeOnRestore: false` retains the durable `session_restored` pause.
+
+Deterministic tests cover automatic continuation, length truncation, both guards, mixed `goal_continue`, numeric limits, legacy state, restoration and the decision schema. The maintained suite passed 96 tests plus TypeScript type checking. No live model, Qoder credit, external-service reliability or completion-quality evaluation was run.
 
 ## Compatibility and verification
 
