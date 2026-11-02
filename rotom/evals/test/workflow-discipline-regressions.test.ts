@@ -2,8 +2,12 @@ import { spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { assertFixtureTool, fixturesIntact, readEditableFiles } from "../src/fixture-tools.ts";
+import type { JsonValue } from "vitest-evals/harness";
+import { createPiCodingAgentHarness } from "../src/pi-harness.ts";
+import { defaultProductAgentDir } from "../src/product-runtime.ts";
+import { assertFixtureTool, fixtureExecutionPolicyFor, fixturesIntact, readEditableFiles } from "../src/fixture-tools.ts";
 import {
 	scoreWorkflowDiscipline,
 	workflowDisciplineCases,
@@ -134,6 +138,89 @@ describe("workflow discipline fixtures", () => {
 		const result = scoreWorkflowDiscipline(item, await output(item, response, [{ name: "bash", command: "node verify.mjs --full" }], []));
 		expect(result.score, JSON.stringify(result.checks)).toBe(1);
 	});
+
+	it("executes the split path through the real Pi edit tool", async () => {
+		const item = byId("repo-size-needs-split");
+		const fixture = item.fixture;
+		const source = fixture.files["app-store.test.json"]!;
+		const parsed = JSON.parse(source);
+		const originalPersistence = parsed.groups.at(-1);
+		const persistence = structuredClone(originalPersistence);
+		persistence.assertions.push("archive-waits-for-queue", "attachment-waits-for-owner");
+		const oldGroup = `,\n${JSON.stringify(originalPersistence, null, 2).split("\n").map((line: string) => `    ${line}`).join("\n")}`;
+		const newGroup = JSON.stringify(persistence, null, 2).split("\n").map((line: string) => `    ${line}`).join("\n");
+		let events: WorkflowToolEvent[] = [];
+		let editHistory: Record<string, string>[] = [];
+		const harness = createPiCodingAgentHarness<WorkflowDisciplineOutput & JsonValue>({
+			name: "workflow-size-split-faux",
+			model: { provider: "workflow-size-split-fixture", id: "fixture" },
+			productAgentDir: defaultProductAgentDir(),
+			tools: ["read", "edit", "bash"],
+			noContextFiles: true,
+			environment: { ROTOM_QODER: "0", ROTOM_OBSERVABILITY: "0" },
+			inlineExtensions: [(pi) => {
+				const admitted = new Map<string, string>();
+				pi.on("before_agent_start", (event) => ({ systemPrompt: `${event.systemPrompt}\n\n${fixtureExecutionPolicyFor(fixture)}` }));
+				pi.on("tool_call", async (event, ctx) => {
+					await assertFixtureTool(ctx.cwd, fixture, event.toolName, event.input);
+					admitted.set(event.toolCallId, event.toolName);
+					const input = event.input as Record<string, unknown>;
+					events.push({
+						name: event.toolName,
+						command: typeof input.command === "string" ? input.command : undefined,
+						path: typeof input.path === "string" ? input.path : undefined,
+					});
+				});
+				pi.on("tool_result", async (event, ctx) => {
+					const tool = admitted.get(event.toolCallId);
+					admitted.delete(event.toolCallId);
+					if (!event.isError && tool === "edit") editHistory.push(await readEditableFiles(ctx.cwd, fixture));
+				});
+			}],
+			async setupWorkspace({ workspace: runWorkspace, configDir }) {
+				for (const [file, body] of Object.entries(fixture.files)) await writeFile(join(runWorkspace, file), body);
+				await writeFile(join(configDir, "sol-pi.json"), JSON.stringify({ evidencePreservingReducer: false }));
+			},
+			async modelRuntimeFactory({ product, configDir }) {
+				const { fauxAssistantMessage, fauxProvider, fauxToolCall } = await import(pathToFileURL(join(product.verified.packageRoot, "../pi-ai/dist/index.js")).href);
+				const faux = fauxProvider({ provider: "workflow-size-split-fixture", models: [{ id: "fixture", contextWindow: 100_000, maxTokens: 20_000 }] });
+				const call = (name: string, args: object) => fauxAssistantMessage(fauxToolCall(name, args), { stopReason: "toolUse" });
+				faux.setResponses([
+					call("read", { path: "README.md", offset: 1, limit: 2_000 }),
+					call("bash", { command: "node size-gate.mjs", timeout: 120, compact: true }),
+					call("read", { path: "app-store.test.json", offset: 1, limit: 2_000 }),
+					call("read", { path: "app-store-async.test.json", offset: 1, limit: 2_000 }),
+					call("edit", { path: "app-store.test.json", edits: [{ oldText: oldGroup, newText: "" }], then_run: null }),
+					call("edit", { path: "app-store-async.test.json", edits: [{ oldText: '  "groups": []', newText: `  "groups": [\n${newGroup}\n  ]` }], then_run: null }),
+					call("bash", { command: "node size-gate.mjs", timeout: 120, compact: true }),
+					call("bash", { command: "node verify.mjs", timeout: 120, compact: true }),
+					fauxAssistantMessage("done"),
+				]);
+				const runtime = await product.runtime.ModelRuntime.create({ authPath: join(configDir, "auth.json"), modelsPath: null, refreshOnCreate: false });
+				runtime.registerNativeProvider(faux.provider);
+				return runtime;
+			},
+			async output({ workspace: runWorkspace, session }) {
+				const generatedFiles = Object.fromEntries(await Promise.all(fixture.generated!.map(async (file) => [file, await readFile(join(runWorkspace, file), "utf8")] as const)));
+				const verification = JSON.parse(generatedFiles["verification.json"]!);
+				const response = JSON.stringify({ case: item.id, status: "passed", split: true, digest: verification.digest });
+				return {
+					response,
+					stopReason: session.messages.filter((message) => message.role === "assistant").at(-1)?.stopReason ?? "unknown",
+					files: await readEditableFiles(runWorkspace, fixture),
+					generated: generatedFiles,
+					fixturesIntact: await fixturesIntact(runWorkspace, fixture),
+					phaseReports: [response],
+					events,
+					editHistory,
+					toolErrors: session.messages.filter((message) => message.role === "toolResult" && message.isError).length,
+				};
+			},
+		});
+		const result = await harness.run({ id: item.id, steps: item.steps.map((content) => ({ type: "prompt" as const, content })) }, { artifacts: {}, setArtifact() {} });
+		const judged = scoreWorkflowDiscipline(item, result.output);
+		expect(judged.score, JSON.stringify(judged.checks)).toBe(1);
+	}, 60_000);
 
 	it("preflights and splits only the fixture that would exceed the size gate", async () => {
 		for (const id of ["repo-size-needs-split", "repo-size-fits"]) {

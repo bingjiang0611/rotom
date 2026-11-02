@@ -107,7 +107,7 @@ function sizedSource(targetBytes: number): { source: string; groups: SizeGroup[]
 	const groups = groupIds.map((id, index) => ({
 		id,
 		assertions: [originalAssertions[index]!],
-		fixture: String.fromCharCode(97 + index).repeat(4_600),
+		fixture: String.fromCharCode(97 + index).repeat(96),
 	}));
 	let source = `${JSON.stringify({ groups }, null, 2)}\n`;
 	const padding = targetBytes - Buffer.byteLength(source);
