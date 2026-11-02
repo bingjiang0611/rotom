@@ -1,7 +1,7 @@
 interface:
   display_name: "Agent 回归"
   short_description: "将真实失败入集，或在 rotom 改动后与冻结基线比较"
-  default_prompt: "使用 agent-regression，先确认本次是失败入集还是修改后回归，再按仓库合同执行并报告证据。"
+  default_prompt: "使用 agent-regression：先验证 oracle，再跑真实 baseline；复现后按证据修 Agent，最后同条件跑 candidate。不得把离线 judge 绿色写成 Agent 通过。"
 compatibility:
   canonical_format: "Agent Skills SKILL.md"
   adapter_targets: [pi]
