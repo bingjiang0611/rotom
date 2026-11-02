@@ -8,7 +8,9 @@
 - `rotom/evals/cases/session-identity.eval.ts`：真实多步、原生只读工具、baseline/candidate 同输入对比。
 - `rotom/evals/test/session-identity-regressions.test.ts`：判定器反例、路径与文件完整性检查。
 - `rotom/evals/src/task-closure-regressions.ts`、`cases/task-closure.eval.ts`、`test/task-closure-regressions.test.ts`（后两项同在 `rotom/evals/`）：任务收尾的脱敏派生场景、独立验收、真实原生工具 runner 和离线反例。
-- `rotom/evals/src/goal-scope-regressions.ts`、`cases/goal-scope.eval.ts`、`test/goal-scope-regressions.test.ts`：三轮目标保持场景与反例；`src/fixture-tools.ts` 复用两套配置修复 suite 的原生工具边界。
+- `rotom/evals/src/goal-scope-regressions.ts`、`cases/goal-scope.eval.ts`、`test/goal-scope-regressions.test.ts`：三轮目标保持场景与反例；`src/fixture-tools.ts` 复用配置修复 suite 的原生工具边界。
+- `rotom/evals/{src,cases,test}/workflow-discipline*`：交付身份、候选冻结和仓库约束预检；合同见 [长 PR 会话工程纪律回归](agent-regression-workflow-discipline.md)。
+- `rotom/evals/src/continuation-cases.ts`：增加内部实现与公开合同决策归属的正反控制。
 - `.agents/skills/agent-regression/`：本仓库维护 skill，不进入产品包。
 
 真实会话、截图、账号数据和运行产物不提交。原始探索记录继续放在私有 `~/.rotom/evals/reviews/`；它不是本套用例运行的依赖。默认模型运行产物在已忽略的 `rotom/evals/.eval/`，也可用 `ROTOM_EVAL_ARTIFACT_DIR` 指定仓库外私有目录。Git diff 和 privacy audit 不能证明不存在所有敏感信息，仍需人工审查脱敏边界。
@@ -137,6 +139,10 @@ npm --prefix rotom/evals run typecheck
 另行授权模型 A/B 后，复用前述产品根/模型/重复数合同，使用 `ROTOM_EVAL_GOAL_SCOPE=1` 与 `cases/goal-scope.eval.ts`；可用 `ROTOM_EVAL_GOAL_SCOPE_CASE` 选表中一个 ID。默认 3 cases × 2 arms × 2 repetitions = 12 样本，每样本三轮用户输入、累计最多 18 个模型 turn、120 秒；retry/compaction 关闭。缺配置、非法 case 或重复数拒绝运行；skip、provider 错误与超时不算通过。这里只加入回归与确定性判定，不修改产品运行时提示或默认策略。
 
 本次验证（2026-10-30）：新增 30 项离线检查通过；连同 task-closure、identity、harness、runtime 和 A/B table，在公开基线 `54a62c1` 的独立副本上共 **124 passed / 1 既有可选 skipped**，Node 24.18.0，typecheck 通过。共享文件工具边界的原有回归全部保留。禁用、缺配置、未知 case、非法重复数四项入口检查均符合预期且运行 0 模型样本。未运行真实模型 A/B，未改变运行时行为。
+
+## 长 PR 会话工程纪律回归
+
+C1–C4 的脱敏边界、case 合同和运行命令见 [详细合同](agent-regression-workflow-discipline.md)。入集不修改运行时行为。
 
 ## 收尾与目标保持的真实模型探索（2026-10-30）
 

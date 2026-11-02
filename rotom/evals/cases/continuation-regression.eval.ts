@@ -101,9 +101,13 @@ function harness(name: string, productAgentDir: string, caseDefinition: Continua
 			const id = !Array.isArray(input) && typeof input === "object" ? input.id : undefined;
 			const resolved = continuationCases.find((item) => item.id === id) ?? caseDefinition;
 			const calls = toolCalls(session.messages);
+			const responses = session.messages.flatMap((message) => message.role === "assistant" && message.stopReason === "stop"
+				? [message.content.filter((part) => part.type === "text").map((part) => part.text).join("")]
+				: []);
 			return {
 				caseId: resolved.id,
 				response: response.length > 6_000 ? `${response.slice(0, 6_000)}…` : response,
+				responses,
 				calls: calls as unknown as JsonValue,
 				files: (await readObserved(workspace, resolved.observe)) as unknown as JsonValue,
 				toolCallCount: calls.length,

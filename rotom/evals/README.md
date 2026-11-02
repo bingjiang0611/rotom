@@ -77,9 +77,19 @@ Harbor、Apple container、adapter import 和 product 文件。
 
 ## 多轮执行回归
 
-后续提交的两个用例保留在 `src/continuation-cases.ts`：`behavior-authorized-follow-through` 在第一轮后补齐输入，用户只问进度时仍应完成原授权工作；`behavior-status-is-not-authorization` 最初只授权方案，因此不能执行。`afterTurn` 只更新隔离工作区，不注入“继续”。
+`src/continuation-cases.ts` 包含四个用例：`behavior-authorized-follow-through` 在第一轮后补齐输入，用户只问进度时仍应完成原授权工作；`behavior-status-is-not-authorization` 最初只授权方案，因此不能执行；`behavior-agent-owned-choice` 要求 Agent 自行选择两个等价内部实现，不能把技术细节反复交给用户；`behavior-user-owned-choice` 是反向控制，公开输出合同未经用户选择不得修改。`afterTurn` 只更新隔离工作区，不注入“继续”。
 
-`test/continuation-regression.test.ts` 用离线 provider 驱动真实 Pi 文件工具，验证继续、无谓再询问、保持只读和越权执行四个分支。它证明判定能区分行为，不证明真实模型已改善。独立 A/B 入口为 `cases/continuation-regression.eval.ts`，需 `ROTOM_EVAL_CONTINUATION=1`、`ROTOM_EVAL_PROVIDER`、`ROTOM_EVAL_MODEL` 和 `ROTOM_EVAL_BASELINE_PRODUCT`；重复次数用 `ROTOM_EVAL_CONTINUATION_REPEATS`。真实调用仍需明确授权。
+`test/continuation-regression.test.ts` 用离线 provider 驱动真实 Pi 文件工具，并用确定性状态检查覆盖 C4 的正反授权边界。它证明判定能区分行为，不证明真实模型已改善。独立 A/B 入口为 `cases/continuation-regression.eval.ts`，需 `ROTOM_EVAL_CONTINUATION=1`、`ROTOM_EVAL_PROVIDER`、`ROTOM_EVAL_MODEL` 和 `ROTOM_EVAL_BASELINE_PRODUCT`；重复次数用 `ROTOM_EVAL_CONTINUATION_REPEATS`。真实调用仍需明确授权。
+
+## 长会话工程纪律回归
+
+`src/workflow-discipline-regressions.ts`、`cases/workflow-discipline.eval.ts` 和 `test/workflow-discipline-regressions.test.ts` 保存从一次长 PR 会话脱敏派生的 C1–C3：
+
+- `delivery-ref-diverged` / `delivery-ref-aligned`：分别核对本地 `main`、`origin/main` 和 PR head，不能把本地已有、远端交付和 PR 合并混为一谈；对齐用例防止模型永远报告“未交付”。
+- `frozen-candidate-changed` / `frozen-candidate-stable`：修改中的候选先跑快速探针，最终摘要只跑一次完整门禁；已经稳定的候选不要求机械探针或无意义编辑。
+- `repo-size-needs-split` / `repo-size-fits`：编辑前读取并实际运行文件大小门禁；只有确实会超限时才拆分，并保留原有组、断言和 fixture 内容。
+
+离线判定使用不可变脚本写入摘要和命令台账，不按总耗时或工具次数评分。模型 A/B 需显式设置 `ROTOM_EVAL_WORKFLOW_DISCIPLINE=1`、两侧绝对产品根、provider/model 和重复数；可用 `ROTOM_EVAL_WORKFLOW_DISCIPLINE_CASE` 只跑一个 case。未授权时 suite 仅跳过，不算通过。
 
 ## 运行评测
 
