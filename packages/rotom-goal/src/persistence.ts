@@ -28,6 +28,7 @@ export const GOAL_STOP_REASONS = {
 	agent_interruption: "Model run interrupted",
 	activation_rollback: "Goal activation failed",
 	missing_decision: "No continuation decision; review the last response before resuming",
+	empty_responses: "Three automatic continuations completed without performing any operation",
 	session_restored: "Session restored; use /goal resume to continue without replaying old work",
 } as const;
 export type GoalStopReason = keyof typeof GOAL_STOP_REASONS;
@@ -49,6 +50,10 @@ export interface ActiveGoal {
 	automaticModelTurns: number;
 	toolFreeRepeatCount: number;
 	lastToolFreeOutputFingerprint?: string;
+	/** Consecutive automatic runs without a non-control tool call. */
+	emptyResponseCount?: number;
+	/** The current automatic epoch already received its no-progress nudge. */
+	noProgressWarningIssued?: boolean;
 	/** Display-only last accepted plan; never proof of progress or replay authority. */
 	lastContinuationAction?: string;
 	safetyPauseCause?: SafetyPauseCause;
@@ -213,6 +218,8 @@ export function normalizeLoadedGoal(goal: ActiveGoal): ActiveGoal {
 		automaticModelTurns: normalizeSafetyCounter(goal.automaticModelTurns),
 		toolFreeRepeatCount: normalizeSafetyCounter(goal.toolFreeRepeatCount),
 		lastToolFreeOutputFingerprint: normalizeOutputFingerprint(goal.lastToolFreeOutputFingerprint),
+		emptyResponseCount: normalizeSafetyCounter(goal.emptyResponseCount),
+		noProgressWarningIssued: goal.noProgressWarningIssued === true ? true : undefined,
 		lastContinuationAction: typeof goal.lastContinuationAction === "string" && goal.lastContinuationAction.trim() && goal.lastContinuationAction.length <= 2_000 ? goal.lastContinuationAction : undefined,
 		safetyPauseCause: normalizeSafetyPauseCause(goal.safetyPauseCause),
 		stopReason: typeof goal.stopReason === "string" && Object.hasOwn(GOAL_STOP_REASONS, goal.stopReason) ? goal.stopReason : undefined,

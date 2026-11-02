@@ -216,6 +216,9 @@ const MAX_PENDING_NON_GOAL_INPUTS = 20;
 const BUDGET_WRAP_UP_MESSAGE_TYPE = "goal-budget-wrap-up";
 const BUDGET_WRAP_UP_PROMPT =
 	"The active /goal token budget is exhausted. Stop substantive work and do not call substantive tools. Summarize progress, verified results, remaining work, and blockers concisely. Treat completion as unproven. Do not call goal_complete unless authoritative, requirement-by-requirement evidence already proves every requirement is complete. Weak, indirect, or missing evidence is not enough. Budget exhaustion is not completion.";
+const EMPTY_RESPONSE_LIMIT = 3;
+const NO_PROGRESS_GUIDANCE =
+	"The last automatic runs repeated the same observable operation. Change approach or inspect the authoritative current state before acting again; do not repeat an unchanged attempt merely to keep the goal moving.";
 const CONTRADICTORY_COMPLETION_PATTERNS = [
 	/(?<!could\s)\bnot\s+(?:yet\s+)?(?:complete|completed|done|finished)\b/i,
 	/\bstill\s+(?:incomplete|failing|failing\s+tests?|fails?)\b/i,
@@ -857,17 +860,31 @@ export class GoalRuntime {
 		ctx: StatusContext,
 		goalId: string,
 		messages: readonly unknown[],
-		toolAttempted: boolean,
+		nonControlToolAttempted: boolean,
 	) {
 		const goal = this.activeGoal;
 		if (goal?.id !== goalId || goal.status !== "active") return false;
-		const next = nextToolFreeRepeatState(goal, messages, toolAttempted);
+		const next = nextToolFreeRepeatState(goal, messages, nonControlToolAttempted);
 		goal.toolFreeRepeatCount = next.toolFreeRepeatCount;
 		goal.lastToolFreeOutputFingerprint = next.lastToolFreeOutputFingerprint;
+		goal.emptyResponseCount = nonControlToolAttempted
+			? 0
+			: Math.min(Number.MAX_SAFE_INTEGER, (goal.emptyResponseCount ?? 0) + 1);
 		this.persistGoal(goal);
 		this.updateStatus(ctx, goal);
+		if (goal.emptyResponseCount >= EMPTY_RESPONSE_LIMIT) {
+			return this.pauseGoalForEmptyResponses(ctx);
+		}
 		const limit = this.settings.continuationLimits.noProgressTurns;
 		if (limit === null || goal.toolFreeRepeatCount < limit) return false;
+		if (!goal.noProgressWarningIssued) {
+			goal.toolFreeRepeatCount = 0;
+			goal.lastToolFreeOutputFingerprint = undefined;
+			goal.noProgressWarningIssued = true;
+			this.persistGoal(goal);
+			this.updateStatus(ctx, goal);
+			return this.requestContinuation(goal, NO_PROGRESS_GUIDANCE);
+		}
 		return this.pauseGoalForSafety(ctx, "no_progress", false);
 	}
 
@@ -886,7 +903,34 @@ export class GoalRuntime {
 		if (goal?.status !== "active" || limit === null || goal.toolFreeRepeatCount < limit) {
 			return false;
 		}
+		if (!goal.noProgressWarningIssued) {
+			goal.toolFreeRepeatCount = 0;
+			goal.lastToolFreeOutputFingerprint = undefined;
+			goal.noProgressWarningIssued = true;
+			this.persistGoal(goal);
+			this.updateStatus(ctx, goal);
+			return this.requestContinuation(goal, NO_PROGRESS_GUIDANCE);
+		}
 		return this.pauseGoalForSafety(ctx, "no_progress", abortTurn);
+	}
+
+	pauseGoalForEmptyResponses(ctx: StatusContext) {
+		const goal = this.activeGoal;
+		if (goal?.status !== "active") return false;
+		const stoppedGoal = this.stopActiveGoal(ctx, {
+			kind: "agent_interruption",
+			cause: "empty_responses",
+			expectedGoalId: goal.id,
+			status: "paused",
+			reason: GOAL_STOP_REASONS.empty_responses,
+		});
+		if (!stoppedGoal) return false;
+		notifyTerminal(
+			ctx.ui,
+			"Goal paused after three consecutive automatic continuations performed no operation. Progress is saved; open /goal to review and continue.",
+			"warning",
+		);
+		return true;
 	}
 
 	pauseGoalForSafety(ctx: StatusContext, cause: SafetyPauseCause, abortTurn: boolean) {
@@ -1483,6 +1527,7 @@ export function createGoal(
 		activeStartedAt: now,
 		automaticModelTurns: 0,
 		toolFreeRepeatCount: 0,
+		emptyResponseCount: 0,
 	};
 }
 

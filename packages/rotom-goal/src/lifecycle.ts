@@ -20,12 +20,13 @@ import {
 	isRetryableGoalInterruption,
 	isUsageLimitedGoalInterruption,
 	resetGoalSafetyEpoch,
+	GOAL_TOOL_NAMES,
 	STATUS_KEY,
 	type StatusContext,
 	transitionGoal,
 	truncateNotification,
 } from "./runtime.js";
-import { hasAssistantToolCall } from "./safety.js";
+import { hasAssistantNonControlToolCall } from "./safety.js";
 import { DEFAULT_GOAL_SETTINGS, readGoalSettings } from "./settings.js";
 
 const REMOVED_QUEUE_SETTING_WARNING =
@@ -349,9 +350,13 @@ export function registerGoalLifecycle(
 		const message = event.message;
 		if (message.role !== "assistant") return;
 		const calls = message.content.filter(block => block.type === "toolCall");
-		// Pi can dispatch siblings despite terminate:true. Reject the whole mixed
-		// batch before the first tool starts, including siblings preceding control.
-		runtime.mixedGoalControlBatch = runtime.ownsWorkflow() && calls.length > 1 && calls.some(call => ["goal_continue", "goal_complete", "goal_wait", "goal_blocked"].includes(call.name));
+		// Pi can dispatch siblings despite terminate:true. Terminal Goal controls
+		// still reject the whole mixed batch before the first tool starts. Optional
+		// goal_continue may coexist with ordinary work and only records next_action.
+		runtime.mixedGoalControlBatch =
+			runtime.ownsWorkflow() &&
+			calls.length > 1 &&
+			calls.some((call) => ["goal_complete", "goal_wait", "goal_blocked"].includes(call.name));
 	});
 
 	pi.on("tool_call", (event, ctx) => {
@@ -360,12 +365,9 @@ export function registerGoalLifecycle(
 			abortCurrentTurn(ctx);
 			return { block: true, reason: "Goal lifecycle tools must be called alone; no tool in this mixed batch is authorized to execute." };
 		}
-		if (runtime.continueAction) {
-			runtime.invalidateExecution();
-			abortCurrentTurn(ctx);
-			return { block: true, reason: "goal_continue ended this execution segment; sibling tools cannot reuse its decision." };
+		if (!GOAL_TOOL_NAMES.includes(event.toolName as (typeof GOAL_TOOL_NAMES)[number])) {
+			runtime.markAgentToolAttempted();
 		}
-		if (event.toolName !== "goal_continue") runtime.markAgentToolAttempted();
 		if (
 			runtime.activeGoal?.status === "budget_limited" &&
 			runtime.budgetWrapUp?.goalId === runtime.activeGoal.id &&
@@ -422,26 +424,32 @@ export function registerGoalLifecycle(
 		// boundary means cleanup no longer owns the next run, so the hard-cap guard
 		// must not abort it.
 		if (runtime.guardAbortGoalId) runtime.guardAbortGoalId = undefined;
-		const goalPrompt = runtime.consumeOwnedGoalPrompt(event.prompt);
+		const prompt =
+			event.messageType === "user"
+				? event.prompt
+				: typeof event.message.content === "string"
+					? event.message.content
+					: "";
+		const goalPrompt = runtime.consumeOwnedGoalPrompt(prompt);
 		const goalPromptGoalId = goalPrompt?.goalId;
 		const continuationGoalId = goalPromptGoalId
 			? undefined
-			: runtime.markContinuationStarted(event.prompt);
+			: runtime.markContinuationStarted(prompt);
 		const ownedPromptGoalId = goalPromptGoalId ?? continuationGoalId;
-		const ownedPromptBoundary = runtime.hasOwnedPromptBoundary(event.prompt);
+		const ownedPromptBoundary = runtime.hasOwnedPromptBoundary(prompt);
 		const activeBudgetWrapUp = runtime.hasActiveBudgetWrapUp();
 		const activeGoalRecovery = runtime.hasActiveGoalRecovery();
 		const queuedNonGoalInput = activeBudgetWrapUp
 			? undefined
 			: runtime.consumeQueuedNonGoalInput(
-					event.prompt,
+					prompt,
 					!activeGoalRecovery && ownedPromptGoalId === undefined && !ownedPromptBoundary,
 				);
 		if (queuedNonGoalInput?.behavior === "followUp") {
 			beginNonGoalFollowUp(ctx, queuedNonGoalInput.resetSafetyEpoch);
 		}
 		if (!ownedPromptGoalId && !ownedPromptBoundary) {
-			runtime.supersedeOwnedInputCollision(event.prompt);
+			runtime.supersedeOwnedInputCollision(prompt);
 			if (runtime.activeGoal?.waiting) runtime.clearGoalWait(ctx, runtime.activeGoal.id);
 		}
 		if (runtime.activeGoal?.status === "active" && !runtime.ownsWorkflow(runtime.activeGoal)) {
@@ -597,7 +605,7 @@ export function registerGoalLifecycle(
 				ctx,
 				goalId,
 				event.messages,
-				run.toolAttempted || hasAssistantToolCall(event.messages),
+				run.toolAttempted || hasAssistantNonControlToolCall(event.messages),
 			)
 		) {
 			return;
@@ -609,10 +617,6 @@ export function registerGoalLifecycle(
 		const currentGoal = runtime.activeGoal;
 		if (!currentGoal || currentGoal.id !== goalId || currentGoal.status !== "active") return;
 		if (currentGoal.waiting) return;
-		if (!run.nextAction) {
-			runtime.stopActiveGoal(ctx, { kind: "agent_interruption", cause: "missing_decision", expectedGoalId: goalId, status: "paused", reason: "No explicit continuation decision. Use /goal resume to continue; no automatic repair turn was spent." });
-			return;
-		}
 		runtime.requestContinuation(currentGoal, run.nextAction);
 	});
 

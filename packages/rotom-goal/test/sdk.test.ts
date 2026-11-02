@@ -14,7 +14,7 @@ import { fauxProvider, fauxAssistantMessage, fauxToolCall, getCurrentTools } fro
 import goal from "../src/goal.js";
 
 test(
-	"real Pi: continue terminates one run, reviewer uses the same provider with file-only tools, completion clears Goal",
+	"real Pi: optional continuation metadata, same-provider file-only review, and completion clearing",
 	{ timeout: 20_000 },
 	async (t) => {
 		const cwd = mkdtempSync(join(tmpdir(), "rotom-goal-sdk-"));

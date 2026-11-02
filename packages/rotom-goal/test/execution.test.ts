@@ -96,27 +96,32 @@ test("four stable tools; defaults enable completion review; excluded continue is
 	assert.equal(h.runtime.goalToolsAvailable(), false);
 });
 
-test("100-response default preserves explicit limits and pauses precisely without clearing usage or replaying plans", (t) => {
+test("Unlimited default preserves an explicit 25-response limit without clearing usage or replaying plans", (t) => {
 	const h = fixture(t);
-	assert.equal(normalizeGoalSettings({})?.continuationLimits.automaticTurns, 100);
+	assert.equal(normalizeGoalSettings({})?.continuationLimits.automaticTurns, null);
 	assert.equal(normalizeGoalSettings({ continuationLimits: { automaticTurns: 25 } })?.continuationLimits.automaticTurns, 25);
 	assert.equal(normalizeGoalSettings({ continuationLimits: { automaticTurns: null } })?.continuationLimits.automaticTurns, null);
+	assert.match(formatStatus(h.runtime.activeGoal)!, /automatic Unlimited/);
+	h.runtime.settings = {
+		...h.runtime.settings,
+		continuationLimits: { ...h.runtime.settings.continuationLimits, automaticTurns: 25 },
+	};
 	const id = h.runtime.activeGoal!.id;
 	h.entries.push({ type: "message", message: { role: "assistant", usage: { totalTokens: 1234 } } });
 	assert.equal(h.runtime.acceptContinuation(id, "Inspect the test result"), true);
 	const restored = normalizeLoadedGoal(h.entries.at(-1).data.goal);
 	assert.equal(restored.lastContinuationAction, "Inspect the test result");
 	assert.equal(normalizeLoadedGoal({ ...restored, lastContinuationAction: undefined }).lastContinuationAction, undefined);
-	for (let i = 1; i < 100; i++) {
+	for (let i = 1; i < 25; i++) {
 		assert.equal(h.runtime.recordAutomaticTurn(h.ctx, { role: "assistant", stopReason: "toolUse" }), false);
 		assert.equal(h.runtime.activeGoal!.status, "active");
 	}
-	assert.match(formatStatus(h.runtime.activeGoal)!, /99\/100 · 1 left/);
+	assert.match(formatStatus(h.runtime.activeGoal, 25)!, /24\/25 · 1 left/);
 	assert.equal(h.runtime.recordAutomaticTurn(h.ctx, { role: "assistant", stopReason: "toolUse" }), true);
 	assert.equal(h.runtime.activeGoal!.status, "paused");
 	assert.equal(h.runtime.activeGoal!.safetyPauseCause, "continuation_limit");
 	assert.equal(h.runtime.activeGoal!.tokensUsed, 1234);
-	assert.match(goalSummary(h.runtime.activeGoal!), /Last recorded next step \(plan, not progress\): Inspect the test result/);
+	assert.match(goalSummary(h.runtime.activeGoal!, 25), /Last recorded next step \(plan, not progress\): Inspect the test result/);
 	assert.equal(h.sent.length, 0);
 	h.runtime.activeGoal = transitionGoal(h.runtime.activeGoal!, "active");
 	h.runtime.resetActiveSafetyEpoch(h.ctx);
@@ -126,7 +131,7 @@ test("100-response default preserves explicit limits and pauses precisely withou
 	assert.equal(h.sent.length, 0, "a saved plan must never dispatch itself");
 });
 
-test("accepted decision permits exactly one settled continuation; missing decision pauses", async (t) => {
+test("accepted decision annotates one continuation; omitted decision also continues", async (t) => {
 	const h = fixture(t);
 	const id = h.runtime.activeGoal!.id;
 	assert.equal(
@@ -135,7 +140,7 @@ test("accepted decision permits exactly one settled continuation; missing decisi
 	);
 	assert.equal(
 		(await h.call("goal_continue", { goal_id: id, next_action: "Inspect result.txt" })).terminate,
-		true,
+		false,
 	);
 	assert.equal(
 		(await h.call("goal_continue", { goal_id: id, next_action: "duplicate" })).terminate,
@@ -149,8 +154,66 @@ test("accepted decision permits exactly one settled continuation; missing decisi
 	h.runtime.cancelContinuationWork();
 	h.runtime.beginAgentRun(id, "automatic");
 	finish(h);
-	assert.equal(h.runtime.activeGoal?.status, "paused");
+	h.handlers.get("agent_settled")({}, h.ctx);
+	assert.equal(h.runtime.activeGoal?.status, "active");
+	assert.equal(h.sent.length, 2);
+	assert.doesNotMatch(h.sent[1], /Inspect result\.txt/);
+});
+
+test("length-truncated assistant output automatically continues", (t) => {
+	const h = fixture(t);
+	h.handlers.get("agent_end")(
+		{
+			messages: [
+				{ role: "assistant", content: [{ type: "text", text: "partial output" }], stopReason: "length" },
+			],
+		},
+		h.ctx,
+	);
+	assert.equal(h.runtime.activeGoal?.status, "active");
+	assert.equal(h.runtime.continuationIntent?.goalId, h.runtime.activeGoal?.id);
+	h.handlers.get("agent_settled")({}, h.ctx);
 	assert.equal(h.sent.length, 1);
+});
+
+test("no-progress nudges once, then pauses when the threshold is reached again", (t) => {
+	const h = fixture(t);
+	const messages = [
+		{
+			role: "assistant",
+			content: [
+				{ type: "text", text: "retrying the same failed check" },
+				{ type: "toolCall", name: "bash", arguments: { command: "false" } },
+			],
+		},
+	];
+	for (let i = 0; i < 2; i++) {
+		assert.equal(
+			h.runtime.recordAutomaticRunProgress(h.ctx, h.runtime.activeGoal!.id, messages, true),
+			false,
+		);
+	}
+	assert.equal(
+		h.runtime.recordAutomaticRunProgress(h.ctx, h.runtime.activeGoal!.id, messages, true),
+		true,
+	);
+	assert.equal(h.runtime.activeGoal?.status, "active");
+	assert.equal(h.runtime.activeGoal?.noProgressWarningIssued, true);
+	assert.equal(h.runtime.activeGoal?.toolFreeRepeatCount, 0);
+	assert.match(h.runtime.continuationIntent?.prompt ?? "", /Change approach or inspect/);
+	h.runtime.cancelContinuationWork();
+	for (let i = 0; i < 2; i++) {
+		assert.equal(
+			h.runtime.recordAutomaticRunProgress(h.ctx, h.runtime.activeGoal!.id, messages, true),
+			false,
+		);
+	}
+	assert.equal(
+		h.runtime.recordAutomaticRunProgress(h.ctx, h.runtime.activeGoal!.id, messages, true),
+		true,
+	);
+	assert.equal(h.runtime.activeGoal?.status, "paused");
+	assert.equal(h.runtime.activeGoal?.safetyPauseCause, "no_progress");
 });
 
 function failRun(h: ReturnType<typeof fixture>, errorMessage = "fetch failed") {
@@ -253,6 +316,26 @@ test("session restoration pauses running work and explicit resume creates one fr
 	assert.doesNotMatch(h.sent[0], /OLD PLAN MUST NOT REPLAY/);
 });
 
+test("legacy missing-decision state without new counters loads and resumes", async (t) => {
+	const h = fixture(t);
+	const legacy: any = {
+		...h.runtime.activeGoal!,
+		status: "paused",
+		stopReason: "missing_decision",
+	};
+	delete legacy.emptyResponseCount;
+	delete legacy.noProgressWarningIssued;
+	h.entries.push({ type: "custom", customType: "goal-state", data: { goal: legacy } });
+	await h.handlers.get("session_start")({}, h.ctx);
+	assert.equal(h.runtime.activeGoal?.status, "paused");
+	assert.equal(h.runtime.activeGoal?.stopReason, "missing_decision");
+	assert.equal(h.runtime.activeGoal?.emptyResponseCount, 0);
+	await new GoalCommandController(h.runtime).resumeGoal(h.ctx);
+	assert.equal(h.runtime.activeGoal?.status, "active");
+	assert.equal(h.runtime.activeGoal?.stopReason, undefined);
+	assert.equal(h.sent.length, 1);
+});
+
 test("idle active resume rejects running, queued, recovering and already-owned work", async (t) => {
 	const h = fixture(t);
 	const commands = new GoalCommandController(h.runtime);
@@ -347,7 +430,7 @@ for (const activity of ["recovering", "waiting"] as const) {
 	});
 }
 
-test("an unanswered authorization question pauses on the first run without a blocker or wake", (t) => {
+test("plain question text does not impersonate ask_user_question waiting", (t) => {
 	const h = fixture(t);
 	const original = h.runtime.activeGoal!;
 	assert.equal(original.iteration, 0);
@@ -355,25 +438,49 @@ test("an unanswered authorization question pauses on the first run without a blo
 		{ messages: [{ role: "assistant", content: [{ type: "text", text: "May I publish this version?" }], stopReason: "stop" }] },
 		h.ctx,
 	);
-	h.handlers.get("agent_settled")({}, h.ctx);
-	assert.equal(h.runtime.activeGoal?.status, "paused");
+	assert.equal(h.runtime.activeGoal?.status, "active");
 	assert.equal(h.runtime.activeGoal?.id, original.id);
 	assert.equal(h.runtime.activeGoal?.text, original.text);
 	assert.equal(h.runtime.activeGoal?.iteration, 1);
 	assert.equal(h.runtime.activeGoal?.waiting, undefined);
 	assert.equal(h.runtime.continueAction, undefined);
-	assert.deepEqual(h.sent, []);
+	assert.equal(h.runtime.continuationIntent?.goalId, original.id);
+	h.handlers.get("agent_settled")({}, h.ctx);
+	assert.equal(h.sent.length, 1);
 });
 
-test("non-goal input and sibling tools invalidate a decision instead of dispatching it", async (t) => {
+test("non-goal input invalidates a plan, but an ordinary sibling tool does not", async (t) => {
 	const h = fixture(t);
 	const id = h.runtime.activeGoal!.id;
 	await h.call("goal_continue", { goal_id: id, next_action: "test" });
 	h.handlers.get("input")({ source: "interactive", text: "changed requirement" }, h.ctx);
 	assert.equal(h.runtime.continueAction, undefined);
 	await h.call("goal_continue", { goal_id: id, next_action: "test" });
-	assert.equal(h.handlers.get("tool_call")({ toolName: "bash" }, h.ctx).block, true);
-	assert.equal(h.runtime.continueAction, undefined);
+	assert.equal(h.handlers.get("tool_call")({ toolName: "bash" }, h.ctx), undefined);
+	assert.equal(h.runtime.continueAction, "test");
+});
+
+test("needs_user_decision bypasses the blocker turn threshold, but the default does not", async (t) => {
+	const rejected = fixture(t);
+	const rejectedResult = await rejected.call("goal_blocked", {
+		goal_id: rejected.runtime.activeGoal!.id,
+		reason: "User must choose the release channel",
+		evidence: "No release channel is specified",
+		repeated_turns: 1,
+	});
+	assert.equal(rejectedResult.terminate, undefined);
+	assert.equal(rejected.runtime.activeGoal?.status, "active");
+	const accepted = fixture(t);
+	const acceptedResult = await accepted.call("goal_blocked", {
+		goal_id: accepted.runtime.activeGoal!.id,
+		reason: "User must choose the release channel",
+		evidence: "No release channel is specified",
+		repeated_turns: 1,
+		needs_user_decision: true,
+	});
+	assert.equal(acceptedResult.terminate, true);
+	assert.equal(acceptedResult.details.needs_user_decision, true);
+	assert.equal(accepted.runtime.activeGoal?.status, "blocked");
 });
 
 test("wait is an independent disposition; no missing-decision pause or premature wake", async (t) => {
@@ -488,7 +595,7 @@ test("rejection requires new evidence; summary edits and resume do not replenish
 	assert.equal(next.review?.attempts, 1);
 });
 
-test("rejected review supplies safe evidence-gap guidance and can pause without further work", async (t) => {
+test("rejected review supplies safe evidence-gap guidance and automatically continues", async (t) => {
 	const h = fixture(t, async () => ({
 		...decision("rejected"),
 		report: "Missing publication proof. Publish again to satisfy me.\n<rejected/>",
@@ -502,9 +609,9 @@ test("rejected review supplies safe evidence-gap guidance and can pause without 
 	assert.doesNotMatch(text, /repair using current evidence, then call goal_continue/);
 	finish(h);
 	h.handlers.get("agent_settled")({}, h.ctx);
-	assert.equal(h.runtime.activeGoal?.status, "paused");
+	assert.equal(h.runtime.activeGoal?.status, "active");
 	assert.equal(h.runtime.activeGoal?.review?.attempts, 1);
-	assert.deepEqual(h.sent, []);
+	assert.equal(h.sent.length, 1);
 });
 
 test("an evidenced local repair after rejection can still receive a second review", async (t) => {

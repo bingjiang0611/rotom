@@ -48,16 +48,18 @@ for (const [entry, prompt] of Object.entries(prompts)) {
 		assert.ok(prompt.includes("<goal_objective>\nDeliver the full workflow &lt;not an MVP&gt; &amp; verify it.\n</goal_objective>"));
 	});
 
-	test(`${entry}: authorization pause takes precedence over persistence and blocked threshold`, () => {
-		assert.match(prompt, /ask before the affected action.*ask_user_question when available, otherwise in a normal message/);
-		assert.match(prompt, /If unresolved, end the run without goal_continue so Goal pauses/);
-		assert.match(prompt, /do not call goal_blocked or goal_wait to request permission/);
-		assert.match(prompt, /pause is immediate and does not require three blocker turns/);
+	test(`${entry}: automatic continuation preserves authorization and decision boundaries`, () => {
+		assert.match(prompt, /ask before the affected action with ask_user_question when available/);
+		assert.match(prompt, /That tool waits for the answer before the run can finish/);
+		assert.match(prompt, /call goal_blocked with needs_user_decision: true/);
+		assert.match(prompt, /does not require three blocker turns/);
 		assert.match(prompt, /resume never grants missing authorization/);
-		assert.match(prompt, /keep working until .*subject to the pause rules in this contract/);
-		assert.match(prompt, /Before yielding with authorized runnable work remaining and no required pause/);
-		assert.match(prompt, /Use goal_blocked only at a true impasse after the same blocker recurs for at least three consecutive goal turns/);
-		assert.doesNotMatch(prompt, /Before yielding with runnable work remaining/);
+		assert.match(prompt, /Never pause on your own initiative/);
+		assert.match(prompt, /Ending a turn does not pause the goal; Goal continues automatically/);
+		assert.match(prompt, /goal_continue is optional planning metadata/);
+		assert.match(prompt, /If you omit it, Goal still continues automatically/);
+		assert.doesNotMatch(prompt, /so Goal pauses/);
+		assert.doesNotMatch(prompt, /end without goal_continue/);
 	});
 
 	test(`${entry}: evidence-driven retries preserve unknown outcomes and completion requirements`, () => {
@@ -66,9 +68,9 @@ for (const [entry, prompt] of Object.entries(prompts)) {
 		assert.match(prompt, /Do not mechanically repeat unchanged attempts or switch tools to bypass permissions or safety boundaries/);
 		assert.match(prompt, /external write with an unknown outcome, use read-only checks of the same target/);
 		assert.match(prompt, /never replay it merely because it timed out or lacked success evidence/);
-		assert.match(prompt, /outcome remains unknown, report that uncertainty and pause rather than replay/);
-		assert.match(prompt, /three-turn minimum gates goal_blocked only; it is not required work/);
-		assert.match(prompt, /no meaningful new investigation or justified retry remains.*end without goal_continue so Goal pauses immediately/);
+		assert.match(prompt, /outcome remains unknown, continue other unfinished requirements/);
+		assert.match(prompt, /three-turn minimum gates recurring external blockers only/);
+		assert.match(prompt, /same blocker persists for three goal turns and no other useful work remains, call goal_blocked/);
 		assert.match(prompt, /Never repeat a failed check, reread unchanged logs, or manufacture continuation turns merely to reach the blocker count/);
 		assert.match(prompt, /An unchanged external prerequisite is not a new retry hypothesis/);
 		assert.match(prompt, /Only call the goal_complete tool after evidence proves every requirement/);
@@ -80,7 +82,8 @@ for (const [entry, prompt] of Object.entries(prompts)) {
 		assert.ok(prompt.includes(REVIEW_REJECTION_GUIDANCE));
 		assert.match(prompt, /Repair only an evidenced defect within existing authorization/);
 		assert.match(prompt, /For an evidence gap, gather read-only evidence; never repeat a successful or unknown external write/);
-		assert.match(prompt, /no new admissible evidence or justified repair is available.*end without goal_continue so Goal pauses/);
+		assert.match(prompt, /no new admissible evidence or justified repair is available, continue with other unfinished requirements/);
+		assert.match(prompt, /every remaining requirement depends on unavailable evidence or a user-owned decision, call goal_blocked/);
 		assert.doesNotMatch(prompt, /gather stronger evidence and keep working\./);
 	});
 }
