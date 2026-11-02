@@ -60,9 +60,9 @@ Session restoration now defaults `resumeOnRestore` to true: an active non-waitin
 
 After Pi exhausts one provider request's configured retries, Goal schedules fresh continuations after 5, 15 and 30 minute waits. User input or `/goal pause` cancels the wait, a successful run resets the sequence, and the fourth consecutive exhaustion pauses with `provider_retry_exhausted`. These waits never replay tool calls or widen Pi's per-request retry allowance.
 
-Completion-review `unknown` results now return to the active Goal instead of pausing it. Repeating the same evidence candidate or exhausting the fixed review attempt/reported-token allowance also returns a rejection without pausing. The reviewer is still never retried automatically, in-flight `running` restore remains fail-closed, and all existing attempt, token, file, call and timeout bounds are unchanged.
+Completion-review `unknown` results return to the active Goal without automatically replaying the same evidence candidate. A genuinely new candidate may spend the remaining persisted attempt and reported-token allowance. Repeating the same candidate still returns a rejection without dispatching a review; a new candidate after either allowance is exhausted pauses with `stopReason: review_exhausted` and requires manual acceptance plus `/goal clear`, or an explicit `completionReview: false` setting followed by `/goal resume`. In-flight `running` restore remains fail-closed, and all existing attempt, token, file, call and timeout bounds are unchanged.
 
-Deterministic tests cover automatic continuation, length truncation, both guards, mixed `goal_continue`, numeric limits, legacy state, restoration and the decision schema. The maintained suite passed 97 tests plus TypeScript type checking. No live model, Qoder credit, external-service reliability or completion-quality evaluation was run.
+Deterministic tests cover automatic continuation, length truncation, both guards, mixed `goal_continue`, numeric limits, legacy state, restoration and the decision schema. The maintained suite passed 99 tests plus TypeScript type checking. No live model, Qoder credit, external-service reliability or completion-quality evaluation was run.
 
 ## Compatibility and verification
 

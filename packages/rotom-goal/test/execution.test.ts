@@ -665,20 +665,20 @@ test("an evidenced local repair after rejection can still receive a second revie
 	assert.equal(h.runtime.activeGoal, undefined);
 });
 
-test("unknown review stays active, is not replayed, and restores without a pause", async (t) => {
+test("unknown review allows a new candidate, while the same candidate is never replayed", async (t) => {
 	let calls = 0;
-	const h = fixture(t, async () => {
-		calls++;
-		return decision("unknown");
-	});
+	const h = fixture(t, async () => decision(++calls === 1 ? "unknown" : "rejected"));
 	const id = h.runtime.activeGoal!.id;
 	const result = await h.call("goal_complete", { goal_id: id, summary: "done" });
 	assert.equal(result.terminate, false);
 	assert.equal(h.runtime.activeGoal?.status, "active");
 	assert.equal(h.runtime.activeGoal?.review?.status, "unknown");
-	const retry = await h.call("goal_complete", { goal_id: id, summary: "retry" });
-	assert.equal(retry.terminate, false);
-	assert.equal(calls, 1);
+	assert.equal(h.runtime.activeGoal?.review?.attempts, 1);
+
+	const sameCandidate = await h.call("goal_complete", { goal_id: id, summary: "retry" });
+	assert.equal(sameCandidate.terminate, false);
+	assert.equal(calls, 1, "the same candidate must not replay an unknown review");
+
 	const restoredUnknown = normalizeLoadedGoal({ ...h.runtime.activeGoal!, status: "active" });
 	assert.equal(restoredUnknown.status, "active");
 	const restoredRunning = normalizeLoadedGoal({
@@ -687,6 +687,31 @@ test("unknown review stays active, is not replayed, and restores without a pause
 		review: { attempts: 1, candidate: digest("x"), status: "running", reportedTokens: 0 },
 	});
 	assert.equal(restoredRunning.status, "paused");
+
+	h.entries.push(
+		{
+			type: "message",
+			message: {
+				role: "assistant",
+				content: [{ type: "toolCall", id: "fresh-read", name: "read", arguments: { path: "result.txt" } }],
+			},
+		},
+		{
+			type: "message",
+			message: {
+				role: "toolResult",
+				toolCallId: "fresh-read",
+				toolName: "read",
+				content: [{ type: "text", text: "fresh verified evidence" }],
+				isError: false,
+			},
+		},
+	);
+	const freshCandidate = await h.call("goal_complete", { goal_id: id, summary: "fresh evidence" });
+	assert.equal(freshCandidate.terminate, false);
+	assert.equal(calls, 2);
+	assert.equal(h.runtime.activeGoal?.review?.attempts, 2);
+	assert.equal(h.runtime.activeGoal?.review?.status, "rejected");
 });
 
 test("late approval after cancellation or file change cannot complete the goal", async (t) => {
@@ -748,19 +773,39 @@ test("review admission refreshes current executor usage; Goal budget includes re
 	assert.equal(other.runtime.activeGoal?.status, "budget_limited");
 });
 
-test("review allowance is persisted, finite and fail-closed on corrupt restore", async (t) => {
-	const h = fixture(t, async () => {
-		throw new Error("allowance exhausted");
+for (const exhausted of ["attempts", "tokens"] as const) {
+	test(`new candidate pauses with review_exhausted when review ${exhausted} are exhausted`, async (t) => {
+		const h = fixture(t, async () => {
+			throw new Error("exhausted allowance must not dispatch another review");
+		});
+		h.runtime.activeGoal!.review = {
+			attempts: exhausted === "attempts" ? REVIEW_LIMITS.attempts : 1,
+			candidate: digest("old candidate"),
+			status: "rejected",
+			reportedTokens: exhausted === "tokens" ? REVIEW_LIMITS.reportedTokens : 20,
+		};
+		const result = await h.call("goal_complete", {
+			goal_id: h.runtime.activeGoal!.id,
+			summary: "new evidence candidate",
+		});
+		const text = result.content.map((block: any) => block.text ?? "").join("\n");
+		assert.equal(result.terminate, true);
+		assert.equal(h.runtime.activeGoal?.status, "paused");
+		assert.equal(h.runtime.activeGoal?.stopReason, "review_exhausted");
+		assert.match(text, /Manual acceptance is required/);
+		assert.match(text, /\/goal clear/);
+		assert.match(text, /completionReview:false/);
 	});
+}
+
+test("review allowance is persisted and fail-closed on corrupt restore", (t) => {
+	const h = fixture(t);
 	h.runtime.activeGoal!.review = {
 		attempts: REVIEW_LIMITS.attempts,
 		candidate: digest("old"),
 		status: "rejected",
 		reportedTokens: 20,
 	};
-	const result = await h.call("goal_complete", { goal_id: h.runtime.activeGoal!.id, summary: "done" });
-	assert.equal(result.terminate, false);
-	assert.equal(h.runtime.activeGoal?.status, "active");
 	const normalized = normalizeLoadedGoal({ ...h.runtime.activeGoal!, review: {} as any });
 	assert.equal(normalized.status, "active");
 	assert.equal(normalized.review?.attempts, REVIEW_LIMITS.attempts);
