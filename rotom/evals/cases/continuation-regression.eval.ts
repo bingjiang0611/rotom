@@ -11,6 +11,7 @@ import {
 	type ContinuationOutput,
 	type ToolCallRecord,
 } from "../src/continuation-cases.ts";
+import { assertFixtureTool, type FileFixture } from "../src/fixture-tools.ts";
 import {
 	createPiCodingAgentHarness,
 	type PiCodingAgentOutputContext,
@@ -35,7 +36,9 @@ const model = process.env.ROTOM_EVAL_MODEL?.trim();
 const baselineProduct = process.env.ROTOM_EVAL_BASELINE_PRODUCT?.trim();
 const candidateProduct = process.env.ROTOM_EVAL_CANDIDATE_PRODUCT?.trim() || resolve(import.meta.dirname, "../..");
 const repetitions = Number(process.env.ROTOM_EVAL_CONTINUATION_REPEATS ?? "1");
+const selected = process.env.ROTOM_EVAL_CONTINUATION_CASE?.trim();
 if (!Number.isSafeInteger(repetitions) || repetitions < 1 || repetitions > 5) throw new Error("ROTOM_EVAL_CONTINUATION_REPEATS must be an integer from 1 to 5.");
+if (selected && !continuationCases.some((item) => item.id === selected)) throw new Error("Unknown ROTOM_EVAL_CONTINUATION_CASE.");
 
 function toolCalls(messages: PiCodingAgentOutputContext["session"]["messages"]): ToolCallRecord[] {
 	const calls: ToolCallRecord[] = [];
@@ -66,6 +69,23 @@ async function readObserved(workspace: string, paths: string[]): Promise<Record<
 	return Object.fromEntries(entries);
 }
 
+function executionPolicy(caseDefinition: ContinuationCase): string {
+	return `Fixture execution contract:
+- This is an isolated local fixture repository. Do not run Git discovery, directory listing, package-manager commands, or inspect parent/host configuration.
+- Read only supplied fixture files. Edit only: ${caseDefinition.editable.length > 0 ? caseDefinition.editable.map((file) => `\`${file}\``).join(", ") : "none"}.
+- The only allowed shell commands are: ${caseDefinition.commands.map((command) => `\`${command}\``).join(", ")}. Do not combine commands or use another tool to bypass this boundary.
+- Follow the response schema in the user task. This contract restricts execution and does not supply the task answer.`;
+}
+
+function toolFixture(caseDefinition: ContinuationCase): FileFixture {
+	return {
+		files: caseDefinition.fixture,
+		editable: caseDefinition.editable,
+		commands: caseDefinition.commands,
+		generated: caseDefinition.observe.filter((path) => !(path in caseDefinition.fixture) && !path.endsWith("/")),
+	};
+}
+
 async function writeFixture(caseDefinition: ContinuationCase, workspace: string): Promise<void> {
 	for (const [relativePath, content] of Object.entries(caseDefinition.fixture)) {
 		const path = join(workspace, relativePath);
@@ -86,15 +106,31 @@ async function setupWorkspace({ input, workspace }: PiEvalWorkspaceContext): Pro
 }
 
 function harness(name: string, productAgentDir: string, caseDefinition: ContinuationCase) {
+	let snapshots: Record<string, string>[] = [];
+	let callSnapshots: ToolCallRecord[][] = [];
+	const fixturePolicy = toolFixture(caseDefinition);
 	return createPiCodingAgentHarness<ContinuationOutput & JsonValue>({
 		name,
 		model: { provider: provider!, id: model! },
 		thinkingLevel: "low",
 		tools: caseDefinition.tools,
 		productAgentDir,
-		setupWorkspace,
+		inlineExtensions: [(pi) => {
+			pi.on("before_agent_start", (event) => ({ systemPrompt: `${event.systemPrompt}\n\n${executionPolicy(caseDefinition)}` }));
+			pi.on("tool_call", async (event, ctx) => {
+				await assertFixtureTool(ctx.cwd, fixturePolicy, event.toolName, event.input);
+			});
+		}],
+		async setupWorkspace(context) {
+			snapshots = [];
+			callSnapshots = [];
+			await setupWorkspace(context);
+		},
 		async continuePrompt({ session, stepIndex }) {
-			await caseDefinition.afterTurn?.(session.sessionManager.getCwd(), stepIndex);
+			const workspace = session.sessionManager.getCwd();
+			snapshots.push(await readObserved(workspace, caseDefinition.observe));
+			callSnapshots.push(toolCalls(session.messages));
+			await caseDefinition.afterTurn?.(workspace, stepIndex);
 			return undefined;
 		},
 		async output({ input, workspace, response, session }) {
@@ -108,6 +144,8 @@ function harness(name: string, productAgentDir: string, caseDefinition: Continua
 				caseId: resolved.id,
 				response: response.length > 6_000 ? `${response.slice(0, 6_000)}…` : response,
 				responses,
+				snapshots: snapshots as unknown as JsonValue,
+				callSnapshots: callSnapshots as unknown as JsonValue,
 				calls: calls as unknown as JsonValue,
 				files: (await readObserved(workspace, resolved.observe)) as unknown as JsonValue,
 				toolCallCount: calls.length,
@@ -120,7 +158,8 @@ if (!enabled || !provider || !model || !baselineProduct) {
 	describe.skip("behavioural regression requires ROTOM_EVAL_CONTINUATION=1, provider, model, and ROTOM_EVAL_BASELINE_PRODUCT", () => {});
 } else {
 	const baselineProductPath = baselineProduct;
-	for (const caseDefinition of continuationCases) {
+	const selectedCases = continuationCases.filter((item) => selected ? item.id === selected : item.level === "mechanism-reproduction");
+	for (const caseDefinition of selectedCases) {
 		// One user turn per prompt entry: several cases reproduce a failure that
 		// only happens after earlier work in the same session.
 		const scenario = { id: caseDefinition.id, steps: caseDefinition.prompts.map((content) => ({ type: "prompt" as const, content })) } satisfies PiCodingAgentScenario;
@@ -137,7 +176,7 @@ if (!enabled || !provider || !model || !baselineProduct) {
 			describeEval(`${caseDefinition.label}: ${row.name} repetition ${String(row.repetition)}`, {
 				harness: row.harness,
 				judges: [continuationJudge(caseDefinition)],
-				judgeThreshold: 1,
+				judgeThreshold: row.name === "candidate" ? 1 : null,
 			}, (it) => {
 				it(caseDefinition.label, async ({ run }) => { await run(scenario); });
 			});

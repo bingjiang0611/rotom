@@ -138,7 +138,7 @@ npm --prefix rotom/evals run typecheck
 
 ## 长 PR 会话工程纪律回归
 
-C1–C4 的脱敏边界、case 合同和运行命令见 [详细合同](agent-regression-workflow-discipline.md)。入集不修改运行时行为。
+C1–C4 的脱敏边界、分层 case 合同和运行命令见 [详细合同](agent-regression-workflow-discipline.md)。短程 conformance、评测 harness regression 与 mechanism reproduction 分开统计；只有冻结产品真实失败的 mechanism case 才能晋升为失败回归。入集不修改运行时行为。
 
 ## 收尾与目标保持的真实模型探索（2026-10-30）
 

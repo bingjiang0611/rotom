@@ -6,6 +6,8 @@ export type FileFixture = {
 	editable: readonly string[];
 	commands?: readonly string[];
 	generated?: readonly string[];
+	/** Read-only to the Agent, but the eval may update these files between user turns. */
+	externallyMutable?: readonly string[];
 };
 export const fixtureVerificationCommand = "node verify.mjs";
 
@@ -39,7 +41,7 @@ async function regularFile(workspace: string, file: string): Promise<string> {
 export async function fixturesIntact(workspace: string, fixture: FileFixture): Promise<boolean> {
 	for (const [file, body] of Object.entries(fixture.files)) {
 		const current = await regularFile(workspace, file);
-		if (!fixture.editable.includes(file) && current !== body) return false;
+		if (!fixture.editable.includes(file) && !fixture.externallyMutable?.includes(file) && current !== body) return false;
 	}
 	return true;
 }

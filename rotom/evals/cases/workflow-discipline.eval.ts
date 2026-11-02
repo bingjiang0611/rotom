@@ -29,6 +29,7 @@ if (!enabled) {
 	}
 	if (!Number.isSafeInteger(repetitions) || repetitions < 1 || repetitions > 5) throw new Error("ROTOM_EVAL_REPEATS must be 1..5.");
 	if (selected && !workflowDisciplineCases.some((item) => item.id === selected)) throw new Error("Unknown ROTOM_EVAL_WORKFLOW_DISCIPLINE_CASE.");
+	const selectedCases = workflowDisciplineCases.filter((item) => selected ? item.id === selected : item.level === "mechanism-reproduction");
 	const executables = new Map<string, string>();
 	for (const product of new Set([baseline, candidate])) {
 		const { resolveInstalledPi } = await import(pathToFileURL(join(product, "runtime/resolve-installed-pi.mjs")).href);
@@ -39,6 +40,7 @@ if (!enabled) {
 		const fixture = item.fixture;
 		let events: WorkflowToolEvent[] = [];
 		let editHistory: Record<string, string>[] = [];
+		let phase = 0;
 		return createPiCodingAgentHarness<WorkflowDisciplineOutput>({
 			name,
 			productAgentDir: product,
@@ -65,6 +67,7 @@ if (!enabled) {
 						name: event.toolName,
 						command: typeof input.command === "string" ? input.command : undefined,
 						path: typeof input.path === "string" ? input.path : undefined,
+						phase,
 					});
 				});
 				pi.on("tool_result", async (event, ctx) => {
@@ -75,9 +78,15 @@ if (!enabled) {
 			}],
 			async setupWorkspace({ workspace, configDir }) {
 				for (const [file, body] of Object.entries(fixture.files)) {
-					await writeFile(join(workspace, file), body, { flag: "wx", mode: fixture.editable.includes(file) ? 0o600 : 0o400 });
+					const externallyMutable = fixture.externallyMutable?.includes(file) ?? false;
+					await writeFile(join(workspace, file), body, { flag: "wx", mode: fixture.editable.includes(file) || externallyMutable ? 0o600 : 0o400 });
 				}
 				await writeFile(join(configDir, "settings.json"), JSON.stringify({ retry: { enabled: false }, compaction: { enabled: false } }), { flag: "wx", mode: 0o600 });
+			},
+			async continuePrompt({ session, stepIndex }) {
+				await item.afterTurn?.(session.sessionManager.getCwd(), stepIndex);
+				phase = stepIndex + 1;
+				return undefined;
 			},
 			async output({ workspace, response, session }) {
 				const messages = session.messages.filter((message) => message.role === "assistant");
@@ -101,7 +110,7 @@ if (!enabled) {
 		});
 	}
 
-	for (const item of workflowDisciplineCases.filter((entry) => !selected || selected === entry.id)) {
+	for (const item of selectedCases) {
 		const judge = createJudge<PiCodingAgentInput, WorkflowDisciplineOutput>(`workflow-discipline-${item.id}`, ({ output }) => {
 			const result = scoreWorkflowDiscipline(item, output);
 			return { score: result.score, metadata: { output: { ...result.checks, toolErrors: output.toolErrors, completedPrompts: output.phaseReports.length } } };

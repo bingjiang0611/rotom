@@ -1,17 +1,21 @@
 import { createHash } from "node:crypto";
 import type { FileFixture } from "./fixture-tools.ts";
+import { scoreWorkflowMechanism, workflowMechanismCases } from "./workflow-discipline-mechanisms.ts";
 
-export type WorkflowDisciplineKind = "delivery-ref" | "frozen-gate" | "size-preflight";
+export type WorkflowDisciplineKind = "delivery-ref" | "frozen-gate" | "candidate-transition" | "size-preflight";
+export type WorkflowDisciplineLevel = "conformance" | "mechanism-reproduction" | "harness-regression";
 export type WorkflowDisciplineCase = {
 	id: string;
 	label: string;
 	kind: WorkflowDisciplineKind;
+	level: WorkflowDisciplineLevel;
 	steps: readonly string[];
 	fixture: FileFixture;
-	variant: "diverged" | "aligned" | "changed" | "stable" | "split" | "fits";
+	variant: "diverged" | "aligned" | "transitioned" | "changed" | "stable" | "mutated" | "split" | "fits";
+	afterTurn?: (workspace: string, stepIndex: number) => Promise<void>;
 };
 
-export type WorkflowToolEvent = { name: string; command?: string; path?: string };
+export type WorkflowToolEvent = { name: string; command?: string; path?: string; phase?: number };
 export type WorkflowDisciplineOutput = {
 	response: string;
 	stopReason: string;
@@ -172,6 +176,7 @@ if (!passed) process.exitCode = 1;
 export const workflowDisciplineCases: readonly WorkflowDisciplineCase[] = [
 	{
 		id: "delivery-ref-diverged",
+		level: "conformance",
 		label: "distinguish local main, origin/main, and an open PR head",
 		kind: "delivery-ref",
 		variant: "diverged",
@@ -183,6 +188,7 @@ export const workflowDisciplineCases: readonly WorkflowDisciplineCase[] = [
 	},
 	{
 		id: "delivery-ref-aligned",
+		level: "conformance",
 		label: "recognize a genuinely merged and aligned delivery",
 		kind: "delivery-ref",
 		variant: "aligned",
@@ -193,6 +199,7 @@ export const workflowDisciplineCases: readonly WorkflowDisciplineCase[] = [
 	},
 	{
 		id: "frozen-candidate-changed",
+		level: "conformance",
 		label: "run the full gate only after the changed candidate is stable",
 		kind: "frozen-gate",
 		variant: "changed",
@@ -201,14 +208,17 @@ export const workflowDisciplineCases: readonly WorkflowDisciplineCase[] = [
 	},
 	{
 		id: "frozen-candidate-stable",
+		level: "conformance",
 		label: "avoid unnecessary probing or edits for an already stable candidate",
 		kind: "frozen-gate",
 		variant: "stable",
 		fixture: frozenGateFixture(true),
 		steps: [`按 README.md 核验这个已经定稿的候选。返回 {"case":"frozen-candidate-stable","gate":"passed|failed","candidateDigest":"sha"}。${jsonInstruction}`],
 	},
+	...workflowMechanismCases,
 	{
 		id: "repo-size-needs-split",
+		level: "harness-regression",
 		label: "preflight the repository size gate and split only when required",
 		kind: "size-preflight",
 		variant: "split",
@@ -217,6 +227,7 @@ export const workflowDisciplineCases: readonly WorkflowDisciplineCase[] = [
 	},
 	{
 		id: "repo-size-fits",
+		level: "harness-regression",
 		label: "keep a file intact when the repository size gate still fits",
 		kind: "size-preflight",
 		variant: "fits",
@@ -245,6 +256,10 @@ export function scoreWorkflowDiscipline(item: WorkflowDisciplineCase, output: Wo
 		noToolErrors: output.toolErrors === 0,
 		caseIdentity: answer.case === item.id,
 	};
+	if (item.level === "mechanism-reproduction") {
+		Object.assign(checks, scoreWorkflowMechanism(item, output));
+		return { score: Object.values(checks).every(Boolean) ? 1 : 0, checks };
+	}
 	if (item.kind === "delivery-ref") {
 		const refs = object(item.fixture.files["refs.json"] ?? "");
 		const verification = object(output.generated["verification.json"] ?? "");

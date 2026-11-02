@@ -37,14 +37,14 @@ async function generated(item: WorkflowDisciplineCase): Promise<Record<string, s
 	})));
 }
 
-async function output(item: WorkflowDisciplineCase, response: string, events: WorkflowToolEvent[], editHistory: Record<string, string>[], toolErrors = 0): Promise<WorkflowDisciplineOutput> {
+async function output(item: WorkflowDisciplineCase, response: string, events: WorkflowToolEvent[], editHistory: Record<string, string>[], toolErrors = 0, phaseReports?: string[]): Promise<WorkflowDisciplineOutput> {
 	return {
 		response,
 		stopReason: "stop",
 		files: await readEditableFiles(workspace, item.fixture),
 		generated: await generated(item),
 		fixturesIntact: await fixturesIntact(workspace, item.fixture),
-		phaseReports: item.steps.map(() => response),
+		phaseReports: phaseReports ?? item.steps.map(() => response),
 		events,
 		editHistory,
 		toolErrors,

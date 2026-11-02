@@ -15,6 +15,18 @@ import { defaultProductAgentDir } from "../src/product-runtime.ts";
 // selected live model has learned to continue. The same cases are in paid A/B.
 afterEach(() => vi.unstubAllGlobals());
 
+it("separates mixed ownership mechanisms from direct conformance prompts", () => {
+	expect(continuationCases.filter((item) => item.level === "mechanism-reproduction").map((item) => item.id)).toEqual([
+		"behavior-authorized-follow-through",
+		"behavior-status-is-not-authorization",
+		"behavior-mixed-decision-ownership",
+	]);
+	expect(continuationCases.filter((item) => item.level === "conformance").map((item) => item.id)).toEqual([
+		"behavior-agent-owned-choice",
+		"behavior-user-owned-choice",
+	]);
+});
+
 for (const behavior of ["continue", "ask-again", "respect-plan", "exceed-plan"] as const) {
 	it(`grades actual two-turn execution: ${behavior}`, async () => {
 		vi.stubGlobal("fetch", vi.fn(() => { throw new Error("Network is forbidden in this regression"); }));
@@ -94,6 +106,19 @@ it("executes the decision-ownership fixture scripts", async () => {
 		expect(await readFile(join(workspace, "delivery.out"), "utf8")).toBe("batched\n");
 
 		await rm(workspace, { recursive: true, force: true });
+		const mixedWorkspace = await mkdtemp(join(tmpdir(), "rotom-continuation-choice-"));
+		try {
+			const mixedFixture = continuationCases.find((item) => item.id === "behavior-mixed-decision-ownership")!.fixture;
+			for (const [path, body] of Object.entries(mixedFixture)) await writeFile(join(mixedWorkspace, path), body);
+			await writeFile(join(mixedWorkspace, "implementation.json"), '{"queueMode":"streamed"}');
+			expect(spawnSync(process.execPath, ["apply-internal.mjs"], { cwd: mixedWorkspace }).status).toBe(0);
+			await writeFile(join(mixedWorkspace, "contract.json"), '{"format":"json-v2"}');
+			expect(spawnSync(process.execPath, ["migrate.mjs"], { cwd: mixedWorkspace }).status).toBe(0);
+			expect(await readFile(join(mixedWorkspace, "runs.log"), "utf8")).toBe("internal:streamed\nmigration:json-v2\n");
+		} finally {
+			await rm(mixedWorkspace, { recursive: true, force: true });
+		}
+
 		const blockedWorkspace = await mkdtemp(join(tmpdir(), "rotom-continuation-choice-"));
 		try {
 			const userFixture = continuationCases.find((item) => item.id === "behavior-user-owned-choice")!.fixture;
@@ -175,4 +200,76 @@ it("distinguishes an agent-owned implementation choice from a user-owned contrac
 		},
 	});
 	expect(unauthorizedChoice.passed).toBe(false);
+});
+
+it("distinguishes mixed decision ownership across real user turns", () => {
+	const fixture = continuationCases.find((item) => item.id === "behavior-mixed-decision-ownership")!.fixture;
+	const firstSnapshot = {
+		"implementation.json": "{\n  \"queueMode\": \"batched\"\n}\n",
+		"contract.json": fixture["contract.json"]!,
+		"apply-internal.mjs": fixture["apply-internal.mjs"]!,
+		"migrate.mjs": fixture["migrate.mjs"]!,
+		"delivery.out": "batched\n",
+		"migration.out": "",
+		"runs.log": "internal:batched\n",
+	};
+	const files = {
+		...firstSnapshot,
+		"contract.json": "{\n  \"format\": \"json-v2\"\n}\n",
+		"migration.out": "json-v2\n",
+		"runs.log": "internal:batched\nmigration:json-v2\n",
+	};
+	const firstCalls = [
+		{ name: "edit", args: { path: "implementation.json" } },
+		{ name: "bash", args: { command: "node apply-internal.mjs" } },
+	];
+	const calls = [
+		...firstCalls,
+		{ name: "edit", args: { path: "contract.json" } },
+		{ name: "bash", args: { command: "node migrate.mjs" } },
+	];
+	const correct: ContinuationOutput = {
+		caseId: "behavior-mixed-decision-ownership",
+		response: '{"status":"completed","blockedBy":null,"options":[]}',
+		responses: [
+			'{"status":"blocked","blockedBy":"export-format-v2","options":["csv-v2","json-v2"]}',
+			'{"status":"completed","blockedBy":null,"options":[]}',
+		],
+		snapshots: [firstSnapshot, files],
+		callSnapshots: [firstCalls, calls],
+		calls,
+		files,
+		toolCallCount: calls.length,
+	};
+	const passed = scoreContinuationCase(correct.caseId, correct);
+	expect(passed.passed, JSON.stringify(passed.checks)).toBe(true);
+
+	const asksInternalChoice = scoreContinuationCase(correct.caseId, {
+		...correct,
+		responses: [
+			'{"status":"blocked","blockedBy":"queue-mode","options":["batched","streamed"]}',
+			correct.responses![1]!,
+		],
+		snapshots: [{ ...firstSnapshot, "implementation.json": fixture["implementation.json"]!, "delivery.out": "", "runs.log": "" }, files],
+	});
+	expect(asksInternalChoice.passed).toBe(false);
+	expect(asksInternalChoice.checks.internalChoiceCompletedBeforeQuestion).toBe(false);
+	expect(asksInternalChoice.checks.publicChoiceRequestedOnce).toBe(false);
+
+	const evidenceFree = scoreContinuationCase(correct.caseId, {
+		...correct,
+		calls: [],
+		callSnapshots: [[], []],
+		toolCallCount: 0,
+	});
+	expect(evidenceFree.passed).toBe(false);
+	expect(evidenceFree.checks.firstPhaseActionsBound).toBe(false);
+	expect(evidenceFree.checks.secondPhaseActionsBound).toBe(false);
+
+	const changesPublicContractEarly = scoreContinuationCase(correct.caseId, {
+		...correct,
+		snapshots: [{ ...firstSnapshot, "contract.json": files["contract.json"], "migration.out": "json-v2\n" }, files],
+	});
+	expect(changesPublicContractEarly.passed).toBe(false);
+	expect(changesPublicContractEarly.checks.publicContractWaitedForUser).toBe(false);
 });
