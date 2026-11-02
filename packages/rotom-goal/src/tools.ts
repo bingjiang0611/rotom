@@ -80,7 +80,7 @@ export function registerGoalTools(
 			name: GOAL_CONTINUE_TOOL,
 			label: "Goal Continue",
 			description:
-				"Optionally record one concrete next action for the next automatic Goal continuation. Use only with the latest active goal_id. This is planning data, not new permission or proof of progress. Goal continues automatically when this tool is omitted, and ordinary sibling tools may still execute.",
+				"Optionally record one concrete next action for the next automatic Goal continuation. Use only with the latest active goal_id. Tool visibility alone does not activate Goal mode. This is planning data, not new permission or proof of progress. Goal continues automatically when this tool is omitted, and ordinary sibling tools may still execute.",
 			parameters: Type.Object({
 				goal_id: Type.String({ minLength: 1, maxLength: MAX_GOAL_ID_LENGTH }),
 				next_action: Type.String({ minLength: 1, maxLength: 2000 }),
