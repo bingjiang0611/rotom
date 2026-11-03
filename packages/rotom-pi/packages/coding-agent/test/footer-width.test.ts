@@ -1,3 +1,4 @@
+import type { StopReason } from "@earendil-works/pi-ai";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { AgentSession } from "../src/core/agent-session.ts";
@@ -21,6 +22,8 @@ function createSession(options: {
 	reasoning?: boolean;
 	thinkingLevel?: string;
 	usage?: AssistantUsage;
+	durationMs?: number;
+	stopReason?: StopReason;
 	branchUsage?: AssistantUsage;
 	compactionUsage?: AssistantUsage;
 	toolUsage?: AssistantUsage;
@@ -38,6 +41,8 @@ function createSession(options: {
 			message: {
 				role: "assistant",
 				usage,
+				durationMs: options.durationMs,
+				stopReason: options.stopReason ?? "stop",
 			},
 		});
 	}
@@ -159,6 +164,62 @@ describe("FooterComponent width handling", () => {
 		for (const line of lines) {
 			expect(visibleWidth(line)).toBeLessThanOrEqual(width);
 		}
+	});
+
+	it.each(["stop", "length", "toolUse"] as const)("shows latest request throughput for %s", (stopReason) => {
+		const usage = { input: 100, output: 1000, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } };
+		const session = createSession({
+			sessionName: "",
+			provider: "qoder",
+			usage,
+			durationMs: 1000,
+			customEntries: [
+				{ type: "message", message: { role: "assistant", usage, durationMs: 3000, stopReason } },
+				{ type: "message", message: { role: "toolResult", usage, durationMs: 60_000 } },
+			],
+		});
+		const footer = new FooterComponent(session, createFooterData(1));
+		const stats = stripAnsi(footer.render(160)[1]);
+
+		expect(stats).toContain("↓3.0k 333.3 t/s");
+		for (const width of [20, 60, 93]) {
+			for (const line of footer.render(width)) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+		}
+	});
+
+	it.each([
+		{ durationMs: undefined, stopReason: "stop", output: 100 },
+		{ durationMs: 0, stopReason: "stop", output: 100 },
+		{ durationMs: Number.NaN, stopReason: "stop", output: 100 },
+		{ durationMs: Number.POSITIVE_INFINITY, stopReason: "stop", output: 100 },
+		{ durationMs: 1000, stopReason: "stop", output: 0 },
+		{ durationMs: 1000, stopReason: "stop", output: Number.NaN },
+		{ durationMs: 1000, stopReason: "error", output: 100 },
+		{ durationMs: 1000, stopReason: "aborted", output: 100 },
+		{ durationMs: 1000, stopReason: "pending", output: 100 },
+		{ durationMs: 1000, stopReason: "deferred", output: 100 },
+	])("does not retain stale throughput for $stopReason / $durationMs / $output", (latest) => {
+		const usage = { input: 100, output: 100, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } };
+		const session = createSession({ sessionName: "", usage, durationMs: 1000 });
+		const footer = new FooterComponent(session, createFooterData(1));
+		expect(stripAnsi(footer.render(160)[1])).toContain("100.0 t/s");
+
+		session.sessionManager.getEntries().push({
+			type: "message",
+			message: { role: "assistant", ...latest, usage: { ...usage, output: latest.output } },
+		} as ReturnType<AgentSession["sessionManager"]["getEntries"]>[number]);
+		expect(stripAnsi(footer.render(160)[1])).not.toContain("t/s");
+	});
+
+	it("clears throughput when switching to an unmeasured session", () => {
+		const usage = { input: 100, output: 100, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } };
+		const footer = new FooterComponent(
+			createSession({ sessionName: "", usage, durationMs: 2000 }),
+			createFooterData(1),
+		);
+		expect(stripAnsi(footer.render(160)[1])).toContain("50.0 t/s");
+		footer.setSession(createSession({ sessionName: "", usage }));
+		expect(stripAnsi(footer.render(160)[1])).not.toContain("t/s");
 	});
 
 	it("shows the physical model a virtual model routed to", () => {

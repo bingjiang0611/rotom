@@ -1,5 +1,6 @@
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { type Component, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { footerCopy } from "../../../constants/copy.ts";
 import type { AgentSession } from "../../../core/agent-session.ts";
 import { areExperimentalFeaturesEnabled } from "../../../core/experimental.ts";
 import type { ContextUsage } from "../../../core/extensions/types.ts";
@@ -126,6 +127,7 @@ interface SessionStats {
 	limitsModel: unknown;
 	usageTotals: UsageTotals;
 	latestCacheHitRate: number | undefined;
+	latestTokensPerSecond: number | undefined;
 	contextUsage: ContextUsage | undefined;
 }
 
@@ -194,12 +196,26 @@ export class FooterComponent implements Component {
 		// Calculate cumulative usage from ALL session entries (not just post-compaction messages)
 		const usageTotals = createUsageTotals();
 		let latestCacheHitRate: number | undefined;
+		let latestTokensPerSecond: number | undefined;
 
 		for (const entry of sessionManager.getEntries()) {
 			if (entry.type === "usage") {
 				addUsageToTotals(usageTotals, entry.usage);
 			} else if (entry.type === "message" && entry.message.role === "assistant") {
 				addUsageToTotals(usageTotals, entry.message.usage);
+
+				// Per-request throughput, including first-token latency but excluding tools.
+				// Reset on unmeasured/failed responses instead of showing a stale success.
+				const { durationMs, stopReason, usage } = entry.message;
+				latestTokensPerSecond =
+					durationMs !== undefined &&
+					durationMs > 0 &&
+					Number.isFinite(durationMs) &&
+					usage.output > 0 &&
+					Number.isFinite(usage.output) &&
+					(stopReason === "stop" || stopReason === "length" || stopReason === "toolUse")
+						? usage.output / (durationMs / 1000)
+						: undefined;
 
 				const latestPromptTokens =
 					entry.message.usage.input + entry.message.usage.cacheRead + entry.message.usage.cacheWrite;
@@ -223,6 +239,7 @@ export class FooterComponent implements Component {
 			limitsModel,
 			usageTotals,
 			latestCacheHitRate,
+			latestTokensPerSecond,
 			contextUsage,
 		};
 		return this.sessionStats;
@@ -230,7 +247,7 @@ export class FooterComponent implements Component {
 
 	render(width: number): string[] {
 		const state = this.session.state;
-		const { usageTotals, latestCacheHitRate, contextUsage } = this.getSessionStats();
+		const { usageTotals, latestCacheHitRate, latestTokensPerSecond, contextUsage } = this.getSessionStats();
 		const contextWindow = contextUsage?.contextWindow ?? state.model?.contextWindow ?? 0;
 		const contextPercentValue = contextUsage?.percent ?? 0;
 		const contextPercent = contextUsage?.percent !== null ? contextPercentValue.toFixed(1) : "?";
@@ -254,6 +271,7 @@ export class FooterComponent implements Component {
 		const statsParts = [];
 		if (usageTotals.input) statsParts.push(`↑${formatTokens(usageTotals.input)}`);
 		if (usageTotals.output) statsParts.push(`↓${formatTokens(usageTotals.output)}`);
+		if (latestTokensPerSecond !== undefined) statsParts.push(footerCopy.tokensPerSecond(latestTokensPerSecond));
 		if (usageTotals.cacheRead) statsParts.push(`R${formatTokens(usageTotals.cacheRead)}`);
 		if (usageTotals.cacheWrite) statsParts.push(`W${formatTokens(usageTotals.cacheWrite)}`);
 		if ((usageTotals.cacheRead > 0 || usageTotals.cacheWrite > 0) && latestCacheHitRate !== undefined) {
