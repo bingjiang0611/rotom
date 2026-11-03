@@ -49,14 +49,15 @@ The default product selects **`@narumitw/pi-goal@0.54.4-rotom.10`**, independent
 
 ## Locked SoL-Pi distribution
 
-The default product selects **`sol-pi@0.1.0-rotom.5`**, maintained in `packages/rotom-sol-pi/`. SoL-Pi has no npm release; this archive is packed from that directory.
+The default product selects **`sol-pi@0.1.0-rotom.6`**, maintained in `packages/rotom-sol-pi/`. SoL-Pi has no npm release; this archive is packed from that directory.
 
-- Archive: `sol-pi-0.1.0-rotom.5.tgz`
-- SHA256: `7d5fd22000bcdf2aa2159cfc0207b7f5566ead846c5fce321116aea48222ffc6`
-- SHA512 SRI: `sha512-iPqH8a/TcapOYW9M4IidWrUVOfbg1D3vGXIEbWvF9uTU8nKDtzTm9fGrffLJImxb1FR89ulZF/uCzod+vr/Mlw==`
+- Archive: `sol-pi-0.1.0-rotom.6.tgz`
+- SHA256: `7e22fea51f5c94b31e46a0d4c06f003bf9f077ea42bb6c96977e8dc3a74cd618`
+- SHA512 SRI: `sha512-Zg+2NTOEsvOdgI3ANpUXiuvYe0jJ1F4F93YXd3y56d4UQj6Q8p9pSQ+Cf3x/qv2ecaEai7UyQTEQ1XAjVHMvjg==`
+- `.rotom.6`: terminal `obs_recall` text cursors are `null` at EOF, with explicit stop instructions. Numeric persisted byte-end metadata stays unchanged; old EOF pages remain intact. A sanitized text-only pagination regression fails on the old implementation and passes with the fix; no live-model A/B was run.
 - `.rotom.5`: calibrates defer estimates with the chars/4 savings fraction of the projected context; threshold decisions expose metadata-only counts, bytes and native reasons. The 0.6 target and default-off behavior remain unchanged; no real-model benefit is claimed.
 - `.rotom.4`: default-off Compaction Offload requires Observation Pack, preserves recall before persisting metadata, treats append failures as unknown, and keeps observation failures independent of deferral; projection checks are cached until session start/tree changes.
-- Tests: `.rotom.5` on pinned npm Pi `1.3.0`: typecheck passes, 207 tests pass, only the 2 known omitted install-guide fixtures fail. Archive: 37 files, 53846 bytes compressed / 183589 bytes unpacked. The superseded `.rotom.4` archive is removed.
+- Tests: `.rotom.6` on pinned npm Pi `1.3.0`: typecheck passes, 211 tests pass, only the 2 known omitted install-guide fixtures fail. Archive: 37 files, 54411 bytes compressed / 184910 bytes unpacked. The superseded `.rotom.5` archive is removed.
 - `.rotom.3`: versioned `details.actionFusion` preserves applied mutations on failed/skipped follow-ups. Pi 1.3.0 dev baseline: typecheck passes, 166 tests pass; the 2 omitted upstream installation-guide fixtures still fail. Older hosts that ignore `isError` results are no longer supported.
 - Upstream: <https://github.com/NVlabs/SoL-Pi>, License MIT (original notice in `package/LICENSE`; provenance in `package/UPSTREAM.md`).
 - Source: the maintainer's branch `b463fad` (upstream `2b791687` plus five fix/compat commits). `.rotom.0` kept `src/` byte-identical. `.rotom.1` records each returned reducer response as a Pi `usage` entry (`sol_pi_reducer`) through the fork's `pi.appendUsage`, so the footer, session stats and Goal budgets include reducer spend; see `UPSTREAM.md`. `.rotom.2` adds a content-free `quoteDiagnostic` (cause, index, length, SHA-256, matched prefix and line, ANSI/whitespace near-match flags) to `unverifiable-quote` journal entries; acceptance is unchanged. The `.rotom.0` (rotom 0.1.24) and `.rotom.1` (rotom 0.1.25) archives are removed here.

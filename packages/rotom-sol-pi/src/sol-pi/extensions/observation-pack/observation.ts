@@ -8,6 +8,7 @@ import { type FileHandle, lstat, mkdir, open } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { TextContent, ToolResultMessage } from "@earendil-works/pi-ai";
+import { RECALL_COPY } from "../../constants/copy.ts";
 
 /** Only tool results larger than this participate. */
 export const THRESHOLD_BYTES = 10 * 1024;
@@ -189,7 +190,7 @@ export function placeholderFor(observation: Observation): string {
 		`original_bytes: ${observation.bytes}`,
 		`original_lines: ${observation.lines}`,
 		`estimated_tokens: ${observation.tokens}`,
-		`retrieve: call obs_recall with {"id":"${observation.id}","offset":0}; continue with returned next_offset`,
+		`retrieve: call obs_recall with {"id":"${observation.id}","offset":0}; ${RECALL_COPY.continue}`,
 		`[first complete lines, up to ${headBudget} bytes]`,
 		head,
 		`[middle omitted; last complete lines, up to ${tailBudget} bytes]`,

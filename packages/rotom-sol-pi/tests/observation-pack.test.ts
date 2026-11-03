@@ -312,6 +312,7 @@ describe("observation pack", () => {
 			eof = page.details.eof;
 			if (eof) {
 				expect(placeholder).toContain("eof: true");
+				expect(placeholder).toContain("next_offset: null");
 				expect(placeholder).not.toContain("continue:");
 				expect(placeholder).toContain("does not prove earlier pages were read");
 			}
@@ -493,6 +494,68 @@ describe("observation pack", () => {
 
 		expect(recalled).toBe(body);
 		expect(Buffer.from(recalled, "utf8")).toEqual(Buffer.from(body, "utf8"));
+	});
+
+	it.each([1, 4])("terminates text-only next_offset pagination for a %i-page observation", async (pages) => {
+		const sessionDir = await sessionRoot();
+		const pi = observationPackPi();
+		const body = "中文🙂 recall bytes".repeat(600 * pages);
+		const message = toolResult(body);
+		const id = observationId(message);
+		await project(pi, message, sessionDir, 3);
+		let offset: number | null = 0;
+		let recalled = "";
+		let calls = 0;
+
+		// Reproduce the real Codemode consumer: only the rendered text is available,
+		// and a numeric next_offset means another request. Bound the test, not the API.
+		while (offset !== null && calls < 10) {
+			const page = await recallPage(pi, id, offset, fakeContext(sessionDir));
+			const output = resultText(page);
+			const next = output.match(/next_offset=(\d+)/u);
+			offset = next ? Number(next[1]) : null;
+			recalled += output.slice(output.indexOf("\n", output.indexOf("\n") + 1) + 1);
+			calls++;
+		}
+
+		expect(offset).toBeNull();
+		expect(calls).toBe(pages);
+		expect(Buffer.from(recalled)).toEqual(Buffer.from(body));
+	});
+
+	it("marks reads at EOF as terminal and still rejects offsets beyond EOF", async () => {
+		const sessionDir = await sessionRoot();
+		const pi = observationPackPi();
+		const body = repeatPastThreshold("terminal bytes\n");
+		const message = toolResult(body);
+		const id = observationId(message);
+		await project(pi, message, sessionDir, 3);
+		await expect(pi.tool("obs_recall").execute(
+			"beyond-eof", { id, offset: Buffer.byteLength(body) + 1 }, undefined, undefined, fakeContext(sessionDir),
+		)).rejects.toThrow("exceeds observation size");
+		const page = await recallPage(pi, id, Buffer.byteLength(body), fakeContext(sessionDir));
+
+		expect(resultText(page)).toContain("next_offset=null eof=true]");
+		expect(resultText(page)).toContain("stop paging");
+		expect(resultText(page)).not.toContain("use next_offset to continue");
+		// Persisted metadata retains its numeric byte boundary for source validation.
+		expect(page.details).toMatchObject({ nextOffset: Buffer.byteLength(body), eof: true });
+	});
+
+	it("keeps legacy EOF page text intact rather than rewriting persisted evidence", async () => {
+		const sessionDir = await sessionRoot();
+		const pi = observationPackPi();
+		const body = "x".repeat(12_000);
+		const message = toolResult(body);
+		const id = observationId(message);
+		await project(pi, message, sessionDir, 3);
+		const page = await recallPage(pi, id, 0, fakeContext(sessionDir));
+		const legacyText = `[obs_recall id=${id} offset=0 next_offset=12000 eof=true]\n[chunk_bytes=12000 chunk_lines=1; use next_offset to continue]\n${body}`;
+		const legacyPage = { ...page, content: [{ type: "text" as const, text: legacyText }] };
+		captureConsoleErrors();
+
+		expect(await project(pi, legacyPage, sessionDir, 3)).toEqual([legacyText, legacyText, legacyText]);
+		expect(resultText(await recallPage(pi, id, 0, fakeContext(sessionDir)))).toContain("next_offset=null eof=true]");
 	});
 
 	it("fails storage closed when the observation directory is a symlink", async () => {

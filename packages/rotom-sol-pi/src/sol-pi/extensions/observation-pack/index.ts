@@ -21,6 +21,7 @@ import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { RECALL_COPY } from "../../constants/copy.ts";
 import { runtimeRoot } from "../../runtime-paths.ts";
 import { formatSavingsCount, renderSolPiTool, showSolPiSavings } from "../../tui.ts";
 import { createLedger, type Ledger } from "./ledger.ts";
@@ -65,8 +66,10 @@ function recallReference(details: unknown): RecallReference | undefined {
 
 function recallText(id: string, offset: number, chunk: RecallChunk): string {
 	return [
-		`[obs_recall id=${id} offset=${offset} next_offset=${chunk.nextOffset} eof=${chunk.eof}]`,
-		`[chunk_bytes=${chunk.bytes} chunk_lines=${chunk.lines}; use next_offset to continue]`,
+		// The text-only tool consumer needs a terminal cursor; numeric byte-end
+		// metadata stays unchanged for ledger and persisted-page validation.
+		`[obs_recall id=${id} offset=${offset} next_offset=${chunk.eof ? null : chunk.nextOffset} eof=${chunk.eof}]`,
+		`[chunk_bytes=${chunk.bytes} chunk_lines=${chunk.lines}; ${RECALL_COPY.chunkHint(chunk.eof)}]`,
 		chunk.text,
 	].join("\n");
 }
@@ -85,7 +88,7 @@ async function recallPlaceholder(root: string, source: RecallReference, text: st
 		`id: ${source.id}`,
 		`tool: obs_recall`,
 		`offset: ${source.offset}`,
-		`next_offset: ${source.nextOffset}`,
+		`next_offset: ${source.eof ? null : source.nextOffset}`,
 		`eof: ${source.eof}`,
 		`retrieve: call obs_recall with ${JSON.stringify({ id: source.id, offset: source.offset })} to re-read this page`,
 		source.eof
@@ -113,7 +116,7 @@ export function createObservationPackExtension(options: { compactionOffload?: bo
 		pi.registerTool({
 			name: "obs_recall",
 			label: "Recall Observation",
-			description: "Read a stored large tool result by observation id and byte offset.",
+			description: RECALL_COPY.description,
 			promptSnippet: "Recall a paged excerpt from a previously replaced large tool result",
 			renderShell: "self",
 			parameters: Type.Object({
