@@ -3,14 +3,28 @@
 本文是 `/skill:agent-regression` 的强制执行顺序。命令、现有 suite 边界和产物格式仍以 [真实失败回归](agent-regression.md) 为准。
 
 ```text
+先分类：mechanism / conformance / harness
+          ↓
 建立能拒绝旧错误的 oracle
           ↓
-用冻结产品和真实 Agent 跑 baseline
+仅对 mechanism 用冻结产品和真实 Agent 跑 baseline
           ↓
 baseline 复现失败后，按证据修改 Agent
           ↓
-同 case / judge / 工具 / 模型 / 输入跑 candidate
+同 case / judge / runner / 系统合同 / 模型 / 输入跑 candidate
 ```
+
+## 0. 分类与准入
+
+创建 fixture 前先记录 case 分类：
+
+| 分类 | 用途 | 是否可修改 Agent |
+| --- | --- | --- |
+| `mechanism-reproduction` | 隐藏 judge 保留真实失败机制，任务不泄露正确执行流程 | baseline 稳定复现后可以 |
+| `conformance` | 明确规则下的短程遵循、smoke 或正确控制 | 不可以；通过不代表历史失败已复现 |
+| `harness-regression` | runner、真实工具路径、fixture、judge 与证据采集 | 不可以；失败先修 eval 基础设施 |
+
+默认真实失败 suite 只运行 `mechanism-reproduction`。另两类可以显式运行，但结果必须分开报告，不进入失败回归通过率。不要为了让 baseline 失败而删除真实合同、增加无关负担或诱导错误；当前产品已满足机制时，正确状态是 `not-reproduced`。
 
 ## 1. 建立 oracle
 
@@ -36,9 +50,12 @@ baseline 复现失败后，按证据修改 Agent
 - 重复数；
 - 时间和预算授权；
 - 冻结 baseline 产品根和 commit；
-- 私有产物目录。
+- 私有产物目录；
+- 运行前声明的晋升规则，不能看完结果再改阈值。
 
-使用新建的同一 suite 运行真实 Agent。核对实际样本数、manifest、逐例 judge 证据、工具错误和 stop reason。skip、超时、取消、provider 错误或 runtime identity gate 失败均为 unknown/基础设施失败，不能计为 baseline 通过或失败。
+推荐先运行 1 次发现；出现失败后，再取得预算授权扩到 3 次稳定性确认。若使用 3 次准入，默认解释为：0/3 失败是 `not-reproduced`，1/3 失败是 `flaky-candidate`，至少 2/3 失败是 `reproduced-regression`。其它重复数必须在运行前写明对应规则。
+
+baseline arm 只负责观察，不设置 candidate 的通过阈值；否则真实失败会被 runner 误报为测试执行失败。使用新建的同一 suite 运行真实 Agent。核对实际样本数、manifest、逐例 judge 证据、工具错误和 stop reason。skip、超时、取消、provider 错误或 runtime identity gate 失败均为 unknown/基础设施失败，不能计为 baseline 通过或失败。
 
 结果分支：
 
@@ -46,7 +63,7 @@ baseline 复现失败后，按证据修改 Agent
 | --- | --- |
 | 稳定复现已观察错误 | 进入 Agent 修复 |
 | 通过 | 标记 `not-reproduced`；检查 fixture 是否丢失关键区别，不修改 Agent 制造改善 |
-| 波动 | 增加已授权重复或收紧确定性证据；保持 `inconclusive` |
+| 仅少数重复失败 | 标记 `flaky-candidate`；增加已授权重复或收紧确定性证据，不直接修改 Agent |
 | 基础设施失败 | 修前置条件后重跑同一 baseline；不得用离线控制替代 |
 | 未授权 | 标记 `baseline-pending`，询问缺失授权，不宣称入集闭环完成 |
 
@@ -64,15 +81,15 @@ baseline 复现失败后，按证据修改 Agent
 - 将 A/A 结果写成收益；
 - 因 candidate 失败而只修改 candidate 一侧看到的 fixture。
 
-如果确实发现 oracle 错误，先修 oracle，再用新版本同时重跑 baseline 和 candidate。旧分数作废。
+如果确实发现 oracle、fixture、runner、系统合同或证据采集错误，先修 eval，再用新版本同时重跑 baseline 和 candidate。旧分数作废，并单列作废样本及原因。
 
 ## 4. 同条件跑 candidate
 
 candidate 必须与 baseline 固定：
 
-- case、fixture 和 judge；
+- case、fixture、judge 和 runner；
 - provider/model 和 thinking；
-- 工具面、系统合同和输入；
+- 工具面、系统合同、证据采集和输入；
 - 重复数和 arm 顺序；
 - 超时、retry/compaction 和外部权限。
 
@@ -93,8 +110,8 @@ candidate 必须与 baseline 固定：
 
 最终报告固定为：
 
-1. **Oracle**：case ID、来源范围、脱敏变化、错误反例和正确控制；
-2. **Baseline**：冻结产品、模型、重复数、实际样本和逐例结果；
+1. **Oracle**：case ID、分类、来源范围、脱敏变化、错误反例和正确控制；
+2. **Baseline**：冻结产品、模型、预先声明的重复/晋升规则、实际样本、逐例结果，以及作废样本和原因；
 3. **Agent change**：根因、修改层和确定性验证；
 4. **Candidate comparison**：改善、新退化、原有失败、unknown；
 5. **Limits**：未运行的真实设备/外部验收、费用性质和样本限制；
