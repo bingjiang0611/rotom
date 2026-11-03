@@ -16,3 +16,20 @@
 此次历史替换使用用户授权、绑定原远端 SHA 的 `--force-with-lease`，不新增邮箱审计例外，不放宽凭据/文件/其余历史检查。重建后的 tree + all-refs history 审计通过。此后发布元数据和 release tag 仍使用正常 fast-forward 流程。
 
 GitHub 可能仍通过缓存、提交直链或已有 clone 保留旧对象；重建分支不等于撤销已公开邮箱，也不声称抹除了全部副本。
+
+## 2026-11-03 · Goal 自动续跑提交身份修正
+
+用户明确授权修正公开 `main` 上连续八条使用非 GitHub noreply 身份的提交，并以绑定旧远端 tip `4d57af71ad215760002887a87fde3990b98453f9` 的 `--force-with-lease` 推送。重建提交的作者和提交者均为 `bingjiang0611 <307659028+bingjiang0611@users.noreply.github.com>`；逐条比较 Git tree object，八组内容完全相同。旧提交只由公开 `main` 引用，已有 release tags 与其他远端分支不变。
+
+| 原公开提交 | 新公开提交 |
+|---|---|
+| `2da8ac57233b028e949032198e17d5d6b0cbf777` | `cd851920f29e47876105cd048ce6ef5ca81cc6f7` |
+| `95bde9830fee081c5e11b47a39e1a388164c6cd0` | `d09be12959b92557c8788a77a4c2cccc089f6c1c` |
+| `5a96b02e85ba95b9b7785207cc9fc069680f2a97` | `994f1a0a86b633b174e8d766c7b88b745bd9dfce` |
+| `0058a5ee97c55bfd9bcca9c72de4ccd1ca75f833` | `49a72df9c8c8f4dc8e3de544ae8f347c11e64bf6` |
+| `ca6ece322d23caa29eb9b90e8d41df4f088a8ada` | `dbd381df1ae7889215ca1c59372c13675d5af674` |
+| `33186b4cea2843f97af2c18672841400ffcd589d` | `0a6e4b5ee554b59c9f3f5e427fe0538cde024da5` |
+| `c743fd6c29ff5febc0074b2daaaf5c6be83fa4c5` | `0cd0de93fc16744b042dd230876a92a848283ec8` |
+| `4d57af71ad215760002887a87fde3990b98453f9` | `bed47b6ce850a47fcf66167729808b1b781313ec` |
+
+身份修正后以正常新提交 `b7371410175cc365436aff3dc0c23f840014769d` 交付 Qoder 模型请求无固定超时修复。远端回读确认 `main` 指向该提交，旧 tip 不再由任何远端分支引用；独立公开 clone 的 tracked tree 与完整 history 审计均通过。
