@@ -454,7 +454,7 @@ function neverSent(error) {
   return false;
 }
 
-export async function openQoderStream({ payload, getToken, getLegacyCredential, legacyModel, fetchImpl = globalThis.fetch, modelId = 'lite', sessionId = randomUUID(), timeoutMs = 60000, onDiagnostic, onMetering, onResponse, reasoningMode, signal } = {}) {
+export async function openQoderStream({ payload, getToken, getLegacyCredential, legacyModel, fetchImpl = globalThis.fetch, modelId = 'lite', sessionId = randomUUID(), onDiagnostic, onMetering, onResponse, reasoningMode, signal } = {}) {
   // Models.json, onPayload and SDK overrides must never redirect credentials.
   const input = inputCapabilities(legacyModel?.id === modelId ? legacyModel : undefined);
   if (signal?.aborted) fail('aborted');
@@ -515,8 +515,7 @@ export async function openQoderStream({ payload, getToken, getLegacyCredential, 
   const abort = () => controller.abort();
   signal?.addEventListener('abort', abort, { once: true });
   if (signal?.aborted) abort();
-  const timer = setTimeout(abort, timeoutMs);
-  const cleanup = () => { clearTimeout(timer); signal?.removeEventListener('abort', abort); };
+  const cleanup = () => signal?.removeEventListener('abort', abort);
   const meter = createCreditCollector(); let dispatchStarted = false, meterFinished = false;
   const report = outcome => {
     if (!dispatchStarted || meterFinished) return; meterFinished = true;

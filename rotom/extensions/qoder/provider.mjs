@@ -169,9 +169,9 @@ export async function createQoderProvider({ piAI, clampMaxTokens, getToken, getC
         return c;
       }, captureBinding: browserBinding,
     }).getToken : getToken;
-    // Repeated long-history summarization can exceed 60 seconds. Reasoning
-    // requests retain a bounded total deadline and immediate native cancellation;
-    // extending that deadline is not a retry of an expired/unknown dispatch.
+    // Model requests have no provider-owned deadline. The caller's AbortSignal
+    // remains the only local cancellation source, so long reasoning streams can
+    // run to their upstream completion without a fixed wall-clock cutoff.
     // Native model view: corrected image capability and thinking controls for
     // request building and the persisted message identity. Pi retains
     // serialization, tool execution, context/branch management and the rest of
@@ -208,7 +208,7 @@ export async function createQoderProvider({ piAI, clampMaxTokens, getToken, getC
       }
       return result;
     };
-    const { chunks } = await openQoderStream({ payload, getToken: requestToken, getLegacyCredential: () => requestCredential, legacyModel: entry, reasoningMode, fetchImpl, signal: options.signal, modelId: model.id, timeoutMs: reasoning ? 180000 : 60000, onDiagnostic: reportDiagnostic, sessionId: options.sessionId, onResponse: response => {
+    const { chunks } = await openQoderStream({ payload, getToken: requestToken, getLegacyCredential: () => requestCredential, legacyModel: entry, reasoningMode, fetchImpl, signal: options.signal, modelId: model.id, onDiagnostic: reportDiagnostic, sessionId: options.sessionId, onResponse: response => {
       responseStatus = response.status;
       return options.onResponse?.(response, model);
     }, onMetering(data) {

@@ -237,10 +237,18 @@ test('pre-abort performs neither credential reads nor network requests', async (
   await assert.rejects(fetch(CHAT_URL, { ...request(), signal: AbortSignal.abort() }), { code: 'aborted' });
 });
 
-test('request timeout terminates an idle response', async () => {
+test('legacy timeout options do not terminate an idle response', { timeout: 1000 }, async () => {
+  const controller = new AbortController();
   const fetch = createQoderFetch({ getToken: async () => 'fixture-token', timeoutMs: 20, fetchImpl: async () => new Response(new ReadableStream(), { headers: { 'content-type': 'text/event-stream' } }) });
-  const response = await fetch(CHAT_URL, request());
-  await assert.rejects(response.text(), { code: 'aborted' });
+  const response = await fetch(CHAT_URL, { ...request(), signal: controller.signal });
+  const outcome = response.text().then(value => ({ status: 'fulfilled', value }), error => ({ status: 'rejected', error }));
+  await new Promise(resolve => setTimeout(resolve, 40));
+  const pending = Symbol('pending');
+  assert.equal(await Promise.race([outcome, Promise.resolve(pending)]), pending);
+  controller.abort();
+  const result = await outcome;
+  assert.equal(result.status, 'rejected');
+  assert.equal(result.error.code, 'aborted');
 });
 
 async function authFixture(t) {

@@ -18,13 +18,17 @@ async function drain(wire) {
 }
 
 for (const phase of ['credential', 'fetch']) {
-  test(`deadline bounds non-cooperative ${phase}`, { timeout: 1000 }, async () => {
-    let calls = 0;
-    const fetch = createQoderFetch({ timeoutMs: 10,
-      getToken: phase === 'credential' ? never : async () => 'fixture',
-      fetchImpl: () => { calls++; return never(); },
+  test(`caller abort bounds non-cooperative ${phase}`, { timeout: 1000 }, async () => {
+    let calls = 0, entered;
+    const ready = new Promise(resolve => { entered = resolve; });
+    const controller = new AbortController();
+    const fetch = createQoderFetch({
+      getToken: phase === 'credential' ? () => { entered(); return never(); } : async () => 'fixture',
+      fetchImpl: () => { calls++; entered(); return never(); },
     });
-    await assert.rejects(fetch(CHAT_URL, request()), { code: 'aborted' });
+    const pending = fetch(CHAT_URL, request(controller.signal));
+    await ready; controller.abort();
+    await assert.rejects(pending, { code: 'aborted' });
     assert.equal(calls, phase === 'credential' ? 0 : 1);
   });
 }
@@ -47,10 +51,16 @@ test('provider auth resolution observes caller abort', { timeout: 1000 }, async 
   controller.abort(); await assert.rejects(pending, { code: 'aborted' });
 });
 
-test('late HTTP response is cancelled after dispatch deadline', { timeout: 1000 }, async () => {
-  let release, cancelled = 0;
-  const fetch = createQoderFetch({ timeoutMs: 10, getToken: async () => 'fixture', fetchImpl: () => new Promise(resolve => { release = resolve; }) });
-  await assert.rejects(fetch(CHAT_URL, request()), { code: 'aborted' });
+test('late HTTP response is cancelled after caller abort', { timeout: 1000 }, async () => {
+  let release, entered, cancelled = 0;
+  const ready = new Promise(resolve => { entered = resolve; });
+  const controller = new AbortController();
+  const fetch = createQoderFetch({ getToken: async () => 'fixture', fetchImpl: () => {
+    entered(); return new Promise(resolve => { release = resolve; });
+  } });
+  const pending = fetch(CHAT_URL, request(controller.signal));
+  await ready; controller.abort();
+  await assert.rejects(pending, { code: 'aborted' });
   release(new Response(new ReadableStream({ cancel() { cancelled++; } }), { headers }));
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(cancelled, 1);
