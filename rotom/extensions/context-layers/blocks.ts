@@ -218,11 +218,14 @@ export function commitDrafts(view: View, plan: Plan): SessionBoundaryDraft[] {
 }
 export function status(view: View, estimate: Estimate, offset = 0) {
   const actions = blockActions(view);
+  const blocks = [...view.blocks.values()].map(b => ({ kind: "block", id: b.id, tier: b.tier, state: view.states.get(b.id),
+    rewriteAllowed: actions.get(b.id)?.rewriteAllowed ?? false, mergeWithNext: actions.get(b.id)?.mergeWithNext ?? null,
+    summary: b.summary.slice(0, 320), estimatedSavedTokens: b.before - b.after }));
+  // Keep actionable selections ahead of accumulated history on bounded pages.
   const items = [
-    ...[...view.blocks.values()].map(b => ({ kind: "block", id: b.id, tier: b.tier, state: view.states.get(b.id),
-      rewriteAllowed: actions.get(b.id)?.rewriteAllowed ?? false, mergeWithNext: actions.get(b.id)?.mergeWithNext ?? null,
-      summary: b.summary.slice(0, 320), estimatedSavedTokens: b.before - b.after })),
     ...candidates(view, estimate).map(r => ({ kind: "range", ...r })),
+    ...blocks.filter(b => b.rewriteAllowed || b.mergeWithNext !== null),
+    ...blocks.filter(b => !b.rewriteAllowed && b.mergeWithNext === null),
   ];
   if (offset > items.length) throw new Error(COPY.offset);
   return { items: items.slice(offset, offset + 24), nextOffset: offset + 24 < items.length ? offset + 24 : null, complete: offset + 24 >= items.length };
