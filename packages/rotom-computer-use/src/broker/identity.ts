@@ -47,6 +47,8 @@ function readParentPid(pid: number): number | undefined {
 export interface AgentIdentityInput {
 	sessionId?: string;
 	hasUI: boolean;
+	/** Session working directory, used by the broker for the project policy. */
+	cwd?: string;
 	pid?: number;
 	/** Defaults to the live process ancestry. Tests pass a fixed chain. */
 	pidChain?: number[];
@@ -64,5 +66,6 @@ export function agentRegistrationFor(input: AgentIdentityInput): AgentRegistrati
 		hasUI: input.hasUI,
 		pid,
 		pidChain: input.pidChain ?? (input.pid === undefined ? processAncestry() : []),
+		...(input.cwd ? { cwd: input.cwd } : {}),
 	};
 }

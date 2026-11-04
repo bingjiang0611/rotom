@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -20,6 +20,7 @@ async function schedulerPair(socketPath: string) {
 		betaScheduler: new ResourceScheduler(beta.broker),
 	};
 }
+
 
 test("ROTOM_CU_BROKER=0 (and non-macOS) keeps the previous per-process behavior", () => {
 	assert.equal(shouldUseBroker({ platform: "darwin", configured: true }), true);

@@ -25,6 +25,8 @@ export interface PolicyCheckInput {
 	resourceKey: string;
 	app?: TargetAppInfo;
 	action?: ActionIntent;
+	/** Session working directory, so the broker can apply the tighter project policy. */
+	cwd?: string;
 }
 
 export interface PolicyDecision {
@@ -43,6 +45,8 @@ export interface PolicyGate {
 	check(input: PolicyCheckInput): PolicyDecision;
 	/** Persist a permanent grant ("始终允许"). */
 	allowApp(app: TargetAppInfo | undefined, tier: AppTier): void;
+	/** Effective tier without an action check, used when persisting a grant. */
+	tierForApp(app: TargetAppInfo | undefined, fallbackKey: string): AppTier;
 	describe(): Record<string, unknown>;
 }
 
@@ -51,6 +55,9 @@ export const permissivePolicy: PolicyGate = {
 		return { tier: "full", requiresApproval: false, cacheKey: input.app?.bundleId ?? input.app?.appName ?? input.resourceKey };
 	},
 	allowApp() {},
+	tierForApp() {
+		return "full";
+	},
 	describe() {
 		return { apps: {}, sensitive: false };
 	},
@@ -189,9 +196,10 @@ export class BrokerCore {
 			}
 			case "policy": {
 				if (request.op === "allow_app") {
-					const decision = this.policy.check({ agentId: agentId ?? "unknown", resourceKey: request.app?.bundleId ?? "app", app: request.app });
-					if (request.tier && request.tier !== decision.tier) return failure("denied", `Tier ${request.tier} does not match ${decision.tier}.`);
-					this.policy.allowApp(request.app, decision.tier);
+					if (!agentId) return failure("unknown_agent", "Register with hello before changing policy.");
+					const tier = this.policy.tierForApp(request.app, request.app?.bundleId ?? request.app?.appName ?? "app");
+					if (request.tier && request.tier !== tier) return failure("denied", `Tier ${request.tier} does not match the effective tier ${tier}.`);
+					this.policy.allowApp(request.app, tier);
 				}
 				return { ok: true, type: "policy", policy: this.policy.describe() as never };
 			}
@@ -254,7 +262,7 @@ export class BrokerCore {
 		if (!agent) return failure("unknown_agent", `Unknown agent ${agentId}.`);
 		if (!request.resourceKey) return failure("invalid_request", "acquire requires a resourceKey.");
 
-		const decision = this.policy.check({ agentId, resourceKey: request.resourceKey, app: request.app, action: request.action });
+		const decision = this.policy.check({ agentId, resourceKey: request.resourceKey, app: request.app, action: request.action, cwd: agent.cwd });
 		if (decision.denied) return failure("denied", decision.denied, { tier: decision.tier });
 		if (decision.requiresApproval) {
 			const cached = this.sessionApprovals.get(`${agentId}:${decision.cacheKey}`);
@@ -332,7 +340,7 @@ export class BrokerCore {
 			});
 		});
 		const pending = this.pendingApprovals.get(requestId)!;
-		pending.cancelTimer = this.schedule.schedule(() => this.settleApproval(requestId, "timeout"), this.approvalTimeoutMs);
+		pending.cancelTimer = this.schedule(() => this.settleApproval(requestId, "timeout"), this.approvalTimeoutMs);
 		const delivered = this.transport.send(target.agentId, {
 			event: "approval",
 			requestId,

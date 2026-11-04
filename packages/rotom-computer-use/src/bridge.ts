@@ -22,6 +22,10 @@ import { agentRegistrationFor } from "./broker/identity.ts";
 import { ClientLeaseBroker, UnavailableLeaseBroker, connectLeaseBroker, shouldUseBroker } from "./broker/lease-broker.ts";
 import type { BrokerClient } from "./broker/client.ts";
 import type { ApprovalRequestEvent, BrokerEvent } from "./broker/protocol.ts";
+import { processAncestry } from "./broker/identity.ts";
+import { approvalCopy } from "./constants/copy.ts";
+import { describeSensitiveMatch, matchSensitiveAction } from "./policy/sensitive.ts";
+import { excludeHostRoots, hostTargetRefusal, resolveHostApp, type HostAppInfo } from "./policy/host-exclusion.ts";
 import { scoreWindow, shouldPreferForegroundModalWindow } from "./root-selection.ts";
 import { SavedStates, type CurrentCapture, type CurrentTarget, type OperationState } from "./state.ts";
 import { changesBetween, renderChanges, stabilizeRefs } from "./view.ts";
@@ -615,7 +619,9 @@ export async function ensureComputerUseBroker(ctx: ExtensionContext): Promise<vo
 	const registration = agentRegistrationFor({
 		sessionId: typeof ctx.sessionManager?.getSessionId === "function" ? ctx.sessionManager.getSessionId() : undefined,
 		hasUI: ctx.hasUI,
+		cwd: ctx.cwd,
 	});
+	agentPidChain = registration.pidChain;
 	brokerStopRequested = false;
 	try {
 		brokerSession = await connectLeaseBroker({
@@ -627,7 +633,7 @@ export async function ensureComputerUseBroker(ctx: ExtensionContext): Promise<vo
 					while (brokerRevocations.length > 8) brokerRevocations.shift();
 				}
 			},
-			onApproval: createBrokerApprovalHandler(ctx),
+			onApproval: createBrokerApprovalHandler(ctx, registration.cwd),
 		});
 		resourceScheduler.setBroker(brokerSession.broker);
 	} catch (error) {
@@ -637,24 +643,53 @@ export async function ensureComputerUseBroker(ctx: ExtensionContext): Promise<vo
 	}
 }
 
-/** Placeholder until the policy layer (M3) owns approval routing. */
-let brokerApprovalHandler: ((event: ApprovalRequestEvent) => Promise<"allow_session" | "always" | "deny">) | undefined = undefined;
-
-function createBrokerApprovalHandler(ctx: ExtensionContext) {
+/**
+ * Turn a broker approval request into the user's three-way decision.
+ *
+ * This runs only in the UI-capable session the broker routed to; the model never
+ * sees the card and has no tool that can answer it.
+ */
+function createBrokerApprovalHandler(ctx: ExtensionContext, cwd: string | undefined) {
+	void cwd;
+	const options = approvalCopy.options();
 	return async (event: ApprovalRequestEvent): Promise<"allow_session" | "always" | "deny"> => {
-		const handler = brokerApprovalHandler;
-		if (!handler) return "deny";
-		return await handler(event);
+		if (!ctx.hasUI) return "deny";
+		const sensitive = matchSensitiveAction(event.action);
+		const choice = await ctx.ui.select(approvalCopy.title({
+			app: event.app?.appName ?? event.app?.bundleId ?? event.resourceKey,
+			tier: event.tier,
+			action: `Action: ${event.action?.name ?? "unknown"}`,
+			label: event.action?.label,
+			sensitive: sensitive ? describeSensitiveMatch(sensitive) : undefined,
+			warning: event.warning,
+		}), [...options]);
+		if (choice === approvalCopy.allowAlways) return "always";
+		if (choice === approvalCopy.allowSession) return "allow_session";
+		return "deny";
 	};
-}
-
-export function setComputerUseApprovalHandler(handler: ((event: ApprovalRequestEvent) => Promise<"allow_session" | "always" | "deny">) | undefined): void {
-	brokerApprovalHandler = handler;
 }
 
 /** True once the user stopped this agent; a batch must end at its next step boundary. */
 export function computerUseStopRequested(): boolean {
 	return brokerStopRequested;
+}
+
+let hostAppCache: { value: HostAppInfo | undefined; at: number } | undefined;
+/** Ancestor pids captured when the broker registration was built. */
+let agentPidChain: number[] | undefined;
+
+/**
+ * The app that hosts this session (terminal or IDE), excluded from observation
+ * and refused as a target. Resolved from the process ancestry, cached briefly
+ * because the answer cannot change while the process lives.
+ */
+async function hostApplication(signal?: AbortSignal): Promise<HostAppInfo | undefined> {
+	if (hostAppCache && Date.now() - hostAppCache.at < 30_000) return hostAppCache.value;
+	const chain = agentPidChain ?? processAncestry();
+	const apps = await listApps(signal).catch(() => []);
+	const value = resolveHostApp(apps, chain);
+	hostAppCache = { value, at: Date.now() };
+	return value;
 }
 
 async function listApps(signal?: AbortSignal): Promise<HelperApp[]> {
@@ -936,6 +971,8 @@ async function resolveTargetByWindowSelector(selector: RootSelector, signal?: Ab
 
 async function resolveCurrentTarget(signal?: AbortSignal): Promise<ResolvedTarget> {
 	const current = currentTargetOrThrow();
+	const host = await hostApplication(signal);
+	if (host && (current.pid === host.pid || (host.bundleId && current.bundleId === host.bundleId))) throw new Error(hostTargetRefusal(host));
 	const windows = await listWindows(current.pid, signal);
 	if (!windows.length) {
 		throw new Error(CURRENT_TARGET_GONE_ERROR);
@@ -1374,10 +1411,15 @@ function collectBroadWindowDetails(roots: HelperWindow[], config: ReturnType<typ
 }
 
 async function windowDetailsForFind(query: FindParams, config: ReturnType<typeof getComputerUseConfig>, signal?: AbortSignal): Promise<ListWindowsDetails["windows"]> {
+	const host = await hostApplication(signal);
 	if (!query.app && !query.bundleId && !Number.isFinite(query.pid)) {
-		return collectBroadWindowDetails(await currentPlatformBackend.listRoots({}, signal), config);
+		const roots = excludeHostRoots(await currentPlatformBackend.listRoots({}, signal), host);
+		return collectBroadWindowDetails(roots, config);
 	}
-	const apps = (await listApps(signal)).filter((app) => appMatchesWindowQuery(app, query));
+	// The host terminal/IDE is never offered as a root, even when asked for by name.
+	const apps = (await listApps(signal))
+		.filter((app) => appMatchesWindowQuery(app, query))
+		.filter((app) => !host || app.pid !== host.pid);
 	return await collectWindowDetails(apps, config, signal);
 }
 

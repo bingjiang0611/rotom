@@ -6,11 +6,15 @@
  * one process.
  */
 import { startBrokerServer, BrokerAlreadyRunningError } from "./server.ts";
+import { createPolicyGate } from "../policy/gate.ts";
 
 const socketPath = process.env.ROTOM_CU_BROKER_SOCKET;
 
 async function main(): Promise<void> {
-	const server = await startBrokerServer(socketPath ? { socketPath } : {});
+	const server = await startBrokerServer({
+		...(socketPath ? { socketPath } : {}),
+		policy: createPolicyGate({}),
+	});
 	const shutdown = () => {
 		void server.close().then(() => process.exit(0));
 	};

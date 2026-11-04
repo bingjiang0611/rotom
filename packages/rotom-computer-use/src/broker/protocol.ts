@@ -54,6 +54,8 @@ export interface AgentRegistration {
 	pid: number;
 	/** Ancestor pids, nearest first (excluding self). */
 	pidChain: number[];
+	/** Session working directory; the broker applies that project's policy, which may only tighten. */
+	cwd?: string;
 }
 
 export interface TargetAppInfo {
