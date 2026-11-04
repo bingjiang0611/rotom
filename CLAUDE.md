@@ -97,6 +97,7 @@ Pi 原生工具、Browser 和 Computer Use 都以启动 Pi 的本机用户权限
 - `--no-session` 不落 trace，`ROTOM_OBSERVABILITY=0` 关闭写入。
 - dashboard 只监听随机 loopback 端口，要求 Bearer token，不开放 CORS、不加载外部资源、不自动开浏览器。
 - 分页窗口中的跨页生命周期结论显示 `N/A`，不能把 partial window 冒充完整 session。
+- **唯一例外**：Computer Use trace 会记录界面操作的目标、证据与截图（用户 2026-11-03 明确要求），因为“它点了哪个控件”无法用纯 metadata 回答。例外范围写死：输入文本只存长度与 SHA-256，不存明文；不记对话、prompt 与工具结果正文；`0700`/`0600`、拒 symlink、7 天/单会话 500 MB 有界、永不上传、`ROTOM_CU_TRACE=0` 可关。细节见 [Computer Use trace](docs/agent/computer-use-trace.md)。
 
 ### 6. Browser 必须 observation-bound
 

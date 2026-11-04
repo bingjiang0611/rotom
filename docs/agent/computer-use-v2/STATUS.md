@@ -23,13 +23,21 @@
 | M1 Broker 核心 | 完成 | L1 | 见下 |
 | M2 bridge 接入 Broker | 完成 | L1 | 见下 |
 | M3 策略与审批 | 完成 | L1 | 见下 |
-| M4 Trace | 未开始 | | |
+| M4 Trace | 完成 | L1 | 见下 |
 | M5 macOS 原生能力 | 未开始 | | |
 | M6 工具面 | 未开始 | | |
 | M7 真机验收与兼容矩阵 | 未开始 | | |
 | M8 文档、版本与打包 | 未开始 | | |
 
 ## 每个里程碑的记录
+
+### M4 Trace
+
+- 实现摘要：新增 `src/trace/recorder.ts`（每 agent 一个 JSONL + 同会话 `shots/`；`0700`/`0600`；只从 trace 根往下逐段拒 symlink；7 天保留、单会话 500 MB 上限，超限先删最旧截图；`ROTOM_CU_TRACE=0` 完全关闭；写失败只计数不打断动作）、`src/trace/report.ts`（本地 Markdown 报告 + 截图时间线）。config 新增 `trace` / `trace_screenshots`（默认 true，可用配置文件、`.pi/computer-use.json` 或 `ROTOM_CU_TRACE[_SCREENSHOTS]` 覆盖）。bridge 在 `makeToolExecutor` 里为每次工具调用记一行：工具名、目标 role/ref、App/窗口、投递方式、状态、耗时、证据摘要、截图文件名、租约归属；`redactParams` 把 `text/value/secret/content/typed` 递归替换为 `{length, sha256}`；截图取实际交付给模型的 image content 落盘。根 `CLAUDE.md` 第 5 节与新增 `docs/agent/computer-use-trace.md` 写明这是唯一例外及其边界。
+- 新增或修改的测试：`test/trace.test.ts`（7 例）。会因旧行为失败的反例：typed text 出现在文件或报告里（旧代码没有 trace）；文件/目录不是 `0600`/`0700`；trace 目录是指向别处的 symlink 仍被写入；`ROTOM_CU_TRACE=0` 仍产生文件；7 天前的会话目录未清理；只写 2 KB 截图 × 6 张就突破上限；同一 agent 二次打开丢失先前条目。
+- 自证命令与结果：`node --test --experimental-strip-types "test/trace.test.ts"` → 7 pass；`npm test` → 54 pass / 0 fail；`node --experimental-strip-types -e "await import('./src/bridge.ts')"` 加载成功；`node --experimental-strip-types -e "... extensions/computer-use.ts"` 默认导出为 function。
+- 未验证项：①真实会话里 trace 的实际内容与截图观感（本机禁止运行 helper）；②`ROTOM_CU_TRACE=0` 在真实 Pi 会话中的生效路径（只有单测覆盖 `resolveTraceRoot`）；③500 MB 上限只用 4 KB 阈值验证；④`secure field 不截图` 依赖原生层标记，属 M5 未完成项。
+- 与 PLAN 的偏差及原因：截图扩展名按实际 MIME 落 `.jpg`/`.png`（PLAN 未指定格式）；保留期清理按会话目录 mtime 判断（简单且可测）。
 
 ### M3 策略与审批
 

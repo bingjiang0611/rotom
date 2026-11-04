@@ -9,6 +9,10 @@ export interface ComputerUseConfig {
 	managed_browser: "helium" | "chrome";
 	/** Cross-process write arbitration through the Desktop Broker. */
 	broker: boolean;
+	/** Write the local Computer Use trace (metadata + redacted evidence). */
+	trace: boolean;
+	/** Save observation screenshots into the trace. */
+	trace_screenshots: boolean;
 }
 
 export interface ComputerUseConfigSource {
@@ -32,6 +36,8 @@ const DEFAULT_CONFIG: ComputerUseConfig = {
 	// macOS is the platform with the cross-process arbiter. Other platforms keep
 	// the previous per-process behavior until their helper grows the same surface.
 	broker: process.platform === "darwin",
+	trace: true,
+	trace_screenshots: true,
 };
 
 let activeConfig: ComputerUseConfig = { ...DEFAULT_CONFIG };
@@ -55,10 +61,14 @@ function normalizePartial(raw: unknown): Partial<ComputerUseConfig> {
 	const headless = parseBoolean((source as any).headless);
 	const cursorOverlay = parseBoolean((source as any).cursor_overlay);
 	const broker = parseBoolean((source as any).broker);
+	const trace = parseBoolean((source as any).trace);
+	const traceScreenshots = parseBoolean((source as any).trace_screenshots);
 	if (browserUse !== undefined) out.browser_use = browserUse;
 	if (headless !== undefined) out.headless = headless;
 	if (cursorOverlay !== undefined) out.cursor_overlay = cursorOverlay;
 	if (broker !== undefined) out.broker = broker;
+	if (trace !== undefined) out.trace = trace;
+	if (traceScreenshots !== undefined) out.trace_screenshots = traceScreenshots;
 	const managedBrowser = (source as any).managed_browser;
 	if (managedBrowser === "helium" || managedBrowser === "chrome") out.managed_browser = managedBrowser;
 	return out;
@@ -80,10 +90,15 @@ function readEnv(): Partial<ComputerUseConfig> {
 	const headless = parseBoolean(process.env.PI_COMPUTER_USE_HEADLESS);
 	const cursorOverlay = parseBoolean(process.env.PI_COMPUTER_USE_CURSOR_OVERLAY);
 	const broker = parseBoolean(process.env.ROTOM_CU_BROKER);
+	// ROTOM_CU_TRACE=0 is the documented hard off switch for the trace.
+	const trace = parseBoolean(process.env.ROTOM_CU_TRACE);
+	const traceScreenshots = parseBoolean(process.env.ROTOM_CU_TRACE_SCREENSHOTS);
 	if (browserUse !== undefined) out.browser_use = browserUse;
 	if (headless !== undefined) out.headless = headless;
 	if (cursorOverlay !== undefined) out.cursor_overlay = cursorOverlay;
 	if (broker !== undefined) out.broker = broker;
+	if (trace !== undefined) out.trace = trace;
+	if (traceScreenshots !== undefined) out.trace_screenshots = traceScreenshots;
 	const managedBrowser = process.env.PI_COMPUTER_USE_MANAGED_BROWSER;
 	if (managedBrowser === "helium" || managedBrowser === "chrome") out.managed_browser = managedBrowser;
 	return out;

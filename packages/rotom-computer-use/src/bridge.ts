@@ -29,6 +29,7 @@ import { excludeHostRoots, hostTargetRefusal, resolveHostApp, type HostAppInfo }
 import { scoreWindow, shouldPreferForegroundModalWindow } from "./root-selection.ts";
 import { SavedStates, type CurrentCapture, type CurrentTarget, type OperationState } from "./state.ts";
 import { changesBetween, renderChanges, stabilizeRefs } from "./view.ts";
+import { redactParams, TraceRecorder, type TraceEntry } from "./trace/recorder.ts";
 export type { ActParams, EvaluateBrowserParams, ExpandUiParams, ImageMode, InspectUiParams, LaunchBrowserParams, FindParams, MouseButtonName, NavigateBrowserParams, ObserveParams, ObserveTargetParams, ReadTextParams, RootSelector, SearchUiParams, StateTargetParams, UiAction, WaitForParams } from "./contract.ts";
 
 interface ActivationFlags {
@@ -296,6 +297,8 @@ interface RuntimeState {
 	permissionStatus?: PermissionStatus;
 	helperDiagnostics?: PlatformDiagnostics;
 	lastPermissionCheckAt: number;
+	/** Agent identity shared with the broker, reused for the trace file name. */
+	agentId?: string;
 }
 
 
@@ -622,6 +625,7 @@ export async function ensureComputerUseBroker(ctx: ExtensionContext): Promise<vo
 		cwd: ctx.cwd,
 	});
 	agentPidChain = registration.pidChain;
+	runtimeState.agentId = registration.agentId;
 	brokerStopRequested = false;
 	try {
 		brokerSession = await connectLeaseBroker({
@@ -675,6 +679,30 @@ export function computerUseStopRequested(): boolean {
 }
 
 let hostAppCache: { value: HostAppInfo | undefined; at: number } | undefined;
+let traceRecorder: TraceRecorder | undefined;
+let traceRecorderKey: string | undefined;
+
+/**
+ * Trace recorder for this session, created on first tool call.
+ *
+ * Disabled by config (`trace: false`) or `ROTOM_CU_TRACE=0`. Never throws: a
+ * trace that cannot be written must not change what the agent did.
+ */
+function sessionTrace(ctx: ExtensionContext): TraceRecorder | undefined {
+	const config = getComputerUseConfig();
+	if (!config.trace) return undefined;
+	const sessionId = typeof ctx.sessionManager?.getSessionId === "function" ? ctx.sessionManager.getSessionId() : "no-session";
+	const key = `${sessionId}|${runtimeState.agentId ?? "local"}`;
+	if (traceRecorder && traceRecorderKey === key) return traceRecorder;
+	traceRecorder?.close();
+	traceRecorderKey = key;
+	traceRecorder = TraceRecorder.create({
+		sessionId: sessionId || "no-session",
+		agentId: runtimeState.agentId ?? `process:${process.pid}`,
+		enabled: true,
+	});
+	return traceRecorder;
+}
 /** Ancestor pids captured when the broker registration was built. */
 let agentPidChain: number[] | undefined;
 
@@ -2437,6 +2465,87 @@ function leaseConflictResult(tool: string, error: LeaseUnavailableError): AgentT
 	};
 }
 
+/**
+ * Write one trace line for a finished tool call.
+ *
+ * Only metadata and redacted evidence: the tool name, the resolved target,
+ * delivery level, status, screenshot file names and, for text input, the length
+ * and SHA-256 of what was typed. Params are passed through `redactParams` so a
+ * new action cannot leak its payload by accident.
+ */
+function recordToolTrace(
+	ctx: ExtensionContext,
+	tool: string,
+	params: unknown,
+	startedAt: number,
+	outcome: { result?: AgentToolResult<unknown>; error?: unknown; status?: TraceEntry["status"] },
+): void {
+	const recorder = sessionTrace(ctx);
+	if (!recorder) return;
+	const redacted = redactParams(params) as Record<string, unknown> | undefined;
+	const typed = firstRedactedText(redacted);
+	const result = outcome.result as { content?: Array<{ type: string; data?: string; mimeType?: string }>; details?: any } | undefined;
+	const details = result?.details;
+	const execution = details?.execution ?? details?.capture?.execution;
+	const shots: string[] = [];
+	if (getComputerUseConfig().trace_screenshots) {
+		for (const item of result?.content ?? []) {
+			if (item.type !== "image" || !item.data) continue;
+			const extension = item.mimeType === "image/png" ? "png" : "jpg";
+			const saved = recorder.saveScreenshot(item.data, extension);
+			if (saved) shots.push(saved);
+		}
+	}
+	const target = redacted
+		? {
+			role: typeof redacted.role === "string" ? redacted.role : undefined,
+			ref: typeof redacted.ref === "string" ? redacted.ref : (Array.isArray(redacted.actions) ? (redacted.actions as any[]).map((action) => action?.ref).filter((value) => typeof value === "string")[0] : undefined),
+			app: details?.target?.appName ?? details?.target?.app,
+			window: details?.target?.windowTitle,
+		}
+		: undefined;
+	const status: TraceEntry["status"] = outcome.status ?? (outcome.error ? "error" : traceStatusOf(details));
+	recorder.record({
+		tool,
+		status,
+		target: target && (target.role || target.ref || target.app) ? target : undefined,
+		durationMs: Date.now() - startedAt,
+		deliveryLevel: typeof execution?.delivery === "string" ? execution.delivery : undefined,
+		text: typed,
+		screenshots: shots.length ? shots : undefined,
+		evidence: traceEvidenceOf(details, outcome.error),
+		lease: details?.leaseHolder?.agentId ? { holder: details.leaseHolder.agentId } : undefined,
+	});
+}
+
+function firstRedactedText(params: Record<string, unknown> | undefined): TraceEntry["text"] | undefined {
+	if (!params) return undefined;
+	const candidates: unknown[] = [params.text, ...(Array.isArray(params.actions) ? (params.actions as any[]).map((action) => action?.text) : [])];
+	for (const candidate of candidates) {
+		if (candidate && typeof candidate === "object" && "sha256" in candidate && "length" in candidate) {
+			return candidate as TraceEntry["text"];
+		}
+	}
+	return undefined;
+}
+
+function traceStatusOf(details: any): TraceEntry["status"] {
+	const status = details?.status ?? details?.execution?.outcome;
+	if (status === undefined) return "ok";
+	if (status === "unknown") return "unknown";
+	if (details?.stoppedAt || details?.stopped_by_user) return "stopped";
+	return "ok";
+}
+
+function traceEvidenceOf(details: any, error: unknown): string | undefined {
+	if (error) return error instanceof LeaseUnavailableError ? `lease ${error.code}` : "tool error";
+	const parts: string[] = [];
+	if (typeof details?.capture?.stateId === "string") parts.push(`state ${details.capture.stateId}`);
+	if (typeof details?.changedNodeCount === "number") parts.push(`${details.changedNodeCount} nodes changed`);
+	if (typeof details?.status === "string") parts.push(details.status);
+	return parts.length ? parts.join("; ") : undefined;
+}
+
 function makeToolExecutor<P, D>(tool: string, perform: (params: P, signal?: AbortSignal) => Promise<AgentToolResult<D>>) {
 	return async (
 		_toolCallId: string,
@@ -2445,12 +2554,20 @@ function makeToolExecutor<P, D>(tool: string, perform: (params: P, signal?: Abor
 		_onUpdate: AgentToolUpdateCallback<D> | undefined,
 		ctx: ExtensionContext,
 	): Promise<AgentToolResult<D>> => {
+		const startedAt = Date.now();
 		try {
-			return applyOutputEnvelope(tool, await executeTool(ctx, params, signal, () => perform(params, signal)));
+			const result = applyOutputEnvelope(tool, await executeTool(ctx, params, signal, () => perform(params, signal)));
+			recordToolTrace(ctx, tool, params, startedAt, { result });
+			return result;
 		} catch (error) {
 			// A refused write authority is a reported outcome, not an exception:
 			// nothing was dispatched, and the model needs the holder to explain it.
-			if (error instanceof LeaseUnavailableError) return applyOutputEnvelope(tool, leaseConflictResult(tool, error) as AgentToolResult<D>);
+			if (error instanceof LeaseUnavailableError) {
+				const conflict = applyOutputEnvelope(tool, leaseConflictResult(tool, error) as AgentToolResult<D>);
+				recordToolTrace(ctx, tool, params, startedAt, { result: conflict, status: "lease_conflict" });
+				return conflict;
+			}
+			recordToolTrace(ctx, tool, params, startedAt, { error });
 			throw boundToolError(tool, error);
 		}
 	};
