@@ -11,7 +11,8 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 
-export const EVIDENCE_DIR = path.resolve(import.meta.dirname, "..", "..", "..", "docs", "agent", "computer-use-v2", "evidence");
+// scripts/lib -> package -> packages -> repo root
+export const EVIDENCE_DIR = path.resolve(import.meta.dirname, "..", "..", "..", "..", "docs", "agent", "computer-use-v2", "evidence");
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 export const nowMs = () => Date.now();

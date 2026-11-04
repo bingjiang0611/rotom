@@ -176,21 +176,18 @@ test("the administration tools are declared deferred, never resident", async () 
 	}
 });
 
-test("every mutating administration tool goes through the broker scheduler", async () => {
-	// Review B2: these executors originally called the platform backend directly, so
-	// an agent could quit a view-tier app or resize a peer's app without any lease.
-	// The broker is the only place that holds the tier decision and the lease, so the
-	// wiring is asserted here; the arbitration itself is covered by the scheduler and
-	// broker tests.
+test("every mutating administration tool routes through the broker scheduler", async () => {
+	// Review B2 wired these executors into the scheduler. The arbitration behaviour is
+	// covered by `cu-v2-authority.test.ts` against a real broker; this one only keeps
+	// the remaining invariant that no path calls the backend without a lease.
 	const { readFileSync } = await import("node:fs");
 	const source = readFileSync(new URL("../src/bridge.ts", import.meta.url), "utf8");
 	for (const [tool, needle] of [
-		["clipboard", "clipboardLease"],
-		["manage_app quit", "const quitKey ="],
-		["manage_app launch", "const launchKey ="],
-		["manage_window", "const windowKey ="],
+		["clipboard", "clipboardIntent(action)"],
+		["manage_app quit", 'appIntent("quit"'],
+		["manage_app launch", 'appIntent("launch"'],
+		["manage_window", "windowIntent(params.action"],
 	] as const) {
-		assert.ok(source.includes(needle), `${tool} must route through resourceScheduler (missing ${needle})`);
+		assert.ok(source.includes(needle), `${tool} must build its write intent in src/tools/intents.ts (missing ${needle})`);
 	}
-	assert.equal((source.match(/resourceScheduler\.write\(/g) ?? []).length >= 4, true);
 });

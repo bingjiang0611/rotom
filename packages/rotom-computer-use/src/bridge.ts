@@ -27,6 +27,7 @@ import { approvalCopy } from "./constants/copy.ts";
 import { describeSensitiveMatch, matchSensitiveAction } from "./policy/sensitive.ts";
 import { excludeHostRoots, hostTargetRefusal, resolveHostApp, type HostAppInfo } from "./policy/host-exclusion.ts";
 import { backgroundDelivery } from "./policy/l2-compat.ts";
+import { appIntent, clipboardIntent, windowIntent } from "./tools/intents.ts";
 import { scoreWindow, shouldPreferForegroundModalWindow } from "./root-selection.ts";
 import { SavedStates, type CurrentCapture, type CurrentTarget, type OperationState } from "./state.ts";
 import { changesBetween, renderChanges, stabilizeRefs } from "./view.ts";
@@ -2698,12 +2699,12 @@ async function performClipboard(params: { action: "get" | "set" | "clear"; text?
 	const backend = currentPlatformBackend;
 	// Clipboard reads and writes are authorized per level and serialized through one
 	// lease: an approval card or a running peer must both be respected (review B2).
-	const clipboardLease = async <T>(label: string, work: () => Promise<T>): Promise<T> => {
-		const key = "clipboard:system";
-		const baseEpoch = resourceScheduler.epoch(key);
-		const result = await resourceScheduler.write(key, baseEpoch, async () => await work(), {
-			action: { name: `clipboard_${label}`, label: "System clipboard" },
-			app: { appName: "System Clipboard" },
+	const clipboardLease = async <T>(action: "get" | "set" | "clear", work: () => Promise<T>): Promise<T> => {
+		const intent = clipboardIntent(action);
+		const baseEpoch = resourceScheduler.epoch(intent.resourceKey);
+		const result = await resourceScheduler.write(intent.resourceKey, baseEpoch, async () => await work(), {
+			action: intent.action,
+			...(intent.app ? { app: intent.app } : {}),
 		});
 		return result.value;
 	};
@@ -2778,11 +2779,11 @@ async function performManageApp(params: { action: "list" | "launch" | "quit"; bu
 	if (params.action === "quit") {
 		if (params.pid === undefined && !params.bundleId) return toolProblem("manage_app", "quit requires pid or bundleId.");
 		const appInfo = await describeApp(params.pid, params.bundleId);
-		const quitKey = appInfo ? `app:${appInfo.bundleId ?? appInfo.appName}` : `desktop-pid:${params.pid ?? 0}`;
-		const result = await resourceScheduler.write(quitKey, resourceScheduler.epoch(quitKey), async () =>
+		const intent = appIntent("quit", appInfo, params.pid, params.force === true);
+		const result = await resourceScheduler.write(intent.resourceKey, resourceScheduler.epoch(intent.resourceKey), async () =>
 			await backend.manageApps!({ mode: "quit", pid: params.pid, bundleId: params.bundleId, force: params.force === true }), {
-			action: { name: "manage_app_quit", label: appInfo?.appName ?? params.bundleId ?? "application" },
-			...(appInfo ? { app: appInfo } : {}),
+			action: intent.action,
+			...(intent.app ? { app: intent.app } : {}),
 		}).then((outcome) => outcome.value);
 		const quit = result as { terminated?: boolean; quitRequested?: boolean; unsavedChangesMayBlock?: boolean };
 		const status = quit.terminated ? "worked" : quit.unsavedChangesMayBlock ? "unknown" : "didnt";
@@ -2799,12 +2800,11 @@ async function performManageApp(params: { action: "list" | "launch" | "quit"; bu
 		};
 	}
 	if (!params.bundleId && !params.path) return toolProblem("manage_app", "launch requires bundleId or path.");
-	const launchInfo = await describeApp(params.pid, params.bundleId);
-	const launchKey = launchInfo ? `app:${launchInfo.bundleId ?? launchInfo.appName}` : `desktop-pid:${params.pid ?? 0}`;
-	const launched = await resourceScheduler.write(launchKey, resourceScheduler.epoch(launchKey), async () =>
+	const launchIntent = appIntent("launch", await describeApp(params.pid, params.bundleId), params.pid);
+	const launched = await resourceScheduler.write(launchIntent.resourceKey, resourceScheduler.epoch(launchIntent.resourceKey), async () =>
 		await backend.manageApps!({ mode: "launch", bundleId: params.bundleId, path: params.path, activates: false }), {
-		action: { name: "manage_app_launch", label: launchInfo?.appName ?? params.bundleId ?? params.path ?? "application" },
-		...(launchInfo ? { app: launchInfo } : {}),
+		action: launchIntent.action,
+		...(launchIntent.app ? { app: launchIntent.app } : {}),
 	}).then((outcome) => outcome.value);
 	const launch = launched as { launched?: boolean; alreadyRunning?: boolean; pending?: boolean; pid?: number };
 	return {
@@ -2843,11 +2843,11 @@ async function performManageWindow(params: { action: "list" | "move" | "resize" 
 		};
 	}
 	if (params.windowId === undefined || params.pid === undefined) return toolProblem("manage_window", `${params.action} requires pid and windowId.`);
-	const windowKey = `desktop-pid:${params.pid}`;
-	const result = await resourceScheduler.write(windowKey, resourceScheduler.epoch(windowKey), async () =>
+	const mutationIntent = windowIntent(params.action, params.pid, params.windowId, await describeApp(params.pid));
+	const result = await resourceScheduler.write(mutationIntent.resourceKey, resourceScheduler.epoch(mutationIntent.resourceKey), async () =>
 		await backend.manageWindow!({ mode: params.action, pid: params.pid, windowId: params.windowId, x: params.x, y: params.y, w: params.w, h: params.h }), {
-		action: { name: `manage_window_${params.action}`, label: `window ${params.windowId}` },
-		...(await describeApp(params.pid) ?? {}),
+		action: mutationIntent.action,
+		...(mutationIntent.app ? { app: mutationIntent.app } : {}),
 	}).then((outcome) => outcome.value);
 	const mutation = result as { outcome?: string; before?: unknown; after?: unknown };
 	return {

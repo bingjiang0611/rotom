@@ -15,6 +15,13 @@ export interface SensitiveRule {
 
 export const SENSITIVE_RULES: SensitiveRule[] = [
 	{
+		id: "force_quit",
+		description: "kills an application without letting it save or ask",
+		// Only the forced form: a normal quit already asks the app itself, and its
+		// card comes from the tier check. This one has no undo.
+		patterns: [/force_quit/i, /force quit/i, /强制退出/],
+	},
+	{
 		id: "delete",
 		description: "deletes or removes something",
 		patterns: [/\bdelete\b/i, /\bremove\b/i, /\bdiscard\b/i, /\btrash\b/i, /删除/, /移除/, /清空/, /丢弃/],

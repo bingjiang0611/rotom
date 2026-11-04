@@ -58,6 +58,7 @@ export const ACTION_TIERS: Record<string, AppTier> = {
 	clipboard_set: "full",
 	clipboard_clear: "full",
 	manage_app_quit: "full",
+	manage_app_force_quit: "full",
 };
 
 /** `setText+press` style names take the strongest tier of their parts. */
