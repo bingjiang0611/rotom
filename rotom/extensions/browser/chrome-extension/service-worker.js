@@ -4,6 +4,7 @@ import { resetTransferredItemV1, transferTargetSessionV1, transferredTabNameV1 }
 import { forgetSpawnedTab, recordedOpenerTabId, rememberSpawnedTab } from "./spawned-tabs.js";
 import { createSessionLockV1, createTabLocksV1, isSessionScopedOperationV1, tabLockKeyV1 } from "./request-locks.js";
 import { sessionCleanupPlanV1 } from "./session-cleanup.js";
+import { consoleLevelFromTypeV1, createConsoleCaptureV1, parseConsoleCursorV1, sanitizeConsoleLevelV1, sanitizeConsoleLimitV1, sanitizeConsolePatternV1 } from "./console-buffer.js";
 import { checkBrowserTabQuotasV1, DEFAULT_BROWSER_TAB_QUOTAS_V1, sanitizeBrowserTabQuotasV1 } from "./tab-quotas.js";
 import { createFocusCoordinator } from "./focus-coordinator.js";
 import { withTabWake } from "./lifecycle-wake.js";
@@ -86,7 +87,7 @@ function boundedText(value, max = MAX_NAME_CHARS) {
 }
 function publicError(error) {
 	if (error instanceof Error) {
-		if (/tab|url|session|timeout|debugger|navigation|relay|screenshot|snapshot|operation|owned|interaction|target|ref|download|agent|deploy|quota/iu.test(error.message)) return error.message.slice(0, 512);
+		if (/tab|url|session|timeout|debugger|navigation|relay|screenshot|snapshot|operation|owned|interaction|target|ref|download|agent|deploy|quota|console|lease|navigation|pattern|level|cursor|allowedOrigins/iu.test(error.message)) return error.message.slice(0, 512);
 	}
 	return "browser relay operation failed";
 }
@@ -237,6 +238,85 @@ async function wakeTabLifecycle(item, assertOperation) {
 		diagnose: (message) => console.warn(`browser relay lifecycle wake failed: ${message}`),
 	});
 }
+// Console capture is memory only: a service-worker restart drops it, and every buffer
+// then reports a fresh `captureSince` instead of pretending the old entries exist.
+const consoleCapture = createConsoleCaptureV1();
+/** Whether Runtime/Log are enabled for this debugger attachment. */
+const consoleEnabledTabIds = new Set();
+function consoleTextFromRemoteObjects(args) {
+	if (!Array.isArray(args)) return "";
+	return args.map((argument) => {
+		if (!argument || typeof argument !== "object") return "";
+		if (typeof argument.value === "string") return argument.value;
+		if (typeof argument.value === "number" || typeof argument.value === "boolean") return String(argument.value);
+		if (argument.value === null) return "null";
+		if (typeof argument.unserializableValue === "string") return argument.unserializableValue;
+		if (typeof argument.description === "string") return argument.description;
+		return argument.type === "undefined" ? "undefined" : "";
+	}).filter((part) => part.length > 0).join(" ");
+}
+function consoleStackFrames(stackTrace) {
+	const frames = Array.isArray(stackTrace?.callFrames) ? stackTrace.callFrames : [];
+	return frames.slice(0, 10).map((frame) => {
+		const fn = typeof frame?.functionName === "string" && frame.functionName.length > 0 ? frame.functionName : "(anonymous)";
+		const where = typeof frame?.url === "string" && frame.url.length > 0 ? `${safeUrl(frame.url)}:${Number.isInteger(frame.lineNumber) ? frame.lineNumber + 1 : 0}` : "<anonymous>";
+		return `${fn} @ ${where}`;
+	});
+}
+function recordConsoleEvent(tabId, method, params) {
+	if (method === "Runtime.consoleAPICalled") {
+		consoleCapture.append(tabId, {
+			level: consoleLevelFromTypeV1(params?.type),
+			text: consoleTextFromRemoteObjects(params?.args),
+			...(typeof params?.stackTrace?.callFrames?.[0]?.url === "string" ? { url: safeUrl(params.stackTrace.callFrames[0].url) } : {}),
+			...(Number.isInteger(params?.stackTrace?.callFrames?.[0]?.lineNumber) ? { lineNumber: params.stackTrace.callFrames[0].lineNumber + 1 } : {}),
+			at: Number.isFinite(params?.timestamp) ? params.timestamp : Date.now(),
+			source: "console",
+			stack: consoleStackFrames(params?.stackTrace),
+		});
+		return;
+	}
+	if (method === "Runtime.exceptionThrown") {
+		const details = params?.exceptionDetails;
+		const description = typeof details?.exception?.description === "string" ? details.exception.description : typeof details?.text === "string" ? details.text : "";
+		consoleCapture.append(tabId, {
+			level: "error",
+			text: description,
+			...(typeof details?.url === "string" && details.url.length > 0 ? { url: safeUrl(details.url) } : {}),
+			...(Number.isInteger(details?.lineNumber) ? { lineNumber: details.lineNumber + 1 } : {}),
+			at: Number.isFinite(details?.timestamp) ? details.timestamp : Date.now(),
+			source: "exception",
+			stack: consoleStackFrames(details?.stackTrace),
+		});
+		return;
+	}
+	if (method === "Log.entryAdded") {
+		const entry = params?.entry;
+		consoleCapture.append(tabId, {
+			level: consoleLevelFromTypeV1(entry?.level),
+			text: typeof entry?.text === "string" ? entry.text : "",
+			...(typeof entry?.url === "string" && entry.url.length > 0 ? { url: safeUrl(entry.url) } : {}),
+			...(Number.isInteger(entry?.lineNumber) ? { lineNumber: entry.lineNumber + 1 } : {}),
+			at: Number.isFinite(entry?.timestamp) ? entry.timestamp : Date.now(),
+			source: typeof entry?.source === "string" ? entry.source : "log",
+		});
+	}
+}
+/** A tab that stops being attached or owned loses its capture instead of silently
+ *  resuming with a gap; the next read reports a fresh `captureSince`. */
+function forgetConsoleTabV1(tabId) {
+	consoleEnabledTabIds.delete(tabId);
+	consoleCapture.reset(tabId);
+}
+/** Enable console capture once per debugger attachment; claimed tabs wait for a call. */
+async function enableConsoleCapture(item, assertOperation = () => undefined) {
+	const chrome = operationChrome(globalThis.chrome, assertOperation);
+	if (consoleEnabledTabIds.has(item.tabId)) return;
+	await chrome.debugger.sendCommand({ tabId: item.tabId }, "Runtime.enable");
+	await chrome.debugger.sendCommand({ tabId: item.tabId }, "Log.enable");
+	assertOperation();
+	consoleEnabledTabIds.add(item.tabId);
+}
 async function attach(item, assertOperation = () => undefined) {
 	const chrome = operationChrome(globalThis.chrome, assertOperation);
 	assertOperation();
@@ -370,6 +450,7 @@ async function closeOwned(state, name, assertOperation = () => undefined) {
 	state.tabsByName.delete(name);
 	retireOwnedTabName(state.retiredTabNames, name, "closed by the relay (close request or failed open/claim cleanup)");
 	childSessionsByTabId.delete(item.tabId);
+	forgetConsoleTabV1(item.tabId);
 	if (state.currentTabName === name) state.currentTabName = undefined;
 	try {
 		try { await chrome.debugger.detach({ tabId: item.tabId }); } catch { /* already detached or retired */ }
@@ -1215,6 +1296,9 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 		try {
 			await placeInSharedAgentGroup(tab, assertOperation);
 			await attach(item, assertOperation);
+			// The agent's own tab captures console from the start; a claimed user tab
+			// only starts when someone asks for it.
+			await enableConsoleCapture(item, assertOperation);
 			if (state.epoch !== expectedEpoch || state.generation === undefined) throw new Error("browser relay session changed during tab creation");
 			await persistState();
 			if (state.epoch !== expectedEpoch || state.generation === undefined) throw new Error("browser relay session changed during tab persistence");
@@ -1275,6 +1359,7 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 		// root session's main agent, and a claimed user tab must never be closed.
 		item.transferredFrom = state.agentId;
 		resetTransferredItemV1(item);
+		forgetConsoleTabV1(item.tabId);
 		target.tabsByName.set(nextName, item);
 		await persistState();
 		assertOperation();
@@ -1302,6 +1387,33 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 	}
 	if (operation === "snapshot") { const { name, item } = owned(state, payload.tabName); return observation(name, item, assertOperation, payload); }
 	if (operation === "read_full") { const { name, item } = owned(state, payload.tabName); return fullObservation(name, item, assertOperation); }
+	if (operation === "console") {
+		const { name, item } = owned(state, payload.tabName);
+		const level = payload.level === undefined ? undefined : sanitizeConsoleLevelV1(payload.level);
+		if (payload.level !== undefined && level === undefined) throw new Error("console level invalid");
+		const pattern = payload.pattern === undefined ? undefined : sanitizeConsolePatternV1(payload.pattern);
+		if (payload.pattern !== undefined && pattern === undefined) throw new Error("console pattern invalid");
+		const limit = sanitizeConsoleLimitV1(payload.limit);
+		if (limit === undefined) throw new Error("console limit invalid");
+		const sinceCursor = parseConsoleCursorV1(payload.sinceCursor);
+		if (sinceCursor === undefined) throw new Error("console sinceCursor invalid");
+		// A claimed tab starts capturing on the first console call, not on claim.
+		await attach(item, assertOperation);
+		await enableConsoleCapture(item, assertOperation);
+		const page = consoleCapture.read(item.tabId, { level, pattern, limit, sinceCursor });
+		return {
+			schemaVersion: 1,
+			kind: "rotom-browser-console",
+			tabName: name,
+			tabId: item.tabId,
+			documentGeneration: item.documentGeneration,
+			captureSince: new Date(page.captureSince).toISOString(),
+			dropped: page.dropped,
+			retained: page.retained,
+			entries: page.entries,
+			...(page.nextCursor === undefined ? {} : { nextCursor: page.nextCursor }),
+		};
+	}
 	if (operation === "wait") {
 		const { name, item } = owned(state, payload.tabName);
 		return waitForTab(name, item, payload, assertOperation);
@@ -1366,7 +1478,7 @@ async function settleWithin(promise, timeoutMs = RELAY_SETTLE_MS) {
 	await Promise.race([Promise.resolve(promise).catch(() => undefined), delay(timeoutMs)]);
 }
 async function detachItemsPreservingState(items) {
-	for (const item of items) { childSessionsByTabId.delete(item.tabId); item.attached = false; item.detached = true; }
+	for (const item of items) { childSessionsByTabId.delete(item.tabId); forgetConsoleTabV1(item.tabId); item.attached = false; item.detached = true; }
 	await Promise.all(items.map(async (item) => {
 		await settleWithin(chrome.debugger.detach({ tabId: item.tabId }));
 	}));
@@ -1389,6 +1501,8 @@ async function retireDisconnectedSession(state) {
 		// Ownership history and fresh refs, exactly like an explicit transfer.
 		item.transferredFrom = state.agentId;
 		resetTransferredItemV1(item);
+		// Console history belongs to the previous owner's document, not to the receiver.
+		forgetConsoleTabV1(item.tabId);
 		main.tabsByName.set(toName, item);
 	}
 	// Whatever stays open is detached and no longer claimed by this session, so the
@@ -1515,6 +1629,7 @@ chrome.tabs.onActivated.addListener((info) => { focusCoordinator.recordActivatio
 chrome.windows.onFocusChanged.addListener((windowId) => { focusCoordinator.recordWindowFocus(windowId); });
 chrome.tabs.onRemoved.addListener((tabId) => {
 	childSessionsByTabId.delete(tabId);
+	forgetConsoleTabV1(tabId);
 	forgetSpawnedTab(spawnedTabOpeners, tabId);
 	for (const state of sessionStates.values()) for (const [name, item] of state.tabsByName) if (item.tabId === tabId) {
 		state.tabsByName.delete(name);
@@ -1536,6 +1651,7 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
 		const guard = windowOpenGuardsByTabId.get(source.tabId);
 		if (guard) guard.signals.push({ timestamp: Date.now(), url: typeof params?.url === "string" ? params.url : "", used: false });
 	}
+	if (method === "Runtime.consoleAPICalled" || method === "Runtime.exceptionThrown" || method === "Log.entryAdded") recordConsoleEvent(source.tabId, method, params);
 	if (method === "Target.attachedToTarget") registerChildSession(source.tabId, params);
 	if (method === "Target.detachedFromTarget") removeChildSession(source.tabId, params?.sessionId);
 	if (method === "Page.frameNavigated" && typeof source.sessionId === "string") rotateChildSessionScope(source.tabId, source.sessionId);

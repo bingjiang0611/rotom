@@ -158,6 +158,8 @@ rotom 默认提供 `codemode`：模型可用 JavaScript 编排普通文件工具
 
 `owned debugger target identity changed` 表示原标签的 debugger 身份已失效，与固定目录内容变化不是同一结论。不要靠重装、接受新 targetId 或重放原操作绕过校验；停止原动作，按原标签的只读恢复规则核查。固定目录不能保证消除所有 Chrome 导航、关闭或重启导致的身份变化。
 
+**页内 console**：`browser_inspect` 的 `console` 读取该 tab 的 console 与未捕获异常（`level`、大小写不敏感的 `pattern` 子串、`sinceCursor`、`limit` 默认 50 / 上限 200）。每个 tab 一个环形缓冲：500 条、每条 2 KB、全局 8 MB，超出先丢最旧并用 `dropped` 报数量，异常堆栈最多 10 帧。它**只**记录 agent 自己打开的 tab（claim 来的 tab 在第一次调用 console 时才开始捕获），不读页面正文；service worker 重启后缓冲清空，`captureSince` 会如实反映新的起点。查询结果按 128 KiB 截断并用 `nextCursor` 续读，不会静默丢条目。
+
 **页内导航**：`browser_inspect` 的 `navigate` 可以给新 URL，也可以只在当前 tab 内 `history: "back" | "forward" | "reload"`。导航会等页面到 `complete`（超时提示里说明“命令已发出”），成功时 `documentGeneration` 加一：之前拿到的 AX/DOM ref 与截图坐标全部作废，需要重新 snapshot。子 agent 的 `navigate` 同样受 lease 限制——历史导航的落点由扩展先解析出 origin，再按 lease 判定，未授权时不会发出导航命令。
 
 **tab 配额**：默认同时最多 8 个 agent 连接浏览器、每个 agent 最多 4 个自己打开的 tab、全局 agent tab 最多 24 个、同一 origin 最多 2 个。计数在扩展 service worker 里（唯一能看到全部 session 的地方），超限时 `open`/`claim` 当场返回错误并说明是哪个上限、当前数量，以及“先 close 旧 tab”，**不排队**。可用 `ROTOM_BROWSER_MAX_AGENTS`、`ROTOM_BROWSER_MAX_TABS_PER_AGENT`、`ROTOM_BROWSER_MAX_TABS`、`ROTOM_BROWSER_MAX_TABS_PER_ORIGIN` 覆盖（取值 0–1000 的整数，`0` 表示禁止）；非法值让连接直接报错，不会静默回退到默认值。只有 agent 自己打开的 tab 计入配额，claim 来的用户 tab 属于用户；但 claim 也要占 slot，否则全局上限可被 claim 绕过。

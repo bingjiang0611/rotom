@@ -9,6 +9,7 @@ import * as lease from "./lease.mjs";
 import * as quotas from "./quotas.mjs";
 import * as parallel4 from "./parallel-4.mjs";
 import * as navigate from "./navigate.mjs";
+import * as consoleSuite from "./console.mjs";
 
 /** Suite registry. Later tasks append their suites here. */
 export const suites = {
@@ -23,4 +24,5 @@ export const suites = {
 	quotas,
 	"parallel-4": parallel4,
 	navigate,
+	console: consoleSuite,
 };

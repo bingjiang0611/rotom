@@ -74,6 +74,15 @@ test("Chrome MV3 manifest 固定 identity 且不申请 cookie/script/host 权限
 	// navigate must resolve history through CDP, respect the client lease origins and
 	// bump the document generation before dispatching anything.
 	assert.match(worker, /operation === "navigate"/u);
+	// Console: capture enabled on open, claimed tabs lazily, and every buffer dropped
+	// when the tab goes away so `captureSince` never lies.
+	assert.match(worker, /await enableConsoleCapture\(item, assertOperation\);/u);
+	assert.equal(worker.match(/Runtime\.enable/u)?.length >= 1, true);
+	assert.match(worker, /Log\.enable/u);
+	assert.match(worker, /Runtime\.consoleAPICalled/u);
+	assert.match(worker, /Runtime\.exceptionThrown/u);
+	assert.match(worker, /Log\.entryAdded/u);
+	assert.match(worker, /function forgetConsoleTabV1/u);
 	assert.match(worker, /Page\.getNavigationHistory/u);
 	assert.match(worker, /Page\.navigateToHistoryEntry/u);
 	assert.match(worker, /Page\.reload/u);

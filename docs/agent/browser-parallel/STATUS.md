@@ -8,7 +8,7 @@
 | - | - | - | - |
 | T0 测试架子 | ready-for-review | `browser(T0)` | 隔离 Chromium e2e 架子 + `baseline` suite；macOS 实测 |
 | M1 并行底座 | ready-for-review | `browser(T11)` | T1–T11 完成；`parallel-4` 连续 3 次通过，延迟数据见下 |
-| M2 调试 P0 | in-progress | `browser(T12)` | T12 完成 |
+| M2 调试 P0 | in-progress | `browser(T13)` | T12、T13 完成 |
 | M3 交互与安全 | not-started | | |
 | M4 devtools 与平台 | not-started | | |
 
@@ -19,6 +19,7 @@
 
 | 任务 | 状态 | commit | 验证命令与结果摘要 | 未验证项 |
 | - | - | - | - | - |
+| T13 | done | `browser(T13)` | `console-buffer.test.mjs` 9/9（类型映射、2 KB 按码点截断、堆栈先丢帧再缩正文、500 条环形加 `dropped`、cursor/level/pattern 过滤、全局 8 MB 淘汰、per-tab reset、`captureSince` 重启语义、参数校验）；e2e `console` 5/5（`console.error` 与未捕获异常都读到，异常带 ≤10 帧且堆栈非空，`level`/`pattern` 过滤有效且 `.*` 不当正则，非法参数被拒，620 条 flood 后 `dropped>0` 且 cursor 续读不重放，claimed 的用户 tab 首次调用才有 `captureSince`）；反向对照：移除 `open` 时的 `enableConsoleCapture` 后同一 suite 失败（早期条目与结构化堆栈都缺失）；`index.test.ts` 49/49（新增工具层用例：非法过滤不发请求、200×1.5 KB 结果被截断到 <128 KiB 并给 `nextCursor`、续读不重放、URL 不带 query）；`chrome-extension.test.mjs` 29/29；全量 e2e 62/62（12 suite）；`./rotom/bin/check-personal` EXIT=0（461 + 99，`runtimeContractGate` PASS，footprint 27 427 / 10 282）。 | 缓冲只在内存：SW 重启后旧条目不可恢复，这是设计，不是缺陷。`Log.entryAdded` 里浏览器级日志（网络/CORS）与页面 console 混在同一缓冲，靠 `source` 字段区分。未验证：跨 tab 的 8 MB 全局淘汰只在单测里用缩小的预算验证过，真实 8 MB 触发没有 e2e 覆盖（要 4000+ 条 2 KB 条目） |
 | T12 | done | `browser(T12)` | e2e `navigate` 7/7（URL 导航、back、forward、reload 各自换 `documentGeneration`；导航后的旧 ref 在 `interact` 里报 stale；非法 URL/参数组合本地拒绝；`allowedOrigins` 不含落点时 `needs-approval` 且文档 generation 不变）；e2e `lease` 7/7（新增：子 agent 的 `navigate` 到 lease 外 origin 被本地拒绝且站点无请求，lease 覆盖后放行并真的产生请求）；反向对照：删掉 `navigateOwned` 里的 generation 自增后同一 suite 3 项失败；`chrome-extension.test.mjs` 29/29（含 navigate 的 CDP 命令与 deadline 断言）；`index.test.ts` 48/48（schema 预算 2 750→2 950，实测 2 938）；全量 e2e 57/57（11 suite）；`./rotom/bin/check-personal` EXIT=0（451 + 99，`runtimeContractGate` PASS，footprint 27 006 / 10 282）。 | 历史导航的落点判定在扩展里做（客户端把 lease origin 列表随请求发出，扩展解析 `Page.getNavigationHistory` 后比对），所以 lease 判定有两处实现：URL 导航在客户端、history 在扩展；两者共用同一个 `needs-approval` 结果形状。`navigate` 超时只说明命令已发出（无回滚），真实页面状态仍需只读核对。未验证：Chrome 自身或其他扩展触发的非 agent 导航（例如页面脚本跳转）不经过这条路径 |
 | T11 | done | `browser(T11)` | e2e `parallel-4` 6/6 断言、连续 3 次通过（每次 4 个 agent × 5 轮，全部操作 20 个样本）：无串台（每轮每个 agent 的 readback 都只含自己的 token，且不含其他 3 个 agent 的 token）、每个 agent 的 `tabs` 只列自己的 tab、Chrome 启动的“用户 tab”（`/user`）在 5 轮后仍 `browserActive: true`；反向对照：把期望值改成 `<token>-CONTROL` 后第 1 轮立即失败，证明断言能区分读错/写错；全量 e2e 50/50（10 suite）；`./rotom/bin/check-personal` EXIT=0（451 项，450 pass + 1 skip，两个 gate PASS）；协议版本升到 21、manifest 升到 `0.11.0`，`browser-relay.test.ts` 53/53 覆盖既有 20 与新的 21 负向组合。 | tab 分组只能在 SW 单测里证明（relay 不暴露 `groupId`/分组标题，e2e 观察不到）；延迟是“工具层 + relay + Chrome”的单机 headless 数据，不是 provider token 或跨机器基准；“用户 tab 保持 active”用 `discover` 的 `browserActive` 断言，不证明系统级焦点（headless 下没有真实窗口焦点） |
 | T10 | done | `browser(T10)` | `tab-quotas.test.mjs` 6/6（四个上限各自拒绝、边界值放行、环境变量覆盖每一项含 `0`、非法值报错、hello 值校验）；e2e `quotas` 5/5（工具层驱动，四个上限真在 SW 生效，close 后立即释放，非法环境变量在连接时报错）；反向对照：删掉 SW 里的 `assertTabQuotaAllowed` 调用后同一 suite 4 项失败；`chrome-extension.test.mjs` 29/29（新增静态断言：`open` 与 `claim` 都有配额检查、hello 的配额必须过滤）；`browser-relay.test.ts` 23/23（hello 携带配额、环境变量覆盖进入 hello、非法值报错）；全量 e2e 44/44（9 suite）；`./rotom/bin/check-personal` EXIT=0（450 + 99，`runtimeContractGate` PASS）。 | 配额按“请求方 session 在 hello 里声明的值”判定，不是浏览器级统一策略（多客户端值不同时各按自己的算，实际同一次产品启动里值相同）。`maxAgents` 只限制开新 tab，不拒绝连接，所以超限 agent 仍可读。默认 `maxTabsPerOrigin=2` 对真实使用是硬的：同一站点开第三个 tab 会被拒（e2e harness 因此给非配额 suite 放大到 16） |
@@ -63,6 +64,14 @@
 - **T0 / fixture 的 iframe 用 `localhost`，主站用 `127.0.0.1`。** 端口不同不等于跨站点，`127.0.0.1:portA` 与 `127.0.0.1:portB` 仍是同站，iframe 不会变成 OOPIF，`Target.setAutoAttach` 也拿不到子 session。换成两个 site name 后 `Cross-origin frame ready` 才能被 snapshot 读到，和原 smoke 脚本的做法一致。
 - **T0 / 默认无头（`--headless=new`）并关掉后台节流。** `ROTOM_E2E_HEADED=1` 可切有头。加 `--disable-background-timer-throttling`、`--disable-backgrounding-occluded-windows`、`--disable-renderer-backgrounding`，避免把 Chrome 的后台节流误判成 relay 行为（T6 要单独验证可见性，用 `visibilityState` 而不是超时）。
 - **T0 / 失败保留现场，成功清理。** 失败时打印 `<root>` 路径并保留（`ROTOM_E2E_KEEP=1` 成功时也保留）；清理时会按 `--user-data-dir=<profile>` 精确清扫残留 Chrome（`spawn` 出来的进程组 kill 之后仍会有 helper 逃逸），不会全局 pkill。实测清理后 `pgrep` 为 0。
+- **T13 / 缓冲在内存，不进 `chrome.storage`。** console 是“刚才发生了什么”的调试面，不是审计记录。写盘会让 SW 重启后 `captureSince` 撒谎（旧条目还在但时间对不上），也违背 T9 之后“只记必要 metadata”的边界。代价是重启即丢，`captureSince` 如实反映新起点。
+- **T13 / 逐级降级而不是直接丢堆栈。** 单条超 2 KB 时先砍多余帧（>3 帧才砍），再缩正文，最后才丢堆栈。异常最有价值的是前几帧，长正文最有价值的是开头，所以两边都保留一部分，而不是二选一。
+- **T13 / 全局 8 MB 淘汰“当前最占空间”的 tab。** 需求只说“全局上限 8 MB，超出时先丢最旧的条目”。按全局 FIFO 淘汰会让一个刷屏 tab 把其他 tab 的历史全挤掉；按“最占空间先丢”能把预算压力压回真正的噪声来源。
+- **T13 / `pattern` 不编译正则。** 需求明确要求子串匹配以避免 ReDoS；实现里也不做任何 `RegExp` 构造，`.*` 只会匹配字面量。
+- **T13 / console 结果按 128 KiB 截断并合成 `nextCursor`。** 200 条 × 2 KB 会超过工具结果上限，与其让工具报错，不如截断并给出续读游标（`c<seq>`），遗留 1 KiB 余量给结果封装。
+- **T13 / claimed tab 懒启用。** 需求如此，实现上把 `console` 操作也走 `attach` + `enableConsoleCapture`，所以“第一次调用”就是启用点，`captureSince` 也随之确定。
+- **T13 / service worker 没有 `Buffer`。** 第一版用 `Buffer.byteLength` 计字节，结果 SW 里抛 `ReferenceError` 且异常被事件监听器吞掉，表现为“console 永远为空”。改用 `TextEncoder`，并把这条记在这里：chrome-extension 下的纯模块不能用 Node API。
+- **T13 / `publicError` 白名单加了 console/lease/pattern/level/cursor。** 否则 SW 的 `console level invalid` 会被降级成 `browser relay operation failed`，工具侧拿不到可操作的原因。这是共享错误边界，改动只扩白名单、不放宽长度或结构。
 - **T12 / `navigate` 是一个操作加两个互斥参数。** `url` 或 `history: back|forward|reload`，不拆成 `navigate`/`back`/`reload` 三个操作：它们对页面身份的后果完全相同（换 generation、作废旧 ref、等 complete），拆开只会让 schema 和 lease 判定各写三遍。实测 schema +138 bytes（浏览器两个工具），guideline 不变。
 - **T12 / history 的 lease 判定放在扩展里。** 客户端在发请求前不知道 back/forward 会落到哪个 URL，所以它把当前 lease 的 origin 列表随请求发给扩展；扩展用 `Page.getNavigationHistory` 解析落点、比对后再决定是否发导航命令。未命中时返回与 T9 同形状的 `{kind:"needs-approval"}`，客户端原样转成工具结果。代价是 lease 判定有两处实现；好处是“未授权就不发命令”这条在两种导航上都成立，而不是先跳过去再补一次检查。
 - **T12 / generation 自己加，不靠 `tabs.onUpdated`。** 扩展在发命令前就把 `item.url`/`status` 更新到目标值，所以 `onUpdated` 不会把同一次导航再算一遍；`reload` 不换 URL，`onUpdated` 根本不会触发，只有自己加才可靠。反向对照证实：去掉这行后 URL 导航与 reload 的 generation 都不变。

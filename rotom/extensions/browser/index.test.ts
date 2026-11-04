@@ -194,7 +194,9 @@ test("browser relay：活动标签可 claim、直接交互、敏感输入放行�
 	// `navigate` (T12) adds one operation value plus `history: back|forward|reload`,
 	// and widens the `url` line to say it also serves navigate: +138 bytes, still far
 	// inside the two-browser-tools budget.
-	assert.ok(browserSchemaBytes <= 2_950, `Browser schema budget regressed: ${browserSchemaBytes}`);
+	// `console` (T13) adds level/pattern/sinceCursor + the operation value: +421 bytes.
+	// Together with navigate that is still inside the two-browser-tools budget.
+	assert.ok(browserSchemaBytes <= 3_380, `Browser schema budget regressed: ${browserSchemaBytes}`);
 	assert.ok(interact.parameters.required.includes("action"));
 	assert.equal(interact.parameters.properties.expect.enum.length, 16);
 	assert.ok(interact.parameters.properties.expect.enum.includes("value=nonempty"));
@@ -701,4 +703,78 @@ test("/browser: explicit commands, local-only diagnostics, cancellation and owne
 		completed.resolve({ status: "installed" }); await pending;
 		assert.equal(calls, 1); assert.deepEqual(f.notices, []);
 	});
+});
+
+test("browser_inspect console：本地拒绝非法过滤，结果按 128 KiB 截断并用 cursor 续读", async () => {
+	const workspace = await mkdtemp(join(tmpdir(), "pi-browser-console-"));
+	const piDist = findPiDist();
+	const loaderUrl = pathToFileURL(join(piDist, "core/extensions/loader.js")).href;
+	const [{ loadExtensions, loadExtensionFromFactory }, { SessionManager }] = await Promise.all([
+		import(loaderUrl),
+		import(pathToFileURL(join(piDist, "core/session-manager.js")).href),
+	]);
+	const { createJiti } = await import(pathToFileURL(findPiDependency(piDist, "jiti/lib/jiti.mjs")).href);
+	const jiti = createJiti(loaderUrl, { moduleCache: false, alias: {
+		"@earendil-works/pi-ai": findPiDependency(piDist, "@earendil-works/pi-ai/dist/index.js"),
+		"@earendil-works/pi-coding-agent": join(piDist, "index.js"),
+	} });
+	const { createBrowserRelayExtensionV1 } = await jiti.import(join(process.cwd(), "rotom/extensions/browser/index.ts")) as any;
+	const loaded = await loadExtensions([], workspace);
+	const calls: Array<{ operation: string; payload: Record<string, unknown> }> = [];
+	const entries = Array.from({ length: 200 }, (_, index) => ({ seq: index + 1, level: "error", text: `entry ${index + 1} ${"x".repeat(1_500)}`, at: 1_700_000_000_000 + index, source: "console" }));
+	let closed = false;
+	const relay = {
+		get closed() { return closed; },
+		close() { closed = true; },
+		get leaseToken() { return undefined; },
+		get keepTabs() { return false; },
+		get socketPath() { return join(workspace, "relay.sock"); },
+		async request(operation: string, payload: Record<string, unknown>) {
+			calls.push({ operation, payload });
+			if (operation === "tabs") return { schemaVersion: 1, kind: "rotom-browser-tabs", tabs: [{ name: "log", tabId: 12, documentGeneration: 1, url: "https://example.test/a?token=secret", title: "log", status: "complete", current: true, browserActive: false, ownership: "agent", relayAttached: true }] };
+			if (operation === "console") {
+				const since = Number(String(payload.sinceCursor ?? "c0").slice(1));
+				const rest = entries.filter((entry) => entry.seq > since).slice(0, Number(payload.limit ?? 50));
+				return { schemaVersion: 1, kind: "rotom-browser-console", tabName: "log", tabId: 12, documentGeneration: 1, captureSince: new Date(1_700_000_000_000).toISOString(), dropped: 7, retained: 200, entries: rest, ...(rest.length === Number(payload.limit ?? 50) ? { nextCursor: `c${rest[rest.length - 1].seq}` } : {}) };
+			}
+			throw new Error(`unexpected operation ${operation}`);
+		},
+	};
+	const browser = await loadExtensionFromFactory(createBrowserRelayExtensionV1({
+		async connectRelay() { closed = false; return relay; },
+		openArtifactStore: async () => (await import("./browser-relay.ts")).BrowserArtifactStoreV1.open(),
+	}), workspace, undefined, loaded.runtime, join(process.cwd(), "rotom/extensions/browser"));
+	const session = SessionManager.inMemory(workspace);
+	loaded.runtime.appendEntry = () => {};
+	loaded.runtime.getAllTools = () => [];
+	loaded.runtime.getCommands = () => [];
+	loaded.runtime.refreshTools = () => {};
+	const ctx: any = { cwd: workspace, sessionManager: session, mode: "print", hasUI: false, ui: { notify() {}, setStatus() {}, async confirm() { return true; }, theme: { fg: (_color: string, value: string) => value } } };
+	try {
+		await new Promise((resolve) => setImmediate(resolve));
+		for (const handler of browser.handlers.get("session_start") ?? []) await handler({ type: "session_start", reason: "startup" }, ctx);
+		const tool = browser.tools.get("browser_inspect")?.definition;
+		assert.ok(tool);
+		// Invalid filters never reach the relay.
+		const before = calls.filter((call) => call.operation === "console").length;
+		for (const params of [{ operation: "console", level: "debug" }, { operation: "console", pattern: "x".repeat(129) }, { operation: "console", limit: 201 }, { operation: "console", sinceCursor: "42" }, { operation: "tabs", level: "error" }]) {
+			await assert.rejects(tool.execute("console-invalid", params, undefined, undefined, ctx));
+		}
+		assert.equal(calls.filter((call) => call.operation === "console").length, before, "非法参数不得发请求");
+
+		// 200 entries of 1.5 KB cannot fit one 128 KiB result: page it instead.
+		const page = await tool.execute("console-page", { operation: "console", tabName: "log", limit: 200 }, undefined, undefined, ctx);
+		assert.equal(page.details.kind, "browser-console");
+		assert.equal(page.details.dropped, 7);
+		assert.ok(page.details.entries.length > 0 && page.details.entries.length < 200, `必须被截断：${page.details.entries.length}`);
+		assert.ok(Buffer.byteLength(page.content[0].text, "utf8") <= 128 * 1024);
+		assert.equal(typeof page.details.nextCursor, "string");
+		assert.equal(JSON.stringify(page.details).includes("token=secret"), false, "console 结果不出带 query 的 URL");
+
+		const next = await tool.execute("console-next", { operation: "console", tabName: "log", sinceCursor: page.details.nextCursor }, undefined, undefined, ctx);
+		assert.ok(next.details.entries[0].seq > page.details.entries.at(-1).seq, "cursor 继续而不是重放");
+	} finally {
+		for (const handler of browser.handlers.get("session_shutdown") ?? []) await handler({ type: "session_shutdown", reason: "quit" }, ctx);
+		await rm(workspace, { recursive: true, force: true });
+	}
 });

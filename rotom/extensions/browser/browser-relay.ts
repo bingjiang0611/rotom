@@ -60,7 +60,11 @@ export function browserPrincipalV1(sessionId: string, overrides: Partial<Browser
 export const BROWSER_INSPECT_TOOL_V1 = "browser_inspect" as const;
 /** How `open` places a new tab. */
 export const BROWSER_OPEN_PLACEMENTS_V1 = ["background-tab", "agent-window"] as const;
-export const BROWSER_INSPECT_OPERATIONS_V1 = ["open", "navigate", "discover", "claim", "transfer", "handoff", "tabs", "switch", "snapshot", "snapshot_visible", "read_full", "screenshot", "wait", "close", "recover"] as const;
+export const BROWSER_INSPECT_OPERATIONS_V1 = ["open", "navigate", "discover", "claim", "transfer", "handoff", "tabs", "switch", "snapshot", "snapshot_visible", "read_full", "console", "screenshot", "wait", "close", "recover"] as const;
+/** Levels `console` can filter on. */
+export const BROWSER_CONSOLE_LEVELS_V1 = ["verbose", "info", "warning", "error"] as const;
+export const BROWSER_CONSOLE_MAX_LIMIT_V1 = 200 as const;
+export const BROWSER_CONSOLE_DEFAULT_LIMIT_V1 = 50 as const;
 /** How `navigate` moves within one tab when it is not given a URL. */
 export const BROWSER_NAVIGATE_HISTORY_V1 = ["back", "forward", "reload"] as const;
 export const BROWSER_INTERACT_TOOL_V1 = "browser_interact" as const;

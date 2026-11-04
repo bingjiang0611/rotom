@@ -8,6 +8,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
 	BROWSER_INSPECT_OPERATIONS_V1,
+	BROWSER_CONSOLE_LEVELS_V1,
+	BROWSER_CONSOLE_DEFAULT_LIMIT_V1,
+	BROWSER_CONSOLE_MAX_LIMIT_V1,
 	BROWSER_NAVIGATE_HISTORY_V1,
 	BROWSER_OPEN_PLACEMENTS_V1,
 	BROWSER_RELAY_TRANSFER_CAPABILITY_V1,
@@ -158,6 +161,55 @@ function validateTabs(value: unknown): BrowserRelayTabsV1 {
 		return { name, tabId: candidate.tabId as number, documentGeneration: candidate.documentGeneration as number, url, title: candidate.title.slice(0, 1_024), status, current: candidate.current, browserActive: candidate.browserActive, ownership, relayAttached: candidate.relayAttached };
 	});
 	return { schemaVersion: 1, kind: "rotom-browser-tabs", tabs };
+}
+/**
+ * Validate one `console` page and bound it for the model. The extension already caps
+ * entries at 2 KB, but 200 of them exceed the 128 KiB result budget, so the page is
+ * trimmed here and a cursor is synthesized for the rest.
+ */
+function validateBrowserConsoleV1(value: unknown, requestedLimit: number) {
+	if (!record(value) || value.schemaVersion !== 1 || value.kind !== "rotom-browser-console") throw new Error("browser console response 无效");
+	if (typeof value.captureSince !== "string" || Number.isNaN(Date.parse(value.captureSince))) throw new Error("browser console captureSince 无效");
+	if (!Number.isSafeInteger(value.dropped) || (value.dropped as number) < 0) throw new Error("browser console dropped 无效");
+	if (!Array.isArray(value.entries) || value.entries.length > BROWSER_CONSOLE_MAX_LIMIT_V1) throw new Error("browser console entries 无效");
+	const entries = value.entries.map((candidate, index) => {
+		if (!record(candidate) || !Number.isSafeInteger(candidate.seq) || (candidate.seq as number) < 1) throw new Error(`browser console entry ${index} 无效`);
+		if (!BROWSER_CONSOLE_LEVELS_V1.includes(candidate.level as never) || typeof candidate.text !== "string") throw new Error(`browser console entry ${index} fields 无效`);
+		if (!Number.isFinite(candidate.at)) throw new Error(`browser console entry ${index} time 无效`);
+		const stack = Array.isArray(candidate.stack) ? candidate.stack.filter((frame): frame is string => typeof frame === "string").slice(0, 10) : undefined;
+		return {
+			seq: candidate.seq as number,
+			level: candidate.level as (typeof BROWSER_CONSOLE_LEVELS_V1)[number],
+			text: candidate.text.slice(0, 2_048),
+			...(typeof candidate.url === "string" ? { url: safeDisplayUrl(candidate.url) } : {}),
+			...(Number.isSafeInteger(candidate.line) ? { line: candidate.line as number } : {}),
+			at: new Date(candidate.at as number).toISOString(),
+			...(typeof candidate.source === "string" ? { source: candidate.source.slice(0, 32) } : {}),
+			...(stack && stack.length > 0 ? { stack } : {}),
+		};
+	});
+	const base = {
+		kind: "browser-console",
+		captureSince: value.captureSince,
+		dropped: value.dropped as number,
+		requestedLimit,
+		...(Number.isSafeInteger(value.retained) ? { retained: value.retained as number } : {}),
+	};
+	// Trim by bytes, never by silent truncation of an entry: the cursor names where the
+	// next call continues, so nothing is lost without a way to fetch it.
+	let kept = entries;
+	if (entries.length > 0) {
+		for (let count = entries.length; count >= 1; count -= 1) {
+			const candidate = { ...base, entries: entries.slice(0, count) };
+			// Leave room for the synthesized nextCursor and for the tool-result envelope.
+			if (Buffer.byteLength(JSON.stringify(candidate), "utf8") > MAX_RESULT_BYTES - 1_024) continue;
+			kept = candidate.entries;
+			break;
+		}
+		if (kept.length === 0) throw new Error("browser console 单条结果超过 128 KiB；请用 level/pattern 缩小范围");
+	}
+	const nextCursor = kept.length < entries.length ? `c${kept[kept.length - 1].seq}` : typeof value.nextCursor === "string" && /^c\d{1,12}$/u.test(value.nextCursor) ? value.nextCursor : undefined;
+	return { ...base, entries: kept, ...(nextCursor === undefined ? {} : { nextCursor }) };
 }
 function publicTabs(value: BrowserRelayTabsV1) {
 	// A page title is arbitrary page-controlled text and can contain credentials or
@@ -455,6 +507,9 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			toAgentId: Type.Optional(Type.String({ minLength: 1, maxLength: 128, description: "Required for transfer: receiving agentId in the same root session." })),
 			url: Type.Optional(Type.String({ minLength: 1, maxLength: 4096, description: "Required for open, or for navigate without history: an HTTP(S) URL." })),
 			history: Type.Optional(StringEnum(BROWSER_NAVIGATE_HISTORY_V1, { description: "navigate only: back, forward or reload instead of a URL." })),
+			level: Type.Optional(StringEnum(BROWSER_CONSOLE_LEVELS_V1, { description: "console only: verbose, info, warning or error." })),
+			pattern: Type.Optional(Type.String({ minLength: 1, maxLength: 128, description: "console only: case-insensitive substring, never a regular expression." })),
+			sinceCursor: Type.Optional(Type.String({ minLength: 2, maxLength: 32, description: "console only: the nextCursor value from a previous call." })),
 			status: Type.Optional(StringEnum(["loading", "complete"] as const)),
 			timeoutMs: Type.Optional(Type.Integer({ minimum: 0, maximum: 300_000 })),
 			all: Type.Optional(Type.Boolean()),
@@ -476,6 +531,19 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			const limit = params.limit === undefined ? Number.MAX_SAFE_INTEGER : safeInteger(params.limit, "limit", 1, Number.MAX_SAFE_INTEGER);
 			const text = params.text === undefined ? undefined : safeString(params.text, "text", 256);
 			const role = params.role === undefined ? undefined : safeString(params.role, "role", 128);
+			// console takes its own bounded filters; reject them locally so a bad value
+			// never becomes a dispatched request.
+			const consoleLevel = params.level === undefined ? undefined : safeString(params.level, "level", 16);
+			const consolePattern = params.pattern === undefined ? undefined : safeString(params.pattern, "pattern", 128);
+			const consoleSinceCursor = params.sinceCursor === undefined ? undefined : safeString(params.sinceCursor, "sinceCursor", 32);
+			// console defaults to 50 entries, not to "as many as fit": the buffer is a
+			// log tail, and unbounded would mean paging by accident on every call.
+			const consoleLimit = params.limit === undefined ? BROWSER_CONSOLE_DEFAULT_LIMIT_V1 : safeInteger(params.limit, "limit", 1, BROWSER_CONSOLE_MAX_LIMIT_V1);
+			if (operation === "console") {
+				if (consoleLevel !== undefined && !BROWSER_CONSOLE_LEVELS_V1.includes(consoleLevel as never)) throw new Error("console level 必须是 verbose/info/warning/error");
+				if (consolePattern !== undefined && (consolePattern.length === 0 || consolePattern.length > 128)) throw new Error("console pattern 需要 1–128 字符");
+				if (consoleSinceCursor !== undefined && !/^c\d{1,12}$/u.test(consoleSinceCursor)) throw new Error("console sinceCursor 无效");
+			} else if (consoleLevel !== undefined || consolePattern !== undefined || consoleSinceCursor !== undefined) throw new Error("level/pattern/sinceCursor 仅允许 console");
 			const filtered = text !== undefined || role !== undefined;
 			if (filtered && (operation !== "snapshot_visible" || params.cursor !== undefined)) throw new Error("text/role 仅允许首次 snapshot_visible；cursor 已固定查询结果，请勿重复过滤");
 			// Invalid local input must neither contact Relay nor grant fallback permission.
@@ -570,6 +638,16 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			if (operation === "tabs") return boundedResult({ kind: "tabs", tabs: publicTabs(tabs) });
 			if (operation === "close") return boundedResult(await relayClient.request("close", { ...(params.all === true ? { all: true } : { tabName }) }, { signal }));
 			if (operation === "handoff") return boundedResult(await relayClient.request("handoff", { tabName }, { signal }));
+			if (operation === "console") {
+				const raw = await relayClient.request("console", {
+					tabName,
+					...(consoleLevel === undefined ? {} : { level: consoleLevel }),
+					...(consolePattern === undefined ? {} : { pattern: consolePattern }),
+					...(consoleSinceCursor === undefined ? {} : { sinceCursor: consoleSinceCursor }),
+					limit: consoleLimit,
+				}, { signal, timeoutMs: relayClientTimeoutMs("console", {}) });
+				return boundedResult(validateBrowserConsoleV1(raw, consoleLimit));
+			}
 			if (operation === "screenshot") {
 				const screenshot = validateBrowserScreenshotV1(await relayClient.request("screenshot", { tabName }, { signal }));
 				const artifact = await (await artifactStore(assertOwner)).storeScreenshot(screenshot);

@@ -85,6 +85,27 @@ document.querySelector('#submit').addEventListener('click', () => {
 });
 </script>`;
 
+// Console fixture: one error log, one thrown exception with a real stack, and a button
+// that floods the capture buffer so `dropped` becomes non-zero.
+const CONSOLE_BODY = `
+<main>
+  <h2>Console fixture</h2>
+  <div style="margin-top:80px"><button id="flood">Flood console</button></div>
+  <div role="status" id="console-status">Console fixture loaded</div>
+</main>
+<script>
+console.error('fixture console error: cannot read properties of undefined');
+function explode() { throw new Error('fixture boom from explode'); }
+function nested() { explode(); }
+setTimeout(() => { try { nested(); } catch (error) { console.error('rethrown: ' + error.message); } }, 50);
+document.querySelector('#flood').addEventListener('click', () => {
+  for (let index = 1; index <= 620; index += 1) console.log('flood line ' + index);
+  document.querySelector('#console-status').textContent = 'Console flooded';
+});
+// An uncaught exception, reported as Runtime.exceptionThrown with a stack.
+setTimeout(() => { throw new Error('fixture uncaught exception'); }, 120);
+</script>`;
+
 // The "user" tab the harness starts with: never touched by an agent, so a suite can
 // assert the operator's foreground tab is still the active one.
 const USER_BODY = `
@@ -111,6 +132,7 @@ export function defaultPages({ frameOrigin }) {
 		["/large", htmlDocument("Large document", LARGE_BODY)],
 		["/form", htmlDocument("Agent form", FORM_BODY)],
 		["/user", htmlDocument("User tab", USER_BODY)],
+		["/console", htmlDocument("Console fixture", CONSOLE_BODY)],
 	]);
 }
 
