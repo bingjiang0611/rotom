@@ -39,6 +39,7 @@ node --experimental-strip-types rotom/runtime/e2e-browser/run.mjs baseline
 | `chunked` | 超过 256 KiB 的响应分块、摘要校验与丢失/乱序拒绝 |
 | `lease` | 子 agent 的 lease：未授权 origin 本地拒绝，站点从未收到请求 |
 | `quotas` | per-agent / per-origin / 全局 / agent 数四个上限，超限即时拒绝且 close 后释放 |
+| `navigate` | URL 导航与 history back/forward/reload，换 document generation、旧 ref stale、lease 限制历史落点 |
 | `parallel-4` | 4 个 agent 同 root session 并行跑 5 轮表单，无串台、用户 tab 保持 active、归属正确，并打印延迟 p50/p95 |
 
 `parallel-4` 声明了 `startUrlPage = "/user"`：runner 会先起 fixture 站点，再让 Chrome

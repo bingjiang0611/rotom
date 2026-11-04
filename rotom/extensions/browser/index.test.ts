@@ -191,7 +191,10 @@ test("browser relay：活动标签可 claim、直接交互、敏感输入放行�
 	// not a second open operation, so it is one clause in the existing open line.
 	assert.ok(browserGuidelineBytes <= 3_835, `Browser guideline budget regressed: ${browserGuidelineBytes}`);
 	// The `placement` enum adds 71 schema bytes (T6) without a second parameter.
-	assert.ok(browserSchemaBytes <= 2_800, `Browser schema budget regressed: ${browserSchemaBytes}`);
+	// `navigate` (T12) adds one operation value plus `history: back|forward|reload`,
+	// and widens the `url` line to say it also serves navigate: +138 bytes, still far
+	// inside the two-browser-tools budget.
+	assert.ok(browserSchemaBytes <= 2_950, `Browser schema budget regressed: ${browserSchemaBytes}`);
 	assert.ok(interact.parameters.required.includes("action"));
 	assert.equal(interact.parameters.properties.expect.enum.length, 16);
 	assert.ok(interact.parameters.properties.expect.enum.includes("value=nonempty"));

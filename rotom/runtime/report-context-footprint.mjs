@@ -45,7 +45,10 @@ export const CURRENT_RUNTIME_CONTEXT_CONTRACT_V1 = {
 	// shared Browser expectation enum and operation parameter requirements; static
 	// bytes are not provider tokens.
 	activeToolCount: 28,
-	activeToolSchemaBytes: 26_826,
+	// +304 schema bytes for the `navigate` operation and `history: back|forward|reload`
+	// (browser-parallel T12); guidelines are unchanged because the operation is
+	// described by its schema, not by another prose line.
+	activeToolSchemaBytes: 27_006,
 	activeToolGuidelineBytes: 10_282,
 	schemaPathNormalization: "Codemode documentation path -> <pi-docs>/codemode.md; current measurements remain raw bytes",
 	note: "The default product surface keeps core (edit/write from bundled SoL-Pi Action Fusion), SoL-Pi obs_recall, Codemode, Ask, Browser/Computer Use, the four stable Goal schemas, Context Layers, and search_tools active while deferring only the retained Subagent group. Visible Goal schemas do not authorize Goal execution without an active Goal. Guideline bytes include the product's observe_ui/read_text/act_ui/wait_for/search_ui contract guidelines, which state the real per-call focus scope, condition combinations, observe-first requirement, untrusted status of observed screen text, structured-interface-first routing, and the dispatch-versus-effect evidence ladder of the Computer Use package, plus the browser relay's ref-bound Enter/Tab/Escape keypress, target-state/page-alert evidence and no-replay boundary for unknown writes. Includes Relay-first launch_browser fallback metadata, HTTP-only local-page guidance, isolated-login disclosure and pre-dispatch/no-replay boundaries; measured static bytes are not provider tokens.",

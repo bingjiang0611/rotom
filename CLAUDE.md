@@ -109,6 +109,7 @@ Browser relay 的后台标签、AX/DOM ref、viewport、document generation 和 
 - 不回退到 shell 激活 Chrome、系统鼠标键盘或桌面截图。
 - 同一 session 内两层锁：结构性操作（`open`/`claim`/`close`/`tabs`/`switch`/`transfer`/`handoff`/`recover`/`hello`）独占 session 锁，其余按 tab 加锁，所以两个 tab 的读取可以真正并发；`browser_inspect` 因此是 `parallel`，`browser_interact` 仍是 `sequential`。operation revision 按锁作用域生效：一个 tab 结束不能作废另一个 tab 在飞的操作。
 - 每个 tab 只属于一个 relay session：`discover` 不返回其他 agent 的 tab，`claim` 只在 opener 属于另一个 session 时拒绝，错误信息不带出对方 tabName。`transfer` 只能在同一个 `rootSessionId` 内移交，接收方得到 `<原名>@<来源 agent>` 并换新 `documentGeneration`/`observationEpoch`，移交前的 ref 与截图坐标一律作废。
+- `navigate` 用一个操作承担新 URL 与 `history: back/forward/reload`：成功后 `documentGeneration` 加一（`reload` 不换 URL 也照样加），旧 ref 与截图坐标作废；历史落点先由扩展解析 origin 再按 lease 判定，拒绝时不发导航命令。导航等待 `complete` 的超时只说明“命令已发出”，不是失败回滚。
 - tab 配额在扩展 service worker 里计数（`ROTOM_BROWSER_MAX_AGENTS` / `_TABS_PER_AGENT` / `_TABS` / `_TABS_PER_ORIGIN`，默认 8 / 4 / 24 / 2），`open` 与 `claim` 超限即时报错并提示先 close 旧 tab，不排队；客户端在 `hello` 里声明的配额不被信任，非法环境变量直接报错。
 - 子 agent 的浏览器权限由 lease 决定：父 agent 已打开的 origin 写成私有 lease 文件（目录 0700、文件 0600、拒绝 symlink），子 agent 每次 `open` 与页内写操作前重读它。缺失、过期、origin 不在列表或开关未开启时，工具层直接返回结构化 `{kind:"needs-approval",origin,capability,reason}`，不发出请求、不弹窗、不询问用户；只读操作不受 lease 限制。lease 不是安全沙箱，限制的是站点范围，不是本机进程权限。
 - Chrome extension 安装与重载是用户显式操作；代码级 L1 不能写成真实 Chrome L2/L3。

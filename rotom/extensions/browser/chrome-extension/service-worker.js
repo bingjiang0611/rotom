@@ -1078,6 +1078,63 @@ async function performInteraction(name, item, payload, assertOperation = () => u
 		readback,
 	};
 }
+/**
+ * Resolve where a history navigation would land, so a child agent's lease can be
+ * checked before the tab leaves the sites it was granted.
+ */
+async function navigationDestinationV1(debuggee, payload) {
+	if (payload.url !== undefined) return { kind: "url", url: safeUrl(payload.url) };
+	const history = await globalThis.chrome.debugger.sendCommand(debuggee, "Page.getNavigationHistory");
+	const entries = Array.isArray(history?.entries) ? history.entries : [];
+	const index = Number.isInteger(history?.currentIndex) ? history.currentIndex : -1;
+	if (index < 0 || index >= entries.length) throw new Error("browser navigate history unavailable");
+	if (payload.history === "reload") {
+		const current = entries[index];
+		if (typeof current?.url !== "string") throw new Error("browser navigate history unavailable");
+		return { kind: "reload", url: safeUrl(current.url) };
+	}
+	const target = payload.history === "back" ? entries[index - 1] : payload.history === "forward" ? entries[index + 1] : undefined;
+	if (!target) throw new Error(payload.history === "back" ? "没有可后退的历史记录" : "没有可前进的历史记录");
+	if (typeof target.url !== "string") throw new Error("browser navigate history unavailable");
+	return { kind: "history", url: safeUrl(target.url), entryId: target.id };
+}
+/** The lease is client-side, so the client sends the origins it may reach. */
+function navigationAllowedV1(allowedOrigins, url) {
+	if (allowedOrigins === undefined) return { ok: true };
+	let origin;
+	try { origin = new URL(url).origin; } catch { return { ok: false, origin: "" }; }
+	return allowedOrigins.includes(origin) ? { ok: true } : { ok: false, origin };
+}
+async function navigateOwned(name, item, payload, assertOperation) {
+	const chrome = operationChrome(globalThis.chrome, assertOperation);
+	const allowedOrigins = payload.allowedOrigins === undefined ? undefined : payload.allowedOrigins;
+	if (allowedOrigins !== undefined && (!Array.isArray(allowedOrigins) || allowedOrigins.length > 64 || allowedOrigins.some((origin) => typeof origin !== "string" || origin.length > 256))) throw new Error("navigate allowedOrigins invalid");
+	await attach(item, assertOperation);
+	await assertOwnedWithin(item, assertOperation);
+	const debuggee = { tabId: item.tabId };
+	const destination = await navigationDestinationV1(debuggee, payload);
+	assertOperation();
+	const allowed = navigationAllowedV1(allowedOrigins, destination.url);
+	if (!allowed.ok) return { schemaVersion: 1, kind: "needs-approval", origin: allowed.origin, capability: "open", reason: "origin", message: `当前 lease 未授权导航到 ${allowed.origin || "(未知来源)"}；该操作没有发出请求，需要父 agent 更新 lease 后重试。` };
+	// Bump here, and record the destination before dispatching, so tabs.onUpdated does not
+	// count the same navigation a second time. Refs and coordinates from the old document
+	// are invalid from this point on; reload changes no URL and needs our own bump.
+	item.documentGeneration = Number.isSafeInteger(item.documentGeneration) && item.documentGeneration > 0 ? item.documentGeneration + 1 : 2;
+	invalidateCoordinateObservation(item);
+	item.url = destination.url;
+	item.status = "loading";
+	if (destination.kind === "url") await chrome.debugger.sendCommand(debuggee, "Page.navigate", { url: destination.url });
+	else if (destination.kind === "reload") await chrome.debugger.sendCommand(debuggee, "Page.reload", { ignoreCache: false });
+	else await chrome.debugger.sendCommand(debuggee, "Page.navigateToHistoryEntry", { entryId: destination.entryId });
+	assertOperation();
+	const timeoutMs = Number.isInteger(payload.timeoutMs) && payload.timeoutMs >= 0 && payload.timeoutMs <= 300_000 ? payload.timeoutMs : 30_000;
+	try { return await waitForTab(name, item, { status: "complete", timeoutMs }, assertOperation); }
+	catch (error) {
+		// The command was accepted; a slow page is a timeout, not a refusal.
+		if (error instanceof Error && error.message === "browser wait timeout") throw new Error("browser navigate 后页面未在超时内到 complete；documentGeneration 已更新，请用只读 snapshot/read_full 核对当前页面");
+		throw error;
+	}
+}
 async function waitForTab(name, item, payload, assertSession) {
 	const chrome = operationChrome(globalThis.chrome, assertSession);
 	const timeoutMs = Number.isInteger(payload.timeoutMs) && payload.timeoutMs >= 0 && payload.timeoutMs <= 300_000 ? payload.timeoutMs : 30_000;
@@ -1248,6 +1305,12 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 	if (operation === "wait") {
 		const { name, item } = owned(state, payload.tabName);
 		return waitForTab(name, item, payload, assertOperation);
+	}
+	if (operation === "navigate") {
+		const { name, item } = owned(state, payload.tabName);
+		if (payload.url !== undefined && payload.history !== undefined) throw new Error("navigate 只能给 url 或 history 之一");
+		if (payload.url === undefined && payload.history !== "back" && payload.history !== "forward" && payload.history !== "reload") throw new Error("navigate 需要 url 或 history: back/forward/reload");
+		return navigateOwned(name, item, payload, assertOperation);
 	}
 	if (operation === "screenshot") {
 		const { name, item } = owned(state, payload.tabName);

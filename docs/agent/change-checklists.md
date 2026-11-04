@@ -71,6 +71,7 @@
 - 用户焦点是否仍只有一份记录（`focus-coordinator.js`）：只有非 agent 触发的 `tabs.onActivated`/`windows.onFocusChanged` 才更新它，agent 派发造成的激活不得被记成用户焦点？并发 agent 收尾时是否收敛到同一处，而不是各自恢复自己的旧位置？新启动的 service worker 是否先按真实活动 tab 播种？
 - agent tab 是否在 `open`/`claim` 时设为 `autoDiscardable: false`，并在释放（close 保留的 claimed tab、`keepTabs`、handoff、交还/断开）时恢复原值？observation 是否带 `visibilityState`，未知取值是否 fail closed？
 - `placement: "agent-window"` 是否每 agent 复用自己的窗口、从不聚焦用户窗口，非法值是否在打开任何 tab 前被拒绝？
+- `navigate` 是否只用一个操作承担 URL 与 `history: back/forward/reload`，成功后 `documentGeneration` 加一（reload 不换 URL 也必须加），旧 ref/坐标作废；历史落点是否先解析 origin 再按 lease 判定，拒绝时不发导航命令？
 - tab 配额是否仍在 service worker 计数（唯一全局视角）：`open` 与 `claim` 都过 `assertTabQuotaAllowed`，超限直接报错并写清上限、当前数量与“先 close 旧 tab”，不排队；`hello` 里的 `tabQuotas` 必须过 `sanitizeBrowserTabQuotasV1`，非法 `ROTOM_BROWSER_MAX_*` 报错而不是静默回退？
 - 子 agent 的 lease 是否仍只在工具层判定：没有 token 的主 agent 不受限，有 token 但 lease 文件缺失/过期/origin 不在列表/devtools·upload·download 未开启时本地返回 `needs-approval`，不发出请求、不弹窗？lease 目录是否 0700、文件 0600、拒绝 symlink，且子 agent 不改写父 agent 发布的 scope？
 - 持久化是否仍按 session 分 key（`browserRelayStateV3:<sessionId>`）、合并写并只写变化项，旧 `browserRelayStateV2`/`V1` 是否迁移后删除？

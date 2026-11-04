@@ -101,6 +101,23 @@ export async function run({ harness, fixtures, recorder, workspace }) {
 			assert.equal(deniedClick.details.reason, "origin");
 		});
 
+		// 5b. navigate follows the same lease rule as open.
+		await recorder.check("navigate 到 lease 外的 origin 也被拒绝，且没有网络请求", async () => {
+			await writeLease([allowed]);
+			await child.inspect({ operation: "navigate", tabName: "lease-allowed", url: fixtures.url("/license-target"), limit: 5 });
+			await writeLease(["https://other.example.test"]);
+			const before = fixtures.requestsTo("/lease-target").length;
+			const denied = await child.inspect({ operation: "navigate", tabName: "lease-allowed", url: deniedOrigin, limit: 5 });
+			assert.equal(denied.details.kind, "needs-approval");
+			assert.equal(denied.details.reason, "origin");
+			assert.equal(fixtures.requestsTo("/lease-target").length, before, "被拒绝的 navigate 不得让站点收到请求");
+			await writeLease([allowed]);
+			const allowedNavigate = await child.inspect({ operation: "navigate", tabName: "lease-allowed", url: fixtures.url("/popup"), limit: 5 });
+			assert.equal(allowedNavigate.details.kind, "observation", "lease 覆盖时 navigate 放行");
+			assert.ok(fixtures.requestsTo("/popup").length > 0, "放行后站点必须真的收到请求");
+			await child.inspect({ operation: "navigate", tabName: "lease-allowed", url: fixtures.url("/baseline"), limit: 5 });
+		});
+
 		// 6. A child does not publish a scope for its own children.
 		await recorder.check("子 agent 不会把 lease 传给自己的子 agent", async () => {
 			const before = process.env.ROTOM_BROWSER_LEASE_SCOPE;

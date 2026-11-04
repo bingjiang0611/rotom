@@ -71,6 +71,13 @@ test("Chrome MV3 manifest 固定 identity 且不申请 cookie/script/host 权限
 	// Quotas are counted in the service worker only; `open` and `claim` must both pass
 	// the check and `hello` must never trust the client's numbers.
 	assert.match(worker, /assertTabQuotaAllowed\(state, itemOriginV1\(url\)\);/u);
+	// navigate must resolve history through CDP, respect the client lease origins and
+	// bump the document generation before dispatching anything.
+	assert.match(worker, /operation === "navigate"/u);
+	assert.match(worker, /Page\.getNavigationHistory/u);
+	assert.match(worker, /Page\.navigateToHistoryEntry/u);
+	assert.match(worker, /Page\.reload/u);
+	assert.match(worker, /resetTransferredItemV1\(item\);|item\.documentGeneration = Number\.isSafeInteger\(item\.documentGeneration\)/u);
 	assert.equal(worker.match(/assertTabQuotaAllowed\(state, itemOriginV1\(url\)\);/gu).length, 2, "open 与 claim 都要计入配额");
 	assert.match(worker, /sanitizeBrowserTabQuotasV1\(payload\.tabQuotas\) \?\? \{ \.\.\.DEFAULT_BROWSER_TAB_QUOTAS_V1 \}/u);
 	assert.match(worker, /sessionStateKeyV3\(state\.sessionId\)/u, "持久化必须按 session 分 key");
@@ -472,12 +479,15 @@ test("扩展 operation deadline 先于客户端超时并覆盖长 wait", () => {
 	assert.equal(relayOperationDeadlineMs("recover", {}), 8_000);
 	assert.equal(relayOperationDeadlineMs("read_full", {}), 25_000);
 	assert.equal(relayOperationDeadlineMs("wait", { timeoutMs: 12_000 }), 12_500);
+	// navigate waits for `complete`, so it carries the same bound as wait.
+	assert.equal(relayOperationDeadlineMs("navigate", { timeoutMs: 12_000 }), 12_500);
+	assert.equal(relayOperationDeadlineMs("navigate", {}), 30_500);
 });
 
 test("客户端超时晚于扩展 deadline 加超时清理，扩展的有界错误先到达", async () => {
 	// Before: tabs waited 5 s on the client while the extension could take 4 s + 2 s cleanup,
 	// so the client dropped the connection instead of receiving "tabs operation timeout".
-	for (const [operation, payload] of [["tabs", {}], ["recover", {}], ["interact", {}], ["read_full", {}], ["snapshot", {}], ["wait", { timeoutMs: 12_000 }], ["wait", { timeoutMs: 300_000 }]]) {
+	for (const [operation, payload] of [["tabs", {}], ["recover", {}], ["interact", {}], ["read_full", {}], ["snapshot", {}], ["navigate", { timeoutMs: 12_000 }], ["wait", { timeoutMs: 12_000 }], ["wait", { timeoutMs: 300_000 }]]) {
 		assert.ok(relayClientTimeoutMs(operation, payload) > relayOperationDeadlineMs(operation, payload) + 2 * RELAY_SETTLE_MS, operation);
 	}
 	// Requests that pass no timeout use the client default of 30 s.

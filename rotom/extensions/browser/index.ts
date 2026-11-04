@@ -8,6 +8,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
 	BROWSER_INSPECT_OPERATIONS_V1,
+	BROWSER_NAVIGATE_HISTORY_V1,
 	BROWSER_OPEN_PLACEMENTS_V1,
 	BROWSER_RELAY_TRANSFER_CAPABILITY_V1,
 	BROWSER_INSPECT_TOOL_V1,
@@ -452,7 +453,8 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			tabId: Type.Optional(Type.Integer({ minimum: 0, description: "Required for claim: the tabId returned by discover." })),
 			placement: Type.Optional(StringEnum(BROWSER_OPEN_PLACEMENTS_V1)),
 			toAgentId: Type.Optional(Type.String({ minLength: 1, maxLength: 128, description: "Required for transfer: receiving agentId in the same root session." })),
-			url: Type.Optional(Type.String({ minLength: 1, maxLength: 4096, description: "Required for open: an HTTP(S) URL." })),
+			url: Type.Optional(Type.String({ minLength: 1, maxLength: 4096, description: "Required for open, or for navigate without history: an HTTP(S) URL." })),
+			history: Type.Optional(StringEnum(BROWSER_NAVIGATE_HISTORY_V1, { description: "navigate only: back, forward or reload instead of a URL." })),
 			status: Type.Optional(StringEnum(["loading", "complete"] as const)),
 			timeoutMs: Type.Optional(Type.Integer({ minimum: 0, maximum: 300_000 })),
 			all: Type.Optional(Type.Boolean()),
@@ -478,6 +480,12 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			if (filtered && (operation !== "snapshot_visible" || params.cursor !== undefined)) throw new Error("text/role 仅允许首次 snapshot_visible；cursor 已固定查询结果，请勿重复过滤");
 			// Invalid local input must neither contact Relay nor grant fallback permission.
 			if ((operation === "open" || operation === "claim" || operation === "transfer") && !tabName) throw new Error(`${operation} 需要 tabName`);
+			const navigateHistory = operation === "navigate" && params.history !== undefined ? BROWSER_NAVIGATE_HISTORY_V1.find((value) => value === params.history) : undefined;
+			if (operation === "navigate") {
+				if (params.history !== undefined && navigateHistory === undefined) throw new Error("navigate history 必须是 back/forward/reload");
+				if ((params.url === undefined) === (navigateHistory === undefined)) throw new Error("navigate 需要 url 或 history 之一");
+				if (params.url !== undefined && navigateHistory !== undefined) throw new Error("navigate 的 url 与 history 互斥");
+			} else if (params.history !== undefined) throw new Error("history 仅允许 navigate");
 			const toAgentId = operation === "transfer" ? safeAgentId(params.toAgentId) : undefined;
 			const openUrl = operation === "open" ? canonicalBrowserUrlV1(params.url) : undefined;
 			const claimTabId = operation === "claim" ? safeInteger(params.tabId, "tabId", 0, Number.MAX_SAFE_INTEGER) : undefined;
@@ -505,6 +513,34 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 				if (denied) return denied;
 				const observation = sanitizeBrowserObservationV1(await relayClient.request("open", { tabName, url: openUrl, ...(placement === undefined ? {} : { placement }) }, { signal }));
 				authorizedOrigins.add(leaseOriginV1(openUrl) ?? "");
+				return snapshotResult(observation, limit);
+			}
+			if (operation === "navigate") {
+				const navigateUrl = params.url === undefined ? undefined : canonicalBrowserUrlV1(params.url);
+				const target = navigateUrl !== undefined
+					? { url: navigateUrl }
+					: { history: navigateHistory };
+				// A child may only navigate where its lease reaches. A URL target is checked
+				// here; a history target is resolved inside the relay, so the lease origins
+				// travel with the request and the refusal happens before the tab moves.
+				if (navigateUrl !== undefined) {
+					const denied = await leaseDenial(relayClient, "open", leaseOriginV1(navigateUrl));
+					if (denied) return denied;
+				}
+				const leaseOrigins = relayClient.leaseToken === undefined ? undefined : [...authorizedOrigins];
+				const requested = await relayClient.request("navigate", {
+					tabName,
+					...target,
+					timeoutMs: params.timeoutMs === undefined ? undefined : safeInteger(params.timeoutMs, "timeoutMs", 0, 300_000),
+					...(leaseOrigins === undefined ? {} : { allowedOrigins: leaseOrigins }),
+				}, { signal, timeoutMs: relayClientTimeoutMs("navigate", { timeoutMs: params.timeoutMs }) });
+				// History navigation is resolved inside the relay; the lease decision comes back
+				// as a refusal instead of an observation, and nothing was dispatched.
+				if (record(requested) && requested.kind === "needs-approval") {
+					return leaseRefusal({ origin: typeof requested.origin === "string" ? requested.origin : "", capability: "open", reason: typeof requested.reason === "string" ? requested.reason : "origin" });
+				}
+				const observation = sanitizeBrowserObservationV1(requested);
+				if (navigateUrl !== undefined) authorizedOrigins.add(leaseOriginV1(navigateUrl) ?? "");
 				return snapshotResult(observation, limit);
 			}
 			if (operation === "discover") {
