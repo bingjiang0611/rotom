@@ -25,11 +25,24 @@
 | M3 策略与审批 | 完成 | L1 | 见下 |
 | M4 Trace | 完成 | L1 | 见下 |
 | M5 macOS 原生能力 | 未开始 | | |
-| M6 工具面 | 未开始 | | |
+| M6 工具面 | 完成 | L1 | 见下 |
 | M7 真机验收与兼容矩阵 | 未开始 | | |
 | M8 文档、版本与打包 | 未开始 | | |
 
 ## 每个里程碑的记录
+
+### M6 工具面
+
+- 实现摘要：
+  - `act_ui` 新增 `hover`/`select`/`setChecked`/`expand`/`collapse`/`scrollTo`/`focus`/`clear`/`setValue`/`showMenu`；`contract.ts` 增加 `UiActionName`/`SEMANTIC_ACTION_NAMES`/`option`/`checked`/`value`；`prepareAction` 为语义动作强制要求可访问性 ref（坐标或 pictureOnly 节点直接拒绝），并校验 `setChecked.checked`/`setValue.value`。
+  - 新增 deferred 工具 `manage_app`、`manage_window`、`clipboard`、`system_surface`、`cu_session`：`extensions/computer-use.ts` 给 schema，`src/bridge.ts` 给执行器（平台缺能力时返回结构化 `unsupported`，不做假成功）。
+  - `clipboard set` 默认 30 秒把用户原剪贴板写回（`scheduleClipboardRestore` + 新配置 `clipboard_restore`，`ROTOM_CU_CLIPBOARD_RESTORE=0` 可关）；剪贴板文本不进 trace 正文。
+  - 结果字段：`execution.deliveryLevel`（ax→L1，pid/l2→L2，hid→L4）、`interferedWithUser`、`stoppedByUser`；`leaseHolder`/`retry` 已在 M2 落地。`preempted_by_user` **未实现**（见“需要审核者回答的问题”）。
+  - `rotom/extensions/third-party/deferred-tools/register.ts` 新增能力组 `computer_use_admin`（含中英文别名），五个新工具因此默认不常驻、可用 `search_tools` 加载；常驻清单 `RESIDENT_BROWSER_TOOL_NAMES` 不变。
+- 新增或修改的测试：`test/cu-v2-tools.test.ts`（5 例：语义动作必须有 wire ref、参数校验、剪贴板恢复定时器、无需恢复的两个分支、deferred 组声明与常驻清单不包含新工具）。会因旧行为失败的反例：`setChecked` 用坐标默默点一下（旧 `prepareAction` 只有 8 个动作）；`option`/`checked`/`value` 缺失时静默取默认值；剪贴板写完不恢复；把 `manage_app` 放进常驻清单。
+- 自证命令与结果：`npm test` → 62 pass / 0 fail；`node --experimental-strip-types -e "await import('./src/bridge.ts')"` 与 extension 加载成功（16 个 execute* 导出）。
+- 未验证项：①五个新工具在真实 Pi 会话里的 schema 渲染与 `search_tools` 加载路径——`rotom/` 目录没有安装 node_modules，`register.test.ts`/`index.test.ts` 因缺 `typebox` 无法运行（既有环境限制，不是我引入的失败）；②`manage_window`/`system_surface` 的真实返回（依赖 M5 未运行的原生能力）；③`scripts/check-tool-schemas.mjs` 在本仓库不存在（既有失败），无法按 HANDOFF 更新。
+- 与 PLAN 的偏差及原因：`cu_session` 的 `stop` 语义是“停掉除自己以外的 agent”，与 Broker 的 `stop` 定义一致；`preempted_by_user` 需要 L4 接管租约，第一期未做。
 
 ### M5 macOS 原生（协议 8）
 

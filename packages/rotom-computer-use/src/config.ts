@@ -13,6 +13,8 @@ export interface ComputerUseConfig {
 	trace: boolean;
 	/** Save observation screenshots into the trace. */
 	trace_screenshots: boolean;
+	/** Put the user's previous clipboard text back after a `clipboard set`. */
+	clipboard_restore: boolean;
 }
 
 export interface ComputerUseConfigSource {
@@ -38,6 +40,7 @@ const DEFAULT_CONFIG: ComputerUseConfig = {
 	broker: process.platform === "darwin",
 	trace: true,
 	trace_screenshots: true,
+	clipboard_restore: true,
 };
 
 let activeConfig: ComputerUseConfig = { ...DEFAULT_CONFIG };
@@ -63,12 +66,14 @@ function normalizePartial(raw: unknown): Partial<ComputerUseConfig> {
 	const broker = parseBoolean((source as any).broker);
 	const trace = parseBoolean((source as any).trace);
 	const traceScreenshots = parseBoolean((source as any).trace_screenshots);
+	const clipboardRestore = parseBoolean((source as any).clipboard_restore);
 	if (browserUse !== undefined) out.browser_use = browserUse;
 	if (headless !== undefined) out.headless = headless;
 	if (cursorOverlay !== undefined) out.cursor_overlay = cursorOverlay;
 	if (broker !== undefined) out.broker = broker;
 	if (trace !== undefined) out.trace = trace;
 	if (traceScreenshots !== undefined) out.trace_screenshots = traceScreenshots;
+	if (clipboardRestore !== undefined) out.clipboard_restore = clipboardRestore;
 	const managedBrowser = (source as any).managed_browser;
 	if (managedBrowser === "helium" || managedBrowser === "chrome") out.managed_browser = managedBrowser;
 	return out;
@@ -93,12 +98,14 @@ function readEnv(): Partial<ComputerUseConfig> {
 	// ROTOM_CU_TRACE=0 is the documented hard off switch for the trace.
 	const trace = parseBoolean(process.env.ROTOM_CU_TRACE);
 	const traceScreenshots = parseBoolean(process.env.ROTOM_CU_TRACE_SCREENSHOTS);
+	const clipboardRestore = parseBoolean(process.env.ROTOM_CU_CLIPBOARD_RESTORE);
 	if (browserUse !== undefined) out.browser_use = browserUse;
 	if (headless !== undefined) out.headless = headless;
 	if (cursorOverlay !== undefined) out.cursor_overlay = cursorOverlay;
 	if (broker !== undefined) out.broker = broker;
 	if (trace !== undefined) out.trace = trace;
 	if (traceScreenshots !== undefined) out.trace_screenshots = traceScreenshots;
+	if (clipboardRestore !== undefined) out.clipboard_restore = clipboardRestore;
 	const managedBrowser = process.env.PI_COMPUTER_USE_MANAGED_BROWSER;
 	if (managedBrowser === "helium" || managedBrowser === "chrome") out.managed_browser = managedBrowser;
 	return out;

@@ -63,8 +63,31 @@ export interface UiCondition {
 	timeoutMs?: number;
 }
 
+export type UiActionName =
+	| "press"
+	| "click"
+	| "setText"
+	| "typeText"
+	| "keypress"
+	| "scroll"
+	| "drag"
+	| "moveMouse"
+	| "hover"
+	| "select"
+	| "setChecked"
+	| "expand"
+	| "collapse"
+	| "scrollTo"
+	| "focus"
+	| "clear"
+	| "setValue"
+	| "showMenu";
+
+/** Actions that only exist as accessibility operations on a resolved element. */
+export const SEMANTIC_ACTION_NAMES = new Set<UiActionName>(["select", "setChecked", "expand", "collapse", "scrollTo", "focus", "clear", "setValue", "showMenu"]);
+
 export interface UiAction {
-	action: "press" | "click" | "setText" | "typeText" | "keypress" | "scroll" | "drag" | "moveMouse";
+	action: UiActionName;
 	ref?: string;
 	x?: number;
 	y?: number;
@@ -75,6 +98,12 @@ export interface UiAction {
 	path?: Array<{ x: number; y: number } | [number, number]>;
 	button?: MouseButtonName;
 	clickCount?: number;
+	/** select: the option text for pop-up buttons and combo boxes. */
+	option?: string;
+	/** setChecked: the desired state, applied idempotently. */
+	checked?: boolean;
+	/** setValue: the numeric value for sliders and steppers. */
+	value?: number;
 }
 
 export interface ActParams extends StateTargetParams {

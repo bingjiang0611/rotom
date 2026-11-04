@@ -31,6 +31,7 @@ import { scoreWindow, shouldPreferForegroundModalWindow } from "./root-selection
 import { SavedStates, type CurrentCapture, type CurrentTarget, type OperationState } from "./state.ts";
 import { changesBetween, renderChanges, stabilizeRefs } from "./view.ts";
 import { redactParams, TraceRecorder, type TraceEntry } from "./trace/recorder.ts";
+import { exportTraceMarkdown } from "./trace/report.ts";
 export type { ActParams, EvaluateBrowserParams, ExpandUiParams, ImageMode, InspectUiParams, LaunchBrowserParams, FindParams, MouseButtonName, NavigateBrowserParams, ObserveParams, ObserveTargetParams, ReadTextParams, RootSelector, SearchUiParams, StateTargetParams, UiAction, WaitForParams } from "./contract.ts";
 
 interface ActivationFlags {
@@ -67,6 +68,12 @@ interface ExecutionTrace {
 	escalatedToForeground?: boolean;
 	escalationReason?: string;
 	backgroundAttempt?: { outcome: "foreground_required" | "didnt"; reason: string };
+	/** L1 = accessibility API, L2 = window-targeted events, L4 = foreground input. */
+	deliveryLevel?: "L1" | "L2" | "L4";
+	/** The frontmost app changed while the user was typing. */
+	interferedWithUser?: boolean;
+	/** The user stopped this agent through the broker or the helper menu. */
+	stoppedByUser?: boolean;
 	verification?: {
 		status: "verified" | "preexisting" | "failed";
 		text?: string;
@@ -1304,6 +1311,15 @@ function modelRefForRootDelta(delta: NonNullable<HelperActResult["rootDelta"]>[n
 	return ref;
 }
 
+/** Translate native delivery into the level a user cares about. */
+function deliveryLevelOf(performed: HelperActPerformed | undefined, policy: DeliveryPolicy): "L1" | "L2" | "L4" | undefined {
+	const delivery = performed?.delivery;
+	if (delivery === "ax") return "L1";
+	if (delivery === "l2" || delivery === "pid") return "L2";
+	if (delivery === "hid") return "L4";
+	return policy === "foreground" ? "L4" : undefined;
+}
+
 function executionTraceFromAct(result: HelperActResult, policy = currentDeliveryPolicy()): ExecutionTrace {
 	const rootDelta = result.rootDelta?.map((delta) => ({ ...delta, ref: modelRefForRootDelta(delta) }));
 	return executionTrace("act", result.performed?.delivery === "ax" ? "stealth" : "default", {
@@ -1315,6 +1331,9 @@ function executionTraceFromAct(result: HelperActResult, policy = currentDelivery
 		rootDelta,
 		delivery: result.performed?.delivery,
 		deliveryPolicy: policy,
+		deliveryLevel: deliveryLevelOf(result.performed, policy),
+		interferedWithUser: result.performed?.interferedWithUser === true ? true : undefined,
+		stoppedByUser: computerUseStopRequested() ? true : undefined,
 	});
 }
 
@@ -1380,6 +1399,20 @@ function helperActRequest(target: ResolvedTarget, action: NativePreparedAction, 
 			case "scroll": return { ...base, action: action.action, params: { scrollX: action.params.scrollX, scrollY: action.params.scrollY, delivery } };
 			case "drag": return { ...base, action: action.action, params: { path: action.params.path, delivery } };
 			case "moveMouse": return { ...base, action: action.action, params: { delivery } };
+			case "hover": return { ...base, action: action.action, params: { delivery } };
+			case "select":
+				return { ...base, action: "select", params: { ...(typeof action.params.option === "string" ? { option: action.params.option } : {}), delivery } };
+			case "setChecked":
+				return { ...base, action: "setChecked", params: { checked: action.params.checked === true, delivery } };
+			case "setValue":
+				return { ...base, action: "setValue", params: { value: Number(action.params.value), delivery } };
+			case "expand":
+			case "collapse":
+			case "scrollTo":
+			case "focus":
+			case "clear":
+			case "showMenu":
+				return { ...base, action: action.action, params: { delivery } };
 		}
 	})();
 }
@@ -2516,7 +2549,7 @@ function recordToolTrace(
 		status,
 		target: target && (target.role || target.ref || target.app) ? target : undefined,
 		durationMs: Date.now() - startedAt,
-		deliveryLevel: typeof execution?.delivery === "string" ? execution.delivery : undefined,
+		deliveryLevel: typeof execution?.deliveryLevel === "string" ? execution.deliveryLevel : (typeof execution?.delivery === "string" ? execution.delivery : undefined),
 		text: typed,
 		screenshots: shots.length ? shots : undefined,
 		evidence: traceEvidenceOf(details, outcome.error),
@@ -2589,7 +2622,239 @@ export const executeInspectUi = makeToolExecutor("inspect_ui", performInspectUi)
 export const executeAct = makeToolExecutor<ActParams, ComputerUseDetails | TerminalDesktopActionDetails | BrowserObservationDetails>("act_ui", performAct);
 export const executeNavigateBrowser = makeToolExecutor("navigate_browser", performNavigateBrowser);
 export const executeEvaluateBrowser = makeToolExecutor("evaluate_browser", performEvaluateBrowser);
+// MARK: - Computer Use v2 administration tools
+
+const CLIPBOARD_RESTORE_MS = 30_000;
+let clipboardRestoreTimer: ReturnType<typeof setTimeout> | undefined;
+
+function clearClipboardRestoreTimer(): void {
+	if (clipboardRestoreTimer) clearTimeout(clipboardRestoreTimer);
+	clipboardRestoreTimer = undefined;
+}
+
+/**
+ * Restore the user's clipboard after a write.
+ *
+ * Writing the clipboard is a visible side effect on the user's own machine, so a
+ * `set` puts the previous text back after 30 seconds unless the user turned
+ * restoration off.
+ */
+export function scheduleClipboardRestore(options: {
+	previous: string;
+	restore: boolean;
+	write: (text: string) => Promise<unknown>;
+	delayMs?: number;
+	setTimer?: (callback: () => void, ms: number) => ReturnType<typeof setTimeout>;
+}): boolean {
+	if (!options.restore || !options.previous) return false;
+	clearClipboardRestoreTimer();
+	const delay = options.delayMs ?? CLIPBOARD_RESTORE_MS;
+	const setTimer = options.setTimer ?? setTimeout;
+	clipboardRestoreTimer = setTimer(() => {
+		clipboardRestoreTimer = undefined;
+		void options.write(options.previous).catch(() => undefined);
+	}, delay);
+	clipboardRestoreTimer.unref?.();
+	return true;
+}
+
+async function performClipboard(params: { action: "get" | "set" | "clear"; text?: string }, _signal?: AbortSignal): Promise<AgentToolResult<Record<string, unknown>>> {
+	const backend = currentPlatformBackend;
+	if (params.action === "get") {
+		if (!backend.clipboardGet) return unsupportedToolResult("clipboard", "get", "This platform cannot read the clipboard.");
+		const read = await backend.clipboardGet();
+		return {
+			content: [{ type: "text", text: read.available ? `Clipboard contains ${read.text.length} characters${read.truncated ? " (truncated)" : ""}.` : "Clipboard is empty." }],
+			details: { tool: "clipboard", action: "get", status: "ok", ...read },
+		};
+	}
+	if (params.action === "clear") {
+		if (!backend.clipboardClear) return unsupportedToolResult("clipboard", "clear", "This platform cannot clear the clipboard.");
+		const cleared = await backend.clipboardClear();
+		return {
+			content: [{ type: "text", text: "Cleared the clipboard." }],
+			details: { tool: "clipboard", action: "clear", status: "ok", ...cleared },
+		};
+	}
+	if (!backend.clipboardSet) return unsupportedToolResult("clipboard", "set", "This platform cannot write the clipboard.");
+	const text = params.text ?? "";
+	const previous = backend.clipboardGet ? await backend.clipboardGet().catch(() => undefined) : undefined;
+	const written = await backend.clipboardSet(text);
+	const restore = scheduleClipboardRestore({
+		previous: previous?.text ?? "",
+		restore: getComputerUseConfig().clipboard_restore,
+		write: async (value) => await backend.clipboardSet?.(value),
+	});
+	return {
+		content: [{
+			type: "text",
+			text: written.changed === false
+				? "The clipboard refused the new text."
+				: `Wrote ${[...text].length} characters to the clipboard${restore ? "; the previous clipboard text is restored in 30 seconds" : ""}.`,
+		}],
+		details: { tool: "clipboard", action: "set", status: written.changed === false ? "didnt" : "ok", ...written, restores: restore },
+	};
+}
+
+async function performManageApp(params: { action: "list" | "launch" | "quit"; bundleId?: string; path?: string; pid?: number; force?: boolean }, _signal?: AbortSignal): Promise<AgentToolResult<Record<string, unknown>>> {
+	const backend = currentPlatformBackend;
+	if (params.action === "list") {
+		const apps = await listApps();
+		const lines = apps.map((app) => `${app.appName}${app.bundleId ? ` (${app.bundleId})` : ""} pid=${app.pid}${app.isFrontmost ? " frontmost" : ""}`);
+		return {
+			content: [{ type: "text", text: lines.length ? lines.join("\n") : "No applications are running." }],
+			details: { tool: "manage_app", action: "list", status: "ok", apps },
+		};
+	}
+	if (!backend.manageApps) return unsupportedToolResult("manage_app", params.action, "This platform cannot manage applications.");
+	if (params.action === "quit") {
+		if (params.pid === undefined && !params.bundleId) return toolProblem("manage_app", "quit requires pid or bundleId.");
+		const result = await backend.manageApps({ mode: "quit", pid: params.pid, bundleId: params.bundleId, force: params.force === true });
+		const quit = result as { terminated?: boolean; quitRequested?: boolean; unsavedChangesMayBlock?: boolean };
+		const status = quit.terminated ? "worked" : quit.unsavedChangesMayBlock ? "unknown" : "didnt";
+		return {
+			content: [{
+				type: "text",
+				text: quit.terminated
+					? "The application quit."
+					: quit.quitRequested
+						? "The quit request was accepted but the application is still running; it may be waiting on unsaved changes."
+						: "The application refused to quit.",
+			}],
+			details: { tool: "manage_app", action: "quit", status, ...quit },
+		};
+	}
+	if (!params.bundleId && !params.path) return toolProblem("manage_app", "launch requires bundleId or path.");
+	const launched = await backend.manageApps({ mode: "launch", bundleId: params.bundleId, path: params.path, activates: false });
+	const launch = launched as { launched?: boolean; alreadyRunning?: boolean; pending?: boolean; pid?: number };
+	return {
+		content: [{
+			type: "text",
+			text: launch.launched
+				? `Launched the application${launch.alreadyRunning ? " (it was already running)" : ""} without activating it${launch.pid ? `, pid ${launch.pid}` : ""}.`
+				: launch.pending
+					? "The launch is still in progress; nothing is active yet."
+					: "The application did not launch.",
+		}],
+		details: { tool: "manage_app", action: "launch", status: launch.launched ? "ok" : launch.pending ? "unknown" : "didnt", ...launch },
+	};
+}
+
+async function performManageWindow(params: { action: "list" | "move" | "resize" | "minimize" | "restore" | "maximize" | "list_displays"; pid?: number; windowId?: number; x?: number; y?: number; w?: number; h?: number; title?: string }, _signal?: AbortSignal): Promise<AgentToolResult<Record<string, unknown>>> {
+	const backend = currentPlatformBackend;
+	if (!backend.manageWindow) return unsupportedToolResult("manage_window", params.action, "This platform cannot manage windows.");
+	if (params.action === "list" || params.action === "list_displays") {
+		const result = await backend.manageWindow(params.action === "list"
+			? { mode: "list", pid: params.pid, title: params.title }
+			: { mode: "list_displays" });
+		if (params.action === "list_displays") {
+			const displays = result as Array<{ name: string; frame: { x: number; y: number; w: number; h: number }; isMain: boolean; scaleFactor: number }>;
+			const lines = displays.map((display) => `${display.name}${display.isMain ? " (main)" : ""} ${Math.round(display.frame.w)}x${Math.round(display.frame.h)} @${display.scaleFactor}x at ${Math.round(display.frame.x)},${Math.round(display.frame.y)}`);
+			return {
+				content: [{ type: "text", text: lines.length ? lines.join("\n") : "No displays were reported." }],
+				details: { tool: "manage_window", action: "list_displays", status: "ok", displays },
+			};
+		}
+		const roots = result as HelperWindow[];
+		const windows = collectBroadWindowDetails(roots, getComputerUseConfig());
+		return {
+			content: [{ type: "text", text: windows.length ? windows.map(formatWindowLine).join("\n") : "No windows matched." }],
+			details: { tool: "manage_window", action: "list", status: "ok", windows },
+		};
+	}
+	if (params.windowId === undefined || params.pid === undefined) return toolProblem("manage_window", `${params.action} requires pid and windowId.`);
+	const result = await backend.manageWindow({ mode: params.action, pid: params.pid, windowId: params.windowId, x: params.x, y: params.y, w: params.w, h: params.h });
+	const mutation = result as { outcome?: string; before?: unknown; after?: unknown };
+	return {
+		content: [{
+			type: "text",
+			text: mutation.outcome === "worked"
+				? `Window ${params.windowId}: ${params.action} applied. Never activated or raised.`
+				: `Window ${params.windowId}: ${params.action} did not change the window (${mutation.outcome ?? "unknown"}).`,
+		}],
+		details: { tool: "manage_window", action: params.action, status: mutation.outcome === "worked" ? "ok" : mutation.outcome === "didnt" ? "didnt" : "unknown", ...mutation },
+	};
+}
+
+async function performSystemSurface(params: { surface: "notifications" | "menu_bar_extras" | "control_center" | "dock" | "all" }, _signal?: AbortSignal): Promise<AgentToolResult<Record<string, unknown>>> {
+	const backend = currentPlatformBackend;
+	if (!backend.systemSurfaces) return unsupportedToolResult("system_surface", params.surface, "This platform does not expose system surfaces.");
+	const surfaces = await backend.systemSurfaces(params.surface);
+	const lines: string[] = [];
+	const details: Record<string, unknown> = { tool: "system_surface", status: "ok", surfaces: {} };
+	for (const [name, surface] of Object.entries(surfaces)) {
+		const windows = surface.available ? collectBroadWindowDetails(surface.roots, getComputerUseConfig()) : [];
+		(details.surfaces as Record<string, unknown>)[name] = { available: surface.available, bundleId: surface.bundleId, windows };
+		if (!surface.available) {
+			lines.push(`${name}: not running`);
+			continue;
+		}
+		lines.push(`${name}: ${windows.length ? windows.map(formatWindowLine).join(" | ") : "no addressable roots"}`);
+	}
+	return {
+		content: [{ type: "text", text: lines.length ? lines.join("\n") : "No system surfaces are available." }],
+		details,
+	};
+}
+
+async function performCuSession(params: { action: "status" | "release" | "stop" | "trace_export" }, _signal?: AbortSignal): Promise<AgentToolResult<Record<string, unknown>>> {
+	if (params.action === "trace_export") {
+		const recorder = activeTraceRecorder();
+		if (!recorder) return unsupportedToolResult("cu_session", "trace_export", "Tracing is disabled for this session.");
+		const markdown = exportTraceMarkdown(recorder.sessionDir, path.basename(recorder.filePath));
+		return {
+			content: [{ type: "text", text: markdown }],
+			details: { tool: "cu_session", action: "trace_export", status: "ok", path: recorder.filePath },
+		};
+	}
+	const session = brokerSession;
+	if (!session) return unsupportedToolResult("cu_session", params.action, "The Desktop Broker is not attached to this session.");
+	if (params.action === "status") {
+		const status = await session.client.status();
+		const lines = (status.agents ?? []).map((agent) => {
+			const held = agent.leases.map((lease) => lease.resourceKey).join(", ");
+			return `${agent.agentId}${agent.agentId === session.client.agentId ? " (this session)" : ""}${held ? ` holds ${held}` : " holds nothing"}`;
+		});
+		return {
+			content: [{ type: "text", text: lines.length ? lines.join("\n") : "No agents are attached to the broker." }],
+			details: { tool: "cu_session", action: "status", status: "ok", broker: status },
+		};
+	}
+	if (params.action === "stop") {
+		const stopped = await session.client.stop();
+		brokerStopRequested = true;
+		return {
+			content: [{ type: "text", text: stopped.length ? `Stopped: ${stopped.join(", ")}` : "No other agent was running." }],
+			details: { tool: "cu_session", action: "stop", status: "ok", stopped },
+		};
+	}
+	const status = await session.client.status().catch(() => undefined);
+	const held = status?.agents.find((agent) => agent.agentId === session.client.agentId)?.leases ?? [];
+	await session.broker.releaseAll();
+	return {
+		content: [{ type: "text", text: held.length ? `Released ${held.length} lease(s): ${held.map((lease) => lease.resourceKey).join(", ")}.` : "This session held no leases." }],
+		details: { tool: "cu_session", action: "release", status: "ok", released: held.map((lease) => lease.resourceKey) },
+	};
+}
+
+function unsupportedToolResult(tool: string, action: string, message: string): AgentToolResult<Record<string, unknown>> {
+	return { content: [{ type: "text", text: `${tool} ${action} is unavailable: ${message}` }], details: { tool, action, status: "unsupported" } };
+}
+
+function toolProblem(tool: string, message: string): AgentToolResult<Record<string, unknown>> {
+	return { content: [{ type: "text", text: `${tool}: ${message}` }], details: { tool, status: "invalid_args", message } };
+}
+
+function activeTraceRecorder(): TraceRecorder | undefined {
+	return traceRecorder;
+}
+
 export const executeLaunchBrowser = makeToolExecutor("launch_browser", performLaunchBrowser);
+export const executeManageApp = makeToolExecutor<{ action: "list" | "launch" | "quit"; bundleId?: string; path?: string; pid?: number; force?: boolean }, Record<string, unknown>>("manage_app", performManageApp);
+export const executeManageWindow = makeToolExecutor<{ action: "list" | "move" | "resize" | "minimize" | "restore" | "maximize" | "list_displays"; pid?: number; windowId?: number; x?: number; y?: number; w?: number; h?: number; title?: string }, Record<string, unknown>>("manage_window", performManageWindow);
+export const executeClipboard = makeToolExecutor<{ action: "get" | "set" | "clear"; text?: string }, Record<string, unknown>>("clipboard", performClipboard);
+export const executeSystemSurface = makeToolExecutor<{ surface: "notifications" | "menu_bar_extras" | "control_center" | "dock" | "all" }, Record<string, unknown>>("system_surface", performSystemSurface);
+export const executeCuSession = makeToolExecutor<{ action: "status" | "release" | "stop" | "trace_export" }, Record<string, unknown>>("cu_session", performCuSession);
 
 export function reconstructStateFromBranch(ctx: ExtensionContext): void {
 	savedStates.clear();

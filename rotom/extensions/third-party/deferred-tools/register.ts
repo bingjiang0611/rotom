@@ -39,6 +39,12 @@ export const DEFERRED_TOOL_ROUTING_GUIDELINES = [
 
 export const DEFERRED_CAPABILITY_GROUPS = [
 	{
+		id: "computer_use_admin",
+		label: "Computer Use administration",
+		aliases: ["computer use admin", "app management", "window management", "clipboard", "system surface", "session control", "应用管理", "窗口管理", "剪贴板", "系统界面", "会话控制", "停止 agent"],
+		toolNames: ["manage_app", "manage_window", "clipboard", "system_surface", "cu_session"],
+	},
+	{
 		id: "subagent",
 		label: "Subagent",
 		aliases: ["subagent", "sub-agent", "agent delegation", "opus subagent", "子agent", "子 agent", "子代理", "委派子代理", "评审子代理"],

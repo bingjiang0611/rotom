@@ -1,4 +1,4 @@
-import type { MouseButtonName, UiAction } from "./contract.ts";
+import { SEMANTIC_ACTION_NAMES, type MouseButtonName, type UiAction } from "./contract.ts";
 import type { OutlineNode } from "./outline.ts";
 import { toFiniteNumber } from "./platform/coerce.ts";
 
@@ -12,6 +12,15 @@ export type PreparedAction =
 	| { action: "scroll"; target: ActionTarget; params: { scrollX: number; scrollY: number }; establishesFocus: false; usesCurrentFocus: false; needsForeground: false }
 	| { action: "drag"; target: ActionTarget; params: { path: Array<{ x: number; y: number }> }; establishesFocus: false; usesCurrentFocus: false; needsForeground: false }
 	| { action: "moveMouse"; target: ActionTarget; params: Record<string, never>; establishesFocus: false; usesCurrentFocus: false; needsForeground: false }
+	| { action: "hover"; target: ActionTarget; params: { delivery?: "l2" }; establishesFocus: false; usesCurrentFocus: false; needsForeground: false }
+	| {
+		action: "select" | "setChecked" | "expand" | "collapse" | "scrollTo" | "focus" | "clear" | "setValue" | "showMenu";
+		target: ActionTarget;
+		params: Record<string, unknown>;
+		establishesFocus: false;
+		usesCurrentFocus: false;
+		needsForeground: false;
+	}
 	| { action: "wait"; params: { ms: number }; establishesFocus: false; usesCurrentFocus: false; needsForeground: false };
 
 export interface ActionState {
@@ -80,6 +89,18 @@ function nativeTarget(action: UiAction, operation: PreparedAction["action"], env
 	throw new Error(`${operation} requires either ref or both x and y.`);
 }
 
+/**
+ * Semantic actions are accessibility operations on one element: they need a wire
+ * ref, not a point. Refusing a coordinate here keeps "press where I guessed"
+ * from being silently substituted for "check the box".
+ */
+function semanticTarget(action: UiAction, env: ActionEnvironment): ActionTarget {
+	if (!action.ref?.trim()) throw new Error(`${action.action} requires an element ref; coordinates cannot express a semantic action.`);
+	const node = env.node(action.ref.trim());
+	if (!node.wireRef || node.pictureOnly) throw new Error(`${action.action} needs an element exposed through the accessibility tree; ${action.ref} is picture-only or unmapped.`);
+	return { ref: node.wireRef };
+}
+
 function focusedTarget(env: ActionEnvironment): ActionTarget {
 	if (!env.image) throw new Error("Focused keyboard input requires an image-bearing state.");
 	return { focus: { x: Math.floor(env.image.width / 2), y: Math.floor(env.image.height / 2) } };
@@ -92,6 +113,21 @@ function containsEditable(node: OutlineNode): boolean {
 
 export function prepareAction(action: UiAction, state: ActionState, env: ActionEnvironment): PreparedAction {
 	const operation = action.action;
+	if (SEMANTIC_ACTION_NAMES.has(operation)) {
+		const target = semanticTarget(action, env);
+		const params: Record<string, unknown> = {};
+		if (operation === "select" && action.option?.trim()) params.option = action.option.trim();
+		if (operation === "setChecked") {
+			if (typeof action.checked !== "boolean") throw new Error("setChecked requires checked: true or false.");
+			params.checked = action.checked;
+		}
+		if (operation === "setValue") {
+			const value = toFiniteNumber(action.value, NaN);
+			if (!Number.isFinite(value)) throw new Error("setValue requires a numeric value.");
+			params.value = value;
+		}
+		return { action: operation, target, params, establishesFocus: false, usesCurrentFocus: false, needsForeground: false };
+	}
 	const usesCurrentFocus = !env.headless && state.currentFocus && !action.ref && (operation === "typeText" || operation === "keypress");
 	const target = usesCurrentFocus ? focusedTarget(env) : nativeTarget(action, operation, env);
 	const establishesFocus = !env.headless && Boolean(action.ref) && (operation === "click" || operation === "press") && containsEditable(env.node(action.ref!));
@@ -106,6 +142,7 @@ export function prepareAction(action: UiAction, state: ActionState, env: ActionE
 		case "scroll": return { action: operation, target, params: { scrollX: scrollDelta(action.scrollX), scrollY: scrollDelta(action.scrollY) }, establishesFocus: false, usesCurrentFocus: false, needsForeground: false };
 		case "drag": return { action: operation, target, params: { path: path(action.path, env) }, establishesFocus: false, usesCurrentFocus: false, needsForeground: false };
 		case "moveMouse": return { action: operation, target, params: {}, establishesFocus: false, usesCurrentFocus: false, needsForeground: false };
+		case "hover": return { action: operation, target, params: {}, establishesFocus: false, usesCurrentFocus: false, needsForeground: false };
 	}
 }
 
