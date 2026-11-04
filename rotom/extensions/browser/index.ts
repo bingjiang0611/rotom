@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
 	BROWSER_INSPECT_OPERATIONS_V1,
+	BROWSER_OPEN_PLACEMENTS_V1,
 	BROWSER_RELAY_TRANSFER_CAPABILITY_V1,
 	BROWSER_INSPECT_TOOL_V1,
 	BROWSER_INTERACT_OPERATIONS_V1,
@@ -377,7 +378,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 		promptSnippet: "Inspect dynamic or authenticated Chrome pages; snapshot is the full-content path.",
 		promptGuidelines: [
 			...BROWSER_SHARED_PROMPT_GUIDELINES,
-			"open: named background tab, no focus. HTTP(S) only; serve HTML via HTTP. discover then claim: tabId + new tabName; handoff returns claimed user tabs.",
+			"open: named background tab, no focus; placement=agent-window uses one never-focused window per agent. HTTP(S) only; serve HTML via HTTP. discover then claim: tabId + new tabName; handoff returns claimed user tabs.",
 			"transfer hands a tab to another agent of the same root session as tabName@yourAgentId; refs and coordinates start fresh.",
 			"snapshot and read_full traverse virtualized scroll containers and restore position; use cursor pagination, not manual scrolling, reopening, or reclaiming. Full-text claims need scrolledContainers>0.",
 			"Use snapshot_visible to refresh refs, browser_interact for actions, screenshot only for ref-less controls; screenshots are sensitive content.",
@@ -387,6 +388,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			operation: StringEnum(BROWSER_INSPECT_OPERATIONS_V1),
 			tabName: Type.Optional(Type.String({ minLength: 1, maxLength: 64, description: "Required for open and claim: a new owned tab name. Other operations may use the current owned tab." })),
 			tabId: Type.Optional(Type.Integer({ minimum: 0, description: "Required for claim: the tabId returned by discover." })),
+			placement: Type.Optional(StringEnum(BROWSER_OPEN_PLACEMENTS_V1)),
 			toAgentId: Type.Optional(Type.String({ minLength: 1, maxLength: 128, description: "Required for transfer: receiving agentId in the same root session." })),
 			url: Type.Optional(Type.String({ minLength: 1, maxLength: 4096, description: "Required for open: an HTTP(S) URL." })),
 			status: Type.Optional(StringEnum(["loading", "complete"] as const)),
@@ -433,7 +435,9 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			if (params.cursor !== undefined && !pagedObservation) throw new Error("cursor 仅允许 snapshot、snapshot_visible 或 read_full");
 			if (pagedObservation && params.cursor !== undefined) return snapshotResult(undefined, limit, params.cursor as string);
 			if (operation === "open") {
-				const observation = sanitizeBrowserObservationV1(await relayClient.request("open", { tabName, url: openUrl }, { signal }));
+				const placement = params.placement === undefined ? undefined : safeString(params.placement, "placement", 32);
+				if (placement !== undefined && !BROWSER_OPEN_PLACEMENTS_V1.includes(placement as never)) throw new Error("open placement 无效");
+				const observation = sanitizeBrowserObservationV1(await relayClient.request("open", { tabName, url: openUrl, ...(placement === undefined ? {} : { placement }) }, { signal }));
 				return snapshotResult(observation, limit);
 			}
 			if (operation === "discover") {

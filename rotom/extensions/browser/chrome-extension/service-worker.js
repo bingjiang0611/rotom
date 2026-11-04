@@ -4,6 +4,8 @@ import { resetTransferredItemV1, transferTargetSessionV1, transferredTabNameV1 }
 import { forgetSpawnedTab, recordedOpenerTabId, rememberSpawnedTab } from "./spawned-tabs.js";
 import { createSessionLockV1, createTabLocksV1, isSessionScopedOperationV1, tabLockKeyV1 } from "./request-locks.js";
 import { sessionCleanupPlanV1 } from "./session-cleanup.js";
+import { createFocusCoordinator } from "./focus-coordinator.js";
+import { withTabWake } from "./lifecycle-wake.js";
 import { createMergedSessionWriter, isSessionStateKeyV3, LEGACY_SESSION_STATE_KEY_V1, LEGACY_SESSION_STATE_KEY_V2, legacyV1Sessions, legacyV2Sessions, serializeSessionStateV3, sessionStateKeyV3 } from "./session-persistence.js";
 import { interactionScrollTarget } from "./interaction-scroll-target.js";
 import { createOperationGuard } from "./operation-guard.js";
@@ -47,6 +49,19 @@ const childSessionsByTabId = new Map();
 const tabReservations = new Set();
 const windowOpenGuardsByTabId = new Map();
 const spawnedTabOpeners = new Map();
+// One user-focus record for the whole browser: several agents restore to the same
+// place instead of each remembering its own pre-action focus.
+const focusCoordinator = createFocusCoordinator({
+	updateTab: async (tabId) => globalThis.chrome.tabs.update(tabId, { active: true }),
+	updateWindow: async (windowId) => globalThis.chrome.windows.update(windowId, { focused: true }),
+	windowIdOf: async (windowId) => {
+		const tabs = await globalThis.chrome.tabs.query(Number.isInteger(windowId) ? { active: true, windowId } : { active: true, lastFocusedWindow: true });
+		const tab = tabs?.find((candidate) => candidate.active === true) ?? tabs?.[0];
+		if (!Number.isInteger(tab?.id)) return undefined;
+		const window = Number.isInteger(tab.windowId) ? await globalThis.chrome.windows.get(tab.windowId).catch(() => undefined) : undefined;
+		return { tabId: tab.id, windowId: tab.windowId, focused: window?.focused === true };
+	},
+});
 let nativePort;
 let reconnectTimer;
 let tabGroupChain = Promise.resolve();
@@ -157,6 +172,7 @@ async function restoreState() {
 				url: actualUrl ?? cachedUrl,
 				status: tab?.status === "complete" ? "complete" : tab?.status === "loading" ? "loading" : candidate.status === "complete" ? "complete" : "loading",
 				ownership: candidate.ownership === "claimed" ? "claimed" : "agent",
+				...(typeof candidate.restoreAutoDiscardable === "boolean" ? { restoreAutoDiscardable: candidate.restoreAutoDiscardable } : {}),
 				attached: false,
 				detached: true,
 			});
@@ -171,6 +187,17 @@ async function restoreState() {
 	}
 }
 
+// Best-effort: a tab that Chrome froze or discarded is moved back to "active" on
+// every attach. Failing here is a diagnostic, never an operation failure.
+async function wakeTabLifecycle(item, assertOperation) {
+	const chrome = operationChrome(globalThis.chrome, assertOperation);
+	return withTabWake({
+		item,
+		assertOperation,
+		sendCommand: (debuggee, method, params) => chrome.debugger.sendCommand(debuggee, method, params),
+		diagnose: (message) => console.warn(`browser relay lifecycle wake failed: ${message}`),
+	});
+}
 async function attach(item, assertOperation = () => undefined) {
 	const chrome = operationChrome(globalThis.chrome, assertOperation);
 	assertOperation();
@@ -179,7 +206,7 @@ async function attach(item, assertOperation = () => undefined) {
 	if (typeof item.targetId === "string") {
 		const target = targets.find((candidate) => candidate.tabId === item.tabId && candidate.id === item.targetId && candidate.type === "page");
 		if (!target) throw new Error("owned debugger target identity changed");
-		if (item.attached === true && item.detached !== true && target.attached === true) return;
+		if (item.attached === true && item.detached !== true && target.attached === true) { await wakeTabLifecycle(item, assertOperation); return; }
 		assertOperation();
 		item.attached = false;
 		item.detached = true;
@@ -189,7 +216,7 @@ async function attach(item, assertOperation = () => undefined) {
 				await chrome.debugger.sendCommand({ tabId: item.tabId }, "Accessibility.enable");
 				await enableChildFrameSessions({ tabId: item.tabId }, assertOperation);
 				assertOperation();
-				item.attached = true; item.detached = false; await persistState(); assertOperation(); return;
+				item.attached = true; item.detached = false; await persistState(); await wakeTabLifecycle(item, assertOperation); assertOperation(); return;
 			} catch { throw new Error("owned debugger target is attached by another client"); }
 		}
 	}
@@ -209,6 +236,7 @@ async function attach(item, assertOperation = () => undefined) {
 		item.attached = true;
 		item.detached = false;
 		await persistState();
+		await wakeTabLifecycle(item, assertOperation);
 		assertOperation();
 	} catch (error) {
 		if (attachedHere) try { await chrome.debugger.detach({ tabId: item.tabId }); } catch { /* already detached */ }
@@ -264,6 +292,35 @@ function rotateChildSessionScope(tabId, sessionId) {
 	item.nextFrameScope = Number.isSafeInteger(item.nextFrameScope) ? item.nextFrameScope + 1 : 1;
 	entry.scopeId = `f${item.nextFrameScope}`;
 }
+/** Agent tabs must not be discarded underneath a running operation. */
+async function protectFromDiscard(chrome, tabId) {
+	try {
+		const before = await chrome.tabs.get(tabId);
+		await chrome.tabs.update(tabId, { autoDiscardable: false });
+		return before?.autoDiscardable !== false;
+	} catch { return undefined; }
+}
+async function releaseDiscardProtection(chrome, item) {
+	if (item?.restoreAutoDiscardable === undefined) return;
+	try { await chrome.tabs.update(item.tabId, { autoDiscardable: item.restoreAutoDiscardable }); }
+	catch { /* tab already gone */ }
+}
+/** `placement: "agent-window"` keeps a dedicated unfocused window per agent. */
+async function createAgentWindowTab(state, url) {
+	const chrome = globalThis.chrome;
+	if (Number.isInteger(state.agentWindowId)) {
+		const existing = await chrome.windows.get(state.agentWindowId).catch(() => undefined);
+		if (existing) return chrome.tabs.create({ windowId: state.agentWindowId, url, active: false });
+		state.agentWindowId = undefined;
+	}
+	focusCoordinator.markAgentActivity();
+	const created = await chrome.windows.create({ url, focused: false, type: "normal" });
+	if (!Number.isInteger(created?.id)) throw new Error("agent window creation failed");
+	state.agentWindowId = created.id;
+	const tab = (created.tabs ?? []).find((candidate) => Number.isInteger(candidate?.id));
+	if (!tab) throw new Error("agent window tab unavailable");
+	return tab;
+}
 async function closeOwned(state, name, assertOperation = () => undefined) {
 	const chrome = operationChrome(globalThis.chrome, assertOperation);
 	assertOperation();
@@ -278,6 +335,7 @@ async function closeOwned(state, name, assertOperation = () => undefined) {
 	try {
 		try { await chrome.debugger.detach({ tabId: item.tabId }); } catch { /* already detached or retired */ }
 		if (item.ownership !== "claimed") try { await chrome.tabs.remove(item.tabId); } catch { /* already closed or retired */ }
+		else await releaseDiscardProtection(chrome, item);
 		await persistState();
 		return true;
 	} finally { tabReservations.delete(item.tabId); }
@@ -320,7 +378,7 @@ function axStates(node) {
 	}
 	return result;
 }
-function observationValue(name, item, tab, nodes, truncated, coverage = {}) {
+function observationValue(name, item, tab, nodes, truncated, coverage = {}, visibilityState) {
 	const observationEpoch = invalidateCoordinateObservation(item);
 	return {
 		schemaVersion: 1,
@@ -336,6 +394,7 @@ function observationValue(name, item, tab, nodes, truncated, coverage = {}) {
 		truncated,
 		contentCoverage: coverage.contentCoverage === "scroll-end" ? "scroll-end" : "rendered-dom",
 		contentComplete: coverage.contentComplete === true,
+		...(visibilityState === undefined ? {} : { visibilityState }),
 		...(Number.isSafeInteger(coverage.scanSteps) ? { scanSteps: coverage.scanSteps } : {}),
 		...(Number.isSafeInteger(coverage.scannedContainers) ? { scannedContainers: coverage.scannedContainers } : {}),
 		...(Number.isSafeInteger(coverage.scrolledContainers) ? { scrolledContainers: coverage.scrolledContainers } : {}),
@@ -365,6 +424,13 @@ async function renderedTextSources(item, assertOperation) {
 		sources: evaluated.filter((entry) => typeof entry.value === "string" && entry.value).map((entry) => ({ scopeId: entry.scopeId, text: entry.value })),
 		incomplete: evaluated.length !== 1 + childSessionEntries(item.tabId).length || evaluated.some((entry) => typeof entry.value !== "string"),
 	};
+}
+/** `document.visibilityState` of the root document, or undefined when unreadable. */
+async function readVisibilityState(item, assertOperation) {
+	const chrome = operationChrome(globalThis.chrome, assertOperation);
+	const evaluated = await valueWithinRelayDeadline(chrome.debugger.sendCommand({ tabId: item.tabId }, "Runtime.evaluate", { expression: "document.visibilityState", returnByValue: true }), 1_500);
+	const value = evaluated.ok ? evaluated.value?.result?.value : undefined;
+	return value === "visible" || value === "hidden" ? value : undefined;
 }
 async function pageAlertSources(item, assertOperation) {
 	const evaluated = await scopedEvaluations(item, `(${collectPageAlerts.toString()})()`, PAGE_ALERT_WAIT_MS, assertOperation);
@@ -414,8 +480,9 @@ async function observation(name, item, assertOperation, payload = {}) {
 		return tree.ok ? { scopeId: entry.scopeId, nodes: Array.isArray(tree.value?.nodes) ? tree.value.nodes : [], incomplete: !Array.isArray(tree.value?.nodes) } : undefined;
 	}));
 	const includeText = !filtered || query.role === undefined || query.role === "document-text";
-	const [rootTree, childTrees, textSources] = await Promise.all([rootTreePromise, childTreesPromise,
-		includeText ? renderedTextSources(item, assertOperation) : { sources: [], incomplete: false }]);
+	const [rootTree, childTrees, textSources, visibilityState] = await Promise.all([rootTreePromise, childTreesPromise,
+		includeText ? renderedTextSources(item, assertOperation) : { sources: [], incomplete: false },
+		readVisibilityState(item, assertOperation)]);
 	assertOperation();
 	const rawNodes = (rootTree.ok && Array.isArray(rootTree.value?.nodes) ? rootTree.value.nodes : []).map((node) => ({ node, scopeId: "r" }));
 	for (const child of childTrees) if (child) for (const node of child.nodes) rawNodes.push({ node, scopeId: child.scopeId });
@@ -452,7 +519,7 @@ async function observation(name, item, assertOperation, payload = {}) {
 		selection.scanTruncated ||= text.truncated || textSources.incomplete;
 		return { ...observationValue(name, item, tab, nodes, selection.scanTruncated || selection.matchesTruncated), selection };
 	}
-	return observationValue(name, item, tab, nodes, (rawNodes.length > MAX_AX_NODES) || text.truncated || !rootTree.ok);
+	return observationValue(name, item, tab, nodes, (rawNodes.length > MAX_AX_NODES) || text.truncated || !rootTree.ok, {}, visibilityState);
 }
 async function interactionReadback(name, item, assertOperation) {
 	const chrome = operationChrome(globalThis.chrome, assertOperation);
@@ -738,26 +805,27 @@ async function withBackgroundActivationGuard(item, action, assertOperation) {
 	const chrome = operationChrome(globalThis.chrome, assertOperation);
 	const sourceTab = await chrome.tabs.get(item.tabId);
 	if (!Number.isInteger(sourceTab?.windowId)) return { value: await action(), spawnedTabs: 0, restored: false };
-	const sourceWindowId = sourceTab.windowId;
 	const tabsBefore = await chrome.tabs.query({});
 	const knownTabIds = new Set(tabsBefore.map((tab) => tab.id).filter(Number.isInteger));
-	const activeBefore = tabsBefore.find((tab) => tab.active === true && tab.windowId === sourceWindowId);
-	const sourceWindow = await chrome.windows.get(sourceWindowId);
 	const spawned = new Map();
 	const windowOpenGuard = { signals: [] };
 	assertOperation();
+	// Anything the dispatch activates or focuses in this window is agent noise, not
+	// the user moving around.
+	focusCoordinator.markAgentActivity(BACKGROUND_ACTIVATION_GUARD_MS + 2_000);
+	// A freshly started service worker has not seen any activation yet; seed the
+	// record from the real active tab so the first dispatch still restores it.
+	if (!focusCoordinator.userFocus()) await focusCoordinator.observeActiveTab(sourceTab.windowId);
 	windowOpenGuardsByTabId.set(item.tabId, windowOpenGuard);
 	let restorationChain = Promise.resolve();
 	const restore = async () => {
-		if (Number.isInteger(activeBefore?.id)) {
-			try { await chrome.tabs.update(activeBefore.id, { active: true }); } catch { /* original active tab may have closed */ }
-		}
-		const relatedWindowIds = new Set([sourceWindowId, ...[...spawned.values()].map((tab) => tab.windowId).filter(Number.isInteger)]);
-		if (sourceWindow?.focused === true) {
-			try { await chrome.windows.update(sourceWindowId, { focused: true }); } catch { /* source window may have closed */ }
-			return;
-		}
+		// Only the user's focus is restored; a window an agent opened for itself is
+		// never brought forward.
+		await focusCoordinator.restore();
+		const relatedWindowIds = new Set([...[...spawned.values()].map((tab) => tab.windowId).filter(Number.isInteger)]);
+		const userFocus = focusCoordinator.userFocus();
 		for (const windowId of relatedWindowIds) {
+			if (windowId === userFocus?.windowId) continue;
 			try { const current = await chrome.windows.get(windowId); if (current.focused === true) await chrome.windows.update(windowId, { focused: false }); }
 			catch { /* popup may already have closed */ }
 		}
@@ -1027,10 +1095,11 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 		const name = safeName(payload.tabName);
 		if (state.tabsByName.has(name)) throw new Error("owned tab name already exists");
 		const url = safeUrl(payload.url);
+		if (payload.placement !== undefined && payload.placement !== "background-tab" && payload.placement !== "agent-window") throw new Error("open placement invalid");
 		// Capture a newly created ID even if its request retires while Chrome is
 		// creating it. It has not yet been made available for any other owner.
 		assertOperation();
-		const tab = await globalThis.chrome.tabs.create({ url, active: false });
+		const tab = payload.placement === "agent-window" ? await createAgentWindowTab(state, url) : await globalThis.chrome.tabs.create({ url, active: false });
 		if (!Number.isInteger(tab.id)) throw new Error("tab creation failed");
 		try { assertOperation(); } catch (error) {
 			if (!allSessionItems().some((item) => item.tabId === tab.id) && !tabReservations.has(tab.id)) {
@@ -1040,7 +1109,7 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 			}
 			throw error;
 		}
-		const item = { tabId: tab.id, documentGeneration: 1, url, status: tab.status === "complete" ? "complete" : "loading", ownership: "agent", attached: false, detached: false };
+		const item = { tabId: tab.id, documentGeneration: 1, url, status: tab.status === "complete" ? "complete" : "loading", ownership: "agent", attached: false, detached: false, restoreAutoDiscardable: await protectFromDiscard(globalThis.chrome, tab.id) };
 		state.tabsByName.set(name, item);
 		state.currentTabName = name;
 		try {
@@ -1081,7 +1150,7 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 			const openerOwner = openerTabId === undefined ? undefined : sessionOwningTabId(openerTabId);
 			if (openerOwner !== undefined && openerOwner !== state) throw new Error("tab was opened from another relay session's tab; only its opener may claim it");
 			const url = safeUrl(tab.url);
-			const item = { tabId: tab.id, documentGeneration: 1, url, status: tab.status === "complete" ? "complete" : "loading", ownership: "claimed", attached: false, detached: false };
+			const item = { tabId: tab.id, documentGeneration: 1, url, status: tab.status === "complete" ? "complete" : "loading", ownership: "claimed", attached: false, detached: false, restoreAutoDiscardable: await protectFromDiscard(globalThis.chrome, tab.id) };
 			assertOperation();
 			state.tabsByName.set(name, item);
 			state.currentTabName = name;
@@ -1160,6 +1229,7 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 	if (operation === "handoff") {
 		const { name, item } = owned(state, payload.tabName);
 		const tabId = item.tabId;
+		if (item.ownership === "claimed") await releaseDiscardProtection(globalThis.chrome, item);
 		const preserved = item.ownership === "claimed";
 		await closeOwned(state, name, assertOperation);
 		return { schemaVersion: 1, kind: "rotom-browser-handoff", tabName: name, tabId, preserved };
@@ -1222,6 +1292,7 @@ async function retireDisconnectedSession(state) {
 		if (state.currentTabName === name) state.currentTabName = undefined;
 		detachItems.push(item);
 	}
+	for (const item of detachItems) await releaseDiscardProtection(globalThis.chrome, item);
 	await detachItemsPreservingState(detachItems);
 	state.keepTabs = false;
 	await persistState();
@@ -1329,6 +1400,10 @@ function scheduleReconnect() {
 }
 
 chrome.alarms.onAlarm.addListener((alarm) => { if (alarm.name === NATIVE_RECONNECT_ALARM) connectNative(); });
+// These two listeners are the only source of "user focus"; agent-caused changes are
+// filtered out by the activity window above.
+chrome.tabs.onActivated.addListener((info) => { focusCoordinator.recordActivation({ tabId: info?.tabId, windowId: info?.windowId }); });
+chrome.windows.onFocusChanged.addListener((windowId) => { focusCoordinator.recordWindowFocus(windowId); });
 chrome.tabs.onRemoved.addListener((tabId) => {
 	childSessionsByTabId.delete(tabId);
 	forgetSpawnedTab(spawnedTabOpeners, tabId);

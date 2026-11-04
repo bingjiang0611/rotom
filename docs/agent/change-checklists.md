@@ -68,6 +68,9 @@
 - agent-created、claimed、pinned、其他窗口标签 ownership 是否保持？
 - 子 agent 断开后的归属是否正确：自己 `open` 的 tab 关闭、claim/transfer 来的交还同 root 的在线主 agent、`keepTabs` 时只 detach 并回到可发现状态？每个 agent 的 tab group 标题与颜色是否仍按 agentId 稳定？
 
+- 用户焦点是否仍只有一份记录（`focus-coordinator.js`）：只有非 agent 触发的 `tabs.onActivated`/`windows.onFocusChanged` 才更新它，agent 派发造成的激活不得被记成用户焦点？并发 agent 收尾时是否收敛到同一处，而不是各自恢复自己的旧位置？新启动的 service worker 是否先按真实活动 tab 播种？
+- agent tab 是否在 `open`/`claim` 时设为 `autoDiscardable: false`，并在释放（close 保留的 claimed tab、`keepTabs`、handoff、交还/断开）时恢复原值？observation 是否带 `visibilityState`，未知取值是否 fail closed？
+- `placement: "agent-window"` 是否每 agent 复用自己的窗口、从不聚焦用户窗口，非法值是否在打开任何 tab 前被拒绝？
 - 持久化是否仍按 session 分 key（`browserRelayStateV3:<sessionId>`）、合并写并只写变化项，旧 `browserRelayStateV2`/`V1` 是否迁移后删除？
 - 并发是否仍只有两层锁：结构性操作走 session 锁、其余按 tab 加锁；operation revision 是否按作用域隔离（一个 tab 结束不得作废另一个 tab 的操作）；超时重置是否仍只影响对应 tab？
 - 跨 agent 是否仍只有一个 owner：`discover` 是否隐藏其他 session 的 tab、`claim` 是否只在 opener 属于另一个 session 时拒绝且不带出对方 tabName、`transfer` 是否换新 `documentGeneration`/`observationEpoch` 并作废旧 ref 与坐标？

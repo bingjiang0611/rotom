@@ -11,8 +11,8 @@ async function worker(t, pendingMethod) {
 	const entered = deferred(); const release = deferred();
 	const api = {
 		debugger: { onEvent: event(), onDetach: event(), async getTargets() { return [{ tabId: 1, id: "target", type: "page", attached: false, url: "https://example.test" }]; }, async attach() {}, async detach() { calls.push("detach"); }, async sendCommand(_target, method) { calls.push(method); if (method === pendingMethod) { entered.resolve(); return release.promise; } return {}; } },
-		tabs: { onRemoved: event(), onUpdated: event(), onCreated: event(), async get() { return { id: 1, status: "complete" }; }, async remove() { calls.push("remove"); } },
-		windows: {}, tabGroups: {}, storage: { session: { async set() {} } },
+		tabs: { onRemoved: event(), onUpdated: event(), onCreated: event(), onActivated: event(), async get() { return { id: 1, status: "complete" }; }, async remove() { calls.push("remove"); } },
+		windows: { onFocusChanged: event() }, tabGroups: {}, storage: { session: { async set() {} } },
 		alarms: { onAlarm: event() }, runtime: { onStartup: event(), onInstalled: event() }, action: { onClicked: event() },
 	};
 	globalThis.chrome = api;
@@ -21,7 +21,7 @@ async function worker(t, pendingMethod) {
 	source = source.replace(/from "(\.\/[^"]+)"/gu, (_, path) => `from ${JSON.stringify(new URL(path, new URL("./chrome-extension/", import.meta.url)).href)}`);
 	assert.equal(source.split("void startRelay();").length, 2);
 	source = source.replace("void startRelay();", "");
-	const mod = await import(`data:text/javascript;base64,${Buffer.from(source + `\nexport { attach, fullObservation, fullRenderedTextSource, closeOwnedIdentity, closeOwned, handleOperation, performInteraction, interactionTarget, observation, sessionStates, childSessionsByTabId };\n// ${Math.random()}`).toString("base64")}`);
+	const mod = await import(`data:text/javascript;base64,${Buffer.from(source + `\nexport { attach, fullObservation, fullRenderedTextSource, closeOwnedIdentity, closeOwned, handleOperation, performInteraction, interactionTarget, observation, sessionStates, childSessionsByTabId, createAgentWindowTab, protectFromDiscard, releaseDiscardProtection };\n// ${Math.random()}`).toString("base64")}`);
 	return { mod, api, calls, entered, release };
 }
 
@@ -169,7 +169,7 @@ for (const scope of ["r", "f1"]) test(`Chrome keypress commits one callback tag 
 	]);
 	assert.ok(events.every((call) => JSON.stringify(call.debuggee) === JSON.stringify(scope === "r" ? { tabId: 1 } : { tabId: 1, sessionId: "child" })));
 	assert.deepEqual(commands.filter((call) => call.method === "Emulation.setFocusEmulationEnabled").map((call) => call.params.enabled), [true, false]);
-	assert.deepEqual(commands.filter((call) => call.method === "tabs.update").map((call) => call.id), [3]);
+	assert.deepEqual(commands.filter((call) => call.method === "tabs.update").map((call) => call.id), [3], "dispatch 前记下用户焦点，dispatch 后恢复");
 	assert.equal(commands.some((call) => ["Input.insertText", "Page.bringToFront"].includes(call.method)), false);
 });
 
@@ -246,7 +246,7 @@ test("full-read focus emulation cannot disable a replacement after owner loss", 
 	const pending = mod.fullObservation("fixture", { tabId: 1, targetId: "target", attached: true }, guard.assert);
 	const rejected = assert.rejects(pending, /invalidated/u);
 	await entered.promise; guard.invalidate(); release.resolve({ result: { objectId: "late-object" } }); await rejected;
-	assert.deepEqual(calls, ["Emulation.setFocusEmulationEnabled", "Runtime.evaluate"], "no late focus disable, restoration or object cleanup");
+	assert.deepEqual(calls, ["Page.setWebLifecycleState", "Emulation.setFocusEmulationEnabled", "Runtime.evaluate"], "no late focus disable, restoration or object cleanup");
 });
 
 test("Chrome rollback checks the exact resource, not reused name or numeric tab ID", async (t) => {
@@ -389,4 +389,45 @@ test("open names an external close of the new tab instead of the grouping error"
 	assert.equal(state.tabsByName.has("docs"), false);
 	alive = true; api.tabs.query = async () => { alive = true; throw new Error("query unavailable"); };
 	await assert.rejects(mod.handleOperation(state, "open", { tabName: "docs2", url: "https://example.test/" }, 0, () => {}), /query unavailable/u);
+});
+
+test("placement: agent-window 复用同一个窗口，窗口没了就重开", async (t) => {
+	const { mod, api } = await worker(t);
+	const created = [];
+	let existing = { id: 40 };
+	api.windows.get = async (windowId) => { if (!existing) throw new Error("No window with id: 40"); return { ...existing, id: windowId }; };
+	api.windows.create = async (properties) => { created.push(properties); return { id: 40, tabs: [{ id: 77 }] }; };
+	api.tabs.create = async (properties) => ({ id: 78, ...properties });
+	const state = { tabsByName: new Map() };
+	assert.equal((await mod.createAgentWindowTab(state, "https://example.test/a")).id, 77);
+	assert.equal(state.agentWindowId, 40);
+	assert.deepEqual(created, [{ url: "https://example.test/a", focused: false, type: "normal" }]);
+	// Same agent, second tab: the window is reused, never focused.
+	assert.equal((await mod.createAgentWindowTab(state, "https://example.test/b")).id, 78);
+	assert.equal(created.length, 1);
+	// The user closed the agent window: the next open makes a new one.
+	existing = undefined;
+	assert.equal((await mod.createAgentWindowTab(state, "https://example.test/c")).id, 77);
+	assert.equal(created.length, 2);
+	assert.equal(created[1].focused, false);
+	assert.equal((await mod.createAgentWindowTab({ tabsByName: new Map(), agentWindowId: 41 }, "https://example.test/d")).id, 77);
+});
+
+test("discard protection 记下原值，释放时只恢复自己动过的 tab", async (t) => {
+	const { mod, api } = await worker(t);
+	const updates = [];
+	api.tabs.get = async (tabId) => ({ id: tabId, autoDiscardable: tabId === 1 });
+	api.tabs.update = async (tabId, properties) => { updates.push({ tabId, properties }); return { id: tabId, ...properties }; };
+	assert.equal(await mod.protectFromDiscard(api, 1), true, "原本可丢弃的 tab 才需要恢复");
+	assert.deepEqual(updates, [{ tabId: 1, properties: { autoDiscardable: false } }]);
+	assert.equal(await mod.protectFromDiscard(api, 2), false, "已是不可丢弃的 tab 不记录恢复值");
+	await mod.releaseDiscardProtection(api, { tabId: 1, restoreAutoDiscardable: true });
+	assert.deepEqual(updates.at(-1), { tabId: 1, properties: { autoDiscardable: true } });
+	// 没有记录就不写，避免把用户的设置改成默认值。
+	const before = updates.length;
+	await mod.releaseDiscardProtection(api, { tabId: 2 });
+	assert.equal(updates.length, before);
+	// tab 已关闭：释放失败不得抛错。
+	api.tabs.update = async () => { throw new Error("No tab with id: 9"); };
+	await mod.releaseDiscardProtection(api, { tabId: 9, restoreAutoDiscardable: true });
 });

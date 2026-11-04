@@ -56,6 +56,8 @@ export function browserPrincipalV1(sessionId: string, overrides: Partial<Browser
 }
 
 export const BROWSER_INSPECT_TOOL_V1 = "browser_inspect" as const;
+/** How `open` places a new tab. */
+export const BROWSER_OPEN_PLACEMENTS_V1 = ["background-tab", "agent-window"] as const;
 export const BROWSER_INSPECT_OPERATIONS_V1 = ["open", "discover", "claim", "transfer", "handoff", "tabs", "switch", "snapshot", "snapshot_visible", "read_full", "screenshot", "wait", "close", "recover"] as const;
 export const BROWSER_INTERACT_TOOL_V1 = "browser_interact" as const;
 export const BROWSER_INTERACT_OPERATIONS_V1 = ["execute"] as const;
@@ -144,6 +146,7 @@ export interface BrowserObservationV1 {
 	truncated: boolean;
 	contentCoverage: "rendered-dom" | "scroll-end";
 	contentComplete: boolean;
+	visibilityState?: "visible" | "hidden";
 	omittedUnchangedTextNodes?: number;
 	textBaselineEpoch?: number;
 	scanSteps?: number;
@@ -169,6 +172,8 @@ export function sanitizeBrowserObservationV1(value: unknown): BrowserObservation
 	if (hasTextDelta && (!Number.isSafeInteger(value.omittedUnchangedTextNodes) || (value.omittedUnchangedTextNodes as number) < 1
 		|| !Number.isSafeInteger(value.textBaselineEpoch) || (value.textBaselineEpoch as number) < 1 || (value.textBaselineEpoch as number) >= (value.observationEpoch as number)
 		|| contentCoverage !== "rendered-dom" || value.contentComplete !== false)) throw new Error("browser observation text delta 无效");
+	const visibilityState = value.visibilityState === "visible" || value.visibilityState === "hidden" ? value.visibilityState : undefined;
+	if (value.visibilityState !== undefined && visibilityState === undefined) throw new Error("browser observation visibilityState 无效；请重载 Chrome 扩展");
 	const scanSteps = value.scanSteps === undefined ? undefined : (Number.isSafeInteger(value.scanSteps) && (value.scanSteps as number) >= 0 ? value.scanSteps as number : undefined);
 	const scannedContainers = value.scannedContainers === undefined ? undefined : (Number.isSafeInteger(value.scannedContainers) && (value.scannedContainers as number) >= 0 ? value.scannedContainers as number : undefined);
 	const scrolledContainers = value.scrolledContainers === undefined ? undefined : (Number.isSafeInteger(value.scrolledContainers) && (value.scrolledContainers as number) >= 0 ? value.scrolledContainers as number : undefined);
@@ -214,6 +219,7 @@ export function sanitizeBrowserObservationV1(value: unknown): BrowserObservation
 		contentCoverage,
 		contentComplete: value.contentComplete === true && value.truncated !== true && value.nodes.length <= MAX_MODEL_NODES,
 		...(hasTextDelta ? { omittedUnchangedTextNodes: value.omittedUnchangedTextNodes as number, textBaselineEpoch: value.textBaselineEpoch as number } : {}),
+		...(visibilityState === undefined ? {} : { visibilityState }),
 		...(scanSteps === undefined ? {} : { scanSteps }),
 		...(scannedContainers === undefined ? {} : { scannedContainers }),
 		...(scrolledContainers === undefined ? {} : { scrolledContainers }),

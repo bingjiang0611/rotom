@@ -133,7 +133,10 @@ test("Chrome MV3 manifest 固定 identity 且不申请 cookie/script/host 权限
 	for (const eventType of ["mouseMoved", "mousePressed", "mouseReleased", "mouseWheel"]) assert.match(worker, new RegExp(`type: "${eventType}"`, "u"));
 	assert.match(worker, /DOM\.getNodeForLocation/u, "坐标 fallback 必须在 CDP mouse dispatch 前执行 DOM hit-test");
 	assert.match(worker, /coordinate screenshot observation epoch is stale|validateCoordinateBinding/u, "坐标 fallback 必须绑定最新 screenshot epoch");
-	assert.doesNotMatch(worker, /assertBackgroundOwned|chrome\.tabs\.onActivated|inputType === "password"|one-time-code|popupAttempted|interaction popup was blocked/u);
+	assert.doesNotMatch(worker, /assertBackgroundOwned|inputType === "password"|one-time-code|popupAttempted|interaction popup was blocked/u);
+	// tab 激活只能当作「用户焦点」信号进 focusCoordinator，不得再当作归属证据。
+	assert.equal(worker.split("chrome.tabs.onActivated").length - 1, 1);
+	assert.match(worker, /chrome\.tabs\.onActivated\.addListener\(\(info\) => \{ focusCoordinator\.recordActivation/u);
 	assert.match(worker, /closeOwnedIdentity\(state, name, tab\.id, item, assertOperation\)/u);
 	const tabsBlock = worker.match(/if \(operation === "tabs"\) \{[\s\S]*?return \{ schemaVersion: 1, kind: "rotom-browser-tabs", \.\.\.sessionPrincipalValue\(state\), tabs \};\n\t\}/u)?.[0] ?? "";
 	assert.match(tabsBlock, /collectListedOwnedTabs/u, "tabs 必须通过可故障注入的非破坏 collector 降级状态");
@@ -162,7 +165,8 @@ test("Chrome MV3 manifest 固定 identity 且不申请 cookie/script/host 权限
 	assert.match(worker, /message\.operation === "client-disconnected"[\s\S]*?queueRelaySessionCleanup\(message\.sessionId, message\.generation\)/u);
 	assert.match(worker, /nativePort\.onDisconnect\.addListener[\s\S]*?queueAllRelaySessionCleanup\(\)[\s\S]*?scheduleReconnect\(\)/u);
 	assert.match(worker, /withBackgroundActivationGuard\(item/u);
-	assert.match(worker, /chrome\.tabs\.update\(activeBefore\.id, \{ active: true \}\)/u, "click 创建新标签后必须恢复原活动标签");
+	assert.match(worker, /updateTab: async \(tabId\) => globalThis\.chrome\.tabs\.update\(tabId, \{ active: true \}\)/u, "click 创建新标签后必须恢复原活动标签");
+	assert.match(worker, /if \(!focusCoordinator\.userFocus\(\)\) await focusCoordinator\.observeActiveTab\(sourceTab\.windowId\)/u, "新启动的 service worker 必须先记录真实活动标签");
 	assert.match(worker, /chrome\.windows\.update\(windowId, \{ focused: false \}\)/u, "Chrome 原本后台时必须撤销 popup 窗口焦点");
 	assert.match(worker, /windowOpenGuardsByTabId[\s\S]*?method === "Page\.windowOpen"[\s\S]*?guard\.signals\.push/u, "noopener popup 必须通过 source-tab CDP windowOpen 信号关联，不能全局捕获其他 session 或用户的新 active tab");
 	assert.match(worker, /consumeMatchingWindowOpenSignal\(windowOpenGuard\.signals, tab/u, "Page.windowOpen 必须与 created tab URL 精确关联");

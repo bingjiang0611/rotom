@@ -7,7 +7,7 @@
 | 里程碑 | 状态 | 最后 commit | 备注 |
 | - | - | - | - |
 | T0 测试架子 | ready-for-review | `browser(T0)` | 隔离 Chromium e2e 架子 + `baseline` suite；macOS 实测 |
-| M1 并行底座 | in-progress | `browser(T5)` | T1–T5 完成 |
+| M1 并行底座 | in-progress | `browser(T6)` | T1–T6 完成 |
 | M2 调试 P0 | not-started | | |
 | M3 交互与安全 | not-started | | |
 | M4 devtools 与平台 | not-started | | |
@@ -19,6 +19,7 @@
 
 | 任务 | 状态 | commit | 验证命令与结果摘要 | 未验证项 |
 | - | - | - | - | - |
+| T6 | done | `browser(T6)` | `node --test rotom/extensions/browser/focus-coordinator.test.mjs` 5/5（用户焦点只由非 agent 事件更新、`WINDOW_ID_NONE` 保留旧窗口、restore 容错、播种、lifecycle wake 失败只记诊断）；`ownership.test.mjs` 29/29（新增 `createAgentWindowTab` 复用/重开、discard 保护记原值只恢复自己动过的 tab）；`browser-relay.test.ts` 20/20（`visibilityState` 只接受 visible/hidden、缺字段兼容、未知取值 fail closed）；`index.test.ts` 48/48；`rotom/extensions/browser/*.test.mjs` 94/94；e2e `baseline isolation same-agent-parallel cleanup focus visibility` 30/30（新增 `focus` 5 项、`visibility` 3 项）；`./rotom/bin/check-personal` EXIT=0（401 + 99，`runtimeContractGate` PASS；footprint 默认面 26 826 / 10 282，`ROTOM_DEFERRED_TOOLS=0` 面 38 907 / 10 933，两处 PASS）。 | 真实 Chrome 里无法冻结标签，所以 `Page.setWebLifecycleState` 只有 L1（含失败分支）证明，没有“页面真的被 freeze 后又被唤醒”的实测；`agent-window` 的窗口复用只在 L1 断言，e2e 侧 relay 不暴露 `windowId`，无法观察窗口数量；`autoDiscardable` 只在 L1 断言，e2e 不主动 discard 标签 |
 | T5 | done | `browser(T5)` | `node --test rotom/extensions/browser/session-cleanup.test.mjs` 6/6（主/子 agent、主不在线、keepTabs、名字冲突、接线）；`chrome-extension.test.mjs` 29/29（分组改为按 agentId，标题/颜色稳定哈希）；`rotom/extensions/browser/*.test.mjs` 87/87；e2e `baseline isolation same-agent-parallel cleanup` 22/22（新增 `cleanup` suite）；`./rotom/bin/check-personal` EXIT=0（398 + 99）。 | 分组标题/颜色只在单测里断言，没在真实 Chrome 里读 tabGroups；keepTabs 目前来自 `ROTOM_BROWSER_KEEP_TABS` 环境变量而不是 lease（T9 接） |
 | T4 | done | `browser(T4)` | `node --test rotom/extensions/browser/session-persistence.test.mjs` 7/7（V3 key/序列化、V1/V2 迁移、合并写只写变化项、写失败重试、消失的 session 删除、restore 字段覆盖）；`chrome-extension 28/28`、`request-locks 5/5`、`agent-transfer 5/5`、`ownership/component-storage` 合计 71/71；e2e `baseline isolation same-agent-parallel` 18/18；`./rotom/bin/check-personal` EXIT=0（397 + 99）。 | 真实 SW 被 Chrome 回收后的恢复没有在 e2e 里制造过（只在 L1 覆盖序列化与迁移）；合并写给每次 `await persistState()` 最多加 100ms |
 | T3 | done | `browser(T3)` | `node --test rotom/extensions/browser/request-locks.test.mjs` 5/5（RW 锁重叠/公平、tab 锁同名串行异名并发、失败后放行、清单与接线）；`agent-transfer 5/5`、`chrome-extension.test.mjs 28/28`、`ownership 65/65 合计`；`index.test.ts` 48/48（`browser_inspect` 改为 `parallel`）；e2e `run.mjs baseline isolation same-agent-parallel` 18/18；`./rotom/bin/check-personal` EXIT=0（397 + 99，`runtimeContractGate`/`deterministicGate` PASS）。footprint 未变（26 755 / 10 218）。 | `browser_inspect` 的 `parallel` 只在 L1 断言 + relay 侧 e2e 证明，没有用真实模型并发发起两次工具调用 |
@@ -40,6 +41,16 @@
 - **T0 / fixture 的 iframe 用 `localhost`，主站用 `127.0.0.1`。** 端口不同不等于跨站点，`127.0.0.1:portA` 与 `127.0.0.1:portB` 仍是同站，iframe 不会变成 OOPIF，`Target.setAutoAttach` 也拿不到子 session。换成两个 site name 后 `Cross-origin frame ready` 才能被 snapshot 读到，和原 smoke 脚本的做法一致。
 - **T0 / 默认无头（`--headless=new`）并关掉后台节流。** `ROTOM_E2E_HEADED=1` 可切有头。加 `--disable-background-timer-throttling`、`--disable-backgrounding-occluded-windows`、`--disable-renderer-backgrounding`，避免把 Chrome 的后台节流误判成 relay 行为（T6 要单独验证可见性，用 `visibilityState` 而不是超时）。
 - **T0 / 失败保留现场，成功清理。** 失败时打印 `<root>` 路径并保留（`ROTOM_E2E_KEEP=1` 成功时也保留）；清理时会按 `--user-data-dir=<profile>` 精确清扫残留 Chrome（`spawn` 出来的进程组 kill 之后仍会有 helper 逃逸），不会全局 pkill。实测清理后 `pgrep` 为 0。
+- **T6 / 用户焦点改成全局唯一记录，不再每次操作各存一份。** 新增 `chrome-extension/focus-coordinator.js`：只有非 agent 触发的 `chrome.tabs.onActivated` / `chrome.windows.onFocusChanged` 才更新记录；agent 派发前 `markAgentActivity()` 开一个 2 秒（+`BACKGROUND_ACTIVATION_GUARD_MS`）窗口，窗口内的激活与窗口聚焦都算 agent 噪音。原来 `withBackgroundActivationGuard` 里按“动作前这张窗口的活动标签”恢复的做法改为问这个协调器。
+  - 为什么必须跨 agent 共享：两个 agent 并发点击时，各自记住的“动作前活动标签”是同一个用户标签，但各自弹出的新窗口都可能是对方造成的；一个全局记录才能让它们收敛到同一处，而不是互相把对方的弹窗恢复成前台。
+  - 新启动的 service worker 还没有任何激活事件，所以派发前若记录为空，先用 `observeActiveTab(源窗口)` 按真实活动标签播种；否则第一次点击会抢走用户前台（这条在 `ownership.test.mjs` 的 keypress 用例里被实测抓到过一次）。
+  - 回滚：删掉协调器，恢复原来的 `activeBefore`/`sourceWindow` 局部恢复；代价是并发 agent 互相抢焦点。
+- **T6 / `Page.setWebLifecycleState({state:"active"})` 挂在 `attach()` 上，失败只记诊断。** 每个 tab 操作本来都要 `attach`，挂在同一点就不用改每个操作；`withTabWake` 单独成模块，失败（老版本 / 已 detached / 已激活）只 `console.warn`，绝不把操作判失败。代价：失败原因只进浏览器控制台，不进模型可见结果。
+- **T6 / `autoDiscardable` 是“先读后写、只恢复自己动过的”。** `open`/`claim` 时读一次原值（`protectFromDiscard` 返回是否需要恢复），写进 item 并随 session 持久化；`close`（claimed tab 保留）、`keepTabs`、`handoff`、断开清理的交还路径都调 `releaseDiscardProtection`。原值本来就是 `false` 时不留恢复标记，避免把用户的设置改成默认值。
+- **T6 / `placement` 作为 `open` 的一个参数值，不新增 `open_window` 操作。** 枚举 `background-tab`（缺省）与 `agent-window`：后者每 agent 复用一个 `chrome.windows.create({focused:false})` 的窗口，窗口被用户关掉就重开。放在 `open` 上是因为它只改“新标签放哪”，ownership/命名/分组语义完全相同；新增操作会让所有客户端的能力判断多一条分支。
+  - 代价：context footprint +71 normalized schema / +64 guideline 字节（`index.test.ts` 预算 3 750→3 835、2 750→2 800，`report-context-footprint.mjs` 三处合同同步，`runtimeContractGate` 重跑 PASS）。
+- **T6 / `visibilityState` 是新增的可选字段，缺失不代表可见。** 只有 `visible`/`hidden` 两个取值会被接受；其他取值视为 extension 与协议不一致，直接报错要求重载扩展；旧扩展不带该字段时按 undefined 继续工作（与 T1/T2 的兼容做法一致）。只读根文档，不逐 frame 汇报。
+- **T6 / e2e 只断言可观察的事实。** `focus` suite 用两个 agent 的 tab 列表并集断言“并发后没有任何 agent tab 成为用户活动标签”，而不是去读用户标签（relay 不暴露非自有标签）；`visibility` suite 用 `expect: "value=nonempty"` 证明后台标签的输入真的落到页面上，而不是靠计时器（架子为了测 relay 已经关掉了后台节流，计时器区分不出唤醒）。
 - **T5 / `keepTabs` 这次先用环境变量顶上，T9 换成 lease 字段。** 断开清理按“自己开的关掉 / claim 与 transfer 来的交还”区分，而 keepTabs 属于 lease（T9 才有）。现在 `ROTOM_BROWSER_KEEP_TABS=1` 经 hello 上报 `keepTabs`，SW 存进 session 记录并持久化；T9 只需把来源换成 lease 文件里的 `keepTabs`。
 - **T5 / keepTabs 的语义按字面实现：只 detach，不交还。** tab 保持打开但不再属于任何 session，因此回到 `discover` 可发现状态，用户或后续 agent 可以重新 claim（e2e 里验证了这条路径）。
 - **T5 / 交还时的名字用 `<原名>@<子 agent>`，冲突时加 `-2`..`-9` 后缀。** 与 T2 的 transfer 命名保持一致；后缀用尽（名字太长）就退回“只 detach”，绝不覆盖主 agent 已有的名字，也不丢 tab。

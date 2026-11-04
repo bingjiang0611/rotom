@@ -42,6 +42,7 @@ export function serializeSessionStateV3(state) {
 			status: item.status,
 			ownership: item.ownership,
 			...(item.transferredFrom === undefined ? {} : { transferredFrom: item.transferredFrom }),
+			...(item.restoreAutoDiscardable === undefined ? {} : { restoreAutoDiscardable: item.restoreAutoDiscardable }),
 		})),
 	};
 }

@@ -39,6 +39,19 @@ test("browser URL 拒绝 file/javascript/userinfo", () => {
 	for (const value of ["file:///etc/passwd", "javascript:alert(1)", "https://user:secret@example.com/"]) assert.throws(() => canonicalBrowserUrlV1(value));
 });
 
+test("browser observation 只接受已知的 visibilityState，旧扩展缺字段仍兼容", () => {
+	const base = {
+		schemaVersion: 1, kind: "rotom-browser-observation", tabName: "main", tabId: 7, documentGeneration: 2, observationEpoch: 3,
+		url: "https://example.com/", title: "Visible page", status: "complete", truncated: false,
+		contentCoverage: "rendered-dom", contentComplete: false, nodes: [],
+	};
+	assert.equal(sanitizeBrowserObservationV1({ ...base, visibilityState: "visible" }).visibilityState, "visible");
+	assert.equal(sanitizeBrowserObservationV1({ ...base, visibilityState: "hidden" }).visibilityState, "hidden");
+	assert.equal(sanitizeBrowserObservationV1(base).visibilityState, undefined, "未重载的旧扩展不带该字段，必须继续可用");
+	// 未知取值说明 extension 与宣告的 protocol 不一致，不能当成普通结果。
+	assert.throws(() => sanitizeBrowserObservationV1({ ...base, visibilityState: "prerender" }), /visibilityState/u);
+});
+
 test("browser observation 保留凭据形状文本，仍隐藏 URL query/hash 并限制输出", () => {
 	const value = sanitizeBrowserObservationV1({
 		schemaVersion: 1, kind: "rotom-browser-observation", tabName: "main", tabId: 7, documentGeneration: 2, observationEpoch: 3,

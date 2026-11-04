@@ -26,6 +26,20 @@ node --experimental-strip-types rotom/runtime/e2e-browser/run.mjs baseline
   指到新目录后不再提交页面导航（用不带扩展的裸 Chrome 也能复现），所以浏览器保留真实
   HOME，只隔离 relay 侧。run.mjs 每次跑完都比对真实 HOME 下 `rotom` 产品目录没有变化。
 
+## 现有 suite
+
+| suite | 覆盖 |
+| - | - |
+| `baseline` | open / snapshot / interact / screenshot / close 的既有行为 |
+| `isolation` | 跨 agent 的 tab 隔离、`transfer` 与 opener 归属 |
+| `same-agent-parallel` | 同一 agent 两个 tab 的并发与结构操作独占 |
+| `cleanup` | 子 agent 断开后自己开的关掉、claim 的交还主 agent |
+| `focus` | 并发 agent 都不把用户焦点留在自己的 tab 上；`agent-window` 放置 |
+| `visibility` | 后台 tab 的 `visibilityState` 与隐藏状态下仍能真实交互 |
+
+`focus`/`visibility` 只断言可观察的事实：relay 不暴露非自有标签与 `windowId`，
+所以“用户标签是不是前台”“窗口有没有复用”在 e2e 里不可见，由 SW 单测覆盖。
+
 ## 环境变量
 
 | 变量 | 作用 |

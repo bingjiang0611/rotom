@@ -187,8 +187,11 @@ test("browser relay：活动标签可 claim、直接交互、敏感输入放行�
 	// and operation-specific requirements instead of adding another prose checklist.
 	// +100 bytes budgeted for the cross-agent transfer operation (T2): the receiver
 	// name format and the fact that its refs start fresh cannot be left to the schema.
-	assert.ok(browserGuidelineBytes <= 3_750, `Browser guideline budget regressed: ${browserGuidelineBytes}`);
-	assert.ok(browserSchemaBytes <= 2_750, `Browser schema budget regressed: ${browserSchemaBytes}`);
+	// +82 bytes for the `placement` open value (T6): an agent window is a placement,
+	// not a second open operation, so it is one clause in the existing open line.
+	assert.ok(browserGuidelineBytes <= 3_835, `Browser guideline budget regressed: ${browserGuidelineBytes}`);
+	// The `placement` enum adds 71 schema bytes (T6) without a second parameter.
+	assert.ok(browserSchemaBytes <= 2_800, `Browser schema budget regressed: ${browserSchemaBytes}`);
 	assert.ok(interact.parameters.required.includes("action"));
 	assert.equal(interact.parameters.properties.expect.enum.length, 16);
 	assert.ok(interact.parameters.properties.expect.enum.includes("value=nonempty"));
