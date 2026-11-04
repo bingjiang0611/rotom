@@ -39,7 +39,11 @@ export async function run({ harness, fixtures, recorder }) {
 		const slow = await slowWait;
 		const waitedMs = Date.now() - startedAt;
 		assert.equal(slow.status, "complete");
-		assert.equal(waitedMs >= SLOW_MS - 300, true, `等待本身应当是长操作：${waitedMs}ms`);
+		// `open` already spent part of the page load, so the wait is shorter than
+		// SLOW_MS; what matters is that it really was in flight while the other tab
+		// was read.
+		assert.equal(waitedMs > 600, true, `等待本身应当是长操作：${waitedMs}ms`);
+		assert.equal(waitedMs - snapshotMs > 300, true, `另一个 tab 的 snapshot (${snapshotMs}ms) 必须在 wait (${waitedMs}ms) 结束前完成`);
 	});
 
 	await recorder.check("结构性操作必须等只读操作结束，tab 不会被中途关掉", async () => {

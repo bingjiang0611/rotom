@@ -3,6 +3,7 @@ import { coordinateViewport, invalidateCoordinateObservation, mintCoordinateObse
 import { resetTransferredItemV1, transferTargetSessionV1, transferredTabNameV1 } from "./agent-transfer.js";
 import { forgetSpawnedTab, recordedOpenerTabId, rememberSpawnedTab } from "./spawned-tabs.js";
 import { createSessionLockV1, createTabLocksV1, isSessionScopedOperationV1, tabLockKeyV1 } from "./request-locks.js";
+import { createMergedSessionWriter, isSessionStateKeyV3, LEGACY_SESSION_STATE_KEY_V1, LEGACY_SESSION_STATE_KEY_V2, legacyV1Sessions, legacyV2Sessions, serializeSessionStateV3, sessionStateKeyV3 } from "./session-persistence.js";
 import { interactionScrollTarget } from "./interaction-scroll-target.js";
 import { createOperationGuard } from "./operation-guard.js";
 import { operationChrome } from "./operation-chrome.js";
@@ -47,7 +48,6 @@ const windowOpenGuardsByTabId = new Map();
 const spawnedTabOpeners = new Map();
 let nativePort;
 let reconnectTimer;
-let persistChain = Promise.resolve();
 let tabGroupChain = Promise.resolve();
 
 function record(value) { return Boolean(value) && typeof value === "object" && !Array.isArray(value); }
@@ -103,32 +103,24 @@ async function placeInSharedAgentGroup(tab, assertOperation) {
 	tabGroupChain = pending.catch(() => undefined);
 	await pending;
 }
-async function persistState() {
-	persistChain = persistChain.catch(() => undefined).then(() => chrome.storage.session.set({
-		browserRelayStateV2: {
-			schemaVersion: 2,
-			sessions: [...sessionStates.values()].map((state) => ({
-				sessionId: state.sessionId,
-				agentId: state.agentId,
-				rootSessionId: state.rootSessionId,
-				...(state.leaseToken === undefined ? {} : { leaseToken: state.leaseToken }),
-				generation: state.generation,
-				currentTabName: state.currentTabName,
-				tabs: [...state.tabsByName.entries()].map(([name, item]) => ({ name, tabId: item.tabId, targetId: item.targetId, documentGeneration: item.documentGeneration, url: item.url, status: item.status, ownership: item.ownership })),
-			})),
-		},
-	}));
-	await persistChain;
-}
+// One storage key per session, coalesced for a short window and diffed against the
+// last write, so a burst of operations touches one key once and idle sessions are
+// never rewritten.
+const sessionWriter = createMergedSessionWriter({
+	entries: () => new Map([...sessionStates.values()].map((state) => [sessionStateKeyV3(state.sessionId), serializeSessionStateV3(state)])),
+	write: (payload) => chrome.storage.session.set(payload),
+	remove: (keys) => chrome.storage.session.remove(keys),
+});
+function persistState() { return sessionWriter.schedule(); }
 async function restoreState() {
-	const storedValues = await chrome.storage.session.get(["browserRelayStateV2", "browserRelayStateV1"]);
-	const storedV2 = storedValues.browserRelayStateV2;
-	const storedV1 = storedValues.browserRelayStateV1;
-	let storedSessions = [];
-	if (record(storedV2) && storedV2.schemaVersion === 2 && Array.isArray(storedV2.sessions)) storedSessions = storedV2.sessions;
-	else if (record(storedV1) && storedV1.schemaVersion === 1 && Array.isArray(storedV1.tabs) && record(storedV1.activeSession) && typeof storedV1.activeSession.sessionId === "string") {
-		storedSessions = [{ sessionId: storedV1.activeSession.sessionId, currentTabName: storedV1.currentTabName, tabs: storedV1.tabs }];
-	}
+	const storedValues = (await chrome.storage.session.get(null)) ?? {};
+	const storedSessions = [];
+	for (const [key, value] of Object.entries(storedValues)) if (isSessionStateKeyV3(key) && record(value)) storedSessions.push(value);
+	const knownSessionIds = new Set(storedSessions.map((stored) => stored.sessionId));
+	// Legacy documents are migrated key by key, then removed so the next start is V3 only.
+	const migrated = [...legacyV2Sessions(storedValues[LEGACY_SESSION_STATE_KEY_V2]), ...legacyV1Sessions(storedValues[LEGACY_SESSION_STATE_KEY_V1])]
+		.filter((stored) => !knownSessionIds.has(stored.sessionId));
+	storedSessions.push(...migrated);
 	let targets = [];
 	try {
 		const resolvedTargets = await chrome.debugger.getTargets();
@@ -168,8 +160,10 @@ async function restoreState() {
 		if (state.currentTabName && !state.tabsByName.has(state.currentTabName)) state.currentTabName = undefined;
 		sessionStates.set(state.sessionId, state);
 	}
-	await persistState();
-	await chrome.storage.session.remove("browserRelayStateV1");
+	await sessionWriter.flushNow();
+	if (storedValues[LEGACY_SESSION_STATE_KEY_V2] !== undefined || storedValues[LEGACY_SESSION_STATE_KEY_V1] !== undefined) {
+		await chrome.storage.session.remove([LEGACY_SESSION_STATE_KEY_V2, LEGACY_SESSION_STATE_KEY_V1]);
+	}
 }
 
 async function attach(item, assertOperation = () => undefined) {

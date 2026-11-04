@@ -66,6 +66,7 @@
 - state/ref/document generation/viewport/observationEpoch 是否在动作前重验？
 - recover 是否只针对原标签一次，且不影响同 session 其他标签？
 - agent-created、claimed、pinned、其他窗口标签 ownership 是否保持？
+- 持久化是否仍按 session 分 key（`browserRelayStateV3:<sessionId>`）、合并写并只写变化项，旧 `browserRelayStateV2`/`V1` 是否迁移后删除？
 - 并发是否仍只有两层锁：结构性操作走 session 锁、其余按 tab 加锁；operation revision 是否按作用域隔离（一个 tab 结束不得作废另一个 tab 的操作）；超时重置是否仍只影响对应 tab？
 - 跨 agent 是否仍只有一个 owner：`discover` 是否隐藏其他 session 的 tab、`claim` 是否只在 opener 属于另一个 session 时拒绝且不带出对方 tabName、`transfer` 是否换新 `documentGeneration`/`observationEpoch` 并作废旧 ref 与坐标？
 - full snapshot、visible snapshot、screenshot 与 action readback 的证据等级是否清楚？

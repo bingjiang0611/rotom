@@ -68,7 +68,8 @@ test("Chrome MV3 manifest 固定 identity 且不申请 cookie/script/host 权限
 	assert.match(worker, /"interaction-target-state"/u);
 	assert.match(worker, /"page-alert-readback"/u);
 	assert.match(worker, /const sessionStates = new Map\(\)/u);
-	assert.match(worker, /browserRelayStateV2/u);
+	assert.match(worker, /sessionStateKeyV3\(state\.sessionId\)/u, "持久化必须按 session 分 key");
+	assert.doesNotMatch(worker, /browserRelayStateV2: \{/u, "不得再写单文档 V2 状态");
 	assert.match(worker, /allSessionItems\(\)/u, "discover/claim 与 Chrome events 必须看到所有 relay session 的 tab ownership");
 	assert.match(worker, /chrome\.alarms\.create\(NATIVE_RECONNECT_ALARM/u, "Native Messaging 断开后必须有可唤醒 MV3 worker 的重连兜底");
 	assert.match(worker, /"oopif-accessibility"/u);
@@ -140,9 +141,11 @@ test("Chrome MV3 manifest 固定 identity 且不申请 cookie/script/host 权限
 	const principalBlock = worker.match(/if \(operation === "hello"\) \{[\s\S]*?capabilities:/u)?.[0] ?? "";
 	assert.match(principalBlock, /sessionPrincipalFromHello\(payload, state\.sessionId\)/u, "hello 必须校验并记录 browser principal");
 	assert.match(principalBlock, /await persistState\(\)/u, "principal 必须在 hello 时落盘，SW 重启后仍能归属 agent");
-	const persistBlock = worker.match(/async function persistState\(\) \{[\s\S]*?await persistChain;/u)?.[0] ?? "";
-	assert.match(persistBlock, /agentId: state\.agentId/u);
-	assert.match(persistBlock, /rootSessionId: state\.rootSessionId/u);
+	// The serialized shape moved to session-persistence.js (one key per session).
+	const persistenceModule = await readFile(resolve("rotom/extensions/browser/chrome-extension/session-persistence.js"), "utf8");
+	assert.match(persistenceModule, /agentId: state\.agentId/u);
+	assert.match(persistenceModule, /rootSessionId: state\.rootSessionId/u);
+	assert.match(worker, /serializeSessionStateV3\(state\)/u, "SW 必须用共享序列化写入 principal");
 	assert.match(restoreState_block(worker), /restoredSessionPrincipal\(stored, state\.sessionId\)/u, "SW 重启后必须恢复 principal");
 	assert.doesNotMatch(tabsBlock, /closeOwned|chrome\.tabs\.remove/u, "tabs 健康检查不得关闭标签或删除 ownership");
 	const restoreBlock = worker.match(/async function restoreState\(\) \{[\s\S]*?\n\}/u)?.[0] ?? "";
@@ -154,7 +157,7 @@ test("Chrome MV3 manifest 固定 identity 且不申请 cookie/script/host 权限
 	const cleanupBlock = worker.match(/function queueRelaySessionCleanup\(sessionId, generation\) \{[\s\S]*?\n\}/u)?.[0] ?? "";
 	assert.match(cleanupBlock, /state\.epoch \+= 1;/u, "client disconnect 只失效对应 session");
 	assert.match(cleanupBlock, /state\.lock\.write\(/u, "detach 全部标签是结构性操作，必须走 session 写锁");
-	assert.match(worker, /persistChain = persistChain\.catch\(\(\) => undefined\)\.then/u, "并发 session 的 storage snapshot 必须串行落盘");
+	assert.match(worker, /const sessionWriter = createMergedSessionWriter\(\{/u, "并发 session 的 storage 写入必须走合并写，且按 session 分 key");
 	assert.match(worker, /tabReservations\.has\(payload\.tabId\)[\s\S]*?tabReservations\.add\(payload\.tabId\)[\s\S]*?finally \{ tabReservations\.delete\(payload\.tabId\); \}/u, "并发 claim 必须全局原子保留 tab identity");
 	assert.match(worker, /message\.operation === "client-disconnected"[\s\S]*?queueRelaySessionCleanup\(message\.sessionId, message\.generation\)/u);
 	assert.match(worker, /nativePort\.onDisconnect\.addListener[\s\S]*?queueAllRelaySessionCleanup\(\)[\s\S]*?scheduleReconnect\(\)/u);
