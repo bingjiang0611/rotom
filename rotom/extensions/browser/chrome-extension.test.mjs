@@ -106,7 +106,8 @@ test("Chrome MV3 manifest 固定 identity 且不申请 cookie/script/host 权限
 	assert.match(worker, /resetAfterOperationTimeout\(state, operation, targetItem\)[\s\S]*?detachItemsPreservingState\(\[targetItem\]\)/u, "interaction/recover timeout 只能 detach 原标签");
 	assert.match(worker, /parsed === undefined \? undefined : observedInteractionNode\(item\.lastObservationNodes, parsed\.ref\)/u, "带 targetRef 的 scroll 必须拒绝最新 observation 中不存在的 stale ref");
 	assert.match(worker, /const node = observedInteractionNode\(item\.lastObservationNodes, parsed\.ref\)/u, "非 scroll 交互必须拒绝最新 observation 中不存在的 stale ref");
-	assert.match(worker, /createOperationGuard\(state, expectedEpoch\)[\s\S]*?operationGuard\.invalidate\(\)/u, "timeout 后必须用 operation revision 阻止迟到操作继续执行");
+	assert.match(worker, /createOperationGuard\(state, expectedEpoch, scopeKey\)[\s\S]*?operationGuard\.invalidate\(\)/u, "timeout 后必须用 operation revision 阻止迟到操作继续执行");
+	assert.match(worker, /const scopeKey = `tab:\$\{tabLockKeyV1\(message\.payload, state\.currentTabName\)\}`;/u, "operation revision 必须按 tab 作用域隔离");
 	assert.match(worker, /async function waitForTab\(name, item, payload, assertSession\)[\s\S]*?for \(;;\) \{[\s\S]*?assertSession\(\)/u, "长 wait 必须周期检查 session epoch，使 disconnect cleanup 和 reconnect 快速解除阻塞");
 	assert.match(worker, /const result = await observation\(name, item, assertSession\);[\s\S]*?assertSession\(\);[\s\S]*?return result/u, "wait 匹配后 observation 完成时必须再次检查 session，不能让断线后的 stale observation 阻塞 cleanup");
 	assert.match(tabListStatus, /\brelayAttached,/u, "tabs 必须暴露 relay 实际连接状态");
@@ -148,9 +149,11 @@ test("Chrome MV3 manifest 固定 identity 且不申请 cookie/script/host 权限
 	assert.match(restoreBlock, /try \{[\s\S]*?chrome\.debugger\.getTargets\(\)[\s\S]*?catch/u, "restore target 发现失败必须保留缓存 ownership");
 	assert.match(restoreBlock, /isMissingChromeTabError\(error\)/u, "restore 只能在 Chrome 明确确认 tab 不存在时丢弃登记");
 	assert.doesNotMatch(restoreBlock, /!target[^\n]*continue/u, "restore target 暂缺不得删除 ownership");
-	assert.match(worker, /operationChain: Promise\.resolve\(\)/u);
-	assert.match(worker, /state\.operationChain = state\.operationChain\.then\(\(\) => handleRequest\(message, state\)\)/u, "不同 relay session 必须使用独立 operation chain，不能被全局长任务阻塞");
-	assert.match(worker, /function queueRelaySessionCleanup\(sessionId, generation\)[\s\S]*?state\.epoch \+= 1;[\s\S]*?state\.operationChain = state\.operationChain\.then/u, "client disconnect 只失效对应 session，并与其 replacement hello 共用 session chain");
+	assert.match(worker, /lock: createSessionLockV1\(\), tabLocks: createTabLocksV1\(\)/u, "每个 relay session 有独立的 session 锁与 tab 锁，不能被其他 session 的长任务阻塞");
+	assert.match(worker, /isSessionScopedOperationV1\(message\.operation\)[\s\S]*?state\.lock\.write\(\(\) =>[\s\S]*?state\.lock\.read\(\(\) =>[\s\S]*?state\.tabLocks\.run\(/u, "结构性操作用 session 写锁，其余按 tab 加锁");
+	const cleanupBlock = worker.match(/function queueRelaySessionCleanup\(sessionId, generation\) \{[\s\S]*?\n\}/u)?.[0] ?? "";
+	assert.match(cleanupBlock, /state\.epoch \+= 1;/u, "client disconnect 只失效对应 session");
+	assert.match(cleanupBlock, /state\.lock\.write\(/u, "detach 全部标签是结构性操作，必须走 session 写锁");
 	assert.match(worker, /persistChain = persistChain\.catch\(\(\) => undefined\)\.then/u, "并发 session 的 storage snapshot 必须串行落盘");
 	assert.match(worker, /tabReservations\.has\(payload\.tabId\)[\s\S]*?tabReservations\.add\(payload\.tabId\)[\s\S]*?finally \{ tabReservations\.delete\(payload\.tabId\); \}/u, "并发 claim 必须全局原子保留 tab identity");
 	assert.match(worker, /message\.operation === "client-disconnected"[\s\S]*?queueRelaySessionCleanup\(message\.sessionId, message\.generation\)/u);
@@ -548,15 +551,26 @@ test("页面提示收集只读、有界，且覆盖原生校验消息", () => {
 	assert.throws(() => pageAlertNodes(0, []), /generation invalid/u);
 });
 
-test("operation guard 在 timeout 后阻止迟到操作", () => {
-	const state = { operationRevision: 4, epoch: 2, generation: "generation" };
+test("operation guard 在 timeout 后阻止迟到操作，且按锁作用域隔离", () => {
+	const state = { operationRevisions: new Map([["session", 4]]), epoch: 2, generation: "generation" };
 	const guard = createOperationGuard(state, 2);
 	guard.assert();
 	guard.invalidate();
-	assert.equal(state.operationRevision, 5);
+	assert.equal(state.operationRevisions.get("session"), 5);
 	assert.throws(() => guard.assert(), /operation invalidated/u);
 	guard.invalidate();
-	assert.equal(state.operationRevision, 5, "重复 invalidation 不能误伤下一 operation");
+	assert.equal(state.operationRevisions.get("session"), 5, "重复 invalidation 不能误伤下一 operation");
+
+	// Two tabs may run concurrently: finishing one must not retire the other.
+	const tabA = createOperationGuard(state, 2, "tab:a");
+	const tabB = createOperationGuard(state, 2, "tab:b");
+	tabA.invalidate();
+	assert.throws(() => tabA.assert(), /operation invalidated/u);
+	assert.doesNotThrow(() => tabB.assert(), "另一个 tab 的操作必须仍然有效");
+	assert.equal(state.operationRevisions.get("session"), 5, "tab 作用域不污染 session 作用域");
+	// Session-wide invalidation (hello/close) still retires every scope.
+	const guardAfterClose = createOperationGuard(state, 3, "tab:b");
+	assert.throws(() => guardAfterClose.assert(), /operation invalidated/u, "epoch 变化仍然终止所有在飞操作");
 });
 
 test("child CDP pending 被短路且不会阻塞根页面结果", async () => {

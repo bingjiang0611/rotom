@@ -203,7 +203,7 @@ for (const change of ["removed", "navigation", "frame"]) test(`Chrome keypress r
 test("Chrome keypress never replays keyDown or dispatches keyUp after owner loss", { timeout: 5000 }, async (t) => {
 	const entered = deferred(), release = deferred();
 	const { press, commands, chips } = await keyboardFixture(t, { onKey: async () => { entered.resolve(); await release.promise; } });
-	const state = { epoch: 0, operationRevision: 0, generation: "old" }; const guard = createOperationGuard(state, 0);
+	const state = { epoch: 0, operationRevisions: new Map(), generation: "old" }; const guard = createOperationGuard(state, 0);
 	const pending = press({}, guard.assert); const rejected = assert.rejects(pending, /invalidated/u);
 	await entered.promise; guard.invalidate(); release.resolve(); await rejected;
 	assert.equal(chips.length, 1, "the unknown keyDown may already have committed the tag");
@@ -212,7 +212,7 @@ test("Chrome keypress never replays keyDown or dispatches keyUp after owner loss
 
 test("Chrome attach: retire between commands; late catch cannot detach a replacement", { timeout: 5000 }, async (t) => {
 	const { mod, calls, entered, release } = await worker(t, "Page.enable");
-	const state = { epoch: 0, operationRevision: 0, generation: "old" };
+	const state = { epoch: 0, operationRevisions: new Map(), generation: "old" };
 	const old = createOperationGuard(state, 0);
 	const item = { tabId: 1, attached: false };
 	const pending = mod.attach(item, old.assert);
@@ -228,7 +228,7 @@ test("Chrome attach: retire between commands; late catch cannot detach a replace
 
 test("Chrome full-read: retire during read; neither restoration nor object cleanup dispatches late", { timeout: 5000 }, async (t) => {
 	const { mod, calls, entered, release } = await worker(t, "Runtime.evaluate");
-	const state = { epoch: 0, operationRevision: 0, generation: "old" };
+	const state = { epoch: 0, operationRevisions: new Map(), generation: "old" };
 	const old = createOperationGuard(state, 0);
 	const pending = mod.fullRenderedTextSource({ tabId: 1 }, "r", 60, old.assert);
 	const rejected = assert.rejects(pending, /invalidated/u);
@@ -242,7 +242,7 @@ test("Chrome full-read: retire during read; neither restoration nor object clean
 test("full-read focus emulation cannot disable a replacement after owner loss", { timeout: 5000 }, async (t) => {
 	const { mod, api, calls, entered, release } = await worker(t, "Runtime.evaluate");
 	api.debugger.getTargets = async () => [{ tabId: 1, id: "target", type: "page", attached: true }];
-	const state = { epoch: 0, operationRevision: 0, generation: "old" }; const guard = createOperationGuard(state, 0);
+	const state = { epoch: 0, operationRevisions: new Map(), generation: "old" }; const guard = createOperationGuard(state, 0);
 	const pending = mod.fullObservation("fixture", { tabId: 1, targetId: "target", attached: true }, guard.assert);
 	const rejected = assert.rejects(pending, /invalidated/u);
 	await entered.promise; guard.invalidate(); release.resolve({ result: { objectId: "late-object" } }); await rejected;
@@ -261,7 +261,7 @@ test("Chrome rollback checks the exact resource, not reused name or numeric tab 
 
 test("Chrome tabs: swallowed query errors must not publish stale detached state", { timeout: 5000 }, async () => {
 	const entered = deferred(); const release = deferred();
-	const state = { epoch: 0, operationRevision: 0, generation: "old" };
+	const state = { epoch: 0, operationRevisions: new Map(), generation: "old" };
 	const guard = createOperationGuard(state, 0);
 	const item = { tabId: 1, targetId: "old", attached: true };
 	const pending = collectListedOwnedTabs({ entries: [["docs", item]], assertOperation: guard.assert, getTargets: async () => [], getTab: async () => { entered.resolve(); return release.promise; }, normalizeUrl: (value) => value });
@@ -279,7 +279,7 @@ test("Chrome mouse sequence stops before the next dispatch after retirement", { 
 		if (method === "DOM.getBoxModel") return Promise.resolve({ model: { border: [10, 10, 40, 10, 40, 40, 10, 40] } });
 		return send(target, method, parameters);
 	};
-	const state = { epoch: 0, operationRevision: 0, generation: "old" }; const guard = createOperationGuard(state, 0);
+	const state = { epoch: 0, operationRevisions: new Map(), generation: "old" }; const guard = createOperationGuard(state, 0);
 	const item = { tabId: 1, targetId: "target", documentGeneration: 1, lastObservationNodes: [{ ref: "ax_1_1", role: "button", name: "fixture", states: [] }] };
 	const pending = mod.performInteraction("docs", item, { actionId: "x", action: "click", targetRef: "ax_1_1" }, guard.assert);
 	const rejected = assert.rejects(pending, /invalidated/u);
@@ -310,7 +310,7 @@ test("full-read never restores old scroll position after the in-flight scroll lo
 		if (params.arguments) { scrolls.push(params.arguments[0].value); entered.resolve(); return release.promise; }
 		return { result: { value: { top: 120, clientHeight: 100, scrollHeight: 500, text: "fixture" } } };
 	};
-	const state = { epoch: 0, operationRevision: 0, generation: "old" }; const guard = createOperationGuard(state, 0);
+	const state = { epoch: 0, operationRevisions: new Map(), generation: "old" }; const guard = createOperationGuard(state, 0);
 	const pending = mod.fullRenderedTextSource({ tabId: 1 }, "r", 60, guard.assert); const rejected = assert.rejects(pending, /invalidated/u);
 	await entered.promise; guard.invalidate(); release.resolve({}); await rejected;
 	assert.deepEqual(scrolls, [0], "no second scroll or restore to original top=120"); assert.deepEqual(cleanup, []);
@@ -366,7 +366,7 @@ test("late open cleanup reserves the unpublished tab until removal settles", { t
 	const { mod, api } = await worker(t); const created = deferred(), releaseCreate = deferred(), removing = deferred(), releaseRemove = deferred();
 	api.tabs.create = async () => { created.resolve(); return releaseCreate.promise; };
 	api.tabs.remove = async () => { removing.resolve(); await releaseRemove.promise; };
-	const state = { epoch: 0, operationRevision: 0, generation: "old", tabsByName: new Map() }; const guard = createOperationGuard(state, 0);
+	const state = { epoch: 0, operationRevisions: new Map(), generation: "old", tabsByName: new Map() }; const guard = createOperationGuard(state, 0);
 	const pending = mod.handleOperation(state, "open", { tabName: "old", url: "https://example.test/" }, 0, guard.assert); const rejected = assert.rejects(pending, /invalidated/u);
 	await created.promise; guard.invalidate(); releaseCreate.resolve({ id: 1 }); await removing.promise;
 	api.tabs.get = async () => { throw new Error("claim reached Chrome"); };
@@ -384,7 +384,7 @@ test("open names an external close of the new tab instead of the grouping error"
 	api.tabs.get = async (tabId) => { if (!alive) throw new Error(`No tab with id: ${tabId}.`); return { id: tabId }; };
 	api.tabs.group = async () => 1;
 	api.tabGroups.update = async () => {};
-	const state = { epoch: 0, operationRevision: 0, generation: "g", tabsByName: new Map(), retiredTabNames: new Map() };
+	const state = { epoch: 0, operationRevisions: new Map(), generation: "g", tabsByName: new Map(), retiredTabNames: new Map() };
 	await assert.rejects(mod.handleOperation(state, "open", { tabName: "docs", url: "https://example.test/" }, 0, () => {}), /Chrome closed the new tab right after it was created/u);
 	assert.equal(state.tabsByName.has("docs"), false);
 	alive = true; api.tabs.query = async () => { alive = true; throw new Error("query unavailable"); };

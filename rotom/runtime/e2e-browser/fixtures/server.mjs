@@ -100,6 +100,18 @@ export async function createFixtureServer() {
 			reply.end("fixture download body\n");
 			return;
 		}
+		if (path === "/slow") {
+			// Holds the response open so the tab stays `loading`: a deterministic
+			// long-running relay operation for the concurrency suites.
+			const waitMs = Math.min(10_000, Number(new URL(request.url ?? "/", "http://fixture.invalid").searchParams.get("ms") ?? 1_500) || 1_500);
+			setTimeout(() => {
+				try {
+					reply.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+					reply.end(htmlDocument("Slow page", "<h2>Slow page ready</h2>"));
+				} catch { /* client navigated away or closed */ }
+			}, waitMs);
+			return;
+		}
 		if (path === "/status-500") {
 			reply.writeHead(500, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
 			reply.end(JSON.stringify({ error: "fixture server error" }));

@@ -2,6 +2,7 @@ import { observedInteractionNode } from "./interaction-observation.js";
 import { coordinateViewport, invalidateCoordinateObservation, mintCoordinateObservation, validateCoordinateBinding, validateCoordinateHit } from "./coordinate-click.js";
 import { resetTransferredItemV1, transferTargetSessionV1, transferredTabNameV1 } from "./agent-transfer.js";
 import { forgetSpawnedTab, recordedOpenerTabId, rememberSpawnedTab } from "./spawned-tabs.js";
+import { createSessionLockV1, createTabLocksV1, isSessionScopedOperationV1, tabLockKeyV1 } from "./request-locks.js";
 import { interactionScrollTarget } from "./interaction-scroll-target.js";
 import { createOperationGuard } from "./operation-guard.js";
 import { operationChrome } from "./operation-chrome.js";
@@ -75,7 +76,7 @@ function post(message) {
 }
 function createSessionState(sessionId) {
 	const id = safeString(sessionId, "sessionId", 512);
-	return { sessionId: id, agentId: DEFAULT_AGENT_ID, rootSessionId: id, leaseToken: undefined, generation: undefined, epoch: 0, operationRevision: 0, currentTabName: undefined, tabsByName: new Map(), retiredTabNames: new Map(), operationChain: Promise.resolve() };
+	return { sessionId: id, agentId: DEFAULT_AGENT_ID, rootSessionId: id, leaseToken: undefined, generation: undefined, epoch: 0, operationRevisions: new Map(), currentTabName: undefined, tabsByName: new Map(), retiredTabNames: new Map(), lock: createSessionLockV1(), tabLocks: createTabLocksV1() };
 }
 function allSessionItems() {
 	return [...sessionStates.values()].flatMap((state) => [...state.tabsByName.values()]);
@@ -1199,12 +1200,12 @@ async function resetAfterOperationTimeout(state, operation, targetItem) {
 	}
 	await detachAllOwnedPreservingState(state);
 }
-async function handleOperationWithDeadline(state, operation, payload, expectedEpoch) {
+async function handleOperationWithDeadline(state, operation, payload, expectedEpoch, scopeKey) {
 	let targetItem;
 	if (operation === "interact" || operation === "recover") {
 		try { targetItem = owned(state, payload.tabName).item; } catch { /* handleOperation returns the authoritative error */ }
 	}
-	const operationGuard = createOperationGuard(state, expectedEpoch);
+	const operationGuard = createOperationGuard(state, expectedEpoch, scopeKey);
 	const operationPromise = handleOperation(state, operation, payload, expectedEpoch, operationGuard.assert);
 	const onTimeout = async () => {
 		operationGuard.invalidate();
@@ -1213,7 +1214,7 @@ async function handleOperationWithDeadline(state, operation, payload, expectedEp
 	try { return await runWithRelayDeadline(operation, operationPromise, onTimeout, relayOperationDeadlineMs(operation, payload)); }
 	finally { operationGuard.invalidate(); } // Retire bounded readback continuations even on success.
 }
-async function handleRequest(message, state) {
+async function handleRequest(message, state, scopeKey) {
 	if (message.operation === "hello") {
 		if (state.generation && state.generation !== message.generation) {
 			state.epoch += 1;
@@ -1227,18 +1228,27 @@ async function handleRequest(message, state) {
 	}
 	try {
 		const expectedEpoch = state.epoch;
-		const result = await handleOperationWithDeadline(state, message.operation, message.payload, expectedEpoch);
+		const result = await handleOperationWithDeadline(state, message.operation, message.payload, expectedEpoch, scopeKey);
 		if (state.epoch !== expectedEpoch || state.generation !== message.generation) throw new Error("session binding changed during operation");
 		post({ schemaVersion: 1, kind: "response", id: message.id, sessionId: message.sessionId, generation: message.generation, ok: true, result });
 	} catch (error) {
 		post({ schemaVersion: 1, kind: "response", id: message.id, sessionId: message.sessionId, generation: message.generation, ok: false, error: publicError(error) });
 	}
 }
+function runRelayRequest(state, message) {
+	if (isSessionScopedOperationV1(message.operation)) return state.lock.write(() => handleRequest(message, state, "session")).catch(() => undefined);
+	return state.lock.read(() => {
+		// The lock scope doubles as the operation revision scope: concurrent reads of
+		// different tabs must not retire each other.
+		const scopeKey = `tab:${tabLockKeyV1(message.payload, state.currentTabName)}`;
+		return state.tabLocks.run(scopeKey, () => handleRequest(message, state, scopeKey));
+	}).catch(() => undefined);
+}
 function queueRelayRequest(message) {
 	if (!record(message) || message.schemaVersion !== 1 || message.kind !== "request" || typeof message.id !== "string" || typeof message.sessionId !== "string" || typeof message.generation !== "string" || typeof message.operation !== "string") return;
 	let state = sessionStates.get(message.sessionId);
 	if (!state) { state = createSessionState(message.sessionId); sessionStates.set(state.sessionId, state); }
-	state.operationChain = state.operationChain.then(() => handleRequest(message, state)).catch(() => undefined);
+	void runRelayRequest(state, message);
 }
 function clearReconnectSchedule() {
 	if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = undefined; }
@@ -1249,7 +1259,9 @@ function queueRelaySessionCleanup(sessionId, generation) {
 	if (!state) return;
 	const preInvalidated = state.generation === generation;
 	if (preInvalidated) { state.epoch += 1; state.generation = undefined; }
-	state.operationChain = state.operationChain.then(async () => {
+	// Structural: it changes what the session owns, so it queues behind in-flight
+	// tab operations and blocks the ones that would race with the detach.
+	void state.lock.write(async () => {
 		if (state.generation === generation) { state.epoch += 1; state.generation = undefined; }
 		else if (!preInvalidated || state.generation !== undefined) return;
 		await detachAllOwnedPreservingState(state);

@@ -397,7 +397,10 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			text: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
 			role: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
 		}, { additionalProperties: false }),
-		executionMode: "sequential",
+		// Reading one tab no longer blocks reading another: the relay serializes per tab
+		// (`snapshot`/`screenshot`/`wait`...) and only structural operations take the
+		// session lock. Writes stay sequential in browser_interact.
+		executionMode: "parallel",
 		async execute(_toolCallId, rawParams, signal, _onUpdate, ctx) {
 			browserRouteActive = true;
 			const params = rawParams as Record<string, unknown>;

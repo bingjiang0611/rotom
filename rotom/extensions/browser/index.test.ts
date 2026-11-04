@@ -129,7 +129,9 @@ test("browser relay：活动标签可 claim、直接交互、敏感输入放行�
 	const localDeviceAutomation = "SID=9C3762E8\ncurl -sS \"http://localhost:8100/session/$SID/screenshot\" > /tmp/shot.json\npython3 - <<'PY'\nimport json,base64\nj=json.load(open('/tmp/shot.json'))\nopen('/tmp/shot.png','wb').write(base64.b64decode(j['value']))\nPY";
 	assert.equal((await bashRouteGuard({ type: "tool_call", toolName: "bash", input: { command: localDeviceAutomation } })) ?? undefined, undefined, "heredoc 中的 Python open() 不是 macOS open，本地 HTTP 自动化不得被拦");
 	assert.equal((await bashRouteGuard({ type: "tool_call", toolName: "bash", input: { command: "python3 -c \"open('/tmp/x','w').write('http://localhost:8100')\"\n" } })) ?? undefined, undefined, "语言内置 open() 调用不是 GUI 启动");
-	assert.equal(tool.executionMode, "sequential");
+	// Reads are serialized per tab by the relay, not per session, so one tab's
+	// inspection no longer blocks another tab's; writes stay sequential.
+	assert.equal(tool.executionMode, "parallel");
 	assert.equal((tool.parameters as any).properties.limit.maximum, undefined, "snapshot limit 不应在 tool schema 中设置人工上限");
 	const opened = await tool.execute("browser-open", { operation: "open", tabName: "docs", url: "https://example.test/path?token=secret#fragment", limit: 10 }, undefined, undefined, ctx);
 	const desktopCapture = await bashRouteGuard({ type: "tool_call", toolName: "bash", input: { command: "screencapture -x /tmp/front.png" } });
