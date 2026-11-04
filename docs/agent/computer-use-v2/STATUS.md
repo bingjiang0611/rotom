@@ -21,7 +21,7 @@
 | 里程碑 | 状态 | 验证层级 | 提交 |
 |---|---|---|---|
 | M1 Broker 核心 | 完成 | L1 | 见下 |
-| M2 bridge 接入 Broker | 未开始 | | |
+| M2 bridge 接入 Broker | 完成 | L1 | 见下 |
 | M3 策略与审批 | 未开始 | | |
 | M4 Trace | 未开始 | | |
 | M5 macOS 原生能力 | 未开始 | | |
@@ -30,6 +30,14 @@
 | M8 文档、版本与打包 | 未开始 | | |
 
 ## 每个里程碑的记录
+
+### M2 bridge 接入 Broker
+
+- 实现摘要：`ResourceScheduler` 增加 `LeaseBroker` 接缝（`acquire` / `release` / `refreshEpoch` / `holderOf`）；broker 模式下 `write()` 先取租约与 Broker epoch 再投递，本地 epoch 镜像不再否决 Broker 已接受的写。`src/broker/identity.ts` 由 Pi session id 派生 `agentId=session:<id>`，`parentAgentId` 复用 subagent 宿主已导出的 `PI_SUBAGENT_ORCHESTRATOR_SESSION_ID`（未新增环境变量），`pidChain` 用 `ps` 走祖先链。`src/broker/lease-broker.ts` 把 Broker 拒绝翻译成 `LeaseUnavailableError`（`resource_busy`/`denied`/`approval_*`/`broker_unavailable`）或 `StaleResourceStateError`（沿用既有 stale 恢复）；连不上 Broker 时安装 `UnavailableLeaseBroker`，写操作 fail-closed 而不是静默退回本地 epoch。`withWindowWriteLock` / `withBrowserWrite` 带上动作名与目标 label；`makeToolExecutor` 把租约拒绝变成结构化结果（`status: lease_conflict`、`leaseHolder`、`retry`）。`config.ts` 新增 `broker`（macOS 默认 true，`ROTOM_CU_BROKER=0` 关闭，非 macOS 默认 false）。观察时用 `syncEpoch()` 采纳 Broker 的全局 epoch。
+- 新增或修改的测试（列出会因旧行为失败的反例）：`test/broker-scheduler.test.ts`（5 例）。旧代码只有进程内调度器，以下必然失败：另一个 agent 持有同一 App 时写得到结构化 `resource_busy` 且带 holder；Broker 已被别的进程写过时本地旧 epoch 写得到 `stale` 并带当前 epoch；Broker 不可达时写失败为 `broker_unavailable` 而不是本地自增；`ROTOM_CU_BROKER=0`/非 macOS 保留旧行为。
+- 自证命令与结果：`npm test` → 36 pass / 0 fail；`node --test --experimental-strip-types "test/broker-scheduler.test.ts"` → 5 pass；`node --experimental-strip-types -e "await import('./src/bridge.ts')"`（临时本地 stub `@earendil-works/pi-coding-agent`/`typebox`，未提交）→ bridge 模块加载成功并导出 `ensureComputerUseBroker` 等 17 个符号。
+- 未验证项：①没有在真实 Pi 进程里跑过（本机无已装 Pi、无 node_modules），extension 的 jiti 加载路径未验证；②没有跑通 `test:runtime`（脚本本身不存在，见既有失败），并发检查用 broker-scheduler 用例替代；③`bridge` 的两个“实例”测试是用两个 `ResourceScheduler` + 一个真 Broker 进程做的，不是两个真 Pi 进程；④审批 UI 还是占位（`setComputerUseApprovalHandler` 未被 M3 之外调用时一律 `deny`）。
+- 与 PLAN 的偏差及原因：①agentId 只用 session id，没有额外拼 subagent 路径（子 agent 是独立 Pi 进程，session id 已唯一）；②未新增 `ROTOM_CU_AGENT_ID` 之类环境变量，因此不需要改 `docs/agent/internal-environment.md`；③`src/cdp.ts` 的构造器参数属性改成显式字段赋值（纯粹为了让源码能在 Node strip-only 模式下被测试加载，不改行为）。
 
 ### M1 Broker 核心
 

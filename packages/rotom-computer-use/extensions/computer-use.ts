@@ -1,6 +1,7 @@
 import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import {
+	ensureComputerUseBroker,
 	ensureComputerUseSetup,
 	executeAct,
 	executeEvaluateBrowser,
@@ -196,6 +197,9 @@ export default function computerUseExtension(pi: ExtensionAPI): void {
 	pi.on("session_start", async (_event, ctx) => {
 		loadComputerUseConfig(ctx.cwd);
 		reconstructStateFromBranch(ctx);
+		// Headless subagent sessions need write arbitration most: they are the
+		// processes that would otherwise race the parent over the same app.
+		try { await ensureComputerUseBroker(ctx); } catch (error) { if (ctx.hasUI) ctx.ui.notify(`Computer Use broker: ${error instanceof Error ? error.message : String(error)}`, "warning"); }
 		if (!ctx.hasUI) return;
 		try { await ensureComputerUseSetup(ctx); } catch (error) { ctx.ui.notify(error instanceof Error ? error.message : String(error), "warning"); }
 	});

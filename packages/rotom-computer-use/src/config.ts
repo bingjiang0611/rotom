@@ -7,6 +7,8 @@ export interface ComputerUseConfig {
 	headless: boolean;
 	cursor_overlay: boolean;
 	managed_browser: "helium" | "chrome";
+	/** Cross-process write arbitration through the Desktop Broker. */
+	broker: boolean;
 }
 
 export interface ComputerUseConfigSource {
@@ -27,6 +29,9 @@ const DEFAULT_CONFIG: ComputerUseConfig = {
 	headless: false,
 	cursor_overlay: true,
 	managed_browser: "chrome",
+	// macOS is the platform with the cross-process arbiter. Other platforms keep
+	// the previous per-process behavior until their helper grows the same surface.
+	broker: process.platform === "darwin",
 };
 
 let activeConfig: ComputerUseConfig = { ...DEFAULT_CONFIG };
@@ -49,9 +54,11 @@ function normalizePartial(raw: unknown): Partial<ComputerUseConfig> {
 	const browserUse = parseBoolean((source as any).browser_use);
 	const headless = parseBoolean((source as any).headless);
 	const cursorOverlay = parseBoolean((source as any).cursor_overlay);
+	const broker = parseBoolean((source as any).broker);
 	if (browserUse !== undefined) out.browser_use = browserUse;
 	if (headless !== undefined) out.headless = headless;
 	if (cursorOverlay !== undefined) out.cursor_overlay = cursorOverlay;
+	if (broker !== undefined) out.broker = broker;
 	const managedBrowser = (source as any).managed_browser;
 	if (managedBrowser === "helium" || managedBrowser === "chrome") out.managed_browser = managedBrowser;
 	return out;
@@ -72,9 +79,11 @@ function readEnv(): Partial<ComputerUseConfig> {
 	const browserUse = parseBoolean(process.env.PI_COMPUTER_USE_BROWSER_USE);
 	const headless = parseBoolean(process.env.PI_COMPUTER_USE_HEADLESS);
 	const cursorOverlay = parseBoolean(process.env.PI_COMPUTER_USE_CURSOR_OVERLAY);
+	const broker = parseBoolean(process.env.ROTOM_CU_BROKER);
 	if (browserUse !== undefined) out.browser_use = browserUse;
 	if (headless !== undefined) out.headless = headless;
 	if (cursorOverlay !== undefined) out.cursor_overlay = cursorOverlay;
+	if (broker !== undefined) out.broker = broker;
 	const managedBrowser = process.env.PI_COMPUTER_USE_MANAGED_BROWSER;
 	if (managedBrowser === "helium" || managedBrowser === "chrome") out.managed_browser = managedBrowser;
 	return out;

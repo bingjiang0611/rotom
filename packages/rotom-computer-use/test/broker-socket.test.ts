@@ -38,6 +38,25 @@ function killQuietly(pid: number): void {
 	}
 }
 
+function isProcessAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+async function terminateProcess(pid: number): Promise<void> {
+	killQuietly(pid);
+	try {
+		await waitFor(() => !isProcessAlive(pid));
+	} catch {
+		process.kill(pid, "SIGKILL");
+		await waitFor(() => !isProcessAlive(pid));
+	}
+}
+
 test("broker socket directory is 0700 and the socket itself is 0600", async () => {
 	const root = tempRoot();
 	const socketPath = path.join(root, "state", "broker.sock");
@@ -131,7 +150,7 @@ test("two clients spawning at once converge on one broker and share arbitration"
 	} finally {
 		first?.close();
 		second?.close();
-		if (brokerPid) killQuietly(brokerPid);
+		if (brokerPid) await terminateProcess(brokerPid);
 		rmSync(root, { recursive: true, force: true });
 	}
 });
@@ -141,6 +160,7 @@ test("a crashed broker is replaced by the next connecting client", async () => {
 	const socketPath = path.join(root, "broker.sock");
 	let client: BrokerClient | undefined;
 	let replacement: BrokerClient | undefined;
+	let replacementPid: number | undefined;
 	try {
 		client = await BrokerClient.connect({ socketPath, agent: agent("crash-a"), spawnIfMissing: true, heartbeatMs: 0 });
 		const firstStatus = await client.status();
@@ -159,14 +179,14 @@ test("a crashed broker is replaced by the next connecting client", async () => {
 
 		replacement = await BrokerClient.connect({ socketPath, agent: agent("crash-b"), spawnIfMissing: true, heartbeatMs: 0 });
 		const secondStatus = await replacement.status();
+		replacementPid = secondStatus.pid;
 		assert.notEqual(secondStatus.pid, firstStatus.pid);
 		// A restart resets epochs, so pre-restart observations read as stale.
 		assert.equal(secondStatus.resources.length, 0);
 	} finally {
 		client?.close();
 		replacement?.close();
-		const pid = replacement ? (await replacement.status().catch(() => undefined))?.pid : undefined;
-		if (pid) killQuietly(pid);
+		if (replacementPid) await terminateProcess(replacementPid);
 		rmSync(root, { recursive: true, force: true });
 	}
 });

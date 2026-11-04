@@ -155,6 +155,13 @@ export class LeaseManager {
 	/** Synchronous attempt. `wait: true` must use `acquire`. */
 	tryAcquire(agentId: string, resourceKey: string, options: AcquireOptions = {}): AcquireResult {
 		const now = this.now();
+		// Epoch first: a stale observation is a different recovery than "wait and retry".
+		if (options.baseEpoch !== undefined) {
+			const current = this.epochs.current(resourceKey);
+			if (options.baseEpoch !== current) {
+				return { ok: false, code: "stale", currentEpoch: current, expectedEpoch: options.baseEpoch };
+			}
+		}
 		const existing = this.holder(resourceKey);
 		if (existing && existing.agentId !== agentId) {
 			return { ok: false, code: "resource_busy", holder: holderInfo(existing, now) };
