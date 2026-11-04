@@ -1130,7 +1130,7 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 		// Never trust the client's numbers: an unusable value falls back to the defaults.
 		state.tabQuotas = sanitizeBrowserTabQuotasV1(payload.tabQuotas) ?? { ...DEFAULT_BROWSER_TAB_QUOTAS_V1 };
 		await persistState();
-		return { schemaVersion: 1, kind: "rotom-browser-relay-ready", protocolRevision: 20, nonce, ...sessionPrincipalValue(state), capabilities: ["tab-control", "claim-user-tabs", "handoff-user-tabs", "agent-tab-groups", "accessibility-snapshot", "rendered-document-text", "full-document-read", "virtualized-frame-scroll", "content-coverage", "oopif-accessibility", "screenshot", "direct-interaction", "cdp-mouse", "coordinate-click", "targeted-scroll", "interaction-target-state", "page-alert-readback", "targeted-keypress", "snapshot-query", "operation-deadline", "non-destructive-timeout", "in-place-recovery", "multi-client-multiplex", "cross-agent-transfer"] };
+		return { schemaVersion: 1, kind: "rotom-browser-relay-ready", protocolRevision: 21, nonce, ...sessionPrincipalValue(state), capabilities: ["tab-control", "claim-user-tabs", "handoff-user-tabs", "agent-tab-groups", "accessibility-snapshot", "rendered-document-text", "full-document-read", "virtualized-frame-scroll", "content-coverage", "oopif-accessibility", "screenshot", "direct-interaction", "cdp-mouse", "coordinate-click", "targeted-scroll", "interaction-target-state", "page-alert-readback", "targeted-keypress", "snapshot-query", "operation-deadline", "non-destructive-timeout", "in-place-recovery", "multi-client-multiplex", "cross-agent-transfer"] };
 	}
 	if (operation === "open") {
 		const name = safeName(payload.tabName);

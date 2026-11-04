@@ -185,7 +185,10 @@ export async function launchHarness(input = {}) {
 		...(verbose ? ["--enable-logging=stderr", "--v=1"] : ["--enable-logging=stderr"]),
 		...(headless ? ["--headless=new"] : []),
 		"--new-window",
-		"about:blank",
+		// The tab Chrome starts with is the operator's tab: agents open background tabs
+		// and must never take the foreground from it. A suite that checks that gives a
+		// real URL here; everything else starts on about:blank.
+		input.startUrl ?? "about:blank",
 	];
 	const chromeLogPath = join(root, "chrome.log");
 	// Browser stderr is where extension manifest and debugger failures surface.

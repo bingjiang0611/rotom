@@ -65,6 +65,31 @@ document.querySelector('[role=region]').addEventListener('scroll', () => {
 });
 </script>`;
 
+// One form per agent tab for the parallel suite: the page echoes exactly what was
+// typed and selected, so a mixed-up readback is visible instead of inferred.
+const FORM_BODY = `
+<main>
+  <h2>Agent form</h2>
+  <label>Name <input id="name" aria-label="Agent name"></label>
+  <div style="margin-top:80px">
+    <label>Plan
+      <select id="plan" aria-label="Agent plan"><option>draft</option><option>active</option></select>
+    </label>
+  </div>
+  <div style="margin-top:80px"><button id="submit">Submit form</button></div>
+  <div role="status" id="result">idle</div>
+</main>
+<script>
+document.querySelector('#submit').addEventListener('click', () => {
+  document.querySelector('#result').textContent = 'name=' + document.querySelector('#name').value + ' plan=' + document.querySelector('#plan').value;
+});
+</script>`;
+
+// The "user" tab the harness starts with: never touched by an agent, so a suite can
+// assert the operator's foreground tab is still the active one.
+const USER_BODY = `
+<main><h1>User tab</h1><div role="status" id="user-status">User tab stays foreground</div></main>`;
+
 function htmlDocument(title, body) {
 	return `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title></head><body>${body}</body></html>`;
 }
@@ -84,6 +109,8 @@ export function defaultPages({ frameOrigin }) {
 		["/frame", htmlDocument("M7 frame", FRAME_BODY)],
 		["/popup", htmlDocument("Popup", "<h2>Spawned context</h2>")],
 		["/large", htmlDocument("Large document", LARGE_BODY)],
+		["/form", htmlDocument("Agent form", FORM_BODY)],
+		["/user", htmlDocument("User tab", USER_BODY)],
 	]);
 }
 

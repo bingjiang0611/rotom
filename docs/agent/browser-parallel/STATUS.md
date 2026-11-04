@@ -7,7 +7,7 @@
 | 里程碑 | 状态 | 最后 commit | 备注 |
 | - | - | - | - |
 | T0 测试架子 | ready-for-review | `browser(T0)` | 隔离 Chromium e2e 架子 + `baseline` suite；macOS 实测 |
-| M1 并行底座 | in-progress | `browser(T10)` | T1–T10 完成 |
+| M1 并行底座 | ready-for-review | `browser(T11)` | T1–T11 完成；`parallel-4` 连续 3 次通过，延迟数据见下 |
 | M2 调试 P0 | not-started | | |
 | M3 交互与安全 | not-started | | |
 | M4 devtools 与平台 | not-started | | |
@@ -19,6 +19,7 @@
 
 | 任务 | 状态 | commit | 验证命令与结果摘要 | 未验证项 |
 | - | - | - | - | - |
+| T11 | done | `browser(T11)` | e2e `parallel-4` 6/6 断言、连续 3 次通过（每次 4 个 agent × 5 轮，全部操作 20 个样本）：无串台（每轮每个 agent 的 readback 都只含自己的 token，且不含其他 3 个 agent 的 token）、每个 agent 的 `tabs` 只列自己的 tab、Chrome 启动的“用户 tab”（`/user`）在 5 轮后仍 `browserActive: true`；反向对照：把期望值改成 `<token>-CONTROL` 后第 1 轮立即失败，证明断言能区分读错/写错；全量 e2e 50/50（10 suite）；`./rotom/bin/check-personal` EXIT=0（451 项，450 pass + 1 skip，两个 gate PASS）；协议版本升到 21、manifest 升到 `0.11.0`，`browser-relay.test.ts` 53/53 覆盖既有 20 与新的 21 负向组合。 | tab 分组只能在 SW 单测里证明（relay 不暴露 `groupId`/分组标题，e2e 观察不到）；延迟是“工具层 + relay + Chrome”的单机 headless 数据，不是 provider token 或跨机器基准；“用户 tab 保持 active”用 `discover` 的 `browserActive` 断言，不证明系统级焦点（headless 下没有真实窗口焦点） |
 | T10 | done | `browser(T10)` | `tab-quotas.test.mjs` 6/6（四个上限各自拒绝、边界值放行、环境变量覆盖每一项含 `0`、非法值报错、hello 值校验）；e2e `quotas` 5/5（工具层驱动，四个上限真在 SW 生效，close 后立即释放，非法环境变量在连接时报错）；反向对照：删掉 SW 里的 `assertTabQuotaAllowed` 调用后同一 suite 4 项失败；`chrome-extension.test.mjs` 29/29（新增静态断言：`open` 与 `claim` 都有配额检查、hello 的配额必须过滤）；`browser-relay.test.ts` 23/23（hello 携带配额、环境变量覆盖进入 hello、非法值报错）；全量 e2e 44/44（9 suite）；`./rotom/bin/check-personal` EXIT=0（450 + 99，`runtimeContractGate` PASS）。 | 配额按“请求方 session 在 hello 里声明的值”判定，不是浏览器级统一策略（多客户端值不同时各按自己的算，实际同一次产品启动里值相同）。`maxAgents` 只限制开新 tab，不拒绝连接，所以超限 agent 仍可读。默认 `maxTabsPerOrigin=2` 对真实使用是硬的：同一站点开第三个 tab 会被拒（e2e harness 因此给非配额 suite 放大到 16） |
 | T9 | done | `browser(T9)` | `browser-lease.test.mjs` 5/5（缺失/过期/未覆盖 origin/开关未开/文件与目录权限/symlink 全部拒绝，父 agent 改写文件后放行）；e2e `lease` 6/6（驱动真实 `browser_inspect`/`browser_interact`：无 lease、origin 未覆盖、过期三种情况都在工具层拒绝，且 fixture 站点请求数不变；父 agent 更新 lease 后同一调用的 `open` 放行并真的产生请求；只读 snapshot 不受限、写操作按 tab 的 origin 判定）；反向对照：把 `checkBrowserLeaseV1` 换成恒真后同一 suite 4 项失败，证明断言能被触发；全量 e2e 39/39（8 suite）；`./rotom/bin/check-personal` EXIT=0（444 + 99，两个 gate PASS）；组件 `npm test` 62/62、`browser-extension.test.mjs` 3/3、`typecheck` PASS、`pack:release` 产出 `0.52.1-rotom.14`（975 826 bytes，sha256 `4b2489ee…`，audit 0 finding）。 | 子 agent 的 lease 内容来自父 agent 发布到环境的 scope，不是父进程内的直接调用；`maxTabs` 只写进 lease 还没执行（T10）。`devtools`/`upload`/`download` 三个开关当前恒为 false 且没有调用点，属于 T9 合同预留，尚未有真实路径验证。needs-approval 的父侧处理（弹窗/放行流程）属 T20 |
 | T8 | done | `browser(T8)` | `packages/rotom-subagents`：`npm test` 62/62、`npm run typecheck` PASS（sourceDigest `0954cb02…`）、`pack:release` 产出 `pi-subagents-0.52.1-rotom.13.tgz`（974 828 bytes / 248 files，sha256 `04ccf616…`，audit PASS）；`node --experimental-strip-types --test test/browser-extension.test.mjs` 3/3；`rotom/runtime/subagent-browser-load.test.mjs` 1/1（真实 Pi 按子 agent 的 launch plan 注册 `browser_inspect`/`browser_interact`，去掉扩展参数的反向对照不注册）；`rotom/runtime/verify-pi-runtime.test.mjs` 40/40（launcher 覆盖子进程继承的伪造路径）；`third-party-archive` + `distribution` 38/38；`./rotom/bin/check-personal` EXIT=0（439 + 99，`runtimeContractGate` PASS）；e2e `baseline chunked` 10/10 无回归。 | 验证的是“launch plan → 真实 Pi 注册工具”这一跳，没有真正 spawn 子 agent 进程跑一轮；`ROTOM_BROWSER_AGENT_ID`/`ROTOM_BROWSER_ROOT_SESSION` 只做单元断言，未在真实子进程里观察 SW 侧的 agentId 归属（要等 T11 的并行 e2e）；lease token 仍属 T9 |
@@ -30,6 +31,22 @@
 | T2 | done | `browser(T2)` | `node --test rotom/extensions/browser/agent-transfer.test.mjs` 5/5（同 root 内 transfer、跨 root 拒绝、`<原名>@<来源>`、旧 ref/坐标失效、弹窗归属有界）；`--test browser-relay.test.ts` 19/19（新增“只对 transfer 要求能力”）；`--test chrome-extension.test.mjs` 28/28；`distribution + quality-boundaries` 32/32；e2e `run.mjs baseline isolation` 13/13（新增 `isolation` suite）；`./rotom/bin/check-personal` 见下方 footprint 记录。 | 旧扩展（无 `cross-agent-transfer`）只在单测里模拟，没有真实旧版扩展 |
 | T1 | done | `browser(T1)` | `node --experimental-strip-types --test rotom/extensions/browser/browser-relay.test.ts` 18/18；`node --test rotom/extensions/browser/chrome-extension.test.mjs` 28/28（新增 principal 单测与 hello/persist/restore 源码断言）；`node --test ownership/native-host/component-storage` 35/35；`distribution.test.mjs + quality-boundaries.test.mjs` 32/32；e2e `run.mjs baseline` 7/7（新增 `tabs.agentId`/`rootSessionId` 断言）。 | 旧扩展（不回显身份）只做了单测覆盖，没有真实旧版扩展可测 |
 | T0 | done | `browser(T0)` | `node --experimental-strip-types rotom/runtime/e2e-browser/run.mjs baseline` 连续 3 次 `7 passed, 0 failed`；每次跑完 `pgrep -f "Chrome for Testing"` 为 0。L1：`node --test rotom/extensions/browser/{chrome-extension,ownership,native-host,component-storage}.test.mjs` 62/62 通过；`./rotom/bin/check-personal` EXIT=0（393 + 99 条测试全通过，`deterministicGate: PASS`）。 | 验收要求“Linux 无头环境”，本机是 macOS arm64，Linux 未跑；Windows 不在范围 |
+
+## M1 延迟数据（`parallel-4`，3 次连续运行，单位 ms）
+
+单机 macOS、Chrome for Testing 156、`--headless=new`、fixture 站点在 loopback。每次运行 4 个 agent 并行、5 轮，每种操作 20 个样本；数值是**工具层调用到返回**的墙钟时间，包含参数校验、relay 往返（unix socket + native messaging + service worker）、Chrome 操作与结果序列化。
+
+| 操作 | run 1 p50 / p95 | run 2 p50 / p95 | run 3 p50 / p95 |
+| - | - | - | - |
+| open | 303 / 525 | 307 / 519 | 301 / 694 |
+| type | 268 / 291 | 272 / 273 | 274 / 281 |
+| select | 268 / 276 | 268 / 271 | 266 / 275 |
+| click | 1044 / 1062 | 1051 / 1056 | 1053 / 1071 |
+| readback（snapshot_visible） | 166 / 176 | 169 / 175 | 167 / 170 |
+| tabs | 107 / 112 | 105 / 110 | 107 / 110 |
+| close | 219 / 222 | 214 / 215 | 214 / 221 |
+
+可见的结论：`click` 稳定在 ~1.05 s，比 `type`/`select`（~0.27 s）高一个量级——它带命中测试、目标状态回读与 page-alert 收集；`open` 的 p95 波动最大（519–694 ms），因为要等 Chrome 建 tab 与首次导航。4 个 agent 并行时这些 p50 没有随并发线性增长，说明“每 tab 加锁 + 结构性操作独占”没有把读路径串行化。这不是 provider token 数据，也不能外推成本。
 
 ## 自行决定
 
@@ -45,6 +62,11 @@
 - **T0 / fixture 的 iframe 用 `localhost`，主站用 `127.0.0.1`。** 端口不同不等于跨站点，`127.0.0.1:portA` 与 `127.0.0.1:portB` 仍是同站，iframe 不会变成 OOPIF，`Target.setAutoAttach` 也拿不到子 session。换成两个 site name 后 `Cross-origin frame ready` 才能被 snapshot 读到，和原 smoke 脚本的做法一致。
 - **T0 / 默认无头（`--headless=new`）并关掉后台节流。** `ROTOM_E2E_HEADED=1` 可切有头。加 `--disable-background-timer-throttling`、`--disable-backgrounding-occluded-windows`、`--disable-renderer-backgrounding`，避免把 Chrome 的后台节流误判成 relay 行为（T6 要单独验证可见性，用 `visibilityState` 而不是超时）。
 - **T0 / 失败保留现场，成功清理。** 失败时打印 `<root>` 路径并保留（`ROTOM_E2E_KEEP=1` 成功时也保留）；清理时会按 `--user-data-dir=<profile>` 精确清扫残留 Chrome（`spawn` 出来的进程组 kill 之后仍会有 helper 逃逸），不会全局 pkill。实测清理后 `pgrep` 为 0。
+- **T11 / 协议版本升到 21、manifest 升到 `0.11.0`。** M1 期间 relay 每轮都加了新能力（principal 字段、`transfer`、`placement`、`visibilityState`、分块响应、lease、配额），客户端已经用 capability 逐个把关，但“同一 revision 下行为变多”会让排障时无法判断对面是哪个构建。这里把 revision 从 20 提到 21，并把 `browser-relay.test.ts` 的负向用例扩成 19/20/21 三档组合；代价是所有用户必须重载 Chrome 扩展（`chrome://extensions` ↻）——这正是 M1 结束时的合理断点，而不是每加一个能力就要求一次重载。
+- **T11 / `parallel-4` 通过工具层驱动，不直接用 relay 客户端。** lease、配额、参数校验都在工具层，只有走工具层才能证明“4 个 agent 并行”在真实调用链上成立。代价是每次运行要额外加载 4 个 Pi 扩展实例（约 1.5 s 启动开销，不计入延迟样本）。
+- **T11 / “用户 tab 保持 active”用 Chrome 的启动 tab 来断言。** harness 现在支持 `startUrl`，`parallel-4` 声明 `startUrlPage = "/user"`，Chrome 用该页面作为启动 tab（真实用户 tab），agent 的 tab 只能开在后台。headless 下没有系统级窗口焦点，所以这只证明 `tab.active`，不证明 macOS 的前台窗口。
+- **T11 / 每轮结束关闭自己的 tab。** 不关会撞上 T10 的 per-origin 默认上限（4 个 agent + 用户 tab 已经 4 个同源 tab）。这也让下一轮的 tab 归属断言没有歧义。
+- **T11 / tab 分组没有 e2e 断言。** relay 不暴露 `groupId` 与分组标题，硬加一个只读字段只为测试不值得；分组行为由 `shared-tab-group`/`chrome-extension` 单测（每个 agent 一个分组、标题有界、颜色哈希稳定）覆盖，STATUS 里如实记为未验证项。
 - **T10 / 配额由“请求方声明的值”判定，计数全局。** `maxAgents`/`maxTabsPerAgent`/`maxTabs`/`maxTabsPerOrigin` 四个数字跟着 `hello` 走：客户端从 `ROTOM_BROWSER_MAX_*` 读、校验后上报，SW 再 `sanitizeBrowserTabQuotasV1` 过滤一遍，用**请求方自己声明的值**判自己的 open，但计数永远是全局的（所有 session 的 agent tab）。同一次产品启动里所有 agent 的 env 相同，所以实际等价于统一策略；写成每 session 声明是因为 SW 读不到环境变量，而把配额写进 `chrome.storage` 会让改 env 后必须重装扩展。
 - **T10 / `maxAgents` 不拒绝连接，只拒绝开新 tab。** 需求把四个上限都写在“超限时 open 直接返回错误”里；拒绝连接会顺带砍掉只读能力（`tabs`/`snapshot`），而排在第 9 位的 agent 通常只想看看别的 agent 在干什么。先连上的 8 个按连接顺序保留额度，第 9 个开始不能 open。
 - **T10 / `claim` 也过配额。** 需求只点名 `open`，但只给 `open` 加限制时 `claim` 可以直接绕开 24 个全局上限——用户自己的 tab 被 agent claim 之后同样占用浏览器。按“agent 自己 open 的 tab 计入配额、claimed tab 属于用户不算入 ownTabs/globalTabs，但仍要有一个 slot”实现：`ownTabs`/`globalTabs`/`originTabs` 只统计 `ownership === "agent"`，`claim` 只受前面已有 tab 的计数约束，不会因为用户开着 20 个 tab 就被拒。

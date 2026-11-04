@@ -24,9 +24,11 @@ for (const name of names) {
 	let fixtures;
 	process.stdout.write(`# suite ${name} — ${suite.description ?? ""}\n`);
 	try {
-		harness = await launchHarness();
-		await waitForRelay(harness);
+		// Fixtures first: a suite that needs a real "user" tab makes Chrome start on one
+		// of its pages, so the site has to be listening before Chrome launches.
 		fixtures = await createFixtureServer();
+		harness = await launchHarness({ startUrl: suite.startUrlPage ? fixtures.url(suite.startUrlPage) : undefined });
+		await waitForRelay(harness);
 		await suite.run({
 			harness,
 			fixtures,

@@ -39,6 +39,11 @@ node --experimental-strip-types rotom/runtime/e2e-browser/run.mjs baseline
 | `chunked` | 超过 256 KiB 的响应分块、摘要校验与丢失/乱序拒绝 |
 | `lease` | 子 agent 的 lease：未授权 origin 本地拒绝，站点从未收到请求 |
 | `quotas` | per-agent / per-origin / 全局 / agent 数四个上限，超限即时拒绝且 close 后释放 |
+| `parallel-4` | 4 个 agent 同 root session 并行跑 5 轮表单，无串台、用户 tab 保持 active、归属正确，并打印延迟 p50/p95 |
+
+`parallel-4` 声明了 `startUrlPage = "/user"`：runner 会先起 fixture 站点，再让 Chrome
+用这个页面作为启动 tab，这样“用户 tab 是否仍是 active”才有可断言的对象。其他 suite
+不声明时仍从 `about:blank` 启动。
 
 `lease` 是唯一直接驱动工具层（而不是 `BrowserRelayClientV1`）的 suite：lease 判定在
 `rotom/extensions/browser/index.ts` 里，所以它用 `browser-tools.mjs` 把真实
@@ -65,4 +70,6 @@ node --experimental-strip-types rotom/runtime/e2e-browser/run.mjs baseline
 在 `suites/<name>.mjs` 导出 `description` 和 `run({ harness, fixtures, recorder })`，
 再在 `suites/index.mjs` 注册。断言用 `recorder.check(name, fn)` 或
 `recorder.assert(name, condition, detail)`，这样失败会单独命名。
-fixture 站点在 `fixtures/server.mjs`，用 `fixtures.page(path, title, body)` 加页面。
+fixture 站点在 `fixtures/server.mjs`，用 `fixtures.page(path, title, body)` 加页面，
+内置页面有 `/baseline`、`/frame`、`/popup`、`/large`、`/form`、`/user`。
+需要真实“用户 tab”的 suite 导出 `startUrlPage`（`run.mjs` 会把它交给 Chrome 当启动 URL）。
