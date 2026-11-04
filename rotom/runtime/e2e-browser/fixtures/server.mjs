@@ -69,11 +69,21 @@ function htmlDocument(title, body) {
 	return `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title></head><body>${body}</body></html>`;
 }
 
+// Large document for the chunked-response suite: enough text that one read_full
+// response has to travel as several native messages.
+const LARGE_PARAGRAPHS = 340;
+const LARGE_BODY = `<main>
+<h1>Large document</h1>
+${Array.from({ length: LARGE_PARAGRAPHS }, (_, index) => `<p>Paragraph ${index + 1}: ${"lorem ipsum dolor sit amet ".repeat(28)}</p>`).join("\n")}
+<div role="status" id="large-tail">Large document tail sentinel</div>
+</main>`;
+
 export function defaultPages({ frameOrigin }) {
 	return new Map([
 		["/baseline", htmlDocument("M7 relay smoke", BASELINE_BODY.replace("__FRAME__", `${frameOrigin}/frame`))],
 		["/frame", htmlDocument("M7 frame", FRAME_BODY)],
 		["/popup", htmlDocument("Popup", "<h2>Spawned context</h2>")],
+		["/large", htmlDocument("Large document", LARGE_BODY)],
 	]);
 }
 

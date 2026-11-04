@@ -79,6 +79,8 @@
 - click/type/select/keypress 的 unknown 是否只允许只读核对，不重发写动作（仅幂等 scroll 可重试一次）？
 - keypress 是否仅允许 ref-bound Enter/Tab/Escape，派发前核验原对象焦点、document/frame generation，且复用后台保护与目标状态回读？不自动把 type 转成 Enter，不通过 insertText 换行或系统键盘冒充按键。
 - desktop 写操作是否保持后台投递：失败时返回 unknown，而不是 activate 目标 app 抢走用户与其他 agent 共用的全机前台？
+- 大响应是否仍按 256 KiB 阈值分块（`response-chunks.js`）、每块带整条响应的 sha256，客户端按序重组后才校验摘要？丢块、乱序、摘要不符是否都报错而不是返回拼出来的结果？native host 是否只按请求身份转发、在最后一块才释放路由？单帧 `MAX_MESSAGE_BYTES` 只约束一块，不冒充整条响应上限？
+- 截图有两个不同的上限是否分开：传输 8 MiB（协议）、模型侧 768 KiB（`validateBrowserScreenshotV1` 默认值）？不要把传输上限当成模型可见上限。
 - protocol/extension 变更是否要求用户重载，并明确 L1 与真实 Chrome L2/L3？
 
 ### Observability

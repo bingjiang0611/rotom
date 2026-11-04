@@ -6,6 +6,7 @@ import { createSessionLockV1, createTabLocksV1, isSessionScopedOperationV1, tabL
 import { sessionCleanupPlanV1 } from "./session-cleanup.js";
 import { createFocusCoordinator } from "./focus-coordinator.js";
 import { withTabWake } from "./lifecycle-wake.js";
+import { responseFramesV1 } from "./response-chunks.js";
 import { createMergedSessionWriter, isSessionStateKeyV3, LEGACY_SESSION_STATE_KEY_V1, LEGACY_SESSION_STATE_KEY_V2, legacyV1Sessions, legacyV2Sessions, serializeSessionStateV3, sessionStateKeyV3 } from "./session-persistence.js";
 import { interactionScrollTarget } from "./interaction-scroll-target.js";
 import { createOperationGuard } from "./operation-guard.js";
@@ -23,6 +24,9 @@ import { DEFAULT_AGENT_ID, restoredSessionPrincipal, sessionPrincipalFromHello, 
 
 const HOST_NAME = "dev.rotom.browser_relay";
 const MAX_NATIVE_BYTES = 1024 * 1024;
+// Transport limit for one screenshot; what the model may see is bounded by the
+// client's model-facing limit, not here.
+const MAX_SCREENSHOT_BYTES = 8 * 1024 * 1024;
 const MAX_AX_NODES = 600;
 const MAX_QUERY_AX_NODES = 20_000;
 const MAX_TEXT_NODES = 320;
@@ -89,6 +93,11 @@ function post(message) {
 	const encoded = JSON.stringify(message);
 	if (new TextEncoder().encode(encoded).length > MAX_NATIVE_BYTES) throw new Error("native message too large");
 	nativePort?.postMessage(message);
+}
+// A response that exceeds one native message travels as numbered chunks carrying
+// the digest of the whole serialized message; the client reassembles and verifies.
+async function postResponse(message) {
+	for (const frame of await responseFramesV1(message)) post(frame);
 }
 function createSessionState(sessionId) {
 	const id = safeString(sessionId, "sessionId", 512);
@@ -1211,7 +1220,7 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 		const metricsBefore = await chrome.debugger.sendCommand(debuggee, "Page.getLayoutMetrics");
 		const captured = await chrome.debugger.sendCommand(debuggee, "Page.captureScreenshot", { format: "jpeg", quality: 55, fromSurface: true, captureBeyondViewport: false });
 		const metricsAfter = await chrome.debugger.sendCommand(debuggee, "Page.getLayoutMetrics");
-		if (typeof captured?.data !== "string" || captured.data.length > 950_000) throw new Error("screenshot exceeds relay limit");
+		if (typeof captured?.data !== "string" || Math.ceil(captured.data.length * 3 / 4) > MAX_SCREENSHOT_BYTES) throw new Error("screenshot exceeds relay limit");
 		const beforeViewport = coordinateViewport(metricsBefore);
 		const afterViewport = coordinateViewport(metricsAfter);
 		for (const key of ["width", "height", "pageX", "pageY", "scale"]) if (Math.abs(beforeViewport[key] - afterViewport[key]) > 0.5) throw new Error("screenshot viewport changed during capture");
@@ -1335,7 +1344,7 @@ async function handleRequest(message, state, scopeKey) {
 		const expectedEpoch = state.epoch;
 		const result = await handleOperationWithDeadline(state, message.operation, message.payload, expectedEpoch, scopeKey);
 		if (state.epoch !== expectedEpoch || state.generation !== message.generation) throw new Error("session binding changed during operation");
-		post({ schemaVersion: 1, kind: "response", id: message.id, sessionId: message.sessionId, generation: message.generation, ok: true, result });
+		await postResponse({ schemaVersion: 1, kind: "response", id: message.id, sessionId: message.sessionId, generation: message.generation, ok: true, result });
 	} catch (error) {
 		post({ schemaVersion: 1, kind: "response", id: message.id, sessionId: message.sessionId, generation: message.generation, ok: false, error: publicError(error) });
 	}

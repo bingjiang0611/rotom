@@ -7,7 +7,7 @@
 | 里程碑 | 状态 | 最后 commit | 备注 |
 | - | - | - | - |
 | T0 测试架子 | ready-for-review | `browser(T0)` | 隔离 Chromium e2e 架子 + `baseline` suite；macOS 实测 |
-| M1 并行底座 | in-progress | `browser(T6)` | T1–T6 完成 |
+| M1 并行底座 | in-progress | `browser(T7)` | T1–T7 完成 |
 | M2 调试 P0 | not-started | | |
 | M3 交互与安全 | not-started | | |
 | M4 devtools 与平台 | not-started | | |
@@ -19,6 +19,7 @@
 
 | 任务 | 状态 | commit | 验证命令与结果摘要 | 未验证项 |
 | - | - | - | - | - |
+| T7 | done | `browser(T7)` | `node --test rotom/extensions/browser/response-chunks.test.mjs` 4/4（单帧/分块阈值、每块带同一摘要、代理对切点不被破坏、超过 12 MiB 传输上限在发送前失败、SW 对 ok 响应走 `postResponse`、截图按解码字节算 8 MiB）；`browser-relay.test.ts` 23/23（新增 4 项：分块按序重组、丢头/丢中间块/乱序/摘要篡改四种都报错、8 MiB 传输上限与 768 KiB 模型上限分离）；`native-host.test.mjs` 8/8（新增 2 项：一个客户端收分块大响应时另一个客户端的小响应在小响应位次到达且最后一块后才释放请求身份、结构不合法的分块帧让 host 以 74 退出）；`rotom/extensions/browser/*.test.mjs` 100/100；`index.test.ts` + `browser-relay.test.ts` 71/71；`./rotom/bin/check-personal` EXIT=0（406 + 99，`runtimeContractGate` PASS）；e2e `baseline isolation same-agent-parallel cleanup focus visibility chunked` 33/33（新增 `chunked` 3 项）。 | e2e 的分块路径用「响应字节数 > 256 KiB」间接证明；>1 MiB 单帧拒绝由 L1（native host 帧上限）覆盖，没有真实 8 MB 截图的 L2 证据（要等 M4 的整页截图） |
 | T6 | done | `browser(T6)` | `node --test rotom/extensions/browser/focus-coordinator.test.mjs` 5/5（用户焦点只由非 agent 事件更新、`WINDOW_ID_NONE` 保留旧窗口、restore 容错、播种、lifecycle wake 失败只记诊断）；`ownership.test.mjs` 29/29（新增 `createAgentWindowTab` 复用/重开、discard 保护记原值只恢复自己动过的 tab）；`browser-relay.test.ts` 20/20（`visibilityState` 只接受 visible/hidden、缺字段兼容、未知取值 fail closed）；`index.test.ts` 48/48；`rotom/extensions/browser/*.test.mjs` 94/94；e2e `baseline isolation same-agent-parallel cleanup focus visibility` 30/30（新增 `focus` 5 项、`visibility` 3 项）；`./rotom/bin/check-personal` EXIT=0（401 + 99，`runtimeContractGate` PASS；footprint 默认面 26 826 / 10 282，`ROTOM_DEFERRED_TOOLS=0` 面 38 907 / 10 933，两处 PASS）。 | 真实 Chrome 里无法冻结标签，所以 `Page.setWebLifecycleState` 只有 L1（含失败分支）证明，没有“页面真的被 freeze 后又被唤醒”的实测；`agent-window` 的窗口复用只在 L1 断言，e2e 侧 relay 不暴露 `windowId`，无法观察窗口数量；`autoDiscardable` 只在 L1 断言，e2e 不主动 discard 标签 |
 | T5 | done | `browser(T5)` | `node --test rotom/extensions/browser/session-cleanup.test.mjs` 6/6（主/子 agent、主不在线、keepTabs、名字冲突、接线）；`chrome-extension.test.mjs` 29/29（分组改为按 agentId，标题/颜色稳定哈希）；`rotom/extensions/browser/*.test.mjs` 87/87；e2e `baseline isolation same-agent-parallel cleanup` 22/22（新增 `cleanup` suite）；`./rotom/bin/check-personal` EXIT=0（398 + 99）。 | 分组标题/颜色只在单测里断言，没在真实 Chrome 里读 tabGroups；keepTabs 目前来自 `ROTOM_BROWSER_KEEP_TABS` 环境变量而不是 lease（T9 接） |
 | T4 | done | `browser(T4)` | `node --test rotom/extensions/browser/session-persistence.test.mjs` 7/7（V3 key/序列化、V1/V2 迁移、合并写只写变化项、写失败重试、消失的 session 删除、restore 字段覆盖）；`chrome-extension 28/28`、`request-locks 5/5`、`agent-transfer 5/5`、`ownership/component-storage` 合计 71/71；e2e `baseline isolation same-agent-parallel` 18/18；`./rotom/bin/check-personal` EXIT=0（397 + 99）。 | 真实 SW 被 Chrome 回收后的恢复没有在 e2e 里制造过（只在 L1 覆盖序列化与迁移）；合并写给每次 `await persistState()` 最多加 100ms |
@@ -41,6 +42,13 @@
 - **T0 / fixture 的 iframe 用 `localhost`，主站用 `127.0.0.1`。** 端口不同不等于跨站点，`127.0.0.1:portA` 与 `127.0.0.1:portB` 仍是同站，iframe 不会变成 OOPIF，`Target.setAutoAttach` 也拿不到子 session。换成两个 site name 后 `Cross-origin frame ready` 才能被 snapshot 读到，和原 smoke 脚本的做法一致。
 - **T0 / 默认无头（`--headless=new`）并关掉后台节流。** `ROTOM_E2E_HEADED=1` 可切有头。加 `--disable-background-timer-throttling`、`--disable-backgrounding-occluded-windows`、`--disable-renderer-backgrounding`，避免把 Chrome 的后台节流误判成 relay 行为（T6 要单独验证可见性，用 `visibilityState` 而不是超时）。
 - **T0 / 失败保留现场，成功清理。** 失败时打印 `<root>` 路径并保留（`ROTOM_E2E_KEEP=1` 成功时也保留）；清理时会按 `--user-data-dir=<profile>` 精确清扫残留 Chrome（`spawn` 出来的进程组 kill 之后仍会有 helper 逃逸），不会全局 pkill。实测清理后 `pgrep` 为 0。
+- **T7 / 分块是协议层的一层，不改 `MAX_MESSAGE_BYTES` 语义。** SW 把整条响应序列化一次、算 UTF-8 的 sha256，再按 UTF-16 code unit 切（`RESPONSE_CHUNK_CODE_UNITS = 48_000`，最坏 4 字节/码元 ≈ 192 KiB，留在 256 KiB 合同内）。按码元切而不是按字节切，是因为切点落在一对代理中间时 `JSON.stringify` 会把孤立代理转义成 `\udXXX`，客户端拼回来正好还原；按字节切会直接产生非法 UTF-8。
+  - `chunk.sha256` 是**整条响应**的摘要，不是单块的：客户端只有拼完最后一块才能验证，因此任何缺块/乱序都不会伪装成可用结果。
+  - native host 只把 `response-chunk` 当同一条路由上的帧转发，最后一块之后才 `completeRoute`；单帧 `MAX_MESSAGE_BYTES`（1 MiB）继续只约束一个原生帧。
+  - 兼容性：旧客户端遇到 `response-chunk` 会以「response binding 无效」失败，不会静默截断；旧扩展仍发单帧，新客户端照旧接受。协议修订号仍在 M1 结束时统一 +1（T11），这里没有单独 bump，避免把未重载的用户提前踢下线。
+- **T7 / 截图的两个上限分开。** SW 侧传输上限按解码后字节算 8 MiB（`MAX_SCREENSHOT_BYTES`）；客户端 `validateBrowserScreenshotV1` 默认仍是 768 KiB 的模型可见上限，另导出 `MAX_RELAY_SCREENSHOT_BYTES` 供 M4 的整页截图使用。这样「能传多大」和「模型能看多大」不是同一个数字，也不会因为放宽传输而让模型突然收到 8 MB 图片。
+- **T7 / e2e 增加了 `chunked` suite 和 `/large` fixture。** 断言的是「读回的正文 > 256 KiB 且首尾完整」，配合 SW 只在超阈值时才分块，这一条同时证明分块路径被真实走过；另外做过一次强制分块 + 破坏摘要的对照实验：强制分块时 suite 仍通过（证明 SW→host→client 全链路可用），篡改摘要时 suite 立刻以「摘要不匹配」失败（证明校验是活的）。
+- **T7 / 并发断言按 T3 的锁合同写。** 一开始写「`tabs` 不被大响应阻塞」是错的：`tabs` 是结构性操作，本就持有 session 锁。改成同一 session 另一个 tab 的 `snapshot` 与分块 `read_full` 并发完成，这才是 T3 承诺的并行面。
 - **T6 / 用户焦点改成全局唯一记录，不再每次操作各存一份。** 新增 `chrome-extension/focus-coordinator.js`：只有非 agent 触发的 `chrome.tabs.onActivated` / `chrome.windows.onFocusChanged` 才更新记录；agent 派发前 `markAgentActivity()` 开一个 2 秒（+`BACKGROUND_ACTIVATION_GUARD_MS`）窗口，窗口内的激活与窗口聚焦都算 agent 噪音。原来 `withBackgroundActivationGuard` 里按“动作前这张窗口的活动标签”恢复的做法改为问这个协调器。
   - 为什么必须跨 agent 共享：两个 agent 并发点击时，各自记住的“动作前活动标签”是同一个用户标签，但各自弹出的新窗口都可能是对方造成的；一个全局记录才能让它们收敛到同一处，而不是互相把对方的弹窗恢复成前台。
   - 新启动的 service worker 还没有任何激活事件，所以派发前若记录为空，先用 `observeActiveTab(源窗口)` 按真实活动标签播种；否则第一次点击会抢走用户前台（这条在 `ownership.test.mjs` 的 keypress 用例里被实测抓到过一次）。

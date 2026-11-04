@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 import { createServer, type Socket } from "node:net";
 import { test } from "node:test";
 import {
@@ -14,8 +15,10 @@ import {
 	browserInteractionExpectationOutcomeV1,
 	sanitizeBrowserInteractionEffectV1,
 	sanitizeBrowserObservationV1,
+	MAX_RELAY_SCREENSHOT_BYTES,
 	validateBrowserScreenshotV1,
 } from "./browser-relay.ts";
+import { RESPONSE_CHUNK_CODE_UNITS, responseChunksV1 } from "./chrome-extension/response-chunks.js";
 
 test("missing local Relay socket is typed pre-dispatch unavailability", async () => {
 	await assert.rejects(BrowserRelayClientV1.connect({ sessionId: "missing", socketPath: `/tmp/pi-relay-missing-${process.pid}-${Date.now()}.sock` }), (error: Error) => {
@@ -386,4 +389,95 @@ test("relay client 请求超时后销毁连接，避免复用卡死队列", asyn
 		await Promise.race([closed, new Promise((_, reject) => setTimeout(() => reject(new Error("relay timeout socket close timeout")), 1_000))]);
 		await assert.rejects(client.request("tabs", {}), /browser relay client 已关闭/u);
 	} finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
+});
+
+/** A relay that answers `hello` and lets the test push raw response frames. */
+async function chunkFixture(t: any, script: (request: any, socket: any) => void) {
+	const socketPath = `/tmp/rotom-browser-relay-chunk-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}.sock`;
+	const server = createServer((socket) => {
+		socket.setEncoding("utf8"); let buffer = "";
+		// The client destroys its socket as soon as it rejects a bad stream.
+		socket.on("error", () => { /* expected when the client fails the response */ });
+		socket.on("data", (chunk: string) => {
+			buffer += chunk;
+			for (;;) {
+				const newline = buffer.indexOf("\n"); if (newline < 0) break;
+				const line = buffer.slice(0, newline); buffer = buffer.slice(newline + 1); if (!line) continue;
+				script(JSON.parse(line), socket);
+			}
+		});
+	});
+	try { await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(socketPath, resolve); }); }
+	catch (error) { if ((error as NodeJS.ErrnoException).code === "EPERM") { t.skip("sandbox 禁止 Unix socket listen"); return undefined; } throw error; }
+	t.after(async () => { await new Promise<void>((resolve) => server.close(() => resolve())); });
+	return socketPath;
+}
+
+function readyFrame(request: any) {
+	return { schemaVersion: 1, kind: "response", id: request.id, sessionId: request.sessionId, generation: request.generation, ok: true,
+		result: { schemaVersion: 1, kind: "rotom-browser-relay-ready", protocolRevision: 20, nonce: request.payload.nonce,
+			capabilities: ["virtualized-frame-scroll", "multi-client-multiplex", "coordinate-click", "interaction-target-state", "page-alert-readback", "targeted-keypress", "snapshot-query"] } };
+}
+
+test("大响应分块：按序重组并校验摘要", async (t) => {
+	const big = { documentText: "x".repeat(RESPONSE_CHUNK_CODE_UNITS * 2 + 100) };
+	let client: any;
+	const socketPath = await chunkFixture(t, async (request, socket) => {
+		if (request.operation === "hello") { socket.write(`${JSON.stringify(readyFrame(request))}\n`); return; }
+		const message = { schemaVersion: 1, kind: "response", id: request.id, sessionId: request.sessionId, generation: request.generation, ok: true, result: big };
+		const { digest, chunks } = await responseChunksV1(JSON.stringify(message));
+		assert.ok(chunks.length >= 3, "fixture 必须产生多块");
+		for (let index = 0; index < chunks.length; index += 1) {
+			socket.write(`${JSON.stringify({ schemaVersion: 1, kind: "response-chunk", id: request.id, sessionId: request.sessionId, generation: request.generation, chunk: { index, count: chunks.length, sha256: digest, data: chunks[index] } })}\n`);
+		}
+	});
+	if (!socketPath) return;
+	client = await BrowserRelayClientV1.connect({ sessionId: "session-chunk", generation: "generation-chunk", socketPath });
+	assert.deepEqual(await client.request("read_full", {}), big);
+	client.close();
+});
+
+test("大响应分块：丢失、乱序与摘要错误都报错且不返回结果", async (t) => {
+	// Each case breaks the stream differently; all three must surface as an error,
+	// never as a result assembled from unverified chunks.
+	const cases: Record<string, (chunks: string[]) => Array<{ index: number; data: string }>> = {
+		// The head never arrives, so the response can never be assembled.
+		lostHead: (chunks) => chunks.slice(1).map((data, offset) => ({ index: offset + 1, data })),
+		// A middle chunk is lost: the indices jump.
+		lostMiddle: (chunks) => chunks.map((data, index) => ({ index, data })).filter((entry) => entry.index !== 1),
+		// Every chunk arrives, but out of order.
+		outOfOrder: (chunks) => { const ordered = chunks.map((data, index) => ({ index, data })); return [ordered[1], ordered[0], ...ordered.slice(2)]; },
+		// All chunks in order, one byte of content changed: only the digest can catch this.
+		tampered: (chunks) => chunks.map((data, index) => ({ index, data: index === 1 ? `${data.slice(0, -1)}!` : data })),
+	};
+	for (const [name, transform] of Object.entries(cases)) {
+		let failure: Error | undefined;
+		const socketPath = await chunkFixture(t, async (request: any, socket: any) => {
+			if (request.operation === "hello") { socket.write(`${JSON.stringify(readyFrame(request))}\n`); return; }
+			const message = { schemaVersion: 1, kind: "response", id: request.id, sessionId: request.sessionId, generation: request.generation, ok: true, result: { documentText: "y".repeat(RESPONSE_CHUNK_CODE_UNITS * 2) } };
+			const { digest, chunks } = await responseChunksV1(JSON.stringify(message));
+			assert.equal(chunks.length, 3, "fixture 必须产生三块");
+			for (const { index, data } of transform(chunks)) {
+				if (socket.destroyed) return;
+				socket.write(`${JSON.stringify({ schemaVersion: 1, kind: "response-chunk", id: request.id, sessionId: request.sessionId, generation: request.generation, chunk: { index, count: chunks.length, sha256: digest, data } })}\n`);
+			}
+		});
+		if (!socketPath) return;
+		const client = await BrowserRelayClientV1.connect({ sessionId: "session-chunk", generation: "generation-chunk", socketPath });
+		await client.request("read_full", {}, { timeoutMs: 3_000 }).then(() => undefined, (error: Error) => { failure = error; });
+		client.close();
+		assert.ok(failure, `${name} 必须报错而不是返回结果`);
+		assert.match(failure.message, /chunk|摘要/u, `${name}: ${failure.message}`);
+	}
+});
+
+test("截图传输上限 8 MiB，但模型的截图仍限制在 768 KiB", () => {
+	const base = { schemaVersion: 1, kind: "rotom-browser-screenshot", tabName: "main", tabId: 7, documentGeneration: 2, observationEpoch: 5, viewport: { width: 1280, height: 800, pageX: 0, pageY: 0, scale: 1 }, mimeType: "image/jpeg" };
+	const jpeg = (bytes: number) => Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(Math.max(0, bytes - 3))]).toString("base64");
+	const large = new Uint8Array(2 * 1024 * 1024);
+	large.set([0xff, 0xd8, 0xff]);
+	const big = Buffer.from(large).toString("base64");
+	assert.throws(() => validateBrowserScreenshotV1({ ...base, data: big }), /payload/u, "模型侧仍按 768 KiB 拒绝");
+	const accepted = validateBrowserScreenshotV1({ ...base, data: big }, MAX_RELAY_SCREENSHOT_BYTES);
+	assert.equal(accepted.data.length, big.length, "协议侧接受 8 MiB 以内的截图");
 });

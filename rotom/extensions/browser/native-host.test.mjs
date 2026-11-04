@@ -158,3 +158,87 @@ for (const shutdown of ["EOF", "SIGTERM"]) {
 		socket.destroy();
 	});
 }
+
+test("一个客户端收分块大响应时，另一个客户端的小响应不被阻塞", { timeout: 10_000 }, async (t) => {
+	const f = await fixture(t);
+	const host = f.start(); await f.ready(host);
+	// Two clients, distinct request identities on the same session binding.
+	const open = async (id) => {
+		const socket = createConnection(f.socketPath);
+		t.after(() => socket.destroy());
+		await once(socket, "connect");
+		socket.write(`${JSON.stringify({ schemaVersion: 1, kind: "request", id, sessionId: "fixture", generation: "one", operation: "hello", payload: {} })}\n`);
+		return socket;
+	};
+	const readLines = (socket) => {
+		const lines = [];
+		let buffer = "";
+		socket.setEncoding("utf8");
+		socket.on("data", (chunk) => {
+			buffer += chunk;
+			for (;;) {
+				const newline = buffer.indexOf("\n");
+				if (newline < 0) break;
+				lines.push(JSON.parse(buffer.slice(0, newline)));
+				buffer = buffer.slice(newline + 1);
+			}
+		});
+		return lines;
+	};
+	const forwarded = { text: "" };
+	host.child.stdout.on("data", (data) => { forwarded.text += data.toString("binary"); });
+	const big = await open("big"); const bigLines = readLines(big);
+	const small = await open("small"); const smallLines = readLines(small);
+	// The host only routes a response whose request it has already forwarded.
+	for (const id of ["big", "small"]) {
+		const deadlineAt = Date.now() + 5_000;
+		while (Date.now() < deadlineAt && !forwarded.text.includes(`"id":"${id}"`)) await delay(10);
+		assert.ok(forwarded.text.includes(`"id":"${id}"`), `host 必须先转发 ${id} 的请求`);
+	}
+	const write = (message) => {
+		const payload = Buffer.from(JSON.stringify(message));
+		const header = Buffer.alloc(4); header.writeUInt32LE(payload.length);
+		host.child.stdin.write(Buffer.concat([header, payload]));
+	};
+	const chunk = (index, count, data) => ({ schemaVersion: 1, kind: "response-chunk", id: "big", sessionId: "fixture", generation: "one", chunk: { index, count, sha256: "0".repeat(64), data } });
+	// First chunk, then the other client's whole answer, then the rest: the small
+	// response must land between them instead of waiting for the large one.
+	write(chunk(0, 3, "a".repeat(1_000)));
+	write({ schemaVersion: 1, kind: "response", id: "small", sessionId: "fixture", generation: "one", ok: true, result: { alive: true } });
+	const order = [];
+	const deadline = Date.now() + 5_000;
+	while (Date.now() < deadline && (bigLines.length + smallLines.length) < 2) await delay(10);
+	order.push(...bigLines.map((line) => line.id), ...smallLines.map((line) => line.id));
+	assert.equal(order[0], "big", "第一块必须已经转发");
+	assert.equal(order[1], "small", "小响应必须在剩余分块之前到达，而不是等大响应结束");
+	assert.equal(smallLines.length, 1);
+	write(chunk(1, 3, "b".repeat(1_000)));
+	write(chunk(2, 3, "c".repeat(1_000)));
+	while (Date.now() < deadline && bigLines.length < 3) await delay(10);
+	assert.deepEqual(bigLines.map((line) => line.chunk.index), [0, 1, 2], "分块按序原样转发");
+	// The route is only complete after the last chunk: another request reuses the id.
+	const repeated = { schemaVersion: 1, kind: "request", id: "big", sessionId: "fixture", generation: "one", operation: "hello", payload: {} };
+	big.write(`${JSON.stringify(repeated)}\n`);
+	const countRequests = () => forwarded.text.split('"id":"big"').length - 1;
+	const repeatDeadline = Date.now() + 5_000;
+	while (Date.now() < repeatDeadline && countRequests() < 2) await delay(10);
+	assert.equal(countRequests(), 2, "最后一块之后请求身份才被释放，同一 id 才能再次转发");
+});
+
+test("native host 拒绝结构不合法的分块帧", { timeout: 10_000 }, async (t) => {
+	const f = await fixture(t);
+	const host = f.start(); await f.ready(host);
+	const socket = createConnection(f.socketPath);
+	t.after(() => socket.destroy());
+	await once(socket, "connect");
+	socket.write(`${JSON.stringify({ schemaVersion: 1, kind: "request", id: "bad", sessionId: "fixture", generation: "one", operation: "hello", payload: {} })}\n`);
+	const forwarded = { text: "" };
+	host.child.stdout.on("data", (data) => { forwarded.text += data.toString("binary"); });
+	const routedAt = Date.now() + 5_000;
+	while (Date.now() < routedAt && !forwarded.text.includes('"id":"bad"')) await delay(10);
+	const payload = Buffer.from(JSON.stringify({ schemaVersion: 1, kind: "response-chunk", id: "bad", sessionId: "fixture", generation: "one", chunk: { index: 3, count: 2, sha256: "0".repeat(64), data: "x" } }));
+	const header = Buffer.alloc(4); header.writeUInt32LE(payload.length);
+	host.child.stdin.write(Buffer.concat([header, payload]));
+	// A malformed native frame is a host-level protocol error, not a client result.
+	assert.deepEqual(await host.closed, [74, null]);
+});

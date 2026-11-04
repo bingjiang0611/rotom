@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { createConnection, createServer } from "node:net";
 
 const SCHEMA_VERSION = 1;
+// One frame, not one response: a large response travels as <= 256 KiB chunks.
 const MAX_MESSAGE_BYTES = 1024 * 1024;
 const relayDir = join(homedir(), "Library", "Application Support", "rotom", "browser-relay");
 const socketPath = join(relayDir, "relay.sock");
@@ -62,14 +63,28 @@ function completeRoute(key) {
 	pendingRoutes.delete(key);
 }
 
+// A large response arrives as `response-chunk` frames. They are forwarded as-is:
+// routing only needs the request identity, and the client is what verifies the
+// digest and reassembles. The route stays pending until the last chunk, so a
+// dropped or interleaved chunk surfaces as a client error, not a silent success.
+function isFinalChunk(message) {
+	const chunk = message.chunk;
+	return !(Number.isInteger(chunk?.index) && Number.isInteger(chunk?.count) && chunk.count > 0 && chunk.index < chunk.count - 1);
+}
 function onNativeMessage(message) {
-	if (!message || typeof message !== "object" || message.schemaVersion !== SCHEMA_VERSION || message.kind !== "response" || typeof message.id !== "string" || typeof message.sessionId !== "string" || typeof message.generation !== "string") throw new Error("native message schema 无效");
+	const isChunk = message?.kind === "response-chunk";
+	if (!message || typeof message !== "object" || message.schemaVersion !== SCHEMA_VERSION || (message.kind !== "response" && !isChunk) || typeof message.id !== "string" || typeof message.sessionId !== "string" || typeof message.generation !== "string") throw new Error("native message schema 无效");
+	if (isChunk) {
+		const chunk = message.chunk;
+		if (!chunk || !Number.isInteger(chunk.index) || chunk.index < 0 || !Number.isInteger(chunk.count) || chunk.count < 1 || chunk.index >= chunk.count || typeof chunk.sha256 !== "string" || typeof chunk.data !== "string") throw new Error("native message chunk 无效");
+	}
 	const key = routeKey(message);
 	const route = pendingRoutes.get(key);
 	if (!route) return;
-	if (route.client.destroyed) { completeRoute(key); return; }
+	const final = !isChunk || isFinalChunk(message);
+	if (route.client.destroyed) { if (final) completeRoute(key); return; }
 	sendDirect(route.client, message, (error) => {
-		completeRoute(key);
+		if (final) completeRoute(key);
 		if (error && !route.client.destroyed) route.client.destroy(error);
 	});
 }

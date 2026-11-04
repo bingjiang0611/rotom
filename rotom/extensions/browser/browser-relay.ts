@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connect, type Socket } from "node:net";
+import { RESPONSE_MAX_BYTES } from "./chrome-extension/response-chunks.js";
 
 export const BROWSER_RELAY_PROTOCOL_REVISION_V1 = 20 as const;
 export const BROWSER_RELAY_FULL_READ_CAPABILITY_V1 = "virtualized-frame-scroll" as const;
@@ -66,6 +67,10 @@ export const BROWSER_INTERACTION_KEYS_V1 = ["Enter", "Tab", "Escape"] as const;
 export type BrowserInteractionActionV1 = (typeof BROWSER_INTERACTION_ACTIONS_V1)[number];
 
 const MAX_WIRE_BYTES = 1024 * 1024;
+/** Model-facing bound for a screenshot payload, before base64 decoding. */
+const MAX_MODEL_SCREENSHOT_BYTES = 768 * 1024;
+/** Protocol bound for a screenshot payload; a full-page capture may reach it. */
+export const MAX_RELAY_SCREENSHOT_BYTES = 8 * 1024 * 1024;
 const MAX_MODEL_NODES = 1_000;
 const MAX_STRING_BYTES = 4_096;
 
@@ -282,7 +287,7 @@ export interface BrowserScreenshotV1 {
 	data: string;
 }
 
-export function validateBrowserScreenshotV1(value: unknown): BrowserScreenshotV1 {
+export function validateBrowserScreenshotV1(value: unknown, maxBytes = MAX_MODEL_SCREENSHOT_BYTES): BrowserScreenshotV1 {
 	if (!record(value) || value.schemaVersion !== 1 || value.kind !== "rotom-browser-screenshot" || value.mimeType !== "image/jpeg" || typeof value.data !== "string") throw new Error("browser screenshot schema 无效");
 	const tabName = safeString(value.tabName, "tabName", 128);
 	if (!Number.isSafeInteger(value.tabId) || (value.tabId as number) < 0 || !Number.isSafeInteger(value.documentGeneration) || (value.documentGeneration as number) < 1 || !Number.isSafeInteger(value.observationEpoch) || (value.observationEpoch as number) < 1) throw new Error("browser screenshot identity 无效");
@@ -292,7 +297,7 @@ export function validateBrowserScreenshotV1(value: unknown): BrowserScreenshotV1
 	const viewport = { width: rawViewport.width as number, height: rawViewport.height as number, pageX: rawViewport.pageX as number, pageY: rawViewport.pageY as number, scale: rawViewport.scale as number };
 	if (viewport.width <= 2 || viewport.height <= 2 || viewport.scale <= 0) throw new Error("browser screenshot viewport 无效");
 	const plain = Buffer.from(value.data, "base64");
-	if (plain.length < 4 || plain.length > 768 * 1024 || plain[0] !== 0xff || plain[1] !== 0xd8) throw new Error("browser screenshot payload 无效或超限");
+	if (plain.length < 4 || plain.length > maxBytes || plain[0] !== 0xff || plain[1] !== 0xd8) throw new Error("browser screenshot payload 无效或超限");
 	return { schemaVersion: 1, kind: "rotom-browser-screenshot", tabName, tabId: value.tabId as number, documentGeneration: value.documentGeneration as number, observationEpoch: value.observationEpoch as number, viewport, mimeType: "image/jpeg", data: value.data };
 }
 
@@ -373,6 +378,13 @@ export class BrowserArtifactStoreV1 {
 	}
 }
 
+type ReassemblingResponseV1 = {
+	count: number;
+	sha256: string;
+	parts: Map<number, string>;
+	bytes: number;
+};
+
 type PendingRequestV1 = {
 	resolve(value: unknown): void;
 	reject(error: Error): void;
@@ -411,6 +423,7 @@ export class BrowserRelayClientV1 {
 	#capabilities: string[] = [];
 	#buffer = "";
 	#pending = new Map<string, PendingRequestV1>();
+	#chunks = new Map<string, ReassemblingResponseV1>();
 	#closed = false;
 
 	private constructor(socket: Socket, input: BrowserRelayConnectInputV1) {
@@ -535,17 +548,55 @@ export class BrowserRelayClientV1 {
 			const line = this.#buffer.slice(0, newline);
 			this.#buffer = this.#buffer.slice(newline + 1);
 			if (!line) continue;
-			let parsed: unknown;
-			try { parsed = JSON.parse(line); } catch { return this.#fail(new Error("browser relay response JSON 无效")); }
-			if (!record(parsed) || parsed.schemaVersion !== 1 || parsed.kind !== "response" || typeof parsed.id !== "string" || parsed.sessionId !== this.sessionId || parsed.generation !== this.generation || typeof parsed.ok !== "boolean") return this.#fail(new Error("browser relay response binding 无效"));
-			const pending = this.#pending.get(parsed.id);
+			let frame: unknown;
+			try { frame = JSON.parse(line); } catch { return this.#fail(new Error("browser relay response JSON 无效")); }
+			if (!record(frame) || frame.schemaVersion !== 1 || (frame.kind !== "response" && frame.kind !== "response-chunk")
+				|| typeof frame.id !== "string" || frame.sessionId !== this.sessionId || frame.generation !== this.generation) return this.#fail(new Error("browser relay response binding 无效"));
+			if (frame.kind === "response-chunk") {
+				let message: { id: string; text: string } | undefined;
+				try { message = this.#acceptChunk(frame.id, frame.chunk); } catch (error) { return this.#fail(error instanceof Error ? error : new Error(String(error))); }
+				if (!message) continue;
+				let reassembled: unknown;
+				try { reassembled = JSON.parse(message.text); } catch { return this.#fail(new Error("browser relay response JSON 无效")); }
+				if (!record(reassembled) || reassembled.kind !== "response" || reassembled.id !== message.id || typeof reassembled.ok !== "boolean") return this.#fail(new Error("browser relay response binding 无效"));
+				frame = reassembled;
+			} else if (typeof frame.ok !== "boolean") return this.#fail(new Error("browser relay response binding 无效"));
+			const pending = this.#pending.get(frame.id as string);
 			if (!pending) continue;
-			this.#pending.delete(parsed.id);
+			this.#pending.delete(frame.id as string);
 			clearTimeout(pending.timer);
 			pending.abort?.();
-			if (parsed.ok) pending.resolve(parsed.result);
-			else pending.reject(new Error(typeof parsed.error === "string" ? safeModelTextV1(parsed.error, 1_024) : "browser relay request failed"));
+			if (frame.ok) pending.resolve(frame.result);
+			else pending.reject(new Error(typeof frame.error === "string" ? safeModelTextV1(frame.error, 1_024) : "browser relay request failed"));
 		}
+	}
+
+	/** Collect one chunk; returns the verified message only after the last one. */
+	#acceptChunk(id: string, raw: unknown): { id: string; text: string } | undefined {
+		if (!record(raw) || !Number.isSafeInteger(raw.index) || !Number.isSafeInteger(raw.count) || typeof raw.data !== "string" || typeof raw.sha256 !== "string") throw new Error("browser relay response chunk 无效");
+		const index = raw.index as number; const count = raw.count as number;
+		if (index < 0 || count < 1 || index >= count) throw new Error("browser relay response chunk 无效");
+		let partial = this.#chunks.get(id);
+		if (!partial) {
+			// The first chunk of an unknown response must be index 0; anything else
+			// means the head was lost on the way here.
+			if (index !== 0) throw new Error("browser relay response chunk 顺序无效");
+			partial = { count, sha256: raw.sha256, parts: new Map(), bytes: 0 };
+			this.#chunks.set(id, partial);
+		}
+		if (partial.count !== count || partial.sha256 !== raw.sha256) throw new Error("browser relay response chunk 契约不一致");
+		if (index !== partial.parts.size) throw new Error(partial.parts.has(index) ? "browser relay response chunk 重复" : "browser relay response chunk 缺失或乱序");
+		partial.parts.set(index, raw.data);
+		partial.bytes += Buffer.byteLength(raw.data, "utf8");
+		if (partial.bytes > RESPONSE_MAX_BYTES) throw new Error("browser relay response 超过上限");
+		if (partial.parts.size < count) return undefined;
+		this.#chunks.delete(id);
+		let text = "";
+		for (let position = 0; position < count; position += 1) text += partial.parts.get(position) ?? "";
+		// The digest covers the exact text the service worker hashed; a mismatch means
+		// corrupted or substituted content, never a usable result.
+		if (createHash("sha256").update(text, "utf8").digest("hex") !== partial.sha256) throw new Error("browser relay response 摘要不匹配");
+		return { id, text };
 	}
 
 	#fail(error: Error): void {
