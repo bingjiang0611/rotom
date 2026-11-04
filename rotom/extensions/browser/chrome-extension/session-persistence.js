@@ -31,6 +31,7 @@ export function serializeSessionStateV3(state) {
 		rootSessionId: state.rootSessionId,
 		...(state.leaseToken === undefined ? {} : { leaseToken: state.leaseToken }),
 		generation: state.generation,
+		keepTabs: state.keepTabs === true,
 		currentTabName: state.currentTabName,
 		tabs: [...state.tabsByName.entries()].map(([name, item]) => ({
 			name,

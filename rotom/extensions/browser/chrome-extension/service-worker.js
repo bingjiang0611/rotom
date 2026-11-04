@@ -3,6 +3,7 @@ import { coordinateViewport, invalidateCoordinateObservation, mintCoordinateObse
 import { resetTransferredItemV1, transferTargetSessionV1, transferredTabNameV1 } from "./agent-transfer.js";
 import { forgetSpawnedTab, recordedOpenerTabId, rememberSpawnedTab } from "./spawned-tabs.js";
 import { createSessionLockV1, createTabLocksV1, isSessionScopedOperationV1, tabLockKeyV1 } from "./request-locks.js";
+import { sessionCleanupPlanV1 } from "./session-cleanup.js";
 import { createMergedSessionWriter, isSessionStateKeyV3, LEGACY_SESSION_STATE_KEY_V1, LEGACY_SESSION_STATE_KEY_V2, legacyV1Sessions, legacyV2Sessions, serializeSessionStateV3, sessionStateKeyV3 } from "./session-persistence.js";
 import { interactionScrollTarget } from "./interaction-scroll-target.js";
 import { createOperationGuard } from "./operation-guard.js";
@@ -91,11 +92,14 @@ function sessionOwnsTabId(state, tabId) {
 function sessionOwningTabId(tabId) {
 	for (const state of sessionStates.values()) if (sessionOwnsTabId(state, tabId)) return state;
 }
+function connectedMainSessionForRoot(rootSessionId) {
+	for (const state of sessionStates.values()) if (state.rootSessionId === rootSessionId && state.agentId === DEFAULT_AGENT_ID && state.generation !== undefined) return state;
+}
 async function placeInSharedAgentGroup(tab, assertOperation) {
 	const chrome = operationChrome(globalThis.chrome, assertOperation);
 	const pending = tabGroupChain.catch(() => undefined).then(() => placeAgentTabsInSharedGroup({
 		createdTab: tab,
-		items: allSessionItems(),
+		items: [...sessionStates.values()].flatMap((state) => [...state.tabsByName.values()].map((item) => ({ ...item, agentId: state.agentId }))),
 		queryTabs: (query) => chrome.tabs.query(query),
 		groupTabs: (options) => chrome.tabs.group(options),
 		updateGroup: (groupId, options) => chrome.tabGroups.update(groupId, options),
@@ -132,6 +136,7 @@ async function restoreState() {
 		let state;
 		try { state = createSessionState(stored.sessionId); } catch { continue; }
 		state.currentTabName = typeof stored.currentTabName === "string" ? stored.currentTabName : undefined;
+		state.keepTabs = stored.keepTabs === true;
 		Object.assign(state, restoredSessionPrincipal(stored, state.sessionId));
 		for (const candidate of stored.tabs) {
 			if (!record(candidate) || !Number.isInteger(candidate.tabId) || typeof candidate.targetId !== "string" || seenTabIds.has(candidate.tabId)) continue;
@@ -1013,6 +1018,8 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 	if (operation === "hello") {
 		const nonce = safeString(payload.nonce, "nonce", 128);
 		Object.assign(state, sessionPrincipalFromHello(payload, state.sessionId));
+		// Lease-driven in T9; until then the launcher passes it through the environment.
+		state.keepTabs = payload.keepTabs === true;
 		await persistState();
 		return { schemaVersion: 1, kind: "rotom-browser-relay-ready", protocolRevision: 20, nonce, ...sessionPrincipalValue(state), capabilities: ["tab-control", "claim-user-tabs", "handoff-user-tabs", "agent-tab-groups", "accessibility-snapshot", "rendered-document-text", "full-document-read", "virtualized-frame-scroll", "content-coverage", "oopif-accessibility", "screenshot", "direct-interaction", "cdp-mouse", "coordinate-click", "targeted-scroll", "interaction-target-state", "page-alert-readback", "targeted-keypress", "snapshot-query", "operation-deadline", "non-destructive-timeout", "in-place-recovery", "multi-client-multiplex", "cross-agent-transfer"] };
 	}
@@ -1186,6 +1193,39 @@ async function detachItemsPreservingState(items) {
 	}));
 	await settleWithin(persistState());
 }
+async function retireDisconnectedSession(state) {
+	if (state.agentId === DEFAULT_AGENT_ID) { await detachAllOwnedPreservingState(state); return; }
+	const main = connectedMainSessionForRoot(state.rootSessionId);
+	const plan = sessionCleanupPlanV1({
+		agentId: state.agentId,
+		keepTabs: state.keepTabs === true,
+		hasMainAgent: main !== undefined,
+		tabs: [...state.tabsByName].map(([name, item]) => ({ name, item })),
+		mainTaken: new Set(main?.tabsByName.keys() ?? []),
+	});
+	for (const { name } of plan.closes) await closeOwned(state, name);
+	for (const { name, toName, item } of plan.handBacks) {
+		state.tabsByName.delete(name);
+		if (state.currentTabName === name) state.currentTabName = undefined;
+		// Ownership history and fresh refs, exactly like an explicit transfer.
+		item.transferredFrom = state.agentId;
+		resetTransferredItemV1(item);
+		main.tabsByName.set(toName, item);
+	}
+	// Whatever stays open is detached and no longer claimed by this session, so the
+	// tab becomes discoverable again instead of staying invisible forever.
+	const detachItems = [];
+	for (const { name } of plan.detaches) {
+		const item = state.tabsByName.get(name);
+		if (!item) continue;
+		state.tabsByName.delete(name);
+		if (state.currentTabName === name) state.currentTabName = undefined;
+		detachItems.push(item);
+	}
+	await detachItemsPreservingState(detachItems);
+	state.keepTabs = false;
+	await persistState();
+}
 async function detachAllOwnedPreservingState(state) { await detachItemsPreservingState([...state.tabsByName.values()]); }
 async function resetAfterOperationTimeout(state, operation, targetItem) {
 	if ((operation === "interact" || operation === "recover") && targetItem) {
@@ -1258,7 +1298,7 @@ function queueRelaySessionCleanup(sessionId, generation) {
 	void state.lock.write(async () => {
 		if (state.generation === generation) { state.epoch += 1; state.generation = undefined; }
 		else if (!preInvalidated || state.generation !== undefined) return;
-		await detachAllOwnedPreservingState(state);
+		await retireDisconnectedSession(state);
 	}).catch(() => undefined);
 }
 function queueAllRelaySessionCleanup() {

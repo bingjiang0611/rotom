@@ -7,7 +7,7 @@
 | 里程碑 | 状态 | 最后 commit | 备注 |
 | - | - | - | - |
 | T0 测试架子 | ready-for-review | `browser(T0)` | 隔离 Chromium e2e 架子 + `baseline` suite；macOS 实测 |
-| M1 并行底座 | in-progress | `browser(T4)` | T1–T4 完成 |
+| M1 并行底座 | in-progress | `browser(T5)` | T1–T5 完成 |
 | M2 调试 P0 | not-started | | |
 | M3 交互与安全 | not-started | | |
 | M4 devtools 与平台 | not-started | | |
@@ -19,6 +19,7 @@
 
 | 任务 | 状态 | commit | 验证命令与结果摘要 | 未验证项 |
 | - | - | - | - | - |
+| T5 | done | `browser(T5)` | `node --test rotom/extensions/browser/session-cleanup.test.mjs` 6/6（主/子 agent、主不在线、keepTabs、名字冲突、接线）；`chrome-extension.test.mjs` 29/29（分组改为按 agentId，标题/颜色稳定哈希）；`rotom/extensions/browser/*.test.mjs` 87/87；e2e `baseline isolation same-agent-parallel cleanup` 22/22（新增 `cleanup` suite）；`./rotom/bin/check-personal` EXIT=0（398 + 99）。 | 分组标题/颜色只在单测里断言，没在真实 Chrome 里读 tabGroups；keepTabs 目前来自 `ROTOM_BROWSER_KEEP_TABS` 环境变量而不是 lease（T9 接） |
 | T4 | done | `browser(T4)` | `node --test rotom/extensions/browser/session-persistence.test.mjs` 7/7（V3 key/序列化、V1/V2 迁移、合并写只写变化项、写失败重试、消失的 session 删除、restore 字段覆盖）；`chrome-extension 28/28`、`request-locks 5/5`、`agent-transfer 5/5`、`ownership/component-storage` 合计 71/71；e2e `baseline isolation same-agent-parallel` 18/18；`./rotom/bin/check-personal` EXIT=0（397 + 99）。 | 真实 SW 被 Chrome 回收后的恢复没有在 e2e 里制造过（只在 L1 覆盖序列化与迁移）；合并写给每次 `await persistState()` 最多加 100ms |
 | T3 | done | `browser(T3)` | `node --test rotom/extensions/browser/request-locks.test.mjs` 5/5（RW 锁重叠/公平、tab 锁同名串行异名并发、失败后放行、清单与接线）；`agent-transfer 5/5`、`chrome-extension.test.mjs 28/28`、`ownership 65/65 合计`；`index.test.ts` 48/48（`browser_inspect` 改为 `parallel`）；e2e `run.mjs baseline isolation same-agent-parallel` 18/18；`./rotom/bin/check-personal` EXIT=0（397 + 99，`runtimeContractGate`/`deterministicGate` PASS）。footprint 未变（26 755 / 10 218）。 | `browser_inspect` 的 `parallel` 只在 L1 断言 + relay 侧 e2e 证明，没有用真实模型并发发起两次工具调用 |
 | T2 | done | `browser(T2)` | `node --test rotom/extensions/browser/agent-transfer.test.mjs` 5/5（同 root 内 transfer、跨 root 拒绝、`<原名>@<来源>`、旧 ref/坐标失效、弹窗归属有界）；`--test browser-relay.test.ts` 19/19（新增“只对 transfer 要求能力”）；`--test chrome-extension.test.mjs` 28/28；`distribution + quality-boundaries` 32/32；e2e `run.mjs baseline isolation` 13/13（新增 `isolation` suite）；`./rotom/bin/check-personal` 见下方 footprint 记录。 | 旧扩展（无 `cross-agent-transfer`）只在单测里模拟，没有真实旧版扩展 |
@@ -39,6 +40,9 @@
 - **T0 / fixture 的 iframe 用 `localhost`，主站用 `127.0.0.1`。** 端口不同不等于跨站点，`127.0.0.1:portA` 与 `127.0.0.1:portB` 仍是同站，iframe 不会变成 OOPIF，`Target.setAutoAttach` 也拿不到子 session。换成两个 site name 后 `Cross-origin frame ready` 才能被 snapshot 读到，和原 smoke 脚本的做法一致。
 - **T0 / 默认无头（`--headless=new`）并关掉后台节流。** `ROTOM_E2E_HEADED=1` 可切有头。加 `--disable-background-timer-throttling`、`--disable-backgrounding-occluded-windows`、`--disable-renderer-backgrounding`，避免把 Chrome 的后台节流误判成 relay 行为（T6 要单独验证可见性，用 `visibilityState` 而不是超时）。
 - **T0 / 失败保留现场，成功清理。** 失败时打印 `<root>` 路径并保留（`ROTOM_E2E_KEEP=1` 成功时也保留）；清理时会按 `--user-data-dir=<profile>` 精确清扫残留 Chrome（`spawn` 出来的进程组 kill 之后仍会有 helper 逃逸），不会全局 pkill。实测清理后 `pgrep` 为 0。
+- **T5 / `keepTabs` 这次先用环境变量顶上，T9 换成 lease 字段。** 断开清理按“自己开的关掉 / claim 与 transfer 来的交还”区分，而 keepTabs 属于 lease（T9 才有）。现在 `ROTOM_BROWSER_KEEP_TABS=1` 经 hello 上报 `keepTabs`，SW 存进 session 记录并持久化；T9 只需把来源换成 lease 文件里的 `keepTabs`。
+- **T5 / keepTabs 的语义按字面实现：只 detach，不交还。** tab 保持打开但不再属于任何 session，因此回到 `discover` 可发现状态，用户或后续 agent 可以重新 claim（e2e 里验证了这条路径）。
+- **T5 / 交还时的名字用 `<原名>@<子 agent>`，冲突时加 `-2`..`-9` 后缀。** 与 T2 的 transfer 命名保持一致；后缀用尽（名字太长）就退回“只 detach”，绝不覆盖主 agent 已有的名字，也不丢 tab。
 - **T4 / 合并写按“序列化后 diff”判断变化，而不是要求每个调用点显式标记 session。** `persistState()` 仍是无参调用（18 个调用点不用改），writer 每次 flush 时把每个 session 序列化后与上次写入的字符串比较，只把变化的 key 放进 `chrome.storage.session.set`。理由：调用点很多且有的在 `attach()` 里拿不到 session 上下文；diff 比人工标记更难写漏。
   - 代价：`await persistState()` 会等到这次合并写完成（最多 100ms），所以 `open`/`claim` 每次可能多花 ≤100ms；换来同一窗口内多次写只落一次盘。
   - 回滚：把 `persistState()` 改回直接 `chrome.storage.session.set` 全量写即可。

@@ -29,6 +29,7 @@ test("每个 session 一个 key，序列化带 principal 与 transfer 来源", (
 		agentId: "main",
 		rootSessionId: "session-1",
 		generation: "generation-1",
+		keepTabs: false,
 		currentTabName: "docs",
 		tabs: [{ name: "docs", tabId: 7, targetId: "target-1", documentGeneration: 1, url: "https://example.test/", status: "complete", ownership: "agent", transferredFrom: "run_a" }],
 	});
@@ -41,6 +42,7 @@ test("序列化覆盖 SW restore 读取的每个字段，重命名不会静默�
 	// worker restart would silently forget tabs instead of failing loudly.
 	const stored = serializeSessionStateV3(sessionState("session-9", { docs: { tabId: 11, targetId: "target-9", documentGeneration: 4, url: "https://example.test/x", status: "loading", ownership: "claimed" } }));
 	const restored = legacyV2Sessions({ schemaVersion: 2, sessions: [stored] })[0];
+	assert.equal(restored.keepTabs, false, "keepTabs 必须随 session 记录持久化");
 	assert.equal(restored.sessionId, "session-9");
 	assert.equal(restored.agentId, "main");
 	assert.equal(restored.rootSessionId, "session-9");

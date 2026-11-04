@@ -22,12 +22,15 @@ export const BROWSER_MAIN_AGENT_ID_V1 = "main" as const;
 export const ROTOM_BROWSER_AGENT_ID_ENV_V1 = "ROTOM_BROWSER_AGENT_ID" as const;
 export const ROTOM_BROWSER_ROOT_SESSION_ENV_V1 = "ROTOM_BROWSER_ROOT_SESSION" as const;
 export const ROTOM_BROWSER_LEASE_ENV_V1 = "ROTOM_BROWSER_LEASE" as const;
+/** Interim lease knob until T9 reads keepTabs from the signed lease file. */
+export const ROTOM_BROWSER_KEEP_TABS_ENV_V1 = "ROTOM_BROWSER_KEEP_TABS" as const;
 const MAX_PRINCIPAL_TOKEN_CHARS = 512;
 
 export interface BrowserPrincipalV1 {
 	agentId: string;
 	rootSessionId: string;
 	leaseToken?: string;
+	keepTabs?: boolean;
 }
 
 function principalTokenV1(value: unknown, name: string): string {
@@ -43,10 +46,12 @@ export function browserPrincipalV1(sessionId: string, overrides: Partial<Browser
 	const agentId = overrides.agentId ?? (env[ROTOM_BROWSER_AGENT_ID_ENV_V1] || undefined) ?? BROWSER_MAIN_AGENT_ID_V1;
 	const rootSessionId = overrides.rootSessionId ?? (env[ROTOM_BROWSER_ROOT_SESSION_ENV_V1] || undefined) ?? sessionId;
 	const leaseToken = overrides.leaseToken ?? (env[ROTOM_BROWSER_LEASE_ENV_V1] || undefined);
+	const keepTabs = overrides.keepTabs ?? env[ROTOM_BROWSER_KEEP_TABS_ENV_V1] === "1";
 	return {
 		agentId: principalTokenV1(agentId, "agentId"),
 		rootSessionId: principalTokenV1(rootSessionId, "rootSessionId"),
 		...(leaseToken === undefined ? {} : { leaseToken: principalTokenV1(leaseToken, "leaseToken") }),
+		...(keepTabs ? { keepTabs: true } : {}),
 	};
 }
 
@@ -396,6 +401,7 @@ export class BrowserRelayClientV1 {
 	readonly socketPath: string;
 	#socket: Socket;
 	#leaseToken: string | undefined;
+	#keepTabs = false;
 	#capabilities: string[] = [];
 	#buffer = "";
 	#pending = new Map<string, PendingRequestV1>();
@@ -408,6 +414,7 @@ export class BrowserRelayClientV1 {
 		this.agentId = principal.agentId;
 		this.rootSessionId = principal.rootSessionId;
 		this.#leaseToken = principal.leaseToken;
+		this.#keepTabs = principal.keepTabs === true;
 		this.generation = input.generation ?? randomUUID();
 		this.socketPath = input.socketPath ?? browserRelaySocketPathV1();
 		socket.setEncoding("utf8");
@@ -441,6 +448,7 @@ export class BrowserRelayClientV1 {
 				agentId: client.agentId,
 				rootSessionId: client.rootSessionId,
 				...(client.#leaseToken === undefined ? {} : { leaseToken: client.#leaseToken }),
+				...(client.#keepTabs ? { keepTabs: true } : {}),
 			}, { timeoutMs: Math.max(1, handshakeRemainingMs) });
 			if (!record(ready) || ready.schemaVersion !== 1 || ready.kind !== "rotom-browser-relay-ready" || ready.nonce !== nonce || !Number.isSafeInteger(ready.protocolRevision) || (ready.protocolRevision as number) < BROWSER_RELAY_PROTOCOL_REVISION_V1 || !Array.isArray(ready.capabilities) || !ready.capabilities.includes(BROWSER_RELAY_FULL_READ_CAPABILITY_V1) || !ready.capabilities.includes(BROWSER_RELAY_MULTI_CLIENT_CAPABILITY_V1) || !ready.capabilities.includes(BROWSER_RELAY_COORDINATE_CLICK_CAPABILITY_V1) || !ready.capabilities.includes(BROWSER_RELAY_TARGET_STATE_CAPABILITY_V1) || !ready.capabilities.includes(BROWSER_RELAY_PAGE_ALERT_CAPABILITY_V1) || !ready.capabilities.includes(BROWSER_RELAY_KEYPRESS_CAPABILITY_V1) || !ready.capabilities.includes(BROWSER_RELAY_QUERY_CAPABILITY_V1)) throw new Error("browser relay 版本过旧；请在 chrome://extensions 重载 Rotom Browser Relay");
 			// An older extension ignores the principal fields, so absence stays compatible;

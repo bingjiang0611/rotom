@@ -36,6 +36,18 @@ export function transferredTabNameV1(name, fromAgentId) {
 	return next;
 }
 
+/** `<name>@<agentId>`, with a numeric suffix when the receiver already uses it. */
+export function uniqueTransferredNameV1(taken, name, fromAgentId) {
+	const base = transferredTabNameV1(name, fromAgentId);
+	if (typeof taken?.has !== "function" || !taken.has(base)) return base;
+	for (let attempt = 2; attempt <= 9; attempt += 1) {
+		const candidate = `${base}-${attempt}`;
+		if (candidate.length > MAX_TAB_NAME_CHARS) break;
+		if (!taken.has(candidate)) return candidate;
+	}
+	throw new Error("no free transferred tab name");
+}
+
 /** Invalidate everything the previous owner minted against this tab. */
 export function resetTransferredItemV1(item) {
 	item.documentGeneration = Number.isSafeInteger(item.documentGeneration) && item.documentGeneration > 0 ? item.documentGeneration + 1 : 2;

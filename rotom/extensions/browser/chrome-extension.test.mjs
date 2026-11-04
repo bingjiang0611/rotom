@@ -17,7 +17,7 @@ import { collectRenderedText, utf8TextChunks } from "./chrome-extension/rendered
 import { collectPageAlerts, pageAlertNodes } from "./chrome-extension/page-alerts.js";
 import { evaluateInteractionExpectation, interactionTargetChange, parseInteractionExpectation, readInteractionTargetState } from "./chrome-extension/interaction-target-state.js";
 import { formatScopedAxRef, parseScopedAxRef } from "./chrome-extension/scoped-ax-ref.js";
-import { agentOwnedTabIdsInWindow, placeAgentTabsInSharedGroup } from "./chrome-extension/shared-tab-group.js";
+import { AGENT_GROUP_COLORS, agentGroupColor, agentGroupTitle, agentOwnedTabIdsInWindow, placeAgentTabsInSharedGroup } from "./chrome-extension/shared-tab-group.js";
 import { applyOwnedTabUpdate, collectListedOwnedTabs, isMissingChromeTabError, listedOwnedTabStatus, ownedTabNotFoundError, relayUrl, retireOwnedTabName } from "./chrome-extension/tab-list-status.js";
 import { DEFAULT_AGENT_ID, isMainAgentPrincipal, restoredSessionPrincipal, sessionPrincipalFromHello, sessionPrincipalValue } from "./chrome-extension/session-principal.js";
 
@@ -196,13 +196,14 @@ test("坐标点击绑定 screenshot epoch、文档 generation、viewport 与非�
 	assert.throws(() => validateCoordinateBinding(item, { observationEpoch: 1, documentGeneration: 4, x: 640, y: 400 }, metrics), /current browser screenshot/u);
 });
 
-test("同一窗口的 agent 标签收敛到唯一 Pi 分组，且不移动 claimed、固定或其他窗口标签", async () => {
+test("每个 agent 一个 tab 分组，不移动 claimed、固定或其他窗口标签", async () => {
 	const items = [
-		{ tabId: 11, ownership: "agent" },
-		{ tabId: 12, ownership: "agent" },
-		{ tabId: 13, ownership: "agent" },
-		{ tabId: 14, ownership: "claimed" },
-		{ tabId: 15, ownership: "agent" },
+		{ tabId: 11, ownership: "agent", agentId: "main" },
+		{ tabId: 12, ownership: "agent", agentId: "main" },
+		{ tabId: 13, ownership: "agent", agentId: "main" },
+		{ tabId: 14, ownership: "claimed", agentId: "main" },
+		{ tabId: 15, ownership: "agent", agentId: "main" },
+		{ tabId: 21, ownership: "agent", agentId: "run_abcdefghijklmnop" },
 	];
 	const tabs = [
 		{ id: 14, windowId: 7 },
@@ -210,21 +211,25 @@ test("同一窗口的 agent 标签收敛到唯一 Pi 分组，且不移动 claim
 		{ id: 13, windowId: 8 },
 		{ id: 15, windowId: 7, pinned: true },
 		{ id: 11, windowId: 7 },
+		{ id: 21, windowId: 7 },
 	];
-	assert.deepEqual(agentOwnedTabIdsInWindow(items, tabs, 7), [11, 12]);
+	assert.deepEqual(agentOwnedTabIdsInWindow(items, tabs, 7, "main"), [11, 12]);
+	assert.deepEqual(agentOwnedTabIdsInWindow(items, tabs, 7, "run_abcdefghijklmnop"), [21]);
 	const calls = [];
 	const result = await placeAgentTabsInSharedGroup({
 		createdTab: { id: 12, windowId: 7 },
 		items,
 		queryTabs: async (query) => { calls.push(["query", query]); return tabs; },
-		groupTabs: async (options) => { calls.push(["group", options]); return 91; },
+		groupTabs: async (options) => { calls.push(["group", options]); return options.tabIds.includes(21) ? 92 : 91; },
 		updateGroup: async (groupId, options) => { calls.push(["update", groupId, options]); },
 	});
-	assert.deepEqual(result, { groupId: 91, tabIds: [11, 12] });
+	assert.deepEqual(result.groups.map((group) => [group.agentId, group.groupId, group.tabIds]), [["main", 91, [11, 12]], ["run_abcdefghijklmnop", 92, [21]]]);
 	assert.deepEqual(calls, [
 		["query", { windowId: 7 }],
 		["group", { tabIds: [11, 12] }],
-		["update", 91, { title: "Pi", color: "blue", collapsed: false }],
+		["update", 91, { title: "rotom", color: agentGroupColor("main"), collapsed: false }],
+		["group", { tabIds: [21] }],
+		["update", 92, { title: "rotom · run_abcdefgh", color: agentGroupColor("run_abcdefghijklmnop"), collapsed: false }],
 	]);
 	await assert.rejects(() => placeAgentTabsInSharedGroup({
 		createdTab: { id: 99, windowId: 7 },
@@ -233,6 +238,18 @@ test("同一窗口的 agent 标签收敛到唯一 Pi 分组，且不移动 claim
 		groupTabs: async () => 92,
 		updateGroup: async () => undefined,
 	}), /created tab unavailable for grouping/u);
+});
+
+test("分组标题有界、颜色按 agentId 稳定哈希", () => {
+	assert.equal(agentGroupTitle(undefined), "rotom");
+	assert.equal(agentGroupTitle("main"), "rotom");
+	assert.equal(agentGroupTitle("run_abcdefghijklmnop"), "rotom · run_abcdefgh");
+	assert.equal(agentGroupTitle("短"), "rotom · 短");
+	for (const agentId of ["main", "run_1", "run_2", "run_abcdefghijklmnop"]) {
+		assert.equal(AGENT_GROUP_COLORS.includes(agentGroupColor(agentId)), true);
+		assert.equal(agentGroupColor(agentId), agentGroupColor(agentId), "同一 agentId 必须稳定");
+	}
+	assert.notEqual(agentGroupColor("run_1"), agentGroupColor("run_2"), "不同 agent 至少示例上分到不同颜色");
 });
 
 test("tabs target 暂缺时保留标签 identity 并返回 detached 状态", () => {
