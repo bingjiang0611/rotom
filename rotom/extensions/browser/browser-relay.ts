@@ -14,6 +14,39 @@ export const BROWSER_RELAY_TARGET_STATE_CAPABILITY_V1 = "interaction-target-stat
 export const BROWSER_RELAY_PAGE_ALERT_CAPABILITY_V1 = "page-alert-readback" as const;
 export const BROWSER_RELAY_KEYPRESS_CAPABILITY_V1 = "targeted-keypress" as const;
 export const BROWSER_RELAY_QUERY_CAPABILITY_V1 = "snapshot-query" as const;
+export const BROWSER_MAIN_AGENT_ID_V1 = "main" as const;
+/** Env vars a subagent process inherits so its relay session is attributable. */
+export const ROTOM_BROWSER_AGENT_ID_ENV_V1 = "ROTOM_BROWSER_AGENT_ID" as const;
+export const ROTOM_BROWSER_ROOT_SESSION_ENV_V1 = "ROTOM_BROWSER_ROOT_SESSION" as const;
+export const ROTOM_BROWSER_LEASE_ENV_V1 = "ROTOM_BROWSER_LEASE" as const;
+const MAX_PRINCIPAL_TOKEN_CHARS = 512;
+
+export interface BrowserPrincipalV1 {
+	agentId: string;
+	rootSessionId: string;
+	leaseToken?: string;
+}
+
+function principalTokenV1(value: unknown, name: string): string {
+	if (typeof value !== "string" || value.length < 1 || value.length > MAX_PRINCIPAL_TOKEN_CHARS || !/^[\x21-\x7e]+$/u.test(value)) throw new Error(`${name} 不是有界的可打印 ASCII token`);
+	return value;
+}
+
+/**
+ * Browser principal for this process. A subagent launcher sets the three env vars;
+ * everything else is the main agent of its own Pi session.
+ */
+export function browserPrincipalV1(sessionId: string, overrides: Partial<BrowserPrincipalV1> = {}, env: NodeJS.ProcessEnv = process.env): BrowserPrincipalV1 {
+	const agentId = overrides.agentId ?? (env[ROTOM_BROWSER_AGENT_ID_ENV_V1] || undefined) ?? BROWSER_MAIN_AGENT_ID_V1;
+	const rootSessionId = overrides.rootSessionId ?? (env[ROTOM_BROWSER_ROOT_SESSION_ENV_V1] || undefined) ?? sessionId;
+	const leaseToken = overrides.leaseToken ?? (env[ROTOM_BROWSER_LEASE_ENV_V1] || undefined);
+	return {
+		agentId: principalTokenV1(agentId, "agentId"),
+		rootSessionId: principalTokenV1(rootSessionId, "rootSessionId"),
+		...(leaseToken === undefined ? {} : { leaseToken: principalTokenV1(leaseToken, "leaseToken") }),
+	};
+}
+
 export const BROWSER_INSPECT_TOOL_V1 = "browser_inspect" as const;
 export const BROWSER_INSPECT_OPERATIONS_V1 = ["open", "discover", "claim", "handoff", "tabs", "switch", "snapshot", "snapshot_visible", "read_full", "screenshot", "wait", "close", "recover"] as const;
 export const BROWSER_INTERACT_TOOL_V1 = "browser_interact" as const;
@@ -338,6 +371,7 @@ export interface BrowserRelayConnectInputV1 {
 	generation?: string;
 	socketPath?: string;
 	timeoutMs?: number;
+	principal?: Partial<BrowserPrincipalV1>;
 }
 
 // Only a missing/refused local socket proves Relay unavailable before any request.
@@ -353,9 +387,12 @@ export class BrowserRelayUnavailableErrorV1 extends Error {
 
 export class BrowserRelayClientV1 {
 	readonly sessionId: string;
+	readonly agentId: string;
+	readonly rootSessionId: string;
 	readonly generation: string;
 	readonly socketPath: string;
 	#socket: Socket;
+	#leaseToken: string | undefined;
 	#buffer = "";
 	#pending = new Map<string, PendingRequestV1>();
 	#closed = false;
@@ -363,6 +400,10 @@ export class BrowserRelayClientV1 {
 	private constructor(socket: Socket, input: BrowserRelayConnectInputV1) {
 		this.#socket = socket;
 		this.sessionId = safeString(input.sessionId, "sessionId", 512);
+		const principal = browserPrincipalV1(this.sessionId, input.principal);
+		this.agentId = principal.agentId;
+		this.rootSessionId = principal.rootSessionId;
+		this.#leaseToken = principal.leaseToken;
 		this.generation = input.generation ?? randomUUID();
 		this.socketPath = input.socketPath ?? browserRelaySocketPathV1();
 		socket.setEncoding("utf8");
@@ -391,8 +432,16 @@ export class BrowserRelayClientV1 {
 			const handshakeRemainingMs = deadline - Date.now();
 			if (handshakeRemainingMs <= 0) throw new Error("browser relay 连接超时；请确认 Chrome 扩展已启用");
 			const nonce = randomUUID();
-			const ready = await client.request("hello", { nonce }, { timeoutMs: Math.max(1, handshakeRemainingMs) });
+			const ready = await client.request("hello", {
+				nonce,
+				agentId: client.agentId,
+				rootSessionId: client.rootSessionId,
+				...(client.#leaseToken === undefined ? {} : { leaseToken: client.#leaseToken }),
+			}, { timeoutMs: Math.max(1, handshakeRemainingMs) });
 			if (!record(ready) || ready.schemaVersion !== 1 || ready.kind !== "rotom-browser-relay-ready" || ready.nonce !== nonce || !Number.isSafeInteger(ready.protocolRevision) || (ready.protocolRevision as number) < BROWSER_RELAY_PROTOCOL_REVISION_V1 || !Array.isArray(ready.capabilities) || !ready.capabilities.includes(BROWSER_RELAY_FULL_READ_CAPABILITY_V1) || !ready.capabilities.includes(BROWSER_RELAY_MULTI_CLIENT_CAPABILITY_V1) || !ready.capabilities.includes(BROWSER_RELAY_COORDINATE_CLICK_CAPABILITY_V1) || !ready.capabilities.includes(BROWSER_RELAY_TARGET_STATE_CAPABILITY_V1) || !ready.capabilities.includes(BROWSER_RELAY_PAGE_ALERT_CAPABILITY_V1) || !ready.capabilities.includes(BROWSER_RELAY_KEYPRESS_CAPABILITY_V1) || !ready.capabilities.includes(BROWSER_RELAY_QUERY_CAPABILITY_V1)) throw new Error("browser relay 版本过旧；请在 chrome://extensions 重载 Rotom Browser Relay");
+			// An older extension ignores the principal fields, so absence stays compatible;
+			// a different reported identity means this handshake landed on another principal.
+			if ((ready.agentId !== undefined && ready.agentId !== client.agentId) || (ready.rootSessionId !== undefined && ready.rootSessionId !== client.rootSessionId)) throw new Error("browser relay 返回的 browser principal 与本进程不一致；请重载 Rotom Browser Relay");
 			return client;
 		} catch (error) {
 			client.close();

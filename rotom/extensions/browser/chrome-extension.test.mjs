@@ -19,8 +19,10 @@ import { evaluateInteractionExpectation, interactionTargetChange, parseInteracti
 import { formatScopedAxRef, parseScopedAxRef } from "./chrome-extension/scoped-ax-ref.js";
 import { agentOwnedTabIdsInWindow, placeAgentTabsInSharedGroup } from "./chrome-extension/shared-tab-group.js";
 import { applyOwnedTabUpdate, collectListedOwnedTabs, isMissingChromeTabError, listedOwnedTabStatus, ownedTabNotFoundError, relayUrl, retireOwnedTabName } from "./chrome-extension/tab-list-status.js";
+import { DEFAULT_AGENT_ID, isMainAgentPrincipal, restoredSessionPrincipal, sessionPrincipalFromHello, sessionPrincipalValue } from "./chrome-extension/session-principal.js";
 
 const root = resolve("rotom/extensions/browser");
+const restoreState_block = (worker) => worker.match(/async function restoreState\(\) \{[\s\S]*?\n\}/u)?.[0] ?? "";
 const extensionDir = join(root, "chrome-extension");
 const installer = join(root, "install-chrome-relay.mjs");
 const extensionId = "kgadcllokaodnoknakblocmhidemimdi";
@@ -131,8 +133,16 @@ test("Chrome MV3 manifest 固定 identity 且不申请 cookie/script/host 权限
 	assert.match(worker, /coordinate screenshot observation epoch is stale|validateCoordinateBinding/u, "坐标 fallback 必须绑定最新 screenshot epoch");
 	assert.doesNotMatch(worker, /assertBackgroundOwned|chrome\.tabs\.onActivated|inputType === "password"|one-time-code|popupAttempted|interaction popup was blocked/u);
 	assert.match(worker, /closeOwnedIdentity\(state, name, tab\.id, item, assertOperation\)/u);
-	const tabsBlock = worker.match(/if \(operation === "tabs"\) \{[\s\S]*?return \{ schemaVersion: 1, kind: "rotom-browser-tabs", tabs \};\n\t\}/u)?.[0] ?? "";
+	const tabsBlock = worker.match(/if \(operation === "tabs"\) \{[\s\S]*?return \{ schemaVersion: 1, kind: "rotom-browser-tabs", \.\.\.sessionPrincipalValue\(state\), tabs \};\n\t\}/u)?.[0] ?? "";
 	assert.match(tabsBlock, /collectListedOwnedTabs/u, "tabs 必须通过可故障注入的非破坏 collector 降级状态");
+	assert.match(tabsBlock, /sessionPrincipalValue\(state\)/u, "tabs 结果必须带当前 session 的 agentId/rootSessionId");
+	const principalBlock = worker.match(/if \(operation === "hello"\) \{[\s\S]*?capabilities:/u)?.[0] ?? "";
+	assert.match(principalBlock, /sessionPrincipalFromHello\(payload, state\.sessionId\)/u, "hello 必须校验并记录 browser principal");
+	assert.match(principalBlock, /await persistState\(\)/u, "principal 必须在 hello 时落盘，SW 重启后仍能归属 agent");
+	const persistBlock = worker.match(/async function persistState\(\) \{[\s\S]*?await persistChain;/u)?.[0] ?? "";
+	assert.match(persistBlock, /agentId: state\.agentId/u);
+	assert.match(persistBlock, /rootSessionId: state\.rootSessionId/u);
+	assert.match(restoreState_block(worker), /restoredSessionPrincipal\(stored, state\.sessionId\)/u, "SW 重启后必须恢复 principal");
 	assert.doesNotMatch(tabsBlock, /closeOwned|chrome\.tabs\.remove/u, "tabs 健康检查不得关闭标签或删除 ownership");
 	const restoreBlock = worker.match(/async function restoreState\(\) \{[\s\S]*?\n\}/u)?.[0] ?? "";
 	assert.match(restoreBlock, /try \{[\s\S]*?chrome\.debugger\.getTargets\(\)[\s\S]*?catch/u, "restore target 发现失败必须保留缓存 ownership");
@@ -406,6 +416,20 @@ test("full-read completion requires actual scrolling and all bounded sources; sh
 	assert.equal(fullReadCoverage([moved], false, 60, true).contentComplete, true);
 	for (const [sources, truncated, maxSteps, framesComplete] of [[[moved], true, 60, true], [[moved], false, 3, true], [[moved], false, 60, false], [[moved, { ...still, endReached: false }], false, 60, true]]) assert.equal(fullReadCoverage(sources, truncated, maxSteps, framesComplete).contentComplete, false);
 	for (const height of [120, 160, 700]) assert.ok(fullReadScrollStep(height) > 0 && fullReadScrollStep(height) < height);
+});
+
+test("hello principal：缺省按主 agent，显式字段生效，坏值拒绝", () => {
+	assert.deepEqual(sessionPrincipalFromHello({}, "session-1"), { agentId: DEFAULT_AGENT_ID, rootSessionId: "session-1" }, "旧客户端不带字段时按主 agent 处理");
+	assert.deepEqual(sessionPrincipalFromHello({ agentId: "run_9", rootSessionId: "root-7", leaseToken: "lease-a" }, "session-2"),
+		{ agentId: "run_9", rootSessionId: "root-7", leaseToken: "lease-a" });
+	for (const payload of [{ agentId: "" }, { agentId: 7 }, { agentId: "a b" }, { agentId: "x".repeat(129) }, { rootSessionId: "line\nbreak" }, { leaseToken: "\u0000" }]) {
+		assert.throws(() => sessionPrincipalFromHello(payload, "session-3"), /invalid/u, JSON.stringify(payload));
+	}
+	assert.deepEqual(restoredSessionPrincipal({ agentId: "run_9", rootSessionId: "root-7" }, "session-4"), { agentId: "run_9", rootSessionId: "root-7" }, "SW 重启后恢复身份");
+	assert.deepEqual(restoredSessionPrincipal({ agentId: "not valid" }, "session-4"), { agentId: DEFAULT_AGENT_ID, rootSessionId: "session-4" }, "坏持久化值回落主 agent，不丢所有权");
+	assert.equal(isMainAgentPrincipal({ agentId: DEFAULT_AGENT_ID }), true);
+	assert.equal(isMainAgentPrincipal({ agentId: "run_9" }), false);
+	assert.deepEqual(sessionPrincipalValue({ sessionId: "session-5" }), { agentId: DEFAULT_AGENT_ID, rootSessionId: "session-5" });
 });
 
 test("扩展 operation deadline 先于客户端超时并覆盖长 wait", () => {

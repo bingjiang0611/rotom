@@ -31,6 +31,10 @@ export async function run({ harness, fixtures, recorder }) {
 		const [tabs, peerTabs] = await Promise.all([request("tabs", {}, 5_000), peerRequest("tabs", {}, 5_000)]);
 		assert.deepEqual(tabs.tabs.map((tab) => tab.name), ["baseline"]);
 		assert.deepEqual(peerTabs.tabs.map((tab) => tab.name), ["peer"]);
+		// T1: every session reports the principal it registered at hello.
+		assert.equal(tabs.agentId, "main");
+		assert.equal(tabs.rootSessionId, primary.sessionId);
+		assert.equal(peerTabs.agentId, "main");
 	});
 
 	const snapshot = await request("snapshot", { tabName: "baseline" }, 10_000);

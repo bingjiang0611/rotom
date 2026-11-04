@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { createServer } from "node:net";
+import { createServer, type Socket } from "node:net";
 import { test } from "node:test";
 import {
+	BROWSER_MAIN_AGENT_ID_V1,
 	BrowserArtifactStoreV1,
 	BrowserRelayClientV1,
 	BrowserRelayUnavailableErrorV1,
+	browserPrincipalV1,
 	canonicalBrowserUrlV1,
 	browserInteractionExpectationOutcomeV1,
 	sanitizeBrowserInteractionEffectV1,
@@ -157,6 +159,80 @@ test("relay client 绑定 session/generation 并拒绝错误 response", async (t
 		assert.equal(requestCount, 3);
 		client.close();
 	} finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
+});
+
+test("relay client hello 携带 browser principal，并从环境变量解析子 agent 身份", async (t) => {
+	const socketPath = `/tmp/rotom-browser-relay-principal-${process.pid}-${Date.now()}.sock`;
+	const hellos: any[] = [];
+	const acceptedSockets = new Set<Socket>();
+	let echoFields = true;
+	let reportedPrincipal: { agentId: string; rootSessionId: string } | undefined;
+	const server = createServer((socket) => {
+		acceptedSockets.add(socket);
+		socket.once("close", () => acceptedSockets.delete(socket));
+		socket.setEncoding("utf8"); let buffer = "";
+		socket.on("data", (chunk) => {
+			buffer += chunk;
+			for (;;) {
+				const newline = buffer.indexOf("\n"); if (newline < 0) break;
+				const line = buffer.slice(0, newline); buffer = buffer.slice(newline + 1); if (!line) continue;
+				const request = JSON.parse(line);
+				if (request.operation === "hello") hellos.push(request.payload);
+				// `echoFields: false` models an extension that predates principals.
+				const result = { schemaVersion: 1, kind: "rotom-browser-relay-ready", protocolRevision: 20,
+					nonce: request.payload.nonce,
+					...(echoFields ? { agentId: reportedPrincipal?.agentId ?? request.payload.agentId, rootSessionId: reportedPrincipal?.rootSessionId ?? request.payload.rootSessionId } : {}),
+					capabilities: ["virtualized-frame-scroll", "multi-client-multiplex", "coordinate-click", "interaction-target-state", "page-alert-readback", "targeted-keypress", "snapshot-query"] };
+				socket.write(`${JSON.stringify({ schemaVersion: 1, kind: "response", id: request.id, sessionId: request.sessionId, generation: request.generation, ok: true, result })}\n`);
+			}
+		});
+	});
+	try { await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(socketPath, resolve); }); }
+	catch (error) { if ((error as NodeJS.ErrnoException).code === "EPERM") { t.skip("sandbox 禁止 Unix socket listen"); return; } throw error; }
+	const saved = { agent: process.env.ROTOM_BROWSER_AGENT_ID, root: process.env.ROTOM_BROWSER_ROOT_SESSION, lease: process.env.ROTOM_BROWSER_LEASE };
+	try {
+		delete process.env.ROTOM_BROWSER_AGENT_ID;
+		delete process.env.ROTOM_BROWSER_ROOT_SESSION;
+		delete process.env.ROTOM_BROWSER_LEASE;
+		const main = await BrowserRelayClientV1.connect({ sessionId: "session-main", socketPath });
+		assert.equal(main.agentId, BROWSER_MAIN_AGENT_ID_V1);
+		assert.equal(main.rootSessionId, "session-main");
+		assert.deepEqual(hellos[0], { nonce: hellos[0].nonce, agentId: "main", rootSessionId: "session-main" }, "旧客户端字段缺省时按主 agent 处理，且新客户端必须显式上报");
+		main.close();
+
+		process.env.ROTOM_BROWSER_AGENT_ID = "run_7f3a";
+		process.env.ROTOM_BROWSER_ROOT_SESSION = "session-root";
+		process.env.ROTOM_BROWSER_LEASE = "lease-token-1";
+		const child = await BrowserRelayClientV1.connect({ sessionId: "session-child", socketPath });
+		assert.equal(child.agentId, "run_7f3a");
+		assert.equal(child.rootSessionId, "session-root");
+		assert.deepEqual({ ...hellos[1], nonce: undefined }, { nonce: undefined, agentId: "run_7f3a", rootSessionId: "session-root", leaseToken: "lease-token-1" });
+		child.close();
+
+		echoFields = false;
+		const legacyReady = await BrowserRelayClientV1.connect({ sessionId: "session-legacy", socketPath, principal: { agentId: "run_legacy", rootSessionId: "session-root" } });
+		assert.equal(legacyReady.agentId, "run_legacy", "旧扩展不回显身份时握手仍成立");
+		legacyReady.close();
+
+		echoFields = true;
+		reportedPrincipal = { agentId: "run_other", rootSessionId: "session-other" };
+		await assert.rejects(BrowserRelayClientV1.connect({ sessionId: "session-mismatch", socketPath, principal: { agentId: "run_mismatch", rootSessionId: "session-root" } }),
+			/browser principal 与本进程不一致/u);
+	} finally {
+		for (const [key, value] of [["ROTOM_BROWSER_AGENT_ID", saved.agent], ["ROTOM_BROWSER_ROOT_SESSION", saved.root], ["ROTOM_BROWSER_LEASE", saved.lease]] as const) {
+			if (value === undefined) delete process.env[key]; else process.env[key] = value;
+		}
+		for (const socket of acceptedSockets) socket.destroy();
+		await new Promise<void>((resolve) => server.close(() => resolve()));
+	}
+});
+
+test("browser principal 拒绝空值、控制字符与超长 token", () => {
+	assert.deepEqual(browserPrincipalV1("s1", {}, {}), { agentId: "main", rootSessionId: "s1" });
+	assert.deepEqual(browserPrincipalV1("s1", { agentId: "run_1", rootSessionId: "root" }, { ROTOM_BROWSER_AGENT_ID: "env-agent" }), { agentId: "run_1", rootSessionId: "root" }, "显式输入优先于环境变量");
+	for (const overrides of [{ agentId: "" }, { agentId: "a b" }, { agentId: "x".repeat(513) }, { rootSessionId: "line\nbreak" }, { leaseToken: "\u0000" }]) {
+		assert.throws(() => browserPrincipalV1("s1", overrides, {}), /不是有界的可打印 ASCII token/u);
+	}
 });
 
 test("relay client 遇到 protocol 14 busy 时明确要求重载而不等待接管", async (t) => {

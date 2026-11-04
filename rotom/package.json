@@ -72,6 +72,7 @@
     "extensions/browser/chrome-extension/relay-deadline.js",
     "extensions/browser/chrome-extension/rendered-text.js",
     "extensions/browser/chrome-extension/scoped-ax-ref.js",
+    "extensions/browser/chrome-extension/session-principal.js",
     "extensions/browser/chrome-extension/shared-tab-group.js",
     "extensions/browser/chrome-extension/tab-list-status.js",
     "extensions/browser/chrome-extension/window-open-correlation.js",

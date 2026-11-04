@@ -12,6 +12,7 @@ import { evaluateInteractionExpectation, interactionTargetChange, parseInteracti
 import { formatScopedAxRef, parseScopedAxRef } from "./scoped-ax-ref.js";
 import { placeAgentTabsInSharedGroup } from "./shared-tab-group.js";
 import { applyOwnedTabUpdate, collectListedOwnedTabs, isMissingChromeTabError, listedOwnedTabStatus, ownedTabNotFoundError, relayUrl as safeUrl, reportableRelayUrl, retireOwnedTabName } from "./tab-list-status.js";
+import { DEFAULT_AGENT_ID, restoredSessionPrincipal, sessionPrincipalFromHello, sessionPrincipalValue } from "./session-principal.js";
 
 const HOST_NAME = "dev.rotom.browser_relay";
 const MAX_NATIVE_BYTES = 1024 * 1024;
@@ -70,7 +71,8 @@ function post(message) {
 	nativePort?.postMessage(message);
 }
 function createSessionState(sessionId) {
-	return { sessionId: safeString(sessionId, "sessionId", 512), generation: undefined, epoch: 0, operationRevision: 0, currentTabName: undefined, tabsByName: new Map(), retiredTabNames: new Map(), operationChain: Promise.resolve() };
+	const id = safeString(sessionId, "sessionId", 512);
+	return { sessionId: id, agentId: DEFAULT_AGENT_ID, rootSessionId: id, leaseToken: undefined, generation: undefined, epoch: 0, operationRevision: 0, currentTabName: undefined, tabsByName: new Map(), retiredTabNames: new Map(), operationChain: Promise.resolve() };
 }
 function allSessionItems() {
 	return [...sessionStates.values()].flatMap((state) => [...state.tabsByName.values()]);
@@ -96,6 +98,9 @@ async function persistState() {
 			schemaVersion: 2,
 			sessions: [...sessionStates.values()].map((state) => ({
 				sessionId: state.sessionId,
+				agentId: state.agentId,
+				rootSessionId: state.rootSessionId,
+				...(state.leaseToken === undefined ? {} : { leaseToken: state.leaseToken }),
 				generation: state.generation,
 				currentTabName: state.currentTabName,
 				tabs: [...state.tabsByName.entries()].map(([name, item]) => ({ name, tabId: item.tabId, targetId: item.targetId, documentGeneration: item.documentGeneration, url: item.url, status: item.status, ownership: item.ownership })),
@@ -124,6 +129,7 @@ async function restoreState() {
 		let state;
 		try { state = createSessionState(stored.sessionId); } catch { continue; }
 		state.currentTabName = typeof stored.currentTabName === "string" ? stored.currentTabName : undefined;
+		Object.assign(state, restoredSessionPrincipal(stored, state.sessionId));
 		for (const candidate of stored.tabs) {
 			if (!record(candidate) || !Number.isInteger(candidate.tabId) || typeof candidate.targetId !== "string" || seenTabIds.has(candidate.tabId)) continue;
 			let name; let cachedUrl;
@@ -1000,7 +1006,9 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 	if (!record(payload)) throw new Error("payload invalid");
 	if (operation === "hello") {
 		const nonce = safeString(payload.nonce, "nonce", 128);
-		return { schemaVersion: 1, kind: "rotom-browser-relay-ready", protocolRevision: 20, nonce, capabilities: ["tab-control", "claim-user-tabs", "handoff-user-tabs", "agent-tab-groups", "accessibility-snapshot", "rendered-document-text", "full-document-read", "virtualized-frame-scroll", "content-coverage", "oopif-accessibility", "screenshot", "direct-interaction", "cdp-mouse", "coordinate-click", "targeted-scroll", "interaction-target-state", "page-alert-readback", "targeted-keypress", "snapshot-query", "operation-deadline", "non-destructive-timeout", "in-place-recovery", "multi-client-multiplex"] };
+		Object.assign(state, sessionPrincipalFromHello(payload, state.sessionId));
+		await persistState();
+		return { schemaVersion: 1, kind: "rotom-browser-relay-ready", protocolRevision: 20, nonce, ...sessionPrincipalValue(state), capabilities: ["tab-control", "claim-user-tabs", "handoff-user-tabs", "agent-tab-groups", "accessibility-snapshot", "rendered-document-text", "full-document-read", "virtualized-frame-scroll", "content-coverage", "oopif-accessibility", "screenshot", "direct-interaction", "cdp-mouse", "coordinate-click", "targeted-scroll", "interaction-target-state", "page-alert-readback", "targeted-keypress", "snapshot-query", "operation-deadline", "non-destructive-timeout", "in-place-recovery", "multi-client-multiplex"] };
 	}
 	if (operation === "open") {
 		const name = safeName(payload.tabName);
@@ -1074,7 +1082,7 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 			onDetached: (item) => childSessionsByTabId.delete(item.tabId),
 		});
 		await persistState();
-		return { schemaVersion: 1, kind: "rotom-browser-tabs", tabs };
+		return { schemaVersion: 1, kind: "rotom-browser-tabs", ...sessionPrincipalValue(state), tabs };
 	}
 	if (operation === "switch") {
 		const { name, item } = owned(state, payload.tabName);
