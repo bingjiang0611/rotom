@@ -59,8 +59,11 @@
   - **用户停止**：菜单栏状态项列出 Broker 里每个 agent 及其占用 App，可单独停或全部停；`Ctrl+Option+Cmd+.` 全局快捷键用 headInsert 主动 tap **只吞这一个组合键**，其余按键原样放行，仅在已获得 Accessibility 时安装，tap 被系统禁用会自动重开。helper 通过 `BrokerLink`（Unix socket + `hello`/`status`/`stop`/`ping`）直接找 Broker 要状态。
 - 新增或修改的测试：`test/l2-compat.test.ts`（3 例，白名单/理由/`ROTOM_CU_L2=0`）；`test/helper-protocol.test.ts` 改为按导出的 `HELPER_PROTOCOL_VERSION` 断言（协议 7 现在正确判为不匹配）。会因旧行为失败的反例：非白名单 App 拿到 `l2`；`ROTOM_CU_L2=0` 仍走定向投递；协议 7 的 helper 被当成匹配。
 - 自证命令与结果：`node scripts/build-native.mjs --arch arm64 --output /tmp/cu-bridge-m5` → 成功（698 KB arm64，5 次迭代修正编译错误）；`npm test` → 57 pass / 0 fail。
-- 未验证项（本机不能运行任何本地编译产物，`Killed: 9`，见环境记录）：
-  1. 全部原生行为只到**编译通过**：协议 8 握手、listen-only 活动 tap、`SLEventPostToPid` 是否存在/是否真的不移动光标、L2 点击能否被 IntelliJ 接受、语义动作的实际回读、剪贴板 30 秒恢复、窗口 move/resize/maximize、系统表面 AX 根、菜单栏项与快捷键。
+- 本段落成时的状态（2026-11-04 早些时候）：本机 `Killed: 9`，全部原生行为只到编译通过。
+  后续已用独立签名 helper 在真机跑通，结果见 `evidence/live-check.md`、
+  `evidence/acceptance-run.md`、`evidence/real-machine-session.md` 与 STATUS 的“L2 真机证据”。
+  仍未验证的部分：白名单 App（IntelliJ）上的 L2 正例、菜单栏项与全局快捷键、
+  活动 tap 的 CPU 开销与被系统禁用的频率。
   2. 活动 tap 与主动 tap 的 CPU 开销、tap 被系统禁用的频率未测。
   3. `SLEventPostToPid` 是私有符号，签名按社区惯例写为 `(pid_t, CGEventRef)`；若签名不符会崩溃而不是报错。
   4. 剪贴板 `set` 后 30 秒恢复用户原剪贴板**尚未实现**（只在 helper 侧有 get/set/clear），需要 M6 工具面配合实现，见“需要审核者回答的问题”。
