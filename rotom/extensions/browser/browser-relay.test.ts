@@ -5,6 +5,7 @@ import { createServer, type Socket } from "node:net";
 import { test } from "node:test";
 import {
 	BROWSER_MAIN_AGENT_ID_V1,
+	BROWSER_RELAY_TRANSFER_CAPABILITY_V1,
 	BrowserArtifactStoreV1,
 	BrowserRelayClientV1,
 	BrowserRelayUnavailableErrorV1,
@@ -225,6 +226,37 @@ test("relay client hello 携带 browser principal，并从环境变量解析子 
 		for (const socket of acceptedSockets) socket.destroy();
 		await new Promise<void>((resolve) => server.close(() => resolve()));
 	}
+});
+
+test("client 只对 transfer 要求 cross-agent-transfer 能力，旧扩展仍能连上", async (t) => {
+	const socketPath = `/tmp/rotom-browser-relay-capability-${process.pid}-${Date.now()}.sock`;
+	let extraCapabilities: string[] = [];
+	const server = createServer((socket) => {
+		socket.setEncoding("utf8"); let buffer = "";
+		socket.on("data", (chunk) => {
+			buffer += chunk;
+			for (;;) {
+				const newline = buffer.indexOf("\n"); if (newline < 0) break;
+				const line = buffer.slice(0, newline); buffer = buffer.slice(newline + 1); if (!line) continue;
+				const request = JSON.parse(line);
+				const result = { schemaVersion: 1, kind: "rotom-browser-relay-ready", protocolRevision: 20, nonce: request.payload.nonce, capabilities: ["virtualized-frame-scroll", "multi-client-multiplex", "coordinate-click", "interaction-target-state", "page-alert-readback", "targeted-keypress", "snapshot-query", ...extraCapabilities] };
+				socket.write(`${JSON.stringify({ schemaVersion: 1, kind: "response", id: request.id, sessionId: request.sessionId, generation: request.generation, ok: true, result })}\n`);
+			}
+		});
+	});
+	try { await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(socketPath, resolve); }); }
+	catch (error) { if ((error as NodeJS.ErrnoException).code === "EPERM") { t.skip("sandbox 禁止 Unix socket listen"); return; } throw error; }
+	try {
+		const legacy = await BrowserRelayClientV1.connect({ sessionId: "session-legacy", socketPath });
+		assert.throws(() => legacy.requireCapability(BROWSER_RELAY_TRANSFER_CAPABILITY_V1, "请重载扩展"), /请重载扩展/u, "缺能力时本地拒绝，不发请求");
+		assert.doesNotThrow(() => legacy.requireCapability("snapshot-query", "unused"), "已声明能力可用");
+		legacy.close();
+
+		extraCapabilities = ["cross-agent-transfer"];
+		const current = await BrowserRelayClientV1.connect({ sessionId: "session-current", socketPath });
+		assert.doesNotThrow(() => current.requireCapability(BROWSER_RELAY_TRANSFER_CAPABILITY_V1, "unused"));
+		current.close();
+	} finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
 });
 
 test("browser principal 拒绝空值、控制字符与超长 token", () => {

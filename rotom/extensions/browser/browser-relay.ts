@@ -14,6 +14,9 @@ export const BROWSER_RELAY_TARGET_STATE_CAPABILITY_V1 = "interaction-target-stat
 export const BROWSER_RELAY_PAGE_ALERT_CAPABILITY_V1 = "page-alert-readback" as const;
 export const BROWSER_RELAY_KEYPRESS_CAPABILITY_V1 = "targeted-keypress" as const;
 export const BROWSER_RELAY_QUERY_CAPABILITY_V1 = "snapshot-query" as const;
+/** Optional capability: required only by the operations that need it, so an
+ *  extension that predates cross-agent transfer still serves everything else. */
+export const BROWSER_RELAY_TRANSFER_CAPABILITY_V1 = "cross-agent-transfer" as const;
 export const BROWSER_MAIN_AGENT_ID_V1 = "main" as const;
 /** Env vars a subagent process inherits so its relay session is attributable. */
 export const ROTOM_BROWSER_AGENT_ID_ENV_V1 = "ROTOM_BROWSER_AGENT_ID" as const;
@@ -48,7 +51,7 @@ export function browserPrincipalV1(sessionId: string, overrides: Partial<Browser
 }
 
 export const BROWSER_INSPECT_TOOL_V1 = "browser_inspect" as const;
-export const BROWSER_INSPECT_OPERATIONS_V1 = ["open", "discover", "claim", "handoff", "tabs", "switch", "snapshot", "snapshot_visible", "read_full", "screenshot", "wait", "close", "recover"] as const;
+export const BROWSER_INSPECT_OPERATIONS_V1 = ["open", "discover", "claim", "transfer", "handoff", "tabs", "switch", "snapshot", "snapshot_visible", "read_full", "screenshot", "wait", "close", "recover"] as const;
 export const BROWSER_INTERACT_TOOL_V1 = "browser_interact" as const;
 export const BROWSER_INTERACT_OPERATIONS_V1 = ["execute"] as const;
 export const BROWSER_INTERACTION_ACTIONS_V1 = ["click", "type", "scroll", "select", "keypress"] as const;
@@ -393,6 +396,7 @@ export class BrowserRelayClientV1 {
 	readonly socketPath: string;
 	#socket: Socket;
 	#leaseToken: string | undefined;
+	#capabilities: string[] = [];
 	#buffer = "";
 	#pending = new Map<string, PendingRequestV1>();
 	#closed = false;
@@ -442,6 +446,7 @@ export class BrowserRelayClientV1 {
 			// An older extension ignores the principal fields, so absence stays compatible;
 			// a different reported identity means this handshake landed on another principal.
 			if ((ready.agentId !== undefined && ready.agentId !== client.agentId) || (ready.rootSessionId !== undefined && ready.rootSessionId !== client.rootSessionId)) throw new Error("browser relay 返回的 browser principal 与本进程不一致；请重载 Rotom Browser Relay");
+			client.#capabilities = (ready.capabilities as unknown[]).filter((value): value is string => typeof value === "string");
 			return client;
 		} catch (error) {
 			client.close();
@@ -452,6 +457,11 @@ export class BrowserRelayClientV1 {
 	}
 
 	get closed(): boolean { return this.#closed; }
+
+	/** Refuse an operation locally when the installed extension cannot serve it. */
+	requireCapability(capability: string, message: string): void {
+		if (!this.#capabilities.includes(capability)) throw new Error(message);
+	}
 
 	async request(operation: string, payload: Record<string, unknown>, options: { signal?: AbortSignal; timeoutMs?: number } = {}): Promise<unknown> {
 		if (this.#closed) throw new Error("browser relay client 已关闭");

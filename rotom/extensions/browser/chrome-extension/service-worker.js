@@ -1,5 +1,7 @@
 import { observedInteractionNode } from "./interaction-observation.js";
 import { coordinateViewport, invalidateCoordinateObservation, mintCoordinateObservation, validateCoordinateBinding, validateCoordinateHit } from "./coordinate-click.js";
+import { resetTransferredItemV1, transferTargetSessionV1, transferredTabNameV1 } from "./agent-transfer.js";
+import { forgetSpawnedTab, recordedOpenerTabId, rememberSpawnedTab } from "./spawned-tabs.js";
 import { interactionScrollTarget } from "./interaction-scroll-target.js";
 import { createOperationGuard } from "./operation-guard.js";
 import { operationChrome } from "./operation-chrome.js";
@@ -41,6 +43,7 @@ const sessionStates = new Map();
 const childSessionsByTabId = new Map();
 const tabReservations = new Set();
 const windowOpenGuardsByTabId = new Map();
+const spawnedTabOpeners = new Map();
 let nativePort;
 let reconnectTimer;
 let persistChain = Promise.resolve();
@@ -53,7 +56,7 @@ function safeString(value, name, max = 256) {
 }
 function safeName(value) {
 	const name = safeString(value, "tabName", 64);
-	if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(name)) throw new Error("tabName format invalid");
+	if (!/^[A-Za-z0-9][A-Za-z0-9._@-]{0,63}$/.test(name)) throw new Error("tabName format invalid");
 	return name;
 }
 function boundedText(value, max = MAX_NAME_CHARS) {
@@ -61,7 +64,7 @@ function boundedText(value, max = MAX_NAME_CHARS) {
 }
 function publicError(error) {
 	if (error instanceof Error) {
-		if (/tab|url|session|timeout|debugger|navigation|relay|screenshot|snapshot|operation|owned|interaction|target|ref|download/iu.test(error.message)) return error.message.slice(0, 512);
+		if (/tab|url|session|timeout|debugger|navigation|relay|screenshot|snapshot|operation|owned|interaction|target|ref|download|agent|deploy|quota/iu.test(error.message)) return error.message.slice(0, 512);
 	}
 	return "browser relay operation failed";
 }
@@ -79,6 +82,13 @@ function allSessionItems() {
 }
 function findSessionItemByTabId(tabId) {
 	for (const state of sessionStates.values()) for (const item of state.tabsByName.values()) if (item.tabId === tabId) return item;
+}
+function sessionOwnsTabId(state, tabId) {
+	for (const item of state.tabsByName.values()) if (item.tabId === tabId) return true;
+	return false;
+}
+function sessionOwningTabId(tabId) {
+	for (const state of sessionStates.values()) if (sessionOwnsTabId(state, tabId)) return state;
 }
 async function placeInSharedAgentGroup(tab, assertOperation) {
 	const chrome = operationChrome(globalThis.chrome, assertOperation);
@@ -760,13 +770,14 @@ async function withBackgroundActivationGuard(item, action, assertOperation) {
 		const signalMatched = consumeWindowOpenSignal(tab);
 		if (tab.openerTabId !== item.tabId && !signalMatched) return;
 		spawned.set(tab.id, tab);
+		rememberSpawnedTab(spawnedTabOpeners, tab.id, item.tabId);
 		queueRestore();
 	};
 	chrome.tabs.onCreated.addListener(onCreated);
 	try {
 		const value = await action();
 		await delay(BACKGROUND_ACTIVATION_GUARD_MS);
-		for (const tab of await chrome.tabs.query({})) if (Number.isInteger(tab.id) && !knownTabIds.has(tab.id) && (tab.openerTabId === item.tabId || consumeWindowOpenSignal(tab))) spawned.set(tab.id, tab);
+		for (const tab of await chrome.tabs.query({})) if (Number.isInteger(tab.id) && !knownTabIds.has(tab.id) && (tab.openerTabId === item.tabId || consumeWindowOpenSignal(tab))) { spawned.set(tab.id, tab); rememberSpawnedTab(spawnedTabOpeners, tab.id, item.tabId); }
 		queueRestore();
 		await restorationChain;
 		return { value, spawnedTabs: spawned.size, restored: true };
@@ -1008,7 +1019,7 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 		const nonce = safeString(payload.nonce, "nonce", 128);
 		Object.assign(state, sessionPrincipalFromHello(payload, state.sessionId));
 		await persistState();
-		return { schemaVersion: 1, kind: "rotom-browser-relay-ready", protocolRevision: 20, nonce, ...sessionPrincipalValue(state), capabilities: ["tab-control", "claim-user-tabs", "handoff-user-tabs", "agent-tab-groups", "accessibility-snapshot", "rendered-document-text", "full-document-read", "virtualized-frame-scroll", "content-coverage", "oopif-accessibility", "screenshot", "direct-interaction", "cdp-mouse", "coordinate-click", "targeted-scroll", "interaction-target-state", "page-alert-readback", "targeted-keypress", "snapshot-query", "operation-deadline", "non-destructive-timeout", "in-place-recovery", "multi-client-multiplex"] };
+		return { schemaVersion: 1, kind: "rotom-browser-relay-ready", protocolRevision: 20, nonce, ...sessionPrincipalValue(state), capabilities: ["tab-control", "claim-user-tabs", "handoff-user-tabs", "agent-tab-groups", "accessibility-snapshot", "rendered-document-text", "full-document-read", "virtualized-frame-scroll", "content-coverage", "oopif-accessibility", "screenshot", "direct-interaction", "cdp-mouse", "coordinate-click", "targeted-scroll", "interaction-target-state", "page-alert-readback", "targeted-keypress", "snapshot-query", "operation-deadline", "non-destructive-timeout", "in-place-recovery", "multi-client-multiplex", "cross-agent-transfer"] };
 	}
 	if (operation === "open") {
 		const name = safeName(payload.tabName);
@@ -1049,7 +1060,10 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 	}
 	if (operation === "discover") {
 		const ownedIds = new Set([...allSessionItems().map((item) => item.tabId), ...tabReservations]);
-		const tabs = (await chrome.tabs.query({ currentWindow: true })).filter((tab) => Number.isInteger(tab.id) && !ownedIds.has(tab.id) && typeof tab.url === "string" && reportableRelayUrl(tab.url) !== undefined).slice(0, 50).map((tab) => ({ tabId: tab.id, url: safeUrl(tab.url), title: boundedText(tab.title, 512), status: tab.status === "complete" ? "complete" : "loading", browserActive: tab.active === true }));
+		const tabs = (await chrome.tabs.query({ currentWindow: true })).filter((tab) => Number.isInteger(tab.id) && !ownedIds.has(tab.id) && typeof tab.url === "string" && reportableRelayUrl(tab.url) !== undefined).slice(0, 50).map((tab) => {
+			const openerTabId = recordedOpenerTabId(spawnedTabOpeners, tab);
+			return { tabId: tab.id, url: safeUrl(tab.url), title: boundedText(tab.title, 512), status: tab.status === "complete" ? "complete" : "loading", browserActive: tab.active === true, ...(openerTabId === undefined ? {} : { openerOwnedByYou: sessionOwnsTabId(state, openerTabId) }) };
+		});
 		return { schemaVersion: 1, kind: "rotom-browser-discovered-tabs", tabs };
 	}
 	if (operation === "claim") {
@@ -1061,6 +1075,9 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 		try {
 			const tab = await chrome.tabs.get(payload.tabId);
 			if (!tab || typeof tab.url !== "string") throw new Error("claim tab unavailable");
+			const openerTabId = recordedOpenerTabId(spawnedTabOpeners, tab);
+			const openerOwner = openerTabId === undefined ? undefined : sessionOwningTabId(openerTabId);
+			if (openerOwner !== undefined && openerOwner !== state) throw new Error("tab was opened from another relay session's tab; only its opener may claim it");
 			const url = safeUrl(tab.url);
 			const item = { tabId: tab.id, documentGeneration: 1, url, status: tab.status === "complete" ? "complete" : "loading", ownership: "claimed", attached: false, detached: false };
 			assertOperation();
@@ -1070,6 +1087,24 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 			catch (error) { await closeOwnedIdentity(state, name, tab.id, item, assertOperation); throw error; }
 			return observation(name, item, assertOperation);
 		} finally { tabReservations.delete(payload.tabId); }
+	}
+	if (operation === "transfer") {
+		const { name, item } = owned(state, payload.tabName);
+		const target = transferTargetSessionV1(sessionStates.values(), { rootSessionId: state.rootSessionId, toAgentId: payload.toAgentId });
+		if (target === state) throw new Error("cannot transfer a tab to its current session");
+		const nextName = transferredTabNameV1(name, state.agentId);
+		if (target.tabsByName.has(nextName)) throw new Error("target relay session already owns that tab name");
+		assertOperation();
+		state.tabsByName.delete(name);
+		if (state.currentTabName === name) state.currentTabName = state.tabsByName.keys().next().value;
+		// Ownership history survives the move: T5 hands transferred tabs back to the
+		// root session's main agent, and a claimed user tab must never be closed.
+		item.transferredFrom = state.agentId;
+		resetTransferredItemV1(item);
+		target.tabsByName.set(nextName, item);
+		await persistState();
+		assertOperation();
+		return { schemaVersion: 1, kind: "rotom-browser-transfer", tabName: nextName, from: state.agentId, to: target.agentId, documentGeneration: item.documentGeneration, observationEpoch: item.observationEpoch };
 	}
 	if (operation === "tabs") {
 		const tabs = await collectListedOwnedTabs({
@@ -1250,6 +1285,7 @@ function scheduleReconnect() {
 chrome.alarms.onAlarm.addListener((alarm) => { if (alarm.name === NATIVE_RECONNECT_ALARM) connectNative(); });
 chrome.tabs.onRemoved.addListener((tabId) => {
 	childSessionsByTabId.delete(tabId);
+	forgetSpawnedTab(spawnedTabOpeners, tabId);
 	for (const state of sessionStates.values()) for (const [name, item] of state.tabsByName) if (item.tabId === tabId) {
 		state.tabsByName.delete(name);
 		retireOwnedTabName(state.retiredTabNames, name, "Chrome closed the tab (user, page script or browser)");

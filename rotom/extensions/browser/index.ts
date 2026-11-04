@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
 	BROWSER_INSPECT_OPERATIONS_V1,
+	BROWSER_RELAY_TRANSFER_CAPABILITY_V1,
 	BROWSER_INSPECT_TOOL_V1,
 	BROWSER_INTERACT_OPERATIONS_V1,
 	BROWSER_INTERACT_TOOL_V1,
@@ -53,7 +54,7 @@ type BrowserRelayTabsV1 = {
 	kind: "rotom-browser-tabs";
 	tabs: Array<{ name: string; tabId: number; documentGeneration: number; url: string; title: string; status: "loading" | "complete"; current: boolean; browserActive: boolean; ownership: "agent" | "claimed"; relayAttached: boolean }>;
 };
-type BrowserDiscoveredTabsV1 = { schemaVersion: 1; kind: "rotom-browser-discovered-tabs"; tabs: Array<{ tabId: number; url: string; title: string; status: "loading" | "complete"; browserActive: boolean }> };
+type BrowserDiscoveredTabsV1 = { schemaVersion: 1; kind: "rotom-browser-discovered-tabs"; tabs: Array<{ tabId: number; url: string; title: string; status: "loading" | "complete"; browserActive: boolean; openerOwnedByYou?: boolean }> };
 type SnapshotCursorV1 = { observation: BrowserObservationV1; offset: number; expiresAt: number };
 
 export interface BrowserCommandDependenciesV1 {
@@ -115,7 +116,8 @@ function record(value: unknown): value is Record<string, unknown> { return Boole
 function safeString(value: unknown, name: string, max = 4_096): string { if (typeof value !== "string" || value.length < 1 || value.length > max || value.includes("\0")) throw new Error(`${name} 必须是有界非 NUL 字符串`); return value; }
 function safeInteger(value: unknown, name: string, minimum: number, maximum: number): number { if (!Number.isSafeInteger(value) || (value as number) < minimum || (value as number) > maximum) throw new Error(`${name} 必须是 ${minimum}-${maximum} 的安全整数`); return value as number; }
 function safeNumber(value: unknown, name: string, minimum: number, maximum: number): number { if (typeof value !== "number" || !Number.isFinite(value) || value < minimum || value > maximum) throw new Error(`${name} 必须是 ${minimum}-${maximum} 的有限数字`); return value; }
-function safeTabName(value: unknown): string { const name = safeString(value, "tabName", 64); if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u.test(name)) throw new Error("tabName 格式无效"); return name; }
+function safeTabName(value: unknown): string { const name = safeString(value, "tabName", 64); if (!/^[A-Za-z0-9][A-Za-z0-9._@-]{0,63}$/u.test(name)) throw new Error("tabName 格式无效"); return name; }
+function safeAgentId(value: unknown): string { const agentId = safeString(value, "toAgentId", 128); if (!/^[\x21-\x7e]+$/u.test(agentId)) throw new Error("toAgentId 格式无效"); return agentId; }
 function safeDisplayUrl(value: string): string { const url = new URL(value); if (url.search) url.search = "?<redacted>"; if (url.hash) url.hash = "#<redacted>"; return url.href; }
 function browserResult(value: unknown) {
 	const text = JSON.stringify(value);
@@ -159,7 +161,9 @@ function validateDiscoveredTabs(value: unknown): BrowserDiscoveredTabsV1 {
 		const url = canonicalBrowserUrlV1(candidate.url);
 		const status = candidate.status === "loading" || candidate.status === "complete" ? candidate.status : undefined;
 		if (!status || typeof candidate.title !== "string" || typeof candidate.browserActive !== "boolean") throw new Error(`browser discovered tab ${index} fields 无效`);
-		return { tabId: candidate.tabId as number, url, title: candidate.title.slice(0, 1_024), status, browserActive: candidate.browserActive };
+		const openerOwnedByYou = candidate.openerOwnedByYou;
+		if (openerOwnedByYou !== undefined && typeof openerOwnedByYou !== "boolean") throw new Error(`browser discovered tab ${index} opener 状态无效`);
+		return { tabId: candidate.tabId as number, url, title: candidate.title.slice(0, 1_024), status, browserActive: candidate.browserActive, ...(openerOwnedByYou === undefined ? {} : { openerOwnedByYou }) };
 	});
 	return { schemaVersion: 1, kind: "rotom-browser-discovered-tabs", tabs };
 }
@@ -374,6 +378,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 		promptGuidelines: [
 			...BROWSER_SHARED_PROMPT_GUIDELINES,
 			"open: named background tab, no focus. HTTP(S) only; serve HTML via HTTP. discover then claim: tabId + new tabName; handoff returns claimed user tabs.",
+			"transfer hands a tab to another agent of the same root session as tabName@yourAgentId; refs and coordinates start fresh.",
 			"snapshot and read_full traverse virtualized scroll containers and restore position; use cursor pagination, not manual scrolling, reopening, or reclaiming. Full-text claims need scrolledContainers>0.",
 			"Use snapshot_visible to refresh refs, browser_interact for actions, screenshot only for ref-less controls; screenshots are sensitive content.",
 			"snapshot_visible text (case-insensitive name substring) AND role (exact) filter bounded AX/text in Relay before the AX cap. scanTruncated/matchesTruncated mark limits, not whole-page absence. Continue nextCursor without filters.",
@@ -382,6 +387,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			operation: StringEnum(BROWSER_INSPECT_OPERATIONS_V1),
 			tabName: Type.Optional(Type.String({ minLength: 1, maxLength: 64, description: "Required for open and claim: a new owned tab name. Other operations may use the current owned tab." })),
 			tabId: Type.Optional(Type.Integer({ minimum: 0, description: "Required for claim: the tabId returned by discover." })),
+			toAgentId: Type.Optional(Type.String({ minLength: 1, maxLength: 128, description: "Required for transfer: receiving agentId in the same root session." })),
 			url: Type.Optional(Type.String({ minLength: 1, maxLength: 4096, description: "Required for open: an HTTP(S) URL." })),
 			status: Type.Optional(StringEnum(["loading", "complete"] as const)),
 			timeoutMs: Type.Optional(Type.Integer({ minimum: 0, maximum: 300_000 })),
@@ -404,7 +410,8 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			const filtered = text !== undefined || role !== undefined;
 			if (filtered && (operation !== "snapshot_visible" || params.cursor !== undefined)) throw new Error("text/role 仅允许首次 snapshot_visible；cursor 已固定查询结果，请勿重复过滤");
 			// Invalid local input must neither contact Relay nor grant fallback permission.
-			if ((operation === "open" || operation === "claim") && !tabName) throw new Error(`${operation} 需要 tabName`);
+			if ((operation === "open" || operation === "claim" || operation === "transfer") && !tabName) throw new Error(`${operation} 需要 tabName`);
+			const toAgentId = operation === "transfer" ? safeAgentId(params.toAgentId) : undefined;
 			const openUrl = operation === "open" ? canonicalBrowserUrlV1(params.url) : undefined;
 			const claimTabId = operation === "claim" ? safeInteger(params.tabId, "tabId", 0, Number.MAX_SAFE_INTEGER) : undefined;
 			const assertOwner = await bindSession(ctx, signal);
@@ -437,6 +444,12 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 				if (!candidate) throw new Error("claim 目标不在当前可用标签列表");
 				const observation = sanitizeBrowserObservationV1(await relayClient.request("claim", { tabName, tabId }, { signal }));
 				return snapshotResult(observation, limit);
+			}
+			if (operation === "transfer") {
+				relayClient.requireCapability(BROWSER_RELAY_TRANSFER_CAPABILITY_V1, "browser relay 不支持跨 agent 移交；请在 chrome://extensions 重载 Rotom Browser Relay");
+				const transferred = await relayClient.request("transfer", { tabName, toAgentId }, { signal });
+				textBaselines.clear();
+				return boundedResult(transferred);
 			}
 			if (operation === "recover") {
 				const target = targetTab(await readTabs(relayClient, signal), tabName);

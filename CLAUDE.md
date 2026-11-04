@@ -107,6 +107,7 @@ Browser relay 的后台标签、AX/DOM ref、viewport、document generation 和 
 - timeout/detached 只对原标签 recover 一次，最多重试原动作一次；不通过 close/open/claim 新标签伪装恢复。
 - 默认先走 `browser_inspect/browser_interact`，仅当前运行尚未派发 Relay 页面请求、且本机 socket 缺失/拒绝连接时允许 `launch_browser` 一次；回退须说明独立 profile 不继承 Chrome 登录态。不以登录页、空结果、stale、timeout、unknown、取消、协议或权限错误授权回退，不跨浏览器重放写操作。显式排除 Relay 工具的调用方保留其工具选择。
 - 不回退到 shell 激活 Chrome、系统鼠标键盘或桌面截图。
+- 每个 tab 只属于一个 relay session：`discover` 不返回其他 agent 的 tab，`claim` 只在 opener 属于另一个 session 时拒绝，错误信息不带出对方 tabName。`transfer` 只能在同一个 `rootSessionId` 内移交，接收方得到 `<原名>@<来源 agent>` 并换新 `documentGeneration`/`observationEpoch`，移交前的 ref 与截图坐标一律作废。
 - Chrome extension 安装与重载是用户显式操作；代码级 L1 不能写成真实 Chrome L2/L3。
 
 ## 公开前隐私边界

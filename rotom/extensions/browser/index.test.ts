@@ -183,7 +183,9 @@ test("browser relay：活动标签可 claim、直接交互、敏感输入放行�
 	const browserSchemaBytes = [tool, interact].reduce((sum, definition) => sum + Buffer.byteLength(JSON.stringify({ name: definition.name, description: definition.description, parameters: definition.parameters }), "utf8"), 0);
 	// Keep prompt text bounded; schema growth exposes the fixed expectation enum
 	// and operation-specific requirements instead of adding another prose checklist.
-	assert.ok(browserGuidelineBytes <= 3_650, `Browser guideline budget regressed: ${browserGuidelineBytes}`);
+	// +100 bytes budgeted for the cross-agent transfer operation (T2): the receiver
+	// name format and the fact that its refs start fresh cannot be left to the schema.
+	assert.ok(browserGuidelineBytes <= 3_750, `Browser guideline budget regressed: ${browserGuidelineBytes}`);
 	assert.ok(browserSchemaBytes <= 2_750, `Browser schema budget regressed: ${browserSchemaBytes}`);
 	assert.ok(interact.parameters.required.includes("action"));
 	assert.equal(interact.parameters.properties.expect.enum.length, 16);
