@@ -148,10 +148,25 @@ async function main() {
 		}
 	}
 
+	// The background invariant: everything above was delivered without touching the
+	// user's session. Judge it here, before any opt-in HID step, because HID
+	// delivery is allowed to move the cursor and raise the target window.
+	const frontmostAfter = await macosBackend.getFrontmost();
+	const cursorAfter = await macosHelper.command("getMousePosition", {});
+	const cursorDelta = Math.hypot(Number(cursorAfter.x) - Number(cursorBefore.x), Number(cursorAfter.y) - Number(cursorBefore.y));
+	const withHid = process.argv.includes("--with-hid");
+	if (withHid) {
+		record("background", "cursor unchanged", "skipped", "not judged in a --with-hid run: HID delivery moves the session cursor by design");
+		record("background", "frontmost app unchanged", "skipped", "not judged in a --with-hid run: HID delivery raises the target window by design");
+	} else {
+		record("background", "cursor unchanged", cursorDelta < 1 ? "pass" : "fail", `(${cursorBefore.x},${cursorBefore.y}) → (${cursorAfter.x},${cursorAfter.y}) delta=${cursorDelta.toFixed(1)}pt`);
+		record("background", "frontmost app unchanged", frontmostAfter.pid === frontmostBefore.pid ? "pass" : "fail", `${frontmostBefore.appName} (${frontmostBefore.pid}) → ${frontmostAfter.appName} (${frontmostAfter.pid})`);
+	}
+
 	// HID delivery posts real events through the session tap, so it can move the
 	// cursor and raise the target window. Keep it opt-in, and restore the app that
 	// was frontmost before the run.
-	if (process.argv.includes("--with-hid")) {
+	if (withHid) {
 		const before = await macosBackend.userActivity();
 		if (!look.image) {
 			// A coordinate click needs a window image, which needs the window to be
