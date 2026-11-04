@@ -2038,6 +2038,15 @@ final class Bridge {
 		let delivery = policy == "background" || policy == "background_text"
 			? "pid"
 			: (requestedDelivery == "l2" ? "l2" : (requestedDelivery == "pid" ? "pid" : "hid"))
+		// `ax_only` promises no physical input, exactly like the Windows and Linux
+		// bridges where the coordinate fallback is blocked. Falling back to HID here
+		// would move the user's cursor or type into their frontmost window.
+		if policy == "ax_only" {
+			let physicalOnly: Set<String> = ["typeText", "keypress", "scroll", "drag", "moveMouse", "hover"]
+			if physicalOnly.contains(action) {
+				throw BridgeFailure(message: "ax_only cannot deliver \(action); use background_text, background or foreground", code: "foreground_required")
+			}
+		}
 		var holdsPhysicalInput = false
 		func acquirePhysicalInputIfNeeded() {
 			if (delivery == "hid" || policy == "background_text") && !holdsPhysicalInput {
@@ -2156,6 +2165,9 @@ final class Bridge {
 		}
 
 		func executeCoordinates(_ point: CGPoint) throws {
+			if policy == "ax_only", delivery == "hid" {
+				throw BridgeFailure(message: "ax_only cannot post physical input for \(action); use background_text, background or foreground", code: "foreground_required")
+			}
 			guard element != nil || record.hasImage else {
 				throw BridgeFailure(message: "Coordinate grounding is unavailable for this outline-only root", code: "coordinate_unavailable_for_root")
 			}
@@ -4259,7 +4271,7 @@ extension Bridge {
 
 		let selectableRoles: Set<String> = ["AXRow", "AXCell", "AXOutlineRow", "AXListItem", "AXTab", "AXRadioButton", "AXMenuItem", "AXTableRow"]
 		guard selectableRoles.contains(role) || supportsAction(element, action: kAXPressAction as CFString) else {
-			throw BridgeFailure(message: "Role \\(role) is not selectable", code: "unsupported_action")
+			throw BridgeFailure(message: "Role \(role) is not selectable", code: "unsupported_action")
 		}
 		var status = AXUIElementSetAttributeValue(element, kAXSelectedAttribute as CFString, kCFBooleanTrue)
 		if status != .success {
@@ -4301,35 +4313,69 @@ extension Bridge {
 		}
 		let role = stringAttribute(element, attribute: kAXRoleAttribute as CFString) ?? ""
 		guard ["AXCheckBox", "AXSwitch", "AXRadioButton", "AXToggle", "AXMenuItem"].contains(role) else {
-			throw BridgeFailure(message: "Role \\(role) is not a checkbox or switch", code: "unsupported_action")
+			throw BridgeFailure(message: "Role \(role) is not a checkbox or switch", code: "unsupported_action")
 		}
 		let target = NSNumber(value: checked ? 1 : 0)
 		var status = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, target)
 		if status != .success {
 			status = AXUIElementSetAttributeValue(element, kAXSelectedAttribute as CFString, checked ? kCFBooleanTrue : kCFBooleanFalse)
 		}
-		guard status == .success else {
+		var readback = currentCheckedState(element)
+		// SwiftUI and AppKit switches ignore an AXValue write and only change state
+		// through a press. Press exactly once when the readback disagrees, then read
+		// again: a press is a toggle, so pressing blindly would flip a control that
+		// is already in the requested state.
+		if readback != checked, supportsAction(element, action: kAXPressAction as CFString) {
+			if AXUIElementPerformAction(element, kAXPressAction as CFString) == .success {
+				usleep(80_000)
+				readback = currentCheckedState(element)
+				performed["mechanism"] = "axPress"
+			}
+		}
+		if status != .success, performed["mechanism"] == nil {
 			throw BridgeFailure(message: "This control refused the new checked state", code: "set_value_failed")
 		}
-		let readback = (boolAttribute(element, attribute: kAXValueAttribute as CFString)) ?? (boolAttribute(element, attribute: kAXSelectedAttribute as CFString))
 		performed["grounding"] = "description"
 		performed["delivery"] = "ax"
 		// Idempotent writes cannot prove the state changed; report what is there now.
 		return ["outcome": readback == nil ? "unknown" : (readback == checked ? "worked" : "didnt"), "performed": performed, "evidence": ["checked": readback.map { $0 as Any } ?? NSNull()]]
 	}
 
+	/// Read a control's checked state from the attribute it actually exposes.
+	private func currentCheckedState(_ element: AXUIElement) -> Bool? {
+		if let value = boolAttribute(element, attribute: kAXValueAttribute as CFString) { return value }
+		if let value = boolAttribute(element, attribute: kAXSelectedAttribute as CFString) { return value }
+		if let value = boolAttribute(element, attribute: "AXChecked" as CFString) { return value }
+		return nil
+	}
+
+	private func currentExpandedState(_ element: AXUIElement) -> Bool? {
+		if let value = boolAttribute(element, attribute: kAXExpandedAttribute as CFString) { return value }
+		if let value = boolAttribute(element, attribute: "AXDisclosing" as CFString) { return value }
+		return nil
+	}
+
 	private func setExpanded(element: AXUIElement, expanded: Bool, performed: inout [String: Any]) throws -> [String: Any] {
 		let value: CFBoolean = expanded ? kCFBooleanTrue : kCFBooleanFalse
 		var status = AXUIElementSetAttributeValue(element, kAXExpandedAttribute as CFString, value)
-		if status != .success, let attribute = attributeNames(of: element).first(where: { $0 == "AXDisclosing" }) {
-			status = AXUIElementSetAttributeValue(element, attribute as CFString, value)
+		if status != .success, attributeNames(of: element).contains("AXDisclosing") {
+			status = AXUIElementSetAttributeValue(element, "AXDisclosing" as CFString, value)
 		}
-		guard status == .success else {
+		var readback = currentExpandedState(element)
+		// Disclosure triangles often expose no writable expanded attribute and only
+		// toggle on press. Press once when the state disagrees with the request.
+		if readback != expanded, supportsAction(element, action: kAXPressAction as CFString) {
+			if AXUIElementPerformAction(element, kAXPressAction as CFString) == .success {
+				usleep(80_000)
+				readback = currentExpandedState(element)
+				performed["mechanism"] = "axPress"
+			}
+		}
+		if status != .success, performed["mechanism"] == nil {
 			throw BridgeFailure(message: "This element cannot \(expanded ? "expand" : "collapse")", code: "unsupported_action")
 		}
 		performed["grounding"] = "description"
 		performed["delivery"] = "ax"
-		let readback = boolAttribute(element, attribute: kAXExpandedAttribute as CFString)
 		return ["outcome": readback == nil ? "unknown" : (readback == expanded ? "worked" : "didnt"), "performed": performed, "evidence": ["expanded": readback.map { $0 as Any } ?? NSNull()]]
 	}
 
@@ -4337,7 +4383,7 @@ extension Bridge {
 		let role = stringAttribute(element, attribute: kAXRoleAttribute as CFString) ?? ""
 		let editableRoles: Set<String> = ["AXTextField", "AXTextArea", "AXTextView", "AXSearchField", "AXComboBox", "AXEditableText"]
 		guard editableRoles.contains(role) else {
-			throw BridgeFailure(message: "Role \\(role) is not an editable field", code: "unsupported_action")
+			throw BridgeFailure(message: "Role \(role) is not an editable field", code: "unsupported_action")
 		}
 		var target = element
 		var status = AXUIElementSetAttributeValue(target, kAXValueAttribute as CFString, "" as CFTypeRef)
@@ -4361,7 +4407,7 @@ extension Bridge {
 		let role = stringAttribute(element, attribute: kAXRoleAttribute as CFString) ?? ""
 		let numericRoles: Set<String> = ["AXSlider", "AXStepper", "AXIncrementor", "AXValueIndicator", "AXProgressIndicator"]
 		guard numericRoles.contains(role) else {
-			throw BridgeFailure(message: "Role \\(role) is not a numeric control; use setText for text fields", code: "unsupported_action")
+			throw BridgeFailure(message: "Role \(role) is not a numeric control; use setText for text fields", code: "unsupported_action")
 		}
 		let number: NSNumber
 		if let value = raw as? NSNumber {

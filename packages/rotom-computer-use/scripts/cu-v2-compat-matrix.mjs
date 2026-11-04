@@ -19,9 +19,12 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
-const EVIDENCE_DIR = path.resolve(import.meta.dirname, "..", "..", "docs", "agent", "computer-use-v2", "evidence");
+const EVIDENCE_DIR = path.resolve(import.meta.dirname, "..", "..", "..", "docs", "agent", "computer-use-v2", "evidence");
 const ACTIONS = ["observe", "focus", "setText", "typeText", "press", "setChecked", "expand", "scrollTo", "select", "setValue"];
-const DELIVERY = ["ax_only", "background", "foreground"];
+const requestedDelivery = process.argv[process.argv.indexOf("--delivery") + 1];
+// `foreground` raises the target window and posts HID input; leave it out on a
+// machine someone is using and say so instead of quietly skipping it.
+const DELIVERY = (requestedDelivery ? requestedDelivery.split(",").map((value) => value.trim()).filter(Boolean) : ["ax_only", "background", "foreground"]);
 
 if (process.platform !== "darwin" || (process.env.PI_CU_LIVE ?? "") !== "1") {
 	console.log("[cu-v2 matrix] not run: needs macOS and PI_CU_LIVE=1 with a real helper");
@@ -60,7 +63,7 @@ for (const app of apps) {
 	let look;
 	try {
 		look = await macosBackend.observe({ target: { windowId: root.windowId, rootRef: root.rootRef }, readText: "auto", includeImage: true });
-		rows.push({ app, action: "observe", delivery: "-", result: "pass", note: `${look.outline?.nodes?.length ?? 0} nodes` });
+		rows.push({ app, action: "observe", delivery: "-", result: "pass", note: `${look.parsedOutline?.nodes?.length ?? 0} nodes, ${look.image ? "image" : "no image"}` });
 	} catch (error) {
 		rows.push({ app, action: "observe", delivery: "-", result: "fail", note: message(error) });
 		continue;
@@ -69,7 +72,8 @@ for (const app of apps) {
 		for (const action of ACTIONS.filter((name) => name !== "observe")) {
 			const cell = { app, action, delivery: policy, result: "not-run", note: "" };
 			rows.push(cell);
-			const ref = firstInteractiveRef(look, action);
+			look = await macosBackend.observe({ target: { windowId: root.windowId, rootRef: root.rootRef }, readText: "auto", includeImage: true }).catch(() => look);
+			const ref = wireRefForAction(look, action);
 			if (!ref) {
 				cell.result = "skip";
 				cell.note = "no matching control";
@@ -99,14 +103,28 @@ function paramsFor(name) {
 	return {};
 }
 
-function firstInteractiveRef(look, action) {
-	const stack = [...(look?.outline?.nodes ?? [])];
-	while (stack.length) {
-		const node = stack.pop();
-		if (node.ref && (node.wireRef || node.canPress || node.canFocus || node.canSetValue)) return node.ref;
-		for (const child of node.children ?? []) stack.push(child);
-	}
-	return undefined;
+// The helper only resolves wire refs, and each action needs a control whose role
+// actually supports it. A generic "first interactive node" made every cell report
+// unsupported_action instead of the app's real behaviour.
+function wireRefForAction(look, action) {
+	const roles = {
+		focus: ["AXTextField", "AXTextArea", "AXSearchField"],
+		setText: ["AXTextField", "AXTextArea", "AXSearchField"],
+		typeText: ["AXTextField", "AXTextArea", "AXSearchField"],
+		press: ["AXButton"],
+		setChecked: ["AXCheckBox", "AXSwitch"],
+		expand: ["AXDisclosureTriangle"],
+		collapse: ["AXDisclosureTriangle"],
+		scrollTo: ["AXRow", "AXStaticText"],
+		select: ["AXRow"],
+		setValue: ["AXSlider"],
+	}[action] ?? [];
+	const nodes = look?.parsedOutline?.nodes ?? [];
+	// Never press a window control: pressing the close button ends the matrix run
+	// with "no window" and looks like an app defect.
+	const windowControls = new Set(["AXCloseButton", "AXMinimizeButton", "AXFullScreenButton", "AXZoomButton"]);
+	const node = nodes.find((candidate) => candidate.wireRef && roles.includes(candidate.role) && !windowControls.has(candidate.subrole));
+	return node?.wireRef;
 }
 
 function message(error) {
@@ -123,6 +141,8 @@ const body = [
 	"| App | Action | Delivery policy | Result | Note |",
 	"| --- | --- | --- | --- | --- |",
 	...rows.map((row) => `| ${row.app} | ${row.action} | ${row.delivery} | ${row.result} | ${row.note.replace(/\|/g, "\\|")} |`),
+	"",
+	"`not-run` cells mean the app never exposed a window during this run; they are not evidence either way.",
 	"",
 	"`l2-compat.ts` may only grow an app after every action it needs shows `pass` under the `background` policy.",
 	"",
