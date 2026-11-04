@@ -8,17 +8,27 @@ export interface StoredState<T> {
 }
 
 export class StaleResourceStateError extends Error {
-	constructor(readonly resourceKey: string, readonly expectedEpoch: number, readonly actualEpoch: number) {
+	readonly resourceKey: string;
+	readonly expectedEpoch: number;
+	readonly actualEpoch: number;
+
+	constructor(resourceKey: string, expectedEpoch: number, actualEpoch: number) {
 		super(`State is stale for ${resourceKey}: expected epoch ${expectedEpoch}, current epoch ${actualEpoch}.`);
 		this.name = "StaleResourceStateError";
+		this.resourceKey = resourceKey;
+		this.expectedEpoch = expectedEpoch;
+		this.actualEpoch = actualEpoch;
 	}
 }
 
 /** Bounded insertion-ordered store for immutable agent-facing observations. */
 export class StateStore<T> {
 	private readonly records = new Map<string, StoredState<T>>();
+	private readonly limit: number;
 
-	constructor(private readonly limit = 128) {}
+	constructor(limit = 128) {
+		this.limit = limit;
+	}
 
 	create(resourceKey: string, epoch: number, value: T): StoredState<T> {
 		const record = { stateId: randomUUID(), resourceKey, epoch, value };
@@ -54,16 +64,93 @@ interface ResourceRecord {
 	tail: Promise<void>;
 }
 
+/** Write authority granted by the Desktop Broker for one resource. */
+export interface LeaseGrant {
+	leaseId: string;
+	epoch: number;
+}
+
+export interface LeaseAcquireRequest {
+	resourceKey: string;
+	/** Observation epoch the caller acts on; omitted when it has no state to invalidate. */
+	baseEpoch?: number;
+	action?: { name: string; label?: string };
+	app?: { appName?: string; bundleId?: string };
+}
+
+/**
+ * Broker arbitration seam.
+ *
+ * `ResourceScheduler` only needs these four operations, which keeps the write
+ * path testable with a fake broker and keeps the socket protocol out of the
+ * scheduler.
+ */
+export interface LeaseBroker {
+	acquire(request: LeaseAcquireRequest): Promise<LeaseGrant>;
+	release(leaseId: string): Promise<void>;
+	/** Broker-authoritative epoch of a resource; refreshes the scheduler's cache. */
+	refreshEpoch(resourceKey: string): Promise<number>;
+	holderOf(resourceKey: string): { agentId: string; remainingMs: number } | undefined;
+}
+
+/** A write that the broker refused for a reason the caller must report, not retry blindly. */
+export class LeaseUnavailableError extends Error {
+	readonly code: "resource_busy" | "denied" | "approval_unavailable" | "approval_denied" | "stopped_by_user" | "broker_unavailable";
+	readonly holder?: { agentId: string; remainingMs: number; expiresAt?: number; leaseId?: string };
+	readonly detail?: string;
+
+	constructor(
+		code: LeaseUnavailableError["code"],
+		message: string,
+		options: { holder?: { agentId: string; remainingMs: number; expiresAt?: number; leaseId?: string }; detail?: string } = {},
+	) {
+		super(message);
+		this.name = "LeaseUnavailableError";
+		this.code = code;
+		this.holder = options.holder;
+		this.detail = options.detail;
+	}
+}
+
 /**
  * Orders live operations per physical resource while allowing unrelated
  * resources to overlap. Cached state queries bypass this scheduler entirely.
+ *
+ * With a broker attached, every write first obtains that agent's write lease and
+ * the broker's global epoch for the resource, so two Pi processes cannot both
+ * believe their observation is current. Without one, the scheduler keeps the
+ * original per-process behavior.
  */
 export class ResourceScheduler {
 	private readonly resources = new Map<string, ResourceRecord>();
+	private readonly brokerEpochs = new Map<string, number>();
+	private broker: LeaseBroker | undefined;
 	private closed = false;
 
+	constructor(broker?: LeaseBroker) {
+		this.broker = broker;
+	}
+
+	setBroker(broker: LeaseBroker | undefined): void {
+		this.broker = broker;
+		this.brokerEpochs.clear();
+	}
+
+	/** Last epoch known for a resource: broker cache when present, else local. */
 	epoch(resourceKey: string): number {
-		return this.resource(resourceKey).epoch;
+		return Math.max(this.brokerEpochs.get(resourceKey) ?? 0, this.resource(resourceKey).epoch);
+	}
+
+	/** Refresh the epoch from the broker (read-only); local epoch when absent. */
+	async syncEpoch(resourceKey: string): Promise<number> {
+		if (!this.broker) return this.epoch(resourceKey);
+		const epoch = await this.broker.refreshEpoch(resourceKey);
+		this.brokerEpochs.set(resourceKey, epoch);
+		return Math.max(epoch, this.resource(resourceKey).epoch);
+	}
+
+	holderOf(resourceKey: string): { agentId: string; remainingMs: number } | undefined {
+		return this.broker?.holderOf(resourceKey);
 	}
 
 	restoreEpoch(resourceKey: string, epoch: number): void {
@@ -82,8 +169,21 @@ export class ResourceScheduler {
 		});
 	}
 
-	async write<T>(resourceKey: string, baseEpoch: number, work: (nextEpoch: number) => Promise<T>): Promise<{ value: T; epoch: number }> {
+	async write<T>(
+		resourceKey: string,
+		baseEpoch: number,
+		work: (nextEpoch: number) => Promise<T>,
+		leaseContext?: Omit<LeaseAcquireRequest, "resourceKey" | "baseEpoch">,
+	): Promise<{ value: T; epoch: number }> {
 		return await this.enqueue(resourceKey, async (record) => {
+			if (this.broker) {
+				// The broker is the single source of truth for a resource's epoch, so the
+				// local mirror must not reject a write the broker would accept.
+				const grant = await this.broker.acquire({ resourceKey, baseEpoch, ...leaseContext });
+				this.brokerEpochs.set(resourceKey, grant.epoch);
+				record.epoch = grant.epoch;
+				return { value: await work(grant.epoch), epoch: grant.epoch };
+			}
 			if (record.epoch !== baseEpoch) throw new StaleResourceStateError(resourceKey, baseEpoch, record.epoch);
 			const nextEpoch = record.epoch + 1;
 			// Invalidate the base state before dispatch. If native execution becomes
@@ -92,6 +192,7 @@ export class ResourceScheduler {
 			return { value: await work(nextEpoch), epoch: nextEpoch };
 		});
 	}
+
 
 	async drain(): Promise<void> {
 		await Promise.all([...this.resources.values()].map((record) => record.tail.catch(() => undefined)));

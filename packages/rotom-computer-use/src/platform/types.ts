@@ -3,7 +3,12 @@ import type { LookResponse } from "../outline.ts";
 import type { PermissionStatus } from "../permissions.ts";
 
 export type PlatformName = "macos" | "windows" | "linux";
-export type NativeInputDelivery = "hid" | "pid";
+/**
+ * `l2` is window-targeted delivery through the platform's private event channel:
+ * it does not move the system cursor or activate the app. Only apps on the
+ * compatibility list may use it, and it fails closed with `foreground_required`.
+ */
+export type NativeInputDelivery = "hid" | "pid" | "l2";
 export type ActOutcome = "worked" | "didnt" | "unknown";
 /**
  * Best-effort presentation hint for a root. The seam guarantees only the
@@ -106,6 +111,8 @@ export interface HelperActPerformed {
 	activated?: boolean;
 	raised?: boolean;
 	focused?: boolean;
+	/** The frontmost app changed while the user was typing. */
+	interferedWithUser?: boolean;
 }
 
 export interface PlatformRootDelta {
@@ -145,6 +152,19 @@ export interface PlatformObserveRequest {
 }
 
 export type PlatformActTarget = { ref: string } | { x: number; y: number } | { focus: PlatformPoint };
+/** Every pasteboard item, with each declared type kept as raw bytes. */
+export interface PlatformClipboardSnapshot {
+	changeCount: number;
+	totalBytes: number;
+	items: Array<{ types: Array<{ type: string; dataBase64: string }> }>;
+}
+
+export interface PlatformClipboardRestore {
+	restored: boolean;
+	changeCount: number;
+	items: number;
+}
+
 export type PlatformDeliveryPolicy = "ax_only" | "background_text" | "background" | "default" | "foreground";
 type PlatformMouseButton = "left" | "right" | "middle";
 type PlatformActDeliveryParam = { delivery?: NativeInputDelivery };
@@ -165,6 +185,15 @@ export type PlatformActRequest = PlatformActRequestBase & (
 	| { action: "scroll"; params: { scrollX: number; scrollY: number } & PlatformActDeliveryParam }
 	| { action: "drag"; params: { path: PlatformPoint[] } & PlatformActDeliveryParam }
 	| { action: "moveMouse"; params: PlatformActDeliveryParam }
+	| { action: "hover"; params: PlatformActDeliveryParam }
+	| { action: "select"; params: { option?: string } & PlatformActDeliveryParam }
+	| { action: "setChecked"; params: { checked: boolean } & PlatformActDeliveryParam }
+	| { action: "expand" | "collapse"; params: PlatformActDeliveryParam }
+	| { action: "scrollTo"; params: PlatformActDeliveryParam }
+	| { action: "focus"; params: PlatformActDeliveryParam }
+	| { action: "clear"; params: PlatformActDeliveryParam }
+	| { action: "setValue"; params: { value: number } & PlatformActDeliveryParam }
+	| { action: "showMenu"; params: PlatformActDeliveryParam }
 );
 
 export interface PlatformReadTextRequest {
@@ -201,6 +230,76 @@ export interface PlatformWaitForResponse {
 	nodeCount?: number;
 }
 
+/** Real user input seen by the helper's listen-only tap. */
+export interface PlatformUserActivity {
+	lastUserInputAt: number;
+	/** Seconds since the last real user input, or -1 when none was seen yet. */
+	idleSeconds: number;
+	listening: boolean;
+	userEventCount: number;
+	agentEventCount: number;
+}
+
+export interface PlatformClipboardRead {
+	text: string;
+	truncated: boolean;
+	available: boolean;
+	changeCount: number;
+}
+
+export interface PlatformClipboardWrite {
+	changed?: boolean;
+	cleared?: boolean;
+	changeCount: number;
+	length?: number;
+}
+
+export interface PlatformAppLaunchResult {
+	launched: boolean;
+	alreadyRunning?: boolean;
+	/** The launch outlived the request window; the app may still appear. */
+	pending?: boolean;
+	pid?: number;
+	activated: boolean;
+}
+
+export interface PlatformAppQuitResult {
+	quitRequested: boolean;
+	terminated: boolean;
+	forced: boolean;
+	unsavedChangesMayBlock: boolean;
+}
+
+export type PlatformWindowMode = "list" | "move" | "resize" | "minimize" | "restore" | "maximize" | "list_displays";
+
+export interface PlatformWindowMutationResult {
+	outcome: ActOutcome;
+	windowId?: number;
+	pid?: number;
+	before?: Record<string, unknown>;
+	after?: Record<string, unknown>;
+	activated: boolean;
+	raised: boolean;
+}
+
+export interface PlatformDisplay {
+	displayId: number;
+	name: string;
+	frame: FramePoints;
+	visibleFrame: FramePoints;
+	scaleFactor: number;
+	isMain: boolean;
+}
+
+export type PlatformSystemSurfaceName = "notifications" | "menu_bar_extras" | "control_center" | "dock";
+
+export interface PlatformSystemSurface {
+	available: boolean;
+	bundleId: string;
+	pid?: number;
+	roots: PlatformRoot[];
+}
+
 export interface ComputerUsePlatformBackend {
 	name: PlatformName;
 	/** Release process-local resources when the Pi session is torn down. */
@@ -219,4 +318,15 @@ export interface ComputerUsePlatformBackend {
 	isBrowserApp(appName: string, bundleId?: string): boolean;
 	isChromeFamilyApp(appName: string, bundleId?: string): boolean;
 	openBrowserLocation(target: { appName: string; bundleId?: string }, url: string, signal?: AbortSignal): Promise<boolean>;
+	/** Listen-only user input telemetry; absent when the platform cannot provide it. */
+	userActivity?(signal?: AbortSignal): Promise<PlatformUserActivity>;
+	clipboardGet?(signal?: AbortSignal): Promise<PlatformClipboardRead>;
+	clipboardSet?(text: string, signal?: AbortSignal): Promise<PlatformClipboardWrite>;
+	clipboardClear?(signal?: AbortSignal): Promise<PlatformClipboardWrite>;
+	/** Capture every item and type, so a write can be undone exactly. */
+	clipboardSnapshot?(signal?: AbortSignal): Promise<PlatformClipboardSnapshot>;
+	clipboardRestore?(snapshot: PlatformClipboardSnapshot, signal?: AbortSignal): Promise<PlatformClipboardRestore>;
+	manageApps?(request: { mode: "launch"; bundleId?: string; path?: string; activates?: boolean } | { mode: "quit"; pid?: number; bundleId?: string; force?: boolean; timeoutMs?: number }, signal?: AbortSignal): Promise<PlatformAppLaunchResult | PlatformAppQuitResult>;
+	manageWindow?(request: { mode: PlatformWindowMode; pid?: number; windowId?: number; x?: number; y?: number; w?: number; h?: number; title?: string }, signal?: AbortSignal): Promise<PlatformWindowMutationResult | PlatformRoot[] | PlatformDisplay[]>;
+	systemSurfaces?(surface: PlatformSystemSurfaceName | "all", signal?: AbortSignal): Promise<Record<string, PlatformSystemSurface>>;
 }

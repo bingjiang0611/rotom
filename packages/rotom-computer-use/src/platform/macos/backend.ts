@@ -1,7 +1,7 @@
 import { getComputerUseConfig } from "../../config.ts";
 import { parseLookResponse, type LookResponse } from "../../outline.ts";
 import { toBoolean, toFiniteNumber, toOptionalString } from "../coerce.ts";
-import type { ComputerUsePlatformBackend, FramePoints, HelperActResult, PlatformActRequest, PlatformApp, PlatformFocusWindowResult, PlatformFrontmostResult, PlatformObserveRequest, PlatformReadTextRequest, PlatformReadTextResponse, PlatformRoot, PlatformRootKind, PlatformRootQuery, PlatformTarget, PlatformWaitForRequest, PlatformWaitForResponse } from "../types.ts";
+import type { ComputerUsePlatformBackend, FramePoints, HelperActResult, PlatformActRequest, PlatformApp, PlatformAppLaunchResult, PlatformAppQuitResult, PlatformClipboardRead, PlatformClipboardRestore, PlatformClipboardSnapshot, PlatformClipboardWrite, PlatformDisplay, PlatformFocusWindowResult, PlatformFrontmostResult, PlatformObserveRequest, PlatformReadTextRequest, PlatformReadTextResponse, PlatformRoot, PlatformRootKind, PlatformRootQuery, PlatformSystemSurface, PlatformSystemSurfaceName, PlatformTarget, PlatformUserActivity, PlatformWaitForRequest, PlatformWaitForResponse, PlatformWindowMutationResult } from "../types.ts";
 import { macosHelper } from "./helper.ts";
 
 function parseApps(result: unknown): PlatformApp[] {
@@ -69,7 +69,26 @@ function helperAction(request: PlatformActRequest): Record<string, unknown> {
 	return { ...request, target: request.target.focus, params: { ...request.params, preserveFocus: true } };
 }
 
-export const macosBackend: Pick<ComputerUsePlatformBackend, "listApps" | "listRoots" | "getFrontmost" | "focusWindow" | "observe" | "act" | "actBatch" | "readText" | "waitFor"> = {
+function parseUserActivity(result: any): PlatformUserActivity {
+	return {
+		lastUserInputAt: toFiniteNumber(result?.lastUserInputAt, 0),
+		idleSeconds: toFiniteNumber(result?.idleSeconds, -1),
+		listening: toBoolean(result?.listening),
+		userEventCount: Math.trunc(toFiniteNumber(result?.userEventCount, 0)),
+		agentEventCount: Math.trunc(toFiniteNumber(result?.agentEventCount, 0)),
+	};
+}
+
+function parseClipboard(result: any): PlatformClipboardRead {
+	return {
+		text: toOptionalString(result?.text) ?? "",
+		truncated: toBoolean(result?.truncated),
+		available: toBoolean(result?.available),
+		changeCount: Math.trunc(toFiniteNumber(result?.changeCount, 0)),
+	};
+}
+
+export const macosBackend: Pick<ComputerUsePlatformBackend, "listApps" | "listRoots" | "getFrontmost" | "focusWindow" | "observe" | "act" | "actBatch" | "readText" | "waitFor" | "userActivity" | "clipboardGet" | "clipboardSet" | "clipboardClear" | "clipboardSnapshot" | "clipboardRestore" | "manageApps" | "manageWindow" | "systemSurfaces"> = {
 	async listApps(signal?: AbortSignal): Promise<PlatformApp[]> {
 		return parseApps(await macosHelper.command<unknown>("listApps", {}, { signal }));
 	},
@@ -127,5 +146,106 @@ export const macosBackend: Pick<ComputerUsePlatformBackend, "listApps" | "listRo
 
 	async waitFor(args: PlatformWaitForRequest, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<PlatformWaitForResponse> {
 		return await macosHelper.command("axWaitFor", { ...args }, options);
+	},
+
+	async userActivity(signal?: AbortSignal): Promise<PlatformUserActivity> {
+		return parseUserActivity(await macosHelper.command<any>("userActivity", {}, { signal }));
+	},
+
+	async clipboardGet(signal?: AbortSignal): Promise<PlatformClipboardRead> {
+		return parseClipboard(await macosHelper.command<any>("clipboardGet", {}, { signal }));
+	},
+
+	async clipboardSet(text: string, signal?: AbortSignal): Promise<PlatformClipboardWrite> {
+		const result = await macosHelper.command<any>("clipboardSet", { text }, { signal });
+		return {
+			changed: toBoolean(result?.changed),
+			changeCount: Math.trunc(toFiniteNumber(result?.changeCount, 0)),
+			length: Math.trunc(toFiniteNumber(result?.length, 0)),
+		};
+	},
+
+	async clipboardSnapshot(signal?: AbortSignal): Promise<PlatformClipboardSnapshot> {
+		const result = await macosHelper.command<any>("clipboardSnapshot", {}, { signal });
+		const items = Array.isArray(result?.items)
+			? result.items.map((raw: any) => ({
+				types: (Array.isArray(raw?.types) ? raw.types : []).map((entry: any) => ({ type: String(entry?.type ?? ""), dataBase64: String(entry?.dataBase64 ?? "") })),
+			}))
+			: [];
+		return { changeCount: Math.trunc(toFiniteNumber(result?.changeCount, 0)), totalBytes: Math.trunc(toFiniteNumber(result?.totalBytes, 0)), items };
+	},
+
+	async clipboardRestore(snapshot: PlatformClipboardSnapshot, signal?: AbortSignal): Promise<PlatformClipboardRestore> {
+		const result = await macosHelper.command<any>("clipboardRestore", { items: snapshot.items }, { signal });
+		return {
+			restored: toBoolean(result?.restored),
+			changeCount: Math.trunc(toFiniteNumber(result?.changeCount, 0)),
+			items: Math.trunc(toFiniteNumber(result?.items, 0)),
+		};
+	},
+
+	async clipboardClear(signal?: AbortSignal): Promise<PlatformClipboardWrite> {
+		const result = await macosHelper.command<any>("clipboardClear", {}, { signal });
+		return { cleared: toBoolean(result?.cleared), changeCount: Math.trunc(toFiniteNumber(result?.changeCount, 0)) };
+	},
+
+	async manageApps(request: any, signal?: AbortSignal): Promise<PlatformAppLaunchResult | PlatformAppQuitResult> {
+		const result = await macosHelper.command<any>("manageApps", { ...request }, { signal });
+		if (request.mode === "quit") {
+			return {
+				quitRequested: toBoolean(result?.quitRequested),
+				terminated: toBoolean(result?.terminated),
+				forced: toBoolean(result?.forced),
+				unsavedChangesMayBlock: toBoolean(result?.unsavedChangesMayBlock),
+			};
+		}
+		return {
+			launched: toBoolean(result?.launched),
+			alreadyRunning: toBoolean(result?.alreadyRunning),
+			pending: toBoolean(result?.pending),
+			pid: Number.isFinite(result?.pid) ? Math.trunc(result.pid) : undefined,
+			activated: toBoolean(result?.activated),
+		};
+	},
+
+	async manageWindow(request: any, signal?: AbortSignal): Promise<PlatformWindowMutationResult | PlatformRoot[] | PlatformDisplay[]> {
+		const result = await macosHelper.command<any>("manageWindow", { ...request }, { signal });
+		if (request.mode === "list") return parseRoots(result);
+		if (request.mode === "list_displays") {
+			const displays = Array.isArray(result?.displays) ? result.displays : [];
+			return displays.map((raw: any) => ({
+				displayId: Math.trunc(toFiniteNumber(raw?.displayId, 0)),
+				name: toOptionalString(raw?.name) ?? "Unknown display",
+				frame: parseFramePoints({ framePoints: raw?.frame }),
+				visibleFrame: parseFramePoints({ framePoints: raw?.visibleFrame }),
+				scaleFactor: Math.max(1, toFiniteNumber(raw?.scaleFactor, 1)),
+				isMain: toBoolean(raw?.isMain),
+			})) as PlatformDisplay[];
+		}
+		const outcome = ["worked", "didnt", "unknown"].includes(result?.outcome) ? result.outcome : "unknown";
+		return {
+			outcome,
+			windowId: Number.isFinite(result?.windowId) ? Math.trunc(result.windowId) : undefined,
+			pid: Number.isFinite(result?.pid) ? Math.trunc(result.pid) : undefined,
+			before: result?.before,
+			after: result?.after,
+			activated: toBoolean(result?.activated),
+			raised: toBoolean(result?.raised),
+		} as PlatformWindowMutationResult;
+	},
+
+	async systemSurfaces(surface: PlatformSystemSurfaceName | "all", signal?: AbortSignal): Promise<Record<string, PlatformSystemSurface>> {
+		const result = await macosHelper.command<any>("systemSurfaces", { surface }, { signal });
+		const surfaces = typeof result?.surfaces === "object" && result.surfaces !== null ? result.surfaces : {};
+		const parsed: Record<string, PlatformSystemSurface> = {};
+		for (const [name, raw] of Object.entries(surfaces as Record<string, any>)) {
+			parsed[name] = {
+				available: toBoolean(raw?.available),
+				bundleId: toOptionalString(raw?.bundleId) ?? "",
+				pid: Number.isFinite(raw?.pid) ? Math.trunc(raw.pid) : undefined,
+				roots: parseRoots(raw),
+			};
+		}
+		return parsed;
 	},
 };

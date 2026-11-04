@@ -28,6 +28,15 @@ macOS headless 单步与批量请求统一采用 `background_text`。只对 `com
 
 最初只在隔离目录重新签署测试副本；后续按用户选择完成独立产品目录、helper 身份和 socket 的旁路安装，权限由用户手动授予。没有替换全局 helper、默认命令或活跃会话，没有降低系统保护。产品代码同步到 Git 不等于默认本机安装已升级。
 
+### 本机运行本地编译产物的两个陷阱（2026-11-04 实测）
+
+重新签署测试副本时，两个条件都必须满足，否则进程会被系统或终端安全软件杀掉：
+
+1. **必须用本机证书签名**，不能 ad-hoc。ad-hoc 二进制会被 `amfid` 直接拒：`The file is adhoc signed or signed by an unknown certificate chain`。
+2. **产物不能放在 `/tmp`**。本机 `com.alibaba.endpoint.aliedr.ne`（阿里 EDR）会把 `/tmp` 下的非白名单进程标成 `mac_non_white_proc` 后 `SIGKILL`，**即使已用 `Apple Development` 证书签过**。放到 `$HOME` 下即可正常运行。
+
+只失败一种条件会让人误判成“签名问题”或“系统不支持”，所以先看 `codesign -dv --verbose=4 <binary>` 的 `flags` 和 `log show --last 5m --predicate 'eventMessage CONTAINS "<binary>"'` 的输出再下结论。证书身份一旦被授权过 Accessibility / Screen Recording，重新构建后的副本不需要再次授权。
+
 ## 当前源码/产物的验证
 
 环境：本机 macOS 27.2、arm64、Node 24.18.0。具体业务数据和本机路径不进入公开记录。

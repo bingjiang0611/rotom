@@ -1,6 +1,7 @@
 import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import {
+	ensureComputerUseBroker,
 	ensureComputerUseSetup,
 	executeAct,
 	executeEvaluateBrowser,
@@ -13,6 +14,11 @@ import {
 	executeReadText,
 	executeSearchUi,
 	executeWaitFor,
+	executeManageApp,
+	executeManageWindow,
+	executeClipboard,
+	executeSystemSurface,
+	executeCuSession,
 	reconstructStateFromBranch,
 	shutdownComputerUseSession,
 } from "../src/bridge.ts";
@@ -34,6 +40,16 @@ const uiAction = Type.Union([
 	Type.Object({ action: Type.Literal("scroll"), ref: Type.Optional(Type.String()), scrollX: Type.Optional(Type.Number()), scrollY: Type.Optional(Type.Number()) }),
 	Type.Object({ action: Type.Literal("drag"), path: Type.Array(Type.Object(point), { minItems: 2 }) }),
 	Type.Object({ action: Type.Literal("moveMouse"), ...point }),
+	Type.Object({ action: Type.Literal("hover"), ref: Type.String({ description: "Element to hover; needs targeted pointer delivery" }) }),
+	Type.Object({ action: Type.Literal("select"), ref: Type.String(), option: Type.Optional(Type.String({ description: "Option text for pop-up buttons and combo boxes" })) }),
+	Type.Object({ action: Type.Literal("setChecked"), ref: Type.String(), checked: Type.Boolean({ description: "Desired checked state, applied idempotently" }) }),
+	Type.Object({ action: Type.Literal("expand"), ref: Type.String() }),
+	Type.Object({ action: Type.Literal("collapse"), ref: Type.String() }),
+	Type.Object({ action: Type.Literal("scrollTo"), ref: Type.String() }),
+	Type.Object({ action: Type.Literal("focus"), ref: Type.String() }),
+	Type.Object({ action: Type.Literal("clear"), ref: Type.String({ description: "Editable control to empty" }) }),
+	Type.Object({ action: Type.Literal("setValue"), ref: Type.String(), value: Type.Number({ description: "Numeric value for sliders and steppers" }) }),
+	Type.Object({ action: Type.Literal("showMenu"), ref: Type.String() }),
 ]);
 
 const conditionProperties = {
@@ -164,6 +180,73 @@ const evaluateBrowserTool = defineTool({
 	execute: executeEvaluateBrowser,
 });
 
+const manageAppTool = defineTool({
+	name: "manage_app",
+	label: "Manage App",
+	description: "List, launch (without activating) or quit applications.",
+	promptSnippet: "Launch in the background; quit goes through the sensitive-action confirmation.",
+	parameters: Type.Object({
+		action: Type.Union([Type.Literal("list"), Type.Literal("launch"), Type.Literal("quit")]),
+		bundleId: Type.Optional(Type.String({ description: "Bundle identifier, e.g. com.apple.TextEdit" })),
+		path: Type.Optional(Type.String({ description: "Absolute application path, when there is no bundle id" })),
+		pid: Type.Optional(Type.Number({ description: "Running process id to quit" })),
+		force: Type.Optional(Type.Boolean({ description: "Force quit instead of a polite terminate" })),
+	}),
+	execute: executeManageApp,
+});
+
+const manageWindowTool = defineTool({
+	name: "manage_window",
+	label: "Manage Window",
+	description: "List windows or displays, and move, resize, minimize, restore or maximize a window without raising it.",
+	promptSnippet: "Window geometry only; focus and activation belong to the foreground takeover path.",
+	parameters: Type.Object({
+		action: Type.Union([Type.Literal("list"), Type.Literal("move"), Type.Literal("resize"), Type.Literal("minimize"), Type.Literal("restore"), Type.Literal("maximize"), Type.Literal("list_displays")]),
+		pid: Type.Optional(Type.Number({ description: "Target process id" })),
+		windowId: Type.Optional(Type.Number({ description: "Target window id; required for mutations" })),
+		title: Type.Optional(Type.String({ description: "Filter for list", maxLength: 256 })),
+		x: Type.Optional(Type.Number()),
+		y: Type.Optional(Type.Number()),
+		w: Type.Optional(Type.Number({ minimum: 1 })),
+		h: Type.Optional(Type.Number({ minimum: 1 })),
+	}),
+	execute: executeManageWindow,
+});
+
+const clipboardTool = defineTool({
+	name: "clipboard",
+	label: "Clipboard",
+	description: "Read, write or clear the system clipboard; a write restores the previous text after 30 seconds by default.",
+	promptSnippet: "Prefer setText into a field over clipboard writes when the app supports it.",
+	parameters: Type.Object({
+		action: Type.Union([Type.Literal("get"), Type.Literal("set"), Type.Literal("clear")]),
+		text: Type.Optional(Type.String({ description: "Text to place on the clipboard for action=set" })),
+	}),
+	execute: executeClipboard,
+});
+
+const systemSurfaceTool = defineTool({
+	name: "system_surface",
+	label: "System Surface",
+	description: "Reach the notification list, menu bar extras, Control Center or the Dock through their accessibility trees.",
+	promptSnippet: "System surfaces are ordinary AX roots: observe them before acting.",
+	parameters: Type.Object({
+		surface: Type.Union([Type.Literal("notifications"), Type.Literal("menu_bar_extras"), Type.Literal("control_center"), Type.Literal("dock"), Type.Literal("all")]),
+	}),
+	execute: executeSystemSurface,
+});
+
+const cuSessionTool = defineTool({
+	name: "cu_session",
+	label: "Computer Use Session",
+	description: "Inspect which agent holds which app, release this session's leases, or export the local trace.",
+	promptSnippet: "Stopping other agents belongs to the user (menu bar or Ctrl+Option+Cmd+.); the model can only release its own leases.",
+	parameters: Type.Object({
+		action: Type.Union([Type.Literal("status"), Type.Literal("release"), Type.Literal("trace_export")]),
+	}),
+	execute: executeCuSession,
+});
+
 function formatConfigStatus(): string {
 	const loaded = getLoadedComputerUseConfig();
 	return [
@@ -183,7 +266,10 @@ export default function computerUseExtension(pi: ExtensionAPI): void {
 	const runtime = createComputerUseToolRuntime();
 	pi.on("session_start", () => runtime.resetSession());
 	pi.on("session_shutdown", () => runtime.resetSession());
-	for (const tool of [findTool, observeTool, searchUiTool, expandUiTool, inspectUiTool, actTool, readTextTool, waitForTool, launchBrowserTool, navigateBrowserTool, evaluateBrowserTool]) pi.registerTool(runtime.wrapTool(tool));
+	// New administration tools are registered but not resident: they stay deferred
+	// and are loaded on demand through search_tools, so the resident guideline
+	// bytes and the first-load tool surface do not grow.
+	for (const tool of [findTool, observeTool, searchUiTool, expandUiTool, inspectUiTool, actTool, readTextTool, waitForTool, launchBrowserTool, navigateBrowserTool, evaluateBrowserTool, manageAppTool, manageWindowTool, clipboardTool, systemSurfaceTool, cuSessionTool]) pi.registerTool(runtime.wrapTool(tool));
 
 	pi.registerCommand("computer-use", {
 		description: "Show pi-computer-use configuration",
@@ -196,6 +282,9 @@ export default function computerUseExtension(pi: ExtensionAPI): void {
 	pi.on("session_start", async (_event, ctx) => {
 		loadComputerUseConfig(ctx.cwd);
 		reconstructStateFromBranch(ctx);
+		// Headless subagent sessions need write arbitration most: they are the
+		// processes that would otherwise race the parent over the same app.
+		try { await ensureComputerUseBroker(ctx); } catch (error) { if (ctx.hasUI) ctx.ui.notify(`Computer Use broker: ${error instanceof Error ? error.message : String(error)}`, "warning"); }
 		if (!ctx.hasUI) return;
 		try { await ensureComputerUseSetup(ctx); } catch (error) { ctx.ui.notify(error instanceof Error ? error.message : String(error), "warning"); }
 	});
