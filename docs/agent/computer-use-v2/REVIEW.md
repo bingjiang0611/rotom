@@ -110,5 +110,5 @@ HANDOFF M5 第 8 项（截图排除宿主终端、helper 和覆盖层）和第 9
 
 ## 需要用户决定（审核者会转达，执行 agent 先按推荐做）
 
-1. **超过 20 KB 的文件绕过提交钩子**：`src/bridge.ts`（main 上已经 112 KB）和 `native/macos/bridge.swift`（main 上已经 149 KB）原本就超限，任何改动都会被钩子拦下。推荐的做法是：只对这两个已有文件允许 `--no-verify`，所有新增代码放进新模块（单文件 20 KB 以内），`bridge.ts` 只保留分发和接线。在用户答复之前按这个推荐执行，并尽量把本轮写进 `bridge.ts` 的 v2 逻辑（新工具执行器、剪贴板恢复、trace 接线）挪到新文件里。
+1. **超过 20 KB 的文件绕过提交钩子（用户已于 2026-11-04 决定）**：只允许对 `packages/rotom-computer-use/src/bridge.ts` 和 `packages/rotom-computer-use/native/macos/bridge.swift` 这两个已有文件使用 `--no-verify`。其他所有文件都必须通过钩子，包括 STATUS.md 和新增模块（单文件 20 KB 以内）。`bridge.ts` 只保留分发和接线，本轮写进去的 v2 逻辑（新工具执行器、剪贴板恢复、trace 接线）要挪到新文件里。每次使用 `--no-verify` 的提交，都要在 commit message 里注明“钩子豁免：仅 bridge.ts / bridge.swift”。
 2. **真机验证需要一台能运行本地编译 helper 的 Mac**：这需要用户提供环境。在此之前，M5 和 M7 只能停留在编译级。
