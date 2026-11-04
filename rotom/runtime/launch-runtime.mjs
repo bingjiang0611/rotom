@@ -182,6 +182,9 @@ export async function launchRuntime(rawArgs = process.argv.slice(2)) {
 	// Child Pi processes bypass this launcher and do not inherit loaded providers.
 	// Forward only the verified product provider path, never ambient extensions.
 	process.env.ROTOM_SUBAGENT_QODER_EXTENSION = resolve(agentDir, "extensions/qoder/index.ts");
+	// Same rule for the browser extension: a child gets it only when it asks for
+	// browser tools, and only from this verified product path.
+	process.env.ROTOM_SUBAGENT_BROWSER_EXTENSION = resolve(agentDir, "extensions/browser/index.ts");
 	await initializeSubagentStore(agentDir);
 	const herdrArgs = options.herdrExtension ? ["--extension", options.herdrExtension] : [];
 	await runPi(verified, [...productRuntimeArgs(agentDir), ...herdrArgs, ...options.userArgs]);

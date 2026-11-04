@@ -4,6 +4,14 @@ rotom 独立维护的 Subagent 组件，源码单源是本目录。它是 `pi-su
 
 首次导入为已验证的 `0.52.1-dev-agent-owned-flat.7`：213 TS 文件逐字节保持不变。来源、版权和维护差异见 [UPSTREAM.md](UPSTREAM.md) / `IMPORT.json`，原始 README 保存在 [docs/upstream-readme.md](docs/upstream-readme.md)。历史八层 patch 仅用于旧版本比较，不是本组件的构建输入。
 
+## `0.52.1-rotom.13`：子进程按需加载产品 browser 扩展
+
+请求的工具包含 `browser_inspect`/`browser_interact` 的子进程，现在会加载产品 browser 扩展：路径只来自 launcher 在校验资源后固定的 `ROTOM_SUBAGENT_BROWSER_EXTENSION`，且必须是绝对、存在、非链接、realpath 相等的普通文件。capability ceiling 禁止 child extensions 或 launcher 没提供路径时，拒绝本次启动，而不是给一个没有 browser 工具的子进程。未请求 browser 工具的子进程完全不变（不加载、不传身份）。
+
+同时给这类子进程注入自己的 browser 身份：`ROTOM_BROWSER_AGENT_ID` 为本次 run id，`ROTOM_BROWSER_ROOT_SESSION` 继承父进程已有的 root（嵌套委派不会把中间层当成 root），父会话是主 agent 时等于父 session id。这样主 agent 与子 agent 各自是自己的 browser principal，而不是都自称 `main`。lease token 仍属后续工作（T9）。
+
+验证：`test/browser-extension.test.mjs` 覆盖“请求了就带上路径”“没请求就不带”“denyExtensions 拒绝”“相对/目录/symlink/缺失路径拒绝”“run id 与 root session 注入（含嵌套）”。没有真实远端模型调用，也不证明浏览器端到端效果。
+
 ## `0.52.1-rotom.12`：Linux 跨重启 store 身份
 
 Linux 的 mount device ID 也可能在重启后重新编号，已在 Btrfs/device-mapper 上复现。本版将 v3 store 已有的 device topology 双射校验扩展到全部受支持的 POSIX 平台：只接受四个持久化 device ID 到当前 ID 的一致映射，路径、四个 inode、owner、权限与 store ID 仍精确校验；marker 保持只读，不迁移、不重写，也不授权恢复或重放旧工作。
