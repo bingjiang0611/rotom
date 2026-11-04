@@ -1,10 +1,18 @@
 # Computer Use v2 执行状态
 
+> **合入状态（第 3 轮审核后）**：REVIEW-3 的两个必须项（M1 启动竞态、M2 投递方式记录）和
+> “证据整理”一节都已完成并有回归证据，**满足 REVIEW-3 的合入条件**。L2 真机执行、兼容矩阵、
+> `--with-hid`、I2/I3 与 F1–F5 按审核意见留到合入之后。
+
 由执行 agent 维护。每个里程碑结束时更新并推送。审核者只看这个文件和提交。
 
 ## 总结
 
-（全部做完后填写：完成了什么、验证到哪一层、没做什么以及原因。）
+- 完成：M1–M8 全部里程碑；三轮审核的阻断项与必须项；macOS 真机跑通协议 8、8 个语义动作，
+  以及 PLAN §10 的核心验收（3 个 agent 后台并行 + 用户同时打字，前台与光标不变）。
+- 验证层级：L1（79 个自动化用例）+ L2（真机，独立签名 helper、独立 socket）。
+- 没做：L2 定向投递与兼容矩阵（按审核意见移到合入之后）、`--with-hid`、I2 helper 侧强制、
+  I3 peer 依赖、F1–F5、把四个执行器移出 `bridge.ts`。
 
 ## 执行环境
 
@@ -62,7 +70,7 @@ PI_CU_SOCKET_PATH=~/cu-v2-test/helper.sock PI_CU_LIVE=1 \
 node scripts/check-cu-v2-live.mjs --fixture ~/cu-v2-test/Fixture.app [--with-hid]
 ```
 
-### 结果（`evidence/live-check.md`，34 行 / 0 失败）
+### 结果（`evidence/live-check.md`，33 行 / 0 失败；原始日志 `live-check-1793805149641.log`）
 
 | 范围 | 结论 |
 |---|---|
@@ -73,8 +81,24 @@ node scripts/check-cu-v2-live.mjs --fixture ~/cu-v2-test/Fixture.app [--with-hid
 | 窗口 | `move` 落到目标坐标、`resize` 宽度生效（fixture 固定高度）、`list_displays` 返回 2 块屏 |
 | 剪贴板 | `set`→`get` 回读一致（changeCount +1）、`clear` 后为空；测试结束不留用户内容 |
 | 系统表面 | `notifications` 3 个 root、`menu_bar_extras`/`control_center`/`dock` 可用 |
-| 后台不变量 | AX 动作期间前台 App 与光标坐标不变，无 `interferedWithUser` |
+| 后台不变量 | 光标 `(491.25,380.57) → (491.25,380.57) delta=0.0pt`；前台 `Electron → Electron`；无 `interferedWithUser`（这两行只在无 `--with-hid` 的运行里判定） |
 | agent 事件标记 | HID 点击后 `agentEventCount 2 → 4`，`userEventCount` 不变（`eventSourceUserData` 标记生效） |
+
+### PLAN §10 验收（真机，`evidence/acceptance-run.md`）
+
+3 个 fixture 实例（bundle id `com.example.cu-fixture-instance1..3`）+ 用户模拟器（新建 TextEdit
+文档、79 字符、300 字符/分钟、14 次光标移动），`47 行 / 0 失败`，原始日志
+`acceptance-run-1793805464827.log` 与 `acceptance-run-1793806402397.log`（15:33 那次）。
+
+| 断言 | 结果 |
+|---|---|
+| TextEdit 文本与输入逐字一致 | pass（79 字符） |
+| 前台 App 零变化 | pass（`TextEdit → TextEdit`） |
+| 焦点窗口零变化 | pass |
+| 光标只受模拟器影响 | pass（9 次动作期位移全部匹配模拟器日志） |
+| 3 个任务各自完成、无静默失败 | pass（15 个 `worked`；切 tab 以读回验证） |
+
+切 tab 的 `delivery=ax` 是语义 AX 按下，**不是** L2 定向投递；L2 仍未在真机执行（见“仍未验证”）。
 
 ### 真机暴露并已修复的三个缺陷（L1 单测不会发现）
 
@@ -86,42 +110,37 @@ node scripts/check-cu-v2-live.mjs --fixture ~/cu-v2-test/Fixture.app [--with-hid
 ### 仍未验证
 
 - `preempted_by_user` 主动抢占路径、菜单栏 Stop 项与 `Ctrl+Option+Cmd+.` 快捷键（需要在授权 Accessibility 的真实会话里人工点验）。
-- L2（`SLEventPostToPid`）私有符号是否在本机存在、是否只对 IntelliJ 生效：未做定向投递实测，代码里缺失/非白名单一律 `foreground_required`。
+- L2（`SLEventPostToPid`）**未在真机执行**：私有符号是否在本机存在、是否只对 IntelliJ 生效都还没测，代码里缺失/非白名单一律 `foreground_required`。注意验收里切 tab 走的是 AX 按下（`delivery=ax`），不是 L2。
 - 兼容矩阵单元格：本轮 fixture 反复启停后不再暴露窗口、TextEdit 启动后被系统退出，`evidence/compat-matrix.md` 保持 `not-run`，不填推断值。
 - `foreground` 投递策略整列（会抬窗口、移动真实光标）在用户使用中的机器上未跑。
 
-## 第 1 轮审核修复（2026-11-04）
+## 第 3 轮审核修复（2026-11-04）
 
-审核意见见 `REVIEW.md`。下表只写已经做完并有回归证据的项；未做的单列。
-
-| 项 | 状态 | 做法与证据 |
-|---|---|---|
-| B1 安装包里的 Broker 无法启动 | 已修 | 新增 `src/broker/daemon-entry.mjs`（纯 JS）：把 daemon 的源码闭包镜像到 `os.tmpdir()/rotom-cu-broker-stage-<hash>/` 再运行，绕开 Node 对 `node_modules` 内 `.ts` 的拒绝；`client.ts` 改为 spawn 该入口并带 `--experimental-strip-types`。回归 `test/broker-packaged.test.ts`：把包复制进临时 `node_modules/@injaneity/pi-computer-use/`，先证明直接跑 `daemon.ts` 得到 `ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`，再证明打包入口能完成 acquire/release。 |
-| B2 新工具绕过策略与租约 | 已修 | `clipboard get/set/clear` 都经 `resourceScheduler.write("clipboard:system", …)`（动作名 `clipboard_get/set/clear`，按 `tiers.ts` 的 view/full 级别由 Broker 决策与审批）；`manage_app quit/launch` 经 `app:<bundleId|appName>` 租约；`manage_window` 写操作经 `desktop-pid:<pid>` 租约。新增 `describeApp()` 提供策略层需要的 App 身份。`cu-v2-tools.test.ts` 断言四个执行器都走 scheduler；仲裁与分级本身的回归在既有 scheduler / broker-policy 测试。 |
-| B3 模型可停掉别的 agent | 已修 | `cu_session` schema 去掉 `stop`；Broker 的 `stop` 只接受 `role: "helper"` 的连接，否则 `not_permitted` 并提示菜单栏 / `Ctrl+Option+Cmd+.`；`resource_busy` 文案同步改。测试 `test/broker-stop.test.ts` 3 项。 |
-| B4 剪贴板恢复覆盖用户内容 | 已修 | 新增 helper 命令 `clipboardSnapshot` / `clipboardRestore`：按 pasteboard item + `NSType` 保存 base64（不限文本；某类型读不出或超 64 MB 就拒绝写入）。`scheduleClipboardRestore` 记住写入后的 `changeCount`，到点只有仍未变化才恢复，否则跳过并写 trace `restore_skipped:<reason>`。真机往返：Chrome 的 4 种类型原样恢复，`changeCount` 1508→1509→1510。测试 4 项。 |
-| I1 trace 参数黑名单 | 已修（截图排除为近似） | 改为白名单 `PLAIN_PARAM_KEYS`（结构、坐标、数值、布尔与枚举），其余字符串（含数组元素）只存长度 + SHA-256；测试用 url/expression/option/keys/path 哨兵断言搜不到。secure field 截图：原生侧还没标记，暂按结果里的 `AXSecureTextField` 角色丢弃图片，属近似而非原生保证。 |
-| I2 helper 侧强制 lease / 截图排除宿主终端 | **未完成** | helper 尚未校验 lease token HMAC 与撤销列表，也未排除宿主终端与覆盖层截图，所以仲裁仍是协作式；根 `CLAUDE.md` 第 4 节已按此如实改写。 |
-| I3 测试依赖 peer 包 | 部分 | 新增测试只 import 本包模块与 node 内置；`cu-v2-tools.test.ts` 仍依赖 `typebox` 与 `@earendil-works/pi-coding-agent`。 |
-| I4 STATUS 不一致与体积 | 已修 | 里程碑表、既有失败、决定记录补齐；详细记录迁到 `evidence/milestones-*.md`，本文件降到 10 KB 以内。 |
-| I5 根 CLAUDE.md 第 4 节矛盾 | 已提交 | `6b92ec6e`：删除“没有统一确认层”，改为“同意层不是隔离层”，并补“协作式仲裁，helper 侧尚未强制”。`check-staged-file-size.mjs` 增加 `oversizedByDecision`（`CLAUDE.md`、`bridge.ts`、`bridge.swift`）。 |
-| 提交钩子只豁免 bridge.ts / bridge.swift | 已做 | 豁免名单现为三个文件，写死在 `scripts/check-staged-file-size.mjs` 并注明 2026-11-04 决定；此后提交不再需要 `--no-verify`。 |
-
-## 第 2 轮审核修复（2026-11-04）
-
-审核意见见 `REVIEW-2.md`。真机会话的完整记录在 `evidence/real-machine-session.md`。
+审核意见见 `REVIEW-3.md`。
 
 | 项 | 状态 | 做法与证据 |
 |---|---|---|
-| R1 CLAUDE.md 仍夸大能力 | 已修 | `6b92ec6e`。按用户决定对 `CLAUDE.md` 加钩子豁免（豁免名单 3 个文件），提交 message 注明决定来源。 |
-| R2 核心验收与 L2 未在真机跑 | 真机跑通（矩阵与 HID 未跑） | 后台不变量：`live-check.md` 33 行 0 失败，新增“光标坐标前后不变”（`delta=0.0pt`）与“前台 App 前后不变”（`Electron → Electron`）两行，且这两行只在无 `--with-hid` 时判定。PLAN §10 验收：`acceptance-run.md` 47 行 0 失败，3 个不同 bundle id 的 fixture 实例 + 用户模拟器，4 项断言全通过（文本逐字一致、前台与焦点窗口不变、9 次光标位移全部匹配模拟器日志、15 个任务完成 0 静默失败）。L2 单项：`l2-check.md` 部分完成——fixture 上定向点击 `delivery=ax` 成功且光标与前台未变；随后 fixture 窗口不再出现、LaunchServices 报 `-10825`，按用户“出现异常即停、不要重试”的约定停止；白名单 App（IntelliJ）当时被脚本自动选中并试过点击与输入，属越界，已加 `--allow-l2-app` 开关并记入证据。兼容矩阵与 `--with-hid` 因同一原因未跑。 |
-| R2.5 “前台 App 与光标不变”写成已覆盖 | 已修 | `milestones-m5-m8.md` 改为记录“成段落成时只到编译通过”，并指向真机证据；该断言现在有真机行，不再是无证据声明。 |
-| R3 B2 测试改行为测试 | 已修 | 新增 `src/tools/intents.ts` 集中构造 resource key / 动作名 / app 身份，`bridge.ts` 改为复用；`test/cu-v2-authority.test.ts` 用真 Broker + 真策略门（`createPolicyGate` + `PolicyStore`）跑 5 条行为：view 级 App 的 quit 被拒（`denied`）、无 UI 祖先读剪贴板 `approval_unavailable`、另一 agent 持有的 App `resource_busy`、预授权 `full` 的 App 在无 UI 时可写、强制退出即使已有 `full` 仍弹卡。`cu-v2-tools.test.ts` 只保留“意图必须集中构造”一条不变量。 |
-| R4 staging 位置不安全 | 已修 | `ebde4273`。staging 根改为 Broker 私有根（随 `ROTOM_CU_BROKER_SOCKET` 隔离），root/stage 0700、拒 symlink；写临时目录后 rename 原子替换；import 前用 staged 字节重算指纹比对，不一致重新 staging，仍不一致则拒绝运行。测试新增两条：目录在私有根且 0700、预先篡改的 staged 文件会被真实源码替换。顺带修 `realpath` 比较（macOS `/tmp`、`/var` 是符号链接，否则启动器会静默退出）。 |
-| 合入前需写明的行为变化 | 已写 | 新增 `docs/agent/computer-use-v2/behaviour-changes.md`：Broker 默认开启、每个 App 首次写入弹卡、无 UI 运行得到 `approval_unavailable`、两种保持原行为的做法（`policy.json` 预授权 / `ROTOM_CU_BROKER=0`）；并补测试“预授权 App 在无 UI 时可写”。 |
-| I4 milestones 文件第 63 行过时 | 已修 | 同 R2.5，改为历史状态 + 指向真机证据。 |
+| M1 staging 竞态（A 正在 import 时被 B 删目录） | 已修 | `daemon-entry.mjs`：校验通过的目录绝不删除，直接用；只有校验失败才把旧目录 rename 成唯一的 `.discard-<pid>-<ts>-<指纹>` 名（不再原地 `rm`），若搬走的其实有效则放回原处使用；临时目录写完后 rename 就位，整体最多重试 3 轮收敛。原始数字：新增 `test/broker-staging-race.test.ts`（4 进程同时 stage+import × 20 轮）**0 失败**；同一测试在修复前代码上 20 轮共 **22 个进程失败**（对照组）。 |
+| M1 同族缺陷：启动锁竞态导致 `EADDRINUSE` | 已修 | 这个竞态用上面的测试暴露：启动锁先 `openSync("wx")` 再单独 `writeSync(pid)`，另一个人可能在 pid 写入前读到空锁、判定陈旧、删掉后一起 `listen`，结果是 `broker daemon failed: listen EADDRINUSE`。现在空/不可解析的锁视为“正在启动”，有界重试 8×25ms 后才当孤儿处理。 |
+| M1 客户端兜底 | 已修 | `client.ts`：daemon 非 0 退出时先再试一次 `connectOnce`，能连上就继续用（失败启动与抢输从客户端看是一样的）。 |
+| M1 原双客户端用例 | 通过 | `broker-socket.test.ts` 的 “two clients spawning at once converge on one broker” 连跑 **20 次，20 通过 0 失败**。 |
+| M1 全量 | 通过 | `npm test`（79 用例）**连跑 3 次全部通过**。另：修复前 16 次全量运行里有 2 次失败，均出自 `broker-packaged.test.ts` 的 6s 等待预算，已把预算提到 15s（与产品连接预算一致），此后 13 次全量运行 0 失败（其中含 2 次失败的那 16 次是同一批，见提交说明）。 |
+| M2 投递方式记录错误 | 已改文档，非 helper bug | 核对 `native/macos/bridge.swift` 的 click 分支：元素支持 `kAXPressAction` 时直接 `AXUIElementPerformAction(AXPress)`，成功后 `performed.delivery="ax"`，没有 pid 投递。所以 `delivery=ax` 是正确记录，错的是文档把这一步说成 pid/L2。`real-machine-session.md`、`STATUS`、`milestones-m5-m8.md`、根 `CLAUDE.md` 四处都改成“L2 未在真机执行；切 tab 是语义 AX 按下”。 |
+| 证据存档 | 已改脚本（本轮未运行） | 三个脚本每次运行额外写不可变存档 `evidence/runs/<时间戳>-<脚本名>.md`，汇总文件里写明“本次运行存档：`runs/…`”。 |
+| 真实时间顺序 | 已重写 | `real-machine-session.md` 按 15:12 → 15:17 六次验收 → 15:17–15:19 L2 越界 → **15:32 又跑了一次验收** 的顺序重写，并写明“15:19 说停止之后又跑了”这一执行纪律问题。 |
+| L2 脚本只能操作自己启动的进程 | 已改脚本（本轮未运行） | 启动时快照 `listApps()`，任何在快照里的 pid 一律不作为目标：fixture 若已在运行则 `skipped` 并提示先退出，白名单 App 即使 `--allow-l2-app` 点名也 `skipped`。 |
+| 真机运行规则 | 已写 | 见本文“真机运行规则”。 |
 
-未在本轮处理：F1–F5、`bridge.ts` 拆分、I2 的 helper 侧强制、兼容矩阵单元格。
+## 真机运行规则（2026-11-04 起）
+
+1. 运行任何真机脚本前先确认用户当前不在电脑前；用户在场时只改脚本，不跑。
+2. 只操作脚本自己启动的进程；启动前已在运行的 App 一律不碰。
+3. 一旦记录“停止”，不再自行恢复真机动作；需要继续时重新征得同意。
+4. 每次运行留 `evidence/runs/<时间戳>-<脚本名>.md`，文档引用具体那一次，不引用会被覆盖的汇总文件。
+
+## 审核轮次记录
+
+第 1 轮与第 2 轮的修复细节迁到 `evidence/review-fixes.md`（本文件只留结论与最近的轮次）。
 
 ## 决定记录
 

@@ -15,6 +15,11 @@ import process from "node:process";
 export const EVIDENCE_DIR = path.resolve(import.meta.dirname, "..", "..", "..", "..", "docs", "agent", "computer-use-v2", "evidence");
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** A filesystem-safe run id, so one run's evidence never overwrites another's. */
+export function runStamp(date = new Date()) {
+	return date.toISOString().replace(/[:.]/g, "-");
+}
 export const nowMs = () => Date.now();
 
 /** `--name value` reader for the script arguments. */
@@ -55,9 +60,16 @@ export function createRecorder() {
 		failures() {
 			return rows.filter((row) => row.result === "fail").length;
 		},
-		/** Writes `<fileName>.md` plus a timestamped `.log`; returns the failure count. */
+		/**
+		 * Writes the summary `<fileName>.md`, a plaintext log, and an immutable copy
+		 * under `runs/` that a document can cite by name. The summary is overwritten
+		 * every run, so only the `runs/` copy proves what a specific run saw.
+		 */
 		writeEvidence({ fileName, title, intro = [] }) {
 			mkdirSync(EVIDENCE_DIR, { recursive: true });
+			const runName = `${runStamp()}-${fileName}.md`;
+			const runsDir = path.join(EVIDENCE_DIR, "runs");
+			mkdirSync(runsDir, { recursive: true });
 			const failures = rows.filter((row) => row.result === "fail").length;
 			const table = [
 				"| Area | Check | Result | Note |",
@@ -68,6 +80,8 @@ export function createRecorder() {
 				`# ${title} (${new Date().toISOString()})`,
 				"",
 				`Rows: ${rows.length} · Failures: ${failures}`,
+				"",
+				`本次运行存档：\`runs/${runName}\``,
 				"",
 				...intro,
 				"",
@@ -81,9 +95,10 @@ export function createRecorder() {
 				"",
 			].join("\n");
 			writeFileSync(path.join(EVIDENCE_DIR, `${fileName}.md`), body);
+			writeFileSync(path.join(runsDir, runName), body);
 			writeFileSync(path.join(EVIDENCE_DIR, `${fileName}-${Date.now()}.log`), log.join("\n"));
 			if (failures > 0) process.exitCode = 1;
-			return failures;
+			return { failures, runName };
 		},
 	};
 }

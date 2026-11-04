@@ -20,6 +20,8 @@ import { homedir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 
+import { runStamp } from "./lib/live-helpers.mjs";
+
 const EVIDENCE_DIR = path.resolve(import.meta.dirname, "..", "..", "..", "docs", "agent", "computer-use-v2", "evidence");
 const rows = [];
 const log = [];
@@ -103,10 +105,21 @@ async function main() {
 	const frontmost = await macosBackend.getFrontmost();
 	record("environment", "operator app", "pass", `${frontmost.appName} pid=${frontmost.pid}`);
 
+	// Anything already running belongs to the operator. This run may only act on
+	// processes it started itself, so an app that was here before is never a target -
+	// not even the fixture, and not an app the operator named with --allow-l2-app.
+	const atStartup = await macosBackend.listApps();
+	const beforeRun = new Set(atStartup.map((app) => app.pid));
+	record("environment", "apps at startup", "pass", `${beforeRun.size} running; only processes started by this run may be operated`);
+	const startedByThisRun = (app) => !beforeRun.has(app.pid);
+
 	// ---- fixture: not on the L2 list, so the product path must refuse it ----
 	const apps = await macosBackend.listApps();
 	let fixture = apps.find((app) => app.bundleId === "com.example.cu-fixture") ?? apps.find((app) => /fixture/i.test(app.appName ?? ""));
-	if (!fixture) {
+	if (fixture && !startedByThisRun(fixture)) {
+		record("fixture", "present", "skipped", `pid=${fixture.pid} was already running before this run; quit it so the check can launch its own copy`);
+		fixture = undefined;
+	} else if (!fixture) {
 		try {
 			await macosBackend.manageApps({ mode: "launch", path: fixturePath, activates: false });
 		} catch {
@@ -116,7 +129,9 @@ async function main() {
 		fixture = (await macosBackend.listApps()).find((app) => /fixture/i.test(app.appName ?? ""));
 	}
 	if (!fixture) {
-		record("fixture", "present", "fail", "the fixture app is not running and could not be launched");
+		if (!rows.some((row) => row.area === "fixture" && row.action === "present")) {
+			record("fixture", "present", "fail", "the fixture app is not running and could not be launched");
+		}
 	} else {
 		record("fixture", "present", "pass", `pid=${fixture.pid} bundle=${fixture.bundleId}`);
 		let roots = await macosBackend.listRoots({ pid: fixture.pid });
@@ -160,10 +175,15 @@ async function main() {
 	// Never drive an app the operator already had open unless they name it: the
 	// point of the check is to type into something this run owns.
 	const allowL2App = argument("--allow-l2-app");
-	const installed = (await macosBackend.listApps()).filter((app) => app.bundleId && L2_COMPATIBLE_BUNDLE_IDS.has(app.bundleId) && allowL2App && app.bundleId === allowL2App);
+	const onList = (await macosBackend.listApps()).filter((app) => app.bundleId && L2_COMPATIBLE_BUNDLE_IDS.has(app.bundleId));
+	const installed = onList.filter((app) => allowL2App && app.bundleId === allowL2App && startedByThisRun(app));
 	if (!allowL2App) {
-		const onList = (await macosBackend.listApps()).filter((app) => app.bundleId && L2_COMPATIBLE_BUNDLE_IDS.has(app.bundleId));
 		record("L2 whitelist", "app on the list", "skipped", onList.length === 0 ? "nothing from the list is running" : `running: ${onList.map((app) => app.appName).join(", ")}; pass --allow-l2-app <bundleId> to type into it`);
+	} else if (installed.length === 0) {
+		const preexisting = onList.find((app) => app.bundleId === allowL2App);
+		record("L2 whitelist", "app on the list", "skipped", preexisting
+			? `${allowL2App} (pid=${preexisting.pid}) was already running before this run; this script only operates processes it started`
+			: `${allowL2App} is not running; start it and re-run, this script does not launch user apps`);
 	}
 	for (const app of installed) {
 		const roots = await macosBackend.listRoots({ pid: app.pid });
@@ -192,12 +212,16 @@ async function main() {
 
 async function writeEvidence() {
 	mkdirSync(EVIDENCE_DIR, { recursive: true });
+	mkdirSync(path.join(EVIDENCE_DIR, "runs"), { recursive: true });
 	const failures = rows.filter((row) => row.result === "fail").length;
 	const table = ["| Target | Action | Result | Note |", "| --- | --- | --- | --- |", ...rows.map((row) => `| ${row.area} | ${row.action} | ${row.result} | ${row.note.replace(/\|/g, "\\|")} |`)];
+	const runName = `${runStamp()}-l2-check.md`;
 	const body = [
 		`# Computer Use v2 L2 single-action check (${new Date().toISOString()})`,
 		"",
 		`Rows: ${rows.length} · Failures: ${failures}`,
+		"",
+		`本次运行存档：\`runs/${runName}\``,
 		"",
 		"One directed click and one directed text input per target, delivered with `background` policy.",
 		"`cursorMoved` and `frontmostChanged` say whether the action reached the user's session.",
@@ -212,6 +236,8 @@ async function writeEvidence() {
 		"",
 	].join("\n");
 	writeFileSync(path.join(EVIDENCE_DIR, "l2-check.md"), body);
+	// The summary is overwritten by the next run; the archived copy is the citation.
+	writeFileSync(path.join(EVIDENCE_DIR, "runs", runName), body);
 	writeFileSync(path.join(EVIDENCE_DIR, `l2-check-${Date.now()}.log`), log.join("\n"));
 	if (failures > 0) process.exitCode = 1;
 }

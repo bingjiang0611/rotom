@@ -29,6 +29,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
+import { runStamp } from "./lib/live-helpers.mjs";
+
 const EVIDENCE_DIR = path.resolve(import.meta.dirname, "..", "..", "..", "docs", "agent", "computer-use-v2", "evidence");
 const rows = [];
 const log = [];
@@ -261,12 +263,16 @@ function walk(outline, visit) {
 
 async function writeEvidence() {
 	await mkdir(EVIDENCE_DIR, { recursive: true });
+	await mkdir(path.join(EVIDENCE_DIR, "runs"), { recursive: true });
 	const table = ["| Area | Action | Result | Note |", "| --- | --- | --- | --- |", ...rows.map((row) => `| ${row.area} | ${row.action} | ${row.result} | ${row.note.replace(/\|/g, "\\|")} |`)];
 	const failures = rows.filter((row) => row.result === "fail").length;
+	const runName = `${runStamp()}-live-check.md`;
 	const body = [
 		`# Computer Use v2 live check (${new Date().toISOString()})`,
 		"",
 		`Rows: ${rows.length} · Failures: ${failures}`,
+		"",
+		`本次运行存档：\`runs/${runName}\``,
 		"",
 		...table,
 		"",
@@ -278,6 +284,9 @@ async function writeEvidence() {
 		"",
 	].join("\n");
 	await writeFile(path.join(EVIDENCE_DIR, "live-check.md"), body);
+	// The summary above is overwritten by the next run; the archived copy is what a
+	// document cites, so an earlier result cannot silently disappear.
+	await writeFile(path.join(EVIDENCE_DIR, "runs", runName), body);
 	await writeFile(path.join(EVIDENCE_DIR, `live-check-${Date.now()}.log`), log.join("\n"));
 	if (failures > 0) process.exitCode = 1;
 }

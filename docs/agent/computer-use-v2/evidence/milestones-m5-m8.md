@@ -53,7 +53,7 @@
   - **用户活动**：`UserActivityMonitor` 常驻 listen-only `CGEventTap`（`cgSessionEventTap`/`tailAppendEventTap`），统计不带 agent 标记的真实输入，`userActivity` 命令返回 `lastUserInputAt/idleSeconds/listening/userEventCount/agentEventCount`；helper 每 2 秒用 `ping.lastUserInputAt` 把时间推给 Broker（复用 M1 已有字段，没有新增协议通道）。
   - **agent 标记**：所有合成事件写 `eventSourceUserData = 0x524F544F`，用户活动 tap 据此区分 agent 事件。
   - **干扰检测**：动作结束时若前台 pid 变化且 2 秒内有真实用户输入，`performed.interferedWithUser = true`。
-  - **L2 定向投递**：`SkyLight` 的 `SLEventPostToPid` 运行时 `dlopen`/`dlsym` 解析，缺失即抛 `foreground_required`（不回退 HID）；新增 `src/policy/l2-compat.ts` 白名单（仅 IntelliJ 两个 bundle id）+ `ROTOM_CU_L2=0` 强制回到 pid 投递；`nativeInputDelivery()` 在后台策略下按白名单选择 `l2`/`pid`。
+  - **L2 定向投递**：`SkyLight` 的 `SLEventPostToPid` 运行时 `dlopen`/`dlsym` 解析，缺失即抛 `foreground_required`（不回退 HID）；新增 `src/policy/l2-compat.ts` 白名单（仅 IntelliJ 两个 bundle id）+ `ROTOM_CU_L2=0` 强制回到 pid 投递；`nativeInputDelivery()` 在后台策略下按白名单选择 `l2`/`pid`。**真机执行状态：未执行**（只有编译级证据；fixture 不在白名单内，验收里切 tab 走的是 AX 按下，不是 L2，见 `evidence/real-machine-session.md`）。
   - **语义动作**：`act` 新增 `select`（含 popup/combo 的 `option` 菜单项）、`setChecked`、`expand`/`collapse`、`scrollTo`、`focus`、`clear`、`setValue`、`showMenu`、`hover`（无定向通道时 `foreground_required`）；每个分支写完都回读校验，角色不支持时返回 `unsupported_action` 而不是退化成坐标点击。
   - **新命令**：`clipboardGet/Set/Clear`、`manageApps`（list/launch 不激活/quit 礼貌退出 + 是否仍在运行）、`manageWindow`（list/move/resize/minimize/restore/maximize/list_displays，全部不 raise）、`systemSurfaces`（通知中心/菜单栏 extras/ControlCenter/Dock 的 AX 根）。
   - **用户停止**：菜单栏状态项列出 Broker 里每个 agent 及其占用 App，可单独停或全部停；`Ctrl+Option+Cmd+.` 全局快捷键用 headInsert 主动 tap **只吞这一个组合键**，其余按键原样放行，仅在已获得 Accessibility 时安装，tap 被系统禁用会自动重开。helper 通过 `BrokerLink`（Unix socket + `hello`/`status`/`stop`/`ping`）直接找 Broker 要状态。
@@ -65,7 +65,7 @@
   仍未验证的部分：白名单 App（IntelliJ）上的 L2 正例、菜单栏项与全局快捷键、
   活动 tap 的 CPU 开销与被系统禁用的频率。
   2. 活动 tap 与主动 tap 的 CPU 开销、tap 被系统禁用的频率未测。
-  3. `SLEventPostToPid` 是私有符号，签名按社区惯例写为 `(pid_t, CGEventRef)`；若签名不符会崩溃而不是报错。
+  3. `SLEventPostToPid` 是私有符号，签名按社区惯例写为 `(pid_t, CGEventRef)`；若签名不符会崩溃而不是报错。真机上从未执行过该路径。
   4. 剪贴板 `set` 后 30 秒恢复用户原剪贴板**尚未实现**（只在 helper 侧有 get/set/clear），需要 M6 工具面配合实现，见“需要审核者回答的问题”。
 - 顺带修正：`connectWithRetry` 的等待预算从 5 秒提到 15 秒。全量测试并行启动多个 broker 时，5 秒会被慢机超出，导致 `broker-socket`/`broker-scheduler` 间歇失败（同一用例单独跑 6 次全过，全量跑 3 次里有 2 次失败）。提高到 15 秒后连续 3 次全量 57/57。这是测试/启动健壮性修正，不改变仲裁语义。
 - 与 PLAN 的偏差及原因：①`hover` 与 `L2` 失败一律 `foreground_required`，不静默降级；②L2 白名单在 TS 侧，helper 不判断 App 名；③停止快捷键只在 Accessibility 已授权时安装（主动 tap 会进入每个按键的处理路径，未授权时宁可没有快捷键）。
