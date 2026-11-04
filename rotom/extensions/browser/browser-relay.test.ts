@@ -206,7 +206,7 @@ test("relay client hello 携带 browser principal，并从环境变量解析子 
 	});
 	try { await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(socketPath, resolve); }); }
 	catch (error) { if ((error as NodeJS.ErrnoException).code === "EPERM") { t.skip("sandbox 禁止 Unix socket listen"); return; } throw error; }
-	const saved = { agent: process.env.ROTOM_BROWSER_AGENT_ID, root: process.env.ROTOM_BROWSER_ROOT_SESSION, lease: process.env.ROTOM_BROWSER_LEASE };
+	const saved = { agent: process.env.ROTOM_BROWSER_AGENT_ID, root: process.env.ROTOM_BROWSER_ROOT_SESSION, lease: process.env.ROTOM_BROWSER_LEASE, maxTabs: process.env.ROTOM_BROWSER_MAX_TABS, maxOrigin: process.env.ROTOM_BROWSER_MAX_TABS_PER_ORIGIN };
 	try {
 		delete process.env.ROTOM_BROWSER_AGENT_ID;
 		delete process.env.ROTOM_BROWSER_ROOT_SESSION;
@@ -214,7 +214,7 @@ test("relay client hello 携带 browser principal，并从环境变量解析子 
 		const main = await BrowserRelayClientV1.connect({ sessionId: "session-main", socketPath });
 		assert.equal(main.agentId, BROWSER_MAIN_AGENT_ID_V1);
 		assert.equal(main.rootSessionId, "session-main");
-		assert.deepEqual(hellos[0], { nonce: hellos[0].nonce, agentId: "main", rootSessionId: "session-main" }, "旧客户端字段缺省时按主 agent 处理，且新客户端必须显式上报");
+		assert.deepEqual(hellos[0], { nonce: hellos[0].nonce, agentId: "main", rootSessionId: "session-main", tabQuotas: { maxAgents: 8, maxTabsPerAgent: 4, maxTabs: 24, maxTabsPerOrigin: 2 } }, "旧客户端字段缺省时按主 agent 处理，且新客户端必须显式上报配额");
 		main.close();
 
 		process.env.ROTOM_BROWSER_AGENT_ID = "run_7f3a";
@@ -223,8 +223,25 @@ test("relay client hello 携带 browser principal，并从环境变量解析子 
 		const child = await BrowserRelayClientV1.connect({ sessionId: "session-child", socketPath });
 		assert.equal(child.agentId, "run_7f3a");
 		assert.equal(child.rootSessionId, "session-root");
-		assert.deepEqual({ ...hellos[1], nonce: undefined }, { nonce: undefined, agentId: "run_7f3a", rootSessionId: "session-root", leaseToken: "lease-token-1" });
+		assert.deepEqual({ ...hellos[1], nonce: undefined }, { nonce: undefined, agentId: "run_7f3a", rootSessionId: "session-root", leaseToken: "lease-token-1", tabQuotas: { maxAgents: 8, maxTabsPerAgent: 4, maxTabs: 24, maxTabsPerOrigin: 2 } });
 		child.close();
+
+		// Quota overrides travel with the handshake; the service worker enforces them.
+		delete process.env.ROTOM_BROWSER_AGENT_ID;
+		delete process.env.ROTOM_BROWSER_ROOT_SESSION;
+		delete process.env.ROTOM_BROWSER_LEASE;
+		process.env.ROTOM_BROWSER_MAX_TABS = "5";
+		process.env.ROTOM_BROWSER_MAX_TABS_PER_ORIGIN = "0";
+		try {
+			const overridden = await BrowserRelayClientV1.connect({ sessionId: "session-quota", socketPath });
+			overridden.close();
+			assert.deepEqual(hellos[hellos.length - 1].tabQuotas, { maxAgents: 8, maxTabsPerAgent: 4, maxTabs: 5, maxTabsPerOrigin: 0 }, "环境变量覆盖要进入 hello，包含 0");
+			process.env.ROTOM_BROWSER_MAX_TABS = "abc";
+			await assert.rejects(BrowserRelayClientV1.connect({ sessionId: "session-quota-bad", socketPath }), /ROTOM_BROWSER_MAX_TABS 必须是/u);
+		} finally {
+			delete process.env.ROTOM_BROWSER_MAX_TABS;
+			delete process.env.ROTOM_BROWSER_MAX_TABS_PER_ORIGIN;
+		}
 
 		echoFields = false;
 		const legacyReady = await BrowserRelayClientV1.connect({ sessionId: "session-legacy", socketPath, principal: { agentId: "run_legacy", rootSessionId: "session-root" } });
@@ -236,7 +253,7 @@ test("relay client hello 携带 browser principal，并从环境变量解析子 
 		await assert.rejects(BrowserRelayClientV1.connect({ sessionId: "session-mismatch", socketPath, principal: { agentId: "run_mismatch", rootSessionId: "session-root" } }),
 			/browser principal 与本进程不一致/u);
 	} finally {
-		for (const [key, value] of [["ROTOM_BROWSER_AGENT_ID", saved.agent], ["ROTOM_BROWSER_ROOT_SESSION", saved.root], ["ROTOM_BROWSER_LEASE", saved.lease]] as const) {
+		for (const [key, value] of [["ROTOM_BROWSER_AGENT_ID", saved.agent], ["ROTOM_BROWSER_ROOT_SESSION", saved.root], ["ROTOM_BROWSER_LEASE", saved.lease], ["ROTOM_BROWSER_MAX_TABS", saved.maxTabs], ["ROTOM_BROWSER_MAX_TABS_PER_ORIGIN", saved.maxOrigin]] as const) {
 			if (value === undefined) delete process.env[key]; else process.env[key] = value;
 		}
 		for (const socket of acceptedSockets) socket.destroy();

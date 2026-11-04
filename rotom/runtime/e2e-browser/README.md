@@ -38,6 +38,7 @@ node --experimental-strip-types rotom/runtime/e2e-browser/run.mjs baseline
 | `visibility` | 后台 tab 的 `visibilityState` 与隐藏状态下仍能真实交互 |
 | `chunked` | 超过 256 KiB 的响应分块、摘要校验与丢失/乱序拒绝 |
 | `lease` | 子 agent 的 lease：未授权 origin 本地拒绝，站点从未收到请求 |
+| `quotas` | per-agent / per-origin / 全局 / agent 数四个上限，超限即时拒绝且 close 后释放 |
 
 `lease` 是唯一直接驱动工具层（而不是 `BrowserRelayClientV1`）的 suite：lease 判定在
 `rotom/extensions/browser/index.ts` 里，所以它用 `browser-tools.mjs` 把真实

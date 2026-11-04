@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connect, type Socket } from "node:net";
 import { RESPONSE_MAX_BYTES } from "./chrome-extension/response-chunks.js";
+import { browserTabQuotasFromEnvV1 } from "./chrome-extension/tab-quotas.js";
 
 export const BROWSER_RELAY_PROTOCOL_REVISION_V1 = 20 as const;
 export const BROWSER_RELAY_FULL_READ_CAPABILITY_V1 = "virtualized-frame-scroll" as const;
@@ -398,6 +399,8 @@ export interface BrowserRelayConnectInputV1 {
 	socketPath?: string;
 	timeoutMs?: number;
 	principal?: Partial<BrowserPrincipalV1>;
+	/** Test-only override; production reads ROTOM_BROWSER_MAX_* from the environment. */
+	tabQuotas?: ReturnType<typeof browserTabQuotasFromEnvV1>;
 }
 
 // Only a missing/refused local socket proves Relay unavailable before any request.
@@ -417,6 +420,8 @@ export class BrowserRelayClientV1 {
 	readonly rootSessionId: string;
 	readonly generation: string;
 	readonly socketPath: string;
+	/** Operator overrides for the tab quotas; sent once per handshake. */
+	readonly tabQuotas: ReturnType<typeof browserTabQuotasFromEnvV1>;
 	#socket: Socket;
 	#leaseToken: string | undefined;
 	#keepTabs = false;
@@ -436,6 +441,7 @@ export class BrowserRelayClientV1 {
 		this.#keepTabs = principal.keepTabs === true;
 		this.generation = input.generation ?? randomUUID();
 		this.socketPath = input.socketPath ?? browserRelaySocketPathV1();
+		this.tabQuotas = input.tabQuotas ?? browserTabQuotasFromEnvV1(process.env);
 		socket.setEncoding("utf8");
 		socket.on("data", (chunk) => this.#onData(chunk));
 		socket.on("error", (error) => this.#fail(error));
@@ -468,6 +474,7 @@ export class BrowserRelayClientV1 {
 				rootSessionId: client.rootSessionId,
 				...(client.#leaseToken === undefined ? {} : { leaseToken: client.#leaseToken }),
 				...(client.#keepTabs ? { keepTabs: true } : {}),
+				tabQuotas: client.tabQuotas,
 			}, { timeoutMs: Math.max(1, handshakeRemainingMs) });
 			if (!record(ready) || ready.schemaVersion !== 1 || ready.kind !== "rotom-browser-relay-ready" || ready.nonce !== nonce || !Number.isSafeInteger(ready.protocolRevision) || (ready.protocolRevision as number) < BROWSER_RELAY_PROTOCOL_REVISION_V1 || !Array.isArray(ready.capabilities) || !ready.capabilities.includes(BROWSER_RELAY_FULL_READ_CAPABILITY_V1) || !ready.capabilities.includes(BROWSER_RELAY_MULTI_CLIENT_CAPABILITY_V1) || !ready.capabilities.includes(BROWSER_RELAY_COORDINATE_CLICK_CAPABILITY_V1) || !ready.capabilities.includes(BROWSER_RELAY_TARGET_STATE_CAPABILITY_V1) || !ready.capabilities.includes(BROWSER_RELAY_PAGE_ALERT_CAPABILITY_V1) || !ready.capabilities.includes(BROWSER_RELAY_KEYPRESS_CAPABILITY_V1) || !ready.capabilities.includes(BROWSER_RELAY_QUERY_CAPABILITY_V1)) throw new Error("browser relay 版本过旧；请在 chrome://extensions 重载 Rotom Browser Relay");
 			// An older extension ignores the principal fields, so absence stays compatible;

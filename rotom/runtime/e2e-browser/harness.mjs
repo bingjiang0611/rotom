@@ -203,8 +203,12 @@ export async function launchHarness(input = {}) {
 	const clients = new Set();
 	let closed = false;
 
+	// Suites exercise ownership, cleanup and concurrency, which need more tabs on one
+	// fixture origin than the product default allows. Quotas themselves are covered by
+	// the `quotas` suite through the tool layer, which reads ROTOM_BROWSER_MAX_*.
+	const harnessTabQuotas = { maxAgents: 32, maxTabsPerAgent: 32, maxTabs: 64, maxTabsPerOrigin: 16 };
 	const connect = async (sessionId, extra = {}) => {
-		const client = await BrowserRelayClientV1.connect({ sessionId, socketPath, timeoutMs: 1_000, ...extra });
+		const client = await BrowserRelayClientV1.connect({ sessionId, socketPath, timeoutMs: 1_000, tabQuotas: harnessTabQuotas, ...extra });
 		clients.add(client);
 		return client;
 	};

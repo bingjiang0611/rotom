@@ -50,6 +50,7 @@ PI_SUBAGENTS_EXECUTION_SCOPE= PI_SUBAGENTS_TEMP_ROOT= ROTOM_PI="$pi_command" ROT
 	rotom/extensions/browser/session-persistence.test.mjs \
 	rotom/extensions/browser/session-cleanup.test.mjs \
 	rotom/extensions/browser/browser-lease.test.mjs \
+	rotom/extensions/browser/tab-quotas.test.mjs \
 	rotom/extensions/observability/*.test.ts \
 	rotom/extensions/observability/dashboard*.test.mjs \
 	rotom/extensions/browser/index.test.ts \

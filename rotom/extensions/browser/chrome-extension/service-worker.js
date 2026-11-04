@@ -4,6 +4,7 @@ import { resetTransferredItemV1, transferTargetSessionV1, transferredTabNameV1 }
 import { forgetSpawnedTab, recordedOpenerTabId, rememberSpawnedTab } from "./spawned-tabs.js";
 import { createSessionLockV1, createTabLocksV1, isSessionScopedOperationV1, tabLockKeyV1 } from "./request-locks.js";
 import { sessionCleanupPlanV1 } from "./session-cleanup.js";
+import { checkBrowserTabQuotasV1, DEFAULT_BROWSER_TAB_QUOTAS_V1, sanitizeBrowserTabQuotasV1 } from "./tab-quotas.js";
 import { createFocusCoordinator } from "./focus-coordinator.js";
 import { withTabWake } from "./lifecycle-wake.js";
 import { responseFramesV1 } from "./response-chunks.js";
@@ -101,7 +102,7 @@ async function postResponse(message) {
 }
 function createSessionState(sessionId) {
 	const id = safeString(sessionId, "sessionId", 512);
-	return { sessionId: id, agentId: DEFAULT_AGENT_ID, rootSessionId: id, leaseToken: undefined, generation: undefined, epoch: 0, operationRevisions: new Map(), currentTabName: undefined, tabsByName: new Map(), retiredTabNames: new Map(), lock: createSessionLockV1(), tabLocks: createTabLocksV1() };
+	return { sessionId: id, agentId: DEFAULT_AGENT_ID, rootSessionId: id, leaseToken: undefined, tabQuotas: { ...DEFAULT_BROWSER_TAB_QUOTAS_V1 }, generation: undefined, epoch: 0, operationRevisions: new Map(), currentTabName: undefined, tabsByName: new Map(), retiredTabNames: new Map(), lock: createSessionLockV1(), tabLocks: createTabLocksV1() };
 }
 function allSessionItems() {
 	return [...sessionStates.values()].flatMap((state) => [...state.tabsByName.values()]);
@@ -119,6 +120,35 @@ function sessionOwningTabId(tabId) {
 function connectedMainSessionForRoot(rootSessionId) {
 	for (const state of sessionStates.values()) if (state.rootSessionId === rootSessionId && state.agentId === DEFAULT_AGENT_ID && state.generation !== undefined) return state;
 }
+/**
+ * Agent tabs, counted globally the way the quotas define them: a tab the agent opened
+ * itself counts, a claimed user tab belongs to the user and does not.
+ */
+function agentTabCountsV1(state, origin) {
+	let ownTabs = 0;
+	let globalTabs = 0;
+	let originTabs = 0;
+	for (const owner of sessionStates.values()) {
+		for (const item of owner.tabsByName.values()) {
+			if (item.ownership !== "agent") continue;
+			globalTabs += 1;
+			if (owner === state) ownTabs += 1;
+			if (origin !== undefined && itemOriginV1(item.url) === origin) originTabs += 1;
+		}
+	}
+	const connected = [...sessionStates.values()].filter((candidate) => candidate.generation !== undefined);
+	return { ownTabs, globalTabs, originTabs, agents: connected.length, agentIndex: connected.indexOf(state) };
+}
+function itemOriginV1(url) {
+	try { return new URL(url).origin; } catch { return undefined; }
+}
+/** Refuse an over-quota `open`/`claim` before touching Chrome; never queue it. */
+function assertTabQuotaAllowed(state, origin) {
+	const counts = agentTabCountsV1(state, origin);
+	const decision = checkBrowserTabQuotasV1({ quotas: state.tabQuotas ?? DEFAULT_BROWSER_TAB_QUOTAS_V1, origin, ...counts });
+	if (!decision.ok) throw new Error(decision.message);
+}
+
 async function placeInSharedAgentGroup(tab, assertOperation) {
 	const chrome = operationChrome(globalThis.chrome, assertOperation);
 	const pending = tabGroupChain.catch(() => undefined).then(() => placeAgentTabsInSharedGroup({
@@ -1097,6 +1127,8 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 		Object.assign(state, sessionPrincipalFromHello(payload, state.sessionId));
 		// Lease-driven in T9; until then the launcher passes it through the environment.
 		state.keepTabs = payload.keepTabs === true;
+		// Never trust the client's numbers: an unusable value falls back to the defaults.
+		state.tabQuotas = sanitizeBrowserTabQuotasV1(payload.tabQuotas) ?? { ...DEFAULT_BROWSER_TAB_QUOTAS_V1 };
 		await persistState();
 		return { schemaVersion: 1, kind: "rotom-browser-relay-ready", protocolRevision: 20, nonce, ...sessionPrincipalValue(state), capabilities: ["tab-control", "claim-user-tabs", "handoff-user-tabs", "agent-tab-groups", "accessibility-snapshot", "rendered-document-text", "full-document-read", "virtualized-frame-scroll", "content-coverage", "oopif-accessibility", "screenshot", "direct-interaction", "cdp-mouse", "coordinate-click", "targeted-scroll", "interaction-target-state", "page-alert-readback", "targeted-keypress", "snapshot-query", "operation-deadline", "non-destructive-timeout", "in-place-recovery", "multi-client-multiplex", "cross-agent-transfer"] };
 	}
@@ -1105,6 +1137,8 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 		if (state.tabsByName.has(name)) throw new Error("owned tab name already exists");
 		const url = safeUrl(payload.url);
 		if (payload.placement !== undefined && payload.placement !== "background-tab" && payload.placement !== "agent-window") throw new Error("open placement invalid");
+		// Counted here because only the service worker sees every session.
+		assertTabQuotaAllowed(state, itemOriginV1(url));
 		// Capture a newly created ID even if its request retires while Chrome is
 		// creating it. It has not yet been made available for any other owner.
 		assertOperation();
@@ -1159,6 +1193,9 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 			const openerOwner = openerTabId === undefined ? undefined : sessionOwningTabId(openerTabId);
 			if (openerOwner !== undefined && openerOwner !== state) throw new Error("tab was opened from another relay session's tab; only its opener may claim it");
 			const url = safeUrl(tab.url);
+			// A claimed tab also occupies a slot: per-agent and global limits would be
+			// meaningless if only `open` respected them.
+			assertTabQuotaAllowed(state, itemOriginV1(url));
 			const item = { tabId: tab.id, documentGeneration: 1, url, status: tab.status === "complete" ? "complete" : "loading", ownership: "claimed", attached: false, detached: false, restoreAutoDiscardable: await protectFromDiscard(globalThis.chrome, tab.id) };
 			assertOperation();
 			state.tabsByName.set(name, item);

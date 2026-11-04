@@ -68,6 +68,11 @@ test("Chrome MV3 manifest 固定 identity 且不申请 cookie/script/host 权限
 	assert.match(worker, /"interaction-target-state"/u);
 	assert.match(worker, /"page-alert-readback"/u);
 	assert.match(worker, /const sessionStates = new Map\(\)/u);
+	// Quotas are counted in the service worker only; `open` and `claim` must both pass
+	// the check and `hello` must never trust the client's numbers.
+	assert.match(worker, /assertTabQuotaAllowed\(state, itemOriginV1\(url\)\);/u);
+	assert.equal(worker.match(/assertTabQuotaAllowed\(state, itemOriginV1\(url\)\);/gu).length, 2, "open 与 claim 都要计入配额");
+	assert.match(worker, /sanitizeBrowserTabQuotasV1\(payload\.tabQuotas\) \?\? \{ \.\.\.DEFAULT_BROWSER_TAB_QUOTAS_V1 \}/u);
 	assert.match(worker, /sessionStateKeyV3\(state\.sessionId\)/u, "持久化必须按 session 分 key");
 	assert.doesNotMatch(worker, /browserRelayStateV2: \{/u, "不得再写单文档 V2 状态");
 	assert.match(worker, /allSessionItems\(\)/u, "discover/claim 与 Chrome events 必须看到所有 relay session 的 tab ownership");

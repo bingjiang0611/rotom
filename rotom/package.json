@@ -77,6 +77,7 @@
     "extensions/browser/chrome-extension/focus-coordinator.js",
     "extensions/browser/chrome-extension/lifecycle-wake.js",
     "extensions/browser/chrome-extension/response-chunks.js",
+    "extensions/browser/chrome-extension/tab-quotas.js",
     "extensions/browser/chrome-extension/rendered-text.js",
     "extensions/browser/chrome-extension/scoped-ax-ref.js",
     "extensions/browser/chrome-extension/spawned-tabs.js",
