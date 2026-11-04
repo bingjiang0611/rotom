@@ -26,10 +26,21 @@
 | M4 Trace | 完成 | L1 | 见下 |
 | M5 macOS 原生能力 | 未开始 | | |
 | M6 工具面 | 完成 | L1 | 见下 |
-| M7 真机验收与兼容矩阵 | 未开始 | | |
+| M7 真机验收与兼容矩阵 | fixture 与脚本完成，验收未运行 | 编译（fixture）/ 跳过（脚本） | 见下 |
 | M8 文档、版本与打包 | 未开始 | | |
 
 ## 每个里程碑的记录
+
+### M7 真机验收与兼容矩阵（未运行验收）
+
+- 实现摘要：
+  - `native/macos-fixture/FixtureApp.swift`：SwiftUI fixture App，含文本框、复选框、滑块、DisclosureGroup 树、列表、TabView、右键菜单，每个控件带 accessibilityIdentifier。**已编译通过**：`xcrun swiftc -O -parse-as-library native/macos-fixture/FixtureApp.swift -o /tmp/cu-fixture`（153 KB）。
+  - `scripts/check-cu-v2-live.mjs`：`PI_CU_LIVE=1` 才运行；检查协议 8、Accessibility、用户活动 tap、fixture 后台启动、observe 能定位六类控件、七个语义动作逐个 `worked`、前台 App 与光标坐标不变、没有 `interferedWithUser`。结果写 `docs/agent/computer-use-v2/evidence/live-check.md` 与带时间戳的日志。
+  - `scripts/cu-v2-compat-matrix.mjs`：按 App × 动作 × 投递策略（`ax_only`/`background`/`foreground`）生成矩阵，单元格只有 `pass`/`fail`/`unknown`/`refused`/`skip`/`not-run`，只写实际观测；`l2-compat.ts` 只允许在整行 `pass` 之后扩展。
+  - `evidence/compat-matrix.md` 与 `evidence/live-check.md` 记录“未运行”的现状与运行命令，不填造假数据。
+- 自证命令与结果：`node scripts/check-cu-v2-live.mjs` → 正确输出 `skipped: PI_CU_LIVE is not 1` 并退出 0；`node scripts/cu-v2-compat-matrix.mjs` → 正确输出 `not run` 并退出 0；fixture 编译成功。
+- 未验证项：**全部真机结论**——第 10 节的四条验收（用户模拟器打字时前台文本逐字一致、焦点窗口零变化、光标只受模拟器影响、3 个 agent 各自完成）、兼容矩阵的所有单元格、L2 白名单是否需要扩充。
+- 与 PLAN 的偏差及原因：用户模拟器（每分钟 300 字符 + 随机移动鼠标）没有单独实现成脚本，改为在 live check 里用 `--with-user-simulator` 显式标注“需人工并行运行”，因为我不能在未授权环境里验证它会真的输入到前台 App；宁可留人工步骤，也不写一个自己都没跑过的“自动模拟用户”脚本冒充验收。
 
 ### M6 工具面
 
