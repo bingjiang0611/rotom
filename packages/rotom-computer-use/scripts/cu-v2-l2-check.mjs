@@ -3,9 +3,13 @@
  * Computer Use v2 L2 single-action check (macOS, real helper).
  *
  * Runs one directed click and one directed text input against the fixture app and
- * against every installed app on the L2 compatibility list, and records what
- * actually happened: did the cursor move, did the app receive the event, did the
- * helper survive. A crash is a result, not a failure of the harness.
+ * against an app on the L2 compatibility list, and records what actually happened:
+ * did the cursor move, did the app receive the event, did the helper survive. A
+ * crash is a result, not a failure of the harness.
+ *
+ * Only processes this run started are ever operated: anything already running
+ * belongs to the operator. A white-listed app must therefore be launched by this
+ * run (start it yourself, or pass --allow-l2-app after a run that launched it).
  *
  *   PI_CU_LIVE=1 node scripts/cu-v2-l2-check.mjs --fixture ~/cu-v2-test/Fixture.app
  *
@@ -127,6 +131,11 @@ async function main() {
 		}
 		await sleep(2500);
 		fixture = (await macosBackend.listApps()).find((app) => /fixture/i.test(app.appName ?? ""));
+		if (fixture && !startedByThisRun(fixture)) {
+			// A launch that silently attached to an older copy is not this run's process.
+			record("fixture", "present", "skipped", `pid=${fixture.pid} was already running before this run`);
+			fixture = undefined;
+		}
 	}
 	if (!fixture) {
 		if (!rows.some((row) => row.area === "fixture" && row.action === "present")) {
