@@ -364,7 +364,16 @@ async function connectWithRetry(socketPath: string, daemon?: DaemonHandle): Prom
 		}
 		if (daemon?.error) throw daemon.error;
 		if (daemon && daemon.exitCode !== undefined && daemon.exitCode !== null) {
-			if (daemon.exitCode !== 0) throw new BrokerUnavailableError(`Broker daemon exited with code ${daemon.exitCode}.`);
+			if (daemon.exitCode !== 0) {
+				// This daemon failed, but a peer process may have started the broker in the
+				// same moment: a failed start and a lost race look identical from here, so
+				// one more connect decides it before the failure is reported.
+				try {
+					return await connectOnce(socketPath);
+				} catch {
+					throw new BrokerUnavailableError(`Broker daemon exited with code ${daemon.exitCode}.`);
+				}
+			}
 			// Exit 0: another broker won the start lock and is starting up.
 			daemon = undefined;
 		}

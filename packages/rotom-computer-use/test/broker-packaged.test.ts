@@ -102,12 +102,15 @@ test("the packaged daemon entry serves a client from inside node_modules", async
 
 async function connectWithRetry(): Promise<BrokerClient> {
 	let lastError: unknown;
-	for (let attempt = 0; attempt < 40; attempt += 1) {
+	// The product's own budget is 15s. Under a full parallel test run, spawning and
+	// staging a fresh node process can take several seconds, so do not be stricter
+	// here than the client is.
+	for (let attempt = 0; attempt < 60; attempt += 1) {
 		try {
 			return await BrokerClient.connect({ socketPath, agent: packagedAgent(), spawnIfMissing: false, heartbeatMs: 0 });
 		} catch (error) {
 			lastError = error;
-			await new Promise((resolve) => setTimeout(resolve, 150));
+			await new Promise((resolve) => setTimeout(resolve, 250));
 		}
 	}
 	throw new Error(`the packaged daemon never accepted a connection: ${daemonStderr || (lastError instanceof Error ? lastError.message : String(lastError))}`);

@@ -59,35 +59,58 @@ async function isConnectable(socketPath: string): Promise<boolean> {
 	});
 }
 
-function acquireStartLock(lockPath: string): number | undefined {
+const LOCK_BUSY_RETRIES = 8;
+const LOCK_BUSY_RETRY_MS = 25;
+
+function pidFromLock(lockPath: string): number {
+	try {
+		const pid = Number.parseInt(readFileSync(lockPath, "utf8").trim(), 10);
+		return Number.isSafeInteger(pid) && pid > 0 ? pid : 0;
+	} catch {
+		return 0;
+	}
+}
+
+function pidIsAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Take the start lock, or report that another broker is starting.
+ *
+ * `openSync(..., "wx")` creates the file before the owner has written its pid into
+ * it, so a racing process can read an empty lock, decide it is stale, delete it,
+ * and end up listening on the same socket (observed as `EADDRINUSE`). An empty or
+ * unparsable lock is therefore treated as "someone is starting": it is retried for
+ * a bounded time and only then treated as an orphan.
+ */
+async function acquireStartLock(lockPath: string): Promise<number | undefined> {
 	assertNoSymlink(lockPath);
-	for (let attempt = 0; attempt < 2; attempt += 1) {
+	for (let attempt = 0; attempt < LOCK_BUSY_RETRIES + 2; attempt += 1) {
 		try {
 			const fd = openSync(lockPath, "wx", 0o600);
 			writeSync(fd, `${process.pid}\n`);
 			return fd;
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-			let pid = 0;
-			try {
-				pid = Number.parseInt(readFileSync(lockPath, "utf8").trim(), 10);
-			} catch {
-				pid = 0;
-			}
-			const alive = pid > 0 && (() => {
-				try {
-					process.kill(pid, 0);
-					return true;
-				} catch {
-					return false;
-				}
-			})();
-			if (alive) return undefined;
-			try {
-				unlinkSync(lockPath);
-			} catch {
-				return undefined;
-			}
+		}
+		const pid = pidFromLock(lockPath);
+		if (pid > 0 && pidIsAlive(pid)) return undefined;
+		if (pid === 0 && attempt < LOCK_BUSY_RETRIES) {
+			// The owner may still be writing its pid; an orphaned empty lock is only
+			// concluded after the bounded wait below.
+			await new Promise((resolve) => setTimeout(resolve, LOCK_BUSY_RETRY_MS));
+			continue;
+		}
+		try {
+			unlinkSync(lockPath);
+		} catch {
+			return undefined;
 		}
 	}
 	return undefined;
@@ -108,7 +131,7 @@ export async function startBrokerServer(options: BrokerServerOptions = {}): Prom
 	if (await isConnectable(socketPath)) throw new BrokerAlreadyRunningError(socketPath);
 
 	const lockPath = `${socketPath}.lock`;
-	const lockFd = acquireStartLock(lockPath);
+	const lockFd = await acquireStartLock(lockPath);
 	if (lockFd === undefined) throw new BrokerAlreadyRunningError(socketPath);
 
 	// The previous owner may have left a dead socket file behind.
