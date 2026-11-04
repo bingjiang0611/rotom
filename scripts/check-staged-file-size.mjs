@@ -20,6 +20,14 @@ const generatedFiles = new Set([
 	"packages/rotom-pi/packages/coding-agent/src/core/export-html/vendor/marked.min.js",
 ]);
 const binaryExtensions = new Set([".png", ".jpg", ".tgz", ".node", ".wasm"]);
+// Files the maintainer decided to keep oversized (2026-11-04): the two native and
+// bridge sources that carry the whole bridge surface, and the root operating rules.
+// Exempt here means "already decided", not "too big to split".
+const oversizedByDecision = new Set([
+	"CLAUDE.md",
+	"packages/rotom-computer-use/src/bridge.ts",
+	"packages/rotom-computer-use/native/macos/bridge.swift",
+]);
 
 function git(args, input) {
 	return execFileSync("git", args, {
@@ -50,6 +58,7 @@ for (let index = 0; index < records.length - 1; index += 2) {
 	if (
 		lockfiles.has(basename(path)) ||
 		generatedFiles.has(path) ||
+		oversizedByDecision.has(path) ||
 		binaryExtensions.has(extname(path))
 	)
 		continue;
