@@ -72,6 +72,7 @@
 - keypress 是否仅允许 ref-bound Enter/Tab/Escape，派发前核验原对象焦点、document/frame generation，且复用后台保护与目标状态回读？不自动把 type 转成 Enter，不通过 insertText 换行或系统键盘冒充按键。
 - desktop 写操作是否保持后台投递：失败时返回 unknown，而不是 activate 目标 app 抢走用户与其他 agent 共用的全机前台？
 - protocol/extension 变更是否要求用户重载，并明确 L1 与真实 Chrome L2/L3？
+- Computer Use v2：桌面写是否经 Broker 租约并可解释 `resource_busy`/`stale`/`broker_unavailable`（而不是进程内互斥冒充跨进程仲裁）？App 分级与授权卡片是否在 Broker 侧判定（项目级只收紧）？审批是否只路由到最近有 UI 的祖先、模型无自我批准途径、无 UI 时 `approval_unavailable`？主机终端/IDE 是否已从 `find_roots` 剔除并拒绝作为目标？终止/停止是否撤销租约并把进行中的批次停在步骤边界、结果标 `stopped_by_user`？原生投递级别（L1/L2/L4）是否如实上报，L2 未在白名单或符号缺失时返回 `foreground_required` 而不静默转前台 HID？trace 是否只写允许的字段（输入只记长度+SHA-256）、权限/保留期/容量/关闭开关齐全且永不外传？
 
 ### Observability
 

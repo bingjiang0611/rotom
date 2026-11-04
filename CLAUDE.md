@@ -83,7 +83,8 @@ Context Layers 是用户明确要求独立实现并默认启用的新产品 exte
 Pi 原生工具、Browser 和 Computer Use 都以启动 Pi 的本机用户权限运行。产品当前没有 Safety、Containment、QEMU、权限 preset/profile 或统一确认层。
 
 - 外部写执行一次，随后按同坐标 readback；失败、超时或无法证明时返回 `unknown`，不盲目重试或自动回滚。
-- Computer Use `0.5.1-rotom.2` 的 macOS headless 文本路径仅对 IDEA 提供精确窗口绑定、内部合成焦点和逐字符完整回读；限可打印 ASCII、256 字符及有界等待，未知即停批次，不代表任意 GUI 或绝对无干扰。helper 协议 7 不匹配不自动重启已有 daemon；新 macOS 归档为 ad-hoc 签名，覆盖已有 helper 需显式授权，不能覆盖存活会话。真实插件检查、Swift 测试执行受限和未验证范围见 [后台文本输入](docs/agent/computer-use-background-text.md)。
+- Computer Use 仍是本机用户权限，不是安全沙箱。v2 增加的是**同意层**而不是隔离层：跨进程 Broker 仲裁 + App 分级/授权卡片 + 敏感动作确认 + 用户停止（菜单栏项与 `Ctrl+Option+Cmd+.`）。这些只保证“不会有两个 agent 同时写同一个 App”“用户能被问道并随时停掉”，不限制 agent 在本机还能做什么。
+- Computer Use `0.5.1-rotom.2` 的 macOS headless 文本路径仅对 IDEA 提供精确窗口绑定、内部合成焦点和逐字符完整回读；限可打印 ASCII、256 字符及有界等待，未知即停批次，不代表任意 GUI 或绝对无干扰。helper 协议已升到 8（用户活动、剪贴板、App/窗口管理、系统表面、语义 AX 动作、L2 定向投递）；协议不匹配仍不自动重启已有 daemon，禁止覆盖存活会话的 helper。新 macOS 归档为 ad-hoc 签名，覆盖已有 helper 需显式授权。L2（`SLEventPostToPid`）按运行时解析、白名单（仅 IntelliJ）与 `ROTOM_CU_L2=0` 开关，当前只有编译级证据，真机行为未验证。真实插件检查、Swift 测试执行受限和未验证范围见 [后台文本输入](docs/agent/computer-use-background-text.md) 与 [v2 状态](docs/agent/computer-use-v2/STATUS.md)。
 - 环境、发布阶段和 scope 必须来自当前请求或权威 preflight；不把预发扩大到生产、单机扩大到全量。
 - `.pi/tasks/`、`.pi/delegate/`、`.pi/fusion/` 可能属于存活会话，不能当临时垃圾删除。
 

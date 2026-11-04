@@ -27,9 +27,29 @@
 | M5 macOS 原生能力 | 未开始 | | |
 | M6 工具面 | 完成 | L1 | 见下 |
 | M7 真机验收与兼容矩阵 | fixture 与脚本完成，验收未运行 | 编译（fixture）/ 跳过（脚本） | 见下 |
-| M8 文档、版本与打包 | 未开始 | | |
+| M8 文档、版本与打包 | 文档完成；版本/打包未做 | 文档 | 见下 |
 
 ## 每个里程碑的记录
+
+### M8 文档、版本与打包（部分完成）
+
+- 已完成：
+  - 根 `CLAUDE.md` 第 4 节更新为“同意层而非隔离层”，写明协议 8、L2 白名单与 `ROTOM_CU_L2=0`、只有编译级证据；第 5 节记录了 trace 唯一例外。
+  - `docs/agent/change-checklists.md` 的 Browser / Computer Use 小节新增 8 条 v2 审查项（Broker 仲裁、分级/审批路由、宿主排除、停止语义、投递级别、trace 边界）。
+  - 新增 `docs/agent/computer-use-trace.md`（trace 合同、路径、权限、关闭方式、导出、未验证项）。
+  - `rotom/extensions/third-party/computer-use/regression.md` 增加 v2 段落，指向本 STATUS，说明新工具默认 deferred。
+  - `docs/agent/computer-use-v2/evidence/` 的 live-check / compat-matrix 记录“未运行”与运行命令。
+- 未做，以及为什么：
+  1. **组件版本与 vendored tgz 未改**。HANDOFF 要求升到 `0.5.1-rotom.3` 并重建 `rotom/extensions/third-party/vendor/injaneity-pi-computer-use-0.5.1-rotom.2.tgz`、同步 third-party lock 与产品 integrity pin。这台机器能编译 helper，但**不能运行**本地编译产物（`Killed: 9`），`rotom/` 也没有安装 node_modules，因此 `test:distribution`、`verify-pi-runtime` 都无法执行。只改版本号会让 `packages/rotom-computer-use/package.json` 与 vendored tgz 不一致；只重建 tgz 而不跑上述验证，等于把未验证二进制连同新的 integrity pin 留给产品。两者都会削弱“可证明”的要求，所以停在重建之前，保持 `0.5.1-rotom.2` 一致。
+  2. 因此 `pack:release` 不能在本次产出可发布 tgz；本分支的产物只是源码改动。
+- 恢复这一步的确切命令（在能运行 helper 的机器上，按 UPSTREAM.md）：
+  ```sh
+  cd packages/rotom-computer-use
+  tar xzf ../../rotom/extensions/third-party/vendor/injaneity-pi-computer-use-0.5.1-rotom.2.tgz --strip-components=1 package/prebuilt/windows package/prebuilt/linux
+  node scripts/build-native.mjs --arch all --sign-identity -
+  npm pack --ignore-scripts
+  # 然后更新 vendored tgz、third-party lock 与 product integrity pin，并跑 test:distribution
+  ```
 
 ### M7 真机验收与兼容矩阵（未运行验收）
 

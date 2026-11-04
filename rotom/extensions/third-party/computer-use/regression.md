@@ -31,3 +31,9 @@ node --experimental-strip-types --test --test-concurrency=1 rotom/extensions/thi
 本次验证：`check-personal` 88/88 通过；真实 loader、package identity 定向测试及默认/完整工具面 smoke + footprint 均通过，常驻 guideline bytes 不变。额外尝试的完整 `verify-pi-runtime.test.mjs` 在复制整个依赖目录的 symlink 用例阶段触及 120 秒时限，未完成；没有据此声称完整 verifier 通过。未执行真实 Electron 重放或付费模型评测。
 
 已经运行的 Pi 进程需空闲后 `/reload` 或重启 launcher 才加载新 wrapper；不需要替换 native helper。
+
+## Computer Use v2（分支持续开发中）
+
+v2 的 Broker 仲裁、策略/审批、trace、原生协议 8 与工具面在这一分支上分区实现，证据与未验证项以 [v2 状态](https://github.com/bingjiang0611/rotom/blob/claude/computer-use-v2/docs/agent/computer-use-v2/STATUS.md) 为准。这里的定向用例（`packages/rotom-computer-use/test/*.test.ts`，62 例）只证明 TS 组合层；原生层到编译为止，真机验收（`scripts/check-cu-v2-live.mjs`、`scripts/cu-v2-compat-matrix.mjs`）尚未运行。
+
+新工具（`manage_app`、`manage_window`、`clipboard`、`system_surface`、`cu_session`）默认 deferred，常驻 guideline bytes 与 `RESIDENT_BROWSER_TOOL_NAMES` 不变；需要时先 `search_tools`。
