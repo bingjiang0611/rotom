@@ -26,6 +26,7 @@ import { processAncestry } from "./broker/identity.ts";
 import { approvalCopy } from "./constants/copy.ts";
 import { describeSensitiveMatch, matchSensitiveAction } from "./policy/sensitive.ts";
 import { excludeHostRoots, hostTargetRefusal, resolveHostApp, type HostAppInfo } from "./policy/host-exclusion.ts";
+import { backgroundDelivery } from "./policy/l2-compat.ts";
 import { scoreWindow, shouldPreferForegroundModalWindow } from "./root-selection.ts";
 import { SavedStates, type CurrentCapture, type CurrentTarget, type OperationState } from "./state.ts";
 import { changesBetween, renderChanges, stabilizeRefs } from "./view.ts";
@@ -398,8 +399,13 @@ function currentDeliveryPolicy(): DeliveryPolicy {
 	return value === "background" || value === "pid" ? "background" : value === "foreground" || value === "hid" ? "foreground" : value === "ax_only" || value === "ax-only" ? "ax_only" : "default";
 }
 
-function nativeInputDelivery(policy = currentDeliveryPolicy()): NativeInputDelivery {
-	return policy === "foreground" ? "hid" : "pid";
+function nativeInputDelivery(policy = currentDeliveryPolicy(), target?: Pick<ResolvedTarget, "bundleId" | "appName">): NativeInputDelivery {
+	if (policy === "foreground") return "hid";
+	// Whitelisted apps get the window-targeted channel; everything else keeps
+	// pid-targeted posting. L2 fails closed with `foreground_required` when the
+	// platform build lacks the delivery symbol.
+	if (policy === "background" && target) return backgroundDelivery(target.bundleId, target.appName);
+	return "pid";
 }
 
 function executionTrace(
@@ -1362,7 +1368,7 @@ async function helperAct(
 
 function helperActRequest(target: ResolvedTarget, action: NativePreparedAction, policy = currentDeliveryPolicy()): PlatformActRequest {
 	const look = currentLookOrThrow();
-	const delivery = nativeInputDelivery(policy);
+	const delivery = nativeInputDelivery(policy, target);
 	const base = { lookId: look.lookId, pid: target.pid, target: action.target, policy };
 	return (() => {
 		switch (action.action) {

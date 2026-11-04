@@ -368,12 +368,154 @@ final class InputSuppressionGuard {
 
 }
 
+
+/// Marker written into `eventSourceUserData` on every event this helper posts.
+///
+/// The listen-only user activity tap uses it to tell agent input from real user
+/// input: an action that changes the frontmost app while the user is typing is
+/// reported as interference instead of being treated as agent progress.
+let agentEventMarker: Int64 = 0x524F544F
+
+private func userActivityTapCallback(
+	proxy: CGEventTapProxy,
+	type: CGEventType,
+	event: CGEvent,
+	userInfo: UnsafeMutableRawPointer?
+) -> Unmanaged<CGEvent>? {
+	if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+		if let raw = userInfo {
+			Unmanaged<UserActivityMonitor>.fromOpaque(raw).takeUnretainedValue().reenable()
+		}
+		return Unmanaged.passUnretained(event)
+	}
+	if let raw = userInfo {
+		Unmanaged<UserActivityMonitor>.fromOpaque(raw).takeUnretainedValue().observe(event: event)
+	}
+	return Unmanaged.passUnretained(event)
+}
+
+/// Listen-only counter for real user input, used for idle checks and for
+/// deciding whether an action interfered with the user.
+final class UserActivityMonitor {
+	private let lock = NSLock()
+	private var tap: CFMachPort?
+	private var source: CFRunLoopSource?
+	private var runLoop: CFRunLoop?
+	private var thread: Thread?
+	private var lastUserInputAt: TimeInterval = 0
+	private var userEventCount = 0
+	private var agentEventCount = 0
+	private(set) var listening = false
+
+	func start() {
+		lock.lock()
+		if tap != nil {
+			lock.unlock()
+			return
+		}
+		lock.unlock()
+
+		let mask = (1 << CGEventType.keyDown.rawValue)
+			| (1 << CGEventType.keyUp.rawValue)
+			| (1 << CGEventType.flagsChanged.rawValue)
+			| (1 << CGEventType.leftMouseDown.rawValue)
+			| (1 << CGEventType.rightMouseDown.rawValue)
+			| (1 << CGEventType.otherMouseDown.rawValue)
+			| (1 << CGEventType.scrollWheel.rawValue)
+			| (1 << CGEventType.mouseMoved.rawValue)
+			| (1 << CGEventType.leftMouseDragged.rawValue)
+		let maskValue = CGEventMask(mask)
+
+		let thread = Thread { [weak self] in
+			guard let self else { return }
+			let runLoop = CFRunLoopGetCurrent()
+			let opaque = Unmanaged.passUnretained(self).toOpaque()
+			guard let tap = CGEvent.tapCreate(
+				tap: .cgSessionEventTap,
+				place: .tailAppendEventTap,
+				options: .listenOnly,
+				eventsOfInterest: maskValue,
+				callback: userActivityTapCallback,
+				userInfo: opaque
+			) else { return }
+			self.lock.lock()
+			self.tap = tap
+			self.runLoop = runLoop
+			self.source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+			if let source = self.source {
+				CFRunLoopAddSource(runLoop, source, .commonModes)
+			}
+			self.listening = true
+			self.lock.unlock()
+			CGEvent.tapEnable(tap: tap, enable: true)
+			CFRunLoopRun()
+		}
+		thread.name = "pi-computer-use-user-activity"
+		lock.lock()
+		self.thread = thread
+		lock.unlock()
+		thread.start()
+	}
+
+	func reenable() {
+		lock.lock()
+		let tap = self.tap
+		lock.unlock()
+		if let tap {
+			CGEvent.tapEnable(tap: tap, enable: true)
+		}
+	}
+
+	func observe(event: CGEvent) {
+		let marker = event.getIntegerValueField(.eventSourceUserData)
+		lock.lock()
+		if marker == agentEventMarker {
+			agentEventCount += 1
+		} else {
+			userEventCount += 1
+			lastUserInputAt = Date().timeIntervalSince1970
+		}
+		lock.unlock()
+	}
+
+	func snapshot() -> [String: Any] {
+		lock.lock()
+		let last = lastUserInputAt
+		let listening = self.listening
+		let userEvents = userEventCount
+		let agentEvents = agentEventCount
+		lock.unlock()
+		let now = Date().timeIntervalSince1970
+		return [
+			"lastUserInputAt": last,
+			"idleSeconds": last == 0 ? -1 : max(0, now - last),
+			"listening": listening,
+			"userEventCount": userEvents,
+			"agentEventCount": agentEvents,
+		]
+	}
+
+	/// True when the user touched the machine within `window` seconds.
+	func userActive(within window: TimeInterval) -> Bool {
+		lock.lock()
+		let last = lastUserInputAt
+		lock.unlock()
+		guard last > 0 else { return false }
+		return Date().timeIntervalSince1970 - last <= window
+	}
+}
+
 final class Bridge {
-	private let protocolVersion = 7
+	private let protocolVersion = 8
 	private let refStore = AXRefStore()
 	private let inputSuppressionGuard = InputSuppressionGuard()
+	private let userActivityMonitor = UserActivityMonitor()
+	private lazy var stopControl = StopControl(link: BrokerLink(socketPath: BrokerLink.defaultSocketPath()))
 	private let physicalInputLock = NSRecursiveLock()
 	private let supportsAgentCursor = CommandLine.arguments.contains("serve")
+	private let semanticActions: Set<String> = [
+		"select", "setChecked", "expand", "collapse", "scrollTo", "focus", "clear", "setValue", "showMenu", "hover",
+	]
 	private let browserBundleIds: Set<String> = [
 		"com.apple.Safari", "com.google.Chrome", "org.chromium.Chromium", "company.thebrowser.Browser", "com.brave.Browser", "com.microsoft.edgemac", "com.vivaldi.Vivaldi", "net.imput.helium", "org.mozilla.firefox",
 	]
@@ -395,6 +537,17 @@ final class Bridge {
 
 	func run() {
 		if CommandLine.arguments.contains("serve") {
+			userActivityMonitor.start()
+			// The menu bar control is the user's own stop button: it lists agents
+			// from the broker and can stop one or all of them without a terminal.
+			stopControl.install()
+			// Two seconds is well inside the broker's 10s heartbeat timeout, so the
+			// helper never looks dead while still reporting fresh user activity.
+			Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+				guard let self else { return }
+				let activity = self.userActivityMonitor.snapshot()
+				self.stopControl.pushActivity(lastUserInputAt: (activity["lastUserInputAt"] as? Double) ?? 0)
+			}
 			let socketPath = argumentValue("--socket") ?? defaultSocketPath()
 			Thread.detachNewThread { [self] in runServer(socketPath: socketPath) }
 			NSApp.run()
@@ -651,6 +804,20 @@ final class Bridge {
 			return try axReadText(request)
 		case "getMousePosition":
 			return getMousePosition()
+		case "userActivity":
+			return userActivity()
+		case "clipboardGet":
+			return try clipboardGet(request)
+		case "clipboardSet":
+			return try clipboardSet(request)
+		case "clipboardClear":
+			return try clipboardClear(request)
+		case "manageApps":
+			return try manageApps(request)
+		case "manageWindow":
+			return try manageWindow(request)
+		case "systemSurfaces":
+			return try systemSurfaces(request)
 		default:
 			throw BridgeFailure(message: "Unknown command '\(cmd)'", code: "unknown_command")
 		}
@@ -1867,7 +2034,10 @@ final class Bridge {
 		let policy = optionalStringArg(request, "policy") ?? "default"
 		let deferRootDelta = boolArg(request, "deferRootDelta") ?? false
 		let axStylePolicy = policy == "ax_only" || policy == "background_text"
-		let delivery = policy == "background" || policy == "background_text" ? "pid" : ((params["delivery"] as? String) == "pid" ? "pid" : "hid")
+		let requestedDelivery = params["delivery"] as? String
+		let delivery = policy == "background" || policy == "background_text"
+			? "pid"
+			: (requestedDelivery == "l2" ? "l2" : (requestedDelivery == "pid" ? "pid" : "hid"))
 		var holdsPhysicalInput = false
 		func acquirePhysicalInputIfNeeded() {
 			if (delivery == "hid" || policy == "background_text") && !holdsPhysicalInput {
@@ -1890,8 +2060,21 @@ final class Bridge {
 		let beforeValue: String?
 		let beforeSelected: String?
 		func finish(_ response: [String: Any]) -> [String: Any] {
-			if deferRootDelta { return response }
-			return attachRootDelta(to: response, before: beforeRootSnapshot, beforeFrontmostPid: beforeFrontmostPid, pid: pid, eventsLive: eventsLive, eventCursor: eventCursor, beforeCgSignature: beforeCgSignature)
+			var enriched = response
+			// The frontmost app changed while the user was typing: report it as
+			// interference so the caller stops instead of continuing to act on a
+			// screen the user is now driving.
+			if !deferRootDelta,
+				let beforeFrontmostPid,
+				beforeFrontmostPid != NSWorkspace.shared.frontmostApplication?.processIdentifier,
+				userActivityMonitor.userActive(within: 2.0)
+			{
+				var observed = (enriched["performed"] as? [String: Any]) ?? [:]
+				observed["interferedWithUser"] = true
+				enriched["performed"] = observed
+			}
+			if deferRootDelta { return enriched }
+			return attachRootDelta(to: enriched, before: beforeRootSnapshot, beforeFrontmostPid: beforeFrontmostPid, pid: pid, eventsLive: eventsLive, eventCursor: eventCursor, beforeCgSignature: beforeCgSignature)
 		}
 
 		if let ref = target["ref"] as? String {
@@ -2027,6 +2210,19 @@ final class Bridge {
 			physicalInputLock.lock()
 			defer { physicalInputLock.unlock() }
 			return finish(backgroundIdeaText(pid: pid, window: window, windowID: record.windowId, element: element, text: params["text"] as? String ?? "", replace: action == "setText"))
+		}
+
+		if let element, semanticActions.contains(action) {
+			return finish(try performSemanticAction(
+				action: action,
+				element: element,
+				params: params,
+				pid: pid,
+				delivery: delivery,
+				performed: &performed,
+				coordinatePoint: coordinatePoint,
+				refreshElement: refreshElement
+			))
 		}
 
 		if let element, action == "press" || action == "click" {
@@ -3321,7 +3517,14 @@ final class Bridge {
 		optionalStringArg(request, "delivery") == "pid" ? "pid" : "hid"
 	}
 
-	private func postEvent(_ event: CGEvent, pid: Int32, delivery: String = "hid") {
+	private func postEvent(_ event: CGEvent, pid: Int32, delivery: String = "hid") throws {
+		// Every synthetic event carries the agent marker so the user activity tap
+		// can separate agent input from real user input.
+		event.setIntegerValueField(.eventSourceUserData, value: agentEventMarker)
+		if delivery == "l2" {
+			if postTargetedEvent(event, pid: pid) { return }
+			throw BridgeFailure(message: "Targeted background delivery is unavailable on this macOS build", code: "foreground_required")
+		}
 		if delivery == "pid" {
 			event.postToPid(pid)
 			return
@@ -3341,13 +3544,37 @@ final class Bridge {
 		event.post(tap: .cghidEventTap)
 	}
 
+	/// Private SkyLight entry point for window-targeted event delivery.
+	///
+	/// Resolved at runtime: when the symbol is missing on a future macOS build,
+	/// L2 stays disabled and the caller gets `foreground_required` instead of a
+	/// silent fallback to foreground HID input.
+	private typealias SkyLightPostToPid = @convention(c) (pid_t, CGEvent) -> Void
+
+	private func postTargetedEvent(_ event: CGEvent, pid: Int32) -> Bool {
+		guard let post = skyLightPostToPid else { return false }
+		post(pid, event)
+		return true
+	}
+
+	private static let skyLightPostToPidSymbol: SkyLightPostToPid? = {
+		guard let handle = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_NOW) else { return nil }
+		guard let symbol = dlsym(handle, "SLEventPostToPid") else {
+			dlclose(handle)
+			return nil
+		}
+		return unsafeBitCast(symbol, to: SkyLightPostToPid.self)
+	}()
+
+	private var skyLightPostToPid: SkyLightPostToPid? { Bridge.skyLightPostToPidSymbol }
+
 	private func postMouseMove(to point: CGPoint, pid: Int32, delivery: String = "hid") throws {
 		if delivery == "hid" { physicalInputLock.lock() }
 		defer { if delivery == "hid" { physicalInputLock.unlock() } }
 		guard let move = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left) else {
 			throw BridgeFailure(message: "Failed to create mouse move event", code: "input_failed")
 		}
-		postEvent(move, pid: pid, delivery: delivery)
+		try postEvent(move, pid: pid, delivery: delivery)
 	}
 
 	private func mouseButton(_ name: String) -> CGMouseButton {
@@ -3406,9 +3633,9 @@ final class Bridge {
 			}
 			down.setIntegerValueField(.mouseEventClickState, value: Int64(index))
 			up.setIntegerValueField(.mouseEventClickState, value: Int64(index))
-			postEvent(down, pid: pid, delivery: delivery)
+			try postEvent(down, pid: pid, delivery: delivery)
 			usleep(12_000)
-			postEvent(up, pid: pid, delivery: delivery)
+			try postEvent(up, pid: pid, delivery: delivery)
 			if index < clickCount {
 				usleep(70_000)
 			}
@@ -3425,14 +3652,14 @@ final class Bridge {
 		guard let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: first, mouseButton: .left) else {
 			throw BridgeFailure(message: "Failed to create mouse down event", code: "input_failed")
 		}
-		postEvent(down, pid: pid, delivery: delivery)
+		try postEvent(down, pid: pid, delivery: delivery)
 		usleep(12_000)
 
 		for point in points.dropFirst() {
 			guard let drag = CGEvent(mouseEventSource: nil, mouseType: mouseDraggedType(for: .left), mouseCursorPosition: point, mouseButton: .left) else {
 				throw BridgeFailure(message: "Failed to create mouse drag event", code: "input_failed")
 			}
-			postEvent(drag, pid: pid, delivery: delivery)
+			try postEvent(drag, pid: pid, delivery: delivery)
 			usleep(8_000)
 		}
 
@@ -3441,7 +3668,7 @@ final class Bridge {
 		else {
 			throw BridgeFailure(message: "Failed to create mouse up event", code: "input_failed")
 		}
-		postEvent(up, pid: pid, delivery: delivery)
+		try postEvent(up, pid: pid, delivery: delivery)
 	}
 
 	private func postScrollWheel(at point: CGPoint, deltaX: Int, deltaY: Int, pid: Int32, delivery: String = "hid") throws {
@@ -3459,7 +3686,7 @@ final class Bridge {
 			throw BridgeFailure(message: "Failed to create scroll event", code: "input_failed")
 		}
 		event.location = point
-		postEvent(event, pid: pid, delivery: delivery)
+		try postEvent(event, pid: pid, delivery: delivery)
 	}
 
 	private func modifierFlag(_ key: String) -> CGEventFlags? {
@@ -3549,8 +3776,8 @@ final class Bridge {
 		}
 		down.flags = flags
 		up.flags = flags
-		postEvent(down, pid: pid, delivery: delivery)
-		postEvent(up, pid: pid, delivery: delivery)
+		try postEvent(down, pid: pid, delivery: delivery)
+		try postEvent(up, pid: pid, delivery: delivery)
 		usleep(8_000)
 	}
 
@@ -3570,8 +3797,8 @@ final class Bridge {
 			}
 			setUnicodeString(event: down, text: char)
 			setUnicodeString(event: up, text: char)
-			postEvent(down, pid: pid, delivery: delivery)
-			postEvent(up, pid: pid, delivery: delivery)
+			try postEvent(down, pid: pid, delivery: delivery)
+			try postEvent(up, pid: pid, delivery: delivery)
 			usleep(8_000)
 		}
 	}
@@ -3584,9 +3811,9 @@ final class Bridge {
 		else { throw BridgeFailure(message: "Failed to create unicode text event", code: "input_failed") }
 		setUnicodeString(event: down, text: text)
 		setUnicodeString(event: up, text: text)
-		postEvent(down, pid: pid, delivery: delivery)
+		try postEvent(down, pid: pid, delivery: delivery)
 		usleep(8_000)
-		postEvent(up, pid: pid, delivery: delivery)
+		try postEvent(up, pid: pid, delivery: delivery)
 	}
 
 	/// Prefer physical key codes for characters represented by the US layout.
@@ -3629,5 +3856,811 @@ struct PiComputerUseHelper {
 		_ = NSApplication.shared
 		NSApp.setActivationPolicy(CommandLine.arguments.contains("serve") ? .accessory : .prohibited)
 		Bridge().run()
+	}
+}
+
+// MARK: - Computer Use v2: user activity, clipboard, app/window management, system surfaces
+
+extension Bridge {
+	/// Real user input seen by the listen-only tap, plus how much of the recent
+	/// input stream was ours. The broker uses `idleSeconds` to decide whether a
+	/// foreground takeover is allowed at all.
+	func userActivity() -> [String: Any] {
+		userActivityMonitor.snapshot()
+	}
+
+	/// Copy the current clipboard text. Length-limited so a huge payload cannot
+	/// become a tool result by surprise.
+	func clipboardGet(_ request: [String: Any]) throws -> [String: Any] {
+		let limit = optionalIntArg(request, "limit") ?? 20_000
+		let pasteboard = NSPasteboard.general
+		let text = pasteboard.string(forType: .string) ?? ""
+		let truncated = text.count > limit
+		return [
+			"text": truncated ? String(text.prefix(limit)) : text,
+			"truncated": truncated,
+			"changeCount": pasteboard.changeCount,
+			"available": !text.isEmpty,
+		]
+	}
+
+	func clipboardSet(_ request: [String: Any]) throws -> [String: Any] {
+		let text = try stringArg(request, "text")
+		let pasteboard = NSPasteboard.general
+		pasteboard.clearContents()
+		let wrote = pasteboard.setString(text, forType: .string)
+		return [
+			"changed": wrote,
+			"changeCount": pasteboard.changeCount,
+			// Never echo the payload back: the caller already has it.
+			"length": text.count,
+		]
+	}
+
+	func clipboardClear(_ request: [String: Any]) throws -> [String: Any] {
+		let pasteboard = NSPasteboard.general
+		pasteboard.clearContents()
+		return ["cleared": true, "changeCount": pasteboard.changeCount]
+	}
+
+	/// List, launch and quit applications without stealing focus.
+	func manageApps(_ request: [String: Any]) throws -> [String: Any] {
+		let mode = optionalStringArg(request, "mode") ?? "list"
+		switch mode {
+		case "list":
+			return ["apps": listApps()]
+		case "launch":
+			return try launchApp(request)
+		case "quit":
+			return try quitApp(request)
+		default:
+			throw BridgeFailure(message: "Unknown manageApps mode '\(mode)'", code: "invalid_args")
+		}
+	}
+
+	private func launchApp(_ request: [String: Any]) throws -> [String: Any] {
+		let bundleId = optionalStringArg(request, "bundleId")
+		let appPath = optionalStringArg(request, "path")
+		let activates = boolArg(request, "activates") ?? false
+		var url: URL?
+		if let appPath, !appPath.isEmpty {
+			url = URL(fileURLWithPath: appPath)
+		} else if let bundleId, !bundleId.isEmpty {
+			url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId)
+		}
+		guard let url else {
+			throw BridgeFailure(message: "No installed application matches that bundle id or path", code: "app_not_found")
+		}
+		if let bundleId, !bundleId.isEmpty,
+			let running = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleId })
+		{
+			// Do not relaunch or re-activate an app that is already running: the
+			// caller asked for a background launch, and activation would steal focus.
+			return ["launched": true, "alreadyRunning": true, "pid": Int(running.processIdentifier), "activated": false]
+		}
+		let configuration = NSWorkspace.OpenConfiguration()
+		configuration.activates = activates
+		configuration.createsNewApplicationInstance = false
+		var launchError: Error?
+		var launchedApp: NSRunningApplication?
+		// `openApplication` delivers its completion on the main queue, which this
+		// thread occupies, so wait on a background-resolved semaphore with a bound.
+		let semaphore = DispatchSemaphore(value: 0)
+		NSWorkspace.shared.openApplication(at: url, configuration: configuration) { app, error in
+			launchedApp = app
+			launchError = error
+			semaphore.signal()
+		}
+		let deadline = DispatchTime.now() + .seconds(5)
+		let waited = semaphore.wait(timeout: deadline) == .success
+		if let launchError {
+			throw BridgeFailure(message: "Failed to launch application: \(launchError.localizedDescription)", code: "app_launch_failed")
+		}
+		if !waited {
+			// Launch requests outlive the request/response window; report the
+			// observable fact instead of pretending the app is running.
+			return ["launched": false, "pending": true, "activated": activates]
+		}
+		return [
+			"launched": launchedApp != nil,
+			"alreadyRunning": false,
+			"pid": launchedApp.map { Int($0.processIdentifier) } ?? 0,
+			"activated": activates && (launchedApp?.isActive ?? false),
+		]
+	}
+
+	private func quitApp(_ request: [String: Any]) throws -> [String: Any] {
+		let pid = optionalIntArg(request, "pid").map { Int32($0) }
+		let bundleId = optionalStringArg(request, "bundleId")
+		let force = boolArg(request, "force") ?? false
+		let timeoutMs = optionalIntArg(request, "timeoutMs") ?? 3_000
+		guard let app = NSWorkspace.shared.runningApplications.first(where: { candidate in
+			if let pid { return candidate.processIdentifier == pid }
+			if let bundleId { return candidate.bundleIdentifier == bundleId }
+			return false
+		}) else {
+			throw BridgeFailure(message: "No running application matches that pid or bundle id", code: "app_not_found")
+		}
+		if app.processIdentifier == getpid() {
+			throw BridgeFailure(message: "Refusing to quit the Computer Use helper", code: "invalid_args")
+		}
+		let requested = force ? app.forceTerminate() : app.terminate()
+		var terminated = false
+		let deadline = Date().addingTimeInterval(Double(max(0, timeoutMs)) / 1000)
+		while Date() < deadline {
+			if app.isTerminated {
+				terminated = true
+				break
+			}
+			usleep(50_000)
+		}
+		return [
+			"quitRequested": requested,
+			"terminated": terminated,
+			"forced": force,
+			// A polite quit that has not finished yet is `unknown`, not success:
+			// the app may still be showing a save dialog.
+			"unsavedChangesMayBlock": !terminated && !force,
+		]
+	}
+
+	/// Move, resize, minimize, restore and maximize a window through AX. Nothing
+	/// here raises the window or activates the app.
+	func manageWindow(_ request: [String: Any]) throws -> [String: Any] {
+		let mode = optionalStringArg(request, "mode") ?? "list"
+		switch mode {
+		case "list":
+			return try listWindowFrames(request)
+		case "list_displays":
+			return listDisplays()
+		case "move", "resize", "maximize", "minimize", "restore":
+			return try mutateWindow(request, mode: mode)
+		default:
+			throw BridgeFailure(message: "Unknown manageWindow mode '\(mode)'", code: "invalid_args")
+		}
+	}
+
+	private func targetWindowElement(_ request: [String: Any]) throws -> (element: AXUIElement, pid: Int32, windowId: UInt32) {
+		let pid = Int32(try intArg(request, "pid"))
+		let windowId = optionalIntArg(request, "windowId").flatMap { UInt32(exactly: $0) }
+		guard let windowId else {
+			throw BridgeFailure(message: "manageWindow requires a windowId", code: "invalid_args")
+		}
+		guard let element = windowElement(pid: pid, windowId: windowId) else {
+			throw BridgeFailure(message: "Window \(windowId) of pid \(pid) is gone", code: "stale_window")
+		}
+		return (element, pid, windowId)
+	}
+
+	private func listWindowFrames(_ request: [String: Any]) throws -> [String: Any] {
+		let pid = optionalIntArg(request, "pid").map { Int32($0) }
+		let roots = try listRoots(pid: pid, title: optionalStringArg(request, "title"))["roots"] as? [[String: Any]] ?? []
+		return ["windows": roots]
+	}
+
+	private func listDisplays() -> [String: Any] {
+		let screens = NSScreen.screens.map { screen -> [String: Any] in
+			let number = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.intValue ?? 0
+			return [
+				"displayId": number,
+				"name": screen.localizedName,
+				"frame": ["x": Double(screen.frame.origin.x), "y": Double(screen.frame.origin.y), "w": Double(screen.frame.width), "h": Double(screen.frame.height)],
+				"visibleFrame": [
+					"x": Double(screen.visibleFrame.origin.x),
+					"y": Double(screen.visibleFrame.origin.y),
+					"w": Double(screen.visibleFrame.width),
+					"h": Double(screen.visibleFrame.height),
+				],
+				"scaleFactor": Double(screen.backingScaleFactor),
+				"isMain": screen == NSScreen.main,
+			]
+		}
+		return ["displays": screens]
+	}
+
+	private func mutateWindow(_ request: [String: Any], mode: String) throws -> [String: Any] {
+		let resolved = try targetWindowElement(request)
+		let element = resolved.element
+		let before: [String: Any] = ["frame": frameForElement(element).map(framePayload) ?? [:], "minimized": boolAttribute(element, attribute: kAXMinimizedAttribute as CFString) ?? false]
+
+		switch mode {
+		case "minimize":
+			if AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString, kCFBooleanTrue) != .success {
+				throw BridgeFailure(message: "The window refused to minimize", code: "window_move_failed")
+			}
+		case "restore":
+			_ = AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+		case "move":
+			guard let x = optionalDouble(request, "x"), let y = optionalDouble(request, "y") else {
+				throw BridgeFailure(message: "move requires x and y", code: "invalid_args")
+			}
+			try setWindowPosition(element, x: x, y: y)
+		case "resize":
+			guard let w = optionalDouble(request, "w"), let h = optionalDouble(request, "h"), w >= 1, h >= 1 else {
+				throw BridgeFailure(message: "resize requires positive w and h", code: "invalid_args")
+			}
+			try setWindowSize(element, width: w, height: h)
+		case "maximize":
+			let screen = NSScreen.main ?? NSScreen.screens.first
+			guard let frame = screen?.visibleFrame else {
+				throw BridgeFailure(message: "No display is available to maximize onto", code: "window_move_failed")
+			}
+			_ = AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+			try setWindowPosition(element, x: Double(frame.origin.x), y: Double(frame.origin.y))
+			try setWindowSize(element, width: Double(frame.width), height: Double(frame.height))
+		default:
+			throw BridgeFailure(message: "Unsupported window mutation '\(mode)'", code: "invalid_args")
+		}
+
+		let after: [String: Any] = ["frame": frameForElement(element).map(framePayload) ?? [:], "minimized": boolAttribute(element, attribute: kAXMinimizedAttribute as CFString) ?? false]
+		return [
+			"outcome": before.description == after.description ? "didnt" : "worked",
+			"windowId": Int(resolved.windowId),
+			"pid": Int(resolved.pid),
+			"before": before,
+			"after": after,
+			"activated": false,
+			"raised": false,
+		]
+	}
+
+	private func optionalDouble(_ request: [String: Any], _ key: String) -> Double? {
+		if let value = request[key] as? NSNumber { return value.doubleValue }
+		if let value = request[key] as? Double { return value }
+		if let value = request[key] as? Int { return Double(value) }
+		return nil
+	}
+
+	private func framePayload(_ rect: CGRect) -> [String: Any] {
+		["x": Double(rect.origin.x), "y": Double(rect.origin.y), "w": Double(rect.width), "h": Double(rect.height)]
+	}
+
+	private func setWindowPosition(_ element: AXUIElement, x: Double, y: Double) throws {
+		var point = CGPoint(x: x, y: y)
+		guard let value = AXValueCreate(.cgPoint, &point) else {
+			throw BridgeFailure(message: "Failed to encode window position", code: "window_move_failed")
+		}
+		if AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, value) != .success {
+			throw BridgeFailure(message: "The window refused the new position", code: "window_move_failed")
+		}
+	}
+
+	private func setWindowSize(_ element: AXUIElement, width: Double, height: Double) throws {
+		var size = CGSize(width: width, height: height)
+		guard let value = AXValueCreate(.cgSize, &size) else {
+			throw BridgeFailure(message: "Failed to encode window size", code: "window_move_failed")
+		}
+		if AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, value) != .success {
+			throw BridgeFailure(message: "The window refused the new size", code: "window_move_failed")
+		}
+	}
+
+	/// Menu bar extras, the notification list and the Dock are separate system
+	/// processes; expose their AX roots instead of inventing a private API.
+	func systemSurfaces(_ request: [String: Any]) throws -> [String: Any] {
+		let requested = optionalStringArg(request, "surface") ?? "all"
+		let surfaces: [String: String] = [
+			"notifications": "com.apple.notificationcenterui",
+			"menu_bar_extras": "com.apple.systemuiserver",
+			"control_center": "com.apple.controlcenter",
+			"dock": "com.apple.dock",
+		]
+		guard requested == "all" || surfaces[requested] != nil else {
+			throw BridgeFailure(message: "Unknown system surface '\(requested)'", code: "invalid_args")
+		}
+		let running = NSWorkspace.shared.runningApplications
+		var result: [String: Any] = [:]
+		for (name, bundleId) in surfaces where requested == "all" || requested == name {
+			guard let app = running.first(where: { $0.bundleIdentifier == bundleId }) else {
+				result[name] = ["available": false, "bundleId": bundleId]
+				continue
+			}
+			let roots = (try? listRoots(pid: app.processIdentifier, title: nil)["roots"] as? [[String: Any]]) ?? []
+			result[name] = [
+				"available": true,
+				"bundleId": bundleId,
+				"pid": Int(app.processIdentifier),
+				"roots": roots,
+			]
+		}
+		return ["surfaces": result]
+	}
+}
+
+// MARK: - Computer Use v2: semantic AX actions
+
+extension Bridge {
+	/// One place for the AX actions that are not "press the thing".
+	///
+	/// Every branch writes through AX first, verifies the attribute it wrote, and
+	/// only reports `worked` when the readback agrees. Roles that do not support
+	/// the attribute return `unsupported_action` with the roles that do, instead of
+	/// silently falling back to a coordinate click that could hit something else.
+	func performSemanticAction(
+		action: String,
+		element: AXUIElement,
+		params: [String: Any],
+		pid: Int32,
+		delivery: String,
+		performed: inout [String: Any],
+		coordinatePoint: () throws -> CGPoint,
+		refreshElement: () -> AXUIElement?
+	) throws -> [String: Any] {
+		switch action {
+		case "select":
+			return try selectElement(element: element, params: params, performed: &performed)
+		case "setChecked":
+			return try setChecked(element: element, params: params, performed: &performed)
+		case "expand", "collapse":
+			return try setExpanded(element: element, expanded: action == "expand", performed: &performed)
+		case "scrollTo":
+			let status = AXUIElementPerformAction(element, "AXScrollToVisible" as CFString)
+			guard status == .success else {
+				throw BridgeFailure(message: "This element cannot scroll itself into view", code: "unsupported_action")
+			}
+			performed["grounding"] = "description"
+			performed["delivery"] = "ax"
+			return ["outcome": "worked", "performed": performed, "evidence": ["scrollToVisible": true]]
+		case "focus":
+			let status = AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+			guard status == .success else {
+				throw BridgeFailure(message: "This element does not accept focus", code: "unsupported_action")
+			}
+			performed["grounding"] = "description"
+			performed["delivery"] = "ax"
+			performed["focused"] = true
+			let focused = boolAttribute(element, attribute: kAXFocusedAttribute as CFString) ?? false
+			return ["outcome": focused ? "worked" : "unknown", "performed": performed, "evidence": ["focused": focused]]
+		case "clear":
+			return try clearElement(element: element, performed: &performed, refreshElement: refreshElement)
+		case "setValue":
+			return try setElementValue(element: element, params: params, performed: &performed, refreshElement: refreshElement)
+		case "showMenu":
+			let status = AXUIElementPerformAction(element, kAXShowMenuAction as CFString)
+			guard status == .success else {
+				throw BridgeFailure(message: "This element has no context menu", code: "unsupported_action")
+			}
+			performed["grounding"] = "description"
+			performed["delivery"] = "ax"
+			return ["outcome": "worked", "performed": performed, "evidence": ["menuShown": true]]
+		case "hover":
+			// Hovering is pointer input by definition; without a targeted channel the
+			// only way to hover is to move the real cursor, which background mode forbids.
+			guard delivery != "hid" else {
+				throw BridgeFailure(message: "Hovering needs targeted pointer delivery, which this app does not support in the background", code: "foreground_required")
+			}
+			let point = try coordinatePoint()
+			try postMouseMove(to: point, pid: pid, delivery: delivery)
+			performed["grounding"] = "coordinates"
+			performed["delivery"] = delivery
+			return ["outcome": "worked", "performed": performed]
+		default:
+			throw BridgeFailure(message: "Unsupported semantic action '\\(action)'", code: "unsupported_action")
+		}
+	}
+
+	private func selectElement(element: AXUIElement, params: [String: Any], performed: inout [String: Any]) throws -> [String: Any] {
+		let role = stringAttribute(element, attribute: kAXRoleAttribute as CFString) ?? ""
+		let optionLabel = (params["option"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+		// A pop-up button carries its options as menu items; selecting one means
+		// pressing that item, not setting the button's value.
+		if ["AXPopUpButton", "AXComboBox", "AXMenuButton"].contains(role), let optionLabel, !optionLabel.isEmpty {
+			guard let item = menuItem(matching: optionLabel, in: element) else {
+				throw BridgeFailure(message: "No menu item matches '\\(optionLabel)'", code: "option_not_found")
+			}
+			let status = AXUIElementPerformAction(item, kAXPressAction as CFString)
+			guard status == .success else {
+				throw BridgeFailure(message: "The menu item refused to be selected", code: "select_failed")
+			}
+			performed["grounding"] = "description"
+			performed["delivery"] = "ax"
+			return ["outcome": "worked", "performed": performed, "evidence": ["selected": optionLabel]]
+		}
+
+		let selectableRoles: Set<String> = ["AXRow", "AXCell", "AXOutlineRow", "AXListItem", "AXTab", "AXRadioButton", "AXMenuItem", "AXTableRow"]
+		guard selectableRoles.contains(role) || supportsAction(element, action: kAXPressAction as CFString) else {
+			throw BridgeFailure(message: "Role \\(role) is not selectable", code: "unsupported_action")
+		}
+		var status = AXUIElementSetAttributeValue(element, kAXSelectedAttribute as CFString, kCFBooleanTrue)
+		if status != .success {
+			// Table rows and outline rows are selected through their parent's
+			// selection attribute, not their own.
+			status = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, kCFBooleanTrue)
+		}
+		if status != .success {
+			status = AXUIElementPerformAction(element, kAXPressAction as CFString)
+		}
+		guard status == .success else {
+			throw BridgeFailure(message: "This element refused selection", code: "select_failed")
+		}
+		performed["grounding"] = "description"
+		performed["delivery"] = "ax"
+		let selected = boolAttribute(element, attribute: kAXSelectedAttribute as CFString) ?? false
+		return ["outcome": selected ? "worked" : "unknown", "performed": performed, "evidence": ["selected": selected]]
+	}
+
+	private func menuItem(matching label: String, in element: AXUIElement) -> AXUIElement? {
+		let wanted = normalizedLabel(label)
+		var stack: [AXUIElement] = [element]
+		var visited = 0
+		while let current = stack.popLast(), visited < 400 {
+			visited += 1
+			let role = stringAttribute(current, attribute: kAXRoleAttribute as CFString) ?? ""
+			if role == "AXMenuItem" {
+				let title = stringAttribute(current, attribute: kAXTitleAttribute as CFString) ?? ""
+				if normalizedLabel(title) == wanted { return current }
+			}
+			stack.append(contentsOf: axElementArray(current, attribute: kAXChildrenAttribute as CFString))
+		}
+		return nil
+	}
+
+	private func setChecked(element: AXUIElement, params: [String: Any], performed: inout [String: Any]) throws -> [String: Any] {
+		guard let checked = params["checked"] as? Bool else {
+			throw BridgeFailure(message: "setChecked requires a boolean 'checked'", code: "invalid_args")
+		}
+		let role = stringAttribute(element, attribute: kAXRoleAttribute as CFString) ?? ""
+		guard ["AXCheckBox", "AXSwitch", "AXRadioButton", "AXToggle", "AXMenuItem"].contains(role) else {
+			throw BridgeFailure(message: "Role \\(role) is not a checkbox or switch", code: "unsupported_action")
+		}
+		let target = NSNumber(value: checked ? 1 : 0)
+		var status = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, target)
+		if status != .success {
+			status = AXUIElementSetAttributeValue(element, kAXSelectedAttribute as CFString, checked ? kCFBooleanTrue : kCFBooleanFalse)
+		}
+		guard status == .success else {
+			throw BridgeFailure(message: "This control refused the new checked state", code: "set_value_failed")
+		}
+		let readback = (boolAttribute(element, attribute: kAXValueAttribute as CFString)) ?? (boolAttribute(element, attribute: kAXSelectedAttribute as CFString))
+		performed["grounding"] = "description"
+		performed["delivery"] = "ax"
+		// Idempotent writes cannot prove the state changed; report what is there now.
+		return ["outcome": readback == nil ? "unknown" : (readback == checked ? "worked" : "didnt"), "performed": performed, "evidence": ["checked": readback.map { $0 as Any } ?? NSNull()]]
+	}
+
+	private func setExpanded(element: AXUIElement, expanded: Bool, performed: inout [String: Any]) throws -> [String: Any] {
+		let value: CFBoolean = expanded ? kCFBooleanTrue : kCFBooleanFalse
+		var status = AXUIElementSetAttributeValue(element, kAXExpandedAttribute as CFString, value)
+		if status != .success, let attribute = attributeNames(of: element).first(where: { $0 == "AXDisclosing" }) {
+			status = AXUIElementSetAttributeValue(element, attribute as CFString, value)
+		}
+		guard status == .success else {
+			throw BridgeFailure(message: "This element cannot \(expanded ? "expand" : "collapse")", code: "unsupported_action")
+		}
+		performed["grounding"] = "description"
+		performed["delivery"] = "ax"
+		let readback = boolAttribute(element, attribute: kAXExpandedAttribute as CFString)
+		return ["outcome": readback == nil ? "unknown" : (readback == expanded ? "worked" : "didnt"), "performed": performed, "evidence": ["expanded": readback.map { $0 as Any } ?? NSNull()]]
+	}
+
+	private func clearElement(element: AXUIElement, performed: inout [String: Any], refreshElement: () -> AXUIElement?) throws -> [String: Any] {
+		let role = stringAttribute(element, attribute: kAXRoleAttribute as CFString) ?? ""
+		let editableRoles: Set<String> = ["AXTextField", "AXTextArea", "AXTextView", "AXSearchField", "AXComboBox", "AXEditableText"]
+		guard editableRoles.contains(role) else {
+			throw BridgeFailure(message: "Role \\(role) is not an editable field", code: "unsupported_action")
+		}
+		var target = element
+		var status = AXUIElementSetAttributeValue(target, kAXValueAttribute as CFString, "" as CFTypeRef)
+		if status != .success, let refreshed = refreshElement() {
+			target = refreshed
+			status = AXUIElementSetAttributeValue(target, kAXValueAttribute as CFString, "" as CFTypeRef)
+		}
+		guard status == .success else {
+			throw BridgeFailure(message: "This field refused to be cleared", code: "set_value_failed")
+		}
+		performed["grounding"] = "description"
+		performed["delivery"] = "ax"
+		let value = stringAttribute(target, attribute: kAXValueAttribute as CFString) ?? ""
+		return ["outcome": value.isEmpty ? "worked" : "didnt", "performed": performed, "evidence": ["value": value]]
+	}
+
+	private func setElementValue(element: AXUIElement, params: [String: Any], performed: inout [String: Any], refreshElement: () -> AXUIElement?) throws -> [String: Any] {
+		guard let raw = params["value"] else {
+			throw BridgeFailure(message: "setValue requires a numeric 'value'", code: "invalid_args")
+		}
+		let role = stringAttribute(element, attribute: kAXRoleAttribute as CFString) ?? ""
+		let numericRoles: Set<String> = ["AXSlider", "AXStepper", "AXIncrementor", "AXValueIndicator", "AXProgressIndicator"]
+		guard numericRoles.contains(role) else {
+			throw BridgeFailure(message: "Role \\(role) is not a numeric control; use setText for text fields", code: "unsupported_action")
+		}
+		let number: NSNumber
+		if let value = raw as? NSNumber {
+			number = value
+		} else if let value = raw as? Double {
+			number = NSNumber(value: value)
+		} else {
+			throw BridgeFailure(message: "setValue requires a numeric 'value'", code: "invalid_args")
+		}
+		var target = element
+		var status = AXUIElementSetAttributeValue(target, kAXValueAttribute as CFString, number)
+		if status != .success, let refreshed = refreshElement() {
+			target = refreshed
+			status = AXUIElementSetAttributeValue(target, kAXValueAttribute as CFString, number)
+		}
+		performed["grounding"] = "description"
+		performed["delivery"] = "ax"
+		guard status == .success else {
+			throw BridgeFailure(message: "This control refused the new value", code: "set_value_failed")
+		}
+		let readback = (attributeValue(target, attribute: kAXValueAttribute as CFString) as? NSNumber)?.doubleValue
+		let matches = readback.map { abs($0 - number.doubleValue) < 0.001 } ?? false
+		return ["outcome": readback == nil ? "unknown" : (matches ? "worked" : "didnt"), "performed": performed, "evidence": ["value": readback.map { $0 as Any } ?? NSNull()]]
+	}
+
+	private func attributeValue(_ element: AXUIElement, attribute: CFString) -> Any? {
+		var value: CFTypeRef?
+		guard AXUIElementCopyAttributeValue(element, attribute, &value) == .success else { return nil }
+		return value
+	}
+
+	private func attributeNames(of element: AXUIElement) -> [String] {
+		var names: CFArray?
+		guard AXUIElementCopyAttributeNames(element, &names) == .success, let list = names as? [String] else { return [] }
+		return list
+	}
+}
+
+// MARK: - Computer Use v2: user stop control
+
+/// Minimal broker client used by the menu bar control and the stop hotkey.
+///
+/// The broker owns every arbitration decision; the helper only asks it to stop
+/// agents and lists what it reports. One persistent connection keeps the
+/// helper's registration stable for the life of the process.
+final class BrokerLink {
+	private let socketPath: String
+	private var fd: Int32 = -1
+	private let lock = NSLock()
+
+	init(socketPath: String) {
+		self.socketPath = socketPath
+	}
+
+	static func defaultSocketPath(environment: [String: String] = ProcessInfo.processInfo.environment) -> String {
+		if let configured = environment["ROTOM_CU_BROKER_SOCKET"], !configured.isEmpty { return configured }
+		let home = FileManager.default.homeDirectoryForCurrentUser.path
+		return "\(home)/Library/Caches/rotom-computer-use/broker.sock"
+	}
+
+	private func connect() -> Bool {
+		if fd >= 0 { return true }
+		let socketFd = socket(AF_UNIX, SOCK_STREAM, 0)
+		if socketFd < 0 { return false }
+		var address = sockaddr_un()
+		address.sun_family = sa_family_t(AF_UNIX)
+		let capacity = MemoryLayout.size(ofValue: address.sun_path)
+		let bytes = Array(socketPath.utf8.prefix(capacity - 1))
+		withUnsafeMutablePointer(to: &address.sun_path) { pointer in
+			pointer.withMemoryRebound(to: CChar.self, capacity: capacity) { dest in
+				for (index, byte) in bytes.enumerated() { dest[index] = CChar(bitPattern: byte) }
+			}
+		}
+		let connected = withUnsafePointer(to: &address) { pointer in
+			pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind in
+				Darwin.connect(socketFd, bind, socklen_t(MemoryLayout<sockaddr_un>.size))
+			}
+		}
+		guard connected == 0 else {
+			close(socketFd)
+			return false
+		}
+		var timeout = timeval(tv_sec: 2, tv_usec: 0)
+		_ = setsockopt(socketFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+		_ = setsockopt(socketFd, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+		fd = socketFd
+		guard handshake() else {
+			close(fd)
+			fd = -1
+			return false
+		}
+		return true
+	}
+
+	private func handshake() -> Bool {
+		guard let reply = exchange([
+			"id": "hello-\(getpid())",
+			"type": "hello",
+			"protocolVersion": 1,
+			"agent": [
+				"agentId": "helper:\(getpid())",
+				"hasUI": true,
+				"pid": Int(getpid()),
+				"pidChain": [],
+			],
+		]) else { return false }
+		return (reply["ok"] as? Bool) == true
+	}
+
+	/// One request/response round trip. The caller never retries a write here:
+	/// `stop` is idempotent at the broker (revoking an absent lease is a no-op).
+	func request(_ payload: [String: Any]) -> [String: Any]? {
+		lock.lock()
+		defer { lock.unlock() }
+		guard connect() else { return nil }
+		guard let reply = exchange(payload) else {
+			close(fd)
+			fd = -1
+			return nil
+		}
+		return reply
+	}
+
+	private func exchange(_ payload: [String: Any]) -> [String: Any]? {
+		guard JSONSerialization.isValidJSONObject(payload),
+			let data = try? JSONSerialization.data(withJSONObject: payload)
+		else { return nil }
+		var line = data
+		line.append(0x0A)
+		let wrote = line.withUnsafeBytes { raw -> Int in
+			guard let base = raw.baseAddress else { return -1 }
+			return write(fd, base, raw.count)
+		}
+		if wrote <= 0 { return nil }
+		var buffer = Data()
+		var byte = [UInt8](repeating: 0, count: 4096)
+		while true {
+			if let newline = buffer.firstIndex(of: 0x0A) {
+				let lineData = buffer.subdata(in: 0..<newline)
+				return (try? JSONSerialization.jsonObject(with: lineData)) as? [String: Any]
+			}
+			let read = Darwin.read(fd, &byte, byte.count)
+			if read <= 0 { return nil }
+			buffer.append(contentsOf: byte[0..<read])
+		}
+	}
+
+	func closeLink() {
+		lock.lock()
+		defer { lock.unlock() }
+		if fd >= 0 {
+			close(fd)
+			fd = -1
+		}
+	}
+}
+
+/// Menu bar control: every agent the broker knows about, with a per-agent stop
+/// and a global stop, plus the `Ctrl+Option+Cmd+.` chord.
+final class StopControl: NSObject, NSMenuDelegate {
+	private let link: BrokerLink
+	private var statusItem: NSStatusItem?
+	private var agents: [[String: Any]] = []
+	private var chordTap: CFMachPort?
+	private var chordRunLoop: CFRunLoop?
+	private var lastStopAt: TimeInterval = 0
+
+	init(link: BrokerLink) {
+		self.link = link
+	}
+
+	func install() {
+		DispatchQueue.main.async { [weak self] in
+			guard let self else { return }
+			let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+			item.button?.title = "CU"
+			item.button?.toolTip = "Rotom Computer Use"
+			let menu = NSMenu()
+			menu.delegate = self
+			item.menu = menu
+			self.statusItem = item
+			self.startChordTap()
+		}
+	}
+
+	/// Only this one chord is consumed; every other keystroke passes through and
+	/// keeps the user's keyboard behavior intact.
+	///
+	/// An active tap puts the helper in the path of every keystroke, so it is only
+	/// installed when Accessibility is already granted and the helper can be
+	/// trusted to pass events through.
+	private func startChordTap() {
+		guard AXIsProcessTrusted() else { return }
+		let thread = Thread { [weak self] in
+			guard let self else { return }
+			let mask = CGEventMask(1 << CGEventType.keyDown.rawValue)
+			let opaque = Unmanaged.passUnretained(self).toOpaque()
+			guard let tap = CGEvent.tapCreate(
+				tap: .cgSessionEventTap,
+				place: .headInsertEventTap,
+				options: .defaultTap,
+				eventsOfInterest: mask,
+				callback: { _, type, event, userInfo in
+					guard let userInfo else { return Unmanaged.passUnretained(event) }
+					let control = Unmanaged<StopControl>.fromOpaque(userInfo).takeUnretainedValue()
+					if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+						control.reenableChordTap()
+						return Unmanaged.passUnretained(event)
+					}
+					return control.handleChord(event: event) ? nil : Unmanaged.passUnretained(event)
+				},
+				userInfo: opaque
+			) else { return }
+			self.chordRunLoop = CFRunLoopGetCurrent()
+			self.chordTap = tap
+			if let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) {
+				CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
+			}
+			CGEvent.tapEnable(tap: tap, enable: true)
+			CFRunLoopRun()
+		}
+		thread.name = "pi-computer-use-stop-hotkey"
+		thread.start()
+	}
+
+	private func reenableChordTap() {
+		if let tap = chordTap { CGEvent.tapEnable(tap: tap, enable: true) }
+	}
+
+	private func handleChord(event: CGEvent) -> Bool {
+		let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+		guard keyCode == 47 else { return false } // '.'
+		let flags = event.flags
+		let required: CGEventFlags = [.maskControl, .maskAlternate, .maskCommand]
+		guard flags.contains(required) else { return false }
+		let now = Date().timeIntervalSince1970
+		guard now - lastStopAt > 1 else { return true }
+		lastStopAt = now
+		stopAll()
+		return true
+	}
+
+	func menuWillOpen(_ menu: NSMenu) {
+		refresh()
+		menu.removeAllItems()
+		let header = NSMenuItem(title: agents.isEmpty ? "No agents are attached" : "\(agents.count) agent(s) attached", action: nil, keyEquivalent: "")
+		header.isEnabled = false
+		menu.addItem(header)
+		for agent in agents {
+			let agentId = agent["agentId"] as? String ?? "unknown"
+			let resources = (agent["leases"] as? [[String: Any]] ?? []).compactMap { $0["resourceKey"] as? String }
+			let title = resources.isEmpty ? "Stop \(agentId)" : "Stop \(agentId) — \(resources.joined(separator: ", "))"
+			let item = NSMenuItem(title: title, action: #selector(stopAgentFromMenu(_:)), keyEquivalent: "")
+			item.target = self
+			item.representedObject = agentId
+			menu.addItem(item)
+		}
+		menu.addItem(.separator())
+		let stopAllItem = NSMenuItem(title: "Stop all agents (⌃⌥⌘.)", action: #selector(stopAllFromMenu), keyEquivalent: "")
+		stopAllItem.target = self
+		menu.addItem(stopAllItem)
+	}
+
+	private func refresh() {
+		guard let reply = link.request(["id": "status-\(Int(Date().timeIntervalSince1970 * 1000))", "type": "status"]),
+			let status = reply["status"] as? [String: Any]
+		else {
+			agents = []
+			return
+		}
+		agents = status["agents"] as? [[String: Any]] ?? []
+	}
+
+	/// Push real user input time to the broker so foreground takeover decisions
+	/// use the same clock as the arbitration. A `ping` carries it; there is no
+	/// separate activity channel to keep in sync.
+	func pushActivity(lastUserInputAt: TimeInterval) {
+		guard lastUserInputAt > 0 else { return }
+		_ = link.request([
+			"id": "activity-\(Int(Date().timeIntervalSince1970 * 1000))",
+			"type": "ping",
+			"lastUserInputAt": Int(lastUserInputAt * 1000),
+		])
+	}
+
+	private func stopAll() {
+		_ = link.request(["id": "stop-all-\(Int(Date().timeIntervalSince1970 * 1000))", "type": "stop"])
+	}
+
+	@objc private func stopAllFromMenu() {
+		stopAll()
+	}
+
+	@objc private func stopAgentFromMenu(_ sender: NSMenuItem) {
+		guard let agentId = sender.representedObject as? String else { return }
+		_ = link.request([
+			"id": "stop-\(agentId)-\(Int(Date().timeIntervalSince1970 * 1000))",
+			"type": "stop",
+			"targetAgentId": agentId,
+		])
 	}
 }

@@ -31,6 +31,26 @@
 
 ## 每个里程碑的记录
 
+### M5 macOS 原生（协议 8）
+
+- 实现摘要：`native/macos/bridge.swift` 协议 7 → 8。
+  - **用户活动**：`UserActivityMonitor` 常驻 listen-only `CGEventTap`（`cgSessionEventTap`/`tailAppendEventTap`），统计不带 agent 标记的真实输入，`userActivity` 命令返回 `lastUserInputAt/idleSeconds/listening/userEventCount/agentEventCount`；helper 每 2 秒用 `ping.lastUserInputAt` 把时间推给 Broker（复用 M1 已有字段，没有新增协议通道）。
+  - **agent 标记**：所有合成事件写 `eventSourceUserData = 0x524F544F`，用户活动 tap 据此区分 agent 事件。
+  - **干扰检测**：动作结束时若前台 pid 变化且 2 秒内有真实用户输入，`performed.interferedWithUser = true`。
+  - **L2 定向投递**：`SkyLight` 的 `SLEventPostToPid` 运行时 `dlopen`/`dlsym` 解析，缺失即抛 `foreground_required`（不回退 HID）；新增 `src/policy/l2-compat.ts` 白名单（仅 IntelliJ 两个 bundle id）+ `ROTOM_CU_L2=0` 强制回到 pid 投递；`nativeInputDelivery()` 在后台策略下按白名单选择 `l2`/`pid`。
+  - **语义动作**：`act` 新增 `select`（含 popup/combo 的 `option` 菜单项）、`setChecked`、`expand`/`collapse`、`scrollTo`、`focus`、`clear`、`setValue`、`showMenu`、`hover`（无定向通道时 `foreground_required`）；每个分支写完都回读校验，角色不支持时返回 `unsupported_action` 而不是退化成坐标点击。
+  - **新命令**：`clipboardGet/Set/Clear`、`manageApps`（list/launch 不激活/quit 礼貌退出 + 是否仍在运行）、`manageWindow`（list/move/resize/minimize/restore/maximize/list_displays，全部不 raise）、`systemSurfaces`（通知中心/菜单栏 extras/ControlCenter/Dock 的 AX 根）。
+  - **用户停止**：菜单栏状态项列出 Broker 里每个 agent 及其占用 App，可单独停或全部停；`Ctrl+Option+Cmd+.` 全局快捷键用 headInsert 主动 tap **只吞这一个组合键**，其余按键原样放行，仅在已获得 Accessibility 时安装，tap 被系统禁用会自动重开。helper 通过 `BrokerLink`（Unix socket + `hello`/`status`/`stop`/`ping`）直接找 Broker 要状态。
+- 新增或修改的测试：`test/l2-compat.test.ts`（3 例，白名单/理由/`ROTOM_CU_L2=0`）；`test/helper-protocol.test.ts` 改为按导出的 `HELPER_PROTOCOL_VERSION` 断言（协议 7 现在正确判为不匹配）。会因旧行为失败的反例：非白名单 App 拿到 `l2`；`ROTOM_CU_L2=0` 仍走定向投递；协议 7 的 helper 被当成匹配。
+- 自证命令与结果：`node scripts/build-native.mjs --arch arm64 --output /tmp/cu-bridge-m5` → 成功（698 KB arm64，5 次迭代修正编译错误）；`npm test` → 57 pass / 0 fail。
+- 未验证项（本机不能运行任何本地编译产物，`Killed: 9`，见环境记录）：
+  1. 全部原生行为只到**编译通过**：协议 8 握手、listen-only 活动 tap、`SLEventPostToPid` 是否存在/是否真的不移动光标、L2 点击能否被 IntelliJ 接受、语义动作的实际回读、剪贴板 30 秒恢复、窗口 move/resize/maximize、系统表面 AX 根、菜单栏项与快捷键。
+  2. 活动 tap 与主动 tap 的 CPU 开销、tap 被系统禁用的频率未测。
+  3. `SLEventPostToPid` 是私有符号，签名按社区惯例写为 `(pid_t, CGEventRef)`；若签名不符会崩溃而不是报错。
+  4. 剪贴板 `set` 后 30 秒恢复用户原剪贴板**尚未实现**（只在 helper 侧有 get/set/clear），需要 M6 工具面配合实现，见“需要审核者回答的问题”。
+- 顺带修正：`connectWithRetry` 的等待预算从 5 秒提到 15 秒。全量测试并行启动多个 broker 时，5 秒会被慢机超出，导致 `broker-socket`/`broker-scheduler` 间歇失败（同一用例单独跑 6 次全过，全量跑 3 次里有 2 次失败）。提高到 15 秒后连续 3 次全量 57/57。这是测试/启动健壮性修正，不改变仲裁语义。
+- 与 PLAN 的偏差及原因：①`hover` 与 `L2` 失败一律 `foreground_required`，不静默降级；②L2 白名单在 TS 侧，helper 不判断 App 名；③停止快捷键只在 Accessibility 已授权时安装（主动 tap 会进入每个按键的处理路径，未授权时宁可没有快捷键）。
+
 ### M4 Trace
 
 - 实现摘要：新增 `src/trace/recorder.ts`（每 agent 一个 JSONL + 同会话 `shots/`；`0700`/`0600`；只从 trace 根往下逐段拒 symlink；7 天保留、单会话 500 MB 上限，超限先删最旧截图；`ROTOM_CU_TRACE=0` 完全关闭；写失败只计数不打断动作）、`src/trace/report.ts`（本地 Markdown 报告 + 截图时间线）。config 新增 `trace` / `trace_screenshots`（默认 true，可用配置文件、`.pi/computer-use.json` 或 `ROTOM_CU_TRACE[_SCREENSHOTS]` 覆盖）。bridge 在 `makeToolExecutor` 里为每次工具调用记一行：工具名、目标 role/ref、App/窗口、投递方式、状态、耗时、证据摘要、截图文件名、租约归属；`redactParams` 把 `text/value/secret/content/typed` 递归替换为 `{length, sha256}`；截图取实际交付给模型的 image content 落盘。根 `CLAUDE.md` 第 5 节与新增 `docs/agent/computer-use-trace.md` 写明这是唯一例外及其边界。

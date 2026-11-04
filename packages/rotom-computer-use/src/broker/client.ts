@@ -350,7 +350,10 @@ function connectOnce(socketPath: string): Promise<net.Socket> {
 
 async function connectWithRetry(socketPath: string, daemon?: DaemonHandle): Promise<net.Socket> {
 	let lastError: unknown;
-	const deadline = Date.now() + 5_000;
+	// A cold machine starting the daemon while several other Pi processes boot can
+	// legitimately take a few seconds; waiting longer here only costs time when no
+	// broker is going to appear at all.
+	const deadline = Date.now() + 15_000;
 	while (Date.now() < deadline) {
 		try {
 			return await connectOnce(socketPath);
