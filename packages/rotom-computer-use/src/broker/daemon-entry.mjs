@@ -10,10 +10,16 @@
  * `node_modules` and runs it there, so one code path serves both a source checkout
  * and an installed package without a bundled transpiler.
  *
+ * The staging directory is not a scratch space anyone may write to: it is inside
+ * the broker's own private root (`$ROTOM_CU_BROKER_SOCKET`'s directory, 0700,
+ * symlinks rejected), replaced atomically by rename, and every import re-checks
+ * the staged bytes against the source fingerprint. A predictable directory name
+ * must not be enough for another user to get code executed here.
+ *
  * Plain JavaScript on purpose: this file itself must run from `node_modules`.
  */
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -37,10 +43,10 @@ function collect(target, found = []) {
 	return found;
 }
 
-function fingerprint(files) {
+function hashFiles(root, files) {
 	const hash = createHash("sha256");
 	for (const file of files) {
-		hash.update(path.relative(srcRoot, file));
+		hash.update(path.relative(root, file));
 		hash.update("\0");
 		hash.update(readFileSync(file));
 		hash.update("\0");
@@ -48,22 +54,100 @@ function fingerprint(files) {
 	return hash.digest("hex").slice(0, 16);
 }
 
-/** Stage the sources outside `node_modules` and return the staged entry path. */
-function stage() {
-	const files = ENTRIES.flatMap((entry) => collect(path.join(srcRoot, entry)));
-	const fingerprintValue = fingerprint(files);
-	const staged = path.join(os.tmpdir(), `rotom-cu-broker-stage-${fingerprintValue}`, "src");
-	const marker = path.join(staged, ".complete");
-	if (!existsSync(marker)) {
-		for (const file of files) {
-			const destination = path.join(staged, path.relative(srcRoot, file));
-			mkdirSync(path.dirname(destination), { recursive: true });
-			writeFileSync(destination, readFileSync(file));
-		}
-		writeFileSync(marker, `${files.length}\n`);
+function assertNotSymlink(target) {
+	if (existsSync(target) && lstatSync(target).isSymbolicLink()) {
+		throw new Error(`${target} is a symlink; refusing to stage broker sources through it.`);
 	}
-	return path.join(staged, "broker", "daemon.ts");
 }
 
-const entry = stage();
-await import(pathToFileURL(entry).href);
+/** Create a 0700 directory, mirroring `ensurePrivateDir` without importing it. */
+function ensurePrivateDir(dir) {
+	assertNotSymlink(dir);
+	if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
+	const stats = lstatSync(dir);
+	if (!stats.isDirectory()) throw new Error(`${dir} is not a directory.`);
+	if ((stats.mode & 0o077) !== 0) chmodSync(dir, 0o700);
+}
+
+/** The broker's private root: the socket's directory, so tests isolate it too. */
+function privateRoot(environment) {
+	const configured = environment.ROTOM_CU_BROKER_SOCKET?.trim();
+	const socketPath = configured ? path.resolve(configured) : path.join(os.homedir(), "Library", "Caches", "rotom-computer-use", "broker.sock");
+	return path.dirname(socketPath);
+}
+
+/**
+ * Whether a staged copy still matches the sources it came from. Recomputed from
+ * the staged bytes, so a file edited after staging is detected before import.
+ */
+function stagedIsIntact(stagedRoot, relativeFiles, expectedFingerprint) {
+	try {
+		for (const relative of relativeFiles) {
+			const staged = path.join(stagedRoot, relative);
+			assertNotSymlink(staged);
+			if (!existsSync(staged) || !statSync(staged).isFile()) return false;
+		}
+		return hashFiles(stagedRoot, relativeFiles.map((relative) => path.join(stagedRoot, relative))) === expectedFingerprint;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Stage the daemon sources under the broker's private root and return the staged
+ * entry path plus the directory that was used.
+ */
+export function stageDaemonSources(environment = process.env) {
+	const files = ENTRIES.flatMap((entry) => collect(path.join(srcRoot, entry)));
+	const relativeFiles = files.map((file) => path.relative(srcRoot, file));
+	const fingerprint = hashFiles(srcRoot, files);
+	const root = privateRoot(environment);
+	const stagingRoot = path.join(root, "stage");
+	ensurePrivateDir(root);
+	ensurePrivateDir(stagingRoot);
+
+	const stagedRoot = path.join(stagingRoot, fingerprint);
+	if (!stagedIsIntact(stagedRoot, relativeFiles, fingerprint)) {
+		// Build beside the target and rename, so a partially written tree is never
+		// importable under the final name.
+		const temporary = path.join(stagingRoot, `.tmp-${process.pid}-${Date.now().toString(36)}`);
+		rmSync(temporary, { recursive: true, force: true });
+		mkdirSync(temporary, { recursive: true, mode: 0o700 });
+		for (const relative of relativeFiles) {
+			const destination = path.join(temporary, relative);
+			mkdirSync(path.dirname(destination), { recursive: true, mode: 0o700 });
+			writeFileSync(destination, readFileSync(path.join(srcRoot, relative)));
+		}
+		rmSync(stagedRoot, { recursive: true, force: true });
+		try {
+			renameSync(temporary, stagedRoot);
+		} catch (error) {
+			// Another daemon may have staged the same fingerprint first; that copy is
+			// equivalent, so keep it and drop ours.
+			rmSync(temporary, { recursive: true, force: true });
+			if (!stagedIsIntact(stagedRoot, relativeFiles, fingerprint)) throw error;
+		}
+	}
+
+	if (!stagedIsIntact(stagedRoot, relativeFiles, fingerprint)) {
+		throw new Error(`Staged broker sources in ${stagedRoot} do not match the installed package; refusing to run them.`);
+	}
+	return { entry: path.join(stagedRoot, "broker", "daemon.ts"), stagedRoot, fingerprint };
+}
+
+/** Compare real paths: `/tmp` and `/var` are symlinks on macOS. */
+function invokedDirectly() {
+	const candidate = process.argv[1];
+	if (!candidate) return false;
+	try {
+		return realpathSync(candidate) === realpathSync(import.meta.filename);
+	} catch {
+		return false;
+	}
+}
+
+
+if (invokedDirectly()) {
+	const { entry } = stageDaemonSources();
+	await import(pathToFileURL(entry).href);
+}

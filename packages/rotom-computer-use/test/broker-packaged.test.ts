@@ -13,11 +13,11 @@
  */
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { cpSync, existsSync, mkdtempSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { BrokerClient } from "../src/broker/client.ts";
 import type { AgentRegistration } from "../src/broker/protocol.ts";
 
@@ -26,6 +26,7 @@ let sandbox: string;
 let installedPackage: string;
 let socketPath: string;
 let spawnedDaemon: import("node:child_process").ChildProcess | undefined;
+let daemonStderr = "";
 
 before(() => {
 	sandbox = mkdtempSync(path.join(tmpdir(), "rotom-cu-packaged-"));
@@ -82,7 +83,10 @@ test("the packaged daemon entry serves a client from inside node_modules", async
 			env: { ...process.env, ROTOM_CU_BROKER_SOCKET: socketPath },
 			cwd: sandbox,
 			detached: true,
-			stdio: "ignore",
+			stdio: ["ignore", "ignore", "pipe"],
+		});
+		spawnedDaemon.stderr?.on("data", (chunk) => {
+			daemonStderr += String(chunk);
 		});
 		spawnedDaemon.unref();
 		void error;
@@ -106,18 +110,37 @@ async function connectWithRetry(): Promise<BrokerClient> {
 			await new Promise((resolve) => setTimeout(resolve, 150));
 		}
 	}
-	throw lastError;
+	throw new Error(`the packaged daemon never accepted a connection: ${daemonStderr || (lastError instanceof Error ? lastError.message : String(lastError))}`);
 }
 
-test("the daemon entry stages sources outside node_modules", () => {
-	// The staged copy must not stay under any node_modules directory: that is the
-	// whole point of the launcher, and copying in place would reintroduce B1.
-	const staged = readdirSync(tmpdir())
-		.filter((name) => /^rotom-cu-broker-stage-[0-9a-f]{16}$/.test(name))
-		.map((name) => path.join(tmpdir(), name));
-	assert.ok(staged.length > 0, "the daemon should have staged its sources once");
-	for (const candidate of staged) {
+test("the daemon entry stages sources under the broker's private root", () => {
+	// The staged copy must not live in a shared directory: a predictable name under
+	// `/tmp` lets another account win the race and get its own daemon.ts imported.
+	const stagingRoot = path.join(sandbox, "stage");
+	assert.ok(existsSync(stagingRoot), "the daemon should have staged its sources once");
+	const staged = readdirSync(stagingRoot).filter((name) => /^[0-9a-f]{16}$/.test(name));
+	assert.ok(staged.length > 0, `no staged fingerprint directory in ${stagingRoot}`);
+	for (const name of staged) {
+		const candidate = path.join(stagingRoot, name);
 		assert.doesNotMatch(candidate, /node_modules/);
-		assert.ok(existsSync(path.join(candidate, "src", "broker", "daemon.ts")), `missing staged entry in ${candidate}`);
+		assert.equal(statSync(candidate).mode & 0o777, 0o700, "staged sources must be private to this user");
+		assert.ok(existsSync(path.join(candidate, "broker", "daemon.ts")), `missing staged entry in ${candidate}`);
 	}
+	assert.equal(statSync(stagingRoot).mode & 0o777, 0o700, "the staging root must be private to this user");
+});
+
+test("a tampered staged tree is replaced, not imported", async () => {
+	// Importing the launcher in-process is safe: the side-effect import only runs
+	// when it is the process entry point.
+	const { stageDaemonSources } = await import(pathToFileURL(path.join(installedPackage, "src", "broker", "daemon-entry.mjs")).href);
+	const environment = { ROTOM_CU_BROKER_SOCKET: socketPath };
+	const first = stageDaemonSources(environment);
+	const sourceText = readFileSync(path.join(installedPackage, "src", "broker", "daemon.ts"), "utf8");
+	assert.equal(readFileSync(first.entry, "utf8"), sourceText);
+
+	// Simulate an attacker who knows the fingerprint directory name and writes there.
+	writeFileSync(first.entry, "throw new Error('tampered');\n");
+	const second = stageDaemonSources(environment);
+	assert.equal(second.stagedRoot, first.stagedRoot, "the same fingerprint must reuse the same directory");
+	assert.equal(readFileSync(second.entry, "utf8"), sourceText, "the tampered file must be replaced by the real source");
 });
