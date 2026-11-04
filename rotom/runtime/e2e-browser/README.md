@@ -36,6 +36,13 @@ node --experimental-strip-types rotom/runtime/e2e-browser/run.mjs baseline
 | `cleanup` | 子 agent 断开后自己开的关掉、claim 的交还主 agent |
 | `focus` | 并发 agent 都不把用户焦点留在自己的 tab 上；`agent-window` 放置 |
 | `visibility` | 后台 tab 的 `visibilityState` 与隐藏状态下仍能真实交互 |
+| `chunked` | 超过 256 KiB 的响应分块、摘要校验与丢失/乱序拒绝 |
+| `lease` | 子 agent 的 lease：未授权 origin 本地拒绝，站点从未收到请求 |
+
+`lease` 是唯一直接驱动工具层（而不是 `BrowserRelayClientV1`）的 suite：lease 判定在
+`rotom/extensions/browser/index.ts` 里，所以它用 `browser-tools.mjs` 把真实
+`browser_inspect`/`browser_interact` 接到 harness 的 socket 上，再断言 fixture 站点
+的请求记录——被拒绝的 `open` 不能留下任何 HTTP 请求。
 
 `focus`/`visibility` 只断言可观察的事实：relay 不暴露非自有标签与 `windowId`，
 所以“用户标签是不是前台”“窗口有没有复用”在 e2e 里不可见，由 SW 单测覆盖。

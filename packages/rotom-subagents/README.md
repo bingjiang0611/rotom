@@ -4,7 +4,7 @@ rotom 独立维护的 Subagent 组件，源码单源是本目录。它是 `pi-su
 
 首次导入为已验证的 `0.52.1-dev-agent-owned-flat.7`：213 TS 文件逐字节保持不变。来源、版权和维护差异见 [UPSTREAM.md](UPSTREAM.md) / `IMPORT.json`，原始 README 保存在 [docs/upstream-readme.md](docs/upstream-readme.md)。历史八层 patch 仅用于旧版本比较，不是本组件的构建输入。
 
-## `0.52.1-rotom.13`：子进程按需加载产品 browser 扩展
+## `0.52.1-rotom.14`：子进程按需加载产品 browser 扩展
 
 请求的工具包含 `browser_inspect`/`browser_interact` 的子进程，现在会加载产品 browser 扩展：路径只来自 launcher 在校验资源后固定的 `ROTOM_SUBAGENT_BROWSER_EXTENSION`，且必须是绝对、存在、非链接、realpath 相等的普通文件。capability ceiling 禁止 child extensions 或 launcher 没提供路径时，拒绝本次启动，而不是给一个没有 browser 工具的子进程。未请求 browser 工具的子进程完全不变（不加载、不传身份）。
 

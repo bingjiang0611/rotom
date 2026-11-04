@@ -56,6 +56,7 @@
     "extensions/context-layers/recall.ts",
     "extensions/context-layers/copy.ts",
     "extensions/browser/index.ts",
+    "extensions/browser/browser-lease.ts",
     "extensions/browser/browser-relay.ts",
     "extensions/browser/native-host.mjs",
     "extensions/browser/install-chrome-relay.mjs",

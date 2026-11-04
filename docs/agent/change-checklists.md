@@ -49,7 +49,7 @@
 
 ### Third-party / deferred tools
 
-- package、lock、integrity、installed identity 和 `product-config.mjs` 是否同步？Subagent 当前默认为内化组件 `0.52.1-rotom.13`；源码在 `packages/rotom-subagents`，旧归档仅用于历史比较。不要原地覆盖存活会话的安装目录；默认命令切换仅影响新启动。**scoped 执行现为发行包默认**（launcher 选定 scope 并锚定 `~/.local/state/rotom/subagent-store`）；改 launcher 这段默认时必须同步 `verify-pi-runtime.test.mjs` 的 scope/store/opt-out/漂移断言与实际 CLI fixture，且不得在运行时重建或回退。Darwin 与 Linux 只允许 v3 marker 的 device topology 在重启后整体双射重映射，路径/inode/owner/权限仍精确校验；单字段漂移继续 fail closed。worker/scout/reviewer 的 fresh/空 extensions 声明不覆盖用户或项目显式配置。所选 Qoder provider 通过已验证产品路径显式接入 child launch plan，不能借此继承 ambient 扩展、扩大工具权限或绕过 denyExtensions；同步/异步/workflow/preflight 的 extension identity 必须一致。
+- package、lock、integrity、installed identity 和 `product-config.mjs` 是否同步？Subagent 当前默认为内化组件 `0.52.1-rotom.14`；源码在 `packages/rotom-subagents`，旧归档仅用于历史比较。不要原地覆盖存活会话的安装目录；默认命令切换仅影响新启动。**scoped 执行现为发行包默认**（launcher 选定 scope 并锚定 `~/.local/state/rotom/subagent-store`）；改 launcher 这段默认时必须同步 `verify-pi-runtime.test.mjs` 的 scope/store/opt-out/漂移断言与实际 CLI fixture，且不得在运行时重建或回退。Darwin 与 Linux 只允许 v3 marker 的 device topology 在重启后整体双射重映射，路径/inode/owner/权限仍精确校验；单字段漂移继续 fail closed。worker/scout/reviewer 的 fresh/空 extensions 声明不覆盖用户或项目显式配置。所选 Qoder provider 通过已验证产品路径显式接入 child launch plan，不能借此继承 ambient 扩展、扩大工具权限或绕过 denyExtensions；同步/异步/workflow/preflight 的 extension identity 必须一致。
 - full-tool opt-out 与用户 tools policy 是否保持优先？
 - 中英文 capability map、group allowlist、canonical active/state order、additive/resume/fork 是否有测试？live tree 不卸载工具；replacement/reload 只从选中分支恢复，不将 abandoned discovery 静默写回新分支，见 [状态合同](harness-hardening.md)。
 - Subagent action/command schema 是否仍收窄，普通执行是否固定 `mission:false`？
@@ -71,6 +71,7 @@
 - 用户焦点是否仍只有一份记录（`focus-coordinator.js`）：只有非 agent 触发的 `tabs.onActivated`/`windows.onFocusChanged` 才更新它，agent 派发造成的激活不得被记成用户焦点？并发 agent 收尾时是否收敛到同一处，而不是各自恢复自己的旧位置？新启动的 service worker 是否先按真实活动 tab 播种？
 - agent tab 是否在 `open`/`claim` 时设为 `autoDiscardable: false`，并在释放（close 保留的 claimed tab、`keepTabs`、handoff、交还/断开）时恢复原值？observation 是否带 `visibilityState`，未知取值是否 fail closed？
 - `placement: "agent-window"` 是否每 agent 复用自己的窗口、从不聚焦用户窗口，非法值是否在打开任何 tab 前被拒绝？
+- 子 agent 的 lease 是否仍只在工具层判定：没有 token 的主 agent 不受限，有 token 但 lease 文件缺失/过期/origin 不在列表/devtools·upload·download 未开启时本地返回 `needs-approval`，不发出请求、不弹窗？lease 目录是否 0700、文件 0600、拒绝 symlink，且子 agent 不改写父 agent 发布的 scope？
 - 持久化是否仍按 session 分 key（`browserRelayStateV3:<sessionId>`）、合并写并只写变化项，旧 `browserRelayStateV2`/`V1` 是否迁移后删除？
 - 并发是否仍只有两层锁：结构性操作走 session 锁、其余按 tab 加锁；operation revision 是否按作用域隔离（一个 tab 结束不得作废另一个 tab 的操作）；超时重置是否仍只影响对应 tab？
 - 跨 agent 是否仍只有一个 owner：`discover` 是否隐藏其他 session 的 tab、`claim` 是否只在 opener 属于另一个 session 时拒绝且不带出对方 tabName、`transfer` 是否换新 `documentGeneration`/`observationEpoch` 并作废旧 ref 与坐标？

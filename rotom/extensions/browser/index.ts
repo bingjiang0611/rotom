@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { lstat, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
 	BROWSER_INSPECT_OPERATIONS_V1,
@@ -34,9 +34,19 @@ import {
 // 判据，而不是把它发到 relay 再拿错误回来。
 import { INTERACTION_EXPECTATIONS, parseInteractionExpectation } from "./chrome-extension/interaction-target-state.js";
 import { relayClientTimeoutMs } from "./chrome-extension/relay-deadline.js";
+import {
+	BROWSER_LEASE_SCOPE_ENV_V1,
+	checkBrowserLeaseV1,
+	leaseOriginV1,
+	loadBrowserLeaseForCallV1,
+	type BrowserLeaseCapabilityV1,
+} from "./browser-lease.ts";
 import { compactInteractionReadback, observationTextBaseline } from "./chrome-extension/interaction-observation.js";
 
 const MAX_RESULT_BYTES = 128 * 1024;
+// A child lease outlives one task, not the session; the parent rewrites it to extend.
+const LEASE_TTL_MS = 12 * 60 * 60_000;
+const LEASE_DEFAULT_MAX_TABS = 8;
 const SNAPSHOT_PAGE_TTL_MS = 5 * 60_000;
 const MAX_SNAPSHOT_CURSORS = 64;
 const BROWSER_INTERACTION_AUDIT_ENTRY = "rotom-browser-interaction-audit/v1";
@@ -317,14 +327,21 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			else { relay = connected; textBaselines.clear(); }
 		}
 		const captured = relay!;
-		return { async request(...args: Parameters<BrowserRelayClientV1["request"]>) {
-			assertOwner();
-			attemptRoute.requestStarted = true;
-			attemptRoute.fallbackAllowed = false;
-			const result = await captured.request(...args);
-			assertOwner();
-			return result;
-		} };
+		return {
+			async request(...args: Parameters<BrowserRelayClientV1["request"]>) {
+				assertOwner();
+				attemptRoute.requestStarted = true;
+				attemptRoute.fallbackAllowed = false;
+				const result = await captured.request(...args);
+				assertOwner();
+				return result;
+			},
+			/** Absent for the main agent; a child is always started with one. */
+			get leaseToken() { return captured.leaseToken; },
+			get keepTabs() { return captured.keepTabs; },
+			/** Lease files live next to the socket this session actually connected to. */
+			get socketPath() { return captured.socketPath; },
+		};
 	};
 	const artifactStore = async (assertOwner: () => void) => {
 		assertOwner();
@@ -338,6 +355,51 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 		return artifacts!;
 	};
 	const readTabs = async (relayClient: Awaited<ReturnType<typeof client>>, signal?: AbortSignal) => validateTabs(await relayClient.request("tabs", {}, { signal, timeoutMs: relayClientTimeoutMs("tabs", {}) }));
+
+	// Origins this session has opened. The parent publishes them as the child's
+	// lease scope; a child never publishes one for its own children.
+	const authorizedOrigins = new Set<string>();
+	const publishLeaseScope = (relayClient: Awaited<ReturnType<typeof client>>, tabs: { url: string }[]) => {
+		if (relayClient.leaseToken !== undefined) return;
+		for (const tab of tabs) {
+			const origin = leaseOriginV1(tab.url);
+			if (origin) authorizedOrigins.add(origin);
+		}
+		if (authorizedOrigins.size === 0) return;
+		process.env[BROWSER_LEASE_SCOPE_ENV_V1] = JSON.stringify({
+			schemaVersion: 1,
+			rootSessionId: relayClient.rootSessionId,
+			origins: [...authorizedOrigins],
+			allow: { devtools: false, upload: false, download: false },
+			maxTabs: LEASE_DEFAULT_MAX_TABS,
+			keepTabs: relayClient.keepTabs,
+			expiresAt: Date.now() + LEASE_TTL_MS,
+		});
+	};
+	/**
+	 * Structured refusal instead of a dispatched request. The parent decides what to
+	 * do with it (T20); this layer never asks the user and never sends the request.
+	 */
+	const leaseRefusal = (denied: { origin: string; capability: BrowserLeaseCapabilityV1; reason: string }) => browserResult({
+		kind: "needs-approval",
+		origin: denied.origin,
+		capability: denied.capability,
+		reason: denied.reason,
+		message: `当前 lease 未授权 ${denied.capability} ${denied.origin || "(未知来源)"}（${denied.reason}）；该操作没有发出请求，需要父 agent 更新 lease 后重试。`,
+	});
+	/** Returns a refusal result, or undefined when the operation may proceed. */
+	const leaseDenial = async (relayClient: Awaited<ReturnType<typeof client>>, capability: BrowserLeaseCapabilityV1, origin: string | undefined) => {
+		const token = relayClient.leaseToken;
+		// No token means no lease at all: the main agent is not gated.
+		if (token === undefined) return undefined;
+		const lease = await loadBrowserLeaseForCallV1({
+			relayDir: dirname(relayClient.socketPath),
+			token,
+			scope: process.env[BROWSER_LEASE_SCOPE_ENV_V1],
+		});
+		const decision = checkBrowserLeaseV1(lease, { origin, capability });
+		return decision.ok ? undefined : leaseRefusal(decision);
+	};
 
 	const makeSnapshotPage = (freshObservation: BrowserObservationV1 | undefined, requestedLimit: number, cursor?: string) => {
 		let offset = 0;
@@ -437,7 +499,12 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			if (operation === "open") {
 				const placement = params.placement === undefined ? undefined : safeString(params.placement, "placement", 32);
 				if (placement !== undefined && !BROWSER_OPEN_PLACEMENTS_V1.includes(placement as never)) throw new Error("open placement 无效");
+				// A child may only open origins its lease covers; the refusal is local,
+				// so no open request reaches the relay or the site.
+				const denied = await leaseDenial(relayClient, "open", leaseOriginV1(openUrl));
+				if (denied) return denied;
 				const observation = sanitizeBrowserObservationV1(await relayClient.request("open", { tabName, url: openUrl, ...(placement === undefined ? {} : { placement }) }, { signal }));
+				authorizedOrigins.add(leaseOriginV1(openUrl) ?? "");
 				return snapshotResult(observation, limit);
 			}
 			if (operation === "discover") {
@@ -463,6 +530,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 				return boundedResult({ kind: "tabs", tabs: publicTabs(validateTabs(await relayClient.request("recover", { tabName: target.name }, { signal, timeoutMs: relayClientTimeoutMs("recover", {}) }))) });
 			}
 			const tabs = await readTabs(relayClient, signal);
+			publishLeaseScope(relayClient, tabs.tabs);
 			if (operation === "tabs") return boundedResult({ kind: "tabs", tabs: publicTabs(tabs) });
 			if (operation === "close") return boundedResult(await relayClient.request("close", { ...(params.all === true ? { all: true } : { tabName }) }, { signal }));
 			if (operation === "handoff") return boundedResult(await relayClient.request("handoff", { tabName }, { signal }));
@@ -573,7 +641,15 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			// must neither dispatch Relay requests nor change fallback eligibility.
 			const assertOwner = await bindSession(ctx, signal);
 			const relayClient = await client(ctx, assertOwner);
-			const tab = targetTab(await readTabs(relayClient, signal), tabName);
+			const listedTabs = await readTabs(relayClient, signal);
+			const tab = targetTab(listedTabs, tabName);
+			publishLeaseScope(relayClient, listedTabs.tabs);
+			// scroll only reads; every other action writes to the page and needs a lease
+			// that covers the tab's current origin.
+			if (action !== "scroll") {
+				const denied = await leaseDenial(relayClient, "write", leaseOriginV1(tab.url));
+				if (denied) return denied;
+			}
 			const actionFacts = {
 				action, tabName: tab.name, tabId: tab.tabId, documentGeneration: tab.documentGeneration, url: tab.url,
 				...(key ? { key } : {}),

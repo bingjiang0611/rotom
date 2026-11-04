@@ -70,7 +70,7 @@ rotom -e ./extension.ts
 
 上述全局安装方式升级前，应先退出使用该安装目录的全部会话，再运行 `rotom update`；卸载用 `npm uninstall -g @bingjiang0611/rotom`。有存活会话时，改用全新 prefix 安装、验收后只切换命令链接，保留旧目录，不原地覆盖或迁移会话。旁路 prefix 是独立安装，后续全局 npm 安装可能重新接管命令链接。不会自动删除凭据、会话或 Chrome relay 注册，后者需单独显式卸载。
 
-默认 Subagent 为独立维护的 `pi-subagents@0.52.1-rotom.13`，不再依赖维护 patch 堆栈。worker/scout/reviewer 使用显式工具/扩展声明和 fresh 默认上下文，仍尊重用户/项目 overrides。选用 Qoder 的子进程由产品显式加载所需 provider，不继承父会话的其他扩展或工具；关闭 Qoder 或禁止 child extensions 时拒绝启动，不自动换模型。Darwin 与 Linux 上 scoped store 可在 mount device topology 一致重编号后只读复用，仍精确校验路径、inode、owner 与权限；源码修改须重新打包安装，不热加载。
+默认 Subagent 为独立维护的 `pi-subagents@0.52.1-rotom.14`，不再依赖维护 patch 堆栈。worker/scout/reviewer 使用显式工具/扩展声明和 fresh 默认上下文，仍尊重用户/项目 overrides。选用 Qoder 的子进程由产品显式加载所需 provider，不继承父会话的其他扩展或工具；关闭 Qoder 或禁止 child extensions 时拒绝启动，不自动换模型。Darwin 与 Linux 上 scoped store 可在 mount device topology 一致重编号后只读复用，仍精确校验路径、inode、owner 与权限；源码修改须重新打包安装，不热加载。
 
 **新会话默认使用 scoped 执行** `owned-process-groups-v2`：launcher 在启动前选定 scope，并在 `~/.local/state/rotom/subagent-store` 创建一次性 store 锚点（已存在则直接复用，不替换）。详细限制见 `extensions/third-party/node_modules/pi-subagents/docs/owned-execution.md`。
 
@@ -157,6 +157,8 @@ rotom 默认提供 `codemode`：模型可用 JavaScript 编排普通文件工具
 `status` 的注册项确认 launcher/manifest 与当前 Node 匹配，并区分固定目录内容是否已是当前 rotom（`upToDate`）以及仅扩展部分是否一致（`extensionUpToDate`）——后者为真时区分“需不需要 ↻”；连接项证明当前协议握手，不代表 Chrome 已加载所显示目录或网页操作已经通过。超时、权限或协议错误保留 `unknown`，不自动重试或启动另一浏览器。安装结果不确定时先只读核对，不盲目重装。
 
 `owned debugger target identity changed` 表示原标签的 debugger 身份已失效，与固定目录内容变化不是同一结论。不要靠重装、接受新 targetId 或重放原操作绕过校验；停止原动作，按原标签的只读恢复规则核查。固定目录不能保证消除所有 Chrome 导航、关闭或重启导致的身份变化。
+
+**子 agent 的浏览器 lease**：子 agent 请求浏览器工具时，父 agent 已打开的站点 origin 会作为 lease 写进 `~/Library/Application Support/rotom/browser-relay/leases/<runId>.json`（目录 0700、文件 0600，拒绝 symlink）。子 agent 每次 `open` 和页内写操作前都重读该文件：origin 不在列表、lease 过期或 `devtools`/`upload`/`download` 未开启时，工具直接返回结构化 `{ kind: "needs-approval", origin, capability, reason }`，**不发出请求，也不弹窗或询问用户**。父 agent 改写同一个文件即可扩权或收权，子 agent 的只读操作（`tabs`/`snapshot`/`screenshot`）不经过 lease。这不是安全沙箱：它限制的是子 agent 能碰哪些站点，而不是本机进程权限。
 
 旧版尚无该命令时，可在终端沿用脚本入口（版本隔离安装需把 `ROTOM_DIR` 改为实际 `node_modules/rotom` 目录）：
 

@@ -8,13 +8,14 @@ import { createJiti } from 'jiti';
 const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'rotom-child-browser-')));
 const repo = path.resolve(import.meta.dirname, '../../..');
 const browserExtension = path.join(repo, 'rotom/extensions/browser/index.ts');
-const keys = ['HOME', 'PI_CODING_AGENT_DIR', 'ROTOM_SUBAGENT_BROWSER_EXTENSION', 'ROTOM_BROWSER_AGENT_ID', 'ROTOM_BROWSER_ROOT_SESSION'];
+const keys = ['HOME', 'PI_CODING_AGENT_DIR', 'ROTOM_SUBAGENT_BROWSER_EXTENSION', 'ROTOM_BROWSER_AGENT_ID', 'ROTOM_BROWSER_ROOT_SESSION', 'ROTOM_BROWSER_LEASE'];
 const saved = Object.fromEntries(keys.map(key => [key, process.env[key]]));
 process.env.HOME = root;
 process.env.PI_CODING_AGENT_DIR = path.join(root, 'agent');
 process.env.ROTOM_SUBAGENT_BROWSER_EXTENSION = browserExtension;
 delete process.env.ROTOM_BROWSER_AGENT_ID;
 delete process.env.ROTOM_BROWSER_ROOT_SESSION;
+delete process.env.ROTOM_BROWSER_LEASE;
 after(() => {
   for (const key of keys) {
     if (saved[key] === undefined) delete process.env[key]; else process.env[key] = saved[key];
@@ -68,6 +69,9 @@ test('the child is a distinct browser agent inside the parent root session', () 
   });
   assert.equal(args.env.ROTOM_BROWSER_AGENT_ID, 'run_browser_child');
   assert.equal(args.env.ROTOM_BROWSER_ROOT_SESSION, 'session-main');
+  // The lease is named after the run, so the file the child reads and the agent id
+  // it reports cannot drift apart.
+  assert.equal(args.env.ROTOM_BROWSER_LEASE, 'run_browser_child');
   assert.ok(args.args.includes(browserExtension));
   // Nested delegation keeps the original root session instead of adopting the
   // intermediate parent.
@@ -80,6 +84,7 @@ test('the child is a distinct browser agent inside the parent root session', () 
     });
     assert.equal(nested.env.ROTOM_BROWSER_AGENT_ID, 'run_nested');
     assert.equal(nested.env.ROTOM_BROWSER_ROOT_SESSION, 'session-root');
+    assert.equal(nested.env.ROTOM_BROWSER_LEASE, 'run_nested');
   } finally {
     delete process.env.ROTOM_BROWSER_ROOT_SESSION;
   }
@@ -87,4 +92,5 @@ test('the child is a distinct browser agent inside the parent root session', () 
   const plain = buildPiArgs({ baseArgs: [], task: 'plain', sessionEnabled: false, tools: readOnlyWorker.tools, extensions: [], cwd: root, runId: 'run_plain', parentSessionId: 'session-main' });
   assert.equal(plain.env.ROTOM_BROWSER_AGENT_ID, undefined);
   assert.equal(plain.env.ROTOM_BROWSER_ROOT_SESSION, undefined);
+  assert.equal(plain.env.ROTOM_BROWSER_LEASE, undefined);
 });

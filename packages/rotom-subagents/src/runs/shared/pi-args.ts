@@ -145,6 +145,11 @@ export const ROTOM_SUBAGENT_BROWSER_EXTENSION_ENV =
  */
 export const ROTOM_BROWSER_AGENT_ID_ENV = "ROTOM_BROWSER_AGENT_ID";
 export const ROTOM_BROWSER_ROOT_SESSION_ENV = "ROTOM_BROWSER_ROOT_SESSION";
+/**
+ * Names the browser lease this child runs under. The value is the run id, so the
+ * lease file the child materializes and the agent id it reports are the same key.
+ */
+export const ROTOM_BROWSER_LEASE_ENV = "ROTOM_BROWSER_LEASE";
 /** Browser tools that only exist when the product browser extension is loaded. */
 export const PRODUCT_BROWSER_TOOL_NAMES = [
 	"browser_inspect",
@@ -883,6 +888,9 @@ export function buildPiArgs(input: BuildPiArgsInput): BuildPiArgsResult {
 			process.env[ROTOM_BROWSER_ROOT_SESSION_ENV] ||
 			input.parentSessionId ||
 			"";
+		// No run id means no lease name, and the browser extension then refuses every
+		// gated operation locally instead of acting unleased.
+		if (input.runId) env[ROTOM_BROWSER_LEASE_ENV] = input.runId;
 	}
 	if (input.childIndex !== undefined) {
 		env[SUBAGENT_CHILD_INDEX_ENV] = String(input.childIndex);

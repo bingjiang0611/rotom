@@ -484,6 +484,9 @@ export class BrowserRelayClientV1 {
 	}
 
 	get closed(): boolean { return this.#closed; }
+	/** Lease token this session was started with; absent for the main agent. */
+	get leaseToken(): string | undefined { return this.#leaseToken; }
+	get keepTabs(): boolean { return this.#keepTabs; }
 
 	/** Refuse an operation locally when the installed extension cannot serve it. */
 	requireCapability(capability: string, message: string): void {
