@@ -152,6 +152,19 @@ export interface PlatformObserveRequest {
 }
 
 export type PlatformActTarget = { ref: string } | { x: number; y: number } | { focus: PlatformPoint };
+/** Every pasteboard item, with each declared type kept as raw bytes. */
+export interface PlatformClipboardSnapshot {
+	changeCount: number;
+	totalBytes: number;
+	items: Array<{ types: Array<{ type: string; dataBase64: string }> }>;
+}
+
+export interface PlatformClipboardRestore {
+	restored: boolean;
+	changeCount: number;
+	items: number;
+}
+
 export type PlatformDeliveryPolicy = "ax_only" | "background_text" | "background" | "default" | "foreground";
 type PlatformMouseButton = "left" | "right" | "middle";
 type PlatformActDeliveryParam = { delivery?: NativeInputDelivery };
@@ -310,6 +323,9 @@ export interface ComputerUsePlatformBackend {
 	clipboardGet?(signal?: AbortSignal): Promise<PlatformClipboardRead>;
 	clipboardSet?(text: string, signal?: AbortSignal): Promise<PlatformClipboardWrite>;
 	clipboardClear?(signal?: AbortSignal): Promise<PlatformClipboardWrite>;
+	/** Capture every item and type, so a write can be undone exactly. */
+	clipboardSnapshot?(signal?: AbortSignal): Promise<PlatformClipboardSnapshot>;
+	clipboardRestore?(snapshot: PlatformClipboardSnapshot, signal?: AbortSignal): Promise<PlatformClipboardRestore>;
 	manageApps?(request: { mode: "launch"; bundleId?: string; path?: string; activates?: boolean } | { mode: "quit"; pid?: number; bundleId?: string; force?: boolean; timeoutMs?: number }, signal?: AbortSignal): Promise<PlatformAppLaunchResult | PlatformAppQuitResult>;
 	manageWindow?(request: { mode: PlatformWindowMode; pid?: number; windowId?: number; x?: number; y?: number; w?: number; h?: number; title?: string }, signal?: AbortSignal): Promise<PlatformWindowMutationResult | PlatformRoot[] | PlatformDisplay[]>;
 	systemSurfaces?(surface: PlatformSystemSurfaceName | "all", signal?: AbortSignal): Promise<Record<string, PlatformSystemSurface>>;

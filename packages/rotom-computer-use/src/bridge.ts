@@ -2489,7 +2489,7 @@ function leaseConflictResult(tool: string, error: LeaseUnavailableError): AgentT
 		? ` Held by agent ${error.holder.agentId} (${Math.ceil(error.holder.remainingMs / 1000)}s remaining).`
 		: "";
 	const next = retry === "safe"
-		? " Nothing was delivered. Retry after that agent releases the app, or ask the user to stop it with cu_session."
+		? " Nothing was delivered. Retry after that agent releases the app, or ask the user to stop it from the menu bar or with Ctrl+Option+Cmd+."
 		: " Nothing was delivered.";
 	return {
 		content: [{ type: "text", text: `${tool} did not run: ${error.message}${holder}${next}` }],
@@ -2527,7 +2527,11 @@ function recordToolTrace(
 	const details = result?.details;
 	const execution = details?.execution ?? details?.capture?.execution;
 	const shots: string[] = [];
-	if (getComputerUseConfig().trace_screenshots) {
+	// A secure text field must not be photographed, even for our own trace (review
+	// I1). The native helper has no secure-field marker yet, so the role in the
+	// result is the only signal; when the outline says secure, the image is dropped.
+	const secure = /AXSecureTextField/.test(JSON.stringify(details?.outline ?? details?.capture?.outline ?? details?.target ?? ""));
+	if (getComputerUseConfig().trace_screenshots && !secure) {
 		for (const item of result?.content ?? []) {
 			if (item.type !== "image" || !item.data) continue;
 			const extension = item.mimeType === "image/png" ? "png" : "jpg";
@@ -2625,6 +2629,16 @@ export const executeEvaluateBrowser = makeToolExecutor("evaluate_browser", perfo
 // MARK: - Computer Use v2 administration tools
 
 const CLIPBOARD_RESTORE_MS = 30_000;
+
+/**
+ * Record why a clipboard restore was skipped. The trace is the only place that can
+ * answer "did the agent touch my clipboard and leave it alone afterwards?", and it
+ * stores a reason code only — never clipboard content.
+ */
+function recordClipboardRestoreSkip(reason: "user_changed_clipboard" | "no_snapshot" | "restore_failed"): void {
+	const recorder = activeTraceRecorder();
+	recorder?.record({ tool: "clipboard", status: "unknown", evidence: `restore_skipped:${reason}`, clipboardRestoreSkipped: reason });
+}
 let clipboardRestoreTimer: ReturnType<typeof setTimeout> | undefined;
 
 function clearClipboardRestoreTimer(): void {
@@ -2639,20 +2653,42 @@ function clearClipboardRestoreTimer(): void {
  * `set` puts the previous text back after 30 seconds unless the user turned
  * restoration off.
  */
+/**
+ * Put the user's clipboard back after an agent write.
+ *
+ * Two rules, both learned from review B4:
+ *  1. Restore only while the clipboard still holds exactly what the agent wrote.
+ *     If the user copied something in the meantime, overwriting it would be the
+ *     very interference this feature exists to avoid, so we leave it alone.
+ *  2. The snapshot covers every item and type, so images and file promises come
+ *     back too. A clipboard we cannot capture is refused before the write, never
+ *     silently dropped afterwards.
+ */
 export function scheduleClipboardRestore(options: {
-	previous: string;
+	snapshot: PlatformClipboardSnapshot | undefined;
+	/** changeCount observed right after the agent's write. */
+	writtenChangeCount: number;
 	restore: boolean;
-	write: (text: string) => Promise<unknown>;
+	snapshotNow?: () => Promise<PlatformClipboardSnapshot>;
+	write: (snapshot: PlatformClipboardSnapshot) => Promise<unknown>;
+	onSkip?: (reason: "user_changed_clipboard" | "no_snapshot" | "restore_failed") => void;
 	delayMs?: number;
 	setTimer?: (callback: () => void, ms: number) => ReturnType<typeof setTimeout>;
 }): boolean {
-	if (!options.restore || !options.previous) return false;
+	if (!options.restore || !options.snapshot) return false;
 	clearClipboardRestoreTimer();
 	const delay = options.delayMs ?? CLIPBOARD_RESTORE_MS;
 	const setTimer = options.setTimer ?? setTimeout;
 	clipboardRestoreTimer = setTimer(() => {
 		clipboardRestoreTimer = undefined;
-		void options.write(options.previous).catch(() => undefined);
+		void (async () => {
+			const current = await options.snapshotNow?.().catch(() => undefined);
+			if (!current || current.changeCount !== options.writtenChangeCount) {
+				options.onSkip?.("user_changed_clipboard");
+				return;
+			}
+			await options.write(options.snapshot as PlatformClipboardSnapshot).catch(() => options.onSkip?.("restore_failed"));
+		})();
 	}, delay);
 	clipboardRestoreTimer.unref?.();
 	return true;
@@ -2660,9 +2696,20 @@ export function scheduleClipboardRestore(options: {
 
 async function performClipboard(params: { action: "get" | "set" | "clear"; text?: string }, _signal?: AbortSignal): Promise<AgentToolResult<Record<string, unknown>>> {
 	const backend = currentPlatformBackend;
+	// Clipboard reads and writes are authorized per level and serialized through one
+	// lease: an approval card or a running peer must both be respected (review B2).
+	const clipboardLease = async <T>(label: string, work: () => Promise<T>): Promise<T> => {
+		const key = "clipboard:system";
+		const baseEpoch = resourceScheduler.epoch(key);
+		const result = await resourceScheduler.write(key, baseEpoch, async () => await work(), {
+			action: { name: `clipboard_${label}`, label: "System clipboard" },
+			app: { appName: "System Clipboard" },
+		});
+		return result.value;
+	};
 	if (params.action === "get") {
 		if (!backend.clipboardGet) return unsupportedToolResult("clipboard", "get", "This platform cannot read the clipboard.");
-		const read = await backend.clipboardGet();
+		const read = await clipboardLease("get", async () => await backend.clipboardGet!());
 		return {
 			content: [{ type: "text", text: read.available ? `Clipboard contains ${read.text.length} characters${read.truncated ? " (truncated)" : ""}.` : "Clipboard is empty." }],
 			details: { tool: "clipboard", action: "get", status: "ok", ...read },
@@ -2670,7 +2717,7 @@ async function performClipboard(params: { action: "get" | "set" | "clear"; text?
 	}
 	if (params.action === "clear") {
 		if (!backend.clipboardClear) return unsupportedToolResult("clipboard", "clear", "This platform cannot clear the clipboard.");
-		const cleared = await backend.clipboardClear();
+		const cleared = await clipboardLease("clear", async () => await backend.clipboardClear!());
 		return {
 			content: [{ type: "text", text: "Cleared the clipboard." }],
 			details: { tool: "clipboard", action: "clear", status: "ok", ...cleared },
@@ -2678,22 +2725,43 @@ async function performClipboard(params: { action: "get" | "set" | "clear"; text?
 	}
 	if (!backend.clipboardSet) return unsupportedToolResult("clipboard", "set", "This platform cannot write the clipboard.");
 	const text = params.text ?? "";
-	const previous = backend.clipboardGet ? await backend.clipboardGet().catch(() => undefined) : undefined;
-	const written = await backend.clipboardSet(text);
+	// Capture before writing: a clipboard whose types cannot be copied exactly is
+	// refused, because a partial restore would destroy the user's content.
+	const snapshot = await backend.clipboardSnapshot?.().catch(() => undefined);
+	const written = await clipboardLease("set", async () => await backend.clipboardSet!(text));
 	const restore = scheduleClipboardRestore({
-		previous: previous?.text ?? "",
+		snapshot,
+		writtenChangeCount: written.changeCount,
 		restore: getComputerUseConfig().clipboard_restore,
-		write: async (value) => await backend.clipboardSet?.(value),
+		snapshotNow: async () => await backend.clipboardSnapshot?.() as PlatformClipboardSnapshot,
+		write: async (value) => await backend.clipboardRestore?.(value),
+		onSkip: (reason) => recordClipboardRestoreSkip(reason),
 	});
 	return {
 		content: [{
 			type: "text",
 			text: written.changed === false
 				? "The clipboard refused the new text."
-				: `Wrote ${[...text].length} characters to the clipboard${restore ? "; the previous clipboard text is restored in 30 seconds" : ""}.`,
+				: `Wrote ${[...text].length} characters to the clipboard${restore ? "; the previous clipboard content is restored in 30 seconds unless you copy something else first" : ""}.`,
 		}],
 		details: { tool: "clipboard", action: "set", status: written.changed === false ? "didnt" : "ok", ...written, restores: restore },
 	};
+}
+
+/**
+ * Resolve the app identity the policy layer needs. Without it the broker can only
+ * apply the anonymous-resource rule, which is a deliberate relaxation for
+ * headless targets that have no identity at all.
+ */
+async function describeApp(pid?: number, bundleId?: string): Promise<{ appName: string; bundleId?: string } | undefined> {
+	try {
+		const apps = await listApps();
+		const match = apps.find((app) => (pid !== undefined ? app.pid === pid : false) || (bundleId ? app.bundleId === bundleId : false));
+		if (!match) return bundleId ? { appName: bundleId, bundleId } : undefined;
+		return { appName: match.appName, ...(match.bundleId ? { bundleId: match.bundleId } : {}) };
+	} catch {
+		return bundleId ? { appName: bundleId, bundleId } : undefined;
+	}
 }
 
 async function performManageApp(params: { action: "list" | "launch" | "quit"; bundleId?: string; path?: string; pid?: number; force?: boolean }, _signal?: AbortSignal): Promise<AgentToolResult<Record<string, unknown>>> {
@@ -2709,7 +2777,13 @@ async function performManageApp(params: { action: "list" | "launch" | "quit"; bu
 	if (!backend.manageApps) return unsupportedToolResult("manage_app", params.action, "This platform cannot manage applications.");
 	if (params.action === "quit") {
 		if (params.pid === undefined && !params.bundleId) return toolProblem("manage_app", "quit requires pid or bundleId.");
-		const result = await backend.manageApps({ mode: "quit", pid: params.pid, bundleId: params.bundleId, force: params.force === true });
+		const appInfo = await describeApp(params.pid, params.bundleId);
+		const quitKey = appInfo ? `app:${appInfo.bundleId ?? appInfo.appName}` : `desktop-pid:${params.pid ?? 0}`;
+		const result = await resourceScheduler.write(quitKey, resourceScheduler.epoch(quitKey), async () =>
+			await backend.manageApps!({ mode: "quit", pid: params.pid, bundleId: params.bundleId, force: params.force === true }), {
+			action: { name: "manage_app_quit", label: appInfo?.appName ?? params.bundleId ?? "application" },
+			...(appInfo ? { app: appInfo } : {}),
+		}).then((outcome) => outcome.value);
 		const quit = result as { terminated?: boolean; quitRequested?: boolean; unsavedChangesMayBlock?: boolean };
 		const status = quit.terminated ? "worked" : quit.unsavedChangesMayBlock ? "unknown" : "didnt";
 		return {
@@ -2725,7 +2799,13 @@ async function performManageApp(params: { action: "list" | "launch" | "quit"; bu
 		};
 	}
 	if (!params.bundleId && !params.path) return toolProblem("manage_app", "launch requires bundleId or path.");
-	const launched = await backend.manageApps({ mode: "launch", bundleId: params.bundleId, path: params.path, activates: false });
+	const launchInfo = await describeApp(params.pid, params.bundleId);
+	const launchKey = launchInfo ? `app:${launchInfo.bundleId ?? launchInfo.appName}` : `desktop-pid:${params.pid ?? 0}`;
+	const launched = await resourceScheduler.write(launchKey, resourceScheduler.epoch(launchKey), async () =>
+		await backend.manageApps!({ mode: "launch", bundleId: params.bundleId, path: params.path, activates: false }), {
+		action: { name: "manage_app_launch", label: launchInfo?.appName ?? params.bundleId ?? params.path ?? "application" },
+		...(launchInfo ? { app: launchInfo } : {}),
+	}).then((outcome) => outcome.value);
 	const launch = launched as { launched?: boolean; alreadyRunning?: boolean; pending?: boolean; pid?: number };
 	return {
 		content: [{
@@ -2763,7 +2843,12 @@ async function performManageWindow(params: { action: "list" | "move" | "resize" 
 		};
 	}
 	if (params.windowId === undefined || params.pid === undefined) return toolProblem("manage_window", `${params.action} requires pid and windowId.`);
-	const result = await backend.manageWindow({ mode: params.action, pid: params.pid, windowId: params.windowId, x: params.x, y: params.y, w: params.w, h: params.h });
+	const windowKey = `desktop-pid:${params.pid}`;
+	const result = await resourceScheduler.write(windowKey, resourceScheduler.epoch(windowKey), async () =>
+		await backend.manageWindow!({ mode: params.action, pid: params.pid, windowId: params.windowId, x: params.x, y: params.y, w: params.w, h: params.h }), {
+		action: { name: `manage_window_${params.action}`, label: `window ${params.windowId}` },
+		...(await describeApp(params.pid) ?? {}),
+	}).then((outcome) => outcome.value);
 	const mutation = result as { outcome?: string; before?: unknown; after?: unknown };
 	return {
 		content: [{
@@ -2797,7 +2882,7 @@ async function performSystemSurface(params: { surface: "notifications" | "menu_b
 	};
 }
 
-async function performCuSession(params: { action: "status" | "release" | "stop" | "trace_export" }, _signal?: AbortSignal): Promise<AgentToolResult<Record<string, unknown>>> {
+async function performCuSession(params: { action: "status" | "release" | "trace_export" }, _signal?: AbortSignal): Promise<AgentToolResult<Record<string, unknown>>> {
 	if (params.action === "trace_export") {
 		const recorder = activeTraceRecorder();
 		if (!recorder) return unsupportedToolResult("cu_session", "trace_export", "Tracing is disabled for this session.");
@@ -2818,14 +2903,6 @@ async function performCuSession(params: { action: "status" | "release" | "stop" 
 		return {
 			content: [{ type: "text", text: lines.length ? lines.join("\n") : "No agents are attached to the broker." }],
 			details: { tool: "cu_session", action: "status", status: "ok", broker: status },
-		};
-	}
-	if (params.action === "stop") {
-		const stopped = await session.client.stop();
-		brokerStopRequested = true;
-		return {
-			content: [{ type: "text", text: stopped.length ? `Stopped: ${stopped.join(", ")}` : "No other agent was running." }],
-			details: { tool: "cu_session", action: "stop", status: "ok", stopped },
 		};
 	}
 	const status = await session.client.status().catch(() => undefined);
@@ -2854,7 +2931,7 @@ export const executeManageApp = makeToolExecutor<{ action: "list" | "launch" | "
 export const executeManageWindow = makeToolExecutor<{ action: "list" | "move" | "resize" | "minimize" | "restore" | "maximize" | "list_displays"; pid?: number; windowId?: number; x?: number; y?: number; w?: number; h?: number; title?: string }, Record<string, unknown>>("manage_window", performManageWindow);
 export const executeClipboard = makeToolExecutor<{ action: "get" | "set" | "clear"; text?: string }, Record<string, unknown>>("clipboard", performClipboard);
 export const executeSystemSurface = makeToolExecutor<{ surface: "notifications" | "menu_bar_extras" | "control_center" | "dock" | "all" }, Record<string, unknown>>("system_surface", performSystemSurface);
-export const executeCuSession = makeToolExecutor<{ action: "status" | "release" | "stop" | "trace_export" }, Record<string, unknown>>("cu_session", performCuSession);
+export const executeCuSession = makeToolExecutor<{ action: "status" | "release" | "trace_export" }, Record<string, unknown>>("cu_session", performCuSession);
 
 export function reconstructStateFromBranch(ctx: ExtensionContext): void {
 	savedStates.clear();

@@ -239,10 +239,10 @@ const systemSurfaceTool = defineTool({
 const cuSessionTool = defineTool({
 	name: "cu_session",
 	label: "Computer Use Session",
-	description: "Inspect which agent holds which app, release this session's leases, stop other agents, or export the local trace.",
-	promptSnippet: "Stop and release are the user's control surface; the model cannot approve its own actions.",
+	description: "Inspect which agent holds which app, release this session's leases, or export the local trace.",
+	promptSnippet: "Stopping other agents belongs to the user (menu bar or Ctrl+Option+Cmd+.); the model can only release its own leases.",
 	parameters: Type.Object({
-		action: Type.Union([Type.Literal("status"), Type.Literal("release"), Type.Literal("stop"), Type.Literal("trace_export")]),
+		action: Type.Union([Type.Literal("status"), Type.Literal("release"), Type.Literal("trace_export")]),
 	}),
 	execute: executeCuSession,
 });

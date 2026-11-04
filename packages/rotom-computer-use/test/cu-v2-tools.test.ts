@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { prepareAction, type ActionEnvironment } from "../src/actions.ts";
+import type { PlatformClipboardSnapshot } from "../src/platform/types.ts";
 import { scheduleClipboardRestore } from "../src/bridge.ts";
 import { SEMANTIC_ACTION_NAMES, type UiAction } from "../src/contract.ts";
 
@@ -60,33 +61,102 @@ test("semantic action parameters are validated, not silently defaulted", () => {
 	assert.equal(checked.params.checked, false);
 });
 
-test("a clipboard write can restore the user's text on a timer", () => {
-	const restored: string[] = [];
-	const timers: Array<() => void> = [];
-	const scheduled = scheduleClipboardRestore({
-		previous: "user text",
-		restore: true,
-		write: async (text) => { restored.push(text); },
+function snapshotOf(changeCount: number, text = ""): PlatformClipboardSnapshot {
+	return {
+		changeCount,
+		totalBytes: text.length,
+		items: text ? [{ types: [{ type: "public.utf8-plain-text", dataBase64: Buffer.from(text, "utf8").toString("base64") }] }] : [],
+	};
+}
+
+function manualTimer(): { setTimer: (callback: () => void) => ReturnType<typeof setTimeout>; run: () => void } {
+	let pending: (() => void) | undefined;
+	return {
 		setTimer: ((callback: () => void) => {
-			timers.push(callback);
-			return { unref: () => undefined } as any;
-		}) as any,
+			pending = callback;
+			return { unref: () => undefined } as unknown as ReturnType<typeof setTimeout>;
+		}) as typeof setTimeout,
+		run: () => {
+			const callback = pending;
+			pending = undefined;
+			callback?.();
+		},
+	};
+}
+
+test("a clipboard write restores every item while the clipboard still holds the agent's data", async () => {
+	const restored: PlatformClipboardSnapshot[] = [];
+	const timer = manualTimer();
+	const snapshot = snapshotOf(41, "user text");
+	const scheduled = scheduleClipboardRestore({
+		snapshot,
+		writtenChangeCount: 42,
+		restore: true,
+		snapshotNow: async () => snapshotOf(42, "agent text"),
+		write: async (value) => {
+			restored.push(value);
+		},
+		setTimer: timer.setTimer,
 	});
 	assert.equal(scheduled, true);
-	assert.equal(timers.length, 1);
-	timers[0]();
-	return new Promise<void>((resolve) => setTimeout(() => {
-		assert.deepEqual(restored, ["user text"]);
-		resolve();
-	}, 0));
+	timer.run();
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	assert.deepEqual(restored, [snapshot]);
 });
 
-test("restoration is skipped when it is off or there was nothing to keep", () => {
-	const writes: string[] = [];
-	const setTimer = (() => { throw new Error("must not schedule"); }) as any;
-	assert.equal(scheduleClipboardRestore({ previous: "x", restore: false, write: async () => undefined, setTimer }), false);
-	assert.equal(scheduleClipboardRestore({ previous: "", restore: true, write: async () => undefined, setTimer }), false);
-	assert.deepEqual(writes, []);
+test("a clipboard restore is skipped when the user copied something else", async () => {
+	const restored: PlatformClipboardSnapshot[] = [];
+	const skips: string[] = [];
+	const timer = manualTimer();
+	scheduleClipboardRestore({
+		snapshot: snapshotOf(41, "user text"),
+		writtenChangeCount: 42,
+		restore: true,
+		// The user copied something new in the 30 second window.
+		snapshotNow: async () => snapshotOf(43, "user copied this"),
+		write: async (value) => {
+			restored.push(value);
+		},
+		onSkip: (reason) => skips.push(reason),
+		setTimer: timer.setTimer,
+	});
+	timer.run();
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	assert.deepEqual(restored, []);
+	assert.deepEqual(skips, ["user_changed_clipboard"]);
+});
+
+test("a non-text clipboard is snapshotted and restored byte for byte", async () => {
+	const restored: PlatformClipboardSnapshot[] = [];
+	const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+	const snapshot: PlatformClipboardSnapshot = {
+		changeCount: 7,
+		totalBytes: png.byteLength,
+		items: [{ types: [{ type: "public.png", dataBase64: png.toString("base64") }] }],
+	};
+	const timer = manualTimer();
+	scheduleClipboardRestore({
+		snapshot,
+		writtenChangeCount: 8,
+		restore: true,
+		snapshotNow: async () => snapshotOf(8, "agent text"),
+		write: async (value) => {
+			restored.push(value);
+		},
+		setTimer: timer.setTimer,
+	});
+	timer.run();
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	assert.equal(restored.length, 1);
+	assert.deepEqual(restored[0].items[0].types[0], { type: "public.png", dataBase64: png.toString("base64") });
+});
+
+test("restoration is skipped when it is off or nothing could be captured", () => {
+	const setTimer = (() => {
+		throw new Error("must not schedule");
+	}) as any;
+	assert.equal(scheduleClipboardRestore({ snapshot: snapshotOf(1, "x"), writtenChangeCount: 2, restore: false, write: async () => undefined, setTimer }), false);
+	assert.equal(scheduleClipboardRestore({ snapshot: undefined, writtenChangeCount: 2, restore: true, write: async () => undefined, setTimer }), false);
 });
 
 test("the administration tools are declared deferred, never resident", async () => {
@@ -104,4 +174,23 @@ test("the administration tools are declared deferred, never resident", async () 
 	for (const name of names) {
 		assert.equal(residentBlock.includes(`"${name}"`), false, `${name} must not be resident`);
 	}
+});
+
+test("every mutating administration tool goes through the broker scheduler", async () => {
+	// Review B2: these executors originally called the platform backend directly, so
+	// an agent could quit a view-tier app or resize a peer's app without any lease.
+	// The broker is the only place that holds the tier decision and the lease, so the
+	// wiring is asserted here; the arbitration itself is covered by the scheduler and
+	// broker tests.
+	const { readFileSync } = await import("node:fs");
+	const source = readFileSync(new URL("../src/bridge.ts", import.meta.url), "utf8");
+	for (const [tool, needle] of [
+		["clipboard", "clipboardLease"],
+		["manage_app quit", "const quitKey ="],
+		["manage_app launch", "const launchKey ="],
+		["manage_window", "const windowKey ="],
+	] as const) {
+		assert.ok(source.includes(needle), `${tool} must route through resourceScheduler (missing ${needle})`);
+	}
+	assert.equal((source.match(/resourceScheduler\.write\(/g) ?? []).length >= 4, true);
 });

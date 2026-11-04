@@ -23,7 +23,72 @@ export const SESSION_CAP_BYTES = 500 * 1024 * 1024;
 export const MAX_ENTRY_BYTES = 8 * 1024;
 
 /** Parameter names whose values are typed text and must never be stored. */
-const REDACTED_PARAM_KEYS = new Set(["text", "value", "secret", "content", "typed"]);
+/**
+ * Keys whose value is safe to store verbatim.
+ *
+ * This is an allowlist on purpose (review I1): a denylist always misses the next
+ * tool parameter, and `navigate_browser.url`, `evaluate_browser.expression`,
+ * `select.option`, `keypress.keys` and `manage_app.path` were all being written in
+ * clear. Anything not listed here is reduced to a length and a SHA-256 digest.
+ */
+const PLAIN_PARAM_KEYS = new Set([
+	// identity and structure
+	"id",
+	"stateId",
+	"lookId",
+	"ref",
+	"targetRef",
+	"scopeRef",
+	"rootRef",
+	"windowRef",
+	"role",
+	"subrole",
+	"action",
+	"mode",
+	"tool",
+	"surface",
+	"name",
+	"kind",
+	// numbers and coordinates
+	"x",
+	"y",
+	"w",
+	"h",
+	"width",
+	"height",
+	"maxDimension",
+	"deltaX",
+	"deltaY",
+	"scrollX",
+	"scrollY",
+	"amount",
+	"clickCount",
+	"pid",
+	"windowId",
+	"displayId",
+	"ttlMs",
+	"timeoutMs",
+	"limit",
+	"offset",
+	// booleans and enums
+	"includeImage",
+	"readText",
+	"policy",
+	"delivery",
+	"button",
+	"checked",
+	"force",
+	"activates",
+	"restore",
+	"preserveFocus",
+	"cursorOverlay",
+	"baseEpoch",
+	"epoch",
+]);
+
+function isPlainParamKey(key: string): boolean {
+	return PLAIN_PARAM_KEYS.has(key);
+}
 
 export interface TraceTargetSummary {
 	role?: string;
@@ -49,6 +114,8 @@ export interface TraceEntry {
 	screenshots?: string[];
 	/** Redacted text-input evidence. */
 	text?: { length: number; sha256: string };
+	/** Why an agent clipboard write was not undone (reason code only, no content). */
+	clipboardRestoreSkipped?: "user_changed_clipboard" | "no_snapshot" | "restore_failed";
 }
 
 export interface TraceOptions {
@@ -95,7 +162,8 @@ export function redactParams(params: unknown): unknown {
 	if (!params || typeof params !== "object") return params;
 	const out: Record<string, unknown> = {};
 	for (const [key, value] of Object.entries(params as Record<string, unknown>)) {
-		if (REDACTED_PARAM_KEYS.has(key) && typeof value === "string") out[key] = redactText(value);
+		if (!isPlainParamKey(key) && typeof value === "string") out[key] = redactText(value);
+		else if (!isPlainParamKey(key) && Array.isArray(value)) out[key] = value.map((item) => (typeof item === "string" ? redactText(item) : redactParams(item)));
 		else out[key] = redactParams(value);
 	}
 	return out;

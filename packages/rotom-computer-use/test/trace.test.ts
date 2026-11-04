@@ -135,3 +135,38 @@ test("a duplicate file path is a fresh file, not an append across sessions", () 
 	assert.equal(readFileSync(first.filePath, "utf-8").trim().split("\n").length, 2);
 	rmSync(root, { recursive: true, force: true });
 });
+
+test("trace params keep only allowlisted fields, never tool payload text", async () => {
+	const { redactParams } = await import("../src/trace/recorder.ts");
+	const sentinels = {
+		url: "https://sentinel-url.example/do-not-log",
+		expression: "sentinel-expression-payload",
+		option: "sentinel-option",
+		keys: "sentinel-key-combo",
+		path: "/sentinel/app/path",
+		keysArray: ["sentinel-key-a", "sentinel-key-b"],
+	};
+	const redacted = JSON.stringify(redactParams({
+		ref: "@e12",
+		x: 10,
+		y: 20,
+		url: sentinels.url,
+		expression: sentinels.expression,
+		option: sentinels.option,
+		keys: sentinels.keys,
+		path: sentinels.path,
+		list: sentinels.keysArray,
+	})) as string;
+	for (const [name, value] of Object.entries(sentinels)) {
+		const values = Array.isArray(value) ? value : [value];
+		for (const entry of values) {
+			assert.equal(redacted.includes(entry), false, `${name} must not appear in the trace`);
+		}
+	}
+	// Structural fields stay readable: that is what makes the trace useful.
+	assert.match(redacted, /"ref":"@e12"/);
+	assert.match(redacted, /"x":10/);
+	const parsed = JSON.parse(redacted) as Record<string, any>;
+	assert.equal(typeof parsed.url.sha256, "string");
+	assert.equal(parsed.url.length, [...sentinels.url].length);
+});

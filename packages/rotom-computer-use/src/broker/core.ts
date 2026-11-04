@@ -310,6 +310,13 @@ export class BrokerCore {
 	}
 
 	private onStop(agentId: string | undefined, targetAgentId: string | undefined): BrokerReply {
+		// Stopping another agent is a user action. Only the native helper may ask for
+		// it; an agent that could stop its peers would break multi-agent parallelism
+		// and could silence a reviewer.
+		const requester = agentId ? this.registry.get(agentId) : undefined;
+		if (!requester || requester.role !== "helper") {
+			return failure("not_permitted", "Only the helper may stop agents; the user stops them from the menu bar or with Ctrl+Option+Cmd+.");
+		}
 		const targets = targetAgentId
 			? [targetAgentId].filter((candidate) => this.registry.get(candidate))
 			: this.registry.others(agentId ?? "").map((record) => record.agentId);

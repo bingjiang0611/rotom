@@ -56,6 +56,12 @@ export interface AgentRegistration {
 	pidChain: number[];
 	/** Session working directory; the broker applies that project's policy, which may only tighten. */
 	cwd?: string;
+	/**
+	 * Connection role. `helper` is the native executor; only it may stop other
+	 * agents, because stopping is the user's control surface and the helper is the
+	 * only process the user drives directly. Everything else is an `agent`.
+	 */
+	role?: "agent" | "helper";
 }
 
 export interface TargetAppInfo {

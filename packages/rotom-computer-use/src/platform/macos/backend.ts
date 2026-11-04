@@ -1,7 +1,7 @@
 import { getComputerUseConfig } from "../../config.ts";
 import { parseLookResponse, type LookResponse } from "../../outline.ts";
 import { toBoolean, toFiniteNumber, toOptionalString } from "../coerce.ts";
-import type { ComputerUsePlatformBackend, FramePoints, HelperActResult, PlatformActRequest, PlatformApp, PlatformAppLaunchResult, PlatformAppQuitResult, PlatformClipboardRead, PlatformClipboardWrite, PlatformDisplay, PlatformFocusWindowResult, PlatformFrontmostResult, PlatformObserveRequest, PlatformReadTextRequest, PlatformReadTextResponse, PlatformRoot, PlatformRootKind, PlatformRootQuery, PlatformSystemSurface, PlatformSystemSurfaceName, PlatformTarget, PlatformUserActivity, PlatformWaitForRequest, PlatformWaitForResponse, PlatformWindowMutationResult } from "../types.ts";
+import type { ComputerUsePlatformBackend, FramePoints, HelperActResult, PlatformActRequest, PlatformApp, PlatformAppLaunchResult, PlatformAppQuitResult, PlatformClipboardRead, PlatformClipboardRestore, PlatformClipboardSnapshot, PlatformClipboardWrite, PlatformDisplay, PlatformFocusWindowResult, PlatformFrontmostResult, PlatformObserveRequest, PlatformReadTextRequest, PlatformReadTextResponse, PlatformRoot, PlatformRootKind, PlatformRootQuery, PlatformSystemSurface, PlatformSystemSurfaceName, PlatformTarget, PlatformUserActivity, PlatformWaitForRequest, PlatformWaitForResponse, PlatformWindowMutationResult } from "../types.ts";
 import { macosHelper } from "./helper.ts";
 
 function parseApps(result: unknown): PlatformApp[] {
@@ -88,7 +88,7 @@ function parseClipboard(result: any): PlatformClipboardRead {
 	};
 }
 
-export const macosBackend: Pick<ComputerUsePlatformBackend, "listApps" | "listRoots" | "getFrontmost" | "focusWindow" | "observe" | "act" | "actBatch" | "readText" | "waitFor" | "userActivity" | "clipboardGet" | "clipboardSet" | "clipboardClear" | "manageApps" | "manageWindow" | "systemSurfaces"> = {
+export const macosBackend: Pick<ComputerUsePlatformBackend, "listApps" | "listRoots" | "getFrontmost" | "focusWindow" | "observe" | "act" | "actBatch" | "readText" | "waitFor" | "userActivity" | "clipboardGet" | "clipboardSet" | "clipboardClear" | "clipboardSnapshot" | "clipboardRestore" | "manageApps" | "manageWindow" | "systemSurfaces"> = {
 	async listApps(signal?: AbortSignal): Promise<PlatformApp[]> {
 		return parseApps(await macosHelper.command<unknown>("listApps", {}, { signal }));
 	},
@@ -162,6 +162,25 @@ export const macosBackend: Pick<ComputerUsePlatformBackend, "listApps" | "listRo
 			changed: toBoolean(result?.changed),
 			changeCount: Math.trunc(toFiniteNumber(result?.changeCount, 0)),
 			length: Math.trunc(toFiniteNumber(result?.length, 0)),
+		};
+	},
+
+	async clipboardSnapshot(signal?: AbortSignal): Promise<PlatformClipboardSnapshot> {
+		const result = await macosHelper.command<any>("clipboardSnapshot", {}, { signal });
+		const items = Array.isArray(result?.items)
+			? result.items.map((raw: any) => ({
+				types: (Array.isArray(raw?.types) ? raw.types : []).map((entry: any) => ({ type: String(entry?.type ?? ""), dataBase64: String(entry?.dataBase64 ?? "") })),
+			}))
+			: [];
+		return { changeCount: Math.trunc(toFiniteNumber(result?.changeCount, 0)), totalBytes: Math.trunc(toFiniteNumber(result?.totalBytes, 0)), items };
+	},
+
+	async clipboardRestore(snapshot: PlatformClipboardSnapshot, signal?: AbortSignal): Promise<PlatformClipboardRestore> {
+		const result = await macosHelper.command<any>("clipboardRestore", { items: snapshot.items }, { signal });
+		return {
+			restored: toBoolean(result?.restored),
+			changeCount: Math.trunc(toFiniteNumber(result?.changeCount, 0)),
+			items: Math.trunc(toFiniteNumber(result?.items, 0)),
 		};
 	},
 

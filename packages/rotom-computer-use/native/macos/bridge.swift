@@ -812,6 +812,10 @@ final class Bridge {
 			return try clipboardSet(request)
 		case "clipboardClear":
 			return try clipboardClear(request)
+		case "clipboardSnapshot":
+			return try clipboardSnapshot(request)
+		case "clipboardRestore":
+			return try clipboardRestore(request)
 		case "manageApps":
 			return try manageApps(request)
 		case "manageWindow":
@@ -3913,6 +3917,54 @@ extension Bridge {
 		let pasteboard = NSPasteboard.general
 		pasteboard.clearContents()
 		return ["cleared": true, "changeCount": pasteboard.changeCount]
+	}
+
+	/// Snapshot every pasteboard item and type so `clipboardRestore` can put the
+	/// user's content back byte for byte, including images and file promises.
+	func clipboardSnapshot(_ request: [String: Any]) throws -> [String: Any] {
+		let pasteboard = NSPasteboard.general
+		let limit = optionalIntArg(request, "maxBytes") ?? 64 * 1024 * 1024
+		var items: [[String: Any]] = []
+		var total = 0
+		for item in pasteboard.pasteboardItems ?? [] {
+			var entries: [[String: Any]] = []
+			for type in item.types {
+				guard let data = item.data(forType: type) else {
+					throw BridgeFailure(message: "Clipboard type \(type.rawValue) cannot be copied, so it cannot be restored", code: "clipboard_not_restorable")
+				}
+				total += data.count
+				if total > limit {
+					throw BridgeFailure(message: "Clipboard content exceeds the \(limit)-byte restore limit", code: "clipboard_too_large")
+				}
+				entries.append(["type": type.rawValue, "dataBase64": data.base64EncodedString()])
+			}
+			items.append(["types": entries])
+		}
+		return ["changeCount": pasteboard.changeCount, "items": items, "totalBytes": total]
+	}
+
+	func clipboardRestore(_ request: [String: Any]) throws -> [String: Any] {
+		guard let rawItems = request["items"] as? [[String: Any]] else {
+			throw BridgeFailure(message: "clipboardRestore requires items", code: "invalid_args")
+		}
+		let pasteboard = NSPasteboard.general
+		pasteboard.clearContents()
+		var restored: [NSPasteboardItem] = []
+		for rawItem in rawItems {
+			let item = NSPasteboardItem()
+			for entry in (rawItem["types"] as? [[String: Any]] ?? []) {
+				guard let type = entry["type"] as? String,
+					let base64 = entry["dataBase64"] as? String,
+					let data = Data(base64Encoded: base64)
+				else {
+					throw BridgeFailure(message: "clipboardRestore received a malformed item", code: "invalid_args")
+				}
+				item.setData(data, forType: NSPasteboard.PasteboardType(type))
+			}
+			restored.append(item)
+		}
+		let wrote = pasteboard.writeObjects(restored)
+		return ["restored": wrote, "changeCount": pasteboard.changeCount, "items": restored.count]
 	}
 
 	/// List, launch and quit applications without stealing focus.

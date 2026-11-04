@@ -65,7 +65,9 @@ interface PendingRequest {
 }
 
 function daemonPath(): string {
-	return fileURLToPath(new URL("./daemon.ts", import.meta.url));
+	// `daemon-entry.mjs` stages the sources outside `node_modules`, because Node
+	// refuses to strip types for files inside an installed package.
+	return fileURLToPath(new URL("./daemon-entry.mjs", import.meta.url));
 }
 
 interface DaemonHandle {
@@ -83,7 +85,7 @@ interface DaemonHandle {
  */
 export function spawnBrokerDaemon(socketPath: string): DaemonHandle {
 	const handle: DaemonHandle = { child: undefined as unknown as DaemonHandle["child"], exitCode: undefined };
-	const child = spawn(process.execPath, [daemonPath()], {
+	const child = spawn(process.execPath, ["--experimental-strip-types", daemonPath()], {
 		detached: true,
 		stdio: "ignore",
 		env: { ...process.env, ROTOM_CU_BROKER_SOCKET: socketPath },
