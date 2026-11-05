@@ -11,7 +11,7 @@ import { BROWSER_POINTER_ACTIONS_V1, dragSequenceV1, pointerSequenceV1 } from ".
 import { readInteractionSensitivity, sensitivityFromFactsV1 } from "./sensitive-actions.js";
 import { MAX_DOWNLOAD_RECORDS_V1, downloadOwnerAgentIdV1, downloadRecordV1, downloadRelativeFilenameV1 } from "./downloads.js";
 import { createNetworkCaptureV1, parseNetworkCursorV1, sanitizeNetworkLimitV1, sanitizeNetworkPatternV1, sanitizeNetworkResourceTypeV1 } from "./network-buffer.js";
-import { MAX_EXPORT_HEIGHT_V1, MAX_EXPORT_WIDTH_V1, devtoolsEvaluateRecordV1, sanitizeDevtoolsExpressionV1, sanitizeDevtoolsWorldV1, sanitizeExportRequestV1, sanitizeViewportOverrideV1, viewportRecordV1 } from "./devtools-params.js";
+import { MAX_DEVTOOLS_RESULT_BYTES_V1, MAX_EXPORT_HEIGHT_V1, MAX_EXPORT_WIDTH_V1, boundDevtoolsTextV1, devtoolsEvaluateRecordV1, sanitizeDevtoolsExpressionV1, sanitizeDevtoolsWorldV1, sanitizeExportRequestV1, sanitizeViewportOverrideV1, viewportRecordV1 } from "./devtools-params.js";
 import { checkBrowserTabQuotasV1, DEFAULT_BROWSER_TAB_QUOTAS_V1, sanitizeBrowserTabQuotasV1 } from "./tab-quotas.js";
 import { createFocusCoordinator } from "./focus-coordinator.js";
 import { withTabWake } from "./lifecycle-wake.js";
@@ -36,6 +36,10 @@ const MAX_NATIVE_BYTES = 1024 * 1024;
 // Transport limit for one screenshot; what the model may see is bounded by the
 // client's model-facing limit, not here.
 const MAX_SCREENSHOT_BYTES = 8 * 1024 * 1024;
+// A response body buffer is deliberately small: this is a diagnostic view, not a proxy.
+const MAX_NETWORK_BODY_TOTAL_BYTES = 5 * 1024 * 1024;
+const MAX_NETWORK_BODY_RESOURCE_BYTES = 1024 * 1024;
+const NETWORK_BODY_TEXT_MIME = /^(?:text\/|application\/(?:json|javascript|xml|x-www-form-urlencoded)|[^;]*\+(?:json|xml))/iu;
 const MAX_AX_NODES = 600;
 const MAX_QUERY_AX_NODES = 20_000;
 const MAX_TEXT_NODES = 320;
@@ -359,6 +363,17 @@ function recordNetworkEvent(tabId, method, params) {
 	}
 }
 /** Enable network metadata capture once per debugger attachment. */
+// Response bodies need Chrome to keep them: re-enable with a small, explicit buffer. A tab
+// that was already enabled loses its earlier bodies on purpose, so the caller is told that
+// only requests issued after this call can be read.
+const networkBodyTabIds = new Set();
+async function enableNetworkBodyCapture(item, assertOperation = () => undefined) {
+	if (networkBodyTabIds.has(item.tabId)) return;
+	await globalThis.chrome.debugger.sendCommand({ tabId: item.tabId }, "Network.enable", { maxTotalBufferSize: MAX_NETWORK_BODY_TOTAL_BYTES, maxResourceBufferSize: MAX_NETWORK_BODY_RESOURCE_BYTES, maxPostDataSize: 0 });
+	assertOperation();
+	networkBodyTabIds.add(item.tabId);
+	networkEnabledTabIds.add(item.tabId);
+}
 async function enableNetworkCapture(item, assertOperation = () => undefined) {
 	const chrome = operationChrome(globalThis.chrome, assertOperation);
 	if (networkEnabledTabIds.has(item.tabId)) return;
@@ -1838,7 +1853,7 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 	if (operation === "devtools") {
 		const { name, item } = owned(state, payload.tabName);
 		const devtools = payload.devtools;
-		if (devtools !== "evaluate" && devtools !== "viewport" && devtools !== "screenshot_export") throw new Error("devtools operation invalid");
+		if (devtools !== "evaluate" && devtools !== "viewport" && devtools !== "screenshot_export" && devtools !== "network_body") throw new Error("devtools operation invalid");
 		const expression = devtools === "evaluate" ? sanitizeDevtoolsExpressionV1(payload.expression) : undefined;
 		if (devtools === "evaluate" && expression === undefined) throw new Error("devtools expression invalid");
 		const world = devtools === "evaluate" ? sanitizeDevtoolsWorldV1(payload.world) : undefined;
@@ -1875,6 +1890,41 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 			assertOperation();
 			const evaluated = devtoolsEvaluateRecordV1(evaluatedReply.value);
 			return { schemaVersion: 1, kind: "rotom-browser-devtools", devtools: "evaluate", tabName: name, tabId: item.tabId, documentGeneration: item.documentGeneration, world, ...evaluated };
+		}
+		if (devtools === "network_body") {
+			const requestId = safeString(payload.requestId, "network requestId", 256);
+			await enableNetworkBodyCapture(item, assertOperation);
+			const capture = networkCapture.read(item.tabId, { limit: 200 });
+			const entry = capture.entries.find((candidate) => candidate.requestId === requestId);
+			if (entry === undefined) throw new Error("network body unavailable: 只能读取启用 network_body 之后发出的请求，先从 network 取新的 requestId");
+			const mimeType = typeof entry.mimeType === "string" ? entry.mimeType : "";
+			if (!NETWORK_BODY_TEXT_MIME.test(mimeType) && mimeType.length > 0) throw new Error(`network body not text: ${mimeType.slice(0, 64)}`);
+			const fetched = await valueWithinRelayDeadline(chrome.debugger.sendCommand(debuggee, "Network.getResponseBody", { requestId }), 6_000);
+			if (!fetched.ok) throw new Error("network body unavailable: 响应体已不在缓冲区里");
+			const body = fetched.value?.body;
+			if (typeof body !== "string") throw new Error("network body unavailable: 响应体为空");
+			if (fetched.value?.base64Encoded === true) throw new Error("network body not text: 响应体是二进制编码");
+			if (body.includes("\u0000")) throw new Error("network body not text: 响应体含 NUL 字节");
+			const bounded = boundDevtoolsTextV1(body, MAX_DEVTOOLS_RESULT_BYTES_V1);
+			assertOperation();
+			return {
+				schemaVersion: 1,
+				kind: "rotom-browser-devtools",
+				devtools: "network_body",
+				tabName: name,
+				tabId: item.tabId,
+				documentGeneration: item.documentGeneration,
+				requestId,
+				url: entry.url,
+				status: entry.status,
+				mimeType,
+				resourceType: entry.resourceType,
+				bodyText: bounded.text,
+				truncated: bounded.truncated,
+				bytes: bounded.bytes,
+				captureSince: new Date(capture.captureSince).toISOString(),
+				note: "only requests issued after network_body was first enabled can be read",
+			};
 		}
 		if (devtools === "screenshot_export") {
 			let clip;
