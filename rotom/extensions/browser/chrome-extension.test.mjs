@@ -96,6 +96,13 @@ test("Chrome MV3 manifest 固定 identity 且不申请 cookie/script/host 权限
 	assert.match(worker, /this\.tagName === 'INPUT' && this\.type === 'file'/u);
 	assert.match(worker, /interaction upload paths invalid/u);
 	assert.match(worker, /interaction paths require upload/u);
+	// A suspended tab refuses every operation except the ones that can resolve or leave
+	// the tab, and the input dispatch that opens a dialog reports it instead of hanging.
+	assert.match(worker, /Page\.javascriptDialogOpening/u);
+	assert.match(worker, /Page\.javascriptDialogClosed/u);
+	assert.match(worker, /Page\.handleJavaScriptDialog/u);
+	assert.match(worker, /function dialogGateV1\(/u);
+	assert.match(worker, /dialogOpened: true/u);
 	// Keypress uses the shared key table and never invents a key: no insertText, no
 	// hand-written keyCode map, and the dispatch carries the table's parameters.
 	assert.match(worker, /keyEventV1\(key, modifiers\)/u);
@@ -182,9 +189,11 @@ test("Chrome MV3 manifest 固定 identity 且不申请 cookie/script/host 权限
 	assert.equal(worker.split("chrome.tabs.onActivated").length - 1, 1);
 	assert.match(worker, /chrome\.tabs\.onActivated\.addListener\(\(info\) => \{ focusCoordinator\.recordActivation/u);
 	assert.match(worker, /closeOwnedIdentity\(state, name, tab\.id, item, assertOperation\)/u);
-	const tabsBlock = worker.match(/if \(operation === "tabs"\) \{[\s\S]*?return \{ schemaVersion: 1, kind: "rotom-browser-tabs", \.\.\.sessionPrincipalValue\(state\), tabs \};\n\t\}/u)?.[0] ?? "";
+	const tabsBlock = worker.match(/if \(operation === "tabs"\) \{[\s\S]*?return \{ schemaVersion: 1, kind: "rotom-browser-tabs", \.\.\.sessionPrincipalValue\(state\), tabs: withDialogs \};\n\t\}/u)?.[0] ?? "";
 	assert.match(tabsBlock, /collectListedOwnedTabs/u, "tabs 必须通过可故障注入的非破坏 collector 降级状态");
 	assert.match(tabsBlock, /sessionPrincipalValue\(state\)/u, "tabs 结果必须带当前 session 的 agentId/rootSessionId");
+	// tabs 是弹窗期间唯一能看到「哪个 tab 被阻塞」的只读出口。
+	assert.match(tabsBlock, /dialogState\.get\(tab\.tabId\)/u, "tabs 必须带当前弹窗状态");
 	const principalBlock = worker.match(/if \(operation === "hello"\) \{[\s\S]*?capabilities:/u)?.[0] ?? "";
 	assert.match(principalBlock, /sessionPrincipalFromHello\(payload, state\.sessionId\)/u, "hello 必须校验并记录 browser principal");
 	assert.match(principalBlock, /await persistState\(\)/u, "principal 必须在 hello 时落盘，SW 重启后仍能归属 agent");
