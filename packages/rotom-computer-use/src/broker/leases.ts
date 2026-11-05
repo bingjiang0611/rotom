@@ -216,6 +216,23 @@ export class LeaseManager {
 		return lease;
 	}
 
+	/**
+	 * Hand every lease an agent holds to another agent.
+	 *
+	 * Used when a parent hands an app to its subagent and when that subagent exits:
+	 * a crashed child must not keep the app locked until the TTL expires, and the
+	 * parent already earned the authorization.
+	 */
+	transferAll(agentId: string, toAgentId: string): Lease[] {
+		const leases = [...this.leases.values()].filter((lease) => lease.agentId === agentId);
+		for (const lease of leases) {
+			lease.agentId = toAgentId;
+			lease.expiresAt = this.now() + lease.ttlMs;
+		}
+		if (leases.length > 0) this.onRevoke?.({ agentId, leaseIds: leases.map((lease) => lease.leaseId), reason: "transferred" });
+		return leases;
+	}
+
 	/** Drop every lease an agent holds. Returns the revoked ids. */
 	revokeAgent(agentId: string, reason: RevokedReason): string[] {
 		const revoked = [...this.leases.values()].filter((lease) => lease.agentId === agentId).map((lease) => lease.leaseId);

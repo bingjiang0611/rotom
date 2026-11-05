@@ -146,7 +146,12 @@ export class BrokerCore {
 
 	/** A transport dropped one agent: revoke its leases and forget it. */
 	handleDisconnect(agentId: string): void {
-		this.leases.revokeAgent(agentId, "owner_disconnected");
+		// A subagent holds an app on its parent's authority: when it exits, the app
+		// goes back to the parent instead of staying locked until the TTL expires.
+		const parentAgentId = this.registry.get(agentId)?.parentAgentId;
+		const parent = parentAgentId ? this.registry.get(parentAgentId) : undefined;
+		if (parent?.connected) this.leases.transferAll(agentId, parent.agentId);
+		else this.leases.revokeAgent(agentId, "owner_disconnected");
 		this.registry.disconnect(agentId);
 		this.registry.remove(agentId);
 		this.paused.delete(agentId);
@@ -326,6 +331,12 @@ export class BrokerCore {
 
 	private onTransfer(agentId: string, leaseId: string, toAgentId: string): BrokerReply {
 		if (!this.registry.get(toAgentId)) return failure("unknown_agent", `Unknown agent ${toAgentId}.`);
+		// Handing an app to a stranger would widen the parent's authorization to a
+		// process the user never approved: only own descendants may receive it.
+		const descendant = this.registry.ancestors(toAgentId).some((record) => record.agentId === agentId);
+		if (!descendant) {
+			return failure("not_permitted", `Agent ${agentId} may only hand a lease to its own subagent; ${toAgentId} is not its descendant.`);
+		}
 		const lease = this.leases.transfer(agentId, leaseId, toAgentId);
 		if (!lease) return failure("not_holder", `Agent ${agentId} does not hold ${leaseId}.`);
 		return { ok: true, type: "transfer", lease: toLeaseInfo(lease) };

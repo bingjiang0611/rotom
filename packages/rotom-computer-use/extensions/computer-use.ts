@@ -239,10 +239,14 @@ const systemSurfaceTool = defineTool({
 const cuSessionTool = defineTool({
 	name: "cu_session",
 	label: "Computer Use Session",
-	description: "Inspect which agent holds which app, release this session's leases, or export the local trace.",
-	promptSnippet: "Stopping other agents belongs to the user (menu bar or Ctrl+Option+Cmd+.); the model can only release its own leases.",
+	description: "Inspect which agent holds which app, release this session's leases, hand an app to a subagent this session started, or export the local trace.",
+	promptSnippet: "Stopping other agents belongs to the user (menu bar or Ctrl+Option+Cmd+.); the model can only release or hand over its own leases, and only to its own subagents.",
 	parameters: Type.Object({
-		action: Type.Union([Type.Literal("status"), Type.Literal("release"), Type.Literal("trace_export")]),
+		action: Type.Union([Type.Literal("status"), Type.Literal("release"), Type.Literal("transfer"), Type.Literal("trace_export")]),
+		/** Required for `transfer`: the subagent that receives the lease. */
+		toAgentId: Type.Optional(Type.String({ description: "Agent id of the subagent that should receive the app." })),
+		/** Optional for `transfer`: one resource key; omitted means every lease this session holds. */
+		resourceKey: Type.Optional(Type.String({ description: "Restrict the handover to one resource, e.g. app:com.example.App." })),
 	}),
 	execute: executeCuSession,
 });

@@ -31,7 +31,7 @@
 | A1 | 四个执行器移出 `bridge.ts` | 完成 | L1（全量测试结果与搬迁前一致） | 见提交 |
 | A2 | I3：测试不依赖 peer 包 | 完成 | L1（干净 checkout、无 `node_modules`） | 见提交 |
 | A3 | F3：干扰用户时暂停 agent | 完成 | L1（单测 + Swift 编译） | 见提交 |
-| A4 | F2：父 agent 把 App 交给 subagent | 未开始 | — | — |
+| A4 | F2：父 agent 把 App 交给 subagent | 完成 | L1（单测） | 见提交 |
 | A5 | I2：helper 侧强制租约、截图排除宿主 | 未开始 | — | — |
 | A6 | F1：前台接管（L4）与 `preempted_by_user` | 未开始 | — | — |
 | A7 | F4：多个 agent 各自的光标 | 未开始 | — | — |
@@ -88,3 +88,28 @@
 - Swift：`node scripts/build-native.mjs --arch arm64 --no-sign --output ~/cu-v2-build/a3-bridge`
   编译通过（24 秒）。真机行为未验证（按规则留到 B 阶段）。
 - 全量测试：83 用例，83 通过、0 失败。
+
+### A4 F2：父 agent 把 App 交给 subagent
+
+- 父子关联复用既有约定，不新增环境变量：`agentRegistrationFor` 从 `PI_SUBAGENT_ORCHESTRATOR_SESSION_ID`
+  得到 `parentAgentId`，Broker 的 `ancestors()` 用它做祖先链。补了一个用例把这条约定钉住。
+- Broker 的 `transfer` 增加祖先校验：只能转给自己的后代，转给别的 agent 返回 `not_permitted`
+  （否则父 agent 的授权会被扩散给用户从未同意的进程）。转交本身不弹卡：父 agent 已经被授权过。
+- 子 agent 断开时，租约自动回到它直接的父 agent（`LeaseManager.transferAll`，revocation 原因
+  `transferred`），而不是等 TTL 过期或被撤销；父 agent 已经不在时按 `owner_disconnected` 撤销，
+  不留悬空租约。
+- 模型侧入口：`cu_session` 新增 `transfer` 动作，参数 `toAgentId` 和可选 `resourceKey`
+  （省略表示把自己持有的全部租约转给该 subagent）。这是一次新增的可写管理动作，记在决定记录里。
+  被 Broker 拒绝时返回结构化结果（`status: "denied"` + 错误码），不抛异常。
+- 测试：`test/broker-transfer.test.ts`（5 个用例）——父转交后父写被拒、子可写；转给非后代被拒；
+  子断开后租约回到父；父先消失时子租约被撤销；`PI_SUBAGENT_ORCHESTRATOR_SESSION_ID` 的父子关联。
+
+### 测试稳定性观察（既有问题，不是本项引入）
+
+- 全量套件在**并行跑全部测试文件**时，基于真实 spawn 的 Broker 用例（`broker-packaged`、
+  `broker-socket` 的“两个客户端同时拉起”）偶发超时/连接失败：两次全量运行各出现 1–2 个，
+  报错是 15 秒内 socket 未出现（`ENOENT`），不是断言失败。
+- 单独运行这些文件连续 3 次全通过；同一套件在第二期基线提交 `fe580d45` 的独立 worktree 上也
+  出现过一次其它 spawn 用例失败（控制组）。在改动后的分支上也有一次 88/88 全通过。
+- 结论：按“既有失败单独记录”处理，未放宽或删除任何测试。B 阶段的真机脚本不使用这套并发 spawn
+  测试路径。
