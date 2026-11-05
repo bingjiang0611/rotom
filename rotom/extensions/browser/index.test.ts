@@ -694,8 +694,20 @@ test("/browser: explicit commands, local-only diagnostics, cancellation and owne
 		f.ctx.hasUI = false; await assert.rejects(f.run("install"), /需要交互界面/u); assert.deepEqual(f.calls, []);
 	});
 	await t.test("unsupported installer platform has no subprocess or probe", async () => {
-		const f = await fixture({ platform: "linux" }); await f.run("install"); await f.run("status");
-		assert.deepEqual(f.calls, []); assert.match(f.notices.at(-1)!, /仅支持 macOS/u);
+		// Linux and Windows are supported platforms now; an unknown one still refuses
+		// before any subprocess, probe or file write.
+		const f = await fixture({ platform: "freebsd" }); await f.run("install"); await f.run("status");
+		assert.deepEqual(f.calls, []); assert.match(f.notices.at(-1)!, /没有已验证的 Chrome Relay 安装路径/u);
+	});
+	await t.test("linux install reaches the installer instead of a platform refusal", async () => {
+		const f = await fixture({ platform: "linux" }); await f.run("status");
+		assert.deepEqual(f.calls[0], "status");
+	});
+	await t.test("--browser names the Chromium family, and an unknown one never dispatches", async () => {
+		const f = await fixture(); f.confirm(); await f.run("install --browser edge");
+		assert.deepEqual(f.calls.slice(0, 2), ["confirm", "install"]);
+		f.ctx.hasUI = true; f.calls.length = 0; await f.run("install --browser netscape");
+		assert.deepEqual(f.calls, []); assert.match(f.notices.at(-1)!, /不支持的浏览器：netscape/u);
 	});
 	for (const event of ["session_before_switch", "session_before_fork", "session_before_tree", "session_shutdown"]) {
 		await t.test(`${event} cancels old confirmations before any write`, async () => {

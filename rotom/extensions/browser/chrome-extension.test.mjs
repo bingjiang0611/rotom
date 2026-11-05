@@ -742,7 +742,7 @@ test("installer 固定组件存储与 exact 注册，status 校验内容且 unin
 });
 
 test("Native host 并行 multiplex 多个 Pi client、按 binding 路由响应并隔离断线 cleanup", async (t) => {
-	const home = await mkdtemp("/private/tmp/pibr-multiplex-");
+	const home = await mkdtemp(join(tmpdir(), "pibr-multiplex-"));
 	t.after(() => rm(home, { recursive: true, force: true }));
 	await mkdir(join(home, "Library", "Application Support"), { recursive: true });
 	const child = spawn(process.execPath, [join(root, "native-host.mjs")], { env: { ...process.env, HOME: home }, stdio: ["pipe", "pipe", "pipe"] });

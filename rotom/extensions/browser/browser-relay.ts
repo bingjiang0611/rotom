@@ -1,12 +1,12 @@
 import { createCipheriv, createHash, randomBytes, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { chmod, lstat, mkdtemp, open, rmdir, unlink } from "node:fs/promises";
-import { homedir } from "node:os";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connect, type Socket } from "node:net";
 import { RESPONSE_MAX_BYTES } from "./chrome-extension/response-chunks.js";
 import { browserTabQuotasFromEnvV1 } from "./chrome-extension/tab-quotas.js";
+import { browserRelaySocketPathV1 as platformRelaySocketPathV1 } from "./platform-paths.mjs";
 
 export const BROWSER_RELAY_PROTOCOL_REVISION_V1 = 21 as const;
 export const BROWSER_RELAY_FULL_READ_CAPABILITY_V1 = "virtualized-frame-scroll" as const;
@@ -101,8 +101,9 @@ export const MAX_RELAY_SCREENSHOT_BYTES = 8 * 1024 * 1024;
 const MAX_MODEL_NODES = 1_000;
 const MAX_STRING_BYTES = 4_096;
 
+/** Socket location for this platform; macOS keeps the path older installs already use. */
 export function browserRelaySocketPathV1(): string {
-	return join(homedir(), "Library", "Application Support", "rotom", "browser-relay", "relay.sock");
+	return platformRelaySocketPathV1();
 }
 
 function record(value: unknown): value is Record<string, unknown> {

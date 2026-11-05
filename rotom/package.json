@@ -90,6 +90,7 @@
     "extensions/browser/batch-actions.ts",
     "extensions/browser/browser-policy.ts",
     "extensions/browser/devtools.ts",
+    "extensions/browser/platform-paths.mjs",
     "extensions/browser/export-guard.ts",
     "extensions/browser/trace-summary.ts",
     "extensions/browser/gif-encoder.ts",
