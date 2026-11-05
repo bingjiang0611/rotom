@@ -60,18 +60,20 @@ B1 → B6 的顺序单独约一次时间，并且先确认 A8 的脚本在一个
 | E3 | 按 mode 区分读写，`manageApps` 绑定目标，算不出目标即失败关闭 | 完成 | L1 |
 | E4 | 同时只接受一个 helper 连接，并如实写明身份边界 | 完成 | L1 |
 | Q3 | 按职责拆分 `outline.ts`，接上原生 `secure` 标记 | 完成 | L1 |
+| Q5 | `focusWindow` / `clipboardRestore` 纳入租约校验（复核后补做） | 完成 | L1 |
 
 四项的最终证据：
 
 | 检查 | 命令 | 结果 |
 | --- | --- | --- |
-| 全量 TS 测试 | `node --test --experimental-strip-types "test/*.test.ts"` | 117 通过、0 失败（本轮新增 9 项） |
-| helper 租约强制 | `npm run test:lease-guard` | 自测 19 项全过 + 13 步互通全过，**每一步的 token 都由真实 `BrokerCore` 签发** |
+| 全量 TS 测试 | `node --test --experimental-strip-types "test/*.test.ts"` | 120 通过、0 失败（E 轮新增 9 项，Q5 再新增 3 项） |
+| helper 租约强制 | `npm run test:lease-guard` | 自测 22 项全过 + 18 步互通全过，**每一步的 token 都由真实 `BrokerCore` 签发** |
 | 脚本 dry run | `node scripts/cu-v2-script-dry-run.mjs` | 6 通过、3 显式跳过（未受影响） |
 | 反向对照 | 把 Swift 过期比较改回秒后重跑互通 | `step broker_expired fail`，说明 E1 的用例确实能抓到单位回退 |
 
-另外顺手修掉一个同类缺陷：helper 记录用户活动用秒、推送前又乘 1000，broker 用毫秒比较，导致 L4 接管
-在真机上永远判定“用户刚活动过”。现在两侧统一毫秒，broker 对非毫秒上报返回 `invalid_request`。
+用户活动的单位问题**当时并不是缺陷**：旧代码记的是秒，但推送前乘了 1000，broker 收到的就是毫秒，
+与 broker 自己的时钟一致。现在做的是统一单位并加校验（旧代码换算正确，不是缺陷）——两侧内部都只用
+毫秒，broker 对非毫秒的 `ping.lastUserInputAt` 返回 `invalid_request`，避免以后有人漏乘或重复乘。
 
 按 `REVIEW-4.md` 的“下一步”，B 阶段仍需用户另约时间、给出明确时长后才能开始；开始条件与规则不变，
 并新增一条：B4 的反例必须用真实 broker 签出的 token（含过期与撤销），不允许脚本自己构造——这一条
@@ -140,7 +142,7 @@ B1 → B6 的顺序单独约一次时间，并且先确认 A8 的脚本在一个
 | Q2 | `cu_session` 新增 `transfer` 动作是模型可写的管理动作（A4 决定）。是否需要额外的确认或审计要求？ | 先按“父 agent 已获授权、转交不弹卡”实现，只允许转给自己的后代，并写进决定记录。如需要确认卡，属于新的同意层改动。 |
 | Q4 | A6 只做了许可/条件/边框/收回，没有把批次的实际投递切到 L4 全局 HID。是否按原计划等 B5 真机证据后再打开投递？ | 先保持不切换：证据不足时打开投递等于让 agent 在无人监督下真的驱动整机。B5 通过后再单独一项接上。 |
 | Q3 | `packages/rotom-computer-use/src/outline.ts` 在初始快照里就是 24,448 字节，超过 pre-commit 的 20,000 字节门槛且不在豁免名单。任何改动它的提交都会被 hook 拒绝。 | 已按 REVIEW-4 的回答处理：按职责拆分成 `src/outline/*`（最大 6,768 字节），不加入豁免名单，并把原生 `secure` 标记接进 `OutlineNode`。 |
-| Q5（本轮新增） | `focusWindow` 与 `clipboardRestore` 会改变状态，但不在 helper 的 `writeCommands` 里，TS 侧也没有给它们附租约。E3 没有动它们，因为改动会牵涉工具层合同。 | 保持现状并记录。建议与 B4 的真机反例一起决定：要么把两者纳入租约（需要工具层传 token），要么在文档里明确它们不受租约保护。 |
+| Q5（已解决） | `focusWindow` 与 `clipboardRestore` 会改变状态，但不在 helper 的 `writeCommands` 里，TS 侧也没有给它们附租约。 | 依复核结论补做：两者都进了 `writeCommands`（`desktop-pid:<pid>` / `clipboard:system`），TS 侧签名强制传租约，恢复路径拿不到租约就跳过并记 `restore_skipped:lease_unavailable`。细节见 [`STATUS-2-E-items.md`](STATUS-2-E-items.md)。 |
 
 ### A6 F1：前台接管（L4）与 `preempted_by_user`
 

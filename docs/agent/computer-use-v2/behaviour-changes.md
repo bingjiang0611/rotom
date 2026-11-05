@@ -37,6 +37,12 @@
    不是“同一用户下的恶意进程”——后者在本机属于同一信任边界，拦不住也不该在文档里假装拦得住。
    能做的两件实事已经做了：同一时间只接受一个 helper 连接（第二个 hello 得到 `not_permitted`，
    原 helper 断开后才接受新的），以及密钥只在 hello 成功后交给这一个连接。
+   **哪几条命令算写入，是穷举而不是推断的（第二期 Q5）：** `act`、`clipboardSet`、`clipboardClear`、
+   `clipboardRestore`、`focusWindow`、`manageApps`、`manageWindow`、`takeoverBegin`。其中
+   `clipboardRestore`（30 秒后把剪贴板还原）与 `focusWindow`（把窗口提到前面）原先漏在网络之外，
+   现在也要租约：还原走 `clipboard:system` 租约，窗口前置要 `desktop-pid:<pid>` 租约。
+   **拿不到租约的还原直接放弃，不写也不重试**，trace 里记 `restore_skipped:lease_unavailable`——
+   用户会看到“剪贴板没被还原”，而不是别人写的内容被悄悄覆盖。
 
 8. **前台接管（L4）是一个独立的、默认没有授予的许可（第二期 A6）。** `cu_session` 新增
    `takeover`／`release_takeover`：拿不到这个许可就一个字节也不会写。三个条件同时成立才发放
@@ -101,11 +107,12 @@ A6（前台接管）见 [`test/takeover.test.ts`](../../../packages/rotom-comput
 三个条件、第二个 agent 抢到时 `resource_busy`、真实输入触发 `preempted_by_user`、headless 拒绝、
 边框与续租用假 backend 覆盖。
 
-A5 的 native 侧用 `npm run test:lease-guard` 验证：helper 自检 19 项（合法／签名错／过期／秒级过期／
+A5 的 native 侧用 `npm run test:lease-guard` 验证：helper 自检 22 项（合法／签名错／过期／秒级过期／
 pid 不符／已撤销／过期撤销被遗忘／换 key 清空撤销／读命令免租约／无 pid 的写命令被拒／
-`manageApps` 只认自己的 App／无 broker 密钥），再用**真实 `BrokerCore` 签出的 token** 跑 13 步
-（合法、过期、错 pid、无 token、转交后的新旧 id、重启换 key、App 级租约、读命令），不再由脚本自己
-构造 claim。
+`manageApps` 只认自己的 App／`focusWindow` 与 `clipboardRestore` 无 token 被拒／无 broker 密钥），
+再用**真实 `BrokerCore` 签出的 token** 跑 18 步（合法、过期、错 pid、无 token、转交后的新旧 id、
+重启换 key、App 级租约、读命令、两种新写入的租约与“App 租约不能拿来还原剪贴板”），不再由脚本
+自己构造 claim。
 
 - `packages/rotom-computer-use/test/cu-v2-authority.test.ts`：
   - 预先授权为 `full` 的 App 在无 UI 会话里可以写入；同一个无 UI 会话写入未授权 App 得到

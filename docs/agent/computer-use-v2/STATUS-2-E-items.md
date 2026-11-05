@@ -162,3 +162,51 @@ secure 标记：
 
 限制：真正的“拍不到 secure 字段截图”仍要在真机（B6 的 trace 检查）里看；这里证明的是判断依据换成了
 原生标记，且四种形态（解析、存储、恢复、嫁接）都不会丢。
+
+## Q5：`focusWindow` 与 `clipboardRestore` 纳入租约（复核后补做）
+
+`REVIEW-4.md` 的复核把这一条列为 A 阶段收尾的最后一项：两者都会改变用户看到的状态，却不在 helper
+的 `writeCommands` 里，TS 侧也不给它们附租约，等于留了两条“不用租约也能写”的缝。
+
+**helper 侧**（`native/macos/bridge.swift`）：
+
+- `writeCommands` 加入 `clipboardRestore`、`focusWindow`，并在注释里写明“写入命令是穷举清单”。
+- `LeaseGuard.requirement` 给出两者的资源：`clipboardRestore` → `clipboard:system`；
+  `focusWindow` → `desktop-pid:<pid>`，请求里没有 pid 就是 `.undeterminable`（失败关闭）。
+- 自测新增 4 项：两个“无 token 被拒（`lease_invalid`）”，两个“带正确租约通过”。
+
+**TS 侧**：
+
+- `ComputerUsePlatformBackend.focusWindow(target, signal, lease)`：`lease` 是**必填**参数，三个平台的
+  backend 都把它放进请求体。现在产品里没有任何工具调用 `focusWindow`（窗口前置走 `act`/`manageWindow`
+  的原生路径），所以这是合同层的强制，而不是给某条热路径加参数——写清楚，免得以后有人以为它已被覆盖。
+- `clipboardRestore(snapshot, signal, lease)` 同样必填；`src/tools/clipboard.ts` 新增
+  `restoreWithLease()`：还原走 `deps.scheduler()` 的 `clipboard:system` 写入，拿到 token 才调用
+  backend；`LeaseUnavailableError`（别人持有、被拒、被暂停）一律转成 `RestoreLeaseUnavailableError`。
+- 延迟还原的 `write` 抛这个错误时，`scheduleClipboardRestore` 记 `restore_skipped:lease_unavailable`
+  （新理由码，`src/trace/recorder.ts` 的类型同步扩展），**不写、不重试**。
+- `clipboardIntent` 接受 `"restore"`：动作名 `clipboard_restore`，资源仍是 `clipboard:system`，
+  `src/policy/tiers.ts` 里同样是 `full`——还原和写入一样需要授权，且 trace 能区分“agent 写的”与
+  “agent 自己还原的”。
+
+**测试**（`test/clipboard-restore-lease.test.ts`，3 项）：
+
+1. 另一个 agent 持有 `clipboard:system` 时，`restoreWithLease` 抛 `RestoreLeaseUnavailableError`，
+   **backend 一次都没被调用**（用真实 `ResourceScheduler` + 会拒绝的 broker）。
+2. 拿到租约时，backend 收到的正是 `{resourceKey: "clipboard:system", token}`。
+3. 延迟还原的 `write` 抛这个错误时，跳过理由记成 `lease_unavailable`，不是 `restore_failed`。
+
+互通（`scripts/check-lease-guard.mjs`）新增 5 步：`focus_window_without_token_refused`、
+`focus_window_with_pid_lease_accepted`、`clipboard_restore_without_token_refused`、
+`clipboard_restore_with_clipboard_lease_accepted`、`clipboard_restore_cannot_use_app_lease`，
+token 全部由真实 `BrokerCore` 签发。
+
+| 检查 | 命令 | 结果 |
+| --- | --- | --- |
+| 全量 TS 测试 | `node --test --experimental-strip-types "test/*.test.ts"` | 120 通过、0 失败（新增 3 项） |
+| helper 自测 | `helper --lease-self-test` | 22 项全过，`lease-guard failures=0` |
+| TS↔Swift 互通 | `node scripts/check-lease-guard.mjs` | 18 步全过 |
+| 脚本 dry run | `node scripts/cu-v2-script-dry-run.mjs` | 6 通过、3 显式跳过 |
+
+限制：`focusWindow` 目前没有产品调用方，所以它的租约只在合同与 helper 自测/互通层面验证，没有
+一条真实用户路径会被它拦住或放行；真机上的行为要等 B 阶段（以及将来真的加窗口前置工具时）。
