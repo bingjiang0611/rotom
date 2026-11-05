@@ -91,6 +91,7 @@
     "extensions/browser/browser-policy.ts",
     "extensions/browser/devtools.ts",
     "extensions/browser/export-guard.ts",
+    "extensions/browser/trace-summary.ts",
     "extensions/browser/sensitive-actions.ts",
     "extensions/browser/chrome-extension/rendered-text.js",
     "extensions/browser/chrome-extension/scoped-ax-ref.js",

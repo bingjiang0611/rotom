@@ -11,7 +11,7 @@ import { BROWSER_POINTER_ACTIONS_V1, dragSequenceV1, pointerSequenceV1 } from ".
 import { readInteractionSensitivity, sensitivityFromFactsV1 } from "./sensitive-actions.js";
 import { MAX_DOWNLOAD_RECORDS_V1, downloadOwnerAgentIdV1, downloadRecordV1, downloadRelativeFilenameV1 } from "./downloads.js";
 import { createNetworkCaptureV1, parseNetworkCursorV1, sanitizeNetworkLimitV1, sanitizeNetworkPatternV1, sanitizeNetworkResourceTypeV1 } from "./network-buffer.js";
-import { MAX_DEVTOOLS_RESULT_BYTES_V1, MAX_EXPORT_HEIGHT_V1, MAX_EXPORT_WIDTH_V1, boundDevtoolsTextV1, devtoolsEvaluateRecordV1, sanitizeDevtoolsExpressionV1, sanitizeDevtoolsWorldV1, sanitizeExportRequestV1, sanitizeViewportOverrideV1, viewportRecordV1 } from "./devtools-params.js";
+import { MAX_DEVTOOLS_RESULT_BYTES_V1, MAX_EXPORT_HEIGHT_V1, MAX_EXPORT_WIDTH_V1, base64FromBytesV1, boundDevtoolsTextV1, bytesFromBase64V1, devtoolsEvaluateRecordV1, sanitizeDevtoolsExpressionV1, sanitizeDevtoolsWorldV1, sanitizeExportRequestV1, sanitizeViewportOverrideV1, viewportRecordV1 } from "./devtools-params.js";
 import { checkBrowserTabQuotasV1, DEFAULT_BROWSER_TAB_QUOTAS_V1, sanitizeBrowserTabQuotasV1 } from "./tab-quotas.js";
 import { createFocusCoordinator } from "./focus-coordinator.js";
 import { withTabWake } from "./lifecycle-wake.js";
@@ -1853,7 +1853,8 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 	if (operation === "devtools") {
 		const { name, item } = owned(state, payload.tabName);
 		const devtools = payload.devtools;
-		if (devtools !== "evaluate" && devtools !== "viewport" && devtools !== "screenshot_export" && devtools !== "network_body") throw new Error("devtools operation invalid");
+		const DEVTOOLS_OPERATIONS = ["evaluate", "viewport", "screenshot_export", "network_body", "trace_start", "trace_stop"];
+		if (!DEVTOOLS_OPERATIONS.includes(devtools)) throw new Error("devtools operation invalid");
 		const expression = devtools === "evaluate" ? sanitizeDevtoolsExpressionV1(payload.expression) : undefined;
 		if (devtools === "evaluate" && expression === undefined) throw new Error("devtools expression invalid");
 		const world = devtools === "evaluate" ? sanitizeDevtoolsWorldV1(payload.world) : undefined;
@@ -1890,6 +1891,59 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 			assertOperation();
 			const evaluated = devtoolsEvaluateRecordV1(evaluatedReply.value);
 			return { schemaVersion: 1, kind: "rotom-browser-devtools", devtools: "evaluate", tabName: name, tabId: item.tabId, documentGeneration: item.documentGeneration, world, ...evaluated };
+		}
+		if (devtools === "trace_start") {
+			// A trace whose tab is gone can no longer be stopped: drop it instead of
+			// blocking every later start for the rest of the worker's life.
+			if (traceState.tabId !== undefined && !allSessionItems().some((candidate) => candidate.tabId === traceState.tabId)) {
+				traceState.tabId = undefined;
+				traceState.complete = undefined;
+				traceState.stream = undefined;
+			}
+			if (traceState.tabId !== undefined) throw new Error(`devtools trace already running on tab ${traceState.tabId}`);
+			await attach(item, assertOperation);
+			await assertOwned(item);
+			// Chrome rejects categories together with traceConfig: send only the config.
+			await chrome.debugger.sendCommand(debuggee, "Tracing.start", { traceConfig: { includedCategories: TRACE_START_CATEGORIES, recordMode: "recordAsMuchAsPossible" }, transferMode: "ReturnAsStream" });
+			assertOperation();
+			traceState.tabId = item.tabId;
+			traceState.startedAt = Date.now();
+			traceState.stream = undefined;
+			return { schemaVersion: 1, kind: "rotom-browser-devtools", devtools: "trace_start", tabName: name, tabId: item.tabId, startedAt: new Date(traceState.startedAt).toISOString(), categories: TRACE_START_CATEGORIES };
+		}
+		if (devtools === "trace_stop") {
+			if (traceState.tabId !== item.tabId) throw new Error("devtools trace not running on this tab");
+			const completed = new Promise((resolve, reject) => {
+				const timer = setTimeout(() => reject(new Error("devtools trace completion timed out")), 30_000);
+				traceState.complete = (params) => { clearTimeout(timer); resolve(params); };
+			});
+			await chrome.debugger.sendCommand(debuggee, "Tracing.end");
+			const params = await completed;
+			traceState.tabId = undefined;
+			traceState.complete = undefined;
+			const handle = traceState.stream;
+			traceState.stream = undefined;
+			if (typeof handle !== "string") throw new Error("devtools trace stream missing");
+			// Read the stream in bounded chunks; one IO.read of a 30 MB trace would be one
+			// unbounded command.
+			const parts = [];
+			let total = 0;
+			const encoder = new TextEncoder();
+			for (;;) {
+				const chunk = await valueWithinRelayDeadline(chrome.debugger.sendCommand(debuggee, "IO.read", { handle, size: TRACE_CHUNK_BYTES }), 10_000);
+				if (!chunk.ok) throw new Error("devtools trace read timed out");
+				const data = typeof chunk.value?.data === "string" ? chunk.value.data : "";
+				const bytes = chunk.value?.base64Encoded === true ? bytesFromBase64V1(data) : encoder.encode(data);
+				if (bytes.length > 0) { parts.push(bytes); total += bytes.length; }
+				if (total > MAX_TRACE_BYTES) { await chrome.debugger.sendCommand(debuggee, "IO.close", { handle }).catch(() => undefined); throw new Error("devtools trace too large"); }
+				if (chunk.value?.eof === true || bytes.length === 0) break;
+			}
+			await chrome.debugger.sendCommand(debuggee, "IO.close", { handle }).catch(() => undefined);
+			const merged = new Uint8Array(total);
+			let offset = 0;
+			for (const part of parts) { merged.set(part, offset); offset += part.length; }
+			assertOperation();
+			return { schemaVersion: 1, kind: "rotom-browser-devtools", devtools: "trace_stop", tabName: name, tabId: item.tabId, documentGeneration: item.documentGeneration, bytes: total, dataLossOccurred: params?.dataLossOccurred === true, traceBase64: base64FromBytesV1(merged) };
 		}
 		if (devtools === "network_body") {
 			const requestId = safeString(payload.requestId, "network requestId", 256);
@@ -2191,8 +2245,21 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 	}
 	void persistState();
 });
+// One trace at a time for the whole browser: Chrome's tracing is a browser-wide session,
+// so two agents asking for overlapping traces would silently mix their events.
+const traceState = { tabId: undefined, startedAt: 0, complete: undefined, stream: undefined };
+const TRACE_CHUNK_BYTES = 1024 * 1024;
+const MAX_TRACE_BYTES = 32 * 1024 * 1024;
+const TRACE_START_CATEGORIES = ["devtools.timeline", "disabled-by-default-devtools.timeline", "blink.user_timing", "loading", "v8.execute"];
 chrome.debugger.onEvent.addListener((source, method, params) => {
 	if (!Number.isInteger(source.tabId)) return;
+	if (method === "Tracing.tracingComplete") {
+		if (traceState.tabId === source.tabId && traceState.complete !== undefined) {
+			traceState.stream = typeof params?.stream === "string" ? params.stream : undefined;
+			traceState.complete(params);
+			traceState.complete = undefined;
+		}
+	}
 	if (method === "Page.windowOpen") {
 		const guard = windowOpenGuardsByTabId.get(source.tabId);
 		if (guard) guard.signals.push({ timestamp: Date.now(), url: typeof params?.url === "string" ? params.url : "", used: false });

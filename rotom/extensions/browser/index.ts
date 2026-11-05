@@ -4,8 +4,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { createReadStream } from "node:fs";
 import { constants } from "node:fs";
-import { lstat, open, realpath } from "node:fs/promises";
-import { homedir } from "node:os";
+import { lstat, mkdir, open, realpath } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -48,8 +48,9 @@ import { INTERACTION_EXPECTATIONS, parseInteractionExpectation } from "./chrome-
 import { MAX_UPLOAD_FILES_V1, validateUploadPathsV1 } from "./upload-guard.ts";
 import { MAX_BATCH_STEPS_V1, batchErrorOutcomeV1, batchStepOutcomeV1, batchStepSummaryV1, parseBatchActionsV1 } from "./batch-actions.ts";
 import { isDeferredByDefault } from "../third-party/deferred-tools/register.ts";
-import { BROWSER_DEVTOOLS_TOOL_V1, DEVTOOLS_OPERATIONS_V1, DEVTOOLS_WORLDS_V1, MAX_DEVTOOLS_EXPRESSION_CHARS_V1, MAX_NETWORK_REQUEST_ID_CHARS_V1, boundDevtoolsTextV1, devtoolsEnabledByEnvironment, resolveViewportV1, sanitizeDevtoolsExpressionV1, sanitizeDevtoolsOperationV1, sanitizeDevtoolsWorldV1, sanitizeExportQualityV1, viewportPresetNamesV1 } from "./devtools.ts";
+import { BROWSER_DEVTOOLS_TOOL_V1, DEVTOOLS_OPERATIONS_V1, DEVTOOLS_WORLDS_V1, MAX_DEVTOOLS_EXPRESSION_CHARS_V1, MAX_NETWORK_REQUEST_ID_CHARS_V1, MAX_TRACE_BYTES_V1, boundDevtoolsTextV1, devtoolsEnabledByEnvironment, resolveViewportV1, sanitizeDevtoolsExpressionV1, sanitizeDevtoolsOperationV1, sanitizeDevtoolsWorldV1, sanitizeExportQualityV1, viewportPresetNamesV1 } from "./devtools.ts";
 import { MAX_EXPORT_BYTES_V1, resolveExportTargetV1, type ExportTargetV1 } from "./export-guard.ts";
+import { summarizeTraceV1 } from "./trace-summary.ts";
 import {
 	AUTO_APPROVE_LOCALHOST_V1,
 	SENSITIVE_CONFIRM_ENV_V1,
@@ -1318,6 +1319,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			if (operation === "evaluate" && params.viewport !== undefined) throw new Error("viewport 不能与 evaluate 同时使用");
 			if (operation === "viewport" && (params.expression !== undefined || params.world !== undefined)) throw new Error("evaluate 参数不能与 viewport 同时使用");
 			if (operation !== "screenshot_export" && (params.path !== undefined || params.fullPage !== undefined || params.format !== undefined || params.quality !== undefined)) throw new Error("path/fullPage/format/quality 只用于 screenshot_export");
+			if (operation !== "evaluate" && operation !== "viewport" && (params.expression !== undefined || params.world !== undefined)) throw new Error("expression/world 只用于 evaluate");
 			const requestId = operation === "network_body" ? safeString(params.requestId, "requestId", MAX_NETWORK_REQUEST_ID_CHARS_V1) : undefined;
 			if (operation !== "network_body" && params.requestId !== undefined) throw new Error("requestId 只用于 network_body");
 			const exportQuality = operation === "screenshot_export" ? sanitizeExportQualityV1(params.quality) : undefined;
@@ -1390,6 +1392,27 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 					fullPage: record(raw) && raw.fullPage === true,
 					overwrote: exportTarget.exists,
 					...(record(raw) && typeof raw.width === "number" ? { width: raw.width, height: raw.height } : {}),
+				});
+			}
+			if (operation === "trace_stop") {
+				const encoded = record(raw) ? raw.traceBase64 : undefined;
+				if (typeof encoded !== "string" || !/^[A-Za-z0-9+/]+={0,2}$/u.test(encoded)) throw new Error("browser_devtools trace 数据无效");
+				const bytes = Buffer.from(encoded, "base64");
+				if (bytes.length === 0 || bytes.length > MAX_TRACE_BYTES_V1) throw new Error(`browser_devtools trace 字节数超出上限（${bytes.length}）`);
+				// Private temp directory: a trace can contain page URLs and script sources.
+				const traceDir = join(tmpdir(), "rotom-traces");
+				await mkdir(traceDir, { recursive: true, mode: 0o700 });
+				const tracePath = join(traceDir, `trace-${randomUUID()}.json`);
+				await writeExportFileV1(tracePath, bytes);
+				const summary = summarizeTraceV1(bytes.toString("utf8"));
+				assertOwner();
+				pi.appendEntry(BROWSER_INTERACTION_AUDIT_ENTRY, { schemaVersion: 1, kind: "rotom-browser-interaction-terminal", actionId, status: "ok", actionAcknowledged: true, businessOutcome: operation, timestamp: new Date().toISOString() });
+				return browserResult({
+					kind: "browser-trace",
+					path: tracePath,
+					bytes: bytes.length,
+					dataLossOccurred: record(raw) && raw.dataLossOccurred === true,
+					...summary,
 				});
 			}
 			pi.appendEntry(BROWSER_INTERACTION_AUDIT_ENTRY, { schemaVersion: 1, kind: "rotom-browser-interaction-terminal", actionId, status: "ok", actionAcknowledged: true, businessOutcome: operation, timestamp: new Date().toISOString() });

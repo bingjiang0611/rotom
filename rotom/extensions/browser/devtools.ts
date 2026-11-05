@@ -8,7 +8,7 @@ export const BROWSER_DEVTOOLS_TOOL_V1 = "browser_devtools" as const;
  * Operations this product actually implements. Unlisted names are rejected locally
  * instead of reaching the relay, so a half-built operation can never look supported.
  */
-export const DEVTOOLS_OPERATIONS_V1 = ["evaluate", "viewport", "screenshot_export", "network_body"] as const;
+export const DEVTOOLS_OPERATIONS_V1 = ["evaluate", "viewport", "screenshot_export", "network_body", "trace_start", "trace_stop"] as const;
 export type DevtoolsOperationV1 = (typeof DEVTOOLS_OPERATIONS_V1)[number];
 
 /** Isolated world by default: page globals stay out of reach unless the caller asks. */
@@ -24,6 +24,8 @@ export const MAX_EXPORT_WIDTH_V1 = 5_000;
 export const MAX_EXPORT_HEIGHT_V1 = 20_000;
 export const DEFAULT_EXPORT_QUALITY_V1 = 80;
 export const MAX_NETWORK_REQUEST_ID_CHARS_V1 = 256;
+/** A trace is written to a private temp file; the model only gets the summary and path. */
+export const MAX_TRACE_BYTES_V1 = 32 * 1024 * 1024;
 /** The isolated world name the relay creates; one world per document. */
 export const DEVTOOLS_ISOLATED_WORLD_V1 = "rotom-devtools";
 

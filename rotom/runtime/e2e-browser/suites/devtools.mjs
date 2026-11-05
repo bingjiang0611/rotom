@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import { relayRequestFor } from "../harness.mjs";
 
-export const description = "devtools：isolated 与 main world 的可见性差异、viewport 覆盖与 reset、坐标失效、截图导出、响应体读取";
+export const description = "devtools：isolated 与 main world 的可见性差异、viewport 覆盖与 reset、坐标失效、截图导出、响应体读取、性能 trace";
 
 export async function run({ harness, fixtures, recorder }) {
 	const client = await harness.connect("devtools-main");
@@ -60,7 +60,7 @@ export async function run({ harness, fixtures, recorder }) {
 		for (const payload of [
 			{ devtools: "evaluate", expression: "   " },
 			{ devtools: "evaluate", expression: "1", world: "page" },
-			{ devtools: "trace_start" },
+			{ devtools: "record_start" },
 			{ devtools: "viewport", viewport: "iphone-99" },
 			{ devtools: "viewport", viewport: { width: 10, height: 600, deviceScaleFactor: 1, mobile: false, touch: false } },
 			{ devtools: "viewport", viewport: { width: 800, height: 600, deviceScaleFactor: 1, mobile: "no", touch: false } },
@@ -174,6 +174,31 @@ export async function run({ harness, fixtures, recorder }) {
 		}
 		assert.ok(binaryId, "network 必须给出 /binary 的 requestId");
 		await assert.rejects(() => request("devtools", { tabName: "api", devtools: "network_body", requestId: binaryId }, 10_000), /not text/u);
+	});
+
+	await recorder.check("trace_start/trace_stop：全局只能一个 trace，停止后取到真实事件流且能算出 long task", async () => {
+		await request("close", { all: true }, 5_000);
+		await request("open", { tabName: "perf", url: fixtures.url("/globals") }, 10_000);
+		await request("wait", { tabName: "perf", status: "complete", timeoutMs: 10_000 }, 11_000);
+		const started = await request("devtools", { tabName: "perf", devtools: "trace_start" }, 15_000);
+		assert.equal(started.devtools, "trace_start");
+		assert.ok(Date.parse(started.startedAt) > 0);
+		assert.ok(started.categories.includes("devtools.timeline"));
+		// 全局只允许一个 trace，第二次必须被拒绝而不是混在一起。
+		await assert.rejects(() => request("devtools", { tabName: "perf", devtools: "trace_start" }, 10_000), /already running/u);
+
+		// 制造一段可观测的主线程工作，让 trace 里有真实事件。
+		await request("devtools", { tabName: "perf", devtools: "evaluate", expression: "const t=Date.now(); while (Date.now()-t < 120) {} 'busy'", world: "main" }, 15_000);
+		const stopped = await request("devtools", { tabName: "perf", devtools: "trace_stop" }, 40_000);
+		assert.equal(stopped.devtools, "trace_stop");
+		assert.ok(stopped.bytes > 1_000, `trace 应该包含真实事件，bytes=${stopped.bytes}`);
+		const parsed = JSON.parse(Buffer.from(stopped.traceBase64, "base64").toString("utf8"));
+		assert.ok(Array.isArray(parsed.traceEvents) && parsed.traceEvents.length > 10, "trace 必须是可解析的事件流");
+		assert.ok(parsed.traceEvents.some((event) => event.name === "RunTask"), "trace 里必须有主线程任务");
+		// 停止之后可以再次开始，说明状态真的清了。
+		const again = await request("devtools", { tabName: "perf", devtools: "trace_start" }, 15_000);
+		assert.equal(again.devtools, "trace_start");
+		await request("devtools", { tabName: "perf", devtools: "trace_stop" }, 40_000);
 	});
 
 	await recorder.check("viewport 后被取消的旧坐标 observation 不能被复用", async () => {
