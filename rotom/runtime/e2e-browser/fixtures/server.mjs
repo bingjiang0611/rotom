@@ -112,6 +112,38 @@ setTimeout(() => { throw new Error('fixture uncaught exception'); }, 120);
 const USER_BODY = `
 <main><h1>User tab</h1><div role="status" id="user-status">User tab stays foreground</div></main>`;
 
+// Dialog fixture: each button opens one dialog kind and records the answer, so the
+// suite can prove the page really received it (not just that a command was acked).
+const DIALOG_BODY = `
+<main>
+  <h1>Dialog fixture</h1>
+  <button id="alert">open alert</button>
+  <button id="confirm">open confirm</button>
+  <button id="prompt">open prompt</button>
+  <a id="leave" href="/baseline">leave page</a>
+  <div role="status" id="dialog-status">dialog-idle</div>
+</main>
+<script>
+const status = document.querySelector('#dialog-status');
+const record = (value) => { status.textContent = 'dialog-result|' + value; };
+const safe = (fn) => { try { return fn(); } catch (error) { return 'blocked'; } };
+document.querySelector('#alert').addEventListener('click', () => {
+  safe(() => alert('alert message'));
+  record('alert|returned');
+});
+document.querySelector('#confirm').addEventListener('click', () => {
+  record('confirm|' + safe(() => confirm('confirm message')));
+});
+document.querySelector('#prompt').addEventListener('click', () => {
+  record('prompt|' + safe(() => prompt('prompt message', 'default answer')));
+});
+window.addEventListener('beforeunload', (event) => {
+  event.preventDefault();
+  event.returnValue = 'unsaved changes';
+  return 'unsaved changes';
+});
+</script>`;
+
 // Upload fixture: a file input that immediately posts the chosen file to the server, so a
 // suite can compare the received bytes with the local file instead of trusting the page.
 const UPLOAD_BODY = `
@@ -291,6 +323,7 @@ export function defaultPages({ frameOrigin }) {
 		["/keys", htmlDocument("Keys fixture", KEYS_BODY)],
 		["/pointer", htmlDocument("Pointer fixture", POINTER_BODY)],
 		["/upload", htmlDocument("Upload fixture", UPLOAD_BODY)],
+		["/dialog", htmlDocument("Dialog fixture", DIALOG_BODY)],
 	]);
 }
 

@@ -6,6 +6,7 @@ import { createSessionLockV1, createTabLocksV1, isSessionScopedOperationV1, tabL
 import { sessionCleanupPlanV1 } from "./session-cleanup.js";
 import { consoleLevelFromTypeV1, createConsoleCaptureV1, parseConsoleCursorV1, sanitizeConsoleLevelV1, sanitizeConsoleLimitV1, sanitizeConsolePatternV1 } from "./console-buffer.js";
 import { isBrowserKeyV1, keyEventV1, normalizeModifiersV1 } from "./key-table.js";
+import { DIALOG_CURRENT_TAB_OPERATIONS_V1, createDialogStateV1 } from "./dialog-state.js";
 import { BROWSER_POINTER_ACTIONS_V1, dragSequenceV1, pointerSequenceV1 } from "./pointer-events.js";
 import { createNetworkCaptureV1, parseNetworkCursorV1, sanitizeNetworkLimitV1, sanitizeNetworkPatternV1, sanitizeNetworkResourceTypeV1 } from "./network-buffer.js";
 import { checkBrowserTabQuotasV1, DEFAULT_BROWSER_TAB_QUOTAS_V1, sanitizeBrowserTabQuotasV1 } from "./tab-quotas.js";
@@ -308,6 +309,9 @@ function recordConsoleEvent(tabId, method, params) {
 // Network capture keeps metadata only: no header, body or cookie is ever stored, and
 // Network.enable below asks Chrome not to buffer response bodies at all.
 const networkCapture = createNetworkCaptureV1();
+const dialogState = createDialogStateV1();
+// Last closed dialog per tab: readback evidence for the `dialog` action, not state.
+const dialogLastClosedByTabId = new Map();
 const networkEnabledTabIds = new Set();
 // CDP timestamps are monotonic seconds since an arbitrary epoch, so they are kept only
 // to measure duration; every reported time is wall clock from this side.
@@ -367,6 +371,9 @@ function forgetConsoleTabV1(tabId) {
 	consoleCapture.reset(tabId);
 	networkEnabledTabIds.delete(tabId);
 	networkCapture.reset(tabId);
+	// A dialog cannot survive its tab: leaving a record behind would block a future
+	// tab that happens to reuse the id.
+	dialogState.reset(tabId);
 }
 /** Enable console capture once per debugger attachment; claimed tabs wait for a call. */
 async function enableConsoleCapture(item, assertOperation = () => undefined) {
@@ -1098,6 +1105,53 @@ async function performInteraction(name, item, payload, assertOperation = () => u
 	await attach(item, assertOperation);
 	await assertOwned(item);
 	assertOperation();
+	if (payload.action === "dialog") {
+		// Handling a dialog is not a page interaction: no ref, no hit-test, no readback
+		// of a suspended tree. Chrome resolves the command after the dialog closes.
+		if (typeof payload.accept !== "boolean") throw new Error("interaction dialog requires accept");
+		const accept = payload.accept;
+		// An empty prompt answer is legitimate, so this cannot use safeString (which
+		// rejects the empty string).
+		const promptText = payload.promptText === undefined ? undefined : (typeof payload.promptText === "string" && payload.promptText.length <= 500 && !payload.promptText.includes("\0") ? payload.promptText : undefined);
+		if (payload.promptText !== undefined && promptText === undefined) throw new Error("interaction dialog promptText invalid");
+		if (!accept && promptText !== undefined) throw new Error("interaction dialog promptText requires accept=true");
+		for (const field of ["targetRef", "dropRef", "paths", "key", "modifiers", "text", "replace", "option", "direction", "amount", "expect", "x", "y", "observationEpoch"]) {
+			if (payload[field] !== undefined) throw new Error("interaction dialog parameters invalid");
+		}
+		const current = dialogState.get(item.tabId);
+		if (current === undefined) throw new Error("interaction dialog is not open on this tab");
+		await assertOwned(item);
+		assertOperation();
+		await chrome.debugger.sendCommand({ tabId: item.tabId }, "Page.handleJavaScriptDialog", { accept, ...(promptText === undefined ? {} : { promptText }) });
+		assertOperation();
+		// Chrome closed it when the command resolved; the record is cleared here so a
+		// missing `javascriptDialogClosed` event cannot leave the tab blocked forever.
+		const handled = dialogState.closed(item.tabId) ?? current;
+		await assertOwned(item);
+		let readback;
+		try { readback = await boundedInteractionReadback(name, item, assertOperation); }
+		catch {
+			const tab = await chrome.tabs.get(item.tabId);
+			assertOperation();
+			readback = observationValue(name, item, tab, [], true);
+		}
+		assertOperation();
+		return {
+			schemaVersion: 1,
+			kind: "rotom-browser-interaction-result",
+			actionId: safeString(payload.actionId, "actionId", 128),
+			action: "dialog",
+			acknowledged: true,
+			effect: {
+				dispatch: "handleJavaScriptDialog",
+				accept,
+				dialog: handled,
+				...(handled.sensitive ? { sensitive: true } : {}),
+				...(promptText === undefined ? {} : { promptTextLength: [...promptText].length }),
+			},
+			readback,
+		};
+	}
 	const target = await interactionTarget(name, item, payload, assertOperation);
 	assertOperation();
 	const expectation = parseInteractionExpectation(payload.expect);
@@ -1106,218 +1160,249 @@ async function performInteraction(name, item, payload, assertOperation = () => u
 	const stateBefore = await interactionTargetState(target.debuggee, stateObjectId, assertOperation);
 	assertOperation();
 	let effect;
-	if (target.action === "click") {
-		const point = target.coordinate ? target.point : await dispatchPoint(target.debuggee, target.parsed.backendNodeId, CLICK_TARGET_WAIT_MS, true, true, assertOperation);
-		assertOperation();
-		const guarded = await withBackgroundActivationGuard(item, () => withFocusEmulation(target.debuggee, async () => {
+	// A dialog suspends the renderer, so the input command that triggers one never
+	// resolves: the release waits for the page to resume. Race the whole dispatch against
+	// dialog detection so the caller learns about the dialog instead of timing out.
+	const dispatchAction = async () => {
+		if (target.action === "click") {
+			const point = target.coordinate ? target.point : await dispatchPoint(target.debuggee, target.parsed.backendNodeId, CLICK_TARGET_WAIT_MS, true, true, assertOperation);
 			assertOperation();
-			if (target.coordinate) {
-				const currentHit = await coordinateHitTarget(target.debuggee, point, assertOperation);
-				if (currentHit.backendNodeId !== target.hit.backendNodeId) throw new Error("coordinate click hit-test target changed before dispatch");
-			}
-			assertOperation();
-			await assertOwned(item);
-			await chrome.debugger.sendCommand(target.debuggee, "Input.dispatchMouseEvent", { type: "mouseMoved", ...point, button: "none", pointerType: "mouse" });
-			await chrome.debugger.sendCommand(target.debuggee, "Input.dispatchMouseEvent", { type: "mousePressed", ...point, button: "left", buttons: 1, clickCount: 1, pointerType: "mouse" });
-			await chrome.debugger.sendCommand(target.debuggee, "Input.dispatchMouseEvent", { type: "mouseReleased", ...point, button: "left", buttons: 0, clickCount: 1, pointerType: "mouse" });
-		}, assertOperation), assertOperation);
-		assertOperation();
-		effect = { dispatch: "mouse", x: point.x, y: point.y, ...(target.coordinate ? { coordinate: true, observationEpoch: payload.observationEpoch, hitTested: true, hitNodeName: target.hit.nodeName } : {}), focusEmulated: true, backgroundPreserved: guarded.restored, spawnedTabs: guarded.spawnedTabs };
-	} else if (target.action === "hover" || target.action === "dblclick" || target.action === "right_click") {
-		const point = await dispatchPoint(target.debuggee, target.parsed.backendNodeId, CLICK_TARGET_WAIT_MS, true, true, assertOperation);
-		assertOperation();
-		const events = pointerSequenceV1(target.action, point);
-		const guarded = await withBackgroundActivationGuard(item, () => withFocusEmulation(target.debuggee, async () => {
-			assertOperation();
-			await assertOwned(item);
-			for (const event of events) await chrome.debugger.sendCommand(target.debuggee, "Input.dispatchMouseEvent", event);
-		}, assertOperation), assertOperation);
-		assertOperation();
-		effect = { dispatch: "mouse", action: target.action, x: point.x, y: point.y, events: events.length, focusEmulated: true, backgroundPreserved: guarded.restored, spawnedTabs: guarded.spawnedTabs };
-	} else if (target.action === "drag") {
-		const start = await dispatchPoint(target.debuggee, target.parsed.backendNodeId, CLICK_TARGET_WAIT_MS, true, true, assertOperation);
-		const end = await dispatchPoint(target.debuggee, target.dropParsed.backendNodeId, CLICK_TARGET_WAIT_MS, true, true, assertOperation);
-		assertOperation();
-		const drag = dragSequenceV1(start, end);
-		const slot = { data: undefined };
-		let dragDataSource = "none";
-		dragInterceptionByTabId.set(item.tabId, slot);
-		let guarded;
-		try {
-			guarded = await withBackgroundActivationGuard(item, () => withFocusEmulation(target.debuggee, async () => {
+			const guarded = await withBackgroundActivationGuard(item, () => withFocusEmulation(target.debuggee, async () => {
+				assertOperation();
+				if (target.coordinate) {
+					const currentHit = await coordinateHitTarget(target.debuggee, point, assertOperation);
+					if (currentHit.backendNodeId !== target.hit.backendNodeId) throw new Error("coordinate click hit-test target changed before dispatch");
+				}
 				assertOperation();
 				await assertOwned(item);
-				// Interception must be on before the press, otherwise an HTML5 draggable
-				// element starts a native drag the relay cannot complete.
-				await chrome.debugger.sendCommand(target.debuggee, "Input.setInterceptDrags", { enabled: true });
-				for (const event of drag.before) await chrome.debugger.sendCommand(target.debuggee, "Input.dispatchMouseEvent", event);
-				for (const event of drag.moves) {
+				await chrome.debugger.sendCommand(target.debuggee, "Input.dispatchMouseEvent", { type: "mouseMoved", ...point, button: "none", pointerType: "mouse" });
+				await chrome.debugger.sendCommand(target.debuggee, "Input.dispatchMouseEvent", { type: "mousePressed", ...point, button: "left", buttons: 1, clickCount: 1, pointerType: "mouse" });
+				await chrome.debugger.sendCommand(target.debuggee, "Input.dispatchMouseEvent", { type: "mouseReleased", ...point, button: "left", buttons: 0, clickCount: 1, pointerType: "mouse" });
+			}, assertOperation), assertOperation);
+			assertOperation();
+			effect = { dispatch: "mouse", x: point.x, y: point.y, ...(target.coordinate ? { coordinate: true, observationEpoch: payload.observationEpoch, hitTested: true, hitNodeName: target.hit.nodeName } : {}), focusEmulated: true, backgroundPreserved: guarded.restored, spawnedTabs: guarded.spawnedTabs };
+		} else if (target.action === "hover" || target.action === "dblclick" || target.action === "right_click") {
+			const point = await dispatchPoint(target.debuggee, target.parsed.backendNodeId, CLICK_TARGET_WAIT_MS, true, true, assertOperation);
+			assertOperation();
+			const events = pointerSequenceV1(target.action, point);
+			const guarded = await withBackgroundActivationGuard(item, () => withFocusEmulation(target.debuggee, async () => {
+				assertOperation();
+				await assertOwned(item);
+				for (const event of events) await chrome.debugger.sendCommand(target.debuggee, "Input.dispatchMouseEvent", event);
+			}, assertOperation), assertOperation);
+			assertOperation();
+			effect = { dispatch: "mouse", action: target.action, x: point.x, y: point.y, events: events.length, focusEmulated: true, backgroundPreserved: guarded.restored, spawnedTabs: guarded.spawnedTabs };
+		} else if (target.action === "drag") {
+			const start = await dispatchPoint(target.debuggee, target.parsed.backendNodeId, CLICK_TARGET_WAIT_MS, true, true, assertOperation);
+			const end = await dispatchPoint(target.debuggee, target.dropParsed.backendNodeId, CLICK_TARGET_WAIT_MS, true, true, assertOperation);
+			assertOperation();
+			const drag = dragSequenceV1(start, end);
+			const slot = { data: undefined };
+			let dragDataSource = "none";
+			dragInterceptionByTabId.set(item.tabId, slot);
+			let guarded;
+			try {
+				guarded = await withBackgroundActivationGuard(item, () => withFocusEmulation(target.debuggee, async () => {
 					assertOperation();
-					await chrome.debugger.sendCommand(target.debuggee, "Input.dispatchMouseEvent", event);
-					if (slot.data !== undefined) break;
-				}
-				// A pointer-based drag needs the moves only; an HTML5 drag answers with an
-				// interception and then needs explicit drag events at the drop point.
-				for (let attempt = 0; attempt < 12 && slot.data === undefined; attempt += 1) await delay(25);
-				// Chrome does not start a real HTML5 drag from synthetic mouse input, so the
-				// interception often never arrives. Fall back to DragData built from the
-				// dragged element's own text; the page then reads it in `drop` via
-				// dataTransfer. `dragstart` does not fire on this path, and the effect says so.
-				let dragData = slot.data;
-				if (dragData !== undefined) dragDataSource = "intercepted";
-				if (dragData === undefined) {
-					const objectId = await interactionTargetObjectId(target, assertOperation);
-					if (objectId !== undefined) {
-						// Only a draggable source takes drag events: a pointer-driven drag on a
-						// plain element must stay a pure mouse sequence.
-						const described = await valueWithinRelayDeadline(chrome.debugger.sendCommand(target.debuggee, "Runtime.callFunctionOn", {
-							objectId,
-							functionDeclaration: "function(){ return JSON.stringify({ draggable: this.draggable === true, text: (this.innerText || this.textContent || '').trim().slice(0, 1024) }); }",
-							returnByValue: true,
-						}), TARGET_STATE_WAIT_MS);
-						const raw = described.value?.result?.value;
-						let facts;
-						try { facts = typeof raw === "string" ? JSON.parse(raw) : undefined; } catch { facts = undefined; }
-						if (facts?.draggable === true) {
-							dragData = { items: [{ mimeType: "text/plain", data: typeof facts.text === "string" ? facts.text : "" }], dragOperationsMask: 1 };
-							dragDataSource = "synthesized-from-text";
+					await assertOwned(item);
+					// Interception must be on before the press, otherwise an HTML5 draggable
+					// element starts a native drag the relay cannot complete.
+					await chrome.debugger.sendCommand(target.debuggee, "Input.setInterceptDrags", { enabled: true });
+					for (const event of drag.before) await chrome.debugger.sendCommand(target.debuggee, "Input.dispatchMouseEvent", event);
+					for (const event of drag.moves) {
+						assertOperation();
+						await chrome.debugger.sendCommand(target.debuggee, "Input.dispatchMouseEvent", event);
+						if (slot.data !== undefined) break;
+					}
+					// A pointer-based drag needs the moves only; an HTML5 drag answers with an
+					// interception and then needs explicit drag events at the drop point.
+					for (let attempt = 0; attempt < 12 && slot.data === undefined; attempt += 1) await delay(25);
+					// Chrome does not start a real HTML5 drag from synthetic mouse input, so the
+					// interception often never arrives. Fall back to DragData built from the
+					// dragged element's own text; the page then reads it in `drop` via
+					// dataTransfer. `dragstart` does not fire on this path, and the effect says so.
+					let dragData = slot.data;
+					if (dragData !== undefined) dragDataSource = "intercepted";
+					if (dragData === undefined) {
+						const objectId = await interactionTargetObjectId(target, assertOperation);
+						if (objectId !== undefined) {
+							// Only a draggable source takes drag events: a pointer-driven drag on a
+							// plain element must stay a pure mouse sequence.
+							const described = await valueWithinRelayDeadline(chrome.debugger.sendCommand(target.debuggee, "Runtime.callFunctionOn", {
+								objectId,
+								functionDeclaration: "function(){ return JSON.stringify({ draggable: this.draggable === true, text: (this.innerText || this.textContent || '').trim().slice(0, 1024) }); }",
+								returnByValue: true,
+							}), TARGET_STATE_WAIT_MS);
+							const raw = described.value?.result?.value;
+							let facts;
+							try { facts = typeof raw === "string" ? JSON.parse(raw) : undefined; } catch { facts = undefined; }
+							if (facts?.draggable === true) {
+								dragData = { items: [{ mimeType: "text/plain", data: typeof facts.text === "string" ? facts.text : "" }], dragOperationsMask: 1 };
+								dragDataSource = "synthesized-from-text";
+							}
 						}
 					}
-				}
-				if (dragData !== undefined) {
-					for (const type of ["dragEnter", "dragOver", "drop"]) {
-						assertOperation();
-						await chrome.debugger.sendCommand(target.debuggee, "Input.dispatchDragEvent", { type, ...end, data: dragData });
+					if (dragData !== undefined) {
+						for (const type of ["dragEnter", "dragOver", "drop"]) {
+							assertOperation();
+							await chrome.debugger.sendCommand(target.debuggee, "Input.dispatchDragEvent", { type, ...end, data: dragData });
+						}
 					}
-				}
-				for (const event of drag.after) await chrome.debugger.sendCommand(target.debuggee, "Input.dispatchMouseEvent", event);
-				await chrome.debugger.sendCommand(target.debuggee, "Input.setInterceptDrags", { enabled: false });
-			}, assertOperation), assertOperation);
-		} finally {
-			dragInterceptionByTabId.delete(item.tabId);
-		}
-		assertOperation();
-		effect = { dispatch: "mouse", action: "drag", from: { x: start.x, y: start.y }, to: { x: end.x, y: end.y }, moves: drag.moves.length, droppedAt: payload.dropRef, html5: dragDataSource !== "none", dragDataSource, dragstartFired: dragDataSource === "intercepted", focusEmulated: true, backgroundPreserved: guarded.restored, spawnedTabs: guarded.spawnedTabs };
-	} else if (target.action === "upload") {
-		if (stateObjectId === undefined) throw new Error("interaction upload target could not be resolved");
-		// The element must be a file input: setting files on anything else would either do
-		// nothing or attach data to a control the caller did not mean.
-		const isFileInput = await valueWithinRelayDeadline(chrome.debugger.sendCommand(target.debuggee, "Runtime.callFunctionOn", {
-			objectId: stateObjectId,
-			functionDeclaration: "function(){ return this.tagName === 'INPUT' && this.type === 'file'; }",
-			returnByValue: true,
-		}), TARGET_STATE_WAIT_MS);
-		if (isFileInput.value?.result?.value !== true) throw new Error("interaction upload target is not a file input");
-		assertOperation();
-		await chrome.debugger.sendCommand(target.debuggee, "DOM.setFileInputFiles", { files: payload.paths, backendNodeId: target.parsed.backendNodeId });
-		assertOperation();
-		effect = { dispatch: "files", files: payload.paths.length, focusVerified: false };
-	} else if (target.action === "keypress") {
-		if (stateObjectId === undefined) throw new Error("interaction keypress target could not be resolved");
-		const key = payload.key;
-		const modifiers = normalizeModifiersV1(payload.modifiers);
-		if (modifiers === undefined) throw new Error("interaction keypress modifiers invalid");
-		const keyEvent = keyEventV1(key, modifiers);
-		if (!keyEvent) throw new Error("interaction keypress key invalid");
-		const assertKeyTarget = () => {
+					for (const event of drag.after) await chrome.debugger.sendCommand(target.debuggee, "Input.dispatchMouseEvent", event);
+					await chrome.debugger.sendCommand(target.debuggee, "Input.setInterceptDrags", { enabled: false });
+				}, assertOperation), assertOperation);
+			} finally {
+				dragInterceptionByTabId.delete(item.tabId);
+			}
 			assertOperation();
-			interactionRef(target.parsed.ref, item.documentGeneration);
-			if (target.parsed.scopeId !== "r" && !childSessionEntries(item.tabId).some((entry) => entry.scopeId === target.parsed.scopeId && entry.sessionId === target.debuggee.sessionId)) throw new Error("interaction keypress frame is stale");
-		};
-		const guarded = await withBackgroundActivationGuard(item, () => withFocusEmulation(target.debuggee, async () => {
-			assertKeyTarget();
-			await chrome.debugger.sendCommand(target.debuggee, "DOM.focus", { backendNodeId: target.parsed.backendNodeId });
-			await assertOwned(item);
-			// Focus handlers can replace the input or redirect focus. Never send a key to
-			// whichever control happens to be focused; prove the original object owns it.
-			const focused = await chrome.debugger.sendCommand(target.debuggee, "Runtime.callFunctionOn", {
+			effect = { dispatch: "mouse", action: "drag", from: { x: start.x, y: start.y }, to: { x: end.x, y: end.y }, moves: drag.moves.length, droppedAt: payload.dropRef, html5: dragDataSource !== "none", dragDataSource, dragstartFired: dragDataSource === "intercepted", focusEmulated: true, backgroundPreserved: guarded.restored, spawnedTabs: guarded.spawnedTabs };
+		} else if (target.action === "upload") {
+			if (stateObjectId === undefined) throw new Error("interaction upload target could not be resolved");
+			// The element must be a file input: setting files on anything else would either do
+			// nothing or attach data to a control the caller did not mean.
+			const isFileInput = await valueWithinRelayDeadline(chrome.debugger.sendCommand(target.debuggee, "Runtime.callFunctionOn", {
 				objectId: stateObjectId,
-				functionDeclaration: "function(){ return this.isConnected === true && !this.disabled && this.getRootNode().activeElement === this; }",
+				functionDeclaration: "function(){ return this.tagName === 'INPUT' && this.type === 'file'; }",
 				returnByValue: true,
-			});
-			if (focused?.result?.value !== true) throw new Error("interaction keypress target did not retain focus");
-			assertKeyTarget();
-			// A real CDP key event, never insertText or a synthetic DOM KeyboardEvent. A key
-			// that inserts a character travels as one keyDown carrying that character; a
-			// chorded or non-printing key travels as rawKeyDown without text.
-			const { text, unmodifiedText, ...parameters } = keyEvent;
-			await chrome.debugger.sendCommand(target.debuggee, "Input.dispatchKeyEvent", { ...parameters, ...(text === undefined ? {} : { text, unmodifiedText }), type: text === undefined ? (modifiers.length > 0 ? "keyDown" : "rawKeyDown") : "keyDown", ...(key === "a" && modifiers.some((modifier) => modifier === "Meta" || modifier === "Control") ? { commands: ["selectAll"] } : {}) });
-			assertKeyTarget();
-			await chrome.debugger.sendCommand(target.debuggee, "Input.dispatchKeyEvent", { ...parameters, type: "keyUp" });
-		}, assertOperation), assertOperation);
-		assertOperation();
-		effect = { dispatch: "keyboard", key, ...(modifiers.length > 0 ? { modifiers } : {}), focusVerified: true, focusEmulated: true, backgroundPreserved: guarded.restored, spawnedTabs: guarded.spawnedTabs };
-	} else if (target.action === "type") {
-		const text = safeString(payload.text, "text", 4096);
-		await chrome.debugger.sendCommand(target.debuggee, "DOM.focus", { backendNodeId: target.parsed.backendNodeId });
-		assertOperation();
-		if (payload.replace === true) {
+			}), TARGET_STATE_WAIT_MS);
+			if (isFileInput.value?.result?.value !== true) throw new Error("interaction upload target is not a file input");
+			assertOperation();
+			await chrome.debugger.sendCommand(target.debuggee, "DOM.setFileInputFiles", { files: payload.paths, backendNodeId: target.parsed.backendNodeId });
+			assertOperation();
+			effect = { dispatch: "files", files: payload.paths.length, focusVerified: false };
+		} else if (target.action === "keypress") {
+			if (stateObjectId === undefined) throw new Error("interaction keypress target could not be resolved");
+			const key = payload.key;
+			const modifiers = normalizeModifiersV1(payload.modifiers);
+			if (modifiers === undefined) throw new Error("interaction keypress modifiers invalid");
+			const keyEvent = keyEventV1(key, modifiers);
+			if (!keyEvent) throw new Error("interaction keypress key invalid");
+			const assertKeyTarget = () => {
+				assertOperation();
+				interactionRef(target.parsed.ref, item.documentGeneration);
+				if (target.parsed.scopeId !== "r" && !childSessionEntries(item.tabId).some((entry) => entry.scopeId === target.parsed.scopeId && entry.sessionId === target.debuggee.sessionId)) throw new Error("interaction keypress frame is stale");
+			};
+			const guarded = await withBackgroundActivationGuard(item, () => withFocusEmulation(target.debuggee, async () => {
+				assertKeyTarget();
+				await chrome.debugger.sendCommand(target.debuggee, "DOM.focus", { backendNodeId: target.parsed.backendNodeId });
+				await assertOwned(item);
+				// Focus handlers can replace the input or redirect focus. Never send a key to
+				// whichever control happens to be focused; prove the original object owns it.
+				const focused = await chrome.debugger.sendCommand(target.debuggee, "Runtime.callFunctionOn", {
+					objectId: stateObjectId,
+					functionDeclaration: "function(){ return this.isConnected === true && !this.disabled && this.getRootNode().activeElement === this; }",
+					returnByValue: true,
+				});
+				if (focused?.result?.value !== true) throw new Error("interaction keypress target did not retain focus");
+				assertKeyTarget();
+				// A real CDP key event, never insertText or a synthetic DOM KeyboardEvent. A key
+				// that inserts a character travels as one keyDown carrying that character; a
+				// chorded or non-printing key travels as rawKeyDown without text.
+				const { text, unmodifiedText, ...parameters } = keyEvent;
+				await chrome.debugger.sendCommand(target.debuggee, "Input.dispatchKeyEvent", { ...parameters, ...(text === undefined ? {} : { text, unmodifiedText }), type: text === undefined ? (modifiers.length > 0 ? "keyDown" : "rawKeyDown") : "keyDown", ...(key === "a" && modifiers.some((modifier) => modifier === "Meta" || modifier === "Control") ? { commands: ["selectAll"] } : {}) });
+				assertKeyTarget();
+				await chrome.debugger.sendCommand(target.debuggee, "Input.dispatchKeyEvent", { ...parameters, type: "keyUp" });
+			}, assertOperation), assertOperation);
+			assertOperation();
+			effect = { dispatch: "keyboard", key, ...(modifiers.length > 0 ? { modifiers } : {}), focusVerified: true, focusEmulated: true, backgroundPreserved: guarded.restored, spawnedTabs: guarded.spawnedTabs };
+		} else if (target.action === "type") {
+			const text = safeString(payload.text, "text", 4096);
+			await chrome.debugger.sendCommand(target.debuggee, "DOM.focus", { backendNodeId: target.parsed.backendNodeId });
+			assertOperation();
+			if (payload.replace === true) {
+				const resolved = await chrome.debugger.sendCommand(target.debuggee, "DOM.resolveNode", { backendNodeId: target.parsed.backendNodeId });
+				assertOperation();
+				if (typeof resolved?.object?.objectId !== "string") throw new Error("interaction editable target could not be resolved");
+				await chrome.debugger.sendCommand(target.debuggee, "Runtime.callFunctionOn", {
+					objectId: resolved.object.objectId,
+					functionDeclaration: "function(){ this.focus(); if (typeof this.select === 'function') this.select(); }",
+					returnByValue: true,
+				});
+				assertOperation();
+			}
+			await assertOwned(item);
+			assertOperation();
+			await chrome.debugger.sendCommand(target.debuggee, "Input.insertText", { text });
+			assertOperation();
+		} else if (target.action === "select") {
+			const option = safeString(payload.option, "option", 512);
 			const resolved = await chrome.debugger.sendCommand(target.debuggee, "DOM.resolveNode", { backendNodeId: target.parsed.backendNodeId });
 			assertOperation();
-			if (typeof resolved?.object?.objectId !== "string") throw new Error("interaction editable target could not be resolved");
-			await chrome.debugger.sendCommand(target.debuggee, "Runtime.callFunctionOn", {
+			if (typeof resolved?.object?.objectId !== "string") throw new Error("interaction selectable target could not be resolved");
+			await assertOwned(item);
+			assertOperation();
+			const selected = await chrome.debugger.sendCommand(target.debuggee, "Runtime.callFunctionOn", {
 				objectId: resolved.object.objectId,
-				functionDeclaration: "function(){ this.focus(); if (typeof this.select === 'function') this.select(); }",
+				arguments: [{ value: option }],
+				functionDeclaration: "function(expected){ const options=Array.from(this.options||[]); const match=options.find((entry)=>entry.value===expected||entry.textContent?.trim()===expected); if(!match)return false; this.value=match.value; this.dispatchEvent(new Event('input',{bubbles:true})); this.dispatchEvent(new Event('change',{bubbles:true})); return true; }",
 				returnByValue: true,
 			});
 			assertOperation();
-		}
-		await assertOwned(item);
-		assertOperation();
-		await chrome.debugger.sendCommand(target.debuggee, "Input.insertText", { text });
-		assertOperation();
-	} else if (target.action === "select") {
-		const option = safeString(payload.option, "option", 512);
-		const resolved = await chrome.debugger.sendCommand(target.debuggee, "DOM.resolveNode", { backendNodeId: target.parsed.backendNodeId });
-		assertOperation();
-		if (typeof resolved?.object?.objectId !== "string") throw new Error("interaction selectable target could not be resolved");
-		await assertOwned(item);
-		assertOperation();
-		const selected = await chrome.debugger.sendCommand(target.debuggee, "Runtime.callFunctionOn", {
-			objectId: resolved.object.objectId,
-			arguments: [{ value: option }],
-			functionDeclaration: "function(expected){ const options=Array.from(this.options||[]); const match=options.find((entry)=>entry.value===expected||entry.textContent?.trim()===expected); if(!match)return false; this.value=match.value; this.dispatchEvent(new Event('input',{bubbles:true})); this.dispatchEvent(new Event('change',{bubbles:true})); return true; }",
-			returnByValue: true,
-		});
-		assertOperation();
-		if (selected?.result?.value !== true) throw new Error("interaction select option not found");
-	} else {
-		const direction = payload.direction === "up" ? "up" : payload.direction === "down" ? "down" : undefined;
-		if (!direction) throw new Error("interaction scroll direction invalid");
-		const amount = Number.isSafeInteger(payload.amount) && payload.amount >= 1 && payload.amount <= 100_000 ? payload.amount : 600;
-		let scrollObjectId;
-		if (Number.isSafeInteger(target.scrollBackendNodeId)) {
-			const resolved = await valueWithinRelayDeadline(chrome.debugger.sendCommand(target.debuggee, "DOM.resolveNode", { backendNodeId: target.scrollBackendNodeId }), SCROLL_EFFECT_WAIT_MS);
-			if (resolved.ok && typeof resolved.value?.object?.objectId === "string") scrollObjectId = resolved.value.object.objectId;
-		}
-		const beforeMeasured = scrollObjectId === undefined ? { ok: false } : await valueWithinRelayDeadline(chrome.debugger.sendCommand(target.debuggee, "Runtime.callFunctionOn", {
-			objectId: scrollObjectId,
-			functionDeclaration: "function(){const target=this.nodeType===9?this.scrollingElement:this;return Number(target?.scrollTop)||0;}",
-			returnByValue: true,
-		}), SCROLL_EFFECT_WAIT_MS);
-		const beforeResult = beforeMeasured.ok ? beforeMeasured.value : undefined;
-		const point = await dispatchPoint(target.debuggee, target.parsed?.backendNodeId, SCROLL_TARGET_WAIT_MS, target.parsed !== undefined, target.parsed !== undefined, assertOperation);
-		await assertOwned(item);
-		assertOperation();
-		const wheel = await withFocusEmulation(target.debuggee, async () => {
-			assertOperation();
-			let dispatchError;
-			const dispatchPromise = chrome.debugger.sendCommand(target.debuggee, "Input.dispatchMouseEvent", { type: "mouseWheel", ...point, deltaX: 0, deltaY: direction === "down" ? amount : -amount, button: "none", pointerType: "mouse" }).catch((error) => { dispatchError = error; return undefined; });
-			const dispatched = await valueWithinRelayDeadline(dispatchPromise, SCROLL_DISPATCH_WAIT_MS);
-			if (dispatchError) throw dispatchError;
-			let afterResult;
-			if (dispatched.ok && scrollObjectId !== undefined) {
-				await new Promise((resolve) => setTimeout(resolve, 100));
-				const measured = await valueWithinRelayDeadline(chrome.debugger.sendCommand(target.debuggee, "Runtime.callFunctionOn", { objectId: scrollObjectId, functionDeclaration: "function(){const target=this.nodeType===9?this.scrollingElement:this;return Number(target?.scrollTop)||0;}", returnByValue: true }), SCROLL_EFFECT_WAIT_MS);
-				if (measured.ok) afterResult = measured.value;
+			if (selected?.result?.value !== true) throw new Error("interaction select option not found");
+		} else {
+			const direction = payload.direction === "up" ? "up" : payload.direction === "down" ? "down" : undefined;
+			if (!direction) throw new Error("interaction scroll direction invalid");
+			const amount = Number.isSafeInteger(payload.amount) && payload.amount >= 1 && payload.amount <= 100_000 ? payload.amount : 600;
+			let scrollObjectId;
+			if (Number.isSafeInteger(target.scrollBackendNodeId)) {
+				const resolved = await valueWithinRelayDeadline(chrome.debugger.sendCommand(target.debuggee, "DOM.resolveNode", { backendNodeId: target.scrollBackendNodeId }), SCROLL_EFFECT_WAIT_MS);
+				if (resolved.ok && typeof resolved.value?.object?.objectId === "string") scrollObjectId = resolved.value.object.objectId;
 			}
-			return { dispatched, afterResult };
-		}, assertOperation);
+			const beforeMeasured = scrollObjectId === undefined ? { ok: false } : await valueWithinRelayDeadline(chrome.debugger.sendCommand(target.debuggee, "Runtime.callFunctionOn", {
+				objectId: scrollObjectId,
+				functionDeclaration: "function(){const target=this.nodeType===9?this.scrollingElement:this;return Number(target?.scrollTop)||0;}",
+				returnByValue: true,
+			}), SCROLL_EFFECT_WAIT_MS);
+			const beforeResult = beforeMeasured.ok ? beforeMeasured.value : undefined;
+			const point = await dispatchPoint(target.debuggee, target.parsed?.backendNodeId, SCROLL_TARGET_WAIT_MS, target.parsed !== undefined, target.parsed !== undefined, assertOperation);
+			await assertOwned(item);
+			assertOperation();
+			const wheel = await withFocusEmulation(target.debuggee, async () => {
+				assertOperation();
+				let dispatchError;
+				const dispatchPromise = chrome.debugger.sendCommand(target.debuggee, "Input.dispatchMouseEvent", { type: "mouseWheel", ...point, deltaX: 0, deltaY: direction === "down" ? amount : -amount, button: "none", pointerType: "mouse" }).catch((error) => { dispatchError = error; return undefined; });
+				const dispatched = await valueWithinRelayDeadline(dispatchPromise, SCROLL_DISPATCH_WAIT_MS);
+				if (dispatchError) throw dispatchError;
+				let afterResult;
+				if (dispatched.ok && scrollObjectId !== undefined) {
+					await new Promise((resolve) => setTimeout(resolve, 100));
+					const measured = await valueWithinRelayDeadline(chrome.debugger.sendCommand(target.debuggee, "Runtime.callFunctionOn", { objectId: scrollObjectId, functionDeclaration: "function(){const target=this.nodeType===9?this.scrollingElement:this;return Number(target?.scrollTop)||0;}", returnByValue: true }), SCROLL_EFFECT_WAIT_MS);
+					if (measured.ok) afterResult = measured.value;
+				}
+				return { dispatched, afterResult };
+			}, assertOperation);
+			assertOperation();
+			const { dispatched, afterResult } = wheel;
+			const before = Number(beforeResult?.result?.value);
+			const after = Number(afterResult?.result?.value);
+			effect = { dispatch: "mouseWheel", dispatchSettled: dispatched.ok, x: point.x, y: point.y, scrollBefore: Number.isFinite(before) ? before : null, scrollAfter: Number.isFinite(after) ? after : null, moved: Number.isFinite(before) && Number.isFinite(after) ? before !== after : null, scrollTargetRef: target.scrollTargetRef, scrollScope: target.scrollScope };
+		}
+	};
+	const raced = await Promise.race([
+		dispatchAction().then(() => ({ settled: true })),
+		(async () => {
+			for (let attempt = 0; attempt < 120; attempt += 1) {
+				const dialog = dialogState.get(item.tabId);
+				if (dialog !== undefined) return { dialog };
+				await new Promise((resolve) => setTimeout(resolve, 25));
+			}
+			return { settled: true };
+		})(),
+	]);
+	if (raced.dialog !== undefined) {
+		await assertOwned(item);
+		const tab = await chrome.tabs.get(item.tabId);
 		assertOperation();
-		const { dispatched, afterResult } = wheel;
-		const before = Number(beforeResult?.result?.value);
-		const after = Number(afterResult?.result?.value);
-		effect = { dispatch: "mouseWheel", dispatchSettled: dispatched.ok, x: point.x, y: point.y, scrollBefore: Number.isFinite(before) ? before : null, scrollAfter: Number.isFinite(after) ? after : null, moved: Number.isFinite(before) && Number.isFinite(after) ? before !== after : null, scrollTargetRef: target.scrollTargetRef, scrollScope: target.scrollScope };
+		return {
+			schemaVersion: 1,
+			kind: "rotom-browser-interaction-result",
+			actionId: safeString(payload.actionId, "actionId", 128),
+			action: target.action,
+			acknowledged: true,
+			effect: { ...(effect ?? {}), dispatchSettled: false, dialogOpened: true, dialog: { type: raced.dialog.type, message: raced.dialog.message, ...(raced.dialog.sensitive ? { sensitive: true } : {}) } },
+			// The tree is unreadable while suspended: explicitly empty, not stale.
+			readback: observationValue(name, item, tab, [], true),
+		};
 	}
 	if (target.action !== "scroll") {
 		await new Promise((resolve) => setTimeout(resolve, 150));
@@ -1446,11 +1531,30 @@ async function tabStatusValue(state, name, item, targets, assertOperation) {
 	if (targetUrl === undefined) childSessionsByTabId.delete(item.tabId);
 	return listed.value;
 }
+/**
+ * A suspended tab cannot answer anything except the operations that can resolve the
+ * dialog or leave the tab. Checked here, before any CDP command is dispatched.
+ */
+function dialogGateV1(state, operation, payload) {
+	if (operation === "interact" && payload?.action === "dialog") return undefined;
+	let tabId;
+	let name;
+	try {
+		name = typeof payload?.tabName === "string" ? payload.tabName
+			: DIALOG_CURRENT_TAB_OPERATIONS_V1.includes(operation) ? state.currentTabName : undefined;
+		if (typeof name !== "string") return undefined;
+		tabId = owned(state, name).item.tabId;
+	} catch { return undefined; }
+	const blocked = dialogState.blocking(operation, tabId);
+	return blocked === undefined ? undefined : { ...blocked, tabName: name };
+}
 async function handleOperation(state, operation, payload, expectedEpoch, assertOperation = () => undefined) {
 	const chrome = operationChrome(globalThis.chrome, assertOperation);
 	const assertOwned = (item) => assertOwnedWithin(item, assertOperation);
 	assertOperation();
 	if (!record(payload)) throw new Error("payload invalid");
+	const dialogBlocked = dialogGateV1(state, operation, payload);
+	if (dialogBlocked !== undefined) return dialogBlocked;
 	if (operation === "hello") {
 		const nonce = safeString(payload.nonce, "nonce", 128);
 		Object.assign(state, sessionPrincipalFromHello(payload, state.sessionId));
@@ -1569,7 +1673,13 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 			onDetached: (item) => childSessionsByTabId.delete(item.tabId),
 		});
 		await persistState();
-		return { schemaVersion: 1, kind: "rotom-browser-tabs", ...sessionPrincipalValue(state), tabs };
+		// A dialog is tab state the client cannot see otherwise; `tabs` stays exempt so
+		// the agent can always find out which tabs are blocked.
+		const withDialogs = tabs.map((tab) => {
+			const dialog = dialogState.get(tab.tabId);
+			return dialog === undefined ? tab : { ...tab, dialog };
+		});
+		return { schemaVersion: 1, kind: "rotom-browser-tabs", ...sessionPrincipalValue(state), tabs: withDialogs };
 	}
 	if (operation === "switch") {
 		const { name, item } = owned(state, payload.tabName);
@@ -1876,6 +1986,11 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
 		if (slot && params?.data !== undefined) slot.data = params.data;
 	}
 	if (method === "Network.requestWillBeSent" || method === "Network.responseReceived" || method === "Network.loadingFinished" || method === "Network.loadingFailed") recordNetworkEvent(source.tabId, method, params);
+	if (method === "Page.javascriptDialogOpening") dialogState.opened(source.tabId, params);
+	if (method === "Page.javascriptDialogClosed") {
+		const closed = dialogState.closed(source.tabId);
+		if (closed) dialogLastClosedByTabId.set(source.tabId, { ...closed, accepted: params?.result === true, userInput: typeof params?.userInput === "string" ? params.userInput : "" });
+	}
 	if (method === "Target.attachedToTarget") registerChildSession(source.tabId, params);
 	if (method === "Target.detachedFromTarget") removeChildSession(source.tabId, params?.sessionId);
 	if (method === "Page.frameNavigated" && typeof source.sessionId === "string") rotateChildSessionScope(source.tabId, source.sessionId);

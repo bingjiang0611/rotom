@@ -73,7 +73,12 @@ export const BROWSER_NETWORK_DEFAULT_LIMIT_V1 = 50 as const;
 export const BROWSER_NAVIGATE_HISTORY_V1 = ["back", "forward", "reload"] as const;
 export const BROWSER_INTERACT_TOOL_V1 = "browser_interact" as const;
 export const BROWSER_INTERACT_OPERATIONS_V1 = ["execute"] as const;
-export const BROWSER_INTERACTION_ACTIONS_V1 = ["click", "type", "scroll", "select", "keypress", "hover", "dblclick", "right_click", "drag", "upload"] as const;
+export const BROWSER_INTERACTION_ACTIONS_V1 = ["click", "type", "scroll", "select", "keypress", "hover", "dblclick", "right_click", "drag", "upload", "dialog"] as const;
+
+/** Dialog types the relay records; anything else is not trusted into the result. */
+export const BROWSER_DIALOG_TYPES_V1 = ["alert", "confirm", "prompt", "beforeunload"] as const;
+/** Longest accepted answer text for a `prompt` dialog. */
+export const MAX_DIALOG_PROMPT_CHARS_V1 = 500;
 /**
  * Every key the relay can press. Anything else is rejected locally: there is no
  * "send this raw string" path, and characters are never inserted with insertText.
@@ -289,6 +294,33 @@ function sanitizeEffectLeafV1(value: unknown, depth: number): unknown {
 export function sanitizeBrowserInteractionEffectV1(value: unknown): Record<string, unknown> {
 	if (!record(value)) throw new Error("browser interaction effect 无效");
 	return sanitizeEffectLeafV1(value, 2) as Record<string, unknown>;
+}
+
+/** A tab that is suspended by an open JS dialog: nothing was dispatched. */
+export interface BrowserDialogBlockingV1 {
+	kind: "dialog-blocking";
+	tabName?: string;
+	dialog: { tabId: number; type: (typeof BROWSER_DIALOG_TYPES_V1)[number]; message: string; defaultPrompt?: string; sensitive?: boolean; openedAt?: number };
+}
+
+export function sanitizeBrowserDialogV1(value: unknown): BrowserDialogBlockingV1["dialog"] {
+	if (!record(value)) throw new Error("dialog 信息无效");
+	if (typeof value.type !== "string" || !BROWSER_DIALOG_TYPES_V1.includes(value.type as never)) throw new Error("dialog type 无效");
+	if (!Number.isSafeInteger(value.tabId) || (value.tabId as number) < 0) throw new Error("dialog tabId 无效");
+	return {
+		tabId: value.tabId as number,
+		type: value.type as BrowserDialogBlockingV1["dialog"]["type"],
+		message: typeof value.message === "string" ? value.message.slice(0, 400) : "",
+		...(typeof value.defaultPrompt === "string" ? { defaultPrompt: value.defaultPrompt.slice(0, 400) } : {}),
+		...(value.sensitive === true ? { sensitive: true } : {}),
+		...(Number.isSafeInteger(value.openedAt) ? { openedAt: value.openedAt as number } : {}),
+	};
+}
+
+/** Recognize a dialog refusal in place of any operation result. */
+export function dialogBlockingV1(value: unknown): BrowserDialogBlockingV1 | undefined {
+	if (!record(value) || value.kind !== "dialog-blocking" || value.dialog === undefined) return undefined;
+	return { kind: "dialog-blocking", ...(typeof value.tabName === "string" ? { tabName: value.tabName } : {}), dialog: sanitizeBrowserDialogV1(value.dialog) };
 }
 
 export function browserInteractionExpectationOutcomeV1(effect: Record<string, unknown> | undefined): "met" | "unmet" | "unknown" | undefined {

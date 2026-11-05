@@ -82,6 +82,7 @@
     "extensions/browser/chrome-extension/network-buffer.js",
     "extensions/browser/chrome-extension/key-table.js",
     "extensions/browser/chrome-extension/pointer-events.js",
+    "extensions/browser/chrome-extension/dialog-state.js",
     "extensions/browser/upload-guard.ts",
     "extensions/browser/chrome-extension/rendered-text.js",
     "extensions/browser/chrome-extension/scoped-ax-ref.js",

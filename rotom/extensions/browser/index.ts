@@ -23,6 +23,7 @@ import {
 	BROWSER_INTERACTION_ACTIONS_V1,
 	BROWSER_INTERACTION_KEYS_V1,
 	BROWSER_INTERACTION_MODIFIERS_V1,
+	MAX_DIALOG_PROMPT_CHARS_V1,
 	BrowserArtifactStoreV1,
 	BrowserRelayClientV1,
 	BrowserRelayUnavailableErrorV1,
@@ -31,6 +32,7 @@ import {
 	browserInteractionExpectationOutcomeV1,
 	browserOriginV1,
 	canonicalBrowserUrlV1,
+	dialogBlockingV1,
 	sanitizeBrowserInteractionEffectV1,
 	sanitizeBrowserObservationV1,
 	validateBrowserScreenshotV1,
@@ -638,14 +640,31 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			const claimTabId = operation === "claim" ? safeInteger(params.tabId, "tabId", 0, Number.MAX_SAFE_INTEGER) : undefined;
 			const assertOwner = await bindSession(ctx, signal);
 			const relayClient = await client(ctx, assertOwner);
-			const boundedResult = (value: unknown) => { assertOwner(); return browserResult(value); };
-			// Cursor mutation and result construction share one synchronous publication boundary.
-			const snapshotResult = (...args: Parameters<typeof makeSnapshotPage>) => {
+			// A tab suspended by a JS dialog answers every operation with the same refusal;
+			// surface it as a structured result instead of letting a payload validator
+			// turn it into "schema 无效".
+			const boundedResult = (value: unknown) => {
 				assertOwner();
+				const blocked = dialogBlockingV1(value);
+				return browserResult(blocked ?? value);
+			};
+			// Cursor mutation and result construction share one synchronous publication boundary.
+			const snapshotResult = (value: unknown, limit: number, cursor?: string) => {
+				assertOwner();
+				const blocked = dialogBlockingV1(value);
+				if (blocked) return browserResult(blocked);
 				// Explicit reads can be paginated; never assume their omitted pages
 				// reached the model. Start the next interaction with a full readback.
 				textBaselines.clear();
-				return browserResult(makeSnapshotPage(...args));
+				// `undefined` is the cursor continuation: no fresh observation by design.
+				return browserResult(makeSnapshotPage(value === undefined ? undefined : sanitizeBrowserObservationV1(value), limit, cursor));
+			};
+			// A suspended tab refuses before dispatching, so a refusal can arrive in place of
+			// any observation. Narrowing here keeps every caller honest: it either gets a
+			// validated observation or the structured refusal, never a schema error.
+			const readOutcome = (value: unknown) => {
+				const blocked = dialogBlockingV1(value);
+				return blocked === undefined ? { observation: sanitizeBrowserObservationV1(value) } : { blocked };
 			};
 			if (["recover", "close", "handoff"].includes(operation)) textBaselines.clear();
 			const pagedObservation = operation === "snapshot" || operation === "snapshot_visible" || operation === "read_full";
@@ -658,9 +677,10 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 				// so no open request reaches the relay or the site.
 				const denied = await leaseDenial(relayClient, "open", leaseOriginV1(openUrl));
 				if (denied) return denied;
-				const observation = sanitizeBrowserObservationV1(await relayClient.request("open", { tabName, url: openUrl, ...(placement === undefined ? {} : { placement }) }, { signal }));
+				const opened = readOutcome(await relayClient.request("open", { tabName, url: openUrl, ...(placement === undefined ? {} : { placement }) }, { signal }));
+				if ("blocked" in opened) return boundedResult(opened.blocked);
 				authorizedOrigins.add(leaseOriginV1(openUrl) ?? "");
-				return snapshotResult(observation, limit);
+				return snapshotResult(opened.observation, limit);
 			}
 			if (operation === "navigate") {
 				const navigateUrl = params.url === undefined ? undefined : canonicalBrowserUrlV1(params.url);
@@ -686,9 +706,12 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 				if (record(requested) && requested.kind === "needs-approval") {
 					return leaseRefusal({ origin: typeof requested.origin === "string" ? requested.origin : "", capability: "open", reason: typeof requested.reason === "string" ? requested.reason : "origin" });
 				}
-				const observation = sanitizeBrowserObservationV1(requested);
+				// The target tab may already be suspended by a dialog (beforeunload is the
+				// common case): the relay refuses before moving the tab.
+				const moved = readOutcome(requested);
+				if ("blocked" in moved) return boundedResult(moved.blocked);
 				if (navigateUrl !== undefined) authorizedOrigins.add(leaseOriginV1(navigateUrl) ?? "");
-				return snapshotResult(observation, limit);
+				return snapshotResult(moved.observation, limit);
 			}
 			if (operation === "discover") {
 				const discovered = validateDiscoveredTabs(await relayClient.request("discover", {}, { signal }));
@@ -699,8 +722,9 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 				const discovered = validateDiscoveredTabs(await relayClient.request("discover", {}, { signal }));
 				const candidate = discovered.tabs.find((tab) => tab.tabId === tabId);
 				if (!candidate) throw new Error("claim 目标不在当前可用标签列表");
-				const observation = sanitizeBrowserObservationV1(await relayClient.request("claim", { tabName, tabId }, { signal }));
-				return snapshotResult(observation, limit);
+				const claimed = readOutcome(await relayClient.request("claim", { tabName, tabId }, { signal }));
+				if ("blocked" in claimed) return boundedResult(claimed.blocked);
+				return snapshotResult(claimed.observation, limit);
 			}
 			if (operation === "transfer") {
 				relayClient.requireCapability(BROWSER_RELAY_TRANSFER_CAPABILITY_V1, "browser relay 不支持跨 agent 移交；请在 chrome://extensions 重载 Rotom Browser Relay");
@@ -739,7 +763,10 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 				return boundedResult(validateBrowserNetworkV1(raw, logLimit));
 			}
 			if (operation === "screenshot") {
-				const screenshot = validateBrowserScreenshotV1(await relayClient.request("screenshot", { tabName }, { signal }));
+				const rawScreenshot = await relayClient.request("screenshot", { tabName }, { signal });
+				const blockedScreenshot = dialogBlockingV1(rawScreenshot);
+				if (blockedScreenshot) return boundedResult(blockedScreenshot);
+				const screenshot = validateBrowserScreenshotV1(rawScreenshot);
 				const artifact = await (await artifactStore(assertOwner)).storeScreenshot(screenshot);
 				assertOwner();
 				return screenshotResult(screenshot, artifact);
@@ -748,24 +775,20 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 				const status = params.status === undefined ? "complete" : params.status;
 				if (status !== "loading" && status !== "complete") throw new Error("wait status 无效");
 				const timeoutMs = params.timeoutMs === undefined ? 30_000 : safeInteger(params.timeoutMs, "timeoutMs", 0, 300_000);
-				const observation = sanitizeBrowserObservationV1(await relayClient.request("wait", { tabName, status, timeoutMs }, { signal, timeoutMs: relayClientTimeoutMs("wait", { timeoutMs }) }));
-				return snapshotResult(observation, limit);
+				return snapshotResult(await relayClient.request("wait", { tabName, status, timeoutMs }, { signal, timeoutMs: relayClientTimeoutMs("wait", { timeoutMs }) }), limit);
 			}
 			if (operation === "snapshot" || operation === "read_full") {
-				const observation = sanitizeBrowserObservationV1(await relayClient.request("read_full", { tabName }, { signal, timeoutMs: relayClientTimeoutMs("read_full", {}) }));
-				return snapshotResult(observation, limit);
+				return snapshotResult(await relayClient.request("read_full", { tabName }, { signal, timeoutMs: relayClientTimeoutMs("read_full", {}) }), limit);
 			}
 			if (operation === "snapshot_visible") {
 				const query = { ...(text !== undefined ? { text } : {}), ...(role !== undefined ? { role } : {}) };
-				const observation = sanitizeBrowserObservationV1(await relayClient.request("snapshot", { tabName, ...query }, { signal }));
+				const outcome = readOutcome(await relayClient.request("snapshot", { tabName, ...query }, { signal }));
+				if ("blocked" in outcome) return boundedResult(outcome.blocked);
 				// Never silently fall back to filtering an already-truncated snapshot.
-				if (filtered && (!observation.selection || observation.selection.text !== text || observation.selection.role !== role)) throw new Error("browser relay query 回执缺失或不匹配；请重载 Chrome 扩展");
-				return snapshotResult(observation, limit);
+				if (filtered && (!outcome.observation.selection || outcome.observation.selection.text !== text || outcome.observation.selection.role !== role)) throw new Error("browser relay query 回执缺失或不匹配；请重载 Chrome 扩展");
+				return snapshotResult(outcome.observation, limit);
 			}
-			if (operation === "switch") {
-				const observation = sanitizeBrowserObservationV1(await relayClient.request("switch", { tabName }, { signal }));
-				return snapshotResult(observation, limit);
-			}
+			if (operation === "switch") return snapshotResult(await relayClient.request("switch", { tabName }, { signal }), limit);
 			throw new Error("browser_inspect operation 未实现");
 		},
 	}));
@@ -791,6 +814,8 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			modifiers: Type.Optional(Type.Array(StringEnum(BROWSER_INTERACTION_MODIFIERS_V1), { maxItems: 4, description: "keypress only: modifier keys held for this key." })),
 			dropRef: Type.Optional(Type.String({ minLength: 1, maxLength: 128, description: "drag only: the ref the pointer is released over." })),
 			paths: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 4096 }), { maxItems: MAX_UPLOAD_FILES_V1, description: "upload only: absolute paths of the files to attach to a file input." })),
+			accept: Type.Optional(Type.Boolean({ description: "dialog only: accept (true) or dismiss (false) the open JS dialog." })),
+			promptText: Type.Optional(Type.String({ maxLength: MAX_DIALOG_PROMPT_CHARS_V1, description: "dialog only: answer typed into a prompt dialog; requires accept=true." })),
 			targetRef: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
 			x: Type.Optional(Type.Number({ minimum: 0, maximum: 100_000 })),
 			y: Type.Optional(Type.Number({ minimum: 0, maximum: 100_000 })),
@@ -819,7 +844,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			const expectation = params.expect === undefined ? undefined : safeString(params.expect, "expect", 32);
 			if (expectation !== undefined && (action === "scroll" || coordinateClick)) throw new Error("expect 仅允许带 targetRef 的 click/type/select/keypress");
 			parseInteractionExpectation(expectation);
-			const targetRef = coordinateClick ? undefined : action === "scroll" && params.targetRef === undefined ? undefined : safeString(params.targetRef, "targetRef", 128);
+			const targetRef = coordinateClick || action === "dialog" ? undefined : action === "scroll" && params.targetRef === undefined ? undefined : safeString(params.targetRef, "targetRef", 128);
 			const x = coordinateClick ? safeNumber(params.x, "x", 0, 100_000) : undefined;
 			const y = coordinateClick ? safeNumber(params.y, "y", 0, 100_000) : undefined;
 			const observationEpoch = coordinateClick ? safeInteger(params.observationEpoch, "observationEpoch", 1, Number.MAX_SAFE_INTEGER) : undefined;
@@ -827,6 +852,19 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			let key: (typeof BROWSER_INTERACTION_KEYS_V1)[number] | undefined;
 			if (params.key !== undefined && action !== "keypress") throw new Error("key 仅允许 keypress");
 			const dropRef = params.dropRef === undefined ? undefined : safeString(params.dropRef, "dropRef", 128);
+			let dialogAccept: boolean | undefined;
+			let dialogPromptText: string | undefined;
+			if (action === "dialog") {
+				if (typeof params.accept !== "boolean") throw new Error("dialog 需要 accept: true|false");
+				dialogAccept = params.accept;
+				if (params.promptText !== undefined) {
+					// 空字符串是合法答案（清空 prompt），因此不能走要求非空的 safeString。
+					if (typeof params.promptText !== "string" || [...params.promptText].length > MAX_DIALOG_PROMPT_CHARS_V1) throw new Error(`dialog promptText 最长 ${MAX_DIALOG_PROMPT_CHARS_V1} 字符`);
+					if (dialogAccept !== true) throw new Error("dialog 取消时不能带 promptText");
+					dialogPromptText = params.promptText;
+				}
+				if (params.targetRef !== undefined || params.dropRef !== undefined || params.paths !== undefined || params.key !== undefined || params.modifiers !== undefined || params.text !== undefined || params.option !== undefined || params.direction !== undefined || params.amount !== undefined || expectation !== undefined) throw new Error("dialog 不接受其它参数");
+			} else if (params.accept !== undefined || params.promptText !== undefined) throw new Error("accept/promptText 仅允许 dialog");
 			let uploadPaths: string[] | undefined;
 			let uploadFiles: { path: string; name: string; size: number }[] | undefined;
 			if (action === "upload") {
@@ -905,8 +943,17 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			assertOwner();
 			pi.appendEntry(BROWSER_INTERACTION_AUDIT_ENTRY, { schemaVersion: 1, kind: "rotom-browser-interaction-intent", actionId, sessionId: ctx.sessionManager.getSessionId(), branchLeafId: ctx.sessionManager.getLeafId() ?? null, toolCallId, action, actionDigest, targetDigest: browserActionDigestV1({ tabName: tab.name, tabId: tab.tabId, documentGeneration: tab.documentGeneration, ...(targetRef ? { targetRef } : {}), ...(coordinateClick ? { x, y, observationEpoch } : {}) }), originDigest: browserActionDigestV1(browserOriginV1(tab.url)), timestamp: new Date().toISOString() });
 			try {
-				const payload = { actionId, tabName: tab.name, action, ...(key ? { key } : {}), ...(modifiers && modifiers.length > 0 ? { modifiers } : {}), ...(targetRef ? { targetRef } : {}), ...(dropRef ? { dropRef } : {}), ...(uploadPaths ? { paths: uploadPaths } : {}), ...(coordinateClick ? { x, y, observationEpoch, documentGeneration: tab.documentGeneration } : {}), ...(text ? { text, replace: params.replace === true } : {}), ...(option ? { option } : {}), ...(expectation ? { expect: expectation } : {}), ...(direction ? { direction, amount } : {}) };
-				const result = interactionResult(await relayClient.request("interact", payload, { signal, timeoutMs: relayClientTimeoutMs("interact", {}) }), { actionId, action });
+				const payload = { actionId, tabName: tab.name, action, ...(dialogAccept === undefined ? {} : { accept: dialogAccept }), ...(dialogPromptText === undefined ? {} : { promptText: dialogPromptText }), ...(key ? { key } : {}), ...(modifiers && modifiers.length > 0 ? { modifiers } : {}), ...(targetRef ? { targetRef } : {}), ...(dropRef ? { dropRef } : {}), ...(uploadPaths ? { paths: uploadPaths } : {}), ...(coordinateClick ? { x, y, observationEpoch, documentGeneration: tab.documentGeneration } : {}), ...(text ? { text, replace: params.replace === true } : {}), ...(option ? { option } : {}), ...(expectation ? { expect: expectation } : {}), ...(direction ? { direction, amount } : {}) };
+				const raw = await relayClient.request("interact", payload, { signal, timeoutMs: relayClientTimeoutMs("interact", {}) });
+				// A suspended tab refuses before dispatching: nothing happened, so this is a
+				// clean refusal, not an unknown outcome.
+				const blocked = dialogBlockingV1(raw);
+				if (blocked) {
+					assertOwner();
+					pi.appendEntry(BROWSER_INTERACTION_AUDIT_ENTRY, { schemaVersion: 1, kind: "rotom-browser-interaction-terminal", actionId, status: "blocked", actionAcknowledged: false, businessOutcome: "not-executed", timestamp: new Date().toISOString() });
+					return browserResult(blocked);
+				}
+				const result = interactionResult(raw, { actionId, action });
 				const expectationOutcome = browserInteractionExpectationOutcomeV1(result.effect);
 				const targetChanged = record(result.effect?.target) ? (result.effect.target as Record<string, unknown>).changed : undefined;
 				assertOwner();
