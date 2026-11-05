@@ -158,6 +158,8 @@ rotom 默认提供 `codemode`：模型可用 JavaScript 编排普通文件工具
 
 `owned debugger target identity changed` 表示原标签的 debugger 身份已失效，与固定目录内容变化不是同一结论。不要靠重装、接受新 targetId 或重放原操作绕过校验；停止原动作，按原标签的只读恢复规则核查。固定目录不能保证消除所有 Chrome 导航、关闭或重启导致的身份变化。
 
+**按键**：`browser_interact` 的 `keypress` 需要 `targetRef` 加固定白名单里的一个键——Enter、Tab、Escape、Backspace、Delete、Home、End、PageUp、PageDown、四个方向键、F1–F12、单个字母和数字、Space——可选 `modifiers`（Shift/Control/Alt/Meta，不能重复）。派发前会核对焦点仍在目标元素上，再用真实 CDP 按键事件发出，不用 `Input.insertText` 冒充按键。带 Control/Alt/Meta 的组合键不会输入字符；macOS 的 `Meta+A` 和 Linux/Windows 的 `Control+A` 会走浏览器的全选命令。Shift 只改变字母大小写，Shift+数字不会猜符号。白名单外的键（例如 `F13`、大写 `A`、`Return`）在本地就被拒绝。
+
 **页内 console**：`browser_inspect` 的 `console` 读取该 tab 的 console 与未捕获异常（`level`、大小写不敏感的 `pattern` 子串、`sinceCursor`、`limit` 默认 50 / 上限 200）。每个 tab 一个环形缓冲：500 条、每条 2 KB、全局 8 MB，超出先丢最旧并用 `dropped` 报数量，异常堆栈最多 10 帧。它**只**记录 agent 自己打开的 tab（claim 来的 tab 在第一次调用 console 时才开始捕获），不读页面正文；service worker 重启后缓冲清空，`captureSince` 会如实反映新的起点。查询结果按 128 KiB 截断并用 `nextCursor` 续读，不会静默丢条目。
 
 **页内 network**：`browser_inspect` 的 `network` 读取该 tab 的请求元数据（`failedOnly`、大小写不敏感的 `pattern` 子串、`resourceType`、`sinceCursor`、`limit` 默认 50 / 上限 200）。每个 tab 一个 1000 条的环形缓冲，条目只有 requestId、脱敏 URL、method、资源类型、status、mimeType、耗时、失败原因、是否来自缓存。它**不保存请求头、响应头和 body**：`Network.enable` 的两个 buffer 都设为 0，所以 body 根本不进 relay；失败指有失败原因或 status ≥ 400。响应体的读取能力属于后续的 devtools 授权面，不在这个工具里。捕获从 relay attach 到该 tab 时开始，打开页面的首个文档请求可能不在缓冲里；claim 来的 tab 在第一次调用 network 时才开始。SW 重启后缓冲清空，`captureSince` 反映新的起点。

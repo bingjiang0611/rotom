@@ -91,7 +91,7 @@ test("browser relay：活动标签可 claim、直接交互、敏感输入放行�
 				const name = String(payload.tabName); const tab = tabs.get(name); assert.ok(tab);
 				if (interactFailure) { const failure = interactFailure; interactFailure = undefined; throw new Error(failure); }
 				const targetEffect = payload.action === "scroll" || payload.x !== undefined ? {} : { target: { observed: true, changed: true, transitions: ["valueLength=0→43"] }, ...(payload.expect ? { expectation: { requested: payload.expect, outcome: payload.expect === "value=nonempty" ? "met" : "unmet" } } : {}) };
-				return { schemaVersion: 1, kind: "rotom-browser-interaction-result", actionId: payload.actionId, action: payload.action, acknowledged: true, effect: { ...(payload.action === "scroll" ? { dispatch: "mouseWheel", moved: true, scrollScope: payload.targetRef ? "nearest" : "document" } : payload.x !== undefined ? { dispatch: "mouse", coordinate: true, observationEpoch: payload.observationEpoch, hitTested: true } : { dispatch: "mouse" }), ...targetEffect }, readback: { schemaVersion: 1, kind: "rotom-browser-observation", tabName: name, ...tab, observationEpoch: readbackEpoch++, title: "password: fixture-readback", status: "complete", nodes: [{ ref: "alert_1_r_1", role: "page-alert", name: "手机号格式不正确，请填写 11 位数字", states: ["read-only=true"] }, { ref: "ax_1_2", role: "status", name: "Draft saved", states: [] }, ...Array.from({ length: textChunks }, (_, i) => ({ ref: `txt_1_r_${i + 1}`, role: "document-text", name: `${i}: ${body}`, states: ["read-only=true"] }))], truncated: false, contentCoverage: "rendered-dom", contentComplete: false } };
+				return { schemaVersion: 1, kind: "rotom-browser-interaction-result", actionId: payload.actionId, action: payload.action, acknowledged: true, effect: { ...(payload.action === "scroll" ? { dispatch: "mouseWheel", moved: true, scrollScope: payload.targetRef ? "nearest" : "document" } : payload.x !== undefined ? { dispatch: "mouse", coordinate: true, observationEpoch: payload.observationEpoch, hitTested: true } : payload.action === "keypress" ? { dispatch: "keyboard", key: payload.key, ...(Array.isArray(payload.modifiers) && payload.modifiers.length > 0 ? { modifiers: payload.modifiers } : {}) } : { dispatch: "mouse" }), ...targetEffect }, readback: { schemaVersion: 1, kind: "rotom-browser-observation", tabName: name, ...tab, observationEpoch: readbackEpoch++, title: "password: fixture-readback", status: "complete", nodes: [{ ref: "alert_1_r_1", role: "page-alert", name: "手机号格式不正确，请填写 11 位数字", states: ["read-only=true"] }, { ref: "ax_1_2", role: "status", name: "Draft saved", states: [] }, ...Array.from({ length: textChunks }, (_, i) => ({ ref: `txt_1_r_${i + 1}`, role: "document-text", name: `${i}: ${body}`, states: ["read-only=true"] }))], truncated: false, contentCoverage: "rendered-dom", contentComplete: false } };
 			}
 			if (operation === "close") { tabs.clear(); return { schemaVersion: 1, kind: "rotom-browser-close", closed: 1 }; }
 			throw new Error(`unexpected operation ${operation}`);
@@ -195,10 +195,11 @@ test("browser relay：活动标签可 claim、直接交互、敏感输入放行�
 	// and widens the `url` line to say it also serves navigate: +138 bytes, still far
 	// inside the two-browser-tools budget.
 	// `console` (T13) adds level/pattern/sinceCursor + the operation value: +421 bytes.
-	// `network` (T14) adds `failedOnly`, `resourceType` and one operation value: +398 bytes,
-	// measured 3 778. Together with navigate that is still inside the two-browser-tools
-	// budget the guideline check above enforces.
-	assert.ok(browserSchemaBytes <= 3_820, `Browser schema budget regressed: ${browserSchemaBytes}`);
+	// `network` (T14) adds `failedOnly`, `resourceType` and one operation value: +398 bytes.
+	// The full key whitelist (T15) turns `key` into a 65-value enum plus `modifiers`:
+	// +484 bytes, measured 4 262. Together with navigate that is still inside the
+	// two-browser-tools budget the guideline check above enforces.
+	assert.ok(browserSchemaBytes <= 4_300, `Browser schema budget regressed: ${browserSchemaBytes}`);
 	assert.ok(interact.parameters.required.includes("action"));
 	assert.equal(interact.parameters.properties.expect.enum.length, 16);
 	assert.ok(interact.parameters.properties.expect.enum.includes("value=nonempty"));
@@ -257,14 +258,27 @@ test("browser relay：活动标签可 claim、直接交互、敏感输入放行�
 	await assert.rejects(() => interact.execute("browser-interact-expect-coordinate", { operation: "execute", tabName: "docs", action: "click", x: 10, y: 10, observationEpoch: 7, expect: "checked=true" }, undefined, undefined, ctx), /expect 仅允许带 targetRef/u);
 	interactFailure = "browser relay interact timeout";
 	await assert.rejects(() => interact.execute("browser-interact-write-timeout", { operation: "execute", tabName: "docs", action: "click", targetRef: "ax_1_2" }, undefined, undefined, ctx), /unknown.*只读核对.*禁止重发/su, "写动作 unknown 后必须禁止重发");
-	assert.match(interact.promptGuidelines?.join("\n") ?? "", /keypress requires targetRef.*Enter \(Return\).*submit forms/u);
-	assert.deepEqual(interact.parameters.properties.key.enum, ["Enter", "Tab", "Escape"]);
+	// The whitelist itself is the `key` enum; the guideline only has to state the rule that
+	// the schema cannot: a chorded key never types a character.
+	assert.match(interact.promptGuidelines?.join("\n") ?? "", /keypress requires targetRef.*chorded key never types/u);
+	assert.equal(interact.parameters.properties.key.enum.length, 62, "白名单：26 字母 + 10 数字 + 空格 + Backspace/Delete/Home/End/PageUp/PageDown + 4 方向键 + F1-F12 + Enter/Tab/Escape");
+	assert.deepEqual(interact.parameters.properties.modifiers.items.enum, ["Shift", "Control", "Alt", "Meta"]);
+	assert.equal(interact.parameters.properties.modifiers.maxItems, 4);
 	for (const key of ["Enter", "Tab", "Escape"]) {
 		const pressed = await interact.execute(`browser-key-${key}`, { operation: "execute", tabName: "docs", action: "keypress", targetRef: "ax_1_1", key, expect: "value=empty" }, undefined, undefined, ctx);
 		assert.equal(pressed.details.acknowledged, true);
 		assert.equal(pressed.details.businessOutcome, "unverified");
 		assert.equal(calls.filter((call) => call.operation === "interact").at(-1)?.payload.key, key);
 	}
+	// Modifiers travel to the relay unchanged and in canonical order; a chord on a
+	// non-keypress action is rejected locally.
+	const arrow = await interact.execute("browser-key-arrow", { operation: "execute", tabName: "docs", action: "keypress", targetRef: "ax_1_1", key: "ArrowDown", modifiers: ["Meta", "Shift"] }, undefined, undefined, ctx);
+	assert.deepEqual(arrow.details.effect.modifiers, ["Shift", "Meta"]);
+	assert.deepEqual(calls.filter((call) => call.operation === "interact").at(-1)?.payload.modifiers, ["Shift", "Meta"]);
+	await assert.rejects(() => interact.execute("browser-key-bad-modifier", { operation: "execute", tabName: "docs", action: "keypress", targetRef: "ax_1_1", key: "ArrowDown", modifiers: ["Hyper"] }, undefined, undefined), /modifiers/u);
+	await assert.rejects(() => interact.execute("browser-key-dup-modifier", { operation: "execute", tabName: "docs", action: "keypress", targetRef: "ax_1_1", key: "a", modifiers: ["Shift", "Shift"] }, undefined, undefined, ctx), /modifiers/u);
+	await assert.rejects(() => interact.execute("browser-type-modifier", { operation: "execute", tabName: "docs", action: "type", targetRef: "ax_1_1", text: "x", modifiers: ["Shift"] }, undefined, undefined, ctx), /modifiers/u);
+	await assert.rejects(() => interact.execute("browser-unlisted-key", { operation: "execute", tabName: "docs", action: "keypress", targetRef: "ax_1_1", key: "F13" }, undefined, undefined, ctx), /keypress key/u);
 	const beforeInvalid = calls.filter((call) => call.operation === "interact").length;
 	for (const invalid of [{ key: undefined }, { key: "Return" }, { key: "Meta+Enter" }, { targetRef: undefined }, { text: "\n" }, { replace: true }, { option: "x" }, { direction: "down" }, { amount: 10 }, { x: 10, y: 10 }]) {
 		await assert.rejects(() => interact.execute("browser-key-invalid", { operation: "execute", tabName: "docs", action: "keypress", targetRef: "ax_1_1", key: "Enter", ...invalid }, undefined, undefined, ctx));

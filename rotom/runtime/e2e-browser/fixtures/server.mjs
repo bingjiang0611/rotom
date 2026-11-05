@@ -111,6 +111,41 @@ setTimeout(() => { throw new Error('fixture uncaught exception'); }, 120);
 const USER_BODY = `
 <main><h1>User tab</h1><div role="status" id="user-status">User tab stays foreground</div></main>`;
 
+// Keys fixture: a textarea and an ARIA listbox that reports its own state, so a keypress
+// suite can prove the page really changed instead of trusting the dispatch ack.
+const KEYS_BODY = `
+<main>
+  <h1>Keys fixture</h1>
+  <textarea id="keys-text" aria-label="keys textarea"></textarea>
+  <ul id="keys-list" role="listbox" tabindex="0" aria-label="keys listbox">
+    <li role="option" aria-selected="false">one</li>
+    <li role="option" aria-selected="false">two</li>
+    <li role="option" aria-selected="false">three</li>
+    <li role="option" aria-selected="false">four</li>
+  </ul>
+  <div role="status" id="keys-status">keys-idle</div>
+</main>
+<script>
+const text = document.querySelector('#keys-text');
+const status = document.querySelector('#keys-status');
+const options = Array.from(document.querySelectorAll('#keys-list [role=option]'));
+let selected = 0;
+// The status line carries the page's real state, so a keypress suite can prove effect
+// instead of trusting the dispatch acknowledgement.
+const paint = (label) => {
+  options.forEach((option, index) => option.setAttribute('aria-selected', String(index === selected)));
+  status.textContent = 'listbox|' + label + '|' + (selected + 1) + '|' + options[selected].textContent;
+};
+text.addEventListener('input', () => { status.textContent = 'textarea|' + text.value.length + '|' + text.value; });
+document.querySelector('#keys-list').addEventListener('keydown', (event) => {
+  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+  event.preventDefault();
+  selected = Math.min(options.length - 1, Math.max(0, selected + (event.key === 'ArrowDown' ? 1 : -1)));
+  paint(event.key);
+});
+paint('init');
+</script>`;
+
 // Network fixture: sends a secret cookie and Authorization header on a request that
 // fails with 500, plus two ordinary requests. A passing suite proves those two values
 // reached the server but never reached the relay result.
@@ -161,6 +196,7 @@ export function defaultPages({ frameOrigin }) {
 		["/user", htmlDocument("User tab", USER_BODY)],
 		["/console", htmlDocument("Console fixture", CONSOLE_BODY)],
 		["/network", htmlDocument("Network fixture", NETWORK_BODY)],
+		["/keys", htmlDocument("Keys fixture", KEYS_BODY)],
 	]);
 }
 

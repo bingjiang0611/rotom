@@ -5,6 +5,7 @@ import { forgetSpawnedTab, recordedOpenerTabId, rememberSpawnedTab } from "./spa
 import { createSessionLockV1, createTabLocksV1, isSessionScopedOperationV1, tabLockKeyV1 } from "./request-locks.js";
 import { sessionCleanupPlanV1 } from "./session-cleanup.js";
 import { consoleLevelFromTypeV1, createConsoleCaptureV1, parseConsoleCursorV1, sanitizeConsoleLevelV1, sanitizeConsoleLimitV1, sanitizeConsolePatternV1 } from "./console-buffer.js";
+import { isBrowserKeyV1, keyEventV1, normalizeModifiersV1 } from "./key-table.js";
 import { createNetworkCaptureV1, parseNetworkCursorV1, sanitizeNetworkLimitV1, sanitizeNetworkPatternV1, sanitizeNetworkResourceTypeV1 } from "./network-buffer.js";
 import { checkBrowserTabQuotasV1, DEFAULT_BROWSER_TAB_QUOTAS_V1, sanitizeBrowserTabQuotasV1 } from "./tab-quotas.js";
 import { createFocusCoordinator } from "./focus-coordinator.js";
@@ -868,9 +869,11 @@ async function interactionTarget(name, item, payload, assertOperation) {
 	const action = safeString(payload.action, "action", 32);
 	if (!["click", "type", "scroll", "select", "keypress"].includes(action)) throw new Error("interaction action invalid");
 	if (action === "keypress") {
-		if (!["Enter", "Tab", "Escape"].includes(payload.key)) throw new Error("interaction keypress key invalid");
+		if (!isBrowserKeyV1(payload.key)) throw new Error("interaction keypress key invalid");
+		if (payload.modifiers !== undefined && normalizeModifiersV1(payload.modifiers) === undefined) throw new Error("interaction keypress modifiers invalid");
 		if (["x", "y", "observationEpoch", "text", "replace", "option", "direction", "amount"].some((field) => payload[field] !== undefined)) throw new Error("interaction keypress parameters invalid");
 	} else if (payload.key !== undefined) throw new Error("interaction key requires keypress");
+	else if (payload.modifiers !== undefined) throw new Error("interaction modifiers require keypress");
 	await assertOwned(item);
 	if (action === "scroll") {
 		const parsed = payload.targetRef === undefined ? undefined : interactionRef(payload.targetRef, item.documentGeneration);
@@ -1084,7 +1087,10 @@ async function performInteraction(name, item, payload, assertOperation = () => u
 	} else if (target.action === "keypress") {
 		if (stateObjectId === undefined) throw new Error("interaction keypress target could not be resolved");
 		const key = payload.key;
-		const keyCode = { Enter: 13, Tab: 9, Escape: 27 }[key];
+		const modifiers = normalizeModifiersV1(payload.modifiers);
+		if (modifiers === undefined) throw new Error("interaction keypress modifiers invalid");
+		const keyEvent = keyEventV1(key, modifiers);
+		if (!keyEvent) throw new Error("interaction keypress key invalid");
 		const assertKeyTarget = () => {
 			assertOperation();
 			interactionRef(target.parsed.ref, item.documentGeneration);
@@ -1103,15 +1109,16 @@ async function performInteraction(name, item, payload, assertOperation = () => u
 			});
 			if (focused?.result?.value !== true) throw new Error("interaction keypress target did not retain focus");
 			assertKeyTarget();
-			const parameters = { key, code: key, windowsVirtualKeyCode: keyCode, modifiers: 0 };
-			// Enter needs a real CDP key event, not insertText("\\n") or a synthetic DOM
-			// KeyboardEvent. One keyDown carries the character; do not add a second char.
-			await chrome.debugger.sendCommand(target.debuggee, "Input.dispatchKeyEvent", { ...parameters, type: key === "Enter" ? "keyDown" : "rawKeyDown", ...(key === "Enter" ? { text: "\r", unmodifiedText: "\r" } : {}) });
+			// A real CDP key event, never insertText or a synthetic DOM KeyboardEvent. A key
+			// that inserts a character travels as one keyDown carrying that character; a
+			// chorded or non-printing key travels as rawKeyDown without text.
+			const { text, unmodifiedText, ...parameters } = keyEvent;
+			await chrome.debugger.sendCommand(target.debuggee, "Input.dispatchKeyEvent", { ...parameters, ...(text === undefined ? {} : { text, unmodifiedText }), type: text === undefined ? (modifiers.length > 0 ? "keyDown" : "rawKeyDown") : "keyDown", ...(key === "a" && modifiers.some((modifier) => modifier === "Meta" || modifier === "Control") ? { commands: ["selectAll"] } : {}) });
 			assertKeyTarget();
 			await chrome.debugger.sendCommand(target.debuggee, "Input.dispatchKeyEvent", { ...parameters, type: "keyUp" });
 		}, assertOperation), assertOperation);
 		assertOperation();
-		effect = { dispatch: "keyboard", key, focusVerified: true, focusEmulated: true, backgroundPreserved: guarded.restored, spawnedTabs: guarded.spawnedTabs };
+		effect = { dispatch: "keyboard", key, ...(modifiers.length > 0 ? { modifiers } : {}), focusVerified: true, focusEmulated: true, backgroundPreserved: guarded.restored, spawnedTabs: guarded.spawnedTabs };
 	} else if (target.action === "type") {
 		const text = safeString(payload.text, "text", 4096);
 		await chrome.debugger.sendCommand(target.debuggee, "DOM.focus", { backendNodeId: target.parsed.backendNodeId });

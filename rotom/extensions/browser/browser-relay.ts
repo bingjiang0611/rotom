@@ -74,7 +74,18 @@ export const BROWSER_NAVIGATE_HISTORY_V1 = ["back", "forward", "reload"] as cons
 export const BROWSER_INTERACT_TOOL_V1 = "browser_interact" as const;
 export const BROWSER_INTERACT_OPERATIONS_V1 = ["execute"] as const;
 export const BROWSER_INTERACTION_ACTIONS_V1 = ["click", "type", "scroll", "select", "keypress"] as const;
-export const BROWSER_INTERACTION_KEYS_V1 = ["Enter", "Tab", "Escape"] as const;
+/**
+ * Every key the relay can press. Anything else is rejected locally: there is no
+ * "send this raw string" path, and characters are never inserted with insertText.
+ */
+export const BROWSER_INTERACTION_KEYS_V1 = [
+	..."abcdefghijklmnopqrstuvwxyz",
+	..."0123456789",
+	" ", "Enter", "Tab", "Escape", "Backspace", "Delete", "Home", "End", "PageUp", "PageDown",
+	"ArrowLeft", "ArrowUp", "ArrowRight", "ArrowDown",
+	...Array.from({ length: 12 }, (_, index) => `F${index + 1}`),
+] as const;
+export const BROWSER_INTERACTION_MODIFIERS_V1 = ["Shift", "Control", "Alt", "Meta"] as const;
 export type BrowserInteractionActionV1 = (typeof BROWSER_INTERACTION_ACTIONS_V1)[number];
 
 const MAX_WIRE_BYTES = 1024 * 1024;

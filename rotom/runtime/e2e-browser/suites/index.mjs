@@ -11,6 +11,7 @@ import * as parallel4 from "./parallel-4.mjs";
 import * as navigate from "./navigate.mjs";
 import * as consoleSuite from "./console.mjs";
 import * as network from "./network.mjs";
+import * as keyboard from "./keyboard.mjs";
 
 /** Suite registry. Later tasks append their suites here. */
 export const suites = {
@@ -27,4 +28,5 @@ export const suites = {
 	navigate,
 	console: consoleSuite,
 	network,
+	keyboard,
 };

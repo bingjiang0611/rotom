@@ -159,7 +159,11 @@ try {
 	assert.equal(browser?.tools.get("browser_inspect")?.definition.executionMode, "parallel", "只读 inspect 与另一个 tab 的操作可以并发，写操作仍 sequential");
 	assert.equal(browser?.tools.get("browser_interact")?.definition.executionMode, "sequential");
 	assert.ok(browser?.tools.get("browser_interact")?.definition.parameters.properties.action.enum.includes("keypress"));
-	assert.deepEqual(browser?.tools.get("browser_interact")?.definition.parameters.properties.key.enum, ["Enter", "Tab", "Escape"]);
+	const keyEnum = browser?.tools.get("browser_interact")?.definition.parameters.properties.key.enum ?? [];
+	assert.equal(keyEnum.length, 62, "keypress 白名单固定为 62 个键");
+	for (const key of ["Enter", "Tab", "Escape", "ArrowDown", "Backspace", "F12", "a", "0", " "]) assert.equal(keyEnum.includes(key), true, key);
+	for (const key of ["F13", "A", "Return", "Meta+Enter"]) assert.equal(keyEnum.includes(key), false, key);
+	assert.deepEqual(browser?.tools.get("browser_interact")?.definition.parameters.properties.modifiers.items.enum, ["Shift", "Control", "Alt", "Meta"]);
 	assert.equal(codingPolicy?.handlers.get("before_agent_start")?.length, 1, "coding policy 必须通过真实 loader 按编码工具激活");
 	for (const event of ["session_start", "session_tree", "session_before_tree", "session_before_switch", "session_before_fork", "session_shutdown"]) assert.equal(browser?.handlers.get(event)?.length, 1);
 	assert.equal(thirdParty?.tools.get("ask_user_question")?.definition.executionMode, "sequential");

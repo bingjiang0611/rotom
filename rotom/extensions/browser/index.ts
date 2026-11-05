@@ -22,6 +22,7 @@ import {
 	BROWSER_INTERACT_TOOL_V1,
 	BROWSER_INTERACTION_ACTIONS_V1,
 	BROWSER_INTERACTION_KEYS_V1,
+	BROWSER_INTERACTION_MODIFIERS_V1,
 	BrowserArtifactStoreV1,
 	BrowserRelayClientV1,
 	BrowserRelayUnavailableErrorV1,
@@ -288,6 +289,17 @@ function targetTab(value: BrowserRelayTabsV1, tabName?: string) {
 	if (!tab) throw new Error(tabName === undefined ? "没有 current browser tab" : `browser tab 不存在：${tabName}`);
 	return tab;
 }
+/** Canonical modifier order, or undefined when the list is invalid or repeats a key. */
+function normalizeInteractionModifiers(value: unknown) {
+	if (!Array.isArray(value) || value.length > 4) return undefined;
+	const seen = new Set<string>();
+	for (const modifier of value) {
+		if (!BROWSER_INTERACTION_MODIFIERS_V1.includes(modifier as never) || seen.has(modifier as string)) return undefined;
+		seen.add(modifier as string);
+	}
+	return BROWSER_INTERACTION_MODIFIERS_V1.filter((modifier) => seen.has(modifier));
+}
+
 function interactionAction(value: unknown): BrowserInteractionActionV1 {
 	if (typeof value !== "string" || !BROWSER_INTERACTION_ACTIONS_V1.includes(value as BrowserInteractionActionV1)) throw new Error("browser interaction action 无效");
 	return value as BrowserInteractionActionV1;
@@ -765,7 +777,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 		promptSnippet: "Interact with a relay tab; prefer refs and use fresh screenshot coordinates only when no ref exists.",
 		promptGuidelines: [
 			...BROWSER_SHARED_PROMPT_GUIDELINES,
-			"keypress requires targetRef and key: Enter (Return), Tab, or Escape. Enter can commit tags or submit forms.",
+			"keypress requires targetRef, a key from the enum, and optional Shift/Control/Alt/Meta; a chorded key never types.",
 			"Prefer targetRef from the latest snapshot_visible. Plain-page scroll may omit it; nested lists, panels, or iframes must pass a visible descendant ref for the nearest scroll container.",
 			"Unchanged text may be omitted (omittedUnchangedTextNodes/textBaselineEpoch). acknowledged proves dispatch, not business success. scroll dispatchSettled=false is deadline ambiguity; moved=false: no measured movement. Unknown writes may have executed: recover/snapshot are read-only checks, never re-dispatch. Do not loop; at most one snapshot_visible.",
 			"Judge page-alert nodes and effect.target; changed=null is unknown, not unchanged. Optional expect (checked|expanded|selected|disabled|connected|focused|valid=true|false, value=empty|nonempty) needs a targetRef click, type, select, or keypress; met is target evidence, not business success.",
@@ -775,6 +787,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			tabName: Type.Optional(Type.String({ minLength: 1, maxLength: 64 })),
 			action: StringEnum(BROWSER_INTERACTION_ACTIONS_V1),
 			key: Type.Optional(StringEnum(BROWSER_INTERACTION_KEYS_V1)),
+			modifiers: Type.Optional(Type.Array(StringEnum(BROWSER_INTERACTION_MODIFIERS_V1), { maxItems: 4, description: "keypress only: modifier keys held for this key." })),
 			targetRef: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
 			x: Type.Optional(Type.Number({ minimum: 0, maximum: 100_000 })),
 			y: Type.Optional(Type.Number({ minimum: 0, maximum: 100_000 })),
@@ -810,24 +823,33 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			let text: string | undefined; let option: string | undefined; let direction: "up" | "down" | undefined; let amount: number | undefined;
 			let key: (typeof BROWSER_INTERACTION_KEYS_V1)[number] | undefined;
 			if (params.key !== undefined && action !== "keypress") throw new Error("key 仅允许 keypress");
+			let modifiers: (typeof BROWSER_INTERACTION_MODIFIERS_V1)[number][] | undefined;
 			if (action === "keypress") {
 				key = BROWSER_INTERACTION_KEYS_V1.find((candidate) => candidate === params.key);
-				if (!key) throw new Error("keypress key 必须是 Enter/Tab/Escape");
+				if (!key) throw new Error("keypress key 必须是固定白名单里的键（Enter/Tab/Escape/方向键/字母/数字 等）");
+				modifiers = params.modifiers === undefined ? [] : normalizeInteractionModifiers(params.modifiers);
+				if (modifiers === undefined) throw new Error("keypress modifiers 只能是 Shift/Control/Alt/Meta 且不重复");
 				if (params.text !== undefined || params.replace !== undefined || params.option !== undefined || params.direction !== undefined || params.amount !== undefined) throw new Error("keypress 参数组合无效");
 			} else if (action === "type") {
+				if (params.modifiers !== undefined) throw new Error("modifiers 仅允许 keypress");
 				text = safeString(params.text, "text", 4096);
 				if (Buffer.byteLength(text, "utf8") > 4096) throw new Error("browser type text 超过 4096 bytes");
 				if (params.option !== undefined || params.direction !== undefined || params.amount !== undefined) throw new Error("type 参数组合无效");
 			} else if (action === "select") {
+				if (params.modifiers !== undefined) throw new Error("modifiers 仅允许 keypress");
 				option = safeString(params.option, "option", 512);
 				if (Buffer.byteLength(option, "utf8") > 512) throw new Error("browser select option 超过 512 bytes");
 				if (params.text !== undefined || params.replace !== undefined || params.direction !== undefined || params.amount !== undefined) throw new Error("select 参数组合无效");
 			} else if (action === "scroll") {
+				if (params.modifiers !== undefined) throw new Error("modifiers 仅允许 keypress");
 				direction = params.direction === "up" || params.direction === "down" ? params.direction : undefined;
 				if (!direction) throw new Error("scroll 需要 direction");
 				amount = params.amount === undefined ? 600 : safeInteger(params.amount, "amount", 1, 100_000);
 				if (params.text !== undefined || params.replace !== undefined || params.option !== undefined) throw new Error("scroll 参数组合无效");
-			} else if (params.text !== undefined || params.replace !== undefined || params.option !== undefined || params.direction !== undefined || params.amount !== undefined) throw new Error("click 参数组合无效");
+			} else {
+				if (params.modifiers !== undefined) throw new Error("modifiers 仅允许 keypress");
+				if (params.text !== undefined || params.replace !== undefined || params.option !== undefined || params.direction !== undefined || params.amount !== undefined) throw new Error("click 参数组合无效");
+			}
 			// Reject invalid local arguments before even listing tabs. A schema mistake
 			// must neither dispatch Relay requests nor change fallback eligibility.
 			const assertOwner = await bindSession(ctx, signal);
@@ -844,6 +866,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			const actionFacts = {
 				action, tabName: tab.name, tabId: tab.tabId, documentGeneration: tab.documentGeneration, url: tab.url,
 				...(key ? { key } : {}),
+				...(modifiers && modifiers.length > 0 ? { modifiers } : {}),
 				...(targetRef ? { targetRef } : {}),
 				...(coordinateClick ? { x, y, observationEpoch } : {}),
 				...(text ? { textBytes: Buffer.byteLength(text, "utf8"), textDigest: browserActionDigestV1(text), replace: params.replace === true } : {}),
@@ -856,7 +879,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			assertOwner();
 			pi.appendEntry(BROWSER_INTERACTION_AUDIT_ENTRY, { schemaVersion: 1, kind: "rotom-browser-interaction-intent", actionId, sessionId: ctx.sessionManager.getSessionId(), branchLeafId: ctx.sessionManager.getLeafId() ?? null, toolCallId, action, actionDigest, targetDigest: browserActionDigestV1({ tabName: tab.name, tabId: tab.tabId, documentGeneration: tab.documentGeneration, ...(targetRef ? { targetRef } : {}), ...(coordinateClick ? { x, y, observationEpoch } : {}) }), originDigest: browserActionDigestV1(browserOriginV1(tab.url)), timestamp: new Date().toISOString() });
 			try {
-				const payload = { actionId, tabName: tab.name, action, ...(key ? { key } : {}), ...(targetRef ? { targetRef } : {}), ...(coordinateClick ? { x, y, observationEpoch, documentGeneration: tab.documentGeneration } : {}), ...(text ? { text, replace: params.replace === true } : {}), ...(option ? { option } : {}), ...(expectation ? { expect: expectation } : {}), ...(direction ? { direction, amount } : {}) };
+				const payload = { actionId, tabName: tab.name, action, ...(key ? { key } : {}), ...(modifiers && modifiers.length > 0 ? { modifiers } : {}), ...(targetRef ? { targetRef } : {}), ...(coordinateClick ? { x, y, observationEpoch, documentGeneration: tab.documentGeneration } : {}), ...(text ? { text, replace: params.replace === true } : {}), ...(option ? { option } : {}), ...(expectation ? { expect: expectation } : {}), ...(direction ? { direction, amount } : {}) };
 				const result = interactionResult(await relayClient.request("interact", payload, { signal, timeoutMs: relayClientTimeoutMs("interact", {}) }), { actionId, action });
 				const expectationOutcome = browserInteractionExpectationOutcomeV1(result.effect);
 				const targetChanged = record(result.effect?.target) ? (result.effect.target as Record<string, unknown>).changed : undefined;

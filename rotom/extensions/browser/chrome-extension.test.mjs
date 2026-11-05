@@ -83,6 +83,16 @@ test("Chrome MV3 manifest 固定 identity 且不申请 cookie/script/host 权限
 	assert.match(worker, /Runtime\.exceptionThrown/u);
 	assert.match(worker, /Log\.entryAdded/u);
 	assert.match(worker, /function forgetConsoleTabV1/u);
+	// Keypress uses the shared key table and never invents a key: no insertText, no
+	// hand-written keyCode map, and the dispatch carries the table's parameters.
+	assert.match(worker, /keyEventV1\(key, modifiers\)/u);
+	assert.match(worker, /normalizeModifiersV1\(payload\.modifiers\)/u);
+	// input.insertText (lowercase) belongs to the `type` action; the keypress path must
+	// never call it. Only one call site exists, and it is guarded by action === "type".
+	assert.equal((worker.match(/Input\.insertText/gu) ?? []).length, 1);
+	// `type` is the only path that inserts text, and it is not the keypress branch.
+	assert.ok(worker.indexOf('target.action === "type"') < worker.indexOf("Input.insertText"));
+	assert.equal(worker.includes("windowsVirtualKeyCode: keyCode"), false);
 	assert.match(worker, /Page\.getNavigationHistory/u);
 	assert.match(worker, /Page\.navigateToHistoryEntry/u);
 	assert.match(worker, /Page\.reload/u);
