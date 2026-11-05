@@ -18,6 +18,15 @@ node --experimental-strip-types rotom/runtime/e2e-browser/run.mjs baseline
 
 只在 macOS 上跑过（Chrome for Testing 156，headless 默认，`ROTOM_E2E_HEADED=1` 可开有头）。socket 与锁的位置来自 `rotom/extensions/browser/platform-paths.mjs`，Linux 会落到 `$XDG_RUNTIME_DIR/rotom/browser-relay/`。Linux 与 Windows 没有这里的实测结果；Windows 的 native host 注册（注册表）与本架子不兼容，标为 L1。
 
+## 性能基准
+
+```bash
+node --experimental-strip-types rotom/runtime/e2e-browser/bench.mjs
+ROTOM_BENCH_ROUNDS=40 ROTOM_BENCH_JSON=/tmp/bench.json node --experimental-strip-types rotom/runtime/e2e-browser/bench.mjs
+```
+
+用同一套隔离 harness 与 fixture 测每条路径的单次成本（P50/P95/ops-s）、并发 1/2/4 的扩展性、Chrome 启动与握手、client 连接，以及录屏 + GIF 合成。它**不做断言**，只报数字；正确性由 suite 负责。`ROTOM_BENCH_SKIP_RECORD=1` 跳过录屏（headless 下 Chrome 不给不可见页面发帧）。
+
 ## 隔离契约
 
 - 每个 suite 一个新的临时根目录（`/tmp/rotom-e2e-*`）：浏览器 profile、native host
