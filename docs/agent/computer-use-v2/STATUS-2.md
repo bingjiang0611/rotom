@@ -30,7 +30,7 @@
 |---|---|---|---|---|
 | A1 | 四个执行器移出 `bridge.ts` | 完成 | L1（全量测试结果与搬迁前一致） | 见提交 |
 | A2 | I3：测试不依赖 peer 包 | 完成 | L1（干净 checkout、无 `node_modules`） | 见提交 |
-| A3 | F3：干扰用户时暂停 agent | 未开始 | — | — |
+| A3 | F3：干扰用户时暂停 agent | 完成 | L1（单测 + Swift 编译） | 见提交 |
 | A4 | F2：父 agent 把 App 交给 subagent | 未开始 | — | — |
 | A5 | I2：helper 侧强制租约、截图排除宿主 | 未开始 | — | — |
 | A6 | F1：前台接管（L4）与 `preempted_by_user` | 未开始 | — | — |
@@ -67,3 +67,24 @@
   **80 用例，80 通过、0 失败、0 跳过**。此前同一命令是 72 用例、71 通过、1 个文件级失败
   （`cu-v2-tools.test.ts` 的 8 个用例因为文件加载失败而没被计入）。
 - 文档：`packages/rotom-computer-use/docs/development.md` 写明无需 `npm install`，并更新了目录布局。
+
+### A3 F3：干扰用户时暂停该 agent
+
+- Broker 增加 agent 级暂停状态 `paused`（原因 + 时间）。判定规则仍然是 PLAN §6 的那条，由 helper
+  计算：动作之后前台 App 变了，且用户在 2 秒内有真实输入（`performed.interferedWithUser`）。
+  Broker 拥有后果：`acquire`（写路径）直接返回 `paused_interfered`，`epoch` / `status` 等读请求不受影响。
+- 暂停时同时撤销该 agent 的租约，revocation 原因 `paused_interfered`：被暂停的 agent 已经不能写，
+  继续持有 App 只会挡住用户和其他 agent。
+- 暂停原因与时间写进 trace：Broker 发出 `paused` 事件，bridge 收到后写一条
+  `{tool:"act_ui", status:"stopped", evidence:"paused_interfered:…", paused:{reason,at}}`。
+- 恢复只接受 `role=helper` 连接发起的 `resume`（与 B3 的 stop 同一规则），模型侧没有任何恢复工具。
+  helper 菜单栏对被暂停的 agent 显示 “Resume …”。
+- 顺带修掉一个既有缺陷：helper 的 `BrokerLink` hello 原来没有声明 `role: "helper"`，于是 B3 的
+  “只有 helper 能 stop” 在真机上会把用户自己的菜单栏停止操作也拒掉。现在 hello 声明了角色。
+- 协议里补上了代码已经在用但类型里缺失的错误码（`not_permitted`），以及新的 `paused_interfered`。
+- 测试：`test/broker-pause.test.ts`（真实 BrokerCore + 假 transport，3 个用例）——
+  干扰之后写被拒且读仍可、对端可以接手该 App；agent 自己 resume 被拒且暂停不被解除；
+  对端 agent 不能 resume 别人；helper resume 之后可以写。
+- Swift：`node scripts/build-native.mjs --arch arm64 --no-sign --output ~/cu-v2-build/a3-bridge`
+  编译通过（24 秒）。真机行为未验证（按规则留到 B 阶段）。
+- 全量测试：83 用例，83 通过、0 失败。

@@ -32,6 +32,9 @@ export type BrokerErrorCode =
 	| "approval_unavailable"
 	| "approval_denied"
 	| "stopped_by_user"
+	| "not_permitted"
+	| "paused_interfered"
+	| "lease_invalid"
 	| "unsupported";
 
 /** Who currently holds a resource and how long the hold lasts. */
@@ -141,6 +144,27 @@ export interface StopRequest {
 	targetAgentId?: string;
 }
 
+/**
+ * An agent reporting that its own action disturbed the user.
+ *
+ * The helper is the only component that can see "the frontmost app changed while
+ * the user was typing within 2 seconds" (PLAN §6), so it measures and the broker
+ * enforces: the agent is paused and loses its write leases. Reads stay allowed.
+ */
+export interface InterferenceRequest {
+	id: string;
+	type: "interference";
+	/** Short reason code from the observing surface; never user content. */
+	evidence?: string;
+}
+
+/** Resume a paused agent. User control only: the helper connection may ask. */
+export interface ResumeRequest {
+	id: string;
+	type: "resume";
+	targetAgentId: string;
+}
+
 export interface ApprovalResponseRequest {
 	id: string;
 	type: "approval_response";
@@ -171,6 +195,8 @@ export type BrokerRequest =
 	| EpochRequest
 	| StatusRequest
 	| StopRequest
+	| InterferenceRequest
+	| ResumeRequest
 	| ApprovalResponseRequest
 	| PolicyRequest;
 
@@ -191,6 +217,8 @@ export interface AgentStatus {
 	pid: number;
 	lastSeenAt: number;
 	leases: Array<{ resourceKey: string; leaseId: string; expiresAt: number }>;
+	/** Present while the agent is paused after interfering with the user. */
+	paused?: { reason: "interfered_with_user"; at: number };
 }
 
 export interface BrokerStatus {
@@ -275,6 +303,19 @@ export interface StopResponse {
 	stopped: string[];
 }
 
+export interface InterferenceResponse {
+	ok: true;
+	type: "interference";
+	/** False when the report did not meet the pause rule. */
+	paused: boolean;
+}
+
+export interface ResumeResponse {
+	ok: true;
+	type: "resume";
+	resumed: string[];
+}
+
 export interface ApprovalResponseAck {
 	ok: true;
 	type: "approval_response";
@@ -302,6 +343,8 @@ export type BrokerResponse =
 	| EpochResponse
 	| StatusResponse
 	| StopResponse
+	| InterferenceResponse
+	| ResumeResponse
 	| ApprovalResponseAck
 	| PolicyResponse;
 
@@ -322,7 +365,23 @@ export interface RevokedEvent {
 	event: "revoked";
 	agentId: string;
 	leaseIds: string[];
-	reason: "stopped_by_user" | "owner_disconnected" | "expired" | "transferred";
+	reason: "stopped_by_user" | "owner_disconnected" | "expired" | "transferred" | "paused_interfered";
+}
+
+/** The agent was paused because one of its actions disturbed the user (PLAN §6). */
+export interface PausedEvent {
+	event: "paused";
+	agentId: string;
+	reason: "interfered_with_user";
+	at: number;
+	/** Constant reason code from the observing surface; never user content. */
+	evidence?: string;
+}
+
+/** A user action lifted a pause; the model cannot resume itself. */
+export interface ResumedEvent {
+	event: "resumed";
+	agentId: string;
 }
 
 export interface StoppedEvent {
@@ -330,12 +389,12 @@ export interface StoppedEvent {
 	agentId: string;
 }
 
-export type BrokerEvent = ApprovalRequestEvent | RevokedEvent | StoppedEvent;
+export type BrokerEvent = ApprovalRequestEvent | RevokedEvent | StoppedEvent | PausedEvent | ResumedEvent;
 
 export function isBrokerEvent(value: unknown): value is BrokerEvent {
 	if (!value || typeof value !== "object") return false;
 	const event = (value as { event?: unknown }).event;
-	return event === "approval" || event === "revoked" || event === "stopped";
+	return event === "approval" || event === "revoked" || event === "stopped" || event === "paused" || event === "resumed";
 }
 
 /** Response envelope: either a typed success or a structured failure. */

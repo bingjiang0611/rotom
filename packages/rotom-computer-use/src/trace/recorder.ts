@@ -116,6 +116,8 @@ export interface TraceEntry {
 	text?: { length: number; sha256: string };
 	/** Why an agent clipboard write was not undone (reason code only, no content). */
 	clipboardRestoreSkipped?: "user_changed_clipboard" | "no_snapshot" | "restore_failed";
+	/** Set when the broker paused this agent because an action disturbed the user. */
+	paused?: { reason: "interfered_with_user"; at: number };
 }
 
 export interface TraceOptions {

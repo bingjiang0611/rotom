@@ -106,6 +106,14 @@ export class BrokerCore {
 	private readonly approvalTimeoutMs: number;
 	private readonly pid: number;
 	private readonly sessionApprovals = new Map<string, AppTier>();
+	/**
+	 * Agents paused after interfering with the user (PLAN §6 / F3).
+	 *
+	 * The decision lives in the broker so every write path sees it, and only the
+	 * helper connection can lift it: a model that could resume itself would defeat
+	 * the point of pausing it.
+	 */
+	private readonly paused = new Map<string, { reason: "interfered_with_user"; at: number }>();
 	private readonly pendingApprovals = new Map<string, PendingApproval>();
 	private transport: BrokerTransport | undefined;
 	private approvalCounter = 0;
@@ -141,6 +149,7 @@ export class BrokerCore {
 		this.leases.revokeAgent(agentId, "owner_disconnected");
 		this.registry.disconnect(agentId);
 		this.registry.remove(agentId);
+		this.paused.delete(agentId);
 	}
 
 	/** Periodic housekeeping: heartbeat timeouts, TTL expiry, waiter progress. */
@@ -185,6 +194,11 @@ export class BrokerCore {
 				return { ok: true, type: "status", status: this.status() };
 			case "stop":
 				return this.onStop(agentId, request.targetAgentId);
+			case "interference":
+				if (!agentId) return failure("unknown_agent", "Register with hello before reporting interference.");
+				return this.onInterference(agentId, request.evidence);
+			case "resume":
+				return this.onResume(agentId, request.targetAgentId);
 			case "approval_response": {
 				const pending = this.pendingApprovals.get(request.requestId);
 				if (!pending) return failure("invalid_request", `No pending approval ${request.requestId}.`);
@@ -221,6 +235,7 @@ export class BrokerCore {
 				leaseId: lease.leaseId,
 				expiresAt: lease.expiresAt,
 			})),
+			...(this.paused.has(record.agentId) ? { paused: this.paused.get(record.agentId)! } : {}),
 		}));
 		const resources = this.epochs.entries().map(({ resourceKey, epoch }) => ({
 			resourceKey,
@@ -261,6 +276,13 @@ export class BrokerCore {
 		const agent = this.registry.get(agentId);
 		if (!agent) return failure("unknown_agent", `Unknown agent ${agentId}.`);
 		if (!request.resourceKey) return failure("invalid_request", "acquire requires a resourceKey.");
+		const pause = this.paused.get(agentId);
+		if (pause) {
+			return failure(
+				"paused_interfered",
+				`Agent ${agentId} is paused: its action changed the frontmost app while the user was typing. The user resumes it from the menu bar or the approval card; reads are unaffected.`,
+			);
+		}
 
 		const decision = this.policy.check({ agentId, resourceKey: request.resourceKey, app: request.app, action: request.action, cwd: agent.cwd });
 		if (decision.denied) return failure("denied", decision.denied, { tier: decision.tier });
@@ -325,6 +347,33 @@ export class BrokerCore {
 			this.transport?.send(target, { event: "stopped", agentId: target });
 		}
 		return { ok: true, type: "stop", stopped: targets };
+	}
+
+	/**
+	 * Pause the reporting agent and take its write leases away.
+	 *
+	 * The observation ("frontmost changed while the user was typing within 2s")
+	 * can only be made by the helper, so it is reported as evidence and the broker
+	 * owns the consequence. Revoking is part of pausing: a paused agent cannot
+	 * write, so holding the app would only block the user and other agents.
+	 */
+	private onInterference(agentId: string, evidence: string | undefined): BrokerReply {
+		this.paused.set(agentId, { reason: "interfered_with_user", at: this.now() });
+		this.leases.revokeAgent(agentId, "paused_interfered");
+		this.transport?.send(agentId, { event: "paused", agentId, reason: "interfered_with_user", at: this.now(), ...(evidence ? { evidence } : {}) });
+		return { ok: true, type: "interference", paused: true };
+	}
+
+	/** Resume is a user action, like stopping: only the helper connection asks. */
+	private onResume(agentId: string | undefined, targetAgentId: string): BrokerReply {
+		const requester = agentId ? this.registry.get(agentId) : undefined;
+		if (!requester || requester.role !== "helper") {
+			return failure("not_permitted", "Only the helper may resume a paused agent; the user resumes it from the menu bar.");
+		}
+		if (!targetAgentId) return failure("invalid_request", "resume requires targetAgentId.");
+		const wasPaused = this.paused.delete(targetAgentId);
+		this.transport?.send(targetAgentId, { event: "resumed", agentId: targetAgentId });
+		return { ok: true, type: "resume", resumed: wasPaused ? [targetAgentId] : [] };
 	}
 
 	private async requestApproval(

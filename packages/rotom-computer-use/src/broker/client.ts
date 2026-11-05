@@ -17,7 +17,9 @@ import {
 	type EpochResponse,
 	type HelloResponse,
 	type LeaseInfo,
+	type InterferenceResponse,
 	type PolicyResponse,
+	type ResumeResponse,
 	type StatusResponse,
 	type StopResponse,
 	type TargetAppInfo,
@@ -192,6 +194,16 @@ export class BrokerClient {
 
 	async stop(targetAgentId?: string): Promise<string[]> {
 		return ((await this.expect({ type: "stop", targetAgentId })) as StopResponse).stopped;
+	}
+
+	/** Report that this agent's own action disturbed the user; the broker pauses it. */
+	async reportInterference(evidence?: string): Promise<boolean> {
+		return ((await this.expect({ type: "interference", evidence })) as InterferenceResponse).paused;
+	}
+
+	/** Ask the broker to lift a pause. The broker refuses unless this is the helper. */
+	async resume(targetAgentId: string): Promise<string[]> {
+		return ((await this.expect({ type: "resume", targetAgentId })) as ResumeResponse).resumed;
 	}
 
 	async policy(op: "get" | "allow_app", app?: TargetAppInfo, tier?: AppTier): Promise<PolicyResponse["policy"]> {

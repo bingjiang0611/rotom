@@ -4563,6 +4563,9 @@ final class BrokerLink {
 				"agentId": "helper:\(getpid())",
 				"hasUI": true,
 				"pid": Int(getpid()),
+				// Stopping and resuming agents is user control: the broker accepts it
+				// only from the helper connection, which declares that role here.
+				"role": "helper",
 				"pidChain": [],
 			],
 		]) else { return false }
@@ -4710,6 +4713,13 @@ final class StopControl: NSObject, NSMenuDelegate {
 		menu.addItem(header)
 		for agent in agents {
 			let agentId = agent["agentId"] as? String ?? "unknown"
+			if agent["paused"] != nil {
+				let resume = NSMenuItem(title: "Resume \(agentId) — paused after it disturbed you", action: #selector(resumeAgentFromMenu(_:)), keyEquivalent: "")
+				resume.target = self
+				resume.representedObject = agentId
+				menu.addItem(resume)
+				continue
+			}
 			let resources = (agent["leases"] as? [[String: Any]] ?? []).compactMap { $0["resourceKey"] as? String }
 			let title = resources.isEmpty ? "Stop \(agentId)" : "Stop \(agentId) — \(resources.joined(separator: ", "))"
 			let item = NSMenuItem(title: title, action: #selector(stopAgentFromMenu(_:)), keyEquivalent: "")
@@ -4758,6 +4768,16 @@ final class StopControl: NSObject, NSMenuDelegate {
 		_ = link.request([
 			"id": "stop-\(agentId)-\(Int(Date().timeIntervalSince1970 * 1000))",
 			"type": "stop",
+			"targetAgentId": agentId,
+		])
+	}
+
+	/// Lifting a pause is a user decision: a model cannot resume itself.
+	@objc private func resumeAgentFromMenu(_ sender: NSMenuItem) {
+		guard let agentId = sender.representedObject as? String else { return }
+		_ = link.request([
+			"id": "resume-\(agentId)-\(Int(Date().timeIntervalSince1970 * 1000))",
+			"type": "resume",
 			"targetAgentId": agentId,
 		])
 	}

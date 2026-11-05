@@ -615,6 +615,14 @@ export async function ensureComputerUseBroker(ctx: ExtensionContext): Promise<vo
 			...registration,
 			onEvent: (event: BrokerEvent) => {
 				if (event.event === "stopped") brokerStopRequested = true;
+				if (event.event === "paused") {
+					activeTraceRecorder()?.record({
+						tool: "act_ui",
+						status: "stopped",
+						evidence: `paused_interfered:${event.evidence ?? "frontmost_changed_with_user_input"}`,
+						paused: { reason: event.reason, at: event.at },
+					});
+				}
 				if (event.event === "revoked") {
 					brokerRevocations.push({ reason: event.reason, leaseIds: event.leaseIds, at: Date.now() });
 					while (brokerRevocations.length > 8) brokerRevocations.shift();
@@ -2517,6 +2525,7 @@ function recordToolTrace(
 			window: details?.target?.windowTitle,
 		}
 		: undefined;
+	if (execution?.interferedWithUser === true) reportUserInterference();
 	const status: TraceEntry["status"] = outcome.status ?? (outcome.error ? "error" : traceStatusOf(details));
 	recorder.record({
 		tool,
@@ -2557,6 +2566,26 @@ function traceEvidenceOf(details: any, error: unknown): string | undefined {
 	if (typeof details?.changedNodeCount === "number") parts.push(`${details.changedNodeCount} nodes changed`);
 	if (typeof details?.status === "string") parts.push(details.status);
 	return parts.length ? parts.join("; ") : undefined;
+}
+
+/** Recorder of the current session, for wiring that runs outside a tool call. */
+function activeTraceRecorder(): TraceRecorder | undefined {
+	return traceRecorder;
+}
+
+/**
+ * PLAN §6 / F3: an action that changed the frontmost app while the user was
+ * typing pauses this agent.
+ *
+ * The observation is native (the helper compares the frontmost app and the user's
+ * input within 2 seconds); the consequence is the broker's. Reporting is best
+ * effort on purpose: if the broker is unreachable the write path already fails
+ * closed, so a lost report cannot widen what the agent may do.
+ */
+function reportUserInterference(): void {
+	const session = brokerSession;
+	if (!session) return;
+	void session.broker.reportInterference("frontmost_changed_with_user_input").catch(() => undefined);
 }
 
 function makeToolExecutor<P, D>(tool: string, perform: (params: P, signal?: AbortSignal) => Promise<AgentToolResult<D>>) {

@@ -48,6 +48,14 @@ export class ClientLeaseBroker implements LeaseBroker {
 		return this.holders.get(resourceKey);
 	}
 
+	/**
+	 * Tell the broker that one of this agent's actions changed the frontmost app
+	 * while the user was typing. The broker pauses the agent and revokes its leases.
+	 */
+	async reportInterference(evidence?: string): Promise<boolean> {
+		return await this.client.reportInterference(evidence);
+	}
+
 	/** Release every lease this agent still owns, e.g. on session shutdown. */
 	async releaseAll(): Promise<void> {
 		const status = await this.client.status().catch(() => undefined);
@@ -81,6 +89,8 @@ export class ClientLeaseBroker implements LeaseBroker {
 					return new LeaseUnavailableError("approval_denied", reply.message);
 				case "stopped_by_user":
 					return new LeaseUnavailableError("stopped_by_user", reply.message);
+				case "paused_interfered":
+					return new LeaseUnavailableError("paused_interfered", reply.message);
 				default:
 					return new LeaseUnavailableError("broker_unavailable", `${error.code}: ${reply.message}`);
 			}

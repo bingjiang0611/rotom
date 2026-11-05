@@ -41,7 +41,7 @@ export type AcquireResult =
 	| { ok: false; code: "resource_busy"; holder: LeaseHolderInfo }
 	| { ok: false; code: "stale"; currentEpoch: number; expectedEpoch: number };
 
-export type RevokedReason = "stopped_by_user" | "owner_disconnected" | "expired" | "transferred";
+export type RevokedReason = "stopped_by_user" | "owner_disconnected" | "expired" | "transferred" | "paused_interfered";
 
 export interface Revocation {
 	agentId: string;

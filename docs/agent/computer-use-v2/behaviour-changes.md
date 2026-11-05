@@ -19,6 +19,11 @@
    但等待者可能拿到 `resource_busy`。
 5. **强制退出单独确认。** `manage_app quit` 且 `force: true` 时，即使这个 App 已经拿到 `full`，
    也会再弹一次确认卡（动作名 `manage_app_force_quit`），因为强制退出不给 App 保存或询问的机会。
+6. **动作打扰到用户时，该 agent 会被暂停（第二期 A3）。** 判定仍然由 helper 做：动作之后前台
+   App 变了，并且用户在 2 秒内有过真实输入。被暂停的 agent 后续写请求一律返回
+   `paused_interfered`，它持有的租约同时被撤销（所以要释放给用户和其他 agent），读请求不受影响。
+   恢复只能由用户做：helper 菜单栏对被暂停的 agent 显示 “Resume …”，Broker 只接受
+   `role=helper` 连接发起的 `resume`。模型没有任何工具可以恢复自己。
 
 ## 保持原来行为的两种做法
 
@@ -66,6 +71,8 @@ broker trace。适合“这台机器只有我一个人用、且我确定不会�
   仍然报 `foreground_required`，与本文的授权是两道独立的门。
 
 ## 已验证的行为
+
+第二期的补充（A3 暂停）见 [`test/broker-pause.test.ts`](../../../packages/rotom-computer-use/test/broker-pause.test.ts)。
 
 - `packages/rotom-computer-use/test/cu-v2-authority.test.ts`：
   - 预先授权为 `full` 的 App 在无 UI 会话里可以写入；同一个无 UI 会话写入未授权 App 得到
