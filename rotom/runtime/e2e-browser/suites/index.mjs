@@ -15,6 +15,7 @@ import * as keyboard from "./keyboard.mjs";
 import * as pointer from "./pointer.mjs";
 import * as upload from "./upload.mjs";
 import * as dialog from "./dialog.mjs";
+import * as batch from "./batch.mjs";
 
 /** Suite registry. Later tasks append their suites here. */
 export const suites = {
@@ -35,4 +36,5 @@ export const suites = {
 	pointer,
 	upload,
 	dialog,
+	batch,
 };

@@ -41,6 +41,7 @@ node --experimental-strip-types rotom/runtime/e2e-browser/run.mjs baseline
 | `quotas` | per-agent / per-origin / 全局 / agent 数四个上限，超限即时拒绝且 close 后释放 |
 | `pointer` | hover 出菜单、dblclick 计数、右键菜单、指针拖拽与 HTML5 拖拽换序（页面自证顺序） |
 | `upload` | 文件输入上传后 fixture 服务端收到的 sha256 与本地一致；非 file input、敏感路径、符号链接、相对路径、超大文件都在本地拒绝 |
+| `batch` | 一次 batch 填完并提交表单（页面自证提交值）；expect 不满足、单步校验失败、弹窗阻塞都立即停下且后续步骤不执行 |
 | `dialog` | alert、confirm 两种选择、prompt 带文字、beforeunload（导航被挂起→接受后才离开）；弹窗期间读/写都返回 `dialog-blocking`，页面自证返回值 |
 | `keyboard` | 白名单按键与 `modifiers`；页面自证 textarea 内容与 listbox 选中项，非法键本地拒绝 |
 | `network` | 请求元数据（failedOnly/pattern/resourceType）、无 header/body、cursor 续读，并用 fixture 服务端确认那两个头真的发出去过 |
