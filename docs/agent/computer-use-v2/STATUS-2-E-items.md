@@ -123,3 +123,42 @@ B4 真机反例测试之后一起决定（已记入 STATUS-2 的待决问题 Q5�
 
 限制（如实记录）：helper 身份仍是自报的。同一用户下的另一个进程可以启动一个“先到”的 helper 占住这个
 角色；broker 只能保证“只有一个”，不能保证“是我的那个”。这一点写进了文档，不冒充隔离。
+
+## Q3 `src/outline.ts` 按职责拆分，并把原生 `secure` 标记接进 `OutlineNode`
+
+审核要求拆分、不加入豁免名单，并且拆完之后把原生 secure 标记接进 `OutlineNode`、删掉第一期 TS 侧
+按 role 判断的近似做法、保留测试但改成断言原生标记。做完后 `outline.ts` 从 24,448 字节变成 836 字节的
+公开出口，实现按职责分成六个文件：
+
+| 文件 | 字节 | 职责 |
+| --- | --- | --- |
+| `src/outline.ts` | 836 | 唯一公开出口（re-export），10 个既有 import 路径不变 |
+| `src/outline/types.ts` | 3,102 | 数据模型（`OutlineNode`、`LookResponse`、序列化形状等） |
+| `src/outline/parse.ts` | 5,481 | 把 helper 的不可信 JSON 解析成模型 |
+| `src/outline/lookup.ts` | 1,898 | 按 ref 查节点、路径与标签、`outlineHasSecureField` |
+| `src/outline/render.ts` | 4,613 | 预算内折叠渲染 |
+| `src/outline/search.ts` | 5,532 | 排名搜索与顺序过滤 |
+| `src/outline/serialize.ts` | 6,768 | 序列化/恢复/嫁接与字段拷贝 |
+
+secure 标记：
+
+- `OutlineNode.secure` 是新字段，注释写明“helper 的原生 `AXSecureTextField` 标记（协议 9）”，
+  并说明为什么不能用 role 名代替。
+- `parse.ts` 从 payload 读 `secure`（默认 false）；`serialize.ts` 在嫁接的 `copyNodeFields` 里保留它，
+  恢复旧会话时把缺失值归一为 `false`；`serializeOutline` 天然带上它。
+- `bridge.ts` 的 `recordToolTrace` 只用 `outlineHasSecureField()`，并删掉了 role 近似与
+  `details.target` 正则回退。函数移到 `src/outline/lookup.ts`（它是 outline 查询，不属于 bridge）。
+- 新测试 `test/outline-secure.test.ts`（3 项）：原生标记会被带上且默认为 false；**只有 role 名
+  `AXSecureTextField` 不再算 secure**（旧近似会误判）；标记在序列化、恢复、嫁接后仍然存在，
+  所以 scoped look 不能把它洗掉。
+
+验证：
+
+| 检查 | 命令 | 结果 |
+| --- | --- | --- |
+| 全量 TS 测试 | `node --test --experimental-strip-types "test/*.test.ts"` | 117 通过、0 失败（新增 3 项 secure 用例） |
+| 每个文件的提交门槛 | `wc -c` | 最大 6,768 字节，全部远低于 20,000 |
+| 脚本 dry run | `node scripts/cu-v2-script-dry-run.mjs` | 6 通过、3 显式跳过（未受影响） |
+
+限制：真正的“拍不到 secure 字段截图”仍要在真机（B6 的 trace 检查）里看；这里证明的是判断依据换成了
+原生标记，且四种形态（解析、存储、恢复、嫁接）都不会丢。

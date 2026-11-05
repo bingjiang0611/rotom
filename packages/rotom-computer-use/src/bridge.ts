@@ -10,7 +10,7 @@ import { canRetryInForeground, outcomeAfterCheck, outcomeAfterObservedValues, pr
 import { cdpClickForContext, cdpDragForContext, cdpEvaluateForContext, cdpKeypressForContext, cdpMouseForContext, cdpNavigateContext, cdpScrollForContext, cdpSnapshotForContext, cdpTabForWindow, cdpTypeFocusedForContext, cdpTypeForContext, disconnectCdp, listCdpPageContexts, type CdpConsoleEntry, type CdpPageSnapshot } from "./cdp.ts";
 import { getComputerUseConfig, isBrowserUseEnabled, isHeadlessMode, loadComputerUseConfig } from "./config.ts";
 import { noteAfterAct, noteFromLook, noteRegionKeyForRef, renderNote, type WindowNote } from "./note.ts";
-import { foldToBudget, graftScopedOutline, nodeByRef, outlineNodeLabel, outlineNodePath, rankedTextMatch, restoreOutline, searchOutline, searchOutlineRanked, serializeOutline, serializeOutlineNodeShallow, serializeOutlineSearchMatch, type LookResponse, type Outline, type OutlineChange, type OutlineNode, type OutlineSearchMatch, type SerializedOutline, type SerializedOutlineNode, type SerializedOutlineSearchMatch } from "./outline.ts";
+import { foldToBudget, graftScopedOutline, nodeByRef, outlineHasSecureField, outlineNodeLabel, outlineNodePath, rankedTextMatch, restoreOutline, searchOutline, searchOutlineRanked, serializeOutline, serializeOutlineNodeShallow, serializeOutlineSearchMatch, type LookResponse, type Outline, type OutlineChange, type OutlineNode, type OutlineSearchMatch, type SerializedOutline, type SerializedOutlineNode, type SerializedOutlineSearchMatch } from "./outline.ts";
 import { applyOutputEnvelope, boundToolError, clearStoredOutputs, readStoredOutput, UI_TEXT_PAGE_CHARS } from "./output.ts";
 import { AGENT_TOOL_NAMES, type ActParams, type EvaluateBrowserParams, type ExpandUiParams, type ImageMode, type InspectUiParams, type LaunchBrowserParams, type FindParams, type NavigateBrowserParams, type ObserveParams, type ObserveTargetParams, type ReadTextParams, type RootSelector, type SearchUiParams, type UiAction, type WaitForParams } from "./contract.ts";
 import { toFiniteNumber } from "./platform/coerce.ts";
@@ -2562,11 +2562,11 @@ function recordToolTrace(
 	const details = result?.details;
 	const execution = details?.execution ?? details?.capture?.execution;
 	const shots: string[] = [];
-	// A secure text field must not be photographed, even for our own trace (review
-	// I1). The helper marks such nodes natively (review I2); the role check stays as
-	// the fallback for helper versions that predate the marker.
-	const secure = outlineHasSecureField(details?.outline ?? details?.capture?.outline)
-		|| /AXSecureTextField/.test(JSON.stringify(details?.target ?? ""));
+	// A secure text field must not be photographed, even for our own trace (review I1).
+	// Only the helper's native marker decides that now (review Q3): the role-based
+	// guess is gone, so a node that merely names itself `AXSecureTextField` cannot
+	// suppress a screenshot and a real secure field cannot be missed.
+	const secure = outlineHasSecureField(details?.outline ?? details?.capture?.outline);
 	if (getComputerUseConfig().trace_screenshots && !secure) {
 		for (const item of result?.content ?? []) {
 			if (item.type !== "image" || !item.data) continue;
@@ -2596,25 +2596,6 @@ function recordToolTrace(
 		evidence: traceEvidenceOf(details, outcome.error),
 		lease: details?.leaseHolder?.agentId ? { holder: details.leaseHolder.agentId } : undefined,
 	});
-}
-
-/**
- * True when the captured outline contains a secure text field.
- *
- * The helper marks such nodes (`secure: true`, protocol 9) so a future caller can
- * read the flag directly; today `outline.ts` carries the role through
- * serialization, so the role is what decides.
- */
-function outlineHasSecureField(outline: unknown): boolean {
-	const root = (outline as { root?: unknown } | undefined)?.root;
-	const stack: unknown[] = root ? [root] : [];
-	while (stack.length > 0) {
-		const node = stack.pop() as { role?: unknown; children?: unknown };
-		if (!node || typeof node !== "object") continue;
-		if (node.role === "AXSecureTextField") return true;
-		if (Array.isArray(node.children)) stack.push(...node.children);
-	}
-	return false;
 }
 
 function firstRedactedText(params: Record<string, unknown> | undefined): TraceEntry["text"] | undefined {
