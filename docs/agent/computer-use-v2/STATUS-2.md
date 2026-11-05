@@ -98,7 +98,7 @@ B1 → B6 的顺序单独约一次时间，并且先确认 A8 的脚本在一个
 写入任何东西。`docs/agent/computer-use-v2/evidence/runs/` 下没有本次新增的 B 阶段存档。
 
 另注（与本次任务无关，未触碰）：本机还有若干早前测试残留的 helper/broker 进程
-（`/private/var/folders/.../rotom-quality-pty-*/home/Applications/pi-computer-use.app/... bridge serve`
+（形如临时 HOME 下的 `rotom-quality-pty-*` 实例，各跑一个 `pi-computer-use.app` 的 `bridge serve`，
 以及一个 `src/broker/daemon-entry.mjs`），可能属于存活会话，按约定不清理、不重启。
 
 ## 需要审核者回答的问题
