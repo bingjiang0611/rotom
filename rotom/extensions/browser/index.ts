@@ -788,6 +788,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			action: StringEnum(BROWSER_INTERACTION_ACTIONS_V1),
 			key: Type.Optional(StringEnum(BROWSER_INTERACTION_KEYS_V1)),
 			modifiers: Type.Optional(Type.Array(StringEnum(BROWSER_INTERACTION_MODIFIERS_V1), { maxItems: 4, description: "keypress only: modifier keys held for this key." })),
+			dropRef: Type.Optional(Type.String({ minLength: 1, maxLength: 128, description: "drag only: the ref the pointer is released over." })),
 			targetRef: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
 			x: Type.Optional(Type.Number({ minimum: 0, maximum: 100_000 })),
 			y: Type.Optional(Type.Number({ minimum: 0, maximum: 100_000 })),
@@ -823,6 +824,12 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			let text: string | undefined; let option: string | undefined; let direction: "up" | "down" | undefined; let amount: number | undefined;
 			let key: (typeof BROWSER_INTERACTION_KEYS_V1)[number] | undefined;
 			if (params.key !== undefined && action !== "keypress") throw new Error("key 仅允许 keypress");
+			const dropRef = params.dropRef === undefined ? undefined : safeString(params.dropRef, "dropRef", 128);
+			if (action === "drag") {
+				if (params.targetRef === undefined || dropRef === undefined) throw new Error("drag 需要 targetRef 与 dropRef");
+				if (coordinateFieldsPresent) throw new Error("drag 不接受坐标参数");
+				if (params.key !== undefined || params.modifiers !== undefined) throw new Error("drag 参数组合无效");
+			} else if (params.dropRef !== undefined) throw new Error("dropRef 仅允许 drag");
 			let modifiers: (typeof BROWSER_INTERACTION_MODIFIERS_V1)[number][] | undefined;
 			if (action === "keypress") {
 				key = BROWSER_INTERACTION_KEYS_V1.find((candidate) => candidate === params.key);
@@ -868,6 +875,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 				...(key ? { key } : {}),
 				...(modifiers && modifiers.length > 0 ? { modifiers } : {}),
 				...(targetRef ? { targetRef } : {}),
+				...(dropRef ? { dropRef } : {}),
 				...(coordinateClick ? { x, y, observationEpoch } : {}),
 				...(text ? { textBytes: Buffer.byteLength(text, "utf8"), textDigest: browserActionDigestV1(text), replace: params.replace === true } : {}),
 				...(option ? { optionBytes: Buffer.byteLength(option, "utf8"), optionDigest: browserActionDigestV1(option) } : {}),
@@ -879,7 +887,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			assertOwner();
 			pi.appendEntry(BROWSER_INTERACTION_AUDIT_ENTRY, { schemaVersion: 1, kind: "rotom-browser-interaction-intent", actionId, sessionId: ctx.sessionManager.getSessionId(), branchLeafId: ctx.sessionManager.getLeafId() ?? null, toolCallId, action, actionDigest, targetDigest: browserActionDigestV1({ tabName: tab.name, tabId: tab.tabId, documentGeneration: tab.documentGeneration, ...(targetRef ? { targetRef } : {}), ...(coordinateClick ? { x, y, observationEpoch } : {}) }), originDigest: browserActionDigestV1(browserOriginV1(tab.url)), timestamp: new Date().toISOString() });
 			try {
-				const payload = { actionId, tabName: tab.name, action, ...(key ? { key } : {}), ...(modifiers && modifiers.length > 0 ? { modifiers } : {}), ...(targetRef ? { targetRef } : {}), ...(coordinateClick ? { x, y, observationEpoch, documentGeneration: tab.documentGeneration } : {}), ...(text ? { text, replace: params.replace === true } : {}), ...(option ? { option } : {}), ...(expectation ? { expect: expectation } : {}), ...(direction ? { direction, amount } : {}) };
+				const payload = { actionId, tabName: tab.name, action, ...(key ? { key } : {}), ...(modifiers && modifiers.length > 0 ? { modifiers } : {}), ...(targetRef ? { targetRef } : {}), ...(dropRef ? { dropRef } : {}), ...(coordinateClick ? { x, y, observationEpoch, documentGeneration: tab.documentGeneration } : {}), ...(text ? { text, replace: params.replace === true } : {}), ...(option ? { option } : {}), ...(expectation ? { expect: expectation } : {}), ...(direction ? { direction, amount } : {}) };
 				const result = interactionResult(await relayClient.request("interact", payload, { signal, timeoutMs: relayClientTimeoutMs("interact", {}) }), { actionId, action });
 				const expectationOutcome = browserInteractionExpectationOutcomeV1(result.effect);
 				const targetChanged = record(result.effect?.target) ? (result.effect.target as Record<string, unknown>).changed : undefined;

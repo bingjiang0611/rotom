@@ -83,6 +83,13 @@ test("Chrome MV3 manifest 固定 identity 且不申请 cookie/script/host 权限
 	assert.match(worker, /Runtime\.exceptionThrown/u);
 	assert.match(worker, /Log\.entryAdded/u);
 	assert.match(worker, /function forgetConsoleTabV1/u);
+	// Pointer actions share one sequence table; drags press, move at least five times and
+	// release, and HTML5 drags go through intercepted-or-synthesized CDP drag data.
+	assert.match(worker, /pointerSequenceV1\(target\.action, point\)/u);
+	assert.match(worker, /dragSequenceV1\(start, end\)/u);
+	assert.match(worker, /Input\.setInterceptDrags/u);
+	assert.match(worker, /Input\.dispatchDragEvent/u);
+	assert.match(worker, /"Input\.dragIntercepted"/u);
 	// Keypress uses the shared key table and never invents a key: no insertText, no
 	// hand-written keyCode map, and the dispatch carries the table's parameters.
 	assert.match(worker, /keyEventV1\(key, modifiers\)/u);

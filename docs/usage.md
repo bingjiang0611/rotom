@@ -158,6 +158,8 @@ rotom 默认提供 `codemode`：模型可用 JavaScript 编排普通文件工具
 
 `owned debugger target identity changed` 表示原标签的 debugger 身份已失效，与固定目录内容变化不是同一结论。不要靠重装、接受新 targetId 或重放原操作绕过校验；停止原动作，按原标签的只读恢复规则核查。固定目录不能保证消除所有 Chrome 导航、关闭或重启导致的身份变化。
 
+**指针动作**：`browser_interact` 的 `click` 之外还有 `hover`（只移动指针，读回可看到新出现的菜单）、`dblclick`（第二次按下带 `clickCount: 2`，页面才会收到 `dblclick`）、`right_click`（右键，触发 `contextmenu`）。它们和 click 一样先按 ref 取坐标、必要时滚动进视口，命中不存在就报错。`drag` 用 `targetRef` 加 `dropRef`（同一 frame），按下后至少 5 次按住移动再在落点抬起；对 `draggable` 元素会先尝试 `Input.setInterceptDrags` 的拦截数据，拿不到时用被拖元素自身的文本合成 `DragData` 并派发 CDP 拖拽事件。**合成路径不会触发 `dragstart`**，页面必须在 `drop` 里通过 `dataTransfer.getData()` 取源数据；结果里的 `dragDataSource`（`none` / `intercepted` / `synthesized-from-text`）和 `dragstartFired` 如实说明走的是哪条路。拖拽不接受坐标参数，必须给两个 ref。
+
 **按键**：`browser_interact` 的 `keypress` 需要 `targetRef` 加固定白名单里的一个键——Enter、Tab、Escape、Backspace、Delete、Home、End、PageUp、PageDown、四个方向键、F1–F12、单个字母和数字、Space——可选 `modifiers`（Shift/Control/Alt/Meta，不能重复）。派发前会核对焦点仍在目标元素上，再用真实 CDP 按键事件发出，不用 `Input.insertText` 冒充按键。带 Control/Alt/Meta 的组合键不会输入字符；macOS 的 `Meta+A` 和 Linux/Windows 的 `Control+A` 会走浏览器的全选命令。Shift 只改变字母大小写，Shift+数字不会猜符号。白名单外的键（例如 `F13`、大写 `A`、`Return`）在本地就被拒绝。
 
 **页内 console**：`browser_inspect` 的 `console` 读取该 tab 的 console 与未捕获异常（`level`、大小写不敏感的 `pattern` 子串、`sinceCursor`、`limit` 默认 50 / 上限 200）。每个 tab 一个环形缓冲：500 条、每条 2 KB、全局 8 MB，超出先丢最旧并用 `dropped` 报数量，异常堆栈最多 10 帧。它**只**记录 agent 自己打开的 tab（claim 来的 tab 在第一次调用 console 时才开始捕获），不读页面正文；service worker 重启后缓冲清空，`captureSince` 会如实反映新的起点。查询结果按 128 KiB 截断并用 `nextCursor` 续读，不会静默丢条目。

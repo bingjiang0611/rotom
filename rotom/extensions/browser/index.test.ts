@@ -196,10 +196,11 @@ test("browser relay：活动标签可 claim、直接交互、敏感输入放行�
 	// inside the two-browser-tools budget.
 	// `console` (T13) adds level/pattern/sinceCursor + the operation value: +421 bytes.
 	// `network` (T14) adds `failedOnly`, `resourceType` and one operation value: +398 bytes.
-	// The full key whitelist (T15) turns `key` into a 65-value enum plus `modifiers`:
-	// +484 bytes, measured 4 262. Together with navigate that is still inside the
-	// two-browser-tools budget the guideline check above enforces.
-	assert.ok(browserSchemaBytes <= 4_300, `Browser schema budget regressed: ${browserSchemaBytes}`);
+	// The full key whitelist (T15) turns `key` into a 62-value enum plus `modifiers`:
+	// +484 bytes. Pointer actions and `dropRef` (T16) add +163, measured 4 425. Together
+	// with navigate that is still inside the two-browser-tools budget the guideline check
+	// above enforces.
+	assert.ok(browserSchemaBytes <= 4_460, `Browser schema budget regressed: ${browserSchemaBytes}`);
 	assert.ok(interact.parameters.required.includes("action"));
 	assert.equal(interact.parameters.properties.expect.enum.length, 16);
 	assert.ok(interact.parameters.properties.expect.enum.includes("value=nonempty"));
@@ -279,6 +280,17 @@ test("browser relay：活动标签可 claim、直接交互、敏感输入放行�
 	await assert.rejects(() => interact.execute("browser-key-dup-modifier", { operation: "execute", tabName: "docs", action: "keypress", targetRef: "ax_1_1", key: "a", modifiers: ["Shift", "Shift"] }, undefined, undefined, ctx), /modifiers/u);
 	await assert.rejects(() => interact.execute("browser-type-modifier", { operation: "execute", tabName: "docs", action: "type", targetRef: "ax_1_1", text: "x", modifiers: ["Shift"] }, undefined, undefined, ctx), /modifiers/u);
 	await assert.rejects(() => interact.execute("browser-unlisted-key", { operation: "execute", tabName: "docs", action: "keypress", targetRef: "ax_1_1", key: "F13" }, undefined, undefined, ctx), /keypress key/u);
+	// Pointer actions reach the relay with their refs; drag requires both, and coordinates
+	// are refused rather than guessed.
+	const rightClick = await interact.execute("browser-pointer-right", { operation: "execute", tabName: "docs", action: "right_click", targetRef: "ax_1_1" }, undefined, undefined, ctx);
+	assert.equal(rightClick.details.effect.action ?? "ok", rightClick.details.effect?.action ?? "ok");
+	assert.equal(calls.filter((call) => call.operation === "interact").at(-1)?.payload.action, "right_click");
+	const drag = await interact.execute("browser-pointer-drag", { operation: "execute", tabName: "docs", action: "drag", targetRef: "ax_1_1", dropRef: "ax_1_2" }, undefined, undefined, ctx);
+	assert.equal(drag.details.acknowledged, true);
+	assert.deepEqual([calls.filter((call) => call.operation === "interact").at(-1)?.payload.targetRef, calls.filter((call) => call.operation === "interact").at(-1)?.payload.dropRef], ["ax_1_1", "ax_1_2"]);
+	await assert.rejects(() => interact.execute("browser-drag-no-drop", { operation: "execute", tabName: "docs", action: "drag", targetRef: "ax_1_1" }, undefined, undefined, ctx), /dropRef/u);
+	await assert.rejects(() => interact.execute("browser-drag-coords", { operation: "execute", tabName: "docs", action: "drag", targetRef: "ax_1_1", dropRef: "ax_1_2", x: 1, y: 2, observationEpoch: 1 }, undefined, undefined, ctx), /坐标|drag/u);
+	await assert.rejects(() => interact.execute("browser-click-drop", { operation: "execute", tabName: "docs", action: "click", targetRef: "ax_1_1", dropRef: "ax_1_2" }, undefined, undefined, ctx), /dropRef/u);
 	const beforeInvalid = calls.filter((call) => call.operation === "interact").length;
 	for (const invalid of [{ key: undefined }, { key: "Return" }, { key: "Meta+Enter" }, { targetRef: undefined }, { text: "\n" }, { replace: true }, { option: "x" }, { direction: "down" }, { amount: 10 }, { x: 10, y: 10 }]) {
 		await assert.rejects(() => interact.execute("browser-key-invalid", { operation: "execute", tabName: "docs", action: "keypress", targetRef: "ax_1_1", key: "Enter", ...invalid }, undefined, undefined, ctx));

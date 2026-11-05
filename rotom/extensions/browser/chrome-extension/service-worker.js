@@ -6,6 +6,7 @@ import { createSessionLockV1, createTabLocksV1, isSessionScopedOperationV1, tabL
 import { sessionCleanupPlanV1 } from "./session-cleanup.js";
 import { consoleLevelFromTypeV1, createConsoleCaptureV1, parseConsoleCursorV1, sanitizeConsoleLevelV1, sanitizeConsoleLimitV1, sanitizeConsolePatternV1 } from "./console-buffer.js";
 import { isBrowserKeyV1, keyEventV1, normalizeModifiersV1 } from "./key-table.js";
+import { BROWSER_POINTER_ACTIONS_V1, dragSequenceV1, pointerSequenceV1 } from "./pointer-events.js";
 import { createNetworkCaptureV1, parseNetworkCursorV1, sanitizeNetworkLimitV1, sanitizeNetworkPatternV1, sanitizeNetworkResourceTypeV1 } from "./network-buffer.js";
 import { checkBrowserTabQuotasV1, DEFAULT_BROWSER_TAB_QUOTAS_V1, sanitizeBrowserTabQuotasV1 } from "./tab-quotas.js";
 import { createFocusCoordinator } from "./focus-coordinator.js";
@@ -311,6 +312,10 @@ const networkEnabledTabIds = new Set();
 // CDP timestamps are monotonic seconds since an arbitrary epoch, so they are kept only
 // to measure duration; every reported time is wall clock from this side.
 const networkStartTimestamps = new Map();
+// HTML5 drag-and-drop is not driven by mouse events: Chrome emits one interception with
+// the dragged payload and the page then expects CDP drag events. One slot per tab, set
+// only for the duration of a drag action.
+const dragInterceptionByTabId = new Map();
 function recordNetworkEvent(tabId, method, params) {
 	if (method === "Network.requestWillBeSent") {
 		if (typeof params?.requestId === "string" && Number.isFinite(params?.timestamp)) networkStartTimestamps.set(params.requestId, params.timestamp);
@@ -867,7 +872,12 @@ async function interactionTarget(name, item, payload, assertOperation) {
 	const chrome = operationChrome(globalThis.chrome, assertOperation);
 	const assertOwned = (item) => assertOwnedWithin(item, assertOperation);
 	const action = safeString(payload.action, "action", 32);
-	if (!["click", "type", "scroll", "select", "keypress"].includes(action)) throw new Error("interaction action invalid");
+	if (!["click", "type", "scroll", "select", "keypress", ...BROWSER_POINTER_ACTIONS_V1.filter((value) => value !== "click")].includes(action)) throw new Error("interaction action invalid");
+	if (action === "drag") {
+		if (payload.dropRef === undefined) throw new Error("interaction drag requires dropRef");
+		if (payload.key !== undefined || payload.modifiers !== undefined) throw new Error("interaction drag parameters invalid");
+		if (["x", "y", "observationEpoch"].some((field) => payload[field] !== undefined)) throw new Error("interaction drag accepts refs, not coordinates");
+	} else if (payload.dropRef !== undefined) throw new Error("interaction dropRef requires drag");
 	if (action === "keypress") {
 		if (!isBrowserKeyV1(payload.key)) throw new Error("interaction keypress key invalid");
 		if (payload.modifiers !== undefined && normalizeModifiersV1(payload.modifiers) === undefined) throw new Error("interaction keypress modifiers invalid");
@@ -904,6 +914,25 @@ async function interactionTarget(name, item, payload, assertOperation) {
 		await assertOwned(item);
 		const scrollTargetRef = Number.isSafeInteger(scrollBackendNodeId) ? formatScopedAxRef(item.documentGeneration, parsed?.scopeId ?? "r", scrollBackendNodeId) : undefined;
 		return { action, parsed, node, debuggee, scrollBackendNodeId, scrollTargetRef, scrollScope };
+	}
+	if (action === "hover" || action === "dblclick" || action === "right_click") {
+		// Same ref contract as click, without the editable/selectable role rules.
+		const parsed = interactionRef(payload.targetRef, item.documentGeneration);
+		const node = observedInteractionNode(item.lastObservationNodes, parsed.ref);
+		if (node.role === "document-text") throw new Error("document text ref is read-only");
+		if (action === "hover" && payload.text !== undefined) throw new Error("interaction hover parameters invalid");
+		await assertOwned(item);
+		return { action, parsed, node, debuggee: await interactionDebuggee(item, parsed.scopeId) };
+	}
+	if (action === "drag") {
+		const parsed = interactionRef(payload.targetRef, item.documentGeneration);
+		const dropRef = interactionRef(payload.dropRef, item.documentGeneration);
+		const node = observedInteractionNode(item.lastObservationNodes, parsed.ref);
+		const dropNode = observedInteractionNode(item.lastObservationNodes, dropRef.ref);
+		for (const candidate of [node, dropNode]) if (candidate.role === "document-text") throw new Error("document text ref is read-only");
+		if (parsed.scopeId !== dropRef.scopeId) throw new Error("interaction drag refs must share one frame");
+		await assertOwned(item);
+		return { action, parsed, node, dropParsed: dropRef, dropNode, debuggee: await interactionDebuggee(item, parsed.scopeId) };
 	}
 	if (action === "click" && payload.targetRef === undefined) {
 		const debuggee = { tabId: item.tabId };
@@ -1084,6 +1113,81 @@ async function performInteraction(name, item, payload, assertOperation = () => u
 		}, assertOperation), assertOperation);
 		assertOperation();
 		effect = { dispatch: "mouse", x: point.x, y: point.y, ...(target.coordinate ? { coordinate: true, observationEpoch: payload.observationEpoch, hitTested: true, hitNodeName: target.hit.nodeName } : {}), focusEmulated: true, backgroundPreserved: guarded.restored, spawnedTabs: guarded.spawnedTabs };
+	} else if (target.action === "hover" || target.action === "dblclick" || target.action === "right_click") {
+		const point = await dispatchPoint(target.debuggee, target.parsed.backendNodeId, CLICK_TARGET_WAIT_MS, true, true, assertOperation);
+		assertOperation();
+		const events = pointerSequenceV1(target.action, point);
+		const guarded = await withBackgroundActivationGuard(item, () => withFocusEmulation(target.debuggee, async () => {
+			assertOperation();
+			await assertOwned(item);
+			for (const event of events) await chrome.debugger.sendCommand(target.debuggee, "Input.dispatchMouseEvent", event);
+		}, assertOperation), assertOperation);
+		assertOperation();
+		effect = { dispatch: "mouse", action: target.action, x: point.x, y: point.y, events: events.length, focusEmulated: true, backgroundPreserved: guarded.restored, spawnedTabs: guarded.spawnedTabs };
+	} else if (target.action === "drag") {
+		const start = await dispatchPoint(target.debuggee, target.parsed.backendNodeId, CLICK_TARGET_WAIT_MS, true, true, assertOperation);
+		const end = await dispatchPoint(target.debuggee, target.dropParsed.backendNodeId, CLICK_TARGET_WAIT_MS, true, true, assertOperation);
+		assertOperation();
+		const drag = dragSequenceV1(start, end);
+		const slot = { data: undefined };
+		let dragDataSource = "none";
+		dragInterceptionByTabId.set(item.tabId, slot);
+		let guarded;
+		try {
+			guarded = await withBackgroundActivationGuard(item, () => withFocusEmulation(target.debuggee, async () => {
+				assertOperation();
+				await assertOwned(item);
+				// Interception must be on before the press, otherwise an HTML5 draggable
+				// element starts a native drag the relay cannot complete.
+				await chrome.debugger.sendCommand(target.debuggee, "Input.setInterceptDrags", { enabled: true });
+				for (const event of drag.before) await chrome.debugger.sendCommand(target.debuggee, "Input.dispatchMouseEvent", event);
+				for (const event of drag.moves) {
+					assertOperation();
+					await chrome.debugger.sendCommand(target.debuggee, "Input.dispatchMouseEvent", event);
+					if (slot.data !== undefined) break;
+				}
+				// A pointer-based drag needs the moves only; an HTML5 drag answers with an
+				// interception and then needs explicit drag events at the drop point.
+				for (let attempt = 0; attempt < 12 && slot.data === undefined; attempt += 1) await delay(25);
+				// Chrome does not start a real HTML5 drag from synthetic mouse input, so the
+				// interception often never arrives. Fall back to DragData built from the
+				// dragged element's own text; the page then reads it in `drop` via
+				// dataTransfer. `dragstart` does not fire on this path, and the effect says so.
+				let dragData = slot.data;
+				if (dragData !== undefined) dragDataSource = "intercepted";
+				if (dragData === undefined) {
+					const objectId = await interactionTargetObjectId(target, assertOperation);
+					if (objectId !== undefined) {
+						// Only a draggable source takes drag events: a pointer-driven drag on a
+						// plain element must stay a pure mouse sequence.
+						const described = await valueWithinRelayDeadline(chrome.debugger.sendCommand(target.debuggee, "Runtime.callFunctionOn", {
+							objectId,
+							functionDeclaration: "function(){ return JSON.stringify({ draggable: this.draggable === true, text: (this.innerText || this.textContent || '').trim().slice(0, 1024) }); }",
+							returnByValue: true,
+						}), TARGET_STATE_WAIT_MS);
+						const raw = described.value?.result?.value;
+						let facts;
+						try { facts = typeof raw === "string" ? JSON.parse(raw) : undefined; } catch { facts = undefined; }
+						if (facts?.draggable === true) {
+							dragData = { items: [{ mimeType: "text/plain", data: typeof facts.text === "string" ? facts.text : "" }], dragOperationsMask: 1 };
+							dragDataSource = "synthesized-from-text";
+						}
+					}
+				}
+				if (dragData !== undefined) {
+					for (const type of ["dragEnter", "dragOver", "drop"]) {
+						assertOperation();
+						await chrome.debugger.sendCommand(target.debuggee, "Input.dispatchDragEvent", { type, ...end, data: dragData });
+					}
+				}
+				for (const event of drag.after) await chrome.debugger.sendCommand(target.debuggee, "Input.dispatchMouseEvent", event);
+				await chrome.debugger.sendCommand(target.debuggee, "Input.setInterceptDrags", { enabled: false });
+			}, assertOperation), assertOperation);
+		} finally {
+			dragInterceptionByTabId.delete(item.tabId);
+		}
+		assertOperation();
+		effect = { dispatch: "mouse", action: "drag", from: { x: start.x, y: start.y }, to: { x: end.x, y: end.y }, moves: drag.moves.length, droppedAt: payload.dropRef, html5: dragDataSource !== "none", dragDataSource, dragstartFired: dragDataSource === "intercepted", focusEmulated: true, backgroundPreserved: guarded.restored, spawnedTabs: guarded.spawnedTabs };
 	} else if (target.action === "keypress") {
 		if (stateObjectId === undefined) throw new Error("interaction keypress target could not be resolved");
 		const key = payload.key;
@@ -1743,6 +1847,10 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
 		if (guard) guard.signals.push({ timestamp: Date.now(), url: typeof params?.url === "string" ? params.url : "", used: false });
 	}
 	if (method === "Runtime.consoleAPICalled" || method === "Runtime.exceptionThrown" || method === "Log.entryAdded") recordConsoleEvent(source.tabId, method, params);
+	if (method === "Input.dragIntercepted") {
+		const slot = dragInterceptionByTabId.get(source.tabId);
+		if (slot && params?.data !== undefined) slot.data = params.data;
+	}
 	if (method === "Network.requestWillBeSent" || method === "Network.responseReceived" || method === "Network.loadingFinished" || method === "Network.loadingFailed") recordNetworkEvent(source.tabId, method, params);
 	if (method === "Target.attachedToTarget") registerChildSession(source.tabId, params);
 	if (method === "Target.detachedFromTarget") removeChildSession(source.tabId, params?.sessionId);

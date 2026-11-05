@@ -72,6 +72,7 @@
 - agent tab 是否在 `open`/`claim` 时设为 `autoDiscardable: false`，并在释放（close 保留的 claimed tab、`keepTabs`、handoff、交还/断开）时恢复原值？observation 是否带 `visibilityState`，未知取值是否 fail closed？
 - `placement: "agent-window"` 是否每 agent 复用自己的窗口、从不聚焦用户窗口，非法值是否在打开任何 tab 前被拒绝？
 - console 是否只捕获 agent 自己的 tab（open 时启用 `Runtime.enable`/`Log.enable`，claimed tab 首次调用才启用）、按 500 条 / 2 KB / 全局 8 MB 淘汰并用 `dropped` 报数、堆栈 ≤10 帧、`pattern` 只做子串不编译正则、结果按 128 KiB 截断并可续读？tab 关闭/移交/分离时缓冲必须清空，`captureSince` 不得暗示旧条目还在。
+- hover/dblclick/right_click 是否复用同一套 ref → 坐标 → hit-test 路径，`dblclick` 的第二次按下带 `clickCount: 2`、`right_click` 用右键且 `buttons` 正确？drag 是否要求两个 ref、至少 5 次按住移动、并在 HTML5 拖放拿不到 `Input.dragIntercepted` 时用合成 `DragData` 派发 CDP 拖拽事件，同时把 `dragDataSource` 与 `dragstartFired` 如实上报（合成路径没有 `dragstart`）？
 - keypress 是否只接受固定白名单的键（不提供“发任意字符串”的通路）、`modifiers` 去重且顺序固定、带 Control/Alt/Meta 时不带字符、Tab 只移动焦点不插入制表符、Shift 只影响字母大小写、全选走浏览器编辑命令，并且仍然先核验焦点、只用 CDP 按键事件（不用 `insertText`）？
 - network 是否只捕获 agent 自己的 tab、`Network.enable` 的两个 buffer 为 0（body 不缓存）、条目里没有任何 header/body 字段、1000 条环形丢最旧、`failedOnly` 覆盖失败原因与 status ≥ 400、`pattern` 只做子串、结果按 128 KiB 截断并可续读？tab 关闭/移交/分离时缓冲必须清空。
 - `navigate` 是否只用一个操作承担 URL 与 `history: back/forward/reload`，成功后 `documentGeneration` 加一（reload 不换 URL 也必须加），旧 ref/坐标作废；历史落点是否先解析 origin 再按 lease 判定，拒绝时不发导航命令？

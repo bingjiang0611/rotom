@@ -111,6 +111,77 @@ setTimeout(() => { throw new Error('fixture uncaught exception'); }, 120);
 const USER_BODY = `
 <main><h1>User tab</h1><div role="status" id="user-status">User tab stays foreground</div></main>`;
 
+// Pointer fixture: a hover menu, a double-click counter, a context menu, and two drag
+// lists (pointer-driven and HTML5 native). Every observable state is mirrored into one
+// status line so a suite can prove the page changed, not just that events were dispatched.
+const POINTER_BODY = `
+<main>
+  <h1>Pointer fixture</h1>
+  <div id="hover-zone" tabindex="0" aria-label="hover zone">Hover here</div>
+  <ul id="hover-menu" role="menu" hidden style="position:absolute;left:0;top:0">
+    <li role="menuitem">Alpha item</li>
+    <li role="menuitem">Beta item</li>
+  </ul>
+  <div id="dbl" tabindex="0" aria-label="double click pad">Double click pad</div>
+  <div id="ctx" tabindex="0" aria-label="context pad">Right click pad</div>
+  <ul id="ctx-menu" role="menu" hidden style="position:absolute;left:40px;top:40px">
+    <li role="menuitem">Context delete</li>
+  </ul>
+  <ul id="pointer-list" role="listbox" aria-label="pointer list">
+    <li role="option" data-item="1" tabindex="0">Pointer one</li>
+    <li role="option" data-item="2" tabindex="0">Pointer two</li>
+    <li role="option" data-item="3" tabindex="0">Pointer three</li>
+  </ul>
+  <ul id="html5-list" role="listbox" aria-label="html5 list">
+    <li role="option" data-item="1" tabindex="0" draggable="true">Native one</li>
+    <li role="option" data-item="2" tabindex="0" draggable="true">Native two</li>
+    <li role="option" data-item="3" tabindex="0" draggable="true">Native three</li>
+  </ul>
+  <div role="status" id="pointer-status">pointer-idle</div>
+</main>
+<script>
+const status = document.querySelector('#pointer-status');
+const hoverMenu = document.querySelector('#hover-menu');
+const ctxMenu = document.querySelector('#ctx-menu');
+let dbl = 0, ctx = 0, pointerDrag = '', nativeDrag = '', starts = 0, drops = 0;
+const order = (list) => Array.from(list.children).map((child) => child.dataset.item).join('');
+const paint = (label) => { status.textContent = label + '|dbl=' + dbl + '|ctx=' + ctx + '|start=' + starts + '|drop=' + drops + '|pointer=' + order(document.querySelector('#pointer-list')) + '|native=' + order(document.querySelector('#html5-list')); };
+document.querySelector('#hover-zone').addEventListener('mouseenter', () => { hoverMenu.hidden = false; paint('hover-open'); });
+document.querySelector('#hover-zone').addEventListener('mouseleave', () => { hoverMenu.hidden = true; });
+document.querySelector('#dbl').addEventListener('dblclick', () => { dbl += 1; paint('dblclick'); });
+document.querySelector('#ctx').addEventListener('contextmenu', (event) => { event.preventDefault(); ctx += 1; ctxMenu.hidden = false; paint('contextmenu'); });
+// Pointer-driven reordering: mousedown on an item, drop on the item under the pointer.
+const pointerList = document.querySelector('#pointer-list');
+pointerList.addEventListener('mousedown', (event) => { const item = event.target.closest('li'); if (item) pointerDrag = item.dataset.item; });
+pointerList.addEventListener('mouseup', (event) => {
+  const target = event.target.closest('li');
+  if (!target || !pointerDrag) return;
+  const dragged = pointerList.querySelector('[data-item="' + pointerDrag + '"]');
+  pointerList.insertBefore(dragged, target.nextSibling);
+  pointerDrag = '';
+  paint('pointer-drag');
+});
+// Native HTML5 drag and drop.
+const nativeList = document.querySelector('#html5-list');
+nativeList.addEventListener('dragstart', (event) => { nativeDrag = event.target.dataset.item; starts += 1; paint('native-dragstart'); });
+nativeList.addEventListener('dragover', (event) => event.preventDefault());
+nativeList.addEventListener('drop', (event) => {
+  event.preventDefault();
+  const target = event.target.closest('li');
+  drops += 1;
+  paint('native-drop');
+  // Spec-shaped drop: identify the source from dataTransfer, with the dragstart state as
+  // a fallback. Chrome does not fire dragstart for relay-synthesized drags.
+  const value = (event.dataTransfer && event.dataTransfer.getData('text/plain')) || nativeDrag;
+  const dragged = Array.from(nativeList.children).find((child) => child.dataset.item === value || child.textContent.trim() === value);
+  if (!target || !dragged) return;
+  nativeList.insertBefore(dragged, target.nextSibling);
+  nativeDrag = '';
+  paint('native-drag');
+});
+paint('pointer-idle');
+</script>`;
+
 // Keys fixture: a textarea and an ARIA listbox that reports its own state, so a keypress
 // suite can prove the page really changed instead of trusting the dispatch ack.
 const KEYS_BODY = `
@@ -197,6 +268,7 @@ export function defaultPages({ frameOrigin }) {
 		["/console", htmlDocument("Console fixture", CONSOLE_BODY)],
 		["/network", htmlDocument("Network fixture", NETWORK_BODY)],
 		["/keys", htmlDocument("Keys fixture", KEYS_BODY)],
+		["/pointer", htmlDocument("Pointer fixture", POINTER_BODY)],
 	]);
 }
 
