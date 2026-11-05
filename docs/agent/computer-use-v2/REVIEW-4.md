@@ -79,3 +79,30 @@ Broker 用 `Date.now()`（毫秒）签发 `expiresAt`，`LeaseGuard.check` 却�
 1. 修 E1–E3，补上 E4 的单 helper 限制和文档，处理 Q3。仍然只在 L1 层面验证，不运行真机脚本。
 2. 推送后更新 STATUS-2，写明这一轮的修复和测试数字。
 3. B 阶段由用户另约时间、给出明确时长后再开始。开始条件和规则不变，另外加一条：B4 的反例必须用真实 Broker 签出的 token（包括过期和撤销的），不允许脚本自己构造 token。
+
+## 复核（2026-11-05，`d9a5e78..f8eb663`）
+
+结论：E1–E4 和 Q3 都接受。补完下面的 Q5 之后，就可以进入 B 阶段。
+
+### 审核者复现
+
+- 干净 worktree，不放 peer 依赖桩：连跑 3 次，每次 117 个用例，116 通过、0 失败、1 跳过。
+- 用真实 `BrokerCore` 重跑上一轮的复现脚本：
+  - token 的 `expiresAt` 减去当前时间约等于 60000，单位是毫秒，和 TTL 一致。
+  - 转交后签发了新 id（`lease-<前缀>-1` 变成 `-2`），撤销事件只针对旧 id。
+  - 子 agent 断开后，租约以新 id 回到父 agent；父 agent 重新 acquire 时拿到这个 id 和对应的 token。
+  - 第二个 helper 收到 `not_permitted`，拿不到 key。
+- Swift 侧的自测（19 项）和互通（13 步）需要 macOS，审核者在 Linux 上无法复现，这部分以执行方的记录为准。B4 会在真机上再验证一次。
+
+### 一处事实更正（只改 STATUS-2 的文字，不改代码）
+
+STATUS-2 第 73–74 行说，旧代码会让 L4 在真机上“永远判定用户刚活动过”。这不成立：旧代码记录的是秒，推送前乘了 1000，推给 Broker 的本来就是毫秒，和 Broker 的时钟一致。这次统一成毫秒，加上 `invalid_request` 的校验，作为加固可以接受；但请把那两行改成“统一单位并加校验（旧代码换算正确，不是缺陷）”。
+
+### Q5 的回答：B 阶段之前补上
+
+`focusWindow` 和 `clipboardRestore` 都会改变用户可见的状态，应当和其他写命令同等对待：
+- `focusWindow`：加入 `writeCommands`，资源为 `desktop-pid:<pid>`。TS 侧在拿到该 pid 的租约之后才调用。
+- `clipboardRestore`：加入 `writeCommands`，资源为 `clipboard:system`。恢复时由恢复调度自己 acquire 剪贴板租约；拿不到（比如 busy）就放弃恢复，trace 里记 `restore_skipped:lease_unavailable`，不能无租约写入。
+- 测试：Swift 自测各补一条“无 token 被拒”；TS 侧补一条“恢复时剪贴板被另一个 agent 持有，则跳过恢复”。
+
+做完、推送、更新 STATUS-2 之后，A 阶段就算结束。B 阶段的开始条件和规则不变，等用户给出明确的时长再开始。
