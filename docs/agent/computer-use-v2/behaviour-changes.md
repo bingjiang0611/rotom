@@ -32,6 +32,11 @@
    不能写**：这正是“别人直接调 AX/HID”这条缺口被堵掉的部分。
    helper 协议随之升到 **9**；旧 helper 不会被自动重启，协议不匹配时客户端报错要求重新安装。
    关掉 broker（见做法二）时 helper 拿不到密钥，于是不做校验——仍是旧行为，不是静默绕过。
+   **这条边界要说清（第二期 E4）：helper 的角色是自报的。** 任何进程在 hello 里写
+   `role: "helper"` 都可能被当成 helper，所以这里防的是“我们自己的客户端出 bug 或不走 broker”，
+   不是“同一用户下的恶意进程”——后者在本机属于同一信任边界，拦不住也不该在文档里假装拦得住。
+   能做的两件实事已经做了：同一时间只接受一个 helper 连接（第二个 hello 得到 `not_permitted`，
+   原 helper 断开后才接受新的），以及密钥只在 hello 成功后交给这一个连接。
 
 8. **前台接管（L4）是一个独立的、默认没有授予的许可（第二期 A6）。** `cu_session` 新增
    `takeover`／`release_takeover`：拿不到这个许可就一个字节也不会写。三个条件同时成立才发放
@@ -96,8 +101,11 @@ A6（前台接管）见 [`test/takeover.test.ts`](../../../packages/rotom-comput
 三个条件、第二个 agent 抢到时 `resource_busy`、真实输入触发 `preempted_by_user`、headless 拒绝、
 边框与续租用假 backend 覆盖。
 
-A5 的 native 侧用 `npm run test:lease-guard` 验证：helper 自检 6 项（合法／签名错／过期／pid 不符／
-已撤销／无 broker 密钥），再验证 TypeScript 签出的 token 能被 Swift 接受、换成别的 pid 则被拒。
+A5 的 native 侧用 `npm run test:lease-guard` 验证：helper 自检 19 项（合法／签名错／过期／秒级过期／
+pid 不符／已撤销／过期撤销被遗忘／换 key 清空撤销／读命令免租约／无 pid 的写命令被拒／
+`manageApps` 只认自己的 App／无 broker 密钥），再用**真实 `BrokerCore` 签出的 token** 跑 13 步
+（合法、过期、错 pid、无 token、转交后的新旧 id、重启换 key、App 级租约、读命令），不再由脚本自己
+构造 claim。
 
 - `packages/rotom-computer-use/test/cu-v2-authority.test.ts`：
   - 预先授权为 `full` 的 App 在无 UI 会话里可以写入；同一个无 UI 会话写入未授权 App 得到

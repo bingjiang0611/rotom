@@ -100,3 +100,26 @@ helper 退出任意 App；能识别为写命令但算不出目标的请求直接
 仍然存在的缺口（未在本轮扩大范围）：`focusWindow`、`clipboardRestore` 会改变状态但没有列入
 `writeCommands`，TS 侧也没有给它们附租约。它们不在审核 E3 的清单里，改动会牵涉工具层合同，留给
 B4 真机反例测试之后一起决定（已记入 STATUS-2 的待决问题 Q5）。
+
+## E4 helper 身份是自报的（一条限制，两处修正，文档如实写明）
+
+审核的结论是：任何连接只要在 hello 里写 `role: "helper"` 就能拿到签名 key，也能发 `resume`、
+`takeover_approval`、`preempted`；在同一用户的信任边界内可以接受，但不能写成“密钥不经过客户端”。
+
+做到的：
+
+- **同一时间只接受一个 helper 连接。** `onHello` 在注册前检查：已有别的 `role=helper` 连接在线时返回
+  `not_permitted` 且**不**发 key；同一个 agentId 重连（同一 helper 进程重连 socket）不算第二个；原 helper
+  断开后才接受新的。测试覆盖三条：第二个被拒且拿不到 key、同 id 重连允许、断开后可换新的。
+- **文档如实写明边界。** `behaviour-changes.md` 第 7 条、`src/broker/lease-token.ts` 头注释、本文件都改成
+  “防的是我们自己的客户端出错或绕过 broker，不防同一用户下冒充 helper 的进程”。
+  根 `CLAUDE.md` 第 4 节按审核要求**这轮不动**，等 B4 真机反例通过后再按这个边界写。
+
+验证：
+
+| 检查 | 命令 | 结果 |
+| --- | --- | --- |
+| 全量 TS 测试 | `node --test --experimental-strip-types "test/*.test.ts"` | 114 通过、0 失败（新增单 helper 用例） |
+
+限制（如实记录）：helper 身份仍是自报的。同一用户下的另一个进程可以启动一个“先到”的 helper 占住这个
+角色；broker 只能保证“只有一个”，不能保证“是我的那个”。这一点写进了文档，不冒充隔离。

@@ -324,6 +324,18 @@ export class BrokerCore {
 			);
 		}
 		if (!request.agent?.agentId) return failure("invalid_request", "hello requires an agent.agentId.");
+		// The helper role is self-declared (review E4). One helper at a time keeps the
+		// blast radius at "the helper I started": a second process claiming the role
+		// must not also learn the key or answer the user's stop control.
+		if (request.agent.role === "helper") {
+			const other = this.registry.agentsWithRole("helper").find((record) => record.agentId !== request.agent.agentId);
+			if (other) {
+				return failure(
+					"not_permitted",
+					`A helper is already connected (${other.agentId}). Only one helper at a time may hold the lease key; stop that helper first.`,
+				);
+			}
+		}
 		this.registry.register(request.agent);
 		// The native helper enforces lease tokens, so it needs the key. Agents never
 		// get it: a key an agent could read is a key an agent could forge.

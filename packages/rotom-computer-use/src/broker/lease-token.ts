@@ -11,6 +11,12 @@ import { createHmac, timingSafeEqual } from "node:crypto";
  * The key never leaves the broker and the helper: it is generated per broker
  * process, kept in memory, and handed to a `role=helper` connection only. It is
  * never written to disk and never passes through an agent.
+ *
+ * What that does and does not buy (review E4): the helper *role* is self-declared,
+ * so this stops our own clients from writing without a lease or from bypassing the
+ * broker, and it stops a `ROTOM_CU_BROKER=0` style mistake from passing silently. It
+ * does not stop another process owned by the same user from claiming the role; the
+ * broker only limits that to one helper connection at a time.
  */
 export interface LeaseClaims {
 	agentId: string;

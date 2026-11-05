@@ -142,6 +142,29 @@ test("the signing key goes to the helper connection only, never to an agent", as
 	assert.equal(Buffer.from(key!, "base64").length, 32);
 });
 
+test("only one helper may hold the signing key at a time", async () => {
+	// Review E4: the helper role is self-declared, so the broker at least refuses a
+	// second one instead of handing the key to every claimant.
+	const { core } = setup();
+	const first = await hello(core, registration("helper:1", { role: "helper" }));
+	assert.ok((first as { leaseKey?: string }).leaseKey);
+
+	const second = await hello(core, registration("helper:2", { role: "helper" }));
+	assert.equal(second.ok, false);
+	assert.equal((second as { code?: string }).code, "not_permitted");
+	assert.equal((second as { leaseKey?: string }).leaseKey, undefined, "a refused helper never sees the key");
+
+	// The same helper reconnecting is not a second helper.
+	const again = await hello(core, registration("helper:1", { role: "helper" }));
+	assert.equal(again.ok, true);
+
+	// Once it is gone the slot is free again.
+	core.handleDisconnect("helper:1");
+	const replacement = await hello(core, registration("helper:2", { role: "helper" }));
+	assert.equal(replacement.ok, true);
+	assert.ok((replacement as { leaseKey?: string }).leaseKey);
+});
+
 test("an acquire reply carries a token the helper can verify for that pid", async () => {
 	const { core, clock } = setup();
 	await hello(core, registration("helper:1", { role: "helper" }));
