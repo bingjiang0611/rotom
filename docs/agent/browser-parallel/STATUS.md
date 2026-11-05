@@ -289,3 +289,30 @@
 | Windows | L1（仅代码与单测分支） | 命名管道、`HKCU` 注册表键、pid 锁的单测；installer 返回 `manual-registration-required` | 无实机；Windows 上无法用 `run.mjs`（注册表注册与 harness 不兼容） |
 
 `--no-verify` 说明：本分支所有提交都用它绕过了 `scripts/check-staged-file-size.mjs` 的 20 KB 单文件上限（`service-worker.js`、`chrome-extension.test.mjs`、`browser-relay.ts` 是真实源码，不是二进制或产物）。没有改动该门禁；是否放宽或按文件类型分别设阈值需要仓库维护者决定。
+
+### 性能基准（T26，2026 本机 macOS M2 Pro / 10 核 / 16 GB，Chrome for Testing 157，headless）
+
+新增 `rotom/runtime/e2e-browser/bench.mjs`：与 e2e 共用隔离 harness 和 fixture，只报数字、不做断言。`ROTOM_BENCH_ROUNDS=30 ROTOM_BENCH_WARMUP=3 ROTOM_BENCH_CONCURRENCY_ROUNDS=10` 的实测：
+
+| 场景 | n | P50 | P95 | max | ops/s |
+|---|---|---|---|---|---|
+| Chrome 启动 + relay 握手 | 1 | 2 690 ms | — | — | — |
+| client 连接（握手 + 会话注册） | 10 | 208 ms | 211 ms | 211 ms | 4.8 |
+| `snapshot_visible`（渲染 DOM） | 30 | 58 ms | 74 ms | 78 ms | 16.8 |
+| `tabs`（归属与状态） | 30 | 103 ms | 106 ms | 106 ms | 9.6 |
+| `read_full`（`/large` 整页文本） | 10 | 10 594 ms | 12 266 ms | 12 266 ms | 0.09 |
+| `screenshot`（JPEG 视口） | 30 | 45 ms | 62 ms | 70 ms | 22.6 |
+| `interact` type + 读回 | 30 | 159 ms | 168 ms | 170 ms | 6.2 |
+| 并发 `snapshot` ×1 / ×2 / ×4（每轮总耗时） | 10 | 56 / 58 / 64 ms | 62 / 67 / 68 ms | 同上 | 17.5 / 17.1 / 15.7 |
+| `record_start/stop`（3 s @2fps）+ GIF 合成 | 2 | 3 119 ms | 3 126 ms | 3 126 ms | — |
+
+首次 `open` 均值 365 ms。内存：client RSS 71 MB，Chrome RSS 233 MB（3 个标签）。
+
+**结论与爬坡空间（按证据排序）**
+1. `read_full` 是最大单项成本（10.6 s）：合同要求读完全部，成本随页面规模增长；可优化的只有滚动批次步长与合并去重的往返次数，不能靠减少覆盖。
+2. `tabs` 103 ms 是"每次动作的固定税"：Pi 侧几乎每个操作前都会查一次归属。它是一个便宜操作却比 `snapshot_visible` 贵一倍，值得做一次调用合并或短期缓存（必须保留归属与 stale 校验，不能省掉检查）。
+3. 并发扩展接近线性：×4 时每标签 16 ms，说明锁与事件循环不是瓶颈，并行化已经到位。
+4. 录屏 + GIF 合成的本地 CPU 部分约 119 ms（3 119 − 3 000），不是瓶颈。
+5. Hooks 之外未测：`network_body`、`trace`、`screenshot_export` 的整页导出。
+
+**未完成**：原计划在低负载机器 `test@30.7.226.226` 上复测，但该机的企业安全软件会直接 `SIGKILL` Chrome for Testing（`--version` 即 exit 137，去掉 quarantine 后仍如此），系统 Chrome 156 正式版又忽略 `--load-extension`，所以基准只能在本机跑。要在这台机器上测，需要把 `/Users/test/Library/Caches/rotom-e2e/**` 或其可执行文件加入安全软件白名单。
