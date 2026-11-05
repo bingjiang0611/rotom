@@ -7,6 +7,10 @@
 export const MAX_DEVTOOLS_EXPRESSION_CHARS_V1 = 8 * 1024;
 export const MAX_DEVTOOLS_RESULT_BYTES_V1 = 64 * 1024;
 export const DEVTOOLS_WORLDS_V1 = ["isolated", "main"];
+export const DEVTOOLS_SCREENSHOT_FORMATS_V1 = ["png", "jpeg"];
+export const MAX_EXPORT_WIDTH_V1 = 5_000;
+export const MAX_EXPORT_HEIGHT_V1 = 20_000;
+export const DEFAULT_EXPORT_QUALITY_V1 = 80;
 const VIEWPORT_LIMIT = { min: 200, max: 5_000 };
 
 function record(value) {
@@ -36,6 +40,16 @@ export function sanitizeViewportOverrideV1(value) {
 	if (typeof mobile !== "boolean" || typeof touch !== "boolean") return undefined;
 	if (userAgent !== undefined && (typeof userAgent !== "string" || userAgent.length === 0 || userAgent.length > 512 || userAgent.includes("\0"))) return undefined;
 	return { width, height, deviceScaleFactor, mobile, touch, ...(userAgent === undefined ? {} : { userAgent }) };
+}
+
+/** Screenshot export request: format is explicit, quality only applies to JPEG. */
+export function sanitizeExportRequestV1(payload) {
+	const format = payload?.format;
+	if (typeof format !== "string" || !DEVTOOLS_SCREENSHOT_FORMATS_V1.includes(format)) return undefined;
+	if (payload.fullPage !== undefined && typeof payload.fullPage !== "boolean") return undefined;
+	const quality = payload.quality === undefined ? DEFAULT_EXPORT_QUALITY_V1 : payload.quality;
+	if (!Number.isInteger(quality) || quality < 1 || quality > 100) return undefined;
+	return { format, fullPage: payload.fullPage === true, quality };
 }
 
 /** UTF-8 byte-bounded truncation that never splits a character. */

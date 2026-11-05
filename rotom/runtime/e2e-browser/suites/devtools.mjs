@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import { relayRequestFor } from "../harness.mjs";
 
-export const description = "devtools：isolated 与 main world 的可见性差异、viewport 预设与 reset、坐标失效";
+export const description = "devtools：isolated 与 main world 的可见性差异、viewport 覆盖与 reset、坐标失效、截图导出";
 
 export async function run({ harness, fixtures, recorder }) {
 	const client = await harness.connect("devtools-main");
@@ -104,6 +104,35 @@ export async function run({ harness, fixtures, recorder }) {
 		assert.equal(restoredShot.viewport.width, before.viewport.width, `reset 之后视口宽度必须回到 ${before.viewport.width}，实际 ${restoredShot.viewport.width}`);
 		const touches = await step("touches", evaluate({ expression: "navigator.maxTouchPoints > 0" }));
 		assert.equal(touches.valueText, "false", "reset 也要关掉触摸模拟");
+	});
+
+	await recorder.check("screenshot_export：视口 PNG 与整页 JPEG 都是真实图片且字节数自洽", async () => {
+		await request("close", { all: true }, 5_000);
+		await request("open", { tabName: "shot", url: fixtures.url("/globals") }, 10_000);
+		await request("wait", { tabName: "shot", status: "complete", timeoutMs: 10_000 }, 11_000);
+		const viewportShot = await request("devtools", { tabName: "shot", devtools: "screenshot_export", format: "png" }, 20_000);
+		assert.equal(viewportShot.kind, "rotom-browser-devtools");
+		assert.equal(viewportShot.devtools, "screenshot_export");
+		assert.equal(viewportShot.format, "png");
+		assert.equal(viewportShot.fullPage, false);
+		const viewportBytes = Buffer.from(viewportShot.data, "base64");
+		assert.equal(viewportBytes.subarray(0, 8).toString("hex"), "89504e470d0a1a0a", "PNG magic 必须是真实 PNG");
+		assert.equal(viewportShot.bytes, viewportBytes.length);
+		assert.equal(viewportShot.width, undefined, "视口截图不带 clip 尺寸");
+
+		const fullPage = await request("devtools", { tabName: "shot", devtools: "screenshot_export", format: "jpeg", fullPage: true, quality: 70 }, 20_000);
+		const fullBytes = Buffer.from(fullPage.data, "base64");
+		assert.equal(fullBytes.subarray(0, 2).toString("hex"), "ffd8", "JPEG magic 必须是真实 JPEG");
+		assert.equal(fullPage.fullPage, true);
+		assert.ok(fullPage.height > 0 && fullPage.width > 0, "整页截图必须回报 clip 尺寸");
+
+		await assert.rejects(() => request("devtools", { tabName: "shot", devtools: "screenshot_export", format: "webp" }, 10_000), /devtools/u);
+		await assert.rejects(() => request("devtools", { tabName: "shot", devtools: "screenshot_export", format: "png", quality: 101 }, 10_000), /devtools/u);
+
+		// A page taller than the cap is refused instead of producing a giant image.
+		await request("open", { tabName: "huge", url: fixtures.url("/large") }, 10_000);
+		await request("wait", { tabName: "huge", status: "complete", timeoutMs: 10_000 }, 11_000);
+		await assert.rejects(() => request("devtools", { tabName: "huge", devtools: "screenshot_export", format: "png", fullPage: true }, 20_000), /too large/u);
 	});
 
 	await recorder.check("viewport 后被取消的旧坐标 observation 不能被复用", async () => {

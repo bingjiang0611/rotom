@@ -11,7 +11,7 @@ import { BROWSER_POINTER_ACTIONS_V1, dragSequenceV1, pointerSequenceV1 } from ".
 import { readInteractionSensitivity, sensitivityFromFactsV1 } from "./sensitive-actions.js";
 import { MAX_DOWNLOAD_RECORDS_V1, downloadOwnerAgentIdV1, downloadRecordV1, downloadRelativeFilenameV1 } from "./downloads.js";
 import { createNetworkCaptureV1, parseNetworkCursorV1, sanitizeNetworkLimitV1, sanitizeNetworkPatternV1, sanitizeNetworkResourceTypeV1 } from "./network-buffer.js";
-import { devtoolsEvaluateRecordV1, sanitizeDevtoolsExpressionV1, sanitizeDevtoolsWorldV1, sanitizeViewportOverrideV1, viewportRecordV1 } from "./devtools-params.js";
+import { MAX_EXPORT_HEIGHT_V1, MAX_EXPORT_WIDTH_V1, devtoolsEvaluateRecordV1, sanitizeDevtoolsExpressionV1, sanitizeDevtoolsWorldV1, sanitizeExportRequestV1, sanitizeViewportOverrideV1, viewportRecordV1 } from "./devtools-params.js";
 import { checkBrowserTabQuotasV1, DEFAULT_BROWSER_TAB_QUOTAS_V1, sanitizeBrowserTabQuotasV1 } from "./tab-quotas.js";
 import { createFocusCoordinator } from "./focus-coordinator.js";
 import { withTabWake } from "./lifecycle-wake.js";
@@ -1838,13 +1838,15 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 	if (operation === "devtools") {
 		const { name, item } = owned(state, payload.tabName);
 		const devtools = payload.devtools;
-		if (devtools !== "evaluate" && devtools !== "viewport") throw new Error("devtools operation invalid");
+		if (devtools !== "evaluate" && devtools !== "viewport" && devtools !== "screenshot_export") throw new Error("devtools operation invalid");
 		const expression = devtools === "evaluate" ? sanitizeDevtoolsExpressionV1(payload.expression) : undefined;
 		if (devtools === "evaluate" && expression === undefined) throw new Error("devtools expression invalid");
 		const world = devtools === "evaluate" ? sanitizeDevtoolsWorldV1(payload.world) : undefined;
 		if (devtools === "evaluate" && world === undefined) throw new Error("devtools world invalid");
 		const viewport = devtools === "viewport" ? sanitizeViewportOverrideV1(payload.viewport) : undefined;
 		if (devtools === "viewport" && viewport === undefined) throw new Error("devtools viewport invalid");
+		const exportRequest = devtools === "screenshot_export" ? sanitizeExportRequestV1(payload) : undefined;
+		if (devtools === "screenshot_export" && exportRequest === undefined) throw new Error("devtools screenshot request invalid");
 		await attach(item, assertOperation);
 		await assertOwned(item);
 		const debuggee = { tabId: item.tabId };
@@ -1873,6 +1875,46 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 			assertOperation();
 			const evaluated = devtoolsEvaluateRecordV1(evaluatedReply.value);
 			return { schemaVersion: 1, kind: "rotom-browser-devtools", devtools: "evaluate", tabName: name, tabId: item.tabId, documentGeneration: item.documentGeneration, world, ...evaluated };
+		}
+		if (devtools === "screenshot_export") {
+			let clip;
+			if (exportRequest.fullPage) {
+				const metrics = await valueWithinRelayDeadline(chrome.debugger.sendCommand(debuggee, "Page.getLayoutMetrics"), 4_000);
+				const size = metrics.ok ? metrics.value?.cssContentSize : undefined;
+				const width = Math.ceil(size?.width ?? 0);
+				const height = Math.ceil(size?.height ?? 0);
+				if (!(width > 0 && height > 0)) throw new Error("devtools screenshot size unavailable");
+				if (width > MAX_EXPORT_WIDTH_V1 || height > MAX_EXPORT_HEIGHT_V1) throw new Error("devtools screenshot too large");
+				clip = { x: 0, y: 0, width, height, scale: 1 };
+			}
+			const captured = await valueWithinRelayDeadline(chrome.debugger.sendCommand(debuggee, "Page.captureScreenshot", {
+				format: exportRequest.format,
+				...(exportRequest.format === "jpeg" ? { quality: exportRequest.quality } : {}),
+				fromSurface: true,
+				captureBeyondViewport: exportRequest.fullPage,
+				...(clip === undefined ? {} : { clip }),
+			}), 15_000);
+			if (!captured.ok) throw new Error("devtools screenshot timed out");
+			const data = captured.value?.data;
+			if (typeof data !== "string" || data.length === 0) throw new Error("devtools screenshot data missing");
+			// Exact decoded size: ceil(len*3/4) over-counts the base64 padding.
+			const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
+			const bytes = data.length / 4 * 3 - padding;
+			if (bytes > MAX_SCREENSHOT_BYTES) throw new Error("devtools screenshot exceeds relay limit");
+			assertOperation();
+			return {
+				schemaVersion: 1,
+				kind: "rotom-browser-devtools",
+				devtools: "screenshot_export",
+				tabName: name,
+				tabId: item.tabId,
+				documentGeneration: item.documentGeneration,
+				format: exportRequest.format,
+				fullPage: exportRequest.fullPage,
+				bytes,
+				...(clip === undefined ? {} : { width: clip.width, height: clip.height }),
+				data,
+			};
 		}
 		if (viewport === "reset") {
 			// width/height 0 is the documented way to disable the override; clearing alone
