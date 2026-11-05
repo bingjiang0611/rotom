@@ -1,6 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 export interface ComputerUseConfig {
 	browser_use: boolean;
@@ -111,9 +110,24 @@ function readEnv(): Partial<ComputerUseConfig> {
 	return out;
 }
 
-export function loadComputerUseConfig(cwd: string): LoadedComputerUseConfig {
+/**
+ * Pi's own agent directory.
+ *
+ * Resolved through Pi itself instead of a static import so this module — and
+ * every module that reads configuration — loads in a checkout without the peer
+ * package installed. That is what lets `node --test` run on a clean clone
+ * (review I3); inside Pi the package is always present, and a missing one is a
+ * real installation error that must surface rather than be guessed around.
+ */
+async function piAgentDir(): Promise<string> {
+	const peer = await import("@earendil-works/pi-coding-agent");
+	return peer.getAgentDir();
+}
+
+export async function loadComputerUseConfig(cwd: string): Promise<LoadedComputerUseConfig> {
+	const agentDir = await piAgentDir();
 	const sources = [
-		readConfigFile(path.join(getAgentDir(), "extensions", "pi-computer-use.json")),
+		readConfigFile(path.join(agentDir, "extensions", "pi-computer-use.json")),
 		readConfigFile(path.join(cwd, ".pi", "computer-use.json")),
 	];
 	const env = readEnv();

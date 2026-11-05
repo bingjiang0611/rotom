@@ -570,7 +570,7 @@ function emptyActivation(): ActivationFlags {
 }
 
 async function ensureReady(ctx: ExtensionContext, signal?: AbortSignal): Promise<void> {
-	loadComputerUseConfig(ctx.cwd);
+	await loadComputerUseConfig(ctx.cwd);
 
 	throwIfAborted(signal);
 	const ready = await currentPlatformBackend.ensureReady(

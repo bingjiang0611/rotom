@@ -9,6 +9,10 @@ Paths below are relative to `packages/rotom-computer-use/`:
 ```text
 extensions/computer-use.ts       Public Pi tool registration
 src/bridge.ts                    Tool coordination and resource scheduling
+src/tools/                       Administration tools, write intents, shared result helpers
+src/broker/                      Desktop Broker (leases, policy gate, socket)
+src/policy/                      Tiers, catalog, sensitive rules, host exclusion
+src/trace/                       Local Computer Use trace
 src/actions.ts                   Action preparation and result reconciliation
 src/runtime.ts                   Immutable state store and scheduler
 src/state.ts                     Saved UI state ownership and restoration
@@ -31,7 +35,12 @@ From this package directory, with a Node version supporting native TypeScript st
 npm test
 ```
 
-This runs the tracked `test/*.test.ts` regressions, currently the speculative foreground-retry gate. It does **not** run a full typecheck, schema/invariant suite or native desktop acceptance.
+This runs the tracked `test/*.test.ts` regressions. No `npm install` step is needed: the
+peer packages (`@earendil-works/pi-*`, `typebox`) are not imported at module load time in
+`src/`, so a clean checkout runs the suite as-is. `test/no-peer-imports.test.ts` keeps that
+property from regressing; inside Pi the peer packages are of course present and are used.
+
+This does **not** run a full typecheck, schema/invariant suite or native desktop acceptance.
 
 The inherited `typecheck` script references an absent `tsconfig.json`. The inherited `test:*` scripts reference upstream `scripts/check-*.mjs` files not included in this maintenance copy. Do not treat their presence in `package.json` as runnable validation or restore them merely to make a documentation command pass. Product composition checks are documented in [verification](../../../docs/agent/verification.md).
 

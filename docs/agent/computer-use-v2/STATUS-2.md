@@ -29,7 +29,7 @@
 | 项 | 内容 | 状态 | 验证层级 | 提交 |
 |---|---|---|---|---|
 | A1 | 四个执行器移出 `bridge.ts` | 完成 | L1（全量测试结果与搬迁前一致） | 见提交 |
-| A2 | I3：测试不依赖 peer 包 | 未开始 | — | — |
+| A2 | I3：测试不依赖 peer 包 | 完成 | L1（干净 checkout、无 `node_modules`） | 见提交 |
 | A3 | F3：干扰用户时暂停 agent | 未开始 | — | — |
 | A4 | F2：父 agent 把 App 交给 subagent | 未开始 | — | — |
 | A5 | I2：helper 侧强制租约、截图排除宿主 | 未开始 | — | — |
@@ -52,3 +52,18 @@
 - 测试不变量：“意图必须集中构造”改成读取新文件位置，没有删除。
 - 全量测试搬迁前后一致：72 用例，71 通过、0 失败、1 个文件级失败（`cu-v2-tools.test.ts` 缺 peer 包，
   既有问题，A2 修）。
+
+### A2 I3：测试不依赖 peer 包
+
+- 根因：`src/config.ts` 在模块顶层值导入了 peer 包 `getAgentDir`，于是任何 import 到 config 的模块
+  （包括 `cu-v2-tools.test.ts` → `src/tools/clipboard.ts`）在没有 peer 包时都无法加载。
+- 修复：`getAgentDir()` 改为在 `loadComputerUseConfig()` 里通过惰性 `await import(...)` 解析；
+  该函数因此变成 async，三个调用点（`bridge.ensureReady`、extension 的命令处理器、`session_start`）
+  都是 async 上下文，已改成 `await`。Pi 内运行时 peer 包必然存在，缺包会如实抛错，不做猜测式回退。
+- 新增回归：`test/no-peer-imports.test.ts` 静态扫描 `src/**`，禁止对 `@earendil-works/*` 或 `typebox`
+  的**静态值导入**（`import type` 与惰性 `import()` 允许），防止这个属性再次被破坏。
+- 条件与数字：本机干净 checkout，`packages/rotom-computer-use/node_modules` 不存在，
+  Node v24.18.0，`node --test --experimental-strip-types "test/*.test.ts"` →
+  **80 用例，80 通过、0 失败、0 跳过**。此前同一命令是 72 用例、71 通过、1 个文件级失败
+  （`cu-v2-tools.test.ts` 的 8 个用例因为文件加载失败而没被计入）。
+- 文档：`packages/rotom-computer-use/docs/development.md` 写明无需 `npm install`，并更新了目录布局。

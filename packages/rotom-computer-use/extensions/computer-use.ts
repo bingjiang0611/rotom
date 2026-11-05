@@ -274,13 +274,13 @@ export default function computerUseExtension(pi: ExtensionAPI): void {
 	pi.registerCommand("computer-use", {
 		description: "Show pi-computer-use configuration",
 		handler: async (_args, ctx) => {
-			loadComputerUseConfig(ctx.cwd);
+			await loadComputerUseConfig(ctx.cwd);
 			ctx.ui.notify(formatConfigStatus(), "info");
 		},
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
-		loadComputerUseConfig(ctx.cwd);
+		await loadComputerUseConfig(ctx.cwd);
 		reconstructStateFromBranch(ctx);
 		// Headless subagent sessions need write arbitration most: they are the
 		// processes that would otherwise race the parent over the same app.
