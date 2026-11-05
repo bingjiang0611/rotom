@@ -111,6 +111,31 @@ setTimeout(() => { throw new Error('fixture uncaught exception'); }, 120);
 const USER_BODY = `
 <main><h1>User tab</h1><div role="status" id="user-status">User tab stays foreground</div></main>`;
 
+// Network fixture: sends a secret cookie and Authorization header on a request that
+// fails with 500, plus two ordinary requests. A passing suite proves those two values
+// reached the server but never reached the relay result.
+const NETWORK_SECRET_COOKIE = "fixture-secret-cookie-value";
+const NETWORK_SECRET_AUTH = "fixture-secret-auth-value";
+const NETWORK_BODY = `
+<main>
+  <h1>Network fixture</h1>
+  <div role="status" id="network-status">Network fixture loaded</div>
+</main>
+<script>
+document.cookie = 'session=${NETWORK_SECRET_COOKIE}; path=/';
+// Requests are issued after the document is ready: capture starts when the relay attaches
+// to the new tab, and traffic from the initial document load can precede that moment.
+// The bodies are read on purpose — Chrome reports loadingFinished only once the response
+// is consumed, and durationMs comes from that event.
+window.addEventListener('load', () => setTimeout(() => {
+  fetch('/status-500', { headers: { Authorization: 'Bearer ${NETWORK_SECRET_AUTH}' }, cache: 'no-store' })
+    .then((response) => response.text().then((body) => { document.querySelector('#network-status').textContent = 'Network 500 ' + response.status + ' ' + body.length; }))
+    .catch(() => { document.querySelector('#network-status').textContent = 'Network 500 rejected'; });
+  fetch('/slow?ms=60', { cache: 'no-store' }).then((response) => response.text());
+  fetch('/baseline', { cache: 'no-store' }).then((response) => response.text());
+}, 200));
+</script>`;
+
 function htmlDocument(title, body) {
 	return `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title></head><body>${body}</body></html>`;
 }
@@ -124,6 +149,8 @@ ${Array.from({ length: LARGE_PARAGRAPHS }, (_, index) => `<p>Paragraph ${index +
 <div role="status" id="large-tail">Large document tail sentinel</div>
 </main>`;
 
+export const NETWORK_FIXTURE_SECRETS = { cookie: NETWORK_SECRET_COOKIE, authorization: NETWORK_SECRET_AUTH };
+
 export function defaultPages({ frameOrigin }) {
 	return new Map([
 		["/baseline", htmlDocument("M7 relay smoke", BASELINE_BODY.replace("__FRAME__", `${frameOrigin}/frame`))],
@@ -133,6 +160,7 @@ export function defaultPages({ frameOrigin }) {
 		["/form", htmlDocument("Agent form", FORM_BODY)],
 		["/user", htmlDocument("User tab", USER_BODY)],
 		["/console", htmlDocument("Console fixture", CONSOLE_BODY)],
+		["/network", htmlDocument("Network fixture", NETWORK_BODY)],
 	]);
 }
 

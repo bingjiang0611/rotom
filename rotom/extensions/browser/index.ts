@@ -11,6 +11,9 @@ import {
 	BROWSER_CONSOLE_LEVELS_V1,
 	BROWSER_CONSOLE_DEFAULT_LIMIT_V1,
 	BROWSER_CONSOLE_MAX_LIMIT_V1,
+	BROWSER_NETWORK_DEFAULT_LIMIT_V1,
+	BROWSER_NETWORK_MAX_LIMIT_V1,
+	BROWSER_NETWORK_RESOURCE_TYPES_V1,
 	BROWSER_NAVIGATE_HISTORY_V1,
 	BROWSER_OPEN_PLACEMENTS_V1,
 	BROWSER_RELAY_TRANSFER_CAPABILITY_V1,
@@ -167,6 +170,55 @@ function validateTabs(value: unknown): BrowserRelayTabsV1 {
  * entries at 2 KB, but 200 of them exceed the 128 KiB result budget, so the page is
  * trimmed here and a cursor is synthesized for the rest.
  */
+/**
+ * Network metadata only: a header/body field is rejected instead of forwarded, so an
+ * upstream change cannot widen the contract by accident.
+ */
+function validateBrowserNetworkV1(value: unknown, requestedLimit: number) {
+	if (!record(value) || value.schemaVersion !== 1 || value.kind !== "rotom-browser-network") throw new Error("browser network response 无效");
+	if (typeof value.captureSince !== "string" || Number.isNaN(Date.parse(value.captureSince))) throw new Error("browser network captureSince 无效");
+	if (!Number.isSafeInteger(value.dropped) || (value.dropped as number) < 0) throw new Error("browser network dropped 无效");
+	if (!Array.isArray(value.entries) || value.entries.length > BROWSER_NETWORK_MAX_LIMIT_V1) throw new Error("browser network entries 无效");
+	for (const forbidden of ["headers", "requestHeaders", "responseHeaders", "postData", "body", "cookie", "cookies"]) {
+		if (value[forbidden] !== undefined) throw new Error(`browser network response 不得包含 ${forbidden}`);
+	}
+	const entries = value.entries.map((candidate, index) => {
+		if (!record(candidate) || !Number.isSafeInteger(candidate.seq) || (candidate.seq as number) < 1) throw new Error(`browser network entry ${index} 无效`);
+		if (typeof candidate.method !== "string" || typeof candidate.url !== "string") throw new Error(`browser network entry ${index} fields 无效`);
+		if (!Number.isFinite(candidate.at)) throw new Error(`browser network entry ${index} time 无效`);
+		const entry: Record<string, unknown> = {
+			seq: candidate.seq as number,
+			method: candidate.method.slice(0, 16),
+			url: safeDisplayUrl(candidate.url),
+			resourceType: BROWSER_NETWORK_RESOURCE_TYPES_V1.includes(candidate.resourceType as never) ? candidate.resourceType : "Other",
+			at: new Date(candidate.at as number).toISOString(),
+		};
+		if (Number.isSafeInteger(candidate.status) && (candidate.status as number) >= 0) entry.status = candidate.status;
+		if (typeof candidate.mimeType === "string" && candidate.mimeType.length > 0) entry.mimeType = candidate.mimeType.slice(0, 128);
+		if (Number.isFinite(candidate.durationMs)) entry.durationMs = Math.round(candidate.durationMs as number);
+		if (typeof candidate.failure === "string" && candidate.failure.length > 0) entry.failure = candidate.failure.slice(0, 256);
+		if (typeof candidate.fromCache === "boolean") entry.fromCache = candidate.fromCache;
+		return entry;
+	});
+	const base: Record<string, unknown> = {
+		kind: "browser-network",
+		captureSince: value.captureSince,
+		dropped: value.dropped as number,
+		requestedLimit,
+		...(Number.isSafeInteger(value.retained) ? { retained: value.retained as number } : {}),
+	};
+	// Same rule as console: trim whole entries and name where the next call resumes.
+	let kept = entries;
+	for (let count = entries.length; count >= 1; count -= 1) {
+		const candidate = { ...base, entries: entries.slice(0, count) };
+		if (Buffer.byteLength(JSON.stringify(candidate), "utf8") > MAX_RESULT_BYTES - 1_024) continue;
+		kept = candidate.entries as typeof entries;
+		base.nextCursor = `n${entries[count - 1].seq}`;
+		break;
+	}
+	return { ...base, entries: kept };
+}
+
 function validateBrowserConsoleV1(value: unknown, requestedLimit: number) {
 	if (!record(value) || value.schemaVersion !== 1 || value.kind !== "rotom-browser-console") throw new Error("browser console response 无效");
 	if (typeof value.captureSince !== "string" || Number.isNaN(Date.parse(value.captureSince))) throw new Error("browser console captureSince 无效");
@@ -509,7 +561,9 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			history: Type.Optional(StringEnum(BROWSER_NAVIGATE_HISTORY_V1, { description: "navigate only: back, forward or reload instead of a URL." })),
 			level: Type.Optional(StringEnum(BROWSER_CONSOLE_LEVELS_V1, { description: "console only: verbose, info, warning or error." })),
 			pattern: Type.Optional(Type.String({ minLength: 1, maxLength: 128, description: "console only: case-insensitive substring, never a regular expression." })),
-			sinceCursor: Type.Optional(Type.String({ minLength: 2, maxLength: 32, description: "console only: the nextCursor value from a previous call." })),
+			sinceCursor: Type.Optional(Type.String({ minLength: 2, maxLength: 32, description: "console or network only: the nextCursor value from a previous call." })),
+			failedOnly: Type.Optional(Type.Boolean({ description: "network only: keep requests with a failure reason or a >= 400 status." })),
+			resourceType: Type.Optional(StringEnum(BROWSER_NETWORK_RESOURCE_TYPES_V1, { description: "network only: filter by resource type." })),
 			status: Type.Optional(StringEnum(["loading", "complete"] as const)),
 			timeoutMs: Type.Optional(Type.Integer({ minimum: 0, maximum: 300_000 })),
 			all: Type.Optional(Type.Boolean()),
@@ -536,14 +590,26 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			const consoleLevel = params.level === undefined ? undefined : safeString(params.level, "level", 16);
 			const consolePattern = params.pattern === undefined ? undefined : safeString(params.pattern, "pattern", 128);
 			const consoleSinceCursor = params.sinceCursor === undefined ? undefined : safeString(params.sinceCursor, "sinceCursor", 32);
-			// console defaults to 50 entries, not to "as many as fit": the buffer is a
-			// log tail, and unbounded would mean paging by accident on every call.
-			const consoleLimit = params.limit === undefined ? BROWSER_CONSOLE_DEFAULT_LIMIT_V1 : safeInteger(params.limit, "limit", 1, BROWSER_CONSOLE_MAX_LIMIT_V1);
+			const networkResourceType = params.resourceType === undefined ? undefined : safeString(params.resourceType, "resourceType", 32);
+			if (params.failedOnly !== undefined && params.failedOnly !== true && params.failedOnly !== false) throw new Error("failedOnly 必须是布尔值");
+			const failedOnly = params.failedOnly === true;
+			// console/network default to 50 entries, not to "as many as fit": these are log
+			// tails, and unbounded would mean paging by accident on every call.
+			const logLimit = params.limit === undefined
+				? (operation === "network" ? BROWSER_NETWORK_DEFAULT_LIMIT_V1 : BROWSER_CONSOLE_DEFAULT_LIMIT_V1)
+				: safeInteger(params.limit, "limit", 1, BROWSER_NETWORK_MAX_LIMIT_V1);
 			if (operation === "console") {
+				if (logLimit > BROWSER_CONSOLE_MAX_LIMIT_V1) throw new Error(`console limit 最大 ${BROWSER_CONSOLE_MAX_LIMIT_V1}`);
 				if (consoleLevel !== undefined && !BROWSER_CONSOLE_LEVELS_V1.includes(consoleLevel as never)) throw new Error("console level 必须是 verbose/info/warning/error");
 				if (consolePattern !== undefined && (consolePattern.length === 0 || consolePattern.length > 128)) throw new Error("console pattern 需要 1–128 字符");
 				if (consoleSinceCursor !== undefined && !/^c\d{1,12}$/u.test(consoleSinceCursor)) throw new Error("console sinceCursor 无效");
-			} else if (consoleLevel !== undefined || consolePattern !== undefined || consoleSinceCursor !== undefined) throw new Error("level/pattern/sinceCursor 仅允许 console");
+				if (params.failedOnly !== undefined || networkResourceType !== undefined) throw new Error("failedOnly/resourceType 仅允许 network");
+			} else if (operation === "network") {
+				if (networkResourceType !== undefined && !BROWSER_NETWORK_RESOURCE_TYPES_V1.includes(networkResourceType as never)) throw new Error("network resourceType 无效");
+				if (consolePattern !== undefined && consolePattern.length > 256) throw new Error("network pattern 最长 256 字符");
+				if (consoleSinceCursor !== undefined && !/^n\d{1,12}$/u.test(consoleSinceCursor)) throw new Error("network sinceCursor 无效");
+				if (consoleLevel !== undefined) throw new Error("level 仅允许 console");
+			} else if (consoleLevel !== undefined || consolePattern !== undefined || consoleSinceCursor !== undefined || params.failedOnly !== undefined || networkResourceType !== undefined) throw new Error("level/pattern/sinceCursor/failedOnly/resourceType 仅允许 console 或 network");
 			const filtered = text !== undefined || role !== undefined;
 			if (filtered && (operation !== "snapshot_visible" || params.cursor !== undefined)) throw new Error("text/role 仅允许首次 snapshot_visible；cursor 已固定查询结果，请勿重复过滤");
 			// Invalid local input must neither contact Relay nor grant fallback permission.
@@ -644,9 +710,20 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 					...(consoleLevel === undefined ? {} : { level: consoleLevel }),
 					...(consolePattern === undefined ? {} : { pattern: consolePattern }),
 					...(consoleSinceCursor === undefined ? {} : { sinceCursor: consoleSinceCursor }),
-					limit: consoleLimit,
+					limit: logLimit,
 				}, { signal, timeoutMs: relayClientTimeoutMs("console", {}) });
-				return boundedResult(validateBrowserConsoleV1(raw, consoleLimit));
+				return boundedResult(validateBrowserConsoleV1(raw, logLimit));
+			}
+			if (operation === "network") {
+				const raw = await relayClient.request("network", {
+					tabName,
+					...(failedOnly ? { failedOnly: true } : {}),
+					...(consolePattern === undefined ? {} : { pattern: consolePattern }),
+					...(networkResourceType === undefined ? {} : { resourceType: networkResourceType }),
+					...(consoleSinceCursor === undefined ? {} : { sinceCursor: consoleSinceCursor }),
+					limit: logLimit,
+				}, { signal, timeoutMs: relayClientTimeoutMs("network", {}) });
+				return boundedResult(validateBrowserNetworkV1(raw, logLimit));
 			}
 			if (operation === "screenshot") {
 				const screenshot = validateBrowserScreenshotV1(await relayClient.request("screenshot", { tabName }, { signal }));

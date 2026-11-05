@@ -72,6 +72,7 @@
 - agent tab 是否在 `open`/`claim` 时设为 `autoDiscardable: false`，并在释放（close 保留的 claimed tab、`keepTabs`、handoff、交还/断开）时恢复原值？observation 是否带 `visibilityState`，未知取值是否 fail closed？
 - `placement: "agent-window"` 是否每 agent 复用自己的窗口、从不聚焦用户窗口，非法值是否在打开任何 tab 前被拒绝？
 - console 是否只捕获 agent 自己的 tab（open 时启用 `Runtime.enable`/`Log.enable`，claimed tab 首次调用才启用）、按 500 条 / 2 KB / 全局 8 MB 淘汰并用 `dropped` 报数、堆栈 ≤10 帧、`pattern` 只做子串不编译正则、结果按 128 KiB 截断并可续读？tab 关闭/移交/分离时缓冲必须清空，`captureSince` 不得暗示旧条目还在。
+- network 是否只捕获 agent 自己的 tab、`Network.enable` 的两个 buffer 为 0（body 不缓存）、条目里没有任何 header/body 字段、1000 条环形丢最旧、`failedOnly` 覆盖失败原因与 status ≥ 400、`pattern` 只做子串、结果按 128 KiB 截断并可续读？tab 关闭/移交/分离时缓冲必须清空。
 - `navigate` 是否只用一个操作承担 URL 与 `history: back/forward/reload`，成功后 `documentGeneration` 加一（reload 不换 URL 也必须加），旧 ref/坐标作废；历史落点是否先解析 origin 再按 lease 判定，拒绝时不发导航命令？
 - tab 配额是否仍在 service worker 计数（唯一全局视角）：`open` 与 `claim` 都过 `assertTabQuotaAllowed`，超限直接报错并写清上限、当前数量与“先 close 旧 tab”，不排队；`hello` 里的 `tabQuotas` 必须过 `sanitizeBrowserTabQuotasV1`，非法 `ROTOM_BROWSER_MAX_*` 报错而不是静默回退？
 - 子 agent 的 lease 是否仍只在工具层判定：没有 token 的主 agent 不受限，有 token 但 lease 文件缺失/过期/origin 不在列表/devtools·upload·download 未开启时本地返回 `needs-approval`，不发出请求、不弹窗？lease 目录是否 0700、文件 0600、拒绝 symlink，且子 agent 不改写父 agent 发布的 scope？

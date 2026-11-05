@@ -195,8 +195,10 @@ test("browser relay：活动标签可 claim、直接交互、敏感输入放行�
 	// and widens the `url` line to say it also serves navigate: +138 bytes, still far
 	// inside the two-browser-tools budget.
 	// `console` (T13) adds level/pattern/sinceCursor + the operation value: +421 bytes.
-	// Together with navigate that is still inside the two-browser-tools budget.
-	assert.ok(browserSchemaBytes <= 3_380, `Browser schema budget regressed: ${browserSchemaBytes}`);
+	// `network` (T14) adds `failedOnly`, `resourceType` and one operation value: +398 bytes,
+	// measured 3 778. Together with navigate that is still inside the two-browser-tools
+	// budget the guideline check above enforces.
+	assert.ok(browserSchemaBytes <= 3_820, `Browser schema budget regressed: ${browserSchemaBytes}`);
 	assert.ok(interact.parameters.required.includes("action"));
 	assert.equal(interact.parameters.properties.expect.enum.length, 16);
 	assert.ok(interact.parameters.properties.expect.enum.includes("value=nonempty"));
@@ -732,6 +734,17 @@ test("browser_inspect console：本地拒绝非法过滤，结果按 128 KiB 截
 		async request(operation: string, payload: Record<string, unknown>) {
 			calls.push({ operation, payload });
 			if (operation === "tabs") return { schemaVersion: 1, kind: "rotom-browser-tabs", tabs: [{ name: "log", tabId: 12, documentGeneration: 1, url: "https://example.test/a?token=secret", title: "log", status: "complete", current: true, browserActive: false, ownership: "agent", relayAttached: true }] };
+			if (operation === "network") {
+				if (payload.tabName !== "log") throw new Error("network 需要属于当前 agent 的 tab");
+				const leak = String(payload.pattern ?? "") === "leak";
+				// Entry-level plumbing is rebuilt from a fixed field list; a top-level leak is
+				// rejected. Both are exercised here.
+				const entries = [
+					{ seq: 1, requestId: "r1", method: "GET", url: "https://example.test/ok", resourceType: "Fetch", status: 200, mimeType: "application/json", fromCache: false, durationMs: 12, at: 1_700_000_000_000, headers: { authorization: "Bearer entry-secret" }, postData: "password=entry-secret" },
+					{ seq: 2, requestId: "r2", method: "POST", url: "https://example.test/status-500?token=secret", resourceType: "Fetch", status: 500, durationMs: 31, at: 1_700_000_001_000 },
+				];
+				return { schemaVersion: 1, kind: "rotom-browser-network", tabName: "log", tabId: 12, captureSince: new Date(1_700_000_000_000).toISOString(), dropped: 2, retained: 2, entries, ...(leak ? { headers: { authorization: "Bearer top-secret" } } : {}) };
+			}
 			if (operation === "console") {
 				const since = Number(String(payload.sinceCursor ?? "c0").slice(1));
 				const rest = entries.filter((entry) => entry.seq > since).slice(0, Number(payload.limit ?? 50));
@@ -772,6 +785,24 @@ test("browser_inspect console：本地拒绝非法过滤，结果按 128 KiB 截
 		assert.equal(JSON.stringify(page.details).includes("token=secret"), false, "console 结果不出带 query 的 URL");
 
 		const next = await tool.execute("console-next", { operation: "console", tabName: "log", sinceCursor: page.details.nextCursor }, undefined, undefined, ctx);
+		assert.ok(next.details.entries[0].seq > page.details.entries.at(-1).seq, "cursor 继续而不是重放");
+
+		// network: local filters, metadata mapping, and a hard rejection of leaked headers.
+		const networkCalls = () => calls.filter((call) => call.operation === "network").length;
+		const networkStart = networkCalls();
+		for (const params of [{ operation: "network", resourceType: "fetch" }, { operation: "network", sinceCursor: "c1" }, { operation: "network", level: "error" }, { operation: "network", failedOnly: "yes" }, { operation: "tabs", failedOnly: true }]) {
+			await assert.rejects(tool.execute("network-invalid", params, undefined, undefined, ctx));
+		}
+		assert.equal(networkCalls(), networkStart, "非法参数不得发请求");
+		const network = await tool.execute("network-page", { operation: "network", tabName: "log", failedOnly: true }, undefined, undefined, ctx);
+		assert.equal(network.details.kind, "browser-network");
+		assert.equal(network.details.entries.length, 2);
+		assert.equal(network.details.entries[1].status, 500);
+		assert.equal(network.details.entries[1].durationMs, 31);
+		assert.equal(JSON.stringify(network.details).includes("token=secret"), false, "network 结果不出带 query 的 URL");
+		assert.equal(JSON.stringify(network.details).includes("headers"), false, "entry 级 header 必须被丢弃");
+		assert.equal(JSON.stringify(network.details).includes("entry-secret"), false);
+		await assert.rejects(tool.execute("network-leak", { operation: "network", tabName: "log", pattern: "leak" }, undefined, undefined, ctx), /不得包含 headers/u);
 		assert.ok(next.details.entries[0].seq > page.details.entries.at(-1).seq, "cursor 继续而不是重放");
 	} finally {
 		for (const handler of browser.handlers.get("session_shutdown") ?? []) await handler({ type: "session_shutdown", reason: "quit" }, ctx);

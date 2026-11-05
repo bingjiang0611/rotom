@@ -5,6 +5,7 @@ import { forgetSpawnedTab, recordedOpenerTabId, rememberSpawnedTab } from "./spa
 import { createSessionLockV1, createTabLocksV1, isSessionScopedOperationV1, tabLockKeyV1 } from "./request-locks.js";
 import { sessionCleanupPlanV1 } from "./session-cleanup.js";
 import { consoleLevelFromTypeV1, createConsoleCaptureV1, parseConsoleCursorV1, sanitizeConsoleLevelV1, sanitizeConsoleLimitV1, sanitizeConsolePatternV1 } from "./console-buffer.js";
+import { createNetworkCaptureV1, parseNetworkCursorV1, sanitizeNetworkLimitV1, sanitizeNetworkPatternV1, sanitizeNetworkResourceTypeV1 } from "./network-buffer.js";
 import { checkBrowserTabQuotasV1, DEFAULT_BROWSER_TAB_QUOTAS_V1, sanitizeBrowserTabQuotasV1 } from "./tab-quotas.js";
 import { createFocusCoordinator } from "./focus-coordinator.js";
 import { withTabWake } from "./lifecycle-wake.js";
@@ -87,7 +88,7 @@ function boundedText(value, max = MAX_NAME_CHARS) {
 }
 function publicError(error) {
 	if (error instanceof Error) {
-		if (/tab|url|session|timeout|debugger|navigation|relay|screenshot|snapshot|operation|owned|interaction|target|ref|download|agent|deploy|quota|console|lease|navigation|pattern|level|cursor|allowedOrigins/iu.test(error.message)) return error.message.slice(0, 512);
+		if (/tab|url|session|timeout|debugger|navigation|relay|screenshot|snapshot|operation|owned|interaction|target|ref|download|agent|deploy|quota|console|network|lease|navigation|pattern|level|cursor|allowedOrigins|resourceType|failedOnly/iu.test(error.message)) return error.message.slice(0, 512);
 	}
 	return "browser relay operation failed";
 }
@@ -302,11 +303,64 @@ function recordConsoleEvent(tabId, method, params) {
 		});
 	}
 }
+// Network capture keeps metadata only: no header, body or cookie is ever stored, and
+// Network.enable below asks Chrome not to buffer response bodies at all.
+const networkCapture = createNetworkCaptureV1();
+const networkEnabledTabIds = new Set();
+// CDP timestamps are monotonic seconds since an arbitrary epoch, so they are kept only
+// to measure duration; every reported time is wall clock from this side.
+const networkStartTimestamps = new Map();
+function recordNetworkEvent(tabId, method, params) {
+	if (method === "Network.requestWillBeSent") {
+		if (typeof params?.requestId === "string" && Number.isFinite(params?.timestamp)) networkStartTimestamps.set(params.requestId, params.timestamp);
+		networkCapture.started(tabId, {
+			requestId: params?.requestId,
+			url: typeof params?.request?.url === "string" ? safeUrl(params.request.url) : "",
+			method: params?.request?.method,
+			resourceType: params?.type,
+			at: Date.now(),
+		});
+		return;
+	}
+	if (method === "Network.responseReceived") {
+		networkCapture.responded(tabId, {
+			requestId: params?.response?.requestId ?? params?.requestId,
+			status: params?.response?.status,
+			mimeType: params?.response?.mimeType,
+			resourceType: params?.type,
+			fromDiskCache: params?.response?.fromDiskCache,
+			fromServiceWorker: params?.response?.fromServiceWorker,
+		});
+		return;
+	}
+	if (method === "Network.loadingFinished" || method === "Network.loadingFailed") {
+		const start = networkStartTimestamps.get(params?.requestId);
+		const durationMs = Number.isFinite(start) && Number.isFinite(params?.timestamp) ? (params.timestamp - start) * 1_000 : undefined;
+		if (typeof params?.requestId === "string") networkStartTimestamps.delete(params.requestId);
+		networkCapture.finished(tabId, {
+			requestId: params?.requestId,
+			at: Date.now(),
+			...(durationMs === undefined ? {} : { durationMs }),
+			...(method === "Network.loadingFailed" ? { failure: params?.errorText ?? "failed" } : {}),
+		});
+	}
+}
+/** Enable network metadata capture once per debugger attachment. */
+async function enableNetworkCapture(item, assertOperation = () => undefined) {
+	const chrome = operationChrome(globalThis.chrome, assertOperation);
+	if (networkEnabledTabIds.has(item.tabId)) return;
+	// Zero-size buffers: Chrome keeps no response body for us to fetch by mistake.
+	await chrome.debugger.sendCommand({ tabId: item.tabId }, "Network.enable", { maxTotalBufferSize: 0, maxResourceBufferSize: 0 });
+	assertOperation();
+	networkEnabledTabIds.add(item.tabId);
+}
 /** A tab that stops being attached or owned loses its capture instead of silently
  *  resuming with a gap; the next read reports a fresh `captureSince`. */
 function forgetConsoleTabV1(tabId) {
 	consoleEnabledTabIds.delete(tabId);
 	consoleCapture.reset(tabId);
+	networkEnabledTabIds.delete(tabId);
+	networkCapture.reset(tabId);
 }
 /** Enable console capture once per debugger attachment; claimed tabs wait for a call. */
 async function enableConsoleCapture(item, assertOperation = () => undefined) {
@@ -591,7 +645,9 @@ async function observation(name, item, assertOperation, payload = {}) {
 	const target = (await chrome.debugger.getTargets()).find((candidate) => candidate.tabId === item.tabId && candidate.id === item.targetId && candidate.type === "page");
 	if (!target || typeof target.url !== "string") throw new Error("owned debugger target identity changed");
 	assertOperation();
-	item.url = safeUrl(target.url);
+	// A target can be briefly non-reportable (about:blank between creation and navigation,
+	// or a chrome:// page). Keep the last reportable URL instead of failing the call.
+	item.url = reportableRelayUrl(target.url) ?? item.url;
 	const rootTreePromise = valueWithinRelayDeadline(chrome.debugger.sendCommand({ tabId: item.tabId }, "Accessibility.getFullAXTree", { depth: 64 }), 8_000);
 	const childTreesPromise = Promise.all(childSessionEntries(item.tabId).map(async (entry) => {
 		const ready = await valueWithinRelayDeadline(entry.ready, 1_000);
@@ -1299,6 +1355,8 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 			// The agent's own tab captures console from the start; a claimed user tab
 			// only starts when someone asks for it.
 			await enableConsoleCapture(item, assertOperation);
+			await enableNetworkCapture(item, assertOperation);
+			assertOperation();
 			if (state.epoch !== expectedEpoch || state.generation === undefined) throw new Error("browser relay session changed during tab creation");
 			await persistState();
 			if (state.epoch !== expectedEpoch || state.generation === undefined) throw new Error("browser relay session changed during tab persistence");
@@ -1407,6 +1465,32 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 			tabName: name,
 			tabId: item.tabId,
 			documentGeneration: item.documentGeneration,
+			captureSince: new Date(page.captureSince).toISOString(),
+			dropped: page.dropped,
+			retained: page.retained,
+			entries: page.entries,
+			...(page.nextCursor === undefined ? {} : { nextCursor: page.nextCursor }),
+		};
+	}
+	if (operation === "network") {
+		const { name, item } = owned(state, payload.tabName);
+		if (payload.failedOnly !== undefined && typeof payload.failedOnly !== "boolean") throw new Error("network failedOnly invalid");
+		const pattern = payload.pattern === undefined ? undefined : sanitizeNetworkPatternV1(payload.pattern);
+		if (payload.pattern !== undefined && pattern === undefined) throw new Error("network pattern invalid");
+		const resourceType = payload.resourceType === undefined ? undefined : sanitizeNetworkResourceTypeV1(payload.resourceType);
+		if (payload.resourceType !== undefined && resourceType === undefined) throw new Error("network resourceType invalid");
+		const limit = sanitizeNetworkLimitV1(payload.limit);
+		if (limit === undefined) throw new Error("network limit invalid");
+		const sinceCursor = parseNetworkCursorV1(payload.sinceCursor);
+		if (sinceCursor === undefined) throw new Error("network sinceCursor invalid");
+		await attach(item, assertOperation);
+		await enableNetworkCapture(item, assertOperation);
+		const page = networkCapture.read(item.tabId, { failedOnly: payload.failedOnly === true, pattern, resourceType, limit, sinceCursor });
+		return {
+			schemaVersion: 1,
+			kind: "rotom-browser-network",
+			tabName: name,
+			tabId: item.tabId,
 			captureSince: new Date(page.captureSince).toISOString(),
 			dropped: page.dropped,
 			retained: page.retained,
@@ -1652,6 +1736,7 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
 		if (guard) guard.signals.push({ timestamp: Date.now(), url: typeof params?.url === "string" ? params.url : "", used: false });
 	}
 	if (method === "Runtime.consoleAPICalled" || method === "Runtime.exceptionThrown" || method === "Log.entryAdded") recordConsoleEvent(source.tabId, method, params);
+	if (method === "Network.requestWillBeSent" || method === "Network.responseReceived" || method === "Network.loadingFinished" || method === "Network.loadingFailed") recordNetworkEvent(source.tabId, method, params);
 	if (method === "Target.attachedToTarget") registerChildSession(source.tabId, params);
 	if (method === "Target.detachedFromTarget") removeChildSession(source.tabId, params?.sessionId);
 	if (method === "Page.frameNavigated" && typeof source.sessionId === "string") rotateChildSessionScope(source.tabId, source.sessionId);

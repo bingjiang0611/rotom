@@ -39,6 +39,7 @@ node --experimental-strip-types rotom/runtime/e2e-browser/run.mjs baseline
 | `chunked` | 超过 256 KiB 的响应分块、摘要校验与丢失/乱序拒绝 |
 | `lease` | 子 agent 的 lease：未授权 origin 本地拒绝，站点从未收到请求 |
 | `quotas` | per-agent / per-origin / 全局 / agent 数四个上限，超限即时拒绝且 close 后释放 |
+| `network` | 请求元数据（failedOnly/pattern/resourceType）、无 header/body、cursor 续读，并用 fixture 服务端确认那两个头真的发出去过 |
 | `console` | console/异常捕获与堆栈、pattern/level 过滤、缓冲满后 dropped、claimed tab 懒启用 |
 | `navigate` | URL 导航与 history back/forward/reload，换 document generation、旧 ref stale、lease 限制历史落点 |
 | `parallel-4` | 4 个 agent 同 root session 并行跑 5 轮表单，无串台、用户 tab 保持 active、归属正确，并打印延迟 p50/p95 |
@@ -73,5 +74,5 @@ node --experimental-strip-types rotom/runtime/e2e-browser/run.mjs baseline
 再在 `suites/index.mjs` 注册。断言用 `recorder.check(name, fn)` 或
 `recorder.assert(name, condition, detail)`，这样失败会单独命名。
 fixture 站点在 `fixtures/server.mjs`，用 `fixtures.page(path, title, body)` 加页面，
-内置页面有 `/baseline`、`/frame`、`/popup`、`/large`、`/form`、`/user`、`/console`。
+内置页面有 `/baseline`、`/frame`、`/popup`、`/large`、`/form`、`/user`、`/console`、`/network`。
 需要真实“用户 tab”的 suite 导出 `startUrlPage`（`run.mjs` 会把它交给 Chrome 当启动 URL）。
