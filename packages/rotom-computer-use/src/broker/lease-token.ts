@@ -18,6 +18,13 @@ export interface LeaseClaims {
 	/** Target process, for the `desktop-pid:<pid>` resources; absent otherwise. */
 	pid?: number;
 	leaseId: string;
+	/**
+	 * Milliseconds since the epoch, the same clock as `Date.now()` and `Lease.expiresAt`.
+	 *
+	 * The native guard compares this against its own clock converted to milliseconds;
+	 * a seconds value here would make every real token look tens of thousands of years
+	 * in the future (review E1).
+	 */
 	expiresAt: number;
 }
 
@@ -45,6 +52,8 @@ export type LeaseTokenCheck =
 /**
  * Verify a token. Used by tests and by any non-Swift helper that has to enforce
  * the same rule; the macOS helper implements the identical check in Swift.
+ *
+ * `now` is in milliseconds, like `LeaseClaims.expiresAt`.
  */
 export function verifyLeaseToken(secret: Buffer, token: string, now: number): LeaseTokenCheck {
 	const separator = token.lastIndexOf(".");

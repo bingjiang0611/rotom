@@ -56,6 +56,24 @@ test("a token is bound to its lease, resource, target pid and expiry", () => {
 	assert.deepEqual(verifyLeaseToken(SECRET, "not-a-token", now), { ok: false, code: "lease_invalid" });
 });
 
+test("lease expiry is milliseconds, the unit the helper compares against", async () => {
+	// Real clock on purpose: the claim has to line up with the helper's `Date()`, and
+	// a fake clock would hide a seconds/milliseconds mix-up (review E1).
+	const core = new BrokerCore({ now: Date.now, leaseTtlMs: 60_000, heartbeatTimeoutMs: 600_000, leaseSecret: SECRET });
+	core.attachTransport({ send: () => true, connectedAgents: () => 0 });
+	await hello(core, registration("session:agent"));
+	const acquired = await call(core, "session:agent", { type: "acquire", resourceKey: "desktop-pid:812" });
+	assert.equal(acquired.ok, true);
+	const lease = (acquired as { lease: { leaseId: string; token?: string; expiresAt: number } }).lease;
+
+	const remaining = lease.expiresAt - Date.now();
+	assert.ok(remaining > 55_000 && remaining <= 60_000, `expiry is ${remaining}ms away, not about one TTL`);
+
+	// One millisecond before the claim the helper must accept it; at the claim it must not.
+	assert.equal(verifyLeaseToken(SECRET, lease.token!, lease.expiresAt - 1).ok, true);
+	assert.deepEqual(verifyLeaseToken(SECRET, lease.token!, lease.expiresAt), { ok: false, code: "lease_expired" });
+});
+
 test("only a desktop-pid resource names a target process", () => {
 	assert.equal(leasePidOf("desktop-pid:812"), 812);
 	assert.equal(leasePidOf("app:com.example.fixture"), undefined);

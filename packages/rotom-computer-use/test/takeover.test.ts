@@ -72,6 +72,24 @@ async function takeover(core: BrokerCore, agentId: string): Promise<BrokerReply>
 	return await call(core, agentId, { type: "acquire", resourceKey: TAKEOVER_RESOURCE, app: APP, action: { name: "takeover" } });
 }
 
+test("a user-activity report in seconds is refused instead of making the user look idle", async () => {
+	// Review E1: the helper used to send one value in seconds and the broker compared
+	// it with milliseconds, so "the user just typed" could read as idle. Minutes-scale
+	// numbers are the only thing the broker accepts now.
+	// A real clock on purpose: a fake one starting near zero cannot tell seconds from
+	// milliseconds, and that difference is the whole point.
+	const core = new BrokerCore({ now: Date.now, heartbeatTimeoutMs: 600_000, leaseTtlMs: 60_000, policy: gateWithForeground(true), leaseSecret: Buffer.alloc(32, 3) });
+	core.attachTransport({ send: () => true, connectedAgents: () => core.registry.connectedAgents().length });
+	await hello(core, HELPER);
+	await hello(core, AGENT_A);
+	const inSeconds = await call(core, HELPER.agentId, { type: "ping", lastUserInputAt: Math.floor(Date.now() / 1000) });
+	assert.equal(inSeconds.ok, false);
+	assert.equal((inSeconds as { code?: string }).code, "invalid_request");
+
+	const inMilliseconds = await call(core, HELPER.agentId, { type: "ping", lastUserInputAt: Date.now() });
+	assert.equal(inMilliseconds.ok, true);
+});
+
 test("an app without a foreground grant is refused even when the user is idle", async () => {
 	const { core } = setup({ foreground: false });
 	await hello(core, HELPER);

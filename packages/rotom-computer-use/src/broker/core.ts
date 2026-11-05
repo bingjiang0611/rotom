@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { parseUserActivityReport } from "./activity.ts";
 import { EpochRegistry } from "./epochs.ts";
 import { leasePidOf, signLeaseToken } from "./lease-token.ts";
 import { LeaseManager, toLeaseInfo, holderInfo, realSchedule, type Lease, type Schedule } from "./leases.ts";
@@ -12,7 +13,6 @@ import {
 	failure,
 	type AcquireRequest,
 	type ActionIntent,
-	type AgentStatus,
 	type AppTier,
 	type ApprovalDecision,
 	type BrokerEvent,
@@ -22,6 +22,7 @@ import {
 	type TargetAppInfo,
 } from "./protocol.ts";
 import { AgentRegistry, type AgentRecord } from "./registry.ts";
+import { buildStatus } from "./status.ts";
 import {
 	handleInterference,
 	handlePreempted,
@@ -235,8 +236,10 @@ export class BrokerCore {
 				if (!this.registry.touch(agentId)) return failure("unknown_agent", `Unknown agent ${agentId}.`);
 				// User activity comes from the helper's event tap. An agent that could
 				// report it could claim the user is idle and grant itself the foreground.
-				if (typeof request.lastUserInputAt === "number" && this.registry.get(agentId)?.role === "helper") {
-					this.registry.lastUserInputAt = request.lastUserInputAt;
+				if (request.lastUserInputAt !== undefined && this.registry.get(agentId)?.role === "helper") {
+					const activity = parseUserActivityReport(request.lastUserInputAt, this.now());
+					if (!activity.ok) return failure("invalid_request", "lastUserInputAt must be milliseconds since the epoch.");
+					this.registry.lastUserInputAt = activity.value;
 				}
 				return { ok: true, type: "ping", now: this.now() };
 			case "acquire":
@@ -296,33 +299,15 @@ export class BrokerCore {
 
 	status(): BrokerStatus {
 		this.sweep();
-		const agents: AgentStatus[] = this.registry.all().map((record) => ({
-			agentId: record.agentId,
-			parentAgentId: record.parentAgentId,
-			hasUI: record.hasUI,
-			pid: record.pid,
-			lastSeenAt: record.lastSeenAt,
-			leases: this.leases.leasesOf(record.agentId).map((lease) => ({
-				resourceKey: lease.resourceKey,
-				leaseId: lease.leaseId,
-				expiresAt: lease.expiresAt,
-			})),
-			...(this.paused.has(record.agentId) ? { paused: this.paused.get(record.agentId)! } : {}),
-		}));
-		const resources = this.epochs.entries().map(({ resourceKey, epoch }) => ({
-			resourceKey,
-			epoch,
-			holder: this.holderOf(resourceKey),
-		}));
-		return {
-			protocolVersion: BROKER_PROTOCOL_VERSION,
+		return buildStatus({
+			registry: this.registry,
+			leases: this.leases,
+			epochs: this.epochs,
 			pid: this.pid,
 			startedAt: this.startedAt,
-			agents,
-			resources,
-			waiters: this.leases.waitersOf(),
-			lastUserInputAt: this.registry.lastUserInputAt,
-		};
+			now: this.now(),
+			paused: this.paused,
+		});
 	}
 
 	close(): void {

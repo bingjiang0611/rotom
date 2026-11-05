@@ -406,6 +406,7 @@ final class UserActivityMonitor {
 	private var source: CFRunLoopSource?
 	private var runLoop: CFRunLoop?
 	private var thread: Thread?
+	/// Milliseconds since 1970, like every other timestamp the broker sees.
 	private var lastUserInputAt: TimeInterval = 0
 	private var userEventCount = 0
 	private var agentEventCount = 0
@@ -481,7 +482,7 @@ final class UserActivityMonitor {
 			agentEventCount += 1
 		} else {
 			userEventCount += 1
-			lastUserInputAt = Date().timeIntervalSince1970
+			lastUserInputAt = Date().timeIntervalSince1970 * 1000
 			realInput = true
 		}
 		let hook = onRealInput
@@ -503,10 +504,10 @@ final class UserActivityMonitor {
 		let userEvents = userEventCount
 		let agentEvents = agentEventCount
 		lock.unlock()
-		let now = Date().timeIntervalSince1970
+		let now = Date().timeIntervalSince1970 * 1000
 		return [
 			"lastUserInputAt": last,
-			"idleSeconds": last == 0 ? -1 : max(0, now - last),
+			"idleSeconds": last == 0 ? -1 : max(0, (now - last) / 1000),
 			"listening": listening,
 			"userEventCount": userEvents,
 			"agentEventCount": agentEvents,
@@ -519,7 +520,7 @@ final class UserActivityMonitor {
 		let last = lastUserInputAt
 		lock.unlock()
 		guard last > 0 else { return false }
-		return Date().timeIntervalSince1970 - last <= window
+		return Date().timeIntervalSince1970 * 1000 - last <= window * 1000
 	}
 }
 
@@ -574,7 +575,7 @@ final class Bridge {
 				// Off the main thread: the link waits for a reply, and the menu bar must
 				// stay responsive even when the broker is slow or gone.
 				DispatchQueue.global(qos: .utility).async { [stopControl] in
-					stopControl.pushActivity(lastUserInputAt: lastUserInputAt)
+					stopControl.pushActivity(lastUserInputAtMs: lastUserInputAt)
 				}
 			}
 			let socketPath = argumentValue("--socket") ?? defaultSocketPath()
@@ -3950,7 +3951,8 @@ enum LeaseGuardSelfTest {
 			if !passed { failures += 1 }
 		}
 
-		let now = Date().timeIntervalSince1970
+		// Milliseconds: the token unit the broker signs (review E1).
+		let now = Date().timeIntervalSince1970 * 1000
 		let resource = "desktop-pid:812"
 		func token(leaseId: String, pid: Int?, expiresAt: Double, signedWith signingKey: SymmetricKey) -> String {
 			var claims: [String: Any] = ["agentId": "session:test", "resourceKey": resource, "leaseId": leaseId, "expiresAt": expiresAt]
@@ -3974,26 +3976,31 @@ enum LeaseGuardSelfTest {
 				try guardInstance.check(request, command: "act")
 				report(name, expectSuccess)
 			} catch {
+				let code = (error as? BridgeFailure)?.code ?? "unknown"
+				FileHandle.standardOutput.write(Data("  \(name) refused: \(code) \(error)\n".utf8))
 				report(name, !expectSuccess)
 			}
 		}
 
-		let valid = token(leaseId: "lease-1", pid: 812, expiresAt: now + 60, signedWith: key)
+		let valid = token(leaseId: "lease-1", pid: 812, expiresAt: now + 60_000, signedWith: key)
 		check("valid_token", request("lease-1", lease: valid), expectSuccess: true)
 
 		let otherKey = SymmetricKey(data: Data((0..<32).map { UInt8(200 &+ $0) }))
-		let wrongSignature = token(leaseId: "lease-2", pid: 812, expiresAt: now + 60, signedWith: otherKey)
+		let wrongSignature = token(leaseId: "lease-2", pid: 812, expiresAt: now + 60_000, signedWith: otherKey)
 		check("wrong_signature", request("lease-2", lease: wrongSignature), expectSuccess: false)
 
 		let expired = token(leaseId: "lease-3", pid: 812, expiresAt: now - 1, signedWith: key)
 		check("expired", request("lease-3", lease: expired), expectSuccess: false)
 
-		let otherPid = token(leaseId: "lease-4", pid: 999, expiresAt: now + 60, signedWith: key)
+		let otherPid = token(leaseId: "lease-4", pid: 999, expiresAt: now + 60_000, signedWith: key)
 		check("pid_mismatch", request("lease-4", lease: otherPid), expectSuccess: false)
 
-		let revoked = token(leaseId: "lease-5", pid: 812, expiresAt: now + 60, signedWith: key)
+		let revoked = token(leaseId: "lease-5", pid: 812, expiresAt: now + 60_000, signedWith: key)
 		guardInstance.revoke(["lease-5"])
 		check("revoked", request("lease-5", lease: revoked), expectSuccess: false)
+
+		let secondsExpiry = token(leaseId: "lease-6", pid: 812, expiresAt: Date().timeIntervalSince1970 + 60, signedWith: key)
+		check("seconds_expiry_is_expired", request("lease-6", lease: secondsExpiry), expectSuccess: false)
 
 		// A guard without a broker key (ROTOM_CU_BROKER=0) checks nothing, as documented.
 		let unguarded = LeaseGuard()
@@ -4008,30 +4015,50 @@ enum LeaseGuardSelfTest {
 		return failures
 	}
 
-	/// Verify a token produced by the TypeScript signer: `{key, token, pid, resourceKey}`.
+	/// Replay tokens the TypeScript broker signed, step by step.
+	///
+	/// The fixture is `{"steps": [...]}`; each step is
+	/// `{name, key, command, request, expect, code?, revoke?, carry?}`.
+	/// A step configures a fresh guard with `key` unless `carry` is set, so one fixture
+	/// can cover both "a new broker key arrives" and "the same guard sees two tokens".
+	/// Nothing here mints a token: the broker side is the only signer, which is what
+	/// review E1 asked for instead of hand-rolled claims.
 	static func verifyFixture(_ json: String) -> Int {
 		guard let data = json.data(using: .utf8),
 			let fixture = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-			let keyBase64 = fixture["key"] as? String,
-			let token = fixture["token"] as? String,
-			let resourceKey = fixture["resourceKey"] as? String
+			let steps = fixture["steps"] as? [[String: Any]]
 		else {
 			FileHandle.standardOutput.write(Data("fixture malformed\n".utf8))
 			return 2
 		}
-		let guardInstance = LeaseGuard()
-		guardInstance.configure(keyBase64: keyBase64)
-		var request: [String: Any] = ["cmd": "act", "lease": ["token": token, "resourceKey": resourceKey]]
-		if let pid = fixture["pid"] as? Int { request["pid"] = pid }
-		do {
-			try guardInstance.check(request, command: "act")
-			FileHandle.standardOutput.write(Data("fixture accepted\n".utf8))
-			return 0
-		} catch {
-			let message = (error as? BridgeFailure)?.code ?? "unknown"
-			FileHandle.standardOutput.write(Data("fixture rejected: \(message)\n".utf8))
-			return 1
+		var failures = 0
+		var guardInstance = LeaseGuard()
+		for (index, step) in steps.enumerated() {
+			let name = (step["name"] as? String) ?? "step-\(index + 1)"
+			let expect = (step["expect"] as? String) ?? "accept"
+			if step["carry"] as? Bool != true {
+				guardInstance = LeaseGuard()
+			}
+			if let keyBase64 = step["key"] as? String {
+				guardInstance.configure(keyBase64: keyBase64)
+			}
+			if let revoke = step["revoke"] as? [String] {
+				guardInstance.revoke(revoke)
+			}
+			let command = (step["command"] as? String) ?? "act"
+			let request = (step["request"] as? [String: Any]) ?? [:]
+			var rejected = ""
+			do {
+				try guardInstance.check(request, command: command)
+			} catch {
+				rejected = (error as? BridgeFailure)?.code ?? "unknown"
+			}
+			let passed = expect == "accept" ? rejected.isEmpty : !rejected.isEmpty && (step["code"] as? String ?? rejected) == rejected
+			FileHandle.standardOutput.write(Data("step \(name) \(passed ? "pass" : "fail")\(rejected.isEmpty ? "" : " (\(rejected))")\n".utf8))
+			if !passed { failures += 1 }
 		}
+		FileHandle.standardOutput.write(Data("fixture failures=\(failures)\n".utf8))
+		return failures
 	}
 }
 
@@ -4742,6 +4769,9 @@ final class LeaseGuard {
 		let leaseId: String
 		let resourceKey: String
 		let pid: Int?
+		/// Milliseconds since 1970, matching `LeaseClaims.expiresAt` on the broker
+		/// side (`Date.now() + ttlMs`). Comparing a seconds clock against this value
+		/// made every real token look valid forever (review E1).
 		let expiresAt: Double
 	}
 
@@ -4781,7 +4811,7 @@ final class LeaseGuard {
 			throw BridgeFailure(message: "Write to \(expected) carries no lease token; the broker did not authorize it", code: "lease_invalid")
 		}
 		let claims = try Self.verify(token: token, key: key)
-		guard claims.expiresAt > Date().timeIntervalSince1970 else {
+		guard claims.expiresAt > Date().timeIntervalSince1970 * 1000 else {
 			throw BridgeFailure(message: "Lease \(claims.leaseId) has expired", code: "lease_expired")
 		}
 		guard !revoked.contains(claims.leaseId) else {
@@ -5202,12 +5232,13 @@ final class StopControl: NSObject, NSMenuDelegate {
 	/// Push real user input time to the broker so foreground takeover decisions
 	/// use the same clock as the arbitration. A `ping` carries it; there is no
 	/// separate activity channel to keep in sync.
-	func pushActivity(lastUserInputAt: TimeInterval) {
-		guard lastUserInputAt > 0 else { return }
+	func pushActivity(lastUserInputAtMs: TimeInterval) {
+		guard lastUserInputAtMs > 0 else { return }
 		_ = link.request([
 			"id": "activity-\(Int(Date().timeIntervalSince1970 * 1000))",
 			"type": "ping",
-			"lastUserInputAt": Int(lastUserInputAt * 1000),
+			// Already milliseconds: the broker compares this with `Date.now()`.
+			"lastUserInputAt": Int(lastUserInputAtMs),
 		])
 	}
 

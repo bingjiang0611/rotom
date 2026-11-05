@@ -256,6 +256,7 @@ export interface PlatformWaitForResponse {
 
 /** Real user input seen by the helper's listen-only tap. */
 export interface PlatformUserActivity {
+	/** Milliseconds since the epoch, the same clock the broker compares against. */
 	lastUserInputAt: number;
 	/** Seconds since the last real user input, or -1 when none was seen yet. */
 	idleSeconds: number;

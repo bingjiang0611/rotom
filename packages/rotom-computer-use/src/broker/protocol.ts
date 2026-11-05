@@ -105,7 +105,13 @@ export interface HelloRequest {
 export interface PingRequest {
 	id: string;
 	type: "ping";
-	/** Broker-visible user activity, forwarded by the helper listener. */
+	/**
+	 * Broker-visible user activity, forwarded by the helper listener.
+	 *
+	 * Milliseconds since the epoch. A seconds value is refused rather than stored:
+	 * the takeover check subtracts it from `Date.now()`, so a unit mismatch would
+	 * make the user look idle for 50,000 years (review E1).
+	 */
 	lastUserInputAt?: number;
 }
 
