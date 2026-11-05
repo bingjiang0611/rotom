@@ -38,6 +38,7 @@ test("browser relay：活动标签可 claim、直接交互、敏感输入放行�
 		"@earendil-works/pi-coding-agent": join(piDist, "index.js"),
 	} });
 	const { createBrowserRelayExtensionV1 } = await jiti.import(join(process.cwd(), "rotom/extensions/browser/index.ts")) as any;
+	await allowPolicyFor(workspace, ["https://example.test", "https://signed-in.example.test"]);
 	const loaded = await loadExtensions([], workspace);
 	assert.deepEqual(loaded.errors, []);
 	const calls: Array<{ operation: string; payload: Record<string, unknown> }> = [];
@@ -441,7 +442,9 @@ test("Relay-first launch gate: local evidence, one attempt, no replay or stale p
 			async connectRelay() { connections += 1; if (delay) { connectEntered.resolve(); return delay; } if (connectError) throw connectError; relay.closed = false; return relay; },
 			async openArtifactStore() { throw new Error("unexpected artifact store"); },
 		})({ registerTool(tool: any) { tools.set(tool.name, tool); }, registerCommand() {}, on(name: string, handler: any) { handlers.set(name, handler); }, appendEntry() {}, getActiveTools() { return active; } });
-		const ctx: any = { sessionManager: { getSessionId: () => "fixture-session", getBranch: () => [] }, hasUI: true, ui: { notify(message: string) { notices.push(message); } } };
+		// `select` answers "允许一次": these tests are about fallback routing, and the policy
+		// gate must not turn their request errors into local refusals.
+		const ctx: any = { sessionManager: { getSessionId: () => "fixture-session", getBranch: () => [] }, hasUI: true, ui: { notify(message: string) { notices.push(message); }, async select() { return "允许一次"; } } };
 		await handlers.get("session_start")({}, ctx);
 		return {
 			ctx, notices, relay, connectEntered: connectEntered.promise, get requests() { return requests; }, get connections() { return connections; },
@@ -740,6 +743,17 @@ test("/browser: explicit commands, local-only diagnostics, cancellation and owne
 	});
 });
 
+// Every fake-relay test runs as the main agent, and the policy layer refuses an
+// unauthorized origin when there is no UI to ask. Point the policy at a file that allows
+// the fixture origin, exactly as a user's `总是允许` would have written it.
+async function allowPolicyFor(workspace: string, origins: string[] = ["https://example.test"]) {
+	const { writeBrowserPolicyV1, BROWSER_POLICY_PATH_ENV_V1 } = await import("./browser-policy.ts");
+	const path = join(workspace, "rotom", "browser-policy.json");
+	await writeBrowserPolicyV1({ blocklist: [], allowlist: origins.map((origin) => ({ origin, capabilities: ["read", "interact", "upload"] })) }, path);
+	process.env[BROWSER_POLICY_PATH_ENV_V1] = path;
+	return path;
+}
+
 test("browser_inspect console：本地拒绝非法过滤，结果按 128 KiB 截断并用 cursor 续读", async () => {
 	const workspace = await mkdtemp(join(tmpdir(), "pi-browser-console-"));
 	const piDist = findPiDist();
@@ -754,6 +768,7 @@ test("browser_inspect console：本地拒绝非法过滤，结果按 128 KiB 截
 		"@earendil-works/pi-coding-agent": join(piDist, "index.js"),
 	} });
 	const { createBrowserRelayExtensionV1 } = await jiti.import(join(process.cwd(), "rotom/extensions/browser/index.ts")) as any;
+	await allowPolicyFor(workspace);
 	const loaded = await loadExtensions([], workspace);
 	const calls: Array<{ operation: string; payload: Record<string, unknown> }> = [];
 	const entries = Array.from({ length: 200 }, (_, index) => ({ seq: index + 1, level: "error", text: `entry ${index + 1} ${"x".repeat(1_500)}`, at: 1_700_000_000_000 + index, source: "console" }));
@@ -857,6 +872,7 @@ test("browser_interact upload：路径先本地校验，拒绝的路径不派发
 		"@earendil-works/pi-coding-agent": join(piDist, "index.js"),
 	} });
 	const { createBrowserRelayExtensionV1 } = await jiti.import(join(process.cwd(), "rotom/extensions/browser/index.ts")) as any;
+	await allowPolicyFor(workspace);
 	const loaded = await loadExtensions([], workspace);
 	const payloads: Array<Record<string, unknown>> = [];
 	const relay = {
@@ -928,6 +944,7 @@ test("browser dialog：弹窗期间的拒绝原样返回，dialog 动作只下�
 		"@earendil-works/pi-coding-agent": join(piDist, "index.js"),
 	} });
 	const { createBrowserRelayExtensionV1 } = await jiti.import(join(process.cwd(), "rotom/extensions/browser/index.ts")) as any;
+	await allowPolicyFor(workspace);
 	const loaded = await loadExtensions([], workspace);
 	const interactPayloads: Array<Record<string, unknown>> = [];
 	const observation = { schemaVersion: 1, kind: "rotom-browser-observation", tabName: "dialog", tabId: 31, documentGeneration: 1, observationEpoch: 2, url: "https://example.test/dialog", status: "complete", contentCoverage: "rendered-dom", contentComplete: false, nodes: [], digest: "dialog-digest" };
@@ -1016,6 +1033,7 @@ test("browser batch：逐步派发、单步 audit、原地停下且不重放", a
 		"@earendil-works/pi-coding-agent": join(piDist, "index.js"),
 	} });
 	const { createBrowserRelayExtensionV1 } = await jiti.import(join(process.cwd(), "rotom/extensions/browser/index.ts")) as any;
+	await allowPolicyFor(workspace);
 	const loaded = await loadExtensions([], workspace);
 	const interactPayloads: Array<Record<string, unknown>> = [];
 	const observation = (generation: number) => ({ schemaVersion: 1, kind: "rotom-browser-observation", tabName: "form", tabId: 41, documentGeneration: generation, observationEpoch: 3, url: "https://example.test/form", status: "complete", contentCoverage: "rendered-dom", contentComplete: false, nodes: [], digest: `form-${generation}` });
@@ -1082,6 +1100,112 @@ test("browser batch：逐步派发、单步 audit、原地停下且不重放", a
 		assert.equal(interactPayloads.length, 3, "导航之后的那一步不再派发");
 	} finally {
 		for (const handler of browser.handlers.get("session_shutdown") ?? []) await handler({ type: "session_shutdown", reason: "quit" }, ctx);
+		await rm(workspace, { recursive: true, force: true });
+	}
+});
+
+test("browser policy：blocklist 拒绝、无 UI 按拒绝、会话允许只影响本会话、总是允许写回并扩大子 lease", async () => {
+	const workspace = await mkdtemp(join(tmpdir(), "pi-browser-policy-"));
+	const piDist = findPiDist();
+	const loaderUrl = pathToFileURL(join(piDist, "core/extensions/loader.js")).href;
+	const [{ loadExtensions, loadExtensionFromFactory }, { SessionManager }] = await Promise.all([
+		import(loaderUrl),
+		import(pathToFileURL(join(piDist, "core/session-manager.js")).href),
+	]);
+	const { createJiti } = await import(pathToFileURL(findPiDependency(piDist, "jiti/lib/jiti.mjs")).href);
+	const jiti = createJiti(loaderUrl, { moduleCache: false, alias: {
+		"@earendil-works/pi-ai": findPiDependency(piDist, "@earendil-works/pi-ai/dist/index.js"),
+		"@earendil-works/pi-coding-agent": join(piDist, "index.js"),
+	} });
+	const { createBrowserRelayExtensionV1 } = await jiti.import(join(process.cwd(), "rotom/extensions/browser/index.ts")) as any;
+	const { writeBrowserPolicyV1, readBrowserPolicyV1, BROWSER_POLICY_PATH_ENV_V1 } = await import("./browser-policy.ts");
+	const policyPath = await allowPolicyFor(workspace, []);
+	const opened: string[] = [];
+	const relay = {
+		get closed() { return false; },
+		close() {},
+		get leaseToken() { return undefined; },
+		get keepTabs() { return false; },
+		rootSessionId: "root-session",
+		get socketPath() { return join(workspace, "relay.sock"); },
+		async request(operation: string, payload: Record<string, unknown>) {
+			if (operation === "tabs") return { schemaVersion: 1, kind: "rotom-browser-tabs", tabs: [{ name: "site", tabId: 51, documentGeneration: 1, url: "https://allowed.test/page", title: "site", status: "complete", current: true, browserActive: false, ownership: "agent", relayAttached: true }] };
+			if (operation === "open") { opened.push(String(payload.url)); return { schemaVersion: 1, kind: "rotom-browser-observation", tabName: "site", tabId: 51, documentGeneration: 1, observationEpoch: 1, url: String(payload.url), status: "complete", contentCoverage: "rendered-dom", contentComplete: false, nodes: [], digest: "open-digest" }; }
+			throw new Error(`unexpected operation ${operation}`);
+		},
+	};
+	const loaded = await loadExtensions([], workspace);
+	const browser = await loadExtensionFromFactory(createBrowserRelayExtensionV1({
+		async connectRelay() { return relay; },
+		openArtifactStore: async () => (await import("./browser-relay.ts")).BrowserArtifactStoreV1.open(),
+	}), workspace, undefined, loaded.runtime, join(process.cwd(), "rotom/extensions/browser"));
+	const session = SessionManager.inMemory(workspace);
+	loaded.runtime.appendEntry = () => {};
+	const choices: string[] = [];
+	const selecting = (hasUI = true, answer = "允许一次") => ({ cwd: workspace, sessionManager: session, mode: "print", hasUI, ui: { notify() {}, setStatus() {}, async confirm() { return true; }, async select() { choices.push(answer); return answer; }, theme: { fg: (_color: string, value: string) => value } } });
+	try {
+		await new Promise((resolve) => setImmediate(resolve));
+		for (const handler of browser.handlers.get("session_start") ?? []) await handler({ type: "session_start", reason: "startup" }, ctx0());
+		function ctx0() { return { cwd: workspace, sessionManager: session, mode: "print", hasUI: false, ui: { notify() {}, setStatus() {}, async confirm() { return true; }, theme: { fg: (_color: string, value: string) => value } } }; }
+		const tool = browser.tools.get("browser_inspect")?.definition;
+		assert.ok(tool);
+
+		// blocklist 先于一切：即使有 UI 也不询问，直接拒绝且不派发。
+		await writeBrowserPolicyV1({ blocklist: ["https://blocked.test"], allowlist: [] }, policyPath);
+		const blocked = await tool.execute("policy-blocked", { operation: "open", tabName: "site", url: "https://blocked.test/x" }, undefined, undefined, selecting(true));
+		assert.equal(blocked.details.kind, "needs-approval");
+		assert.equal(blocked.details.reason, "blocklist");
+		assert.equal(blocked.details.capability, "interact");
+		assert.equal(opened.length, 0, "被 blocklist 拒绝的 open 不得派发");
+		assert.equal(choices.length, 0, "blocklist 不需要询问");
+
+		// 未授权 origin + 没有 UI：按拒绝处理，不派发。
+		const noUi = await tool.execute("policy-no-ui", { operation: "open", tabName: "site", url: "https://unknown.test/x" }, undefined, undefined, ctx0());
+		assert.equal(noUi.details.kind, "needs-approval");
+		assert.equal(noUi.details.reason, "no-ui");
+		assert.equal(opened.length, 0);
+
+		// 允许一次：放行这一次，但不写策略文件，也不记住。
+		const once = await tool.execute("policy-once", { operation: "open", tabName: "site", url: "https://unknown.test/x" }, undefined, undefined, selecting(true, "允许一次"));
+		assert.equal(once.details.kind, "observation");
+		assert.equal(opened.length, 1);
+		await tool.execute("policy-tabs", { operation: "tabs" }, undefined, undefined, selecting(true));
+		const published = JSON.parse(process.env.ROTOM_BROWSER_LEASE_SCOPE ?? "{}");
+		assert.equal(published.rootSessionId, "root-session", "父 agent 发布的 lease scope 必须带 rootSessionId");
+		assert.ok(published.origins.includes("https://allowed.test"));
+		const afterOnce = await tool.execute("policy-once-again", { operation: "open", tabName: "site", url: "https://unknown.test/y" }, undefined, undefined, ctx0());
+		assert.equal(afterOnce.details.reason, "no-ui", "允许一次不能变成会话授权");
+		assert.deepEqual((await readBrowserPolicyV1(policyPath)).allowlist, [], "允许一次不写策略文件");
+
+		// 本会话允许：本会话内不再询问，但仍不写文件。
+		const sessionCtx = selecting(true, "本会话允许");
+		const granted = await tool.execute("policy-session", { operation: "open", tabName: "site", url: "https://session.test/x" }, undefined, undefined, sessionCtx);
+		assert.equal(granted.details.kind, "observation");
+		const choicesBefore = choices.length;
+		const again = await tool.execute("policy-session-again", { operation: "open", tabName: "site", url: "https://session.test/y" }, undefined, undefined, sessionCtx);
+		assert.equal(again.details.kind, "observation");
+		assert.equal(choices.length, choicesBefore, "本会话允许后不再询问");
+		assert.deepEqual((await readBrowserPolicyV1(policyPath)).allowlist, [], "本会话允许不写策略文件");
+
+		// 总是允许：写回策略文件，并扩大本次 run 的子 lease。
+		const always = selecting(true, "总是允许");
+		const written = await tool.execute("policy-always", { operation: "open", tabName: "site", url: "https://always.test/x" }, undefined, undefined, always);
+		assert.equal(written.details.kind, "observation");
+		const policy = await readBrowserPolicyV1(policyPath);
+		assert.deepEqual(policy.allowlist, [{ origin: "https://always.test", capabilities: ["interact"] }]);
+		const { mkdir, writeFile, chmod, readFile } = await import("node:fs/promises");
+		const leases = join(workspace, "leases");
+		await mkdir(leases, { recursive: true, mode: 0o700 });
+		await chmod(leases, 0o700);
+		const childFile = join(leases, "child.json");
+		await writeFile(childFile, JSON.stringify({ schemaVersion: 1, kind: "rotom-browser-lease", token: "child", agentId: "child", rootSessionId: "root-session", origins: ["https://allowed.test"], allow: { devtools: false, upload: false, download: false }, maxTabs: 2, keepTabs: false, expiresAt: Date.now() + 60_000 }), { mode: 0o600 });
+		await chmod(childFile, 0o600);
+		await tool.execute("policy-always-2", { operation: "open", tabName: "site", url: "https://second.test/x" }, undefined, undefined, selecting(true, "总是允许"));
+		const child = JSON.parse(await readFile(childFile, "utf8"));
+		assert.deepEqual(child.origins, ["https://allowed.test", "https://second.test"], "父 agent 的确认必须传给本次 run 的子 lease");
+		assert.notEqual(process.env[BROWSER_POLICY_PATH_ENV_V1], undefined);
+	} finally {
+		for (const handler of browser.handlers.get("session_shutdown") ?? []) await handler({ type: "session_shutdown", reason: "quit" }, {});
 		await rm(workspace, { recursive: true, force: true });
 	}
 });

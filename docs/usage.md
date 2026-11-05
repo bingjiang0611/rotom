@@ -178,6 +178,8 @@ rotom 默认提供 `codemode`：模型可用 JavaScript 编排普通文件工具
 
 **子 agent 的浏览器 lease**：子 agent 请求浏览器工具时，父 agent 已打开的站点 origin 会作为 lease 写进 `~/Library/Application Support/rotom/browser-relay/leases/<runId>.json`（目录 0700、文件 0600，拒绝 symlink）。子 agent 每次 `open` 和页内写操作前都重读该文件：origin 不在列表、lease 过期或 `devtools`/`upload`/`download` 未开启时，工具直接返回结构化 `{ kind: "needs-approval", origin, capability, reason }`，**不发出请求，也不弹窗或询问用户**。父 agent 改写同一个文件即可扩权或收权，子 agent 的只读操作（`tabs`/`snapshot`/`screenshot`）不经过 lease。这不是安全沙箱：它限制的是子 agent 能碰哪些站点，而不是本机进程权限。
 
+**按站点授权**：主 agent 的 `open`、`navigate`、读取页面内容（`snapshot`/`snapshot_visible`/`read_full`/`screenshot`/`console`/`network`/`wait`）和页内写操作都要先过按站点策略。策略文件在 `~/Library/Application Support/rotom/browser-policy.json`（0600，拒绝 symlink，上限 64 KiB、512 条），格式是 `{ "blocklist": ["https://bad.example"], "allowlist": [{ "origin": "https://example.com", "capabilities": ["read", "interact"] }] }`：`capabilities` 取值 `read`/`interact`/`devtools`/`upload`/`download`，origin 用 `https://host[:port]`，也可以写成 `*.example.com`（只匹配子域，不含 apex）。判定顺序是 blocklist → allowlist → `localhost`/`127.0.0.1`/`::1` 默认允许 `read` 和 `interact` → 询问。询问用界面选择“允许一次 / 本会话允许 / 总是允许 / 拒绝”；“总是允许”把该 capability 合并写回策略文件，并把该 origin 一并加进本次运行里所有子 agent 的 lease 文件。没有交互界面（例如 `-p`）时按拒绝处理，返回 `{ kind: "needs-approval", origin, capability, reason: "no-ui" }`，不会静默放行。被拒绝的操作**不发出请求**；重定向到未授权 origin 后，relay 会在派发写操作前再核对一次当前 origin，返回 `reason: "origin"`。`upload` 是独立 capability：允许 `interact` 不等于允许上传文件。测试或便携场景可以用 `ROTOM_BROWSER_POLICY_FILE` 指向别的策略文件绝对路径。
+
 旧版尚无该命令时，可在终端沿用脚本入口（版本隔离安装需把 `ROTOM_DIR` 改为实际 `node_modules/rotom` 目录）：
 
 ```sh

@@ -10,6 +10,7 @@ import {
 	loadBrowserLeaseForCallV1,
 	materializeBrowserLeaseV1,
 	readBrowserLeaseV1,
+	widenChildLeasesV1,
 } from "./browser-lease.ts";
 
 const ROOT = "session-root";
@@ -109,4 +110,37 @@ test("lease: an existing lease is never overwritten by a new scope", async () =>
 	await materializeBrowserLeaseV1(relayDir, scope({ origins: ["https://first.test"] }), TOKEN);
 	const second = await materializeBrowserLeaseV1(relayDir, scope({ origins: ["https://second.test"] }), TOKEN);
 	assert.deepEqual(second?.origins, ["https://first.test"]);
+});
+
+test("widenChildLeasesV1：只给本 run 的子 lease 加 origin，保留其它字段", async () => {
+	const { mkdtemp, mkdir, chmod, writeFile, readFile } = await import("node:fs/promises");
+	const { tmpdir } = await import("node:os");
+	const { join } = await import("node:path");
+	const root = await mkdtemp(join(tmpdir(), "rotom-lease-widen-"));
+	const relayDir = join(root, "relay");
+	const leases = join(relayDir, "leases");
+	await mkdir(leases, { recursive: true, mode: 0o700 });
+	await chmod(leases, 0o700);
+	const write = async (token, rootSessionId, origins) => {
+		const file = join(leases, `${token}.json`);
+		await writeFile(file, JSON.stringify({ schemaVersion: 1, kind: "rotom-browser-lease", token, agentId: token, rootSessionId, origins, allow: { devtools: false, upload: false, download: false }, maxTabs: 2, keepTabs: false, expiresAt: Date.now() + 60_000 }), { mode: 0o600 });
+		await chmod(file, 0o600);
+	};
+	await write("child-a", "root-1", ["https://a.test"]);
+	await write("child-b", "root-1", ["https://b.test"]);
+	await write("other-run", "root-2", ["https://c.test"]);
+	const widened = await widenChildLeasesV1({ relayDir, rootSessionId: "root-1", origin: "https://new.test" });
+	assert.deepEqual(widened, { updated: 2, skipped: 1 });
+	const a = JSON.parse(await readFile(join(leases, "child-a.json"), "utf8"));
+	assert.deepEqual(a.origins, ["https://a.test", "https://new.test"]);
+	assert.equal(a.maxTabs, 2);
+	assert.equal(a.rootSessionId, "root-1");
+	const other = JSON.parse(await readFile(join(leases, "other-run.json"), "utf8"));
+	assert.deepEqual(other.origins, ["https://c.test"], "别的 run 的 lease 不能被动");
+	// 重复调用不再写入。
+	assert.deepEqual(await widenChildLeasesV1({ relayDir, rootSessionId: "root-1", origin: "https://new.test" }), { updated: 0, skipped: 3 });
+	// 非法 origin 不做任何事。
+	assert.deepEqual(await widenChildLeasesV1({ relayDir, rootSessionId: "root-1", origin: "file:///etc/passwd" }), { updated: 0, skipped: 0 });
+	const { rm } = await import("node:fs/promises");
+	await rm(root, { recursive: true, force: true });
 });

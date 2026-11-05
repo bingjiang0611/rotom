@@ -1152,6 +1152,19 @@ async function performInteraction(name, item, payload, assertOperation = () => u
 			readback,
 		};
 	}
+	// Re-check the tab's origin immediately before dispatching a write. The caller's
+	// authorized set is what the policy layer granted; if a server-side redirect moved the
+	// tab somewhere else, that origin was never authorized and the write must not happen.
+	if (payload.action !== "scroll" && payload.allowedOrigins !== undefined) {
+		if (!Array.isArray(payload.allowedOrigins) || payload.allowedOrigins.some((origin) => typeof origin !== "string")) throw new Error("interaction allowedOrigins invalid");
+		const tab = await chrome.tabs.get(item.tabId);
+		assertOperation();
+		const currentUrl = safeUrl(tab.url);
+		const currentOrigin = itemOriginV1(currentUrl);
+		if (currentOrigin === undefined || !payload.allowedOrigins.includes(currentOrigin)) {
+			return { schemaVersion: 1, kind: "needs-approval", tabName: name, origin: currentOrigin ?? "", capability: "write", reason: "origin" };
+		}
+	}
 	const target = await interactionTarget(name, item, payload, assertOperation);
 	assertOperation();
 	const expectation = parseInteractionExpectation(payload.expect);
