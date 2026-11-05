@@ -29,23 +29,23 @@
 未决问题见最后一节 **Q3**（`outline.ts` 超过 20 KB 提交门槛，导致 helper 的 `secure` 标记没有进入
 `OutlineNode`）和 **Q4**（A6 未切换批次投递）。
 
-### B 阶段：**未完成**（2026-11-05 授权窗口内起跑门禁未通过，原因是本机权限）
+### B 阶段：**未完成**（2026-11-05 授权窗口内“无真实输入”门禁始终不成立）
 
-用户 2026-11-05 03:33 PST 给出“大约 1 小时”的明确窗口并下令执行 B1–B6。执行在**第一条**就被拦住：
-时间与“无真实输入”两条门禁可满足，但隔离 helper 当前**没有辅助功能与屏幕录制权限**，因此
-B1–B6 一条都没能运行，没有移动光标、输入文字、切换前台或启动被测 App。完整读数、对照与未运行
-清单见 [`evidence/runs/2026-11-05T0333-b-phase-blocked.md`](evidence/runs/2026-11-05T0333-b-phase-blocked.md)。
+用户 2026-11-05 03:33 PST 给出“大约 1 小时”的明确窗口并下令执行 B1–B6。先是权限阻挡（已查明并
+解决，见下），随后门禁本身不成立：采样期间始终有真实输入，因此 B1–B6 一条都没能运行，没有移动
+光标、输入文字、切换前台或启动被测 App。完整读数、对照与未运行清单见 [`evidence/runs/2026-11-05T0333-b-phase-blocked.md`](evidence/runs/2026-11-05T0333-b-phase-blocked.md)。
 
-- 权限证据：`diagnostics` = `accessibility=false`、`screenRecording=false`；`systemSurfaces` 四个面根
-  节点数全为 0；同一会话里 `listApps`（不需要 AX）正常返回，说明 helper 在跑、只缺权限。
-- 不是新构建引入：同路径 11-04 的 protocol-8 二进制（第一期记录过 `accessibility=true`）本次也报
-  false。离线无法区分“换签名后授权失效”与“授权被移除”，两者都要用户本人重新批准。
-- **需要用户做的一件事**：在 系统设置 → 隐私与安全性 允许 `~/cu-v2-test/pi-computer-use.app` 的
-  辅助功能与屏幕录制，然后另约窗口；届时每步用新增的 `scripts/cu-v2-gate.mjs` 复核门禁（本次做过
-  1 个正向 + 3 个负向对照：扣住“监听不足 10 分钟”和“窗口已过期”）。
-- 附带观察：本机有 122 个 `rotom-quality-pty-*` 留下的 `bridge` 孤儿进程（`ppid=1`），各持事件 tap
-  与菜单栏项；`HIDIdleTime` 在 03:35 前后被钉在 ~0.1 s 后恢复增长，来源未证明。因此门禁以 helper
-  侧 `userEventCount` 为主，不只看 `HIDIdleTime`。
+- 权限问题的根因是**启动方式**，不是缺授权（先前的判断已更正）：TCC 按责任进程归属，`open` 启动时
+  bundle 自己是责任进程、没有任何授权；从终端直接启动同一二进制则继承宿主 App（Scry）的授权。
+  实测 `accessibility=true`、`screenRecording=true`，并且 `manageWindow list` 对 Finder 返回真实窗口。
+- 但第二个门禁始终不成立：04:01–04:23 每 20 秒采样，helper 侧真实输入计数 3024 → 5282 持续增长，
+  `idleSeconds` 从未到 600 s，窗口 04:33 结束。因此 B1–B6 仍然一条都没跑，也没有任何真机动作；
+  我们启动的 helper 已全部停止。
+- 新增 `scripts/cu-v2-gate.mjs`：一条命令给出窗口剩余、`HIDIdleTime`、helper 侧真实输入与判定；
+  本次 3 个负向对照（未给锚点 / 锚点只回推 2 分钟 / 窗口过期）都正确判 hold。
+- 附带观察：本机 122 个 `rotom-quality-pty-*` 遗留的 `bridge` 孤儿进程（`ppid=1`）；`HIDIdleTime`
+  会被我们自己的合成事件清零，所以门禁以 helper 侧计数为主。
+- 下次窗口的操作顺序（含 `--direct-l2` 要设 PI_CU_L2_SOCKET）见存档文档。
 
 2026-11-04 那次**没有窗口**时的记录（保留作对照）：`HANDOFF-2.md` §3 的四条前置条件里第 3、4 条
 不满足、第 2 条只部分满足——`HIDIdleTime` 三次采样 0.27 / 0.24 / 0.07 s 说明用户在场；用户原文的
