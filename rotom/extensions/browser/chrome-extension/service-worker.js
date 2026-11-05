@@ -1875,6 +1875,7 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 				const tree = await valueWithinRelayDeadline(chrome.debugger.sendCommand(debuggee, "Page.getFrameTree"), 4_000);
 				const frameId = tree.ok ? tree.value?.frameTree?.frame?.id : undefined;
 				if (typeof frameId !== "string") throw new Error("devtools frame unavailable");
+				// One isolated world per document, shared by every evaluate on that document.
 				const created = await valueWithinRelayDeadline(chrome.debugger.sendCommand(debuggee, "Page.createIsolatedWorld", { frameId, worldName: "rotom-devtools" }), 4_000);
 				if (!created.ok || !Number.isInteger(created.value?.executionContextId)) throw new Error("devtools isolated world unavailable");
 				contextId = created.value.executionContextId;

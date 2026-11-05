@@ -16,7 +16,7 @@ export const BROWSER_POLICY_CAPABILITIES_V1 = ["read", "interact", "devtools", "
 export type BrowserPolicyCapabilityV1 = (typeof BROWSER_POLICY_CAPABILITIES_V1)[number];
 
 /** Largest policy file read or written. */
-export const BROWSER_POLICY_MAX_BYTES_V1 = 64 * 1024;
+const BROWSER_POLICY_MAX_BYTES_V1 = 64 * 1024;
 const MAX_POLICY_ENTRIES_V1 = 512;
 const MAX_PATTERN_CHARS_V1 = 255;
 
