@@ -2378,7 +2378,17 @@ function recordBlockedDownloadV1(agentId, reason) {
  * Anything ambiguous or foreign is left alone: the listener returns without calling
  * `suggest()`, so Chrome keeps the page's suggested name and the user's own layout.
  */
+// Chrome's contract once the listener answered `true`: `suggest` must be called exactly
+// once. Every branch that does not redirect therefore still answers with "keep Chrome's
+// own name", and a guard makes a second call impossible.
 async function onDeterminingFilenameV1(item, suggest) {
+	let answered = false;
+	const answer = (payload) => {
+		if (answered) return;
+		answered = true;
+		if (payload === undefined) suggest();
+		else suggest(payload);
+	};
 	try {
 		// Claimed tabs are included so the owner lookup can see that the page is the user's.
 		const ownedTabs = [...sessionStates.values()].flatMap((state) => [...state.tabsByName.values()].map((ownedItem) => ({
@@ -2391,17 +2401,18 @@ async function onDeterminingFilenameV1(item, suggest) {
 			allowDownload: state.leaseToken === undefined ? true : state.allowDownload === true,
 		})));
 		const agentId = downloadOwnerAgentIdV1({ tabId: item?.tabId, referrer: item?.referrer }, ownedTabs);
-		if (agentId === undefined) return;
+		if (agentId === undefined) { answer(); return; }
 		const owner = ownedTabs.find((candidate) => candidate.agentId === agentId);
 		if (owner && owner.allowDownload === false) {
 			recordBlockedDownloadV1(agentId, "download");
 			try { await chrome.downloads.cancel(item.id); } catch { /* already gone */ }
+			answer();
 			return;
 		}
 		const filename = downloadRelativeFilenameV1({ agentId, suggestedFilename: typeof item?.filename === "string" ? item.filename : "" });
-		if (filename === undefined) return;
-		suggest({ filename, conflictAction: "uniquify" });
-	} catch { /* never block a download because our own bookkeeping failed */ }
+		if (filename === undefined) { answer(); return; }
+		answer({ filename, conflictAction: "uniquify" });
+	} catch { /* never block a download because our own bookkeeping failed */ answer(); }
 }
 
 chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
