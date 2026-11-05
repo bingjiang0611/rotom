@@ -143,6 +143,7 @@ const actRequest = (lease, pid) => ({
 const handed = await brokerTransfer();
 const restarted = await brokerLease({ secret: Buffer.alloc(32, 12) });
 const appLease = await brokerLease({ resourceKey: "app:com.example.fixture" });
+const clipboardLease = await brokerLease({ resourceKey: "clipboard:system" });
 
 const steps = [
 	{ name: "broker_valid", key: valid.keyBase64, command: "act", request: actRequest(valid, valid.pid), expect: "accept" },
@@ -162,6 +163,12 @@ const steps = [
 	{ name: "app_lease_cannot_quit_another_app", key: appLease.keyBase64, command: "manageApps", request: { cmd: "manageApps", mode: "quit", bundleId: "com.example.other", lease: { token: appLease.token, resourceKey: appLease.resourceKey } }, expect: "reject", code: "lease_invalid" },
 	{ name: "manage_window_list_is_read", key: valid.keyBase64, command: "manageWindow", request: { cmd: "manageWindow", mode: "list", pid: 812 }, expect: "accept" },
 	{ name: "manage_window_move_without_pid_refused", key: valid.keyBase64, command: "manageWindow", request: { cmd: "manageWindow", mode: "move" }, expect: "reject", code: "lease_invalid" },
+	// Q5: focusWindow and clipboardRestore are writes with their own resources.
+	{ name: "focus_window_without_token_refused", key: valid.keyBase64, command: "focusWindow", request: { cmd: "focusWindow", windowId: 12, pid: 812 }, expect: "reject", code: "lease_invalid" },
+	{ name: "focus_window_with_pid_lease_accepted", key: valid.keyBase64, command: "focusWindow", request: { cmd: "focusWindow", windowId: 12, pid: 812, lease: { token: valid.token, resourceKey: valid.resourceKey } }, expect: "accept" },
+	{ name: "clipboard_restore_without_token_refused", key: valid.keyBase64, command: "clipboardRestore", request: { cmd: "clipboardRestore", items: [] }, expect: "reject", code: "lease_invalid" },
+	{ name: "clipboard_restore_with_clipboard_lease_accepted", key: clipboardLease.keyBase64, command: "clipboardRestore", request: { cmd: "clipboardRestore", items: [], lease: { token: clipboardLease.token, resourceKey: "clipboard:system" } }, expect: "accept" },
+	{ name: "clipboard_restore_cannot_use_app_lease", key: appLease.keyBase64, command: "clipboardRestore", request: { cmd: "clipboardRestore", items: [], lease: { token: appLease.token, resourceKey: appLease.resourceKey } }, expect: "reject", code: "lease_invalid" },
 ];
 
 const fixture = run([`--lease-fixture=${JSON.stringify({ steps })}`]);

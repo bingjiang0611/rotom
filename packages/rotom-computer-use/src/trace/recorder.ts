@@ -115,7 +115,7 @@ export interface TraceEntry {
 	/** Redacted text-input evidence. */
 	text?: { length: number; sha256: string };
 	/** Why an agent clipboard write was not undone (reason code only, no content). */
-	clipboardRestoreSkipped?: "user_changed_clipboard" | "no_snapshot" | "restore_failed";
+	clipboardRestoreSkipped?: "user_changed_clipboard" | "no_snapshot" | "restore_failed" | "lease_unavailable";
 	/** Set when the broker paused this agent because an action disturbed the user. */
 	paused?: { reason: "interfered_with_user"; at: number };
 }

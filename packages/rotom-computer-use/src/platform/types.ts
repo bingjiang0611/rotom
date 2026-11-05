@@ -333,7 +333,12 @@ export interface ComputerUsePlatformBackend {
 	listApps(signal?: AbortSignal): Promise<PlatformApp[]>;
 	listRoots(query: PlatformRootQuery, signal?: AbortSignal): Promise<PlatformRoot[]>;
 	getFrontmost(signal?: AbortSignal): Promise<PlatformFrontmostResult>;
-	focusWindow(target: PlatformTarget, signal?: AbortSignal): Promise<PlatformFocusWindowResult>;
+	/**
+	 * Raise a window. This changes what the user sees, so it takes the
+	 * `desktop-pid:<pid>` lease: the helper refuses the command without a token
+	 * (review Q5). The lease is required, not optional, so a caller cannot forget it.
+	 */
+	focusWindow(target: PlatformTarget, signal: AbortSignal | undefined, lease: HelperLease): Promise<PlatformFocusWindowResult>;
 	observe(request: PlatformObserveRequest, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<LookResponse>;
 	act(request: PlatformActRequest, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<HelperActResult>;
 	/** Execute one-resource actions with one root baseline and one final settle. */
@@ -353,7 +358,8 @@ export interface ComputerUsePlatformBackend {
 	clipboardClear?(signal?: AbortSignal, lease?: HelperLease): Promise<PlatformClipboardWrite>;
 	/** Capture every item and type, so a write can be undone exactly. */
 	clipboardSnapshot?(signal?: AbortSignal): Promise<PlatformClipboardSnapshot>;
-	clipboardRestore?(snapshot: PlatformClipboardSnapshot, signal?: AbortSignal): Promise<PlatformClipboardRestore>;
+	/** Overwrites the clipboard, so it is a write: the lease is required (review Q5). */
+	clipboardRestore?(snapshot: PlatformClipboardSnapshot, signal: AbortSignal | undefined, lease: HelperLease): Promise<PlatformClipboardRestore>;
 	manageApps?(request: ({ mode: "launch"; bundleId?: string; path?: string; activates?: boolean } | { mode: "quit"; pid?: number; bundleId?: string; force?: boolean; timeoutMs?: number }) & { lease?: HelperLease }, signal?: AbortSignal): Promise<PlatformAppLaunchResult | PlatformAppQuitResult>;
 	manageWindow?(request: { mode: PlatformWindowMode; pid?: number; windowId?: number; x?: number; y?: number; w?: number; h?: number; title?: string; lease?: HelperLease }, signal?: AbortSignal): Promise<PlatformWindowMutationResult | PlatformRoot[] | PlatformDisplay[]>;
 	systemSurfaces?(surface: PlatformSystemSurfaceName | "all", signal?: AbortSignal): Promise<Record<string, PlatformSystemSurface>>;

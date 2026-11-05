@@ -1,4 +1,5 @@
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
+import { LeaseUnavailableError } from "../runtime.ts";
 import { getComputerUseConfig } from "../config.ts";
 import { currentPlatformBackend } from "../platform/index.ts";
 import type { HelperLease, PlatformClipboardSnapshot } from "../platform/types.ts";
@@ -8,12 +9,30 @@ import { unsupportedToolResult } from "./results.ts";
 
 export const CLIPBOARD_RESTORE_MS = 30_000;
 
+export type ClipboardRestoreSkip = "user_changed_clipboard" | "no_snapshot" | "restore_failed" | "lease_unavailable";
+
+/**
+ * The clipboard lease was held by someone else, so the restore did not run.
+ *
+ * Distinct from `restore_failed`: nothing was attempted, and the user's clipboard keeps
+ * whatever it has. Writing without the lease is exactly what the helper now refuses
+ * (review Q5), so this must be a visible skip, not a swallowed error.
+ */
+export class RestoreLeaseUnavailableError extends Error {
+	readonly reason = "lease_unavailable";
+	constructor(cause?: unknown) {
+		super("The clipboard lease could not be acquired for the restore.");
+		this.name = "RestoreLeaseUnavailableError";
+		this.cause = cause;
+	}
+}
+
 /**
  * Record why a clipboard restore was skipped. The trace is the only place that can
  * answer "did the agent touch my clipboard and leave it alone afterwards?", and it
  * stores a reason code only — never clipboard content.
  */
-function recordClipboardRestoreSkip(deps: DesktopToolDeps, reason: "user_changed_clipboard" | "no_snapshot" | "restore_failed"): void {
+function recordClipboardRestoreSkip(deps: DesktopToolDeps, reason: ClipboardRestoreSkip): void {
 	deps.trace()?.record({ tool: "clipboard", status: "unknown", evidence: `restore_skipped:${reason}`, clipboardRestoreSkipped: reason });
 }
 
@@ -42,7 +61,7 @@ export function scheduleClipboardRestore(options: {
 	restore: boolean;
 	snapshotNow?: () => Promise<PlatformClipboardSnapshot>;
 	write: (snapshot: PlatformClipboardSnapshot) => Promise<unknown>;
-	onSkip?: (reason: "user_changed_clipboard" | "no_snapshot" | "restore_failed") => void;
+	onSkip?: (reason: ClipboardRestoreSkip) => void;
 	delayMs?: number;
 	setTimer?: (callback: () => void, ms: number) => ReturnType<typeof setTimeout>;
 }): boolean {
@@ -58,11 +77,41 @@ export function scheduleClipboardRestore(options: {
 				options.onSkip?.("user_changed_clipboard");
 				return;
 			}
-			await options.write(options.snapshot as PlatformClipboardSnapshot).catch(() => options.onSkip?.("restore_failed"));
+			await options
+				.write(options.snapshot as PlatformClipboardSnapshot)
+				.catch((error) => options.onSkip?.(error instanceof RestoreLeaseUnavailableError ? "lease_unavailable" : "restore_failed"));
 		})();
 	}, delay);
 	clipboardRestoreTimer.unref?.();
 	return true;
+}
+
+/**
+ * Put the clipboard back under the clipboard lease.
+ *
+ * A restore overwrites something the user can see, so it goes through the same
+ * serialization as `clipboard set`: another agent holding the clipboard must not be
+ * written over, and the helper refuses a restore that arrives without a token
+ * (review Q5). A lease that cannot be acquired is reported as `lease_unavailable`
+ * instead of being retried or written anyway.
+ */
+export async function restoreWithLease(deps: DesktopToolDeps, backend: typeof currentPlatformBackend, value: PlatformClipboardSnapshot): Promise<void> {
+	if (!backend.clipboardRestore) return;
+	const intent = clipboardIntent("restore");
+	const scheduler = deps.scheduler();
+	try {
+		await scheduler.write(intent.resourceKey, scheduler.epoch(intent.resourceKey), async (_nextEpoch, grant) => {
+			// Without a broker there is no token and the helper has no key, so this empty
+			// token is never enforced; with a broker a missing token fails closed.
+			await backend.clipboardRestore!(value, undefined, { token: grant.token ?? "", resourceKey: intent.resourceKey });
+		}, { action: intent.action, ...(intent.app ? { app: intent.app } : {}) });
+	} catch (error) {
+		// The scheduler reports a refused lease as `LeaseUnavailableError`, with the
+		// broker's code and its current holder. Nothing was written, so the caller only
+		// has to record why the restore did not happen.
+		if (error instanceof LeaseUnavailableError) throw new RestoreLeaseUnavailableError(error);
+		throw error;
+	}
 }
 
 export function createClipboardTool(deps: DesktopToolDeps) {
@@ -109,7 +158,7 @@ export function createClipboardTool(deps: DesktopToolDeps) {
 			writtenChangeCount: written.changeCount,
 			restore: getComputerUseConfig().clipboard_restore,
 			snapshotNow: async () => await backend.clipboardSnapshot?.() as PlatformClipboardSnapshot,
-			write: async (value) => await backend.clipboardRestore?.(value),
+			write: async (value) => await restoreWithLease(deps, backend, value),
 			onSkip: (reason) => recordClipboardRestoreSkip(deps, reason),
 		});
 		return {

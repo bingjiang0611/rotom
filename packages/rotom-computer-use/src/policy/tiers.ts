@@ -59,6 +59,7 @@ export const ACTION_TIERS: Record<string, AppTier> = {
 	setValue: "full",
 	clipboard_set: "full",
 	clipboard_clear: "full",
+	clipboard_restore: "full",
 	manage_app_quit: "full",
 	manage_app_force_quit: "full",
 };

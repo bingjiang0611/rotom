@@ -72,6 +72,9 @@ test("write intents name the exact resource the helper checks", () => {
 	assert.equal(appIntent("quit", undefined, 900).resourceKey, "desktop-pid:900");
 	assert.equal(windowIntent("resize", 900, 12, undefined).resourceKey, "desktop-pid:900");
 	assert.equal(clipboardIntent("set").resourceKey, "clipboard:system");
+	// A restore is its own action but the same clipboard resource (review Q5).
+	assert.equal(clipboardIntent("restore").resourceKey, "clipboard:system");
+	assert.equal(clipboardIntent("restore").action.name, "clipboard_restore");
 });
 
 test("manage_app quit is refused for an app the user set to view tier", async () => {

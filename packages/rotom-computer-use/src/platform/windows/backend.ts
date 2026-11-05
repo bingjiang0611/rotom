@@ -1,6 +1,6 @@
 import { parseLookResponse, type LookResponse } from "../../outline.ts";
 import { toBoolean, toFiniteNumber, toOptionalString } from "../coerce.ts";
-import type { ComputerUsePlatformBackend, FramePoints, HelperActResult, PlatformActRequest, PlatformApp, PlatformFocusWindowResult, PlatformFrontmostResult, PlatformObserveRequest, PlatformReadTextRequest, PlatformReadTextResponse, PlatformReadyState, PlatformRoot, PlatformRootKind, PlatformRootQuery, PlatformTarget, PlatformWaitForRequest, PlatformWaitForResponse } from "../types.ts";
+import type { ComputerUsePlatformBackend, FramePoints, HelperActResult, HelperLease, PlatformActRequest, PlatformApp, PlatformFocusWindowResult, PlatformFrontmostResult, PlatformObserveRequest, PlatformReadTextRequest, PlatformReadTextResponse, PlatformReadyState, PlatformRoot, PlatformRootKind, PlatformRootQuery, PlatformTarget, PlatformWaitForRequest, PlatformWaitForResponse } from "../types.ts";
 import { WINDOWS_HELPER_PROTOCOL_VERSION, windowsHelper } from "./helper.ts";
 import { assertPlatformArchitecture } from "../architecture.ts";
 
@@ -115,8 +115,8 @@ export const windowsBackend: ComputerUsePlatformBackend = {
 		if (!focused?.pid) throw new Error("No frontmost window was available.");
 		return { appName: focused.appName ?? "Unknown", bundleId: focused.bundleId, pid: focused.pid, windowTitle: focused.title, windowId: focused.windowId, rootRef: focused.rootRef };
 	},
-	async focusWindow(target: PlatformTarget, signal?: AbortSignal): Promise<PlatformFocusWindowResult> {
-		return await windowsHelper.command<PlatformFocusWindowResult>("focusWindow", { ...target }, { signal });
+	async focusWindow(target: PlatformTarget, signal: AbortSignal | undefined, lease: HelperLease): Promise<PlatformFocusWindowResult> {
+		return await windowsHelper.command<PlatformFocusWindowResult>("focusWindow", { ...target, lease }, { signal });
 	},
 	async observe(request: PlatformObserveRequest, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<LookResponse> {
 		return parseLookResponse(await windowsHelper.command("look", { ...request.target, baseLookId: request.baseLookId, maxDimension: request.maxDimension, readText: request.readText, scopeRef: request.scopeRef, includeImage: request.includeImage }, options));

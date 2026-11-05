@@ -116,8 +116,8 @@ export const macosBackend: Pick<ComputerUsePlatformBackend, "listApps" | "listRo
 		};
 	},
 
-	async focusWindow(target: PlatformTarget, signal?: AbortSignal): Promise<PlatformFocusWindowResult> {
-		return await macosHelper.command<PlatformFocusWindowResult>("focusWindow", { ...target }, { signal });
+	async focusWindow(target: PlatformTarget, signal: AbortSignal | undefined, lease: HelperLease): Promise<PlatformFocusWindowResult> {
+		return await macosHelper.command<PlatformFocusWindowResult>("focusWindow", { ...target, lease }, { signal });
 	},
 
 	async observe(request: PlatformObserveRequest, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<LookResponse> {
@@ -197,8 +197,8 @@ export const macosBackend: Pick<ComputerUsePlatformBackend, "listApps" | "listRo
 		return { changeCount: Math.trunc(toFiniteNumber(result?.changeCount, 0)), totalBytes: Math.trunc(toFiniteNumber(result?.totalBytes, 0)), items };
 	},
 
-	async clipboardRestore(snapshot: PlatformClipboardSnapshot, signal?: AbortSignal): Promise<PlatformClipboardRestore> {
-		const result = await macosHelper.command<any>("clipboardRestore", { items: snapshot.items }, { signal });
+	async clipboardRestore(snapshot: PlatformClipboardSnapshot, signal: AbortSignal | undefined, lease: HelperLease): Promise<PlatformClipboardRestore> {
+		const result = await macosHelper.command<any>("clipboardRestore", { items: snapshot.items, lease }, { signal });
 		return {
 			restored: toBoolean(result?.restored),
 			changeCount: Math.trunc(toFiniteNumber(result?.changeCount, 0)),

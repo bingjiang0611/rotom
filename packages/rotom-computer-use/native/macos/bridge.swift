@@ -4010,6 +4010,7 @@ enum LeaseGuardSelfTest {
 				report(name, !expectSuccess)
 			}
 		}
+		let clipboardLease = token(leaseId: "lease-clipboard", pid: nil, expiresAt: now + 60_000, signedWith: key, resourceKey: "clipboard:system")
 		let appLease = token(leaseId: "lease-app", pid: nil, expiresAt: now + 60_000, signedWith: key, resourceKey: "app:com.example.fixture")
 		let otherAppLease = token(leaseId: "lease-app-other", pid: nil, expiresAt: now + 60_000, signedWith: key, resourceKey: "app:com.example.other")
 		let pidLease = token(leaseId: "lease-pid", pid: 812, expiresAt: now + 60_000, signedWith: key)
@@ -4025,6 +4026,12 @@ enum LeaseGuardSelfTest {
 		checkCommand("manage_apps_quit_other_app_refused", "manageApps", quitRequest.merging(["lease": ["token": otherAppLease, "resourceKey": "app:com.example.other"]]) { $1 }, expectSuccess: false)
 		checkCommand("manage_apps_quit_pid_lease_refused", "manageApps", quitRequest.merging(["lease": ["token": pidLease, "resourceKey": resource]]) { $1 }, expectSuccess: false)
 		checkCommand("manage_apps_quit_without_token_refused", "manageApps", quitRequest, expectSuccess: false)
+		// Q5: focusWindow and clipboardRestore are writes, so neither runs unleased.
+		checkCommand("focus_window_without_token_refused", "focusWindow", ["cmd": "focusWindow", "windowId": 12, "pid": 812], expectSuccess: false)
+		checkCommand("clipboard_restore_without_token_refused", "clipboardRestore", ["cmd": "clipboardRestore", "items": []], expectSuccess: false)
+		checkCommand("focus_window_with_pid_lease_accepted", "focusWindow", ["cmd": "focusWindow", "windowId": 12, "pid": 812, "lease": ["token": pidLease, "resourceKey": resource]], expectSuccess: true)
+		checkCommand("clipboard_restore_with_clipboard_lease_accepted", "clipboardRestore", ["cmd": "clipboardRestore", "items": [], "lease": ["token": clipboardLease, "resourceKey": "clipboard:system"]], expectSuccess: true)
+
 		// A launch by path has no app identity on the caller side: the anonymous resource
 		// is the only key it can present, and a pid-keyed lease for a real app is not it.
 		let anonymousLease = token(leaseId: "lease-anon", pid: nil, expiresAt: now + 60_000, signedWith: key, resourceKey: "desktop-pid:0")
@@ -4826,7 +4833,13 @@ final class LeaseGuard {
 	private var revoked: [String: Double] = [:]
 
 	/// Commands that write to the user's desktop. Reads never carry a lease.
-	static let writeCommands: Set<String> = ["act", "clipboardSet", "clipboardClear", "manageApps", "manageWindow", "takeoverBegin"]
+	///
+	/// `focusWindow` raises a window and `clipboardRestore` overwrites the clipboard, so
+	/// both are writes like the rest (review Q5). Moving the cursor, reading state and
+	/// `clipboardGet`/`clipboardSnapshot` stay outside this set.
+	static let writeCommands: Set<String> = [
+		"act", "clipboardSet", "clipboardClear", "clipboardRestore", "focusWindow", "manageApps", "manageWindow", "takeoverBegin",
+	]
 
 	private struct Claims {
 		let leaseId: String
@@ -4940,8 +4953,11 @@ final class LeaseGuard {
 	/// `manageWindow list` used to be treated as writes and would fail under enforcement.
 	private static func requirement(command: String, request: [String: Any]) -> Requirement {
 		switch command {
-		case "clipboardSet", "clipboardClear":
+		case "clipboardSet", "clipboardClear", "clipboardRestore":
 			return .write(["clipboard:system"])
+		case "focusWindow":
+			guard let pid = targetPid(request) else { return .undeterminable }
+			return .write(["desktop-pid:\(pid)"])
 		case "takeoverBegin":
 			return .write(["desktop-foreground"])
 		case "act":
