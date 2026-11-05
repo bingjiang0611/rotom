@@ -64,7 +64,12 @@ const SCROLL_SETTLE_MS = 100;
 const PAGE_ALERT_WAIT_MS = 500;
 const NATIVE_RECONNECT_ALARM = "rotom-browser-relay-reconnect";
 const FULL_READ_COMMAND_WAIT_MS = 750;
+// The render window is an upper bound, not a fixed cost: after a scroll the reader polls
+// the container until its text and scrollHeight stop changing, because a static page is
+// ready as soon as the scroll position is and only lazy content needs the rest of it.
 const FULL_READ_RENDER_WAIT_MS = 150;
+const FULL_READ_RENDER_POLL_MS = 20;
+const FULL_READ_RENDER_STABLE_PASSES = 2;
 const FULL_READ_MAX_TARGETS = 6;
 const FULL_READ_MAX_STEPS = 60;
 const FULL_READ_MAX_CHARACTERS = 500_000;
@@ -810,10 +815,35 @@ async function fullRenderedTextSource(debuggee, scopeId, remainingSteps, assertO
 			let previousHeight = -1;
 			let previousTop = -1;
 			let previousClientHeight = 0;
+			let settledState;
+			// Wait for the content a scroll produced rather than a fixed window: static
+			// pages are done once the position moved, virtual ones are done once their text
+			// stops changing. The deadline still bounds a page that never settles.
+			const settleAfterScroll = async (reference) => {
+				const settleStartedAt = Date.now();
+				let text = typeof reference.text === "string" ? reference.text : undefined;
+				let scrollHeight = Number(reference.scrollHeight) || 0;
+				let stablePasses = 0;
+				let latest;
+				for (;;) {
+					await delay(FULL_READ_RENDER_POLL_MS);
+					const probed = await debuggerCommandWithin(debuggee, "Runtime.callFunctionOn", { objectId: targetObjectId, functionDeclaration: scrollTargetState.toString(), returnByValue: true });
+					const value = probed?.result?.value;
+					if (!record(value)) return latest;
+					latest = value;
+					const same = typeof value.text === "string" && value.text === text && (Number(value.scrollHeight) || 0) === scrollHeight;
+					stablePasses = same ? stablePasses + 1 : 0;
+					text = typeof value.text === "string" ? value.text : text;
+					scrollHeight = Number(value.scrollHeight) || 0;
+					if (stablePasses >= FULL_READ_RENDER_STABLE_PASSES) return latest;
+					if (Date.now() - settleStartedAt >= FULL_READ_RENDER_WAIT_MS) return latest;
+				}
+			};
 			for (;;) {
 				if (scanSteps >= remainingSteps || typeof rendered?.result?.value !== "number") break;
-				const stateResult = await debuggerCommandWithin(debuggee, "Runtime.callFunctionOn", { objectId: targetObjectId, functionDeclaration: scrollTargetState.toString(), returnByValue: true });
-				const state = stateResult?.result?.value;
+				let state;
+				if (settledState !== undefined) { state = settledState; settledState = undefined; }
+				else state = (await debuggerCommandWithin(debuggee, "Runtime.callFunctionOn", { objectId: targetObjectId, functionDeclaration: scrollTargetState.toString(), returnByValue: true }))?.result?.value;
 				if (!record(state)) break;
 				scanSteps += 1;
 				const top = Number(state.top) || 0;
@@ -839,7 +869,7 @@ async function fullRenderedTextSource(debuggee, scopeId, remainingSteps, assertO
 				previousTop = top;
 				previousClientHeight = clientHeight;
 				rendered = await debuggerCommandWithin(debuggee, "Runtime.callFunctionOn", { objectId: targetObjectId, arguments: [{ value: nextTop }], functionDeclaration: scrollTargetTo.toString(), returnByValue: true, awaitPromise: true });
-				await delay(FULL_READ_RENDER_WAIT_MS);
+				settledState = await settleAfterScroll(state);
 			}
 			if (targetMoved) scrolledContainers += 1;
 			endReached &&= targetComplete;
