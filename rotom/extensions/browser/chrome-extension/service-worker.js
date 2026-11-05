@@ -58,6 +58,9 @@ const TARGET_STATE_WAIT_MS = 400;
 // shows up in the first round trip. The deadline still covers slow pages.
 const INTERACTION_SETTLE_MS = 150;
 const INTERACTION_SETTLE_POLL_MS = 20;
+// Scroll has its own, shorter window: `scrollTop` moves on the first frame after the
+// wheel event, so waiting the whole window only delays the answer.
+const SCROLL_SETTLE_MS = 100;
 const PAGE_ALERT_WAIT_MS = 500;
 const NATIVE_RECONNECT_ALARM = "rotom-browser-relay-reconnect";
 const FULL_READ_COMMAND_WAIT_MS = 750;
@@ -1431,8 +1434,17 @@ async function performInteraction(name, item, payload, assertOperation = () => u
 				if (dispatchError) throw dispatchError;
 				let afterResult;
 				if (dispatched.ok && scrollObjectId !== undefined) {
-					await new Promise((resolve) => setTimeout(resolve, 100));
-					const measured = await valueWithinRelayDeadline(chrome.debugger.sendCommand(target.debuggee, "Runtime.callFunctionOn", { objectId: scrollObjectId, functionDeclaration: "function(){const target=this.nodeType===9?this.scrollingElement:this;return Number(target?.scrollTop)||0;}", returnByValue: true }), SCROLL_EFFECT_WAIT_MS);
+					const measureScrollTop = () => valueWithinRelayDeadline(chrome.debugger.sendCommand(target.debuggee, "Runtime.callFunctionOn", { objectId: scrollObjectId, functionDeclaration: "function(){const target=this.nodeType===9?this.scrollingElement:this;return Number(target?.scrollTop)||0;}", returnByValue: true }), SCROLL_EFFECT_WAIT_MS);
+					const expectedTop = Number(beforeResult?.result?.value);
+					const settleDeadline = Date.now() + SCROLL_SETTLE_MS;
+					let measured = await measureScrollTop();
+					// Poll while the position is still where it started: a scroll that has
+					// not moved yet gets the rest of the window, one that moved answers now.
+					while (Number.isFinite(expectedTop) && measured.ok && Number(measured.value?.result?.value) === expectedTop && Date.now() < settleDeadline) {
+						await new Promise((resolve) => setTimeout(resolve, INTERACTION_SETTLE_POLL_MS));
+						assertOperation();
+						measured = await measureScrollTop();
+					}
 					if (measured.ok) afterResult = measured.value;
 				}
 				return { dispatched, afterResult };

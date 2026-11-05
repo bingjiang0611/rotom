@@ -181,6 +181,15 @@ try {
 	} catch (error) {
 		results.notes.push(`/large 整页导出被拒（这正是上限在工作）：${error instanceof Error ? error.message : String(error)}`);
 	}
+	// Scroll is the one interaction that only reads, and the only one that measured a
+	// fixed settle window of its own.
+	results.scenarios.push(await measure("interact scroll（只读交互）", (index) => request("interact", {
+		actionId: `bench-scroll-${Math.random().toString(16).slice(2)}`,
+		tabName: "export",
+		action: "scroll",
+		direction: index % 2 === 0 ? "down" : "up",
+		amount: 400,
+	}), { rounds: 20, note: "方向交替，保证每轮 scrollTop 真的移动" }));
 
 	// network_body: the relay first re-enables Network with small buffers, so a request has
 	// to be issued after that; the preparation is outside the timed window.
