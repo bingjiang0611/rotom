@@ -134,7 +134,9 @@ test("中英文 capability map 只命中保留的 deferred groups", () => {
 	assert.deepEqual(matchDeferredCapabilityGroups("让 Opus 子agent 做评审"), ["subagent"]);
 	assert.deepEqual(matchDeferredCapabilityGroups("run fusion research in background", 3), []);
 	assert.deepEqual(matchDeferredCapabilityGroups("修复 TypeScript 单元测试"), []);
-	assert.deepEqual(DEFERRED_CAPABILITY_GROUPS.map((group) => group.id), ["subagent"]);
+	assert.deepEqual(matchDeferredCapabilityGroups("在页面里执行代码并做设备模拟"), ["browser"]);
+	assert.deepEqual(matchDeferredCapabilityGroups("browser devtools"), ["browser"]);
+	assert.deepEqual(DEFERRED_CAPABILITY_GROUPS.map((group) => group.id), ["subagent", "browser"]);
 	for (const unrelated of [
 		"fix mapping parser",
 		"switch to main branch",

@@ -44,7 +44,22 @@ export const DEFERRED_CAPABILITY_GROUPS = [
 		aliases: ["subagent", "sub-agent", "agent delegation", "opus subagent", "子agent", "子 agent", "子代理", "委派子代理", "评审子代理"],
 		toolNames: ["subagent", "subagent_wait"],
 	},
+	{
+		// Browser devtools stay off the default surface: page code, emulation and tracing
+		// are occasional, and ROTOM_BROWSER_DEVTOOLS=0 removes the tool entirely.
+		id: "browser",
+		label: "Browser Devtools",
+		aliases: ["browser devtools", "devtools", "evaluate in page", "device emulation", "viewport", "页面执行代码", "设备模拟"],
+		toolNames: ["browser_devtools"],
+	},
 ] as const;
+
+/**
+ * Tools the default surface must find registered before it applies its first loadout.
+ * `browser_devtools` is intentionally absent: its own environment gate can remove it,
+ * and that must not skip the whole deferred group.
+ */
+export const DEFERRED_REQUIRED_TOOL_NAMES = ["subagent", "subagent_wait"] as const;
 
 export type DeferredCapabilityGroupId = (typeof DEFERRED_CAPABILITY_GROUPS)[number]["id"];
 
@@ -192,7 +207,7 @@ export function registerDeferredTools(pi: ExtensionAPI, environment: NodeJS.Proc
 		const allTools = pi.getAllTools();
 		const registered = new Set(allTools.map((tool) => tool.name));
 		const active = pi.getActiveTools();
-		const required = [...DEFERRED_INITIAL_TOOL_NAMES, DEFERRED_TOOL_SEARCH_NAME, ...DEFERRED_TOOL_NAMES];
+		const required = [...DEFERRED_INITIAL_TOOL_NAMES, DEFERRED_TOOL_SEARCH_NAME, ...DEFERRED_REQUIRED_TOOL_NAMES];
 		// Native defaults start the whole deferred group inactive. A partially active
 		// group instead indicates a narrower caller selection; preserve that policy.
 		const hasActiveDeferredTools = active.some((name) => DEFERRED_TOOL_NAMES.has(name));

@@ -43,6 +43,7 @@ node --experimental-strip-types rotom/runtime/e2e-browser/run.mjs baseline
 | `upload` | 文件输入上传后 fixture 服务端收到的 sha256 与本地一致；非 file input、敏感路径、符号链接、相对路径、超大文件都在本地拒绝 |
 | `batch` | 一次 batch 填完并提交表单（页面自证提交值）；expect 不满足、单步校验失败、弹窗阻塞都立即停下且后续步骤不执行 |
 | `downloads` | agent tab 的下载落到 `rotom/<agentId>/` 且 sha256 与 fixture 字节一致、结果无绝对路径；claim 来的用户 tab 下载不改路径（站点收到两次请求但 agent 列表仍只有一条）；子 agent 未声明 `allow.download` 时下载被取消并报 blocked，声明后真的落地 |
+| `devtools` | isolated world 读不到页面全局变量而 main world 读得到；抛错作为数据、超大结果截断；非法参数在 relay 侧被拒；viewport 覆盖后 `innerWidth` 跟着变、`reset` 回到原始宽度且触摸模拟关闭、旧 epoch 的坐标点击被拒 |
 | `confirm` | 敏感名称按钮与 `cc-*` 表单里的 Continue 都返回 `needs-approval`（无 UI）且页面状态不变；普通按钮照常执行；`ROTOM_BROWSER_CONFIRM=auto-approve-localhost` 打开后同一点击真的执行；开关值拼错仍然要确认；upload 在确认前不把文件交出去 |
 | `policy` | blocklist 本地拒绝且页面没收到请求；`read`/`interact` 授权不含 `upload`；授权后上传真的发生；302 到 blocklist origin 后读和写都被拒、目标页没有被点击；raw relay 在派发写操作前复核 origin（拒绝与放行各一次，页面自证点击结果） |
 | `dialog` | alert、confirm 两种选择、prompt 带文字、beforeunload（导航被挂起→接受后才离开）；弹窗期间读/写都返回 `dialog-blocking`，页面自证返回值 |

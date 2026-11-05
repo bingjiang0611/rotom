@@ -46,6 +46,8 @@ import {
 import { INTERACTION_EXPECTATIONS, parseInteractionExpectation } from "./chrome-extension/interaction-target-state.js";
 import { MAX_UPLOAD_FILES_V1, validateUploadPathsV1 } from "./upload-guard.ts";
 import { MAX_BATCH_STEPS_V1, batchErrorOutcomeV1, batchStepOutcomeV1, batchStepSummaryV1, parseBatchActionsV1 } from "./batch-actions.ts";
+import { isDeferredByDefault } from "../third-party/deferred-tools/register.ts";
+import { BROWSER_DEVTOOLS_TOOL_V1, DEVTOOLS_OPERATIONS_V1, DEVTOOLS_WORLDS_V1, MAX_DEVTOOLS_EXPRESSION_CHARS_V1, boundDevtoolsTextV1, devtoolsEnabledByEnvironment, resolveViewportV1, sanitizeDevtoolsExpressionV1, sanitizeDevtoolsOperationV1, sanitizeDevtoolsWorldV1, viewportPresetNamesV1 } from "./devtools.ts";
 import {
 	AUTO_APPROVE_LOCALHOST_V1,
 	SENSITIVE_CONFIRM_ENV_V1,
@@ -1252,6 +1254,101 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 				previous = { tabId: outcome.tabId, documentGeneration: outcome.documentGeneration };
 			}
 			return browserResult({ kind: "browser-batch-result", steps, completed: stopReason === undefined, ...(stoppedAt === undefined ? {} : { stoppedAt }), ...(stopReason === undefined ? {} : { stopReason }) });
+		},
+	}));
+
+	if (devtoolsEnabledByEnvironment()) pi.registerTool(defineTool({
+		name: BROWSER_DEVTOOLS_TOOL_V1,
+		exposure: "model-only",
+		// Pi restores never-mentioned default-active extension tools on tree navigation.
+		// Without this the devtools tool comes back by itself, which also makes the
+		// deferred precondition demand the deferred Subagent tools on a fork.
+		defaultActive: !isDeferredByDefault(BROWSER_DEVTOOLS_TOOL_V1),
+		label: "Browser Devtools",
+		description: "Run page code or emulate a device viewport on a relay tab.",
+		promptSnippet: "Run code in a tab (isolated world by default) or emulate a device viewport",
+		promptGuidelines: [
+			...BROWSER_SHARED_PROMPT_GUIDELINES,
+			"browser_devtools evaluate runs in an isolated world and cannot read page globals; world:\"main\" can, so it needs explicit confirmation and is treated as a write.",
+			"viewport changes invalidate every earlier coordinate and viewport measurement: take a fresh screenshot before the next coordinate click.",
+		],
+		executionMode: "sequential",
+		parameters: Type.Object({
+			operation: StringEnum(DEVTOOLS_OPERATIONS_V1),
+			tabName: Type.Optional(Type.String({ minLength: 1, maxLength: 64 })),
+			expression: Type.Optional(Type.String({ minLength: 1, maxLength: MAX_DEVTOOLS_EXPRESSION_CHARS_V1 })),
+			world: Type.Optional(StringEnum(DEVTOOLS_WORLDS_V1)),
+			awaitPromise: Type.Optional(Type.Boolean()),
+			viewport: Type.Optional(Type.Union([Type.String({ minLength: 1, maxLength: 32 }), Type.Object({
+				width: Type.Integer({ minimum: 200, maximum: 5_000 }),
+				height: Type.Integer({ minimum: 200, maximum: 5_000 }),
+				deviceScaleFactor: Type.Number({ minimum: 0.1, maximum: 4 }),
+				mobile: Type.Boolean(),
+				touch: Type.Boolean(),
+				userAgent: Type.Optional(Type.String({ minLength: 1, maxLength: 512 })),
+			}, { additionalProperties: false })])),
+		}, { additionalProperties: false }),
+		async execute(toolCallId, rawParams, signal, _onUpdate, ctx) {
+			const params = rawParams as Record<string, unknown>;
+			const operation = sanitizeDevtoolsOperationV1(params.operation);
+			if (operation === undefined) throw new Error("browser_devtools operation 无效");
+			const tabName = params.tabName === undefined ? undefined : safeTabName(params.tabName);
+			// Reject invalid local arguments before listing tabs or reaching the relay.
+			const expression = operation === "evaluate" ? sanitizeDevtoolsExpressionV1(params.expression) : undefined;
+			if (operation === "evaluate" && expression === undefined) throw new Error(`evaluate 需要 1-${MAX_DEVTOOLS_EXPRESSION_CHARS_V1} 字符的 expression`);
+			const world = operation === "evaluate" ? sanitizeDevtoolsWorldV1(params.world) : undefined;
+			if (operation === "evaluate" && world === undefined) throw new Error("world 只能是 isolated 或 main");
+			const resolvedViewport = operation === "viewport" ? resolveViewportV1(params.viewport) : undefined;
+			if (operation === "viewport" && resolvedViewport === undefined) throw new Error(`viewport 需要 ${["reset", ...viewportPresetNamesV1()].join("/")} 或完整覆盖对象`);
+			if (operation === "evaluate" && params.viewport !== undefined) throw new Error("viewport 不能与 evaluate 同时使用");
+			if (operation === "viewport" && (params.expression !== undefined || params.world !== undefined)) throw new Error("evaluate 参数不能与 viewport 同时使用");
+			const assertOwner = await bindSession(ctx, signal);
+			const relayClient = await client(ctx, assertOwner);
+			const listedTabs = await readTabs(relayClient, signal);
+			const tab = targetTab(listedTabs, tabName);
+			publishLeaseScope(relayClient, listedTabs.tabs);
+			// Page code and page emulation are devtools: a child needs that capability in its
+			// lease, and the main agent needs the site's devtools grant.
+			const denied = await leaseDenial(relayClient, "devtools", leaseOriginV1(tab.url));
+			if (denied) return denied;
+			const policyDenied = await policyDenial(relayClient, "devtools", policyOriginV1(tab.url), ctx);
+			if (policyDenied) return policyDenied;
+			const codeDigest = expression === undefined ? undefined : browserActionDigestV1(expression);
+			if (operation === "evaluate" && world === "main") {
+				// The main world is the page's own realm: reading its globals is a different
+				// authority level, so it gets its own explicit confirmation.
+				const approval = sensitiveAutoApprovedV1({ origin: policyOriginV1(tab.url) ?? "", env: process.env[SENSITIVE_CONFIRM_ENV_V1] });
+				let confirmed = approval;
+				if (!confirmed) {
+					if (relayClient.leaseToken !== undefined) return browserResult({ kind: "needs-approval", reason: "main-world", origin: policyOriginV1(tab.url) ?? "", message: "子 agent 不能在主世界执行代码；需要主 agent 授权。" });
+					if (!ctx.hasUI || typeof ctx.ui.confirm !== "function") return browserResult({ kind: "needs-approval", reason: "no-ui", origin: policyOriginV1(tab.url) ?? "", message: "在主世界执行代码需要用户确认，但当前没有交互界面，按拒绝处理。" });
+					confirmed = await ctx.ui.confirm(`在 ${policyOriginV1(tab.url) ?? "该页面"} 的主世界执行代码？`, expression.slice(0, 200));
+				}
+				if (!confirmed) return browserResult({ kind: "needs-approval", reason: "user-denied", origin: policyOriginV1(tab.url) ?? "", message: "用户拒绝在主世界执行代码；没有发出请求，不要重试。" });
+			}
+			const actionId = `pi1_browser_devtools_${randomUUID()}`;
+			pi.appendEntry(BROWSER_INTERACTION_AUDIT_ENTRY, { schemaVersion: 1, kind: "rotom-browser-interaction-intent", actionId, sessionId: ctx.sessionManager.getSessionId(), branchLeafId: ctx.sessionManager.getLeafId() ?? null, toolCallId, action: `devtools:${operation}`, ...(codeDigest === undefined ? {} : { actionDigest: codeDigest }), targetDigest: browserActionDigestV1({ tabName: tab.name, tabId: tab.tabId, documentGeneration: tab.documentGeneration }), originDigest: browserActionDigestV1(browserOriginV1(tab.url)), timestamp: new Date().toISOString() });
+			let raw: unknown;
+			try {
+				raw = await relayClient.request("devtools", {
+					devtools: operation,
+					tabName: tab.name,
+					...{ allowedOrigins: [...policyAuthorizedOrigins] },
+					...(expression === undefined ? {} : { expression, world, awaitPromise: params.awaitPromise !== false }),
+					...(resolvedViewport === undefined ? {} : { viewport: resolvedViewport }),
+				}, { signal, timeoutMs: relayClientTimeoutMs("devtools", {}) });
+			} catch (error) {
+				// Dispatched but unproven: report unknown instead of inviting a replay.
+				pi.appendEntry(BROWSER_INTERACTION_AUDIT_ENTRY, { schemaVersion: 1, kind: "rotom-browser-interaction-terminal", actionId, status: "unknown", actionAcknowledged: false, businessOutcome: "unknown", timestamp: new Date().toISOString() });
+				throw new Error(`browser_devtools ${operation} 结果未知（可能已执行），不要重放：${error instanceof Error ? error.message : String(error)}`);
+			}
+			assertOwner();
+			pi.appendEntry(BROWSER_INTERACTION_AUDIT_ENTRY, { schemaVersion: 1, kind: "rotom-browser-interaction-terminal", actionId, status: "ok", actionAcknowledged: true, businessOutcome: operation, timestamp: new Date().toISOString() });
+			const blocked = dialogBlockingV1(raw);
+			if (blocked) return browserResult(blocked);
+			const bounded = boundDevtoolsTextV1(JSON.stringify(raw ?? null));
+			if (bounded.truncated) throw new Error("browser_devtools result 超过 64 KiB");
+			return browserResult(raw);
 		},
 	}));
 

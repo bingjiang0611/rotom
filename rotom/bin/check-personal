@@ -59,6 +59,7 @@ PI_SUBAGENTS_EXECUTION_SCOPE= PI_SUBAGENTS_TEMP_ROOT= ROTOM_PI="$pi_command" ROT
 	rotom/extensions/browser/dialog-state.test.mjs \
 	rotom/extensions/browser/batch-actions.test.mjs \
 	rotom/extensions/browser/browser-policy.test.mjs \
+	rotom/extensions/browser/devtools.test.mjs \
 	rotom/extensions/browser/sensitive-actions.test.mjs \
 	rotom/extensions/browser/downloads.test.mjs \
 	rotom/extensions/observability/*.test.ts \

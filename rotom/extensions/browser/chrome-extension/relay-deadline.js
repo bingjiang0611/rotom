@@ -17,6 +17,8 @@ export function relayOperationDeadlineMs(operation, payload) {
 	if (operation === "interact") return INTERACTION_OPERATION_DEADLINE_MS;
 	if (operation === "recover") return RECOVER_OPERATION_DEADLINE_MS;
 	if (operation === "read_full") return FULL_READ_OPERATION_DEADLINE_MS;
+	// evaluate: page enable + isolated world + a 12 s bound on the expression itself.
+	if (operation === "devtools") return 30_000;
 	if (operation === "navigate") {
 		// A navigation waits for `complete`, so it carries the same bound as `wait`.
 		const requested = Number.isInteger(payload?.timeoutMs) && payload.timeoutMs >= 0 && payload.timeoutMs <= 300_000 ? payload.timeoutMs : 30_000;

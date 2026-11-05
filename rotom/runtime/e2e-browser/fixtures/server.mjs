@@ -146,6 +146,15 @@ window.addEventListener('beforeunload', (event) => {
 
 // Upload fixture: a file input that immediately posts the chosen file to the server, so a
 // suite can compare the received bytes with the local file instead of trusting the page.
+// A page-owned global the devtools suite can look for: reachable from the main world
+// only, so an isolated-world evaluate proves the boundary instead of assuming it.
+const GLOBALS_BODY = `<h1 id="heading">Globals fixture</h1>
+<p id="echo">absent</p>
+<script>
+window.rotomPageSecret = "page-secret";
+document.getElementById("echo").textContent = "ready";
+</script>`;
+
 const UPLOAD_BODY = `
 <main>
   <h1>Upload fixture</h1>
@@ -360,6 +369,7 @@ export function defaultPages({ frameOrigin }) {
 		["/pointer", htmlDocument("Pointer fixture", POINTER_BODY)],
 		["/upload", htmlDocument("Upload fixture", UPLOAD_BODY)],
 		["/dialog", htmlDocument("Dialog fixture", DIALOG_BODY)],
+		["/globals", htmlDocument("Globals fixture", GLOBALS_BODY)],
 		["/redirect-target", htmlDocument("Redirect target", REDIRECT_TARGET_BODY)],
 		["/checkout", htmlDocument("Checkout", CHECKOUT_BODY)],
 		["/download-page", htmlDocument("Download page", DOWNLOAD_PAGE_BODY)],

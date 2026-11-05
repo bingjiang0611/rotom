@@ -19,6 +19,7 @@ import * as downloads from "./downloads.mjs";
 import * as upload from "./upload.mjs";
 import * as dialog from "./dialog.mjs";
 import * as batch from "./batch.mjs";
+import * as devtools from "./devtools.mjs";
 
 /** Suite registry. Later tasks append their suites here. */
 export const suites = {
@@ -40,6 +41,7 @@ export const suites = {
 	upload,
 	dialog,
 	batch,
+	devtools,
 	policy,
 	confirm,
 	downloads,
