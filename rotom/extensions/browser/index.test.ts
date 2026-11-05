@@ -199,11 +199,16 @@ test("browser relay：活动标签可 claim、直接交互、敏感输入放行�
 	// The full key whitelist (T15) turns `key` into a 62-value enum plus `modifiers`:
 	// +484 bytes. Pointer actions and `dropRef` (T16) add +163, measured 4 425. `upload`
 	// (T17) adds one action value plus `paths`: +189, measured 4 614. `dialog` (T18) adds
-	// the action value plus `accept`/`promptText`: +252, measured 4 866. Together with
-	// navigate that is still inside the two-browser-tools budget the guideline check
-	// above enforces.
-	assert.ok(browserSchemaBytes <= 4_880, `Browser schema budget regressed: ${browserSchemaBytes}`);
-	assert.ok(interact.parameters.required.includes("action"));
+	// the action value plus `accept`/`promptText`: +252, measured 4 866. Batches (T19) add
+	// a step schema that repeats the per-action fields the model must be able to fill:
+	// +1 989, measured 6 855. That is the price of documenting each step honestly instead
+	// of leaving the fields undocumented; the guideline text is unchanged, so the M3
+	// footprint stays well inside its 30% budget.
+	assert.ok(browserSchemaBytes <= 6_950, `Browser schema budget regressed: ${browserSchemaBytes}`);
+	// `action` is no longer schema-required because `actions` can replace it; the local
+	// check rejects a call that carries neither (covered below).
+	assert.equal(interact.parameters.properties.action.type, "string");
+	assert.equal(interact.parameters.properties.actions.maxItems, 10);
 	assert.equal(interact.parameters.properties.expect.enum.length, 16);
 	assert.ok(interact.parameters.properties.expect.enum.includes("value=nonempty"));
 	for (const invalid of ["visible", "navigation", "ack", "EPUB"]) assert.equal(interact.parameters.properties.expect.enum.includes(invalid), false);
@@ -991,6 +996,90 @@ test("browser dialog：弹窗期间的拒绝原样返回，dialog 动作只下�
 		assert.equal(last.promptText, "answer");
 		assert.equal(last.targetRef, undefined, "dialog 不带 ref");
 		assert.equal(last.paths, undefined);
+	} finally {
+		for (const handler of browser.handlers.get("session_shutdown") ?? []) await handler({ type: "session_shutdown", reason: "quit" }, ctx);
+		await rm(workspace, { recursive: true, force: true });
+	}
+});
+
+test("browser batch：逐步派发、单步 audit、原地停下且不重放", async () => {
+	const workspace = await mkdtemp(join(tmpdir(), "pi-browser-batch-"));
+	const piDist = findPiDist();
+	const loaderUrl = pathToFileURL(join(piDist, "core/extensions/loader.js")).href;
+	const [{ loadExtensions, loadExtensionFromFactory }, { SessionManager }] = await Promise.all([
+		import(loaderUrl),
+		import(pathToFileURL(join(piDist, "core/session-manager.js")).href),
+	]);
+	const { createJiti } = await import(pathToFileURL(findPiDependency(piDist, "jiti/lib/jiti.mjs")).href);
+	const jiti = createJiti(loaderUrl, { moduleCache: false, alias: {
+		"@earendil-works/pi-ai": findPiDependency(piDist, "@earendil-works/pi-ai/dist/index.js"),
+		"@earendil-works/pi-coding-agent": join(piDist, "index.js"),
+	} });
+	const { createBrowserRelayExtensionV1 } = await jiti.import(join(process.cwd(), "rotom/extensions/browser/index.ts")) as any;
+	const loaded = await loadExtensions([], workspace);
+	const interactPayloads: Array<Record<string, unknown>> = [];
+	const observation = (generation: number) => ({ schemaVersion: 1, kind: "rotom-browser-observation", tabName: "form", tabId: 41, documentGeneration: generation, observationEpoch: 3, url: "https://example.test/form", status: "complete", contentCoverage: "rendered-dom", contentComplete: false, nodes: [], digest: `form-${generation}` });
+	const relay = {
+		get closed() { return false; },
+		close() {},
+		get leaseToken() { return undefined; },
+		get keepTabs() { return false; },
+		get socketPath() { return join(workspace, "relay.sock"); },
+		async request(operation: string, payload: Record<string, unknown>) {
+			if (operation === "tabs") return { schemaVersion: 1, kind: "rotom-browser-tabs", tabs: [{ name: "form", tabId: 41, documentGeneration: 1, url: "https://example.test/form", title: "form", status: "complete", current: true, browserActive: false, ownership: "agent", relayAttached: true }] };
+			if (operation !== "interact") throw new Error(`unexpected operation ${operation}`);
+			interactPayloads.push(payload);
+			// The third step navigates: that must stop the batch.
+			const navigated = interactPayloads.length === 3;
+			const expectation = payload.expect === undefined ? undefined : { outcome: payload.expect === "checked=true" ? "unmet" : "met" };
+			return {
+				schemaVersion: 1,
+				kind: "rotom-browser-interaction-result",
+				tabName: "form",
+				actionId: payload.actionId,
+				action: payload.action,
+				acknowledged: true,
+				effect: { dispatch: "mouse", target: { changed: true }, ...(expectation ? { expectation } : {}) },
+				readback: observation(navigated ? 2 : 1),
+			};
+		},
+	};
+	const browser = await loadExtensionFromFactory(createBrowserRelayExtensionV1({
+		async connectRelay() { return relay; },
+		openArtifactStore: async () => (await import("./browser-relay.ts")).BrowserArtifactStoreV1.open(),
+	}), workspace, undefined, loaded.runtime, join(process.cwd(), "rotom/extensions/browser"));
+	const session = SessionManager.inMemory(workspace);
+	const audits: any[] = [];
+	loaded.runtime.appendEntry = (type: string, data: any) => { if (type === "rotom-browser-interaction-audit/v1") audits.push(data); };
+	loaded.runtime.getAllTools = () => [];
+	loaded.runtime.getCommands = () => [];
+	loaded.runtime.refreshTools = () => {};
+	const ctx: any = { cwd: workspace, sessionManager: session, mode: "print", hasUI: false, ui: { notify() {}, setStatus() {}, async confirm() { return true; }, theme: { fg: (_color: string, value: string) => value } } };
+	try {
+		await new Promise((resolve) => setImmediate(resolve));
+		for (const handler of browser.handlers.get("session_start") ?? []) await handler({ type: "session_start", reason: "startup" }, ctx);
+		const interact = browser.tools.get("browser_interact")?.definition;
+		assert.ok(interact);
+		// Each step gets its own intent+terminal audit; the batch itself does not add one.
+		const done = await interact.execute("batch-1", { operation: "execute", tabName: "form", actions: [{ action: "click", targetRef: "ax_1_1" }, { action: "type", targetRef: "ax_1_2", text: "hi" }] }, undefined, undefined, ctx);
+		assert.equal(done.details.kind, "browser-batch-result");
+		assert.equal(done.details.completed, true);
+		assert.equal(interactPayloads.length, 2);
+		assert.equal(audits.filter((entry) => entry.kind === "rotom-browser-interaction-intent").length, 2);
+		assert.equal(audits.filter((entry) => entry.kind === "rotom-browser-interaction-terminal" && entry.status === "ok").length, 2);
+		assert.notEqual(interactPayloads[0].actionId, interactPayloads[1].actionId, "每一步是独立的动作");
+		// An unmet expect stops before the next step is dispatched.
+		interactPayloads.length = 0;
+		const unmet = await interact.execute("batch-2", { operation: "execute", tabName: "form", actions: [{ action: "click", targetRef: "ax_1_1", expect: "checked=true" }, { action: "click", targetRef: "ax_1_2" }] }, undefined, undefined, ctx);
+		assert.equal(unmet.details.stopReason, "expect-unmet");
+		assert.equal(unmet.details.stoppedAt, 0);
+		assert.equal(interactPayloads.length, 1, "第一步之后不再派发");
+		// A navigation between steps stops the batch as well.
+		interactPayloads.length = 0;
+		const navigated = await interact.execute("batch-3", { operation: "execute", tabName: "form", actions: [{ action: "click", targetRef: "ax_1_1" }, { action: "click", targetRef: "ax_1_2" }, { action: "click", targetRef: "ax_1_3" }, { action: "click", targetRef: "ax_1_4" }] }, undefined, undefined, ctx);
+		assert.equal(navigated.details.stopReason, "navigation");
+		assert.equal(navigated.details.stoppedAt, 2);
+		assert.equal(interactPayloads.length, 3, "导航之后的那一步不再派发");
 	} finally {
 		for (const handler of browser.handlers.get("session_shutdown") ?? []) await handler({ type: "session_shutdown", reason: "quit" }, ctx);
 		await rm(workspace, { recursive: true, force: true });
