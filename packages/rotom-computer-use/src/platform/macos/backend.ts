@@ -1,5 +1,6 @@
 import { getComputerUseConfig } from "../../config.ts";
 import { parseLookResponse, type LookResponse } from "../../outline.ts";
+import { cursorColorFor } from "../../cursor-colors.ts";
 import { toBoolean, toFiniteNumber, toOptionalString } from "../coerce.ts";
 import type { HelperLease, ComputerUsePlatformBackend, FramePoints, HelperActResult, PlatformActRequest, PlatformApp, PlatformAppLaunchResult, PlatformAppQuitResult, PlatformClipboardRead, PlatformClipboardRestore, PlatformClipboardSnapshot, PlatformClipboardWrite, PlatformDisplay, PlatformFocusWindowResult, PlatformFrontmostResult, PlatformObserveRequest, PlatformReadTextRequest, PlatformReadTextResponse, PlatformRoot, PlatformRootKind, PlatformRootQuery, PlatformSystemSurface, PlatformSystemSurfaceName, PlatformTakeoverInput, PlatformTarget, PlatformUserActivity, PlatformWaitForRequest, PlatformWaitForResponse, PlatformWindowMutationResult } from "../types.ts";
 import { macosHelper } from "./helper.ts";
@@ -132,7 +133,15 @@ export const macosBackend: Pick<ComputerUsePlatformBackend, "listApps" | "listRo
 	},
 
 	async act(request: PlatformActRequest, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<HelperActResult> {
-		return await macosHelper.command<HelperActResult>("act", { ...helperAction(request), cursorOverlay: getComputerUseConfig().cursor_overlay }, options);
+		return await macosHelper.command<HelperActResult>(
+			"act",
+			{
+				...helperAction(request),
+				cursorOverlay: getComputerUseConfig().cursor_overlay,
+				...(request.cursorAgentId ? { agentId: request.cursorAgentId, cursorColor: cursorColorFor(request.cursorAgentId) } : {}),
+			},
+			options,
+		);
 	},
 
 	async actBatch(requests: PlatformActRequest[], options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<HelperActResult> {

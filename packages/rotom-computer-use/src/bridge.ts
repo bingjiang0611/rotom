@@ -1411,7 +1411,10 @@ async function helperAct(
 function helperActRequest(target: ResolvedTarget, action: NativePreparedAction, policy = currentDeliveryPolicy(), lease?: HelperLease): PlatformActRequest {
 	const look = currentLookOrThrow();
 	const delivery = nativeInputDelivery(policy, target);
-	const base = { lookId: look.lookId, pid: target.pid, target: action.target, policy, ...(lease ? { lease } : {}) };
+	// Each agent's cursor is separate (F4): the id is what keeps two agents' cursors
+	// apart, and the colour is derived from it deterministically.
+	const cursorAgentId = runtimeState.agentId ?? `session:${process.pid}`;
+	const base = { lookId: look.lookId, pid: target.pid, target: action.target, policy, cursorAgentId, ...(lease ? { lease } : {}) };
 	return (() => {
 		switch (action.action) {
 			case "press":

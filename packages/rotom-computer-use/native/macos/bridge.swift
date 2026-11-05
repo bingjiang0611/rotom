@@ -594,6 +594,18 @@ final class Bridge {
 		}
 	}
 
+	/// `#rrggbb` from the client; an unknown value falls back to the default cursor colour.
+	private func hexColor(_ value: String) -> NSColor? {
+		let text = value.hasPrefix("#") ? String(value.dropFirst()) : value
+		guard text.count == 6, let number = UInt32(text, radix: 16) else { return nil }
+		return NSColor(
+			red: CGFloat((number >> 16) & 0xFF) / 255,
+			green: CGFloat((number >> 8) & 0xFF) / 255,
+			blue: CGFloat(number & 0xFF) / 255,
+			alpha: 1
+		)
+	}
+
 	private func argumentValue(_ name: String) -> String? {
 		guard let index = CommandLine.arguments.firstIndex(of: name), CommandLine.arguments.indices.contains(index + 1) else { return nil }
 		return CommandLine.arguments[index + 1]
@@ -2181,7 +2193,9 @@ final class Bridge {
 				!axStylePolicy,
 				["press", "click", "moveMouse", "scroll", "drag"].contains(action)
 			else { return }
-			Task { @MainActor in AgentCursor.shared.animate(to: point, above: record.windowId) }
+			let agentId = (request["agentId"] as? String) ?? "session:\(getpid())"
+			let color = (request["cursorColor"] as? String).flatMap(hexColor)
+			Task { @MainActor in AgentCursor.shared.animate(agentId: agentId, to: point, above: record.windowId, color: color) }
 		}
 
 		func focusTargetForPhysicalInput() {

@@ -195,6 +195,8 @@ export interface PlatformActRequestBase {
 	lookId: string;
 	lease?: HelperLease;
 	pid?: number;
+	/** Agent whose cursor should move; each agent gets its own cursor (F4). */
+	cursorAgentId?: string;
 	target: PlatformActTarget;
 	policy: PlatformDeliveryPolicy;
 }

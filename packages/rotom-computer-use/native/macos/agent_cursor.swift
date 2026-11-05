@@ -17,7 +17,7 @@ final class AgentCursor {
         self.scheduleIdleHide = scheduleIdleHide
     }
 
-    func animate(to point: CGPoint, above windowId: UInt32) {
+    func animate(agentId: String, to point: CGPoint, above windowId: UInt32, color: NSColor?) {
         idleHideTask?.cancel()
         idleHideTask = nil
         idleGeneration &+= 1
@@ -27,21 +27,18 @@ final class AgentCursor {
         window.order(.above, relativeTo: Int(windowId))
 
         let renderer = AgentCursorRenderer.shared
-        if renderer.position.x < -100 {
-            let frame = NSScreen.main?.frame ?? .zero
-            renderer.setInitialPosition(CGPoint(
-                x: min(max(point.x - 140, frame.minX + 2), frame.maxX - 2),
-                y: min(max(point.y - 140, frame.minY + 2), frame.maxY - 2)
-            ))
+        let rgb = color.map { color -> (red: Double, green: Double, blue: Double) in
+            let converted = color.usingColorSpace(.sRGB) ?? color
+            return (Double(converted.redComponent), Double(converted.greenComponent), Double(converted.blueComponent))
         }
-        renderer.moveTo(point: point)
+        renderer.animate(agentId: agentId, to: point, color: rgb)
 
         let generation = idleGeneration
         idleHideTask = scheduleIdleHide { [weak self, weak window] in
             guard let self, let window else { return }
             guard generation == idleGeneration, self.overlay === window else { return }
 
-            renderer.cancelAnimation()
+            renderer.removeAll()
             window.orderOut(nil)
             window.contentView = nil
             window.close()
@@ -105,10 +102,17 @@ private struct AgentCursorView: View {
     }
 
     private func drawCursor(in graphics: GraphicsContext) {
-        let point = renderer.position
+        for state in renderer.cursors.values {
+            drawCursor(state, in: graphics)
+        }
+    }
+
+    private func drawCursor(_ state: AgentCursorState, in graphics: GraphicsContext) {
+        let point = state.position
         guard point.x > -100 else { return }
 
-        let bloom = Color(nsColor: NSColor(red: 1, green: 0x78 / 255, blue: 0x18 / 255, alpha: 1))
+        let accent = Color(red: state.color.red, green: state.color.green, blue: state.color.blue)
+        let bloom = accent
         let radius: CGFloat = 22
         graphics.fill(
             Path(ellipseIn: CGRect(x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2)),
@@ -140,16 +144,12 @@ private struct AgentCursorView: View {
 
         let transformed = shape.applying(
             CGAffineTransform(translationX: point.x, y: point.y)
-                .rotated(by: CGFloat(renderer.heading + .pi))
+                .rotated(by: CGFloat(state.heading + .pi))
         )
         graphics.fill(
             transformed,
             with: .linearGradient(
-                Gradient(colors: [
-                    Color(red: 1, green: 0xD0 / 255, blue: 0x76 / 255),
-                    Color(red: 1, green: 0x78 / 255, blue: 0x18 / 255),
-                    Color(red: 0xE8 / 255, green: 0x4A / 255, blue: 0x0C / 255),
-                ]),
+                Gradient(colors: [accent, accent.opacity(0.8), accent.opacity(0.6)]),
                 startPoint: CGPoint(x: point.x + 14, y: point.y - 9),
                 endPoint: CGPoint(x: point.x - 8, y: point.y + 9)
             )
