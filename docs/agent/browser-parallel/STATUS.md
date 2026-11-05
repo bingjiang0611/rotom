@@ -255,3 +255,12 @@
 - 阻塞项：`manifest.json` 没有 `icons` 字段，也没有图标资源，提交前必须补 128×128 图标与至少一张截图，否则会被退回。
 
 **M4 覆盖**：L2（本机 macOS，Chrome for Testing 156）覆盖全部 22 个 e2e suite（116 条断言）、`check-personal` 全绿、`browser_devtools` 八个操作（`record_*` 的帧级断言需 `ROTOM_E2E_HEADED=1`，已跑过）；L1（未实测）覆盖 Windows 的命名管道/注册表/pid 锁、Linux 的 runtime 路径，以及商店审核侧的一切结论。
+
+### 评审第 1 轮修复：跨平台可跑与公开审计
+
+- `native-host.test.mjs` 的 socket、锁与 relay 目录改由 `platform-paths.mjs` 计算；断言保留"host 必须自己创建 relay 目录"的约束（预先创建或父级过深会让 host 以 70 退出）。`chrome-extension.test.mjs` 的 installer 不再预建任何 HOME 下目录，multiplex 用 `/tmp` 短根（`/var/folders` 下的 HOME 会让 socket 超过 sun_path）。3 个文件 29 + 8 + 17 条断言通过。
+- `harness.mjs` 的 socket/relay 目录改用 `browserRelaySocketPathV1`/`browserRelayDirectoryV1`（清空 `XDG_RUNTIME_DIR`，路径留在临时根内）；Linux 上 Chrome 额外拿到隔离 HOME `<root>/chrome-home`，native host manifest 同时写入 `.config/chromium/` 与 `.config/google-chrome/`；macOS 仍保留真实 HOME（重定向会让它不提交导航）。
+- `fixtures/server.mjs` 的跨站 frame 从 `listen("frame","::","localhost")` 改为 IPv4 绑定，仍是 `localhost` vs `127.0.0.1` 两个站点；监听失败时关闭已起的 server，避免 runner 挂住。
+- 公开审计 `python3 scripts/audit-public.py --root .` 恢复 PASS：测试里的示例 HOME 改用审计认可的示例用户名，`upload-guard.ts` 注释同理；没有放宽任何规则。
+- 验证：`baseline`/`isolation`/`chunked` 三个 suite 在 macOS 复跑仍全绿（16 条断言）。
+- **仍未验证**：Linux 实机。本机没有 Linux 容器，以上改动只有平台分支单测与代码审查证据，Linux 仍是 L1；评审环境里的 11 项 e2e 失败（screenshot 超时级联、chunked 空 nodes、pointer 拖拽 `effect.action` 缺失）未在本机复现，也没有在本轮修复。

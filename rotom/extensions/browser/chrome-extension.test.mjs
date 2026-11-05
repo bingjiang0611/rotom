@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { lstat, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { createConnection } from "node:net";
 import test from "node:test";
@@ -10,6 +10,10 @@ import { fullReadCoverage, fullReadScrollStep, mergeRenderedText, scrollableText
 import { compactInteractionReadback, observationTextBaseline, observedInteractionNode } from "./chrome-extension/interaction-observation.js";
 import { invalidateCoordinateObservation, mintCoordinateObservation, validateCoordinateBinding, validateCoordinateHit } from "./chrome-extension/coordinate-click.js";
 import { interactionScrollTarget } from "./chrome-extension/interaction-scroll-target.js";
+import { browserRelayDirectoryV1, browserRelaySocketPathV1 } from "./platform-paths.mjs";
+
+// XDG_RUNTIME_DIR is cleared so a Linux run keeps the relay under the temporary home.
+const RELAY_ENV = { XDG_RUNTIME_DIR: undefined };
 import { createOperationGuard } from "./chrome-extension/operation-guard.js";
 import { consumeMatchingWindowOpenSignal } from "./chrome-extension/window-open-correlation.js";
 import { RELAY_SETTLE_MS, relayClientTimeoutMs, relayOperationDeadlineMs, runWithRelayDeadline, valueWithinRelayDeadline } from "./chrome-extension/relay-deadline.js";
@@ -705,7 +709,8 @@ test("scroll target 优先选择 anchor 最近的纵向滚动祖先并保留 doc
 test("installer 固定组件存储与 exact 注册，status 校验内容且 uninstall 不跟随 symlink", async (t) => {
 	const home = await mkdtemp(join(tmpdir(), "pi-browser-installer-home-"));
 	t.after(() => rm(home, { recursive: true, force: true }));
-	await mkdir(join(home, "Library", "Application Support"), { recursive: true });
+	// No directory is pre-created below HOME: the installer must build its own private
+	// state root on every platform, and it rejects one it did not create.
 	const run = (operation) => spawnSync(process.execPath, [installer, operation], { cwd: process.cwd(), env: { ...process.env, HOME: home }, encoding: "utf8" });
 	const installed = run("install");
 	assert.equal(installed.status, 0, installed.stderr);
@@ -733,8 +738,8 @@ test("installer 固定组件存储与 exact 注册，status 校验内容且 unin
 	await mkdir(join(home, "outside"));
 	const outside = join(home, "outside", "sentinel");
 	await writeFile(outside, "keep", { mode: 0o600 });
-	await mkdir(join(home, "Library", "Application Support", "rotom", "browser-relay"), { recursive: true, mode: 0o700 });
-	const launcher = join(home, "Library", "Application Support", "rotom", "browser-relay", "native-host-launcher.sh");
+	await mkdir(browserRelayDirectoryV1({ platform: process.platform, home, env: RELAY_ENV }), { recursive: true, mode: 0o700 });
+	const launcher = join(browserRelayDirectoryV1({ platform: process.platform, home, env: RELAY_ENV }), "native-host-launcher.sh");
 	await import("node:fs/promises").then(({ symlink }) => symlink(outside, launcher));
 	const rejected = run("uninstall");
 	assert.notEqual(rejected.status, 0);
@@ -742,13 +747,14 @@ test("installer 固定组件存储与 exact 注册，status 校验内容且 unin
 });
 
 test("Native host 并行 multiplex 多个 Pi client、按 binding 路由响应并隔离断线 cleanup", async (t) => {
-	const home = await mkdtemp(join(tmpdir(), "pibr-multiplex-"));
+	// A short root: the relay socket lives under HOME and must stay within sun_path.
+	const home = await mkdtemp("/tmp/pibr-multiplex-");
 	t.after(() => rm(home, { recursive: true, force: true }));
-	await mkdir(join(home, "Library", "Application Support"), { recursive: true });
-	const child = spawn(process.execPath, [join(root, "native-host.mjs")], { env: { ...process.env, HOME: home }, stdio: ["pipe", "pipe", "pipe"] });
+	await mkdir(dirname(dirname(browserRelaySocketPathV1({ platform: process.platform, home, env: RELAY_ENV }))), { recursive: true });
+	const child = spawn(process.execPath, [join(root, "native-host.mjs")], { env: { ...process.env, HOME: home, ...RELAY_ENV }, stdio: ["pipe", "pipe", "pipe"] });
 	let stderr = ""; child.stderr.setEncoding("utf8"); child.stderr.on("data", (chunk) => { stderr = `${stderr}${chunk}`.slice(-2_048); });
 	t.after(() => { if (child.exitCode === null) child.kill("SIGKILL"); });
-	const socketPath = join(home, "Library", "Application Support", "rotom", "browser-relay", "relay.sock");
+	const socketPath = browserRelaySocketPathV1({ platform: process.platform, home, env: RELAY_ENV });
 	let ready = false;
 	for (let attempt = 0; attempt < 1_500; attempt += 1) {
 		try { if ((await lstat(socketPath)).isSocket()) { ready = true; break; } }

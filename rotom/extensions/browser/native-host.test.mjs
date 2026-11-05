@@ -7,13 +7,20 @@ import { dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
 
+import { browserRelayDirectoryV1, browserRelayLockPathV1, browserRelaySocketPathV1 } from "./platform-paths.mjs";
+
 const hostPath = resolve("rotom/extensions/browser/native-host.mjs");
 
 async function fixture(t) {
 	// Keep Unix socket paths within the platform's sun_path limit.
 	const home = await mkdtemp("/tmp/rotom-host-");
-	await mkdir(join(home, "Library", "Application Support"), { recursive: true });
-	const socketPath = join(home, "Library", "Application Support", "rotom", "browser-relay", "relay.sock");
+	// The same platform module the host uses, so this test asserts the real layout on
+	// every OS instead of a macOS-shaped copy.
+	const relayEnv = { ...process.env, XDG_RUNTIME_DIR: undefined };
+	const socketPath = browserRelaySocketPathV1({ platform: process.platform, home, env: relayEnv });
+	// Only the grandparent: the host insists on creating its own relay directory, so a
+	// pre-created one with the wrong mode would make it exit before listening.
+	await mkdir(dirname(dirname(socketPath)), { recursive: true });
 	const hosts = [];
 	t.after(async () => {
 		for (const host of hosts) {
@@ -87,7 +94,7 @@ test("duplicate native host cannot unlink the live owner's socket", { timeout: 1
 test("native host reclaims a refused stale socket and cleans its own socket on EOF", { timeout: 10_000 }, async (t) => {
 	const f = await fixture(t);
 	const crashed = f.start(); await f.ready(crashed);
-	const lockPath = join(f.home, "Library/Application Support/rotom/browser-relay/relay.lock");
+	const lockPath = browserRelayLockPathV1({ platform: process.platform, home: f.home, env: { ...process.env, XDG_RUNTIME_DIR: undefined } });
 	const lockInfo = await lstat(lockPath);
 	assert.equal(lockInfo.mode & 0o077, 0);
 	crashed.child.kill("SIGKILL"); await crashed.closed;
@@ -104,7 +111,7 @@ test("native host reclaims a refused stale socket and cleans its own socket on E
 
 test("native host rejects a symlink lock before touching any socket", { timeout: 10_000 }, async (t) => {
 	const f = await fixture(t);
-	const directory = join(f.home, "Library/Application Support/rotom/browser-relay");
+	const directory = browserRelayDirectoryV1({ platform: process.platform, home: f.home, env: { ...process.env, XDG_RUNTIME_DIR: undefined } });
 	await mkdir(directory, { recursive: true, mode: 0o700 });
 	const sentinel = join(f.home, "sentinel"); await writeFile(sentinel, "keep", { mode: 0o600 });
 	await symlink(sentinel, join(directory, "relay.lock"));
