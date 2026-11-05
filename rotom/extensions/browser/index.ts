@@ -3,7 +3,8 @@ import { defineTool, type ExtensionAPI, type ExtensionContext } from "@earendil-
 import { createHash, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { createReadStream } from "node:fs";
-import { lstat, realpath } from "node:fs/promises";
+import { constants } from "node:fs";
+import { lstat, open, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -47,7 +48,8 @@ import { INTERACTION_EXPECTATIONS, parseInteractionExpectation } from "./chrome-
 import { MAX_UPLOAD_FILES_V1, validateUploadPathsV1 } from "./upload-guard.ts";
 import { MAX_BATCH_STEPS_V1, batchErrorOutcomeV1, batchStepOutcomeV1, batchStepSummaryV1, parseBatchActionsV1 } from "./batch-actions.ts";
 import { isDeferredByDefault } from "../third-party/deferred-tools/register.ts";
-import { BROWSER_DEVTOOLS_TOOL_V1, DEVTOOLS_OPERATIONS_V1, DEVTOOLS_WORLDS_V1, MAX_DEVTOOLS_EXPRESSION_CHARS_V1, boundDevtoolsTextV1, devtoolsEnabledByEnvironment, resolveViewportV1, sanitizeDevtoolsExpressionV1, sanitizeDevtoolsOperationV1, sanitizeDevtoolsWorldV1, viewportPresetNamesV1 } from "./devtools.ts";
+import { BROWSER_DEVTOOLS_TOOL_V1, DEVTOOLS_OPERATIONS_V1, DEVTOOLS_WORLDS_V1, MAX_DEVTOOLS_EXPRESSION_CHARS_V1, boundDevtoolsTextV1, devtoolsEnabledByEnvironment, resolveViewportV1, sanitizeDevtoolsExpressionV1, sanitizeDevtoolsOperationV1, sanitizeDevtoolsWorldV1, sanitizeExportQualityV1, viewportPresetNamesV1 } from "./devtools.ts";
+import { MAX_EXPORT_BYTES_V1, resolveExportTargetV1, type ExportTargetV1 } from "./export-guard.ts";
 import {
 	AUTO_APPROVE_LOCALHOST_V1,
 	SENSITIVE_CONFIRM_ENV_V1,
@@ -173,6 +175,14 @@ function browserResult(value: unknown) {
 	const text = JSON.stringify(value);
 	if (Buffer.byteLength(text, "utf8") > MAX_RESULT_BYTES) throw new Error("browser tool result 超过 128 KiB");
 	return { content: [{ type: "text" as const, text }], details: value };
+}
+/**
+ * Writes exported bytes without following a link: the path was checked before the relay
+ * request, and `O_NOFOLLOW` keeps a swapped-in symlink from redirecting the write.
+ */
+async function writeExportFileV1(path: string, bytes: Buffer): Promise<void> {
+	const handle = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW, 0o644);
+	try { await handle.writeFile(bytes); } finally { await handle.close(); }
 }
 function screenshotResult(screenshot: BrowserScreenshotV1, artifact: unknown) {
 	const details = { kind: "browser-screenshot", tabName: screenshot.tabName, tabId: screenshot.tabId, documentGeneration: screenshot.documentGeneration, observationEpoch: screenshot.observationEpoch, viewport: screenshot.viewport, coordinateSpace: "css-viewport", artifact };
@@ -1279,6 +1289,10 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			expression: Type.Optional(Type.String({ minLength: 1, maxLength: MAX_DEVTOOLS_EXPRESSION_CHARS_V1 })),
 			world: Type.Optional(StringEnum(DEVTOOLS_WORLDS_V1)),
 			awaitPromise: Type.Optional(Type.Boolean()),
+			path: Type.Optional(Type.String({ minLength: 1, maxLength: 4_096 })),
+			fullPage: Type.Optional(Type.Boolean()),
+			format: Type.Optional(Type.String({ minLength: 1, maxLength: 8 })),
+			quality: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
 			viewport: Type.Optional(Type.Union([Type.String({ minLength: 1, maxLength: 32 }), Type.Object({
 				width: Type.Integer({ minimum: 200, maximum: 5_000 }),
 				height: Type.Integer({ minimum: 200, maximum: 5_000 }),
@@ -1302,6 +1316,9 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			if (operation === "viewport" && resolvedViewport === undefined) throw new Error(`viewport 需要 ${["reset", ...viewportPresetNamesV1()].join("/")} 或完整覆盖对象`);
 			if (operation === "evaluate" && params.viewport !== undefined) throw new Error("viewport 不能与 evaluate 同时使用");
 			if (operation === "viewport" && (params.expression !== undefined || params.world !== undefined)) throw new Error("evaluate 参数不能与 viewport 同时使用");
+			if (operation !== "screenshot_export" && (params.path !== undefined || params.fullPage !== undefined || params.format !== undefined || params.quality !== undefined)) throw new Error("path/fullPage/format/quality 只用于 screenshot_export");
+			const exportQuality = operation === "screenshot_export" ? sanitizeExportQualityV1(params.quality) : undefined;
+			if (operation === "screenshot_export" && exportQuality === undefined) throw new Error("quality 必须是 1-100 的整数");
 			const assertOwner = await bindSession(ctx, signal);
 			const relayClient = await client(ctx, assertOwner);
 			const listedTabs = await readTabs(relayClient, signal);
@@ -1326,6 +1343,14 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 				}
 				if (!confirmed) return browserResult({ kind: "needs-approval", reason: "user-denied", origin: policyOriginV1(tab.url) ?? "", message: "用户拒绝在主世界执行代码；没有发出请求，不要重试。" });
 			}
+			let exportTarget: ExportTargetV1 | undefined;
+			if (operation === "screenshot_export") {
+				// Where the bytes land is decided before anything is captured, so a bad path
+				// never leaves a screenshot in hand with nowhere allowed to put it.
+				const resolved = await resolveExportTargetV1({ path: params.path, cwd: ctx.cwd, format: params.format });
+				if (!resolved.ok) throw new Error(resolved.reason);
+				exportTarget = resolved.target;
+			}
 			const actionId = `pi1_browser_devtools_${randomUUID()}`;
 			pi.appendEntry(BROWSER_INTERACTION_AUDIT_ENTRY, { schemaVersion: 1, kind: "rotom-browser-interaction-intent", actionId, sessionId: ctx.sessionManager.getSessionId(), branchLeafId: ctx.sessionManager.getLeafId() ?? null, toolCallId, action: `devtools:${operation}`, ...(codeDigest === undefined ? {} : { actionDigest: codeDigest }), targetDigest: browserActionDigestV1({ tabName: tab.name, tabId: tab.tabId, documentGeneration: tab.documentGeneration }), originDigest: browserActionDigestV1(browserOriginV1(tab.url)), timestamp: new Date().toISOString() });
 			let raw: unknown;
@@ -1336,6 +1361,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 					...{ allowedOrigins: [...policyAuthorizedOrigins] },
 					...(expression === undefined ? {} : { expression, world, awaitPromise: params.awaitPromise !== false }),
 					...(resolvedViewport === undefined ? {} : { viewport: resolvedViewport }),
+					...(exportTarget === undefined ? {} : { format: exportTarget.format, fullPage: params.fullPage === true, quality: exportQuality }),
 				}, { signal, timeoutMs: relayClientTimeoutMs("devtools", {}) });
 			} catch (error) {
 				// Dispatched but unproven: report unknown instead of inviting a replay.
@@ -1343,6 +1369,25 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 				throw new Error(`browser_devtools ${operation} 结果未知（可能已执行），不要重放：${error instanceof Error ? error.message : String(error)}`);
 			}
 			assertOwner();
+			if (exportTarget !== undefined) {
+				const data = record(raw) ? raw.data : undefined;
+				if (typeof data !== "string" || !/^[A-Za-z0-9+/]+={0,2}$/u.test(data)) throw new Error("browser_devtools screenshot 缺少有效数据");
+				const bytes = Buffer.from(data, "base64");
+				if (bytes.length === 0 || bytes.length > MAX_EXPORT_BYTES_V1) throw new Error(`browser_devtools screenshot 字节数超出上限（${bytes.length}）`);
+				await writeExportFileV1(exportTarget.path, bytes);
+				assertOwner();
+				pi.appendEntry(BROWSER_INTERACTION_AUDIT_ENTRY, { schemaVersion: 1, kind: "rotom-browser-interaction-terminal", actionId, status: "ok", actionAcknowledged: true, businessOutcome: operation, timestamp: new Date().toISOString() });
+				// Only the relative path reaches the model; the absolute one stays local.
+				return browserResult({
+					kind: "browser-export",
+					relativePath: exportTarget.relativePath,
+					bytes: bytes.length,
+					format: exportTarget.format,
+					fullPage: record(raw) && raw.fullPage === true,
+					overwrote: exportTarget.exists,
+					...(record(raw) && typeof raw.width === "number" ? { width: raw.width, height: raw.height } : {}),
+				});
+			}
 			pi.appendEntry(BROWSER_INTERACTION_AUDIT_ENTRY, { schemaVersion: 1, kind: "rotom-browser-interaction-terminal", actionId, status: "ok", actionAcknowledged: true, businessOutcome: operation, timestamp: new Date().toISOString() });
 			const blocked = dialogBlockingV1(raw);
 			if (blocked) return browserResult(blocked);

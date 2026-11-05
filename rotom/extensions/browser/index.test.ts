@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync, realpathSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -1444,6 +1444,9 @@ test("browser downloads：列表只回模型安全字段、完成态带 sha256�
 	}
 });
 
+// 1x1 PNG: real image bytes, so the export path is proven with a decodable file.
+const ONE_PIXEL_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+
 test("browser_devtools：默认隔离世界、main world 必须确认、拒绝后不派发、非法参数本地拒绝", async () => {
 	const workspace = await mkdtemp(join(tmpdir(), "pi-browser-devtools-"));
 	const piDist = findPiDist();
@@ -1473,6 +1476,7 @@ test("browser_devtools：默认隔离世界、main world 必须确认、拒绝�
 			if (operation === "tabs") return { schemaVersion: 1, kind: "rotom-browser-tabs", tabs: [{ name: "code", tabId: 31, documentGeneration: 1, url: "https://example.test/globals", title: "code", status: "complete", current: true, browserActive: false, ownership: "agent", relayAttached: true }] };
 			if (operation === "devtools") {
 				dispatched.push(payload);
+				if (payload.devtools === "screenshot_export") return { schemaVersion: 1, kind: "rotom-browser-devtools", devtools: "screenshot_export", tabName: "code", tabId: 31, documentGeneration: 1, format: payload.format, fullPage: payload.fullPage === true, bytes: ONE_PIXEL_PNG.length, data: ONE_PIXEL_PNG.toString("base64") };
 				return payload.devtools === "viewport"
 					? { schemaVersion: 1, kind: "rotom-browser-devtools", devtools: "viewport", tabName: "code", tabId: 31, documentGeneration: 1, observationEpoch: 2, reset: false, viewport: { width: 900, height: 700, deviceScaleFactor: 1, mobile: false, touch: false } }
 					: { schemaVersion: 1, kind: "rotom-browser-devtools", devtools: "evaluate", tabName: "code", tabId: 31, documentGeneration: 1, world: payload.world ?? "isolated", threw: false, type: "string", valueText: "\"ok\"", truncated: false, bytes: 4 };
@@ -1526,6 +1530,29 @@ test("browser_devtools：默认隔离世界、main world 必须确认、拒绝�
 		assert.equal(dispatched.at(-1).devtools, "viewport");
 		assert.deepEqual(dispatched.at(-1).viewport, { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false, touch: false });
 		assert.equal(viewport.details.devtools, "viewport");
+
+		// 截图导出：字节真的落盘，模型只拿相对路径。
+		await mkdir(join(workspace, "shots"), { recursive: true });
+		const exported = await tool.execute("devtools-export", { operation: "screenshot_export", path: "shots/shot.png", fullPage: true }, undefined, undefined, ctx);
+		assert.equal(exported.details.kind, "browser-export");
+		assert.equal(exported.details.relativePath, join("shots", "shot.png"));
+		assert.equal(exported.details.bytes, ONE_PIXEL_PNG.length);
+		assert.equal(exported.details.format, "png");
+		assert.equal(exported.details.fullPage, true);
+		assert.equal(exported.details.overwrote, false);
+		assert.equal(JSON.stringify(exported.details).includes(workspace), false, "模型可见结果里不得出现绝对路径");
+		assert.deepEqual(await readFile(join(workspace, "shots", "shot.png")), ONE_PIXEL_PNG, "落盘内容必须与 relay 字节一致");
+		assert.equal(dispatched.at(-1).format, "png");
+		assert.equal(dispatched.at(-1).fullPage, true);
+
+		// 覆盖已有普通文件要如实标记。
+		const overwritten = await tool.execute("devtools-export-again", { operation: "screenshot_export", path: "shots/shot.png" }, undefined, undefined, ctx);
+		assert.equal(overwritten.details.overwrote, true);
+		await assert.rejects(tool.execute("devtools-export-outside", { operation: "screenshot_export", path: "../escape.png" }, undefined, undefined, ctx), /项目目录/u);
+		await assert.rejects(tool.execute("devtools-export-mismatch", { operation: "screenshot_export", path: "shots/shot.png", format: "jpeg" }, undefined, undefined, ctx), /format/u);
+		await assert.rejects(tool.execute("devtools-export-format", { operation: "screenshot_export", path: "shots/shot.png", format: "webp" }, undefined, undefined, ctx), /format/u);
+		await symlink(join(workspace, "shots", "shot.png"), join(workspace, "shots", "link.png"));
+		await assert.rejects(tool.execute("devtools-export-link", { operation: "screenshot_export", path: "shots/link.png" }, undefined, undefined, ctx), /符号链接/u);
 
 		// 参数在本地就被拒，不产生任何请求。
 		const count = dispatched.length;

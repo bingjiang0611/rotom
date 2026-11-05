@@ -8,7 +8,7 @@ export const BROWSER_DEVTOOLS_TOOL_V1 = "browser_devtools" as const;
  * Operations this product actually implements. Unlisted names are rejected locally
  * instead of reaching the relay, so a half-built operation can never look supported.
  */
-export const DEVTOOLS_OPERATIONS_V1 = ["evaluate", "viewport"] as const;
+export const DEVTOOLS_OPERATIONS_V1 = ["evaluate", "viewport", "screenshot_export"] as const;
 export type DevtoolsOperationV1 = (typeof DEVTOOLS_OPERATIONS_V1)[number];
 
 /** Isolated world by default: page globals stay out of reach unless the caller asks. */
@@ -19,6 +19,10 @@ export const MAX_DEVTOOLS_EXPRESSION_CHARS_V1 = 8 * 1024;
 export const MAX_DEVTOOLS_RESULT_BYTES_V1 = 64 * 1024;
 export const DEVTOOLS_EVALUATE_TIMEOUT_MS_V1 = 10_000;
 export const DEVTOOLS_VIEWPORT_WAIT_MS_V1 = 2_000;
+/** A full-page capture is one image: bound each edge before asking the renderer. */
+export const MAX_EXPORT_WIDTH_V1 = 5_000;
+export const MAX_EXPORT_HEIGHT_V1 = 20_000;
+export const DEFAULT_EXPORT_QUALITY_V1 = 80;
 /** The isolated world name the relay creates; one world per document. */
 export const DEVTOOLS_ISOLATED_WORLD_V1 = "rotom-devtools";
 
@@ -81,6 +85,11 @@ export function resolveViewportV1(value: unknown): ViewportOverrideV1 | "reset" 
 	if (typeof deviceScaleFactor !== "number" || !Number.isFinite(deviceScaleFactor) || deviceScaleFactor <= 0 || deviceScaleFactor > 4) return undefined;
 	if (typeof mobile !== "boolean" || typeof touch !== "boolean") return undefined;
 	return { width, height, deviceScaleFactor, mobile, touch };
+}
+
+export function sanitizeExportQualityV1(value: unknown): number | undefined {
+	if (value === undefined) return DEFAULT_EXPORT_QUALITY_V1;
+	return Number.isInteger(value) && (value as number) >= 1 && (value as number) <= 100 ? (value as number) : undefined;
 }
 
 export function viewportPresetNamesV1(): string[] {

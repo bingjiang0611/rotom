@@ -7,6 +7,10 @@ import {
 	DEVTOOLS_VIEWPORT_PRESETS_V1,
 	MAX_DEVTOOLS_EXPRESSION_CHARS_V1,
 	MAX_DEVTOOLS_RESULT_BYTES_V1,
+	MAX_EXPORT_HEIGHT_V1,
+	MAX_EXPORT_WIDTH_V1,
+	DEFAULT_EXPORT_QUALITY_V1,
+	sanitizeExportQualityV1,
 	boundDevtoolsTextV1,
 	devtoolsCodeDigestV1,
 	devtoolsEnabledByEnvironment,
@@ -27,8 +31,10 @@ test("ROTOM_BROWSER_DEVTOOLS=0 disables the tool and empty/unset keeps it on", (
 });
 
 test("only implemented operations are accepted", () => {
-	assert.deepEqual([...DEVTOOLS_OPERATIONS_V1], ["evaluate", "viewport"]);
+	assert.deepEqual([...DEVTOOLS_OPERATIONS_V1], ["evaluate", "viewport", "screenshot_export"]);
 	assert.equal(sanitizeDevtoolsOperationV1("evaluate"), "evaluate");
+	assert.equal(sanitizeDevtoolsOperationV1("screenshot_export"), "screenshot_export");
+	assert.equal(sanitizeDevtoolsOperationV1("record_start"), undefined);
 	assert.equal(sanitizeDevtoolsOperationV1("trace_start"), undefined);
 	assert.equal(sanitizeDevtoolsOperationV1("Evaluate"), undefined);
 	assert.equal(sanitizeDevtoolsOperationV1(undefined), undefined);
@@ -95,4 +101,13 @@ test("audit stores a stable digest of the code", () => {
 	assert.notEqual(digest, devtoolsCodeDigestV1("document.title+''"));
 	assert.equal(digest.includes("document"), false, "摘要不含源码");
 	assert.equal(DEVTOOLS_EVALUATE_TIMEOUT_MS_V1, 10_000);
+});
+
+test("导出质量有默认值，范围外拒绝而不是钳制", () => {
+	assert.equal(MAX_EXPORT_WIDTH_V1, 5_000);
+	assert.equal(MAX_EXPORT_HEIGHT_V1, 20_000);
+	assert.equal(sanitizeExportQualityV1(undefined), DEFAULT_EXPORT_QUALITY_V1);
+	assert.equal(sanitizeExportQualityV1(1), 1);
+	assert.equal(sanitizeExportQualityV1(100), 100);
+	for (const bad of [0, 101, 1.5, "80", null]) assert.equal(sanitizeExportQualityV1(bad), undefined, String(bad));
 });
