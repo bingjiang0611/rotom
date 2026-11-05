@@ -128,14 +128,17 @@ try {
 	if (formRef === undefined) {
 		results.notes.push("form 页没有找到文本输入，写入路径未测量");
 	} else {
-		results.scenarios.push(await measure("interact type + 读回（写路径）", () => request("interact", {
+		// Text length changes each round because the target-state probe reports
+		// `valueLength`, never the value: an equal-length replacement is genuinely
+		// unobservable, so it would measure the settle deadline rather than the action.
+		results.scenarios.push(await measure("interact type + 读回（写路径）", (index) => request("interact", {
 			actionId: `bench-type-${Math.random().toString(16).slice(2)}`,
 			tabName: "form",
 			action: "type",
 			targetRef: formRef,
-			text: "bench",
+			text: "b".padEnd(index + 2, "e"),
 			replace: true,
-		})));
+		}), { note: "每轮文本长度不同；等长替换观察不到变化，会走满 settle 上限" }));
 	}
 
 	// Concurrency: 1, 2 and 4 tabs in flight at once, same operation on each.

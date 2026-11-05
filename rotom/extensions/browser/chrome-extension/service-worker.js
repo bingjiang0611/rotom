@@ -53,6 +53,11 @@ const SCROLL_DISPATCH_WAIT_MS = 750;
 const SCROLL_EFFECT_WAIT_MS = 500;
 const INTERACTION_READBACK_WAIT_MS = 750;
 const TARGET_STATE_WAIT_MS = 400;
+// Upper bound for "did the target change?", not a fixed cost: the state is polled and the
+// window ends at the first observed change, because a click or keystroke almost always
+// shows up in the first round trip. The deadline still covers slow pages.
+const INTERACTION_SETTLE_MS = 150;
+const INTERACTION_SETTLE_POLL_MS = 20;
 const PAGE_ALERT_WAIT_MS = 500;
 const NATIVE_RECONNECT_ALARM = "rotom-browser-relay-reconnect";
 const FULL_READ_COMMAND_WAIT_MS = 750;
@@ -1466,9 +1471,16 @@ async function performInteraction(name, item, payload, assertOperation = () => u
 		};
 	}
 	if (target.action !== "scroll") {
-		await new Promise((resolve) => setTimeout(resolve, 150));
+		const settleStartedAt = Date.now();
+		let stateAfter = await interactionTargetState(target.debuggee, stateObjectId, assertOperation);
+		// An unobservable target never changes, so waiting the rest of the window only
+		// delays the answer.
+		while (stateAfter !== undefined && !interactionTargetChange(stateBefore, stateAfter).changed && Date.now() - settleStartedAt < INTERACTION_SETTLE_MS) {
+			await new Promise((resolve) => setTimeout(resolve, INTERACTION_SETTLE_POLL_MS));
+			assertOperation();
+			stateAfter = await interactionTargetState(target.debuggee, stateObjectId, assertOperation);
+		}
 		assertOperation();
-		const stateAfter = await interactionTargetState(target.debuggee, stateObjectId, assertOperation);
 		const change = interactionTargetChange(stateBefore, stateAfter);
 		const expectationResult = evaluateInteractionExpectation(expectation, stateAfter);
 		effect = {

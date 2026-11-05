@@ -12,7 +12,11 @@
 export const SESSION_STATE_KEY_PREFIX_V3 = "browserRelayStateV3:";
 export const LEGACY_SESSION_STATE_KEY_V2 = "browserRelayStateV2";
 export const LEGACY_SESSION_STATE_KEY_V1 = "browserRelayStateV1";
-export const SESSION_PERSIST_MERGE_MS = 100;
+// How long a dirty write waits for company. `schedule()` only sleeps when something
+// actually changed, so the window is no longer hiding read-only latency; a single write
+// should cost one storage write, not a fixed delay. Zero still merges every call made in
+// the same turn, which is where bursts actually come from.
+export const SESSION_PERSIST_MERGE_MS = 0;
 
 export function sessionStateKeyV3(sessionId) {
 	return `${SESSION_STATE_KEY_PREFIX_V3}${sessionId}`;
