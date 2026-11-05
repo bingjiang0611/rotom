@@ -11,6 +11,7 @@ import { BROWSER_POINTER_ACTIONS_V1, dragSequenceV1, pointerSequenceV1 } from ".
 import { readInteractionSensitivity, sensitivityFromFactsV1 } from "./sensitive-actions.js";
 import { MAX_DOWNLOAD_RECORDS_V1, downloadOwnerAgentIdV1, downloadRecordV1, downloadRelativeFilenameV1 } from "./downloads.js";
 import { createNetworkCaptureV1, parseNetworkCursorV1, sanitizeNetworkLimitV1, sanitizeNetworkPatternV1, sanitizeNetworkResourceTypeV1 } from "./network-buffer.js";
+import { devtoolsEvaluateRecordV1, sanitizeDevtoolsExpressionV1, sanitizeDevtoolsWorldV1, sanitizeViewportOverrideV1, viewportRecordV1 } from "./devtools-params.js";
 import { checkBrowserTabQuotasV1, DEFAULT_BROWSER_TAB_QUOTAS_V1, sanitizeBrowserTabQuotasV1 } from "./tab-quotas.js";
 import { createFocusCoordinator } from "./focus-coordinator.js";
 import { withTabWake } from "./lifecycle-wake.js";
@@ -93,7 +94,7 @@ function boundedText(value, max = MAX_NAME_CHARS) {
 }
 function publicError(error) {
 	if (error instanceof Error) {
-		if (/tab|url|session|timeout|debugger|navigation|relay|screenshot|snapshot|operation|owned|interaction|target|ref|download|agent|deploy|quota|console|network|lease|navigation|pattern|level|cursor|allowedOrigins|resourceType|failedOnly/iu.test(error.message)) return error.message.slice(0, 512);
+		if (/tab|url|session|timeout|debugger|navigation|relay|screenshot|snapshot|operation|owned|interaction|target|ref|download|agent|deploy|quota|console|network|lease|navigation|pattern|level|cursor|allowedOrigins|resourceType|failedOnly|devtools|expression|world|viewport|frame|invalid/iu.test(error.message)) return error.message.slice(0, 512);
 	}
 	return "browser relay operation failed";
 }
@@ -1833,6 +1834,65 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 		}
 		const blocked = (blockedDownloadsByAgentId.get(agentId) ?? []).slice(-MAX_DOWNLOAD_RECORDS_V1);
 		return { schemaVersion: 1, kind: "rotom-browser-downloads", agentId, downloads: records, blocked };
+	}
+	if (operation === "devtools") {
+		const { name, item } = owned(state, payload.tabName);
+		const devtools = payload.devtools;
+		if (devtools !== "evaluate" && devtools !== "viewport") throw new Error("devtools operation invalid");
+		const expression = devtools === "evaluate" ? sanitizeDevtoolsExpressionV1(payload.expression) : undefined;
+		if (devtools === "evaluate" && expression === undefined) throw new Error("devtools expression invalid");
+		const world = devtools === "evaluate" ? sanitizeDevtoolsWorldV1(payload.world) : undefined;
+		if (devtools === "evaluate" && world === undefined) throw new Error("devtools world invalid");
+		const viewport = devtools === "viewport" ? sanitizeViewportOverrideV1(payload.viewport) : undefined;
+		if (devtools === "viewport" && viewport === undefined) throw new Error("devtools viewport invalid");
+		await attach(item, assertOperation);
+		await assertOwned(item);
+		const debuggee = { tabId: item.tabId };
+		if (devtools === "evaluate") {
+			// The isolated world is created per document; the main world is the default
+			// execution context of the frame, so it needs no contextId.
+			let contextId;
+			if (world === "isolated") {
+				await chrome.debugger.sendCommand(debuggee, "Page.enable");
+				const tree = await valueWithinRelayDeadline(chrome.debugger.sendCommand(debuggee, "Page.getFrameTree"), 4_000);
+				const frameId = tree.ok ? tree.value?.frameTree?.frame?.id : undefined;
+				if (typeof frameId !== "string") throw new Error("devtools frame unavailable");
+				const created = await valueWithinRelayDeadline(chrome.debugger.sendCommand(debuggee, "Page.createIsolatedWorld", { frameId, worldName: "rotom-devtools" }), 4_000);
+				if (!created.ok || !Number.isInteger(created.value?.executionContextId)) throw new Error("devtools isolated world unavailable");
+				contextId = created.value.executionContextId;
+			}
+			const evaluatedReply = await valueWithinRelayDeadline(chrome.debugger.sendCommand(debuggee, "Runtime.evaluate", {
+				expression,
+				...(contextId === undefined ? {} : { contextId }),
+				returnByValue: true,
+				awaitPromise: payload.awaitPromise !== false,
+				userGesture: false,
+			}), 12_000);
+			// A timed-out evaluate may still have run: report it as unknown, not as empty.
+			if (!evaluatedReply.ok) throw new Error("devtools evaluate timed out");
+			assertOperation();
+			const evaluated = devtoolsEvaluateRecordV1(evaluatedReply.value);
+			return { schemaVersion: 1, kind: "rotom-browser-devtools", devtools: "evaluate", tabName: name, tabId: item.tabId, documentGeneration: item.documentGeneration, world, ...evaluated };
+		}
+		if (viewport === "reset") {
+			// width/height 0 is the documented way to disable the override; clearing alone
+			// left the last size in place on this Chrome.
+			await chrome.debugger.sendCommand(debuggee, "Emulation.setDeviceMetricsOverride", { width: 0, height: 0, deviceScaleFactor: 0, mobile: false });
+			await chrome.debugger.sendCommand(debuggee, "Emulation.clearDeviceMetricsOverride").catch(() => undefined);
+			await chrome.debugger.sendCommand(debuggee, "Emulation.setTouchEmulationEnabled", { enabled: false });
+			// Chrome has no "clear UA" command; restore the browser's own UA instead of
+			// sending an empty string, which it rejects as invalid.
+			const version = await valueWithinRelayDeadline(chrome.debugger.sendCommand(debuggee, "Browser.getVersion"), 2_000);
+			if (version.ok && typeof version.value?.userAgent === "string") await chrome.debugger.sendCommand(debuggee, "Emulation.setUserAgentOverride", { userAgent: version.value.userAgent });
+		} else {
+			await chrome.debugger.sendCommand(debuggee, "Emulation.setDeviceMetricsOverride", { width: viewport.width, height: viewport.height, deviceScaleFactor: viewport.deviceScaleFactor, mobile: viewport.mobile });
+			await chrome.debugger.sendCommand(debuggee, "Emulation.setTouchEmulationEnabled", viewport.touch ? { enabled: true, maxTouchPoints: 5 } : { enabled: false });
+			if (viewport.userAgent !== undefined) await chrome.debugger.sendCommand(debuggee, "Emulation.setUserAgentOverride", { userAgent: viewport.userAgent });
+		}
+		// Every coordinate and viewport measurement taken before this call is void.
+		invalidateCoordinateObservation(item);
+		assertOperation();
+		return { schemaVersion: 1, kind: "rotom-browser-devtools", devtools: "viewport", tabName: name, tabId: item.tabId, documentGeneration: item.documentGeneration, observationEpoch: item.observationEpoch, ...viewportRecordV1(viewport) };
 	}
 	if (operation === "interact") { const { name, item } = owned(state, payload.tabName); return performInteraction(name, item, payload, assertOperation); }
 	if (operation === "close") {

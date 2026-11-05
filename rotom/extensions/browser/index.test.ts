@@ -750,7 +750,7 @@ test("/browser: explicit commands, local-only diagnostics, cancellation and owne
 async function allowPolicyFor(workspace: string, origins: string[] = ["https://example.test"]) {
 	const { writeBrowserPolicyV1, BROWSER_POLICY_PATH_ENV_V1 } = await import("./browser-policy.ts");
 	const path = join(workspace, "rotom", "browser-policy.json");
-	await writeBrowserPolicyV1({ blocklist: [], allowlist: origins.map((origin) => ({ origin, capabilities: ["read", "interact", "upload"] })) }, path);
+	await writeBrowserPolicyV1({ blocklist: [], allowlist: origins.map((origin) => ({ origin, capabilities: ["read", "interact", "upload", "devtools"] })) }, path);
 	process.env[BROWSER_POLICY_PATH_ENV_V1] = path;
 	return path;
 }
@@ -1438,6 +1438,103 @@ test("browser downloads：列表只回模型安全字段、完成态带 sha256�
 		assert.equal(refused.details.kind, "needs-approval");
 		assert.equal(refused.details.capability, "download");
 		assert.match(refused.content.map((part: any) => part.text ?? "").join(" "), /allow\.download/u);
+	} finally {
+		for (const handler of browser.handlers.get("session_shutdown") ?? []) await handler({ type: "session_shutdown", reason: "quit" }, {});
+		await rm(workspace, { recursive: true, force: true });
+	}
+});
+
+test("browser_devtools：默认隔离世界、main world 必须确认、拒绝后不派发、非法参数本地拒绝", async () => {
+	const workspace = await mkdtemp(join(tmpdir(), "pi-browser-devtools-"));
+	const piDist = findPiDist();
+	const loaderUrl = pathToFileURL(join(piDist, "core/extensions/loader.js")).href;
+	const [{ loadExtensions, loadExtensionFromFactory }, { SessionManager }] = await Promise.all([
+		import(loaderUrl),
+		import(pathToFileURL(join(piDist, "core/session-manager.js")).href),
+	]);
+	const { createJiti } = await import(pathToFileURL(findPiDependency(piDist, "jiti/lib/jiti.mjs")).href);
+	const jiti = createJiti(loaderUrl, { moduleCache: false, alias: {
+		"@earendil-works/pi-ai": findPiDependency(piDist, "@earendil-works/pi-ai/dist/index.js"),
+		"@earendil-works/pi-coding-agent": join(piDist, "index.js"),
+	} });
+	const { createBrowserRelayExtensionV1 } = await jiti.import(join(process.cwd(), "rotom/extensions/browser/index.ts")) as any;
+	await allowPolicyFor(workspace);
+	let dispatched: any[] = [];
+	let confirmCalls = 0;
+	let confirmAnswer = true;
+	const relay = {
+		get closed() { return false; },
+		close() {},
+		get leaseToken() { return undefined; },
+		get keepTabs() { return false; },
+		rootSessionId: "root-session",
+		get socketPath() { return join(workspace, "relay.sock"); },
+		async request(operation: string, payload: any) {
+			if (operation === "tabs") return { schemaVersion: 1, kind: "rotom-browser-tabs", tabs: [{ name: "code", tabId: 31, documentGeneration: 1, url: "https://example.test/globals", title: "code", status: "complete", current: true, browserActive: false, ownership: "agent", relayAttached: true }] };
+			if (operation === "devtools") {
+				dispatched.push(payload);
+				return payload.devtools === "viewport"
+					? { schemaVersion: 1, kind: "rotom-browser-devtools", devtools: "viewport", tabName: "code", tabId: 31, documentGeneration: 1, observationEpoch: 2, reset: false, viewport: { width: 900, height: 700, deviceScaleFactor: 1, mobile: false, touch: false } }
+					: { schemaVersion: 1, kind: "rotom-browser-devtools", devtools: "evaluate", tabName: "code", tabId: 31, documentGeneration: 1, world: payload.world ?? "isolated", threw: false, type: "string", valueText: "\"ok\"", truncated: false, bytes: 4 };
+			}
+			throw new Error(`unexpected operation ${operation}`);
+		},
+	};
+	const loaded = await loadExtensions([], workspace);
+	const browser = await loadExtensionFromFactory(createBrowserRelayExtensionV1({
+		async connectRelay() { return relay; },
+		openArtifactStore: async () => (await import("./browser-relay.ts")).BrowserArtifactStoreV1.open(),
+	}), workspace, undefined, loaded.runtime, join(process.cwd(), "rotom/extensions/browser"));
+	const session = SessionManager.inMemory(workspace);
+	loaded.runtime.appendEntry = () => {};
+	loaded.runtime.getAllTools = () => [];
+	loaded.runtime.getCommands = () => [];
+	loaded.runtime.refreshTools = () => {};
+	const ctx: any = { cwd: workspace, sessionManager: session, mode: "print", hasUI: true, ui: { notify() {}, setStatus() {}, async confirm() { confirmCalls += 1; return confirmAnswer; }, async select() { return "允许一次"; }, theme: { fg: (_color: string, value: string) => value } } };
+	try {
+		for (const handler of browser.handlers.get("session_start") ?? []) await handler({ type: "session_start", reason: "startup" }, ctx);
+		const tool = browser.tools.get("browser_devtools")?.definition;
+		assert.ok(tool, "browser_devtools 必须注册");
+		// 隔离世界是默认，不能顺手问用户，也不能悄悄进主世界。
+		const isolated = await tool.execute("devtools-isolated", { operation: "evaluate", expression: "1 + 1" }, undefined, undefined, ctx);
+		assert.equal(dispatched.at(-1).world, "isolated");
+		assert.equal(dispatched.at(-1).expression, "1 + 1");
+		assert.equal(confirmCalls, 0, "隔离世界不需要确认");
+		assert.equal(isolated.details.valueText, "\"ok\"");
+
+		const main = await tool.execute("devtools-main", { operation: "evaluate", expression: "window.rotomPageSecret", world: "main" }, undefined, undefined, ctx);
+		assert.equal(confirmCalls, 1, "主世界必须单独确认");
+		assert.equal(dispatched.at(-1).world, "main");
+		assert.equal(main.details.world, "main");
+
+		// 拒绝后不得派发：这是写操作的授权边界，不是提示。
+		confirmAnswer = false;
+		const before = dispatched.length;
+		const denied = await tool.execute("devtools-denied", { operation: "evaluate", expression: "document.cookie", world: "main" }, undefined, undefined, ctx);
+		assert.equal(denied.details.kind, "needs-approval");
+		assert.equal(denied.details.reason, "user-denied");
+		assert.equal(dispatched.length, before, "用户拒绝后不得派发 evaluate");
+
+		// 没有交互界面就没有人能批准。
+		confirmAnswer = true;
+		const noUi = await tool.execute("devtools-noui", { operation: "evaluate", expression: "1", world: "main" }, undefined, undefined, { ...ctx, hasUI: false, ui: { notify() {}, setStatus() {} } });
+		assert.equal(noUi.details.kind, "needs-approval");
+		assert.equal(noUi.details.reason, "no-ui");
+		assert.equal(dispatched.length, before, "无 UI 时不得派发");
+
+		const viewport = await tool.execute("devtools-viewport", { operation: "viewport", viewport: "desktop-1440" }, undefined, undefined, ctx);
+		assert.equal(dispatched.at(-1).devtools, "viewport");
+		assert.deepEqual(dispatched.at(-1).viewport, { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false, touch: false });
+		assert.equal(viewport.details.devtools, "viewport");
+
+		// 参数在本地就被拒，不产生任何请求。
+		const count = dispatched.length;
+		await assert.rejects(tool.execute("devtools-empty", { operation: "evaluate", expression: "   " }, undefined, undefined, ctx), /expression/u);
+		await assert.rejects(tool.execute("devtools-world", { operation: "evaluate", expression: "1", world: "page" }, undefined, undefined, ctx), /world/u);
+		await assert.rejects(tool.execute("devtools-op", { operation: "trace_start" }, undefined, undefined, ctx), /operation/u);
+		await assert.rejects(tool.execute("devtools-preset", { operation: "viewport", viewport: "iphone-99" }, undefined, undefined, ctx), /viewport/u);
+		await assert.rejects(tool.execute("devtools-mixed", { operation: "viewport", viewport: "reset", expression: "1" }, undefined, undefined, ctx), /evaluate 参数/u);
+		assert.equal(dispatched.length, count, "非法参数不得派发");
 	} finally {
 		for (const handler of browser.handlers.get("session_shutdown") ?? []) await handler({ type: "session_shutdown", reason: "quit" }, {});
 		await rm(workspace, { recursive: true, force: true });
