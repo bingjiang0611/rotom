@@ -308,6 +308,13 @@ ${Array.from({ length: LARGE_PARAGRAPHS }, (_, index) => `<p>Paragraph ${index +
 <div role="status" id="large-tail">Large document tail sentinel</div>
 </main>`;
 
+// Clicked marker for the redirect suite: proof that a refused write never ran.
+const REDIRECT_TARGET_BODY = `<main>
+<h1>Redirect target</h1>
+<button id="redirect-target-click" onclick="document.getElementById('redirect-target-state').textContent = 'clicked'">Click me</button>
+<div role="status" id="redirect-target-state">untouched</div>
+</main>`;
+
 export const NETWORK_FIXTURE_SECRETS = { cookie: NETWORK_SECRET_COOKIE, authorization: NETWORK_SECRET_AUTH };
 
 export function defaultPages({ frameOrigin }) {
@@ -324,6 +331,7 @@ export function defaultPages({ frameOrigin }) {
 		["/pointer", htmlDocument("Pointer fixture", POINTER_BODY)],
 		["/upload", htmlDocument("Upload fixture", UPLOAD_BODY)],
 		["/dialog", htmlDocument("Dialog fixture", DIALOG_BODY)],
+		["/redirect-target", htmlDocument("Redirect target", REDIRECT_TARGET_BODY)],
 	]);
 }
 
@@ -339,6 +347,8 @@ export async function createFixtureServer() {
 	// Uploaded bodies: only the digest and size are kept, never the content.
 	const uploads = [];
 	const listeners = [];
+	// Filled once both sites listen; the redirect handler needs the *other* site's port.
+	const crossSite = { redirectTarget: "" };
 
 	const handler = (response, role) => (request, reply) => {
 		const path = new URL(request.url ?? "/", "http://fixture.invalid").pathname;
@@ -378,6 +388,14 @@ export async function createFixtureServer() {
 			});
 			return;
 		}
+		if (path === "/redirect-out") {
+			// A server-side redirect to the other fixture site: the tab's origin changes
+			// without any `navigate` call, which is exactly the case the relay re-checks
+			// before dispatching a write.
+			reply.writeHead(302, { location: crossSite.redirectTarget, "cache-control": "no-store" });
+			reply.end();
+			return;
+		}
 		if (path === "/status-500") {
 			reply.writeHead(500, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
 			reply.end(JSON.stringify({ error: "fixture server error" }));
@@ -406,6 +424,7 @@ export async function createFixtureServer() {
 	// A different site name makes the iframe an out-of-process frame, which is what
 	// the relay's child-session path handles; same-site frames never get a child target.
 	const frameOrigin = await listen("frame", "::", "localhost");
+	crossSite.redirectTarget = `${frameOrigin}/redirect-target`;
 	for (const [path, page] of defaultPages({ frameOrigin })) pageMap.set(path, page);
 
 	return {

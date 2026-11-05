@@ -13,6 +13,7 @@ import * as consoleSuite from "./console.mjs";
 import * as network from "./network.mjs";
 import * as keyboard from "./keyboard.mjs";
 import * as pointer from "./pointer.mjs";
+import * as policy from "./policy.mjs";
 import * as upload from "./upload.mjs";
 import * as dialog from "./dialog.mjs";
 import * as batch from "./batch.mjs";
@@ -37,4 +38,5 @@ export const suites = {
 	upload,
 	dialog,
 	batch,
+	policy,
 };

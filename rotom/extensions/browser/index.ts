@@ -45,12 +45,22 @@ import {
 import { INTERACTION_EXPECTATIONS, parseInteractionExpectation } from "./chrome-extension/interaction-target-state.js";
 import { MAX_UPLOAD_FILES_V1, validateUploadPathsV1 } from "./upload-guard.ts";
 import { MAX_BATCH_STEPS_V1, batchErrorOutcomeV1, batchStepOutcomeV1, batchStepSummaryV1, parseBatchActionsV1 } from "./batch-actions.ts";
+import {
+	browserPolicyPathV1,
+	decideBrowserPolicyV1,
+	grantBrowserPolicyV1,
+	policyOriginV1,
+	readBrowserPolicyV1,
+	type BrowserPolicyCapabilityV1,
+	type BrowserPolicyDecisionV1,
+} from "./browser-policy.ts";
 import { relayClientTimeoutMs } from "./chrome-extension/relay-deadline.js";
 import {
 	BROWSER_LEASE_SCOPE_ENV_V1,
 	checkBrowserLeaseV1,
 	leaseOriginV1,
 	loadBrowserLeaseForCallV1,
+	widenChildLeasesV1,
 	type BrowserLeaseCapabilityV1,
 } from "./browser-lease.ts";
 import { compactInteractionReadback, observationTextBaseline } from "./chrome-extension/interaction-observation.js";
@@ -58,6 +68,7 @@ import { compactInteractionReadback, observationTextBaseline } from "./chrome-ex
 const MAX_RESULT_BYTES = 128 * 1024;
 // A child lease outlives one task, not the session; the parent rewrites it to extend.
 const LEASE_TTL_MS = 12 * 60 * 60_000;
+const BROWSER_POLICY_READ_OPERATIONS_V1 = ["snapshot", "snapshot_visible", "read_full", "screenshot", "console", "network", "wait"] as const;
 const LEASE_DEFAULT_MAX_TABS = 8;
 const SNAPSHOT_PAGE_TTL_MS = 5 * 60_000;
 const MAX_SNAPSHOT_CURSORS = 64;
@@ -459,6 +470,8 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			},
 			/** Absent for the main agent; a child is always started with one. */
 			get leaseToken() { return captured.leaseToken; },
+			/** The published lease scope and the widened child leases are keyed by this. */
+			get rootSessionId() { return captured.rootSessionId; },
 			get keepTabs() { return captured.keepTabs; },
 			/** Lease files live next to the socket this session actually connected to. */
 			get socketPath() { return captured.socketPath; },
@@ -520,6 +533,61 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 		});
 		const decision = checkBrowserLeaseV1(lease, { origin, capability });
 		return decision.ok ? undefined : leaseRefusal(decision);
+	};
+
+	/** Grants answered with "本会话允许"/"总是允许" during this session. */
+	const policySessionGrants = new Set<string>();
+	/** Origins this session really authorized. Sent to the relay so a redirect cannot widen
+	 *  them: an origin reached only through a 30x never went through this gate. */
+	const policyAuthorizedOrigins = new Set<string>();
+	const policyRefusal = (denied: { origin: string; capability: BrowserPolicyCapabilityV1; reason: string; message?: string }) => browserResult({
+		kind: "needs-approval",
+		origin: denied.origin,
+		capability: denied.capability,
+		reason: denied.reason,
+		message: denied.message ?? `${denied.origin} 未授权 ${denied.capability}（${denied.reason}）；该操作没有发出请求。`,
+	});
+	/**
+	 * Per-site authorization for the main agent. A child's authorization is its lease (T9),
+	 * so this only ever asks the main agent's user, and never from a non-interactive run.
+	 */
+	const policyDenial = async (relayClient: Awaited<ReturnType<typeof client>>, capability: BrowserPolicyCapabilityV1, origin: string | undefined, ctx: { hasUI: boolean; ui: { select?: (title: string, options: string[], config?: unknown) => Promise<string | undefined> } }) => {
+		if (origin === undefined) return undefined;
+		if (relayClient.leaseToken !== undefined) {
+			// A child's authorization is its lease, which already checked this origin. The
+			// relay still needs the concrete origins, so record what the lease allowed.
+			policyAuthorizedOrigins.add(origin);
+			return undefined;
+		}
+		const grantKey = `${origin}\u0000${capability}`;
+		if (policySessionGrants.has(grantKey)) { policyAuthorizedOrigins.add(origin); return undefined; }
+		let decision: BrowserPolicyDecisionV1;
+		try {
+			decision = decideBrowserPolicyV1(await readBrowserPolicyV1(browserPolicyPathV1()), { origin, capability });
+		} catch (error) {
+			// An unreadable or malformed policy must not silently authorize the site.
+			return policyRefusal({ origin, capability, reason: "invalid-policy", message: `${error instanceof Error ? error.message : String(error)}；该操作没有发出请求。` });
+		}
+		if (decision.decision === "allow") { policyAuthorizedOrigins.add(origin); return undefined; }
+		if (decision.decision === "deny") return policyRefusal({ origin, capability, reason: "blocklist", message: `${origin} 在 browser-policy.json 的 blocklist 里（${decision.pattern}），不允许 ${capability}。` });
+		if (!ctx.hasUI || typeof ctx.ui.select !== "function") {
+			// No UI means no one can approve: refuse instead of allowing by default.
+			return policyRefusal({ origin, capability, reason: "no-ui", message: `${origin} 需要用户授权 ${capability}，但当前没有交互界面，按拒绝处理。` });
+		}
+		const choice = await ctx.ui.select(`允许 ${capability} ${origin}？`, ["允许一次", "本会话允许", "总是允许", "拒绝"]);
+		if (choice === "允许一次") { policyAuthorizedOrigins.add(origin); return undefined; }
+		if (choice !== "本会话允许" && choice !== "总是允许") return policyRefusal({ origin, capability, reason: "user-denied", message: `用户拒绝授权 ${capability} ${origin}；不要重试。` });
+		policySessionGrants.add(grantKey);
+		policyAuthorizedOrigins.add(origin);
+		if (choice === "总是允许") {
+			const granted = await grantBrowserPolicyV1({ origin, capability, path: browserPolicyPathV1() });
+			// The children of this run re-read their lease files per call, so the parent's
+			// grant reaches a child that already reported needs-approval.
+			await widenChildLeasesV1({ relayDir: dirname(relayClient.socketPath), rootSessionId: relayClient.rootSessionId, origin, ...(capability === "upload" ? { allow: { upload: true } } : {}) });
+			authorizedOrigins.add(origin);
+			void granted;
+		}
+		return undefined;
 	};
 
 	const makeSnapshotPage = (freshObservation: BrowserObservationV1 | undefined, requestedLimit: number, cursor?: string) => {
@@ -678,6 +746,8 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 				// so no open request reaches the relay or the site.
 				const denied = await leaseDenial(relayClient, "open", leaseOriginV1(openUrl));
 				if (denied) return denied;
+				const policyDenied = await policyDenial(relayClient, "interact", leaseOriginV1(openUrl), ctx);
+				if (policyDenied) return policyDenied;
 				const opened = readOutcome(await relayClient.request("open", { tabName, url: openUrl, ...(placement === undefined ? {} : { placement }) }, { signal }));
 				if ("blocked" in opened) return boundedResult(opened.blocked);
 				authorizedOrigins.add(leaseOriginV1(openUrl) ?? "");
@@ -694,6 +764,8 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 				if (navigateUrl !== undefined) {
 					const denied = await leaseDenial(relayClient, "open", leaseOriginV1(navigateUrl));
 					if (denied) return denied;
+					const policyDenied = await policyDenial(relayClient, "interact", leaseOriginV1(navigateUrl), ctx);
+					if (policyDenied) return policyDenied;
 				}
 				const leaseOrigins = relayClient.leaseToken === undefined ? undefined : [...authorizedOrigins];
 				const requested = await relayClient.request("navigate", {
@@ -740,6 +812,11 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			const tabs = await readTabs(relayClient, signal);
 			publishLeaseScope(relayClient, tabs.tabs);
 			if (operation === "tabs") return boundedResult({ kind: "tabs", tabs: publicTabs(tabs) });
+			if (BROWSER_POLICY_READ_OPERATIONS_V1.includes(operation as never)) {
+				// Page content belongs to the site: reading it needs that site's read grant.
+				const readDenied = await policyDenial(relayClient, "read", policyOriginV1(targetTab(tabs, tabName).url), ctx);
+				if (readDenied) return readDenied;
+			}
 			if (operation === "close") return boundedResult(await relayClient.request("close", { ...(params.all === true ? { all: true } : { tabName }) }, { signal }));
 			if (operation === "handoff") return boundedResult(await relayClient.request("handoff", { tabName }, { signal }));
 			if (operation === "console") {
@@ -884,6 +961,8 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 				if (action !== "scroll") {
 					const denied = await leaseDenial(relayClient, action === "upload" ? "upload" : "write", leaseOriginV1(tab.url));
 					if (denied) return denied;
+					const policyDenied = await policyDenial(relayClient, action === "upload" ? "upload" : "interact", policyOriginV1(tab.url), ctx);
+					if (policyDenied) return policyDenied;
 				}
 				if (action === "upload") {
 					// Every path rule runs before the relay sees anything: absolute, real, not a
@@ -910,7 +989,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 				assertOwner();
 				pi.appendEntry(BROWSER_INTERACTION_AUDIT_ENTRY, { schemaVersion: 1, kind: "rotom-browser-interaction-intent", actionId, sessionId: ctx.sessionManager.getSessionId(), branchLeafId: ctx.sessionManager.getLeafId() ?? null, toolCallId, action, actionDigest, targetDigest: browserActionDigestV1({ tabName: tab.name, tabId: tab.tabId, documentGeneration: tab.documentGeneration, ...(targetRef ? { targetRef } : {}), ...(coordinateClick ? { x, y, observationEpoch } : {}) }), originDigest: browserActionDigestV1(browserOriginV1(tab.url)), timestamp: new Date().toISOString() });
 				try {
-					const payload = { actionId, tabName: tab.name, action, ...(dialogAccept === undefined ? {} : { accept: dialogAccept }), ...(dialogPromptText === undefined ? {} : { promptText: dialogPromptText }), ...(key ? { key } : {}), ...(modifiers && modifiers.length > 0 ? { modifiers } : {}), ...(targetRef ? { targetRef } : {}), ...(dropRef ? { dropRef } : {}), ...(uploadPaths ? { paths: uploadPaths } : {}), ...(coordinateClick ? { x, y, observationEpoch, documentGeneration: tab.documentGeneration } : {}), ...(text ? { text, replace: params.replace === true } : {}), ...(option ? { option } : {}), ...(expectation ? { expect: expectation } : {}), ...(direction ? { direction, amount } : {}) };
+					const payload = { actionId, tabName: tab.name, action, ...(action === "scroll" ? {} : { allowedOrigins: [...policyAuthorizedOrigins] }), ...(dialogAccept === undefined ? {} : { accept: dialogAccept }), ...(dialogPromptText === undefined ? {} : { promptText: dialogPromptText }), ...(key ? { key } : {}), ...(modifiers && modifiers.length > 0 ? { modifiers } : {}), ...(targetRef ? { targetRef } : {}), ...(dropRef ? { dropRef } : {}), ...(uploadPaths ? { paths: uploadPaths } : {}), ...(coordinateClick ? { x, y, observationEpoch, documentGeneration: tab.documentGeneration } : {}), ...(text ? { text, replace: params.replace === true } : {}), ...(option ? { option } : {}), ...(expectation ? { expect: expectation } : {}), ...(direction ? { direction, amount } : {}) };
 					const raw = await relayClient.request("interact", payload, { signal, timeoutMs: relayClientTimeoutMs("interact", {}) });
 					// A suspended tab refuses before dispatching: nothing happened, so this is a
 					// clean refusal, not an unknown outcome.

@@ -273,6 +273,24 @@ export async function waitForRelay(harness, { timeoutMs = 30_000 } = {}) {
 }
 
 /** Per-assertion reporting so a failing step names itself. */
+/**
+ * Point the product's per-site policy at this suite's own file.
+ *
+ * The tools run in this process, so the policy path is an env var and the fixture origin
+ * is only known once the fixture server is listening. Without this the tools would run
+ * with the operator's real policy; `upload` is deliberately not implied by a local origin,
+ * so the suites that exercise it must grant it the same way `总是允许` would.
+ */
+export async function installSuiteBrowserPolicy(harness, policy) {
+	const directory = join(harness.root, "browser-policy");
+	mkdirSync(directory, { recursive: true, mode: 0o700 });
+	const path = join(directory, "browser-policy.json");
+	writeFileSync(path, `${JSON.stringify(policy)}\n`, { mode: 0o600 });
+	chmodSync(path, 0o600);
+	process.env.ROTOM_BROWSER_POLICY_FILE = path;
+	return path;
+}
+
 export function createRecorder(name) {
 	const results = [];
 	const record = (step, ok, detail) => {

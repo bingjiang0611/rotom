@@ -7,7 +7,7 @@
 // failed or any suite threw.
 
 import { createFixtureServer } from "./fixtures/server.mjs";
-import { createRecorder, launchHarness, relayRequestFor, waitForRelay } from "./harness.mjs";
+import { createRecorder, installSuiteBrowserPolicy, launchHarness, relayRequestFor, waitForRelay } from "./harness.mjs";
 import { suites } from "./suites/index.mjs";
 
 const selected = process.argv.slice(2);
@@ -29,6 +29,12 @@ for (const name of names) {
 		fixtures = await createFixtureServer();
 		harness = await launchHarness({ startUrl: suite.startUrlPage ? fixtures.url(suite.startUrlPage) : undefined });
 		await waitForRelay(harness);
+		// Grant the fixture sites explicitly: a local origin only implies read/interact, so
+		// upload/devtools-style suites must authorize them the way a user would.
+		await installSuiteBrowserPolicy(harness, {
+			blocklist: [],
+			allowlist: [fixtures.origin, fixtures.frameOrigin].map((origin) => ({ origin, capabilities: ["read", "interact", "upload", "devtools", "download"] })),
+		});
 		await suite.run({
 			harness,
 			fixtures,

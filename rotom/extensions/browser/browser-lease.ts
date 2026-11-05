@@ -10,7 +10,7 @@
 // `needs-approval` result, never a silently-allowed operation and never a prompt.
 
 import { constants } from "node:fs";
-import { access, lstat, mkdir, open, readFile, realpath } from "node:fs/promises";
+import { access, lstat, mkdir, open, readdir, readFile, realpath, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 
 export const BROWSER_LEASE_SCOPE_ENV_V1 = "ROTOM_BROWSER_LEASE_SCOPE" as const;
@@ -172,4 +172,41 @@ export async function loadBrowserLeaseForCallV1(input: { relayDir: string; token
 	if (existing) return existing;
 	if (input.scope === undefined) return undefined;
 	return materializeBrowserLeaseV1(input.relayDir, input.scope, token).catch(() => undefined);
+}
+
+/**
+ * Give one origin to every child lease of this run (T20).
+ *
+ * The parent cannot see which child asked; it only knows its own root session and the
+ * lease directory. When the user authorizes an origin for the parent, the parent's
+ * children get the same origin so a child that already reported `needs-approval` does not
+ * have to ask again on the next call. Files that do not parse or do not belong to this
+ * root session are left untouched, and rewrites are atomic with 0600.
+ */
+export async function widenChildLeasesV1(input: { relayDir: string; rootSessionId: string; origin: string; allow?: Partial<BrowserLeaseScopeV1["allow"]> }): Promise<{ updated: number; skipped: number }> {
+	const origin = leaseOriginV1(input.origin);
+	if (origin === undefined) return { updated: 0, skipped: 0 };
+	const directory = leaseDirV1(input.relayDir);
+	let names: string[];
+	try { names = await readdir(directory); } catch { return { updated: 0, skipped: 0 }; }
+	let updated = 0;
+	let skipped = 0;
+	for (const name of names) {
+		if (!name.endsWith(".json") || name.startsWith(".")) continue;
+		const token = safeBrowserLeaseTokenV1(name.slice(0, -".json".length));
+		if (token === undefined) { skipped += 1; continue; }
+		const lease = await readBrowserLeaseV1(input.relayDir, token);
+		if (lease === undefined || lease.rootSessionId !== input.rootSessionId) { skipped += 1; continue; }
+		const origins = lease.origins.includes(origin) ? lease.origins : [...lease.origins, origin];
+		const allow = { ...lease.allow, ...(input.allow ?? {}) };
+		if (origins === lease.origins && JSON.stringify(allow) === JSON.stringify(lease.allow)) { skipped += 1; continue; }
+		const next = { schemaVersion: 1, kind: "rotom-browser-lease", token, agentId: token, rootSessionId: lease.rootSessionId, origins, allow, maxTabs: lease.maxTabs, keepTabs: lease.keepTabs, expiresAt: lease.expiresAt };
+		const staging = join(directory, `.${token}.${process.pid}.${Date.now()}.tmp`);
+		const handle = await open(staging, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+		try { await handle.writeFile(`${JSON.stringify(next)}\n`, "utf8"); }
+		finally { await handle.close(); }
+		try { await rename(staging, join(directory, `${token}.json`)); updated += 1; }
+		catch { await rm(staging, { force: true }).catch(() => undefined); skipped += 1; }
+	}
+	return { updated, skipped };
 }

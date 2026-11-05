@@ -118,6 +118,8 @@ Browser relay 的后台标签、AX/DOM ref、viewport、document generation 和 
 - `network` 只捕获 agent 自己的 tab（attach 时 `Network.enable`，两个 buffer 为 0，body 永不进 relay），缓冲 1000 条、只存 requestId/脱敏 URL/method/资源类型/status/mimeType/耗时/失败原因/是否来自缓存，绝不存请求头、响应头和 body；`failedOnly` 覆盖失败原因与 status ≥ 400，`pattern` 只做子串，结果按 128 KiB 截断并可续读。捕获从 attach 开始，打开页面的首个文档请求可能缺失；tab 关闭、移交或分离时清空缓冲。
 - `navigate` 用一个操作承担新 URL 与 `history: back/forward/reload`：成功后 `documentGeneration` 加一（`reload` 不换 URL 也照样加），旧 ref 与截图坐标作废；历史落点先由扩展解析 origin 再按 lease 判定，拒绝时不发导航命令。导航等待 `complete` 的超时只说明“命令已发出”，不是失败回滚。
 - tab 配额在扩展 service worker 里计数（`ROTOM_BROWSER_MAX_AGENTS` / `_TABS_PER_AGENT` / `_TABS` / `_TABS_PER_ORIGIN`，默认 8 / 4 / 24 / 2），`open` 与 `claim` 超限即时报错并提示先 close 旧 tab，不排队；客户端在 `hello` 里声明的配额不被信任，非法环境变量直接报错。
+- 主 agent 的站点权限由按站点策略（`~/Library/Application Support/rotom/browser-policy.json`，0600、拒绝 symlink）判定在 Pi 侧：顺序固定为 blocklist → allowlist → `localhost`/`127.0.0.1`/`::1` 默认允许 `read`+`interact` → 询问，`capabilities` 为 `read`/`interact`/`devtools`/`upload`/`download`，origin 支持 `*.example.com`（只匹配子域）。询问用 `ctx.ui.select`（允许一次/本会话允许/总是允许/拒绝），`总是允许` 合并写回策略文件并把 origin 加进本 run 的子 lease；`ctx.hasUI` 为 false 时按拒绝返回 `needs-approval`，绝不静默放行。策略判定不通过时请求根本不发出，`upload` 与 `interact` 分开授权。
+- 重定向不能绕过授权：relay 在派发写操作前用 `chrome.tabs.get` 取当前 origin，与 Pi 侧本次会话真正授权过的 origin 集合比对，不匹配就返回 `{kind:"needs-approval",reason:"origin"}` 且不派发；客户端把 policy 拒绝和 relay 拒绝都当作干净拒绝（不是 unknown），调用方不得重试。
 - 子 agent 的浏览器权限由 lease 决定：父 agent 已打开的 origin 写成私有 lease 文件（目录 0700、文件 0600、拒绝 symlink），子 agent 每次 `open` 与页内写操作前重读它。缺失、过期、origin 不在列表或开关未开启时，工具层直接返回结构化 `{kind:"needs-approval",origin,capability,reason}`，不发出请求、不弹窗、不询问用户；只读操作不受 lease 限制。lease 不是安全沙箱，限制的是站点范围，不是本机进程权限。
 - Chrome extension 安装与重载是用户显式操作；代码级 L1 不能写成真实 Chrome L2/L3。
 

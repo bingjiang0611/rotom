@@ -21,6 +21,12 @@ async function setup(t: any, dependencies: any) {
 	const key = `browser-test-${root}`; const tools = new Map<string, any>(); const contexts: any[] = [];
 	(globalThis as any)[key] = { dependencies, tools, contexts };
 	t.after(() => { delete (globalThis as any)[key]; });
+	// These fixtures run as the main agent with `hasUI:false`, so the per-site policy layer
+	// would refuse their `https://example.test` tabs before any request. Allow it explicitly.
+	const { writeBrowserPolicyV1, BROWSER_POLICY_PATH_ENV_V1 } = await import("./browser-policy.ts");
+	const policyPath = join(agentDir, "browser-policy.json");
+	await writeBrowserPolicyV1({ blocklist: [], allowlist: [{ origin: "https://example.test", capabilities: ["read", "interact", "upload", "devtools", "download"] }] }, policyPath);
+	process.env[BROWSER_POLICY_PATH_ENV_V1] = policyPath;
 	const entry = join(root, "fixture.ts");
 	await writeFile(entry, `import { createBrowserRelayExtensionV1 } from ${JSON.stringify(resolve(import.meta.dirname, "index.ts"))};\nexport default function(pi) { const fixture = globalThis[${JSON.stringify(key)}]; pi.on("session_start", (_e,ctx)=>fixture.contexts.push(ctx)); createBrowserRelayExtensionV1(fixture.dependencies)(new Proxy(pi,{get(target,key){ if(key === "registerTool") return tool=>{fixture.tools.set(tool.name,tool); target.registerTool(tool);}; const value=target[key]; return typeof value === "function" ? value.bind(target) : value; }})); }`);
 	const services = await pi.createAgentSessionServices({ cwd, agentDir, resourceLoaderOptions: { noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true, additionalExtensionPaths: [entry] } });
