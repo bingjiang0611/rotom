@@ -15,6 +15,7 @@
 import { spawnSync } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { composeGifV1 } from "../../extensions/browser/gif-encoder.ts";
+import { summarizeTraceV1 } from "../../extensions/browser/trace-summary.ts";
 import { createFixtureServer } from "./fixtures/server.mjs";
 import { launchHarness } from "./harness.mjs";
 
@@ -155,6 +156,82 @@ try {
 		const perTab = samples.map((value) => value / width);
 		const summary = summarize(`并发 snapshot ×${width}（每次总耗时）`, samples);
 		results.scenarios.push({ ...summary, perTabMs: round(summarize("per-tab", perTab).meanMs) });
+	}
+
+	// Full-page export: the most expensive screenshot shape, so it is measured apart from
+	// the viewport capture above. Runs on the long page.
+	try {
+		results.scenarios.push(await measure("devtools screenshot_export（整页 PNG，/baseline）", () => request("devtools", {
+			tabName: "bench", devtools: "screenshot_export", format: "png", fullPage: true,
+		}), { rounds: 5, warmup: 1, note: "返回 base64，本地不写盘" }));
+	} catch (error) {
+		results.notes.push(`整页 PNG 导出未测量：${error instanceof Error ? error.message : String(error)}`);
+	}
+	// The long page is the interesting case for the size ceiling: record what happens
+	// instead of assuming the export always fits.
+	await request("open", { tabName: "export", url: fixtures.url("/large") });
+	await request("wait", { tabName: "export", status: "complete", timeoutMs: 30_000 });
+	try {
+		results.scenarios.push(await measure("devtools screenshot_export（整页 JPEG q50，/large）", () => request("devtools", {
+			tabName: "export", devtools: "screenshot_export", format: "jpeg", fullPage: true, quality: 50,
+		}), { rounds: 3, warmup: 1 }));
+	} catch (error) {
+		results.notes.push(`/large 整页导出被拒（这正是上限在工作）：${error instanceof Error ? error.message : String(error)}`);
+	}
+
+	// network_body: the relay first re-enables Network with small buffers, so a request has
+	// to be issued after that; the preparation is outside the timed window.
+	await request("open", { tabName: "body", url: fixtures.url("/network") });
+	await request("wait", { tabName: "body", status: "complete", timeoutMs: 30_000 });
+	await request("devtools", { tabName: "body", devtools: "network_body", requestId: "bootstrap" }).catch(() => undefined);
+	const nextJsonRequestId = async () => {
+		await request("devtools", { tabName: "body", devtools: "evaluate", expression: "fetch('/status-500').then((reply) => reply.text())", awaitPromise: true });
+		for (let attempt = 0; attempt < 50; attempt += 1) {
+			const listed = await request("network", { tabName: "body", limit: 200 });
+			const entry = [...(listed.entries ?? [])].reverse().find((candidate) => String(candidate.mimeType ?? "").includes("json"));
+			if (entry?.requestId !== undefined) return entry.requestId;
+			await new Promise((done) => setTimeout(done, 100));
+		}
+		throw new Error("没有可读的 JSON 请求");
+	};
+	if ((await nextJsonRequestId().catch(() => undefined)) === undefined) {
+		results.notes.push("network_body 未测量：fixture 没有产生可读的 JSON 请求");
+	} else {
+		results.scenarios.push(await measure("devtools network_body（取响应体）", async () => {
+			const requestId = await nextJsonRequestId();
+			return request("devtools", { tabName: "body", devtools: "network_body", requestId });
+		}, { rounds: 5, warmup: 1, note: "含每轮准备一次请求" }));
+	}
+
+	// Trace: relay采集 + base64 传输 + Pi 侧解析，三段分开计时才有意义.
+	await request("open", { tabName: "trace", url: fixtures.url("/large") });
+	await request("wait", { tabName: "trace", status: "complete", timeoutMs: 30_000 });
+	try {
+		const traceSamples = [];
+		for (let roundIndex = 0; roundIndex < 3; roundIndex += 1) {
+			await request("devtools", { tabName: "trace", devtools: "trace_start" });
+			await request("interact", { actionId: `bench-trace-${roundIndex}-${Math.random().toString(16).slice(2)}`, tabName: "trace", action: "scroll", direction: "down", amount: 600 });
+			await new Promise((done) => setTimeout(done, 500));
+			const startedAt = process.hrtime.bigint();
+			const stopped = await request("devtools", { tabName: "trace", devtools: "trace_stop" });
+			const relayMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+			const decodeStartedAt = process.hrtime.bigint();
+			const traceText = Buffer.from(String(stopped.traceBase64 ?? ""), "base64").toString("utf8");
+			const decodeMs = Number(process.hrtime.bigint() - decodeStartedAt) / 1e6;
+			const summaryStartedAt = process.hrtime.bigint();
+			const summary = summarizeTraceV1(traceText);
+			const summarizeMs = Number(process.hrtime.bigint() - summaryStartedAt) / 1e6;
+			traceSamples.push({ relayMs, decodeMs, summarizeMs, bytes: stopped.bytes ?? 0, longTasks: summary.longTasks?.count ?? 0 });
+		}
+		const mean = (key) => round(traceSamples.reduce((sum, sample) => sum + sample[key], 0) / traceSamples.length);
+		results.scenarios.push({
+			label: "devtools trace_start/stop + 本地解析（0.5s 采集）",
+			n: traceSamples.length,
+			p50Ms: mean("relayMs"),
+			note: `relay ${mean("relayMs")} ms + base64 解码 ${mean("decodeMs")} ms + 摘要 ${mean("summarizeMs")} ms；事件流均值 ${Math.round(mean("bytes"))} 字节、long task 均值 ${Math.round(mean("longTasks"))} 条`,
+		});
+	} catch (error) {
+		results.notes.push(`trace 未测量：${error instanceof Error ? error.message : String(error)}`);
 	}
 
 	// Screencast + GIF: the only heavy local CPU path in the product.
