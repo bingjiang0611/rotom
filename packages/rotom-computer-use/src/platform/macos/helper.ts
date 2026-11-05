@@ -13,7 +13,12 @@ import { helperMismatchMessage } from "../../constants/copy.ts";
 const COMMAND_TIMEOUT_MS = 15_000;
 // Protocol 8 adds user activity, clipboard, app/window management, system
 // surfaces, targeted (L2) delivery and the semantic AX actions.
-export const HELPER_PROTOCOL_VERSION = 8;
+/**
+ * 9 adds lease-token enforcement on the helper side (review I2): write commands
+ * carry a broker-signed token and the helper refuses invalid, expired or revoked
+ * ones. Old and new sides refuse to pair instead of silently skipping the check.
+ */
+export const HELPER_PROTOCOL_VERSION = 9;
 const HELPER_SETUP_TIMEOUT_MS = 60_000;
 
 export const HELPER_BUNDLE_ID = "com.injaneity.pi-computer-use";

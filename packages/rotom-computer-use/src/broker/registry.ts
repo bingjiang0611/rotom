@@ -100,6 +100,11 @@ export class AgentRegistry {
 		return this.ancestors(agentId).find((record) => record.connected && record.hasUI);
 	}
 
+	/** Connected agents with one role, e.g. every helper connection. */
+	agentsWithRole(role: "agent" | "helper"): AgentRecord[] {
+		return this.connectedAgents().filter((record) => (record.role ?? "agent") === role);
+	}
+
 	connectedAgents(): AgentRecord[] {
 		return [...this.agents.values()].filter((record) => record.connected);
 	}

@@ -1,7 +1,7 @@
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { getComputerUseConfig } from "../config.ts";
 import { currentPlatformBackend } from "../platform/index.ts";
-import type { PlatformRoot } from "../platform/types.ts";
+import type { HelperLease, PlatformRoot } from "../platform/types.ts";
 import { describeApp } from "./apps.ts";
 import type { DesktopToolDeps } from "./desktop-deps.ts";
 import { windowIntent } from "./intents.ts";
@@ -33,8 +33,17 @@ export function createWindowTool(deps: DesktopToolDeps) {
 		if (params.windowId === undefined || params.pid === undefined) return toolProblem("manage_window", `${params.action} requires pid and windowId.`);
 		const intent = windowIntent(params.action, params.pid, params.windowId, await describeApp(params.pid));
 		const scheduler = deps.scheduler();
-		const result = await scheduler.write(intent.resourceKey, scheduler.epoch(intent.resourceKey), async () =>
-			await backend.manageWindow!({ mode: params.action, pid: params.pid, windowId: params.windowId, x: params.x, y: params.y, w: params.w, h: params.h }), {
+		const result = await scheduler.write(intent.resourceKey, scheduler.epoch(intent.resourceKey), async (_nextEpoch, grant) =>
+			await backend.manageWindow!({
+				mode: params.action,
+				pid: params.pid,
+				windowId: params.windowId,
+				x: params.x,
+				y: params.y,
+				w: params.w,
+				h: params.h,
+				...(grant.token ? { lease: { token: grant.token, resourceKey: intent.resourceKey } } : {}),
+			}), {
 			action: intent.action,
 			...(intent.app ? { app: intent.app } : {}),
 		}).then((outcome) => outcome.value);

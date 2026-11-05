@@ -30,7 +30,7 @@ export class ClientLeaseBroker implements LeaseBroker {
 				action: request.action,
 			});
 			this.holders.delete(request.resourceKey);
-			return { leaseId: reply.lease.leaseId, epoch: reply.lease.epoch };
+			return { leaseId: reply.lease.leaseId, epoch: reply.lease.epoch, ...(reply.lease.token ? { token: reply.lease.token } : {}) };
 		} catch (error) {
 			throw this.translate(request, error);
 		}

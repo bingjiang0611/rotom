@@ -68,6 +68,8 @@ interface ResourceRecord {
 export interface LeaseGrant {
 	leaseId: string;
 	epoch: number;
+	/** Helper-checkable proof of this lease; absent without a broker. */
+	token?: string;
 }
 
 export interface LeaseAcquireRequest {
@@ -172,7 +174,7 @@ export class ResourceScheduler {
 	async write<T>(
 		resourceKey: string,
 		baseEpoch: number,
-		work: (nextEpoch: number) => Promise<T>,
+		work: (nextEpoch: number, grant: LeaseGrant) => Promise<T>,
 		leaseContext?: Omit<LeaseAcquireRequest, "resourceKey" | "baseEpoch">,
 	): Promise<{ value: T; epoch: number }> {
 		return await this.enqueue(resourceKey, async (record) => {
@@ -182,14 +184,14 @@ export class ResourceScheduler {
 				const grant = await this.broker.acquire({ resourceKey, baseEpoch, ...leaseContext });
 				this.brokerEpochs.set(resourceKey, grant.epoch);
 				record.epoch = grant.epoch;
-				return { value: await work(grant.epoch), epoch: grant.epoch };
+				return { value: await work(grant.epoch, grant), epoch: grant.epoch };
 			}
 			if (record.epoch !== baseEpoch) throw new StaleResourceStateError(resourceKey, baseEpoch, record.epoch);
 			const nextEpoch = record.epoch + 1;
 			// Invalidate the base state before dispatch. If native execution becomes
 			// uncertain or throws after a partial effect, later writes still fail safe.
 			record.epoch = nextEpoch;
-			return { value: await work(nextEpoch), epoch: nextEpoch };
+			return { value: await work(nextEpoch, { leaseId: "", epoch: nextEpoch }), epoch: nextEpoch };
 		});
 	}
 

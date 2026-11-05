@@ -1,7 +1,7 @@
 import { getComputerUseConfig } from "../../config.ts";
 import { parseLookResponse, type LookResponse } from "../../outline.ts";
 import { toBoolean, toFiniteNumber, toOptionalString } from "../coerce.ts";
-import type { ComputerUsePlatformBackend, FramePoints, HelperActResult, PlatformActRequest, PlatformApp, PlatformAppLaunchResult, PlatformAppQuitResult, PlatformClipboardRead, PlatformClipboardRestore, PlatformClipboardSnapshot, PlatformClipboardWrite, PlatformDisplay, PlatformFocusWindowResult, PlatformFrontmostResult, PlatformObserveRequest, PlatformReadTextRequest, PlatformReadTextResponse, PlatformRoot, PlatformRootKind, PlatformRootQuery, PlatformSystemSurface, PlatformSystemSurfaceName, PlatformTarget, PlatformUserActivity, PlatformWaitForRequest, PlatformWaitForResponse, PlatformWindowMutationResult } from "../types.ts";
+import type { HelperLease, ComputerUsePlatformBackend, FramePoints, HelperActResult, PlatformActRequest, PlatformApp, PlatformAppLaunchResult, PlatformAppQuitResult, PlatformClipboardRead, PlatformClipboardRestore, PlatformClipboardSnapshot, PlatformClipboardWrite, PlatformDisplay, PlatformFocusWindowResult, PlatformFrontmostResult, PlatformObserveRequest, PlatformReadTextRequest, PlatformReadTextResponse, PlatformRoot, PlatformRootKind, PlatformRootQuery, PlatformSystemSurface, PlatformSystemSurfaceName, PlatformTarget, PlatformUserActivity, PlatformWaitForRequest, PlatformWaitForResponse, PlatformWindowMutationResult } from "../types.ts";
 import { macosHelper } from "./helper.ts";
 
 function parseApps(result: unknown): PlatformApp[] {
@@ -156,8 +156,8 @@ export const macosBackend: Pick<ComputerUsePlatformBackend, "listApps" | "listRo
 		return parseClipboard(await macosHelper.command<any>("clipboardGet", {}, { signal }));
 	},
 
-	async clipboardSet(text: string, signal?: AbortSignal): Promise<PlatformClipboardWrite> {
-		const result = await macosHelper.command<any>("clipboardSet", { text }, { signal });
+	async clipboardSet(text: string, signal?: AbortSignal, lease?: HelperLease): Promise<PlatformClipboardWrite> {
+		const result = await macosHelper.command<any>("clipboardSet", { text, ...(lease ? { lease } : {}) }, { signal });
 		return {
 			changed: toBoolean(result?.changed),
 			changeCount: Math.trunc(toFiniteNumber(result?.changeCount, 0)),
@@ -184,8 +184,8 @@ export const macosBackend: Pick<ComputerUsePlatformBackend, "listApps" | "listRo
 		};
 	},
 
-	async clipboardClear(signal?: AbortSignal): Promise<PlatformClipboardWrite> {
-		const result = await macosHelper.command<any>("clipboardClear", {}, { signal });
+	async clipboardClear(signal?: AbortSignal, lease?: HelperLease): Promise<PlatformClipboardWrite> {
+		const result = await macosHelper.command<any>("clipboardClear", { ...(lease ? { lease } : {}) }, { signal });
 		return { cleared: toBoolean(result?.cleared), changeCount: Math.trunc(toFiniteNumber(result?.changeCount, 0)) };
 	},
 

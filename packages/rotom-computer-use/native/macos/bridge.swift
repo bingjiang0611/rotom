@@ -5,6 +5,7 @@ import Darwin
 import Vision
 import ImageIO
 import ScreenCaptureKit
+import CryptoKit
 
 struct BridgeFailure: Error {
 	let message: String
@@ -163,6 +164,8 @@ final class LookNode {
 	var scrollExtent: [String: Int]?
 	var text: [[String: Any]]
 	var children: [LookNode]
+	/// Set for secure text fields so callers can refuse to photograph them.
+	var secure: Bool = false
 
 	init(element: AXUIElement?, ref: String, role: String, subrole: String, identifier: String, title: String, description: String, value: String, actions: [String], canPress: Bool, canFocus: Bool, canSetValue: Bool, canScroll: Bool, canIncrement: Bool, canDecrement: Bool, isTextInput: Bool, rect: CGRect, focused: Bool = false, offscreen: Bool = false, pictureOnly: Bool = false) {
 		self.element = element
@@ -211,6 +214,7 @@ final class LookNode {
 			"children": children.map { $0.payload() },
 		]
 		if focused { output["focused"] = true }
+		if secure { output["secure"] = true }
 		if offscreen { output["offscreen"] = true }
 		if pictureOnly { output["pictureOnly"] = true }
 		if truncated { output["truncated"] = true }
@@ -506,11 +510,14 @@ final class UserActivityMonitor {
 }
 
 final class Bridge {
-	private let protocolVersion = 8
+	// 9 adds lease-token enforcement: write commands carry a broker-signed token and
+	// this side refuses missing, invalid, expired or revoked ones.
+	private let protocolVersion = 9
 	private let refStore = AXRefStore()
 	private let inputSuppressionGuard = InputSuppressionGuard()
 	private let userActivityMonitor = UserActivityMonitor()
-	private lazy var stopControl = StopControl(link: BrokerLink(socketPath: BrokerLink.defaultSocketPath()))
+	private let leaseGuard = LeaseGuard()
+	private lazy var stopControl = StopControl(link: BrokerLink(socketPath: BrokerLink.defaultSocketPath(), leaseGuard: leaseGuard))
 	private let physicalInputLock = NSRecursiveLock()
 	private let supportsAgentCursor = CommandLine.arguments.contains("serve")
 	private let semanticActions: Set<String> = [
@@ -749,6 +756,14 @@ final class Bridge {
 
 	private func handleRequest(_ request: [String: Any]) throws -> Any {
 		let cmd = try stringArg(request, "cmd")
+		// Lease enforcement happens in one place, before any command runs: a write
+		// without a valid, unrevoked, unexpired token never reaches the app.
+		try leaseGuard.check(request, command: cmd)
+		if cmd == "actBatch" {
+			for action in (request["actions"] as? [[String: Any]] ?? []) {
+				try leaseGuard.check(action, command: "act")
+			}
+		}
 
 		switch cmd {
 		case "diagnostics":
@@ -1736,6 +1751,9 @@ final class Bridge {
 			focused: boolAttribute(element, attribute: kAXFocusedAttribute as CFString) == true,
 			offscreen: offscreen
 		)
+		if role == "AXSecureTextField" {
+			node.secure = true
+		}
 		if node.canScroll {
 			let rows = axElementArray(element, attribute: kAXRowsAttribute as CFString)
 			let visibleRows = axElementArrayIfPresent(element, attribute: kAXVisibleRowsAttribute as CFString)
@@ -3348,6 +3366,12 @@ final class Bridge {
 	}
 
 	private func captureWindow(windowId: UInt32) throws -> CapturedWindowImage {
+		// The helper owns its own windows (the agent cursor overlay and the takeover
+		// border). Photographing them would put our own drawing into the observation,
+		// and the host terminal is excluded by the caller before it ever gets here.
+		if let owner = pidForWindowId(windowId), owner == getpid() {
+			throw BridgeFailure(message: "Refusing to capture a window owned by the Computer Use helper", code: "capture_excluded")
+		}
 		if #available(macOS 14.0, *) {
 			let semaphore = DispatchSemaphore(value: 0)
 			let capturedImage = Box<CGImage?>(nil)
@@ -3866,9 +3890,123 @@ final class Bridge {
 
 }
 
+/// Deterministic checks for lease enforcement (review I2 / A5).
+///
+/// Runs without touching the desktop: it mints tokens with a throwaway key and
+/// asserts that the guard accepts the valid one and refuses a wrong signature, an
+/// expired lease, a mismatched pid and a revoked lease. `--lease-self-test` prints
+/// one line per case and exits non-zero on any failure.
+enum LeaseGuardSelfTest {
+	static func run() -> Int {
+		let keyData = Data((0..<32).map { UInt8($0 + 1) })
+		let key = SymmetricKey(data: keyData)
+		let guardInstance = LeaseGuard()
+		guardInstance.configure(keyBase64: keyData.base64EncodedString())
+
+		var failures = 0
+		func report(_ name: String, _ passed: Bool) {
+			FileHandle.standardOutput.write(Data("case \(name) \(passed ? "pass" : "fail")\n".utf8))
+			if !passed { failures += 1 }
+		}
+
+		let now = Date().timeIntervalSince1970
+		let resource = "desktop-pid:812"
+		func token(leaseId: String, pid: Int?, expiresAt: Double, signedWith signingKey: SymmetricKey) -> String {
+			var claims: [String: Any] = ["agentId": "session:test", "resourceKey": resource, "leaseId": leaseId, "expiresAt": expiresAt]
+			if let pid { claims["pid"] = pid }
+			let payload = (try? JSONSerialization.data(withJSONObject: claims))?.base64EncodedString()
+				.replacingOccurrences(of: "+", with: "-")
+				.replacingOccurrences(of: "/", with: "_")
+				.replacingOccurrences(of: "=", with: "") ?? ""
+			let signature = HMAC<SHA256>.authenticationCode(for: Data(payload.utf8), using: signingKey)
+			return "\(payload).\(signature.map { String(format: "%02x", $0) }.joined())"
+		}
+		func request(_ leaseId: String, pid: Int? = 812, lease: String) -> [String: Any] {
+			[
+				"cmd": "act",
+				"pid": pid as Any,
+				"lease": ["token": lease, "resourceKey": resource],
+			]
+		}
+		func check(_ name: String, _ request: [String: Any], expectSuccess: Bool) {
+			do {
+				try guardInstance.check(request, command: "act")
+				report(name, expectSuccess)
+			} catch {
+				report(name, !expectSuccess)
+			}
+		}
+
+		let valid = token(leaseId: "lease-1", pid: 812, expiresAt: now + 60, signedWith: key)
+		check("valid_token", request("lease-1", lease: valid), expectSuccess: true)
+
+		let otherKey = SymmetricKey(data: Data((0..<32).map { UInt8(200 &+ $0) }))
+		let wrongSignature = token(leaseId: "lease-2", pid: 812, expiresAt: now + 60, signedWith: otherKey)
+		check("wrong_signature", request("lease-2", lease: wrongSignature), expectSuccess: false)
+
+		let expired = token(leaseId: "lease-3", pid: 812, expiresAt: now - 1, signedWith: key)
+		check("expired", request("lease-3", lease: expired), expectSuccess: false)
+
+		let otherPid = token(leaseId: "lease-4", pid: 999, expiresAt: now + 60, signedWith: key)
+		check("pid_mismatch", request("lease-4", lease: otherPid), expectSuccess: false)
+
+		let revoked = token(leaseId: "lease-5", pid: 812, expiresAt: now + 60, signedWith: key)
+		guardInstance.revoke(["lease-5"])
+		check("revoked", request("lease-5", lease: revoked), expectSuccess: false)
+
+		// A guard without a broker key (ROTOM_CU_BROKER=0) checks nothing, as documented.
+		let unguarded = LeaseGuard()
+		do {
+			try unguarded.check(["cmd": "act", "pid": 812], command: "act")
+			report("no_broker_key_passthrough", true)
+		} catch {
+			report("no_broker_key_passthrough", false)
+		}
+
+		FileHandle.standardOutput.write(Data("lease-guard failures=\(failures)\n".utf8))
+		return failures
+	}
+
+	/// Verify a token produced by the TypeScript signer: `{key, token, pid, resourceKey}`.
+	static func verifyFixture(_ json: String) -> Int {
+		guard let data = json.data(using: .utf8),
+			let fixture = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+			let keyBase64 = fixture["key"] as? String,
+			let token = fixture["token"] as? String,
+			let resourceKey = fixture["resourceKey"] as? String
+		else {
+			FileHandle.standardOutput.write(Data("fixture malformed\n".utf8))
+			return 2
+		}
+		let guardInstance = LeaseGuard()
+		guardInstance.configure(keyBase64: keyBase64)
+		var request: [String: Any] = ["cmd": "act", "lease": ["token": token, "resourceKey": resourceKey]]
+		if let pid = fixture["pid"] as? Int { request["pid"] = pid }
+		do {
+			try guardInstance.check(request, command: "act")
+			FileHandle.standardOutput.write(Data("fixture accepted\n".utf8))
+			return 0
+		} catch {
+			let message = (error as? BridgeFailure)?.code ?? "unknown"
+			FileHandle.standardOutput.write(Data("fixture rejected: \(message)\n".utf8))
+			return 1
+		}
+	}
+}
+
 @main
 struct PiComputerUseHelper {
 	static func main() {
+		if CommandLine.arguments.contains("--lease-self-test") {
+			exit(Int32(LeaseGuardSelfTest.run()))
+		}
+		// Interoperability check: the broker signs tokens in TypeScript, so a token
+		// minted there must verify here. The fixture is passed on the command line
+		// and only read in this mode.
+		if let fixture = CommandLine.arguments.first(where: { $0.hasPrefix("--lease-fixture=") }) {
+			let json = String(fixture.dropFirst("--lease-fixture=".count))
+			exit(Int32(LeaseGuardSelfTest.verifyFixture(json)))
+		}
 		_ = NSApplication.shared
 		NSApp.setActivationPolicy(CommandLine.arguments.contains("serve") ? .accessory : .prohibited)
 		Bridge().run()
@@ -4500,18 +4638,189 @@ extension Bridge {
 
 // MARK: - Computer Use v2: user stop control
 
-/// Minimal broker client used by the menu bar control and the stop hotkey.
+/// Lease-token enforcement for writes (review I2).
 ///
-/// The broker owns every arbitration decision; the helper only asks it to stop
-/// agents and lists what it reports. One persistent connection keeps the
-/// helper's registration stable for the life of the process.
+/// The broker signs every lease with a key it generates per process and shares only
+/// with this helper; the key is never written to disk and never passes through an
+/// agent. A write command carries that token, and the helper refuses a missing,
+/// forged, expired, revoked or wrong-target one.
+///
+/// With no broker running the helper never receives a key, so nothing is checked:
+/// that is the documented `ROTOM_CU_BROKER=0` behavior, not a silent bypass.
+final class LeaseGuard {
+	private let lock = NSLock()
+	private var key: SymmetricKey?
+	private var revoked = Set<String>()
+
+	/// Commands that write to the user's desktop. Reads never carry a lease.
+	static let writeCommands: Set<String> = ["act", "clipboardSet", "clipboardClear", "manageApps", "manageWindow"]
+
+	private struct Claims {
+		let leaseId: String
+		let resourceKey: String
+		let pid: Int?
+		let expiresAt: Double
+	}
+
+	func configure(keyBase64: String?) {
+		guard let keyBase64, let data = Data(base64Encoded: keyBase64), !data.isEmpty else { return }
+		lock.lock()
+		key = SymmetricKey(data: data)
+		lock.unlock()
+	}
+
+	func revoke(_ leaseIds: [String]) {
+		guard !leaseIds.isEmpty else { return }
+		lock.lock()
+		revoked.formUnion(leaseIds)
+		lock.unlock()
+	}
+
+	func isEnforcing() -> Bool {
+		lock.lock()
+		defer { lock.unlock() }
+		return key != nil
+	}
+
+	func check(_ request: [String: Any], command: String) throws {
+		lock.lock()
+		let key = self.key
+		let revoked = self.revoked
+		lock.unlock()
+		guard let key else { return }
+		guard Self.writeCommands.contains(command) else { return }
+		guard let expected = Self.resourceKey(command: command, request: request) else { return }
+
+		guard let lease = request["lease"] as? [String: Any],
+			let token = lease["token"] as? String,
+			let sentResource = lease["resourceKey"] as? String
+		else {
+			throw BridgeFailure(message: "Write to \(expected) carries no lease token; the broker did not authorize it", code: "lease_invalid")
+		}
+		let claims = try Self.verify(token: token, key: key)
+		guard claims.expiresAt > Date().timeIntervalSince1970 else {
+			throw BridgeFailure(message: "Lease \(claims.leaseId) has expired", code: "lease_expired")
+		}
+		guard !revoked.contains(claims.leaseId) else {
+			throw BridgeFailure(message: "Lease \(claims.leaseId) was revoked by the broker", code: "lease_invalid")
+		}
+		guard claims.resourceKey == sentResource else {
+			throw BridgeFailure(message: "Lease is for \(claims.resourceKey), not \(sentResource)", code: "lease_invalid")
+		}
+		if expected != "desktop-pid:*" && expected != "any" {
+			guard claims.resourceKey == expected else {
+				throw BridgeFailure(message: "Lease is for \(claims.resourceKey), but this command writes to \(expected)", code: "lease_invalid")
+			}
+		}
+		if let claimPid = claims.pid, let targetPid = Self.targetPid(request) {
+			guard claimPid == targetPid else {
+				throw BridgeFailure(message: "Lease is for pid \(claimPid), but this command targets pid \(targetPid)", code: "lease_invalid")
+			}
+		}
+	}
+
+	/// The resource a command writes to. `desktop-pid:*` means "any process-keyed
+	/// resource"; app-keyed leases can only be checked by their own key.
+	private static func resourceKey(command: String, request: [String: Any]) -> String? {
+		switch command {
+		case "clipboardSet", "clipboardClear":
+			return "clipboard:system"
+		case "act", "manageWindow":
+			guard let pid = targetPid(request) else { return nil }
+			return "desktop-pid:\(pid)"
+		default:
+			return "desktop-pid:*"
+		}
+	}
+
+	private static func targetPid(_ request: [String: Any]) -> Int? {
+		if let value = request["pid"] as? Int { return value }
+		if let value = request["pid"] as? NSNumber { return value.intValue }
+		return nil
+	}
+
+	private static func verify(token: String, key: SymmetricKey) throws -> Claims {
+		let parts = token.split(separator: ".", omittingEmptySubsequences: false)
+		let payloadText = parts.count == 2 ? String(parts[0]) : ""
+		guard parts.count == 2,
+			let payloadData = base64URLData(payloadText),
+			let signature = hexData(String(parts[1]))
+		else {
+			throw BridgeFailure(message: "Malformed lease token", code: "lease_invalid")
+		}
+		// The signature covers the encoded payload text, exactly what the broker signed.
+		guard HMAC<SHA256>.isValidAuthenticationCode(signature, authenticating: Data(payloadText.utf8), using: key) else {
+			throw BridgeFailure(message: "Lease token signature does not match the broker key", code: "lease_invalid")
+		}
+		guard let object = (try? JSONSerialization.jsonObject(with: payloadData)) as? [String: Any],
+			let leaseId = object["leaseId"] as? String,
+			let resourceKey = object["resourceKey"] as? String
+		else {
+			throw BridgeFailure(message: "Lease token payload is not a lease", code: "lease_invalid")
+		}
+		let expiresAt: Double
+		if let value = object["expiresAt"] as? Double {
+			expiresAt = value
+		} else if let value = object["expiresAt"] as? NSNumber {
+			expiresAt = value.doubleValue
+		} else if let value = object["expiresAt"] as? Int {
+			expiresAt = Double(value)
+		} else {
+			throw BridgeFailure(message: "Lease token has no expiry", code: "lease_invalid")
+		}
+		var pid: Int?
+		if let value = object["pid"] as? Int {
+			pid = value
+		} else if let value = object["pid"] as? NSNumber {
+			pid = value.intValue
+		}
+		return Claims(leaseId: leaseId, resourceKey: resourceKey, pid: pid, expiresAt: expiresAt)
+	}
+
+	private static func base64URLData(_ value: String) -> Data? {
+		var text = value.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+		while text.count % 4 != 0 { text += "=" }
+		return Data(base64Encoded: text)
+	}
+
+	private static func hexData(_ value: String) -> Data? {
+		guard value.count % 2 == 0 else { return nil }
+		var data = Data(capacity: value.count / 2)
+		var index = value.startIndex
+		while index < value.endIndex {
+			let next = value.index(index, offsetBy: 2)
+			guard let byte = UInt8(value[index..<next], radix: 16) else { return nil }
+			data.append(byte)
+			index = next
+		}
+		return data
+	}
+}
+
+/// Minimal broker client used by the menu bar control, the activity push and the
+/// lease key handshake.
+///
+/// One persistent connection with a reader thread: replies are matched by request
+/// id, and unsolicited events (lease revocations) are applied to the lease guard.
+/// Without the reader thread a revocation could never reach the helper, because the
+/// broker pushes it whenever a lease ends.
 final class BrokerLink {
 	private let socketPath: String
-	private var fd: Int32 = -1
+	private let leaseGuard: LeaseGuard
 	private let lock = NSLock()
+	private let pendingLock = NSLock()
+	private var fd: Int32 = -1
+	private var counter = 0
+	private var pending: [String: PendingReply] = [:]
 
-	init(socketPath: String) {
+	private final class PendingReply {
+		var reply: [String: Any]?
+		let semaphore = DispatchSemaphore(value: 0)
+	}
+
+	init(socketPath: String, leaseGuard: LeaseGuard?) {
 		self.socketPath = socketPath
+		self.leaseGuard = leaseGuard ?? LeaseGuard()
 	}
 
 	static func defaultSocketPath(environment: [String: String] = ProcessInfo.processInfo.environment) -> String {
@@ -4521,6 +4830,8 @@ final class BrokerLink {
 	}
 
 	private func connect() -> Bool {
+		lock.lock()
+		defer { lock.unlock() }
 		if fd >= 0 { return true }
 		let socketFd = socket(AF_UNIX, SOCK_STREAM, 0)
 		if socketFd < 0 { return false }
@@ -4546,6 +4857,9 @@ final class BrokerLink {
 		_ = setsockopt(socketFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
 		_ = setsockopt(socketFd, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
 		fd = socketFd
+		let reader = Thread { [weak self] in self?.readLoop(socketFd) }
+		reader.name = "pi-computer-use-broker-reader"
+		reader.start()
 		guard handshake() else {
 			close(fd)
 			fd = -1
@@ -4555,7 +4869,7 @@ final class BrokerLink {
 	}
 
 	private func handshake() -> Bool {
-		guard let reply = exchange([
+		guard let reply = request([
 			"id": "hello-\(getpid())",
 			"type": "hello",
 			"protocolVersion": 1,
@@ -4569,54 +4883,109 @@ final class BrokerLink {
 				"pidChain": [],
 			],
 		]) else { return false }
-		return (reply["ok"] as? Bool) == true
+		guard (reply["ok"] as? Bool) == true else { return false }
+		// The broker hands the lease-signing key to this connection only.
+		if let key = reply["leaseKey"] as? String {
+			leaseGuard.configure(keyBase64: key)
+		}
+		return true
 	}
 
 	/// One request/response round trip. The caller never retries a write here:
 	/// `stop` is idempotent at the broker (revoking an absent lease is a no-op).
 	func request(_ payload: [String: Any]) -> [String: Any]? {
-		lock.lock()
-		defer { lock.unlock() }
 		guard connect() else { return nil }
-		guard let reply = exchange(payload) else {
-			close(fd)
-			fd = -1
+		pendingLock.lock()
+		counter += 1
+		let id = (payload["id"] as? String) ?? "request-\(counter)"
+		let slot = PendingReply()
+		pending[id] = slot
+		pendingLock.unlock()
+
+		guard sendLine(payload, id: id) else {
+			pendingLock.lock()
+			pending.removeValue(forKey: id)
+			pendingLock.unlock()
 			return nil
 		}
-		return reply
+		let outcome = slot.semaphore.wait(timeout: .now() + 3)
+		pendingLock.lock()
+		pending.removeValue(forKey: id)
+		pendingLock.unlock()
+		if outcome == .timedOut { return nil }
+		return slot.reply
 	}
 
-	private func exchange(_ payload: [String: Any]) -> [String: Any]? {
-		guard JSONSerialization.isValidJSONObject(payload),
-			let data = try? JSONSerialization.data(withJSONObject: payload)
-		else { return nil }
+	private func sendLine(_ payload: [String: Any], id: String) -> Bool {
+		var body = payload
+		body["id"] = id
+		guard JSONSerialization.isValidJSONObject(body),
+			let data = try? JSONSerialization.data(withJSONObject: body)
+		else { return false }
 		var line = data
 		line.append(0x0A)
+		lock.lock()
+		let socketFd = fd
+		lock.unlock()
+		guard socketFd >= 0 else { return false }
 		let wrote = line.withUnsafeBytes { raw -> Int in
 			guard let base = raw.baseAddress else { return -1 }
-			return write(fd, base, raw.count)
+			return write(socketFd, base, raw.count)
 		}
-		if wrote <= 0 { return nil }
+		return wrote > 0
+	}
+
+	private func readLoop(_ socketFd: Int32) {
 		var buffer = Data()
-		var byte = [UInt8](repeating: 0, count: 4096)
+		var chunk = [UInt8](repeating: 0, count: 4096)
 		while true {
-			if let newline = buffer.firstIndex(of: 0x0A) {
+			let read = Darwin.read(socketFd, &chunk, chunk.count)
+			if read <= 0 { break }
+			buffer.append(contentsOf: chunk[0..<read])
+			while let newline = buffer.firstIndex(of: 0x0A) {
 				let lineData = buffer.subdata(in: 0..<newline)
-				return (try? JSONSerialization.jsonObject(with: lineData)) as? [String: Any]
+				buffer.removeSubrange(0...newline)
+				handleLine(lineData)
 			}
-			let read = Darwin.read(fd, &byte, byte.count)
-			if read <= 0 { return nil }
-			buffer.append(contentsOf: byte[0..<read])
 		}
+		lock.lock()
+		if fd == socketFd { fd = -1 }
+		lock.unlock()
+		pendingLock.lock()
+		let waiting = pending.values
+		pending.removeAll()
+		pendingLock.unlock()
+		for slot in waiting { slot.semaphore.signal() }
+	}
+
+	private func handleLine(_ data: Data) {
+		guard let message = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
+		if let event = message["event"] as? String {
+			handleEvent(event, message)
+			return
+		}
+		guard let id = message["id"] as? String else { return }
+		pendingLock.lock()
+		let slot = pending[id]
+		pendingLock.unlock()
+		slot?.reply = message
+		slot?.semaphore.signal()
+	}
+
+	private func handleEvent(_ event: String, _ message: [String: Any]) {
+		// Only revocations matter here: the helper refuses a token the moment the
+		// broker says the lease ended (stop, transfer, expiry, disconnect).
+		guard event == "revoked" else { return }
+		let ids = (message["leaseIds"] as? [String]) ?? []
+		leaseGuard.revoke(ids)
 	}
 
 	func closeLink() {
 		lock.lock()
-		defer { lock.unlock() }
-		if fd >= 0 {
-			close(fd)
-			fd = -1
-		}
+		let socketFd = fd
+		fd = -1
+		lock.unlock()
+		if socketFd >= 0 { close(socketFd) }
 	}
 }
 

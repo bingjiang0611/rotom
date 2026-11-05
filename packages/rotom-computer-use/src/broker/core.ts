@@ -1,4 +1,6 @@
+import { randomBytes } from "node:crypto";
 import { EpochRegistry } from "./epochs.ts";
+import { leasePidOf, signLeaseToken } from "./lease-token.ts";
 import { LeaseManager, toLeaseInfo, holderInfo, realSchedule, type Lease, type Schedule } from "./leases.ts";
 import {
 	BROKER_PROTOCOL_VERSION,
@@ -78,6 +80,8 @@ export interface BrokerCoreOptions {
 	approvalTimeoutMs?: number;
 	policy?: PolicyGate;
 	pid?: number;
+	/** Fixed lease-signing key for tests; a fresh random one otherwise. */
+	leaseSecret?: Buffer;
 }
 
 interface PendingApproval {
@@ -105,6 +109,7 @@ export class BrokerCore {
 	private readonly policy: PolicyGate;
 	private readonly approvalTimeoutMs: number;
 	private readonly pid: number;
+	private readonly leaseSecret: Buffer;
 	private readonly sessionApprovals = new Map<string, AppTier>();
 	/**
 	 * Agents paused after interfering with the user (PLAN §6 / F3).
@@ -123,6 +128,7 @@ export class BrokerCore {
 		this.schedule = options.schedule ?? realSchedule;
 		this.startedAt = this.now();
 		this.pid = options.pid ?? process.pid;
+		this.leaseSecret = options.leaseSecret ?? randomBytes(32);
 		this.policy = options.policy ?? permissivePolicy;
 		this.approvalTimeoutMs = options.approvalTimeoutMs ?? DEFAULT_APPROVAL_TIMEOUT_MS;
 		this.registry = new AgentRegistry({
@@ -137,6 +143,12 @@ export class BrokerCore {
 		});
 		this.leases.onRevoke = (revocation) => {
 			this.transport?.send(revocation.agentId, { event: "revoked", ...revocation });
+			// The helper enforces tokens, so it has to learn about every revocation:
+			// otherwise a token the broker already took away would keep working.
+			for (const helper of this.registry.agentsWithRole("helper")) {
+				if (helper.agentId === revocation.agentId) continue;
+				this.transport?.send(helper.agentId, { event: "revoked", ...revocation });
+			}
 		};
 	}
 
@@ -273,7 +285,17 @@ export class BrokerCore {
 		}
 		if (!request.agent?.agentId) return failure("invalid_request", "hello requires an agent.agentId.");
 		this.registry.register(request.agent);
-		return { ok: true, type: "hello", protocolVersion: BROKER_PROTOCOL_VERSION, brokerPid: this.pid, startedAt: this.startedAt };
+		// The native helper enforces lease tokens, so it needs the key. Agents never
+		// get it: a key an agent could read is a key an agent could forge.
+		const leaseKey = request.agent.role === "helper" ? this.leaseSecret.toString("base64") : undefined;
+		return {
+			ok: true,
+			type: "hello",
+			protocolVersion: BROKER_PROTOCOL_VERSION,
+			brokerPid: this.pid,
+			startedAt: this.startedAt,
+			...(leaseKey ? { leaseKey } : {}),
+		};
 	}
 
 	private async onAcquire(agentId: string | undefined, request: AcquireRequest): Promise<BrokerReply> {
@@ -320,13 +342,13 @@ export class BrokerCore {
 			}
 			return failure("resource_busy", `Resource ${request.resourceKey} is held by ${result.holder.agentId}.`, { holder: result.holder });
 		}
-		return { ok: true, type: "acquire", lease: toLeaseInfo(result.lease), tier: decision.tier, approved: decision.requiresApproval || undefined };
+		return { ok: true, type: "acquire", lease: this.leaseInfo(result.lease), tier: decision.tier, approved: decision.requiresApproval || undefined };
 	}
 
 	private onRenew(agentId: string, leaseId: string): BrokerReply {
 		const lease: Lease | undefined = this.leases.renew(agentId, leaseId);
 		if (!lease) return failure("not_holder", `Agent ${agentId} does not hold ${leaseId}.`);
-		return { ok: true, type: "renew", lease: toLeaseInfo(lease) };
+		return { ok: true, type: "renew", lease: this.leaseInfo(lease) };
 	}
 
 	private onTransfer(agentId: string, leaseId: string, toAgentId: string): BrokerReply {
@@ -339,7 +361,7 @@ export class BrokerCore {
 		}
 		const lease = this.leases.transfer(agentId, leaseId, toAgentId);
 		if (!lease) return failure("not_holder", `Agent ${agentId} does not hold ${leaseId}.`);
-		return { ok: true, type: "transfer", lease: toLeaseInfo(lease) };
+		return { ok: true, type: "transfer", lease: this.leaseInfo(lease) };
 	}
 
 	private onStop(agentId: string | undefined, targetAgentId: string | undefined): BrokerReply {
@@ -385,6 +407,21 @@ export class BrokerCore {
 		const wasPaused = this.paused.delete(targetAgentId);
 		this.transport?.send(targetAgentId, { event: "resumed", agentId: targetAgentId });
 		return { ok: true, type: "resume", resumed: wasPaused ? [targetAgentId] : [] };
+	}
+
+	/** Lease info plus the helper-checkable token for the current holder. */
+	private leaseInfo(lease: Lease) {
+		const info = toLeaseInfo(lease);
+		return {
+			...info,
+			token: signLeaseToken(this.leaseSecret, {
+				agentId: lease.agentId,
+				resourceKey: lease.resourceKey,
+				pid: leasePidOf(lease.resourceKey),
+				leaseId: lease.leaseId,
+				expiresAt: lease.expiresAt,
+			}),
+		};
 	}
 
 	private async requestApproval(

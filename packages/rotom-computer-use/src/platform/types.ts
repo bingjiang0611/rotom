@@ -170,8 +170,21 @@ type PlatformMouseButton = "left" | "right" | "middle";
 type PlatformActDeliveryParam = { delivery?: NativeInputDelivery };
 export type PlatformPoint = { x: number; y: number };
 
+/**
+ * Proof that the broker granted this write, checked by the native helper.
+ *
+ * Absent when there is no broker (`ROTOM_CU_BROKER=0`): the helper then has no
+ * key and cannot check anything, which is the documented old behavior.
+ */
+export interface HelperLease {
+	token: string;
+	/** Resource the token was issued for; the helper compares it with the target. */
+	resourceKey: string;
+}
+
 export interface PlatformActRequestBase {
 	lookId: string;
+	lease?: HelperLease;
 	pid?: number;
 	target: PlatformActTarget;
 	policy: PlatformDeliveryPolicy;
@@ -321,12 +334,12 @@ export interface ComputerUsePlatformBackend {
 	/** Listen-only user input telemetry; absent when the platform cannot provide it. */
 	userActivity?(signal?: AbortSignal): Promise<PlatformUserActivity>;
 	clipboardGet?(signal?: AbortSignal): Promise<PlatformClipboardRead>;
-	clipboardSet?(text: string, signal?: AbortSignal): Promise<PlatformClipboardWrite>;
-	clipboardClear?(signal?: AbortSignal): Promise<PlatformClipboardWrite>;
+	clipboardSet?(text: string, signal?: AbortSignal, lease?: HelperLease): Promise<PlatformClipboardWrite>;
+	clipboardClear?(signal?: AbortSignal, lease?: HelperLease): Promise<PlatformClipboardWrite>;
 	/** Capture every item and type, so a write can be undone exactly. */
 	clipboardSnapshot?(signal?: AbortSignal): Promise<PlatformClipboardSnapshot>;
 	clipboardRestore?(snapshot: PlatformClipboardSnapshot, signal?: AbortSignal): Promise<PlatformClipboardRestore>;
-	manageApps?(request: { mode: "launch"; bundleId?: string; path?: string; activates?: boolean } | { mode: "quit"; pid?: number; bundleId?: string; force?: boolean; timeoutMs?: number }, signal?: AbortSignal): Promise<PlatformAppLaunchResult | PlatformAppQuitResult>;
-	manageWindow?(request: { mode: PlatformWindowMode; pid?: number; windowId?: number; x?: number; y?: number; w?: number; h?: number; title?: string }, signal?: AbortSignal): Promise<PlatformWindowMutationResult | PlatformRoot[] | PlatformDisplay[]>;
+	manageApps?(request: ({ mode: "launch"; bundleId?: string; path?: string; activates?: boolean } | { mode: "quit"; pid?: number; bundleId?: string; force?: boolean; timeoutMs?: number }) & { lease?: HelperLease }, signal?: AbortSignal): Promise<PlatformAppLaunchResult | PlatformAppQuitResult>;
+	manageWindow?(request: { mode: PlatformWindowMode; pid?: number; windowId?: number; x?: number; y?: number; w?: number; h?: number; title?: string; lease?: HelperLease }, signal?: AbortSignal): Promise<PlatformWindowMutationResult | PlatformRoot[] | PlatformDisplay[]>;
 	systemSurfaces?(surface: PlatformSystemSurfaceName | "all", signal?: AbortSignal): Promise<Record<string, PlatformSystemSurface>>;
 }

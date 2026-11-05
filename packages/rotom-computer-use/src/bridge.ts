@@ -15,7 +15,7 @@ import { applyOutputEnvelope, boundToolError, clearStoredOutputs, readStoredOutp
 import { AGENT_TOOL_NAMES, type ActParams, type EvaluateBrowserParams, type ExpandUiParams, type ImageMode, type InspectUiParams, type LaunchBrowserParams, type FindParams, type NavigateBrowserParams, type ObserveParams, type ObserveTargetParams, type ReadTextParams, type RootSelector, type SearchUiParams, type UiAction, type WaitForParams } from "./contract.ts";
 import { toFiniteNumber } from "./platform/coerce.ts";
 import { currentPlatformBackend } from "./platform/index.ts";
-import type { FramePoints, HelperActPerformed, HelperActResult, NativeInputDelivery, PlatformActRequest, PlatformDeliveryPolicy as DeliveryPolicy, PlatformApp as HelperApp, PlatformDiagnostics, PlatformFrontmostResult as FrontmostResult, PlatformRoot as HelperWindow } from "./platform/types.ts";
+import type { FramePoints, HelperLease, HelperActPerformed, HelperActResult, NativeInputDelivery, PlatformActRequest, PlatformDeliveryPolicy as DeliveryPolicy, PlatformApp as HelperApp, PlatformDiagnostics, PlatformFrontmostResult as FrontmostResult, PlatformRoot as HelperWindow } from "./platform/types.ts";
 import type { PermissionStatus } from "./permissions.ts";
 import { LeaseUnavailableError, ResourceScheduler, StaleResourceStateError } from "./runtime.ts";
 import { agentRegistrationFor } from "./broker/identity.ts";
@@ -31,7 +31,7 @@ import type { ApprovalRequestEvent, BrokerEvent } from "./broker/protocol.ts";
 import { processAncestry } from "./broker/identity.ts";
 import { approvalCopy } from "./constants/copy.ts";
 import { describeSensitiveMatch, matchSensitiveAction } from "./policy/sensitive.ts";
-import { excludeHostRoots, hostTargetRefusal, resolveHostApp, type HostAppInfo } from "./policy/host-exclusion.ts";
+import { excludeHostRoots, excludeInternalRoots, hostTargetRefusal, resolveHostApp, type HostAppInfo } from "./policy/host-exclusion.ts";
 import { backgroundDelivery } from "./policy/l2-compat.ts";
 import { appIntent, clipboardIntent, windowIntent } from "./tools/intents.ts";
 import { scoreWindow, shouldPreferForegroundModalWindow } from "./root-selection.ts";
@@ -452,14 +452,24 @@ function leaseApp(target: ResolvedTarget | CurrentTarget) {
 	return { appName: target.appName, bundleId: target.bundleId };
 }
 
-async function withWindowWriteLock<T>(target: ResolvedTarget | CurrentTarget, work: () => Promise<T>, lease?: LeaseContext): Promise<T> {
+/**
+ * Helper-checkable proof of a write.
+ *
+ * Without a broker there is no key in the helper either, so there is nothing to
+ * prove; with one, the helper refuses a write that carries no valid token.
+ */
+function helperLeaseOf(resourceKey: string, grant: { token?: string }): HelperLease | undefined {
+	return grant.token ? { token: grant.token, resourceKey } : undefined;
+}
+
+async function withWindowWriteLock<T>(target: ResolvedTarget | CurrentTarget, work: (lease: HelperLease | undefined) => Promise<T>, lease?: LeaseContext): Promise<T> {
 	const state = operationState();
 	const key = desktopResourceKey(target);
 	const baseEpoch = state.epoch ?? await resourceScheduler.syncEpoch(key);
-	const result = await resourceScheduler.write(key, baseEpoch, async (nextEpoch) => {
+	const result = await resourceScheduler.write(key, baseEpoch, async (nextEpoch, grant) => {
 		state.resourceKey = key;
 		state.epoch = nextEpoch;
-		return await work();
+		return await work(helperLeaseOf(key, grant));
 	}, { action: lease?.action, app: leaseApp(target) });
 	return result.value;
 }
@@ -1320,6 +1330,7 @@ async function helperAct(
 	action: NativePreparedAction,
 	headless: boolean,
 	signal?: AbortSignal,
+	lease?: HelperLease,
 ): Promise<ExecutionTrace> {
 	const checked = (candidate: HelperActResult): HelperActResult => {
 		if (!candidate || !["worked", "didnt", "unknown"].includes(candidate.outcome)) {
@@ -1330,16 +1341,16 @@ async function helperAct(
 	const textTimeout = "text" in action.params ? action.params.text.length * 25 + 4_000 : COMMAND_TIMEOUT_MS;
 	const timeoutMs = Math.max(COMMAND_TIMEOUT_MS, textTimeout);
 	if ((action.usesCurrentFocus || action.needsForeground) && !headless) {
-		const foreground = checked(await currentPlatformBackend.act(helperActRequest(target, action, "foreground"), { signal, timeoutMs }));
+		const foreground = checked(await currentPlatformBackend.act(helperActRequest(target, action, "foreground", lease), { signal, timeoutMs }));
 		const trace = executionTraceFromAct(foreground, "foreground");
 		trace.backgroundFirst = false;
 		return trace;
 	}
 	try {
 		const initialPolicy = headless ? currentDeliveryPolicy() : "background";
-		const result = checked(await currentPlatformBackend.act(helperActRequest(target, action, initialPolicy), { signal, timeoutMs }));
+		const result = checked(await currentPlatformBackend.act(helperActRequest(target, action, initialPolicy, lease), { signal, timeoutMs }));
 		if (canRetryInForeground(action, result.outcome, headless)) {
-			const foreground = checked(await currentPlatformBackend.act(helperActRequest(target, action, "foreground"), { signal, timeoutMs }));
+			const foreground = checked(await currentPlatformBackend.act(helperActRequest(target, action, "foreground", lease), { signal, timeoutMs }));
 			const trace = executionTraceFromAct(foreground, "foreground");
 			trace.backgroundFirst = true;
 			trace.escalatedToForeground = true;
@@ -1353,7 +1364,7 @@ async function helperAct(
 	} catch (error) {
 		const code = (error as Error & { code?: string })?.code;
 		if (code !== "foreground_required" || headless) throw error;
-		const foreground = checked(await currentPlatformBackend.act(helperActRequest(target, action, "foreground"), { signal, timeoutMs }));
+		const foreground = checked(await currentPlatformBackend.act(helperActRequest(target, action, "foreground", lease), { signal, timeoutMs }));
 		const trace = executionTraceFromAct(foreground, "foreground");
 		trace.backgroundFirst = true;
 		trace.escalatedToForeground = true;
@@ -1363,10 +1374,10 @@ async function helperAct(
 	}
 }
 
-function helperActRequest(target: ResolvedTarget, action: NativePreparedAction, policy = currentDeliveryPolicy()): PlatformActRequest {
+function helperActRequest(target: ResolvedTarget, action: NativePreparedAction, policy = currentDeliveryPolicy(), lease?: HelperLease): PlatformActRequest {
 	const look = currentLookOrThrow();
 	const delivery = nativeInputDelivery(policy, target);
-	const base = { lookId: look.lookId, pid: target.pid, target: action.target, policy };
+	const base = { lookId: look.lookId, pid: target.pid, target: action.target, policy, ...(lease ? { lease } : {}) };
 	return (() => {
 		switch (action.action) {
 			case "press":
@@ -1446,9 +1457,15 @@ async function collectWindowDetails(apps: HelperApp[], config: ReturnType<typeof
 	return sortWindowDetails(perApp.flatMap(({ app, windows }) => windows.map((window) => windowDetails(app, window, config))));
 }
 
+/** Pids whose windows are the tool itself: this process and the native helper (overlay). */
+function internalWindowPids(): number[] {
+	const helperPid = runtimeState.helperDiagnostics?.pid;
+	return helperPid ? [process.pid, helperPid] : [process.pid];
+}
+
 function collectBroadWindowDetails(roots: HelperWindow[], config: ReturnType<typeof getComputerUseConfig>): WindowRow[] {
 	const windows: WindowRow[] = [];
-	for (const window of roots) {
+	for (const window of excludeInternalRoots(roots, internalWindowPids())) {
 		if (!window.pid) continue;
 		windows.push(windowDetails({ appName: window.appName ?? "Unknown App", bundleId: window.bundleId, pid: window.pid }, window, config));
 	}
@@ -1460,11 +1477,14 @@ async function windowDetailsForFind(query: FindParams, config: ReturnType<typeof
 	if (!query.app && !query.bundleId && !Number.isFinite(query.pid)) {
 		const roots = excludeHostRoots(await currentPlatformBackend.listRoots({}, signal), host);
 		return collectBroadWindowDetails(roots, config);
+
 	}
 	// The host terminal/IDE is never offered as a root, even when asked for by name.
+	const internal = new Set(internalWindowPids());
 	const apps = (await listApps(signal))
 		.filter((app) => appMatchesWindowQuery(app, query))
-		.filter((app) => !host || app.pid !== host.pid);
+		.filter((app) => !host || app.pid !== host.pid)
+		.filter((app) => !internal.has(app.pid));
 	return await collectWindowDetails(apps, config, signal);
 }
 
@@ -1953,27 +1973,27 @@ function prepareUiAction(action: UiAction, state: ActionState, look: LookRespons
 	});
 }
 
-async function dispatchUiAction(action: UiAction, target: ResolvedTarget, look: LookResponse, headless: boolean, state: ActionState, signal?: AbortSignal): Promise<ExecutionTrace> {
+async function dispatchUiAction(action: UiAction, target: ResolvedTarget, look: LookResponse, headless: boolean, state: ActionState, signal?: AbortSignal, lease?: HelperLease): Promise<ExecutionTrace> {
 	const prepared = prepareUiAction(action, state, look, headless);
 	if (prepared.action === "wait") {
 		await sleep(prepared.params.ms, signal);
 		return executionTrace("wait", "stealth", { outcome: "worked" });
 	}
-	const trace = await helperAct(target, prepared, headless, signal);
+	const trace = await helperAct(target, prepared, headless, signal, lease);
 	if (!headless && (prepared.establishesFocus || (prepared.action === "click" && "x" in prepared.target))) {
 		state.currentFocus = true;
 	}
 	return trace;
 }
 
-async function dispatchUiTransaction(actions: UiAction[], target: ResolvedTarget, look: LookResponse, headless: boolean, signal?: AbortSignal): Promise<ExecutionTrace> {
+async function dispatchUiTransaction(actions: UiAction[], target: ResolvedTarget, look: LookResponse, headless: boolean, signal?: AbortSignal, lease?: HelperLease): Promise<ExecutionTrace> {
 	// Strict-headless batches have one immutable delivery class. When foreground
 	// fallback is permitted, decide independently per action so a completed
 	// background prefix is never replayed as part of a foreground batch.
 	if (headless && currentPlatformBackend.actBatch) {
 		const actionState: ActionState = { currentFocus: false };
 		const policy = currentDeliveryPolicy();
-		const requests = actions.map((action) => helperActRequest(target, prepareUiAction(action, actionState, look, true) as NativePreparedAction, policy));
+		const requests = actions.map((action) => helperActRequest(target, prepareUiAction(action, actionState, look, true) as NativePreparedAction, policy, lease));
 		const textLength = actions.reduce((sum, action) => sum + (action.text?.length ?? 0), 0);
 		const result = await currentPlatformBackend.actBatch(requests, { signal, timeoutMs: Math.max(COMMAND_TIMEOUT_MS, textLength * 25 + 6_000) });
 		if (!result.steps || result.steps.length === 0) throw new Error("Native action transaction returned no checked steps.");
@@ -1988,7 +2008,7 @@ async function dispatchUiTransaction(actions: UiAction[], target: ResolvedTarget
 	const steps: ExecutionTrace[] = [];
 	const actionState: ActionState = { currentFocus: false };
 	for (const action of actions) {
-		const step = await dispatchUiAction(action, target, look, headless, actionState, signal);
+		const step = await dispatchUiAction(action, target, look, headless, actionState, signal, lease);
 		steps.push(step);
 		if (step.outcome !== "worked") break;
 	}
@@ -2117,9 +2137,9 @@ async function performDesktopTransaction(params: ActParams, actions: UiAction[],
 	const target = await ensureTargetWindowId(await resolveCurrentTarget(signal), signal);
 	const noteBefore = state.currentNote;
 	const lease = transactionLeaseContext(actions, look.parsedOutline);
-	return await withWindowWriteLock(target, async () => {
+	return await withWindowWriteLock(target, async (lease) => {
 		const headless = getComputerUseConfig().headless;
-		const execution = await dispatchUiTransaction(actions, target, look, headless, signal);
+		const execution = await dispatchUiTransaction(actions, target, look, headless, signal, lease);
 		const executedActions = actions.slice(0, execution.actionCount ?? actions.length);
 		try {
 			if (condition) {
@@ -2506,9 +2526,10 @@ function recordToolTrace(
 	const execution = details?.execution ?? details?.capture?.execution;
 	const shots: string[] = [];
 	// A secure text field must not be photographed, even for our own trace (review
-	// I1). The native helper has no secure-field marker yet, so the role in the
-	// result is the only signal; when the outline says secure, the image is dropped.
-	const secure = /AXSecureTextField/.test(JSON.stringify(details?.outline ?? details?.capture?.outline ?? details?.target ?? ""));
+	// I1). The helper marks such nodes natively (review I2); the role check stays as
+	// the fallback for helper versions that predate the marker.
+	const secure = outlineHasSecureField(details?.outline ?? details?.capture?.outline)
+		|| /AXSecureTextField/.test(JSON.stringify(details?.target ?? ""));
 	if (getComputerUseConfig().trace_screenshots && !secure) {
 		for (const item of result?.content ?? []) {
 			if (item.type !== "image" || !item.data) continue;
@@ -2538,6 +2559,25 @@ function recordToolTrace(
 		evidence: traceEvidenceOf(details, outcome.error),
 		lease: details?.leaseHolder?.agentId ? { holder: details.leaseHolder.agentId } : undefined,
 	});
+}
+
+/**
+ * True when the captured outline contains a secure text field.
+ *
+ * The helper marks such nodes (`secure: true`, protocol 9) so a future caller can
+ * read the flag directly; today `outline.ts` carries the role through
+ * serialization, so the role is what decides.
+ */
+function outlineHasSecureField(outline: unknown): boolean {
+	const root = (outline as { root?: unknown } | undefined)?.root;
+	const stack: unknown[] = root ? [root] : [];
+	while (stack.length > 0) {
+		const node = stack.pop() as { role?: unknown; children?: unknown };
+		if (!node || typeof node !== "object") continue;
+		if (node.role === "AXSecureTextField") return true;
+		if (Array.isArray(node.children)) stack.push(...node.children);
+	}
+	return false;
 }
 
 function firstRedactedText(params: Record<string, unknown> | undefined): TraceEntry["text"] | undefined {

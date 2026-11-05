@@ -202,6 +202,13 @@ export type BrokerRequest =
 
 export interface LeaseInfo {
 	leaseId: string;
+	/**
+	 * Signed proof of this lease for the native helper.
+	 *
+	 * Only the broker and the helper know the key, so a helper that has one can
+	 * refuse writes from an agent without a valid, unrevoked, unexpired lease.
+	 */
+	token?: string;
 	resourceKey: string;
 	agentId: string;
 	/** Epoch granted to this write; the caller stores it in its observation state. */
@@ -249,6 +256,8 @@ export interface HelloResponse {
 	protocolVersion: number;
 	brokerPid: number;
 	startedAt: number;
+	/** Base64 lease-signing key; present only for `role=helper` registrations. */
+	leaseKey?: string;
 }
 
 export interface PongResponse {

@@ -1,7 +1,7 @@
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { getComputerUseConfig } from "../config.ts";
 import { currentPlatformBackend } from "../platform/index.ts";
-import type { PlatformClipboardSnapshot } from "../platform/types.ts";
+import type { HelperLease, PlatformClipboardSnapshot } from "../platform/types.ts";
 import type { DesktopToolDeps } from "./desktop-deps.ts";
 import { clipboardIntent } from "./intents.ts";
 import { unsupportedToolResult } from "./results.ts";
@@ -70,11 +70,13 @@ export function createClipboardTool(deps: DesktopToolDeps) {
 		const backend = currentPlatformBackend;
 		// Clipboard reads and writes are authorized per level and serialized through one
 		// lease: an approval card or a running peer must both be respected (review B2).
-		const clipboardLease = async <T>(action: "get" | "set" | "clear", work: () => Promise<T>): Promise<T> => {
+		// The grant's token is also what the helper checks before writing (review I2).
+		const clipboardLease = async <T>(action: "get" | "set" | "clear", work: (lease: HelperLease | undefined) => Promise<T>): Promise<T> => {
 			const intent = clipboardIntent(action);
 			const scheduler = deps.scheduler();
 			const baseEpoch = scheduler.epoch(intent.resourceKey);
-			const result = await scheduler.write(intent.resourceKey, baseEpoch, async () => await work(), {
+			const result = await scheduler.write(intent.resourceKey, baseEpoch, async (_nextEpoch, grant) =>
+				await work(grant.token ? { token: grant.token, resourceKey: intent.resourceKey } : undefined), {
 				action: intent.action,
 				...(intent.app ? { app: intent.app } : {}),
 			});
@@ -90,7 +92,7 @@ export function createClipboardTool(deps: DesktopToolDeps) {
 		}
 		if (params.action === "clear") {
 			if (!backend.clipboardClear) return unsupportedToolResult("clipboard", "clear", "This platform cannot clear the clipboard.");
-			const cleared = await clipboardLease("clear", async () => await backend.clipboardClear!());
+			const cleared = await clipboardLease("clear", async (lease) => await backend.clipboardClear!(undefined, lease));
 			return {
 				content: [{ type: "text", text: "Cleared the clipboard." }],
 				details: { tool: "clipboard", action: "clear", status: "ok", ...cleared },
@@ -101,7 +103,7 @@ export function createClipboardTool(deps: DesktopToolDeps) {
 		// Capture before writing: a clipboard whose types cannot be copied exactly is
 		// refused, because a partial restore would destroy the user's content.
 		const snapshot = await backend.clipboardSnapshot?.().catch(() => undefined);
-		const written = await clipboardLease("set", async () => await backend.clipboardSet!(text));
+		const written = await clipboardLease("set", async (lease) => await backend.clipboardSet!(text, undefined, lease));
 		const restore = scheduleClipboardRestore({
 			snapshot,
 			writtenChangeCount: written.changeCount,

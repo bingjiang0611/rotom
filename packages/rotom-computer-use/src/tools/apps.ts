@@ -1,5 +1,6 @@
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { currentPlatformBackend } from "../platform/index.ts";
+import type { HelperLease } from "../platform/types.ts";
 import type { DesktopToolDeps } from "./desktop-deps.ts";
 import { appIntent } from "./intents.ts";
 import { toolProblem, unsupportedToolResult } from "./results.ts";
@@ -20,6 +21,11 @@ export async function describeApp(pid?: number, bundleId?: string): Promise<{ ap
 	}
 }
 
+/** Helper-checkable proof of the write, when the broker issued one. */
+function leaseOf(resourceKey: string, grant: { token?: string }): { lease?: HelperLease } {
+	return grant.token ? { lease: { token: grant.token, resourceKey } } : {};
+}
+
 export function createAppTool(deps: DesktopToolDeps) {
 	return async function performManageApp(params: { action: "list" | "launch" | "quit"; bundleId?: string; path?: string; pid?: number; force?: boolean }, _signal?: AbortSignal): Promise<AgentToolResult<Record<string, unknown>>> {
 		const backend = currentPlatformBackend;
@@ -37,8 +43,14 @@ export function createAppTool(deps: DesktopToolDeps) {
 			if (params.pid === undefined && !params.bundleId) return toolProblem("manage_app", "quit requires pid or bundleId.");
 			const appInfo = await describeApp(params.pid, params.bundleId);
 			const intent = appIntent("quit", appInfo, params.pid, params.force === true);
-			const result = await scheduler.write(intent.resourceKey, scheduler.epoch(intent.resourceKey), async () =>
-				await backend.manageApps!({ mode: "quit", pid: params.pid, bundleId: params.bundleId, force: params.force === true }), {
+			const result = await scheduler.write(intent.resourceKey, scheduler.epoch(intent.resourceKey), async (_nextEpoch, grant) =>
+				await backend.manageApps!({
+					mode: "quit",
+					pid: params.pid,
+					bundleId: params.bundleId,
+					force: params.force === true,
+					...leaseOf(intent.resourceKey, grant),
+				}), {
 				action: intent.action,
 				...(intent.app ? { app: intent.app } : {}),
 			}).then((outcome) => outcome.value);
@@ -58,8 +70,14 @@ export function createAppTool(deps: DesktopToolDeps) {
 		}
 		if (!params.bundleId && !params.path) return toolProblem("manage_app", "launch requires bundleId or path.");
 		const launchIntent = appIntent("launch", await describeApp(params.pid, params.bundleId), params.pid);
-		const launched = await scheduler.write(launchIntent.resourceKey, scheduler.epoch(launchIntent.resourceKey), async () =>
-			await backend.manageApps!({ mode: "launch", bundleId: params.bundleId, path: params.path, activates: false }), {
+		const launched = await scheduler.write(launchIntent.resourceKey, scheduler.epoch(launchIntent.resourceKey), async (_nextEpoch, grant) =>
+			await backend.manageApps!({
+				mode: "launch",
+				bundleId: params.bundleId,
+				path: params.path,
+				activates: false,
+				...leaseOf(launchIntent.resourceKey, grant),
+			}), {
 			action: launchIntent.action,
 			...(launchIntent.app ? { app: launchIntent.app } : {}),
 		}).then((outcome) => outcome.value);

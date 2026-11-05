@@ -25,6 +25,14 @@
    恢复只能由用户做：helper 菜单栏对被暂停的 agent 显示 “Resume …”，Broker 只接受
    `role=helper` 连接发起的 `resume`。模型没有任何工具可以恢复自己。
 
+7. **写入由 helper 自己校验，不再只靠 broker（第二期 A5）。** broker 给每份租约签一个 token
+   （HMAC-SHA256），签名密钥只在 broker 内存里生成，只交给 `role=helper` 的连接，不落盘、不经过
+   任何 agent。helper 在执行写动作前检查签名、有效期、目标 pid 与已撤销列表，任一不满足就返回
+   `lease_invalid`／`lease_expired`，动作不会发生。这意味着**绕过 broker 直连 helper socket 已经
+   不能写**：这正是“别人直接调 AX/HID”这条缺口被堵掉的部分。
+   helper 协议随之升到 **9**；旧 helper 不会被自动重启，协议不匹配时客户端报错要求重新安装。
+   关掉 broker（见做法二）时 helper 拿不到密钥，于是不做校验——仍是旧行为，不是静默绕过。
+
 ## 保持原来行为的两种做法
 
 ### 做法一：预先在 policy.json 里写好授权（推荐）
@@ -72,7 +80,10 @@ broker trace。适合“这台机器只有我一个人用、且我确定不会�
 
 ## 已验证的行为
 
-第二期的补充（A3 暂停）见 [`test/broker-pause.test.ts`](../../../packages/rotom-computer-use/test/broker-pause.test.ts)。
+第二期的补充见 [`test/broker-pause.test.ts`](../../../packages/rotom-computer-use/test/broker-pause.test.ts)（A3 暂停）
+与 [`test/lease-token.test.ts`](../../../packages/rotom-computer-use/test/lease-token.test.ts)（A5 租约 token）。
+A5 的 native 侧用 `npm run test:lease-guard` 验证：helper 自检 6 项（合法／签名错／过期／pid 不符／
+已撤销／无 broker 密钥），再验证 TypeScript 签出的 token 能被 Swift 接受、换成别的 pid 则被拒。
 
 - `packages/rotom-computer-use/test/cu-v2-authority.test.ts`：
   - 预先授权为 `full` 的 App 在无 UI 会话里可以写入；同一个无 UI 会话写入未授权 App 得到
