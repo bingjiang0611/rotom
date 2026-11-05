@@ -142,6 +142,7 @@ const actRequest = (lease, pid) => ({
 
 const handed = await brokerTransfer();
 const restarted = await brokerLease({ secret: Buffer.alloc(32, 12) });
+const appLease = await brokerLease({ resourceKey: "app:com.example.fixture" });
 
 const steps = [
 	{ name: "broker_valid", key: valid.keyBase64, command: "act", request: actRequest(valid, valid.pid), expect: "accept" },
@@ -156,6 +157,11 @@ const steps = [
 	// E2: a restarted broker signs with a new key; its leases must work.
 	{ name: "restart_new_key_accepted", key: restarted.keyBase64, command: "act", request: actRequest(restarted, restarted.pid), expect: "accept" },
 	{ name: "restart_old_key_rejected", key: restarted.keyBase64, command: "act", request: actRequest(valid, valid.pid), expect: "reject", code: "lease_invalid" },
+	// E3: the lease names the app, and reads need no lease at all.
+	{ name: "app_lease_quits_its_own_app", key: appLease.keyBase64, command: "manageApps", request: { cmd: "manageApps", mode: "quit", bundleId: "com.example.fixture", lease: { token: appLease.token, resourceKey: appLease.resourceKey } }, expect: "accept" },
+	{ name: "app_lease_cannot_quit_another_app", key: appLease.keyBase64, command: "manageApps", request: { cmd: "manageApps", mode: "quit", bundleId: "com.example.other", lease: { token: appLease.token, resourceKey: appLease.resourceKey } }, expect: "reject", code: "lease_invalid" },
+	{ name: "manage_window_list_is_read", key: valid.keyBase64, command: "manageWindow", request: { cmd: "manageWindow", mode: "list", pid: 812 }, expect: "accept" },
+	{ name: "manage_window_move_without_pid_refused", key: valid.keyBase64, command: "manageWindow", request: { cmd: "manageWindow", mode: "move" }, expect: "reject", code: "lease_invalid" },
 ];
 
 const fixture = run([`--lease-fixture=${JSON.stringify({ steps })}`]);

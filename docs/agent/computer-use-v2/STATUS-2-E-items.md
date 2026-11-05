@@ -68,3 +68,35 @@ helper，于是接收方一写就被拒；leaseId 是进程内计数器，broker
 | 互通（真实 broker） | `node scripts/check-lease-guard.mjs` | 9 步全过，含 `transfer_old_id_revoked`、`transfer_receiver_accepted`、`expired_revocation_forgotten`、`restart_new_key_accepted`、`restart_old_key_rejected` |
 
 限制：这仍然只证明两侧规则一致；真机上“转交后子 agent 真的能写”属于 B4 内容。
+
+## E3 写命令和资源的对应关系不对
+
+审核列出的三处都确认存在：`manageWindow list` 被当成写命令（带 pid 时反而要求租约）；
+`manageApps quit`/`launch` 落到默认分支 `desktop-pid:*`，资源比对被跳过，于是手里有任何合法租约就能让
+helper 退出任意 App；能识别为写命令但算不出目标的请求直接放行。
+
+修法（`LeaseGuard.requirement`）：
+
+- **按 mode 显式区分读写。** `manageApps list`、`manageWindow list`/`list_displays` 是读，不需要租约；
+  `move`/`resize`/`maximize`/`minimize`/`restore` 是写，要求 `desktop-pid:<pid>`。未知 mode 按写处理。
+- **`manageApps` 绑定到 App。** helper 用请求里的 `bundleId`/`pid` 查 `NSWorkspace`，算出
+  `app:<bundleId>` 与 `app:<localizedName>`，与 token 的 `resourceKey` 比对；`launch` 走路径时用
+  `Bundle(path:)` 取 bundle id。格式以 `src/tools/intents.ts` 为准，两侧各加了一条锁格式的测试。
+- **只凭路径 launch 的匿名情况单独处理。** 调用方拿不到 App 身份时 `appIntent` 生成的是
+  `desktop-pid:0`，所以 helper 仅在该请求既没有 `bundleId` 也没有 `pid` 时接受这一把 key。真实 pid 的
+  租约仍然不能用来 launch（用例断言被拒），没有回到“任何租约都行”。
+- **算不出目标就失败关闭。** `act` 没有 pid、`manageWindow` 写操作没有 pid、`manageApps` 既无 bundleId
+  也无 pid、未知 mode、未知写命令，一律 `lease_invalid`，不再静默放行。
+- `desktop-pid:*` / `any` 这两个通配判断被删除，比对改成“token 的 resourceKey 必须落在该命令允许的集合里”。
+
+验证：
+
+| 检查 | 命令 | 结果 |
+| --- | --- | --- |
+| 全量 TS 测试 | `node --test --experimental-strip-types "test/*.test.ts"` | 113 通过、0 失败（新增 intent 资源 key 格式锁） |
+| Swift 自测 | `helper --lease-self-test` | 19 项全过，含读命令免租约、无 pid 的写命令被拒、`quit` 同 App 放行/异 App 拒绝/pid 租约拒绝/无 token 拒绝、按路径 launch 只接受匿名 key |
+| 互通（真实 broker） | `node scripts/check-lease-guard.mjs` | 13 步全过，含 `app_lease_quits_its_own_app`、`app_lease_cannot_quit_another_app`、`manage_window_list_is_read`、`manage_window_move_without_pid_refused` |
+
+仍然存在的缺口（未在本轮扩大范围）：`focusWindow`、`clipboardRestore` 会改变状态但没有列入
+`writeCommands`，TS 侧也没有给它们附租约。它们不在审核 E3 的清单里，改动会牵涉工具层合同，留给
+B4 真机反例测试之后一起决定（已记入 STATUS-2 的待决问题 Q5）。

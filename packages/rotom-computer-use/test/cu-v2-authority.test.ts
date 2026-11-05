@@ -62,6 +62,18 @@ async function acquire(core: BrokerCore, agentId: string, intent: ReturnType<typ
 
 const DOC_APP = { appName: "TextEdit", bundleId: "com.apple.TextEdit" };
 
+test("write intents name the exact resource the helper checks", () => {
+	// The helper recomputes these keys itself (review E3), so both sides have to agree
+	// on one format: `app:<bundleId>` when known, `app:<appName>` otherwise, and
+	// `desktop-pid:<pid>` for process-keyed writes.
+	assert.equal(appIntent("quit", { appName: "Fixture", bundleId: "com.example.fixture" }, 900).resourceKey, "app:com.example.fixture");
+	assert.equal(appIntent("launch", { appName: "com.example.fixture", bundleId: "com.example.fixture" }, undefined).resourceKey, "app:com.example.fixture");
+	assert.equal(appIntent("quit", { appName: "Fixture" }, 900).resourceKey, "app:Fixture");
+	assert.equal(appIntent("quit", undefined, 900).resourceKey, "desktop-pid:900");
+	assert.equal(windowIntent("resize", 900, 12, undefined).resourceKey, "desktop-pid:900");
+	assert.equal(clipboardIntent("set").resourceKey, "clipboard:system");
+});
+
 test("manage_app quit is refused for an app the user set to view tier", async () => {
 	const { core, policy, cleanup } = setup();
 	try {

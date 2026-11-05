@@ -3954,8 +3954,8 @@ enum LeaseGuardSelfTest {
 		// Milliseconds: the token unit the broker signs (review E1).
 		let now = Date().timeIntervalSince1970 * 1000
 		let resource = "desktop-pid:812"
-		func token(leaseId: String, pid: Int?, expiresAt: Double, signedWith signingKey: SymmetricKey) -> String {
-			var claims: [String: Any] = ["agentId": "session:test", "resourceKey": resource, "leaseId": leaseId, "expiresAt": expiresAt]
+		func token(leaseId: String, pid: Int?, expiresAt: Double, signedWith signingKey: SymmetricKey, resourceKey: String? = nil) -> String {
+			var claims: [String: Any] = ["agentId": "session:test", "resourceKey": resourceKey ?? resource, "leaseId": leaseId, "expiresAt": expiresAt]
 			if let pid { claims["pid"] = pid }
 			let payload = (try? JSONSerialization.data(withJSONObject: claims))?.base64EncodedString()
 				.replacingOccurrences(of: "+", with: "-")
@@ -3998,6 +3998,39 @@ enum LeaseGuardSelfTest {
 		let revoked = token(leaseId: "lease-5", pid: 812, expiresAt: now + 60_000, signedWith: key)
 		guardInstance.revoke(["lease-5"], expiresAt: now + 60_000)
 		check("revoked", request("lease-5", lease: revoked), expectSuccess: false)
+
+		// --- E3: the resource a command writes must be the one its lease names. ---
+		func checkCommand(_ name: String, _ command: String, _ request: [String: Any], expectSuccess: Bool) {
+			do {
+				try guardInstance.check(request, command: command)
+				report(name, expectSuccess)
+			} catch {
+				let code = (error as? BridgeFailure)?.code ?? "unknown"
+				FileHandle.standardOutput.write(Data("  \(name) refused: \(code) \(error)\n".utf8))
+				report(name, !expectSuccess)
+			}
+		}
+		let appLease = token(leaseId: "lease-app", pid: nil, expiresAt: now + 60_000, signedWith: key, resourceKey: "app:com.example.fixture")
+		let otherAppLease = token(leaseId: "lease-app-other", pid: nil, expiresAt: now + 60_000, signedWith: key, resourceKey: "app:com.example.other")
+		let pidLease = token(leaseId: "lease-pid", pid: 812, expiresAt: now + 60_000, signedWith: key)
+
+		// Reads stay unguarded: `list` needs no lease even while enforcement is on.
+		checkCommand("manage_window_list_is_read", "manageWindow", ["cmd": "manageWindow", "mode": "list", "pid": 812], expectSuccess: true)
+		checkCommand("manage_apps_list_is_read", "manageApps", ["cmd": "manageApps", "mode": "list"], expectSuccess: true)
+		// A mutation without a target must be refused, not allowed.
+		checkCommand("manage_window_move_without_pid_refused", "manageWindow", ["cmd": "manageWindow", "mode": "move"], expectSuccess: false)
+		// manageApps quit binds to the app, so a lease for a different app cannot quit it.
+		let quitRequest: [String: Any] = ["cmd": "manageApps", "mode": "quit", "bundleId": "com.example.fixture"]
+		checkCommand("manage_apps_quit_same_app_accepted", "manageApps", quitRequest.merging(["lease": ["token": appLease, "resourceKey": "app:com.example.fixture"]]) { $1 }, expectSuccess: true)
+		checkCommand("manage_apps_quit_other_app_refused", "manageApps", quitRequest.merging(["lease": ["token": otherAppLease, "resourceKey": "app:com.example.other"]]) { $1 }, expectSuccess: false)
+		checkCommand("manage_apps_quit_pid_lease_refused", "manageApps", quitRequest.merging(["lease": ["token": pidLease, "resourceKey": resource]]) { $1 }, expectSuccess: false)
+		checkCommand("manage_apps_quit_without_token_refused", "manageApps", quitRequest, expectSuccess: false)
+		// A launch by path has no app identity on the caller side: the anonymous resource
+		// is the only key it can present, and a pid-keyed lease for a real app is not it.
+		let anonymousLease = token(leaseId: "lease-anon", pid: nil, expiresAt: now + 60_000, signedWith: key, resourceKey: "desktop-pid:0")
+		let launchRequest: [String: Any] = ["cmd": "manageApps", "mode": "launch", "path": "/Applications/Nope.app"]
+		checkCommand("manage_apps_launch_by_path_anonymous_accepted", "manageApps", launchRequest.merging(["lease": ["token": anonymousLease, "resourceKey": "desktop-pid:0"]]) { $1 }, expectSuccess: true)
+		checkCommand("manage_apps_launch_pid_lease_refused", "manageApps", launchRequest.merging(["lease": ["token": pidLease, "resourceKey": resource]]) { $1 }, expectSuccess: false)
 
 		// A revocation that was already past its lease expiry is dropped instead of
 		// being remembered forever, so an id cannot stay blocked (review E2).
@@ -4850,14 +4883,23 @@ final class LeaseGuard {
 		let revoked = Set(revoked.keys)
 		lock.unlock()
 		guard let key else { return }
-		guard Self.writeCommands.contains(command) else { return }
-		guard let expected = Self.resourceKey(command: command, request: request) else { return }
+		// Reads need no lease; a write whose target cannot be computed is refused
+		// instead of allowed (review E3).
+		let requirement = Self.requirement(command: command, request: request)
+		if case .read = requirement { return }
+		if case .undeterminable = requirement {
+			throw BridgeFailure(
+				message: "\(command) would write, but its target app or window cannot be determined; refusing to run it without a matching lease",
+				code: "lease_invalid",
+			)
+		}
+		guard case let .write(accepted) = requirement else { return }
 
 		guard let lease = request["lease"] as? [String: Any],
 			let token = lease["token"] as? String,
 			let sentResource = lease["resourceKey"] as? String
 		else {
-			throw BridgeFailure(message: "Write to \(expected) carries no lease token; the broker did not authorize it", code: "lease_invalid")
+			throw BridgeFailure(message: "Write to \(accepted.sorted().joined(separator: " or ")) carries no lease token; the broker did not authorize it", code: "lease_invalid")
 		}
 		let claims = try Self.verify(token: token, key: key)
 		guard claims.expiresAt > nowMs else {
@@ -4869,10 +4911,11 @@ final class LeaseGuard {
 		guard claims.resourceKey == sentResource else {
 			throw BridgeFailure(message: "Lease is for \(claims.resourceKey), not \(sentResource)", code: "lease_invalid")
 		}
-		if expected != "desktop-pid:*" && expected != "any" {
-			guard claims.resourceKey == expected else {
-				throw BridgeFailure(message: "Lease is for \(claims.resourceKey), but this command writes to \(expected)", code: "lease_invalid")
-			}
+		guard accepted.contains(claims.resourceKey) else {
+			throw BridgeFailure(
+				message: "Lease is for \(claims.resourceKey), but this command writes to \(accepted.sorted().joined(separator: " or "))",
+				code: "lease_invalid",
+			)
 		}
 		if let claimPid = claims.pid, let targetPid = Self.targetPid(request) {
 			guard claimPid == targetPid else {
@@ -4881,20 +4924,107 @@ final class LeaseGuard {
 		}
 	}
 
-	/// The resource a command writes to. `desktop-pid:*` means "any process-keyed
-	/// resource"; app-keyed leases can only be checked by their own key.
-	private static func resourceKey(command: String, request: [String: Any]) -> String? {
+	/// What a command needs before it may run (review E3).
+	private enum Requirement {
+		/// Reads state only: no lease.
+		case read
+		/// Writes state; any of these resource keys authorizes it.
+		case write(Set<String>)
+		/// Writes state, but the target cannot be named: refuse.
+		case undeterminable
+	}
+
+	/// Which resource a command writes, in the same keys `src/tools/intents.ts` builds.
+	///
+	/// Reads are listed explicitly rather than inferred, because `manageApps list` and
+	/// `manageWindow list` used to be treated as writes and would fail under enforcement.
+	private static func requirement(command: String, request: [String: Any]) -> Requirement {
 		switch command {
 		case "clipboardSet", "clipboardClear":
-			return "clipboard:system"
+			return .write(["clipboard:system"])
 		case "takeoverBegin":
-			return "desktop-foreground"
-		case "act", "manageWindow":
-			guard let pid = targetPid(request) else { return nil }
-			return "desktop-pid:\(pid)"
+			return .write(["desktop-foreground"])
+		case "act":
+			guard let pid = targetPid(request) else { return .undeterminable }
+			return .write(["desktop-pid:\(pid)"])
+		case "manageWindow":
+			switch modeOf(request) {
+			case "list", "list_displays":
+				return .read
+			case "move", "resize", "maximize", "minimize", "restore":
+				guard let pid = targetPid(request) else { return .undeterminable }
+				return .write(["desktop-pid:\(pid)"])
+			default:
+				// Unknown mode: the command itself will fail, but it must not fail open.
+				return .undeterminable
+			}
+		case "manageApps":
+			switch modeOf(request) {
+			case "list":
+				return .read
+			case "launch":
+				var keys = Set<String>()
+				if let bundleId = stringOf(request, "bundleId"), !bundleId.isEmpty {
+					keys.insert("app:\(bundleId)")
+					if let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleId }) {
+						keys.formUnion(appKeys(app))
+					}
+				}
+				if let appPath = stringOf(request, "path"), !appPath.isEmpty, let bundle = Bundle(path: appPath) {
+					keys.formUnion(appKeys(bundle))
+				}
+				if let pid = targetPid(request) {
+					keys.insert("desktop-pid:\(pid)")
+				} else if stringOf(request, "bundleId") == nil {
+					// A launch by path alone has no app identity on the caller's side either:
+					// `appIntent` falls back to the anonymous pid-0 resource, so that is the
+					// one key an identity-less launch may present.
+					keys.insert("desktop-pid:0")
+				}
+				return .write(keys)
+			case "quit":
+				var keys = Set<String>()
+				if let pid = targetPid(request) {
+					keys.insert("desktop-pid:\(pid)")
+					if let app = NSWorkspace.shared.runningApplications.first(where: { $0.processIdentifier == pid }) {
+						keys.formUnion(appKeys(app))
+					}
+				}
+				if let bundleId = stringOf(request, "bundleId"), !bundleId.isEmpty {
+					keys.insert("app:\(bundleId)")
+					if let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleId }) {
+						keys.formUnion(appKeys(app))
+					}
+				}
+				return keys.isEmpty ? .undeterminable : .write(keys)
+			default:
+				return .undeterminable
+			}
 		default:
-			return "desktop-pid:*"
+			return writeCommands.contains(command) ? .undeterminable : .read
 		}
+	}
+
+	private static func appKeys(_ app: NSRunningApplication) -> Set<String> {
+		var keys = Set<String>()
+		if let bundleId = app.bundleIdentifier, !bundleId.isEmpty { keys.insert("app:\(bundleId)") }
+		if let name = app.localizedName, !name.isEmpty { keys.insert("app:\(name)") }
+		return keys
+	}
+
+	private static func appKeys(_ bundle: Bundle) -> Set<String> {
+		var keys = Set<String>()
+		if let bundleId = bundle.bundleIdentifier, !bundleId.isEmpty { keys.insert("app:\(bundleId)") }
+		if let name = bundle.object(forInfoDictionaryKey: "CFBundleName") as? String, !name.isEmpty { keys.insert("app:\(name)") }
+		return keys
+	}
+
+	private static func modeOf(_ request: [String: Any]) -> String {
+		(request["mode"] as? String) ?? "list"
+	}
+
+	private static func stringOf(_ request: [String: Any], _ key: String) -> String? {
+		request[key] as? String
 	}
 
 	private static func targetPid(_ request: [String: Any]) -> Int? {

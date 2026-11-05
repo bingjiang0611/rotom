@@ -56,9 +56,12 @@ B1 → B6 的顺序单独约一次时间，并且先确认 A8 的脚本在一个
 | --- | --- | --- | --- |
 | E1 | 租约过期 / 用户活动的时间单位统一为毫秒，互通测试改用真实 broker 签发的 token | 完成 | L1 |
 | E2 | 转交签发新 leaseId、跨进程唯一、撤销集合有界 | 完成 | L1 |
-| E3 | 按 mode 区分读写，`manageApps` 绑定目标，算不出目标即失败关闭 | 未开始 | — |
+| E3 | 按 mode 区分读写，`manageApps` 绑定目标，算不出目标即失败关闭 | 完成 | L1 |
 | E4 | 同时只接受一个 helper 连接，并如实写明身份边界 | 未开始 | — |
 | Q3 | 按职责拆分 `outline.ts`，接上原生 `secure` 标记 | 未开始 | — |
+
+本轮新发现、需要审核者回答的问题见 [`STATUS-2-E-items.md`](STATUS-2-E-items.md) 末尾的 Q5：
+`focusWindow` / `clipboardRestore` 是写操作但不在 helper 的租约范围内。
 
 ## 时间窗口与运行授权
 
