@@ -610,6 +610,8 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 
 	/** Grants answered with "本会话允许"/"总是允许" during this session. */
 	const policySessionGrants = new Set<string>();
+	/** In-flight prompts by origin+capability, so parallel calls ask the user once. */
+	const policyPrompts = new Map<string, Promise<string | undefined>>();
 	/** Origins this session really authorized. Sent to the relay so a redirect cannot widen
 	 *  them: an origin reached only through a 30x never went through this gate. */
 	const policyAuthorizedOrigins = new Set<string>();
@@ -656,7 +658,16 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			// No UI means no one can approve: refuse instead of allowing by default.
 			return policyRefusal({ origin, capability, reason: "no-ui", message: `${origin} 需要用户授权 ${capability}，但当前没有交互界面，按拒绝处理。` });
 		}
-		const choice = await ctx.ui.select(`允许 ${capability} ${origin}？`, ["允许一次", "本会话允许", "总是允许", "拒绝"]);
+		// `browser_inspect` runs in parallel, so two structural calls on the same origin can
+		// reach this line at once. They share one prompt: asking twice is a worse experience
+		// and could apply two different answers to the same grant.
+		let pending = policyPrompts.get(grantKey);
+		if (pending === undefined) {
+			pending = Promise.resolve(ctx.ui.select(`允许 ${capability} ${origin}？`, ["允许一次", "本会话允许", "总是允许", "拒绝"]));
+			policyPrompts.set(grantKey, pending);
+			void pending.finally(() => { policyPrompts.delete(grantKey); }).catch(() => undefined);
+		}
+		const choice = await pending;
 		if (choice === "允许一次") { policyAuthorizedOrigins.add(origin); parentGrantedOrigins.add(origin); return undefined; }
 		if (choice !== "本会话允许" && choice !== "总是允许") return policyRefusal({ origin, capability, reason: "user-denied", message: `用户拒绝授权 ${capability} ${origin}；不要重试。` });
 		policySessionGrants.add(grantKey);

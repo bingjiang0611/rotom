@@ -271,3 +271,11 @@
 - **子 agent 不再绕过 blocklist**：`policyDenial` 的子分支（有 lease token）先读策略文件判 blocklist，命中返回 `needs-approval/blocklist` 且不派发；策略文件不可读按 `invalid-policy` 拒绝，与父分支一致。子分支不写父授权集合，因此不会污染下一个子 agent 的 lease。新增单测：租约允许该 origin、策略文件 blocklist 也含它时，子 agent 被拒、无请求、无询问。
 - **`onDeterminingFilename` 恰好回答一次**：listener 返回 `true` 后所有不重定向的分支（无 owner、下载被取消、文件名不可用、异常）都调用无参 `suggest()`，并用一次性守卫防重复。e2e `downloads` 新增断言：用户 tab 的下载真的落到浏览器默认目录（`fixture*.txt` 在 Downloads 根下），不在 `rotom/` 下。
 - 验证：`index.test.ts` 58/58、`browser-policy`+`browser-lease` 11/11、e2e `policy` 5/5 + `lease` 8/8 + `downloads` 3/3。
+
+### 评审第 1 轮修复：并发询问、配额反向用例与文档
+
+- **并发询问只弹一次**：`policyDenial` 现在按 origin+capability 合并在途询问（`policyPrompts`），`browser_inspect` 标了 `parallel` 也不会让同一 origin 的两个结构操作各弹一个对话框、各写一次答案。单测用一个"挂住不返回"的 select 证明两次并发调用只产生一次询问。
+- **配额反向用例**：新增单测证明超过上限（1000）、负数、非整数、字符串声明都会被整体拒绝并回落默认，收紧与 0 仍然生效；回落默认后仍按默认上限拒绝。**未采纳的部分**：没有改成"客户端一律不能放大"，因为 Pi 侧把 `ROTOM_BROWSER_MAX_*` 的 operator 覆盖也走同一个 `tabQuotas` 字段传下来，扩展进程拿不到这些环境变量，无法区分"operator 配置"与"客户端自抬"。要强制收紧需要在 launcher 侧另注入一个来源标记，属新设计，等评审决定。
+- **文档**：`docs/usage.md` 写清"允许一次"的真实语义（只约束这一次请求，不保证之后不再放行；长期收紧用 blocklist）、子 agent 的 lease 不能覆盖 blocklist，以及上传路径在 Pi 校验与扩展读文件之间的 TOCTOU 限制。
+- 验证：`check-personal` 558 + 99 全绿（EXIT=0）；全量 e2e 119/119（22 suite）。
+- **仍未处理（需要评审环境）**：Linux 上的 11 项 e2e 失败未在本机复现——没有 Linux 机器，也没有 Linux Chromium；`baseline :: screenshot` 超时是否连带关闭 client、`chunked` 空 nodes、`pointer` 的 `effect.action` 缺失都只能等 Linux 复跑。Windows 注册表与命名管道仍为 L1。

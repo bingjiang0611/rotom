@@ -1226,6 +1226,28 @@ test("browser policy：blocklist 拒绝、无 UI 按拒绝、会话允许只影�
 		assert.deepEqual(child.origins, ["https://allowed.test", "https://second.test"], "父 agent 的确认必须传给本次 run 的子 lease");
 		assert.notEqual(process.env[BROWSER_POLICY_PATH_ENV_V1], undefined);
 
+		// browser_inspect is a parallel tool: two structural calls on the same origin must
+		// share one prompt instead of asking twice and racing two answers.
+		await writeFile(policyPath, JSON.stringify({ blocklist: [], allowlist: [] }), { mode: 0o600 });
+		await chmod(policyPath, 0o600);
+		const promptsBefore = choices.length;
+		// The prompt must stay open while both calls reach it, which is what a real user
+		// answering the dialog does; a resolved-immediately stub would hide the duplicate.
+		let release: (() => void) | undefined;
+		const held = { ...ctx0(), hasUI: true, ui: { select: async () => { choices.push("held"); return new Promise<string | undefined>((resolve) => { release = () => resolve("允许一次"); }); } } } as any;
+		const pendingCalls = [
+			tool.execute("policy-race-1", { operation: "open", tabName: "site", url: "https://race.test/a" }, undefined, undefined, held),
+			tool.execute("policy-race-2", { operation: "open", tabName: "site", url: "https://race.test/b" }, undefined, undefined, held),
+		];
+		for (let attempt = 0; attempt < 20 && release === undefined; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+		assert.equal(choices.length - promptsBefore, 1, "同一 origin 的并发请求只询问一次");
+		if (release === undefined) throw new Error("并发询问没有到达用户");
+		const releasePrompt: () => void = release;
+		releasePrompt();
+		const settled = await Promise.all(pendingCalls);
+		assert.deepEqual(settled.map((result) => result.details.kind), ["observation", "observation"]);
+		assert.equal(choices.length - promptsBefore, 1, "两次调用共用同一个询问");
+
 		// A child's authorization is its lease, but the user's blocklist still applies: a
 		// lease that names an origin cannot overrule a refused site.
 		const blockedPolicy = { blocklist: ["https://allowed.test"], allowlist: [{ origin: "https://allowed.test", capabilities: ["interact", "read"] }] };
