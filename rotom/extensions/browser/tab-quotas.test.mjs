@@ -76,3 +76,21 @@ test("配额：来自客户端 hello 的值必须先过校验", () => {
 		assert.equal(sanitizeBrowserTabQuotasV1(value), undefined, JSON.stringify(value));
 	}
 });
+
+test("反向用例：超出上限的声明被拒并回落默认，而不是悄悄放宽", () => {
+	// A client that asks for more than the ceiling gets no quota object at all, so the
+	// caller falls back to the defaults; it never gets a partially applied larger limit.
+	assert.equal(sanitizeBrowserTabQuotasV1({ ...defaults(), maxTabs: 1_001 }), undefined);
+	assert.equal(sanitizeBrowserTabQuotasV1({ ...defaults(), maxTabsPerAgent: 1_001 }), undefined);
+	assert.equal(sanitizeBrowserTabQuotasV1({ ...defaults(), maxTabsPerOrigin: -1 }), undefined);
+	assert.equal(sanitizeBrowserTabQuotasV1({ ...defaults(), maxAgents: 2.5 }), undefined);
+	assert.equal(sanitizeBrowserTabQuotasV1({ ...defaults(), maxTabs: "8" }), undefined);
+	// Tightening is always allowed, and 0 keeps its "forbid this dimension" meaning.
+	assert.deepEqual(sanitizeBrowserTabQuotasV1({ maxTabs: 2 }), { ...defaults(), maxTabs: 2 });
+	assert.deepEqual(sanitizeBrowserTabQuotasV1({ maxAgents: 0 }), { ...defaults(), maxAgents: 0 });
+	// A rejected declaration must leave the effective default in place.
+	const state = { tabQuotas: sanitizeBrowserTabQuotasV1({ ...defaults(), maxTabs: 1_001 }) ?? defaults() };
+	assert.equal(state.tabQuotas.maxTabs, DEFAULT_BROWSER_TAB_QUOTAS_V1.maxTabs);
+	const decision = checkBrowserTabQuotasV1({ quotas: state.tabQuotas, ...counts({ ownTabs: DEFAULT_BROWSER_TAB_QUOTAS_V1.maxTabsPerAgent }) });
+	assert.equal(decision.ok, false, "回落默认后仍按默认上限拒绝");
+});
