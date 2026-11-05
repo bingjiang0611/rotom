@@ -41,6 +41,7 @@ import {
 // expect 的语法只有一份：这个模块不依赖 chrome API，所以 tool 层可以先本地拒绝非法
 // 判据，而不是把它发到 relay 再拿错误回来。
 import { INTERACTION_EXPECTATIONS, parseInteractionExpectation } from "./chrome-extension/interaction-target-state.js";
+import { MAX_UPLOAD_FILES_V1, validateUploadPathsV1 } from "./upload-guard.ts";
 import { relayClientTimeoutMs } from "./chrome-extension/relay-deadline.js";
 import {
 	BROWSER_LEASE_SCOPE_ENV_V1,
@@ -789,6 +790,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			key: Type.Optional(StringEnum(BROWSER_INTERACTION_KEYS_V1)),
 			modifiers: Type.Optional(Type.Array(StringEnum(BROWSER_INTERACTION_MODIFIERS_V1), { maxItems: 4, description: "keypress only: modifier keys held for this key." })),
 			dropRef: Type.Optional(Type.String({ minLength: 1, maxLength: 128, description: "drag only: the ref the pointer is released over." })),
+			paths: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 4096 }), { maxItems: MAX_UPLOAD_FILES_V1, description: "upload only: absolute paths of the files to attach to a file input." })),
 			targetRef: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
 			x: Type.Optional(Type.Number({ minimum: 0, maximum: 100_000 })),
 			y: Type.Optional(Type.Number({ minimum: 0, maximum: 100_000 })),
@@ -825,6 +827,13 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			let key: (typeof BROWSER_INTERACTION_KEYS_V1)[number] | undefined;
 			if (params.key !== undefined && action !== "keypress") throw new Error("key 仅允许 keypress");
 			const dropRef = params.dropRef === undefined ? undefined : safeString(params.dropRef, "dropRef", 128);
+			let uploadPaths: string[] | undefined;
+			let uploadFiles: { path: string; name: string; size: number }[] | undefined;
+			if (action === "upload") {
+				if (params.targetRef === undefined) throw new Error("upload 需要 targetRef");
+				if (!Array.isArray(params.paths) || params.paths.length === 0) throw new Error("upload 需要 paths");
+				if (coordinateFieldsPresent || params.dropRef !== undefined || params.key !== undefined || params.modifiers !== undefined || params.text !== undefined) throw new Error("upload 参数组合无效");
+			} else if (params.paths !== undefined) throw new Error("paths 仅允许 upload");
 			if (action === "drag") {
 				if (params.targetRef === undefined || dropRef === undefined) throw new Error("drag 需要 targetRef 与 dropRef");
 				if (coordinateFieldsPresent) throw new Error("drag 不接受坐标参数");
@@ -865,10 +874,17 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			const tab = targetTab(listedTabs, tabName);
 			publishLeaseScope(relayClient, listedTabs.tabs);
 			// scroll only reads; every other action writes to the page and needs a lease
-			// that covers the tab's current origin.
+			// that covers the tab's current origin. Upload is its own capability: a child
+			// that may click may still be forbidden from attaching local files.
 			if (action !== "scroll") {
-				const denied = await leaseDenial(relayClient, "write", leaseOriginV1(tab.url));
+				const denied = await leaseDenial(relayClient, action === "upload" ? "upload" : "write", leaseOriginV1(tab.url));
 				if (denied) return denied;
+			}
+			if (action === "upload") {
+				// Every path rule runs before the relay sees anything: absolute, real, not a
+				// symlink or hard link, no secret-shaped component, 10 MB total.
+				uploadFiles = await validateUploadPathsV1({ paths: params.paths, allowUpload: true });
+				uploadPaths = uploadFiles.map((entry) => entry.path);
 			}
 			const actionFacts = {
 				action, tabName: tab.name, tabId: tab.tabId, documentGeneration: tab.documentGeneration, url: tab.url,
@@ -876,6 +892,8 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 				...(modifiers && modifiers.length > 0 ? { modifiers } : {}),
 				...(targetRef ? { targetRef } : {}),
 				...(dropRef ? { dropRef } : {}),
+				// Audit keeps name digests and sizes only, never file content or raw names.
+				...(uploadFiles ? { uploadFiles: uploadFiles.map((entry) => ({ nameDigest: browserActionDigestV1(entry.name), size: entry.size })) } : {}),
 				...(coordinateClick ? { x, y, observationEpoch } : {}),
 				...(text ? { textBytes: Buffer.byteLength(text, "utf8"), textDigest: browserActionDigestV1(text), replace: params.replace === true } : {}),
 				...(option ? { optionBytes: Buffer.byteLength(option, "utf8"), optionDigest: browserActionDigestV1(option) } : {}),
@@ -887,7 +905,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			assertOwner();
 			pi.appendEntry(BROWSER_INTERACTION_AUDIT_ENTRY, { schemaVersion: 1, kind: "rotom-browser-interaction-intent", actionId, sessionId: ctx.sessionManager.getSessionId(), branchLeafId: ctx.sessionManager.getLeafId() ?? null, toolCallId, action, actionDigest, targetDigest: browserActionDigestV1({ tabName: tab.name, tabId: tab.tabId, documentGeneration: tab.documentGeneration, ...(targetRef ? { targetRef } : {}), ...(coordinateClick ? { x, y, observationEpoch } : {}) }), originDigest: browserActionDigestV1(browserOriginV1(tab.url)), timestamp: new Date().toISOString() });
 			try {
-				const payload = { actionId, tabName: tab.name, action, ...(key ? { key } : {}), ...(modifiers && modifiers.length > 0 ? { modifiers } : {}), ...(targetRef ? { targetRef } : {}), ...(dropRef ? { dropRef } : {}), ...(coordinateClick ? { x, y, observationEpoch, documentGeneration: tab.documentGeneration } : {}), ...(text ? { text, replace: params.replace === true } : {}), ...(option ? { option } : {}), ...(expectation ? { expect: expectation } : {}), ...(direction ? { direction, amount } : {}) };
+				const payload = { actionId, tabName: tab.name, action, ...(key ? { key } : {}), ...(modifiers && modifiers.length > 0 ? { modifiers } : {}), ...(targetRef ? { targetRef } : {}), ...(dropRef ? { dropRef } : {}), ...(uploadPaths ? { paths: uploadPaths } : {}), ...(coordinateClick ? { x, y, observationEpoch, documentGeneration: tab.documentGeneration } : {}), ...(text ? { text, replace: params.replace === true } : {}), ...(option ? { option } : {}), ...(expectation ? { expect: expectation } : {}), ...(direction ? { direction, amount } : {}) };
 				const result = interactionResult(await relayClient.request("interact", payload, { signal, timeoutMs: relayClientTimeoutMs("interact", {}) }), { actionId, action });
 				const expectationOutcome = browserInteractionExpectationOutcomeV1(result.effect);
 				const targetChanged = record(result.effect?.target) ? (result.effect.target as Record<string, unknown>).changed : undefined;

@@ -872,7 +872,8 @@ async function interactionTarget(name, item, payload, assertOperation) {
 	const chrome = operationChrome(globalThis.chrome, assertOperation);
 	const assertOwned = (item) => assertOwnedWithin(item, assertOperation);
 	const action = safeString(payload.action, "action", 32);
-	if (!["click", "type", "scroll", "select", "keypress", ...BROWSER_POINTER_ACTIONS_V1.filter((value) => value !== "click")].includes(action)) throw new Error("interaction action invalid");
+	if (!["click", "type", "scroll", "select", "keypress", "upload", ...BROWSER_POINTER_ACTIONS_V1.filter((value) => value !== "click")].includes(action)) throw new Error("interaction action invalid");
+	if (action !== "upload" && payload.paths !== undefined) throw new Error("interaction paths require upload");
 	if (action === "drag") {
 		if (payload.dropRef === undefined) throw new Error("interaction drag requires dropRef");
 		if (payload.key !== undefined || payload.modifiers !== undefined) throw new Error("interaction drag parameters invalid");
@@ -921,6 +922,15 @@ async function interactionTarget(name, item, payload, assertOperation) {
 		const node = observedInteractionNode(item.lastObservationNodes, parsed.ref);
 		if (node.role === "document-text") throw new Error("document text ref is read-only");
 		if (action === "hover" && payload.text !== undefined) throw new Error("interaction hover parameters invalid");
+		await assertOwned(item);
+		return { action, parsed, node, debuggee: await interactionDebuggee(item, parsed.scopeId) };
+	}
+	if (action === "upload") {
+		const parsed = interactionRef(payload.targetRef, item.documentGeneration);
+		const node = observedInteractionNode(item.lastObservationNodes, parsed.ref);
+		if (node.role === "document-text") throw new Error("document text ref is read-only");
+		if (!Array.isArray(payload.paths) || payload.paths.length === 0 || payload.paths.length > 10) throw new Error("interaction upload paths invalid");
+		if (payload.paths.some((path) => typeof path !== "string" || path.length === 0)) throw new Error("interaction upload path invalid");
 		await assertOwned(item);
 		return { action, parsed, node, debuggee: await interactionDebuggee(item, parsed.scopeId) };
 	}
@@ -1188,6 +1198,20 @@ async function performInteraction(name, item, payload, assertOperation = () => u
 		}
 		assertOperation();
 		effect = { dispatch: "mouse", action: "drag", from: { x: start.x, y: start.y }, to: { x: end.x, y: end.y }, moves: drag.moves.length, droppedAt: payload.dropRef, html5: dragDataSource !== "none", dragDataSource, dragstartFired: dragDataSource === "intercepted", focusEmulated: true, backgroundPreserved: guarded.restored, spawnedTabs: guarded.spawnedTabs };
+	} else if (target.action === "upload") {
+		if (stateObjectId === undefined) throw new Error("interaction upload target could not be resolved");
+		// The element must be a file input: setting files on anything else would either do
+		// nothing or attach data to a control the caller did not mean.
+		const isFileInput = await valueWithinRelayDeadline(chrome.debugger.sendCommand(target.debuggee, "Runtime.callFunctionOn", {
+			objectId: stateObjectId,
+			functionDeclaration: "function(){ return this.tagName === 'INPUT' && this.type === 'file'; }",
+			returnByValue: true,
+		}), TARGET_STATE_WAIT_MS);
+		if (isFileInput.value?.result?.value !== true) throw new Error("interaction upload target is not a file input");
+		assertOperation();
+		await chrome.debugger.sendCommand(target.debuggee, "DOM.setFileInputFiles", { files: payload.paths, backendNodeId: target.parsed.backendNodeId });
+		assertOperation();
+		effect = { dispatch: "files", files: payload.paths.length, focusVerified: false };
 	} else if (target.action === "keypress") {
 		if (stateObjectId === undefined) throw new Error("interaction keypress target could not be resolved");
 		const key = payload.key;
