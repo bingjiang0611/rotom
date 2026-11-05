@@ -9,7 +9,7 @@ import {
 	isAgentDownloadPathV1,
 } from "./chrome-extension/downloads.js";
 
-const DOWNLOADS = "/Users/someone/Downloads";
+const DOWNLOADS = "/Users/user/Downloads";
 
 test("downloads: 目录段只接受安全 id，名字剥掉目录与非法字符", () => {
 	assert.equal(downloadDirSegmentV1("run_abc-1"), "run_abc-1");

@@ -32,7 +32,7 @@ export async function inspectUploadPathV1(path, options = {}) {
 	if (typeof path !== "string" || path.length === 0 || path.includes("\0")) return { ok: false, reason: "路径为空或含非法字符", path: String(path) };
 	if (!isAbsolute(path)) return { ok: false, reason: "必须是绝对路径", path };
 	const normalized = resolve(path);
-	// Every component of both spellings is checked, so `/home/u/.ssh/id_rsa`,
+	// Every component of both spellings is checked, so `/home/user/.ssh/id_rsa`,
 	// `/tmp/.env.local` and a symlinked `/tmp/link/notes.txt` that resolves to
 	// `~/.ssh/notes.txt` all fail. System-level links such as macOS `/var` are not a
 	// reason to reject a path on their own, so the resolved path is checked by name

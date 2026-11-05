@@ -499,7 +499,14 @@ export async function createFixtureServer() {
 
 	const listen = async (role, host, publicHost) => {
 		const server = createServer(handler(null, role));
-		await new Promise((ready, reject) => { server.once("error", reject); server.listen(0, host, ready); });
+		try {
+			await new Promise((ready, reject) => { server.once("error", reject); server.listen(0, host, ready); });
+		} catch (error) {
+			// A listener that failed must not leave the earlier ones holding the process open:
+			// the runner would hang instead of reporting the failure.
+			await Promise.all(listeners.map((started) => new Promise((done) => started.close(() => done()))));
+			throw new Error(`fixture 监听 ${host} 失败：${error instanceof Error ? error.message : String(error)}`);
+		}
 		const address = server.address();
 		if (!address || typeof address === "string") throw new Error("fixture server address 无效");
 		listeners.push(server);
@@ -509,7 +516,10 @@ export async function createFixtureServer() {
 	const origin = await listen("main", "127.0.0.1", "127.0.0.1");
 	// A different site name makes the iframe an out-of-process frame, which is what
 	// the relay's child-session path handles; same-site frames never get a child target.
-	const frameOrigin = await listen("frame", "::", "localhost");
+	// Listen on IPv4 and keep a different site name: `localhost` still differs from
+	// `127.0.0.1`, so the iframe stays cross-site and gets its own target, while a host
+	// without IPv6 can still bind it.
+	const frameOrigin = await listen("frame", "127.0.0.1", "localhost");
 	crossSite.redirectTarget = `${frameOrigin}/redirect-target`;
 	for (const [path, page] of defaultPages({ frameOrigin })) pageMap.set(path, page);
 

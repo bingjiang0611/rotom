@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { BrowserRelayClientV1 } from "../../extensions/browser/browser-relay.ts";
+import { browserRelayDirectoryV1, browserRelaySocketPathV1 } from "../../extensions/browser/platform-paths.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const extensionDir = resolve(here, "../../extensions/browser/chrome-extension");
@@ -79,8 +80,18 @@ function writePrivateFile(path, content, mode = 0o600) {
  * stop committing page navigations (reproduced with plain Chrome, no extension),
  * so the browser keeps the real HOME and every harness path lives in `root`.
  */
-function nativeHostManifestDirs(profileDir) {
-	return [join(profileDir, "NativeMessagingHosts")];
+// Chrome reads user-level native messaging hosts from its own platform directory. On
+// macOS the profile directory is enough (and HOME must stay real, see below); Chromium on
+// Linux only looks under `$HOME/.config/<browser>/NativeMessagingHosts`, so the harness
+// hands Chrome an isolated HOME there and writes both candidate browser directories.
+function nativeHostManifestDirs({ platform, profileDir, chromeHome }) {
+	const profileLevel = join(profileDir, "NativeMessagingHosts");
+	if (platform !== "linux") return [profileLevel];
+	return [
+		join(chromeHome, ".config", "chromium", "NativeMessagingHosts"),
+		join(chromeHome, ".config", "google-chrome", "NativeMessagingHosts"),
+		profileLevel,
+	];
 }
 
 // macOS caps sun_path at 104 bytes and Linux at 108, so the temporary root must
@@ -144,9 +155,16 @@ export async function launchHarness(input = {}) {
 	const downloadsDir = privateDirectory(join(home, "Downloads"));
 	privateDirectory(join(profileDir, "Default"));
 	writePrivateFile(join(profileDir, "Default", "Preferences"), `${JSON.stringify({ download: { default_directory: downloadsDir, prompt_for_download: false, directory_upgrade: true } })}\n`);
-	const relayDir = privateDirectory(join(home, "Library", "Application Support", "rotom", "browser-relay"));
-	const socketPath = join(relayDir, "relay.sock");
-	privateDirectory(join(home, "Library", "Application Support"));
+	// The relay socket and lock come from the product's own platform module, so this
+	// exercises the real Linux layout instead of a macOS-shaped copy. XDG_RUNTIME_DIR is
+	// cleared so the path stays inside this temporary root.
+	const relayEnv = { ...process.env, XDG_RUNTIME_DIR: undefined };
+	const socketPath = browserRelaySocketPathV1({ platform: process.platform, home, env: relayEnv });
+	const relayDir = privateDirectory(browserRelayDirectoryV1({ platform: process.platform, home, env: relayEnv }));
+	privateDirectory(dirname(socketPath));
+	// On Linux Chrome needs the isolated HOME to find the native host; on macOS a
+	// redirected HOME stops it committing navigations, so it keeps the real one.
+	const chromeHome = process.platform === "linux" ? privateDirectory(join(root, "chrome-home")) : (process.env.HOME ?? tmpdir());
 	if (Buffer.byteLength(socketPath) > MAX_SOCKET_PATH_BYTES) throw new Error(`relay socket 路径过长（${Buffer.byteLength(socketPath)} 字节 > ${MAX_SOCKET_PATH_BYTES}）：${socketPath}；这是 unix socket 的 sun_path 上限，不是产品缺陷`);
 
 	const wrapperPath = join(root, "native-host-wrapper.sh");
@@ -160,7 +178,7 @@ export async function launchHarness(input = {}) {
 		type: "stdio",
 		allowed_origins: [`chrome-extension://${extensionId}/`],
 	};
-	const manifestPaths = nativeHostManifestDirs(profileDir);
+	const manifestPaths = nativeHostManifestDirs({ platform: process.platform, profileDir, chromeHome });
 	for (const dir of manifestPaths) {
 		privateDirectory(dir);
 		writePrivateFile(join(dir, "dev.rotom.browser_relay.json"), `${JSON.stringify(hostManifest, null, 2)}\n`);
@@ -201,9 +219,9 @@ export async function launchHarness(input = {}) {
 	const chromeLog = openSync(chromeLogPath, "a", 0o600);
 	const chrome = spawn(chromeExecutable, chromeArgs, {
 		cwd: root,
-		// Chrome keeps the real HOME (see nativeHostManifestDirs); the native host
-		// wrapper is what redirects HOME so the relay socket and lock stay isolated.
-		env: { ...process.env, TMPDIR: root },
+		// macOS Chrome keeps the real HOME (a redirected one stops it committing
+		// navigations); Linux gets an isolated HOME so it finds the native host manifest.
+		env: { ...process.env, TMPDIR: root, ...(process.platform === "linux" ? { HOME: chromeHome } : {}) },
 		detached: true,
 		stdio: ["ignore", chromeLog, chromeLog],
 	});

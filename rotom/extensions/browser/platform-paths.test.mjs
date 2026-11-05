@@ -15,14 +15,14 @@ import {
 	nativeHostRegistryKeyV1,
 } from "./platform-paths.mjs";
 
-const HOME = "/Users/fixture";
+const HOME = "/Users/user";
 
 test("macOS 路径与升级前的实现逐字一致", () => {
-	const expected = "/Users/fixture/Library/Application Support/rotom/browser-relay/relay.sock";
+	const expected = "/Users/user/Library/Application Support/rotom/browser-relay/relay.sock";
 	assert.equal(browserRelaySocketPathV1({ platform: "darwin", home: HOME }), expected);
-	assert.equal(browserRelayDirectoryV1({ platform: "darwin", home: HOME }), "/Users/fixture/Library/Application Support/rotom/browser-relay");
-	assert.equal(browserRelayLockPathV1({ platform: "darwin", home: HOME }), "/Users/fixture/Library/Application Support/rotom/browser-relay/relay.lock");
-	assert.equal(nativeHostManifestPathV1({ platform: "darwin", browser: "chrome", home: HOME }), "/Users/fixture/Library/Application Support/Google/Chrome/NativeMessagingHosts/dev.rotom.browser_relay.json");
+	assert.equal(browserRelayDirectoryV1({ platform: "darwin", home: HOME }), "/Users/user/Library/Application Support/rotom/browser-relay");
+	assert.equal(browserRelayLockPathV1({ platform: "darwin", home: HOME }), "/Users/user/Library/Application Support/rotom/browser-relay/relay.lock");
+	assert.equal(nativeHostManifestPathV1({ platform: "darwin", browser: "chrome", home: HOME }), "/Users/user/Library/Application Support/Google/Chrome/NativeMessagingHosts/dev.rotom.browser_relay.json");
 });
 
 test("Linux 用 XDG_RUNTIME_DIR，缺失时退回 ~/.local/state", () => {
@@ -53,7 +53,7 @@ test("native host manifest 按平台与浏览器落到各自目录", () => {
 			browser,
 		);
 	}
-	assert.equal(nativeHostManifestPathV1({ platform: "darwin", browser: "brave", home: HOME }), `/Users/fixture/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts/${NATIVE_HOST_NAME_V1}.json`);
+	assert.equal(nativeHostManifestPathV1({ platform: "darwin", browser: "brave", home: HOME }), `/Users/user/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts/${NATIVE_HOST_NAME_V1}.json`);
 	// Windows registers in the registry, so there is no manifest path to report.
 	assert.equal(nativeHostManifestPathV1({ platform: "win32", browser: "chrome", home: "C:\\Users\\bob" }), undefined);
 });
