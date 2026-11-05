@@ -124,7 +124,8 @@ Browser relay 的后台标签、AX/DOM ref、viewport、document generation 和 
 - 敏感动作在派发前确认：目标在含 `autocomplete="cc-*"` 字段的表单里、可访问名称命中中英文词表（词表在 `chrome-extension/sensitive-actions.js`，ASCII 词按词边界匹配，避免 `pay` 命中 `payload`）、`upload`、以及处理 `beforeunload` 弹窗时，relay 先返回 `{kind:"needs-confirmation"}` 且不派发，主 agent 用 `ctx.ui.confirm` 得到同意后带 `confirmed:true` 重发同一次动作——这是“拒绝后由用户决定”，不是 unknown 重放。用户拒绝返回 `needs-approval`/`user-denied` 且要求不重试；子 agent 与无 UI 都上报 `needs-approval`，不代替用户确认。页面标签不回传模型上下文。`ROTOM_BROWSER_CONFIRM=auto-approve-localhost` 仅对 localhost/127.0.0.1/::1 生效，值是别的字符串时一律继续确认。
 - 重定向不能绕过授权：relay 在派发写操作前用 `chrome.tabs.get` 取当前 origin，与 Pi 侧本次会话真正授权过的 origin 集合比对，不匹配就返回 `{kind:"needs-approval",reason:"origin"}` 且不派发；客户端把 policy 拒绝和 relay 拒绝都当作干净拒绝（不是 unknown），调用方不得重试。
 - 子 agent 的浏览器权限由 lease 决定：父 agent 已打开的 origin 写成私有 lease 文件（目录 0700、文件 0600、拒绝 symlink），子 agent 每次 `open` 与页内写操作前重读它。缺失、过期、origin 不在列表或开关未开启时，工具层直接返回结构化 `{kind:"needs-approval",origin,capability,reason}`，不发出请求、不弹窗、不询问用户；只读操作不受 lease 限制。lease 不是安全沙箱，限制的是站点范围，不是本机进程权限。
-- Chrome extension 安装与重载是用户显式操作；代码级 L1 不能写成真实 Chrome L2/L3。
+- 安装与重载是用户显式操作；代码级 L1 不能写成真实 Chrome L2/L3。
+- socket、锁与 native host 注册位置只由 `rotom/extensions/browser/platform-paths.mjs` 决定：macOS 字符串冻结（改了就断升级），Linux 走 XDG runtime，Windows 是命名管道与 `HKCU` 注册表。Windows 分支只有代码与单测证据，安装器只打印 `reg add` 命令，不冒充实测通过。
 
 ## 公开前隐私边界
 
