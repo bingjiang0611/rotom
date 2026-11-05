@@ -19,6 +19,19 @@ export const DEFAULT_IDLE_SHUTDOWN_MS = 600_000;
 /** How long an approval request may stay unanswered before it is refused. */
 export const DEFAULT_APPROVAL_TIMEOUT_MS = 120_000;
 
+/**
+ * The global foreground resource (PLAN §7, L4).
+ *
+ * Taking it converts the machine into "the agent is driving": physical input goes
+ * to one app, the rest of the desktop is not the agent's. It is a single global
+ * resource on purpose, so two agents can never both believe they own the screen.
+ */
+export const TAKEOVER_RESOURCE = "desktop-foreground";
+/** The user must be idle this long before an agent may take the foreground. */
+export const TAKEOVER_IDLE_MS = 10_000;
+/** Window in which the user's explicit "let it take over" click counts as consent. */
+export const TAKEOVER_APPROVAL_WINDOW_MS = 60_000;
+
 export type BrokerErrorCode =
 	| "invalid_request"
 	| "protocol_mismatch"
@@ -34,6 +47,8 @@ export type BrokerErrorCode =
 	| "stopped_by_user"
 	| "not_permitted"
 	| "paused_interfered"
+	| "preempted_by_user"
+	| "takeover_conditions"
 	| "lease_invalid"
 	| "unsupported";
 
@@ -158,6 +173,33 @@ export interface InterferenceRequest {
 	evidence?: string;
 }
 
+/**
+ * The user let an agent take the foreground ("让它接管").
+ *
+ * Only the helper may say so: it is a click in the menu bar, which no model can
+ * press. The broker remembers it for `TAKEOVER_APPROVAL_WINDOW_MS` so the agent's
+ * next takeover request does not have to wait for 10 s of idle.
+ */
+export interface TakeoverApprovalRequest {
+	id: string;
+	type: "takeover_approval";
+}
+
+/**
+ * A real user input arrived while an agent held the foreground.
+ *
+ * Reported by the helper (it is the only process that can see the event tap), and
+ * the broker owns the consequence: the takeover lease is revoked and the agent is
+ * told `preempted_by_user`. The already-dispatched steps stay as they happened.
+ */
+export interface PreemptedRequest {
+	id: string;
+	type: "preempted";
+	targetAgentId: string;
+	/** Constant reason code; never user content. */
+	reason?: "user_input";
+}
+
 /** Resume a paused agent. User control only: the helper connection may ask. */
 export interface ResumeRequest {
 	id: string;
@@ -196,6 +238,8 @@ export type BrokerRequest =
 	| StatusRequest
 	| StopRequest
 	| InterferenceRequest
+	| TakeoverApprovalRequest
+	| PreemptedRequest
 	| ResumeRequest
 	| ApprovalResponseRequest
 	| PolicyRequest;
@@ -236,6 +280,8 @@ export interface BrokerStatus {
 	resources: Array<{ resourceKey: string; epoch: number; holder?: LeaseHolderInfo }>;
 	waiters: Array<{ agentId: string; resourceKey: string; deadline: number }>;
 	lastUserInputAt?: number;
+	/** Who currently holds the foreground, if anyone. */
+	takeover?: { agentId: string; since: number };
 }
 
 export type BrokerFailureCode = BrokerErrorCode;
@@ -325,6 +371,20 @@ export interface ResumeResponse {
 	resumed: string[];
 }
 
+export interface TakeoverApprovalResponse {
+	ok: true;
+	type: "takeover_approval";
+	/** Timestamp the consent is valid from; the broker's clock. */
+	approvedAt: number;
+}
+
+export interface PreemptedResponse {
+	ok: true;
+	type: "preempted";
+	/** True when the agent really held the foreground at that moment. */
+	revoked: boolean;
+}
+
 export interface ApprovalResponseAck {
 	ok: true;
 	type: "approval_response";
@@ -338,6 +398,8 @@ export interface PolicyResponse {
 		path: string;
 		projectPath: string;
 		apps: Record<string, AppTier>;
+		/** Apps the user allowed to take the foreground (L4). */
+		foreground?: string[];
 		sensitive: boolean;
 	};
 }
@@ -353,6 +415,8 @@ export type BrokerResponse =
 	| StatusResponse
 	| StopResponse
 	| InterferenceResponse
+	| TakeoverApprovalResponse
+	| PreemptedResponse
 	| ResumeResponse
 	| ApprovalResponseAck
 	| PolicyResponse;
@@ -374,7 +438,7 @@ export interface RevokedEvent {
 	event: "revoked";
 	agentId: string;
 	leaseIds: string[];
-	reason: "stopped_by_user" | "owner_disconnected" | "expired" | "transferred" | "paused_interfered";
+	reason: "stopped_by_user" | "owner_disconnected" | "expired" | "transferred" | "paused_interfered" | "preempted_by_user";
 }
 
 /** The agent was paused because one of its actions disturbed the user (PLAN §6). */
@@ -398,12 +462,20 @@ export interface StoppedEvent {
 	agentId: string;
 }
 
-export type BrokerEvent = ApprovalRequestEvent | RevokedEvent | StoppedEvent | PausedEvent | ResumedEvent;
+/** The user touched the machine while this agent held the foreground (L4 ended). */
+export interface PreemptedEvent {
+	event: "preempted";
+	agentId: string;
+	reason: "user_input";
+	at: number;
+}
+
+export type BrokerEvent = ApprovalRequestEvent | RevokedEvent | StoppedEvent | PausedEvent | ResumedEvent | PreemptedEvent;
 
 export function isBrokerEvent(value: unknown): value is BrokerEvent {
 	if (!value || typeof value !== "object") return false;
 	const event = (value as { event?: unknown }).event;
-	return event === "approval" || event === "revoked" || event === "stopped" || event === "paused" || event === "resumed";
+	return event === "approval" || event === "revoked" || event === "stopped" || event === "paused" || event === "resumed" || event === "preempted";
 }
 
 /** Response envelope: either a typed success or a structured failure. */

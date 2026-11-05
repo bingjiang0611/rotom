@@ -32,6 +32,7 @@ import { processAncestry } from "./broker/identity.ts";
 import { approvalCopy } from "./constants/copy.ts";
 import { describeSensitiveMatch, matchSensitiveAction } from "./policy/sensitive.ts";
 import { excludeHostRoots, excludeInternalRoots, hostTargetRefusal, resolveHostApp, type HostAppInfo } from "./policy/host-exclusion.ts";
+import { TakeoverController, type TakeoverBackend } from "./takeover.ts";
 import { backgroundDelivery } from "./policy/l2-compat.ts";
 import { appIntent, clipboardIntent, windowIntent } from "./tools/intents.ts";
 import { scoreWindow, shouldPreferForegroundModalWindow } from "./root-selection.ts";
@@ -337,6 +338,8 @@ export async function shutdownComputerUseSession(): Promise<void> {
 	}
 	brokerStopRequested = false;
 	brokerRevocations.length = 0;
+	await takeoverController?.end().catch(() => undefined);
+	takeoverController = undefined;
 	resourceScheduler = new ResourceScheduler();
 	disconnectCdp();
 
@@ -633,6 +636,12 @@ export async function ensureComputerUseBroker(ctx: ExtensionContext): Promise<vo
 						paused: { reason: event.reason, at: event.at },
 					});
 				}
+				if (event.event === "preempted") {
+					// The user touched the machine: L4 ends here, and the steps already
+					// dispatched stay reported as they happened.
+					takeoverController?.markPreempted(event.at);
+					activeTraceRecorder()?.record({ tool: "cu_session", status: "stopped", evidence: "preempted_by_user" });
+				}
 				if (event.event === "revoked") {
 					brokerRevocations.push({ reason: event.reason, leaseIds: event.leaseIds, at: Date.now() });
 					while (brokerRevocations.length > 8) brokerRevocations.shift();
@@ -672,6 +681,31 @@ function createBrokerApprovalHandler(ctx: ExtensionContext, cwd: string | undefi
 		if (choice === approvalCopy.allowSession) return "allow_session";
 		return "deny";
 	};
+}
+
+/**
+ * Foreground takeover (L4): created once per session, after the broker is attached.
+ *
+ * `headless()` reads the loaded config every call, so a session that starts
+ * headless can never ask for the foreground.
+ */
+let takeoverController: TakeoverController | undefined;
+
+function currentTakeoverController(): TakeoverController {
+	if (!takeoverController) {
+		takeoverController = new TakeoverController({
+			broker: () => brokerSession,
+			backend: () => currentPlatformBackend as unknown as TakeoverBackend,
+			listApps: (signal) => listApps(signal),
+			headless: () => isHeadlessMode(),
+		});
+	}
+	return takeoverController;
+}
+
+/** True when this platform can show the takeover border. */
+function takeoverAvailable(): boolean {
+	return typeof currentPlatformBackend.takeoverBegin === "function" && typeof currentPlatformBackend.takeoverEnd === "function";
 }
 
 /** True once the user stopped this agent; a batch must end at its next step boundary. */
@@ -2692,6 +2726,7 @@ const desktopDeps: DesktopToolDeps = {
 	scheduler: () => resourceScheduler,
 	trace: () => traceRecorder,
 	broker: () => brokerSession,
+	takeover: () => (takeoverAvailable() ? currentTakeoverController() : undefined),
 	collectWindows: collectBroadWindowDetails,
 	formatWindowLine,
 };
@@ -2701,7 +2736,7 @@ export const executeManageApp = makeToolExecutor<{ action: "list" | "launch" | "
 export const executeManageWindow = makeToolExecutor<{ action: "list" | "move" | "resize" | "minimize" | "restore" | "maximize" | "list_displays"; pid?: number; windowId?: number; x?: number; y?: number; w?: number; h?: number; title?: string }, Record<string, unknown>>("manage_window", createWindowTool(desktopDeps));
 export const executeClipboard = makeToolExecutor<{ action: "get" | "set" | "clear"; text?: string }, Record<string, unknown>>("clipboard", createClipboardTool(desktopDeps));
 export const executeSystemSurface = makeToolExecutor<{ surface: "notifications" | "menu_bar_extras" | "control_center" | "dock" | "all" }, Record<string, unknown>>("system_surface", performSystemSurface);
-export const executeCuSession = makeToolExecutor<{ action: "status" | "release" | "trace_export" }, Record<string, unknown>>("cu_session", createCuSessionTool(desktopDeps));
+export const executeCuSession = makeToolExecutor<{ action: "status" | "release" | "transfer" | "trace_export" | "takeover" | "release_takeover"; toAgentId?: string; resourceKey?: string; pid?: number }, Record<string, unknown>>("cu_session", createCuSessionTool(desktopDeps));
 
 export function reconstructStateFromBranch(ctx: ExtensionContext): void {
 	savedStates.clear();

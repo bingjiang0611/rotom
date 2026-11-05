@@ -1,7 +1,7 @@
 import { getComputerUseConfig } from "../../config.ts";
 import { parseLookResponse, type LookResponse } from "../../outline.ts";
 import { toBoolean, toFiniteNumber, toOptionalString } from "../coerce.ts";
-import type { HelperLease, ComputerUsePlatformBackend, FramePoints, HelperActResult, PlatformActRequest, PlatformApp, PlatformAppLaunchResult, PlatformAppQuitResult, PlatformClipboardRead, PlatformClipboardRestore, PlatformClipboardSnapshot, PlatformClipboardWrite, PlatformDisplay, PlatformFocusWindowResult, PlatformFrontmostResult, PlatformObserveRequest, PlatformReadTextRequest, PlatformReadTextResponse, PlatformRoot, PlatformRootKind, PlatformRootQuery, PlatformSystemSurface, PlatformSystemSurfaceName, PlatformTarget, PlatformUserActivity, PlatformWaitForRequest, PlatformWaitForResponse, PlatformWindowMutationResult } from "../types.ts";
+import type { HelperLease, ComputerUsePlatformBackend, FramePoints, HelperActResult, PlatformActRequest, PlatformApp, PlatformAppLaunchResult, PlatformAppQuitResult, PlatformClipboardRead, PlatformClipboardRestore, PlatformClipboardSnapshot, PlatformClipboardWrite, PlatformDisplay, PlatformFocusWindowResult, PlatformFrontmostResult, PlatformObserveRequest, PlatformReadTextRequest, PlatformReadTextResponse, PlatformRoot, PlatformRootKind, PlatformRootQuery, PlatformSystemSurface, PlatformSystemSurfaceName, PlatformTakeoverInput, PlatformTarget, PlatformUserActivity, PlatformWaitForRequest, PlatformWaitForResponse, PlatformWindowMutationResult } from "../types.ts";
 import { macosHelper } from "./helper.ts";
 
 function parseApps(result: unknown): PlatformApp[] {
@@ -150,6 +150,19 @@ export const macosBackend: Pick<ComputerUsePlatformBackend, "listApps" | "listRo
 
 	async userActivity(signal?: AbortSignal): Promise<PlatformUserActivity> {
 		return parseUserActivity(await macosHelper.command<any>("userActivity", {}, { signal }));
+	},
+
+	async takeoverBegin(input: PlatformTakeoverInput, signal?: AbortSignal): Promise<void> {
+		await macosHelper.command<any>("takeoverBegin", {
+			pid: input.pid,
+			label: input.label,
+			agentId: input.agentId,
+			...(input.lease ? { lease: input.lease } : {}),
+		}, { signal });
+	},
+
+	async takeoverEnd(signal?: AbortSignal): Promise<void> {
+		await macosHelper.command<any>("takeoverEnd", {}, { signal });
 	},
 
 	async clipboardGet(signal?: AbortSignal): Promise<PlatformClipboardRead> {

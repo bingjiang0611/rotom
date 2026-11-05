@@ -1,6 +1,7 @@
 import type { BrokerClient } from "../broker/client.ts";
 import type { ClientLeaseBroker } from "../broker/lease-broker.ts";
 import type { ComputerUseConfig } from "../config.ts";
+import type { TakeoverController } from "../takeover.ts";
 import type { PlatformRoot } from "../platform/types.ts";
 import type { ResourceScheduler } from "../runtime.ts";
 import type { TraceRecorder } from "../trace/recorder.ts";
@@ -24,6 +25,8 @@ export interface DesktopToolDeps {
 	scheduler(): ResourceScheduler;
 	trace(): TraceRecorder | undefined;
 	broker(): BrokerSession | undefined;
+	/** Foreground takeover (L4); undefined when the platform cannot show one. */
+	takeover(): TakeoverController | undefined;
 	/** Window rows for native roots; the window ref registry lives in the bridge. */
 	collectWindows(roots: PlatformRoot[], config: ComputerUseConfig): WindowRow[];
 	formatWindowLine(window: WindowRow): string;

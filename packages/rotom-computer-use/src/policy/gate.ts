@@ -68,6 +68,18 @@ export function createPolicyGate(options: GateOptions): PolicyGate {
 				cacheKey: sensitive ? `${appKey}#sensitive:${sensitive.rule.id}` : `${appKey}#tier`,
 			};
 		},
+		foregroundGranted(app: TargetAppInfo | undefined, fallbackKey?: string): boolean {
+			const store = storeFor(undefined);
+			if (app?.bundleId || app?.appName || fallbackKey) {
+				if (staticStore) return staticStore.hasForeground(app, fallbackKey);
+				return store.hasForeground(app, fallbackKey);
+			}
+			return false;
+		},
+		/** Persist the user's explicit foreground (L4) grant. */
+		allowForeground(app: TargetAppInfo | undefined): void {
+			(staticStore ?? storeFor(undefined)).allowForeground(app);
+		},
 		allowApp(app: TargetAppInfo | undefined, tier: AppTier): void {
 			// "always" is a global grant; a project file may still tighten it later.
 			(staticStore ?? storeFor(undefined)).allowApp(app, tier);

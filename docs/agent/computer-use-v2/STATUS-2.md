@@ -33,7 +33,7 @@
 | A3 | F3：干扰用户时暂停 agent | 完成 | L1（单测 + Swift 编译） | 见提交 |
 | A4 | F2：父 agent 把 App 交给 subagent | 完成 | L1（单测） | 见提交 |
 | A5 | I2：helper 侧强制租约、截图排除宿主 | 完成 | L1（单测 + native 自检 + TS/Swift 互通），真机未验证 | 见提交 |
-| A6 | F1：前台接管（L4）与 `preempted_by_user` | 未开始 | — | — |
+| A6 | F1：前台接管（L4）与 `preempted_by_user` | 完成 | L1（单测 + Swift 编译），真机未验证 | 见提交 |
 | A7 | F4：多个 agent 各自的光标 | 未开始 | — | — |
 | A8 | 真机脚本的准备（只写代码） | 未开始 | — | — |
 
@@ -158,7 +158,47 @@ base64url 文本），修正后 6/6 通过——说明这组用例能区分“�
 |---|---|---|
 | Q1 | 用户原话“大约 __ 小时不在电脑前”，时长数字没填。B 阶段的“仍在窗口内”无法按数字核验。 | 按决定 D1：以“10 分钟内无真实用户输入”作为唯一证据，并让任何真实输入立刻终止整个 B 阶段。审核者若给出确切时长，这个门禁可以收紧为“开始时间 + 时长”。 |
 | Q2 | `cu_session` 新增 `transfer` 动作是模型可写的管理动作（A4 决定）。是否需要额外的确认或审计要求？ | 先按“父 agent 已获授权、转交不弹卡”实现，只允许转给自己的后代，并写进决定记录。如需要确认卡，属于新的同意层改动。 |
+| Q4 | A6 只做了许可/条件/边框/收回，没有把批次的实际投递切到 L4 全局 HID。是否按原计划等 B5 真机证据后再打开投递？ | 先保持不切换：证据不足时打开投递等于让 agent 在无人监督下真的驱动整机。B5 通过后再单独一项接上。 |
 | Q3 | `packages/rotom-computer-use/src/outline.ts` 在初始快照里就是 24,448 字节，超过 pre-commit 的 20,000 字节门槛且不在豁免名单。任何改动它的提交都会被 hook 拒绝。 | A5 因此没有把 helper 的 `secure` 标记接进类型层（行为不受影响，见 A5 记录）。是否单独安排一次按职责拆分（例如把解析与渲染拆开），或把它加入 `oversizedByDecision`，需要审核者决定。 |
+
+### A6 F1：前台接管（L4）与 `preempted_by_user`
+
+- 许可：`policy.json` 的 App 条目可以是对象 `{"tier": "full", "foreground": true}`。前台许可
+  **只从全局文件读**，项目级 `.pi/computer-use.json` 对它只能撤销（写 `deny`），不能新增。
+  `PolicyGate` 增加 `foregroundGranted`，模型侧没有任何路径能授予它。
+- 三个条件都在 broker 里判定（`BrokerCore.takeoverRefusal`），缺一即拒：
+  1. 用户允许过该 App 的前台模式 → 否则 `takeover_conditions`；
+  2. 用户空闲 ≥ 10 秒，或 60 秒内用户点过“让它接管”（`takeover_approval`，只有
+     `role=helper` 连接能发）→ 否则 `takeover_conditions`。**没有 helper 的活动报告时按“未知”
+     拒绝**，不能让“没人报告”看起来像“用户很闲”；
+  3. 前台是全局单例资源 `desktop-foreground`，第二个 agent 拿到 `resource_busy` 和持有者。
+- 用户活动只信 helper：`ping.lastUserInputAt` 只接受 `role=helper` 连接上报（helper 每 2 秒推一次，
+  这条推送现在放到后台线程，不再阻塞菜单栏）。agent 谎报自己空闲会被忽略，用例钉住了。
+- 收回：helper 的 `UserActivityMonitor` 在接管期间挂一个 hook，任何**不带 agent 标记**的真实输入
+  触发 `preempted` 请求；broker 撤销租约（原因 `preempted_by_user`）并给该 agent 发 `preempted`
+  事件，bridge 记录 trace `{tool:"cu_session", status:"stopped", evidence:"preempted_by_user"}`。
+  只有 helper 能报这件事，agent 不能借此驱逐竞争者。
+- 边框与 `Esc`：新文件 `native/macos/takeover_border.swift`（8px 边框 + 一行说明文字，点击穿透、
+  不抢焦点、所有 Space 可见），`EscapeSwallowTap` 只消费 keycode 53，其他按键原样通过。
+  `takeoverBegin` 也要求 broker 签的租约 token（`LeaseGuard` 把它算作写命令，目标
+  `desktop-foreground`），所以没有租约的进程画不出这个边框。
+- 客户端 `src/takeover.ts`：拿租约 → 请求边框 → 每 20 秒续租；续租失败（被撤销/被收回）就标记
+  preempted 而不是继续按旧租约动作；`takeoverEnd`/preempt 都会摘掉边框。
+- headless：`isHeadlessMode()` 为真时 `TakeoverController.start` 直接返回 `headless`，不请求租约、
+  不显示边框（用例断言 broker 一次都没被调用）。
+- 模型侧：`cu_session` 新增 `takeover`（需要 `pid`）与 `release_takeover`；schema 同步更新。
+
+验证：`node --test --experimental-strip-types test/takeover.test.ts` 11 用例通过；全量 **104 用例，
+104 通过、0 失败**；`node scripts/build-native.mjs --arch arm64 --no-sign --output ~/cu-v2-build/a6-bridge`
+编译通过（含新文件）。覆盖：无授权被拒、空闲不足被拒、用户点击放行且 60 秒后失效、agent 伪造
+活动被忽略、agent 不能自行批准、第二个 agent `resource_busy`、真实输入 → `preempted_by_user` 且租约
+消失、agent 不能 preempt 同伴、headless 不请求租约、边框显示与续租、续租失败转为 preempted。
+
+限制：
+
+- **L4 的实际输入投递没有打开。** 本项完成的是许可、条件、边框、`Esc` 与收回；批次仍走平时的
+  L1/L2 阶梯。真正用全局 HID 驱动要先有 B5 的真机证据，见“需要审核者回答的问题” Q4。
+- 真机未验证：边框可见性、`Esc` 吞键、真实输入触发收回都只到 L1 + 编译层面。
 
 ## 测试稳定性观察（既有问题，不是本项引入）
 

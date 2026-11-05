@@ -8,6 +8,7 @@ import {
 	DEFAULT_HEARTBEAT_TIMEOUT_MS,
 	DEFAULT_LEASE_TTL_MS,
 	DEFAULT_WAIT_TIMEOUT_MS,
+	TAKEOVER_RESOURCE,
 	failure,
 	type AcquireRequest,
 	type ActionIntent,
@@ -21,6 +22,16 @@ import {
 	type TargetAppInfo,
 } from "./protocol.ts";
 import { AgentRegistry, type AgentRecord } from "./registry.ts";
+import {
+	handleInterference,
+	handlePreempted,
+	handleResume,
+	handleStop,
+	handleTakeoverApproval,
+	takeoverHolder,
+	takeoverRefusal,
+	type UserControlContext,
+} from "./user-control.ts";
 
 export interface PolicyCheckInput {
 	agentId: string;
@@ -49,6 +60,14 @@ export interface PolicyGate {
 	allowApp(app: TargetAppInfo | undefined, tier: AppTier): void;
 	/** Effective tier without an action check, used when persisting a grant. */
 	tierForApp(app: TargetAppInfo | undefined, fallbackKey: string): AppTier;
+	/**
+	 * True when the user allowed this app to take the foreground (L4).
+	 *
+	 * Taking the foreground is a bigger permission than writing to an app: the
+	 * agent gets physical input and can reach whatever the app can reach. The grant
+	 * lives in the user's policy file, so an agent cannot hand it to itself.
+	 */
+	foregroundGranted(app: TargetAppInfo | undefined, fallbackKey?: string): boolean;
 	describe(): Record<string, unknown>;
 }
 
@@ -59,6 +78,9 @@ export const permissivePolicy: PolicyGate = {
 	allowApp() {},
 	tierForApp() {
 		return "full";
+	},
+	foregroundGranted() {
+		return true;
 	},
 	describe() {
 		return { apps: {}, sensitive: false };
@@ -119,6 +141,14 @@ export class BrokerCore {
 	 * the point of pausing it.
 	 */
 	private readonly paused = new Map<string, { reason: "interfered_with_user"; at: number }>();
+	/**
+	 * When the user last clicked "let it take over" in the helper menu bar.
+	 *
+	 * This is consent for the *next* takeover, not a standing grant: it expires
+	 * after the approval window (`user-control.ts`) so a forgotten click cannot authorize a
+	 * takeover an hour later.
+	 */
+	private takeoverApprovedAt: number | undefined;
 	private readonly pendingApprovals = new Map<string, PendingApproval>();
 	private transport: BrokerTransport | undefined;
 	private approvalCounter = 0;
@@ -149,6 +179,18 @@ export class BrokerCore {
 				if (helper.agentId === revocation.agentId) continue;
 				this.transport?.send(helper.agentId, { event: "revoked", ...revocation });
 			}
+		};
+	}
+
+	/** The user-control seam: same broker state, decisions in one module. */
+	private userControl(): UserControlContext {
+		return {
+			now: () => this.now(),
+			registry: this.registry,
+			leases: this.leases,
+			transport: () => this.transport,
+			paused: this.paused,
+			foregroundGranted: (app) => this.policy.foregroundGranted(app, app?.bundleId ?? app?.appName),
 		};
 	}
 
@@ -191,7 +233,11 @@ export class BrokerCore {
 			case "ping":
 				if (!agentId) return failure("unknown_agent", "Register with hello before pinging.");
 				if (!this.registry.touch(agentId)) return failure("unknown_agent", `Unknown agent ${agentId}.`);
-				if (typeof request.lastUserInputAt === "number") this.registry.lastUserInputAt = request.lastUserInputAt;
+				// User activity comes from the helper's event tap. An agent that could
+				// report it could claim the user is idle and grant itself the foreground.
+				if (typeof request.lastUserInputAt === "number" && this.registry.get(agentId)?.role === "helper") {
+					this.registry.lastUserInputAt = request.lastUserInputAt;
+				}
 				return { ok: true, type: "ping", now: this.now() };
 			case "acquire":
 				return await this.onAcquire(agentId, request);
@@ -210,12 +256,21 @@ export class BrokerCore {
 			case "status":
 				return { ok: true, type: "status", status: this.status() };
 			case "stop":
-				return this.onStop(agentId, request.targetAgentId);
+				return handleStop(this.userControl(), agentId, request.targetAgentId);
 			case "interference":
 				if (!agentId) return failure("unknown_agent", "Register with hello before reporting interference.");
-				return this.onInterference(agentId, request.evidence);
+				return handleInterference(this.userControl(), agentId, request.evidence);
 			case "resume":
-				return this.onResume(agentId, request.targetAgentId);
+				return handleResume(this.userControl(), agentId, request.targetAgentId);
+			case "takeover_approval": {
+				// Only the helper may report the user's click; see user-control.ts.
+				const approvedAt = this.now();
+				const reply = handleTakeoverApproval(this.userControl(), agentId, approvedAt);
+				if (reply.ok) this.takeoverApprovedAt = approvedAt;
+				return reply;
+			}
+			case "preempted":
+				return handlePreempted(this.userControl(), agentId, request.targetAgentId);
 			case "approval_response": {
 				const pending = this.pendingApprovals.get(request.requestId);
 				if (!pending) return failure("invalid_request", `No pending approval ${request.requestId}.`);
@@ -311,6 +366,11 @@ export class BrokerCore {
 			);
 		}
 
+		if (request.resourceKey === TAKEOVER_RESOURCE) {
+			const refusal = takeoverRefusal(this.userControl(), agentId, request, this.takeoverApprovedAt, this.registry.lastUserInputAt);
+			if (refusal) return refusal;
+		}
+
 		const decision = this.policy.check({ agentId, resourceKey: request.resourceKey, app: request.app, action: request.action, cwd: agent.cwd });
 		if (decision.denied) return failure("denied", decision.denied, { tier: decision.tier });
 		if (decision.requiresApproval) {
@@ -362,51 +422,6 @@ export class BrokerCore {
 		const lease = this.leases.transfer(agentId, leaseId, toAgentId);
 		if (!lease) return failure("not_holder", `Agent ${agentId} does not hold ${leaseId}.`);
 		return { ok: true, type: "transfer", lease: this.leaseInfo(lease) };
-	}
-
-	private onStop(agentId: string | undefined, targetAgentId: string | undefined): BrokerReply {
-		// Stopping another agent is a user action. Only the native helper may ask for
-		// it; an agent that could stop its peers would break multi-agent parallelism
-		// and could silence a reviewer.
-		const requester = agentId ? this.registry.get(agentId) : undefined;
-		if (!requester || requester.role !== "helper") {
-			return failure("not_permitted", "Only the helper may stop agents; the user stops them from the menu bar or with Ctrl+Option+Cmd+.");
-		}
-		const targets = targetAgentId
-			? [targetAgentId].filter((candidate) => this.registry.get(candidate))
-			: this.registry.others(agentId ?? "").map((record) => record.agentId);
-		for (const target of targets) {
-			this.leases.revokeAgent(target, "stopped_by_user");
-			this.transport?.send(target, { event: "stopped", agentId: target });
-		}
-		return { ok: true, type: "stop", stopped: targets };
-	}
-
-	/**
-	 * Pause the reporting agent and take its write leases away.
-	 *
-	 * The observation ("frontmost changed while the user was typing within 2s")
-	 * can only be made by the helper, so it is reported as evidence and the broker
-	 * owns the consequence. Revoking is part of pausing: a paused agent cannot
-	 * write, so holding the app would only block the user and other agents.
-	 */
-	private onInterference(agentId: string, evidence: string | undefined): BrokerReply {
-		this.paused.set(agentId, { reason: "interfered_with_user", at: this.now() });
-		this.leases.revokeAgent(agentId, "paused_interfered");
-		this.transport?.send(agentId, { event: "paused", agentId, reason: "interfered_with_user", at: this.now(), ...(evidence ? { evidence } : {}) });
-		return { ok: true, type: "interference", paused: true };
-	}
-
-	/** Resume is a user action, like stopping: only the helper connection asks. */
-	private onResume(agentId: string | undefined, targetAgentId: string): BrokerReply {
-		const requester = agentId ? this.registry.get(agentId) : undefined;
-		if (!requester || requester.role !== "helper") {
-			return failure("not_permitted", "Only the helper may resume a paused agent; the user resumes it from the menu bar.");
-		}
-		if (!targetAgentId) return failure("invalid_request", "resume requires targetAgentId.");
-		const wasPaused = this.paused.delete(targetAgentId);
-		this.transport?.send(targetAgentId, { event: "resumed", agentId: targetAgentId });
-		return { ok: true, type: "resume", resumed: wasPaused ? [targetAgentId] : [] };
 	}
 
 	/** Lease info plus the helper-checkable token for the current holder. */

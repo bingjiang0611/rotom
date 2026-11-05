@@ -239,10 +239,20 @@ const systemSurfaceTool = defineTool({
 const cuSessionTool = defineTool({
 	name: "cu_session",
 	label: "Computer Use Session",
-	description: "Inspect which agent holds which app, release this session's leases, hand an app to a subagent this session started, or export the local trace.",
-	promptSnippet: "Stopping other agents belongs to the user (menu bar or Ctrl+Option+Cmd+.); the model can only release or hand over its own leases, and only to its own subagents.",
+	description: "Inspect which agent holds which app, release this session's leases, hand an app to a subagent this session started, ask to drive one app in the foreground, or export the local trace.",
+	promptSnippet:
+		"Stopping other agents belongs to the user (menu bar or Ctrl+Option+Cmd+.); the model can only release or hand over its own leases, and only to its own subagents. Foreground takeover needs the user's grant for that app, 10s without real input (or the user's own click), and no other holder; any real input ends it as preempted_by_user.",
 	parameters: Type.Object({
-		action: Type.Union([Type.Literal("status"), Type.Literal("release"), Type.Literal("transfer"), Type.Literal("trace_export")]),
+		action: Type.Union([
+			Type.Literal("status"),
+			Type.Literal("release"),
+			Type.Literal("transfer"),
+			Type.Literal("trace_export"),
+			Type.Literal("takeover"),
+			Type.Literal("release_takeover"),
+		]),
+		/** Required for `takeover`: the app to drive in the foreground. */
+		pid: Type.Optional(Type.Number({ description: "Process id of the app to take the foreground for (from list_apps or find_roots)." })),
 		/** Required for `transfer`: the subagent that receives the lease. */
 		toAgentId: Type.Optional(Type.String({ description: "Agent id of the subagent that should receive the app." })),
 		/** Optional for `transfer`: one resource key; omitted means every lease this session holds. */

@@ -6,7 +6,10 @@ import type { DesktopToolDeps } from "./desktop-deps.ts";
 import { toolProblem, unsupportedToolResult } from "./results.ts";
 
 export function createCuSessionTool(deps: DesktopToolDeps) {
-	return async function performCuSession(params: { action: "status" | "release" | "transfer" | "trace_export"; toAgentId?: string; resourceKey?: string }, _signal?: AbortSignal): Promise<AgentToolResult<Record<string, unknown>>> {
+	return async function performCuSession(
+		params: { action: "status" | "release" | "transfer" | "trace_export" | "takeover" | "release_takeover"; toAgentId?: string; resourceKey?: string; pid?: number },
+		signal?: AbortSignal,
+	): Promise<AgentToolResult<Record<string, unknown>>> {
 		if (params.action === "trace_export") {
 			const recorder = deps.trace();
 			if (!recorder) return unsupportedToolResult("cu_session", "trace_export", "Tracing is disabled for this session.");
@@ -14,6 +17,40 @@ export function createCuSessionTool(deps: DesktopToolDeps) {
 			return {
 				content: [{ type: "text", text: markdown }],
 				details: { tool: "cu_session", action: "trace_export", status: "ok", path: recorder.filePath },
+			};
+		}
+		if (params.action === "takeover" || params.action === "release_takeover") {
+			const takeover = deps.takeover();
+			if (!takeover) return unsupportedToolResult("cu_session", params.action, "Foreground takeover is not available on this platform.");
+			if (params.action === "release_takeover") {
+				const ended = await takeover.end();
+				return {
+					content: [{ type: "text", text: ended.released ? `Released the foreground (pid ${ended.pid}).` : "This session did not hold the foreground." }],
+					details: { tool: "cu_session", action: "release_takeover", status: "ok", released: ended.released, pid: ended.pid },
+				};
+			}
+			if (!Number.isFinite(params.pid)) return toolProblem("cu_session", "takeover requires the pid of the app to drive.");
+			const started = await takeover.start(Math.trunc(params.pid!), signal);
+			if (!started.ok) {
+				return {
+					content: [{ type: "text", text: `Takeover refused: ${started.message}` }],
+					details: { tool: "cu_session", action: "takeover", status: "denied", code: started.code, ...(started.holder ? { holder: started.holder } : {}) },
+				};
+			}
+			return {
+				content: [{
+					type: "text",
+					text: `Foreground taken for ${started.app.appName} (pid ${started.pid}) until ${new Date(started.expiresAt).toISOString()}. The user can take it back at any time by touching the machine; the border shows the takeover.`,
+				}],
+				details: {
+					tool: "cu_session",
+					action: "takeover",
+					status: "ok",
+					pid: started.pid,
+					app: { appName: started.app.appName, bundleId: started.app.bundleId },
+					leaseId: started.leaseId,
+					expiresAt: started.expiresAt,
+				},
 			};
 		}
 		const session = deps.broker();

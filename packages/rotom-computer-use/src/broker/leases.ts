@@ -27,6 +27,8 @@ export interface Lease {
 	epoch: number;
 	expiresAt: number;
 	ttlMs: number;
+	/** When the lease was granted, used to report how long a takeover has been held. */
+	createdAt: number;
 }
 
 export interface AcquireOptions {
@@ -41,7 +43,7 @@ export type AcquireResult =
 	| { ok: false; code: "resource_busy"; holder: LeaseHolderInfo }
 	| { ok: false; code: "stale"; currentEpoch: number; expectedEpoch: number };
 
-export type RevokedReason = "stopped_by_user" | "owner_disconnected" | "expired" | "transferred" | "paused_interfered";
+export type RevokedReason = "stopped_by_user" | "owner_disconnected" | "expired" | "transferred" | "paused_interfered" | "preempted_by_user";
 
 export interface Revocation {
 	agentId: string;
@@ -278,6 +280,7 @@ export class LeaseManager {
 			epoch: 0,
 			expiresAt: 0,
 			ttlMs,
+			createdAt: this.now(),
 		};
 		lease.agentId = agentId;
 		lease.ttlMs = ttlMs;

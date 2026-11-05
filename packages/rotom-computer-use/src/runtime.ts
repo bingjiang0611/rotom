@@ -97,7 +97,16 @@ export interface LeaseBroker {
 
 /** A write that the broker refused for a reason the caller must report, not retry blindly. */
 export class LeaseUnavailableError extends Error {
-	readonly code: "resource_busy" | "denied" | "approval_unavailable" | "approval_denied" | "stopped_by_user" | "paused_interfered" | "broker_unavailable";
+	readonly code:
+		| "resource_busy"
+		| "denied"
+		| "approval_unavailable"
+		| "approval_denied"
+		| "stopped_by_user"
+		| "paused_interfered"
+		| "preempted_by_user"
+		| "takeover_conditions"
+		| "broker_unavailable";
 	readonly holder?: { agentId: string; remainingMs: number; expiresAt?: number; leaseId?: string };
 	readonly detail?: string;
 

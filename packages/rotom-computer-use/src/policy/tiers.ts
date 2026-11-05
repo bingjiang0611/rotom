@@ -47,6 +47,8 @@ export const ACTION_TIERS: Record<string, AppTier> = {
 	manage_window_maximize: "click",
 	manage_window_focus: "click",
 	release: "click",
+	// Taking the foreground (L4) is a write to the whole desktop, never a read.
+	takeover: "full",
 
 	// Text, keys, clipboard, destructive or numeric writes.
 	setText: "full",

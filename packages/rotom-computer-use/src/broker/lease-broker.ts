@@ -56,6 +56,16 @@ export class ClientLeaseBroker implements LeaseBroker {
 		return await this.client.reportInterference(evidence);
 	}
 
+	/** Record that the user allowed the next foreground takeover (helper-only). */
+	async approveTakeover(): Promise<boolean> {
+		return await this.client.approveTakeover();
+	}
+
+	/** Report that a real user input ended a foreground takeover (helper-only). */
+	async reportPreempted(targetAgentId: string): Promise<boolean> {
+		return await this.client.reportPreempted(targetAgentId);
+	}
+
 	/** Release every lease this agent still owns, e.g. on session shutdown. */
 	async releaseAll(): Promise<void> {
 		const status = await this.client.status().catch(() => undefined);
@@ -91,6 +101,10 @@ export class ClientLeaseBroker implements LeaseBroker {
 					return new LeaseUnavailableError("stopped_by_user", reply.message);
 				case "paused_interfered":
 					return new LeaseUnavailableError("paused_interfered", reply.message);
+				case "preempted_by_user":
+					return new LeaseUnavailableError("preempted_by_user", reply.message);
+				case "takeover_conditions":
+					return new LeaseUnavailableError("takeover_conditions", reply.message);
 				default:
 					return new LeaseUnavailableError("broker_unavailable", `${error.code}: ${reply.message}`);
 			}

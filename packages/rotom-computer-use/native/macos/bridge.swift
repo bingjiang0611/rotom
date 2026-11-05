@@ -470,15 +470,29 @@ final class UserActivityMonitor {
 		}
 	}
 
+	/// Called from the tap thread when a real (non-agent) input arrives.
+	var onRealInput: (() -> Void)?
+
 	func observe(event: CGEvent) {
 		let marker = event.getIntegerValueField(.eventSourceUserData)
 		lock.lock()
+		var realInput = false
 		if marker == agentEventMarker {
 			agentEventCount += 1
 		} else {
 			userEventCount += 1
 			lastUserInputAt = Date().timeIntervalSince1970
+			realInput = true
 		}
+		let hook = onRealInput
+		lock.unlock()
+		// Outside the lock: the hook talks to the broker and must not hold the tap.
+		if realInput { hook?() }
+	}
+
+	func setRealInputHook(_ hook: (() -> Void)?) {
+		lock.lock()
+		onRealInput = hook
 		lock.unlock()
 	}
 
@@ -517,6 +531,9 @@ final class Bridge {
 	private let inputSuppressionGuard = InputSuppressionGuard()
 	private let userActivityMonitor = UserActivityMonitor()
 	private let leaseGuard = LeaseGuard()
+	private let takeoverBorder = TakeoverBorder()
+	/// Agent holding the foreground, when a takeover is visible.
+	private var takeoverAgentId: String?
 	private lazy var stopControl = StopControl(link: BrokerLink(socketPath: BrokerLink.defaultSocketPath(), leaseGuard: leaseGuard))
 	private let physicalInputLock = NSRecursiveLock()
 	private let supportsAgentCursor = CommandLine.arguments.contains("serve")
@@ -553,7 +570,12 @@ final class Bridge {
 			Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
 				guard let self else { return }
 				let activity = self.userActivityMonitor.snapshot()
-				self.stopControl.pushActivity(lastUserInputAt: (activity["lastUserInputAt"] as? Double) ?? 0)
+				let lastUserInputAt = (activity["lastUserInputAt"] as? Double) ?? 0
+				// Off the main thread: the link waits for a reply, and the menu bar must
+				// stay responsive even when the broker is slow or gone.
+				DispatchQueue.global(qos: .utility).async { [stopControl] in
+					stopControl.pushActivity(lastUserInputAt: lastUserInputAt)
+				}
 			}
 			let socketPath = argumentValue("--socket") ?? defaultSocketPath()
 			Thread.detachNewThread { [self] in runServer(socketPath: socketPath) }
@@ -821,6 +843,11 @@ final class Bridge {
 			return getMousePosition()
 		case "userActivity":
 			return userActivity()
+		case "takeoverBegin":
+			return try takeoverBegin(request)
+		case "takeoverEnd":
+			endTakeover()
+			return ["hidden": true]
 		case "clipboardGet":
 			return try clipboardGet(request)
 		case "clipboardSet":
@@ -4023,6 +4050,48 @@ extension Bridge {
 		userActivityMonitor.snapshot()
 	}
 
+	/// Show the border, swallow Escape, and report the moment the user takes over.
+	///
+	/// The lease token is already checked before dispatch (`LeaseGuard`), so only an
+	/// agent the broker granted `desktop-foreground` can paint this border.
+	private func takeoverBegin(_ request: [String: Any]) throws -> Any {
+		let pid = try intArg(request, "pid")
+		let label = (request["label"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+		guard let agentId = request["agentId"] as? String, !agentId.isEmpty else {
+			throw BridgeFailure(message: "takeoverBegin requires the agent that holds the foreground", code: "invalid_request")
+		}
+		guard pid > 0, !label.isEmpty else {
+			throw BridgeFailure(message: "takeoverBegin requires a pid and a label", code: "invalid_request")
+		}
+		takeoverAgentId = agentId
+		DispatchQueue.main.async { [takeoverBorder] in takeoverBorder.show(label: label) }
+		// Any real input ends the takeover: the observation is native (event tap),
+		// the consequence is the broker's.
+		userActivityMonitor.setRealInputHook { [weak self] in self?.reportTakeoverPreempted() }
+		return ["shown": true, "pid": pid]
+	}
+
+	private func reportTakeoverPreempted() {
+		guard let agentId = takeoverAgentId else { return }
+		endTakeover()
+		let request: [String: Any] = [
+			"id": "preempted-\(Int(Date().timeIntervalSince1970 * 1000))",
+			"type": "preempted",
+			"targetAgentId": agentId,
+			"reason": "user_input",
+		]
+		DispatchQueue.global(qos: .userInitiated).async { [stopControl] in
+			_ = stopControl.link.request(request)
+		}
+	}
+
+	private func endTakeover() {
+		guard takeoverAgentId != nil || takeoverBorder.isVisible else { return }
+		takeoverAgentId = nil
+		userActivityMonitor.setRealInputHook(nil)
+		DispatchQueue.main.async { [takeoverBorder] in takeoverBorder.hide() }
+	}
+
 	/// Copy the current clipboard text. Length-limited so a huge payload cannot
 	/// become a tool result by surprise.
 	func clipboardGet(_ request: [String: Any]) throws -> [String: Any] {
@@ -4653,7 +4722,7 @@ final class LeaseGuard {
 	private var revoked = Set<String>()
 
 	/// Commands that write to the user's desktop. Reads never carry a lease.
-	static let writeCommands: Set<String> = ["act", "clipboardSet", "clipboardClear", "manageApps", "manageWindow"]
+	static let writeCommands: Set<String> = ["act", "clipboardSet", "clipboardClear", "manageApps", "manageWindow", "takeoverBegin"]
 
 	private struct Claims {
 		let leaseId: String
@@ -4725,6 +4794,8 @@ final class LeaseGuard {
 		switch command {
 		case "clipboardSet", "clipboardClear":
 			return "clipboard:system"
+		case "takeoverBegin":
+			return "desktop-foreground"
 		case "act", "manageWindow":
 			guard let pid = targetPid(request) else { return nil }
 			return "desktop-pid:\(pid)"
@@ -4992,7 +5063,9 @@ final class BrokerLink {
 /// Menu bar control: every agent the broker knows about, with a per-agent stop
 /// and a global stop, plus the `Ctrl+Option+Cmd+.` chord.
 final class StopControl: NSObject, NSMenuDelegate {
-	private let link: BrokerLink
+	/// Shared with `Bridge` so takeover preemption can report through the same
+	/// connection that carries the user's stop command.
+	let link: BrokerLink
 	private var statusItem: NSStatusItem?
 	private var agents: [[String: Any]] = []
 	private var chordTap: CFMachPort?

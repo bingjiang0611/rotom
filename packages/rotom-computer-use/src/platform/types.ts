@@ -176,6 +176,15 @@ export type PlatformPoint = { x: number; y: number };
  * Absent when there is no broker (`ROTOM_CU_BROKER=0`): the helper then has no
  * key and cannot check anything, which is the documented old behavior.
  */
+export interface PlatformTakeoverInput {
+	pid: number;
+	/** App name shown on the border and in the trace; never user content. */
+	label: string;
+	/** Agent holding the foreground; the helper reports preemption for it. */
+	agentId: string;
+	lease?: HelperLease;
+}
+
 export interface HelperLease {
 	token: string;
 	/** Resource the token was issued for; the helper compares it with the target. */
@@ -333,6 +342,9 @@ export interface ComputerUsePlatformBackend {
 	openBrowserLocation(target: { appName: string; bundleId?: string }, url: string, signal?: AbortSignal): Promise<boolean>;
 	/** Listen-only user input telemetry; absent when the platform cannot provide it. */
 	userActivity?(signal?: AbortSignal): Promise<PlatformUserActivity>;
+	/** Show the takeover border and swallow Escape for the duration (L4). */
+	takeoverBegin?(input: PlatformTakeoverInput, signal?: AbortSignal): Promise<void>;
+	takeoverEnd?(signal?: AbortSignal): Promise<void>;
 	clipboardGet?(signal?: AbortSignal): Promise<PlatformClipboardRead>;
 	clipboardSet?(text: string, signal?: AbortSignal, lease?: HelperLease): Promise<PlatformClipboardWrite>;
 	clipboardClear?(signal?: AbortSignal, lease?: HelperLease): Promise<PlatformClipboardWrite>;

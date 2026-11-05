@@ -33,6 +33,16 @@
    helper 协议随之升到 **9**；旧 helper 不会被自动重启，协议不匹配时客户端报错要求重新安装。
    关掉 broker（见做法二）时 helper 拿不到密钥，于是不做校验——仍是旧行为，不是静默绕过。
 
+8. **前台接管（L4）是一个独立的、默认没有授予的许可（第二期 A6）。** `cu_session` 新增
+   `takeover`／`release_takeover`：拿不到这个许可就一个字节也不会写。三个条件同时成立才发放
+   “整个桌面”的全局租约——用户在这个 App 上允许过前台模式（`policy.json` 里
+   `{"apps": {"<bundle id>": {"tier": "full", "foreground": true}}}`，只有用户自己写的文件算数，
+   项目文件只能撤销不能新增）、用户已经 10 秒没有真实输入（或刚在菜单栏点过“让它接管”，
+   60 秒内有效）、没有别的 agent 持有前台。接管期间 helper 显示全屏边框并吞掉 `Esc`
+   （只吞这一个键）；任何不带 agent 标记的真实输入立刻收回接管，结果是 `preempted_by_user`，
+   已经执行的步骤如实报告、不回滚。无 UI 的 headless 会话永远不进入 L4。
+   没有 broker 时 `cu_session takeover` 直接不可用（前台必须有人仲裁）。
+
 ## 保持原来行为的两种做法
 
 ### 做法一：预先在 policy.json 里写好授权（推荐）
@@ -82,6 +92,10 @@ broker trace。适合“这台机器只有我一个人用、且我确定不会�
 
 第二期的补充见 [`test/broker-pause.test.ts`](../../../packages/rotom-computer-use/test/broker-pause.test.ts)（A3 暂停）
 与 [`test/lease-token.test.ts`](../../../packages/rotom-computer-use/test/lease-token.test.ts)（A5 租约 token）。
+A6（前台接管）见 [`test/takeover.test.ts`](../../../packages/rotom-computer-use/test/takeover.test.ts)：
+三个条件、第二个 agent 抢到时 `resource_busy`、真实输入触发 `preempted_by_user`、headless 拒绝、
+边框与续租用假 backend 覆盖。
+
 A5 的 native 侧用 `npm run test:lease-guard` 验证：helper 自检 6 项（合法／签名错／过期／pid 不符／
 已撤销／无 broker 密钥），再验证 TypeScript 签出的 token 能被 Swift 接受、换成别的 pid 则被拒。
 

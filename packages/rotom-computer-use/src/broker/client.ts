@@ -197,6 +197,16 @@ export class BrokerClient {
 	}
 
 	/** Report that this agent's own action disturbed the user; the broker pauses it. */
+	async approveTakeover(): Promise<boolean> {
+		const reply = await this.request({ type: "takeover_approval" } as Omit<BrokerRequest, "id">);
+		return reply.ok === true;
+	}
+
+	async reportPreempted(targetAgentId: string): Promise<boolean> {
+		const reply = (await this.request({ type: "preempted", targetAgentId } as Omit<BrokerRequest, "id">)) as { revoked?: boolean };
+		return reply.revoked === true;
+	}
+
 	async reportInterference(evidence?: string): Promise<boolean> {
 		return ((await this.expect({ type: "interference", evidence })) as InterferenceResponse).paused;
 	}
