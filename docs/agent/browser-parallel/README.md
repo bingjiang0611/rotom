@@ -7,6 +7,7 @@
 | [design.md](design.md) | 技术方案：现状、并行设计、能力补齐设计，以及已经确认的决定 |
 | [tasks.md](tasks.md) | 任务拆分：每个任务改哪些文件、验收标准和自验证命令 |
 | [STATUS.md](STATUS.md) | 执行 agent 维护的进度与证据，评审 agent 从这里开始核验 |
+| [performance-baseline.md](performance-baseline.md) | Browser relay 性能基线：复测命令、当前数字、回归判据、已知限制 |
 
 ## 协作方式
 
