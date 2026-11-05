@@ -300,7 +300,7 @@
 | client 连接（握手 + 会话注册） | 10 | 0.6 ms（修前 211 ms） | 1.0 ms | 1.0 ms | 1 410 |
 | `snapshot_visible`（渲染 DOM） | 30 | 58 ms | 74 ms | 78 ms | 16.8 |
 | `tabs`（归属与状态） | 30 | 0.5 ms（修前 103 ms） | 0.8 ms | 0.8 ms | 1 853 |
-| `read_full`（`/large` 整页文本） | 10 | 10 594 ms | 12 266 ms | 12 266 ms | 0.09 |
+| `read_full`（`/large` 整页文本） | 10 | 4 529 ms（修前 10 594 ms） | 4 895 ms | 4 895 ms | 0.22 |
 | `screenshot`（JPEG 视口） | 30 | 45 ms | 62 ms | 70 ms | 22.6 |
 | `interact` type + 读回 | 30 | 3.7 ms（修前 159 ms） | 5.8 ms | 8.5 ms | 243 |
 | `interact` scroll（只读交互） | 20 | 58 ms（修前约 105 ms） | 75 ms | 76 ms | 18 |
@@ -353,6 +353,18 @@
 
 **scroll 同样处理**：`scroll` 分支原固定 `setTimeout(100)` 再读 `scrollTop`。改成同样的轮询（上限 `SCROLL_SETTLE_MS = 100`、间隔 20 ms），位置一变就返回：约 105 ms → **58 ms**，`effect.moved` 与 `scrollBefore/After` 语义不变。
 
-**仍未优化**：`read_full` 10.6 s 未动（合同要求读完全部，成本随页面规模增长）。
+### `read_full` 的渲染等待（同一提交）
+
+**诊断**：临时给 `fullRenderedTextSource` 的 60 步循环分段计时，得到 `delay` 9 197 ms、`scrollTargetTo`（含两帧 rAF）688 ms、状态读取 375 ms，总计 10 680 ms。87% 的时间是每步固定的 `FULL_READ_RENDER_WAIT_MS = 150`。
+
+**修法**：滚动后不再固定睡 150 ms，改为轮询容器，直到 `text` 与 `scrollHeight` 连续两次不再变化（间隔 20 ms，150 ms 上限）。稳定后的状态直接作为下一步的输入状态，不再重复读一次。静态长页面在滚动位置确认后即返回；虚拟滚动或懒加载容器仍会等到内容停稳，超时上限不变。
+
+**收益**：`read_full` 10 594 → **4 529 ms**（P95 4 895 ms）。步数、`nodes` 数与 `contentCoverage`（`scroll-end`）与修前一致。
+
+**代价与边界**：一次滚动后若内容在最后一次读数之后才启动渲染，仍可能提前判定稳定——原实现在 150 ms 边界上同样存在这个问题，这里只是把窗口边界从 150 ms 前移到约 40 ms。`/large` 需要 60 步，正好是 `FULL_READ_MAX_STEPS` 上限，所以它的 `contentComplete` 一直是 `false`（与修前相同），完整覆盖路径由 e2e 的 `chunked` suite 覆盖。
+
+**性能提升暴露的测试假设**：`network` suite 的 `settled()` 只等三条 Fetch 里的 500 结束，另一条 60 ms 的 `/slow` 靠"整套链路够慢"碰巧完成。链路变快后它稳定失败，已改成等所有 Fetch 条目都有 `status`——这是补上缺失的等待条件，断言本身没有放宽。
+
+**仍未优化**：`snapshot_visible` 57 ms、截图 45 ms、写路径 3 ms 都已是单次 CDP 观察/派发的固有成本。真正剩下的成本是 `read_full` 的步数本身（与页面高度成正比，合同要求读完全部）。
 
 **未完成**：原计划在低负载机器 `test@30.7.226.226` 上复测，但该机的企业安全软件会直接 `SIGKILL` Chrome for Testing（`--version` 即 exit 137，去掉 quarantine 后仍如此），系统 Chrome 156 正式版又忽略 `--load-extension`，所以基准只能在本机跑。要在这台机器上测，需要把 `/Users/test/Library/Caches/rotom-e2e/**` 或其可执行文件加入安全软件白名单。

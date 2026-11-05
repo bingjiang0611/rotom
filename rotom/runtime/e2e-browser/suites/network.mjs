@@ -23,8 +23,12 @@ export async function run({ harness, fixtures, recorder }) {
 	const settled = async () => {
 		for (let attempt = 0; attempt < 40; attempt += 1) {
 			const page = await readNetwork({ limit: 200 });
-			// Wait for the 500 to finish loading too: status alone can precede loadingFinished.
-			if (page.entries.some((entry) => entry.status === 500 && typeof entry.durationMs === "number") && page.entries.length >= 3) return page;
+			// Wait for every fixture fetch to finish loading: status alone can precede
+			// loadingFinished, and a slow one still in flight made the "two successful
+			// fetches" assertion depend on the harness being slow rather than on the relay.
+			const fetches = page.entries.filter((entry) => entry.resourceType === "Fetch");
+			const settledFetches = fetches.length >= 3 && fetches.every((entry) => typeof entry.status === "number");
+			if (settledFetches && page.entries.some((entry) => entry.status === 500 && typeof entry.durationMs === "number")) return page;
 			await new Promise((resolve) => setTimeout(resolve, 100));
 		}
 		throw new Error(`请求没有在预期时间内完成：${JSON.stringify((await readNetwork({ limit: 200 })).entries)}`);
