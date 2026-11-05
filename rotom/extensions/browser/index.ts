@@ -46,6 +46,15 @@ import { INTERACTION_EXPECTATIONS, parseInteractionExpectation } from "./chrome-
 import { MAX_UPLOAD_FILES_V1, validateUploadPathsV1 } from "./upload-guard.ts";
 import { MAX_BATCH_STEPS_V1, batchErrorOutcomeV1, batchStepOutcomeV1, batchStepSummaryV1, parseBatchActionsV1 } from "./batch-actions.ts";
 import {
+	AUTO_APPROVE_LOCALHOST_V1,
+	SENSITIVE_CONFIRM_ENV_V1,
+	preflightSensitiveReasonV1,
+	sanitizeSensitiveConfirmationV1,
+	sensitiveAutoApprovedV1,
+	sensitiveReasonTextV1,
+	type SensitiveReasonV1,
+} from "./sensitive-actions.ts";
+import {
 	browserPolicyPathV1,
 	decideBrowserPolicyV1,
 	grantBrowserPolicyV1,
@@ -590,6 +599,44 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 		return undefined;
 	};
 
+	/**
+	 * Collect the user's answer for a sensitive action. Returns `{ confirmed }` on approval
+	 * and a refusal result otherwise; the relay is never re-sent without an approval.
+	 */
+	const confirmSensitive = async (relayClient: Awaited<ReturnType<typeof client>>, ctx: { hasUI: boolean; ui: { confirm?: (title: string, message?: string) => Promise<boolean> } }, input: { reason: SensitiveReasonV1; matchedWord?: string | undefined; origin: string; actionId?: string | undefined }) => {
+		const detail = sensitiveReasonTextV1({ reason: input.reason, matchedWord: input.matchedWord });
+		const approval = (confirmation: "user" | "auto-localhost") => ({ confirmed: true as const, confirmation });
+		if (sensitiveAutoApprovedV1({ origin: input.origin, env: process.env[SENSITIVE_CONFIRM_ENV_V1] })) return approval("auto-localhost");
+		if (relayClient.leaseToken !== undefined) {
+			// A child cannot ask the user: report upward, exactly like a policy refusal.
+			return { confirmed: false as const, result: browserResult({
+				kind: "needs-approval",
+				origin: input.origin,
+				capability: "interact",
+				reason: "sensitive-action",
+				message: `${detail}；${input.reason} 需要用户确认，子 agent 不能代替用户确认，该操作没有派发。`,
+			}) };
+		}
+		if (!ctx.hasUI || typeof ctx.ui.confirm !== "function") {
+			return { confirmed: false as const, result: browserResult({
+				kind: "needs-approval",
+				origin: input.origin,
+				capability: "interact",
+				reason: "no-ui",
+				message: `${detail}；${input.reason} 需要用户确认，但当前没有交互界面，按拒绝处理，该操作没有派发。`,
+			}) };
+		}
+		const approved = await ctx.ui.confirm(`确认执行敏感操作？${input.origin}`, detail, { env: SENSITIVE_CONFIRM_ENV_V1, value: AUTO_APPROVE_LOCALHOST_V1 });
+		if (approved) return approval("user");
+		return { confirmed: false as const, result: browserResult({
+			kind: "needs-approval",
+			origin: input.origin,
+			capability: "interact",
+			reason: "user-denied",
+			message: `用户拒绝了这个敏感操作（${input.reason}）；不要重试，也不要换个方式重做同一件事。`,
+		}) };
+	};
+
 	const makeSnapshotPage = (freshObservation: BrowserObservationV1 | undefined, requestedLimit: number, cursor?: string) => {
 		let offset = 0;
 		let observation = freshObservation;
@@ -986,11 +1033,37 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 				};
 				const actionDigest = browserActionDigestV1(actionFacts);
 				const actionId = `pi1_browser_action_${randomUUID()}`;
+				// Upload and leaving an unsaved page are known here, before any probe.
+				const dialogType = record(tab.dialog) && typeof tab.dialog.type === "string" ? tab.dialog.type : undefined;
+				const preflightReason = preflightSensitiveReasonV1({ action, dialogType });
+				let confirmation: "user" | "auto-localhost" | undefined;
+				if (preflightReason !== undefined) {
+					const decided = await confirmSensitive(relayClient, ctx, { reason: preflightReason, origin: policyOriginV1(tab.url) ?? "", actionId });
+					if (!decided.confirmed) {
+						pi.appendEntry(BROWSER_INTERACTION_AUDIT_ENTRY, { schemaVersion: 1, kind: "rotom-browser-interaction-terminal", actionId, status: "blocked", actionAcknowledged: false, businessOutcome: "not-executed", sensitiveReason: preflightReason, timestamp: new Date().toISOString() });
+						return decided.result;
+					}
+					confirmation = decided.confirmation;
+				}
 				assertOwner();
 				pi.appendEntry(BROWSER_INTERACTION_AUDIT_ENTRY, { schemaVersion: 1, kind: "rotom-browser-interaction-intent", actionId, sessionId: ctx.sessionManager.getSessionId(), branchLeafId: ctx.sessionManager.getLeafId() ?? null, toolCallId, action, actionDigest, targetDigest: browserActionDigestV1({ tabName: tab.name, tabId: tab.tabId, documentGeneration: tab.documentGeneration, ...(targetRef ? { targetRef } : {}), ...(coordinateClick ? { x, y, observationEpoch } : {}) }), originDigest: browserActionDigestV1(browserOriginV1(tab.url)), timestamp: new Date().toISOString() });
 				try {
-					const payload = { actionId, tabName: tab.name, action, ...(action === "scroll" ? {} : { allowedOrigins: [...policyAuthorizedOrigins] }), ...(dialogAccept === undefined ? {} : { accept: dialogAccept }), ...(dialogPromptText === undefined ? {} : { promptText: dialogPromptText }), ...(key ? { key } : {}), ...(modifiers && modifiers.length > 0 ? { modifiers } : {}), ...(targetRef ? { targetRef } : {}), ...(dropRef ? { dropRef } : {}), ...(uploadPaths ? { paths: uploadPaths } : {}), ...(coordinateClick ? { x, y, observationEpoch, documentGeneration: tab.documentGeneration } : {}), ...(text ? { text, replace: params.replace === true } : {}), ...(option ? { option } : {}), ...(expectation ? { expect: expectation } : {}), ...(direction ? { direction, amount } : {}) };
-					const raw = await relayClient.request("interact", payload, { signal, timeoutMs: relayClientTimeoutMs("interact", {}) });
+					const payload = { actionId, tabName: tab.name, action, ...(confirmation === undefined ? {} : { confirmed: true }), ...(action === "scroll" ? {} : { allowedOrigins: [...policyAuthorizedOrigins] }), ...(dialogAccept === undefined ? {} : { accept: dialogAccept }), ...(dialogPromptText === undefined ? {} : { promptText: dialogPromptText }), ...(key ? { key } : {}), ...(modifiers && modifiers.length > 0 ? { modifiers } : {}), ...(targetRef ? { targetRef } : {}), ...(dropRef ? { dropRef } : {}), ...(uploadPaths ? { paths: uploadPaths } : {}), ...(coordinateClick ? { x, y, observationEpoch, documentGeneration: tab.documentGeneration } : {}), ...(text ? { text, replace: params.replace === true } : {}), ...(option ? { option } : {}), ...(expectation ? { expect: expectation } : {}), ...(direction ? { direction, amount } : {}) };
+					let raw = await relayClient.request("interact", payload, { signal, timeoutMs: relayClientTimeoutMs("interact", {}) });
+					// The relay refused a sensitive target before dispatching. Asking the user and
+					// re-sending the same action is not a replay: nothing ran, and the relay only
+					// dispatches once `confirmed: true` arrives.
+					const sensitiveRefusal = sanitizeSensitiveConfirmationV1(raw);
+					if (sensitiveRefusal !== undefined) {
+						const decided = await confirmSensitive(relayClient, ctx, { reason: sensitiveRefusal.reason, matchedWord: sensitiveRefusal.matchedWord, origin: sensitiveRefusal.origin || (policyOriginV1(tab.url) ?? ""), actionId });
+						if (!decided.confirmed) {
+							assertOwner();
+							pi.appendEntry(BROWSER_INTERACTION_AUDIT_ENTRY, { schemaVersion: 1, kind: "rotom-browser-interaction-terminal", actionId, status: "blocked", actionAcknowledged: false, businessOutcome: "not-executed", sensitiveReason: sensitiveRefusal.reason, timestamp: new Date().toISOString() });
+							return decided.result;
+						}
+						confirmation = decided.confirmation;
+						raw = await relayClient.request("interact", { ...payload, confirmed: true }, { signal, timeoutMs: relayClientTimeoutMs("interact", {}) });
+					}
 					// A suspended tab refuses before dispatching: nothing happened, so this is a
 					// clean refusal, not an unknown outcome.
 					const blocked = dialogBlockingV1(raw);
@@ -1003,7 +1076,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 					const expectationOutcome = browserInteractionExpectationOutcomeV1(result.effect);
 					const targetChanged = record(result.effect?.target) ? (result.effect.target as Record<string, unknown>).changed : undefined;
 					assertOwner();
-					pi.appendEntry(BROWSER_INTERACTION_AUDIT_ENTRY, { schemaVersion: 1, kind: "rotom-browser-interaction-terminal", actionId, status: "ok", actionAcknowledged: true, businessOutcome: "unverified", ...(expectationOutcome ? { expectationOutcome } : {}), ...(typeof targetChanged === "boolean" || targetChanged === null ? { targetChanged } : {}), readbackDigest: result.readback.digest, timestamp: new Date().toISOString() });
+					pi.appendEntry(BROWSER_INTERACTION_AUDIT_ENTRY, { schemaVersion: 1, kind: "rotom-browser-interaction-terminal", actionId, status: "ok", actionAcknowledged: true, businessOutcome: "unverified", ...(confirmation === undefined ? {} : { confirmation }), ...(expectationOutcome ? { expectationOutcome } : {}), ...(typeof targetChanged === "boolean" || targetChanged === null ? { targetChanged } : {}), readbackDigest: result.readback.digest, timestamp: new Date().toISOString() });
 					const readback = makeSnapshotPage(sanitizeBrowserObservationV1(compactInteractionReadback(result.readback, textBaselines.get(result.readback.tabId))), Number.MAX_SAFE_INTEGER);
 					const output = browserResult({ kind: "browser-interaction-result", actionId, acknowledged: true, businessOutcome: "unverified", ...(result.effect ? { effect: result.effect } : {}), readback });
 					// Cache only text already delivered in a single result, after all

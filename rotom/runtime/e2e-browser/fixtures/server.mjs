@@ -308,6 +308,26 @@ ${Array.from({ length: LARGE_PARAGRAPHS }, (_, index) => `<p>Paragraph ${index +
 <div role="status" id="large-tail">Large document tail sentinel</div>
 </main>`;
 
+// Checkout fixture for the confirmation suite: a form whose button says "Continue"
+// (no sensitive word) but which contains a `cc-*` autocomplete field, plus one button
+// whose accessible name is a sensitive word. Both write their own result to the page.
+const CHECKOUT_BODY = `
+<main>
+  <h2>Checkout</h2>
+  <form id="payment">
+    <label>Card number <input id="card" autocomplete="cc-number"></label>
+    <div style="margin-top:60px"><button id="pay" type="button">Continue</button></div>
+  </form>
+  <div style="margin-top:80px"><button id="plain">Refresh totals</button></div>
+  <div style="margin-top:80px"><button id="place">Place order</button></div>
+  <div role="status" id="payment-result">idle</div>
+</main>
+<script>
+document.querySelector('#pay').addEventListener('click', () => { document.querySelector('#payment-result').textContent = 'pay-clicked'; });
+document.querySelector('#plain').addEventListener('click', () => { document.querySelector('#payment-result').textContent = 'plain-clicked'; });
+document.querySelector('#place').addEventListener('click', () => { document.querySelector('#payment-result').textContent = 'order-placed'; });
+</script>`;
+
 // Clicked marker for the redirect suite: proof that a refused write never ran.
 const REDIRECT_TARGET_BODY = `<main>
 <h1>Redirect target</h1>
@@ -332,6 +352,7 @@ export function defaultPages({ frameOrigin }) {
 		["/upload", htmlDocument("Upload fixture", UPLOAD_BODY)],
 		["/dialog", htmlDocument("Dialog fixture", DIALOG_BODY)],
 		["/redirect-target", htmlDocument("Redirect target", REDIRECT_TARGET_BODY)],
+		["/checkout", htmlDocument("Checkout", CHECKOUT_BODY)],
 	]);
 }
 
