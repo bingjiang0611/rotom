@@ -63,6 +63,7 @@
 
 - 是否优先 Relay，并只用 socket 缺失/拒绝连接的类型化 pre-dispatch 证据允许一次 `launch_browser`？许可是否在 preflight 消费、不跨运行/会话继承、不因已派发请求后的重连失败重新授权？登录页/空结果/stale/timeout/unknown/取消/权限/协议错误不能授权回退；显式排除 Relay 的工具选择保留，回退说明独立登录态并使用新 CDP stateId。
 - Browser 返回文本不扫描或替换凭据形状，可能将密码/Token 原文返回模型；长度、控制字符、URL query/hash 隐藏及 metadata-only audit 边界仍保留。不要将其描述成自动脱敏能力。
+- 下载是否仍只重定向 agent 自有 tab（claim 来的用户 tab 与用户下载不动）？归属歧义时是否宁可不认领？`downloads` 结果是否只含相对路径、大小、MIME 与摘要，绝对路径没有泄漏到模型？子 agent 未声明 `allow.download` 时是否仍先取消再报 `needs-approval`？e2e 是否仍确认真实 `~/Downloads` 未被写入（harness 必须隔离下载目录，Chrome 解析默认目录时不看 HOME）？
 - 敏感动作是否仍在派发前由 relay 拒绝、由主 agent 确认后重发（不是先派发后补确认）？词表、`cc-*` 表单判定、`upload`/`beforeunload` 触发点是否都收敛到 `sensitive-actions` 两处实现（SW 只给事实、Pi 只收集答案）？拒绝是否仍是 `needs-approval`/`user-denied` 而不是失败重试？`ROTOM_BROWSER_CONFIRM` 是否仍只放行 localhost、拼错即无效？页面标签是否仍不回传模型？
 - 按站点策略是否仍在 Pi 侧判定且顺序固定为 blocklist → allowlist → localhost → 询问？缺 UI 时是否按拒绝返回 `needs-approval` 而不是静默放行？`upload` 是否仍与 `interact` 分开授权？“总是允许”是否既合并写回 0600 策略文件、又把该 origin 加进本 run 的子 lease？新增 capability 是否同时加进 SW 的 origin 复核集合，避免重定向后写操作绕过？
 - state/ref/document generation/viewport/observationEpoch 是否在动作前重验？

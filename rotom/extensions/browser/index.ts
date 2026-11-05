@@ -1,7 +1,8 @@
 import { StringEnum, Type } from "@earendil-works/pi-ai";
 import { defineTool, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
+import { createReadStream } from "node:fs";
 import { lstat, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -78,6 +79,10 @@ const MAX_RESULT_BYTES = 128 * 1024;
 // A child lease outlives one task, not the session; the parent rewrites it to extend.
 const LEASE_TTL_MS = 12 * 60 * 60_000;
 const BROWSER_POLICY_READ_OPERATIONS_V1 = ["snapshot", "snapshot_visible", "read_full", "screenshot", "console", "network", "wait"] as const;
+// Downloads are listed from Chrome itself: bounded, model-safe fields only, and (for
+// completed files) a locally computed digest. The absolute path never leaves this file.
+const BROWSER_DOWNLOAD_MAX_RECORDS_V1 = 20 as const;
+const BROWSER_DOWNLOAD_HASH_MAX_BYTES_V1 = 64 * 1024 * 1024;
 const LEASE_DEFAULT_MAX_TABS = 8;
 const SNAPSHOT_PAGE_TTL_MS = 5 * 60_000;
 const MAX_SNAPSHOT_CURSORS = 64;
@@ -199,6 +204,38 @@ function validateTabs(value: unknown): BrowserRelayTabsV1 {
  * Network metadata only: a header/body field is rejected instead of forwarded, so an
  * upstream change cannot widen the contract by accident.
  */
+/**
+ * Validate the download listing and attach a digest for completed files.
+ *
+ * Chrome reports an absolute path; that path is used here to hash the bytes and is then
+ * dropped, so the model only ever sees the path relative to the download directory.
+ */
+async function validateBrowserDownloadsV1(value: unknown) {
+	if (!record(value) || value.schemaVersion !== 1 || value.kind !== "rotom-browser-downloads") throw new Error("browser downloads response 无效");
+	if (!Array.isArray(value.downloads) || value.downloads.length > BROWSER_DOWNLOAD_MAX_RECORDS_V1) throw new Error("browser downloads 无效");
+	const downloads = [];
+	for (const candidate of value.downloads) {
+		if (!record(candidate)) throw new Error("browser download record 无效");
+		const relativePath = typeof candidate.relativePath === "string" ? candidate.relativePath.slice(0, 512) : "";
+		if (relativePath === "" || !/^rotom\/[A-Za-z0-9_-]+\//u.test(relativePath)) throw new Error("browser download relativePath 无效");
+		const state = candidate.state === "in_progress" || candidate.state === "interrupted" || candidate.state === "complete" ? candidate.state : "unknown";
+		const bytes = Number.isSafeInteger(candidate.bytes) && (candidate.bytes as number) >= 0 ? Math.min(candidate.bytes as number, Number.MAX_SAFE_INTEGER) : 0;
+		const mimeType = typeof candidate.mimeType === "string" && candidate.mimeType.length > 0 ? candidate.mimeType.slice(0, 128) : "application/octet-stream";
+		let sha256 = null;
+		if (state === "complete" && typeof candidate.path === "string" && candidate.path !== "" && bytes <= BROWSER_DOWNLOAD_HASH_MAX_BYTES_V1) {
+			sha256 = await new Promise<string | null>((resolve) => {
+				const hash = createHash("sha256");
+				const stream = createReadStream(candidate.path!);
+				stream.on("data", (chunk) => hash.update(chunk));
+				stream.on("error", () => resolve(null));
+				stream.on("end", () => resolve(hash.digest("hex")));
+			});
+		}
+		downloads.push({ relativePath, state, bytes, mimeType, sha256, ...(sha256 === null && state === "complete" ? { sha256Skipped: bytes > BROWSER_DOWNLOAD_HASH_MAX_BYTES_V1 ? "too-large" : "unreadable" } : {}), ...(typeof candidate.error === "string" ? { error: candidate.error.slice(0, 64) } : {}) });
+	}
+	const blocked = Array.isArray(value.blocked) ? value.blocked.filter((entry) => record(entry) && typeof entry.reason === "string").slice(0, BROWSER_DOWNLOAD_MAX_RECORDS_V1).map((entry) => ({ reason: String((entry as Record<string, unknown>).reason).slice(0, 32) })) : [];
+	return { schemaVersion: 1, kind: "rotom-browser-downloads", downloads, blocked };
+}
 function validateBrowserNetworkV1(value: unknown, requestedLimit: number) {
 	if (!record(value) || value.schemaVersion !== 1 || value.kind !== "rotom-browser-network") throw new Error("browser network response 无效");
 	if (typeof value.captureSince !== "string" || Number.isNaN(Date.parse(value.captureSince))) throw new Error("browser network captureSince 无效");
@@ -530,6 +567,17 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 		reason: denied.reason,
 		message: `当前 lease 未授权 ${denied.capability} ${denied.origin || "(未知来源)"}（${denied.reason}）；该操作没有发出请求，需要父 agent 更新 lease 后重试。`,
 	});
+	/**
+	 * Downloads cannot be refused per action, because the page starts them. The relay
+	 * therefore learns the current lease answer on every write and cancels agent downloads
+	 * that are not allowed; this reads that answer from the same lease file the write checks.
+	 */
+	const leaseAllowsDownload = async (relayClient: Awaited<ReturnType<typeof client>>) => {
+		const token = relayClient.leaseToken;
+		if (token === undefined) return true;
+		const lease = await loadBrowserLeaseForCallV1({ relayDir: dirname(relayClient.socketPath), token, scope: process.env[BROWSER_LEASE_SCOPE_ENV_V1] });
+		return checkBrowserLeaseV1(lease, { origin: lease?.origins[0], capability: "download" }).ok;
+	};
 	/** Returns a refusal result, or undefined when the operation may proceed. */
 	const leaseDenial = async (relayClient: Awaited<ReturnType<typeof client>>, capability: BrowserLeaseCapabilityV1, origin: string | undefined) => {
 		const token = relayClient.leaseToken;
@@ -887,6 +935,26 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 				}, { signal, timeoutMs: relayClientTimeoutMs("network", {}) });
 				return boundedResult(validateBrowserNetworkV1(raw, logLimit));
 			}
+			if (operation === "downloads") {
+				if (tabName !== undefined || filtered || params.cursor !== undefined) throw new Error("downloads 不接受 tabName、过滤或 cursor");
+				const raw = await relayClient.request("downloads", {}, { signal, timeoutMs: relayClientTimeoutMs("downloads", {}) });
+				const blocked = dialogBlockingV1(raw);
+				if (blocked) return boundedResult(blocked);
+				const listed = await validateBrowserDownloadsV1(raw);
+				assertOwner();
+				// A child whose lease has no `allow.download` gets a refusal instead of a
+				// silent listing: the relay already cancelled that download.
+				if (listed.blocked.length > 0) {
+					return browserResult({
+						kind: "needs-approval",
+						origin: "",
+						capability: "download",
+						reason: "download",
+						message: `这次下载来自未授权 download 的会话，relay 已取消（${listed.blocked.length} 次）；需要父 agent 在 lease 里打开 allow.download 后重新触发下载。`,
+					});
+				}
+				return boundedResult(listed);
+			}
 			if (operation === "screenshot") {
 				const rawScreenshot = await relayClient.request("screenshot", { tabName }, { signal });
 				const blockedScreenshot = dialogBlockingV1(rawScreenshot);
@@ -1048,7 +1116,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 				assertOwner();
 				pi.appendEntry(BROWSER_INTERACTION_AUDIT_ENTRY, { schemaVersion: 1, kind: "rotom-browser-interaction-intent", actionId, sessionId: ctx.sessionManager.getSessionId(), branchLeafId: ctx.sessionManager.getLeafId() ?? null, toolCallId, action, actionDigest, targetDigest: browserActionDigestV1({ tabName: tab.name, tabId: tab.tabId, documentGeneration: tab.documentGeneration, ...(targetRef ? { targetRef } : {}), ...(coordinateClick ? { x, y, observationEpoch } : {}) }), originDigest: browserActionDigestV1(browserOriginV1(tab.url)), timestamp: new Date().toISOString() });
 				try {
-					const payload = { actionId, tabName: tab.name, action, ...(confirmation === undefined ? {} : { confirmed: true }), ...(action === "scroll" ? {} : { allowedOrigins: [...policyAuthorizedOrigins] }), ...(dialogAccept === undefined ? {} : { accept: dialogAccept }), ...(dialogPromptText === undefined ? {} : { promptText: dialogPromptText }), ...(key ? { key } : {}), ...(modifiers && modifiers.length > 0 ? { modifiers } : {}), ...(targetRef ? { targetRef } : {}), ...(dropRef ? { dropRef } : {}), ...(uploadPaths ? { paths: uploadPaths } : {}), ...(coordinateClick ? { x, y, observationEpoch, documentGeneration: tab.documentGeneration } : {}), ...(text ? { text, replace: params.replace === true } : {}), ...(option ? { option } : {}), ...(expectation ? { expect: expectation } : {}), ...(direction ? { direction, amount } : {}) };
+					const payload = { actionId, tabName: tab.name, action, allowDownload: await leaseAllowsDownload(relayClient), ...(confirmation === undefined ? {} : { confirmed: true }), ...(action === "scroll" ? {} : { allowedOrigins: [...policyAuthorizedOrigins] }), ...(dialogAccept === undefined ? {} : { accept: dialogAccept }), ...(dialogPromptText === undefined ? {} : { promptText: dialogPromptText }), ...(key ? { key } : {}), ...(modifiers && modifiers.length > 0 ? { modifiers } : {}), ...(targetRef ? { targetRef } : {}), ...(dropRef ? { dropRef } : {}), ...(uploadPaths ? { paths: uploadPaths } : {}), ...(coordinateClick ? { x, y, observationEpoch, documentGeneration: tab.documentGeneration } : {}), ...(text ? { text, replace: params.replace === true } : {}), ...(option ? { option } : {}), ...(expectation ? { expect: expectation } : {}), ...(direction ? { direction, amount } : {}) };
 					let raw = await relayClient.request("interact", payload, { signal, timeoutMs: relayClientTimeoutMs("interact", {}) });
 					// The relay refused a sensitive target before dispatching. Asking the user and
 					// re-sending the same action is not a replay: nothing ran, and the relay only
