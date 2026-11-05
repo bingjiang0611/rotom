@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 /** Product gate: `ROTOM_BROWSER_DEVTOOLS=0` must not register the tool at all. */
-export const BROWSER_DEVTOOLS_ENV = "ROTOM_BROWSER_DEVTOOLS";
+const BROWSER_DEVTOOLS_ENV = "ROTOM_BROWSER_DEVTOOLS";
 export const BROWSER_DEVTOOLS_TOOL_V1 = "browser_devtools" as const;
 
 /**
@@ -18,7 +18,6 @@ export type DevtoolsWorldV1 = (typeof DEVTOOLS_WORLDS_V1)[number];
 export const MAX_DEVTOOLS_EXPRESSION_CHARS_V1 = 8 * 1024;
 export const MAX_DEVTOOLS_RESULT_BYTES_V1 = 64 * 1024;
 export const DEVTOOLS_EVALUATE_TIMEOUT_MS_V1 = 10_000;
-export const DEVTOOLS_VIEWPORT_WAIT_MS_V1 = 2_000;
 /** A full-page capture is one image: bound each edge before asking the renderer. */
 export const MAX_EXPORT_WIDTH_V1 = 5_000;
 export const MAX_EXPORT_HEIGHT_V1 = 20_000;
@@ -31,8 +30,6 @@ export const RECORD_FPS_V1 = 2;
 export const RECORD_MAX_FRAMES_V1 = 240;
 export const RECORD_MAX_BYTES_V1 = 16 * 1024 * 1024;
 export const RECORD_MAX_MS_V1 = 120_000;
-/** The isolated world name the relay creates; one world per document. */
-export const DEVTOOLS_ISOLATED_WORLD_V1 = "rotom-devtools";
 
 export type ViewportOverrideV1 = {
 	width: number;

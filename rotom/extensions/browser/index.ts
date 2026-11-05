@@ -48,6 +48,7 @@ import { INTERACTION_EXPECTATIONS, parseInteractionExpectation } from "./chrome-
 import { MAX_UPLOAD_FILES_V1, validateUploadPathsV1 } from "./upload-guard.ts";
 import { browserIdsV1 } from "./platform-paths.mjs";
 import { MAX_BATCH_STEPS_V1, batchErrorOutcomeV1, batchStepOutcomeV1, batchStepSummaryV1, parseBatchActionsV1 } from "./batch-actions.ts";
+import { EXPORT_FORMATS_V1 } from "./export-guard.ts";
 import { isDeferredByDefault } from "../third-party/deferred-tools/register.ts";
 import { BROWSER_DEVTOOLS_TOOL_V1, DEVTOOLS_OPERATIONS_V1, DEVTOOLS_WORLDS_V1, MAX_DEVTOOLS_EXPRESSION_CHARS_V1, MAX_NETWORK_REQUEST_ID_CHARS_V1, MAX_TRACE_BYTES_V1, RECORD_FPS_V1, RECORD_MAX_BYTES_V1, RECORD_MAX_FRAMES_V1, boundDevtoolsTextV1, devtoolsEnabledByEnvironment, resolveViewportV1, sanitizeDevtoolsExpressionV1, sanitizeDevtoolsOperationV1, sanitizeDevtoolsWorldV1, sanitizeExportQualityV1, viewportPresetNamesV1 } from "./devtools.ts";
 import { MAX_EXPORT_BYTES_V1, resolveExportTargetV1, type ExportTargetV1 } from "./export-guard.ts";
@@ -1316,7 +1317,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			awaitPromise: Type.Optional(Type.Boolean()),
 			path: Type.Optional(Type.String({ minLength: 1, maxLength: 4_096 })),
 			fullPage: Type.Optional(Type.Boolean()),
-			format: Type.Optional(Type.String({ minLength: 1, maxLength: 8 })),
+			format: Type.Optional(StringEnum(EXPORT_FORMATS_V1)),
 			quality: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
 			requestId: Type.Optional(Type.String({ minLength: 1, maxLength: MAX_NETWORK_REQUEST_ID_CHARS_V1 })),
 			viewport: Type.Optional(Type.Union([Type.String({ minLength: 1, maxLength: 32 }), Type.Object({
