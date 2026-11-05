@@ -139,3 +139,39 @@ test("service worker 侧接线：V3 单文件持久化 + V2/V1 迁移后删除",
 	assert.match(restoreBlock, /await sessionWriter\.flushNow\(\)/u, "迁移必须立刻落盘，不能等合并窗口");
 	assert.match(restoreBlock, /chrome\.storage\.session\.remove\(\[LEGACY_SESSION_STATE_KEY_V2, LEGACY_SESSION_STATE_KEY_V1\]\)/u, "迁移完成后删除旧 key");
 });
+
+test("没有变化时 schedule 立即 resolve，不空等合并窗口", async () => {
+	const writes = [];
+	const states = new Map([["session-1", sessionState("session-1", { docs: { tabId: 7, targetId: "target-1" } })]]);
+	const writer = createMergedSessionWriter({
+		entries: () => new Map([...states].map(([sessionId, state]) => [sessionStateKeyV3(sessionId), serializeSessionStateV3(state)])),
+		write: async (payload) => { writes.push(payload); },
+		remove: async () => undefined,
+	});
+	await writer.schedule();
+	assert.equal(writes.length, 1, "第一次调度要真的写盘");
+	const startedAt = Date.now();
+	// A read-only operation ends with a persist that has nothing new to store: it must
+	// not pay the 100 ms merge window it never uses.
+	await writer.schedule();
+	await writer.schedule();
+	const elapsed = Date.now() - startedAt;
+	assert.equal(writes.length, 1, "没有变化就不再写盘");
+	assert.ok(elapsed < 20, `两次空调度应远快于合并窗口，实际 ${elapsed} ms`);
+});
+
+test("有变化时仍走合并窗口并写入一次", async () => {
+	const writes = [];
+	const states = new Map([["session-1", sessionState("session-1", { docs: { tabId: 7, targetId: "target-1" } })]]);
+	const writer = createMergedSessionWriter({
+		entries: () => new Map([...states].map(([sessionId, state]) => [sessionStateKeyV3(sessionId), serializeSessionStateV3(state)])),
+		write: async (payload) => { writes.push(payload); },
+		remove: async () => undefined,
+		mergeWindowMs: 30,
+	});
+	await writer.schedule();
+	states.get("session-1").tabsByName.get("docs").documentGeneration = 2;
+	await writer.schedule();
+	assert.equal(writes.length, 2, "内容变了要再写一次");
+	assert.equal(writes[1][sessionStateKeyV3("session-1")].tabs[0].documentGeneration, 2);
+});

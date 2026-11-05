@@ -71,17 +71,26 @@ export function createMergedSessionWriter({ entries, write, remove, mergeWindowM
 	let pending;
 	let settle;
 	let lastWritten = new Map();
-	const flush = async () => {
-		timer = undefined;
+	// One diff, used both to decide whether a schedule has anything to wait for and by
+	// the flush itself. A read-only operation usually changes nothing, and sleeping
+	// through the merge window only to write nothing is pure latency.
+	const collect = () => {
 		const current = entries();
 		const payload = {};
+		const encodedChanges = [];
 		for (const [key, value] of current) {
 			const encoded = JSON.stringify(value);
 			if (lastWritten.get(key) === encoded) continue;
 			payload[key] = value;
-			lastWritten.set(key, encoded);
+			encodedChanges.push([key, encoded]);
 		}
 		const dropped = [...lastWritten.keys()].filter((key) => !current.has(key));
+		return { payload, encodedChanges, dropped };
+	};
+	const flush = async () => {
+		timer = undefined;
+		const { payload, encodedChanges, dropped } = collect();
+		for (const [key, encoded] of encodedChanges) lastWritten.set(key, encoded);
 		const awaiting = settle;
 		pending = undefined;
 		settle = undefined;
@@ -103,6 +112,10 @@ export function createMergedSessionWriter({ entries, write, remove, mergeWindowM
 	return {
 		/** Mark the current state dirty and resolve once a flush covering it finished. */
 		schedule() {
+			// Nothing changed, so there is nothing to write and nothing to wait for:
+			// resolve now instead of idling for the merge window.
+			const probe = collect();
+			if (Object.keys(probe.payload).length === 0 && probe.dropped.length === 0) return Promise.resolve();
 			if (!pending) pending = new Promise((resolve, reject) => { settle = { resolve, reject }; });
 			if (timer === undefined) timer = setTimer(() => { void flush().catch(() => undefined); }, mergeWindowMs);
 			return pending;
