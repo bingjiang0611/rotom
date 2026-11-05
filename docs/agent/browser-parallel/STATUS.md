@@ -304,7 +304,11 @@
 | `screenshot`（JPEG 视口） | 30 | 45 ms | 62 ms | 70 ms | 22.6 |
 | `interact` type + 读回 | 30 | 159 ms | 168 ms | 170 ms | 6.2 |
 | 并发 `snapshot` ×1 / ×2 / ×4（每轮总耗时） | 10 | 56 / 58 / 64 ms | 62 / 67 / 68 ms | 同上 | 17.5 / 17.1 / 15.7 |
-| `record_start/stop`（3 s @2fps）+ GIF 合成 | 2 | 3 119 ms | 3 126 ms | 3 126 ms | — |
+| `devtools screenshot_export`（整页 PNG，`/baseline`） | 5 | 68 ms | 77 ms | 77 ms | 14.2 |
+| `devtools screenshot_export`（整页 JPEG q50，`/large`） | — | **被拒** | — | — | — |
+| `devtools network_body`（取响应体） | 5 | 4 ms | 4 ms | 4 ms | 239.6 |
+| `devtools trace_start/stop` + 本地解析（0.5 s 采集） | 3 | 17 ms | — | — | — |
+| `record_start/stop`（3 s @2fps）+ GIF 合成 | 2 | 3 126 ms | 3 152 ms | 3 152 ms | — |
 
 首次 `open` 均值 365 ms。内存：client RSS 71 MB，Chrome RSS 233 MB（3 个标签）。
 
@@ -313,6 +317,7 @@
 2. `tabs` 103 ms 是"每次动作的固定税"：Pi 侧几乎每个操作前都会查一次归属。它是一个便宜操作却比 `snapshot_visible` 贵一倍，值得做一次调用合并或短期缓存（必须保留归属与 stale 校验，不能省掉检查）。
 3. 并发扩展接近线性：×4 时每标签 16 ms，说明锁与事件循环不是瓶颈，并行化已经到位。
 4. 录屏 + GIF 合成的本地 CPU 部分约 119 ms（3 119 − 3 000），不是瓶颈。
-5. Hooks 之外未测：`network_body`、`trace`、`screenshot_export` 的整页导出。
+5. `network_body`（4 ms）、`trace`（relay 17 ms + base64 解码 0.06 ms + 摘要 0.66 ms，116 KB 事件流）、整页导出的 `/baseline` 版本（68 ms，只比视口截图 46 ms 贵一半）都很便宜，不需要优化。
+6. **整页导出在超长页面上直接失败**：`/large` 的整页 JPEG 被 `devtools screenshot too large`（8 MiB 上限）拒绝，而不是降级或分片。这是产品限制而不是性能问题，但用户会感知为"导出失败"；要不要降质重试或分片导出属于功能决策，需要评审确认后再改。
 
 **未完成**：原计划在低负载机器 `test@30.7.226.226` 上复测，但该机的企业安全软件会直接 `SIGKILL` Chrome for Testing（`--version` 即 exit 137，去掉 quarantine 后仍如此），系统 Chrome 156 正式版又忽略 `--load-extension`，所以基准只能在本机跑。要在这台机器上测，需要把 `/Users/test/Library/Caches/rotom-e2e/**` 或其可执行文件加入安全软件白名单。
