@@ -48,9 +48,10 @@ import { INTERACTION_EXPECTATIONS, parseInteractionExpectation } from "./chrome-
 import { MAX_UPLOAD_FILES_V1, validateUploadPathsV1 } from "./upload-guard.ts";
 import { MAX_BATCH_STEPS_V1, batchErrorOutcomeV1, batchStepOutcomeV1, batchStepSummaryV1, parseBatchActionsV1 } from "./batch-actions.ts";
 import { isDeferredByDefault } from "../third-party/deferred-tools/register.ts";
-import { BROWSER_DEVTOOLS_TOOL_V1, DEVTOOLS_OPERATIONS_V1, DEVTOOLS_WORLDS_V1, MAX_DEVTOOLS_EXPRESSION_CHARS_V1, MAX_NETWORK_REQUEST_ID_CHARS_V1, MAX_TRACE_BYTES_V1, boundDevtoolsTextV1, devtoolsEnabledByEnvironment, resolveViewportV1, sanitizeDevtoolsExpressionV1, sanitizeDevtoolsOperationV1, sanitizeDevtoolsWorldV1, sanitizeExportQualityV1, viewportPresetNamesV1 } from "./devtools.ts";
+import { BROWSER_DEVTOOLS_TOOL_V1, DEVTOOLS_OPERATIONS_V1, DEVTOOLS_WORLDS_V1, MAX_DEVTOOLS_EXPRESSION_CHARS_V1, MAX_NETWORK_REQUEST_ID_CHARS_V1, MAX_TRACE_BYTES_V1, RECORD_FPS_V1, RECORD_MAX_BYTES_V1, RECORD_MAX_FRAMES_V1, boundDevtoolsTextV1, devtoolsEnabledByEnvironment, resolveViewportV1, sanitizeDevtoolsExpressionV1, sanitizeDevtoolsOperationV1, sanitizeDevtoolsWorldV1, sanitizeExportQualityV1, viewportPresetNamesV1 } from "./devtools.ts";
 import { MAX_EXPORT_BYTES_V1, resolveExportTargetV1, type ExportTargetV1 } from "./export-guard.ts";
 import { summarizeTraceV1 } from "./trace-summary.ts";
+import { composeGifV1 } from "./gif-encoder.ts";
 import {
 	AUTO_APPROVE_LOCALHOST_V1,
 	SENSITIVE_CONFIRM_ENV_V1,
@@ -1392,6 +1393,45 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 					fullPage: record(raw) && raw.fullPage === true,
 					overwrote: exportTarget.exists,
 					...(record(raw) && typeof raw.width === "number" ? { width: raw.width, height: raw.height } : {}),
+				});
+			}
+			if (operation === "record_stop") {
+				const rawFrames = record(raw) && Array.isArray(raw.frames) ? raw.frames : undefined;
+				if (rawFrames === undefined || rawFrames.length === 0) throw new Error("browser_devtools record 没有帧");
+				if (rawFrames.length > RECORD_MAX_FRAMES_V1) throw new Error(`browser_devtools record 帧数超出上限（${rawFrames.length}）`);
+				const pngFrames: Buffer[] = [];
+				let total = 0;
+				for (const frame of rawFrames) {
+					const data = record(frame) ? frame.data : undefined;
+					if (typeof data !== "string" || !/^[A-Za-z0-9+/]+={0,2}$/u.test(data)) throw new Error("browser_devtools record 帧数据无效");
+					const bytes = Buffer.from(data, "base64");
+					total += bytes.length;
+					if (total > RECORD_MAX_BYTES_V1) throw new Error(`browser_devtools record 字节数超出上限（${total}）`);
+					pngFrames.push(bytes);
+				}
+				// Frames and the composed GIF live in a private temp directory: a recording can
+				// contain whatever the page showed.
+				const recordingDir = join(tmpdir(), "rotom-recordings", `rec-${randomUUID()}`);
+				await mkdir(recordingDir, { recursive: true, mode: 0o700 });
+				for (const [index, bytes] of pngFrames.entries()) await writeExportFileV1(join(recordingDir, `frame-${String(index).padStart(3, "0")}.png`), bytes);
+				const composed = composeGifV1(pngFrames, { delayMs: Math.round(1000 / RECORD_FPS_V1), maxWidth: 320, maxHeight: 240 });
+				const gifPath = join(recordingDir, "recording.gif");
+				await writeExportFileV1(gifPath, composed.gif);
+				assertOwner();
+				pi.appendEntry(BROWSER_INTERACTION_AUDIT_ENTRY, { schemaVersion: 1, kind: "rotom-browser-interaction-terminal", actionId, status: "ok", actionAcknowledged: true, businessOutcome: operation, timestamp: new Date().toISOString() });
+				return browserResult({
+					kind: "browser-recording",
+					directory: recordingDir,
+					gifPath,
+					frames: composed.frames,
+					width: composed.width,
+					height: composed.height,
+					gifBytes: composed.gif.length,
+					sourceBytes: total,
+					fps: RECORD_FPS_V1,
+					truncated: record(raw) && raw.truncated === true,
+					durationMs: record(raw) && typeof raw.durationMs === "number" ? raw.durationMs : undefined,
+					note: "帧与 GIF 都在私有临时目录；GIF 用 3-3-2 调色板与最近邻缩放合成",
 				});
 			}
 			if (operation === "trace_stop") {

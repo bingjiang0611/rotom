@@ -1853,7 +1853,7 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 	if (operation === "devtools") {
 		const { name, item } = owned(state, payload.tabName);
 		const devtools = payload.devtools;
-		const DEVTOOLS_OPERATIONS = ["evaluate", "viewport", "screenshot_export", "network_body", "trace_start", "trace_stop"];
+		const DEVTOOLS_OPERATIONS = ["evaluate", "viewport", "screenshot_export", "network_body", "trace_start", "trace_stop", "record_start", "record_stop"];
 		if (!DEVTOOLS_OPERATIONS.includes(devtools)) throw new Error("devtools operation invalid");
 		const expression = devtools === "evaluate" ? sanitizeDevtoolsExpressionV1(payload.expression) : undefined;
 		if (devtools === "evaluate" && expression === undefined) throw new Error("devtools expression invalid");
@@ -1891,6 +1891,57 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 			assertOperation();
 			const evaluated = devtoolsEvaluateRecordV1(evaluatedReply.value);
 			return { schemaVersion: 1, kind: "rotom-browser-devtools", devtools: "evaluate", tabName: name, tabId: item.tabId, documentGeneration: item.documentGeneration, world, ...evaluated };
+		}
+		if (devtools === "record_start") {
+			if (recordState.tabId !== undefined && !allSessionItems().some((candidate) => candidate.tabId === recordState.tabId)) {
+				Object.assign(recordState, { tabId: undefined, startedAt: 0, lastSavedAt: 0, frames: [], bytes: 0, truncated: false, stopped: false });
+			}
+			if (recordState.tabId !== undefined) throw new Error(`devtools record already running on tab ${recordState.tabId}`);
+			await attach(item, assertOperation);
+			await assertOwned(item);
+			await chrome.debugger.sendCommand(debuggee, "Page.enable");
+			// Chrome only emits screencast frames for a visible, focused page. Focus is a
+			// user-owned resource, so it is marked as agent activity and restored on stop.
+			focusCoordinator.markAgentActivity(60_000);
+			const tab = await chrome.tabs.get(item.tabId).catch(() => undefined);
+			if (Number.isInteger(tab?.windowId)) {
+				await chrome.windows.update(tab.windowId, { focused: true }).catch(() => undefined);
+				await chrome.tabs.update(item.tabId, { active: true }).catch(() => undefined);
+			}
+			await chrome.debugger.sendCommand(debuggee, "Emulation.setFocusEmulationEnabled", { enabled: true }).catch(() => undefined);
+			Object.assign(recordState, { tabId: item.tabId, startedAt: Date.now(), lastSavedAt: 0, frames: [], bytes: 0, truncated: false, stopped: false, seen: 0 });
+			await chrome.debugger.sendCommand(debuggee, "Page.startScreencast", { format: "png", quality: 50, maxWidth: 320, maxHeight: 240, everyNthFrame: 1 });
+			assertOperation();
+			return { schemaVersion: 1, kind: "rotom-browser-devtools", devtools: "record_start", tabName: name, tabId: item.tabId, startedAt: new Date(recordState.startedAt).toISOString(), fps: RECORD_FPS, maxDurationMs: RECORD_MAX_MS, maxFrames: RECORD_MAX_FRAMES };
+		}
+		if (devtools === "record_stop") {
+			if (recordState.tabId !== item.tabId) throw new Error("devtools record not running on this tab");
+			recordState.stopped = true;
+			await chrome.debugger.sendCommand(debuggee, "Page.stopScreencast").catch(() => undefined);
+			await chrome.debugger.sendCommand(debuggee, "Emulation.setFocusEmulationEnabled", { enabled: false }).catch(() => undefined);
+			// Give the user their focus back: the window change was only for the recording.
+			await focusCoordinator.restore().catch(() => undefined);
+			const frames = recordState.frames;
+			const truncated = recordState.truncated;
+			const seen = recordState.seen;
+			const durationMs = Math.max(0, Date.now() - recordState.startedAt);
+			Object.assign(recordState, { tabId: undefined, startedAt: 0, lastSavedAt: 0, frames: [], bytes: 0, truncated: false, stopped: false });
+			// A page that never repaints yields no frames: say so instead of returning an
+			// empty animation that looks like a successful recording.
+			if (frames.length === 0) throw new Error(`devtools record captured no frames: 收到 ${seen} 帧事件，录制期间页面没有重绘`);
+			assertOperation();
+			return {
+				schemaVersion: 1,
+				kind: "rotom-browser-devtools",
+				devtools: "record_stop",
+				tabName: name,
+				tabId: item.tabId,
+				documentGeneration: item.documentGeneration,
+				durationMs,
+				fps: RECORD_FPS,
+				truncated,
+				frames: frames.map((frame) => ({ data: frame.data, atMs: frame.atMs })),
+			};
 		}
 		if (devtools === "trace_start") {
 			// A trace whose tab is gone can no longer be stopped: drop it instead of
@@ -2251,8 +2302,36 @@ const traceState = { tabId: undefined, startedAt: 0, complete: undefined, stream
 const TRACE_CHUNK_BYTES = 1024 * 1024;
 const MAX_TRACE_BYTES = 32 * 1024 * 1024;
 const TRACE_START_CATEGORIES = ["devtools.timeline", "disabled-by-default-devtools.timeline", "blink.user_timing", "loading", "v8.execute"];
+// Screencast recording: 2 fps, at most two minutes, and a hard byte budget so one long
+// recording cannot turn into an unbounded native message.
+const recordState = { tabId: undefined, startedAt: 0, lastSavedAt: 0, frames: [], bytes: 0, truncated: false, stopped: false, seen: 0 };
+const RECORD_FPS = 2;
+const RECORD_INTERVAL_MS = Math.round(1000 / RECORD_FPS);
+const RECORD_MAX_MS = 120_000;
+const RECORD_MAX_FRAMES = 240;
+const RECORD_MAX_BYTES = 16 * 1024 * 1024;
 chrome.debugger.onEvent.addListener((source, method, params) => {
 	if (!Number.isInteger(source.tabId)) return;
+	if (method === "Page.screencastFrame") {
+		const state = recordState;
+		if (Number.isInteger(state.tabId)) state.seen += 1;
+		if (state.tabId === source.tabId && state.stopped !== true) {
+			// Chrome stops sending frames until the previous one is acknowledged, so the ack
+			// stays unconditional; the 2 fps pacing is enforced by which frames we keep.
+			globalThis.chrome.debugger.sendCommand(source, "Page.screencastFrameAck", { sessionId: params?.sessionId }).catch(() => undefined);
+			const now = Date.now();
+			const elapsed = now - state.startedAt;
+			const data = typeof params?.data === "string" ? params.data : "";
+			if (elapsed > RECORD_MAX_MS) { state.truncated = true; return; }
+			if (data.length === 0 || now - state.lastSavedAt < RECORD_INTERVAL_MS) return;
+			const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
+			const bytes = data.length / 4 * 3 - padding;
+			if (state.frames.length >= RECORD_MAX_FRAMES || state.bytes + bytes > RECORD_MAX_BYTES) { state.truncated = true; return; }
+			state.frames.push({ data, atMs: elapsed });
+			state.bytes += bytes;
+			state.lastSavedAt = now;
+		}
+	}
 	if (method === "Tracing.tracingComplete") {
 		if (traceState.tabId === source.tabId && traceState.complete !== undefined) {
 			traceState.stream = typeof params?.stream === "string" ? params.stream : undefined;

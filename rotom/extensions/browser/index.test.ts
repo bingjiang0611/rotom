@@ -1484,6 +1484,7 @@ test("browser_devtools：默认隔离世界、main world 必须确认、拒绝�
 			if (operation === "tabs") return { schemaVersion: 1, kind: "rotom-browser-tabs", tabs: [{ name: "code", tabId: 31, documentGeneration: 1, url: "https://example.test/globals", title: "code", status: "complete", current: true, browserActive: false, ownership: "agent", relayAttached: true }] };
 			if (operation === "devtools") {
 				dispatched.push(payload);
+				if (payload.devtools === "record_stop") return { schemaVersion: 1, kind: "rotom-browser-devtools", devtools: "record_stop", tabName: "code", tabId: 31, documentGeneration: 1, durationMs: 1_000, fps: 2, truncated: true, frames: [{ data: ONE_PIXEL_PNG.toString("base64"), atMs: 0 }, { data: ONE_PIXEL_PNG.toString("base64"), atMs: 500 }] };
 				if (payload.devtools === "trace_start") return { schemaVersion: 1, kind: "rotom-browser-devtools", devtools: "trace_start", tabName: "code", tabId: 31, startedAt: new Date(0).toISOString(), categories: ["devtools.timeline"] };
 				if (payload.devtools === "trace_stop") return { schemaVersion: 1, kind: "rotom-browser-devtools", devtools: "trace_stop", tabName: "code", tabId: 31, documentGeneration: 1, bytes: TRACE_FIXTURE.length, dataLossOccurred: false, traceBase64: TRACE_FIXTURE.toString("base64") };
 				if (payload.devtools === "network_body") return { schemaVersion: 1, kind: "rotom-browser-devtools", devtools: "network_body", tabName: "code", tabId: 31, documentGeneration: 1, requestId: payload.requestId, url: "https://example.test/json", status: 200, mimeType: "application/json", resourceType: "Fetch", bodyText: "{\"message\":\"rotom-json-fixture\"}", truncated: false, bytes: 30, captureSince: new Date(0).toISOString(), note: "only requests issued after network_body was first enabled can be read" };
@@ -1586,11 +1587,25 @@ test("browser_devtools：默认隔离世界、main world 必须确认、拒绝�
 		assert.deepEqual(await readFile(traceStopped.details.path), TRACE_FIXTURE, "trace 文件必须与 relay 字节一致");
 		await assert.rejects(tool.execute("devtools-trace-mixed", { operation: "trace_start", expression: "1" }, undefined, undefined, ctx), /expression\/world/u);
 
+		// 录制：帧与合成 GIF 都落在私有临时目录。
+		const recording = await tool.execute("devtools-record", { operation: "record_stop" }, undefined, undefined, ctx);
+		assert.equal(recording.details.kind, "browser-recording");
+		assert.equal(recording.details.frames, 2);
+		assert.equal(recording.details.width, 1, "1x1 的帧不会被放大");
+		assert.equal(recording.details.height, 1);
+		assert.equal(recording.details.truncated, true, "relay 标了 truncated 就要如实透传");
+		const gifBytes = await readFile(recording.details.gifPath);
+		assert.equal(gifBytes.subarray(0, 6).toString("ascii"), "GIF89a");
+		assert.equal(gifBytes.length, recording.details.gifBytes);
+		assert.equal(recording.details.gifPath.startsWith(join(tmpdir(), "rotom-recordings")), true);
+		assert.deepEqual(await readFile(join(recording.details.directory, "frame-000.png")), ONE_PIXEL_PNG);
+		await assert.rejects(tool.execute("devtools-record-mixed", { operation: "record_start", requestId: "x" }, undefined, undefined, ctx), /只用于 network_body/u);
+
 		// 参数在本地就被拒，不产生任何请求。
 		const count = dispatched.length;
 		await assert.rejects(tool.execute("devtools-empty", { operation: "evaluate", expression: "   " }, undefined, undefined, ctx), /expression/u);
 		await assert.rejects(tool.execute("devtools-world", { operation: "evaluate", expression: "1", world: "page" }, undefined, undefined, ctx), /world/u);
-		await assert.rejects(tool.execute("devtools-op", { operation: "record_start" }, undefined, undefined, ctx), /operation/u);
+		await assert.rejects(tool.execute("devtools-op", { operation: "snapshot" }, undefined, undefined, ctx), /operation/u);
 		await assert.rejects(tool.execute("devtools-preset", { operation: "viewport", viewport: "iphone-99" }, undefined, undefined, ctx), /viewport/u);
 		await assert.rejects(tool.execute("devtools-mixed", { operation: "viewport", viewport: "reset", expression: "1" }, undefined, undefined, ctx), /evaluate 参数/u);
 		assert.equal(dispatched.length, count, "非法参数不得派发");

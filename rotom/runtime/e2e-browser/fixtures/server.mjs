@@ -286,6 +286,26 @@ const NETWORK_SECRET_COOKIE = "fixture-secret-cookie-value";
 const NETWORK_SECRET_AUTH = "fixture-secret-auth-value";
 // network_body fixture: nothing is fetched on load, so the suite can prove that a body is
 // only readable after the capture was enabled, then fetch once and read it.
+// Recording fixture: the page repaints for a while on request, so the screencast really
+// produces several distinct frames instead of one static image.
+const RECORD_PAGE_BODY = `<main>
+  <h1>Record page</h1>
+  <div id="box" style="width:60px;height:60px;background:#c00">a</div>
+</main>
+<script>
+window.startPainting = (steps = 8) => new Promise((resolve) => {
+  const box = document.querySelector('#box');
+  let index = 0;
+  const timer = setInterval(() => {
+    index += 1;
+    box.style.background = index % 2 === 0 ? '#0a0' : '#00a';
+    box.textContent = String(index);
+    box.style.width = (60 + index * 6) + 'px';
+    if (index >= steps) { clearInterval(timer); resolve(index); }
+  }, 260);
+});
+</script>`;
+
 const JSON_PAGE_BODY = `<main>
   <h1>JSON page</h1>
   <div role="status" id="json-state">idle</div>
@@ -383,6 +403,7 @@ export function defaultPages({ frameOrigin }) {
 		["/dialog", htmlDocument("Dialog fixture", DIALOG_BODY)],
 		["/globals", htmlDocument("Globals fixture", GLOBALS_BODY)],
 		["/json-page", htmlDocument("JSON page", JSON_PAGE_BODY)],
+		["/record-page", htmlDocument("Record page", RECORD_PAGE_BODY)],
 		["/redirect-target", htmlDocument("Redirect target", REDIRECT_TARGET_BODY)],
 		["/checkout", htmlDocument("Checkout", CHECKOUT_BODY)],
 		["/download-page", htmlDocument("Download page", DOWNLOAD_PAGE_BODY)],
