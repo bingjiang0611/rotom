@@ -5,6 +5,7 @@
 // logged (method, path, headers) so suites can assert negative behaviour such as
 // "the extension never sent this request".
 
+import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 
 const BASELINE_BODY = `
@@ -110,6 +111,26 @@ setTimeout(() => { throw new Error('fixture uncaught exception'); }, 120);
 // assert the operator's foreground tab is still the active one.
 const USER_BODY = `
 <main><h1>User tab</h1><div role="status" id="user-status">User tab stays foreground</div></main>`;
+
+// Upload fixture: a file input that immediately posts the chosen file to the server, so a
+// suite can compare the received bytes with the local file instead of trusting the page.
+const UPLOAD_BODY = `
+<main>
+  <h1>Upload fixture</h1>
+  <input type="file" id="upload-input" aria-label="upload input">
+  <div role="status" id="upload-status">upload-idle</div>
+</main>
+<script>
+const input = document.querySelector('#upload-input');
+const status = document.querySelector('#upload-status');
+input.addEventListener('change', async () => {
+  const file = input.files && input.files[0];
+  if (!file) { status.textContent = 'upload-empty'; return; }
+  const response = await fetch('/upload-echo', { method: 'POST', body: file });
+  const body = await response.json();
+  status.textContent = 'upload|' + file.name + '|' + file.size + '|' + body.sha256;
+});
+</script>`;
 
 // Pointer fixture: a hover menu, a double-click counter, a context menu, and two drag
 // lists (pointer-driven and HTML5 native). Every observable state is mirrored into one
@@ -269,6 +290,7 @@ export function defaultPages({ frameOrigin }) {
 		["/network", htmlDocument("Network fixture", NETWORK_BODY)],
 		["/keys", htmlDocument("Keys fixture", KEYS_BODY)],
 		["/pointer", htmlDocument("Pointer fixture", POINTER_BODY)],
+		["/upload", htmlDocument("Upload fixture", UPLOAD_BODY)],
 	]);
 }
 
@@ -281,6 +303,8 @@ export function defaultPages({ frameOrigin }) {
 export async function createFixtureServer() {
 	const pageMap = new Map();
 	const requests = [];
+	// Uploaded bodies: only the digest and size are kept, never the content.
+	const uploads = [];
 	const listeners = [];
 
 	const handler = (response, role) => (request, reply) => {
@@ -305,6 +329,20 @@ export async function createFixtureServer() {
 					reply.end(htmlDocument("Slow page", "<h2>Slow page ready</h2>"));
 				} catch { /* client navigated away or closed */ }
 			}, waitMs);
+			return;
+		}
+		if (path === "/upload-echo") {
+			const chunks = [];
+			request.on("data", (chunk) => chunks.push(chunk));
+			request.on("end", () => {
+				const body = Buffer.concat(chunks);
+				const sha256 = createHash("sha256").update(body).digest("hex");
+				uploads.push({ sha256, size: body.length });
+				try {
+					reply.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+					reply.end(JSON.stringify({ sha256, size: body.length }));
+				} catch { /* client went away */ }
+			});
 			return;
 		}
 		if (path === "/status-500") {
@@ -341,6 +379,7 @@ export async function createFixtureServer() {
 		origin,
 		frameOrigin,
 		requests,
+		uploads,
 		url: (path) => `${origin}${path}`,
 		frameUrl: (path) => `${frameOrigin}${path}`,
 		page: (path, title, body) => pageMap.set(path, htmlDocument(title, body)),

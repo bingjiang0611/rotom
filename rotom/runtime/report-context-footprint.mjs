@@ -48,10 +48,10 @@ export const CURRENT_RUNTIME_CONTEXT_CONTRACT_V1 = {
 	// +304 schema bytes for the `navigate` operation and `history: back|forward|reload`
 	// (browser-parallel T12), +421 for `console` and its filters (T13), then +419 for
 	// `network` with `failedOnly` and `resourceType` (T14), the 62-value key whitelist plus
-	// `modifiers` (T15), then pointer actions and `dropRef` (T16), all in browser-parallel
-	// M3. Guidelines stay effectively flat: every one of these operations is described by
-	// its schema, not by prose.
-	activeToolSchemaBytes: 28_493,
+	// `modifiers` (T15), pointer actions and `dropRef` (T16), then the `upload` action with
+	// `paths` (T17), all in browser-parallel M3. Guidelines stay effectively flat: every
+	// one of these operations is described by its schema, not by prose.
+	activeToolSchemaBytes: 28_682,
 	activeToolGuidelineBytes: 10_288,
 	schemaPathNormalization: "Codemode documentation path -> <pi-docs>/codemode.md; current measurements remain raw bytes",
 	note: "The default product surface keeps core (edit/write from bundled SoL-Pi Action Fusion), SoL-Pi obs_recall, Codemode, Ask, Browser/Computer Use, the four stable Goal schemas, Context Layers, and search_tools active while deferring only the retained Subagent group. Visible Goal schemas do not authorize Goal execution without an active Goal. Guideline bytes include the product's observe_ui/read_text/act_ui/wait_for/search_ui contract guidelines, which state the real per-call focus scope, condition combinations, observe-first requirement, untrusted status of observed screen text, structured-interface-first routing, and the dispatch-versus-effect evidence ladder of the Computer Use package, plus the browser relay's ref-bound Enter/Tab/Escape keypress, target-state/page-alert evidence and no-replay boundary for unknown writes. Includes Relay-first launch_browser fallback metadata, HTTP-only local-page guidance, isolated-login disclosure and pre-dispatch/no-replay boundaries; measured static bytes are not provider tokens.",

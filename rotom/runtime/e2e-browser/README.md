@@ -40,6 +40,7 @@ node --experimental-strip-types rotom/runtime/e2e-browser/run.mjs baseline
 | `lease` | 子 agent 的 lease：未授权 origin 本地拒绝，站点从未收到请求 |
 | `quotas` | per-agent / per-origin / 全局 / agent 数四个上限，超限即时拒绝且 close 后释放 |
 | `pointer` | hover 出菜单、dblclick 计数、右键菜单、指针拖拽与 HTML5 拖拽换序（页面自证顺序） |
+| `upload` | 文件输入上传后 fixture 服务端收到的 sha256 与本地一致；非 file input、敏感路径、符号链接、相对路径、超大文件都在本地拒绝 |
 | `keyboard` | 白名单按键与 `modifiers`；页面自证 textarea 内容与 listbox 选中项，非法键本地拒绝 |
 | `network` | 请求元数据（failedOnly/pattern/resourceType）、无 header/body、cursor 续读，并用 fixture 服务端确认那两个头真的发出去过 |
 | `console` | console/异常捕获与堆栈、pattern/level 过滤、缓冲满后 dropped、claimed tab 懒启用 |
@@ -76,5 +77,5 @@ node --experimental-strip-types rotom/runtime/e2e-browser/run.mjs baseline
 再在 `suites/index.mjs` 注册。断言用 `recorder.check(name, fn)` 或
 `recorder.assert(name, condition, detail)`，这样失败会单独命名。
 fixture 站点在 `fixtures/server.mjs`，用 `fixtures.page(path, title, body)` 加页面，
-内置页面有 `/baseline`、`/frame`、`/popup`、`/large`、`/form`、`/user`、`/console`、`/network`、`/keys`、`/pointer`。
+内置页面有 `/baseline`、`/frame`、`/popup`、`/large`、`/form`、`/user`、`/console`、`/network`、`/keys`、`/pointer`、`/upload`。`/upload` 页面的文件输入在 `change` 后立刻把文件 POST 回 `/upload-echo`，fixture 只记录 sha256 与大小，便于断言“服务端真的收到了这些字节”。
 需要真实“用户 tab”的 suite 导出 `startUrlPage`（`run.mjs` 会把它交给 Chrome 当启动 URL）。

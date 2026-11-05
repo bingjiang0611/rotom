@@ -5,7 +5,9 @@
 // log: a refused origin must never produce an HTTP request at all.
 
 import assert from "node:assert/strict";
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { loadBrowserTools } from "../browser-tools.mjs";
 
@@ -116,6 +118,39 @@ export async function run({ harness, fixtures, recorder, workspace }) {
 			assert.equal(allowedNavigate.details.kind, "observation", "lease 覆盖时 navigate 放行");
 			assert.ok(fixtures.requestsTo("/popup").length > 0, "放行后站点必须真的收到请求");
 			await child.inspect({ operation: "navigate", tabName: "lease-allowed", url: fixtures.url("/baseline"), limit: 5 });
+		});
+
+		// 5c. upload is its own capability: the same lease that allows writes can still
+		// forbid attaching local files, and the site never receives them.
+		await recorder.check("upload 按 lease 的 allow.upload 单独判定", async () => {
+			const workspaceDir = await mkdtemp(join(tmpdir(), "rotom-lease-upload-"));
+			const file = join(workspaceDir, "payload.txt");
+			const body = `lease upload payload ${"y".repeat(1_024)}\n`;
+			await writeFile(file, body);
+			const sha256 = createHash("sha256").update(body).digest("hex");
+			try {
+				await writeLease([allowed]);
+				await child.inspect({ operation: "open", tabName: "lease-upload", url: fixtures.url("/upload"), limit: 5 });
+				await child.inspect({ operation: "wait", tabName: "lease-upload", status: "complete", timeoutMs: 10_000 });
+				const snapshot = await child.inspect({ operation: "snapshot_visible", tabName: "lease-upload", limit: 100 });
+				const input = snapshot.details.observation.nodes.find((node) => node.name === "upload input");
+				assert.ok(input, "上传页必须有文件输入");
+				const before = fixtures.uploads.length;
+				const denied = await child.interact({ operation: "execute", tabName: "lease-upload", action: "upload", targetRef: input.ref, paths: [file] });
+				assert.equal(denied.details.kind, "needs-approval");
+				assert.equal(denied.details.capability, "upload");
+				assert.equal(fixtures.uploads.length, before, "被拒绝的上传不得让站点收到文件");
+				await writeFile(leaseFile, JSON.stringify({ schemaVersion: 1, kind: "rotom-browser-lease", token: TOKEN, agentId: TOKEN, rootSessionId: "e2e-root", origins: [allowed], allow: { devtools: false, upload: true, download: false }, maxTabs: 4, keepTabs: false, expiresAt: Date.now() + 60_000 }), { mode: 0o600 });
+				const uploaded = await child.interact({ operation: "execute", tabName: "lease-upload", action: "upload", targetRef: input.ref, paths: [file] });
+				assert.equal(uploaded.details.kind, "browser-interaction-result", "allow.upload 为 true 时放行");
+				for (let attempt = 0; attempt < 50; attempt += 1) {
+					if (fixtures.uploads.length > before) break;
+					await new Promise((resolve) => setTimeout(resolve, 100));
+				}
+				assert.equal(fixtures.uploads.at(-1)?.sha256, sha256, "放行后站点收到的内容必须与本地一致");
+			} finally {
+				await rm(workspaceDir, { recursive: true, force: true });
+			}
 		});
 
 		// 6. A child does not publish a scope for its own children.

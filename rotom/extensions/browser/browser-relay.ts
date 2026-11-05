@@ -73,7 +73,7 @@ export const BROWSER_NETWORK_DEFAULT_LIMIT_V1 = 50 as const;
 export const BROWSER_NAVIGATE_HISTORY_V1 = ["back", "forward", "reload"] as const;
 export const BROWSER_INTERACT_TOOL_V1 = "browser_interact" as const;
 export const BROWSER_INTERACT_OPERATIONS_V1 = ["execute"] as const;
-export const BROWSER_INTERACTION_ACTIONS_V1 = ["click", "type", "scroll", "select", "keypress", "hover", "dblclick", "right_click", "drag"] as const;
+export const BROWSER_INTERACTION_ACTIONS_V1 = ["click", "type", "scroll", "select", "keypress", "hover", "dblclick", "right_click", "drag", "upload"] as const;
 /**
  * Every key the relay can press. Anything else is rejected locally: there is no
  * "send this raw string" path, and characters are never inserted with insertText.

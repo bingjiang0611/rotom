@@ -13,6 +13,7 @@ import * as consoleSuite from "./console.mjs";
 import * as network from "./network.mjs";
 import * as keyboard from "./keyboard.mjs";
 import * as pointer from "./pointer.mjs";
+import * as upload from "./upload.mjs";
 
 /** Suite registry. Later tasks append their suites here. */
 export const suites = {
@@ -31,4 +32,5 @@ export const suites = {
 	network,
 	keyboard,
 	pointer,
+	upload,
 };
