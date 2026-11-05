@@ -445,6 +445,12 @@ export interface RevokedEvent {
 	agentId: string;
 	leaseIds: string[];
 	reason: "stopped_by_user" | "owner_disconnected" | "expired" | "transferred" | "paused_interfered" | "preempted_by_user";
+	/**
+	 * Milliseconds after which the helper may forget these ids (the latest expiry among
+	 * them). Without it the helper's revoked set would only ever grow, and a restarted
+	 * broker's reused ids would be refused (review E2).
+	 */
+	expiresAt: number;
 }
 
 /** The agent was paused because one of its actions disturbed the user (PLAN §6). */

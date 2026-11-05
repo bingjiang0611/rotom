@@ -3996,8 +3996,30 @@ enum LeaseGuardSelfTest {
 		check("pid_mismatch", request("lease-4", lease: otherPid), expectSuccess: false)
 
 		let revoked = token(leaseId: "lease-5", pid: 812, expiresAt: now + 60_000, signedWith: key)
-		guardInstance.revoke(["lease-5"])
+		guardInstance.revoke(["lease-5"], expiresAt: now + 60_000)
 		check("revoked", request("lease-5", lease: revoked), expectSuccess: false)
+
+		// A revocation that was already past its lease expiry is dropped instead of
+		// being remembered forever, so an id cannot stay blocked (review E2).
+		guardInstance.revoke(["lease-old"], expiresAt: now - 1)
+		check("expired_revocation_forgotten", request("lease-old", lease: token(leaseId: "lease-old", pid: 812, expiresAt: now + 60_000, signedWith: key)), expectSuccess: true)
+
+		// A new broker key clears the revoked set: the broker restarted, every token from
+		// the old process is already invalid, and the new process may reuse an id.
+		let restarted = LeaseGuard()
+		restarted.configure(keyBase64: keyData.base64EncodedString())
+		restarted.revoke(["lease-restart"], expiresAt: now + 60_000)
+		let newKeyData = Data((0..<32).map { UInt8(90 &+ $0) })
+		let newKey = SymmetricKey(data: newKeyData)
+		restarted.configure(keyBase64: newKeyData.base64EncodedString())
+		do {
+			try restarted.check(request("lease-restart", lease: token(leaseId: "lease-restart", pid: 812, expiresAt: now + 60_000, signedWith: newKey)), command: "act")
+			report("new_key_clears_revocations", true)
+		} catch {
+			let code = (error as? BridgeFailure)?.code ?? "unknown"
+			FileHandle.standardOutput.write(Data("  new_key_clears_revocations refused: \(code) \(error)\n".utf8))
+			report("new_key_clears_revocations", false)
+		}
 
 		let secondsExpiry = token(leaseId: "lease-6", pid: 812, expiresAt: Date().timeIntervalSince1970 + 60, signedWith: key)
 		check("seconds_expiry_is_expired", request("lease-6", lease: secondsExpiry), expectSuccess: false)
@@ -4018,7 +4040,7 @@ enum LeaseGuardSelfTest {
 	/// Replay tokens the TypeScript broker signed, step by step.
 	///
 	/// The fixture is `{"steps": [...]}`; each step is
-	/// `{name, key, command, request, expect, code?, revoke?, carry?}`.
+	/// `{name, key, command, request, expect, code?, revoke?, revokeExpiresAt?, carry?}`.
 	/// A step configures a fresh guard with `key` unless `carry` is set, so one fixture
 	/// can cover both "a new broker key arrives" and "the same guard sees two tokens".
 	/// Nothing here mints a token: the broker side is the only signer, which is what
@@ -4043,7 +4065,13 @@ enum LeaseGuardSelfTest {
 				guardInstance.configure(keyBase64: keyBase64)
 			}
 			if let revoke = step["revoke"] as? [String] {
-				guardInstance.revoke(revoke)
+				var revokeExpiresAt: Double?
+				if let value = step["revokeExpiresAt"] as? Double {
+					revokeExpiresAt = value
+				} else if let value = step["revokeExpiresAt"] as? NSNumber {
+					revokeExpiresAt = value.doubleValue
+				}
+				guardInstance.revoke(revoke, expiresAt: revokeExpiresAt)
 			}
 			let command = (step["command"] as? String) ?? "act"
 			let request = (step["request"] as? [String: Any]) ?? [:]
@@ -4760,7 +4788,9 @@ extension Bridge {
 final class LeaseGuard {
 	private let lock = NSLock()
 	private var key: SymmetricKey?
-	private var revoked = Set<String>()
+	private var keyData: Data?
+	/// Revoked lease ids with the moment after which they can be forgotten (ms).
+	private var revoked: [String: Double] = [:]
 
 	/// Commands that write to the user's desktop. Reads never carry a lease.
 	static let writeCommands: Set<String> = ["act", "clipboardSet", "clipboardClear", "manageApps", "manageWindow", "takeoverBegin"]
@@ -4775,17 +4805,34 @@ final class LeaseGuard {
 		let expiresAt: Double
 	}
 
+	/// Install the broker's key.
+	///
+	/// A different key means a different broker process: every token signed with the
+	/// old one is already invalid, so the revoked ids collected for it are dropped
+	/// (review E2). A restarted broker may hand out ids the old process used, and they
+	/// must not be refused because of that history.
 	func configure(keyBase64: String?) {
 		guard let keyBase64, let data = Data(base64Encoded: keyBase64), !data.isEmpty else { return }
 		lock.lock()
+		if let previous = keyData, previous != data { revoked.removeAll() }
+		keyData = data
 		key = SymmetricKey(data: data)
 		lock.unlock()
 	}
 
-	func revoke(_ leaseIds: [String]) {
+	/// Remember rejected ids until the lease would have expired anyway.
+	///
+	/// The set is bounded by the broker's own expiries: no entry outlives the token it
+	/// refers to, so a long session cannot accumulate ids forever (review E2).
+	func revoke(_ leaseIds: [String], expiresAt: Double? = nil) {
 		guard !leaseIds.isEmpty else { return }
+		let nowMs = Date().timeIntervalSince1970 * 1000
+		let deadline = expiresAt ?? (nowMs + 60_000)
 		lock.lock()
-		revoked.formUnion(leaseIds)
+		revoked = revoked.filter { $0.value > nowMs }
+		for leaseId in leaseIds {
+			revoked[leaseId] = max(revoked[leaseId] ?? 0, deadline)
+		}
 		lock.unlock()
 	}
 
@@ -4796,9 +4843,11 @@ final class LeaseGuard {
 	}
 
 	func check(_ request: [String: Any], command: String) throws {
+		let nowMs = Date().timeIntervalSince1970 * 1000
 		lock.lock()
 		let key = self.key
-		let revoked = self.revoked
+		revoked = revoked.filter { $0.value > nowMs }
+		let revoked = Set(revoked.keys)
 		lock.unlock()
 		guard let key else { return }
 		guard Self.writeCommands.contains(command) else { return }
@@ -4811,7 +4860,7 @@ final class LeaseGuard {
 			throw BridgeFailure(message: "Write to \(expected) carries no lease token; the broker did not authorize it", code: "lease_invalid")
 		}
 		let claims = try Self.verify(token: token, key: key)
-		guard claims.expiresAt > Date().timeIntervalSince1970 * 1000 else {
+		guard claims.expiresAt > nowMs else {
 			throw BridgeFailure(message: "Lease \(claims.leaseId) has expired", code: "lease_expired")
 		}
 		guard !revoked.contains(claims.leaseId) else {
@@ -5092,7 +5141,13 @@ final class BrokerLink {
 		// broker says the lease ended (stop, transfer, expiry, disconnect).
 		guard event == "revoked" else { return }
 		let ids = (message["leaseIds"] as? [String]) ?? []
-		leaseGuard.revoke(ids)
+		var expiresAt: Double?
+		if let value = message["expiresAt"] as? Double {
+			expiresAt = value
+		} else if let value = message["expiresAt"] as? NSNumber {
+			expiresAt = value.doubleValue
+		}
+		leaseGuard.revoke(ids, expiresAt: expiresAt)
 	}
 
 	func closeLink() {

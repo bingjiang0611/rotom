@@ -87,20 +87,34 @@ test("a parent hands its app to a subagent: the parent can no longer write, the 
 
 	const transferred = await call(core, "session:parent", { type: "transfer", leaseId: leaseId!, toAgentId: "session:child" });
 	assert.equal(transferred.ok, true);
+	const childLease = (transferred as { lease: { leaseId: string; token?: string } }).lease;
+	// Review E2: the helper rejects writes by lease id, so a handover that kept the id
+	// would revoke exactly the lease the child is about to use.
+	assert.notEqual(childLease.leaseId, leaseId, "the receiver gets its own lease id");
+	assert.ok(childLease.token, "the receiver gets a token for the new id");
 
 	// The handover moved the authority, it did not copy it.
 	const parentWrite = await call(core, "session:parent", { type: "acquire", resourceKey: "app:com.example.fixture" });
 	assert.equal(parentWrite.ok, false);
 	assert.equal((parentWrite as { code: string }).code, "resource_busy", "the child now holds the app");
 
-	// The child writes on the epoch the parent was granted: the transfer is the same
-	// authorization, so the parent's observation is what the child acts on.
-	const childWrite = await call(core, "session:child", {
+	// The parent's observation is spent: the epoch advanced with the new holder, so the
+	// child must observe the app itself before writing.
+	const staleChild = await call(core, "session:child", {
 		type: "acquire",
 		resourceKey: "app:com.example.fixture",
 		baseEpoch: (acquired as { lease: { epoch: number } }).lease.epoch,
 	});
+	assert.equal(staleChild.ok, false);
+	assert.equal((staleChild as { code: string }).code, "stale");
+
+	const childWrite = await call(core, "session:child", {
+		type: "acquire",
+		resourceKey: "app:com.example.fixture",
+		baseEpoch: (await call(core, "session:child", { type: "epoch", resourceKey: "app:com.example.fixture" }) as { epoch: number }).epoch,
+	});
 	assert.equal(childWrite.ok, true);
+	assert.equal((childWrite as { lease: { leaseId: string } }).lease.leaseId, childLease.leaseId, "later writes reuse the transferred id");
 });
 
 test("a lease cannot be handed to an agent that is not the caller's descendant", async () => {
@@ -129,7 +143,9 @@ test("when the subagent exits, the app returns to the parent instead of staying 
 
 	core.handleDisconnect("session:child");
 
-	assert.equal(await leaseOf(core, "session:parent", "app:com.example.fixture"), leaseId, "the lease must be back with the parent");
+	const returned = await leaseOf(core, "session:parent", "app:com.example.fixture");
+	assert.ok(returned, "the app must be back with the parent");
+	assert.notEqual(returned, leaseId, "and under a new id, so the child's revoked id cannot outlive it");
 	assert.ok(
 		events.some((entry) => entry.event.event === "revoked" && entry.agentId === "session:child" && (entry.event as { reason: string }).reason === "transferred"),
 		"the handover back is reported as a transfer, not a lost lease",

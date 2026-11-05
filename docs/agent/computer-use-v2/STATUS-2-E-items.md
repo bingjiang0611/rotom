@@ -37,3 +37,34 @@ L4 接管在真机上永远无法成立（失败方向是保守的，但网关�
 | 反向对照 | 把 Swift 比较改回秒后重跑互通 | `step broker_expired fail`、`fixture failures=1`，说明该用例确实能抓到单位回退 |
 
 限制：真机上租约到期后的实际拒绝仍属 B4 范围；这里只证明两侧比较的是同一个单位。
+
+## E2 按 leaseId 撤销会误杀转交后的租约和重启后的新租约
+
+审核指出的三个后果都确认存在：`transfer`/`transferAll` 保留原 leaseId 又把该 id 当作 revoked 推给
+helper，于是接收方一写就被拒；leaseId 是进程内计数器，broker 重启后新的 `lease-1` 撞上旧 revoked
+记录；撤销集合只增不减。
+
+修法：
+
+- **转交签发新 id。** `LeaseManager.transfer`/`transferAll` 走新的 `reissue()`：新 leaseId、新 epoch、
+  新到期时间，旧 id 以 `transferred` 撤销并停止存在。接收方拿到的是新 id 的 token，旧持有者的 token
+  在 helper 侧被拒。epoch 同时前进，所以父 agent 的旧观测不能直接给子 agent 用（子 agent 自己观测后
+  才写），这条在 `broker-transfer.test.ts` 里断言为 `stale`。
+- **id 跨进程唯一。** `LeaseManager` 启动时生成 4 字节随机前缀，id 形如 `lease-<hex>-<n>`；测试锁住
+  格式，并断言两个独立 broker 进程不会发出同一个 id。
+- **撤销集合有界。** `RevokedEvent` 增加 `expiresAt`（这批被撤销租约里最晚的到期时间，毫秒），helper
+  只在到期前记住这些 id，之后丢弃。写入路径两侧同一规则：撤销事件带 `expiresAt`，helper 存
+  `id → 到期时间` 并在每次 `revoke`/`check` 时清理过期项。
+- **换 key 清空撤销集合。** broker 重启后 key 变了，旧 token 本来就全部失效；`configure(keyBase64:)`
+  发现 key 与上次不同就清空 revoked，避免新进程复用 id 时被历史记录挡住。
+
+验证：
+
+| 检查 | 命令 | 结果 |
+| --- | --- | --- |
+| 全量 TS 测试 | `node --test --experimental-strip-types "test/*.test.ts"` | 112 通过、0 失败 |
+| 新增 TS 用例 | 同上 | id 跨进程唯一且格式固定；转交撤销旧 id 并带 `expiresAt`；转交后父 agent 被 `resource_busy`、旧 epoch 为 `stale`、子 agent 写入复用新 id；子 agent 退出后 app 以新 id 回到父 agent |
+| Swift 自测 | `helper --lease-self-test` | 9 项全过（新增 `expired_revocation_forgotten`、`new_key_clears_revocations`） |
+| 互通（真实 broker） | `node scripts/check-lease-guard.mjs` | 9 步全过，含 `transfer_old_id_revoked`、`transfer_receiver_accepted`、`expired_revocation_forgotten`、`restart_new_key_accepted`、`restart_old_key_rejected` |
+
+限制：这仍然只证明两侧规则一致；真机上“转交后子 agent 真的能写”属于 B4 内容。

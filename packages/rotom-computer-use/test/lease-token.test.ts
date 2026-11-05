@@ -74,6 +74,56 @@ test("lease expiry is milliseconds, the unit the helper compares against", async
 	assert.deepEqual(verifyLeaseToken(SECRET, lease.token!, lease.expiresAt), { ok: false, code: "lease_expired" });
 });
 
+test("lease ids are unique across broker processes, not a per-process counter", async () => {
+	// Review E2: the helper keeps revocations by id, so a restarted broker that reused
+	// `lease-1` would have its own leases refused as revoked.
+	const first = setup();
+	const second = setup();
+	await hello(first.core, registration("session:agent"));
+	await hello(second.core, registration("session:agent"));
+	const leaseOf = async (core: BrokerCore) => {
+		const reply = await call(core, "session:agent", { type: "acquire", resourceKey: "desktop-pid:812" });
+		assert.equal(reply.ok, true);
+		return (reply as { lease: { leaseId: string } }).lease.leaseId;
+	};
+	const left = await leaseOf(first.core);
+	const right = await leaseOf(second.core);
+	assert.match(left, /^lease-[0-9a-f]{8}-\d+$/);
+	assert.match(right, /^lease-[0-9a-f]{8}-\d+$/);
+	assert.notEqual(left, right, "two broker processes must not hand out the same id");
+});
+
+test("a handover revokes the old id with the moment it can be forgotten", async () => {
+	const { core, clock } = setup();
+	const delivered: Array<{ agentId: string; event: string; leaseIds?: string[]; expiresAt?: number }> = [];
+	core.attachTransport({
+		send(agentId, event) {
+			delivered.push({
+				agentId,
+				event: event.event,
+				...(event.event === "revoked" ? { leaseIds: event.leaseIds, expiresAt: event.expiresAt } : {}),
+			});
+			return true;
+		},
+		connectedAgents: () => core.registry.connectedAgents().length,
+	});
+	await hello(core, registration("helper:1", { role: "helper" }));
+	await hello(core, registration("session:parent"));
+	await hello(core, registration("session:child", { parentAgentId: "session:parent", hasUI: false }));
+	const acquired = await call(core, "session:parent", { type: "acquire", resourceKey: "app:com.example.fixture" });
+	const parentLease = (acquired as { lease: { leaseId: string; token?: string } }).lease;
+
+	const transferred = await call(core, "session:parent", { type: "transfer", leaseId: parentLease.leaseId, toAgentId: "session:child" });
+	assert.equal(transferred.ok, true);
+	const childLease = (transferred as { lease: { leaseId: string; token?: string } }).lease;
+	assert.notEqual(childLease.leaseId, parentLease.leaseId, "the receiver gets a new id");
+	assert.notEqual(childLease.token, parentLease.token, "and a token for that id");
+
+	const revocation = delivered.find((entry) => entry.agentId === "helper:1" && entry.event === "revoked");
+	assert.deepEqual(revocation?.leaseIds, [parentLease.leaseId], "the old id is what gets revoked");
+	assert.ok((revocation?.expiresAt ?? 0) > clock.now(), "the helper is told when it may forget the id");
+});
+
 test("only a desktop-pid resource names a target process", () => {
 	assert.equal(leasePidOf("desktop-pid:812"), 812);
 	assert.equal(leasePidOf("app:com.example.fixture"), undefined);
