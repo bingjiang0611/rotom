@@ -42,6 +42,7 @@ node --experimental-strip-types rotom/runtime/e2e-browser/run.mjs baseline
 | `pointer` | hover 出菜单、dblclick 计数、右键菜单、指针拖拽与 HTML5 拖拽换序（页面自证顺序） |
 | `upload` | 文件输入上传后 fixture 服务端收到的 sha256 与本地一致；非 file input、敏感路径、符号链接、相对路径、超大文件都在本地拒绝 |
 | `batch` | 一次 batch 填完并提交表单（页面自证提交值）；expect 不满足、单步校验失败、弹窗阻塞都立即停下且后续步骤不执行 |
+| `confirm` | 敏感名称按钮与 `cc-*` 表单里的 Continue 都返回 `needs-approval`（无 UI）且页面状态不变；普通按钮照常执行；`ROTOM_BROWSER_CONFIRM=auto-approve-localhost` 打开后同一点击真的执行；开关值拼错仍然要确认；upload 在确认前不把文件交出去 |
 | `policy` | blocklist 本地拒绝且页面没收到请求；`read`/`interact` 授权不含 `upload`；授权后上传真的发生；302 到 blocklist origin 后读和写都被拒、目标页没有被点击；raw relay 在派发写操作前复核 origin（拒绝与放行各一次，页面自证点击结果） |
 | `dialog` | alert、confirm 两种选择、prompt 带文字、beforeunload（导航被挂起→接受后才离开）；弹窗期间读/写都返回 `dialog-blocking`，页面自证返回值 |
 | `keyboard` | 白名单按键与 `modifiers`；页面自证 textarea 内容与 listbox 选中项，非法键本地拒绝 |
@@ -80,5 +81,5 @@ node --experimental-strip-types rotom/runtime/e2e-browser/run.mjs baseline
 再在 `suites/index.mjs` 注册。断言用 `recorder.check(name, fn)` 或
 `recorder.assert(name, condition, detail)`，这样失败会单独命名。
 fixture 站点在 `fixtures/server.mjs`，用 `fixtures.page(path, title, body)` 加页面，
-内置页面有 `/baseline`、`/frame`、`/popup`、`/large`、`/form`、`/user`、`/console`、`/network`、`/keys`、`/pointer`、`/upload`、`/dialog`、`/redirect-out`（302 到另一个 fixture 站点的 `/redirect-target`，用来验证重定向不能绕过 origin 复核）。runner 在每个 suite 开始前把该 suite 的 fixture origin 写进自己的策略文件（`ROTOM_BROWSER_POLICY_FILE`），所以 e2e 不会读到操作者真实策略；`policy` suite 会自己改写这份文件。`/upload` 页面的文件输入在 `change` 后立刻把文件 POST 回 `/upload-echo`，fixture 只记录 sha256 与大小，便于断言“服务端真的收到了这些字节”。`/dialog` 页面的每个按钮打开一种弹窗，并把 `alert`/`confirm`/`prompt` 的返回值写进状态行，所以“弹窗真的被处理”由页面自证，而不是只看命令 ack。
+内置页面有 `/baseline`、`/frame`、`/popup`、`/large`、`/form`、`/checkout`（含 `cc-*` 字段的表单 + 敏感名称按钮，用来验证确认流程）、`/user`、`/console`、`/network`、`/keys`、`/pointer`、`/upload`、`/dialog`、`/redirect-out`（302 到另一个 fixture 站点的 `/redirect-target`，用来验证重定向不能绕过 origin 复核）。runner 在每个 suite 开始前把该 suite 的 fixture origin 写进自己的策略文件（`ROTOM_BROWSER_POLICY_FILE`），所以 e2e 不会读到操作者真实策略；`policy` suite 会自己改写这份文件。runner 同时设置 `ROTOM_BROWSER_CONFIRM=auto-approve-localhost`，否则每个敏感点击都会停在确认上；`confirm` suite 会自己关掉这个开关来观察拒绝路径。`/upload` 页面的文件输入在 `change` 后立刻把文件 POST 回 `/upload-echo`，fixture 只记录 sha256 与大小，便于断言“服务端真的收到了这些字节”。`/dialog` 页面的每个按钮打开一种弹窗，并把 `alert`/`confirm`/`prompt` 的返回值写进状态行，所以“弹窗真的被处理”由页面自证，而不是只看命令 ack。
 需要真实“用户 tab”的 suite 导出 `startUrlPage`（`run.mjs` 会把它交给 Chrome 当启动 URL）。

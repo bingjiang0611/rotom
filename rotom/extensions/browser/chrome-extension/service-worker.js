@@ -8,6 +8,7 @@ import { consoleLevelFromTypeV1, createConsoleCaptureV1, parseConsoleCursorV1, s
 import { isBrowserKeyV1, keyEventV1, normalizeModifiersV1 } from "./key-table.js";
 import { DIALOG_CURRENT_TAB_OPERATIONS_V1, createDialogStateV1 } from "./dialog-state.js";
 import { BROWSER_POINTER_ACTIONS_V1, dragSequenceV1, pointerSequenceV1 } from "./pointer-events.js";
+import { readInteractionSensitivity, sensitivityFromFactsV1 } from "./sensitive-actions.js";
 import { createNetworkCaptureV1, parseNetworkCursorV1, sanitizeNetworkLimitV1, sanitizeNetworkPatternV1, sanitizeNetworkResourceTypeV1 } from "./network-buffer.js";
 import { checkBrowserTabQuotasV1, DEFAULT_BROWSER_TAB_QUOTAS_V1, sanitizeBrowserTabQuotasV1 } from "./tab-quotas.js";
 import { createFocusCoordinator } from "./focus-coordinator.js";
@@ -1098,6 +1099,26 @@ async function interactionTargetState(debuggee, objectId, assertOperation) {
 	const value = evaluated.ok ? evaluated.value?.result?.value : undefined;
 	return record(value) ? value : undefined;
 }
+/**
+ * Facts about the interaction target, used to decide whether the user must confirm.
+ * Coordinate clicks have no ref, so the probe runs on the hit-tested node instead.
+ */
+async function interactionSensitivity(target, assertOperation) {
+	const chrome = operationChrome(globalThis.chrome, assertOperation);
+	const backendNodeId = target.coordinate === true ? target.hit?.backendNodeId : target.parsed?.backendNodeId;
+	if (!Number.isSafeInteger(backendNodeId)) return undefined;
+	const resolved = await valueWithinRelayDeadline(chrome.debugger.sendCommand(target.debuggee, "DOM.resolveNode", { backendNodeId }), TARGET_STATE_WAIT_MS);
+	if (!resolved.ok || typeof resolved.value?.object?.objectId !== "string") return undefined;
+	const evaluated = await valueWithinRelayDeadline(chrome.debugger.sendCommand(target.debuggee, "Runtime.callFunctionOn", {
+		objectId: resolved.value.object.objectId,
+		functionDeclaration: readInteractionSensitivity.toString(),
+		returnByValue: true,
+	}), TARGET_STATE_WAIT_MS);
+	assertOperation();
+	const value = evaluated.ok ? evaluated.value?.result?.value : undefined;
+	if (!record(value)) return undefined;
+	return sensitivityFromFactsV1({ name: typeof value.name === "string" ? value.name : "", creditCardForm: value.creditCardForm === true });
+}
 async function performInteraction(name, item, payload, assertOperation = () => undefined) {
 	const chrome = operationChrome(globalThis.chrome, assertOperation);
 	const assertOwned = (item) => assertOwnedWithin(item, assertOperation);
@@ -1167,6 +1188,12 @@ async function performInteraction(name, item, payload, assertOperation = () => u
 	}
 	const target = await interactionTarget(name, item, payload, assertOperation);
 	assertOperation();
+	// A sensitive target is refused before anything is dispatched: Pi asks the user and
+	// re-sends the same action with `confirmed: true`. The label never leaves the worker.
+	const sensitive = payload.action === "scroll" ? undefined : await interactionSensitivity(target, assertOperation);
+	if (sensitive !== undefined && payload.confirmed !== true) {
+		return { schemaVersion: 1, kind: "needs-confirmation", tabName: name, origin: itemOriginV1(safeUrl(item.url)) ?? "", capability: "interact", ...sensitive };
+	}
 	const expectation = parseInteractionExpectation(payload.expect);
 	if (expectation && (target.action === "scroll" || target.coordinate === true)) throw new Error("interaction expect requires a targetRef click, type, select, or keypress");
 	const stateObjectId = target.action === "scroll" ? undefined : await interactionTargetObjectId(target, assertOperation);
