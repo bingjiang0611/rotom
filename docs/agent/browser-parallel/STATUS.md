@@ -297,12 +297,12 @@
 | 场景 | n | P50 | P95 | max | ops/s |
 |---|---|---|---|---|---|
 | Chrome 启动 + relay 握手 | 1 | 2 690 ms | — | — | — |
-| client 连接（握手 + 会话注册） | 10 | 103 ms（修前 211 ms） | 110 ms | 110 ms | 9.6 |
+| client 连接（握手 + 会话注册） | 10 | 0.6 ms（修前 211 ms） | 1.0 ms | 1.0 ms | 1 410 |
 | `snapshot_visible`（渲染 DOM） | 30 | 58 ms | 74 ms | 78 ms | 16.8 |
 | `tabs`（归属与状态） | 30 | 0.5 ms（修前 103 ms） | 0.8 ms | 0.8 ms | 1 853 |
 | `read_full`（`/large` 整页文本） | 10 | 10 594 ms | 12 266 ms | 12 266 ms | 0.09 |
 | `screenshot`（JPEG 视口） | 30 | 45 ms | 62 ms | 70 ms | 22.6 |
-| `interact` type + 读回 | 30 | 159 ms | 168 ms | 170 ms | 6.2 |
+| `interact` type + 读回 | 30 | 3.8 ms（修前 159 ms） | 5.4 ms | 6.1 ms | 252 |
 | 并发 `snapshot` ×1 / ×2 / ×4（每轮总耗时） | 10 | 56 / 58 / 64 ms | 62 / 67 / 68 ms | 同上 | 17.5 / 17.1 / 15.7 |
 | `devtools screenshot_export`（整页 PNG，`/baseline`） | 5 | 68 ms | 77 ms | 77 ms | 14.2 |
 | `devtools screenshot_export`（整页 JPEG q50，`/large`） | — | **被拒** | — | — | — |
@@ -328,16 +328,28 @@
 
 **收益（同一台机器、同一 harness，修前 → 修后）**
 
-| 指标 | 修前 | 修后 |
-|---|---|---|
-| `tabs` P50 | 103 ms | **0.51 ms** |
-| client 连接 P50 | 208 ms | **103 ms** |
-| 首次 `open` 均值 | 351 ms | **238 ms** |
-| Chrome 启动 + 握手 | 2 746 ms | **1 939 ms** |
-| `snapshot_visible` / 截图 / 并发 | 58 / 46 / 61 ms | 不变（本来就不走持久化） |
+| 指标 | 修前 | 只修持久化 | 再修 settle（最终） |
+|---|---|---|---|
+| `tabs` P50 | 103 ms | **0.51 ms** | 0.51 ms |
+| client 连接 P50 | 208 ms | 103 ms | **0.63 ms** |
+| 首次 `open` 均值 | 351 ms | 238 ms | **155 ms** |
+| Chrome 启动 + 握手 | 2 746 ms | 1 939 ms | **1 831 ms** |
+| `snapshot_visible` / 截图 / 并发 | 58 / 46 / 61 ms | 不变 | 不变（本来就不走持久化） |
 
 一个动作里若查 1 次归属，每次省约 100 ms；10 步 batch 省约 1 s；连接与启动各自省一次以上。
 
-**仍未优化**：真正会改状态的操作（`interact` 写路径）依旧 160 ms，因为它确实要落盘，仍等满 100 ms 合并窗口。把窗口调小（如 10 ms）或对"无其它 pending 写"立即 flush，可再省约 90 ms/写操作，代价是跨 tick 的 burst 少合并几次——这是性能与写入次数的权衡，未擅自改。
+**第二阶段**：确认写路径 160 ms 与持久化无关后（窗口改 0 后写路径未变），把合并窗口默认值从 100 ms 降为 0——只合并同一 turn 的调用，单次写入不再固定延时；`schedule()` 的 diff 仍然决定是否真的写。client 连接因此从 103 ms 降到 0.63 ms。
+
+### 写操作 settle 轮询（同一提交）
+
+**诊断**：`interact` 非 scroll 分支在派发后固定 `setTimeout(150)`，再读一次目标状态。这 150 ms 占写路径 160 ms 的绝大部分。
+
+**修法**：改成轮询上限 `INTERACTION_SETTLE_MS = 150`、间隔 20 ms。首次读到变化即返回；目标状态不可观察（`stateAfter === undefined`）时也不再空转。判定依据（`interactionTargetChange`、`valueLength` 而非值本身）**没有改**，所以既能提前退出，也不会泄露输入内容。
+
+**收益**：`interact type + 读回` 从 159 ms 降到 **3.8 ms**（P95 5.4 ms）。
+
+**代价**：等长文本替换这类"值变了但长度没变"的动作本来就观察不到变化，仍会走满 150 ms 上限（比原实现多几次 CDP 读，最坏约 190 ms）。这是既有判定方式决定的，不是新引入的。
+
+**仍未优化**：`scroll` 分支仍有固定 `setTimeout(100)`；`read_full` 10.8 s 未动（合同要求读完全部）。
 
 **未完成**：原计划在低负载机器 `test@30.7.226.226` 上复测，但该机的企业安全软件会直接 `SIGKILL` Chrome for Testing（`--version` 即 exit 137，去掉 quarantine 后仍如此），系统 Chrome 156 正式版又忽略 `--load-extension`，所以基准只能在本机跑。要在这台机器上测，需要把 `/Users/test/Library/Caches/rotom-e2e/**` 或其可执行文件加入安全软件白名单。
