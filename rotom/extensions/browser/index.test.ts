@@ -1476,6 +1476,7 @@ test("browser_devtools：默认隔离世界、main world 必须确认、拒绝�
 			if (operation === "tabs") return { schemaVersion: 1, kind: "rotom-browser-tabs", tabs: [{ name: "code", tabId: 31, documentGeneration: 1, url: "https://example.test/globals", title: "code", status: "complete", current: true, browserActive: false, ownership: "agent", relayAttached: true }] };
 			if (operation === "devtools") {
 				dispatched.push(payload);
+				if (payload.devtools === "network_body") return { schemaVersion: 1, kind: "rotom-browser-devtools", devtools: "network_body", tabName: "code", tabId: 31, documentGeneration: 1, requestId: payload.requestId, url: "https://example.test/json", status: 200, mimeType: "application/json", resourceType: "Fetch", bodyText: "{\"message\":\"rotom-json-fixture\"}", truncated: false, bytes: 30, captureSince: new Date(0).toISOString(), note: "only requests issued after network_body was first enabled can be read" };
 				if (payload.devtools === "screenshot_export") return { schemaVersion: 1, kind: "rotom-browser-devtools", devtools: "screenshot_export", tabName: "code", tabId: 31, documentGeneration: 1, format: payload.format, fullPage: payload.fullPage === true, bytes: ONE_PIXEL_PNG.length, data: ONE_PIXEL_PNG.toString("base64") };
 				return payload.devtools === "viewport"
 					? { schemaVersion: 1, kind: "rotom-browser-devtools", devtools: "viewport", tabName: "code", tabId: 31, documentGeneration: 1, observationEpoch: 2, reset: false, viewport: { width: 900, height: 700, deviceScaleFactor: 1, mobile: false, touch: false } }
@@ -1553,6 +1554,14 @@ test("browser_devtools：默认隔离世界、main world 必须确认、拒绝�
 		await assert.rejects(tool.execute("devtools-export-format", { operation: "screenshot_export", path: "shots/shot.png", format: "webp" }, undefined, undefined, ctx), /format/u);
 		await symlink(join(workspace, "shots", "shot.png"), join(workspace, "shots", "link.png"));
 		await assert.rejects(tool.execute("devtools-export-link", { operation: "screenshot_export", path: "shots/link.png" }, undefined, undefined, ctx), /符号链接/u);
+
+		// 响应体读取按 requestId 走，别的操作不接受这个字段。
+		const body = await tool.execute("devtools-body", { operation: "network_body", requestId: "1000.2" }, undefined, undefined, ctx);
+		assert.equal(body.details.devtools, "network_body");
+		assert.equal(dispatched.at(-1).requestId, "1000.2");
+		assert.match(body.details.bodyText, /rotom-json-fixture/u);
+		await assert.rejects(tool.execute("devtools-body-missing", { operation: "network_body" }, undefined, undefined, ctx), /requestId/u);
+		await assert.rejects(tool.execute("devtools-body-mixed", { operation: "evaluate", expression: "1", requestId: "1000.2" }, undefined, undefined, ctx), /只用于 network_body/u);
 
 		// 参数在本地就被拒，不产生任何请求。
 		const count = dispatched.length;

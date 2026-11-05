@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import { relayRequestFor } from "../harness.mjs";
 
-export const description = "devtools：isolated 与 main world 的可见性差异、viewport 覆盖与 reset、坐标失效、截图导出";
+export const description = "devtools：isolated 与 main world 的可见性差异、viewport 覆盖与 reset、坐标失效、截图导出、响应体读取";
 
 export async function run({ harness, fixtures, recorder }) {
 	const client = await harness.connect("devtools-main");
@@ -133,6 +133,47 @@ export async function run({ harness, fixtures, recorder }) {
 		await request("open", { tabName: "huge", url: fixtures.url("/large") }, 10_000);
 		await request("wait", { tabName: "huge", status: "complete", timeoutMs: 10_000 }, 11_000);
 		await assert.rejects(() => request("devtools", { tabName: "huge", devtools: "screenshot_export", format: "png", fullPage: true }, 20_000), /too large/u);
+	});
+
+	await recorder.check("network_body：启用前取不到、启用后能取到 JSON 并截断到 64 KiB、二进制被拒", async () => {
+		await request("close", { all: true }, 5_000);
+		await request("open", { tabName: "api", url: fixtures.url("/json-page") }, 10_000);
+		await request("wait", { tabName: "api", status: "complete", timeoutMs: 10_000 }, 11_000);
+		// Enabled here for the first time: earlier requests must not be readable.
+		await assert.rejects(() => request("devtools", { tabName: "api", devtools: "network_body", requestId: "not-enabled-yet" }, 10_000), /network body unavailable/u);
+
+		const lengths = await request("devtools", { tabName: "api", devtools: "evaluate", expression: "window.fetchJsonOnce()", world: "main" }, 15_000);
+		assert.ok(Number(lengths.valueText) > 64 * 1024, `fixture JSON 必须真的超过 64 KiB，实际 ${lengths.valueText}`);
+
+		let requestId;
+		for (let attempt = 0; attempt < 40 && requestId === undefined; attempt += 1) {
+			const page = await request("network", { tabName: "api", limit: 200 }, 10_000);
+			requestId = page.entries.find((entry) => entry.url.includes("/json") && entry.status === 200)?.requestId;
+			if (requestId === undefined) await new Promise((resolve) => setTimeout(resolve, 100));
+		}
+		assert.ok(requestId, "network 必须给出 /json 的 requestId");
+
+		const body = await request("devtools", { tabName: "api", devtools: "network_body", requestId }, 15_000);
+		assert.equal(body.devtools, "network_body");
+		assert.equal(body.requestId, requestId);
+		assert.equal(body.status, 200);
+		assert.match(body.mimeType, /application\/json/u);
+		assert.equal(body.truncated, true, "70 KB 的正文必须被截断");
+		assert.ok(body.bytes <= 64 * 1024, `bytes=${body.bytes}`);
+		assert.match(body.bodyText, /rotom-json-fixture/u);
+		assert.match(body.note, /after network_body was first enabled/u);
+
+		// Binary payloads are not text: refuse instead of pretending they are。
+		const binary = await request("devtools", { tabName: "api", devtools: "evaluate", expression: "fetch('/binary', {cache:'no-store'}).then(r => r.arrayBuffer()).then(b => b.byteLength)", world: "main" }, 15_000);
+		assert.equal(binary.valueText, "4");
+		let binaryId;
+		for (let attempt = 0; attempt < 40 && binaryId === undefined; attempt += 1) {
+			const page = await request("network", { tabName: "api", limit: 200 }, 10_000);
+			binaryId = page.entries.find((entry) => entry.url.includes("/binary") && entry.status === 200)?.requestId;
+			if (binaryId === undefined) await new Promise((resolve) => setTimeout(resolve, 100));
+		}
+		assert.ok(binaryId, "network 必须给出 /binary 的 requestId");
+		await assert.rejects(() => request("devtools", { tabName: "api", devtools: "network_body", requestId: binaryId }, 10_000), /not text/u);
 	});
 
 	await recorder.check("viewport 后被取消的旧坐标 observation 不能被复用", async () => {

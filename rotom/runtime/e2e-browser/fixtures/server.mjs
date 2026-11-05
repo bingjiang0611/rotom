@@ -284,6 +284,18 @@ paint('init');
 // reached the server but never reached the relay result.
 const NETWORK_SECRET_COOKIE = "fixture-secret-cookie-value";
 const NETWORK_SECRET_AUTH = "fixture-secret-auth-value";
+// network_body fixture: nothing is fetched on load, so the suite can prove that a body is
+// only readable after the capture was enabled, then fetch once and read it.
+const JSON_PAGE_BODY = `<main>
+  <h1>JSON page</h1>
+  <div role="status" id="json-state">idle</div>
+</main>
+<script>
+window.fetchJsonOnce = () => fetch('/json', { cache: 'no-store' })
+  .then((response) => response.text())
+  .then((body) => { document.querySelector('#json-state').textContent = 'json ' + body.length; return body.length; });
+</script>`;
+
 const NETWORK_BODY = `
 <main>
   <h1>Network fixture</h1>
@@ -370,6 +382,7 @@ export function defaultPages({ frameOrigin }) {
 		["/upload", htmlDocument("Upload fixture", UPLOAD_BODY)],
 		["/dialog", htmlDocument("Dialog fixture", DIALOG_BODY)],
 		["/globals", htmlDocument("Globals fixture", GLOBALS_BODY)],
+		["/json-page", htmlDocument("JSON page", JSON_PAGE_BODY)],
 		["/redirect-target", htmlDocument("Redirect target", REDIRECT_TARGET_BODY)],
 		["/checkout", htmlDocument("Checkout", CHECKOUT_BODY)],
 		["/download-page", htmlDocument("Download page", DOWNLOAD_PAGE_BODY)],
@@ -435,6 +448,17 @@ export async function createFixtureServer() {
 			// before dispatching a write.
 			reply.writeHead(302, { location: crossSite.redirectTarget, "cache-control": "no-store" });
 			reply.end();
+			return;
+		}
+		if (path === "/json") {
+			// Larger than the 64 KiB body cap on purpose, so truncation is observable.
+			reply.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+			reply.end(JSON.stringify({ message: "rotom-json-fixture", pad: "x".repeat(70_000) }));
+			return;
+		}
+		if (path === "/binary") {
+			reply.writeHead(200, { "content-type": "application/octet-stream", "cache-control": "no-store" });
+			reply.end(Buffer.from([0x00, 0x01, 0x02, 0x03]));
 			return;
 		}
 		if (path === "/status-500") {

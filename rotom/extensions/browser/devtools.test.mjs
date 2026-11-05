@@ -31,9 +31,10 @@ test("ROTOM_BROWSER_DEVTOOLS=0 disables the tool and empty/unset keeps it on", (
 });
 
 test("only implemented operations are accepted", () => {
-	assert.deepEqual([...DEVTOOLS_OPERATIONS_V1], ["evaluate", "viewport", "screenshot_export"]);
+	assert.deepEqual([...DEVTOOLS_OPERATIONS_V1], ["evaluate", "viewport", "screenshot_export", "network_body"]);
 	assert.equal(sanitizeDevtoolsOperationV1("evaluate"), "evaluate");
 	assert.equal(sanitizeDevtoolsOperationV1("screenshot_export"), "screenshot_export");
+	assert.equal(sanitizeDevtoolsOperationV1("network_body"), "network_body");
 	assert.equal(sanitizeDevtoolsOperationV1("record_start"), undefined);
 	assert.equal(sanitizeDevtoolsOperationV1("trace_start"), undefined);
 	assert.equal(sanitizeDevtoolsOperationV1("Evaluate"), undefined);
