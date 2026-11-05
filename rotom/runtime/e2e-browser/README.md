@@ -14,6 +14,10 @@ node --experimental-strip-types rotom/runtime/e2e-browser/run.mjs baseline
 
 退出码非零表示有断言失败；每条断言单独输出，失败会打印保留下来的现场目录。
 
+## 平台
+
+只在 macOS 上跑过（Chrome for Testing 156，headless 默认，`ROTOM_E2E_HEADED=1` 可开有头）。socket 与锁的位置来自 `rotom/extensions/browser/platform-paths.mjs`，Linux 会落到 `$XDG_RUNTIME_DIR/rotom/browser-relay/`。Linux 与 Windows 没有这里的实测结果；Windows 的 native host 注册（注册表）与本架子不兼容，标为 L1。
+
 ## 隔离契约
 
 - 每个 suite 一个新的临时根目录（`/tmp/rotom-e2e-*`）：浏览器 profile、native host

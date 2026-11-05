@@ -10,7 +10,7 @@
 | M1 并行底座 | ready-for-review | `browser(T11)` | T1–T11 完成；`parallel-4` 连续 3 次通过，延迟数据见下 |
 | M3 交互与安全 | ready-for-review | `browser(T21)` | T15–T21 完成；M3 完成标准：7 个 M3 suite（keyboard/pointer/upload/dialog/batch/policy/confirm）全部通过，`check-personal` EXIT=0，footprint 27 846 → 30 923（+11.0%，限 30%） |
 | M2 调试 P0 | ready-for-review | `browser(T14)` | T12、T13、T14 完成；三个 suite + check-personal 通过，footprint 已对比 |
-| M4 devtools 与平台 | in-progress | `browser(T22)`…`browser(T24)` | T22、T23、T24 完成；T25 未开始 |
+| M4 devtools 与平台 | ready-for-review | `browser(T22)`…`browser(T25)` | T22–T25 完成；商店提交等用户 |
 
 状态取值：`not-started`、`in-progress`、`ready-for-review`、`changes-requested`、`accepted`。
 “最后 commit”用 commit message 里的任务标记引用，hash 见 `git log`。
@@ -244,4 +244,14 @@
 **L2（本机实测）**：macOS 上 installer status 仍指向同一 manifest、`registrationValid: true`；全部 suite 与 check-personal 通过。
 **L1（未实测）**：Windows 的命名管道、注册表注册与 pid 锁文件只由 `platform-paths.test.mjs` 与代码分支覆盖；Windows installer 返回 `manual-registration-required` 并打印 `reg add` 命令，不写注册表。Linux 只由单测与 platform-paths 覆盖，未在 Linux 实机跑 `run.mjs`。
 **自行决定**：`/browser install` 用命令参数 `--browser` 而不是第二个选择菜单，保持「一次确认」的既有交互合同；`browserIdsV1` 对未知平台返回空数组（能力探测），路径函数仍抛错。
-**文档待补**：`docs/usage.md`、`docs/agent/change-checklists.md`、根 `CLAUDE.md` §6、e2e `README.md` 中关于跨平台路径与 `--browser` 的说明尚未更新。
+**文档**：`docs/usage.md`、`docs/agent/change-checklists.md`、根 `CLAUDE.md` §6、e2e `README.md` 已补平台路径与 `--browser` 说明。
+
+### T25 Chrome 商店上架准备
+
+- 新增 `rotom/scripts/pack-chrome-extension.mjs`：纯 Node 写 zip（store/deflate，无新依赖），去掉 `manifest.json` 的开发用 `key`，固定时间戳与权限位，所以同一份源码两次打包字节一致。输出 zip 路径、字节数、SHA-256 与文件清单。实测：34 个文件、82 735 bytes、SHA-256 `b17e294c…f1ec`，`unzip -t` 报 No errors detected。
+- `rotom/scripts/pack-chrome-extension.test.mjs` 用独立读取器按中央目录解包，校验 CRC32、原始长度、可复现性、`key` 已移除、symlink 与缺 manifest 被拒；5/5 通过，已加入 `check-personal`。
+- `docs/agent/browser-parallel/chrome-web-store.md`：单一用途说明、七项权限逐条理由（alarms/debugger/downloads/nativeMessaging/storage/tabs/tabGroups）、隐私说明（不收集、数据只在本机流转、不读 cookie/密码/请求体）、扩展 id 迁移与图标缺口的注意事项。
+- **未提交上架**：需要用户的开发者账号，到这里停下。审阅通过后需把商店分配的扩展 id 与现有开发 id 一起写进 native host 的 `allowed_origins`（`install-chrome-relay.mjs` 目前只写开发 id，届时是一次小改动）。
+- 阻塞项：`manifest.json` 没有 `icons` 字段，也没有图标资源，提交前必须补 128×128 图标与至少一张截图，否则会被退回。
+
+**M4 覆盖**：L2（本机 macOS，Chrome for Testing 156）覆盖全部 22 个 e2e suite（116 条断言）、`check-personal` 全绿、`browser_devtools` 八个操作（`record_*` 的帧级断言需 `ROTOM_E2E_HEADED=1`，已跑过）；L1（未实测）覆盖 Windows 的命名管道/注册表/pid 锁、Linux 的 runtime 路径，以及商店审核侧的一切结论。

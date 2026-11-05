@@ -85,6 +85,7 @@
 - tab 配额是否仍在 service worker 计数（唯一全局视角）：`open` 与 `claim` 都过 `assertTabQuotaAllowed`，超限直接报错并写清上限、当前数量与“先 close 旧 tab”，不排队；`hello` 里的 `tabQuotas` 必须过 `sanitizeBrowserTabQuotasV1`，非法 `ROTOM_BROWSER_MAX_*` 报错而不是静默回退？
 - 子 agent 的 lease 是否仍只在工具层判定：没有 token 的主 agent 不受限，有 token 但 lease 文件缺失/过期/origin 不在列表/devtools·upload·download 未开启时本地返回 `needs-approval`，不发出请求、不弹窗？lease 目录是否 0700、文件 0600、拒绝 symlink，且子 agent 不改写父 agent 发布的 scope？
 - 新增的 browser 工具是否归入 deferred 组（`register.ts`）并显式 `defaultActive: false`？少了这一步，Pi 会把它当成默认激活工具在 fork/tree 导航时自己恢复，还会让延迟前置检查把未激活的 Subagent 工具当成致命缺失。
+- 平台相关的路径（socket、锁、native host 注册位置）是否只由 `platform-paths.mjs` 生成，macOS 字符串是否保持不变（改动会让旧安装升级后连不上）？新增浏览器或平台是否同步 installer 分支与 `/browser install --browser`，并把未实测平台如实标为 L1？
 - 持久化是否仍按 session 分 key（`browserRelayStateV3:<sessionId>`）、合并写并只写变化项，旧 `browserRelayStateV2`/`V1` 是否迁移后删除？
 - 并发是否仍只有两层锁：结构性操作走 session 锁、其余按 tab 加锁；operation revision 是否按作用域隔离（一个 tab 结束不得作废另一个 tab 的操作）；超时重置是否仍只影响对应 tab？
 - 跨 agent 是否仍只有一个 owner：`discover` 是否隐藏其他 session 的 tab、`claim` 是否只在 opener 属于另一个 session 时拒绝且不带出对方 tabName、`transfer` 是否换新 `documentGeneration`/`observationEpoch` 并作废旧 ref 与坐标？

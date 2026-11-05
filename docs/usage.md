@@ -140,12 +140,14 @@ rotom 默认提供 `codemode`：模型可用 JavaScript 编排普通文件工具
 |---|---|
 | `/browser` | 直接打开浏览器任务输入框，确认后使用当前模型执行。 |
 | `/browser <任务>` | 直接提交后面的完整任务，不需要 `use`。会调用当前模型，可能产生模型费用。 |
-| `/browser install` | macOS 上确认后把浏览器组件写入固定目录、注册 native host 并回查；首次需手动加载该目录，此后组件变化只需在 Chrome 点刷新（↻）。 |
+| `/browser install` | 确认后把浏览器组件写入固定目录、注册 native host 并回查；首次需手动加载该目录，此后组件变化只需在 Chrome 点刷新（↻）。macOS 与 Linux 写 manifest 文件，Windows 只写文件并给出注册表命令。多浏览器时用 `/browser install --browser edge` 等指定 Chromium 系浏览器。 |
 | `/browser status` | 分别显示注册匹配状态与 Chrome Relay 协议握手结果，不读取页面。 |
 
 这是会话内 slash 命令，**不是终端里的 `rotom browser` 子命令**。安装和状态信息只显示在界面，不进入模型上下文；启动和打开任务输入框均不安装、不连接 Chrome。不支持无 UI 的安装，正在执行任务时不接受安装或新的浏览器任务；不会自动启用被调用方排除的工具，也不是永久浏览器模式开关。
 
-浏览器组件存放在**固定目录** `~/Library/Application Support/rotom/browser-relay/current/`，其中 `chrome-extension/` 是 Chrome 加载目录，native host 从同目录的 `native-host.mjs` 运行。这个路径跨 rotom 发行版本不变，所以内容升级只是一次 Chrome 刷新，不需要重新选择解压目录，也不需要重新注册 native host。
+浏览器组件存放在**固定目录**（macOS `~/Library/Application Support/rotom/browser-relay/current/`，Linux `$XDG_RUNTIME_DIR/rotom/browser-relay/current/` 或 `~/.local/state/rotom/browser-relay/current/`），其中 `chrome-extension/` 是 Chrome 加载目录，native host 从同目录的 `native-host.mjs` 运行。这个路径跨 rotom 发行版本不变，所以内容升级只是一次 Chrome 刷新，不需要重新选择解压目录，也不需要重新注册 native host。
+
+relay 的 socket 与锁也按平台归一：macOS 仍是 `.../rotom/browser-relay/relay.sock`（升级不断连），Linux 用 `$XDG_RUNTIME_DIR/rotom/browser-relay/`，Windows 用命名管道 `\\.\pipe\rotom-browser-relay-<用户名摘要>`。Windows 路径只经过代码与单测验证（L1），本仓库没有 Windows 实机结果；`/browser install` 在 Windows 上返回 `manual-registration-required` 并打印需要你执行的 `reg add` 命令，不自行写注册表。
 
 - **首次安装**：执行 `/browser install`，结束活跃浏览器任务后在 `chrome://extensions` → 开发者模式 → 加载已解压的扩展，选择显示的固定目录一次。
 - **组件内容更新**：`/browser install` 原子替换固定目录内容并回报 `reloadNeeded=true`；随后到 `chrome://extensions` 点该扩展卡片的**刷新（↻）**即可，无需 Remove 或重新选目录。运行中的 native host 已把代码载入内存，替换文件不影响它，新连接会读到新代码。
