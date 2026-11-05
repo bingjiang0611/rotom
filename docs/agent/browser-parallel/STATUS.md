@@ -302,7 +302,8 @@
 | `tabs`（归属与状态） | 30 | 0.5 ms（修前 103 ms） | 0.8 ms | 0.8 ms | 1 853 |
 | `read_full`（`/large` 整页文本） | 10 | 10 594 ms | 12 266 ms | 12 266 ms | 0.09 |
 | `screenshot`（JPEG 视口） | 30 | 45 ms | 62 ms | 70 ms | 22.6 |
-| `interact` type + 读回 | 30 | 3.8 ms（修前 159 ms） | 5.4 ms | 6.1 ms | 252 |
+| `interact` type + 读回 | 30 | 3.7 ms（修前 159 ms） | 5.8 ms | 8.5 ms | 243 |
+| `interact` scroll（只读交互） | 20 | 58 ms（修前约 105 ms） | 75 ms | 76 ms | 18 |
 | 并发 `snapshot` ×1 / ×2 / ×4（每轮总耗时） | 10 | 56 / 58 / 64 ms | 62 / 67 / 68 ms | 同上 | 17.5 / 17.1 / 15.7 |
 | `devtools screenshot_export`（整页 PNG，`/baseline`） | 5 | 68 ms | 77 ms | 77 ms | 14.2 |
 | `devtools screenshot_export`（整页 JPEG q50，`/large`） | — | **被拒** | — | — | — |
@@ -350,6 +351,8 @@
 
 **代价**：等长文本替换这类"值变了但长度没变"的动作本来就观察不到变化，仍会走满 150 ms 上限（比原实现多几次 CDP 读，最坏约 190 ms）。这是既有判定方式决定的，不是新引入的。
 
-**仍未优化**：`scroll` 分支仍有固定 `setTimeout(100)`；`read_full` 10.8 s 未动（合同要求读完全部）。
+**scroll 同样处理**：`scroll` 分支原固定 `setTimeout(100)` 再读 `scrollTop`。改成同样的轮询（上限 `SCROLL_SETTLE_MS = 100`、间隔 20 ms），位置一变就返回：约 105 ms → **58 ms**，`effect.moved` 与 `scrollBefore/After` 语义不变。
+
+**仍未优化**：`read_full` 10.6 s 未动（合同要求读完全部，成本随页面规模增长）。
 
 **未完成**：原计划在低负载机器 `test@30.7.226.226` 上复测，但该机的企业安全软件会直接 `SIGKILL` Chrome for Testing（`--version` 即 exit 137，去掉 quarantine 后仍如此），系统 Chrome 156 正式版又忽略 `--load-extension`，所以基准只能在本机跑。要在这台机器上测，需要把 `/Users/test/Library/Caches/rotom-e2e/**` 或其可执行文件加入安全软件白名单。
