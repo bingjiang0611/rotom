@@ -4,6 +4,48 @@
 
 第一期的 `STATUS.md` 不改，按 `HANDOFF-2.md` 的约定由审核者在第二期合入时更新。
 
+## 总结（2026-11-04 19:50 PST）
+
+### A 阶段：A1–A8 全部完成并推送（`fe787cb9`…`b5b2d58c`）
+
+每一项都做到 **L1（自动化测试与编译通过）**，没有任何一项到 L2/L3：A 阶段按用户要求
+不运行任何会移动光标、输入文字、切换前台或启动 App 的脚本，而这些能力都只存在于真机路径上。
+
+| 项 | 达到的层级 | 证据 | 没有做的部分与原因 |
+| --- | --- | --- | --- |
+| A1 拆分 `bridge.ts` | L1 | 全量 108 项测试；`bridge.ts` 146,143 → 130,698 字节 | 无 |
+| A2 I3 peer import | L1 | 新增 `test/no-peer-imports.test.ts`；干净 checkout 80/80 | 未在真实 Pi 会话里验证懒加载时机（需要真机 Pi 运行） |
+| A3 F3 干扰暂停 | L1 | `test/broker-pause.test.ts`；菜单栏 “Resume …” 只编译 | 暂停条件的真实触发（真人动鼠标）没有在 A 阶段造过 |
+| A4 F2 转移租约 | L1 | `test/broker-transfer.test.ts`；`cu_session transfer` schema | 跨真实子 agent 的连接断开只在测试里模拟 |
+| A5 I2 租约签名 | L1 | `scripts/check-lease-guard.mjs` 6 项自测 + TS↔Swift 互通 fixture；全量 93 项 | 真机拒绝写入（B5 的负向测试）未执行，所以 `CLAUDE.md` §4 的“协作式仲裁”措辞**没有改** |
+| A6 F1 前台接管 | L1 | `test/takeover.test.ts`（11 项）；Swift 编译通过 | 批次输入仍在旧投递路径上，**没有**改成 L4 全局 HID（等 B5 的真机证据，见 Q4） |
+| A7 F4 每 agent 光标 | L1 | `test/cursor-colors.test.ts`（4 项）；Swift 编译通过 | 多光标同时绘制的真实画面没有截图证据 |
+| A8 真机脚本准备 | L1（脚本层 dry run） | `scripts/cu-v2-script-dry-run.mjs` 6 通过 / 3 显式跳过 | 脚本本身从未真机运行；也没有 Linux 环境，“先在 Linux 上跑通”只用假 backend 验证了副本与请求构造逻辑 |
+
+已知限制（不是本次改动引入）：spawn 型 broker 测试并行跑满量时偶发 15 s 超时
+（`broker-packaged`、`broker-socket`、`broker-scheduler`），单独跑 3/3 通过；本次又在全量运行时
+复现一次（`a direct daemon.ts entry fails inside node_modules`），单文件 4/4 通过。没有弱化任何测试。
+
+未决问题见最后一节 **Q3**（`outline.ts` 超过 20 KB 提交门槛，导致 helper 的 `secure` 标记没有进入
+`OutlineNode`）和 **Q4**（A6 未切换批次投递）。
+
+### B 阶段：**未开始**（门禁不满足）
+
+`HANDOFF-2.md` §3 的四条前置条件里，第 3、4 条不满足，第 2 条只部分满足：
+
+1. **最近 10 分钟内有真实用户输入 → 用户已经回来了，按约定不开始 B。**
+   本机 `ioreg -c IOHIDSystem` 的 `HIDIdleTime` 三次采样（19:49:27 / 19:49:37 / 19:49:47）
+   分别为 **0.27 s / 0.24 s / 0.07 s**，即键盘或鼠标持续有输入。这是 `HANDOFF-2.md` 第 3 条
+   想要证明的事的否定结论，也正是用户写的“如果有（输入），说明我已经回来了，就不要开始 B 阶段”。
+2. 时间窗口无法核验：用户原文的时长数字没有填（Q1），无法判断“当前时间仍在窗口内”。
+3. 脚本只在假 backend 上跑通了逻辑（A8 的 dry run），`--direct-l2`、`--with-hid` 和兼容矩阵
+   的真实路径从未执行过，因此“B 阶段要用的脚本已经在 Linux 或假 backend 上跑通”只部分成立。
+
+因此 B1–B6 一条都没有运行，`runs/` 下没有本次的 B 阶段存档，`evidence/` 没有新增真机结论。
+按 `HANDOFF-2.md` 的约定，B 阶段的真机结论（L2 投递、HID、`SLEventPostToPid`、租约负向测试、
+干扰暂停、转移、多 agent 光标、契约核对）仍然全部是**未验证**状态。用户回来后若同意，建议按
+B1 → B6 的顺序单独约一次时间，并且先确认 A8 的脚本在一个空闲时间窗里能跑通。
+
 ## 时间窗口与运行授权
 
 - 用户下达指令的时间：2026-11-04 18:41 PST（UTC-8）。
@@ -39,6 +81,25 @@
 | A8 | 真机脚本的准备（只写代码） | 完成 | L1（脚本 dry run 6 项通过），真机未运行 | 见提交 |
 
 逐项细节（A1–A8 的实现、验证命令与限制）在 [`STATUS-2-A-items.md`](STATUS-2-A-items.md)，与下表一一对应。
+
+## B 阶段记录
+
+**状态：未开始。** 门禁评估在 2026-11-04 19:49 PST 进行，结论与证据见上面的“总结 · B 阶段”。
+按 `HANDOFF-2.md` §3，四项前置条件全部成立才允许开始：
+
+| 条件 | 结果 | 证据 |
+| --- | --- | --- |
+| A1–A8 完成并推送 | 满足 | `b5b2d58c` 已推送，工作区干净 |
+| 脚本已在 Linux 或假 backend 上跑通 | 部分满足 | 只有 `cu-v2-script-dry-run.mjs`（副本与请求构造）跑通；真机脚本路径从未执行 |
+| 当前时间仍在窗口内 | 无法核验 | 用户原文的时长数字没有填（Q1） |
+| 最近 10 分钟内没有真实用户输入 | **不满足** | `HIDIdleTime` 三次采样 0.27 s / 0.24 s / 0.07 s → 用户已经回来 |
+
+没有运行 B1–B6 的任何一步，没有启动 fixture、没有移动光标、没有切换前台、没有向隔离 helper
+写入任何东西。`docs/agent/computer-use-v2/evidence/runs/` 下没有本次新增的 B 阶段存档。
+
+另注（与本次任务无关，未触碰）：本机还有若干早前测试残留的 helper/broker 进程
+（`/private/var/folders/.../rotom-quality-pty-*/home/Applications/pi-computer-use.app/... bridge serve`
+以及一个 `src/broker/daemon-entry.mjs`），可能属于存活会话，按约定不清理、不重启。
 
 ## 需要审核者回答的问题
 
