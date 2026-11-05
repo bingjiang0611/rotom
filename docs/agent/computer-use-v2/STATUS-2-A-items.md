@@ -117,3 +117,35 @@ base64url 文本），修正后 6/6 通过——说明这组用例能区分“�
   `desktop-pid:<pid>` 生效。
 - 只有 `ROTOM_CU_BROKER` 开启时才强制。关掉 broker 就是 v1 行为，这一点没有隐藏。
 - `CLAUDE.md` §4 的“协作式仲裁”措辞按 HANDOFF-2 的要求留到 A5 + B5 的真机负例通过之后再改。
+
+### A8 真机脚本的准备（只写代码，A 阶段没有运行任何真机步骤）
+
+- **`-10825`（LaunchServices 复用已有实例）**：新 `scripts/lib/fixture.mjs`。
+  `prepareFixtureRun` 把 fixture 复制到 `~/cu-v2-test/runs/<stamp>/fixture-<stamp>`，改写
+  `CFBundleIdentifier` 为 `com.example.cu-fixture.<stamp>`（改不动就抛错，不允许“看起来复制了”
+  但身份没变），`codesign --force --deep --sign -` 重新 ad-hoc 签名。`disposeFixtureRun` 只按这次运行的
+  bundle id 找进程退出，然后删掉副本：绝对不会碰到操作者自己的实例（用例断言只退 fixture 的 pid）。
+- **`--direct-l2`**：`scripts/lib/l2-direct.mjs` 在脚本层构造 `params.delivery = "l2"` 的请求，
+  绕过 TS 白名单；产品代码没有新增任何放宽开关。模式启用时把 `PI_CU_SOCKET_PATH` 指到本次运行的
+  独立 socket（在 import helper 模块之前设置），所以签名错误导致 helper 崩溃只算一条结果，不会
+  拖垮后面的步骤。分别做一次定向点击和一次定向输入，逐条记录 `outcome`/`delivery`/`helperAlive`/
+  `cursorMoved`。
+- **`--with-hid`**：单独一条前台（HID）路径的点击，记录光标是否移动，结束时用
+  `System Events` 把操作者的前台 App 恢复回来并记录恢复结果；不放进后台不变量检查。
+- **`cu-v2-l2-check.mjs`** 默认改成操作自己的副本（`--no-fixture-copy` 保留旧行为）；
+  `alive()` 之前硬编码协议 8，A5 升到 9 后会一直判死，已改成读 `HELPER_PROTOCOL_VERSION`。
+- **`cu-v2-compat-matrix.mjs`** 也使用同一套副本机制：每个路径参数一个独立 bundle id，
+  跑完退出并删除，矩阵里单独列出 `fixture copy` / `fixture cleanup` 行。
+- **假 backend 逻辑跑通**：新 `scripts/cu-v2-script-dry-run.mjs`，不需要 macOS、helper 或窗口
+  （`node scripts/cu-v2-script-dry-run.mjs`）：6 项通过——副本 bundle id 改写、两次运行不复用同一副本、
+  前缀识别、direct-L2 请求固定 `delivery=l2` 且 `policy=background`、非法 pid/动作被拒、清理只退本次
+  bundle 并删目录。3 项显式跳过并写明原因：真实 L2 投递、helper 崩溃隔离、`--with-hid` 前台恢复。
+
+限制（如实记录）：
+
+- 本机是 macOS，没有 Linux 环境；“先在 Linux 上跑通”只做到用假 backend 在脚本层跑通逻辑
+  （`cu-v2-script-dry-run.mjs`），没有在 Linux 上执行过。真机脚本仍然全部以 `darwin` + `PI_CU_LIVE=1`
+  为前置条件。
+- `--direct-l2`、`--with-hid` 和矩阵的副本机制都没有真机运行过；A 阶段按用户要求不运行任何
+  会移动光标、输入文字、切换前台或启动 App 的脚本。
+- dry run 用 `sign: false` 跳过 codesign（临时目录里的合成 bundle 无需签名），真实运行仍然签名。

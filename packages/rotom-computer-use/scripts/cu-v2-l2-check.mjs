@@ -13,6 +13,20 @@
  *
  *   PI_CU_LIVE=1 node scripts/cu-v2-l2-check.mjs --fixture ~/cu-v2-test/Fixture.app
  *
+ * Modes (A8):
+ *
+ *   --direct-l2     Ask the helper for `delivery=l2` directly, bypassing the
+ *                   compatibility list, on this run's own fixture copy. Uses its own
+ *                   helper socket, so a crash from a bad SkyLight signature is one
+ *                   result instead of the end of the run.
+ *   --with-hid      Additionally drive one action through the foreground (HID) path
+ *                   and verify the operator's app is in front again afterwards. Run
+ *                   this separately from the background invariant checks.
+ *   --no-fixture-copy
+ *                   Operate the given path instead of a re-identified copy. Off by
+ *                   default because LaunchServices keys apps by bundle id: a copy
+ *                   with the same id can attach to the operator's instance (-10825).
+ *
  * Isolated helper, same as the other live scripts:
  *
  *   PI_COMPUTER_USE_HELPER_APP_PATH=~/cu-v2-test/pi-computer-use.app \
@@ -25,6 +39,8 @@ import path from "node:path";
 import process from "node:process";
 
 import { runStamp } from "./lib/live-helpers.mjs";
+import { disposeFixtureRun, isFixtureBundleId, prepareFixtureRun } from "./lib/fixture.mjs";
+import { runDirectL2, runWithHid } from "./lib/l2-modes.mjs";
 
 const EVIDENCE_DIR = path.resolve(import.meta.dirname, "..", "..", "..", "docs", "agent", "computer-use-v2", "evidence");
 const rows = [];
@@ -51,7 +67,22 @@ if ((process.env.PI_CU_LIVE ?? "") !== "1") disabled("PI_CU_LIVE is not 1");
 const fixturePath = argument("--fixture");
 if (!fixturePath || !existsSync(fixturePath)) disabled("pass --fixture <path to the built fixture app>");
 
-const { macosHelper } = await import("../src/platform/macos/helper.ts");
+const directL2 = process.argv.includes("--direct-l2");
+const withHid = process.argv.includes("--with-hid");
+const fixtureCopy = !process.argv.includes("--no-fixture-copy");
+const runRoot = path.join(homedir(), "cu-v2-test", "runs", runStamp());
+mkdirSync(runRoot, { recursive: true });
+
+// A dedicated helper socket for the direct-L2 signature check: if the private
+// SkyLight call takes the helper down, that is one recorded result and the rest of
+// the run still has its own helper. Must happen before the helper module is loaded,
+// because it reads PI_CU_SOCKET_PATH at import time.
+if (directL2 && !process.env.PI_CU_L2_SOCKET) {
+	process.env.PI_CU_SOCKET_PATH = path.join(runRoot, "helper-direct-l2.sock");
+	record("helper", "direct L2 socket", "pass", process.env.PI_CU_SOCKET_PATH);
+}
+
+const { macosHelper, HELPER_PROTOCOL_VERSION } = await import("../src/platform/macos/helper.ts");
 const { macosBackend } = await import("../src/platform/macos/backend.ts");
 const { L2_COMPATIBLE_BUNDLE_IDS } = await import("../src/policy/l2-compat.ts");
 
@@ -74,7 +105,7 @@ function valueOfRef(look, wireRef) {
 async function alive() {
 	try {
 		const diagnostics = await macosHelper.diagnosticsCommand();
-		return diagnostics.protocolVersion === 8;
+		return diagnostics.protocolVersion === HELPER_PROTOCOL_VERSION;
 	} catch {
 		return false;
 	}
@@ -118,19 +149,31 @@ async function main() {
 	const startedByThisRun = (app) => !beforeRun.has(app.pid);
 
 	// ---- fixture: not on the L2 list, so the product path must refuse it ----
+	let launchPath = fixturePath;
+	let fixtureRun;
+	if (fixtureCopy) {
+		fixtureRun = prepareFixtureRun({ sourceApp: fixturePath, runRoot });
+		launchPath = fixtureRun.bundlePath;
+		record("fixture", "fresh copy", "pass", `bundle=${fixtureRun.bundleId} path=${launchPath}`);
+	}
 	const apps = await macosBackend.listApps();
-	let fixture = apps.find((app) => app.bundleId === "com.example.cu-fixture") ?? apps.find((app) => /fixture/i.test(app.appName ?? ""));
+	let fixture = apps.find((app) => isFixtureBundleId(app.bundleId) && startedByThisRun(app))
+		?? apps.find((app) => app.bundleId === "com.example.cu-fixture")
+		?? apps.find((app) => /fixture/i.test(app.appName ?? ""));
 	if (fixture && !startedByThisRun(fixture)) {
 		record("fixture", "present", "skipped", `pid=${fixture.pid} was already running before this run; quit it so the check can launch its own copy`);
 		fixture = undefined;
 	} else if (!fixture) {
 		try {
-			await macosBackend.manageApps({ mode: "launch", path: fixturePath, activates: false });
+			await macosBackend.manageApps({ mode: "launch", path: launchPath, activates: false });
 		} catch {
-			execFileSync("open", ["-n", fixturePath], { stdio: "pipe" });
+			execFileSync("open", ["-n", launchPath], { stdio: "pipe" });
 		}
 		await sleep(2500);
-		fixture = (await macosBackend.listApps()).find((app) => /fixture/i.test(app.appName ?? ""));
+		const launched = await macosBackend.listApps();
+		fixture = fixtureRun
+			? launched.find((app) => app.bundleId === fixtureRun.bundleId)
+			: launched.find((app) => /fixture/i.test(app.appName ?? ""));
 		if (fixture && !startedByThisRun(fixture)) {
 			// A launch that silently attached to an older copy is not this run's process.
 			record("fixture", "present", "skipped", `pid=${fixture.pid} was already running before this run`);
@@ -211,7 +254,15 @@ async function main() {
 		else record(app.appName ?? app.bundleId, "click", "skipped", "no button in the window");
 	}
 
+	if (directL2) await runDirectL2({ fixture, fixtureRun, backend: macosBackend, helper: macosHelper, record, cursor, alive, wireRefByRole, typed: TYPED });
+	if (withHid) await runWithHid({ fixture, originalFrontmost: frontmost, backend: macosBackend, record, cursor, wireRefByRole });
+
 	record("helper", "still alive", (await alive()) ? "pass" : "fail", "the helper answered diagnostics after every probe (no crash)");
+
+	if (fixtureRun) {
+		const cleanup = await disposeFixtureRun(fixtureRun, macosBackend);
+		record("cleanup", "fixture copy", cleanup.quit.length ? "pass" : "inconclusive", `quit=${cleanup.quit.join(",") || "none"} removed=${fixtureRun.dir}`);
+	}
 
 	// Leave the operator's app in front again.
 	execFileSync("osascript", ["-e", `tell application "System Events" to set frontmost of first process whose unix id is ${frontmost.pid} to true`], { stdio: "pipe" });

@@ -38,13 +38,38 @@ if (apps.length === 0) {
 }
 
 const { macosBackend } = await import("../src/platform/macos/backend.ts");
+const { disposeFixtureRun, prepareFixtureRun } = await import("./lib/fixture.mjs");
+const { homedir } = await import("node:os");
+const { runStamp } = await import("./lib/live-helpers.mjs");
 
 const rows = [];
 
-for (const app of apps) {
+/**
+ * A path argument may be a plain .app or a fixture the operator built. Each run gets
+ * a fresh copy with its own bundle id, so LaunchServices cannot attach the matrix to
+ * a copy that is already running (-10825) and the operator's instance is never the
+ * target. `--no-fixture-copy` keeps the old behavior for a path that is already
+ * unique per run.
+ */
+const copyFixtures = !process.argv.includes("--no-fixture-copy");
+const runRoot = path.join(homedir(), "cu-v2-test", "runs", runStamp());
+const prepared = [];
+function targetFor(app) {
+	if (!copyFixtures || !app.startsWith("/")) return app;
+	const handle = prepareFixtureRun({ sourceApp: app, runRoot });
+	prepared.push(handle);
+	rows.push({ app, action: "fixture copy", delivery: "-", result: "prepared", note: `${handle.bundleId} at ${handle.bundlePath}` });
+	return handle.bundlePath;
+}
+
+for (const requested of apps) {
+	const app = targetFor(requested);
 	await macosBackend.manageApps({ mode: "launch", bundleId: app.includes(".") && !app.startsWith("/") ? app : undefined, path: app.startsWith("/") ? app : undefined, activates: false }).catch(() => undefined);
 	await new Promise((resolve) => setTimeout(resolve, 2000));
-	const installed = (await macosBackend.listApps()).find((candidate) => candidate.bundleId === app || app.startsWith("/") && candidate.appName.toLowerCase().includes(path.basename(app).toLowerCase()));
+	const preparedHandle = prepared.find((handle) => handle.bundlePath === app);
+	const installed = (await macosBackend.listApps()).find((candidate) => preparedHandle
+		? candidate.bundleId === preparedHandle.bundleId
+		: candidate.bundleId === app || app.startsWith("/") && candidate.appName.toLowerCase().includes(path.basename(app).toLowerCase()));
 	if (!installed) {
 		for (const action of ACTIONS) rows.push({ app, action, delivery: "-", result: "not-run", note: "app not running" });
 		continue;
@@ -129,6 +154,11 @@ function wireRefForAction(look, action) {
 
 function message(error) {
 	return error instanceof Error ? error.message : String(error);
+}
+
+for (const handle of prepared) {
+	const cleanup = await disposeFixtureRun(handle, macosBackend).catch(() => ({ quit: [] }));
+	rows.push({ app: path.basename(handle.bundlePath), action: "fixture cleanup", delivery: "-", result: cleanup.quit.length ? "removed" : "removed", note: `quit=${cleanup.quit.join(",") || "none"}` });
 }
 
 await mkdir(EVIDENCE_DIR, { recursive: true });
