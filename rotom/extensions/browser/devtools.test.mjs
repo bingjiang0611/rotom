@@ -11,6 +11,9 @@ import {
 	MAX_EXPORT_WIDTH_V1,
 	DEFAULT_EXPORT_QUALITY_V1,
 	sanitizeExportQualityV1,
+	RECORD_FPS_V1,
+	RECORD_MAX_FRAMES_V1,
+	RECORD_MAX_MS_V1,
 	boundDevtoolsTextV1,
 	devtoolsCodeDigestV1,
 	devtoolsEnabledByEnvironment,
@@ -31,12 +34,13 @@ test("ROTOM_BROWSER_DEVTOOLS=0 disables the tool and empty/unset keeps it on", (
 });
 
 test("only implemented operations are accepted", () => {
-	assert.deepEqual([...DEVTOOLS_OPERATIONS_V1], ["evaluate", "viewport", "screenshot_export", "network_body", "trace_start", "trace_stop"]);
+	assert.deepEqual([...DEVTOOLS_OPERATIONS_V1], ["evaluate", "viewport", "screenshot_export", "network_body", "trace_start", "trace_stop", "record_start", "record_stop"]);
 	assert.equal(sanitizeDevtoolsOperationV1("evaluate"), "evaluate");
 	assert.equal(sanitizeDevtoolsOperationV1("screenshot_export"), "screenshot_export");
 	assert.equal(sanitizeDevtoolsOperationV1("network_body"), "network_body");
 	assert.equal(sanitizeDevtoolsOperationV1("trace_start"), "trace_start");
-	assert.equal(sanitizeDevtoolsOperationV1("record_start"), undefined);
+	assert.equal(sanitizeDevtoolsOperationV1("record_start"), "record_start");
+	assert.equal(sanitizeDevtoolsOperationV1("snapshot"), undefined);
 	assert.equal(sanitizeDevtoolsOperationV1("Evaluate"), undefined);
 	assert.equal(sanitizeDevtoolsOperationV1(undefined), undefined);
 });
@@ -102,6 +106,9 @@ test("audit stores a stable digest of the code", () => {
 	assert.notEqual(digest, devtoolsCodeDigestV1("document.title+''"));
 	assert.equal(digest.includes("document"), false, "摘要不含源码");
 	assert.equal(DEVTOOLS_EVALUATE_TIMEOUT_MS_V1, 10_000);
+	assert.equal(RECORD_FPS_V1, 2);
+	assert.equal(RECORD_MAX_FRAMES_V1, 240);
+	assert.equal(RECORD_MAX_MS_V1, 120_000);
 });
 
 test("导出质量有默认值，范围外拒绝而不是钳制", () => {

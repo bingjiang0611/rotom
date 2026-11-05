@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import { relayRequestFor } from "../harness.mjs";
 
-export const description = "devtools：isolated 与 main world 的可见性差异、viewport 覆盖与 reset、坐标失效、截图导出、响应体读取、性能 trace";
+export const description = "devtools：isolated 与 main world 的可见性差异、viewport 覆盖与 reset、坐标失效、截图导出、响应体读取、性能 trace、录屏";
 
 export async function run({ harness, fixtures, recorder }) {
 	const client = await harness.connect("devtools-main");
@@ -60,7 +60,7 @@ export async function run({ harness, fixtures, recorder }) {
 		for (const payload of [
 			{ devtools: "evaluate", expression: "   " },
 			{ devtools: "evaluate", expression: "1", world: "page" },
-			{ devtools: "record_start" },
+			{ devtools: "performance" },
 			{ devtools: "viewport", viewport: "iphone-99" },
 			{ devtools: "viewport", viewport: { width: 10, height: 600, deviceScaleFactor: 1, mobile: false, touch: false } },
 			{ devtools: "viewport", viewport: { width: 800, height: 600, deviceScaleFactor: 1, mobile: "no", touch: false } },
@@ -199,6 +199,47 @@ export async function run({ harness, fixtures, recorder }) {
 		const again = await request("devtools", { tabName: "perf", devtools: "trace_start" }, 15_000);
 		assert.equal(again.devtools, "trace_start");
 		await request("devtools", { tabName: "perf", devtools: "trace_stop" }, 40_000);
+	});
+
+	await recorder.check("record_start/record_stop：2 fps 采集真实帧，全局只允许一个录制", async () => {
+		await request("close", { all: true }, 5_000);
+		// A hidden tab does not repaint, so a screencast of it yields no frames: give it its
+		// own window, which is also how a user records something they can watch.
+		await request("open", { tabName: "rec", url: fixtures.url("/record-page"), placement: "agent-window" }, 10_000);
+		await request("wait", { tabName: "rec", status: "complete", timeoutMs: 10_000 }, 11_000);
+		const started = await request("devtools", { tabName: "rec", devtools: "record_start" }, 15_000);
+		assert.equal(started.devtools, "record_start");
+		assert.equal(started.fps, 2);
+		assert.equal(started.maxDurationMs, 120_000);
+		await assert.rejects(() => request("devtools", { tabName: "rec", devtools: "record_start" }, 10_000), /already running/u);
+
+		// Paint for ~2 s: at 2 fps that is a handful of frames, not one.
+		await request("devtools", { tabName: "rec", devtools: "evaluate", expression: "window.startPainting(8)", world: "main" }, 15_000);
+		await new Promise((resolve) => setTimeout(resolve, 2_400));
+		// Headless Chrome renders offscreen and does not schedule screencast frames, so the
+		// frame-level assertions need a headed browser (ROTOM_E2E_HEADED=1). The protocol
+		// behaviour below is checked either way, and a frame-less stop must say so instead of
+		// returning an empty animation.
+		const headed = process.env.ROTOM_E2E_HEADED === "1";
+		const stopped = await request("devtools", { tabName: "rec", devtools: "record_stop" }, 30_000).catch((error) => error.message);
+		if (typeof stopped === "string") {
+			assert.equal(headed, false, `headed 下录制必须有帧，实际报错：${stopped}`);
+			assert.match(stopped, /no frames/u);
+		} else {
+			assert.equal(stopped.devtools, "record_stop");
+			assert.ok(stopped.durationMs >= 2_000, `durationMs=${stopped.durationMs}`);
+			const first = Buffer.from(stopped.frames[0].data, "base64");
+			assert.equal(first.subarray(0, 8).toString("hex"), "89504e470d0a1a0a", "帧必须是真实 PNG");
+			if (headed) assert.ok(stopped.frames.length >= 2, `2 fps 录制 2.4 秒应该有多帧，实际 ${stopped.frames.length}`);
+			// 2 fps: consecutive kept frames are at least ~500 ms apart.
+			for (let index = 1; index < stopped.frames.length; index += 1) {
+				assert.ok(stopped.frames[index].atMs - stopped.frames[index - 1].atMs >= 400, `帧间隔过密：${stopped.frames.map((frame) => frame.atMs).join(",")}`);
+			}
+		}
+		// 停完可以再次开始，说明状态真的复位了。
+		const again = await request("devtools", { tabName: "rec", devtools: "record_start" }, 15_000);
+		assert.equal(again.devtools, "record_start");
+		await request("devtools", { tabName: "rec", devtools: "record_stop" }, 15_000).catch(() => undefined);
 	});
 
 	await recorder.check("viewport 后被取消的旧坐标 observation 不能被复用", async () => {
