@@ -13,6 +13,8 @@ async function worker(t, pendingMethod) {
 		debugger: { onEvent: event(), onDetach: event(), async getTargets() { return [{ tabId: 1, id: "target", type: "page", attached: false, url: "https://example.test" }]; }, async attach() {}, async detach() { calls.push("detach"); }, async sendCommand(_target, method) { calls.push(method); if (method === pendingMethod) { entered.resolve(); return release.promise; } return {}; } },
 		tabs: { onRemoved: event(), onUpdated: event(), onCreated: event(), onActivated: event(), async get() { return { id: 1, status: "complete" }; }, async remove() { calls.push("remove"); } },
 		windows: { onFocusChanged: event() }, tabGroups: {}, storage: { session: { async set() {} } },
+		// T22 wires a top-level downloads listener; the fake needs the API to exist.
+		downloads: { onDeterminingFilename: event(), async search() { return []; }, async cancel() {} },
 		alarms: { onAlarm: event() }, runtime: { onStartup: event(), onInstalled: event() }, action: { onClicked: event() },
 	};
 	globalThis.chrome = api;

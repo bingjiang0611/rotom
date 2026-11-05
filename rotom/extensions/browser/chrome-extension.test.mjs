@@ -30,11 +30,13 @@ const extensionId = "kgadcllokaodnoknakblocmhidemimdi";
 test("Chrome MV3 manifest 固定 identity 且不申请 cookie/script/host 权限", async () => {
 	const manifest = JSON.parse(await readFile(join(extensionDir, "manifest.json"), "utf8"));
 	assert.equal(manifest.manifest_version, 3);
-	assert.equal(manifest.version, "0.11.0");
+	assert.equal(manifest.version, "0.12.0");
 	const digest = createHash("sha256").update(Buffer.from(manifest.key, "base64")).digest().subarray(0, 16);
 	const derived = [...digest].flatMap((byte) => [byte >> 4, byte & 15]).map((nibble) => String.fromCharCode(97 + nibble)).join("");
 	assert.equal(derived, extensionId);
-	assert.deepEqual([...manifest.permissions].sort(), ["alarms", "debugger", "nativeMessaging", "storage", "tabGroups", "tabs"].sort());
+	// `downloads` (T22) is the only added permission; it is required to route agent downloads
+	// and it shows the user a new permission line on the next install.
+	assert.deepEqual([...manifest.permissions].sort(), ["alarms", "debugger", "downloads", "nativeMessaging", "storage", "tabGroups", "tabs"].sort());
 	assert.equal(Object.hasOwn(manifest, "host_permissions"), false);
 	assert.equal(Object.hasOwn(manifest, "content_scripts"), false);
 	const worker = await readFile(join(extensionDir, "service-worker.js"), "utf8");

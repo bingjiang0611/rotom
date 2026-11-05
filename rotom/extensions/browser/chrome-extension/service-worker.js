@@ -9,6 +9,7 @@ import { isBrowserKeyV1, keyEventV1, normalizeModifiersV1 } from "./key-table.js
 import { DIALOG_CURRENT_TAB_OPERATIONS_V1, createDialogStateV1 } from "./dialog-state.js";
 import { BROWSER_POINTER_ACTIONS_V1, dragSequenceV1, pointerSequenceV1 } from "./pointer-events.js";
 import { readInteractionSensitivity, sensitivityFromFactsV1 } from "./sensitive-actions.js";
+import { MAX_DOWNLOAD_RECORDS_V1, downloadOwnerAgentIdV1, downloadRecordV1, downloadRelativeFilenameV1 } from "./downloads.js";
 import { createNetworkCaptureV1, parseNetworkCursorV1, sanitizeNetworkLimitV1, sanitizeNetworkPatternV1, sanitizeNetworkResourceTypeV1 } from "./network-buffer.js";
 import { checkBrowserTabQuotasV1, DEFAULT_BROWSER_TAB_QUOTAS_V1, sanitizeBrowserTabQuotasV1 } from "./tab-quotas.js";
 import { createFocusCoordinator } from "./focus-coordinator.js";
@@ -1186,6 +1187,10 @@ async function performInteraction(name, item, payload, assertOperation = () => u
 			return { schemaVersion: 1, kind: "needs-approval", tabName: name, origin: currentOrigin ?? "", capability: "write", reason: "origin" };
 		}
 	}
+	if (payload.allowDownload !== undefined) {
+		const owner = sessionOwningTabId(item.tabId);
+		if (owner) owner.allowDownload = payload.allowDownload === true;
+	}
 	const target = await interactionTarget(name, item, payload, assertOperation);
 	assertOperation();
 	// A sensitive target is refused before anything is dispatched: Pi asks the user and
@@ -1600,6 +1605,10 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 		Object.assign(state, sessionPrincipalFromHello(payload, state.sessionId));
 		// Lease-driven in T9; until then the launcher passes it through the environment.
 		state.keepTabs = payload.keepTabs === true;
+		// Downloads: the main agent may always; a child only after it declared a lease that
+		// allows it (see the interact path). Persisted so a page-initiated download that
+		// arrives before the next interact still follows the last known answer.
+		if (state.leaseToken === undefined) state.allowDownload = true;
 		// Never trust the client's numbers: an unusable value falls back to the defaults.
 		state.tabQuotas = sanitizeBrowserTabQuotasV1(payload.tabQuotas) ?? { ...DEFAULT_BROWSER_TAB_QUOTAS_V1 };
 		await persistState();
@@ -1808,6 +1817,22 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 		assertOperation();
 		const binding = mintCoordinateObservation(item, metricsAfter);
 		return { schemaVersion: 1, kind: "rotom-browser-screenshot", tabName: name, tabId: item.tabId, documentGeneration: item.documentGeneration, observationEpoch: binding.observationEpoch, viewport: binding.viewport, mimeType: "image/jpeg", data: captured.data };
+	}
+	if (operation === "downloads") {
+		// Read from Chrome, not from an in-memory buffer: a download outlives the worker.
+		const agentId = state.agentId ?? DEFAULT_AGENT_ID;
+		// Newest first, sorted here because Chrome rejects an `id` orderBy field.
+		const found = await chrome.downloads.search({ limit: 200 });
+		if (Array.isArray(found)) found.sort((left, right) => (right?.id ?? 0) - (left?.id ?? 0));
+		assertOperation();
+		const records = [];
+		for (const item of Array.isArray(found) ? found : []) {
+			const record = downloadRecordV1(item, agentId);
+			if (record !== undefined) records.push(record);
+			if (records.length >= MAX_DOWNLOAD_RECORDS_V1) break;
+		}
+		const blocked = (blockedDownloadsByAgentId.get(agentId) ?? []).slice(-MAX_DOWNLOAD_RECORDS_V1);
+		return { schemaVersion: 1, kind: "rotom-browser-downloads", agentId, downloads: records, blocked };
 	}
 	if (operation === "interact") { const { name, item } = owned(state, payload.tabName); return performInteraction(name, item, payload, assertOperation); }
 	if (operation === "close") {
@@ -2039,6 +2064,53 @@ chrome.debugger.onDetach.addListener((source) => {
 	if (!Number.isInteger(source.tabId)) return;
 	childSessionsByTabId.delete(source.tabId);
 	for (const item of allSessionItems()) if (item.tabId === source.tabId) { item.detached = true; item.attached = false; invalidateCoordinateObservation(item); }
+});
+// Downloads refused because the child lease has no `allow.download`. Memory-only: the
+// refusal is a signal for the current session, not a history to resurrect.
+const blockedDownloadsByAgentId = new Map();
+function recordBlockedDownloadV1(agentId, reason) {
+	const list = blockedDownloadsByAgentId.get(agentId) ?? [];
+	list.push({ reason, at: Date.now() });
+	if (list.length > MAX_DOWNLOAD_RECORDS_V1) list.splice(0, list.length - MAX_DOWNLOAD_RECORDS_V1);
+	blockedDownloadsByAgentId.set(agentId, list);
+}
+/**
+ * Redirect only downloads started by an agent-owned tab into `rotom/<agentId>/`.
+ *
+ * Anything ambiguous or foreign is left alone: the listener returns without calling
+ * `suggest()`, so Chrome keeps the page's suggested name and the user's own layout.
+ */
+async function onDeterminingFilenameV1(item, suggest) {
+	try {
+		// Claimed tabs are included so the owner lookup can see that the page is the user's.
+		const ownedTabs = [...sessionStates.values()].flatMap((state) => [...state.tabsByName.values()].map((ownedItem) => ({
+			ownership: ownedItem.ownership,
+			tabId: ownedItem.tabId,
+			url: ownedItem.url,
+			agentId: state.agentId ?? DEFAULT_AGENT_ID,
+			// The main agent always may download; a child may only after it declared a lease
+			// that allows it, so an undeclared child is a refusal, not a default yes.
+			allowDownload: state.leaseToken === undefined ? true : state.allowDownload === true,
+		})));
+		const agentId = downloadOwnerAgentIdV1({ tabId: item?.tabId, referrer: item?.referrer }, ownedTabs);
+		if (agentId === undefined) return;
+		const owner = ownedTabs.find((candidate) => candidate.agentId === agentId);
+		if (owner && owner.allowDownload === false) {
+			recordBlockedDownloadV1(agentId, "download");
+			try { await chrome.downloads.cancel(item.id); } catch { /* already gone */ }
+			return;
+		}
+		const filename = downloadRelativeFilenameV1({ agentId, suggestedFilename: typeof item?.filename === "string" ? item.filename : "" });
+		if (filename === undefined) return;
+		suggest({ filename, conflictAction: "uniquify" });
+	} catch { /* never block a download because our own bookkeeping failed */ }
+}
+
+chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
+	if (!item || item.byExtensionId === chrome.runtime.id) return false;
+	// Must answer synchronously; the async work below resolves before Chrome gives up.
+	void onDeterminingFilenameV1(item, suggest);
+	return true;
 });
 chrome.runtime.onStartup.addListener(connectNative);
 chrome.runtime.onInstalled.addListener(connectNative);

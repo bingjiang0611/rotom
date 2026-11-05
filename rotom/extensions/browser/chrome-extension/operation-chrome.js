@@ -2,7 +2,7 @@
 // finish after retirement. Cleanup listeners remain removable after retirement.
 export function operationChrome(api, assertOperation) {
 	const scoped = {};
-	for (const name of ["debugger", "tabs", "windows", "tabGroups"]) {
+	for (const name of ["debugger", "tabs", "windows", "tabGroups", "downloads"]) {
 		scoped[name] = new Proxy(api[name], {
 			get(target, key) {
 				const value = target[key];

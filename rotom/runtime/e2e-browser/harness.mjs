@@ -138,6 +138,12 @@ export async function launchHarness(input = {}) {
 	const realProductBefore = realProductPaths.map((path) => inventory(path));
 	const home = privateDirectory(join(root, "home"));
 	const profileDir = privateDirectory(join(root, "profile"));
+	// Chrome ignores HOME when it resolves the default download directory, so a download
+	// suite would otherwise write into the operator's real ~/Downloads. Seed the pref before
+	// Chrome starts; the directory lives under this harness root and is removed with it.
+	const downloadsDir = privateDirectory(join(home, "Downloads"));
+	privateDirectory(join(profileDir, "Default"));
+	writePrivateFile(join(profileDir, "Default", "Preferences"), `${JSON.stringify({ download: { default_directory: downloadsDir, prompt_for_download: false, directory_upgrade: true } })}\n`);
 	const relayDir = privateDirectory(join(home, "Library", "Application Support", "rotom", "browser-relay"));
 	const socketPath = join(relayDir, "relay.sock");
 	privateDirectory(join(home, "Library", "Application Support"));

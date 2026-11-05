@@ -84,6 +84,7 @@
     "extensions/browser/chrome-extension/pointer-events.js",
     "extensions/browser/chrome-extension/dialog-state.js",
     "extensions/browser/chrome-extension/sensitive-actions.js",
+    "extensions/browser/chrome-extension/downloads.js",
     "extensions/browser/upload-guard.ts",
     "extensions/browser/batch-actions.ts",
     "extensions/browser/browser-policy.ts",

@@ -308,6 +308,15 @@ ${Array.from({ length: LARGE_PARAGRAPHS }, (_, index) => `<p>Paragraph ${index +
 <div role="status" id="large-tail">Large document tail sentinel</div>
 </main>`;
 
+// Download fixture pages. The agent gets its own page so the referrer identifies it;
+// the user tab keeps `/baseline`, which is also where the agent's own smoke tab sits.
+const DOWNLOAD_PAGE_BODY = `
+<main>
+  <h2>Download page</h2>
+  <a href="/download" download="agent-fixture.txt">Download fixture</a>
+  <div role="status" id="download-state">idle</div>
+</main>`;
+
 // Checkout fixture for the confirmation suite: a form whose button says "Continue"
 // (no sensitive word) but which contains a `cc-*` autocomplete field, plus one button
 // whose accessible name is a sensitive word. Both write their own result to the page.
@@ -353,6 +362,7 @@ export function defaultPages({ frameOrigin }) {
 		["/dialog", htmlDocument("Dialog fixture", DIALOG_BODY)],
 		["/redirect-target", htmlDocument("Redirect target", REDIRECT_TARGET_BODY)],
 		["/checkout", htmlDocument("Checkout", CHECKOUT_BODY)],
+		["/download-page", htmlDocument("Download page", DOWNLOAD_PAGE_BODY)],
 	]);
 }
 
