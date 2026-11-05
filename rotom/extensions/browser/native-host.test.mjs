@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { createConnection, createServer } from "node:net";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
 
@@ -121,9 +121,10 @@ test("OS lock excludes a competing stale reclaimer across the final check/unlink
 	const anchor = '\t\tif (!sameSocket(lstatSync(socketPath), info)) throw new Error("browser relay socket changed during probe");';
 	assert.equal(source.split(anchor).length, 2);
 	const ready = join(f.home, "check-complete"), release = join(f.home, "release-check");
-	const instrumented = join(f.home, "paused-host.mjs");
+	// Same directory as the real host, so its relative platform import resolves.
+	const instrumented = join(dirname(hostPath), `.paused-host-${process.pid}.mjs`);
+	t.after(() => rm(instrumented, { force: true }));
 	await writeFile(instrumented, source
-		.replace('#!/usr/bin/env node\n', '#!/usr/bin/env node\nimport { writeFileSync } from "node:fs";\n')
 		.replace(anchor, `${anchor}\n\t\twriteFileSync(process.env.CHECK_READY, "ready"); while (!existsSync(process.env.CHECK_RELEASE)) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);`));
 	const owner = f.start(instrumented, { CHECK_READY: ready, CHECK_RELEASE: release });
 	const deadline = Date.now() + 5_000;

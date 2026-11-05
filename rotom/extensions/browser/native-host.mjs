@@ -1,16 +1,19 @@
 #!/usr/bin/env node
 
-import { chmodSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, unlinkSync } from "node:fs";
+import { chmodSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { createConnection, createServer } from "node:net";
+import { browserRelayDirectoryV1, browserRelayLockPathV1, browserRelaySocketPathV1 } from "./platform-paths.mjs";
 
 const SCHEMA_VERSION = 1;
 // One frame, not one response: a large response travels as <= 256 KiB chunks.
 const MAX_MESSAGE_BYTES = 1024 * 1024;
-const relayDir = join(homedir(), "Library", "Application Support", "rotom", "browser-relay");
-const socketPath = join(relayDir, "relay.sock");
+// Socket and lock locations come from one platform module so the Pi client, this host
+// and the installer can never disagree about where the relay lives.
+const relayDir = browserRelayDirectoryV1();
+const socketPath = browserRelaySocketPathV1();
+const lockPath = browserRelayLockPathV1();
 let nativeBuffer = Buffer.alloc(0);
 const clients = new Set();
 const clientBuffers = new Map();
@@ -19,17 +22,41 @@ const pendingRoutes = new Map();
 let stdoutChain = Promise.resolve();
 let socketIdentity;
 
-function ensurePrivateDirectory(path) {
-	if (!existsSync(path)) mkdirSync(path, { mode: 0o700 });
+function ensurePrivateDirectory(path, recursive = false) {
+	if (!existsSync(path)) mkdirSync(path, { mode: 0o700, recursive });
 	const info = lstatSync(path);
 	if (!info.isDirectory() || info.isSymbolicLink() || (info.mode & 0o077) !== 0) throw new Error(`browser relay private directory 无效：${path}`);
 }
 
 function setupDirectories() {
-	const applicationSupport = join(homedir(), "Library", "Application Support");
-	if (!existsSync(applicationSupport) || !lstatSync(applicationSupport).isDirectory()) throw new Error("Application Support 目录不存在");
-	ensurePrivateDirectory(join(applicationSupport, "rotom"));
-	ensurePrivateDirectory(relayDir);
+	// Create the relay directory and any missing parent: on Linux the runtime directory is
+	// recreated empty after a reboot, so a pre-created parent cannot be assumed.
+	ensurePrivateDirectory(relayDir, true);
+}
+
+/**
+ * Windows lock: an exclusive lock file that records the owner pid. A lock left behind by
+ * a killed process is adopted only after that pid is proven gone (ESRCH).
+ */
+function acquirePidLock(path) {
+	for (let attempt = 0; attempt < 2; attempt += 1) {
+		try {
+			const fd = openSync(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0), 0o600);
+			try { writeFileSync(fd, `${process.pid}\n`); } finally { /* keep fd open for the process lifetime */ }
+			process.once("exit", () => { try { unlinkSync(path); } catch { /* already gone */ } });
+			return;
+		} catch (error) {
+			if (error?.code !== "EEXIST") throw error;
+		}
+		const owner = Number.parseInt(readFileSync(path, "utf8").trim(), 10);
+		if (Number.isInteger(owner) && owner > 0) {
+			try { process.kill(owner, 0); throw new Error("另一个 browser relay native host 已运行"); }
+			catch (error) { if (error?.code !== "ESRCH") throw error; }
+		}
+		// The recorded owner is gone: retire the stale claim and try once more.
+		try { unlinkSync(path); } catch (error) { if (error?.code !== "ENOENT") throw error; }
+	}
+	throw new Error("browser relay lock unavailable; no socket mutation");
 }
 
 function routeKey(message) {
@@ -184,15 +211,20 @@ async function main() {
 	// socket cleanup. Never unlink this lock file: SIGKILL releases the OS lock.
 	// Descriptor-mode lockf/flock leaves the lock held by our inherited fd after
 	// the short-lived helper exits; no PID checks, stale timers or lock breaking.
-	const lockPath = join(relayDir, "relay.lock");
 	const lockFd = openSync(lockPath, constants.O_RDWR | constants.O_CREAT | constants.O_NOFOLLOW, 0o600);
 	const lockInfo = fstatSync(lockFd);
 	if (!lockInfo.isFile() || lockInfo.nlink !== 1 || lockInfo.uid !== process.getuid() || (lockInfo.mode & 0o077) !== 0) throw new Error("browser relay lock identity invalid");
-	if (process.platform !== "darwin" && process.platform !== "linux") throw new Error("browser relay lock platform unsupported");
-	const command = process.platform === "darwin" ? "/usr/bin/lockf" : "/usr/bin/flock";
-	const args = process.platform === "darwin" ? ["-s", "-t", "0", "3"] : ["-n", "3"];
-	const locked = spawnSync(command, args, { stdio: ["ignore", "ignore", "ignore", lockFd], timeout: 3_000 });
-	if (locked.error || locked.status !== 0) throw new Error("browser relay lock unavailable; no socket mutation");
+	if (process.platform === "darwin" || process.platform === "linux") {
+		const command = process.platform === "darwin" ? "/usr/bin/lockf" : "/usr/bin/flock";
+		const args = process.platform === "darwin" ? ["-s", "-t", "0", "3"] : ["-n", "3"];
+		const locked = spawnSync(command, args, { stdio: ["ignore", "ignore", "ignore", lockFd], timeout: 3_000 });
+		if (locked.error || locked.status !== 0) throw new Error("browser relay lock unavailable; no socket mutation");
+	} else {
+		// Windows has no lockf/flock on an inherited descriptor, so the pid in the lock
+		// file is the claim: taken by exclusive create, released by unlink on exit, and
+		// adopted only after the recorded pid is proven gone. L1: not verified on Windows.
+		acquirePidLock(lockPath);
+	}
 	const currentLock = lstatSync(lockPath);
 	if (currentLock.isSymbolicLink() || currentLock.dev !== lockInfo.dev || currentLock.ino !== lockInfo.ino) throw new Error("browser relay lock identity changed");
 	const server = createServer((client) => {

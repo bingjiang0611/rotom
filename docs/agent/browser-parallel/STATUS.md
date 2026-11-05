@@ -10,7 +10,7 @@
 | M1 并行底座 | ready-for-review | `browser(T11)` | T1–T11 完成；`parallel-4` 连续 3 次通过，延迟数据见下 |
 | M3 交互与安全 | ready-for-review | `browser(T21)` | T15–T21 完成；M3 完成标准：7 个 M3 suite（keyboard/pointer/upload/dialog/batch/policy/confirm）全部通过，`check-personal` EXIT=0，footprint 27 846 → 30 923（+11.0%，限 30%） |
 | M2 调试 P0 | ready-for-review | `browser(T14)` | T12、T13、T14 完成；三个 suite + check-personal 通过，footprint 已对比 |
-| M4 devtools 与平台 | in-progress | `browser(T22)`…`browser(T23)` | T22、T23 完成；T24、T25 未开始 |
+| M4 devtools 与平台 | in-progress | `browser(T22)`…`browser(T24)` | T22、T23、T24 完成；T25 未开始 |
 
 状态取值：`not-started`、`in-progress`、`ready-for-review`、`changes-requested`、`accepted`。
 “最后 commit”用 commit message 里的任务标记引用，hash 见 `git log`。
@@ -231,3 +231,17 @@
 - **T23 / 没有 tab 的 trace 允许被顶掉。** Chrome 的 tracing 是浏览器级会话，全局只允许一个；但若记录的 tab 已被关掉就再也停不下来，所以 `trace_start` 会先丢弃这种残留记录，而不是让后续所有 trace 永久失败。
 - **T23 / `reset` 用 `width/height 0`。** 实测 `Emulation.clearDeviceMetricsOverride` 会让最后一次覆盖的宽度留在页面上；`{width:0,height:0,deviceScaleFactor:0,mobile:false}` 才是协议里写明的关闭方式，UA 则用 `Browser.getVersion` 的真实 UA 回填。
 
+
+### T24 跨平台路径与多浏览器
+
+- `rotom/extensions/browser/platform-paths.mjs` 成为 socket / lock / native host 注册位置的唯一来源；`browser-relay.ts`、`native-host.mjs`、`install-chrome-relay.mjs` 全部改用它。
+- macOS 路径逐字不变（单测断言），升级后不断连。Linux 用 `$XDG_RUNTIME_DIR/rotom/browser-relay/`，无该变量或非绝对路径时退回 `~/.local/state/rotom/browser-relay/`。Windows 用命名管道 `\\.\pipe\rotom-browser-relay-<用户名摘要>`，注册表 key 为 `HKCU\Software\<浏览器>\NativeMessagingHosts\dev.rotom.browser_relay`。
+- `install-chrome-relay.mjs` 支持 `--browser chrome|chromium|edge|brave|vivaldi|arc`（不带参数时探测已安装浏览器，再退回 chrome）；`/browser install --browser <id>` 透传，未知名字在用户确认前本地拒绝；`process.platform !== "darwin"` 的硬拒绝改成按平台分支。
+- 两条既有 macOS-only 失败改为跨平台：`chrome-extension.test.mjs` 的 `/private/tmp` 改用 `tmpdir()`；`component-storage.test.mjs` 去掉 darwin skip，路径改由 platform-paths 计算，并把 `platform-paths.mjs` 加入复制清单。
+- `native-host.mjs` 自己创建 relay 目录（Linux 重启后 runtime 目录为空），lock 路径统一；Windows 分支用 pid 独占锁文件（L1）。
+- 验证：`platform-paths.test.mjs` 7/7，`component-storage` 2/2，`chrome-extension` 28/28，`native-host` 8/8，`index.test.ts` 58/58；`./rotom/bin/check-personal` EXIT=0（549 + 99）；全量 e2e 116/116（22 suite）。
+
+**L2（本机实测）**：macOS 上 installer status 仍指向同一 manifest、`registrationValid: true`；全部 suite 与 check-personal 通过。
+**L1（未实测）**：Windows 的命名管道、注册表注册与 pid 锁文件只由 `platform-paths.test.mjs` 与代码分支覆盖；Windows installer 返回 `manual-registration-required` 并打印 `reg add` 命令，不写注册表。Linux 只由单测与 platform-paths 覆盖，未在 Linux 实机跑 `run.mjs`。
+**自行决定**：`/browser install` 用命令参数 `--browser` 而不是第二个选择菜单，保持「一次确认」的既有交互合同；`browserIdsV1` 对未知平台返回空数组（能力探测），路径函数仍抛错。
+**文档待补**：`docs/usage.md`、`docs/agent/change-checklists.md`、根 `CLAUDE.md` §6、e2e `README.md` 中关于跨平台路径与 `--browser` 的说明尚未更新。

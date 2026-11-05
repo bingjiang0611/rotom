@@ -46,6 +46,7 @@ import {
 // 判据，而不是把它发到 relay 再拿错误回来。
 import { INTERACTION_EXPECTATIONS, parseInteractionExpectation } from "./chrome-extension/interaction-target-state.js";
 import { MAX_UPLOAD_FILES_V1, validateUploadPathsV1 } from "./upload-guard.ts";
+import { browserIdsV1 } from "./platform-paths.mjs";
 import { MAX_BATCH_STEPS_V1, batchErrorOutcomeV1, batchStepOutcomeV1, batchStepSummaryV1, parseBatchActionsV1 } from "./batch-actions.ts";
 import { isDeferredByDefault } from "../third-party/deferred-tools/register.ts";
 import { BROWSER_DEVTOOLS_TOOL_V1, DEVTOOLS_OPERATIONS_V1, DEVTOOLS_WORLDS_V1, MAX_DEVTOOLS_EXPRESSION_CHARS_V1, MAX_NETWORK_REQUEST_ID_CHARS_V1, MAX_TRACE_BYTES_V1, RECORD_FPS_V1, RECORD_MAX_BYTES_V1, RECORD_MAX_FRAMES_V1, boundDevtoolsTextV1, devtoolsEnabledByEnvironment, resolveViewportV1, sanitizeDevtoolsExpressionV1, sanitizeDevtoolsOperationV1, sanitizeDevtoolsWorldV1, sanitizeExportQualityV1, viewportPresetNamesV1 } from "./devtools.ts";
@@ -113,7 +114,7 @@ type SnapshotCursorV1 = { observation: BrowserObservationV1; offset: number; exp
 
 export interface BrowserCommandDependenciesV1 {
 	platform: NodeJS.Platform;
-	runInstaller(operation: "install" | "status", signal: AbortSignal): Promise<unknown>;
+	runInstaller(operation: "install" | "status", signal: AbortSignal, browser?: string): Promise<unknown>;
 	probeRelay(signal: AbortSignal): Promise<void>;
 }
 
@@ -135,7 +136,7 @@ function defaultCommandDependenciesV1(): BrowserCommandDependenciesV1 {
 	const socketPath = browserRelaySocketPathV1();
 	return {
 		platform: process.platform,
-		async runInstaller(operation, signal) {
+		async runInstaller(operation, signal, browser) {
 			// Fixed product-owned script and canonical current Node; never resolve a command
 			// from cwd/PATH or forward credentials/NODE_OPTIONS into this maintenance child.
 			for (const path of [BROWSER_INSTALLER, process.execPath]) {
@@ -144,7 +145,7 @@ function defaultCommandDependenciesV1(): BrowserCommandDependenciesV1 {
 			}
 			signal.throwIfAborted();
 			const stdout = await new Promise<string>((resolve, reject) => {
-				execFile(process.execPath, [BROWSER_INSTALLER, operation], {
+				execFile(process.execPath, [BROWSER_INSTALLER, operation, ...(browser === undefined ? [] : ["--browser", browser])], {
 					env: { HOME: home }, signal, timeout: 10_000, maxBuffer: 16 * 1024, encoding: "utf8",
 				}, (error, stdout) => error ? reject(error) : resolve(stdout));
 			});
@@ -1487,7 +1488,9 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 				const input = args.trim();
 				if (Buffer.byteLength(input, "utf8") > 4_096 || input.includes("\0")) { ctx.ui.notify("/browser 参数过长或无效。", "warning"); return; }
 				// Only exact administrative commands are reserved; preserve the entire task.
-				operation = input === "install" || input === "status" ? input : "use";
+				// `install [--browser <id>]` stays an administrative command; every other input is
+				// a browser task and is forwarded verbatim.
+				operation = /^install(?:\s+--browser(?:=|\s+)[a-z-]+)?$/u.test(input) ? "install" : input === "status" ? "status" : "use";
 				let task = operation === "use" ? input : "";
 				if (operation === "use") {
 					if (!ctx.isIdle()) { ctx.ui.notify("当前任务尚未结束，请空闲后再使用 /browser。", "warning"); return; }
@@ -1503,17 +1506,34 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 					pi.sendUserMessage(`请使用 browser_inspect，以及当前可用的 browser_interact，完成以下浏览器任务。遵守现有观测绑定、权限范围与未知写入不重放规则；不要通过 shell 或桌面输入回退。\n\n用户任务：\n${task}`, { expandPromptTemplates: false });
 					return;
 				}
-				if (commandIO.platform !== "darwin") { ctx.ui.notify("当前 Chrome Relay 安装器仅支持 macOS；未执行安装或状态探测。", "warning"); return; }
+				const installBrowsers = browserIdsV1(commandIO.platform);
+				if (installBrowsers.length === 0) { ctx.ui.notify(`当前平台（${commandIO.platform}）没有已验证的 Chrome Relay 安装路径；未执行安装或状态探测。`, "warning"); return; }
 				if (operation === "install") {
 					if (!ctx.isIdle()) { ctx.ui.notify("请等待当前任务结束后再安装，避免影响正在使用的浏览器连接。", "warning"); return; }
+					// The browser is a command argument, not a second menu: `/browser install` keeps
+					// its single confirmation, and without `--browser` the installer detects one.
+					// An unsupported name is refused before the user is asked to confirm anything.
+					const requested = /(?:^|\s)--browser(?:=|\s)([a-z-]+)/u.exec(args)?.[1];
+					if (requested !== undefined && !installBrowsers.includes(requested)) { ctx.ui.notify(`不支持的浏览器：${requested}（可用：${installBrowsers.join("|")}）；未执行安装。`, "warning"); return; }
+					const browser = requested ?? installBrowsers[0];
 					const accepted = await ctx.ui.confirm("注册 Chrome Relay？", "将浏览器组件写入一个固定目录（跨 rotom 发行版本不变），并更新同一用户共享的 Chrome native host 注册，影响其他 rotom 安装的后续连接。组件内容变化时会原子替换该目录；不会自动重载 Chrome 扩展或打断活跃标签。首次需手动加载该目录，此后升级只需在 chrome://extensions 点扩展刷新（↻）；请先结束活跃浏览器任务。", { signal: controller.signal });
 					assertOwner();
 					if (!accepted) return;
+					// Which browser gets the native host is a user choice: registering into the
+					// wrong Chromium family silently leaves the real browser disconnected.
+					assertOwner();
+					if (browser === undefined) return;
 					if (!ctx.isIdle()) { ctx.ui.notify("当前已有任务运行，未执行安装。", "warning"); return; }
 					installDispatched = true;
-					const result = await commandIO.runInstaller("install", controller.signal);
+					const result = await commandIO.runInstaller("install", controller.signal, browser);
 					assertOwner();
-					if (!record(result) || result.status !== "installed") throw new Error("Invalid installer acknowledgement");
+					if (!record(result) || (result.status !== "installed" && result.status !== "manual-registration-required")) throw new Error("Invalid installer acknowledgement");
+					if (result.status === "manual-registration-required") {
+						// Windows registers in HKCU, which this product has not verified: hand the
+						// exact command to the user instead of claiming the host is connected.
+						ctx.ui.notify(`已写入 native host 文件，但 Windows 需要在你的终端执行一次注册命令（未在本环境实测）：\n${String(result.registryCommand ?? "")}`, "warning");
+						return;
+					}
 					const first = flag(result, "firstInstall");
 					const reloadNeeded = flag(result, "reloadNeeded");
 					const hostOnly = flag(result, "hostOnlyUpdate");
