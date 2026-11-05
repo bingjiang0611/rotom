@@ -76,6 +76,7 @@ Context Layers 是用户明确要求独立实现并默认启用的新产品 exte
 - 已加载 specialized tools 在当前 session 内不主动移除；group state 与 active tool 子序列按 product declaration order canonicalize，相同 group 集合不因加载顺序产生不同最终 identity。
 - resume/fork 必须恢复 capability state；升级前无 deferred state 的旧 session 允许首次多一次 `search_tools`。
 - 不把静态 bytes、byte/4 或固定 canary 写成 provider 精确 token、成本或全局延迟收益。
+- Browser relay 的性能基线以 [performance-baseline.md](docs/agent/browser-parallel/performance-baseline.md) 为准，用 `rotom/runtime/e2e-browser/bench.mjs` 在同机复测。改动观察、交互、滚动、持久化或 `read_full` 路径后应跑一次基准并对照基线；新增的"先等一段时间再读"写法必须说明在等什么，能轮询到条件满足的不要固定睡。基线与其中数字只描述这台 Mac、headless Chrome 与本地 fixture 的单次调用成本，不是端到端任务延迟，也不是对外性能承诺；换机器只比量级，不减内容地变快不算优化。
 - 新能力只有接入完成并通过对应 L1/L2/L3 后才能对外声明为已启用；当前事实以运行时合同、测试和本文件为准。
 
 ### 4. 本机执行不等于安全隔离
@@ -158,6 +159,7 @@ Browser relay 的后台标签、AX/DOM ref、viewport、document generation 和 
 
 - 纯文档/Agent 配置：`git diff --check` 并核对引用路径、命令、合同与边界；不构建、不启动 App、不升版本。改可执行脚本按代码处理。
 - 普通代码：运行受影响测试及本项目对应 type/lint/build，不把全量发布 gate 套到小改动。
+- Browser 性能相关改动：同机跑 `bench.mjs` 对照基线，报告改动前后的 P50/P95；只快但少读了内容（`nodes`、`steps`、`contentCoverage` 变了）按错误处理。
 - UI 修复：记录原始操作、预期及相邻路径，补 focused 回归，在当前版本真实 App 重放；构建/自动测试与真实交互结果分别报告，截图/设备/Provider 不可用则明确未验证。
 - 跨核心安全/持久化边界、高风险合入或发布：真实外部操作、成本和设备授权不可由本地测试替代。
 - 可继续修授权范围内的本地失败并重跑受影响检查；既有失败单列、不顺手扩大，外部未知/授权不足/需用户决定时停下交接。
