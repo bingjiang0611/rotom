@@ -42,6 +42,21 @@ export function sanitizeViewportOverrideV1(value) {
 	return { width, height, deviceScaleFactor, mobile, touch, ...(userAgent === undefined ? {} : { userAgent }) };
 }
 
+/** A service worker has atob/btoa but no Buffer: convert explicitly at the edges. */
+export function bytesFromBase64V1(value) {
+	const binary = atob(value);
+	const bytes = new Uint8Array(binary.length);
+	for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+	return bytes;
+}
+
+export function base64FromBytesV1(bytes) {
+	let binary = "";
+	const step = 0x8000;
+	for (let offset = 0; offset < bytes.length; offset += step) binary += String.fromCharCode(...bytes.subarray(offset, offset + step));
+	return btoa(binary);
+}
+
 /** Screenshot export request: format is explicit, quality only applies to JPEG. */
 export function sanitizeExportRequestV1(payload) {
 	const format = payload?.format;

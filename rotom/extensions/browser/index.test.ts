@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, realpathSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
+
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -1444,6 +1445,13 @@ test("browser downloads：列表只回模型安全字段、完成态带 sha256�
 	}
 });
 
+// A tiny but real trace: one 120 ms main-thread task and one layout shift.
+const TRACE_FIXTURE = Buffer.from(JSON.stringify({ traceEvents: [
+	{ name: "RunTask", dur: 120_000, args: { data: { url: "https://example.test/app.js" } } },
+	{ name: "LayoutShift", args: { data: { score: 0.07 } } },
+	{ name: "EvaluateScript", dur: 30_000, args: { data: { url: "https://example.test/app.js", lineNumber: 4 } } },
+] }));
+
 // 1x1 PNG: real image bytes, so the export path is proven with a decodable file.
 const ONE_PIXEL_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
 
@@ -1476,6 +1484,8 @@ test("browser_devtools：默认隔离世界、main world 必须确认、拒绝�
 			if (operation === "tabs") return { schemaVersion: 1, kind: "rotom-browser-tabs", tabs: [{ name: "code", tabId: 31, documentGeneration: 1, url: "https://example.test/globals", title: "code", status: "complete", current: true, browserActive: false, ownership: "agent", relayAttached: true }] };
 			if (operation === "devtools") {
 				dispatched.push(payload);
+				if (payload.devtools === "trace_start") return { schemaVersion: 1, kind: "rotom-browser-devtools", devtools: "trace_start", tabName: "code", tabId: 31, startedAt: new Date(0).toISOString(), categories: ["devtools.timeline"] };
+				if (payload.devtools === "trace_stop") return { schemaVersion: 1, kind: "rotom-browser-devtools", devtools: "trace_stop", tabName: "code", tabId: 31, documentGeneration: 1, bytes: TRACE_FIXTURE.length, dataLossOccurred: false, traceBase64: TRACE_FIXTURE.toString("base64") };
 				if (payload.devtools === "network_body") return { schemaVersion: 1, kind: "rotom-browser-devtools", devtools: "network_body", tabName: "code", tabId: 31, documentGeneration: 1, requestId: payload.requestId, url: "https://example.test/json", status: 200, mimeType: "application/json", resourceType: "Fetch", bodyText: "{\"message\":\"rotom-json-fixture\"}", truncated: false, bytes: 30, captureSince: new Date(0).toISOString(), note: "only requests issued after network_body was first enabled can be read" };
 				if (payload.devtools === "screenshot_export") return { schemaVersion: 1, kind: "rotom-browser-devtools", devtools: "screenshot_export", tabName: "code", tabId: 31, documentGeneration: 1, format: payload.format, fullPage: payload.fullPage === true, bytes: ONE_PIXEL_PNG.length, data: ONE_PIXEL_PNG.toString("base64") };
 				return payload.devtools === "viewport"
@@ -1563,11 +1573,24 @@ test("browser_devtools：默认隔离世界、main world 必须确认、拒绝�
 		await assert.rejects(tool.execute("devtools-body-missing", { operation: "network_body" }, undefined, undefined, ctx), /requestId/u);
 		await assert.rejects(tool.execute("devtools-body-mixed", { operation: "evaluate", expression: "1", requestId: "1000.2" }, undefined, undefined, ctx), /只用于 network_body/u);
 
+		// trace：完整文件落盘，模型拿摘要。
+		const traceStarted = await tool.execute("devtools-trace-start", { operation: "trace_start" }, undefined, undefined, ctx);
+		assert.equal(traceStarted.details.devtools, "trace_start");
+		const traceStopped = await tool.execute("devtools-trace-stop", { operation: "trace_stop" }, undefined, undefined, ctx);
+		assert.equal(traceStopped.details.kind, "browser-trace");
+		assert.equal(traceStopped.details.bytes, TRACE_FIXTURE.length);
+		assert.equal(traceStopped.details.longTasks, 1);
+		assert.equal(traceStopped.details.cls, 0.07);
+		assert.equal(traceStopped.details.slowestScripts[0].line, 5);
+		assert.ok(traceStopped.details.path.startsWith(join(tmpdir(), "rotom-traces")), traceStopped.details.path);
+		assert.deepEqual(await readFile(traceStopped.details.path), TRACE_FIXTURE, "trace 文件必须与 relay 字节一致");
+		await assert.rejects(tool.execute("devtools-trace-mixed", { operation: "trace_start", expression: "1" }, undefined, undefined, ctx), /expression\/world/u);
+
 		// 参数在本地就被拒，不产生任何请求。
 		const count = dispatched.length;
 		await assert.rejects(tool.execute("devtools-empty", { operation: "evaluate", expression: "   " }, undefined, undefined, ctx), /expression/u);
 		await assert.rejects(tool.execute("devtools-world", { operation: "evaluate", expression: "1", world: "page" }, undefined, undefined, ctx), /world/u);
-		await assert.rejects(tool.execute("devtools-op", { operation: "trace_start" }, undefined, undefined, ctx), /operation/u);
+		await assert.rejects(tool.execute("devtools-op", { operation: "record_start" }, undefined, undefined, ctx), /operation/u);
 		await assert.rejects(tool.execute("devtools-preset", { operation: "viewport", viewport: "iphone-99" }, undefined, undefined, ctx), /viewport/u);
 		await assert.rejects(tool.execute("devtools-mixed", { operation: "viewport", viewport: "reset", expression: "1" }, undefined, undefined, ctx), /evaluate 参数/u);
 		assert.equal(dispatched.length, count, "非法参数不得派发");
