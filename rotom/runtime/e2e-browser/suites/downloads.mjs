@@ -6,8 +6,21 @@
 // keep the browser's default location.
 
 import assert from "node:assert/strict";
+import { readdir } from "node:fs/promises";
+import { join } from "node:path";
 import { loadBrowserTools } from "../browser-tools.mjs";
 import { relayRequestFor } from "../harness.mjs";
+
+/** Waits for a finished download file in one directory and returns its absolute path. */
+async function waitForFile(directory, prefix) {
+	for (let attempt = 0; attempt < 60; attempt += 1) {
+		const names = await readdir(directory, { withFileTypes: true }).catch(() => []);
+		const found = names.find((entry) => entry.isFile() && entry.name.startsWith(prefix));
+		if (found) return join(directory, found.name);
+		await new Promise((resolve) => setTimeout(resolve, 200));
+	}
+	throw new Error(`${directory} 里没有出现 ${prefix} 下载文件`);
+}
 
 export const startUrlPage = "/baseline";
 
@@ -70,6 +83,12 @@ export async function run({ harness, fixtures, recorder, workspace }) {
 			await new Promise((resolve) => setTimeout(resolve, 1_500));
 			const listed = await tools.inspect({ operation: "downloads" });
 			assert.equal((listed.details.downloads ?? []).length, 1, `用户下载不得进入 agent 目录：${JSON.stringify(listed.details.downloads)}`);
+			// The user's file must also finish where Chrome put it: a listener that answers
+			// `true` without calling `suggest()` would leave the download determining forever.
+			const placed = await waitForFile(harness.downloadsDir, "fixture");
+			assert.match(placed, /\/fixture(?: \(\d+\))?\.txt$/u, `用户下载应留在浏览器默认目录：${placed}`);
+			assert.equal(placed.includes("/romot/"), false, "用户下载不得被重定向进 agent 目录");
+			assert.equal(placed.includes("/rotom/"), false, "用户下载不得被重定向进 agent 目录");
 		});
 		await recorder.check("子 agent 未声明 allow.download 时下载被取消并报 blocked，声明后放行", async () => {
 			// Close the main agent's page first: two agent tabs on the same page would make the

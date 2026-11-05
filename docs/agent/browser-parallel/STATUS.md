@@ -264,3 +264,10 @@
 - 公开审计 `python3 scripts/audit-public.py --root .` 恢复 PASS：测试里的示例 HOME 改用审计认可的示例用户名，`upload-guard.ts` 注释同理；没有放宽任何规则。
 - 验证：`baseline`/`isolation`/`chunked` 三个 suite 在 macOS 复跑仍全绿（16 条断言）。
 - **仍未验证**：Linux 实机。本机没有 Linux 容器，以上改动只有平台分支单测与代码审查证据，Linux 仍是 L1；评审环境里的 11 项 e2e 失败（screenshot 超时级联、chunked 空 nodes、pointer 拖拽 `effect.action` 缺失）未在本机复现，也没有在本轮修复。
+
+### 评审第 1 轮修复：子 lease 范围与下载回调
+
+- **子 lease 只来自用户授权**：`publishLeaseScope` 不再遍历 `tabs` 返回的 URL，只用 `parentGrantedOrigins`（本 run 里用户真正批准或策略 allowlist 放行的 origin）。claim 来的用户 tab、302 落点、页面自行导航都不再进入子 lease。`index.test.ts` 断言发布的 origins 恰好是用户授权的那一个，且 tab 当前 URL 不在其中。
+- **子 agent 不再绕过 blocklist**：`policyDenial` 的子分支（有 lease token）先读策略文件判 blocklist，命中返回 `needs-approval/blocklist` 且不派发；策略文件不可读按 `invalid-policy` 拒绝，与父分支一致。子分支不写父授权集合，因此不会污染下一个子 agent 的 lease。新增单测：租约允许该 origin、策略文件 blocklist 也含它时，子 agent 被拒、无请求、无询问。
+- **`onDeterminingFilename` 恰好回答一次**：listener 返回 `true` 后所有不重定向的分支（无 owner、下载被取消、文件名不可用、异常）都调用无参 `suggest()`，并用一次性守卫防重复。e2e `downloads` 新增断言：用户 tab 的下载真的落到浏览器默认目录（`fixture*.txt` 在 Downloads 根下），不在 `rotom/` 下。
+- 验证：`index.test.ts` 58/58、`browser-policy`+`browser-lease` 11/11、e2e `policy` 5/5 + `lease` 8/8 + `downloads` 3/3。

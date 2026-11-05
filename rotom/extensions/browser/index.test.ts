@@ -1135,10 +1135,13 @@ test("browser policy：blocklist 拒绝、无 UI 按拒绝、会话允许只影�
 	const { writeBrowserPolicyV1, readBrowserPolicyV1, BROWSER_POLICY_PATH_ENV_V1 } = await import("./browser-policy.ts");
 	const policyPath = await allowPolicyFor(workspace, []);
 	const opened: string[] = [];
+	// The same extension serves the parent and its children, so the lease token is what
+	// decides which side of the policy gate runs.
+	let childLeaseToken: string | undefined;
 	const relay = {
 		get closed() { return false; },
 		close() {},
-		get leaseToken() { return undefined; },
+		get leaseToken() { return childLeaseToken; },
 		get keepTabs() { return false; },
 		rootSessionId: "root-session",
 		get socketPath() { return join(workspace, "relay.sock"); },
@@ -1186,7 +1189,11 @@ test("browser policy：blocklist 拒绝、无 UI 按拒绝、会话允许只影�
 		await tool.execute("policy-tabs", { operation: "tabs" }, undefined, undefined, selecting(true));
 		const published = JSON.parse(process.env.ROTOM_BROWSER_LEASE_SCOPE ?? "{}");
 		assert.equal(published.rootSessionId, "root-session", "父 agent 发布的 lease scope 必须带 rootSessionId");
-		assert.ok(published.origins.includes("https://allowed.test"));
+		// Only what the user authorized is published. The tab's current URL is not a grant:
+		// it can change through a redirect, a page-initiated navigation, or by claiming a tab
+		// the user already had open, so a child lease must not inherit it.
+		assert.deepEqual(published.origins, ["https://unknown.test"], `父授权 origin 只来自用户授权：${JSON.stringify(published.origins)}`);
+		assert.equal(published.origins.includes("https://allowed.test"), false, "tab 当前 URL 不得进入子 lease");
 		const afterOnce = await tool.execute("policy-once-again", { operation: "open", tabName: "site", url: "https://unknown.test/y" }, undefined, undefined, ctx0());
 		assert.equal(afterOnce.details.reason, "no-ui", "允许一次不能变成会话授权");
 		assert.deepEqual((await readBrowserPolicyV1(policyPath)).allowlist, [], "允许一次不写策略文件");
@@ -1218,6 +1225,21 @@ test("browser policy：blocklist 拒绝、无 UI 按拒绝、会话允许只影�
 		const child = JSON.parse(await readFile(childFile, "utf8"));
 		assert.deepEqual(child.origins, ["https://allowed.test", "https://second.test"], "父 agent 的确认必须传给本次 run 的子 lease");
 		assert.notEqual(process.env[BROWSER_POLICY_PATH_ENV_V1], undefined);
+
+		// A child's authorization is its lease, but the user's blocklist still applies: a
+		// lease that names an origin cannot overrule a refused site.
+		const blockedPolicy = { blocklist: ["https://allowed.test"], allowlist: [{ origin: "https://allowed.test", capabilities: ["interact", "read"] }] };
+		await writeFile(policyPath, JSON.stringify(blockedPolicy), { mode: 0o600 });
+		await chmod(policyPath, 0o600);
+		childLeaseToken = "child";
+		const openedBefore = opened.length;
+		const choicesBeforeChild = choices.length;
+		const childBlocked = await tool.execute("policy-child-blocklist", { operation: "open", tabName: "site", url: "https://allowed.test/x" }, undefined, undefined, selecting(true, "本会话允许"));
+		assert.equal(childBlocked.details.kind, "needs-approval");
+		assert.equal(childBlocked.details.reason, "blocklist", "子 agent 也不得绕过用户 blocklist");
+		assert.equal(opened.length, openedBefore, "blocklist 拒绝的子 agent 请求不得派发");
+		assert.equal(choices.length, choicesBeforeChild, "子 agent 不产生询问");
+		childLeaseToken = undefined;
 	} finally {
 		for (const handler of browser.handlers.get("session_shutdown") ?? []) await handler({ type: "session_shutdown", reason: "quit" }, {});
 		await rm(workspace, { recursive: true, force: true });

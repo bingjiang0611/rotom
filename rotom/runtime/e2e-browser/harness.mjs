@@ -276,7 +276,7 @@ export async function launchHarness(input = {}) {
 		changed: JSON.stringify(inventory(path)) !== JSON.stringify(realProductBefore[index]),
 	}));
 
-	return { chromeExecutable, root, home, profileDir, socketPath, nativeHostLog, chromeLogPath, chrome, headless, connect, close, discard, realHomeUntouched };
+	return { chromeExecutable, root, home, profileDir, downloadsDir, socketPath, nativeHostLog, chromeLogPath, chrome, headless, connect, close, discard, realHomeUntouched };
 }
 
 /** Wait until the extension's native host relay socket accepts a handshake. */
