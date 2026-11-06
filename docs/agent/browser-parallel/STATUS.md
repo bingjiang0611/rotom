@@ -11,6 +11,7 @@
 | M3 交互与安全 | ready-for-review | `browser(T21)` | T15–T21 完成；M3 完成标准：7 个 M3 suite（keyboard/pointer/upload/dialog/batch/policy/confirm）全部通过，`check-personal` EXIT=0，footprint 27 846 → 30 923（+11.0%，限 30%） |
 | M2 调试 P0 | ready-for-review | `browser(T14)` | T12、T13、T14 完成；三个 suite + check-personal 通过，footprint 已对比 |
 | M4 devtools 与平台 | ready-for-review | `browser(T22)`…`browser(T25)` | T22–T25 完成；商店提交等用户 |
+| T26 性能基线与爬坡 | ready-for-review | `bench(browser)` / `perf(browser)` | 基线文档 + `bench.mjs` + `settle` suite；固定等待类优化已收尾，逐项数字见基线文档 |
 
 状态取值：`not-started`、`in-progress`、`ready-for-review`、`changes-requested`、`accepted`。
 “最后 commit”用 commit message 里的任务标记引用，hash 见 `git log`。
