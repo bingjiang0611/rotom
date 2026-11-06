@@ -5,8 +5,14 @@
  * a second path can attach to the already-running instance (`-10825`), which would
  * mean a script that believes it started its own process is actually operating the
  * operator's. Every run therefore copies the fixture to a fresh directory, gives it
- * a new bundle id (`com.example.cu-fixture.<timestamp>`), re-signs the copy ad hoc,
- * and deletes it afterwards.
+ * a new bundle id (`com.example.cu-fixture.<timestamp>`), re-signs the copy, and
+ * deletes it afterwards.
+ *
+ * Signing an ad-hoc copy is not enough on machines where amfid refuses ad-hoc apps:
+ * `open` then fails with `RBSRequestErrorDomain Code=5` / `launchd job spawn failed`
+ * and the run never reaches an action (observed 2026-11-06). Set
+ * `PI_CU_FIXTURE_SIGN_IDENTITY` to a real code-signing identity in that case; the
+ * ad-hoc signature stays the default because most machines have no such identity.
  */
 import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -30,7 +36,13 @@ function readBundleId(infoPlistPath) {
  * Throws when the bundle id could not be changed: a copy that still claims the
  * original identity is exactly the `-10825` trap this exists to avoid.
  */
-export function prepareFixtureRun({ sourceApp, runRoot, stamp = String(Date.now()), sign = true }) {
+export function prepareFixtureRun({
+	sourceApp,
+	runRoot,
+	stamp = String(Date.now()),
+	sign = true,
+	identity = process.env.PI_CU_FIXTURE_SIGN_IDENTITY,
+}) {
 	if (!existsSync(sourceApp)) throw new Error(`fixture not found: ${sourceApp}`);
 	const bundleId = `${FIXTURE_BUNDLE_PREFIX}${stamp}`;
 	const dir = path.join(runRoot, `fixture-${stamp}`);
@@ -45,9 +57,11 @@ export function prepareFixtureRun({ sourceApp, runRoot, stamp = String(Date.now(
 	writeFileSync(infoPlist, replaced);
 	if (readBundleId(infoPlist) !== bundleId) throw new Error(`bundle id rewrite did not stick: ${readBundleId(infoPlist)}`);
 
-	// Ad-hoc signature: an unsigned copy is killed by the OS, and a re-signed copy is
-	// what makes the new bundle identity real. Skipped only by the layout dry run.
-	if (sign) execFileSync("codesign", ["--force", "--deep", "--sign", "-", bundlePath], { stdio: "pipe" });
+	// Re-signing is what makes the new bundle identity real; an unsigned copy is killed
+	// by the OS. `identity` is used when the machine refuses ad-hoc signatures.
+	if (sign) {
+		execFileSync("codesign", ["--force", "--deep", "--sign", identity || "-", bundlePath], { stdio: "pipe" });
+	}
 	return { bundlePath, bundleId, dir, sourceApp };
 }
 
