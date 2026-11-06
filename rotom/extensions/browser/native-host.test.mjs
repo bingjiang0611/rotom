@@ -3,17 +3,24 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { createConnection, createServer } from "node:net";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
+
+import { browserRelayDirectoryV1, browserRelayLockPathV1, browserRelaySocketPathV1 } from "./platform-paths.mjs";
 
 const hostPath = resolve("rotom/extensions/browser/native-host.mjs");
 
 async function fixture(t) {
 	// Keep Unix socket paths within the platform's sun_path limit.
 	const home = await mkdtemp("/tmp/rotom-host-");
-	await mkdir(join(home, "Library", "Application Support"), { recursive: true });
-	const socketPath = join(home, "Library", "Application Support", "rotom", "browser-relay", "relay.sock");
+	// The same platform module the host uses, so this test asserts the real layout on
+	// every OS instead of a macOS-shaped copy.
+	const relayEnv = { ...process.env, XDG_RUNTIME_DIR: undefined };
+	const socketPath = browserRelaySocketPathV1({ platform: process.platform, home, env: relayEnv });
+	// Only the grandparent: the host insists on creating its own relay directory, so a
+	// pre-created one with the wrong mode would make it exit before listening.
+	await mkdir(dirname(dirname(socketPath)), { recursive: true });
 	const hosts = [];
 	t.after(async () => {
 		for (const host of hosts) {
@@ -87,7 +94,7 @@ test("duplicate native host cannot unlink the live owner's socket", { timeout: 1
 test("native host reclaims a refused stale socket and cleans its own socket on EOF", { timeout: 10_000 }, async (t) => {
 	const f = await fixture(t);
 	const crashed = f.start(); await f.ready(crashed);
-	const lockPath = join(f.home, "Library/Application Support/rotom/browser-relay/relay.lock");
+	const lockPath = browserRelayLockPathV1({ platform: process.platform, home: f.home, env: { ...process.env, XDG_RUNTIME_DIR: undefined } });
 	const lockInfo = await lstat(lockPath);
 	assert.equal(lockInfo.mode & 0o077, 0);
 	crashed.child.kill("SIGKILL"); await crashed.closed;
@@ -104,7 +111,7 @@ test("native host reclaims a refused stale socket and cleans its own socket on E
 
 test("native host rejects a symlink lock before touching any socket", { timeout: 10_000 }, async (t) => {
 	const f = await fixture(t);
-	const directory = join(f.home, "Library/Application Support/rotom/browser-relay");
+	const directory = browserRelayDirectoryV1({ platform: process.platform, home: f.home, env: { ...process.env, XDG_RUNTIME_DIR: undefined } });
 	await mkdir(directory, { recursive: true, mode: 0o700 });
 	const sentinel = join(f.home, "sentinel"); await writeFile(sentinel, "keep", { mode: 0o600 });
 	await symlink(sentinel, join(directory, "relay.lock"));
@@ -121,9 +128,10 @@ test("OS lock excludes a competing stale reclaimer across the final check/unlink
 	const anchor = '\t\tif (!sameSocket(lstatSync(socketPath), info)) throw new Error("browser relay socket changed during probe");';
 	assert.equal(source.split(anchor).length, 2);
 	const ready = join(f.home, "check-complete"), release = join(f.home, "release-check");
-	const instrumented = join(f.home, "paused-host.mjs");
+	// Same directory as the real host, so its relative platform import resolves.
+	const instrumented = join(dirname(hostPath), `.paused-host-${process.pid}.mjs`);
+	t.after(() => rm(instrumented, { force: true }));
 	await writeFile(instrumented, source
-		.replace('#!/usr/bin/env node\n', '#!/usr/bin/env node\nimport { writeFileSync } from "node:fs";\n')
 		.replace(anchor, `${anchor}\n\t\twriteFileSync(process.env.CHECK_READY, "ready"); while (!existsSync(process.env.CHECK_RELEASE)) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);`));
 	const owner = f.start(instrumented, { CHECK_READY: ready, CHECK_RELEASE: release });
 	const deadline = Date.now() + 5_000;
@@ -158,3 +166,87 @@ for (const shutdown of ["EOF", "SIGTERM"]) {
 		socket.destroy();
 	});
 }
+
+test("一个客户端收分块大响应时，另一个客户端的小响应不被阻塞", { timeout: 10_000 }, async (t) => {
+	const f = await fixture(t);
+	const host = f.start(); await f.ready(host);
+	// Two clients, distinct request identities on the same session binding.
+	const open = async (id) => {
+		const socket = createConnection(f.socketPath);
+		t.after(() => socket.destroy());
+		await once(socket, "connect");
+		socket.write(`${JSON.stringify({ schemaVersion: 1, kind: "request", id, sessionId: "fixture", generation: "one", operation: "hello", payload: {} })}\n`);
+		return socket;
+	};
+	const readLines = (socket) => {
+		const lines = [];
+		let buffer = "";
+		socket.setEncoding("utf8");
+		socket.on("data", (chunk) => {
+			buffer += chunk;
+			for (;;) {
+				const newline = buffer.indexOf("\n");
+				if (newline < 0) break;
+				lines.push(JSON.parse(buffer.slice(0, newline)));
+				buffer = buffer.slice(newline + 1);
+			}
+		});
+		return lines;
+	};
+	const forwarded = { text: "" };
+	host.child.stdout.on("data", (data) => { forwarded.text += data.toString("binary"); });
+	const big = await open("big"); const bigLines = readLines(big);
+	const small = await open("small"); const smallLines = readLines(small);
+	// The host only routes a response whose request it has already forwarded.
+	for (const id of ["big", "small"]) {
+		const deadlineAt = Date.now() + 5_000;
+		while (Date.now() < deadlineAt && !forwarded.text.includes(`"id":"${id}"`)) await delay(10);
+		assert.ok(forwarded.text.includes(`"id":"${id}"`), `host 必须先转发 ${id} 的请求`);
+	}
+	const write = (message) => {
+		const payload = Buffer.from(JSON.stringify(message));
+		const header = Buffer.alloc(4); header.writeUInt32LE(payload.length);
+		host.child.stdin.write(Buffer.concat([header, payload]));
+	};
+	const chunk = (index, count, data) => ({ schemaVersion: 1, kind: "response-chunk", id: "big", sessionId: "fixture", generation: "one", chunk: { index, count, sha256: "0".repeat(64), data } });
+	// First chunk, then the other client's whole answer, then the rest: the small
+	// response must land between them instead of waiting for the large one.
+	write(chunk(0, 3, "a".repeat(1_000)));
+	write({ schemaVersion: 1, kind: "response", id: "small", sessionId: "fixture", generation: "one", ok: true, result: { alive: true } });
+	const order = [];
+	const deadline = Date.now() + 5_000;
+	while (Date.now() < deadline && (bigLines.length + smallLines.length) < 2) await delay(10);
+	order.push(...bigLines.map((line) => line.id), ...smallLines.map((line) => line.id));
+	assert.equal(order[0], "big", "第一块必须已经转发");
+	assert.equal(order[1], "small", "小响应必须在剩余分块之前到达，而不是等大响应结束");
+	assert.equal(smallLines.length, 1);
+	write(chunk(1, 3, "b".repeat(1_000)));
+	write(chunk(2, 3, "c".repeat(1_000)));
+	while (Date.now() < deadline && bigLines.length < 3) await delay(10);
+	assert.deepEqual(bigLines.map((line) => line.chunk.index), [0, 1, 2], "分块按序原样转发");
+	// The route is only complete after the last chunk: another request reuses the id.
+	const repeated = { schemaVersion: 1, kind: "request", id: "big", sessionId: "fixture", generation: "one", operation: "hello", payload: {} };
+	big.write(`${JSON.stringify(repeated)}\n`);
+	const countRequests = () => forwarded.text.split('"id":"big"').length - 1;
+	const repeatDeadline = Date.now() + 5_000;
+	while (Date.now() < repeatDeadline && countRequests() < 2) await delay(10);
+	assert.equal(countRequests(), 2, "最后一块之后请求身份才被释放，同一 id 才能再次转发");
+});
+
+test("native host 拒绝结构不合法的分块帧", { timeout: 10_000 }, async (t) => {
+	const f = await fixture(t);
+	const host = f.start(); await f.ready(host);
+	const socket = createConnection(f.socketPath);
+	t.after(() => socket.destroy());
+	await once(socket, "connect");
+	socket.write(`${JSON.stringify({ schemaVersion: 1, kind: "request", id: "bad", sessionId: "fixture", generation: "one", operation: "hello", payload: {} })}\n`);
+	const forwarded = { text: "" };
+	host.child.stdout.on("data", (data) => { forwarded.text += data.toString("binary"); });
+	const routedAt = Date.now() + 5_000;
+	while (Date.now() < routedAt && !forwarded.text.includes('"id":"bad"')) await delay(10);
+	const payload = Buffer.from(JSON.stringify({ schemaVersion: 1, kind: "response-chunk", id: "bad", sessionId: "fixture", generation: "one", chunk: { index: 3, count: 2, sha256: "0".repeat(64), data: "x" } }));
+	const header = Buffer.alloc(4); header.writeUInt32LE(payload.length);
+	host.child.stdin.write(Buffer.concat([header, payload]));
+	// A malformed native frame is a host-level protocol error, not a client result.
+	assert.deepEqual(await host.closed, [74, null]);
+});

@@ -76,17 +76,25 @@ export function scrollableTextTargets(rootDocument = document, maxTargets = 3) {
 	return targets;
 }
 
+/** Overlap between scroll steps. Smaller overlap means fewer round trips, but a page that
+ * shifts while scrolling can then skip a line, so this stays close to a full screen. */
 export function fullReadScrollStep(clientHeight) {
-	return Math.max(1, Math.floor(clientHeight * 0.75));
+	return Math.max(1, Math.floor(clientHeight * 0.9));
 }
 
+/**
+ * `maxSteps` is reported back but does not decide completeness: `endReached` already says
+ * every container reached its end, so a read that used its whole step budget and also
+ * reached the end is complete. Treating "spent the budget" as "unproven" made a document
+ * that finished exactly at the ceiling report as unfinished.
+ */
 export function fullReadCoverage(sources, truncated, maxSteps, framesComplete) {
 	const scanSteps = sources.reduce((sum, source) => sum + source.scanSteps, 0);
 	const scannedContainers = sources.reduce((sum, source) => sum + source.scannedContainers, 0);
 	const scrolledContainers = sources.reduce((sum, source) => sum + source.scrolledContainers, 0);
 	return {
 		contentCoverage: scrolledContainers > 0 ? "scroll-end" : "rendered-dom",
-		contentComplete: scrolledContainers > 0 && framesComplete && sources.every((source) => source.endReached) && !truncated && scanSteps < maxSteps,
+		contentComplete: scrolledContainers > 0 && framesComplete && sources.every((source) => source.endReached) && !truncated,
 		scanSteps, scannedContainers, scrolledContainers,
 	};
 }

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { lstat, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { createConnection } from "node:net";
 import test from "node:test";
@@ -10,6 +10,10 @@ import { fullReadCoverage, fullReadScrollStep, mergeRenderedText, scrollableText
 import { compactInteractionReadback, observationTextBaseline, observedInteractionNode } from "./chrome-extension/interaction-observation.js";
 import { invalidateCoordinateObservation, mintCoordinateObservation, validateCoordinateBinding, validateCoordinateHit } from "./chrome-extension/coordinate-click.js";
 import { interactionScrollTarget } from "./chrome-extension/interaction-scroll-target.js";
+import { browserRelayDirectoryV1, browserRelaySocketPathV1 } from "./platform-paths.mjs";
+
+// XDG_RUNTIME_DIR is cleared so a Linux run keeps the relay under the temporary home.
+const RELAY_ENV = { XDG_RUNTIME_DIR: undefined };
 import { createOperationGuard } from "./chrome-extension/operation-guard.js";
 import { consumeMatchingWindowOpenSignal } from "./chrome-extension/window-open-correlation.js";
 import { RELAY_SETTLE_MS, relayClientTimeoutMs, relayOperationDeadlineMs, runWithRelayDeadline, valueWithinRelayDeadline } from "./chrome-extension/relay-deadline.js";
@@ -17,10 +21,12 @@ import { collectRenderedText, utf8TextChunks } from "./chrome-extension/rendered
 import { collectPageAlerts, pageAlertNodes } from "./chrome-extension/page-alerts.js";
 import { evaluateInteractionExpectation, interactionTargetChange, parseInteractionExpectation, readInteractionTargetState } from "./chrome-extension/interaction-target-state.js";
 import { formatScopedAxRef, parseScopedAxRef } from "./chrome-extension/scoped-ax-ref.js";
-import { agentOwnedTabIdsInWindow, placeAgentTabsInSharedGroup } from "./chrome-extension/shared-tab-group.js";
+import { AGENT_GROUP_COLORS, agentGroupColor, agentGroupTitle, agentOwnedTabIdsInWindow, placeAgentTabsInSharedGroup } from "./chrome-extension/shared-tab-group.js";
 import { applyOwnedTabUpdate, collectListedOwnedTabs, isMissingChromeTabError, listedOwnedTabStatus, ownedTabNotFoundError, relayUrl, retireOwnedTabName } from "./chrome-extension/tab-list-status.js";
+import { DEFAULT_AGENT_ID, isMainAgentPrincipal, restoredSessionPrincipal, sessionPrincipalFromHello, sessionPrincipalValue } from "./chrome-extension/session-principal.js";
 
 const root = resolve("rotom/extensions/browser");
+const restoreState_block = (worker) => worker.match(/async function restoreState\(\) \{[\s\S]*?\n\}/u)?.[0] ?? "";
 const extensionDir = join(root, "chrome-extension");
 const installer = join(root, "install-chrome-relay.mjs");
 const extensionId = "kgadcllokaodnoknakblocmhidemimdi";
@@ -28,11 +34,13 @@ const extensionId = "kgadcllokaodnoknakblocmhidemimdi";
 test("Chrome MV3 manifest 固定 identity 且不申请 cookie/script/host 权限", async () => {
 	const manifest = JSON.parse(await readFile(join(extensionDir, "manifest.json"), "utf8"));
 	assert.equal(manifest.manifest_version, 3);
-	assert.equal(manifest.version, "0.10.0");
+	assert.equal(manifest.version, "0.12.0");
 	const digest = createHash("sha256").update(Buffer.from(manifest.key, "base64")).digest().subarray(0, 16);
 	const derived = [...digest].flatMap((byte) => [byte >> 4, byte & 15]).map((nibble) => String.fromCharCode(97 + nibble)).join("");
 	assert.equal(derived, extensionId);
-	assert.deepEqual([...manifest.permissions].sort(), ["alarms", "debugger", "nativeMessaging", "storage", "tabGroups", "tabs"].sort());
+	// `downloads` (T22) is the only added permission; it is required to route agent downloads
+	// and it shows the user a new permission line on the next install.
+	assert.deepEqual([...manifest.permissions].sort(), ["alarms", "debugger", "downloads", "nativeMessaging", "storage", "tabGroups", "tabs"].sort());
 	assert.equal(Object.hasOwn(manifest, "host_permissions"), false);
 	assert.equal(Object.hasOwn(manifest, "content_scripts"), false);
 	const worker = await readFile(join(extensionDir, "service-worker.js"), "utf8");
@@ -57,7 +65,7 @@ test("Chrome MV3 manifest 固定 identity 且不申请 cookie/script/host 权限
 	assert.match(worker, /chrome\.debugger\.getTargets\(\)/u);
 	assert.match(worker, /candidate\.id === item\.targetId/u);
 	assert.match(worker, /state\.epoch !== expectedEpoch/u);
-	assert.match(worker, /protocolRevision: 20/u);
+	assert.match(worker, /protocolRevision: 21/u);
 	assert.match(worker, /"snapshot-query"/u);
 	assert.match(worker, /"targeted-keypress"/u);
 	assert.match(worker, /"virtualized-frame-scroll"/u);
@@ -66,7 +74,59 @@ test("Chrome MV3 manifest 固定 identity 且不申请 cookie/script/host 权限
 	assert.match(worker, /"interaction-target-state"/u);
 	assert.match(worker, /"page-alert-readback"/u);
 	assert.match(worker, /const sessionStates = new Map\(\)/u);
-	assert.match(worker, /browserRelayStateV2/u);
+	// Quotas are counted in the service worker only; `open` and `claim` must both pass
+	// the check and `hello` must never trust the client's numbers.
+	assert.match(worker, /assertTabQuotaAllowed\(state, itemOriginV1\(url\)\);/u);
+	// navigate must resolve history through CDP, respect the client lease origins and
+	// bump the document generation before dispatching anything.
+	assert.match(worker, /operation === "navigate"/u);
+	// Console: capture enabled on open, claimed tabs lazily, and every buffer dropped
+	// when the tab goes away so `captureSince` never lies.
+	assert.match(worker, /await enableConsoleCapture\(item, assertOperation\);/u);
+	assert.equal(worker.match(/Runtime\.enable/u)?.length >= 1, true);
+	assert.match(worker, /Log\.enable/u);
+	assert.match(worker, /Runtime\.consoleAPICalled/u);
+	assert.match(worker, /Runtime\.exceptionThrown/u);
+	assert.match(worker, /Log\.entryAdded/u);
+	assert.match(worker, /function forgetConsoleTabV1/u);
+	// Pointer actions share one sequence table; drags press, move at least five times and
+	// release, and HTML5 drags go through intercepted-or-synthesized CDP drag data.
+	assert.match(worker, /pointerSequenceV1\(target\.action, point\)/u);
+	assert.match(worker, /dragSequenceV1\(start, end\)/u);
+	assert.match(worker, /Input\.setInterceptDrags/u);
+	assert.match(worker, /Input\.dispatchDragEvent/u);
+	assert.match(worker, /"Input\.dragIntercepted"/u);
+	// Upload mounts real files through CDP but only on a file input, and only with the
+	// paths the tool layer already validated.
+	assert.match(worker, /DOM\.setFileInputFiles/u);
+	assert.match(worker, /this\.tagName === 'INPUT' && this\.type === 'file'/u);
+	assert.match(worker, /interaction upload paths invalid/u);
+	assert.match(worker, /interaction paths require upload/u);
+	// A suspended tab refuses every operation except the ones that can resolve or leave
+	// the tab, and the input dispatch that opens a dialog reports it instead of hanging.
+	assert.match(worker, /Page\.javascriptDialogOpening/u);
+	assert.match(worker, /Page\.javascriptDialogClosed/u);
+	assert.match(worker, /Page\.handleJavaScriptDialog/u);
+	assert.match(worker, /function dialogGateV1\(/u);
+	assert.match(worker, /dialogOpened: true/u);
+	// Keypress uses the shared key table and never invents a key: no insertText, no
+	// hand-written keyCode map, and the dispatch carries the table's parameters.
+	assert.match(worker, /keyEventV1\(key, modifiers\)/u);
+	assert.match(worker, /normalizeModifiersV1\(payload\.modifiers\)/u);
+	// input.insertText (lowercase) belongs to the `type` action; the keypress path must
+	// never call it. Only one call site exists, and it is guarded by action === "type".
+	assert.equal((worker.match(/Input\.insertText/gu) ?? []).length, 1);
+	// `type` is the only path that inserts text, and it is not the keypress branch.
+	assert.ok(worker.indexOf('target.action === "type"') < worker.indexOf("Input.insertText"));
+	assert.equal(worker.includes("windowsVirtualKeyCode: keyCode"), false);
+	assert.match(worker, /Page\.getNavigationHistory/u);
+	assert.match(worker, /Page\.navigateToHistoryEntry/u);
+	assert.match(worker, /Page\.reload/u);
+	assert.match(worker, /resetTransferredItemV1\(item\);|item\.documentGeneration = Number\.isSafeInteger\(item\.documentGeneration\)/u);
+	assert.equal(worker.match(/assertTabQuotaAllowed\(state, itemOriginV1\(url\)\);/gu).length, 2, "open 与 claim 都要计入配额");
+	assert.match(worker, /sanitizeBrowserTabQuotasV1\(payload\.tabQuotas\) \?\? \{ \.\.\.DEFAULT_BROWSER_TAB_QUOTAS_V1 \}/u);
+	assert.match(worker, /sessionStateKeyV3\(state\.sessionId\)/u, "持久化必须按 session 分 key");
+	assert.doesNotMatch(worker, /browserRelayStateV2: \{/u, "不得再写单文档 V2 状态");
 	assert.match(worker, /allSessionItems\(\)/u, "discover/claim 与 Chrome events 必须看到所有 relay session 的 tab ownership");
 	assert.match(worker, /chrome\.alarms\.create\(NATIVE_RECONNECT_ALARM/u, "Native Messaging 断开后必须有可唤醒 MV3 worker 的重连兜底");
 	assert.match(worker, /"oopif-accessibility"/u);
@@ -104,7 +164,8 @@ test("Chrome MV3 manifest 固定 identity 且不申请 cookie/script/host 权限
 	assert.match(worker, /resetAfterOperationTimeout\(state, operation, targetItem\)[\s\S]*?detachItemsPreservingState\(\[targetItem\]\)/u, "interaction/recover timeout 只能 detach 原标签");
 	assert.match(worker, /parsed === undefined \? undefined : observedInteractionNode\(item\.lastObservationNodes, parsed\.ref\)/u, "带 targetRef 的 scroll 必须拒绝最新 observation 中不存在的 stale ref");
 	assert.match(worker, /const node = observedInteractionNode\(item\.lastObservationNodes, parsed\.ref\)/u, "非 scroll 交互必须拒绝最新 observation 中不存在的 stale ref");
-	assert.match(worker, /createOperationGuard\(state, expectedEpoch\)[\s\S]*?operationGuard\.invalidate\(\)/u, "timeout 后必须用 operation revision 阻止迟到操作继续执行");
+	assert.match(worker, /createOperationGuard\(state, expectedEpoch, scopeKey\)[\s\S]*?operationGuard\.invalidate\(\)/u, "timeout 后必须用 operation revision 阻止迟到操作继续执行");
+	assert.match(worker, /const scopeKey = `tab:\$\{tabLockKeyV1\(message\.payload, state\.currentTabName\)\}`;/u, "operation revision 必须按 tab 作用域隔离");
 	assert.match(worker, /async function waitForTab\(name, item, payload, assertSession\)[\s\S]*?for \(;;\) \{[\s\S]*?assertSession\(\)/u, "长 wait 必须周期检查 session epoch，使 disconnect cleanup 和 reconnect 快速解除阻塞");
 	assert.match(worker, /const result = await observation\(name, item, assertSession\);[\s\S]*?assertSession\(\);[\s\S]*?return result/u, "wait 匹配后 observation 完成时必须再次检查 session，不能让断线后的 stale observation 阻塞 cleanup");
 	assert.match(tabListStatus, /\brelayAttached,/u, "tabs 必须暴露 relay 实际连接状态");
@@ -129,24 +190,42 @@ test("Chrome MV3 manifest 固定 identity 且不申请 cookie/script/host 权限
 	for (const eventType of ["mouseMoved", "mousePressed", "mouseReleased", "mouseWheel"]) assert.match(worker, new RegExp(`type: "${eventType}"`, "u"));
 	assert.match(worker, /DOM\.getNodeForLocation/u, "坐标 fallback 必须在 CDP mouse dispatch 前执行 DOM hit-test");
 	assert.match(worker, /coordinate screenshot observation epoch is stale|validateCoordinateBinding/u, "坐标 fallback 必须绑定最新 screenshot epoch");
-	assert.doesNotMatch(worker, /assertBackgroundOwned|chrome\.tabs\.onActivated|inputType === "password"|one-time-code|popupAttempted|interaction popup was blocked/u);
+	assert.doesNotMatch(worker, /assertBackgroundOwned|inputType === "password"|one-time-code|popupAttempted|interaction popup was blocked/u);
+	// tab 激活只能当作「用户焦点」信号进 focusCoordinator，不得再当作归属证据。
+	assert.equal(worker.split("chrome.tabs.onActivated").length - 1, 1);
+	assert.match(worker, /chrome\.tabs\.onActivated\.addListener\(\(info\) => \{ focusCoordinator\.recordActivation/u);
 	assert.match(worker, /closeOwnedIdentity\(state, name, tab\.id, item, assertOperation\)/u);
-	const tabsBlock = worker.match(/if \(operation === "tabs"\) \{[\s\S]*?return \{ schemaVersion: 1, kind: "rotom-browser-tabs", tabs \};\n\t\}/u)?.[0] ?? "";
+	const tabsBlock = worker.match(/if \(operation === "tabs"\) \{[\s\S]*?return \{ schemaVersion: 1, kind: "rotom-browser-tabs", \.\.\.sessionPrincipalValue\(state\), tabs: withDialogs \};\n\t\}/u)?.[0] ?? "";
 	assert.match(tabsBlock, /collectListedOwnedTabs/u, "tabs 必须通过可故障注入的非破坏 collector 降级状态");
+	assert.match(tabsBlock, /sessionPrincipalValue\(state\)/u, "tabs 结果必须带当前 session 的 agentId/rootSessionId");
+	// tabs 是弹窗期间唯一能看到「哪个 tab 被阻塞」的只读出口。
+	assert.match(tabsBlock, /dialogState\.get\(tab\.tabId\)/u, "tabs 必须带当前弹窗状态");
+	const principalBlock = worker.match(/if \(operation === "hello"\) \{[\s\S]*?capabilities:/u)?.[0] ?? "";
+	assert.match(principalBlock, /sessionPrincipalFromHello\(payload, state\.sessionId\)/u, "hello 必须校验并记录 browser principal");
+	assert.match(principalBlock, /await persistState\(\)/u, "principal 必须在 hello 时落盘，SW 重启后仍能归属 agent");
+	// The serialized shape moved to session-persistence.js (one key per session).
+	const persistenceModule = await readFile(resolve("rotom/extensions/browser/chrome-extension/session-persistence.js"), "utf8");
+	assert.match(persistenceModule, /agentId: state\.agentId/u);
+	assert.match(persistenceModule, /rootSessionId: state\.rootSessionId/u);
+	assert.match(worker, /serializeSessionStateV3\(state\)/u, "SW 必须用共享序列化写入 principal");
+	assert.match(restoreState_block(worker), /restoredSessionPrincipal\(stored, state\.sessionId\)/u, "SW 重启后必须恢复 principal");
 	assert.doesNotMatch(tabsBlock, /closeOwned|chrome\.tabs\.remove/u, "tabs 健康检查不得关闭标签或删除 ownership");
 	const restoreBlock = worker.match(/async function restoreState\(\) \{[\s\S]*?\n\}/u)?.[0] ?? "";
 	assert.match(restoreBlock, /try \{[\s\S]*?chrome\.debugger\.getTargets\(\)[\s\S]*?catch/u, "restore target 发现失败必须保留缓存 ownership");
 	assert.match(restoreBlock, /isMissingChromeTabError\(error\)/u, "restore 只能在 Chrome 明确确认 tab 不存在时丢弃登记");
 	assert.doesNotMatch(restoreBlock, /!target[^\n]*continue/u, "restore target 暂缺不得删除 ownership");
-	assert.match(worker, /operationChain: Promise\.resolve\(\)/u);
-	assert.match(worker, /state\.operationChain = state\.operationChain\.then\(\(\) => handleRequest\(message, state\)\)/u, "不同 relay session 必须使用独立 operation chain，不能被全局长任务阻塞");
-	assert.match(worker, /function queueRelaySessionCleanup\(sessionId, generation\)[\s\S]*?state\.epoch \+= 1;[\s\S]*?state\.operationChain = state\.operationChain\.then/u, "client disconnect 只失效对应 session，并与其 replacement hello 共用 session chain");
-	assert.match(worker, /persistChain = persistChain\.catch\(\(\) => undefined\)\.then/u, "并发 session 的 storage snapshot 必须串行落盘");
+	assert.match(worker, /lock: createSessionLockV1\(\), tabLocks: createTabLocksV1\(\)/u, "每个 relay session 有独立的 session 锁与 tab 锁，不能被其他 session 的长任务阻塞");
+	assert.match(worker, /isSessionScopedOperationV1\(message\.operation\)[\s\S]*?state\.lock\.write\(\(\) =>[\s\S]*?state\.lock\.read\(\(\) =>[\s\S]*?state\.tabLocks\.run\(/u, "结构性操作用 session 写锁，其余按 tab 加锁");
+	const cleanupBlock = worker.match(/function queueRelaySessionCleanup\(sessionId, generation\) \{[\s\S]*?\n\}/u)?.[0] ?? "";
+	assert.match(cleanupBlock, /state\.epoch \+= 1;/u, "client disconnect 只失效对应 session");
+	assert.match(cleanupBlock, /state\.lock\.write\(/u, "detach 全部标签是结构性操作，必须走 session 写锁");
+	assert.match(worker, /const sessionWriter = createMergedSessionWriter\(\{/u, "并发 session 的 storage 写入必须走合并写，且按 session 分 key");
 	assert.match(worker, /tabReservations\.has\(payload\.tabId\)[\s\S]*?tabReservations\.add\(payload\.tabId\)[\s\S]*?finally \{ tabReservations\.delete\(payload\.tabId\); \}/u, "并发 claim 必须全局原子保留 tab identity");
 	assert.match(worker, /message\.operation === "client-disconnected"[\s\S]*?queueRelaySessionCleanup\(message\.sessionId, message\.generation\)/u);
 	assert.match(worker, /nativePort\.onDisconnect\.addListener[\s\S]*?queueAllRelaySessionCleanup\(\)[\s\S]*?scheduleReconnect\(\)/u);
 	assert.match(worker, /withBackgroundActivationGuard\(item/u);
-	assert.match(worker, /chrome\.tabs\.update\(activeBefore\.id, \{ active: true \}\)/u, "click 创建新标签后必须恢复原活动标签");
+	assert.match(worker, /updateTab: async \(tabId\) => globalThis\.chrome\.tabs\.update\(tabId, \{ active: true \}\)/u, "click 创建新标签后必须恢复原活动标签");
+	assert.match(worker, /if \(!focusCoordinator\.userFocus\(\)\) await focusCoordinator\.observeActiveTab\(sourceTab\.windowId\)/u, "新启动的 service worker 必须先记录真实活动标签");
 	assert.match(worker, /chrome\.windows\.update\(windowId, \{ focused: false \}\)/u, "Chrome 原本后台时必须撤销 popup 窗口焦点");
 	assert.match(worker, /windowOpenGuardsByTabId[\s\S]*?method === "Page\.windowOpen"[\s\S]*?guard\.signals\.push/u, "noopener popup 必须通过 source-tab CDP windowOpen 信号关联，不能全局捕获其他 session 或用户的新 active tab");
 	assert.match(worker, /consumeMatchingWindowOpenSignal\(windowOpenGuard\.signals, tab/u, "Page.windowOpen 必须与 created tab URL 精确关联");
@@ -180,13 +259,14 @@ test("坐标点击绑定 screenshot epoch、文档 generation、viewport 与非�
 	assert.throws(() => validateCoordinateBinding(item, { observationEpoch: 1, documentGeneration: 4, x: 640, y: 400 }, metrics), /current browser screenshot/u);
 });
 
-test("同一窗口的 agent 标签收敛到唯一 Pi 分组，且不移动 claimed、固定或其他窗口标签", async () => {
+test("每个 agent 一个 tab 分组，不移动 claimed、固定或其他窗口标签", async () => {
 	const items = [
-		{ tabId: 11, ownership: "agent" },
-		{ tabId: 12, ownership: "agent" },
-		{ tabId: 13, ownership: "agent" },
-		{ tabId: 14, ownership: "claimed" },
-		{ tabId: 15, ownership: "agent" },
+		{ tabId: 11, ownership: "agent", agentId: "main" },
+		{ tabId: 12, ownership: "agent", agentId: "main" },
+		{ tabId: 13, ownership: "agent", agentId: "main" },
+		{ tabId: 14, ownership: "claimed", agentId: "main" },
+		{ tabId: 15, ownership: "agent", agentId: "main" },
+		{ tabId: 21, ownership: "agent", agentId: "run_abcdefghijklmnop" },
 	];
 	const tabs = [
 		{ id: 14, windowId: 7 },
@@ -194,21 +274,25 @@ test("同一窗口的 agent 标签收敛到唯一 Pi 分组，且不移动 claim
 		{ id: 13, windowId: 8 },
 		{ id: 15, windowId: 7, pinned: true },
 		{ id: 11, windowId: 7 },
+		{ id: 21, windowId: 7 },
 	];
-	assert.deepEqual(agentOwnedTabIdsInWindow(items, tabs, 7), [11, 12]);
+	assert.deepEqual(agentOwnedTabIdsInWindow(items, tabs, 7, "main"), [11, 12]);
+	assert.deepEqual(agentOwnedTabIdsInWindow(items, tabs, 7, "run_abcdefghijklmnop"), [21]);
 	const calls = [];
 	const result = await placeAgentTabsInSharedGroup({
 		createdTab: { id: 12, windowId: 7 },
 		items,
 		queryTabs: async (query) => { calls.push(["query", query]); return tabs; },
-		groupTabs: async (options) => { calls.push(["group", options]); return 91; },
+		groupTabs: async (options) => { calls.push(["group", options]); return options.tabIds.includes(21) ? 92 : 91; },
 		updateGroup: async (groupId, options) => { calls.push(["update", groupId, options]); },
 	});
-	assert.deepEqual(result, { groupId: 91, tabIds: [11, 12] });
+	assert.deepEqual(result.groups.map((group) => [group.agentId, group.groupId, group.tabIds]), [["main", 91, [11, 12]], ["run_abcdefghijklmnop", 92, [21]]]);
 	assert.deepEqual(calls, [
 		["query", { windowId: 7 }],
 		["group", { tabIds: [11, 12] }],
-		["update", 91, { title: "Pi", color: "blue", collapsed: false }],
+		["update", 91, { title: "rotom", color: agentGroupColor("main"), collapsed: false }],
+		["group", { tabIds: [21] }],
+		["update", 92, { title: "rotom · run_abcdefgh", color: agentGroupColor("run_abcdefghijklmnop"), collapsed: false }],
 	]);
 	await assert.rejects(() => placeAgentTabsInSharedGroup({
 		createdTab: { id: 99, windowId: 7 },
@@ -217,6 +301,18 @@ test("同一窗口的 agent 标签收敛到唯一 Pi 分组，且不移动 claim
 		groupTabs: async () => 92,
 		updateGroup: async () => undefined,
 	}), /created tab unavailable for grouping/u);
+});
+
+test("分组标题有界、颜色按 agentId 稳定哈希", () => {
+	assert.equal(agentGroupTitle(undefined), "rotom");
+	assert.equal(agentGroupTitle("main"), "rotom");
+	assert.equal(agentGroupTitle("run_abcdefghijklmnop"), "rotom · run_abcdefgh");
+	assert.equal(agentGroupTitle("短"), "rotom · 短");
+	for (const agentId of ["main", "run_1", "run_2", "run_abcdefghijklmnop"]) {
+		assert.equal(AGENT_GROUP_COLORS.includes(agentGroupColor(agentId)), true);
+		assert.equal(agentGroupColor(agentId), agentGroupColor(agentId), "同一 agentId 必须稳定");
+	}
+	assert.notEqual(agentGroupColor("run_1"), agentGroupColor("run_2"), "不同 agent 至少示例上分到不同颜色");
 });
 
 test("tabs target 暂缺时保留标签 identity 并返回 detached 状态", () => {
@@ -404,8 +500,25 @@ test("full-read completion requires actual scrolling and all bounded sources; sh
 	assert.equal(fullReadCoverage([still], false, 60, true).contentCoverage, "rendered-dom");
 	const moved = { ...still, scrolledContainers: 1 };
 	assert.equal(fullReadCoverage([moved], false, 60, true).contentComplete, true);
-	for (const [sources, truncated, maxSteps, framesComplete] of [[[moved], true, 60, true], [[moved], false, 3, true], [[moved], false, 60, false], [[moved, { ...still, endReached: false }], false, 60, true]]) assert.equal(fullReadCoverage(sources, truncated, maxSteps, framesComplete).contentComplete, false);
+	// Spending the whole step budget is not itself incomplete: a read that reached the end
+	// at the ceiling is complete, otherwise a finished document reports as unfinished.
+	assert.equal(fullReadCoverage([{ ...moved, scanSteps: 60 }], false, 60, true).contentComplete, true);
+	for (const [sources, truncated, maxSteps, framesComplete] of [[[moved], true, 60, true], [[moved], false, 60, false], [[moved, { ...still, endReached: false }], false, 60, true]]) assert.equal(fullReadCoverage(sources, truncated, maxSteps, framesComplete).contentComplete, false);
 	for (const height of [120, 160, 700]) assert.ok(fullReadScrollStep(height) > 0 && fullReadScrollStep(height) < height);
+});
+
+test("hello principal：缺省按主 agent，显式字段生效，坏值拒绝", () => {
+	assert.deepEqual(sessionPrincipalFromHello({}, "session-1"), { agentId: DEFAULT_AGENT_ID, rootSessionId: "session-1" }, "旧客户端不带字段时按主 agent 处理");
+	assert.deepEqual(sessionPrincipalFromHello({ agentId: "run_9", rootSessionId: "root-7", leaseToken: "lease-a" }, "session-2"),
+		{ agentId: "run_9", rootSessionId: "root-7", leaseToken: "lease-a" });
+	for (const payload of [{ agentId: "" }, { agentId: 7 }, { agentId: "a b" }, { agentId: "x".repeat(129) }, { rootSessionId: "line\nbreak" }, { leaseToken: "\u0000" }]) {
+		assert.throws(() => sessionPrincipalFromHello(payload, "session-3"), /invalid/u, JSON.stringify(payload));
+	}
+	assert.deepEqual(restoredSessionPrincipal({ agentId: "run_9", rootSessionId: "root-7" }, "session-4"), { agentId: "run_9", rootSessionId: "root-7" }, "SW 重启后恢复身份");
+	assert.deepEqual(restoredSessionPrincipal({ agentId: "not valid" }, "session-4"), { agentId: DEFAULT_AGENT_ID, rootSessionId: "session-4" }, "坏持久化值回落主 agent，不丢所有权");
+	assert.equal(isMainAgentPrincipal({ agentId: DEFAULT_AGENT_ID }), true);
+	assert.equal(isMainAgentPrincipal({ agentId: "run_9" }), false);
+	assert.deepEqual(sessionPrincipalValue({ sessionId: "session-5" }), { agentId: DEFAULT_AGENT_ID, rootSessionId: "session-5" });
 });
 
 test("扩展 operation deadline 先于客户端超时并覆盖长 wait", () => {
@@ -416,12 +529,15 @@ test("扩展 operation deadline 先于客户端超时并覆盖长 wait", () => {
 	assert.equal(relayOperationDeadlineMs("recover", {}), 8_000);
 	assert.equal(relayOperationDeadlineMs("read_full", {}), 25_000);
 	assert.equal(relayOperationDeadlineMs("wait", { timeoutMs: 12_000 }), 12_500);
+	// navigate waits for `complete`, so it carries the same bound as wait.
+	assert.equal(relayOperationDeadlineMs("navigate", { timeoutMs: 12_000 }), 12_500);
+	assert.equal(relayOperationDeadlineMs("navigate", {}), 30_500);
 });
 
 test("客户端超时晚于扩展 deadline 加超时清理，扩展的有界错误先到达", async () => {
 	// Before: tabs waited 5 s on the client while the extension could take 4 s + 2 s cleanup,
 	// so the client dropped the connection instead of receiving "tabs operation timeout".
-	for (const [operation, payload] of [["tabs", {}], ["recover", {}], ["interact", {}], ["read_full", {}], ["snapshot", {}], ["wait", { timeoutMs: 12_000 }], ["wait", { timeoutMs: 300_000 }]]) {
+	for (const [operation, payload] of [["tabs", {}], ["recover", {}], ["interact", {}], ["read_full", {}], ["snapshot", {}], ["navigate", { timeoutMs: 12_000 }], ["wait", { timeoutMs: 12_000 }], ["wait", { timeoutMs: 300_000 }]]) {
 		assert.ok(relayClientTimeoutMs(operation, payload) > relayOperationDeadlineMs(operation, payload) + 2 * RELAY_SETTLE_MS, operation);
 	}
 	// Requests that pass no timeout use the client default of 30 s.
@@ -524,15 +640,26 @@ test("页面提示收集只读、有界，且覆盖原生校验消息", () => {
 	assert.throws(() => pageAlertNodes(0, []), /generation invalid/u);
 });
 
-test("operation guard 在 timeout 后阻止迟到操作", () => {
-	const state = { operationRevision: 4, epoch: 2, generation: "generation" };
+test("operation guard 在 timeout 后阻止迟到操作，且按锁作用域隔离", () => {
+	const state = { operationRevisions: new Map([["session", 4]]), epoch: 2, generation: "generation" };
 	const guard = createOperationGuard(state, 2);
 	guard.assert();
 	guard.invalidate();
-	assert.equal(state.operationRevision, 5);
+	assert.equal(state.operationRevisions.get("session"), 5);
 	assert.throws(() => guard.assert(), /operation invalidated/u);
 	guard.invalidate();
-	assert.equal(state.operationRevision, 5, "重复 invalidation 不能误伤下一 operation");
+	assert.equal(state.operationRevisions.get("session"), 5, "重复 invalidation 不能误伤下一 operation");
+
+	// Two tabs may run concurrently: finishing one must not retire the other.
+	const tabA = createOperationGuard(state, 2, "tab:a");
+	const tabB = createOperationGuard(state, 2, "tab:b");
+	tabA.invalidate();
+	assert.throws(() => tabA.assert(), /operation invalidated/u);
+	assert.doesNotThrow(() => tabB.assert(), "另一个 tab 的操作必须仍然有效");
+	assert.equal(state.operationRevisions.get("session"), 5, "tab 作用域不污染 session 作用域");
+	// Session-wide invalidation (hello/close) still retires every scope.
+	const guardAfterClose = createOperationGuard(state, 3, "tab:b");
+	assert.throws(() => guardAfterClose.assert(), /operation invalidated/u, "epoch 变化仍然终止所有在飞操作");
 });
 
 test("child CDP pending 被短路且不会阻塞根页面结果", async () => {
@@ -585,7 +712,8 @@ test("scroll target 优先选择 anchor 最近的纵向滚动祖先并保留 doc
 test("installer 固定组件存储与 exact 注册，status 校验内容且 uninstall 不跟随 symlink", async (t) => {
 	const home = await mkdtemp(join(tmpdir(), "pi-browser-installer-home-"));
 	t.after(() => rm(home, { recursive: true, force: true }));
-	await mkdir(join(home, "Library", "Application Support"), { recursive: true });
+	// No directory is pre-created below HOME: the installer must build its own private
+	// state root on every platform, and it rejects one it did not create.
 	const run = (operation) => spawnSync(process.execPath, [installer, operation], { cwd: process.cwd(), env: { ...process.env, HOME: home }, encoding: "utf8" });
 	const installed = run("install");
 	assert.equal(installed.status, 0, installed.stderr);
@@ -613,8 +741,8 @@ test("installer 固定组件存储与 exact 注册，status 校验内容且 unin
 	await mkdir(join(home, "outside"));
 	const outside = join(home, "outside", "sentinel");
 	await writeFile(outside, "keep", { mode: 0o600 });
-	await mkdir(join(home, "Library", "Application Support", "rotom", "browser-relay"), { recursive: true, mode: 0o700 });
-	const launcher = join(home, "Library", "Application Support", "rotom", "browser-relay", "native-host-launcher.sh");
+	await mkdir(browserRelayDirectoryV1({ platform: process.platform, home, env: RELAY_ENV }), { recursive: true, mode: 0o700 });
+	const launcher = join(browserRelayDirectoryV1({ platform: process.platform, home, env: RELAY_ENV }), "native-host-launcher.sh");
 	await import("node:fs/promises").then(({ symlink }) => symlink(outside, launcher));
 	const rejected = run("uninstall");
 	assert.notEqual(rejected.status, 0);
@@ -622,13 +750,14 @@ test("installer 固定组件存储与 exact 注册，status 校验内容且 unin
 });
 
 test("Native host 并行 multiplex 多个 Pi client、按 binding 路由响应并隔离断线 cleanup", async (t) => {
-	const home = await mkdtemp("/private/tmp/pibr-multiplex-");
+	// A short root: the relay socket lives under HOME and must stay within sun_path.
+	const home = await mkdtemp("/tmp/pibr-multiplex-");
 	t.after(() => rm(home, { recursive: true, force: true }));
-	await mkdir(join(home, "Library", "Application Support"), { recursive: true });
-	const child = spawn(process.execPath, [join(root, "native-host.mjs")], { env: { ...process.env, HOME: home }, stdio: ["pipe", "pipe", "pipe"] });
+	await mkdir(dirname(dirname(browserRelaySocketPathV1({ platform: process.platform, home, env: RELAY_ENV }))), { recursive: true });
+	const child = spawn(process.execPath, [join(root, "native-host.mjs")], { env: { ...process.env, HOME: home, ...RELAY_ENV }, stdio: ["pipe", "pipe", "pipe"] });
 	let stderr = ""; child.stderr.setEncoding("utf8"); child.stderr.on("data", (chunk) => { stderr = `${stderr}${chunk}`.slice(-2_048); });
 	t.after(() => { if (child.exitCode === null) child.kill("SIGKILL"); });
-	const socketPath = join(home, "Library", "Application Support", "rotom", "browser-relay", "relay.sock");
+	const socketPath = browserRelaySocketPathV1({ platform: process.platform, home, env: RELAY_ENV });
 	let ready = false;
 	for (let attempt = 0; attempt < 1_500; attempt += 1) {
 		try { if ((await lstat(socketPath)).isSocket()) { ready = true; break; } }

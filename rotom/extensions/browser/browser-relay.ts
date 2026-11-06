@@ -1,12 +1,14 @@
 import { createCipheriv, createHash, randomBytes, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { chmod, lstat, mkdtemp, open, rmdir, unlink } from "node:fs/promises";
-import { homedir } from "node:os";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connect, type Socket } from "node:net";
+import { RESPONSE_MAX_BYTES } from "./chrome-extension/response-chunks.js";
+import { browserTabQuotasFromEnvV1 } from "./chrome-extension/tab-quotas.js";
+import { browserRelaySocketPathV1 as platformRelaySocketPathV1 } from "./platform-paths.mjs";
 
-export const BROWSER_RELAY_PROTOCOL_REVISION_V1 = 20 as const;
+export const BROWSER_RELAY_PROTOCOL_REVISION_V1 = 21 as const;
 export const BROWSER_RELAY_FULL_READ_CAPABILITY_V1 = "virtualized-frame-scroll" as const;
 export const BROWSER_RELAY_MULTI_CLIENT_CAPABILITY_V1 = "multi-client-multiplex" as const;
 export const BROWSER_RELAY_COORDINATE_CLICK_CAPABILITY_V1 = "coordinate-click" as const;
@@ -14,20 +16,94 @@ export const BROWSER_RELAY_TARGET_STATE_CAPABILITY_V1 = "interaction-target-stat
 export const BROWSER_RELAY_PAGE_ALERT_CAPABILITY_V1 = "page-alert-readback" as const;
 export const BROWSER_RELAY_KEYPRESS_CAPABILITY_V1 = "targeted-keypress" as const;
 export const BROWSER_RELAY_QUERY_CAPABILITY_V1 = "snapshot-query" as const;
+/** Optional capability: required only by the operations that need it, so an
+ *  extension that predates cross-agent transfer still serves everything else. */
+export const BROWSER_RELAY_TRANSFER_CAPABILITY_V1 = "cross-agent-transfer" as const;
+export const BROWSER_MAIN_AGENT_ID_V1 = "main" as const;
+/** Env vars a subagent process inherits so its relay session is attributable. */
+export const ROTOM_BROWSER_AGENT_ID_ENV_V1 = "ROTOM_BROWSER_AGENT_ID" as const;
+export const ROTOM_BROWSER_ROOT_SESSION_ENV_V1 = "ROTOM_BROWSER_ROOT_SESSION" as const;
+export const ROTOM_BROWSER_LEASE_ENV_V1 = "ROTOM_BROWSER_LEASE" as const;
+/** Interim lease knob until T9 reads keepTabs from the signed lease file. */
+export const ROTOM_BROWSER_KEEP_TABS_ENV_V1 = "ROTOM_BROWSER_KEEP_TABS" as const;
+const MAX_PRINCIPAL_TOKEN_CHARS = 512;
+
+export interface BrowserPrincipalV1 {
+	agentId: string;
+	rootSessionId: string;
+	leaseToken?: string;
+	keepTabs?: boolean;
+}
+
+function principalTokenV1(value: unknown, name: string): string {
+	if (typeof value !== "string" || value.length < 1 || value.length > MAX_PRINCIPAL_TOKEN_CHARS || !/^[\x21-\x7e]+$/u.test(value)) throw new Error(`${name} 不是有界的可打印 ASCII token`);
+	return value;
+}
+
+/**
+ * Browser principal for this process. A subagent launcher sets the three env vars;
+ * everything else is the main agent of its own Pi session.
+ */
+export function browserPrincipalV1(sessionId: string, overrides: Partial<BrowserPrincipalV1> = {}, env: NodeJS.ProcessEnv = process.env): BrowserPrincipalV1 {
+	const agentId = overrides.agentId ?? (env[ROTOM_BROWSER_AGENT_ID_ENV_V1] || undefined) ?? BROWSER_MAIN_AGENT_ID_V1;
+	const rootSessionId = overrides.rootSessionId ?? (env[ROTOM_BROWSER_ROOT_SESSION_ENV_V1] || undefined) ?? sessionId;
+	const leaseToken = overrides.leaseToken ?? (env[ROTOM_BROWSER_LEASE_ENV_V1] || undefined);
+	const keepTabs = overrides.keepTabs ?? env[ROTOM_BROWSER_KEEP_TABS_ENV_V1] === "1";
+	return {
+		agentId: principalTokenV1(agentId, "agentId"),
+		rootSessionId: principalTokenV1(rootSessionId, "rootSessionId"),
+		...(leaseToken === undefined ? {} : { leaseToken: principalTokenV1(leaseToken, "leaseToken") }),
+		...(keepTabs ? { keepTabs: true } : {}),
+	};
+}
+
 export const BROWSER_INSPECT_TOOL_V1 = "browser_inspect" as const;
-export const BROWSER_INSPECT_OPERATIONS_V1 = ["open", "discover", "claim", "handoff", "tabs", "switch", "snapshot", "snapshot_visible", "read_full", "screenshot", "wait", "close", "recover"] as const;
+/** How `open` places a new tab. */
+export const BROWSER_OPEN_PLACEMENTS_V1 = ["background-tab", "agent-window"] as const;
+export const BROWSER_INSPECT_OPERATIONS_V1 = ["open", "navigate", "discover", "claim", "transfer", "handoff", "tabs", "switch", "snapshot", "snapshot_visible", "read_full", "console", "network", "screenshot", "wait", "close", "recover", "downloads"] as const;
+/** Levels `console` can filter on. */
+export const BROWSER_CONSOLE_LEVELS_V1 = ["verbose", "info", "warning", "error"] as const;
+export const BROWSER_CONSOLE_MAX_LIMIT_V1 = 200 as const;
+export const BROWSER_CONSOLE_DEFAULT_LIMIT_V1 = 50 as const;
+/** Resource types `network` can filter on (CDP spelling). */
+export const BROWSER_NETWORK_RESOURCE_TYPES_V1 = ["Document", "Stylesheet", "Image", "Media", "Font", "Script", "TextTrack", "XHR", "Fetch", "Prefetch", "EventSource", "WebSocket", "Manifest", "SignedExchange", "Ping", "CSPViolationReport", "Other"] as const;
+export const BROWSER_NETWORK_MAX_LIMIT_V1 = 200 as const;
+export const BROWSER_NETWORK_DEFAULT_LIMIT_V1 = 50 as const;
+/** How `navigate` moves within one tab when it is not given a URL. */
+export const BROWSER_NAVIGATE_HISTORY_V1 = ["back", "forward", "reload"] as const;
 export const BROWSER_INTERACT_TOOL_V1 = "browser_interact" as const;
 export const BROWSER_INTERACT_OPERATIONS_V1 = ["execute"] as const;
-export const BROWSER_INTERACTION_ACTIONS_V1 = ["click", "type", "scroll", "select", "keypress"] as const;
-export const BROWSER_INTERACTION_KEYS_V1 = ["Enter", "Tab", "Escape"] as const;
+export const BROWSER_INTERACTION_ACTIONS_V1 = ["click", "type", "scroll", "select", "keypress", "hover", "dblclick", "right_click", "drag", "upload", "dialog"] as const;
+
+/** Dialog types the relay records; anything else is not trusted into the result. */
+export const BROWSER_DIALOG_TYPES_V1 = ["alert", "confirm", "prompt", "beforeunload"] as const;
+/** Longest accepted answer text for a `prompt` dialog. */
+export const MAX_DIALOG_PROMPT_CHARS_V1 = 500;
+/**
+ * Every key the relay can press. Anything else is rejected locally: there is no
+ * "send this raw string" path, and characters are never inserted with insertText.
+ */
+export const BROWSER_INTERACTION_KEYS_V1 = [
+	..."abcdefghijklmnopqrstuvwxyz",
+	..."0123456789",
+	" ", "Enter", "Tab", "Escape", "Backspace", "Delete", "Home", "End", "PageUp", "PageDown",
+	"ArrowLeft", "ArrowUp", "ArrowRight", "ArrowDown",
+	...Array.from({ length: 12 }, (_, index) => `F${index + 1}`),
+] as const;
+export const BROWSER_INTERACTION_MODIFIERS_V1 = ["Shift", "Control", "Alt", "Meta"] as const;
 export type BrowserInteractionActionV1 = (typeof BROWSER_INTERACTION_ACTIONS_V1)[number];
 
 const MAX_WIRE_BYTES = 1024 * 1024;
+/** Model-facing bound for a screenshot payload, before base64 decoding. */
+const MAX_MODEL_SCREENSHOT_BYTES = 768 * 1024;
+/** Protocol bound for a screenshot payload; a full-page capture may reach it. */
+export const MAX_RELAY_SCREENSHOT_BYTES = 8 * 1024 * 1024;
 const MAX_MODEL_NODES = 1_000;
 const MAX_STRING_BYTES = 4_096;
 
+/** Socket location for this platform; macOS keeps the path older installs already use. */
 export function browserRelaySocketPathV1(): string {
-	return join(homedir(), "Library", "Application Support", "rotom", "browser-relay", "relay.sock");
+	return platformRelaySocketPathV1();
 }
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -103,6 +179,7 @@ export interface BrowserObservationV1 {
 	truncated: boolean;
 	contentCoverage: "rendered-dom" | "scroll-end";
 	contentComplete: boolean;
+	visibilityState?: "visible" | "hidden";
 	omittedUnchangedTextNodes?: number;
 	textBaselineEpoch?: number;
 	scanSteps?: number;
@@ -128,6 +205,8 @@ export function sanitizeBrowserObservationV1(value: unknown): BrowserObservation
 	if (hasTextDelta && (!Number.isSafeInteger(value.omittedUnchangedTextNodes) || (value.omittedUnchangedTextNodes as number) < 1
 		|| !Number.isSafeInteger(value.textBaselineEpoch) || (value.textBaselineEpoch as number) < 1 || (value.textBaselineEpoch as number) >= (value.observationEpoch as number)
 		|| contentCoverage !== "rendered-dom" || value.contentComplete !== false)) throw new Error("browser observation text delta 无效");
+	const visibilityState = value.visibilityState === "visible" || value.visibilityState === "hidden" ? value.visibilityState : undefined;
+	if (value.visibilityState !== undefined && visibilityState === undefined) throw new Error("browser observation visibilityState 无效；请重载 Chrome 扩展");
 	const scanSteps = value.scanSteps === undefined ? undefined : (Number.isSafeInteger(value.scanSteps) && (value.scanSteps as number) >= 0 ? value.scanSteps as number : undefined);
 	const scannedContainers = value.scannedContainers === undefined ? undefined : (Number.isSafeInteger(value.scannedContainers) && (value.scannedContainers as number) >= 0 ? value.scannedContainers as number : undefined);
 	const scrolledContainers = value.scrolledContainers === undefined ? undefined : (Number.isSafeInteger(value.scrolledContainers) && (value.scrolledContainers as number) >= 0 ? value.scrolledContainers as number : undefined);
@@ -173,6 +252,7 @@ export function sanitizeBrowserObservationV1(value: unknown): BrowserObservation
 		contentCoverage,
 		contentComplete: value.contentComplete === true && value.truncated !== true && value.nodes.length <= MAX_MODEL_NODES,
 		...(hasTextDelta ? { omittedUnchangedTextNodes: value.omittedUnchangedTextNodes as number, textBaselineEpoch: value.textBaselineEpoch as number } : {}),
+		...(visibilityState === undefined ? {} : { visibilityState }),
 		...(scanSteps === undefined ? {} : { scanSteps }),
 		...(scannedContainers === undefined ? {} : { scannedContainers }),
 		...(scrolledContainers === undefined ? {} : { scrolledContainers }),
@@ -217,6 +297,33 @@ export function sanitizeBrowserInteractionEffectV1(value: unknown): Record<strin
 	return sanitizeEffectLeafV1(value, 2) as Record<string, unknown>;
 }
 
+/** A tab that is suspended by an open JS dialog: nothing was dispatched. */
+export interface BrowserDialogBlockingV1 {
+	kind: "dialog-blocking";
+	tabName?: string;
+	dialog: { tabId: number; type: (typeof BROWSER_DIALOG_TYPES_V1)[number]; message: string; defaultPrompt?: string; sensitive?: boolean; openedAt?: number };
+}
+
+export function sanitizeBrowserDialogV1(value: unknown): BrowserDialogBlockingV1["dialog"] {
+	if (!record(value)) throw new Error("dialog 信息无效");
+	if (typeof value.type !== "string" || !BROWSER_DIALOG_TYPES_V1.includes(value.type as never)) throw new Error("dialog type 无效");
+	if (!Number.isSafeInteger(value.tabId) || (value.tabId as number) < 0) throw new Error("dialog tabId 无效");
+	return {
+		tabId: value.tabId as number,
+		type: value.type as BrowserDialogBlockingV1["dialog"]["type"],
+		message: typeof value.message === "string" ? value.message.slice(0, 400) : "",
+		...(typeof value.defaultPrompt === "string" ? { defaultPrompt: value.defaultPrompt.slice(0, 400) } : {}),
+		...(value.sensitive === true ? { sensitive: true } : {}),
+		...(Number.isSafeInteger(value.openedAt) ? { openedAt: value.openedAt as number } : {}),
+	};
+}
+
+/** Recognize a dialog refusal in place of any operation result. */
+export function dialogBlockingV1(value: unknown): BrowserDialogBlockingV1 | undefined {
+	if (!record(value) || value.kind !== "dialog-blocking" || value.dialog === undefined) return undefined;
+	return { kind: "dialog-blocking", ...(typeof value.tabName === "string" ? { tabName: value.tabName } : {}), dialog: sanitizeBrowserDialogV1(value.dialog) };
+}
+
 export function browserInteractionExpectationOutcomeV1(effect: Record<string, unknown> | undefined): "met" | "unmet" | "unknown" | undefined {
 	const expectation = effect?.expectation;
 	if (!record(expectation)) return undefined;
@@ -235,7 +342,7 @@ export interface BrowserScreenshotV1 {
 	data: string;
 }
 
-export function validateBrowserScreenshotV1(value: unknown): BrowserScreenshotV1 {
+export function validateBrowserScreenshotV1(value: unknown, maxBytes = MAX_MODEL_SCREENSHOT_BYTES): BrowserScreenshotV1 {
 	if (!record(value) || value.schemaVersion !== 1 || value.kind !== "rotom-browser-screenshot" || value.mimeType !== "image/jpeg" || typeof value.data !== "string") throw new Error("browser screenshot schema 无效");
 	const tabName = safeString(value.tabName, "tabName", 128);
 	if (!Number.isSafeInteger(value.tabId) || (value.tabId as number) < 0 || !Number.isSafeInteger(value.documentGeneration) || (value.documentGeneration as number) < 1 || !Number.isSafeInteger(value.observationEpoch) || (value.observationEpoch as number) < 1) throw new Error("browser screenshot identity 无效");
@@ -245,7 +352,7 @@ export function validateBrowserScreenshotV1(value: unknown): BrowserScreenshotV1
 	const viewport = { width: rawViewport.width as number, height: rawViewport.height as number, pageX: rawViewport.pageX as number, pageY: rawViewport.pageY as number, scale: rawViewport.scale as number };
 	if (viewport.width <= 2 || viewport.height <= 2 || viewport.scale <= 0) throw new Error("browser screenshot viewport 无效");
 	const plain = Buffer.from(value.data, "base64");
-	if (plain.length < 4 || plain.length > 768 * 1024 || plain[0] !== 0xff || plain[1] !== 0xd8) throw new Error("browser screenshot payload 无效或超限");
+	if (plain.length < 4 || plain.length > maxBytes || plain[0] !== 0xff || plain[1] !== 0xd8) throw new Error("browser screenshot payload 无效或超限");
 	return { schemaVersion: 1, kind: "rotom-browser-screenshot", tabName, tabId: value.tabId as number, documentGeneration: value.documentGeneration as number, observationEpoch: value.observationEpoch as number, viewport, mimeType: "image/jpeg", data: value.data };
 }
 
@@ -326,6 +433,13 @@ export class BrowserArtifactStoreV1 {
 	}
 }
 
+type ReassemblingResponseV1 = {
+	count: number;
+	sha256: string;
+	parts: Map<number, string>;
+	bytes: number;
+};
+
 type PendingRequestV1 = {
 	resolve(value: unknown): void;
 	reject(error: Error): void;
@@ -338,6 +452,9 @@ export interface BrowserRelayConnectInputV1 {
 	generation?: string;
 	socketPath?: string;
 	timeoutMs?: number;
+	principal?: Partial<BrowserPrincipalV1>;
+	/** Test-only override; production reads ROTOM_BROWSER_MAX_* from the environment. */
+	tabQuotas?: ReturnType<typeof browserTabQuotasFromEnvV1>;
 }
 
 // Only a missing/refused local socket proves Relay unavailable before any request.
@@ -353,18 +470,32 @@ export class BrowserRelayUnavailableErrorV1 extends Error {
 
 export class BrowserRelayClientV1 {
 	readonly sessionId: string;
+	readonly agentId: string;
+	readonly rootSessionId: string;
 	readonly generation: string;
 	readonly socketPath: string;
+	/** Operator overrides for the tab quotas; sent once per handshake. */
+	readonly tabQuotas: ReturnType<typeof browserTabQuotasFromEnvV1>;
 	#socket: Socket;
+	#leaseToken: string | undefined;
+	#keepTabs = false;
+	#capabilities: string[] = [];
 	#buffer = "";
 	#pending = new Map<string, PendingRequestV1>();
+	#chunks = new Map<string, ReassemblingResponseV1>();
 	#closed = false;
 
 	private constructor(socket: Socket, input: BrowserRelayConnectInputV1) {
 		this.#socket = socket;
 		this.sessionId = safeString(input.sessionId, "sessionId", 512);
+		const principal = browserPrincipalV1(this.sessionId, input.principal);
+		this.agentId = principal.agentId;
+		this.rootSessionId = principal.rootSessionId;
+		this.#leaseToken = principal.leaseToken;
+		this.#keepTabs = principal.keepTabs === true;
 		this.generation = input.generation ?? randomUUID();
 		this.socketPath = input.socketPath ?? browserRelaySocketPathV1();
+		this.tabQuotas = input.tabQuotas ?? browserTabQuotasFromEnvV1(process.env);
 		socket.setEncoding("utf8");
 		socket.on("data", (chunk) => this.#onData(chunk));
 		socket.on("error", (error) => this.#fail(error));
@@ -391,8 +522,19 @@ export class BrowserRelayClientV1 {
 			const handshakeRemainingMs = deadline - Date.now();
 			if (handshakeRemainingMs <= 0) throw new Error("browser relay 连接超时；请确认 Chrome 扩展已启用");
 			const nonce = randomUUID();
-			const ready = await client.request("hello", { nonce }, { timeoutMs: Math.max(1, handshakeRemainingMs) });
+			const ready = await client.request("hello", {
+				nonce,
+				agentId: client.agentId,
+				rootSessionId: client.rootSessionId,
+				...(client.#leaseToken === undefined ? {} : { leaseToken: client.#leaseToken }),
+				...(client.#keepTabs ? { keepTabs: true } : {}),
+				tabQuotas: client.tabQuotas,
+			}, { timeoutMs: Math.max(1, handshakeRemainingMs) });
 			if (!record(ready) || ready.schemaVersion !== 1 || ready.kind !== "rotom-browser-relay-ready" || ready.nonce !== nonce || !Number.isSafeInteger(ready.protocolRevision) || (ready.protocolRevision as number) < BROWSER_RELAY_PROTOCOL_REVISION_V1 || !Array.isArray(ready.capabilities) || !ready.capabilities.includes(BROWSER_RELAY_FULL_READ_CAPABILITY_V1) || !ready.capabilities.includes(BROWSER_RELAY_MULTI_CLIENT_CAPABILITY_V1) || !ready.capabilities.includes(BROWSER_RELAY_COORDINATE_CLICK_CAPABILITY_V1) || !ready.capabilities.includes(BROWSER_RELAY_TARGET_STATE_CAPABILITY_V1) || !ready.capabilities.includes(BROWSER_RELAY_PAGE_ALERT_CAPABILITY_V1) || !ready.capabilities.includes(BROWSER_RELAY_KEYPRESS_CAPABILITY_V1) || !ready.capabilities.includes(BROWSER_RELAY_QUERY_CAPABILITY_V1)) throw new Error("browser relay 版本过旧；请在 chrome://extensions 重载 Rotom Browser Relay");
+			// An older extension ignores the principal fields, so absence stays compatible;
+			// a different reported identity means this handshake landed on another principal.
+			if ((ready.agentId !== undefined && ready.agentId !== client.agentId) || (ready.rootSessionId !== undefined && ready.rootSessionId !== client.rootSessionId)) throw new Error("browser relay 返回的 browser principal 与本进程不一致；请重载 Rotom Browser Relay");
+			client.#capabilities = (ready.capabilities as unknown[]).filter((value): value is string => typeof value === "string");
 			return client;
 		} catch (error) {
 			client.close();
@@ -403,6 +545,14 @@ export class BrowserRelayClientV1 {
 	}
 
 	get closed(): boolean { return this.#closed; }
+	/** Lease token this session was started with; absent for the main agent. */
+	get leaseToken(): string | undefined { return this.#leaseToken; }
+	get keepTabs(): boolean { return this.#keepTabs; }
+
+	/** Refuse an operation locally when the installed extension cannot serve it. */
+	requireCapability(capability: string, message: string): void {
+		if (!this.#capabilities.includes(capability)) throw new Error(message);
+	}
 
 	async request(operation: string, payload: Record<string, unknown>, options: { signal?: AbortSignal; timeoutMs?: number } = {}): Promise<unknown> {
 		if (this.#closed) throw new Error("browser relay client 已关闭");
@@ -462,17 +612,55 @@ export class BrowserRelayClientV1 {
 			const line = this.#buffer.slice(0, newline);
 			this.#buffer = this.#buffer.slice(newline + 1);
 			if (!line) continue;
-			let parsed: unknown;
-			try { parsed = JSON.parse(line); } catch { return this.#fail(new Error("browser relay response JSON 无效")); }
-			if (!record(parsed) || parsed.schemaVersion !== 1 || parsed.kind !== "response" || typeof parsed.id !== "string" || parsed.sessionId !== this.sessionId || parsed.generation !== this.generation || typeof parsed.ok !== "boolean") return this.#fail(new Error("browser relay response binding 无效"));
-			const pending = this.#pending.get(parsed.id);
+			let frame: unknown;
+			try { frame = JSON.parse(line); } catch { return this.#fail(new Error("browser relay response JSON 无效")); }
+			if (!record(frame) || frame.schemaVersion !== 1 || (frame.kind !== "response" && frame.kind !== "response-chunk")
+				|| typeof frame.id !== "string" || frame.sessionId !== this.sessionId || frame.generation !== this.generation) return this.#fail(new Error("browser relay response binding 无效"));
+			if (frame.kind === "response-chunk") {
+				let message: { id: string; text: string } | undefined;
+				try { message = this.#acceptChunk(frame.id, frame.chunk); } catch (error) { return this.#fail(error instanceof Error ? error : new Error(String(error))); }
+				if (!message) continue;
+				let reassembled: unknown;
+				try { reassembled = JSON.parse(message.text); } catch { return this.#fail(new Error("browser relay response JSON 无效")); }
+				if (!record(reassembled) || reassembled.kind !== "response" || reassembled.id !== message.id || typeof reassembled.ok !== "boolean") return this.#fail(new Error("browser relay response binding 无效"));
+				frame = reassembled;
+			} else if (typeof frame.ok !== "boolean") return this.#fail(new Error("browser relay response binding 无效"));
+			const pending = this.#pending.get(frame.id as string);
 			if (!pending) continue;
-			this.#pending.delete(parsed.id);
+			this.#pending.delete(frame.id as string);
 			clearTimeout(pending.timer);
 			pending.abort?.();
-			if (parsed.ok) pending.resolve(parsed.result);
-			else pending.reject(new Error(typeof parsed.error === "string" ? safeModelTextV1(parsed.error, 1_024) : "browser relay request failed"));
+			if (frame.ok) pending.resolve(frame.result);
+			else pending.reject(new Error(typeof frame.error === "string" ? safeModelTextV1(frame.error, 1_024) : "browser relay request failed"));
 		}
+	}
+
+	/** Collect one chunk; returns the verified message only after the last one. */
+	#acceptChunk(id: string, raw: unknown): { id: string; text: string } | undefined {
+		if (!record(raw) || !Number.isSafeInteger(raw.index) || !Number.isSafeInteger(raw.count) || typeof raw.data !== "string" || typeof raw.sha256 !== "string") throw new Error("browser relay response chunk 无效");
+		const index = raw.index as number; const count = raw.count as number;
+		if (index < 0 || count < 1 || index >= count) throw new Error("browser relay response chunk 无效");
+		let partial = this.#chunks.get(id);
+		if (!partial) {
+			// The first chunk of an unknown response must be index 0; anything else
+			// means the head was lost on the way here.
+			if (index !== 0) throw new Error("browser relay response chunk 顺序无效");
+			partial = { count, sha256: raw.sha256, parts: new Map(), bytes: 0 };
+			this.#chunks.set(id, partial);
+		}
+		if (partial.count !== count || partial.sha256 !== raw.sha256) throw new Error("browser relay response chunk 契约不一致");
+		if (index !== partial.parts.size) throw new Error(partial.parts.has(index) ? "browser relay response chunk 重复" : "browser relay response chunk 缺失或乱序");
+		partial.parts.set(index, raw.data);
+		partial.bytes += Buffer.byteLength(raw.data, "utf8");
+		if (partial.bytes > RESPONSE_MAX_BYTES) throw new Error("browser relay response 超过上限");
+		if (partial.parts.size < count) return undefined;
+		this.#chunks.delete(id);
+		let text = "";
+		for (let position = 0; position < count; position += 1) text += partial.parts.get(position) ?? "";
+		// The digest covers the exact text the service worker hashed; a mismatch means
+		// corrupted or substituted content, never a usable result.
+		if (createHash("sha256").update(text, "utf8").digest("hex") !== partial.sha256) throw new Error("browser relay response 摘要不匹配");
+		return { id, text };
 	}
 
 	#fail(error: Error): void {

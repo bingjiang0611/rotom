@@ -83,9 +83,14 @@ try {
 	assert.equal(loadedSkillPaths.includes(resolve(nativeSkillDir, "SKILL.md")), true, "native agentDir skill 必须无需注册即可发现");
 	assert.equal(prompts.length, 0, "产品不再声明 bundled prompt templates");
 	assert.deepEqual(loader.getPrompts().prompts, [], "加载第三方扩展不得隐式恢复已移除的模板命令");
+	// browser_inspect is the one reviewed exception: its read operations are
+	// serialized per tab by the relay instead of per session, so two tabs of one
+	// agent can be inspected at the same time. Every other product tool stays
+	// sequential.
 	for (const extension of loaded.extensions.filter((candidate) => !candidate.path.endsWith("/third-party"))) {
 		for (const { definition } of extension.tools.values()) {
-			assert.equal(definition.executionMode, "sequential", `${definition.name} 必须 sequential`);
+			const expectedMode = definition.name === "browser_inspect" ? "parallel" : "sequential";
+			assert.equal(definition.executionMode, expectedMode, `${definition.name} 必须是 ${expectedMode}`);
 		}
 	}
 	const piAiEntry = await findPiAiEntry(verified.packageRoot);
@@ -151,10 +156,14 @@ try {
 	for (const command of ["subagents", "run", "subagents-fleet", "subagents-refine", "subagents-watchdog", "prompt-workflow"]) assert.equal(thirdParty?.commands.has(command), false);
 	assert.equal(thirdParty?.shortcuts.has("ctrl+alt+f"), false);
 	assert.equal(browser?.commands.has("browser"), true, "内置 browser 扩展必须提供用户显式触发的 /browser 命令");
-	assert.equal(browser?.tools.get("browser_inspect")?.definition.executionMode, "sequential");
+	assert.equal(browser?.tools.get("browser_inspect")?.definition.executionMode, "parallel", "只读 inspect 与另一个 tab 的操作可以并发，写操作仍 sequential");
 	assert.equal(browser?.tools.get("browser_interact")?.definition.executionMode, "sequential");
 	assert.ok(browser?.tools.get("browser_interact")?.definition.parameters.properties.action.enum.includes("keypress"));
-	assert.deepEqual(browser?.tools.get("browser_interact")?.definition.parameters.properties.key.enum, ["Enter", "Tab", "Escape"]);
+	const keyEnum = browser?.tools.get("browser_interact")?.definition.parameters.properties.key.enum ?? [];
+	assert.equal(keyEnum.length, 62, "keypress 白名单固定为 62 个键");
+	for (const key of ["Enter", "Tab", "Escape", "ArrowDown", "Backspace", "F12", "a", "0", " "]) assert.equal(keyEnum.includes(key), true, key);
+	for (const key of ["F13", "A", "Return", "Meta+Enter"]) assert.equal(keyEnum.includes(key), false, key);
+	assert.deepEqual(browser?.tools.get("browser_interact")?.definition.parameters.properties.modifiers.items.enum, ["Shift", "Control", "Alt", "Meta"]);
 	assert.equal(codingPolicy?.handlers.get("before_agent_start")?.length, 1, "coding policy 必须通过真实 loader 按编码工具激活");
 	for (const event of ["session_start", "session_tree", "session_before_tree", "session_before_switch", "session_before_fork", "session_shutdown"]) assert.equal(browser?.handlers.get(event)?.length, 1);
 	assert.equal(thirdParty?.tools.get("ask_user_question")?.definition.executionMode, "sequential");

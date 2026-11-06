@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { existsSync, realpathSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -38,6 +40,7 @@ test("browser relay：活动标签可 claim、直接交互、敏感输入放行�
 		"@earendil-works/pi-coding-agent": join(piDist, "index.js"),
 	} });
 	const { createBrowserRelayExtensionV1 } = await jiti.import(join(process.cwd(), "rotom/extensions/browser/index.ts")) as any;
+	await allowPolicyFor(workspace, ["https://example.test", "https://signed-in.example.test"]);
 	const loaded = await loadExtensions([], workspace);
 	assert.deepEqual(loaded.errors, []);
 	const calls: Array<{ operation: string; payload: Record<string, unknown> }> = [];
@@ -91,7 +94,7 @@ test("browser relay：活动标签可 claim、直接交互、敏感输入放行�
 				const name = String(payload.tabName); const tab = tabs.get(name); assert.ok(tab);
 				if (interactFailure) { const failure = interactFailure; interactFailure = undefined; throw new Error(failure); }
 				const targetEffect = payload.action === "scroll" || payload.x !== undefined ? {} : { target: { observed: true, changed: true, transitions: ["valueLength=0→43"] }, ...(payload.expect ? { expectation: { requested: payload.expect, outcome: payload.expect === "value=nonempty" ? "met" : "unmet" } } : {}) };
-				return { schemaVersion: 1, kind: "rotom-browser-interaction-result", actionId: payload.actionId, action: payload.action, acknowledged: true, effect: { ...(payload.action === "scroll" ? { dispatch: "mouseWheel", moved: true, scrollScope: payload.targetRef ? "nearest" : "document" } : payload.x !== undefined ? { dispatch: "mouse", coordinate: true, observationEpoch: payload.observationEpoch, hitTested: true } : { dispatch: "mouse" }), ...targetEffect }, readback: { schemaVersion: 1, kind: "rotom-browser-observation", tabName: name, ...tab, observationEpoch: readbackEpoch++, title: "password: fixture-readback", status: "complete", nodes: [{ ref: "alert_1_r_1", role: "page-alert", name: "手机号格式不正确，请填写 11 位数字", states: ["read-only=true"] }, { ref: "ax_1_2", role: "status", name: "Draft saved", states: [] }, ...Array.from({ length: textChunks }, (_, i) => ({ ref: `txt_1_r_${i + 1}`, role: "document-text", name: `${i}: ${body}`, states: ["read-only=true"] }))], truncated: false, contentCoverage: "rendered-dom", contentComplete: false } };
+				return { schemaVersion: 1, kind: "rotom-browser-interaction-result", actionId: payload.actionId, action: payload.action, acknowledged: true, effect: { ...(payload.action === "scroll" ? { dispatch: "mouseWheel", moved: true, scrollScope: payload.targetRef ? "nearest" : "document" } : payload.x !== undefined ? { dispatch: "mouse", coordinate: true, observationEpoch: payload.observationEpoch, hitTested: true } : payload.action === "keypress" ? { dispatch: "keyboard", key: payload.key, ...(Array.isArray(payload.modifiers) && payload.modifiers.length > 0 ? { modifiers: payload.modifiers } : {}) } : { dispatch: "mouse" }), ...targetEffect }, readback: { schemaVersion: 1, kind: "rotom-browser-observation", tabName: name, ...tab, observationEpoch: readbackEpoch++, title: "password: fixture-readback", status: "complete", nodes: [{ ref: "alert_1_r_1", role: "page-alert", name: "手机号格式不正确，请填写 11 位数字", states: ["read-only=true"] }, { ref: "ax_1_2", role: "status", name: "Draft saved", states: [] }, ...Array.from({ length: textChunks }, (_, i) => ({ ref: `txt_1_r_${i + 1}`, role: "document-text", name: `${i}: ${body}`, states: ["read-only=true"] }))], truncated: false, contentCoverage: "rendered-dom", contentComplete: false } };
 			}
 			if (operation === "close") { tabs.clear(); return { schemaVersion: 1, kind: "rotom-browser-close", closed: 1 }; }
 			throw new Error(`unexpected operation ${operation}`);
@@ -129,7 +132,9 @@ test("browser relay：活动标签可 claim、直接交互、敏感输入放行�
 	const localDeviceAutomation = "SID=9C3762E8\ncurl -sS \"http://localhost:8100/session/$SID/screenshot\" > /tmp/shot.json\npython3 - <<'PY'\nimport json,base64\nj=json.load(open('/tmp/shot.json'))\nopen('/tmp/shot.png','wb').write(base64.b64decode(j['value']))\nPY";
 	assert.equal((await bashRouteGuard({ type: "tool_call", toolName: "bash", input: { command: localDeviceAutomation } })) ?? undefined, undefined, "heredoc 中的 Python open() 不是 macOS open，本地 HTTP 自动化不得被拦");
 	assert.equal((await bashRouteGuard({ type: "tool_call", toolName: "bash", input: { command: "python3 -c \"open('/tmp/x','w').write('http://localhost:8100')\"\n" } })) ?? undefined, undefined, "语言内置 open() 调用不是 GUI 启动");
-	assert.equal(tool.executionMode, "sequential");
+	// Reads are serialized per tab by the relay, not per session, so one tab's
+	// inspection no longer blocks another tab's; writes stay sequential.
+	assert.equal(tool.executionMode, "parallel");
 	assert.equal((tool.parameters as any).properties.limit.maximum, undefined, "snapshot limit 不应在 tool schema 中设置人工上限");
 	const opened = await tool.execute("browser-open", { operation: "open", tabName: "docs", url: "https://example.test/path?token=secret#fragment", limit: 10 }, undefined, undefined, ctx);
 	const desktopCapture = await bashRouteGuard({ type: "tool_call", toolName: "bash", input: { command: "screencapture -x /tmp/front.png" } });
@@ -183,9 +188,30 @@ test("browser relay：活动标签可 claim、直接交互、敏感输入放行�
 	const browserSchemaBytes = [tool, interact].reduce((sum, definition) => sum + Buffer.byteLength(JSON.stringify({ name: definition.name, description: definition.description, parameters: definition.parameters }), "utf8"), 0);
 	// Keep prompt text bounded; schema growth exposes the fixed expectation enum
 	// and operation-specific requirements instead of adding another prose checklist.
-	assert.ok(browserGuidelineBytes <= 3_650, `Browser guideline budget regressed: ${browserGuidelineBytes}`);
-	assert.ok(browserSchemaBytes <= 2_750, `Browser schema budget regressed: ${browserSchemaBytes}`);
-	assert.ok(interact.parameters.required.includes("action"));
+	// +100 bytes budgeted for the cross-agent transfer operation (T2): the receiver
+	// name format and the fact that its refs start fresh cannot be left to the schema.
+	// +82 bytes for the `placement` open value (T6): an agent window is a placement,
+	// not a second open operation, so it is one clause in the existing open line.
+	assert.ok(browserGuidelineBytes <= 3_835, `Browser guideline budget regressed: ${browserGuidelineBytes}`);
+	// The `placement` enum adds 71 schema bytes (T6) without a second parameter.
+	// `navigate` (T12) adds one operation value plus `history: back|forward|reload`,
+	// and widens the `url` line to say it also serves navigate: +138 bytes, still far
+	// inside the two-browser-tools budget.
+	// `console` (T13) adds level/pattern/sinceCursor + the operation value: +421 bytes.
+	// `network` (T14) adds `failedOnly`, `resourceType` and one operation value: +398 bytes.
+	// The full key whitelist (T15) turns `key` into a 62-value enum plus `modifiers`:
+	// +484 bytes. Pointer actions and `dropRef` (T16) add +163, measured 4 425. `upload`
+	// (T17) adds one action value plus `paths`: +189, measured 4 614. `dialog` (T18) adds
+	// the action value plus `accept`/`promptText`: +252, measured 4 866. Batches (T19) add
+	// a step schema that repeats the per-action fields the model must be able to fill:
+	// +1 989, measured 6 855. That is the price of documenting each step honestly instead
+	// of leaving the fields undocumented; the guideline text is unchanged, so the M3
+	// footprint stays well inside its 30% budget.
+	assert.ok(browserSchemaBytes <= 6_950, `Browser schema budget regressed: ${browserSchemaBytes}`);
+	// `action` is no longer schema-required because `actions` can replace it; the local
+	// check rejects a call that carries neither (covered below).
+	assert.equal(interact.parameters.properties.action.type, "string");
+	assert.equal(interact.parameters.properties.actions.maxItems, 10);
 	assert.equal(interact.parameters.properties.expect.enum.length, 16);
 	assert.ok(interact.parameters.properties.expect.enum.includes("value=nonempty"));
 	for (const invalid of ["visible", "navigation", "ack", "EPUB"]) assert.equal(interact.parameters.properties.expect.enum.includes(invalid), false);
@@ -243,14 +269,38 @@ test("browser relay：活动标签可 claim、直接交互、敏感输入放行�
 	await assert.rejects(() => interact.execute("browser-interact-expect-coordinate", { operation: "execute", tabName: "docs", action: "click", x: 10, y: 10, observationEpoch: 7, expect: "checked=true" }, undefined, undefined, ctx), /expect 仅允许带 targetRef/u);
 	interactFailure = "browser relay interact timeout";
 	await assert.rejects(() => interact.execute("browser-interact-write-timeout", { operation: "execute", tabName: "docs", action: "click", targetRef: "ax_1_2" }, undefined, undefined, ctx), /unknown.*只读核对.*禁止重发/su, "写动作 unknown 后必须禁止重发");
-	assert.match(interact.promptGuidelines?.join("\n") ?? "", /keypress requires targetRef.*Enter \(Return\).*submit forms/u);
-	assert.deepEqual(interact.parameters.properties.key.enum, ["Enter", "Tab", "Escape"]);
+	// The whitelist itself is the `key` enum; the guideline only has to state the rule that
+	// the schema cannot: a chorded key never types a character.
+	assert.match(interact.promptGuidelines?.join("\n") ?? "", /keypress requires targetRef.*chorded key never types/u);
+	assert.equal(interact.parameters.properties.key.enum.length, 62, "白名单：26 字母 + 10 数字 + 空格 + Backspace/Delete/Home/End/PageUp/PageDown + 4 方向键 + F1-F12 + Enter/Tab/Escape");
+	assert.deepEqual(interact.parameters.properties.modifiers.items.enum, ["Shift", "Control", "Alt", "Meta"]);
+	assert.equal(interact.parameters.properties.modifiers.maxItems, 4);
 	for (const key of ["Enter", "Tab", "Escape"]) {
 		const pressed = await interact.execute(`browser-key-${key}`, { operation: "execute", tabName: "docs", action: "keypress", targetRef: "ax_1_1", key, expect: "value=empty" }, undefined, undefined, ctx);
 		assert.equal(pressed.details.acknowledged, true);
 		assert.equal(pressed.details.businessOutcome, "unverified");
 		assert.equal(calls.filter((call) => call.operation === "interact").at(-1)?.payload.key, key);
 	}
+	// Modifiers travel to the relay unchanged and in canonical order; a chord on a
+	// non-keypress action is rejected locally.
+	const arrow = await interact.execute("browser-key-arrow", { operation: "execute", tabName: "docs", action: "keypress", targetRef: "ax_1_1", key: "ArrowDown", modifiers: ["Meta", "Shift"] }, undefined, undefined, ctx);
+	assert.deepEqual(arrow.details.effect.modifiers, ["Shift", "Meta"]);
+	assert.deepEqual(calls.filter((call) => call.operation === "interact").at(-1)?.payload.modifiers, ["Shift", "Meta"]);
+	await assert.rejects(() => interact.execute("browser-key-bad-modifier", { operation: "execute", tabName: "docs", action: "keypress", targetRef: "ax_1_1", key: "ArrowDown", modifiers: ["Hyper"] }, undefined, undefined), /modifiers/u);
+	await assert.rejects(() => interact.execute("browser-key-dup-modifier", { operation: "execute", tabName: "docs", action: "keypress", targetRef: "ax_1_1", key: "a", modifiers: ["Shift", "Shift"] }, undefined, undefined, ctx), /modifiers/u);
+	await assert.rejects(() => interact.execute("browser-type-modifier", { operation: "execute", tabName: "docs", action: "type", targetRef: "ax_1_1", text: "x", modifiers: ["Shift"] }, undefined, undefined, ctx), /modifiers/u);
+	await assert.rejects(() => interact.execute("browser-unlisted-key", { operation: "execute", tabName: "docs", action: "keypress", targetRef: "ax_1_1", key: "F13" }, undefined, undefined, ctx), /keypress key/u);
+	// Pointer actions reach the relay with their refs; drag requires both, and coordinates
+	// are refused rather than guessed.
+	const rightClick = await interact.execute("browser-pointer-right", { operation: "execute", tabName: "docs", action: "right_click", targetRef: "ax_1_1" }, undefined, undefined, ctx);
+	assert.equal(rightClick.details.effect.action ?? "ok", rightClick.details.effect?.action ?? "ok");
+	assert.equal(calls.filter((call) => call.operation === "interact").at(-1)?.payload.action, "right_click");
+	const drag = await interact.execute("browser-pointer-drag", { operation: "execute", tabName: "docs", action: "drag", targetRef: "ax_1_1", dropRef: "ax_1_2" }, undefined, undefined, ctx);
+	assert.equal(drag.details.acknowledged, true);
+	assert.deepEqual([calls.filter((call) => call.operation === "interact").at(-1)?.payload.targetRef, calls.filter((call) => call.operation === "interact").at(-1)?.payload.dropRef], ["ax_1_1", "ax_1_2"]);
+	await assert.rejects(() => interact.execute("browser-drag-no-drop", { operation: "execute", tabName: "docs", action: "drag", targetRef: "ax_1_1" }, undefined, undefined, ctx), /dropRef/u);
+	await assert.rejects(() => interact.execute("browser-drag-coords", { operation: "execute", tabName: "docs", action: "drag", targetRef: "ax_1_1", dropRef: "ax_1_2", x: 1, y: 2, observationEpoch: 1 }, undefined, undefined, ctx), /坐标|drag/u);
+	await assert.rejects(() => interact.execute("browser-click-drop", { operation: "execute", tabName: "docs", action: "click", targetRef: "ax_1_1", dropRef: "ax_1_2" }, undefined, undefined, ctx), /dropRef/u);
 	const beforeInvalid = calls.filter((call) => call.operation === "interact").length;
 	for (const invalid of [{ key: undefined }, { key: "Return" }, { key: "Meta+Enter" }, { targetRef: undefined }, { text: "\n" }, { replace: true }, { option: "x" }, { direction: "down" }, { amount: 10 }, { x: 10, y: 10 }]) {
 		await assert.rejects(() => interact.execute("browser-key-invalid", { operation: "execute", tabName: "docs", action: "keypress", targetRef: "ax_1_1", key: "Enter", ...invalid }, undefined, undefined, ctx));
@@ -394,7 +444,9 @@ test("Relay-first launch gate: local evidence, one attempt, no replay or stale p
 			async connectRelay() { connections += 1; if (delay) { connectEntered.resolve(); return delay; } if (connectError) throw connectError; relay.closed = false; return relay; },
 			async openArtifactStore() { throw new Error("unexpected artifact store"); },
 		})({ registerTool(tool: any) { tools.set(tool.name, tool); }, registerCommand() {}, on(name: string, handler: any) { handlers.set(name, handler); }, appendEntry() {}, getActiveTools() { return active; } });
-		const ctx: any = { sessionManager: { getSessionId: () => "fixture-session", getBranch: () => [] }, hasUI: true, ui: { notify(message: string) { notices.push(message); } } };
+		// `select` answers "允许一次": these tests are about fallback routing, and the policy
+		// gate must not turn their request errors into local refusals.
+		const ctx: any = { sessionManager: { getSessionId: () => "fixture-session", getBranch: () => [] }, hasUI: true, ui: { notify(message: string) { notices.push(message); }, async select() { return "允许一次"; } } };
 		await handlers.get("session_start")({}, ctx);
 		return {
 			ctx, notices, relay, connectEntered: connectEntered.promise, get requests() { return requests; }, get connections() { return connections; },
@@ -642,8 +694,20 @@ test("/browser: explicit commands, local-only diagnostics, cancellation and owne
 		f.ctx.hasUI = false; await assert.rejects(f.run("install"), /需要交互界面/u); assert.deepEqual(f.calls, []);
 	});
 	await t.test("unsupported installer platform has no subprocess or probe", async () => {
-		const f = await fixture({ platform: "linux" }); await f.run("install"); await f.run("status");
-		assert.deepEqual(f.calls, []); assert.match(f.notices.at(-1)!, /仅支持 macOS/u);
+		// Linux and Windows are supported platforms now; an unknown one still refuses
+		// before any subprocess, probe or file write.
+		const f = await fixture({ platform: "freebsd" }); await f.run("install"); await f.run("status");
+		assert.deepEqual(f.calls, []); assert.match(f.notices.at(-1)!, /没有已验证的 Chrome Relay 安装路径/u);
+	});
+	await t.test("linux install reaches the installer instead of a platform refusal", async () => {
+		const f = await fixture({ platform: "linux" }); await f.run("status");
+		assert.deepEqual(f.calls[0], "status");
+	});
+	await t.test("--browser names the Chromium family, and an unknown one never dispatches", async () => {
+		const f = await fixture(); f.confirm(); await f.run("install --browser edge");
+		assert.deepEqual(f.calls.slice(0, 2), ["confirm", "install"]);
+		f.ctx.hasUI = true; f.calls.length = 0; await f.run("install --browser netscape");
+		assert.deepEqual(f.calls, []); assert.match(f.notices.at(-1)!, /不支持的浏览器：netscape/u);
 	});
 	for (const event of ["session_before_switch", "session_before_fork", "session_before_tree", "session_shutdown"]) {
 		await t.test(`${event} cancels old confirmations before any write`, async () => {
@@ -691,4 +755,918 @@ test("/browser: explicit commands, local-only diagnostics, cancellation and owne
 		completed.resolve({ status: "installed" }); await pending;
 		assert.equal(calls, 1); assert.deepEqual(f.notices, []);
 	});
+});
+
+// Every fake-relay test runs as the main agent, and the policy layer refuses an
+// unauthorized origin when there is no UI to ask. Point the policy at a file that allows
+// the fixture origin, exactly as a user's `总是允许` would have written it.
+async function allowPolicyFor(workspace: string, origins: string[] = ["https://example.test"]) {
+	const { writeBrowserPolicyV1, BROWSER_POLICY_PATH_ENV_V1 } = await import("./browser-policy.ts");
+	const path = join(workspace, "rotom", "browser-policy.json");
+	await writeBrowserPolicyV1({ blocklist: [], allowlist: origins.map((origin) => ({ origin, capabilities: ["read", "interact", "upload", "devtools"] })) }, path);
+	process.env[BROWSER_POLICY_PATH_ENV_V1] = path;
+	return path;
+}
+
+test("browser_inspect console：本地拒绝非法过滤，结果按 128 KiB 截断并用 cursor 续读", async () => {
+	const workspace = await mkdtemp(join(tmpdir(), "pi-browser-console-"));
+	const piDist = findPiDist();
+	const loaderUrl = pathToFileURL(join(piDist, "core/extensions/loader.js")).href;
+	const [{ loadExtensions, loadExtensionFromFactory }, { SessionManager }] = await Promise.all([
+		import(loaderUrl),
+		import(pathToFileURL(join(piDist, "core/session-manager.js")).href),
+	]);
+	const { createJiti } = await import(pathToFileURL(findPiDependency(piDist, "jiti/lib/jiti.mjs")).href);
+	const jiti = createJiti(loaderUrl, { moduleCache: false, alias: {
+		"@earendil-works/pi-ai": findPiDependency(piDist, "@earendil-works/pi-ai/dist/index.js"),
+		"@earendil-works/pi-coding-agent": join(piDist, "index.js"),
+	} });
+	const { createBrowserRelayExtensionV1 } = await jiti.import(join(process.cwd(), "rotom/extensions/browser/index.ts")) as any;
+	await allowPolicyFor(workspace);
+	const loaded = await loadExtensions([], workspace);
+	const calls: Array<{ operation: string; payload: Record<string, unknown> }> = [];
+	const entries = Array.from({ length: 200 }, (_, index) => ({ seq: index + 1, level: "error", text: `entry ${index + 1} ${"x".repeat(1_500)}`, at: 1_700_000_000_000 + index, source: "console" }));
+	let closed = false;
+	const relay = {
+		get closed() { return closed; },
+		close() { closed = true; },
+		get leaseToken() { return undefined; },
+		get keepTabs() { return false; },
+		get socketPath() { return join(workspace, "relay.sock"); },
+		async request(operation: string, payload: Record<string, unknown>) {
+			calls.push({ operation, payload });
+			if (operation === "tabs") return { schemaVersion: 1, kind: "rotom-browser-tabs", tabs: [{ name: "log", tabId: 12, documentGeneration: 1, url: "https://example.test/a?token=secret", title: "log", status: "complete", current: true, browserActive: false, ownership: "agent", relayAttached: true }] };
+			if (operation === "network") {
+				if (payload.tabName !== "log") throw new Error("network 需要属于当前 agent 的 tab");
+				const leak = String(payload.pattern ?? "") === "leak";
+				// Entry-level plumbing is rebuilt from a fixed field list; a top-level leak is
+				// rejected. Both are exercised here.
+				const entries = [
+					{ seq: 1, requestId: "r1", method: "GET", url: "https://example.test/ok", resourceType: "Fetch", status: 200, mimeType: "application/json", fromCache: false, durationMs: 12, at: 1_700_000_000_000, headers: { authorization: "Bearer entry-secret" }, postData: "password=entry-secret" },
+					{ seq: 2, requestId: "r2", method: "POST", url: "https://example.test/status-500?token=secret", resourceType: "Fetch", status: 500, durationMs: 31, at: 1_700_000_001_000 },
+				];
+				return { schemaVersion: 1, kind: "rotom-browser-network", tabName: "log", tabId: 12, captureSince: new Date(1_700_000_000_000).toISOString(), dropped: 2, retained: 2, entries, ...(leak ? { headers: { authorization: "Bearer top-secret" } } : {}) };
+			}
+			if (operation === "console") {
+				const since = Number(String(payload.sinceCursor ?? "c0").slice(1));
+				const rest = entries.filter((entry) => entry.seq > since).slice(0, Number(payload.limit ?? 50));
+				return { schemaVersion: 1, kind: "rotom-browser-console", tabName: "log", tabId: 12, documentGeneration: 1, captureSince: new Date(1_700_000_000_000).toISOString(), dropped: 7, retained: 200, entries: rest, ...(rest.length === Number(payload.limit ?? 50) ? { nextCursor: `c${rest[rest.length - 1].seq}` } : {}) };
+			}
+			throw new Error(`unexpected operation ${operation}`);
+		},
+	};
+	const browser = await loadExtensionFromFactory(createBrowserRelayExtensionV1({
+		async connectRelay() { closed = false; return relay; },
+		openArtifactStore: async () => (await import("./browser-relay.ts")).BrowserArtifactStoreV1.open(),
+	}), workspace, undefined, loaded.runtime, join(process.cwd(), "rotom/extensions/browser"));
+	const session = SessionManager.inMemory(workspace);
+	loaded.runtime.appendEntry = () => {};
+	loaded.runtime.getAllTools = () => [];
+	loaded.runtime.getCommands = () => [];
+	loaded.runtime.refreshTools = () => {};
+	const ctx: any = { cwd: workspace, sessionManager: session, mode: "print", hasUI: true, ui: { notify() {}, setStatus() {}, async confirm() { return true; }, async select() { return "允许一次"; }, theme: { fg: (_color: string, value: string) => value } } };
+	try {
+		await new Promise((resolve) => setImmediate(resolve));
+		for (const handler of browser.handlers.get("session_start") ?? []) await handler({ type: "session_start", reason: "startup" }, ctx);
+		const tool = browser.tools.get("browser_inspect")?.definition;
+		assert.ok(tool);
+		// Invalid filters never reach the relay.
+		const before = calls.filter((call) => call.operation === "console").length;
+		for (const params of [{ operation: "console", level: "debug" }, { operation: "console", pattern: "x".repeat(129) }, { operation: "console", limit: 201 }, { operation: "console", sinceCursor: "42" }, { operation: "tabs", level: "error" }]) {
+			await assert.rejects(tool.execute("console-invalid", params, undefined, undefined, ctx));
+		}
+		assert.equal(calls.filter((call) => call.operation === "console").length, before, "非法参数不得发请求");
+
+		// 200 entries of 1.5 KB cannot fit one 128 KiB result: page it instead.
+		const page = await tool.execute("console-page", { operation: "console", tabName: "log", limit: 200 }, undefined, undefined, ctx);
+		assert.equal(page.details.kind, "browser-console");
+		assert.equal(page.details.dropped, 7);
+		assert.ok(page.details.entries.length > 0 && page.details.entries.length < 200, `必须被截断：${page.details.entries.length}`);
+		assert.ok(Buffer.byteLength(page.content[0].text, "utf8") <= 128 * 1024);
+		assert.equal(typeof page.details.nextCursor, "string");
+		assert.equal(JSON.stringify(page.details).includes("token=secret"), false, "console 结果不出带 query 的 URL");
+
+		const next = await tool.execute("console-next", { operation: "console", tabName: "log", sinceCursor: page.details.nextCursor }, undefined, undefined, ctx);
+		assert.ok(next.details.entries[0].seq > page.details.entries.at(-1).seq, "cursor 继续而不是重放");
+
+		// network: local filters, metadata mapping, and a hard rejection of leaked headers.
+		const networkCalls = () => calls.filter((call) => call.operation === "network").length;
+		const networkStart = networkCalls();
+		for (const params of [{ operation: "network", resourceType: "fetch" }, { operation: "network", sinceCursor: "c1" }, { operation: "network", level: "error" }, { operation: "network", failedOnly: "yes" }, { operation: "tabs", failedOnly: true }]) {
+			await assert.rejects(tool.execute("network-invalid", params, undefined, undefined, ctx));
+		}
+		assert.equal(networkCalls(), networkStart, "非法参数不得发请求");
+		const network = await tool.execute("network-page", { operation: "network", tabName: "log", failedOnly: true }, undefined, undefined, ctx);
+		assert.equal(network.details.kind, "browser-network");
+		assert.equal(network.details.entries.length, 2);
+		assert.equal(network.details.entries[1].status, 500);
+		assert.equal(network.details.entries[1].durationMs, 31);
+		assert.equal(JSON.stringify(network.details).includes("token=secret"), false, "network 结果不出带 query 的 URL");
+		assert.equal(JSON.stringify(network.details).includes("headers"), false, "entry 级 header 必须被丢弃");
+		assert.equal(JSON.stringify(network.details).includes("entry-secret"), false);
+		await assert.rejects(tool.execute("network-leak", { operation: "network", tabName: "log", pattern: "leak" }, undefined, undefined, ctx), /不得包含 headers/u);
+		assert.ok(next.details.entries[0].seq > page.details.entries.at(-1).seq, "cursor 继续而不是重放");
+	} finally {
+		for (const handler of browser.handlers.get("session_shutdown") ?? []) await handler({ type: "session_shutdown", reason: "quit" }, ctx);
+		await rm(workspace, { recursive: true, force: true });
+	}
+});
+
+test("browser_interact upload：路径先本地校验，拒绝的路径不派发，放行时只传绝对路径", async () => {
+	const workspace = await mkdtemp(join(tmpdir(), "pi-browser-upload-"));
+	const piDist = findPiDist();
+	const loaderUrl = pathToFileURL(join(piDist, "core/extensions/loader.js")).href;
+	const [{ loadExtensions, loadExtensionFromFactory }, { SessionManager }] = await Promise.all([
+		import(loaderUrl),
+		import(pathToFileURL(join(piDist, "core/session-manager.js")).href),
+	]);
+	const { createJiti } = await import(pathToFileURL(findPiDependency(piDist, "jiti/lib/jiti.mjs")).href);
+	const jiti = createJiti(loaderUrl, { moduleCache: false, alias: {
+		"@earendil-works/pi-ai": findPiDependency(piDist, "@earendil-works/pi-ai/dist/index.js"),
+		"@earendil-works/pi-coding-agent": join(piDist, "index.js"),
+	} });
+	const { createBrowserRelayExtensionV1 } = await jiti.import(join(process.cwd(), "rotom/extensions/browser/index.ts")) as any;
+	await allowPolicyFor(workspace);
+	const loaded = await loadExtensions([], workspace);
+	const payloads: Array<Record<string, unknown>> = [];
+	const relay = {
+		get closed() { return false; },
+		close() {},
+		get leaseToken() { return undefined; },
+		get keepTabs() { return false; },
+		get socketPath() { return join(workspace, "relay.sock"); },
+		async request(operation: string, payload: Record<string, unknown>) {
+			if (operation === "tabs") return { schemaVersion: 1, kind: "rotom-browser-tabs", tabs: [{ name: "form", tabId: 21, documentGeneration: 1, url: "https://example.test/form", title: "form", status: "complete", current: true, browserActive: false, ownership: "agent", relayAttached: true }] };
+			if (operation === "interact") {
+				payloads.push(payload);
+				const readback = { schemaVersion: 1, kind: "rotom-browser-observation", tabName: "form", tabId: 21, documentGeneration: 1, observationEpoch: 1, url: "https://example.test/form", status: "complete", contentCoverage: "rendered-dom", contentComplete: false, nodes: [], digest: "form-digest" };
+				return { schemaVersion: 1, kind: "rotom-browser-interaction-result", tabName: "form", actionId: payload.actionId, action: payload.action, acknowledged: true, readback, effect: { dispatch: "files", files: (payload.paths as string[]).length, focusVerified: false } };
+			}
+			throw new Error(`unexpected operation ${operation}`);
+		},
+	};
+	const browser = await loadExtensionFromFactory(createBrowserRelayExtensionV1({
+		async connectRelay() { return relay; },
+		openArtifactStore: async () => (await import("./browser-relay.ts")).BrowserArtifactStoreV1.open(),
+	}), workspace, undefined, loaded.runtime, join(process.cwd(), "rotom/extensions/browser"));
+	const session = SessionManager.inMemory(workspace);
+	loaded.runtime.appendEntry = () => {};
+	loaded.runtime.getAllTools = () => [];
+	loaded.runtime.getCommands = () => [];
+	loaded.runtime.refreshTools = () => {};
+	const ctx: any = { cwd: workspace, sessionManager: session, mode: "print", hasUI: true, ui: { notify() {}, setStatus() {}, async confirm() { return true; }, async select() { return "允许一次"; }, theme: { fg: (_color: string, value: string) => value } } };
+	try {
+		await new Promise((resolve) => setImmediate(resolve));
+		for (const handler of browser.handlers.get("session_start") ?? []) await handler({ type: "session_start", reason: "startup" }, ctx);
+		const interact = browser.tools.get("browser_interact")?.definition;
+		assert.ok(interact);
+		const allowed = join(workspace, "payload.txt");
+		await writeFile(allowed, "payload\n");
+		const secret = join(workspace, ".env");
+		await writeFile(secret, "SECRET=1\n");
+		// Parameter combinations and path rules are decided before the relay is asked.
+		for (const params of [
+			{ operation: "execute", tabName: "form", action: "click", targetRef: "ax_1_1", paths: [allowed] },
+			{ operation: "execute", tabName: "form", action: "upload", paths: [allowed] },
+			{ operation: "execute", tabName: "form", action: "upload", targetRef: "ax_1_1", paths: [] },
+			{ operation: "execute", tabName: "form", action: "upload", targetRef: "ax_1_1", paths: [secret] },
+			{ operation: "execute", tabName: "form", action: "upload", targetRef: "ax_1_1", paths: ["relative.txt"] },
+			{ operation: "execute", tabName: "form", action: "upload", targetRef: "ax_1_1", paths: [allowed], text: "nope" },
+		]) await assert.rejects(interact.execute("upload-invalid", params, undefined, undefined, ctx));
+		assert.equal(payloads.length, 0, "被拒绝的 upload 不得派发");
+		const uploaded = await interact.execute("upload-ok", { operation: "execute", tabName: "form", action: "upload", targetRef: "ax_1_1", paths: [allowed] }, undefined, undefined, ctx);
+		assert.equal(uploaded.details.effect.dispatch, "files");
+		assert.deepEqual(payloads.at(-1)?.paths, [allowed]);
+		assert.equal(JSON.stringify(uploaded.details).includes(workspace), false, "结果不得回显本地目录");
+	} finally {
+		for (const handler of browser.handlers.get("session_shutdown") ?? []) await handler({ type: "session_shutdown", reason: "quit" }, ctx);
+		await rm(workspace, { recursive: true, force: true });
+	}
+});
+
+test("browser dialog：弹窗期间的拒绝原样返回，dialog 动作只下发 accept/promptText", async () => {
+	const workspace = await mkdtemp(join(tmpdir(), "pi-browser-dialog-"));
+	const piDist = findPiDist();
+	const loaderUrl = pathToFileURL(join(piDist, "core/extensions/loader.js")).href;
+	const [{ loadExtensions, loadExtensionFromFactory }, { SessionManager }] = await Promise.all([
+		import(loaderUrl),
+		import(pathToFileURL(join(piDist, "core/session-manager.js")).href),
+	]);
+	const { createJiti } = await import(pathToFileURL(findPiDependency(piDist, "jiti/lib/jiti.mjs")).href);
+	const jiti = createJiti(loaderUrl, { moduleCache: false, alias: {
+		"@earendil-works/pi-ai": findPiDependency(piDist, "@earendil-works/pi-ai/dist/index.js"),
+		"@earendil-works/pi-coding-agent": join(piDist, "index.js"),
+	} });
+	const { createBrowserRelayExtensionV1 } = await jiti.import(join(process.cwd(), "rotom/extensions/browser/index.ts")) as any;
+	await allowPolicyFor(workspace);
+	const loaded = await loadExtensions([], workspace);
+	const interactPayloads: Array<Record<string, unknown>> = [];
+	const observation = { schemaVersion: 1, kind: "rotom-browser-observation", tabName: "dialog", tabId: 31, documentGeneration: 1, observationEpoch: 2, url: "https://example.test/dialog", status: "complete", contentCoverage: "rendered-dom", contentComplete: false, nodes: [], digest: "dialog-digest" };
+	const blocked = { schemaVersion: 1, kind: "dialog-blocking", tabName: "dialog", dialog: { tabId: 31, type: "beforeunload", message: "unsaved changes", sensitive: true, openedAt: 1_700_000_000_000 } };
+	const relay = {
+		get closed() { return false; },
+		close() {},
+		get leaseToken() { return undefined; },
+		get keepTabs() { return false; },
+		get socketPath() { return join(workspace, "relay.sock"); },
+		async request(operation: string, payload: Record<string, unknown>) {
+			if (operation === "tabs") return { schemaVersion: 1, kind: "rotom-browser-tabs", tabs: [{ name: "dialog", tabId: 31, documentGeneration: 1, url: "https://example.test/dialog", title: "dialog", status: "complete", current: true, browserActive: false, ownership: "agent", relayAttached: true, dialog: blocked.dialog }] };
+			// Every read of a suspended tab answers with the refusal, like the relay does.
+			if (operation === "snapshot" || operation === "read_full" || operation === "navigate") return blocked;
+			if (operation === "interact") {
+				interactPayloads.push(payload);
+				if (payload.action !== "dialog") return blocked;
+				return { schemaVersion: 1, kind: "rotom-browser-interaction-result", tabName: "dialog", actionId: payload.actionId, action: "dialog", acknowledged: true, readback: observation, effect: { dispatch: "handleJavaScriptDialog", accept: payload.accept === true, sensitive: true } };
+			}
+			throw new Error(`unexpected operation ${operation}`);
+		},
+	};
+	const browser = await loadExtensionFromFactory(createBrowserRelayExtensionV1({
+		async connectRelay() { return relay; },
+		openArtifactStore: async () => (await import("./browser-relay.ts")).BrowserArtifactStoreV1.open(),
+	}), workspace, undefined, loaded.runtime, join(process.cwd(), "rotom/extensions/browser"));
+	const session = SessionManager.inMemory(workspace);
+	loaded.runtime.appendEntry = () => {};
+	loaded.runtime.getAllTools = () => [];
+	loaded.runtime.getCommands = () => [];
+	loaded.runtime.refreshTools = () => {};
+	const ctx: any = { cwd: workspace, sessionManager: session, mode: "print", hasUI: true, ui: { notify() {}, setStatus() {}, async confirm() { return true; }, async select() { return "允许一次"; }, theme: { fg: (_color: string, value: string) => value } } };
+	try {
+		await new Promise((resolve) => setImmediate(resolve));
+		for (const handler of browser.handlers.get("session_start") ?? []) await handler({ type: "session_start", reason: "startup" }, ctx);
+		const inspect = browser.tools.get("browser_inspect")?.definition;
+		const interact = browser.tools.get("browser_interact")?.definition;
+		assert.ok(inspect && interact);
+		// Reads of a suspended tab return the refusal instead of a schema error.
+		for (const params of [{ operation: "snapshot_visible", tabName: "dialog" }, { operation: "read_full", tabName: "dialog" }]) {
+			const result = await inspect.execute("dialog-read", params, undefined, undefined, ctx);
+			assert.equal(result.details.kind, "dialog-blocking", JSON.stringify(result.details).slice(0, 200));
+			assert.equal(result.details.dialog.type, "beforeunload");
+			assert.equal(result.details.dialog.sensitive, true);
+			assert.match(result.content[0].text, /beforeunload/u);
+		}
+		const moved = await inspect.execute("dialog-navigate", { operation: "navigate", tabName: "dialog", url: "https://example.test/next" }, undefined, undefined, ctx);
+		assert.equal(moved.details.kind, "dialog-blocking");
+		// Writes are refused before anything is dispatched, and the refusal is structured.
+		const clicked = await interact.execute("dialog-click", { operation: "execute", tabName: "dialog", action: "click", targetRef: "ax_1_1" }, undefined, undefined, ctx);
+		assert.equal(clicked.details.kind, "dialog-blocking");
+		assert.equal(clicked.details.dialog.message, "unsaved changes");
+		// The dialog action itself is allowed through, and carries only its own parameters.
+		for (const params of [
+			{ operation: "execute", tabName: "dialog", action: "dialog" },
+			{ operation: "execute", tabName: "dialog", action: "dialog", accept: false, promptText: "x" },
+			{ operation: "execute", tabName: "dialog", action: "dialog", accept: true, targetRef: "ax_1_1" },
+			{ operation: "execute", tabName: "dialog", action: "click", targetRef: "ax_1_1", accept: true },
+			{ operation: "execute", tabName: "dialog", action: "dialog", accept: true, promptText: "x".repeat(501) },
+		]) await assert.rejects(interact.execute("dialog-invalid", params, undefined, undefined, ctx));
+		const accepted = await interact.execute("dialog-accept", { operation: "execute", tabName: "dialog", action: "dialog", accept: true, promptText: "answer" }, undefined, undefined, ctx);
+		assert.equal(accepted.details.effect.accept, true);
+		assert.equal(accepted.details.effect.dispatch, "handleJavaScriptDialog");
+		const last = interactPayloads.at(-1)!;
+		assert.equal(last.accept, true);
+		assert.equal(last.promptText, "answer");
+		assert.equal(last.targetRef, undefined, "dialog 不带 ref");
+		assert.equal(last.paths, undefined);
+	} finally {
+		for (const handler of browser.handlers.get("session_shutdown") ?? []) await handler({ type: "session_shutdown", reason: "quit" }, ctx);
+		await rm(workspace, { recursive: true, force: true });
+	}
+});
+
+test("browser batch：逐步派发、单步 audit、原地停下且不重放", async () => {
+	const workspace = await mkdtemp(join(tmpdir(), "pi-browser-batch-"));
+	const piDist = findPiDist();
+	const loaderUrl = pathToFileURL(join(piDist, "core/extensions/loader.js")).href;
+	const [{ loadExtensions, loadExtensionFromFactory }, { SessionManager }] = await Promise.all([
+		import(loaderUrl),
+		import(pathToFileURL(join(piDist, "core/session-manager.js")).href),
+	]);
+	const { createJiti } = await import(pathToFileURL(findPiDependency(piDist, "jiti/lib/jiti.mjs")).href);
+	const jiti = createJiti(loaderUrl, { moduleCache: false, alias: {
+		"@earendil-works/pi-ai": findPiDependency(piDist, "@earendil-works/pi-ai/dist/index.js"),
+		"@earendil-works/pi-coding-agent": join(piDist, "index.js"),
+	} });
+	const { createBrowserRelayExtensionV1 } = await jiti.import(join(process.cwd(), "rotom/extensions/browser/index.ts")) as any;
+	await allowPolicyFor(workspace);
+	const loaded = await loadExtensions([], workspace);
+	const interactPayloads: Array<Record<string, unknown>> = [];
+	const observation = (generation: number) => ({ schemaVersion: 1, kind: "rotom-browser-observation", tabName: "form", tabId: 41, documentGeneration: generation, observationEpoch: 3, url: "https://example.test/form", status: "complete", contentCoverage: "rendered-dom", contentComplete: false, nodes: [], digest: `form-${generation}` });
+	const relay = {
+		get closed() { return false; },
+		close() {},
+		get leaseToken() { return undefined; },
+		get keepTabs() { return false; },
+		get socketPath() { return join(workspace, "relay.sock"); },
+		async request(operation: string, payload: Record<string, unknown>) {
+			if (operation === "tabs") return { schemaVersion: 1, kind: "rotom-browser-tabs", tabs: [{ name: "form", tabId: 41, documentGeneration: 1, url: "https://example.test/form", title: "form", status: "complete", current: true, browserActive: false, ownership: "agent", relayAttached: true }] };
+			if (operation !== "interact") throw new Error(`unexpected operation ${operation}`);
+			interactPayloads.push(payload);
+			// The third step navigates: that must stop the batch.
+			const navigated = interactPayloads.length === 3;
+			const expectation = payload.expect === undefined ? undefined : { outcome: payload.expect === "checked=true" ? "unmet" : "met" };
+			return {
+				schemaVersion: 1,
+				kind: "rotom-browser-interaction-result",
+				tabName: "form",
+				actionId: payload.actionId,
+				action: payload.action,
+				acknowledged: true,
+				effect: { dispatch: "mouse", target: { changed: true }, ...(expectation ? { expectation } : {}) },
+				readback: observation(navigated ? 2 : 1),
+			};
+		},
+	};
+	const browser = await loadExtensionFromFactory(createBrowserRelayExtensionV1({
+		async connectRelay() { return relay; },
+		openArtifactStore: async () => (await import("./browser-relay.ts")).BrowserArtifactStoreV1.open(),
+	}), workspace, undefined, loaded.runtime, join(process.cwd(), "rotom/extensions/browser"));
+	const session = SessionManager.inMemory(workspace);
+	const audits: any[] = [];
+	loaded.runtime.appendEntry = (type: string, data: any) => { if (type === "rotom-browser-interaction-audit/v1") audits.push(data); };
+	loaded.runtime.getAllTools = () => [];
+	loaded.runtime.getCommands = () => [];
+	loaded.runtime.refreshTools = () => {};
+	const ctx: any = { cwd: workspace, sessionManager: session, mode: "print", hasUI: true, ui: { notify() {}, setStatus() {}, async confirm() { return true; }, async select() { return "允许一次"; }, theme: { fg: (_color: string, value: string) => value } } };
+	try {
+		await new Promise((resolve) => setImmediate(resolve));
+		for (const handler of browser.handlers.get("session_start") ?? []) await handler({ type: "session_start", reason: "startup" }, ctx);
+		const interact = browser.tools.get("browser_interact")?.definition;
+		assert.ok(interact);
+		// Each step gets its own intent+terminal audit; the batch itself does not add one.
+		const done = await interact.execute("batch-1", { operation: "execute", tabName: "form", actions: [{ action: "click", targetRef: "ax_1_1" }, { action: "type", targetRef: "ax_1_2", text: "hi" }] }, undefined, undefined, ctx);
+		assert.equal(done.details.kind, "browser-batch-result");
+		assert.equal(done.details.completed, true);
+		assert.equal(interactPayloads.length, 2);
+		assert.equal(audits.filter((entry) => entry.kind === "rotom-browser-interaction-intent").length, 2);
+		assert.equal(audits.filter((entry) => entry.kind === "rotom-browser-interaction-terminal" && entry.status === "ok").length, 2);
+		assert.notEqual(interactPayloads[0].actionId, interactPayloads[1].actionId, "每一步是独立的动作");
+		// An unmet expect stops before the next step is dispatched.
+		interactPayloads.length = 0;
+		const unmet = await interact.execute("batch-2", { operation: "execute", tabName: "form", actions: [{ action: "click", targetRef: "ax_1_1", expect: "checked=true" }, { action: "click", targetRef: "ax_1_2" }] }, undefined, undefined, ctx);
+		assert.equal(unmet.details.stopReason, "expect-unmet");
+		assert.equal(unmet.details.stoppedAt, 0);
+		assert.equal(interactPayloads.length, 1, "第一步之后不再派发");
+		// A navigation between steps stops the batch as well.
+		interactPayloads.length = 0;
+		const navigated = await interact.execute("batch-3", { operation: "execute", tabName: "form", actions: [{ action: "click", targetRef: "ax_1_1" }, { action: "click", targetRef: "ax_1_2" }, { action: "click", targetRef: "ax_1_3" }, { action: "click", targetRef: "ax_1_4" }] }, undefined, undefined, ctx);
+		assert.equal(navigated.details.stopReason, "navigation");
+		assert.equal(navigated.details.stoppedAt, 2);
+		assert.equal(interactPayloads.length, 3, "导航之后的那一步不再派发");
+	} finally {
+		for (const handler of browser.handlers.get("session_shutdown") ?? []) await handler({ type: "session_shutdown", reason: "quit" }, ctx);
+		await rm(workspace, { recursive: true, force: true });
+	}
+});
+
+test("browser policy：blocklist 拒绝、无 UI 按拒绝、会话允许只影响本会话、总是允许写回并扩大子 lease", async () => {
+	const workspace = await mkdtemp(join(tmpdir(), "pi-browser-policy-"));
+	const piDist = findPiDist();
+	const loaderUrl = pathToFileURL(join(piDist, "core/extensions/loader.js")).href;
+	const [{ loadExtensions, loadExtensionFromFactory }, { SessionManager }] = await Promise.all([
+		import(loaderUrl),
+		import(pathToFileURL(join(piDist, "core/session-manager.js")).href),
+	]);
+	const { createJiti } = await import(pathToFileURL(findPiDependency(piDist, "jiti/lib/jiti.mjs")).href);
+	const jiti = createJiti(loaderUrl, { moduleCache: false, alias: {
+		"@earendil-works/pi-ai": findPiDependency(piDist, "@earendil-works/pi-ai/dist/index.js"),
+		"@earendil-works/pi-coding-agent": join(piDist, "index.js"),
+	} });
+	const { createBrowserRelayExtensionV1 } = await jiti.import(join(process.cwd(), "rotom/extensions/browser/index.ts")) as any;
+	const { writeBrowserPolicyV1, readBrowserPolicyV1, BROWSER_POLICY_PATH_ENV_V1 } = await import("./browser-policy.ts");
+	const policyPath = await allowPolicyFor(workspace, []);
+	const opened: string[] = [];
+	// The same extension serves the parent and its children, so the lease token is what
+	// decides which side of the policy gate runs.
+	let childLeaseToken: string | undefined;
+	const relay = {
+		get closed() { return false; },
+		close() {},
+		get leaseToken() { return childLeaseToken; },
+		get keepTabs() { return false; },
+		rootSessionId: "root-session",
+		get socketPath() { return join(workspace, "relay.sock"); },
+		async request(operation: string, payload: Record<string, unknown>) {
+			if (operation === "tabs") return { schemaVersion: 1, kind: "rotom-browser-tabs", tabs: [{ name: "site", tabId: 51, documentGeneration: 1, url: "https://allowed.test/page", title: "site", status: "complete", current: true, browserActive: false, ownership: "agent", relayAttached: true }] };
+			if (operation === "open") { opened.push(String(payload.url)); return { schemaVersion: 1, kind: "rotom-browser-observation", tabName: "site", tabId: 51, documentGeneration: 1, observationEpoch: 1, url: String(payload.url), status: "complete", contentCoverage: "rendered-dom", contentComplete: false, nodes: [], digest: "open-digest" }; }
+			throw new Error(`unexpected operation ${operation}`);
+		},
+	};
+	const loaded = await loadExtensions([], workspace);
+	const browser = await loadExtensionFromFactory(createBrowserRelayExtensionV1({
+		async connectRelay() { return relay; },
+		openArtifactStore: async () => (await import("./browser-relay.ts")).BrowserArtifactStoreV1.open(),
+	}), workspace, undefined, loaded.runtime, join(process.cwd(), "rotom/extensions/browser"));
+	const session = SessionManager.inMemory(workspace);
+	loaded.runtime.appendEntry = () => {};
+	const choices: string[] = [];
+	const selecting = (hasUI = true, answer = "允许一次") => ({ cwd: workspace, sessionManager: session, mode: "print", hasUI, ui: { notify() {}, setStatus() {}, async confirm() { return true; }, async select() { choices.push(answer); return answer; }, theme: { fg: (_color: string, value: string) => value } } });
+	try {
+		await new Promise((resolve) => setImmediate(resolve));
+		for (const handler of browser.handlers.get("session_start") ?? []) await handler({ type: "session_start", reason: "startup" }, ctx0());
+		function ctx0() { return { cwd: workspace, sessionManager: session, mode: "print", hasUI: false, ui: { notify() {}, setStatus() {}, async confirm() { return true; }, theme: { fg: (_color: string, value: string) => value } } }; }
+		const tool = browser.tools.get("browser_inspect")?.definition;
+		assert.ok(tool);
+
+		// blocklist 先于一切：即使有 UI 也不询问，直接拒绝且不派发。
+		await writeBrowserPolicyV1({ blocklist: ["https://blocked.test"], allowlist: [] }, policyPath);
+		const blocked = await tool.execute("policy-blocked", { operation: "open", tabName: "site", url: "https://blocked.test/x" }, undefined, undefined, selecting(true));
+		assert.equal(blocked.details.kind, "needs-approval");
+		assert.equal(blocked.details.reason, "blocklist");
+		assert.equal(blocked.details.capability, "interact");
+		assert.equal(opened.length, 0, "被 blocklist 拒绝的 open 不得派发");
+		assert.equal(choices.length, 0, "blocklist 不需要询问");
+
+		// 未授权 origin + 没有 UI：按拒绝处理，不派发。
+		const noUi = await tool.execute("policy-no-ui", { operation: "open", tabName: "site", url: "https://unknown.test/x" }, undefined, undefined, ctx0());
+		assert.equal(noUi.details.kind, "needs-approval");
+		assert.equal(noUi.details.reason, "no-ui");
+		assert.equal(opened.length, 0);
+
+		// 允许一次：放行这一次，但不写策略文件，也不记住。
+		const once = await tool.execute("policy-once", { operation: "open", tabName: "site", url: "https://unknown.test/x" }, undefined, undefined, selecting(true, "允许一次"));
+		assert.equal(once.details.kind, "observation");
+		assert.equal(opened.length, 1);
+		await tool.execute("policy-tabs", { operation: "tabs" }, undefined, undefined, selecting(true));
+		const published = JSON.parse(process.env.ROTOM_BROWSER_LEASE_SCOPE ?? "{}");
+		assert.equal(published.rootSessionId, "root-session", "父 agent 发布的 lease scope 必须带 rootSessionId");
+		// Only what the user authorized is published. The tab's current URL is not a grant:
+		// it can change through a redirect, a page-initiated navigation, or by claiming a tab
+		// the user already had open, so a child lease must not inherit it.
+		assert.deepEqual(published.origins, ["https://unknown.test"], `父授权 origin 只来自用户授权：${JSON.stringify(published.origins)}`);
+		assert.equal(published.origins.includes("https://allowed.test"), false, "tab 当前 URL 不得进入子 lease");
+		const afterOnce = await tool.execute("policy-once-again", { operation: "open", tabName: "site", url: "https://unknown.test/y" }, undefined, undefined, ctx0());
+		assert.equal(afterOnce.details.reason, "no-ui", "允许一次不能变成会话授权");
+		assert.deepEqual((await readBrowserPolicyV1(policyPath)).allowlist, [], "允许一次不写策略文件");
+
+		// 本会话允许：本会话内不再询问，但仍不写文件。
+		const sessionCtx = selecting(true, "本会话允许");
+		const granted = await tool.execute("policy-session", { operation: "open", tabName: "site", url: "https://session.test/x" }, undefined, undefined, sessionCtx);
+		assert.equal(granted.details.kind, "observation");
+		const choicesBefore = choices.length;
+		const again = await tool.execute("policy-session-again", { operation: "open", tabName: "site", url: "https://session.test/y" }, undefined, undefined, sessionCtx);
+		assert.equal(again.details.kind, "observation");
+		assert.equal(choices.length, choicesBefore, "本会话允许后不再询问");
+		assert.deepEqual((await readBrowserPolicyV1(policyPath)).allowlist, [], "本会话允许不写策略文件");
+
+		// 总是允许：写回策略文件，并扩大本次 run 的子 lease。
+		const always = selecting(true, "总是允许");
+		const written = await tool.execute("policy-always", { operation: "open", tabName: "site", url: "https://always.test/x" }, undefined, undefined, always);
+		assert.equal(written.details.kind, "observation");
+		const policy = await readBrowserPolicyV1(policyPath);
+		assert.deepEqual(policy.allowlist, [{ origin: "https://always.test", capabilities: ["interact"] }]);
+		const { mkdir, writeFile, chmod, readFile } = await import("node:fs/promises");
+		const leases = join(workspace, "leases");
+		await mkdir(leases, { recursive: true, mode: 0o700 });
+		await chmod(leases, 0o700);
+		const childFile = join(leases, "child.json");
+		await writeFile(childFile, JSON.stringify({ schemaVersion: 1, kind: "rotom-browser-lease", token: "child", agentId: "child", rootSessionId: "root-session", origins: ["https://allowed.test"], allow: { devtools: false, upload: false, download: false }, maxTabs: 2, keepTabs: false, expiresAt: Date.now() + 60_000 }), { mode: 0o600 });
+		await chmod(childFile, 0o600);
+		await tool.execute("policy-always-2", { operation: "open", tabName: "site", url: "https://second.test/x" }, undefined, undefined, selecting(true, "总是允许"));
+		const child = JSON.parse(await readFile(childFile, "utf8"));
+		assert.deepEqual(child.origins, ["https://allowed.test", "https://second.test"], "父 agent 的确认必须传给本次 run 的子 lease");
+		assert.notEqual(process.env[BROWSER_POLICY_PATH_ENV_V1], undefined);
+
+		// browser_inspect is a parallel tool: two structural calls on the same origin must
+		// share one prompt instead of asking twice and racing two answers.
+		await writeFile(policyPath, JSON.stringify({ blocklist: [], allowlist: [] }), { mode: 0o600 });
+		await chmod(policyPath, 0o600);
+		const promptsBefore = choices.length;
+		// The prompt must stay open while both calls reach it, which is what a real user
+		// answering the dialog does; a resolved-immediately stub would hide the duplicate.
+		let release: (() => void) | undefined;
+		const held = { ...ctx0(), hasUI: true, ui: { select: async () => { choices.push("held"); return new Promise<string | undefined>((resolve) => { release = () => resolve("允许一次"); }); } } } as any;
+		const pendingCalls = [
+			tool.execute("policy-race-1", { operation: "open", tabName: "site", url: "https://race.test/a" }, undefined, undefined, held),
+			tool.execute("policy-race-2", { operation: "open", tabName: "site", url: "https://race.test/b" }, undefined, undefined, held),
+		];
+		for (let attempt = 0; attempt < 20 && release === undefined; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+		assert.equal(choices.length - promptsBefore, 1, "同一 origin 的并发请求只询问一次");
+		if (release === undefined) throw new Error("并发询问没有到达用户");
+		const releasePrompt: () => void = release;
+		releasePrompt();
+		const settled = await Promise.all(pendingCalls);
+		assert.deepEqual(settled.map((result) => result.details.kind), ["observation", "observation"]);
+		assert.equal(choices.length - promptsBefore, 1, "两次调用共用同一个询问");
+
+		// A child's authorization is its lease, but the user's blocklist still applies: a
+		// lease that names an origin cannot overrule a refused site.
+		const blockedPolicy = { blocklist: ["https://allowed.test"], allowlist: [{ origin: "https://allowed.test", capabilities: ["interact", "read"] }] };
+		await writeFile(policyPath, JSON.stringify(blockedPolicy), { mode: 0o600 });
+		await chmod(policyPath, 0o600);
+		childLeaseToken = "child";
+		const openedBefore = opened.length;
+		const choicesBeforeChild = choices.length;
+		const childBlocked = await tool.execute("policy-child-blocklist", { operation: "open", tabName: "site", url: "https://allowed.test/x" }, undefined, undefined, selecting(true, "本会话允许"));
+		assert.equal(childBlocked.details.kind, "needs-approval");
+		assert.equal(childBlocked.details.reason, "blocklist", "子 agent 也不得绕过用户 blocklist");
+		assert.equal(opened.length, openedBefore, "blocklist 拒绝的子 agent 请求不得派发");
+		assert.equal(choices.length, choicesBeforeChild, "子 agent 不产生询问");
+		childLeaseToken = undefined;
+	} finally {
+		for (const handler of browser.handlers.get("session_shutdown") ?? []) await handler({ type: "session_shutdown", reason: "quit" }, {});
+		await rm(workspace, { recursive: true, force: true });
+	}
+});
+
+test("browser 敏感动作：relay 拒绝时问用户再重发、用户拒绝不重试、无 UI 与子 agent 都不派发、localhost 开关只对本机生效", async () => {
+	const workspace = await mkdtemp(join(tmpdir(), "pi-browser-confirm-"));
+	const piDist = findPiDist();
+	const loaderUrl = pathToFileURL(join(piDist, "core/extensions/loader.js")).href;
+	const [{ loadExtensions, loadExtensionFromFactory }, { SessionManager }] = await Promise.all([
+		import(loaderUrl),
+		import(pathToFileURL(join(piDist, "core/session-manager.js")).href),
+	]);
+	const { createJiti } = await import(pathToFileURL(findPiDependency(piDist, "jiti/lib/jiti.mjs")).href);
+	const jiti = createJiti(loaderUrl, { moduleCache: false, alias: {
+		"@earendil-works/pi-ai": findPiDependency(piDist, "@earendil-works/pi-ai/dist/index.js"),
+		"@earendil-works/pii-coding-agent": join(piDist, "index.js"),
+		"@earendil-works/pi-coding-agent": join(piDist, "index.js"),
+	} });
+	const { createBrowserRelayExtensionV1 } = await jiti.import(join(process.cwd(), "rotom/extensions/browser/index.ts")) as any;
+	const policyPath = await allowPolicyFor(workspace);
+	const origin = "https://example.test";
+	const dispatchLedger: Array<Record<string, unknown>> = [];
+	const relays: Array<Record<string, unknown>> = [];
+	const makeRelay = (leaseToken: string | undefined) => {
+		let closed = false;
+		return {
+			get closed() { return closed; },
+			close() { closed = true; },
+			get leaseToken() { return leaseToken; },
+			get keepTabs() { return false; },
+			rootSessionId: "root-session",
+			get socketPath() { return join(workspace, "relay.sock"); },
+			async request(operation: string, payload: Record<string, unknown>) {
+				if (operation === "tabs") return { schemaVersion: 1, kind: "rotom-browser-tabs", tabs: [{ name: "shop", tabId: 61, documentGeneration: 1, url: `${origin}/checkout`, title: "checkout", status: "complete", current: true, browserActive: false, ownership: "agent", relayAttached: true }] };
+				if (operation === "interact") {
+					relays.push({ ...payload });
+					// The relay refuses a sensitive target until the caller confirms it.
+					if (payload.confirmed !== true) return { schemaVersion: 1, kind: "needs-confirmation", tabName: "shop", origin, capability: "interact", reason: "sensitive-name", matchedWord: "submit" };
+					dispatchLedger.push({ ...payload });
+					return { schemaVersion: 1, kind: "rotom-browser-interaction-result", actionId: payload.actionId, action: payload.action, acknowledged: true, effect: { dispatch: "mouse" }, readback: { schemaVersion: 1, kind: "rotom-browser-observation", tabName: "shop", tabId: 61, documentGeneration: 1, observationEpoch: 3, url: `${origin}/checkout`, title: "checkout", status: "complete", nodes: [], truncated: false, contentCoverage: "rendered-dom", contentComplete: false, digest: "confirm-digest" } };
+				}
+				throw new Error(`unexpected operation ${operation}`);
+			},
+		};
+	};
+	let activeRelay = makeRelay(undefined);
+	// Switching relays must close the live one: the extension caches a connection and only
+	// reconnects after it is closed.
+	const switchRelay = (next: Record<string, unknown>) => { (activeRelay as any).close(); activeRelay = next; };
+	const loaded = await loadExtensions([], workspace);
+	const browser = await loadExtensionFromFactory(createBrowserRelayExtensionV1({
+		async connectRelay() { return activeRelay; },
+		openArtifactStore: async () => (await import("./browser-relay.ts")).BrowserArtifactStoreV1.open(),
+	}), workspace, undefined, loaded.runtime, join(process.cwd(), "rotom/extensions/browser"));
+	const session = SessionManager.inMemory(workspace);
+	const entries: Array<{ customType: string; data: any }> = [];
+	loaded.runtime.appendEntry = (customType: string, data: unknown) => { entries.push({ customType, data }); session.appendCustomEntry(customType, data); };
+	loaded.runtime.getAllTools = () => [];
+	loaded.runtime.getCommands = () => [];
+	loaded.runtime.refreshTools = () => {};
+	const confirmations: Array<{ title: string; message?: string }> = [];
+	const ui = (hasUI: boolean, answer: boolean) => ({ cwd: workspace, sessionManager: session, mode: "print", hasUI, ui: { notify() {}, setStatus() {}, async confirm(title: string, message?: string) { confirmations.push({ title, message }); return answer; }, async select() { return "允许一次"; }, theme: { fg: (_color: string, value: string) => value } } });
+	const savedConfirm = process.env.ROTOM_BROWSER_CONFIRM;
+	try {
+		for (const handler of browser.handlers.get("session_start") ?? []) await handler({ type: "session_start", reason: "startup" }, ui(false, true));
+		const interact = browser.tools.get("browser_interact")?.definition;
+		assert.ok(interact);
+		delete process.env.ROTOM_BROWSER_CONFIRM;
+
+		// 用户同意：relay 先拒绝、再收到 confirmed:true，只剩一次真实派发。
+		const approved = await interact.execute("confirm-yes", { operation: "execute", tabName: "shop", action: "click", targetRef: "ax_1_1" }, undefined, undefined, ui(true, true));
+		assert.equal(approved.details.kind, "browser-interaction-result", JSON.stringify(approved.details));
+		assert.equal(relays.length, 2, "必须先被拒绝一次再重发");
+		assert.equal(relays[0].confirmed, undefined, "第一次不能自带 confirmed");
+		assert.equal(relays[1].confirmed, true, "重发必须带 confirmed:true");
+		assert.equal(dispatchLedger.length, 1);
+		assert.equal(confirmations.length, 1);
+		assert.match(confirmations[0].title, /敏感/u);
+		assert.match(String(confirmations[0].message), /submit/u);
+		const terminal = entries.filter((entry) => entry.data?.kind === "rotom-browser-interaction-terminal").at(-1);
+		assert.equal(terminal?.data.confirmation, "user", "audit 必须记录这次是用户确认的");
+
+		// 用户拒绝：明确是“用户拒绝”，不再派发也不重试。
+		const denied = await interact.execute("confirm-no", { operation: "execute", tabName: "shop", action: "click", targetRef: "ax_1_1" }, undefined, undefined, ui(true, false));
+		assert.equal(denied.details.kind, "needs-approval");
+		assert.equal(denied.details.reason, "user-denied");
+		assert.match(denied.content.map((part: any) => part.text ?? "").join(" "), /不要重试/u);
+		assert.equal(dispatchLedger.length, 1, "拒绝后不得派发");
+		const blocked = entries.filter((entry) => entry.data?.kind === "rotom-browser-interaction-terminal").at(-1);
+		assert.equal(blocked?.data.status, "blocked");
+		assert.equal(blocked?.data.businessOutcome, "not-executed");
+
+		// 没有 UI：按拒绝处理，不询问也不派发。
+		const before = relays.length;
+		const noUi = await interact.execute("confirm-no-ui", { operation: "execute", tabName: "shop", action: "click", targetRef: "ax_1_1" }, undefined, undefined, ui(false, true));
+		assert.equal(noUi.details.kind, "needs-approval");
+		assert.equal(noUi.details.reason, "no-ui");
+		assert.equal(confirmations.length, 2, "没有 UI 时不能调用 confirm");
+		assert.equal(relays.length, before + 1, "只发了一次被拒绝的请求");
+
+		// 子 agent：上报给父 agent，不询问、不派发。
+		switchRelay(makeRelay("child-lease"));
+		const child = await interact.execute("confirm-child", { operation: "execute", tabName: "shop", action: "click", targetRef: "ax_1_1" }, undefined, undefined, ui(true, true));
+		assert.equal(child.details.kind, "needs-approval");
+		assert.equal(child.details.reason, "sensitive-action");
+		assert.equal(confirmations.length, 2, "子 agent 不能替用户确认");
+		assert.equal(dispatchLedger.length, 1);
+
+		// localhost 开关：本机自动放行，非本机 origin 仍然要问。
+		switchRelay(makeRelay(undefined));
+		process.env.ROTOM_BROWSER_CONFIRM = "auto-approve-localhost";
+		const remote = await interact.execute("confirm-remote", { operation: "execute", tabName: "shop", action: "click", targetRef: "ax_1_1" }, undefined, undefined, ui(false, true));
+		assert.equal(remote.details.kind, "needs-approval", "非本机 origin 上开关必须无效");
+		assert.equal(remote.details.reason, "no-ui");
+		const localRelay = makeRelay(undefined);
+		localRelay.request = async (operation: string, payload: Record<string, unknown>) => {
+			if (operation === "tabs") return { schemaVersion: 1, kind: "rotom-browser-tabs", tabs: [{ name: "shop", tabId: 61, documentGeneration: 1, url: "http://127.0.0.1:4321/checkout", title: "checkout", status: "complete", current: true, browserActive: false, ownership: "agent", relayAttached: true }] };
+			if (operation === "interact") {
+				if (payload.confirmed !== true) return { schemaVersion: 1, kind: "needs-confirmation", tabName: "shop", origin: "http://127.0.0.1:4321", capability: "interact", reason: "sensitive-name", matchedWord: "submit" };
+				dispatchLedger.push({ ...payload });
+				return { schemaVersion: 1, kind: "rotom-browser-interaction-result", actionId: payload.actionId, action: payload.action, acknowledged: true, effect: { dispatch: "mouse" }, readback: { schemaVersion: 1, kind: "rotom-browser-observation", tabName: "shop", tabId: 61, documentGeneration: 1, observationEpoch: 4, url: "http://127.0.0.1:4321/checkout", title: "checkout", status: "complete", nodes: [], truncated: false, contentCoverage: "rendered-dom", contentComplete: false, digest: "local-digest" } };
+			}
+			throw new Error(`unexpected operation ${operation}`);
+		};
+		switchRelay(localRelay);
+		const local = await interact.execute("confirm-local", { operation: "execute", tabName: "shop", action: "click", targetRef: "ax_1_1" }, undefined, undefined, ui(false, true));
+		assert.equal(local.details.kind, "browser-interaction-result", JSON.stringify(local.details));
+		assert.equal(confirmations.length, 2, "本机放行时不应该弹确认");
+		assert.equal(dispatchLedger.length, 2);
+		const localTerminal = entries.filter((entry) => entry.data?.kind === "rotom-browser-interaction-terminal").at(-1);
+		assert.equal(localTerminal?.data.confirmation, "auto-localhost");
+
+		// 上传在派发前就要确认：即使 relay 从不拒绝，也不能绕过。
+		process.env.ROTOM_BROWSER_CONFIRM = "";
+		const uploadPath = join(workspace, "confirm.txt");
+		await writeFile(uploadPath, "confirm payload\n");
+		uploadLedger: {
+			switchRelay(makeRelay(undefined));
+			let uploadRequests = 0;
+			activeRelay.request = async (operation: string, payload: Record<string, unknown>) => {
+				if (operation === "tabs") return { schemaVersion: 1, kind: "rotom-browser-tabs", tabs: [{ name: "shop", tabId: 61, documentGeneration: 1, url: `${origin}/upload`, title: "upload", status: "complete", current: true, browserActive: false, ownership: "agent", relayAttached: true }] };
+				if (operation === "interact") { uploadRequests += 1; throw new Error(`upload must not be dispatched: ${uploadRequests}`); }
+				throw new Error(`unexpected operation ${operation}`);
+			};
+			const refusedUpload = await interact.execute("confirm-upload", { operation: "execute", tabName: "shop", action: "upload", targetRef: "ax_1_1", paths: [uploadPath] }, undefined, undefined, ui(false, true));
+			assert.equal(refusedUpload.details.kind, "needs-approval", JSON.stringify(refusedUpload.details));
+			assert.equal(refusedUpload.details.reason, "no-ui");
+			// 用户同意后才允许派发；这里只需证明“没有确认就不会到 relay”。
+		}
+	} finally {
+		if (savedConfirm === undefined) delete process.env.ROTOM_BROWSER_CONFIRM;
+		else process.env.ROTOM_BROWSER_CONFIRM = savedConfirm;
+		for (const handler of browser.handlers.get("session_shutdown") ?? []) await handler({ type: "session_shutdown", reason: "quit" }, {});
+		await rm(workspace, { recursive: true, force: true });
+	}
+});
+
+test("browser downloads：列表只回模型安全字段、完成态带 sha256、子 agent 未授权时是 needs-approval", async () => {
+	const workspace = await mkdtemp(join(tmpdir(), "pi-browser-downloads-"));
+	const piDist = findPiDist();
+	const loaderUrl = pathToFileURL(join(piDist, "core/extensions/loader.js")).href;
+	const [{ loadExtensions, loadExtensionFromFactory }, { SessionManager }] = await Promise.all([
+		import(loaderUrl),
+		import(pathToFileURL(join(piDist, "core/session-manager.js")).href),
+	]);
+	const { createJiti } = await import(pathToFileURL(findPiDependency(piDist, "jiti/lib/jiti.mjs")).href);
+	const jiti = createJiti(loaderUrl, { moduleCache: false, alias: {
+		"@earendil-works/pi-ai": findPiDependency(piDist, "@earendil-works/pi-ai/dist/index.js"),
+		"@earendil-works/pi-coding-agent": join(piDist, "index.js"),
+	} });
+	const { createBrowserRelayExtensionV1 } = await jiti.import(join(process.cwd(), "rotom/extensions/browser/index.ts")) as any;
+	await allowPolicyFor(workspace);
+	const body = "downloaded fixture body\n";
+	const filePath = join(workspace, "Downloads", "rotom", "run_a", "fixture.txt");
+	await mkdir(dirname(filePath), { recursive: true });
+	await writeFile(filePath, body);
+	const expectedSha = createHash("sha256").update(body).digest("hex");
+	let blocked: unknown[] = [];
+	let listing: (url: string) => { id: number; state: string; relativePath: string; bytes: number; mimeType: string; path: string }[] = () => [];
+	const relay = {
+		get closed() { return false; },
+		close() {},
+		get leaseToken() { return undefined; },
+		get keepTabs() { return false; },
+		rootSessionId: "root-session",
+		get socketPath() { return join(workspace, "relay.sock"); },
+		async request(operation: string) {
+			if (operation === "tabs") return { schemaVersion: 1, kind: "rotom-browser-tabs", tabs: [] };
+			if (operation === "downloads") return { schemaVersion: 1, kind: "rotom-browser-downloads", agentId: "run_a", downloads: listing("run_a"), blocked };
+			throw new Error(`unexpected operation ${operation}`);
+		},
+	};
+	listing = () => [
+		{ id: 5, state: "complete", relativePath: "rotom/run_a/fixture.txt", bytes: Buffer.byteLength(body), mimeType: "text/plain", path: filePath },
+		{ id: 4, state: "complete", relativePath: "rotom/run_a/big.bin", bytes: 70 * 1024 * 1024, mimeType: "application/octet-stream", path: join(workspace, "missing.bin") },
+		{ id: 3, state: "in_progress", relativePath: "rotom/run_a/partial.bin", bytes: 12, mimeType: "application/octet-stream", path: join(workspace, "partial.bin") },
+	];
+	const loaded = await loadExtensions([], workspace);
+	const browser = await loadExtensionFromFactory(createBrowserRelayExtensionV1({
+		async connectRelay() { return relay; },
+		openArtifactStore: async () => (await import("./browser-relay.ts")).BrowserArtifactStoreV1.open(),
+	}), workspace, undefined, loaded.runtime, join(process.cwd(), "rotom/extensions/browser"));
+	const session = SessionManager.inMemory(workspace);
+	loaded.runtime.appendEntry = () => {};
+	loaded.runtime.getAllTools = () => [];
+	loaded.runtime.getCommands = () => [];
+	loaded.runtime.refreshTools = () => {};
+	const ctx: any = { cwd: workspace, sessionManager: session, mode: "print", hasUI: true, ui: { notify() {}, setStatus() {}, async confirm() { return true; }, async select() { return "允许一次"; }, theme: { fg: (_color: string, value: string) => value } } };
+	try {
+		for (const handler of browser.handlers.get("session_start") ?? []) await handler({ type: "session_start", reason: "startup" }, ctx);
+		const tool = browser.tools.get("browser_inspect")?.definition;
+		assert.ok(tool);
+		const listed = await tool.execute("downloads-ok", { operation: "downloads" }, undefined, undefined, ctx);
+		assert.equal(listed.details.kind, "rotom-browser-downloads");
+		const complete = listed.details.downloads.find((entry: any) => entry.relativePath.endsWith("fixture.txt"));
+		assert.equal(complete.sha256, expectedSha, "完成态必须给出真实摘要");
+		assert.equal(complete.bytes, Buffer.byteLength(body));
+		const big = listed.details.downloads.find((entry: any) => entry.relativePath.endsWith("big.bin"));
+		assert.equal(big.sha256, null, "超过上限不读文件");
+		assert.equal(big.sha256Skipped, "too-large");
+		const partial = listed.details.downloads.find((entry: any) => entry.relativePath.endsWith("partial.bin"));
+		assert.equal(partial.sha256, null);
+		assert.equal(partial.sha256Skipped, undefined, "未完成的下载不标 skipped");
+		assert.equal(JSON.stringify(listed.details).includes(workspace), false, "模型可见结果里不得出现绝对路径");
+		await assert.rejects(tool.execute("downloads-tab", { operation: "downloads", tabName: "docs" }, undefined, undefined, ctx), /不接受 tabName/u);
+		await assert.rejects(tool.execute("downloads-cursor", { operation: "downloads", cursor: "abc" }, undefined, undefined, ctx), /cursor 仅允许/u);
+		blocked = [{ reason: "download" }];
+		const refused = await tool.execute("downloads-blocked", { operation: "downloads" }, undefined, undefined, ctx);
+		assert.equal(refused.details.kind, "needs-approval");
+		assert.equal(refused.details.capability, "download");
+		assert.match(refused.content.map((part: any) => part.text ?? "").join(" "), /allow\.download/u);
+	} finally {
+		for (const handler of browser.handlers.get("session_shutdown") ?? []) await handler({ type: "session_shutdown", reason: "quit" }, {});
+		await rm(workspace, { recursive: true, force: true });
+	}
+});
+
+// A tiny but real trace: one 120 ms main-thread task and one layout shift.
+const TRACE_FIXTURE = Buffer.from(JSON.stringify({ traceEvents: [
+	{ name: "RunTask", dur: 120_000, args: { data: { url: "https://example.test/app.js" } } },
+	{ name: "LayoutShift", args: { data: { score: 0.07 } } },
+	{ name: "EvaluateScript", dur: 30_000, args: { data: { url: "https://example.test/app.js", lineNumber: 4 } } },
+] }));
+
+// 1x1 PNG: real image bytes, so the export path is proven with a decodable file.
+const ONE_PIXEL_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+
+test("browser_devtools：默认隔离世界、main world 必须确认、拒绝后不派发、非法参数本地拒绝", async () => {
+	const workspace = await mkdtemp(join(tmpdir(), "pi-browser-devtools-"));
+	const piDist = findPiDist();
+	const loaderUrl = pathToFileURL(join(piDist, "core/extensions/loader.js")).href;
+	const [{ loadExtensions, loadExtensionFromFactory }, { SessionManager }] = await Promise.all([
+		import(loaderUrl),
+		import(pathToFileURL(join(piDist, "core/session-manager.js")).href),
+	]);
+	const { createJiti } = await import(pathToFileURL(findPiDependency(piDist, "jiti/lib/jiti.mjs")).href);
+	const jiti = createJiti(loaderUrl, { moduleCache: false, alias: {
+		"@earendil-works/pi-ai": findPiDependency(piDist, "@earendil-works/pi-ai/dist/index.js"),
+		"@earendil-works/pi-coding-agent": join(piDist, "index.js"),
+	} });
+	const { createBrowserRelayExtensionV1 } = await jiti.import(join(process.cwd(), "rotom/extensions/browser/index.ts")) as any;
+	await allowPolicyFor(workspace);
+	let dispatched: any[] = [];
+	let confirmCalls = 0;
+	let confirmAnswer = true;
+	const relay = {
+		get closed() { return false; },
+		close() {},
+		get leaseToken() { return undefined; },
+		get keepTabs() { return false; },
+		rootSessionId: "root-session",
+		get socketPath() { return join(workspace, "relay.sock"); },
+		async request(operation: string, payload: any) {
+			if (operation === "tabs") return { schemaVersion: 1, kind: "rotom-browser-tabs", tabs: [{ name: "code", tabId: 31, documentGeneration: 1, url: "https://example.test/globals", title: "code", status: "complete", current: true, browserActive: false, ownership: "agent", relayAttached: true }] };
+			if (operation === "devtools") {
+				dispatched.push(payload);
+				if (payload.devtools === "record_stop") return { schemaVersion: 1, kind: "rotom-browser-devtools", devtools: "record_stop", tabName: "code", tabId: 31, documentGeneration: 1, durationMs: 1_000, fps: 2, truncated: true, frames: [{ data: ONE_PIXEL_PNG.toString("base64"), atMs: 0 }, { data: ONE_PIXEL_PNG.toString("base64"), atMs: 500 }] };
+				if (payload.devtools === "trace_start") return { schemaVersion: 1, kind: "rotom-browser-devtools", devtools: "trace_start", tabName: "code", tabId: 31, startedAt: new Date(0).toISOString(), categories: ["devtools.timeline"] };
+				if (payload.devtools === "trace_stop") return { schemaVersion: 1, kind: "rotom-browser-devtools", devtools: "trace_stop", tabName: "code", tabId: 31, documentGeneration: 1, bytes: TRACE_FIXTURE.length, dataLossOccurred: false, traceBase64: TRACE_FIXTURE.toString("base64") };
+				if (payload.devtools === "network_body") return { schemaVersion: 1, kind: "rotom-browser-devtools", devtools: "network_body", tabName: "code", tabId: 31, documentGeneration: 1, requestId: payload.requestId, url: "https://example.test/json", status: 200, mimeType: "application/json", resourceType: "Fetch", bodyText: "{\"message\":\"rotom-json-fixture\"}", truncated: false, bytes: 30, captureSince: new Date(0).toISOString(), note: "only requests issued after network_body was first enabled can be read" };
+				if (payload.devtools === "screenshot_export") return { schemaVersion: 1, kind: "rotom-browser-devtools", devtools: "screenshot_export", tabName: "code", tabId: 31, documentGeneration: 1, format: payload.format, fullPage: payload.fullPage === true, bytes: ONE_PIXEL_PNG.length, data: ONE_PIXEL_PNG.toString("base64") };
+				return payload.devtools === "viewport"
+					? { schemaVersion: 1, kind: "rotom-browser-devtools", devtools: "viewport", tabName: "code", tabId: 31, documentGeneration: 1, observationEpoch: 2, reset: false, viewport: { width: 900, height: 700, deviceScaleFactor: 1, mobile: false, touch: false } }
+					: { schemaVersion: 1, kind: "rotom-browser-devtools", devtools: "evaluate", tabName: "code", tabId: 31, documentGeneration: 1, world: payload.world ?? "isolated", threw: false, type: "string", valueText: "\"ok\"", truncated: false, bytes: 4 };
+			}
+			throw new Error(`unexpected operation ${operation}`);
+		},
+	};
+	const loaded = await loadExtensions([], workspace);
+	const browser = await loadExtensionFromFactory(createBrowserRelayExtensionV1({
+		async connectRelay() { return relay; },
+		openArtifactStore: async () => (await import("./browser-relay.ts")).BrowserArtifactStoreV1.open(),
+	}), workspace, undefined, loaded.runtime, join(process.cwd(), "rotom/extensions/browser"));
+	const session = SessionManager.inMemory(workspace);
+	loaded.runtime.appendEntry = () => {};
+	loaded.runtime.getAllTools = () => [];
+	loaded.runtime.getCommands = () => [];
+	loaded.runtime.refreshTools = () => {};
+	const ctx: any = { cwd: workspace, sessionManager: session, mode: "print", hasUI: true, ui: { notify() {}, setStatus() {}, async confirm() { confirmCalls += 1; return confirmAnswer; }, async select() { return "允许一次"; }, theme: { fg: (_color: string, value: string) => value } } };
+	try {
+		for (const handler of browser.handlers.get("session_start") ?? []) await handler({ type: "session_start", reason: "startup" }, ctx);
+		const tool = browser.tools.get("browser_devtools")?.definition;
+		assert.ok(tool, "browser_devtools 必须注册");
+		// 隔离世界是默认，不能顺手问用户，也不能悄悄进主世界。
+		const isolated = await tool.execute("devtools-isolated", { operation: "evaluate", expression: "1 + 1" }, undefined, undefined, ctx);
+		assert.equal(dispatched.at(-1).world, "isolated");
+		assert.equal(dispatched.at(-1).expression, "1 + 1");
+		assert.equal(confirmCalls, 0, "隔离世界不需要确认");
+		assert.equal(isolated.details.valueText, "\"ok\"");
+
+		const main = await tool.execute("devtools-main", { operation: "evaluate", expression: "window.rotomPageSecret", world: "main" }, undefined, undefined, ctx);
+		assert.equal(confirmCalls, 1, "主世界必须单独确认");
+		assert.equal(dispatched.at(-1).world, "main");
+		assert.equal(main.details.world, "main");
+
+		// 拒绝后不得派发：这是写操作的授权边界，不是提示。
+		confirmAnswer = false;
+		const before = dispatched.length;
+		const denied = await tool.execute("devtools-denied", { operation: "evaluate", expression: "document.cookie", world: "main" }, undefined, undefined, ctx);
+		assert.equal(denied.details.kind, "needs-approval");
+		assert.equal(denied.details.reason, "user-denied");
+		assert.equal(dispatched.length, before, "用户拒绝后不得派发 evaluate");
+
+		// 没有交互界面就没有人能批准。
+		confirmAnswer = true;
+		const noUi = await tool.execute("devtools-noui", { operation: "evaluate", expression: "1", world: "main" }, undefined, undefined, { ...ctx, hasUI: false, ui: { notify() {}, setStatus() {} } });
+		assert.equal(noUi.details.kind, "needs-approval");
+		assert.equal(noUi.details.reason, "no-ui");
+		assert.equal(dispatched.length, before, "无 UI 时不得派发");
+
+		const viewport = await tool.execute("devtools-viewport", { operation: "viewport", viewport: "desktop-1440" }, undefined, undefined, ctx);
+		assert.equal(dispatched.at(-1).devtools, "viewport");
+		assert.deepEqual(dispatched.at(-1).viewport, { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false, touch: false });
+		assert.equal(viewport.details.devtools, "viewport");
+
+		// 截图导出：字节真的落盘，模型只拿相对路径。
+		await mkdir(join(workspace, "shots"), { recursive: true });
+		const exported = await tool.execute("devtools-export", { operation: "screenshot_export", path: "shots/shot.png", fullPage: true }, undefined, undefined, ctx);
+		assert.equal(exported.details.kind, "browser-export");
+		assert.equal(exported.details.relativePath, join("shots", "shot.png"));
+		assert.equal(exported.details.bytes, ONE_PIXEL_PNG.length);
+		assert.equal(exported.details.format, "png");
+		assert.equal(exported.details.fullPage, true);
+		assert.equal(exported.details.overwrote, false);
+		assert.equal(JSON.stringify(exported.details).includes(workspace), false, "模型可见结果里不得出现绝对路径");
+		assert.deepEqual(await readFile(join(workspace, "shots", "shot.png")), ONE_PIXEL_PNG, "落盘内容必须与 relay 字节一致");
+		assert.equal(dispatched.at(-1).format, "png");
+		assert.equal(dispatched.at(-1).fullPage, true);
+
+		// 覆盖已有普通文件要如实标记。
+		const overwritten = await tool.execute("devtools-export-again", { operation: "screenshot_export", path: "shots/shot.png" }, undefined, undefined, ctx);
+		assert.equal(overwritten.details.overwrote, true);
+		await assert.rejects(tool.execute("devtools-export-outside", { operation: "screenshot_export", path: "../escape.png" }, undefined, undefined, ctx), /项目目录/u);
+		await assert.rejects(tool.execute("devtools-export-mismatch", { operation: "screenshot_export", path: "shots/shot.png", format: "jpeg" }, undefined, undefined, ctx), /format/u);
+		await assert.rejects(tool.execute("devtools-export-format", { operation: "screenshot_export", path: "shots/shot.png", format: "webp" }, undefined, undefined, ctx), /format/u);
+		await symlink(join(workspace, "shots", "shot.png"), join(workspace, "shots", "link.png"));
+		await assert.rejects(tool.execute("devtools-export-link", { operation: "screenshot_export", path: "shots/link.png" }, undefined, undefined, ctx), /符号链接/u);
+
+		// 响应体读取按 requestId 走，别的操作不接受这个字段。
+		const body = await tool.execute("devtools-body", { operation: "network_body", requestId: "1000.2" }, undefined, undefined, ctx);
+		assert.equal(body.details.devtools, "network_body");
+		assert.equal(dispatched.at(-1).requestId, "1000.2");
+		assert.match(body.details.bodyText, /rotom-json-fixture/u);
+		await assert.rejects(tool.execute("devtools-body-missing", { operation: "network_body" }, undefined, undefined, ctx), /requestId/u);
+		await assert.rejects(tool.execute("devtools-body-mixed", { operation: "evaluate", expression: "1", requestId: "1000.2" }, undefined, undefined, ctx), /只用于 network_body/u);
+
+		// trace：完整文件落盘，模型拿摘要。
+		const traceStarted = await tool.execute("devtools-trace-start", { operation: "trace_start" }, undefined, undefined, ctx);
+		assert.equal(traceStarted.details.devtools, "trace_start");
+		const traceStopped = await tool.execute("devtools-trace-stop", { operation: "trace_stop" }, undefined, undefined, ctx);
+		assert.equal(traceStopped.details.kind, "browser-trace");
+		assert.equal(traceStopped.details.bytes, TRACE_FIXTURE.length);
+		assert.equal(traceStopped.details.longTasks, 1);
+		assert.equal(traceStopped.details.cls, 0.07);
+		assert.equal(traceStopped.details.slowestScripts[0].line, 5);
+		assert.ok(traceStopped.details.path.startsWith(join(tmpdir(), "rotom-traces")), traceStopped.details.path);
+		assert.deepEqual(await readFile(traceStopped.details.path), TRACE_FIXTURE, "trace 文件必须与 relay 字节一致");
+		await assert.rejects(tool.execute("devtools-trace-mixed", { operation: "trace_start", expression: "1" }, undefined, undefined, ctx), /expression\/world/u);
+
+		// 录制：帧与合成 GIF 都落在私有临时目录。
+		const recording = await tool.execute("devtools-record", { operation: "record_stop" }, undefined, undefined, ctx);
+		assert.equal(recording.details.kind, "browser-recording");
+		assert.equal(recording.details.frames, 2);
+		assert.equal(recording.details.width, 1, "1x1 的帧不会被放大");
+		assert.equal(recording.details.height, 1);
+		assert.equal(recording.details.truncated, true, "relay 标了 truncated 就要如实透传");
+		const gifBytes = await readFile(recording.details.gifPath);
+		assert.equal(gifBytes.subarray(0, 6).toString("ascii"), "GIF89a");
+		assert.equal(gifBytes.length, recording.details.gifBytes);
+		assert.equal(recording.details.gifPath.startsWith(join(tmpdir(), "rotom-recordings")), true);
+		assert.deepEqual(await readFile(join(recording.details.directory, "frame-000.png")), ONE_PIXEL_PNG);
+		await assert.rejects(tool.execute("devtools-record-mixed", { operation: "record_start", requestId: "x" }, undefined, undefined, ctx), /只用于 network_body/u);
+
+		// 参数在本地就被拒，不产生任何请求。
+		const count = dispatched.length;
+		await assert.rejects(tool.execute("devtools-empty", { operation: "evaluate", expression: "   " }, undefined, undefined, ctx), /expression/u);
+		await assert.rejects(tool.execute("devtools-world", { operation: "evaluate", expression: "1", world: "page" }, undefined, undefined, ctx), /world/u);
+		await assert.rejects(tool.execute("devtools-op", { operation: "snapshot" }, undefined, undefined, ctx), /operation/u);
+		await assert.rejects(tool.execute("devtools-preset", { operation: "viewport", viewport: "iphone-99" }, undefined, undefined, ctx), /viewport/u);
+		await assert.rejects(tool.execute("devtools-mixed", { operation: "viewport", viewport: "reset", expression: "1" }, undefined, undefined, ctx), /evaluate 参数/u);
+		assert.equal(dispatched.length, count, "非法参数不得派发");
+	} finally {
+		for (const handler of browser.handlers.get("session_shutdown") ?? []) await handler({ type: "session_shutdown", reason: "quit" }, {});
+		await rm(workspace, { recursive: true, force: true });
+	}
 });

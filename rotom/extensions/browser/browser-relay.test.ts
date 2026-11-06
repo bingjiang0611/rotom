@@ -1,18 +1,24 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { createServer } from "node:net";
+import { createHash } from "node:crypto";
+import { createServer, type Socket } from "node:net";
 import { test } from "node:test";
 import {
+	BROWSER_MAIN_AGENT_ID_V1,
+	BROWSER_RELAY_TRANSFER_CAPABILITY_V1,
 	BrowserArtifactStoreV1,
 	BrowserRelayClientV1,
 	BrowserRelayUnavailableErrorV1,
+	browserPrincipalV1,
 	canonicalBrowserUrlV1,
 	browserInteractionExpectationOutcomeV1,
 	sanitizeBrowserInteractionEffectV1,
 	sanitizeBrowserObservationV1,
+	MAX_RELAY_SCREENSHOT_BYTES,
 	validateBrowserScreenshotV1,
 } from "./browser-relay.ts";
+import { RESPONSE_CHUNK_CODE_UNITS, responseChunksV1 } from "./chrome-extension/response-chunks.js";
 
 test("missing local Relay socket is typed pre-dispatch unavailability", async () => {
 	await assert.rejects(BrowserRelayClientV1.connect({ sessionId: "missing", socketPath: `/tmp/pi-relay-missing-${process.pid}-${Date.now()}.sock` }), (error: Error) => {
@@ -34,6 +40,19 @@ test("unavailability diagnostics only expose allowlisted connection metadata", (
 test("browser URL 拒绝 file/javascript/userinfo", () => {
 	assert.equal(canonicalBrowserUrlV1("https://example.com/a?b=1"), "https://example.com/a?b=1");
 	for (const value of ["file:///etc/passwd", "javascript:alert(1)", "https://user:secret@example.com/"]) assert.throws(() => canonicalBrowserUrlV1(value));
+});
+
+test("browser observation 只接受已知的 visibilityState，旧扩展缺字段仍兼容", () => {
+	const base = {
+		schemaVersion: 1, kind: "rotom-browser-observation", tabName: "main", tabId: 7, documentGeneration: 2, observationEpoch: 3,
+		url: "https://example.com/", title: "Visible page", status: "complete", truncated: false,
+		contentCoverage: "rendered-dom", contentComplete: false, nodes: [],
+	};
+	assert.equal(sanitizeBrowserObservationV1({ ...base, visibilityState: "visible" }).visibilityState, "visible");
+	assert.equal(sanitizeBrowserObservationV1({ ...base, visibilityState: "hidden" }).visibilityState, "hidden");
+	assert.equal(sanitizeBrowserObservationV1(base).visibilityState, undefined, "未重载的旧扩展不带该字段，必须继续可用");
+	// 未知取值说明 extension 与宣告的 protocol 不一致，不能当成普通结果。
+	assert.throws(() => sanitizeBrowserObservationV1({ ...base, visibilityState: "prerender" }), /visibilityState/u);
 });
 
 test("browser observation 保留凭据形状文本，仍隐藏 URL query/hash 并限制输出", () => {
@@ -139,7 +158,7 @@ test("relay client 绑定 session/generation 并拒绝错误 response", async (t
 					socket.write(`${JSON.stringify({ schemaVersion: 1, kind: "response", id: request.id, sessionId: request.sessionId, generation: request.generation, ok: false, error: `password=fixture\u0000${"x".repeat(2_000)}` })}\n`);
 					continue;
 				}
-				const result = request.operation === "hello" ? { schemaVersion: 1, kind: "rotom-browser-relay-ready", protocolRevision: 20, nonce: request.payload.nonce, capabilities: ["virtualized-frame-scroll", "multi-client-multiplex", "coordinate-click", "interaction-target-state", "page-alert-readback", "targeted-keypress", "snapshot-query"] } : { operation: request.operation };
+				const result = request.operation === "hello" ? { schemaVersion: 1, kind: "rotom-browser-relay-ready", protocolRevision: 21, nonce: request.payload.nonce, capabilities: ["virtualized-frame-scroll", "multi-client-multiplex", "coordinate-click", "interaction-target-state", "page-alert-readback", "targeted-keypress", "snapshot-query"] } : { operation: request.operation };
 				socket.write(`${JSON.stringify({ schemaVersion: 1, kind: "response", id: request.id, sessionId: request.sessionId, generation: request.generation, ok: true, result })}\n`);
 			}
 		});
@@ -159,6 +178,128 @@ test("relay client 绑定 session/generation 并拒绝错误 response", async (t
 	} finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
 });
 
+test("relay client hello 携带 browser principal，并从环境变量解析子 agent 身份", async (t) => {
+	const socketPath = `/tmp/rotom-browser-relay-principal-${process.pid}-${Date.now()}.sock`;
+	const hellos: any[] = [];
+	const acceptedSockets = new Set<Socket>();
+	let echoFields = true;
+	let reportedPrincipal: { agentId: string; rootSessionId: string } | undefined;
+	const server = createServer((socket) => {
+		acceptedSockets.add(socket);
+		socket.once("close", () => acceptedSockets.delete(socket));
+		socket.setEncoding("utf8"); let buffer = "";
+		socket.on("data", (chunk) => {
+			buffer += chunk;
+			for (;;) {
+				const newline = buffer.indexOf("\n"); if (newline < 0) break;
+				const line = buffer.slice(0, newline); buffer = buffer.slice(newline + 1); if (!line) continue;
+				const request = JSON.parse(line);
+				if (request.operation === "hello") hellos.push(request.payload);
+				// `echoFields: false` models an extension that predates principals.
+				const result = { schemaVersion: 1, kind: "rotom-browser-relay-ready", protocolRevision: 21,
+					nonce: request.payload.nonce,
+					...(echoFields ? { agentId: reportedPrincipal?.agentId ?? request.payload.agentId, rootSessionId: reportedPrincipal?.rootSessionId ?? request.payload.rootSessionId } : {}),
+					capabilities: ["virtualized-frame-scroll", "multi-client-multiplex", "coordinate-click", "interaction-target-state", "page-alert-readback", "targeted-keypress", "snapshot-query"] };
+				socket.write(`${JSON.stringify({ schemaVersion: 1, kind: "response", id: request.id, sessionId: request.sessionId, generation: request.generation, ok: true, result })}\n`);
+			}
+		});
+	});
+	try { await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(socketPath, resolve); }); }
+	catch (error) { if ((error as NodeJS.ErrnoException).code === "EPERM") { t.skip("sandbox 禁止 Unix socket listen"); return; } throw error; }
+	const saved = { agent: process.env.ROTOM_BROWSER_AGENT_ID, root: process.env.ROTOM_BROWSER_ROOT_SESSION, lease: process.env.ROTOM_BROWSER_LEASE, maxTabs: process.env.ROTOM_BROWSER_MAX_TABS, maxOrigin: process.env.ROTOM_BROWSER_MAX_TABS_PER_ORIGIN };
+	try {
+		delete process.env.ROTOM_BROWSER_AGENT_ID;
+		delete process.env.ROTOM_BROWSER_ROOT_SESSION;
+		delete process.env.ROTOM_BROWSER_LEASE;
+		const main = await BrowserRelayClientV1.connect({ sessionId: "session-main", socketPath });
+		assert.equal(main.agentId, BROWSER_MAIN_AGENT_ID_V1);
+		assert.equal(main.rootSessionId, "session-main");
+		assert.deepEqual(hellos[0], { nonce: hellos[0].nonce, agentId: "main", rootSessionId: "session-main", tabQuotas: { maxAgents: 8, maxTabsPerAgent: 4, maxTabs: 24, maxTabsPerOrigin: 2 } }, "旧客户端字段缺省时按主 agent 处理，且新客户端必须显式上报配额");
+		main.close();
+
+		process.env.ROTOM_BROWSER_AGENT_ID = "run_7f3a";
+		process.env.ROTOM_BROWSER_ROOT_SESSION = "session-root";
+		process.env.ROTOM_BROWSER_LEASE = "lease-token-1";
+		const child = await BrowserRelayClientV1.connect({ sessionId: "session-child", socketPath });
+		assert.equal(child.agentId, "run_7f3a");
+		assert.equal(child.rootSessionId, "session-root");
+		assert.deepEqual({ ...hellos[1], nonce: undefined }, { nonce: undefined, agentId: "run_7f3a", rootSessionId: "session-root", leaseToken: "lease-token-1", tabQuotas: { maxAgents: 8, maxTabsPerAgent: 4, maxTabs: 24, maxTabsPerOrigin: 2 } });
+		child.close();
+
+		// Quota overrides travel with the handshake; the service worker enforces them.
+		delete process.env.ROTOM_BROWSER_AGENT_ID;
+		delete process.env.ROTOM_BROWSER_ROOT_SESSION;
+		delete process.env.ROTOM_BROWSER_LEASE;
+		process.env.ROTOM_BROWSER_MAX_TABS = "5";
+		process.env.ROTOM_BROWSER_MAX_TABS_PER_ORIGIN = "0";
+		try {
+			const overridden = await BrowserRelayClientV1.connect({ sessionId: "session-quota", socketPath });
+			overridden.close();
+			assert.deepEqual(hellos[hellos.length - 1].tabQuotas, { maxAgents: 8, maxTabsPerAgent: 4, maxTabs: 5, maxTabsPerOrigin: 0 }, "环境变量覆盖要进入 hello，包含 0");
+			process.env.ROTOM_BROWSER_MAX_TABS = "abc";
+			await assert.rejects(BrowserRelayClientV1.connect({ sessionId: "session-quota-bad", socketPath }), /ROTOM_BROWSER_MAX_TABS 必须是/u);
+		} finally {
+			delete process.env.ROTOM_BROWSER_MAX_TABS;
+			delete process.env.ROTOM_BROWSER_MAX_TABS_PER_ORIGIN;
+		}
+
+		echoFields = false;
+		const legacyReady = await BrowserRelayClientV1.connect({ sessionId: "session-legacy", socketPath, principal: { agentId: "run_legacy", rootSessionId: "session-root" } });
+		assert.equal(legacyReady.agentId, "run_legacy", "旧扩展不回显身份时握手仍成立");
+		legacyReady.close();
+
+		echoFields = true;
+		reportedPrincipal = { agentId: "run_other", rootSessionId: "session-other" };
+		await assert.rejects(BrowserRelayClientV1.connect({ sessionId: "session-mismatch", socketPath, principal: { agentId: "run_mismatch", rootSessionId: "session-root" } }),
+			/browser principal 与本进程不一致/u);
+	} finally {
+		for (const [key, value] of [["ROTOM_BROWSER_AGENT_ID", saved.agent], ["ROTOM_BROWSER_ROOT_SESSION", saved.root], ["ROTOM_BROWSER_LEASE", saved.lease], ["ROTOM_BROWSER_MAX_TABS", saved.maxTabs], ["ROTOM_BROWSER_MAX_TABS_PER_ORIGIN", saved.maxOrigin]] as const) {
+			if (value === undefined) delete process.env[key]; else process.env[key] = value;
+		}
+		for (const socket of acceptedSockets) socket.destroy();
+		await new Promise<void>((resolve) => server.close(() => resolve()));
+	}
+});
+
+test("client 只对 transfer 要求 cross-agent-transfer 能力，旧扩展仍能连上", async (t) => {
+	const socketPath = `/tmp/rotom-browser-relay-capability-${process.pid}-${Date.now()}.sock`;
+	let extraCapabilities: string[] = [];
+	const server = createServer((socket) => {
+		socket.setEncoding("utf8"); let buffer = "";
+		socket.on("data", (chunk) => {
+			buffer += chunk;
+			for (;;) {
+				const newline = buffer.indexOf("\n"); if (newline < 0) break;
+				const line = buffer.slice(0, newline); buffer = buffer.slice(newline + 1); if (!line) continue;
+				const request = JSON.parse(line);
+				const result = { schemaVersion: 1, kind: "rotom-browser-relay-ready", protocolRevision: 21, nonce: request.payload.nonce, capabilities: ["virtualized-frame-scroll", "multi-client-multiplex", "coordinate-click", "interaction-target-state", "page-alert-readback", "targeted-keypress", "snapshot-query", ...extraCapabilities] };
+				socket.write(`${JSON.stringify({ schemaVersion: 1, kind: "response", id: request.id, sessionId: request.sessionId, generation: request.generation, ok: true, result })}\n`);
+			}
+		});
+	});
+	try { await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(socketPath, resolve); }); }
+	catch (error) { if ((error as NodeJS.ErrnoException).code === "EPERM") { t.skip("sandbox 禁止 Unix socket listen"); return; } throw error; }
+	try {
+		const legacy = await BrowserRelayClientV1.connect({ sessionId: "session-legacy", socketPath });
+		assert.throws(() => legacy.requireCapability(BROWSER_RELAY_TRANSFER_CAPABILITY_V1, "请重载扩展"), /请重载扩展/u, "缺能力时本地拒绝，不发请求");
+		assert.doesNotThrow(() => legacy.requireCapability("snapshot-query", "unused"), "已声明能力可用");
+		legacy.close();
+
+		extraCapabilities = ["cross-agent-transfer"];
+		const current = await BrowserRelayClientV1.connect({ sessionId: "session-current", socketPath });
+		assert.doesNotThrow(() => current.requireCapability(BROWSER_RELAY_TRANSFER_CAPABILITY_V1, "unused"));
+		current.close();
+	} finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
+});
+
+test("browser principal 拒绝空值、控制字符与超长 token", () => {
+	assert.deepEqual(browserPrincipalV1("s1", {}, {}), { agentId: "main", rootSessionId: "s1" });
+	assert.deepEqual(browserPrincipalV1("s1", { agentId: "run_1", rootSessionId: "root" }, { ROTOM_BROWSER_AGENT_ID: "env-agent" }), { agentId: "run_1", rootSessionId: "root" }, "显式输入优先于环境变量");
+	for (const overrides of [{ agentId: "" }, { agentId: "a b" }, { agentId: "x".repeat(513) }, { rootSessionId: "line\nbreak" }, { leaseToken: "\u0000" }]) {
+		assert.throws(() => browserPrincipalV1("s1", overrides, {}), /不是有界的可打印 ASCII token/u);
+	}
+});
+
 test("relay client 遇到 protocol 14 busy 时明确要求重载而不等待接管", async (t) => {
 	const socketPath = `/tmp/rotom-browser-relay-busy-${process.pid}-${Date.now()}.sock`;
 	let connections = 0;
@@ -176,7 +317,7 @@ test("relay client 遇到 protocol 14 busy 时明确要求重载而不等待接�
 					socket.end(`${JSON.stringify({ schemaVersion: 1, kind: "response", id: request.id, sessionId: request.sessionId, generation: request.generation, ok: false, error: "browser relay busy; another operation is active" })}\n`);
 					continue;
 				}
-				const result = { schemaVersion: 1, kind: "rotom-browser-relay-ready", protocolRevision: 20, nonce: request.payload.nonce, capabilities: ["virtualized-frame-scroll", "multi-client-multiplex", "coordinate-click", "interaction-target-state", "page-alert-readback", "targeted-keypress", "snapshot-query"] };
+				const result = { schemaVersion: 1, kind: "rotom-browser-relay-ready", protocolRevision: 21, nonce: request.payload.nonce, capabilities: ["virtualized-frame-scroll", "multi-client-multiplex", "coordinate-click", "interaction-target-state", "page-alert-readback", "targeted-keypress", "snapshot-query"] };
 				socket.write(`${JSON.stringify({ schemaVersion: 1, kind: "response", id: request.id, sessionId: request.sessionId, generation: request.generation, ok: true, result })}\n`);
 			}
 		});
@@ -212,9 +353,10 @@ test("interaction effect 保留凭据形状文本，仍限制证据形状与长�
 
 for (const [protocolRevision, capabilities] of [
 	[19, ["virtualized-frame-scroll", "multi-client-multiplex", "coordinate-click", "interaction-target-state", "page-alert-readback", "targeted-keypress", "snapshot-query"]],
-	[20, ["virtualized-frame-scroll", "multi-client-multiplex", "coordinate-click", "interaction-target-state", "page-alert-readback", "targeted-keypress"]],
-	[20, ["virtualized-frame-scroll", "multi-client-multiplex", "coordinate-click", "interaction-target-state", "page-alert-readback", "snapshot-query"]],
-	[20, ["virtualized-frame-scroll", "multi-client-multiplex", "targeted-keypress", "snapshot-query"]],
+	[20, ["virtualized-frame-scroll", "multi-client-multiplex", "coordinate-click", "interaction-target-state", "page-alert-readback", "targeted-keypress", "snapshot-query"]],
+	[21, ["virtualized-frame-scroll", "multi-client-multiplex", "coordinate-click", "interaction-target-state", "page-alert-readback", "targeted-keypress"]],
+	[21, ["virtualized-frame-scroll", "multi-client-multiplex", "coordinate-click", "interaction-target-state", "page-alert-readback", "snapshot-query"]],
+	[21, ["virtualized-frame-scroll", "multi-client-multiplex", "targeted-keypress", "snapshot-query"]],
 ] as const) test(`relay client 拒绝旧协议或缺少必需 capability: ${protocolRevision}/${capabilities.length}`, async (t) => {
 	const socketPath = `/tmp/rotom-browser-relay-old-ready-${process.pid}-${Date.now()}.sock`;
 	const server = createServer((socket) => {
@@ -251,7 +393,7 @@ test("relay client 请求超时后销毁连接，避免复用卡死队列", asyn
 				const line = buffer.slice(0, newline); buffer = buffer.slice(newline + 1); if (!line) continue;
 				const request = JSON.parse(line);
 				if (request.operation !== "hello") continue;
-				const result = { schemaVersion: 1, kind: "rotom-browser-relay-ready", protocolRevision: 20, nonce: request.payload.nonce, capabilities: ["virtualized-frame-scroll", "multi-client-multiplex", "coordinate-click", "interaction-target-state", "page-alert-readback", "targeted-keypress", "snapshot-query"] };
+				const result = { schemaVersion: 1, kind: "rotom-browser-relay-ready", protocolRevision: 21, nonce: request.payload.nonce, capabilities: ["virtualized-frame-scroll", "multi-client-multiplex", "coordinate-click", "interaction-target-state", "page-alert-readback", "targeted-keypress", "snapshot-query"] };
 				socket.write(`${JSON.stringify({ schemaVersion: 1, kind: "response", id: request.id, sessionId: request.sessionId, generation: request.generation, ok: true, result })}\n`);
 			}
 		});
@@ -265,4 +407,95 @@ test("relay client 请求超时后销毁连接，避免复用卡死队列", asyn
 		await Promise.race([closed, new Promise((_, reject) => setTimeout(() => reject(new Error("relay timeout socket close timeout")), 1_000))]);
 		await assert.rejects(client.request("tabs", {}), /browser relay client 已关闭/u);
 	} finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
+});
+
+/** A relay that answers `hello` and lets the test push raw response frames. */
+async function chunkFixture(t: any, script: (request: any, socket: any) => void) {
+	const socketPath = `/tmp/rotom-browser-relay-chunk-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}.sock`;
+	const server = createServer((socket) => {
+		socket.setEncoding("utf8"); let buffer = "";
+		// The client destroys its socket as soon as it rejects a bad stream.
+		socket.on("error", () => { /* expected when the client fails the response */ });
+		socket.on("data", (chunk: string) => {
+			buffer += chunk;
+			for (;;) {
+				const newline = buffer.indexOf("\n"); if (newline < 0) break;
+				const line = buffer.slice(0, newline); buffer = buffer.slice(newline + 1); if (!line) continue;
+				script(JSON.parse(line), socket);
+			}
+		});
+	});
+	try { await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(socketPath, resolve); }); }
+	catch (error) { if ((error as NodeJS.ErrnoException).code === "EPERM") { t.skip("sandbox 禁止 Unix socket listen"); return undefined; } throw error; }
+	t.after(async () => { await new Promise<void>((resolve) => server.close(() => resolve())); });
+	return socketPath;
+}
+
+function readyFrame(request: any) {
+	return { schemaVersion: 1, kind: "response", id: request.id, sessionId: request.sessionId, generation: request.generation, ok: true,
+		result: { schemaVersion: 1, kind: "rotom-browser-relay-ready", protocolRevision: 21, nonce: request.payload.nonce,
+			capabilities: ["virtualized-frame-scroll", "multi-client-multiplex", "coordinate-click", "interaction-target-state", "page-alert-readback", "targeted-keypress", "snapshot-query"] } };
+}
+
+test("大响应分块：按序重组并校验摘要", async (t) => {
+	const big = { documentText: "x".repeat(RESPONSE_CHUNK_CODE_UNITS * 2 + 100) };
+	let client: any;
+	const socketPath = await chunkFixture(t, async (request, socket) => {
+		if (request.operation === "hello") { socket.write(`${JSON.stringify(readyFrame(request))}\n`); return; }
+		const message = { schemaVersion: 1, kind: "response", id: request.id, sessionId: request.sessionId, generation: request.generation, ok: true, result: big };
+		const { digest, chunks } = await responseChunksV1(JSON.stringify(message));
+		assert.ok(chunks.length >= 3, "fixture 必须产生多块");
+		for (let index = 0; index < chunks.length; index += 1) {
+			socket.write(`${JSON.stringify({ schemaVersion: 1, kind: "response-chunk", id: request.id, sessionId: request.sessionId, generation: request.generation, chunk: { index, count: chunks.length, sha256: digest, data: chunks[index] } })}\n`);
+		}
+	});
+	if (!socketPath) return;
+	client = await BrowserRelayClientV1.connect({ sessionId: "session-chunk", generation: "generation-chunk", socketPath });
+	assert.deepEqual(await client.request("read_full", {}), big);
+	client.close();
+});
+
+test("大响应分块：丢失、乱序与摘要错误都报错且不返回结果", async (t) => {
+	// Each case breaks the stream differently; all three must surface as an error,
+	// never as a result assembled from unverified chunks.
+	const cases: Record<string, (chunks: string[]) => Array<{ index: number; data: string }>> = {
+		// The head never arrives, so the response can never be assembled.
+		lostHead: (chunks) => chunks.slice(1).map((data, offset) => ({ index: offset + 1, data })),
+		// A middle chunk is lost: the indices jump.
+		lostMiddle: (chunks) => chunks.map((data, index) => ({ index, data })).filter((entry) => entry.index !== 1),
+		// Every chunk arrives, but out of order.
+		outOfOrder: (chunks) => { const ordered = chunks.map((data, index) => ({ index, data })); return [ordered[1], ordered[0], ...ordered.slice(2)]; },
+		// All chunks in order, one byte of content changed: only the digest can catch this.
+		tampered: (chunks) => chunks.map((data, index) => ({ index, data: index === 1 ? `${data.slice(0, -1)}!` : data })),
+	};
+	for (const [name, transform] of Object.entries(cases)) {
+		let failure: Error | undefined;
+		const socketPath = await chunkFixture(t, async (request: any, socket: any) => {
+			if (request.operation === "hello") { socket.write(`${JSON.stringify(readyFrame(request))}\n`); return; }
+			const message = { schemaVersion: 1, kind: "response", id: request.id, sessionId: request.sessionId, generation: request.generation, ok: true, result: { documentText: "y".repeat(RESPONSE_CHUNK_CODE_UNITS * 2) } };
+			const { digest, chunks } = await responseChunksV1(JSON.stringify(message));
+			assert.equal(chunks.length, 3, "fixture 必须产生三块");
+			for (const { index, data } of transform(chunks)) {
+				if (socket.destroyed) return;
+				socket.write(`${JSON.stringify({ schemaVersion: 1, kind: "response-chunk", id: request.id, sessionId: request.sessionId, generation: request.generation, chunk: { index, count: chunks.length, sha256: digest, data } })}\n`);
+			}
+		});
+		if (!socketPath) return;
+		const client = await BrowserRelayClientV1.connect({ sessionId: "session-chunk", generation: "generation-chunk", socketPath });
+		await client.request("read_full", {}, { timeoutMs: 3_000 }).then(() => undefined, (error: Error) => { failure = error; });
+		client.close();
+		assert.ok(failure, `${name} 必须报错而不是返回结果`);
+		assert.match(failure.message, /chunk|摘要/u, `${name}: ${failure.message}`);
+	}
+});
+
+test("截图传输上限 8 MiB，但模型的截图仍限制在 768 KiB", () => {
+	const base = { schemaVersion: 1, kind: "rotom-browser-screenshot", tabName: "main", tabId: 7, documentGeneration: 2, observationEpoch: 5, viewport: { width: 1280, height: 800, pageX: 0, pageY: 0, scale: 1 }, mimeType: "image/jpeg" };
+	const jpeg = (bytes: number) => Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(Math.max(0, bytes - 3))]).toString("base64");
+	const large = new Uint8Array(2 * 1024 * 1024);
+	large.set([0xff, 0xd8, 0xff]);
+	const big = Buffer.from(large).toString("base64");
+	assert.throws(() => validateBrowserScreenshotV1({ ...base, data: big }), /payload/u, "模型侧仍按 768 KiB 拒绝");
+	const accepted = validateBrowserScreenshotV1({ ...base, data: big }, MAX_RELAY_SCREENSHOT_BYTES);
+	assert.equal(accepted.data.length, big.length, "协议侧接受 8 MiB 以内的截图");
 });
