@@ -50,6 +50,7 @@ ROTOM_BENCH_ROUNDS=40 ROTOM_BENCH_JSON=/tmp/bench.json node --experimental-strip
 | `focus` | 并发 agent 都不把用户焦点留在自己的 tab 上；`agent-window` 放置 |
 | `visibility` | 后台 tab 的 `visibilityState` 与隐藏状态下仍能真实交互 |
 | `chunked` | 超过 256 KiB 的响应分块、摘要校验与丢失/乱序拒绝 |
+| `settle` | "稳定就返回"的边界：能读完的页面标记完成且位置恢复、渲染晚于稳定窗口的列表不丢行、会回滚的输入不报最终生效 |
 | `lease` | 子 agent 的 lease：未授权 origin 本地拒绝，站点从未收到请求 |
 | `quotas` | per-agent / per-origin / 全局 / agent 数四个上限，超限即时拒绝且 close 后释放 |
 | `pointer` | hover 出菜单、dblclick 计数、右键菜单、指针拖拽与 HTML5 拖拽换序（页面自证顺序） |
@@ -96,5 +97,5 @@ ROTOM_BENCH_ROUNDS=40 ROTOM_BENCH_JSON=/tmp/bench.json node --experimental-strip
 再在 `suites/index.mjs` 注册。断言用 `recorder.check(name, fn)` 或
 `recorder.assert(name, condition, detail)`，这样失败会单独命名。
 fixture 站点在 `fixtures/server.mjs`，用 `fixtures.page(path, title, body)` 加页面，
-内置页面有 `/baseline`、`/frame`、`/popup`、`/large`、`/form`、`/checkout`（含 `cc-*` 字段的表单 + 敏感名称按钮，用来验证确认流程）、`/download-page`（带下载链接的页面，与 `/baseline` 分开以便 referrer 归属无歧义）、`/user`、`/console`、`/network`、`/keys`、`/pointer`、`/upload`、`/dialog`、`/redirect-out`（302 到另一个 fixture 站点的 `/redirect-target`，用来验证重定向不能绕过 origin 复核）。runner 在每个 suite 开始前把该 suite 的 fixture origin 写进自己的策略文件（`ROTOM_BROWSER_POLICY_FILE`），所以 e2e 不会读到操作者真实策略；`policy` suite 会自己改写这份文件。harness 还会在启动 Chrome 前把 `download.default_directory` 指到隔离目录，因为 Chrome 解析默认下载目录时不看 `HOME`，否则下载套件会写进操作者真实的 `~/Downloads`。runner 同时设置 `ROTOM_BROWSER_CONFIRM=auto-approve-localhost`，否则每个敏感点击都会停在确认上；`confirm` suite 会自己关掉这个开关来观察拒绝路径。`/upload` 页面的文件输入在 `change` 后立刻把文件 POST 回 `/upload-echo`，fixture 只记录 sha256 与大小，便于断言“服务端真的收到了这些字节”。`/dialog` 页面的每个按钮打开一种弹窗，并把 `alert`/`confirm`/`prompt` 的返回值写进状态行，所以“弹窗真的被处理”由页面自证，而不是只看命令 ack。
+内置页面有 `/baseline`、`/frame`、`/popup`、`/large`、`/read-medium`（能在步数预算内读完的文档）、`/virtual-late`（滚动后 60 ms 才渲染行的虚拟列表）、`/revert-input`（输入 80 ms 后自动清空）、`/form`、`/checkout`（含 `cc-*` 字段的表单 + 敏感名称按钮，用来验证确认流程）、`/download-page`（带下载链接的页面，与 `/baseline` 分开以便 referrer 归属无歧义）、`/user`、`/console`、`/network`、`/keys`、`/pointer`、`/upload`、`/dialog`、`/redirect-out`（302 到另一个 fixture 站点的 `/redirect-target`，用来验证重定向不能绕过 origin 复核）。runner 在每个 suite 开始前把该 suite 的 fixture origin 写进自己的策略文件（`ROTOM_BROWSER_POLICY_FILE`），所以 e2e 不会读到操作者真实策略；`policy` suite 会自己改写这份文件。harness 还会在启动 Chrome 前把 `download.default_directory` 指到隔离目录，因为 Chrome 解析默认下载目录时不看 `HOME`，否则下载套件会写进操作者真实的 `~/Downloads`。runner 同时设置 `ROTOM_BROWSER_CONFIRM=auto-approve-localhost`，否则每个敏感点击都会停在确认上；`confirm` suite 会自己关掉这个开关来观察拒绝路径。`/upload` 页面的文件输入在 `change` 后立刻把文件 POST 回 `/upload-echo`，fixture 只记录 sha256 与大小，便于断言“服务端真的收到了这些字节”。`/dialog` 页面的每个按钮打开一种弹窗，并把 `alert`/`confirm`/`prompt` 的返回值写进状态行，所以“弹窗真的被处理”由页面自证，而不是只看命令 ack。
 需要真实“用户 tab”的 suite 导出 `startUrlPage`（`run.mjs` 会把它交给 Chrome 当启动 URL）。
