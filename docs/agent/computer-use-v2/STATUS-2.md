@@ -29,27 +29,37 @@
 未决问题见最后一节 **Q3**（`outline.ts` 超过 20 KB 提交门槛，导致 helper 的 `secure` 标记没有进入
 `OutlineNode`）和 **Q4**（A6 未切换批次投递）。
 
-### B 阶段：**未完成**（2026-11-05 授权窗口内“无真实输入”门禁始终不成立）
+### B 阶段：**未完成**（两次尝试都停在“机器上没有人”这一条）
 
-用户 2026-11-05 03:33 PST 给出“大约 1 小时”的明确窗口并下令执行 B1–B6。先是权限阻挡（已查明并
-解决，见下），随后门禁本身不成立：采样期间始终有真实输入，因此 B1–B6 一条都没能运行，没有移动
-光标、输入文字、切换前台或启动被测 App。完整读数、对照与未运行清单见 [`evidence/runs/2026-11-05T0333-b-phase-blocked.md`](evidence/runs/2026-11-05T0333-b-phase-blocked.md)。
+| 尝试 | 结果 | 卡在哪 |
+| --- | --- | --- |
+| 11-05 03:33 窗口 | 未起跑 | 先误判为缺 TCC 授权；查明是启动方式（见下），随后 10 分钟门禁始终不成立 |
+| 11-06 04:37 起（用户“继续吧”） | 起跑但未发出任何动作 | B1 的 fixture 副本无法启动；修好后机器进入持续使用状态，门禁再次不成立 |
 
-- 权限问题的根因是**启动方式**，不是缺授权（先前的判断已更正）：TCC 按责任进程归属，`open` 启动时
-  bundle 自己是责任进程、没有任何授权；从终端直接启动同一二进制则继承宿主 App（Scry）的授权。
-  实测 `accessibility=true`、`screenRecording=true`，并且 `manageWindow list` 对 Finder 返回真实窗口。
-- 但第二个门禁始终不成立：04:01–04:23 每 20 秒采样，helper 侧真实输入计数 3024 → 5282 持续增长，
-  `idleSeconds` 从未到 600 s，窗口 04:33 结束。因此 B1–B6 仍然一条都没跑，也没有任何真机动作；
-  我们启动的 helper 已全部停止。
-- 新增 `scripts/cu-v2-gate.mjs`：一条命令给出窗口剩余、`HIDIdleTime`、helper 侧真实输入与判定；
-  本次 3 个负向对照（未给锚点 / 锚点只回推 2 分钟 / 窗口过期）都正确判 hold。
-- 附带观察：本机 122 个 `rotom-quality-pty-*` 遗留的 `bridge` 孤儿进程（`ppid=1`）；`HIDIdleTime`
-  会被我们自己的合成事件清零，所以门禁以 helper 侧计数为主。
-- 下次窗口的操作顺序（含 `--direct-l2` 要设 PI_CU_L2_SOCKET）见存档文档。
+逐次读数、命令与修复细节见
+[`runs/2026-11-05T0333-b-phase-blocked.md`](evidence/runs/2026-11-05T0333-b-phase-blocked.md) 与
+[`runs/2026-11-06T0437-b1-attempt.md`](evidence/runs/2026-11-06T0437-b1-attempt.md)。
 
-2026-11-04 那次**没有窗口**时的记录（保留作对照）：`HANDOFF-2.md` §3 的四条前置条件里第 3、4 条
-不满足、第 2 条只部分满足——`HIDIdleTime` 三次采样 0.27 / 0.24 / 0.07 s 说明用户在场；用户原文的
-时长数字没有填（Q1），窗口无法核验；脚本只在假 backend 上跑通逻辑。因此那次也没有运行 B1–B6。
+已解决的关键认知（先前判断已更正）：
+
+- **权限不是缺授权，是启动方式。** TCC 按责任进程归属：`open` 启动时 bundle 自己是责任进程、没有授权；
+  从已授权终端直启同一二进制则继承宿主 App（Scry）的授权。实测 `accessibility=true`、
+  `screenRecording=true`，并用 `manageWindow list` 对 Finder 拿到真实窗口。
+- **`--direct-l2` 必须设 `PI_CU_L2_SOCKET`**，否则脚本自建 socket 并用 `open` 拉起无权限 helper。
+- **ad-hoc 签名的 fixture 副本在本机无法启动**（amfid 拒绝，`launchd job spawn failed`）；旧的
+  `~/cu-v2-test/Fixture.app` 连 LaunchServices 都无法启动（可执行文件直跑正常）。已用仓库源码重建
+  （旧包留在 `Fixture-broken-2026-11-06.app`），`scripts/lib/fixture.mjs` 新增
+  `PI_CU_FIXTURE_SIGN_IDENTITY` 以改用真实签名身份。
+- 控制实验：复制/启动/结束 fixture 副本期间 helper 的真实输入计数不变，脚本自身动作不污染门禁。
+
+仍未解决、需要审核者注意：
+
+- **系统时钟在两次交互之间整体前移约一天**（11-05 03:37 PST → 11-06 04:5x PST），而 helper 的
+  `idleSeconds` 只前进十几分钟。因此“仍在用户给的窗口内”无法用原始 `window_start` 计算，只能依赖
+  用户的开放式授权 + helper 侧真实输入计数。这一点没有解释。
+- 本机 122 个 `rotom-quality-pty-*` 遗留 `bridge` 孤儿进程（`ppid=1`）仍在，未被本次运行触碰。
+
+B1–B6 目前全部**未运行**；`CLAUDE.md` §4 的仲裁措辞仍按约定不动。
 
 ## 第四轮审核（E1–E4、Q3）——完成
 
