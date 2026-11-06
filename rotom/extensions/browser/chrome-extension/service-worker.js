@@ -70,6 +70,8 @@ const FULL_READ_COMMAND_WAIT_MS = 750;
 const FULL_READ_RENDER_WAIT_MS = 150;
 const FULL_READ_RENDER_POLL_MS = 20;
 const FULL_READ_RENDER_STABLE_PASSES = 2;
+// Consecutive unchanged steps after which a container is treated as static again.
+const FULL_READ_STATIC_STEPS = 3;
 const FULL_READ_MAX_TARGETS = 6;
 const FULL_READ_MAX_STEPS = 60;
 const FULL_READ_MAX_CHARACTERS = 500_000;
@@ -820,6 +822,7 @@ async function fullRenderedTextSource(debuggee, scopeId, remainingSteps, assertO
 			// reused: a static document must not pay the render window on every scroll, and a
 			// virtual list must not be declared settled before it painted the new rows.
 			let containerRendersLate;
+			let stepsWithoutChange = 0;
 			let unconfirmedRender = false;
 			const settleAfterScroll = async (reference) => {
 				const settleStartedAt = Date.now();
@@ -832,7 +835,7 @@ async function fullRenderedTextSource(debuggee, scopeId, remainingSteps, assertO
 					await delay(FULL_READ_RENDER_POLL_MS);
 					const probed = await debuggerCommandWithin(debuggee, "Runtime.callFunctionOn", { objectId: targetObjectId, functionDeclaration: scrollTargetState.toString(), returnByValue: true });
 					const value = probed?.result?.value;
-					if (!record(value)) return { state: latest, settled: false };
+					if (!record(value)) return { state: latest, settled: false, sawChange: false };
 					latest = value;
 					const nextText = typeof value.text === "string" ? value.text : text;
 					const nextHeight = Number(value.scrollHeight) || 0;
@@ -840,15 +843,15 @@ async function fullRenderedTextSource(debuggee, scopeId, remainingSteps, assertO
 					text = nextText;
 					scrollHeight = nextHeight;
 					// Changed, then held still: this step's content finished painting.
-					if (sawChange && stablePasses >= FULL_READ_RENDER_STABLE_PASSES) { containerRendersLate = true; return { state: latest, settled: true }; }
+					if (sawChange && stablePasses >= FULL_READ_RENDER_STABLE_PASSES) { containerRendersLate = true; return { state: latest, settled: true, sawChange: true }; }
 					// Already known to be static: nothing more is coming, so stop paying for it.
-					if (!sawChange && containerRendersLate === false && stablePasses >= 1) return { state: latest, settled: true };
+					if (!sawChange && containerRendersLate === false && stablePasses >= 1) return { state: latest, settled: true, sawChange: false };
 					if (Date.now() - settleStartedAt >= FULL_READ_RENDER_WAIT_MS) {
 						if (containerRendersLate === undefined) containerRendersLate = sawChange;
 						// A container known to render late that changed nothing in the whole
 						// window may still be painting: report the step as unproven instead of
 						// claiming the read covered it.
-						return { state: latest, settled: sawChange || containerRendersLate === false };
+						return { state: latest, settled: sawChange || containerRendersLate === false, sawChange };
 					}
 				}
 			};
@@ -884,6 +887,11 @@ async function fullRenderedTextSource(debuggee, scopeId, remainingSteps, assertO
 				rendered = await debuggerCommandWithin(debuggee, "Runtime.callFunctionOn", { objectId: targetObjectId, arguments: [{ value: nextTop }], functionDeclaration: scrollTargetTo.toString(), returnByValue: true, awaitPromise: true });
 				const settled = await settleAfterScroll(state);
 				settledState = settled.state;
+				// One step that happened to change something (a late font, a lazy image) must
+				// not condemn a static document to the full window for every later step, so a
+				// run of unchanged steps hands it back to the fast path.
+				stepsWithoutChange = settled.sawChange ? 0 : stepsWithoutChange + 1;
+				if (stepsWithoutChange >= FULL_READ_STATIC_STEPS) containerRendersLate = false;
 				if (!settled.settled) {
 					// The last step has no more content to paint, so "nothing changed" is the
 					// expected answer there and must not be read as a missed render.

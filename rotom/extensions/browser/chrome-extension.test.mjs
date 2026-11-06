@@ -500,7 +500,10 @@ test("full-read completion requires actual scrolling and all bounded sources; sh
 	assert.equal(fullReadCoverage([still], false, 60, true).contentCoverage, "rendered-dom");
 	const moved = { ...still, scrolledContainers: 1 };
 	assert.equal(fullReadCoverage([moved], false, 60, true).contentComplete, true);
-	for (const [sources, truncated, maxSteps, framesComplete] of [[[moved], true, 60, true], [[moved], false, 3, true], [[moved], false, 60, false], [[moved, { ...still, endReached: false }], false, 60, true]]) assert.equal(fullReadCoverage(sources, truncated, maxSteps, framesComplete).contentComplete, false);
+	// Spending the whole step budget is not itself incomplete: a read that reached the end
+	// at the ceiling is complete, otherwise a finished document reports as unfinished.
+	assert.equal(fullReadCoverage([{ ...moved, scanSteps: 60 }], false, 60, true).contentComplete, true);
+	for (const [sources, truncated, maxSteps, framesComplete] of [[[moved], true, 60, true], [[moved], false, 60, false], [[moved, { ...still, endReached: false }], false, 60, true]]) assert.equal(fullReadCoverage(sources, truncated, maxSteps, framesComplete).contentComplete, false);
 	for (const height of [120, 160, 700]) assert.ok(fullReadScrollStep(height) > 0 && fullReadScrollStep(height) < height);
 });
 

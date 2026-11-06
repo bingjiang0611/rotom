@@ -21,10 +21,17 @@ export async function run({ harness, fixtures, recorder }) {
 		await request("open", { tabName: "chunk-big", url: fixtures.url("/large") }, 10_000);
 		await request("wait", { tabName: "chunk-big", status: "complete", timeoutMs: 15_000 }, 16_000);
 		const read = await request("read_full", { tabName: "chunk-big" }, 30_000);
-		const text = (read.nodes ?? []).filter((node) => node.role === "document-text").map((node) => node.name).join("\n");
+		// Node boundaries fall on character boundaries, so a separator would split words and
+		// make a complete document look like it lost paragraphs.
+		const text = (read.nodes ?? []).filter((node) => node.role === "document-text").map((node) => node.name).join("");
 		assert.ok(Buffer.byteLength(text, "utf8") > CHUNK_THRESHOLD_BYTES, `正文必须是分块量级：${Buffer.byteLength(text, "utf8")} 字节`);
 		assert.match(text, /Large document tail sentinel/u, "文档尾部必须完整，不能只剩前面的块");
 		assert.match(text, /Paragraph 1:/u, "文档开头也必须在");
+		// Every paragraph, in order: a traversal step that skips content must fail here
+		// even though the response still arrives in one piece.
+		const paragraphs = [...text.matchAll(/Paragraph (\d+):/gu)].map((match) => Number(match[1]));
+		const expected = Array.from({ length: 340 }, (_, index) => index + 1);
+		assert.deepEqual(paragraphs, expected, `340 段必须按顺序完整出现，实际 ${paragraphs.length} 段`);
 		assert.equal(read.truncated, false, "这份文档不该触发截断");
 	});
 
