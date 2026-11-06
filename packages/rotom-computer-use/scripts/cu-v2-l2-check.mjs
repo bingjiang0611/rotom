@@ -270,13 +270,23 @@ async function main() {
 	record("cleanup", "operator app restored", restored.pid === frontmost.pid ? "pass" : "inconclusive", `${frontmost.appName} → ${restored.appName}`);
 }
 
+/**
+ * Evidence is committed to a public repository, so the operator's home directory is
+ * written as `~`: the run paths are useful for reproducing the run, the account name
+ * is not ours to publish.
+ */
+function withoutHome(text) {
+	const home = homedir();
+	return home && home !== "/" ? text.split(home).join("~") : text;
+}
+
 async function writeEvidence() {
 	mkdirSync(EVIDENCE_DIR, { recursive: true });
 	mkdirSync(path.join(EVIDENCE_DIR, "runs"), { recursive: true });
 	const failures = rows.filter((row) => row.result === "fail").length;
 	const table = ["| Target | Action | Result | Note |", "| --- | --- | --- | --- |", ...rows.map((row) => `| ${row.area} | ${row.action} | ${row.result} | ${row.note.replace(/\|/g, "\\|")} |`)];
 	const runName = `${runStamp()}-l2-check.md`;
-	const body = [
+	const body = withoutHome([
 		`# Computer Use v2 L2 single-action check (${new Date().toISOString()})`,
 		"",
 		`Rows: ${rows.length} · Failures: ${failures}`,
@@ -294,11 +304,11 @@ async function writeEvidence() {
 		...log,
 		"```",
 		"",
-	].join("\n");
+	].join("\n"));
 	writeFileSync(path.join(EVIDENCE_DIR, "l2-check.md"), body);
 	// The summary is overwritten by the next run; the archived copy is the citation.
 	writeFileSync(path.join(EVIDENCE_DIR, "runs", runName), body);
-	writeFileSync(path.join(EVIDENCE_DIR, `l2-check-${Date.now()}.log`), log.join("\n"));
+	writeFileSync(path.join(EVIDENCE_DIR, `l2-check-${Date.now()}.log`), withoutHome(log.join("\n")));
 	if (failures > 0) process.exitCode = 1;
 }
 

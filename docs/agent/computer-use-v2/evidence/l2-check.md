@@ -1,28 +1,30 @@
-# Computer Use v2 L2 single-action check (2026-11-04T15:19:16.036Z)
+# Computer Use v2 L2 single-action check (2026-11-06T12:51:02.510Z)
 
-Rows: 7 · Failures: 1
+Rows: 5 · Failures: 1
+
+本次运行存档：`runs/2026-11-06T12-51-02-510Z-l2-check.md`
 
 One directed click and one directed text input per target, delivered with `background` policy.
 `cursorMoved` and `frontmostChanged` say whether the action reached the user's session.
 
 | Target | Action | Result | Note |
 | --- | --- | --- | --- |
-| helper | diagnostics | pass | protocol=8 accessibility=true |
-| environment | operator app | pass | Scry pid=72651 |
-| fixture | present | pass | pid=50219 bundle=com.example.cu-fixture |
-| fixture | window | fail | no window in listRoots even after activating the fixture |
-| L2 whitelist | app on the list | skipped | running: IntelliJ IDEA, IntelliJ IDEA; pass --allow-l2-app <bundleId> to type into it |
-| helper | still alive | pass | the helper answered diagnostics after every probe (no crash) |
-| cleanup | operator app restored | inconclusive | Scry → CU Fixture |
+| helper | diagnostics | pass | protocol=9 accessibility=true |
+| environment | operator app | pass | Scry pid=45089 |
+| environment | apps at startup | pass | 182 running; only processes started by this run may be operated |
+| fixture | fresh copy | pass | bundle=com.example.cu-fixture.1793969462369 path=~/cu-v2-test/runs/2026-11-06T12-51-02-202Z/fixture-1793969462369/Fixture.app |
+| run | abort | fail | Command failed: open -n ~/cu-v2-test/runs/2026-11-06T12-51-02-202Z/fixture-1793969462369/Fixture.app
+_LSOpenURLsWithCompletionHandler() failed with error -10825.
+ |
 
 ## Log
 
 ```
-2026-11-04T15:19:14.129Z helper diagnostics pass protocol=8 accessibility=true
-2026-11-04T15:19:14.136Z environment operator app pass Scry pid=72651
-2026-11-04T15:19:14.168Z fixture present pass pid=50219 bundle=com.example.cu-fixture
-2026-11-04T15:19:15.639Z fixture window fail no window in listRoots even after activating the fixture
-2026-11-04T15:19:15.721Z L2 whitelist app on the list skipped running: IntelliJ IDEA, IntelliJ IDEA; pass --allow-l2-app <bundleId> to type into it
-2026-11-04T15:19:15.733Z helper still alive pass the helper answered diagnostics after every probe (no crash)
-2026-11-04T15:19:16.035Z cleanup operator app restored inconclusive Scry → CU Fixture
+2026-11-06T12:51:02.272Z helper diagnostics pass protocol=9 accessibility=true
+2026-11-06T12:51:02.308Z environment operator app pass Scry pid=45089
+2026-11-06T12:51:02.369Z environment apps at startup pass 182 running; only processes started by this run may be operated
+2026-11-06T12:51:02.417Z fixture fresh copy pass bundle=com.example.cu-fixture.1793969462369 path=~/cu-v2-test/runs/2026-11-06T12-51-02-202Z/fixture-1793969462369/Fixture.app
+2026-11-06T12:51:02.509Z run abort fail Command failed: open -n ~/cu-v2-test/runs/2026-11-06T12-51-02-202Z/fixture-1793969462369/Fixture.app
+_LSOpenURLsWithCompletionHandler() failed with error -10825.
+
 ```
