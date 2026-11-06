@@ -346,6 +346,7 @@ const LARGE_PARAGRAPHS = 340;
 const LARGE_BODY = `<main>
 <h1>Large document</h1>
 ${Array.from({ length: LARGE_PARAGRAPHS }, (_, index) => `<p>Paragraph ${index + 1}: ${"lorem ipsum dolor sit amet ".repeat(28)}</p>`).join("\n")}
+<p>Chunk threshold padding: ${"chunkpadding ".repeat(24)}</p>
 <div role="status" id="large-tail">Large document tail sentinel</div>
 </main>`;
 
