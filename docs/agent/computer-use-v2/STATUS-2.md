@@ -29,125 +29,69 @@
 未决问题见最后一节 **Q3**（`outline.ts` 超过 20 KB 提交门槛，导致 helper 的 `secure` 标记没有进入
 `OutlineNode`）和 **Q4**（A6 未切换批次投递）。
 
-### B 阶段：**未完成**（两次尝试都停在“机器上没有人”这一条）
+### B 阶段：**未完成**（四次 B1 尝试，`SLEventPostToPid` 仍未执行）
 
-| 尝试 | 结果 | 卡在哪 |
+用户 05:36 PST 说“离开了 继续吧”之后没有再交互。这一轮真的跑起来了：门禁两次成立（`HIDIdleTime`
+619 s），B1 走到 13/15 行，**没有一次真的发出 L2 投递**。
+
+| 尝试 | 门禁 | 结果 |
 | --- | --- | --- |
-| 11-05 03:33 窗口 | 未起跑 | 先误判为缺 TCC 授权；查明是启动方式（见下），随后 10 分钟门禁始终不成立 |
-| 11-06 04:37 起（用户“继续吧”） | 起跑但未发出任何动作 | B1 的 fixture 副本无法启动；修好后机器进入持续使用状态，门禁再次不成立 |
+| 05:48 | 满足（619 s） | 副本启动、窗口、控件通过；点击落到窗口关闭按钮，窗口消失，后续 skip |
+| 05:59 | 满足（604 s） | `input received` 失败：`"l2probe"` → `"里probe"` |
+| 06:19 | 满足（604 s） | 同上前提；`direct L2 typeText` 仍是 `delivery=pid` |
+| 06:35 | **不满足**（06:27 起持续输入） | 0 失败，但这次运行本不该开始——见下 |
 
-逐次读数、命令与修复细节见
-[`runs/2026-11-05T0333-b-phase-blocked.md`](evidence/runs/2026-11-05T0333-b-phase-blocked.md) 与
-[`runs/2026-11-06T0437-b1-attempt.md`](evidence/runs/2026-11-06T0437-b1-attempt.md)。
+逐次读数、缺陷复现和修复细节见
+[`runs/2026-11-06T1435-b1-four-attempts.md`](evidence/runs/2026-11-06T1435-b1-four-attempts.md)、
+[`runs/2026-11-06T0437-b1-attempt.md`](evidence/runs/2026-11-06T0437-b1-attempt.md)、
+[`runs/2026-11-05T0333-b-phase-blocked.md`](evidence/runs/2026-11-05T0333-b-phase-blocked.md)。
 
-已解决的关键认知（先前判断已更正）：
+**06:35 那次运行是我的错误**：轮询循环里把运行命令写到了循环外，门禁一直在跳动却照样跑了 B1。
+它只碰本轮自己启动的 fixture 副本（光标未动、前台未变），但违反了阶段规则，记录在案而不是抹掉。
 
-- **权限不是缺授权，是启动方式。** TCC 按责任进程归属：`open` 启动时 bundle 自己是责任进程、没有授权；
-  从已授权终端直启同一二进制则继承宿主 App（Scry）的授权。实测 `accessibility=true`、
-  `screenRecording=true`，并用 `manageWindow list` 对 Finder 拿到真实窗口。
-- **`--direct-l2` 必须设 `PI_CU_L2_SOCKET`**，否则脚本自建 socket 并用 `open` 拉起无权限 helper。
-- **ad-hoc 签名的 fixture 副本在本机无法启动**（amfid 拒绝，`launchd job spawn failed`）；旧的
-  `~/cu-v2-test/Fixture.app` 连 LaunchServices 都无法启动（可执行文件直跑正常）。已用仓库源码重建
-  （旧包留在 `Fixture-broken-2026-11-06.app`），`scripts/lib/fixture.mjs` 新增
-  `PI_CU_FIXTURE_SIGN_IDENTITY` 以改用真实签名身份。
-- 控制实验：复制/启动/结束 fixture 副本期间 helper 的真实输入计数不变，脚本自身动作不污染门禁。
+这一轮真机发现并修好的**产品**缺陷（都已提交）：
 
-仍未解决、需要审核者注意：
+- **输入法改写注入文本**：中文输入法下 `typeText("l2probe")` 落成 `"里probe"`（`2` 被当作候选选择），
+  而 helper 只检查“值变了”就报 `worked`。现在优先 AX 插入（不经输入法），并要求读回值等于或后缀
+  等于请求文本，否则 `didnt`。
+- **显式 `delivery: "l2"` 被静默降级成 `pid`**：`policy: "background"` 的分支先于显式请求生效，所以
+  定向投递签名从上线到现在一次都没执行过。显式 `delivery` 现在优先，且显式投递不再被 AX 插入抢先满足。
 
-- **系统时钟在两次交互之间整体前移约一天**（11-05 03:37 PST → 11-06 04:5x PST），而 helper 的
-  `idleSeconds` 只前进十几分钟。因此“仍在用户给的窗口内”无法用原始 `window_start` 计算，只能依赖
-  用户的开放式授权 + helper 侧真实输入计数。这一点没有解释。
-- 本机 122 个 `rotom-quality-pty-*` 遗留 `bridge` 孤儿进程（`ppid=1`）仍在，未被本次运行触碰。
+脚本侧：fixture 副本需要真实签名身份；fixture 新增内容按钮（原来唯一的 `AXButton` 是关闭按钮）；
+L2 模式每步重新 observe；证据里的家目录写成 `~`。
 
-B1–B6 目前全部**未运行**；`CLAUDE.md` §4 的仲裁措辞仍按约定不动。
+**门禁测量本身不可靠**：`manageApps launch` 一次 +15 事件、一次完整运行 +17…+91，都会让计数增长、
+`HIDIdleTime` 归零。只有光标移动与前台切到我们没启动的 App 才能证明“用户回来了”。
 
-## 第四轮审核（E1–E4、Q3）——完成
-
-`REVIEW-4.md` 的结论是 A1–A4、A6–A8 接受，A5 有三处会在真机上直接出错的缺陷（E1–E3），另外要求
-写明 helper 身份边界（E4）并按职责拆分 `outline.ts`（Q3）。五项都已完成，逐项细节见
-[`STATUS-2-E-items.md`](STATUS-2-E-items.md)。**仍然只在 L1 层面验证**：没有运行任何真机脚本，
-没有移动光标、没有启动 App、没有触碰操作者已打开的进程。
-
-| 项 | 内容 | 状态 | 层级 |
-| --- | --- | --- | --- |
-| E1 | 租约过期 / 用户活动的时间单位统一为毫秒，互通测试改用真实 broker 签发的 token | 完成 | L1 |
-| E2 | 转交签发新 leaseId、id 跨进程唯一、撤销集合有界、换 key 清空撤销 | 完成 | L1 |
-| E3 | 按 mode 区分读写，`manageApps` 绑定目标，算不出目标即失败关闭 | 完成 | L1 |
-| E4 | 同时只接受一个 helper 连接，并如实写明身份边界 | 完成 | L1 |
-| Q3 | 按职责拆分 `outline.ts`，接上原生 `secure` 标记 | 完成 | L1 |
-| Q5 | `focusWindow` / `clipboardRestore` 纳入租约校验（复核后补做） | 完成 | L1 |
-
-四项的最终证据：
-
-| 检查 | 命令 | 结果 |
-| --- | --- | --- |
-| 全量 TS 测试 | `node --test --experimental-strip-types "test/*.test.ts"` | 120 通过、0 失败（E 轮新增 9 项，Q5 再新增 3 项） |
-| helper 租约强制 | `npm run test:lease-guard` | 自测 22 项全过 + 18 步互通全过，**每一步的 token 都由真实 `BrokerCore` 签发** |
-| 脚本 dry run | `node scripts/cu-v2-script-dry-run.mjs` | 6 通过、3 显式跳过（未受影响） |
-| 反向对照 | 把 Swift 过期比较改回秒后重跑互通 | `step broker_expired fail`，说明 E1 的用例确实能抓到单位回退 |
-
-用户活动的单位问题**当时并不是缺陷**：旧代码记的是秒，但推送前乘了 1000，broker 收到的就是毫秒，
-与 broker 自己的时钟一致。现在做的是统一单位并加校验（旧代码换算正确，不是缺陷）——两侧内部都只用
-毫秒，broker 对非毫秒的 `ping.lastUserInputAt` 返回 `invalid_request`，避免以后有人漏乘或重复乘。
-
-按 `REVIEW-4.md` 的“下一步”，B 阶段仍需用户另约时间、给出明确时长后才能开始；开始条件与规则不变，
-并新增一条：B4 的反例必须用真实 broker 签出的 token（含过期与撤销），不允许脚本自己构造——这一条
-现在已经在 `scripts/check-lease-guard.mjs` 里落实，真机脚本可以直接沿用。
-
-## 时间窗口与运行授权
-
-- 用户下达指令的时间：2026-11-04 18:41 PST（UTC-8）。
-- 用户给出的离开时长原文是“大约 __ 小时”，**数字没有被填上**（见“需要审核者回答的问题” Q1）。
-  因此“当前时间仍在上面的窗口里”这一条无法用数字核验（见“需要审核者回答的问题” Q1）。
-- 执行 agent 的处理：A 阶段不需要真机，不受窗口限制；B 阶段的门禁改为以
-  `HANDOFF-2.md` 第 3 条（独立 helper 的 `userActivity` 显示最近 10 分钟内没有真实用户输入）
-  作为“用户不在电脑前”的**唯一可核验证据**，并且只要 B 阶段任何一步检测到真实用户输入就立即
-  停止整个 B 阶段。理由：用户明确写了“如果有（输入），说明我已经回来了”，这正是第 3 条要证明的事。
-- B 阶段实际开始时间、每次运行的存档路径见下面的“B 阶段记录”。
-
-## 决定记录
-
-（可以撤销、由执行 agent 自己选的决定。不可逆或会改变 PLAN 已定决策的写在最后一节。）
-
-| 编号 | 决定 | 理由 |
-|---|---|---|
-| D1 | B 阶段的门禁用“10 分钟内无真实用户输入”作为窗口证据，并在任何真实输入出现时立即停止 | Q1：时长未填。第 3 条是用户自己给的“我已经回来了”判据，取更保守的一侧 |
-| D3 | 逐项细节移到 `STATUS-2-A-items.md` | `STATUS-2.md` 要作为审核入口，但仓库 pre-commit 限制单文件 20KB。入口保留时间窗口、决定、总表、验证摘要、问题与稳定性观察，细节另存并在同一提交维护 |
-| D2 | A1 的模块边界用工厂函数把 `DesktopToolDeps`（getter 形式）注入 `src/tools/*`，不用模块级全局 | session reset 会替换 scheduler、broker、trace recorder；getter 保证工具永远拿到当前会话的写权限，且工具模块不引入隐藏状态 |
-
-## A 阶段记录
-
-| 项 | 内容 | 状态 | 验证层级 | 提交 |
-|---|---|---|---|---|
-| A1 | 四个执行器移出 `bridge.ts` | 完成 | L1（全量测试结果与搬迁前一致） | 见提交 |
-| A2 | I3：测试不依赖 peer 包 | 完成 | L1（干净 checkout、无 `node_modules`） | 见提交 |
-| A3 | F3：干扰用户时暂停 agent | 完成 | L1（单测 + Swift 编译） | 见提交 |
-| A4 | F2：父 agent 把 App 交给 subagent | 完成 | L1（单测） | 见提交 |
-| A5 | I2：helper 侧强制租约、截图排除宿主 | 完成 | L1（单测 + native 自检 + TS/Swift 互通），真机未验证 | 见提交 |
-| A6 | F1：前台接管（L4）与 `preempted_by_user` | 完成 | L1（单测 + Swift 编译），真机未验证 | 见提交 |
-| A7 | F4：多个 agent 各自的光标 | 完成 | L1（颜色分配单测 + Swift 编译），显示效果未验证 | 见提交 |
-| A8 | 真机脚本的准备（只写代码） | 完成 | L1（脚本 dry run 6 项通过），真机未运行 | 见提交 |
-
-逐项细节（A1–A8 的实现、验证命令与限制）在 [`STATUS-2-A-items.md`](STATUS-2-A-items.md)，与下表一一对应。
+仍未解决：系统时钟在两次交互之间整体前移约一天，`window_start` 无法再算“是否仍在窗口内”，只能靠
+helper 侧计数与用户授权。本机 122 个 `rotom-quality-pty-*` 遗留 `bridge` 孤儿进程仍在，未触碰。
 
 ## B 阶段记录
 
-**状态：未开始。** 门禁评估在 2026-11-04 19:49 PST 进行，结论与证据见上面的“总结 · B 阶段”。
-按 `HANDOFF-2.md` §3，四项前置条件全部成立才允许开始：
+**状态：未完成，第 4 条前置条件不成立。** 明细见
+[`runs/2026-11-06T1435-b1-four-attempts.md`](evidence/runs/2026-11-06T1435-b1-four-attempts.md)。
 
 | 条件 | 结果 | 证据 |
 | --- | --- | --- |
-| A1–A8 完成并推送 | 满足 | `b5b2d58c` 已推送，工作区干净 |
-| 脚本已在 Linux 或假 backend 上跑通 | 部分满足 | 只有 `cu-v2-script-dry-run.mjs`（副本与请求构造）跑通；真机脚本路径从未执行 |
-| 当前时间仍在窗口内 | 无法核验 | 用户原文的时长数字没有填（Q1） |
-| 最近 10 分钟内没有真实用户输入 | **不满足** | `HIDIdleTime` 三次采样 0.27 s / 0.24 s / 0.07 s → 用户已经回来 |
+| A1–A8 完成并推送 | 满足 | `b5b2d58c` 已推送 |
+| 脚本已在 Linux 或假 backend 上跑通 | 满足（脚本层） | `cu-v2-script-dry-run.mjs` 6 通过 / 3 跳过；真机路径本轮才第一次跑到 15 行 |
+| 当前时间仍在窗口内 | 无法核验 | 系统时钟前移约一天，用户给的时长数字也没填（Q1） |
+| 最近 10 分钟内没有真实用户输入 | **曾两次成立、随后失效** | 05:46 / 06:19 两次 619 s、604 s 通过；06:27 起持续输入，06:35 那次运行本不该开始（见总结） |
 
-没有运行 B1–B6 的任何一步，没有启动 fixture、没有移动光标、没有切换前台、没有向隔离 helper
-写入任何东西。`docs/agent/computer-use-v2/evidence/runs/` 下没有本次新增的 B 阶段存档。
+跑过的东西：B1 四次（13/15/15/15 行），每次都只操作本轮自己启动的 fixture 副本，`cursorMoved`
+与 `frontmostChanged` 全程 false，操作员 App 前后都是 Scry。没有碰过用户已打开的 App。
+**没有**执行：`SLEventPostToPid`（L2 定向投递）、B2/B3/B4/B5/B6。
 
-另注（与本次任务无关，未触碰）：本机还有若干早前测试残留的 helper/broker 进程
-（形如临时 HOME 下的 `rotom-quality-pty-*` 实例，各跑一个 `pi-computer-use.app` 的 `bridge serve`，
-以及一个 `src/broker/daemon-entry.mjs`），可能属于存活会话，按约定不清理、不重启。
+下一次窗口只需要一条命令（预计 40 秒）：
+
+```bash
+PI_CU_L2_SOCKET=1 PI_CU_SOCKET_PATH=~/cu-v2-test/direct-l2.sock \
+PI_COMPUTER_USE_HELPER_APP_PATH=~/cu-v2-test/pi-computer-use.app ROTOM_CU_BROKER=0 \
+PI_CU_FIXTURE_SIGN_IDENTITY="Apple Development: baobingjiang@icloud.com (8Y6KR78CP7)" \
+node --experimental-strip-types scripts/cu-v2-l2-check.mjs --fixture ~/cu-v2-test/Fixture.app --direct-l2
+```
+
+判定：`direct L2 | typeText` 一行必须出现 `delivery=l2` 且 `outcome=worked`，`input received` 为 pass。
 
 ## 需要审核者回答的问题
 
