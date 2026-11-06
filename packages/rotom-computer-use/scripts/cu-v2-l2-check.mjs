@@ -98,6 +98,12 @@ function wireRefByRole(look, roles) {
 	return (look.parsedOutline?.nodes ?? []).find((node) => node.wireRef && roles.includes(node.role))?.wireRef;
 }
 
+/** Fixture content controls carry identifiers; window chrome does not. */
+function fixtureRef(look, roles) {
+	const nodes = look.parsedOutline?.nodes ?? [];
+	return nodes.find((node) => node.wireRef && roles.includes(node.role) && typeof node.identifier === "string" && node.identifier.startsWith("cu-fixture"))?.wireRef;
+}
+
 function valueOfRef(look, wireRef) {
 	return (look.parsedOutline?.nodes ?? []).find((node) => node.wireRef === wireRef)?.value;
 }
@@ -199,7 +205,7 @@ async function main() {
 			record("fixture", "window", "fail", "no window in listRoots even after activating the fixture");
 		} else {
 			const look = await macosBackend.observe({ target: { windowId: root.windowId, rootRef: root.rootRef }, readText: "auto", includeImage: false });
-			const controls = { text: wireRefByRole(look, ["AXTextField"]), button: wireRefByRole(look, ["AXButton"]) };
+			const controls = { text: fixtureRef(look, ["AXTextField"]) ?? wireRefByRole(look, ["AXTextField"]), button: fixtureRef(look, ["AXButton"]) ?? wireRefByRole(look, ["AXButton"]) };
 			record("fixture", "controls", controls.text && controls.button ? "pass" : "inconclusive", `text=${controls.text ?? "-"} button=${controls.button ?? "-"}`);
 
 			if (controls.button) await probe("fixture (not on the L2 list)", look, fixture.pid, { action: "click", ref: controls.button }, controls);

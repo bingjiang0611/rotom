@@ -25,16 +25,25 @@ export async function runDirectL2({ fixture, fixtureRun, backend, helper, record
 		record("direct L2", "window", "skipped", "the fixture has no window; direct delivery needs one");
 		return;
 	}
-	const look = await backend.observe({ target: { windowId: root.windowId, rootRef: root.rootRef }, readText: "auto", includeImage: false });
-	const button = wireRefByRole(look, ["AXButton"]);
-	const text = wireRefByRole(look, ["AXTextField"]);
 	const { buildDirectL2Request } = await import("./l2-direct.mjs");
-	for (const [label, action, ref, params] of [
-		["click", "click", button, {}],
-		["typeText", "typeText", text, { text: typed }],
+	// Fixture content controls carry identifiers. Without this filter the first
+	// AXButton in the tree is the window's close button: pressing it closes the very
+	// window the text probe needs, which is what happened on 2026-11-06.
+	const pick = (look, role) => {
+		const nodes = look.parsedOutline?.nodes ?? [];
+		return nodes.find((node) => node.wireRef && node.role === role && typeof node.identifier === "string" && node.identifier.startsWith("cu-fixture"))?.wireRef
+			?? wireRefByRole(look, [role]);
+	};
+	for (const [label, action, role, params] of [
+		["click", "click", "AXButton", {}],
+		["typeText", "typeText", "AXTextField", { text: typed }],
 	]) {
+		// Each action gets its own observation: the previous one may have changed the
+		// tree, and a stale ref is refused rather than retried.
+		const look = await backend.observe({ target: { windowId: root.windowId, rootRef: root.rootRef }, readText: "auto", includeImage: false });
+		const ref = pick(look, role);
 		if (!ref) {
-			record("direct L2", label, "skipped", `no ${label} target in the fixture window`);
+			record("direct L2", label, "skipped", `no ${role} target in the fixture window`);
 			continue;
 		}
 		const request = buildDirectL2Request({ lookId: look.lookId, pid: fixture.pid, ref, action, params });

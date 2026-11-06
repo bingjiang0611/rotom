@@ -111,6 +111,17 @@ export function wireRefByRole(look, roles) {
 	return (look.parsedOutline?.nodes ?? []).find((node) => node.wireRef && roles.includes(node.role))?.wireRef;
 }
 
+/**
+ * First node of a role whose accessibility identifier starts with `prefix`.
+ *
+ * Window chrome (close/minimise buttons) also carries `AXButton`, and clicking it
+ * closes the very window the check is about to use. Preferring the fixture's own
+ * identifiers keeps the probe on content.
+ */
+export function wireRefByIdentifierPrefix(look, role, prefix) {
+	return (look.parsedOutline?.nodes ?? []).find((node) => node.wireRef && node.role === role && typeof node.identifier === "string" && node.identifier.startsWith(prefix))?.wireRef;
+}
+
 /** Every node of a role, in outline order. */
 export function wireRefsByRole(look, role) {
 	return (look.parsedOutline?.nodes ?? []).filter((node) => node.wireRef && node.role === role).map((node) => node.wireRef);

@@ -34,6 +34,17 @@ struct FixtureView: View {
 			TextField("Type here", text: $model.text)
 				.accessibilityIdentifier("cu-fixture-text")
 
+			// A content button, not window chrome: the live check clicks this and the
+			// row below proves the click landed. Without it the only AXButton in the
+			// tree is the close button, and clicking that closes the window the rest of
+			// the check still needs (observed 2026-11-06).
+			HStack(spacing: 8) {
+				Button("Fixture action") { model.lastMenuSelection = "button" }
+					.accessibilityIdentifier("cu-fixture-button")
+				Text(model.lastMenuSelection == "button" ? "clicked" : "idle")
+					.accessibilityIdentifier("cu-fixture-button-result")
+			}
+
 			Toggle("Enable option", isOn: $model.checked)
 				.accessibilityIdentifier("cu-fixture-checkbox")
 
