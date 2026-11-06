@@ -16,6 +16,16 @@
 状态取值：`not-started`、`in-progress`、`ready-for-review`、`changes-requested`、`accepted`。
 “最后 commit”用 commit message 里的任务标记引用，hash 见 `git log`。
 
+## 合并到 main
+
+`browser-parallel` 已合并到 `main`（merge `e0442535` + follow-up `14659722`）。两条线各升级了一个第三方包，合并取并集：`pi-subagents` `0.52.1-rotom.14`（本分支）、`sol-pi` `0.1.0-rotom.6`（`main`）。`package.json`、`package-lock.json`、`product-config.mjs`、`THIRD_PARTY_NOTICES.md` 四处版本与 integrity 一致；`node_modules/sol-pi` 直接从 vendor 归档解包到 `0.1.0-rotom.6`，`runtime/pi` 因 fork 身份不匹配按 `npm ci` 重装。
+
+合并后验证：`./rotom/bin/check-personal` 561 tests / 560 pass / 1 fail（见下）；全量 e2e 119/119（23 suite，157.7 s）。
+
+公开审计（在只含 `main` 的干净 clone 里跑 `--history`）：16 findings。其中 8 个是本分支中间提交里的测试假路径（`/Users/user`、`/Users/user`，以及注释里的 `/home/user`），最终树已不含这些字符串；另 8 个是 `main` 既有提交的 4 个非 noreply 身份（author、committer 各记一条）。本地维护仓直接跑得 1468 findings，多出的 1452 个来自 `refs/codex/turn-diffs/*`、`backup/*` 等私有 refs，不属于推送内容。禁止 force push，因此没有重写历史。
+
+**`main` 既有失败，不属本次合并**：`packages/rotom-computer-use/` 的 cu-v2 源码与 `vendor/injaneity-pi-computer-use-0.5.1-rotom.2.tgz` 不一致（归档仍是 cu-v2 之前的内容），`third-party-archive` 那个用例在干净的 `origin/main` 工作树里单独跑同样失败。cu-v2 把 `computer_use_admin` 加进 `DEFERRED_CAPABILITY_GROUPS` 却没更新 `register.test.ts` 的期望列表，`14659722` 只补了这一行。修归档需要重建 tgz 并同步 integrity（或把版本升到 `.3`），属维护者决定。
+
 ## 任务
 
 | 任务 | 状态 | commit | 验证命令与结果摘要 | 未验证项 |
