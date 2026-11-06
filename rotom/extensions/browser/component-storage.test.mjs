@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { chmod, cp, lstat, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
+import { browserRelayDirectoryV1 } from "./platform-paths.mjs";
 
 const root = import.meta.dirname;
 
@@ -19,16 +20,18 @@ test("installer rejects missing or ambiguous HOME instead of falling back to the
 	}
 });
 
-test("stable component directory upgrades in place across releases and rejects corruption/symlinks/oversize", { skip: process.platform !== "darwin" }, async (t) => {
+// The installer must work wherever the product declares support, so this runs on every
+// platform CI can execute; the platform module supplies the state root it writes under.
+test("stable component directory upgrades in place across releases and rejects corruption/symlinks/oversize", async (t) => {
 	const workspace = await mkdtemp(join(tmpdir(), "browser-components-"));
 	t.after(() => rm(workspace, { recursive: true, force: true }));
 	const home = join(workspace, "home");
-	await mkdir(join(home, "Library", "Application Support"), { recursive: true });
-	const relayDir = join(home, "Library", "Application Support", "rotom", "browser-relay");
+	const relayDir = browserRelayDirectoryV1({ platform: process.platform, home, env: {} });
+	await mkdir(join(relayDir, "..", ".."), { recursive: true });
 	const releaseA = join(workspace, "release-a"), releaseB = join(workspace, "release-b");
 	await mkdir(releaseA);
 	await cp(join(root, "chrome-extension"), join(releaseA, "chrome-extension"), { recursive: true });
-	for (const name of ["native-host.mjs", "install-chrome-relay.mjs"]) await cp(join(root, name), join(releaseA, name));
+	for (const name of ["native-host.mjs", "install-chrome-relay.mjs", "platform-paths.mjs"]) await cp(join(root, name), join(releaseA, name));
 	await cp(releaseA, releaseB, { recursive: true });
 	const run = (release, operation, targetHome = home) => spawnSync(process.execPath, [join(release, "install-chrome-relay.mjs"), operation], { env: { HOME: targetHome }, encoding: "utf8", timeout: 10_000 });
 
@@ -101,11 +104,12 @@ test("stable component directory upgrades in place across releases and rejects c
 	assert.equal((await lstat(lock)).isDirectory(), true);
 	await rm(lock, { recursive: true });
 
-	// A symlinked Application Support must never let the installer escape HOME.
+	// A symlinked state root must never let the installer escape HOME.
 	const outside = join(workspace, "outside"); await mkdir(outside); await writeFile(join(outside, "sentinel"), "keep");
 	const redirectedHome = join(workspace, "redirected-home");
-	await mkdir(join(redirectedHome, "Library"), { recursive: true });
-	await symlink(outside, join(redirectedHome, "Library", "Application Support"));
+	const redirectedRelayDir = browserRelayDirectoryV1({ platform: process.platform, home: redirectedHome, env: {} });
+	await mkdir(dirname(dirname(redirectedRelayDir)), { recursive: true });
+	await symlink(outside, dirname(redirectedRelayDir));
 	assert.notEqual(run(releaseB, "install", redirectedHome).status, 0);
 	await assert.rejects(lstat(join(outside, "rotom")), { code: "ENOENT" }, "不能通过 symlink 父目录创建文件");
 	assert.equal(await readFile(join(outside, "sentinel"), "utf8"), "keep");

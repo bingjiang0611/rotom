@@ -132,6 +132,29 @@ export const SUBAGENT_STEER_CAPABILITY_ENV = "PI_SUBAGENT_STEER_CAPABILITY";
 export const SUBAGENT_STEER_ACK_DIR_ENV = "PI_SUBAGENT_STEER_ACK_DIR";
 export const PI_INTERCOM_STABLE_ID_ENV = "PI_INTERCOM_STABLE_ID";
 export const PI_INTERCOM_SESSION_ID_ENV = "PI_INTERCOM_SESSION_ID";
+/**
+ * Product-internal path to the browser extension, set by the rotom launcher after
+ * resource verification. Never inherited from ambient environment.
+ */
+export const ROTOM_SUBAGENT_BROWSER_EXTENSION_ENV =
+	"ROTOM_SUBAGENT_BROWSER_EXTENSION";
+/**
+ * Browser relay identity of a child agent. Read by the product's browser
+ * extension (`ROTOM_BROWSER_AGENT_ID`/`ROTOM_BROWSER_ROOT_SESSION`), so a child
+ * never claims to be the main agent of its parent's root session.
+ */
+export const ROTOM_BROWSER_AGENT_ID_ENV = "ROTOM_BROWSER_AGENT_ID";
+export const ROTOM_BROWSER_ROOT_SESSION_ENV = "ROTOM_BROWSER_ROOT_SESSION";
+/**
+ * Names the browser lease this child runs under. The value is the run id, so the
+ * lease file the child materializes and the agent id it reports are the same key.
+ */
+export const ROTOM_BROWSER_LEASE_ENV = "ROTOM_BROWSER_LEASE";
+/** Browser tools that only exist when the product browser extension is loaded. */
+export const PRODUCT_BROWSER_TOOL_NAMES = [
+	"browser_inspect",
+	"browser_interact",
+] as const;
 
 export interface BuildPiArgsInput {
 	parentSessionId?: string;
@@ -271,6 +294,8 @@ export interface PiLaunchToolPlan {
 	effectiveToolAllowlist: string[];
 	requiredChildTools: string[];
 	fanoutAuthorized: boolean;
+	/** Product browser extension path when the child asked for browser tools. */
+	browserExtension?: string;
 	runtimeExtensions: string[];
 	configuredExtensions: string[];
 	extensionArgs: string[];
@@ -376,6 +401,44 @@ export function resolvePermissionSystemExtension(): string | undefined {
 	return undefined;
 }
 
+/**
+ * The product browser extension for a child that was told to use browser tools.
+ * Only the launcher-provided absolute path is accepted; a missing or unverifiable
+ * path is a refused launch, never a silently tool-less child.
+ */
+export function resolveProductBrowserExtension(
+	requestedTools: string[] | undefined,
+	extensionsDenied: boolean,
+	env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+	const wantsBrowser = (requestedTools ?? []).some((tool) =>
+		(PRODUCT_BROWSER_TOOL_NAMES as readonly string[]).includes(tool),
+	);
+	if (!wantsBrowser) return undefined;
+	if (extensionsDenied) {
+		throw new Error(
+			"Browser subagent tools require the product browser extension, but child extensions are disabled. Refusing this child launch; drop the browser tools or allow extensions explicitly.",
+		);
+	}
+	const configured = env[ROTOM_SUBAGENT_BROWSER_EXTENSION_ENV];
+	if (configured === undefined) {
+		throw new Error(
+			"Browser subagent tools require the product browser extension, but the launcher did not provide it. Refusing this child launch.",
+		);
+	}
+	if (
+		!path.isAbsolute(configured) ||
+		!fs.existsSync(configured) ||
+		!fs.lstatSync(configured).isFile() ||
+		fs.realpathSync(configured) !== configured
+	) {
+		throw new Error(
+			"Invalid product browser extension path; refusing subagent launch.",
+		);
+	}
+	return configured;
+}
+
 export function resolvePiLaunchToolPlan(
 	input: ResolvePiLaunchToolPlanInput,
 ): PiLaunchToolPlan {
@@ -470,9 +533,16 @@ export function resolvePiLaunchToolPlan(
 			throw new Error("Invalid product Qoder extension path; refusing subagent launch.");
 		}
 	}
+	// Inherit the product browser extension only for children that ask for browser
+	// tools; the launcher supplies the path after resource verification.
+	const browserExtension = resolveProductBrowserExtension(
+		input.tools,
+		capabilityCeiling?.denyExtensions === true,
+	);
 	const runtimeExtensions = [
 		PROMPT_RUNTIME_EXTENSION_PATH,
 		...(qoderExtension ? [qoderExtension] : []),
+		...(browserExtension ? [browserExtension] : []),
 		...(fanoutAuthorized ? [FANOUT_CHILD_EXTENSION_PATH] : []),
 		...(permSystemExt ? [permSystemExt] : []),
 	];
@@ -555,6 +625,7 @@ export function resolvePiLaunchToolPlan(
 		effectiveToolAllowlist,
 		requiredChildTools,
 		fanoutAuthorized,
+		browserExtension,
 		runtimeExtensions,
 		configuredExtensions,
 		extensionArgs,
@@ -808,6 +879,18 @@ export function buildPiArgs(input: BuildPiArgsInput): BuildPiArgsResult {
 	}
 	if (input.childAgentName) {
 		env[SUBAGENT_CHILD_AGENT_ENV] = input.childAgentName;
+	}
+	if (toolPlan.browserExtension) {
+		// The child is a distinct browser agent in the parent's root session; the
+		// root id is inherited unchanged when the parent is itself a subagent.
+		env[ROTOM_BROWSER_AGENT_ID_ENV] = input.runId ?? "";
+		env[ROTOM_BROWSER_ROOT_SESSION_ENV] =
+			process.env[ROTOM_BROWSER_ROOT_SESSION_ENV] ||
+			input.parentSessionId ||
+			"";
+		// No run id means no lease name, and the browser extension then refuses every
+		// gated operation locally instead of acting unleased.
+		if (input.runId) env[ROTOM_BROWSER_LEASE_ENV] = input.runId;
 	}
 	if (input.childIndex !== undefined) {
 		env[SUBAGENT_CHILD_INDEX_ENV] = String(input.childIndex);

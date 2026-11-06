@@ -76,6 +76,7 @@ Context Layers 是用户明确要求独立实现并默认启用的新产品 exte
 - 已加载 specialized tools 在当前 session 内不主动移除；group state 与 active tool 子序列按 product declaration order canonicalize，相同 group 集合不因加载顺序产生不同最终 identity。
 - resume/fork 必须恢复 capability state；升级前无 deferred state 的旧 session 允许首次多一次 `search_tools`。
 - 不把静态 bytes、byte/4 或固定 canary 写成 provider 精确 token、成本或全局延迟收益。
+- Browser relay 的性能基线以 [performance-baseline.md](docs/agent/browser-parallel/performance-baseline.md) 为准，用 `rotom/runtime/e2e-browser/bench.mjs` 在同机复测。改动观察、交互、滚动、持久化或 `read_full` 路径后应跑一次基准并对照基线；新增的"先等一段时间再读"写法必须说明在等什么，能轮询到条件满足的不要固定睡。基线与其中数字只描述这台 Mac、headless Chrome 与本地 fixture 的单次调用成本，不是端到端任务延迟，也不是对外性能承诺；换机器只比量级，不减内容地变快不算优化。
 - 新能力只有接入完成并通过对应 L1/L2/L3 后才能对外声明为已启用；当前事实以运行时合同、测试和本文件为准。
 
 ### 4. 本机执行不等于安全隔离
@@ -109,7 +110,25 @@ Browser relay 的后台标签、AX/DOM ref、viewport、document generation 和 
 - timeout/detached 只对原标签 recover 一次，最多重试原动作一次；不通过 close/open/claim 新标签伪装恢复。
 - 默认先走 `browser_inspect/browser_interact`，仅当前运行尚未派发 Relay 页面请求、且本机 socket 缺失/拒绝连接时允许 `launch_browser` 一次；回退须说明独立 profile 不继承 Chrome 登录态。不以登录页、空结果、stale、timeout、unknown、取消、协议或权限错误授权回退，不跨浏览器重放写操作。显式排除 Relay 工具的调用方保留其工具选择。
 - 不回退到 shell 激活 Chrome、系统鼠标键盘或桌面截图。
-- Chrome extension 安装与重载是用户显式操作；代码级 L1 不能写成真实 Chrome L2/L3。
+- 同一 session 内两层锁：结构性操作（`open`/`claim`/`close`/`tabs`/`switch`/`transfer`/`handoff`/`recover`/`hello`）独占 session 锁，其余按 tab 加锁，所以两个 tab 的读取可以真正并发；`browser_inspect` 因此是 `parallel`，`browser_interact` 仍是 `sequential`。operation revision 按锁作用域生效：一个 tab 结束不能作废另一个 tab 在飞的操作。
+- 每个 tab 只属于一个 relay session：`discover` 不返回其他 agent 的 tab，`claim` 只在 opener 属于另一个 session 时拒绝，错误信息不带出对方 tabName。`transfer` 只能在同一个 `rootSessionId` 内移交，接收方得到 `<原名>@<来源 agent>` 并换新 `documentGeneration`/`observationEpoch`，移交前的 ref 与截图坐标一律作废。
+- `console` 只捕获 agent 自己的 tab（`open` 时启用 `Runtime.enable`/`Log.enable`，claim 来的 tab 首次调用才启用），缓冲 500 条 / 2 KB / 全局 8 MB、丢最旧并用 `dropped` 报数，堆栈 ≤10 帧；`pattern` 只做大小写不敏感子串，不编译正则；结果按 128 KiB 截断并用 `nextCursor` 续读。tab 关闭、移交或分离时清空缓冲，service worker 重启后 `captureSince` 必须反映新的起点。
+- 指针动作 `hover`/`dblclick`/`right_click` 复用 ref → 坐标 → hit-test 路径（dblclick 第二次按下带 `clickCount: 2`，right_click 用右键）；`drag` 要求 `targetRef` + `dropRef` 且至少 5 次按住移动，HTML5 拖放在拿不到 `Input.dragIntercepted` 时用合成 `DragData` 派发 CDP 拖拽事件——合成路径不触发 `dragstart`，页面必须从 `dataTransfer` 取数据，结果用 `dragDataSource`/`dragstartFired` 如实标注。拖拽不接受坐标参数。
+- `upload` 只接受 `<input type="file">` 目标与绝对、真实的普通文件路径：符号链接、`nlink > 1`、目录、敏感文件名或目录名（含解析后的真实路径）、超过 10 个文件或 10 MB 一律在 Pi 侧拒绝，relay 收不到这些路径；audit 只留文件名摘要和大小。子 agent 另按 lease 的 `allow.upload` 单独判定，缺省视为不允许。
+- `browser_devtools` 是默认不常驻的延迟工具（`ROTOM_BROWSER_DEVTOOLS=0` 不注册），必须归入 deferred 组并显式 `defaultActive: false`：否则 Pi 在 fork/tree 导航时会把它当默认激活工具恢复，连带让延迟前置检查把未激活的 Subagent 工具判成致命缺失。`evaluate` 默认在 `Page.createIsolatedWorld` 的隔离世界执行，`world: "main"` 进页面 realm 属于单独授权（主 agent 逐次确认、子 agent 只上报 `needs-approval`），超时或结果不确定按 unknown 处理且不重放；`viewport` 走 `Emulation` 并提升 observation epoch，改完坐标与视口测量全部作废。
+- JS 弹窗（`alert`/`confirm`/`prompt`/`beforeunload`）挂起渲染进程：tab 上记录类型与按码点截断的消息，弹窗期间除 `dialog`/`tabs`/`close`/`recover` 外所有操作在派发前返回 `{ kind: "dialog-blocking", dialog }`，只有 `browser_interact` 的 `dialog`（`accept` + 可选 `promptText`）能推进。触发弹窗的输入用「派发 vs 弹窗检测」竞速：`mouseReleased` 要等弹窗被处理才被 ack，所以如实返回 `dialogOpened` + `dispatchSettled: false`，不谎称已派发完成，也不等到超时把结果说成 unknown。`beforeunload` 标 `sensitive: true`，人工确认在 T21 接入前不由本层提供。
+- 批量动作 `actions`（≤10 步，与单个 `action` 互斥）逐步复用单动作路径，因此校验、lease、上传与弹窗闸门都不能被批量绕过；每一步单独写 intent/terminal audit，遇到 failed/unknown/navigation/dialog-blocking/expect-unmet/blocked 立即停下并报 `stoppedAt`+`stopReason`，已派发步骤绝不重放，结果只回摘要（不回每步整页内容）。
+- `keypress` 只接受固定白名单（Enter/Tab/Escape/Backspace/Delete/Home/End/PageUp/PageDown/方向键/F1–F12/单个字母和数字/Space）加去重后的 `modifiers`；带 Control/Alt/Meta 时不带字符，macOS `Meta+A` 与其它平台 `Control+A` 走浏览器全选命令，Tab 只移动焦点不插入制表符，Shift 只改字母大小写。仍然先核验焦点、只用 CDP 按键事件，不用 `insertText` 冒充按键；白名单外的键在客户端与 SW 两侧都拒绝。
+- `network` 只捕获 agent 自己的 tab（attach 时 `Network.enable`，两个 buffer 为 0，body 永不进 relay），缓冲 1000 条、只存 requestId/脱敏 URL/method/资源类型/status/mimeType/耗时/失败原因/是否来自缓存，绝不存请求头、响应头和 body；`failedOnly` 覆盖失败原因与 status ≥ 400，`pattern` 只做子串，结果按 128 KiB 截断并可续读。捕获从 attach 开始，打开页面的首个文档请求可能缺失；tab 关闭、移交或分离时清空缓冲。
+- `navigate` 用一个操作承担新 URL 与 `history: back/forward/reload`：成功后 `documentGeneration` 加一（`reload` 不换 URL 也照样加），旧 ref 与截图坐标作废；历史落点先由扩展解析 origin 再按 lease 判定，拒绝时不发导航命令。导航等待 `complete` 的超时只说明“命令已发出”，不是失败回滚。
+- tab 配额在扩展 service worker 里计数（`ROTOM_BROWSER_MAX_AGENTS` / `_TABS_PER_AGENT` / `_TABS` / `_TABS_PER_ORIGIN`，默认 8 / 4 / 24 / 2），`open` 与 `claim` 超限即时报错并提示先 close 旧 tab，不排队；客户端在 `hello` 里声明的配额不被信任，非法环境变量直接报错。
+- 主 agent 的站点权限由按站点策略（`~/Library/Application Support/rotom/browser-policy.json`，0600、拒绝 symlink）判定在 Pi 侧：顺序固定为 blocklist → allowlist → `localhost`/`127.0.0.1`/`::1` 默认允许 `read`+`interact` → 询问，`capabilities` 为 `read`/`interact`/`devtools`/`upload`/`download`，origin 支持 `*.example.com`（只匹配子域）。询问用 `ctx.ui.select`（允许一次/本会话允许/总是允许/拒绝），`总是允许` 合并写回策略文件并把 origin 加进本 run 的子 lease；`ctx.hasUI` 为 false 时按拒绝返回 `needs-approval`，绝不静默放行。策略判定不通过时请求根本不发出，`upload` 与 `interact` 分开授权。
+- 下载只重定向 agent 自己打开的 tab：`rotom/<agentId>/` 子目录，claim 来的用户 tab 与用户自己的下载一律不碰；归属优先用 Chrome 的 `tabId`，缺失时只在该页面只有一个 agent tab 且没有用户 tab 同页时才认领（歧义即不动）。`browser_inspect` 的 `downloads` 只回相对路径/大小/MIME/`sha256`（>64 MB 只报大小），绝对路径留给 Pi 自己算摘要；子 agent 另按 `allow.download` 判定，未授权由 relay 取消并返回 `needs-approval`。`downloads` 是扩展新增的唯一权限，用户会看到一次新的权限提示。
+- 敏感动作在派发前确认：目标在含 `autocomplete="cc-*"` 字段的表单里、可访问名称命中中英文词表（词表在 `chrome-extension/sensitive-actions.js`，ASCII 词按词边界匹配，避免 `pay` 命中 `payload`）、`upload`、以及处理 `beforeunload` 弹窗时，relay 先返回 `{kind:"needs-confirmation"}` 且不派发，主 agent 用 `ctx.ui.confirm` 得到同意后带 `confirmed:true` 重发同一次动作——这是“拒绝后由用户决定”，不是 unknown 重放。用户拒绝返回 `needs-approval`/`user-denied` 且要求不重试；子 agent 与无 UI 都上报 `needs-approval`，不代替用户确认。页面标签不回传模型上下文。`ROTOM_BROWSER_CONFIRM=auto-approve-localhost` 仅对 localhost/127.0.0.1/::1 生效，值是别的字符串时一律继续确认。
+- 重定向不能绕过授权：relay 在派发写操作前用 `chrome.tabs.get` 取当前 origin，与 Pi 侧本次会话真正授权过的 origin 集合比对，不匹配就返回 `{kind:"needs-approval",reason:"origin"}` 且不派发；客户端把 policy 拒绝和 relay 拒绝都当作干净拒绝（不是 unknown），调用方不得重试。
+- 子 agent 的浏览器权限由 lease 决定：父 agent 已打开的 origin 写成私有 lease 文件（目录 0700、文件 0600、拒绝 symlink），子 agent 每次 `open` 与页内写操作前重读它。缺失、过期、origin 不在列表或开关未开启时，工具层直接返回结构化 `{kind:"needs-approval",origin,capability,reason}`，不发出请求、不弹窗、不询问用户；只读操作不受 lease 限制。lease 不是安全沙箱，限制的是站点范围，不是本机进程权限。
+- 安装与重载是用户显式操作；代码级 L1 不能写成真实 Chrome L2/L3。
+- socket、锁与 native host 注册位置只由 `rotom/extensions/browser/platform-paths.mjs` 决定：macOS 字符串冻结（改了就断升级），Linux 走 XDG runtime，Windows 是命名管道与 `HKCU` 注册表。Windows 分支只有代码与单测证据，安装器只打印 `reg add` 命令，不冒充实测通过。
 
 ## 公开前隐私边界
 
@@ -142,6 +161,7 @@ Browser relay 的后台标签、AX/DOM ref、viewport、document generation 和 
 
 - 纯文档/Agent 配置：`git diff --check` 并核对引用路径、命令、合同与边界；不构建、不启动 App、不升版本。改可执行脚本按代码处理。
 - 普通代码：运行受影响测试及本项目对应 type/lint/build，不把全量发布 gate 套到小改动。
+- Browser 性能相关改动：同机跑 `bench.mjs` 对照基线，报告改动前后的 P50/P95；只快但少读了内容（`nodes`、`steps`、`contentCoverage` 变了）按错误处理。
 - UI 修复：记录原始操作、预期及相邻路径，补 focused 回归，在当前版本真实 App 重放；构建/自动测试与真实交互结果分别报告，截图/设备/Provider 不可用则明确未验证。
 - 跨核心安全/持久化边界、高风险合入或发布：真实外部操作、成本和设备授权不可由本地测试替代。
 - 可继续修授权范围内的本地失败并重跑受影响检查；既有失败单列、不顺手扩大，外部未知/授权不足/需用户决定时停下交接。
