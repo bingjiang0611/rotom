@@ -120,3 +120,119 @@ ROTOM_CHROME_EXECUTABLE=/path/to/chrome-nosandbox.sh node --experimental-strip-t
 ```
 
 **下一步顺序**：先 T24 的 Linux 可跑，否则其它修复在 Linux 上无法验证；然后 T9/T20 lease、T22 suggest、T3；再定位 11 项 e2e 失败；最后文档和 T25。
+
+## 第 2 轮（c128b6c..0013fe2，含合并到 main 的 e044253）
+
+评审环境：Linux x64（root、无 IPv6），Node 24.22.2，Chrome for Testing 153（`--no-sandbox` 包装），`main` 原样、不打补丁。
+
+**复现结果**
+- browser 单测（`rotom/extensions/browser/*.test.{mjs,ts}` + `pack-chrome-extension.test.mjs`，带 `ROTOM_PI`）：300 项，299 通过，0 失败，1 skip。第 1 轮的 10 项 Linux 失败全部修好。
+- `python3 scripts/audit-public.py --root .`：PASS，0 findings。
+- e2e 不打补丁就能在 Linux 上跑起来，T24 的 harness 修复有效：23 suite，112 通过 / 7 失败（baseline 2、chunked 1、settle 2、pointer 2）。`xvfb-run` + `ROTOM_E2E_HEADED=1` 重跑这 4 个 suite，仍失败 6 项，所以不是 headless 特有的问题。
+- `check-personal`：562 项，557 通过 / 3 失败，都不在 browser：
+  - `third-party/index.test.ts`：最后一个用例通过后进程不退出，被评审手动结束，和第 1 轮一样；
+  - Computer Use 归档：STATUS 已列为 `main` 既有失败；
+  - `check-providers`：评审没装 `packages/rotom-pi` 的依赖，属环境问题。
+  - 注意：第一批失败后 check-personal 就退出了，后面的阶段没有跑到。browser 部分由上面的单测补跑。
+
+### 必须改
+
+- [必须改] **T20 子 lease 不区分 capability：父 agent 只拿到 `read`，子 agent 就能 `interact`。**
+  - 来源：`parentGrantedOrigins` 在 `policyDenial` 的每个放行分支里都会加入 origin，不管这次授权的是哪个 capability（`index.ts` 约 650–676 行）。另外两条路径同理：一是 `总是允许 read`，二是经 `widenChildLeasesV1` 加进子 lease 的 origin。
+  - 而 `checkBrowserLeaseV1` 对 `interact` 只检查 origin 在不在列表里（`browser-lease.ts:163`）。子 agent 侧的 `policyDenial` 现在只判 blocklist。
+  - 评审复现（tool 层，mock relay）：
+    1. 父 agent 对 claim 来的用户 tab `https://bank.test` 做 `snapshot`，被问 `允许 read https://bank.test？`，选“允许一次”；
+    2. 发布的 `ROTOM_BROWSER_LEASE_SCOPE.origins` 变成 `["https://bank.test"]`；
+    3. 带 lease token 的子 agent 执行 `browser_interact` click，**relay 收到 1 次 `interact` 派发**。
+  - 这和第 1 轮第 1 项是同一类问题（子 agent 拿到的比用户批准的多），而且这里是用户自己的 tab。
+  - 要求：
+    - lease 的 origin 要带 capability，例如 `origins: [{ origin, capabilities }]`，或者分开的 `readOrigins`/`interactOrigins`；
+    - `parentGrantedOrigins`、`widenChildLeasesV1` 与 `checkBrowserLeaseV1` 都按 capability 判定；
+    - 旧格式的 lease 文件按“只读”解释，或者直接拒绝，不能按 interact 放行。
+  - 补测试：用上面的三步，断言子 agent 的 click 返回 `needs-approval`（`capability: "interact"`），且 relay 没有收到 `interact`。再加一条：父 agent 给了 `interact` 后，子 agent 可以 click。
+  - 另外请决定“允许一次”是否应该进入子 lease。现在它会让子 agent 在整个 run 里都拥有这个 origin，和“只这一次”的字面意思冲突。评审倾向：“允许一次”不进子 lease，只有“本会话允许”和“总是允许”才进。
+
+- [必须改] **T18 派发与弹窗竞速：约 3 s 后把仍在执行的派发当成“已完成”返回。**
+  - `service-worker.js:1518-1528`：弹窗检测分支轮询 120 × 25 ms，没有弹窗就返回 `{ settled: true }`，不等 `dispatchAction()` 结束。
+  - 后果：
+    - 慢于约 3 s 的动作返回 `acknowledged: true`，但 `effect` 只剩 `target`，动作自己的字段全部丢失；
+    - 更严重的是，操作已经返回、tab 锁已经释放，派发却还在后台继续，下一个操作会和它交叠。这违反了 CLAUDE.md §6 对 `dispatchSettled` 如实上报的合同。
+  - 评审在 Linux 上抓到的 pointer suite 拖拽结果（两项都是这样）：
+    ```json
+    {"kind":"rotom-browser-interaction-result","action":"drag","acknowledged":true,"effect":{"target":{"observed":true,"changed":false,"transitions":["focused=false→true"]}}}
+    ```
+    单独跑同一个拖拽时，effect 完整（`action: "drag"`、`moves: 5`、`dragDataSource: "none"`）。
+  - 要求：
+    - 弹窗检测只能提前返回 `dialogOpened`，不能代替派发完成；
+    - 没有弹窗就等 `dispatchAction()` 自己结束，或者等到 relay deadline，按 unknown 报告；
+    - 无论走哪条路径，在派发真正结束前都不能释放锁并返回 settled。
+  - 补测试：这在 macOS 上也能复现，不依赖 Linux。用单测给 `dispatchAction` 注入一个 4 s 才结束的派发，断言结果不是“settled 且 effect 缺字段”，并且下一个同 tab 操作要等它结束。
+
+- [必须改] **`screenshot` 没有 deadline，命令挂住会让整个 session 卡死。**
+  - `service-worker.js:1919` 的 `Page.captureScreenshot` 直接 `await chrome.debugger.sendCommand`；而第 2138 行的 `screenshot_export` 套了 `valueWithinRelayDeadline`。
+  - 评审复现（Linux）：open `/baseline` → type → click → 点视口外按钮（页面会滚动）→ `screenshot` 超时。之后用同一 sessionId 重连，**`hello` 也超时**：挂住的命令一直占着 tab 锁，结构性操作全部排在它后面，`recover`/`close` 也救不回来。
+  - 触发条件（原始 CDP 探针）：
+    - 没开过 focus emulation 的 hidden tab，滚动后截图正常；
+    - 开过再关掉 `Emulation.setFocusEmulationEnabled`（每次交互都会这样做），再滚动，`fromSurface: true` 的截图就挂住；
+    - 之后重新打开 focus emulation，下一次截图能回来，但再下一次又可能挂住。
+  - 要求：
+    - `screenshot` 和 `getLayoutMetrics` 都套 relay deadline；超时就报 timeout，并且释放锁；
+    - 在 Linux 上找到一种稳定的截图方式，可以考虑：截图期间开 focus emulation，或者用 `fromSurface: false`。请在 STATUS 里写明选了哪种以及理由。
+  - 补测试：在 macOS 上用故障注入（让 capture 永不 resolve），断言在 deadline 内返回 timeout，并且之后同 session 的 `tabs`/`close` 能正常完成。
+
+- [必须改] **单个请求超时或 abort 会关掉整个 relay client，连带打断其他 tab 的在途请求。**
+  - `browser-relay.ts:565-579`：timeout 和 abort 都调用 `#fail()`，它会 destroy socket，并 reject 所有 pending 请求。
+  - 这段代码在分支之前就有。串行时没问题，但 M1 让 `browser_inspect` 变成 `parallel` 以后，一个 tab 的超时会让同一 session 里其他 tab 并发的读一起失败。这违反了 §6 “timeout 只对原标签 recover 一次”。
+  - 产品层下次调用会重连（`index.ts:506`），所以影响的是**同时在飞的兄弟请求**；e2e 里“后面全部 client 已关闭”的级联只是 harness 共用一个 client 的副作用。
+  - 要求：
+    - timeout/abort 只 reject 本请求，并记住它的 id；之后迟到的同 id 响应直接丢弃；
+    - 只有协议级错误（帧无效、摘要不匹配、缓冲超限、socket 断开）才 `#fail()` 整个连接。
+  - 补测试：同一 client 上并发两个请求，让其中一个超时，断言另一个正常 resolve，且 client 不处于 closed。e2e 可以在 `same-agent-parallel` 里加一条：一个 tab 的慢操作超时，另一个 tab 的 snapshot 仍然成功。
+
+### Linux 渲染：需要处理，但不阻塞
+
+- [建议，倾向必须改] **Linux 上后台 tab 是 `hidden` 且不跑 rAF，导致 `read_full` 读不全。**
+  - 探针结果：后台 tab 上 `document.visibilityState === "hidden"`，1 秒内 `requestAnimationFrame` 一次都不触发。harness 里那三个 `--disable-*backgrounding*` 参数不起作用，`Page.setWebLifecycleState active` 和 screencast 也不起作用。**只有 `Emulation.setFocusEmulationEnabled({ enabled: true })` 能让页面立刻变成 `visible`、rAF 恢复。**
+  - `full-read.js:119` 的 `scrollTargetTo` 每一步都要等两次 rAF，所以在 hidden tab 上每步都等到命令超时。
+  - 好消息是结果如实标成了未完成：`settle` 的两项失败都是 `contentComplete=false`，没有把漏读说成读完。T26 的 `FULL_READ_STATIC_STEPS` 回退也没有破坏这一点，因为 `unconfirmedRender` 是粘性的。
+  - 但功能上，Linux 用户的 `read_full` 基本拿不到完整结果（`/large` 26 万字符、标未完成；`virtual-late` 漏 179 行）。这很可能也是 `chunked :: 另一个 tab 的读` 拿到空 nodes 的原因，请一并确认。
+  - 建议：`read_full` 的滚动循环包在 `withFocusEmulation` 里，和交互路径一致。改完跑一次 `bench.mjs`，对照基线报告 `read_full` 的 P50/P95。
+  - 请在 macOS 上补一条记录：后台 tab 的 `visibilityState` 和 rAF 情况。如果 macOS 上同样是 hidden，就要解释为什么 mac 上能读完。
+
+### 文档订正
+
+- [必须改，文档] **配额：CLAUDE.md §6 写“客户端在 `hello` 里声明的配额不被信任”，与代码不符。**
+  - `service-worker.js:1721` 会采用客户端声明的配额，只要是 0–1000 范围内的整数。评审第 1 轮写“这点正确”是**评审自己看错了**，在此更正。
+  - 执行方不改代码的理由成立：客户端都是本机同一用户的 Pi 进程，配额防的是失控，不是恶意；operator 覆盖也走这个字段，扩展进程区分不了来源。
+  - 要求：把 CLAUDE.md §6 与 `docs/usage.md` 改成实际语义：SW 只做范围校验，越界的声明整体回落默认；它不防本机恶意客户端。另外，配额状态是按 session 存的，所以“全局 24 个 tab”实际由每个 session 自己声明的上限判定，这一点也要写明。
+
+### 建议
+
+- [建议] **并发询问合并后，“允许一次”会被两个调用共用。** 两个并发 `open` 共享一次“允许一次”，两次都会放行。这和“只这一次”的语义有偏差，但比弹两个对话框好。在 usage 里写一句即可。
+- [建议] **`--no-verify` 绕过了 20 KB 单文件门禁。** 这需要维护者决定，不在本评审范围。请在 STATUS 的“阻塞与问题”里列出来，让用户看到；现在只写在平台证据那一节里。
+
+### 已通过
+
+- **第 1 轮第 1 项后半（blocklist）**：子 agent 现在先判 blocklist，策略不可读时拒绝。tab URL、claim 来的 tab、302 落点都不再进入子 lease。
+- **第 1 轮第 2 项（`suggest`）**：所有不重定向的分支都调用无参 `suggest()`，并有一次性守卫。e2e `downloads` 在 Linux 上 3/3 通过。
+- **第 1 轮第 3 项（T24）**：单测和 harness 在 Linux 上可跑。
+  - socket 路径来自 `platform-paths.mjs`；
+  - Chrome 拿到隔离 HOME，真实 HOME 未被改动；
+  - fixture 改为 IPv4。
+  - 剩下的 7 项 e2e 失败按上面几条处理。
+- **第 1 轮第 4 项（审计）**：PASS。
+- **T3 并发询问合并**：方向正确。
+- **T26 性能改动（抽查）**：
+  - `contentComplete` 去掉 `scanSteps < maxSteps` 是对的，`endReached` 已经能证明读到了结尾；
+  - 静态回退不会把漏读报成完整；
+  - 步长从 0.75 改为 0.9 的取舍已写明。
+- **Linux 上全部通过的 suite**：isolation、same-agent-parallel、cleanup、focus、visibility、lease、quotas、parallel-4、navigate、console、network、keyboard、upload、dialog、batch、devtools（11/11）、policy、confirm、downloads。
+
+### 下一步顺序
+
+1. T20 lease 按 capability 判定；
+2. T18 派发竞速；
+3. screenshot deadline；
+4. 单请求超时不关 client。
+
+这 4 项都能在 macOS 上用单测或故障注入自证，不需要 Linux。然后做 `read_full` 的 focus emulation 和 bench 对照，最后订正文档。Linux 侧的 e2e 由评审下一轮复跑；请在 STATUS 里把 Linux 结论写成“评审环境 L2：112/119，待复跑”，不要写成 L1。
