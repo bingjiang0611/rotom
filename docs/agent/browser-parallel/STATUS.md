@@ -294,7 +294,7 @@
 
 新增两个产物：`rotom/runtime/e2e-browser/bench.mjs`（与 e2e 共用隔离 harness 和 fixture，只报数字、不做断言）和 [performance-baseline.md](performance-baseline.md)（完整基线表、复测命令、回归判据、已知限制）。根 `CLAUDE.md` 已把它列为 Browser 性能改动的对照依据。
 
-同机、headless、本地 fixture 的关键数字：`snapshot_visible` 60 ms、截图 45 ms、`tabs` 0.5 ms、写路径 2.4 ms（带 `expect` 时走满 150 ms 窗口）、`scroll` 54 ms、`read_full`（`/large`，60 步）2.9 s、并发 ×4 每标签约 15 ms。完整表与修前对照见基线文档。
+同机、headless、本地 fixture 的关键数字：`snapshot_visible` 58 ms、截图 46 ms、`tabs` 0.5 ms、写路径 2.4 ms（带 `expect` 时走满 150 ms 窗口）、`scroll` 46 ms、`read_full`（`/large`，55 步）2.8 s、并发 ×4 每标签约 15 ms。完整表与修前对照见基线文档。
 
 **已验证的结论**
 1. 并发扩展接近线性：×4 时每标签约 15 ms，锁与事件循环不是瓶颈。
@@ -302,6 +302,18 @@
 3. 观察类操作（`snapshot_visible` 58 ms、截图 45 ms）是单次 CDP 观察的固有成本，优化前后一致。
 4. **整页导出在超长页面上直接失败**：`/large` 的整页导出被 `devtools screenshot too large`（8 MiB 上限）拒绝，而不是降级或分片。这是产品限制而非性能问题，但用户会感知为"导出失败"；降质重试或分片导出属于功能决策，需评审确认后再改。
 5. 优化只删等待、不减覆盖：`read_full` 的步数、`nodes` 数与 `contentCoverage` 与修前一致。
+
+### 步长与完成语义（`ba9dcab5`）
+
+**先加严断言**：`chunked` suite 原本只查首尾两段，现在检查 340 段按顺序完整出现；`settle` suite 覆盖能读完的页面。加严后立刻发现"文本节点在字符边界切分、用分隔符拼接会看起来缺段"（测试问题）与"正文 262 075 字节略低于 256 KiB，靠拼接符凑阈值"（fixture 问题）。
+
+**改动一：步长 0.75 → 0.9 视口**。长文档从 60 步（触顶）降到 55 步，`read_full` 2 959 → 2 815 ms，且覆盖的文档更长了（340 段 + 一行 padding）。代价是重叠从 25% 降到 10%，由上面两个 suite 固定"不许丢内容"。
+
+**改动二：`contentComplete` 不再要求 `scanSteps < maxSteps`**。`endReached` 已证明每层都到底；把"预算用尽"当成"未证明完整"会让"刚好触顶且读到尾"的文档误报未完成。锁住旧规则的单测已同步更新并写明理由。
+
+**改动三：延迟渲染判定可回落**。原设计"一次观察到变化就永久当成延迟渲染容器"，一次早期变化（迟到字体、懒加载图片）就让静态文档此后每步付满 150 ms 窗口——实测该路径 9.5 s。改为连续 3 步无变化即回落到快速路径，同一路径降到 3.4 s。
+
+验证：`check-personal` EXIT=0，`chrome-extension.test.mjs` 29/29，`chunked` 3/3、`settle` 3/3，全量 e2e **119/119（23 suites，163 s）**。
 
 ### 稳定性边界与两处修正（`a23787ed`）
 
