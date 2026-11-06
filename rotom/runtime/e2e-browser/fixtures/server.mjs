@@ -349,6 +349,73 @@ ${Array.from({ length: LARGE_PARAGRAPHS }, (_, index) => `<p>Paragraph ${index +
 <div role="status" id="large-tail">Large document tail sentinel</div>
 </main>`;
 
+// Read coverage fixtures. `/large` reaches the step ceiling, so it cannot show the
+// "finished reading" path; this one is short enough to finish inside the budget.
+const READ_MEDIUM_SECTIONS = 26;
+const READ_MEDIUM_BODY = `<main>
+<h1>Medium document</h1>
+${Array.from({ length: READ_MEDIUM_SECTIONS }, (_, index) => `<p id="medium-${index + 1}">Medium section ${index + 1} of ${READ_MEDIUM_SECTIONS}: ${"readable text ".repeat(30)}</p>`).join("\n")}
+<div role="status" id="medium-tail">Medium document tail sentinel</div>
+</main>`;
+
+// A list that renders its rows LATE: the scroll listener waits before rewriting the
+// content, so a reader that treats "nothing changed yet" as "settled" reads stale rows.
+const VIRTUAL_ROWS = 200;
+const VIRTUAL_ROW_HEIGHT = 60;
+const VIRTUAL_RENDER_DELAY_MS = 60;
+const VIRTUAL_LATE_BODY = `<main>
+<h1>Late virtual list</h1>
+<p>Rows render ${VIRTUAL_RENDER_DELAY_MS} ms after a scroll, which is longer than the reader's stable window.</p>
+<div id="viewport" style="height:600px;overflow:auto;border:1px solid #999">
+  <div id="spacer" style="height:${VIRTUAL_ROWS * VIRTUAL_ROW_HEIGHT}px;position:relative">
+    <div id="rows" style="position:absolute;top:0;left:0;right:0"></div>
+  </div>
+</div>
+<div role="status" id="virtual-tail">Virtual list rows ${VIRTUAL_ROWS}</div>
+<script>
+const virtualRowCount = ${VIRTUAL_ROWS};
+const virtualRowHeight = ${VIRTUAL_ROW_HEIGHT};
+const virtualDelay = ${VIRTUAL_RENDER_DELAY_MS};
+const virtualViewport = document.getElementById('viewport');
+const virtualRows = document.getElementById('rows');
+let virtualTimer;
+function renderVirtualRows() {
+  const first = Math.max(0, Math.floor(virtualViewport.scrollTop / virtualRowHeight));
+  const needed = Math.ceil(virtualViewport.clientHeight / virtualRowHeight) + 2;
+  virtualRows.style.transform = 'translateY(' + first * virtualRowHeight + 'px)';
+  virtualRows.innerHTML = Array.from({ length: needed }, (_, offset) => {
+    const index = first + offset + 1;
+    return index > virtualRowCount ? '' : '<p style="height:' + virtualRowHeight + 'px;margin:0">Virtual row ' + index + ' of ' + virtualRowCount + '</p>';
+  }).join('');
+}
+virtualViewport.addEventListener('scroll', () => {
+  clearTimeout(virtualTimer);
+  virtualTimer = setTimeout(renderVirtualRows, virtualDelay);
+});
+renderVirtualRows();
+</script>
+</main>`;
+
+// An input that reverts itself after the write. Reporting "the target changed" from the
+// first observation is true but not yet final, which is exactly what a settle window is
+// supposed to cover.
+const REVERT_BODY = `<main>
+<h1>Reverting input</h1>
+<label>Reverting <input id="reverting" aria-label="Reverting field"></label>
+<div role="status" id="revert-state">idle</div>
+<script>
+const reverting = document.getElementById('reverting');
+const revertState = document.getElementById('revert-state');
+reverting.addEventListener('input', () => {
+  revertState.textContent = 'changed';
+  setTimeout(() => {
+    reverting.value = '';
+    revertState.textContent = 'reverted';
+  }, 80);
+});
+</script>
+</main>`;
+
 // Download fixture pages. The agent gets its own page so the referrer identifies it;
 // the user tab keeps `/baseline`, which is also where the agent's own smoke tab sits.
 const DOWNLOAD_PAGE_BODY = `
@@ -407,6 +474,9 @@ export function defaultPages({ frameOrigin }) {
 		["/redirect-target", htmlDocument("Redirect target", REDIRECT_TARGET_BODY)],
 		["/checkout", htmlDocument("Checkout", CHECKOUT_BODY)],
 		["/download-page", htmlDocument("Download page", DOWNLOAD_PAGE_BODY)],
+		["/read-medium", htmlDocument("Medium document", READ_MEDIUM_BODY)],
+		["/virtual-late", htmlDocument("Late virtual list", VIRTUAL_LATE_BODY)],
+		["/revert-input", htmlDocument("Reverting input", REVERT_BODY)],
 	]);
 }
 

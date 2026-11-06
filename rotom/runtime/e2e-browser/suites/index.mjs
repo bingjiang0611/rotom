@@ -5,6 +5,7 @@ import * as cleanup from "./cleanup.mjs";
 import * as focus from "./focus.mjs";
 import * as visibility from "./visibility.mjs";
 import * as chunked from "./chunked.mjs";
+import * as settle from "./settle.mjs";
 import * as lease from "./lease.mjs";
 import * as quotas from "./quotas.mjs";
 import * as parallel4 from "./parallel-4.mjs";
@@ -30,6 +31,7 @@ export const suites = {
 	focus,
 	visibility,
 	chunked,
+	settle,
 	lease,
 	quotas,
 	"parallel-4": parallel4,

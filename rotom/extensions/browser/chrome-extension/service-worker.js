@@ -816,27 +816,40 @@ async function fullRenderedTextSource(debuggee, scopeId, remainingSteps, assertO
 			let previousTop = -1;
 			let previousClientHeight = 0;
 			let settledState;
-			// Wait for the content a scroll produced rather than a fixed window: static
-			// pages are done once the position moved, virtual ones are done once their text
-			// stops changing. The deadline still bounds a page that never settles.
+			// Whether this container renders late is discovered from the first step and then
+			// reused: a static document must not pay the render window on every scroll, and a
+			// virtual list must not be declared settled before it painted the new rows.
+			let containerRendersLate;
+			let unconfirmedRender = false;
 			const settleAfterScroll = async (reference) => {
 				const settleStartedAt = Date.now();
 				let text = typeof reference.text === "string" ? reference.text : undefined;
 				let scrollHeight = Number(reference.scrollHeight) || 0;
+				let sawChange = false;
 				let stablePasses = 0;
 				let latest;
 				for (;;) {
 					await delay(FULL_READ_RENDER_POLL_MS);
 					const probed = await debuggerCommandWithin(debuggee, "Runtime.callFunctionOn", { objectId: targetObjectId, functionDeclaration: scrollTargetState.toString(), returnByValue: true });
 					const value = probed?.result?.value;
-					if (!record(value)) return latest;
+					if (!record(value)) return { state: latest, settled: false };
 					latest = value;
-					const same = typeof value.text === "string" && value.text === text && (Number(value.scrollHeight) || 0) === scrollHeight;
-					stablePasses = same ? stablePasses + 1 : 0;
-					text = typeof value.text === "string" ? value.text : text;
-					scrollHeight = Number(value.scrollHeight) || 0;
-					if (stablePasses >= FULL_READ_RENDER_STABLE_PASSES) return latest;
-					if (Date.now() - settleStartedAt >= FULL_READ_RENDER_WAIT_MS) return latest;
+					const nextText = typeof value.text === "string" ? value.text : text;
+					const nextHeight = Number(value.scrollHeight) || 0;
+					if (nextText !== text || nextHeight !== scrollHeight) { sawChange = true; stablePasses = 0; } else stablePasses += 1;
+					text = nextText;
+					scrollHeight = nextHeight;
+					// Changed, then held still: this step's content finished painting.
+					if (sawChange && stablePasses >= FULL_READ_RENDER_STABLE_PASSES) { containerRendersLate = true; return { state: latest, settled: true }; }
+					// Already known to be static: nothing more is coming, so stop paying for it.
+					if (!sawChange && containerRendersLate === false && stablePasses >= 1) return { state: latest, settled: true };
+					if (Date.now() - settleStartedAt >= FULL_READ_RENDER_WAIT_MS) {
+						if (containerRendersLate === undefined) containerRendersLate = sawChange;
+						// A container known to render late that changed nothing in the whole
+						// window may still be painting: report the step as unproven instead of
+						// claiming the read covered it.
+						return { state: latest, settled: sawChange || containerRendersLate === false };
+					}
 				}
 			};
 			for (;;) {
@@ -869,10 +882,18 @@ async function fullRenderedTextSource(debuggee, scopeId, remainingSteps, assertO
 				previousTop = top;
 				previousClientHeight = clientHeight;
 				rendered = await debuggerCommandWithin(debuggee, "Runtime.callFunctionOn", { objectId: targetObjectId, arguments: [{ value: nextTop }], functionDeclaration: scrollTargetTo.toString(), returnByValue: true, awaitPromise: true });
-				settledState = await settleAfterScroll(state);
+				const settled = await settleAfterScroll(state);
+				settledState = settled.state;
+				if (!settled.settled) {
+					// The last step has no more content to paint, so "nothing changed" is the
+					// expected answer there and must not be read as a missed render.
+					const observed = settled.state ?? state;
+					const observedAtEnd = (Number(observed.clientHeight) || 0) <= 0 || (Number(observed.top) || 0) + (Number(observed.clientHeight) || 0) >= (Number(observed.scrollHeight) || 0) - 2;
+					if (!observedAtEnd) unconfirmedRender = true;
+				}
 			}
 			if (targetMoved) scrolledContainers += 1;
-			endReached &&= targetComplete;
+			endReached &&= targetComplete && !unconfirmedRender;
 			const restored = await debuggerCommandWithin(debuggee, "Runtime.callFunctionOn", { objectId: targetObjectId, arguments: [{ value: originalTop }], functionDeclaration: scrollTargetTo.toString(), returnByValue: true, awaitPromise: true });
 			if (typeof restored?.result?.value !== "number" || Math.abs(restored.result.value - originalTop) > 1) endReached = false;
 		}
@@ -1513,14 +1534,23 @@ async function performInteraction(name, item, payload, assertOperation = () => u
 		};
 	}
 	if (target.action !== "scroll") {
-		const settleStartedAt = Date.now();
-		let stateAfter = await interactionTargetState(target.debuggee, stateObjectId, assertOperation);
-		// An unobservable target never changes, so waiting the rest of the window only
-		// delays the answer.
-		while (stateAfter !== undefined && !interactionTargetChange(stateBefore, stateAfter).changed && Date.now() - settleStartedAt < INTERACTION_SETTLE_MS) {
-			await new Promise((resolve) => setTimeout(resolve, INTERACTION_SETTLE_POLL_MS));
+		let stateAfter;
+		if (expectation !== undefined) {
+			// An expectation is a claim about the final state, so it keeps the whole
+			// window: a field that reverts itself only reads as unmet at the end.
+			await new Promise((resolve) => setTimeout(resolve, INTERACTION_SETTLE_MS));
 			assertOperation();
 			stateAfter = await interactionTargetState(target.debuggee, stateObjectId, assertOperation);
+		} else {
+			const settleStartedAt = Date.now();
+			stateAfter = await interactionTargetState(target.debuggee, stateObjectId, assertOperation);
+			// An unobservable target never changes, so waiting the rest of the window only
+			// delays the answer.
+			while (stateAfter !== undefined && !interactionTargetChange(stateBefore, stateAfter).changed && Date.now() - settleStartedAt < INTERACTION_SETTLE_MS) {
+				await new Promise((resolve) => setTimeout(resolve, INTERACTION_SETTLE_POLL_MS));
+				assertOperation();
+				stateAfter = await interactionTargetState(target.debuggee, stateObjectId, assertOperation);
+			}
 		}
 		assertOperation();
 		const change = interactionTargetChange(stateBefore, stateAfter);
