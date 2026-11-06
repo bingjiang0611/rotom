@@ -294,7 +294,7 @@
 
 新增两个产物：`rotom/runtime/e2e-browser/bench.mjs`（与 e2e 共用隔离 harness 和 fixture，只报数字、不做断言）和 [performance-baseline.md](performance-baseline.md)（完整基线表、复测命令、回归判据、已知限制）。根 `CLAUDE.md` 已把它列为 Browser 性能改动的对照依据。
 
-同机、headless、本地 fixture 的关键数字：`snapshot_visible` 58 ms、截图 45 ms、`tabs` 0.4 ms、写路径 2.8 ms、`scroll` 50 ms、`read_full`（`/large`，60 步）4.5 s、并发 ×4 每标签约 15 ms。完整表与修前对照见基线文档。
+同机、headless、本地 fixture 的关键数字：`snapshot_visible` 60 ms、截图 45 ms、`tabs` 0.5 ms、写路径 2.4 ms（带 `expect` 时走满 150 ms 窗口）、`scroll` 54 ms、`read_full`（`/large`，60 步）2.9 s、并发 ×4 每标签约 15 ms。完整表与修前对照见基线文档。
 
 **已验证的结论**
 1. 并发扩展接近线性：×4 时每标签约 15 ms，锁与事件循环不是瓶颈。
@@ -302,6 +302,24 @@
 3. 观察类操作（`snapshot_visible` 58 ms、截图 45 ms）是单次 CDP 观察的固有成本，优化前后一致。
 4. **整页导出在超长页面上直接失败**：`/large` 的整页导出被 `devtools screenshot too large`（8 MiB 上限）拒绝，而不是降级或分片。这是产品限制而非性能问题，但用户会感知为"导出失败"；降质重试或分片导出属于功能决策，需评审确认后再改。
 5. 优化只删等待、不减覆盖：`read_full` 的步数、`nodes` 数与 `contentCoverage` 与修前一致。
+
+### 稳定性边界与两处修正（`a23787ed`）
+
+性能优化把"固定等待"换成"看起来稳定就返回"之后，有一类退化光看毫秒数发现不了：**少读了内容却更快**。新增 `settle` suite 用三个 fixture 固定这条边界：
+
+| fixture | 检查 | 首次结果 |
+|---|---|---|
+| `/read-medium` | 能读完的页面 `contentComplete=true`、26 段顺序完整、位置恢复 | 通过（但暴露断言把节点切分误判成缺段，已改为无分隔拼接） |
+| `/virtual-late` | 滚动后 60 ms 才渲染行的列表 200 行一行不少 | **失败**：漏 38 行且 `contentComplete=true` |
+| `/revert-input` | 输入 80 ms 后被清空，`expect: value=nonempty` 应报 `unmet` | **失败**：报 `met` |
+
+**修正一（`expect` 语义）**：`expect` 是对"最终状态"的断言，重新走满 150 ms 窗口；不带 `expect` 的动作仍走快速路径。回滚检查因此通过。
+
+**修正二（`read_full` 自适应）**：按容器学习是否延迟渲染——第一层扫描的结论复用到后续步骤；静态文档不再每步付渲染窗口，延迟渲染的容器等它画完；已知延迟渲染的容器若整窗没有变化，该步标记未确认（`contentComplete=false`）而不是声称覆盖；末尾一步豁免（那里本来就没有新内容）。单测 `ownership.test.mjs` 的 `background-emulated` 场景暴露了末尾一步的误判，已修。
+
+**收益**：`read_full` 4 529 → **2 959 ms**，同时 60 ms 延迟渲染的列表不再丢行。
+
+**仍然存在的边界**：延迟超过 150 ms 的渲染会被首轮判为静态容器。这与优化前固定 150 ms 的假设相同，没有变差；覆盖它需要页面侧的渲染完成信号，超出 relay 的观察范围。
 
 ### 持久化空等修复（`session-persistence.js`，一次提交）
 
