@@ -2097,9 +2097,21 @@ final class Bridge {
 		let deferRootDelta = boolArg(request, "deferRootDelta") ?? false
 		let axStylePolicy = policy == "ax_only" || policy == "background_text"
 		let requestedDelivery = params["delivery"] as? String
-		let delivery = policy == "background" || policy == "background_text"
-			? "pid"
-			: (requestedDelivery == "l2" ? "l2" : (requestedDelivery == "pid" ? "pid" : "hid"))
+		// An explicit `delivery` wins over the policy default. `l2` and `pid` are both
+		// non-foreground deliveries, so honouring the request cannot widen exposure, and
+		// `l2` still fails closed (`foreground_required`) when the private symbol is
+		// missing. Measured 2026-11-06: the check asked for `l2` under `background` and
+		// got `pid`, so the directed-delivery signature had never actually run.
+		let delivery: String
+		if requestedDelivery == "l2" {
+			delivery = "l2"
+		} else if policy == "background" || policy == "background_text" {
+			delivery = "pid"
+		} else if requestedDelivery == "pid" {
+			delivery = "pid"
+		} else {
+			delivery = "hid"
+		}
 		// `ax_only` promises no physical input, exactly like the Windows and Linux
 		// bridges where the coordinate fallback is blocked. Falling back to HID here
 		// would move the user's cursor or type into their frontmost window.
@@ -2376,13 +2388,33 @@ final class Bridge {
 			acquirePhysicalInputIfNeeded()
 			if delivery == "hid" && !preserveFocus { focusTargetForPhysicalInput() }
 			let text = params["text"] as? String ?? ""
+			// The user's input method sits between key events and the field. Measured on
+			// 2026-11-06 with a Chinese IME selected: "l2probe" arrived as "里probe",
+			// because the digit picked an IME candidate. AX text insertion does not pass
+			// through the IME, so prefer it - but only when the caller did not pin a
+			// delivery. An explicit `delivery` is a request for that transport, and
+			// answering it with AX insertion would make the transport unreachable.
+			let pinnedDelivery = params["delivery"] is String
+			if !pinnedDelivery, let element, !text.isEmpty, insertTextAtCaret(element, text: text) {
+				usleep(30_000)
+				let inserted = stringAttribute(element, attribute: kAXValueAttribute as CFString) ?? ""
+				if inserted == text || inserted.hasSuffix(text) {
+					performed["grounding"] = "selection"
+					performed["delivery"] = "ax"
+					return finish(["outcome": "worked", "performed": performed, "evidence": ["value": inserted, "valueChanged": inserted != (beforeValue ?? "")]])
+				}
+			}
 			try postUnicodeText(text, pid: pid, delivery: delivery)
 			performed["grounding"] = "coordinates"
 			if let element, !text.isEmpty {
 				usleep(30_000)
 				let afterValue = stringAttribute(element, attribute: kAXValueAttribute as CFString) ?? ""
 				let changed = afterValue != (beforeValue ?? "")
-				return finish(["outcome": changed ? "worked" : "didnt", "performed": performed, "evidence": ["value": afterValue, "valueChanged": changed]])
+				// Key events can be rewritten by the input method, so "the value moved" is
+				// not the same as "the caller's text arrived". Only an exact suffix counts
+				// as worked; anything else is `didnt` with the text that actually landed.
+				let landed = afterValue.hasSuffix(text)
+				return finish(["outcome": landed ? "worked" : "didnt", "performed": performed, "evidence": ["value": afterValue, "valueChanged": changed, "expected": text]])
 			}
 		} else if action == "keypress" {
 			let preserveFocus = params["preserveFocus"] as? Bool ?? false
@@ -3596,7 +3628,11 @@ final class Bridge {
 	}
 
 	private func eventDelivery(_ request: [String: Any]) -> String {
-		optionalStringArg(request, "delivery") == "pid" ? "pid" : "hid"
+		switch optionalStringArg(request, "delivery") {
+		case "pid": return "pid"
+		case "l2": return "l2"
+		default: return "hid"
+		}
 	}
 
 	private func postEvent(_ event: CGEvent, pid: Int32, delivery: String = "hid") throws {
@@ -3920,6 +3956,13 @@ final class Bridge {
 		case ">": return (".", [.maskShift])
 		default: return nil
 		}
+	}
+
+	/// Insert at the caret without key events, so the input method cannot reinterpret it.
+	private func insertTextAtCaret(_ element: AXUIElement, text: String) -> Bool {
+		var settable = DarwinBoolean(false)
+		guard AXUIElementIsAttributeSettable(element, kAXSelectedTextAttribute as CFString, &settable) == .success, settable.boolValue else { return false }
+		return AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFTypeRef) == .success
 	}
 
 	private func setUnicodeString(event: CGEvent, text: String) {
