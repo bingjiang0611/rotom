@@ -95,25 +95,28 @@ cursor 覆盖层支持多实例，每个 agent 一种颜色，颜色由 agentId 
 - **LaunchServices `-10825`**：每次运行都把 fixture 复制到新路径，并给它新的 bundle id（比如 `com.example.cu-fixture.<时间戳>`），重新签名后再启动，收尾时退出进程并删除副本。脚本按 bundle id 前缀识别 fixture。
 - **L2 直连模式**：`cu-v2-l2-check.mjs` 增加 `--direct-l2` 模式，绕过 TS 白名单，直接对**脚本自己启动的 fixture** 请求 `delivery=l2`，分别做定向点击和定向输入。这是 F5 要求的“第一次真机运行先单独验证 `SLEventPostToPid` 签名”。这个模式只存在于脚本里，产品代码不增加任何扩大白名单的开关。
 - **崩溃隔离**：`--direct-l2` 模式必须用一个单独的 helper 进程（单独的 socket），这样就算签名错导致 helper 崩溃，也只记录为一个结果，不影响后续步骤。
-- **`--with-hid`**：保持与后台不变量检查分开运行，脚本最后要恢复前台 App。
+- **`--with-hid`**：只由 `check-cu-v2-live.mjs` 提供（B6 的唯一归属），与后台不变量检查分开运行，脚本最后通过 `focusWindow` 恢复前台 App 并读回。
 - 所有脚本都要先在 Linux 上用假 backend 跑通逻辑，在 STATUS-2 里记录。
 
 ## 3. B 阶段：真机（等用户明确说不在电脑前再开始）
 
-开始前，在 STATUS-2 里写下用户给的时间窗口和开始时间。每一步都留 `evidence/runs/<时间戳>-<脚本名>.md`。**任何异常（越界、App 没有按预期出现、崩溃之外的意外行为）都立刻停止整个 B 阶段，不重试**，把情况记下来等下一次授权。
+开始前，在 STATUS-2 里写下用户给的时间窗口和开始时间。**任何异常（越界、App 没有按预期出现、崩溃之外的意外行为）都立刻停止整个 B 阶段，不重试**，把情况记下来等下一次授权。
 
-第 6 轮审核之后，上面这条不再只靠自觉，而是脚本的硬约束（`scripts/lib/b-window.mjs`，第 6 轮的 P1）：
+第 6 轮审核之后，上面这条不再只靠自觉，而是脚本的硬约束（`scripts/lib/b-window.mjs`）；第 6 轮复核（K1–K4）又补了四个洞：
 
 - 每个真机脚本必填 `--expect-commit <sha>`：工作区不干净或 `HEAD` 不是该提交就直接退出 2，并把 SHA 写进存档。**这个 SHA 由审核者确认**，窗口内不再提交代码。
-- 任何 `fail` 行会在 `docs/agent/computer-use-v2/evidence/runs/B-STOPPED` 写下标记；此后所有真机脚本在门禁之前就拒绝运行。**只有用户能删这个标记。**
-- 顺序固定 B1→B6：第 N 项必须有前一项在同一 commit 上留下的 `Verdict: pass` 存档。B4/B5 还没有脚本，所以 B6 在有那两项通过之前会被拒绝，这是有意的。
+- **窗口内的所有输出都在仓库之外**（K1）：脚本必填 `--runs-dir <绝对路径>`，路径落在 git 工作区内就直接拒绝。存档、日志、`B-STOPPED` 都在那里；**窗口结束后**再单独一步把存档复制进 `evidence/runs/` 并提交。上一轮把存档写进 `docs/.../evidence/`，结果 B1 一通过，工作区就脏了，提交又让 `HEAD` 离开冻结提交，B2 永远无法开始。
+- 任何 `fail` 行会写下 `<runs-dir>/B-STOPPED`；此后所有真机脚本在门禁之前就拒绝运行。**只有用户能删这个标记。**
+- **每一步声明自己的必需行**（K2）：必需行缺失、`inconclusive` 或 `skipped` 一律当作失败。B1 的 `direct L2 | click` 必须带 `delivery=l2`；ASCII 输入源下 `direct L2 | typeText` 也必需。每一步都要求 `run | real user input` 为 pass：helper 的真实事件数增长、或前台切到本次运行没有启动的 App，都算操作用户回来了，整个阶段停止。
+- 顺序固定 B1 → B2 → B3-live → B3-acceptance → B4 → B5 → B6（K3）：第 N 项必须有前一项在同一 commit 上留下的 `Verdict: pass` 存档。live check 和验收各自是一个子步骤，只有一份 pass 不能放行 B4。B4/B5 还没有脚本，所以 B6 会被拒绝，这是有意的。
+- B6 只有一个归属（K4）：`check-cu-v2-live.mjs --with-hid`；`cu-v2-l2-check.mjs` 不再接受 `--with-hid`。HID 点击拆成“走了 HID”和“点击生效”两行，后者读回 fixture 按钮自己的 `AXValue`。
 - 窗口内不做临时诊断（`open`、`System Events` 等直接操作 App 的命令）；发现脚本缺陷就记录并停止，改代码留到窗口之外。
 
 按这个顺序跑，每一步只操作脚本自己启动的进程：
 
 1. **B1 L2 签名验证（F5）**：`cu-v2-l2-check.mjs --direct-l2`，对象是新复制的 fixture。记录：helper 是否存活、事件是否被接收（读回确认）、光标是否移动、前台是否变化。崩溃也是一种结果，如实记录，然后继续 B2。
 2. **B2 兼容矩阵**：`cu-v2-compat-matrix.mjs`，对象是 fixture，跑满 10 个单元格。
-3. **B3 后台不变量和 §10 验收复跑**：在 A1 到 A7 的改动之上，各跑一次 live check 和 acceptance，证明没有回归。
+3. **B3 后台不变量和 §10 验收复跑**：在 A1 到 A7 的改动之上，各跑一次 live check（`B3-live`）和 acceptance（`B3-acceptance`），证明没有回归；两份都要在同一 commit 上 pass。
 4. **B4 helper 强制的反例（I2）**：不带 token、带伪造 token、带过期 token、带已撤销 token，对 fixture 各发一次写命令，都应该被 helper 拒绝，并且 fixture 上没有产生任何变化。再带合法 token 发一次，应该成功。另外核对截图过滤器里确实排除了宿主终端和 helper 的窗口（只记录窗口列表和 pid，不保存截图）。
 5. **B5 前台接管（F1）**：对 fixture 请求接管。用户模拟器保持空闲 10 秒以上，确认接管发生、边框出现；然后让模拟器发一次真实输入，确认结果是 `preempted_by_user`，并且前台恢复。
 6. **B6 `--with-hid`**：放在最后单独跑，跑完确认前台恢复成运行前的 App。

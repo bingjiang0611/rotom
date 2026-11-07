@@ -83,9 +83,11 @@ B6 一次，期间还提交并推送了三次脚本修改。第 6 轮审核据�
 | 脚本已在假 backend 上跑通 | 满足（脚本层） | `cu-v2-script-dry-run.mjs` 13 项通过 / 3 跳过 |
 | 当前时间仍在窗口内 | 脚本自检 | `--window-start/--window-minutes` 必填，缺参数退出 2 |
 | 最近 10 分钟内没有真实用户输入 | 脚本自检 | helper 侧 `userActivity`；hold 退出 1 |
-| 代码冻结 | **新增（REVIEW-6 P1）** | `--expect-commit <sha>`：HEAD 不等于该提交或工作区不干净 → 退出 2 |
-| 一次失败即停止 | **新增（REVIEW-6 P1）** | 任何 `fail` 行写 `runs/B-STOPPED`；之后所有真机脚本在门禁之前就拒绝，只有用户能删 |
-| 顺序固定 B1→B6 | **新增（REVIEW-6 P1）** | 前一项必须有同一 commit 的 `Verdict: pass` 存档；B4/B5 还没有脚本，所以 B6 一定被拒 |
+| 代码冻结 | **REVIEW-6 P1** | `--expect-commit <sha>`：HEAD 不等于该提交或工作区不干净 → 退出 2 |
+| 输出在仓库外 | **新增（复核 K1）** | 必填 `--runs-dir <绝对路径>`，落在工作区内直接拒绝；存档/日志/`B-STOPPED` 都在那里 |
+| 一次失败即停止 | **REVIEW-6 P1** | 任何 `fail` 行或必需行不 pass 写 `<runs-dir>/B-STOPPED`；之后所有真机脚本在门禁之前就拒绝，只有用户能删 |
+| 必需行 | **新增（复核 K2）** | 每一步声明必跑的行；缺失、`inconclusive`、`skipped` 都算失败；`run \| real user input` 每步必需 |
+| 顺序固定 | **REVIEW-6 P1 / K3** | B1→B2→B3-live→B3-acceptance→B4→B5→B6；前一项必须有同一 commit 的 `Verdict: pass`；B4/B5 没脚本，B6 一定被拒 |
 
 跑过的真机（全部只能算记录）：B1 五次（含本轮一次有效失败）、B2 四次、B3 live check 三次、B6 一次。
 每次只操作本轮自己启动的 fixture 副本，操作员 App 前后都是 Scry。**没有**执行：`SLEventPostToPid`、
@@ -98,17 +100,19 @@ PI_CU_L2_SOCKET=1 PI_CU_SOCKET_PATH=~/cu-v2-test/direct-l2.sock \
 PI_COMPUTER_USE_HELPER_APP_PATH=~/cu-v2-test/pi-computer-use.app ROTOM_CU_BROKER=0 \
 PI_CU_FIXTURE_SIGN_IDENTITY="$PI_CU_FIXTURE_SIGN_IDENTITY" \
 node --experimental-strip-types scripts/cu-v2-l2-check.mjs --fixture ~/cu-v2-test/Fixture.app --direct-l2 \
-  --expect-commit <审核者确认的 sha> \
+  --expect-commit <审核者确认的 sha> --runs-dir ~/cu-v2-runs/2026-11-XX \
   --window-start <用户给的开始时间> --window-minutes <用户给的时长> --listening-since <helper 起监听的时间>
 ```
 
-下一窗口的顺序（每一项都要新的 `--expect-commit`，且前一项留下 `Verdict: pass`）：
+下一窗口的顺序（每一步都用同一个 `--expect-commit` 和同一个 `--runs-dir`，且前一项要留下 `Verdict: pass`）：
 
 1. B1 直接 L2（上面那条；`no window` 的成因已改成启动即激活 + 轮询）。
-2. B2 兼容矩阵（30 格；`ax_only` 拒绝、`press` 判定都按本轮 P4 改过）。
-3. B3 live check + §10 验收。
+2. B2 兼容矩阵（30 格；`ax_only` 拒绝、`press` 判定都按 P4 改过）。
+3. B3-live（`check-cu-v2-live.mjs`）与 B3-acceptance（`cu-v2-acceptance.mjs`）各跑一次，两份都要 pass。
 4. B4（脚本待写）、B5（需要用户模拟器）—— 没有 `pass` 之前 B6 会被拒，这是有意的。
-5. B6 `--with-hid` 最后单独跑；判定行是 `restore | operator app` 必须 `pass`。
+5. B6 `check-cu-v2-live.mjs --with-hid` 最后单独跑；判定行是 `act | click went through HID`、`act | click took effect` 与 `restore | operator app` 都必须 `pass`。
+
+窗口结束后（在窗口之外）：把 `--runs-dir` 里的存档复制进 `evidence/runs/`，用 `~` 替换家目录路径，提交并推送。窗口内不提交、不改代码。
 
 **用户离开前把输入法切到 ABC**：不是 ASCII 布局时，直连 L2 的 `typeText` 会被脚本跳过，只剩
 `click` 一行能证明投递。
@@ -124,15 +128,28 @@ node --experimental-strip-types scripts/cu-v2-l2-check.mjs --fixture ~/cu-v2-tes
 | 项 | 处理 | 证据 |
 | --- | --- | --- |
 | P1-1 冻结代码 | 四个真机脚本必填 `--expect-commit <sha>`；工作区不干净或 HEAD 不等于该提交一律退出 2；存档写 `Commit:` 行 | `scripts/lib/b-window.mjs` `requireFrozenCommit`；`test/b-window.test.ts` 4 例（缺参数、未知提交、脏工作区、HEAD 不符） |
-| P1-2 一次失败即封锁 | `finishStep` 在 `fail` 行出现时写 `runs/B-STOPPED`；所有脚本在门禁之前先查该标记，存在即退出 2，只有用户能删 | 同上 `readStopMarker/requireNoStopMarker`；测试 2 例（写入内容、阻塞后续步骤、损坏的标记仍然阻塞） |
+| P1-2 一次失败即封锁 | `finishStep` 在 `fail` 行出现时写 `<runs-dir>/B-STOPPED`；所有脚本在门禁之前先查该标记，存在即退出 2，只有用户能删 | 同上 `readStopMarker/requireNoStopMarker`；测试 2 例（写入内容、阻塞后续步骤、损坏的标记仍然阻塞） |
 | P1-3 顺序固定 | `B1→B6`；第 N 项要求前一项有 **同一 commit** 的 `Verdict: pass` 存档，`B4/B5` 没有脚本所以 `B6` 必然被拒 | 同上 `requirePreviousStepsPassed`；`test/b-window.test.ts` 5 例 + dry run“顺序”一项 |
 | P1-4 窗口内禁止改代码与临时命令 | 冻结提交让任何窗口内提交自动作废后续运行；真机脚本不再用 `System Events` 拉起/恢复 App（`open -n` 兜底也删掉） | dry run“冻结/停止/顺序”一项断言四个脚本都调用 `beginStep`/`finishStep`，且不含 `System Events` |
 | P2 根因归错 | 恢复改走 `focusWindow` + 合法租约（无 broker 时明确记 `lease=unverified`），不吞错误，读回 `getFrontmost`，没恢复就是 `fail` 而不是 `inconclusive` | `restoreOperatorApp`/`leaseForRestore`/`restoreOutcome`；`test/live-helpers.test.ts` 6 例 |
 | P3 `ensureFixtureWindow` 第一步无效 | 删除“先 `manageApps` 再 `osascript`”的写法：改为启动时 `activates: true` + 纯轮询；矩阵拉起后回读前台，不是操作员 App 就判 fail 并停止 | `ensureFixtureWindow`/`launchFixture`；dry run“等待窗口没有隐藏激活”一项（断言等待期间不调用 `manageApps`） |
-| P4 记录与判定 | B6 拆成“走了 HID”（pass/fail）与“点击生效”（pass/didnt/fail/unknown）两行；矩阵按错误码 `foreground_required` 等分类拒绝；fixture 按钮把自己的状态写进 `AXValue`，`press` 可判定；`runs/…2041-matrix-third.md` 改名 `…2017-…` | `classifyActFailure`（测试 1 例）、`runWithHid`、`FixtureApp.swift` 的 `accessibilityValue`、dry run 两项断言 |
+| P4 记录与判定 | B6 拆成“走了 HID”（pass/fail）与“点击生效”（pass/didnt/fail/unknown）两行；矩阵按错误码 `foreground_required` 等分类拒绝；fixture 按钮把自己的状态写进 `AXValue`，`press` 可判定；`runs/…2041-matrix-third.md` 改名 `…2017-…` | `classifyActFailure`（测试 1 例）、`check-cu-v2-live.mjs` 的 HID 两行（K4 后唯一的 B6 归属）、`FixtureApp.swift` 的 `accessibilityValue`、dry run 两项断言 |
 
-测试：`node --test` 共 **162** 项（新增 `test/b-window.test.ts` 13、`test/live-helpers.test.ts` 6）；
-dry run 13 项、0 失败。文件按 20 KB 门槛拆分：设计细节与逐轮表格移到
+### 第 6 轮复核（K1–K4）
+
+复核结论：`ce9c568` 不能作为冻结提交；P1 的方向对，但 K1 让 B1 之后的任何一步都无法开始，K2/K3 让
+“失败即停”仍有漏洞。逐条处理，仍然只做代码和测试：
+
+| 项 | 处理 | 证据 |
+| --- | --- | --- |
+| K1 存档写进工作区 | 窗口输出全部移到仓库外：脚本必填 `--runs-dir`，路径在 git 工作区内即拒绝；`writeRunArchive` 是唯一写入口，仓库内不再写 `evidence/*.md`、`*.log`、汇总表 | `requireRunsDir`/`writeRunArchive`；`test/b-window.test.ts` 含**真实 git** 的用例：`beginStep B1 → finishStep pass（写存档）→ beginStep B2` 必须被允许，再往工作区丢一个文件则 B2 被拒 |
+| K2 必需行 | `STEP_CONTRACT` 逐步声明必需行；缺失或非 `pass` 即阻塞；B1 要求 `direct L2 \| click` 带 `delivery=l2`，ASCII 输入源下 `direct L2 \| typeText` 也必需 | `evaluateStep`；`test/b-window.test.ts` 4 例（inconclusive、错投递、ASCII 条件、必需行缺失） |
+| K2 真实用户输入 | 每步都有 `run \| real user input`：helper 的真实事件数增长，或前台是本次运行没启动的 App，都记 `fail`；acceptance 用它自己的模拟器日志当预算 | `recordRealUserInput`；`test/live-helpers.test.ts` 5 例（增长、外来 App、探针失败、空闲、预算内） |
+| K3 验收不留结论 | acceptance 写 `Step/Commit/Verdict` 并调用 `finishStep`；B3 拆成 `B3-live` 与 `B3-acceptance`，两份同一 commit 的 `pass` 才放行 B4 | `test/b-window.test.ts` K3 用例；dry run“验收自己收尾”一项 |
+| K4 两个 B6 归属 | 只有 `check-cu-v2-live.mjs --with-hid` 是 B6；`cu-v2-l2-check.mjs` 删除 `--with-hid` 与 `runWithHid`；HID 点击拆成两行，生效判定读回 fixture 按钮的 `AXValue` | `STEP_SCRIPTS`；dry run“一个步骤一个归属”一项 |
+
+测试：`node --test` 共 **177** 项（`test/b-window.test.ts` 23、`test/live-helpers.test.ts` 11）；
+dry run 17 项、0 失败、3 跳过。文件按 20 KB 门槛拆分：设计细节与逐轮表格移到
 [`STATUS-2-rounds.md`](STATUS-2-rounds.md)。
 
 ## 需要审核者回答的问题
