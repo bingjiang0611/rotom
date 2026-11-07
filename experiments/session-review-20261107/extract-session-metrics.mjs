@@ -72,6 +72,15 @@ const tag = (value) => (typeof value === "string" && value ? value.replace(/[^\w
 const bytes = (value) => Buffer.byteLength(typeof value === "string" ? value : JSON.stringify(value ?? ""), "utf8");
 const inc = (map, key, by = 1) => { map[key] = (map[key] ?? 0) + by; };
 const num = (value) => (typeof value === "number" && Number.isFinite(value) ? value : 0);
+const timestampMs = (entry) => {
+	const entryTimestamp = entry?.timestamp;
+	if (typeof entryTimestamp === "number" && Number.isFinite(entryTimestamp)) return entryTimestamp;
+	const parsedEntryTimestamp = Date.parse(entryTimestamp ?? "");
+	if (parsedEntryTimestamp) return parsedEntryTimestamp;
+	const messageTimestamp = entry?.message?.timestamp;
+	if (typeof messageTimestamp === "number" && Number.isFinite(messageTimestamp)) return messageTimestamp;
+	return Date.parse(messageTimestamp ?? "") || 0;
+};
 
 function classify(text, table) {
 	if (typeof text !== "string" || !text) return "empty";
@@ -137,15 +146,32 @@ const perSession = [];
 const caseMap = [];
 
 const { sessions, traces } = walk(root);
+const sessionCandidates = [];
 for (const file of sessions) {
 	if (file.mtime < since) continue;
 	const { records, bad } = readLines(file.path);
 	fleet.badLines += bad;
 	const header = records.find((r) => r?.type === "session");
 	if (!header) continue;
-	const lastTs = Math.max(...records.map((r) => Date.parse(r?.timestamp ?? "") || 0));
-	const firstTs = Date.parse(header.timestamp ?? "") || lastTs;
+	const lastTs = records.reduce((latest, record) => Math.max(latest, timestampMs(record)), 0);
 	if (lastTs < since) continue;
+	sessionCandidates.push({ file, records, header, headerTs: timestampMs(header) });
+}
+sessionCandidates.sort((a, b) => a.headerTs - b.headerTs);
+
+const seenEntryIds = new Set();
+for (const { file, records, header } of sessionCandidates) {
+	const windowRecords = [];
+	for (const record of records) {
+		if (timestampMs(record) < since) continue;
+		if (record?.id && seenEntryIds.has(record.id)) continue;
+		if (record?.id) seenEntryIds.add(record.id);
+		windowRecords.push(record);
+	}
+	if (!windowRecords.length) continue;
+	const includedRecords = new Set(windowRecords);
+	const firstTs = windowRecords.reduce((earliest, record) => Math.min(earliest, timestampMs(record)), Infinity);
+	const lastTs = windowRecords.reduce((latest, record) => Math.max(latest, timestampMs(record)), 0);
 
 	const label = sha(basename(file.path));
 	caseMap.push({ label, path: file.path });
@@ -156,7 +182,7 @@ for (const file of sessions) {
 	const s = {
 		label, project: header.cwd ? sha(header.cwd) : "none", subagent: Boolean(header.parentSession),
 		startedAt: new Date(firstTs).toISOString().slice(0, 13), durationMin: Math.round((lastTs - firstTs) / 60_000),
-		entries: records.length, userMessages: 0, corrections: 0, bareContinue: 0, assistantMessages: 0,
+		entries: windowRecords.length, userMessages: 0, corrections: 0, bareContinue: 0, assistantMessages: 0,
 		toolCalls: 0, toolErrors: 0, toolResultBytes: 0, maxToolResultBytes: 0, aborted: 0, assistantErrors: 0,
 		compactions: 0, maxSameCall: 0, maxErrorStreak: 0, tokens: 0, cacheRead: 0, input: 0, costUsd: 0,
 		models: {}, topTools: {}, errorTools: {}, goalStops: {},
@@ -171,19 +197,26 @@ for (const file of sessions) {
 
 	for (const entry of records) {
 		if (!entry || typeof entry !== "object") continue;
-		inc(fleet.entryTypes, tag(entry.type));
-		if (entry.type === "custom") {
-			inc(fleet.customTypes, tag(entry.customType));
-			if (entry.customType === "goal-state" && entry.data?.goal) {
-				const g = entry.data.goal;
+		const included = includedRecords.has(entry);
+		if (entry.type === "custom" && entry.customType === "goal-state" && entry.data?.goal) {
+			const g = entry.data.goal;
+			if (included) {
+				inc(fleet.entryTypes, tag(entry.type));
+				inc(fleet.customTypes, tag(entry.customType));
 				if (!goalPrev.has(g.id)) fleet.goal.goals++;
 				if (goalPrev.get(g.id) === "active" && g.status !== "active") {
 					const key = `${tag(g.status)}/${tag(g.stopReason ?? "-")}/${tag(g.safetyPauseCause ?? "-")}`;
 					inc(fleet.goal.stops, key);
 					inc(s.goalStops, key);
 				}
-				goalPrev.set(g.id, g.status);
 			}
+			goalPrev.set(g.id, g.status);
+			continue;
+		}
+		if (!included) continue;
+		inc(fleet.entryTypes, tag(entry.type));
+		if (entry.type === "custom") {
+			inc(fleet.customTypes, tag(entry.customType));
 			continue;
 		}
 		if (entry.type === "custom_message") { inc(fleet.customMessageTypes, tag(entry.customType)); continue; }
@@ -274,7 +307,7 @@ for (const file of sessions) {
 
 	// 用户回复间隔：助手最后一次响应到下一条用户消息（粗略反映用户等待/介入节奏）
 	let prevAssistant = 0;
-	for (const entry of records) {
+	for (const entry of windowRecords) {
 		const m = entry?.message;
 		if (entry?.type !== "message" || !m) continue;
 		const ts = num(m.timestamp) || Date.parse(entry.timestamp) || 0;
@@ -302,13 +335,16 @@ for (const file of traces) {
 	if (file.mtime < since) continue;
 	trace.files++;
 	const { records } = readLines(file.path);
+	const spanStarts = new Map();
 	for (const r of records) {
 		if (r?.kind !== "span_end" && r?.kind !== "span_start") continue;
-		const a = r.attributes ?? {};
-		if (a["pi.runtime.version"]) inc(trace.runtimeVersions, tag(a["rotom.product.version"] ?? a["pi.runtime.version"]));
-		if (r.kind !== "span_end") continue;
+		const ownAttributes = r.attributes ?? {};
+		if (r.kind === "span_start" && r.spanId) spanStarts.set(r.spanId, ownAttributes);
+		const a = { ...(spanStarts.get(r.spanId) ?? {}), ...ownAttributes };
 		const ts = Date.parse(r.timestamp ?? "") || 0;
 		if (ts && ts < since) continue;
+		if (ownAttributes["pi.runtime.version"]) inc(trace.runtimeVersions, tag(ownAttributes["rotom.product.version"] ?? ownAttributes["pi.runtime.version"]));
+		if (r.kind !== "span_end") continue;
 		inc(trace.spans, tag(r.name));
 		inc(trace.statuses, `${tag(r.name)}:${tag(r.status)}`);
 		if (r.name === "pi.ai.request") {
