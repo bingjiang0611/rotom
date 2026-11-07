@@ -73,3 +73,29 @@
 1. T1、T2、T3，各自补测试；T1 的控制实验写进提交说明。
 2. 只做代码和测试，不跑真机。推送后报告最终 SHA。
 3. 审核者确认后，下一个窗口仍然只跑 B0；窗口开始前按冻结提交重建 helper 和 fixture。
+
+## 复核（2026-11-07，`14e564c..b6d567f`）：接受，`b6d567f` 可作为冻结提交
+
+冻结提交：`b6d567f00fc7174770ba29ac37af82c177e2d30f`。
+
+### 审核者复现
+
+- 干净 worktree 连跑 2 次：209 项，208 通过、0 失败、1 跳过；dry run 31 项、0 失败、3 跳过，工作区干净。
+- dry run 里的 8 个 T1–T3 情形确实以子进程执行 `cu-v2-l2-check.mjs`：B0（点击 1→2、归因、无 `Verdict`、无标记）、
+  B1 通过、B1 失败（写 `B-STOPPED`）、缓冲区中途消失、缓冲区与计数不符、helper 不支持归因、fixture 摘要不符、
+  假 backend 加 `--expect-commit`。
+- **审核者的控制实验**：在 `b6d567f` 上删掉 `const alive = createAlive(...)`，dry run 变成 31 项 5 个失败，
+  其中 4 个来自子进程实际执行时报出的 `alive is not defined`。恢复后重新全绿。
+- 真机路径的顺序：门禁 → fixture 源码摘要和 helper 支持检查（不满足退出 2）→ 准备并启动 fixture。
+  假模块不导入任何 `src/` 代码。
+
+### 一处遗留（不阻断，下一轮修）
+
+`PI_CU_FAKE_BACKEND` 接受任意模块路径，并且在 macOS 上也跳过门禁和冻结检查。正常使用不会出事，但一个重新导出真实
+`macosBackend` 的模块，就能在没有门禁、没有冻结的情况下操作桌面，等于给规则留了一扇后门。修法：只接受
+`scripts/lib/fake-cu-backend.mjs` 的 realpath，并且 `PI_CU_LIVE=1` 时拒绝假模式。在那之前，授权里明确写
+“窗口内不得设置 `PI_CU_FAKE_BACKEND`”。
+
+### 下一个窗口
+
+只跑 B0。窗口开始之前，按冻结提交重建 helper 和 fixture（T3 会拒绝旧版本）。`--runs-dir` 由用户指定。
