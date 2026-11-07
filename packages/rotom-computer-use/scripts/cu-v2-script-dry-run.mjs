@@ -101,6 +101,9 @@ await check("every live script asks the gate before it touches the desktop", () 
 		const source = readFileSync(path.join(import.meta.dirname, name), "utf8");
 		assert.match(source, /requireGate\(/, `${name} must call requireGate`);
 		assert.match(source, /--window-start/, `${name} must read the authorized window`);
+		// `process.argv[process.argv.indexOf("--flag") + 1]` silently becomes `argv[0]` when
+		// the flag is absent, which is how the matrix ran a policy named after the node binary.
+		assert.doesNotMatch(source, /process\.argv\[process\.argv\.indexOf\(/, `${name} must use argument(name, fallback)`);
 	}
 	return scripts.join(", ");
 });

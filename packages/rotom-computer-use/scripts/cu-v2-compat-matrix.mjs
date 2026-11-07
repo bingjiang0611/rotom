@@ -22,7 +22,10 @@ import { GateHold, requireGate } from "./lib/gate.mjs";
 
 const EVIDENCE_DIR = path.resolve(import.meta.dirname, "..", "..", "..", "docs", "agent", "computer-use-v2", "evidence");
 const ACTIONS = ["observe", "focus", "setText", "typeText", "press", "setChecked", "expand", "scrollTo", "select", "setValue"];
-const requestedDelivery = process.argv[process.argv.indexOf("--delivery") + 1];
+// `argument()` is declared below and hoisted. Indexing `process.argv` directly made an
+// absent `--delivery` resolve to `process.argv[0]` (the node path), so the first B2 run
+// labelled every cell with a policy that does not exist and ran one policy, not three.
+const requestedDelivery = argument("--delivery");
 // `foreground` raises the target window and posts HID input; leave it out on a
 // machine someone is using and say so instead of quietly skipping it.
 const DELIVERY = (requestedDelivery ? requestedDelivery.split(",").map((value) => value.trim()).filter(Boolean) : ["ax_only", "background", "foreground"]);
@@ -53,7 +56,7 @@ try {
 	process.exit(error instanceof GateHold ? 1 : 2);
 }
 
-const apps = (process.argv[process.argv.indexOf("--apps") + 1] ?? "").split(",").map((value) => value.trim()).filter(Boolean);
+const apps = (argument("--apps", "") ?? "").split(",").map((value) => value.trim()).filter(Boolean);
 if (apps.length === 0) {
 	console.error("[cu-v2 matrix] pass --apps with bundle ids or app paths");
 	process.exit(2);

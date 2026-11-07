@@ -59,7 +59,7 @@ if ((process.env.PI_CU_LIVE ?? "") !== "1") disabled("PI_CU_LIVE is not 1");
 const { macosHelper } = await import("../src/platform/macos/helper.ts");
 const { macosBackend } = await import("../src/platform/macos/backend.ts");
 
-const fixturePath = process.argv[process.argv.indexOf("--fixture") + 1];
+const fixturePath = argument("--fixture");
 /**
  * The gate runs here too, not in an operator loop (review G6): no declared window is a
  * refusal, and a hold stops before anything touches the desktop.
