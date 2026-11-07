@@ -82,16 +82,17 @@ helper 侧计数与用户授权。本机 122 个 `rotom-quality-pty-*` 遗留 `b
 与 `frontmostChanged` 全程 false，操作员 App 前后都是 Scry。没有碰过用户已打开的 App。
 **没有**执行：`SLEventPostToPid`（L2 定向投递）、B2/B3/B4/B5/B6。
 
-下一次窗口只需要一条命令（预计 40 秒）：
+下一次窗口（每一步都由脚本自己校验闸门，缺窗口参数会拒绝运行）：
 
 ```bash
-PI_CU_L2_SOCKET=1 PI_CU_SOCKET_PATH=~/cu-v2-test/direct-l2.sock \
-PI_COMPUTER_USE_HELPER_APP_PATH=~/cu-v2-test/pi-computer-use.app ROTOM_CU_BROKER=0 \
-PI_CU_FIXTURE_SIGN_IDENTITY="Apple Development: baobingjiang@icloud.com (8Y6KR78CP7)" \
-node --experimental-strip-types scripts/cu-v2-l2-check.mjs --fixture ~/cu-v2-test/Fixture.app --direct-l2
+node --experimental-strip-types scripts/cu-v2-l2-check.mjs --fixture ~/cu-v2-test/Fixture.app --direct-l2 \
+  --window-start <用户给的开始时间> --window-minutes <用户给的时长> --listening-since <helper 起监听的时间>
 ```
 
-判定：`direct L2 | typeText` 一行必须出现 `delivery=l2` 且 `outcome=worked`，`input received` 为 pass。
+**用户离开前把输入法切到 ABC**：不是 ASCII 布局时，直连 L2 的 `typeText` 会被脚本跳过（按键事件
+经过输入法会被改写），只剩 `click` 一行能证明投递。
+
+判定：`direct L2 | click` 一行必须出现 `delivery=l2` 且 helper 仍存活；ASCII 布局下 `direct L2 | typeText` 也应是 `delivery=l2`，且 `input received` 为 pass。
 
 ## 需要审核者回答的问题
 
@@ -172,6 +173,8 @@ UI 单测，确定性只覆盖 TS 的颜色分配。
 | G2（高） | AX 插入被接受后不再回退按键；读回不符报 `unknown`（`background_input_unknown`），不重复写 | 同上提交；Swift 编译通过、`--lease-self-test` `failures=0` |
 | G3（中） | 按键路径三分：以请求文本结尾 → `worked`；值没变 → `didnt`；值变了但不匹配 → `unknown` + 实际值 | 新 `native/macos/text_outcome.swift` + `test/text-outcome.swift`（7 个断言，含实测 `"里probe"` 一例） |
 | G4（中） | L2 符号缺失改成独立错误码 `l2_unavailable`；客户端用同一后台策略改 pid 重试一次，不升级前台；trace 记 `delivery_fallback:l2_unavailable` | `test/act-delivery-fallback.test.ts` 4 例（假 backend 第二次请求必须是 `background` + `pid`）；`behaviour-changes.md` 第 9 条 |
+| G5（中） | 脚本开跑前读当前输入源；不是 ASCII 布局时直连 L2 的 `typeText` 记 `skipped: input method`，改由 `click` 行证明投递 | `scripts/lib/live-helpers.mjs` `inputSourceInfo()`（实测本机 `com.sogou.inputmethod.pinyin` → 非 ASCII） |
+| G6（中） | 闸门搬进库 `scripts/lib/gate.mjs`，`cu-v2-l2-check.mjs` 真机模式下自己调用：没有 `--window-start/--window-minutes` 直接退出 2，hold 退出 1，读数写进 `runs/gate-*.json` | `test/cu-v2-gate.test.ts` 7 例（窗口外、真实输入、无 helper 读数、从未见过输入、读数留存、缺参数拒绝） |
 
 ## 测试稳定性观察（既有问题，不是本项引入）
 

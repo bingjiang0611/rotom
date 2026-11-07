@@ -7,6 +7,7 @@
  * the gating rules, and the two samples that decide whether an action reached the
  * user's session.
  */
+import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
@@ -15,6 +16,30 @@ import process from "node:process";
 export const EVIDENCE_DIR = path.resolve(import.meta.dirname, "..", "..", "..", "..", "docs", "agent", "computer-use-v2", "evidence");
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Which keyboard input source is selected.
+ *
+ * Key events pass through the selected input source, so an IME rewrites them
+ * ("l2probe" arrived as "里probe" on 2026-11-06: the digit picked a candidate). A
+ * check that types ASCII must know this *before* it runs, otherwise the text line says
+ * nothing about the product.
+ */
+export function inputSourceInfo(exec = execFileSync) {
+	try {
+		const out = exec("defaults", ["read", "com.apple.HIToolbox", "AppleSelectedInputSources"], { encoding: "utf8" });
+		const layouts = [...out.matchAll(/KeyboardLayout Name = "?([^";]+)"?;/g)].map((match) => match[1].trim());
+		const inputMethods = [...out.matchAll(/"Input Mode" = "?([^";]+)"?;/g)].map((match) => match[1].trim());
+		const ascii = inputMethods.length === 0 && layouts.length > 0;
+		return {
+			ascii,
+			description: ascii ? `layout ${layouts.join(",")}` : `input method ${[...inputMethods, ...layouts].join(",") || "unknown"}`,
+		};
+	} catch (error) {
+		// Not knowing is not the same as knowing it is ASCII.
+		return { ascii: false, description: `unreadable (${error instanceof Error ? error.message : String(error)})` };
+	}
+}
 
 /** A filesystem-safe run id, so one run's evidence never overwrites another's. */
 export function runStamp(date = new Date()) {

@@ -38,7 +38,8 @@ import { homedir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 
-import { runStamp } from "./lib/live-helpers.mjs";
+import { inputSourceInfo, runStamp } from "./lib/live-helpers.mjs";
+import { GateHold, requireGate } from "./lib/gate.mjs";
 import { disposeFixtureRun, isFixtureBundleId, prepareFixtureRun } from "./lib/fixture.mjs";
 import { runDirectL2, runWithHid } from "./lib/l2-modes.mjs";
 
@@ -141,6 +142,37 @@ async function probe(agent, look, pid, action, controls) {
 }
 
 async function main() {
+	// The gate runs inside the script, not in an operator shell loop: on 2026-11-06 the
+	// loop ran the check unconditionally and B1 started while the user was typing.
+	// No declared window is a refusal, and a hold writes its readings and exits.
+	const gate = await (async () => {
+		try {
+			return await requireGate({
+				windowStart: argument("--window-start"),
+				windowMinutes: argument("--window-minutes"),
+				requireIdleMinutes: argument("--require-idle-minutes") ?? "10",
+				listeningSince: argument("--listening-since"),
+			});
+		} catch (error) {
+			if (error instanceof GateHold) {
+				writeFileSync(path.join(runRoot, `gate-${runStamp()}.json`), `${JSON.stringify(error.report, null, 2)}\n`);
+				record("gate", "verdict", "fail", error.message);
+				console.error(`[cu-v2 l2] gate hold: ${error.message}`);
+				await writeEvidence();
+				process.exit(1);
+			}
+			record("gate", "arguments", "fail", error instanceof Error ? error.message : String(error));
+			console.error(`[cu-v2 l2] ${error instanceof Error ? error.message : String(error)}`);
+			await writeEvidence();
+			process.exit(2);
+		}
+	})();
+	writeFileSync(path.join(runRoot, `gate-${runStamp()}.json`), `${JSON.stringify(gate, null, 2)}\n`);
+	record("gate", "verdict", "pass", `minutes_left=${gate.minutes_left} hid_idle=${gate.hid_idle_seconds}s helper_idle=${gate.helper_idle_seconds ?? "-"}s`);
+
+	const inputSource = inputSourceInfo();
+	record("environment", "input source", inputSource.ascii ? "pass" : "inconclusive", `${inputSource.description}; ASCII text typing needs a plain layout`);
+
 	const diagnostics = await macosHelper.diagnosticsCommand();
 	record("helper", "diagnostics", "pass", `protocol=${diagnostics.protocolVersion} accessibility=${diagnostics.accessibility}`);
 	const frontmost = await macosBackend.getFrontmost();
@@ -260,7 +292,7 @@ async function main() {
 		else record(app.appName ?? app.bundleId, "click", "skipped", "no button in the window");
 	}
 
-	if (directL2) await runDirectL2({ fixture, fixtureRun, backend: macosBackend, helper: macosHelper, record, cursor, alive, wireRefByRole, typed: TYPED });
+	if (directL2) await runDirectL2({ fixture, fixtureRun, backend: macosBackend, helper: macosHelper, record, cursor, alive, wireRefByRole, typed: TYPED, asciiInput: inputSource.ascii });
 	if (withHid) await runWithHid({ fixture, originalFrontmost: frontmost, backend: macosBackend, record, cursor, wireRefByRole });
 
 	record("helper", "still alive", (await alive()) ? "pass" : "fail", "the helper answered diagnostics after every probe (no crash)");

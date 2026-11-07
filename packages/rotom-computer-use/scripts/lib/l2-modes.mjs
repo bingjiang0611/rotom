@@ -14,7 +14,7 @@ import { execFileSync } from "node:child_process";
  * this run's own fixture copy. A helper crash is recorded as the result, and the
  * next observation says whether anything moved.
  */
-export async function runDirectL2({ fixture, fixtureRun, backend, helper, record, cursor, alive, wireRefByRole, typed }) {
+export async function runDirectL2({ fixture, fixtureRun, backend, helper, record, cursor, alive, wireRefByRole, typed, asciiInput = false }) {
 	if (!fixture) {
 		record("direct L2", "fixture", "skipped", "no fixture this run started; nothing to address directly");
 		return;
@@ -41,6 +41,14 @@ export async function runDirectL2({ fixture, fixtureRun, backend, helper, record
 		// Each action gets its own observation: the previous one may have changed the
 		// tree, and a stale ref is refused rather than retried.
 		const look = await backend.observe({ target: { windowId: root.windowId, rootRef: root.rootRef }, readText: "auto", includeImage: false });
+		// The text step exists to prove the transport, but a pinned transport means key
+		// events, and an input method rewrites those ("l2probe" -> "里probe"). Skip the
+		// text line rather than record a failure that says nothing about the product; the
+		// click line still exercises the same delivery (review G5).
+		if (role === "AXTextField" && !asciiInput) {
+			record("direct L2", label, "skipped", "input method selected: pinned transport uses key events, so ASCII text would be rewritten");
+			continue;
+		}
 		const ref = pick(look, role);
 		if (!ref) {
 			record("direct L2", label, "skipped", `no ${role} target in the fixture window`);
