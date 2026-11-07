@@ -109,3 +109,26 @@
 
 - 第三轮已经回答了 P1 的范围问题，结论见 §1b。
 - 第四轮已经回答了错误码问题，结论见 §1c。复盘到此结束，下一步等维护者决定 P0 用哪个方案，以及 P0b 是否放开。
+
+## 5. 实现状态（2026-11-07）
+
+维护者决定：P0 选方案 1；P0b 选折中方案（只在没有任何可见输出时重试）。
+
+| 项 | 状态 | 改动 | 已跑的验证 |
+|---|---|---|---|
+| P0 | 已实现，随产品生效 | Pi `retry.ts` 把 `Qoder: catalog_refresh_failed` 列为可重试；provider 内仍然不重试；同一错误码的 UI 提示在 2 分钟内只显示一次 | Pi `build:pi`（各包 focused 回归全通过）、`check:pi`；Qoder 270/270；`retry.test.ts` 新增正反例 |
+| P0b | 已实现，随产品生效 | `translate.mjs` 和 `provider.mjs`：没有任何文本、reasoning 或 tool call 时，`request_failed` / `stream_failed` 改为 `*_before_output`，Pi 列为可重试；已经流出内容的失败保持原码、不重试；diagnostics 仍归类为 `transport_failure` / `network` | 同上；另有 translate 单测覆盖“只有 usage”“已有文本”“已有 reasoning”“已有工具调用”“aborted”五种情况 |
+| P2 | 源码已改；**尚未进入产品**（需要按维护流程重打 vendor 归档） | helper 不匹配时，有 UI 的会话问一次是否重启；用户确认后才重启并复检；拒绝或没有 UI 时本会话不再询问，同时告诉模型“本会话内不可用，改用 Browser 或向用户报告” | `helper-protocol.test.ts` 7/7；Computer Use 套件 74/76，唯一失败 `cu-v2-tools.test.ts` 在改动前同样失败。**没有在真实 Mac 上验证** |
+| P3 | 源码已改；**尚未进入产品**（同 P2） | `subagent_wait` 超时结果附上每个子任务最近一次活动距今多久、工具调用数、轮数和当前工具；10 分钟没有活动时建议先查 status、不要原样长等，否则建议做其他事或用 ≤10 分钟的等待 | `wait.test.mjs` 21/21（新增 2 条） |
+| P1、P4、P5 | 未做 | — | — |
+
+运行时与发行门：
+- `verify-pi-runtime.test.mjs` 40/40、`test:distribution` 28/28、`build-pi-fork.test.mjs` 2/2、observability 51/51。
+- `smoke-runtime.mjs` 默认和全量两种工具面都失败：预期列表里有 Computer Use v2 的工具（`cu_session`、`clipboard` 等），但 vendor 里的 Computer Use 归档还是旧版。改动前同样失败，差异完全一致，不是本次引入。
+- `pack:release` 和真实安装还没跑，是否发布由维护者决定。
+
+构建环境说明：
+- 云端容器需要代理 CA。构建脚本隔离环境时不传 CA 变量，所以临时在容器的 npm 内置配置里加了 cafile。
+- 以 root 运行时，EACCES 相关测试不成立；`find` 相关测试需要 `fd`。因此装了 `fd`，并改用非 root 用户构建。
+- 这个容器里的 npm 10.9.9 重新生成 `runtime/pi/package-lock.json` 时漏掉了一条嵌套依赖，导致 `npm ci` 失败。所以保留原来的 lock 结构，只替换 7 个 Pi 归档的 integrity，之后 `check:pi` 和 `npm ci` 都通过。
+- 以上都没有修改构建脚本或发布脚本。
