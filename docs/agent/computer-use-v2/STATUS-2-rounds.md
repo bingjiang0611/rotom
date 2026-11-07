@@ -161,3 +161,26 @@ dry run 新增三条检查（`createAlive` 接线、bundle 键集、计数判定
 
 控制：在上一个提交里 `cu-v2-l2-check.mjs` 引用 `alive` 却没有任何定义，也不含 `createAlive(`，
 所以新 dry run 的接线检查在修复前必失败。
+
+## 第二次 B0 窗口（2026-11-07 03:57:41–04:57:41）：跑到底了，fixture 仍起不来
+
+`--expect-commit c026d0f8`、`--runs-dir ~/cu-v2-runs/2026-11-07-b0-c026d0f8`（仓库之外）。
+门禁 04:08:01 通过（监听 620 s、零事件、`idle=-1`）。16 行、1 个 fail，运行跑到底（report-only：
+没有 `Verdict:`、没有写 `B-STOPPED`）。
+
+- `run | real user input` = **pass**，`userEvents 0 → 0 (+0)`：安静机器上一次什么都没启动的 B0 运行
+  产生 0 个未标记事件。
+- `attribution | summary` = `unmarked=0 fromThisRun=0 fromElsewhere=0 agentMarked=0 K2 unchanged`——
+  没有按来源分的行，因为没有事件可归因。
+- `fixture | launch` = fail，仍是 “miscellaneous error”。**`CFBundleVersion` 不是原因**：现在 plist 与
+  已知可启动的旧 bundle 逐字节同内容（638 B、8 键），bundle 结构、签名有效性、Designated Requirement、
+  Gatekeeper 判定、LaunchServices 注册也一致。
+
+真正原因在二进制：`LC_BUILD_VERSION` 的 `minos`。旧 bundle 是 `minos 14.0`，我编的是 **`minos 28.0`**
+（sdk 26.5、主机 macOS 27.3）——比系统还新，dyld 拒绝加载，LaunchServices 只报“miscellaneous error”。
+成因是 `build-fixture.mjs` 没传 `-target`，swiftc 取了 SDK 默认部署目标。
+
+修复：`-target arm64-apple-macos${FIXTURE_MINIMUM_MACOS}`，`FIXTURE_MINIMUM_MACOS = "14.0"` 同时供 plist
+和编译目标使用（两者不可能再漂移）；builder 编译后用 `otool -l` 回读 `minos`，不一致直接失败退出。
+重新编译后 `minos 14.0`、plist 与旧 bundle 完全一致。201 项测试通过、dry run 23 项 0 失败。
+**仍未验证**：这个 bundle 能不能真的启动——启动 App 不在本轮授权内。

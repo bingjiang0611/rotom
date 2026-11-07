@@ -17,7 +17,7 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-import { fixtureInfoPlist } from "./lib/fixture.mjs";
+import { FIXTURE_MINIMUM_MACOS, fixtureInfoPlist, parseBuildVersionMinos } from "./lib/fixture.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 
@@ -47,11 +47,21 @@ const executablePath = path.join(bundlePath, "Contents", "MacOS", "Fixture");
 rmSync(bundlePath, { recursive: true, force: true });
 mkdirSync(path.dirname(executablePath), { recursive: true });
 // `-parse-as-library` because the file uses `@main`: without it swiftc treats the file as
-// top-level code and refuses the attribute.
-run("xcrun", ["swiftc", "-O", "-parse-as-library", sourcePath, "-o", executablePath]);
+// top-level code and refuses the attribute. `-target` because without it swiftc takes the
+// SDK default (28.0 on the 2026-11-07 host), and dyld refuses a binary that wants a newer
+// macOS than the machine running it.
+run("xcrun", ["swiftc", "-O", "-parse-as-library", "-target", `arm64-apple-macos${FIXTURE_MINIMUM_MACOS}`, sourcePath, "-o", executablePath]);
 chmodSync(executablePath, 0o755);
 writeFileSync(path.join(bundlePath, "Contents", "Info.plist"), fixtureInfoPlist({ version: "1" }));
 writeFileSync(path.join(bundlePath, "Contents", "PkgInfo"), "APPL????");
+
+// Read the binary back: the deployment target is the one thing about a bundle that no
+// plist key can vouch for, and getting it wrong fails at launch with an opaque error.
+const minos = parseBuildVersionMinos(execFileSync("otool", ["-l", executablePath], { encoding: "utf8" }));
+if (minos !== FIXTURE_MINIMUM_MACOS) {
+	console.error(`built binary wants macOS ${minos ?? "?"}, expected ${FIXTURE_MINIMUM_MACOS}; pass -target so dyld can load it`);
+	process.exit(1);
+}
 
 const identity = argument("--sign-identity") ?? process.env.PI_CU_FIXTURE_SIGN_IDENTITY;
 if (identity) {

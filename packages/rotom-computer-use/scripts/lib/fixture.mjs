@@ -20,6 +20,22 @@ import path from "node:path";
 
 export const FIXTURE_BUNDLE_PREFIX = "com.example.cu-fixture.";
 
+/**
+ * The macOS the fixture is built for, and the deployment target its binary must carry.
+ *
+ * These two have to agree. A binary built without `-target` inherits the SDK default, and on
+ * 2026-11-07 that produced `minos 28.0` on a macOS 27.3 host: dyld refused to load it and
+ * LaunchServices reported only "a miscellaneous error occurred", which cost a whole B0 window
+ * and looked exactly like a broken bundle.
+ */
+export const FIXTURE_MINIMUM_MACOS = "14.0";
+
+/** `otool -l` output -> the `minos` recorded in `LC_BUILD_VERSION`, or undefined. */
+export function parseBuildVersionMinos(otoolOutput) {
+	const match = /LC_BUILD_VERSION[\s\S]*?\bminos\s+([0-9.]+)/.exec(String(otoolOutput ?? ""));
+	return match?.[1];
+}
+
 /** True for a bundle id this repository's fixture runs produce. */
 export function isFixtureBundleId(bundleId, prefix = FIXTURE_BUNDLE_PREFIX) {
 	return typeof bundleId === "string" && bundleId.startsWith(prefix);
@@ -141,7 +157,7 @@ export function fixtureInfoPlist({ bundleId = "com.example.cu-fixture", version 
 	<key>CFBundleVersion</key>
 	<string>${version}</string>
 	<key>LSMinimumSystemVersion</key>
-	<string>14.0</string>
+	<string>${FIXTURE_MINIMUM_MACOS}</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 </dict>

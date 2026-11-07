@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-import { fixtureInfoPlist } from "./fixture.mjs";
+import { FIXTURE_MINIMUM_MACOS, fixtureInfoPlist, parseBuildVersionMinos } from "./fixture.mjs";
 
 const packageRoot = path.resolve(import.meta.dirname, "..", "..");
 
@@ -67,7 +67,13 @@ export const fixtureChecks = [
 			const builder = read("scripts", "build-fixture.mjs");
 			assert.match(builder, /-parse-as-library/, "@main needs a library compile");
 			assert.match(builder, /PkgInfo/, "the known-good bundle shipped one");
-			return "8 keys + PkgInfo";
+			// A binary built without -target wants the SDK's macOS, not this one; dyld then
+			// refuses it and LaunchServices says only "a miscellaneous error occurred".
+			assert.match(builder, /-target.*arm64-apple-macos/, "the deployment target must be pinned");
+			assert.match(builder, /parseBuildVersionMinos/, "the built binary is read back, not assumed");
+			assert.equal(parseBuildVersionMinos("LC_BUILD_VERSION\n    minos 14.0\n      sdk 26.5"), FIXTURE_MINIMUM_MACOS);
+			assert.match(plist, new RegExp(`LSMinimumSystemVersion</key>\\s*<string>${FIXTURE_MINIMUM_MACOS}</string>`), "plist and target agree");
+			return "8 keys + PkgInfo + minos pinned";
 		},
 	},
 ];

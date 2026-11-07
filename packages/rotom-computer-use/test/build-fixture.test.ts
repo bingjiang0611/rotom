@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { fixtureInfoPlist } from "../scripts/lib/fixture.mjs";
+import { FIXTURE_MINIMUM_MACOS, fixtureInfoPlist, parseBuildVersionMinos } from "../scripts/lib/fixture.mjs";
 
 const plist = fixtureInfoPlist({ version: "1" });
 
@@ -40,4 +40,18 @@ test("the keys that made the app unlaunchable stay fixed", () => {
 
 test("the bundle id can be overridden for a copy", () => {
 	assert.match(fixtureInfoPlist({ bundleId: "com.example.cu-fixture.123" }), /com\.example\.cu-fixture\.123/);
+});
+
+test("the deployment target and the plist cannot drift apart", () => {
+	// The binary must carry the same minimum macOS the plist advertises; building without
+	// `-target` produced minos 28.0 on a 27.3 host, and the app then failed to launch.
+	assert.equal(FIXTURE_MINIMUM_MACOS, "14.0");
+	assert.match(plist, new RegExp(`<key>LSMinimumSystemVersion</key>\\s*<string>${FIXTURE_MINIMUM_MACOS}</string>`));
+});
+
+test("the built binary's minos is read back and compared", () => {
+	const text = `      cmd LC_BUILD_VERSION\n  cmdsize 32\n platform 1\n    minos 14.0\n      sdk 26.5\n`;
+	assert.equal(parseBuildVersionMinos(text), "14.0");
+	assert.equal(parseBuildVersionMinos(text.replace("14.0", "28.0")), "28.0");
+	assert.equal(parseBuildVersionMinos("no build version here"), undefined);
 });
