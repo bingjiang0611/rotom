@@ -19,6 +19,7 @@ import { responseFramesV1 } from "./response-chunks.js";
 import { createMergedSessionWriter, isSessionStateKeyV3, LEGACY_SESSION_STATE_KEY_V1, LEGACY_SESSION_STATE_KEY_V2, legacyV1Sessions, legacyV2Sessions, serializeSessionStateV3, sessionStateKeyV3 } from "./session-persistence.js";
 import { interactionScrollTarget } from "./interaction-scroll-target.js";
 import { raceDispatchAgainstDialog } from "./dispatch-race.js";
+import { captureScreenshotWithin } from "./screenshot-capture.js";
 import { createOperationGuard } from "./operation-guard.js";
 import { operationChrome } from "./operation-chrome.js";
 import { consumeMatchingWindowOpenSignal } from "./window-open-correlation.js";
@@ -1039,7 +1040,7 @@ async function interactionTarget(name, item, payload, assertOperation) {
 	}
 	if (action === "click" && payload.targetRef === undefined) {
 		const debuggee = { tabId: item.tabId };
-		const metrics = await chrome.debugger.sendCommand(debuggee, "Page.getLayoutMetrics");
+		const metrics = await layoutMetricsWithin(debuggee, assertOperation);
 		const point = validateCoordinateBinding(item, payload, metrics);
 		const hit = await coordinateHitTarget(debuggee, point, assertOperation);
 		await assertOwned(item);
@@ -1105,6 +1106,17 @@ async function coordinateHitTarget(debuggee, point, assertOperation) {
 	if (!described.ok) throw new Error("coordinate click hit-test target could not be described");
 	const hit = validateCoordinateHit({ backendNodeId: located.value.backendNodeId, nodeName: described.value?.node?.localName || described.value?.node?.nodeName });
 	return hit;
+}
+// A hung CDP command holds the tab lock until the whole operation deadline, and structural
+// operations queue behind it, so layout metrics get their own bound too.
+const LAYOUT_METRICS_WAIT_MS = 3_000;
+/** `Page.getLayoutMetrics` with its own bound: a hung metrics call must not hold the tab lock. */
+async function layoutMetricsWithin(debuggee, assertOperation) {
+	const chrome = operationChrome(globalThis.chrome, assertOperation);
+	const bounded = await valueWithinRelayDeadline(chrome.debugger.sendCommand(debuggee, "Page.getLayoutMetrics"), LAYOUT_METRICS_WAIT_MS);
+	if (!bounded.ok) throw new Error("browser relay layout metrics timeout");
+	assertOperation();
+	return bounded.value;
 }
 async function withFocusEmulation(debuggee, action, assertOperation) {
 	const chrome = operationChrome(globalThis.chrome, assertOperation);
@@ -1917,9 +1929,13 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 		await attach(item, assertOperation);
 		await assertOwned(item);
 		const debuggee = { tabId: item.tabId };
-		const metricsBefore = await chrome.debugger.sendCommand(debuggee, "Page.getLayoutMetrics");
-		const captured = await chrome.debugger.sendCommand(debuggee, "Page.captureScreenshot", { format: "jpeg", quality: 55, fromSurface: true, captureBeyondViewport: false });
-		const metricsAfter = await chrome.debugger.sendCommand(debuggee, "Page.getLayoutMetrics");
+		const chrome = operationChrome(globalThis.chrome, assertOperation);
+		// Bounded per command: a capture that never resolves is reported as a timeout that
+		// releases the tab lock, instead of holding `hello`/`tabs`/`close` behind it.
+		const { metricsBefore, captured, metricsAfter } = await captureScreenshotWithin({
+			sendCommand: (method, parameters) => chrome.debugger.sendCommand(debuggee, method, parameters),
+			assertOperation,
+		});
 		if (typeof captured?.data !== "string" || Math.ceil(captured.data.length * 3 / 4) > MAX_SCREENSHOT_BYTES) throw new Error("screenshot exceeds relay limit");
 		const beforeViewport = coordinateViewport(metricsBefore);
 		const afterViewport = coordinateViewport(metricsAfter);
