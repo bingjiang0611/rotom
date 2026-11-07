@@ -82,7 +82,7 @@ for (const file of walk(root)) {
 		}
 		if (m.role !== "user") continue;
 		const userTs = ts(e);
-		if (userTs >= since && lastAssistant) {
+		if (userTs >= since && userTs <= now && lastAssistant) {
 			const prev = lastAssistant.m;
 			const prevText = textOf(prev.content);
 			const userText = textOf(m.content).trim();
