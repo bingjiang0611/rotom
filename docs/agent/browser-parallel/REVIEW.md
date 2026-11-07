@@ -298,3 +298,44 @@ ROTOM_CHROME_EXECUTABLE=/path/to/chrome-nosandbox.sh node --experimental-strip-t
 - e2e 里这 5 项在 Linux 上改成断言“如实报超时/未完成”（例如按 `process.platform` 分支），macOS 仍保持原断言。不能 skip，也不能放宽 macOS 的断言。
 - 顺手处理第 3 轮的两条建议，至少写进 usage：abort 只在客户端生效；截图会让页面收到 `visibilitychange`/`focus`。
 - 做完按 CLAUDE.md 的公开同步流程合入 `main`（先跑 `audit-public.py`，只做 fast-forward 或普通 merge，不 force push）。
+
+## 第 4 轮（92db9c4..2715264，已快进合入 main）
+
+评审环境同前：Linux x64，Node 24.22.2，Chrome for Testing 153，`main` 原样。
+
+**复现结果**
+- `main` 与 `browser-parallel` 都在 `2715264`，是快进合入，没有 merge commit。
+- e2e（Linux headless）：23 suite，**121/121 通过**，EXIT=0。
+- browser 单测：310 项，309 通过，0 失败，1 skip。
+- `audit-public.py --root .`：PASS。`--history`：BLOCKED，17 条，**全部在 0013fe2 之前就已进入 main**：
+  - 11 条 `personal-home-path`：分支中间提交里的示例路径，以及 `802706b` 的 STATUS 曾原样引用它们（`0013fe2` 已改掉）；
+  - 6 条非 noreply 身份，来自 3 个提交：`7bc1e4c`、`3bbaee6`，以及评审第 1 轮自己的 `c128b6c`（评审第 2 轮起已改用 noreply）。
+  - 第 2、3 轮没有新增任何审计问题。要清掉这些只能改写公开历史，按 CLAUDE.md 不 force push，维持现状。
+
+### 已通过
+
+- **用户决定的四项。**
+  - usage 和 CLAUDE.md §6 写明了 Linux 已知限制，并写了不得抢前台、不得把超时改写成成功；
+  - STATUS 的 Linux 结论已改；
+  - 两条建议已写进 usage。
+- **e2e 的平台分支写法正确。**
+  - 非 Linux 路径保持原断言；拖拽和读取的 catch 里先断言 `linux === true`，所以 macOS 上一旦超时仍然失败；
+  - Linux 路径只接受如实的结果：截图超时后 `tabs` 仍可用；读取未完成时不能同时报截断，漏行时不能报完成；拖拽只接受 `dispatch timeout … unknown`，之后 tab 仍可读；
+  - Linux 上若真的报“完成”，会落回严格断言。
+
+### 必须改（文档，一处）
+
+- [必须改，文档] **“需要立刻脱身时用 `recover` 或换一个 tab”不成立。** 这句在 `docs/usage.md`“取消与页面可见性”和 CLAUDE.md §6 新增的那一条里。
+  - 依据是 `chrome-extension/request-locks.js`：`recover`、`open`、`close`、`tabs` 都是结构性操作，要等这个 session 上所有在跑的 tab 操作（读锁）结束才能拿到写锁。所以 `recover` 同样要等卡住的操作跑到 deadline，并不能立刻脱身。
+  - 队列是 FIFO：一个排着的结构性操作还会挡住**后来**所有 tab 的读写。
+  - 实际能立刻继续的只有：在**另一个已经打开的** tab 上读写，并且前提是队列里没有结构性操作在等。新开 tab（`open`）也要排队。
+  - 要求：把这句改成上面的实际语义；不需要改代码。
+
+### 建议（不阻塞）
+
+- [建议] **pointer 的 Linux 分支只认 `dispatch timeout`。** 第 3 轮评审跑到过 HTML5 拖拽报 relay 层的 `browser relay interact operation timeout`（SW 的 `interact` deadline 先到）。这同样是如实的 unknown，但现在会让 Linux 用例失败，属于偶发风险。可以把两种超时都接受，同时仍要求“之后 tab 可读”。
+- [建议] **settle 的 Linux 未完成分支跳过了“滚动位置恢复到 400”的检查。** 滚动位置的读写不依赖合成帧（第 2 轮探针里 hidden tab 上 `scrollTop` 设置正常），所以这条在 Linux 上也可以保留。否则恢复失败会被“未完成”掩盖。
+
+### 结论
+
+本轮通过，只剩上面一处文档订正。browser 优化这条线（T0–T26 与 4 轮评审）可以收尾。
