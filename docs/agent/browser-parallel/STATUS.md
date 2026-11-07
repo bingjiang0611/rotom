@@ -406,6 +406,18 @@
   - 注入用文件已全部还原（`git status` 只剩本轮 5 个真实改动；`grep FAULT-INJECTION` 无命中）。
 - **未验证**：Linux 上这 5 条改完后的实际表现。本机没有 Linux 机器，`linux` 分支只在本机用"强制 true + 故障注入"验证过逻辑；真实 Linux 上的判定要由评审下一轮复跑确认（预期从 116/121 变成 121/121，因为失败项现在被如实断言）。
 
+### 第 4 轮评审：recover 的说法订正 + 两条 e2e 建议
+
+- **必须改（文档）**：“需要立刻脱身时用 `recover` 或换一个 tab”是错的。`recover`/`open`/`claim`/`close`/`tabs`/`switch`/`transfer`/`handoff` 都是结构性操作（`chrome-extension/request-locks.js` 的 `SESSION_SCOPED_OPERATIONS_V1`），要拿 session 写锁，而写锁必须等所有在跑的 tab 操作（读锁）结束——所以 `recover` 一样会卡到那个操作的 deadline。队列还按 FIFO 授权：一个排着的结构性操作会挡住之后所有 tab 的读写。真正能立刻继续的只有“在另一个已打开的 tab 上读写，且队列里没有结构性操作在等”；`open` 新 tab 同样排队。`docs/usage.md`“取消与页面可见性”与 `CLAUDE.md` §6 那条都已按这个实际语义改写，代码未动。
+- **建议 1（pointer）**：Linux 分支原来只认 `dispatch timeout … unknown`，但评审第 3 轮跑到过 relay 层的 `browser relay interact operation timeout`（SW 的 `interact` deadline 先到）。现在两种如实超时都接受，仍然要求之后 tab 可读；其它失败（例如真的报成功但 effect 不完整）仍然失败。
+- **建议 2（settle）**：Linux 未完成分支不再跳过“滚动位置恢复到 400”。`scrollTop` 的读写不依赖合成帧，所以这条在 Linux 上同样成立——恢复失败不会再被“未完成”掩盖。断言已提取为 `restoredToOrigin()`，两条分支共用。
+- **验证**（本机 macOS + 故障注入）：
+  - 正常路径：`settle` 3/3、`pointer` 6/6；全量 e2e 23 suite **121/121**、`EXIT=0`。
+  - 故障注入 A（`linux` 强制 `true`，注入 `browser relay interact operation timeout`，并把 `fullReadCoverage` 的 `contentComplete` 强制为 `false`）：`settle` 3/3、`pointer` 6/6 —— 新的两种超时形状与“未完成 + 滚动恢复”分支都能跑通。
+  - 故障注入 B（保留同样的注入，恢复真实 `process.platform`）：`settle :: 能读完的页面标记完成…` 失败（`complete:false`）、两条拖拽失败（`browser relay interact operation timeout`）——证明 macOS 侧没有被放宽。
+  - 注入文件全部还原，`grep FAULT-INJECTION rotom/` 无命中。
+- **未验证**：Linux 实机。`linux` 分支仍只在本机用“强制 true + 故障注入”验证；评审第 4 轮已确认 Linux 121/121，本轮改动不回退任何断言，只是把两种如实超时都算通过并补回滚动恢复检查。
+
 ### 性能基线（T26）
 
 新增两个产物：`rotom/runtime/e2e-browser/bench.mjs`（与 e2e 共用隔离 harness 和 fixture，只报数字、不做断言）和 [performance-baseline.md](performance-baseline.md)（完整基线表、复测命令、回归判据、已知限制）。根 `CLAUDE.md` 已把它列为 Browser 性能改动的对照依据。
