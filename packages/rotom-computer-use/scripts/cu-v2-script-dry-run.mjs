@@ -16,7 +16,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { B_STEPS, STEP_SCRIPTS, finishStep, readStopMarker, requirePreviousStepsPassed } from "./lib/b-window.mjs";
+import { B_STEPS, STEP_CONTRACT, STEP_SCRIPTS, evaluateStep, finishStep, readStopMarker, requirePreviousStepsPassed } from "./lib/b-window.mjs";
 import { FIXTURE_BUNDLE_PREFIX, disposeFixtureRun, ensureFixtureWindow, isFixtureBundleId, prepareFixtureRun } from "./lib/fixture.mjs";
 import { buildDirectL2Request, isDirectL2 } from "./lib/l2-direct.mjs";
 import { classifyActFailure } from "./lib/live-helpers.mjs";
@@ -121,8 +121,11 @@ await check("every live script is frozen, stops on one failure and keeps the ord
 		assert.match(source, /--expect-commit/, `${name} must require the frozen commit`);
 		// Either the script calls `finishStep` itself (matrix, l2 check, live check) or it
 		// hands the step to the shared recorder, which finishes it (acceptance).
-		assert.match(source, /finishStep\(|step: frozen\?\.step/, `${name} must record a verdict and stop on failure`);
-		assert.match(source, /Step: \$\{|step: frozen\?\.step/, `${name} must write the Step line the order check reads`);
+		assert.match(source, /finishStep\(|writeRunArchive\(|step: frozen\?\.step/, `${name} must record a verdict and stop on failure`);
+		// The `Step:`/`Commit:`/`Verdict:` lines are rendered in one place now, so a script
+		// either writes the archive through `writeRunArchive` or hands its step to the
+		// shared recorder.
+		assert.match(source, /writeRunArchive\(|writeEvidence\(\{|step: frozen\?\.step/, `${name} must write the Step line the order check reads`);
 		// An ad-hoc activation or restore command is exactly what a window may not use.
 		assert.doesNotMatch(source, /System Events/, `${name} must not raise apps through System Events`);
 	}
@@ -133,16 +136,16 @@ await check("the order is B1 to B6 and a missing step blocks the rest", () => {
 	const dir = mkdtempSync(path.join(tmpdir(), "cu-v2-order-"));
 	try {
 		// Nothing has run: only B1 may start.
-		requirePreviousStepsPassed({ step: "B1", commit: "a".repeat(40), dir });
+		requirePreviousStepsPassed({ step: "B1", commit: "a".repeat(40), runsDir: dir });
 		for (const step of B_STEPS.slice(1)) {
-			assert.throws(() => requirePreviousStepsPassed({ step, commit: "a".repeat(40), dir }), undefined, `${step} must wait`);
+			assert.throws(() => requirePreviousStepsPassed({ step, commit: "a".repeat(40), runsDir: dir }), undefined, `${step} must wait`);
 		}
 		// A pass from an older commit does not authorize the next step under a new one.
 		writeFileSync(path.join(dir, "run-1.md"), "Step: B1\nCommit: " + "b".repeat(40) + "\nVerdict: pass\n");
-		assert.throws(() => requirePreviousStepsPassed({ step: "B2", commit: "a".repeat(40), dir }), /B1 passed/);
+		assert.throws(() => requirePreviousStepsPassed({ step: "B2", commit: "a".repeat(40), runsDir: dir }), /B1 passed/);
 		writeFileSync(path.join(dir, "run-2.md"), "Step: B1\nCommit: " + "a".repeat(40) + "\nVerdict: pass\n");
-		requirePreviousStepsPassed({ step: "B2", commit: "a".repeat(40), dir });
-		assert.throws(() => requirePreviousStepsPassed({ step: "B6", commit: "a".repeat(40), dir }), /B2 passed/);
+		requirePreviousStepsPassed({ step: "B2", commit: "a".repeat(40), runsDir: dir });
+		assert.throws(() => requirePreviousStepsPassed({ step: "B6", commit: "a".repeat(40), runsDir: dir }), /B2 passed/);
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}
@@ -151,15 +154,90 @@ await check("the order is B1 to B6 and a missing step blocks the rest", () => {
 
 await check("a failing run leaves the B-STOPPED marker behind", () => {
 	const dir = mkdtempSync(path.join(tmpdir(), "cu-v2-stop-"));
+	const base = [
+		{ area: "gate", action: "verdict", result: "pass", note: "" },
+		{ area: "run", action: "real user input", result: "pass", note: "" },
+		{ area: "Fixture", action: "observe", result: "pass", note: "" },
+		{ area: "restore", action: "operator app", result: "pass", note: "" },
+	];
 	try {
-		assert.equal(finishStep({ step: "B2", commit: "a".repeat(40), dir, failures: 0, run: "r.md" }), "pass");
+		assert.equal(finishStep({ step: "B2", commit: "a".repeat(40), runsDir: dir, rows: base, run: "r.md" }).verdict, "pass");
 		assert.equal(readStopMarker(dir), null);
-		assert.equal(finishStep({ step: "B2", commit: "a".repeat(40), dir, failures: 2, run: "r.md" }), "fail");
+		const failing = [...base, { area: "Fixture", action: "press", result: "fail", note: "" }];
+		assert.equal(finishStep({ step: "B2", commit: "a".repeat(40), runsDir: dir, rows: failing, run: "r.md" }).verdict, "fail");
 		assert.equal(readStopMarker(dir)?.step, "B2");
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}
 	return "written on fail, absent on pass";
+});
+
+await check("K1: no live script writes into the worktree", () => {
+	// The first window could pass B1 and then never start B2: its archive landed in
+	// `docs/.../evidence/`, so the tree was dirty and committing it moved HEAD off the
+	// frozen commit. Every output now goes to the required `--runs-dir`.
+	const scripts = ["check-cu-v2-live.mjs", "cu-v2-acceptance.mjs", "cu-v2-compat-matrix.mjs", "cu-v2-l2-check.mjs"];
+	for (const name of scripts) {
+		const source = readFileSync(path.join(import.meta.dirname, name), "utf8");
+		assert.match(source, /argument\("--runs-dir"\)/, `${name} must require --runs-dir`);
+		assert.doesNotMatch(source, /EVIDENCE_DIR|RUNS_DIR/, `${name} must not write into the repository`);
+		assert.doesNotMatch(source, /evidence\//, `${name} must not name a path inside the repository`);
+	}
+	return scripts.length + " scripts";
+});
+
+await check("K2: every step names the rows it cannot pass without", () => {
+	// A `pass` verdict used to mean "no fail rows", so a B1 whose directed click came back
+	// `inconclusive` still opened B2.
+	const withHid = [{ area: "gate", action: "verdict", result: "pass", note: "" }, { area: "run", action: "real user input", result: "pass", note: "" }];
+	for (const step of B_STEPS) {
+		const contract = STEP_CONTRACT[step];
+		assert.ok(contract?.length, `${step} must have a contract`);
+		assert.ok(contract.some((row) => row.action === "real user input"), `${step} must judge real user input`);
+	}
+	// B4 and B5 have no script yet, so their only row is "no real user input"; every
+	// step that can run today must reject two passing rows as insufficient.
+	for (const step of ["B1", "B2", "B3-live", "B3-acceptance", "B6"]) {
+		assert.equal(evaluateStep({ step, rows: withHid }).verdict, "fail", `${step} must not pass on two rows`);
+	}
+	const b1 = [
+		{ area: "gate", action: "verdict", result: "pass", note: "" },
+		{ area: "direct L2", action: "click", result: "pass", note: "delivery=l2" },
+		{ area: "helper", action: "still alive", result: "pass", note: "" },
+		{ area: "restore", action: "operator app", result: "pass", note: "" },
+		{ area: "run", action: "real user input", result: "pass", note: "userEvents 10 → 10" },
+	];
+	assert.equal(evaluateStep({ step: "B1", rows: b1 }).verdict, "pass");
+	assert.equal(evaluateStep({ step: "B1", rows: b1.map((row) => (row.action === "click" ? { ...row, result: "inconclusive" } : row)) }).verdict, "fail");
+	assert.equal(evaluateStep({ step: "B1", rows: b1.map((row) => (row.action === "real user input" ? { ...row, result: "fail" } : row)) }).verdict, "fail");
+	return B_STEPS.length + " steps";
+});
+
+await check("K3: the acceptance run finishes its own step", () => {
+	// It used to call `beginStep` and never `finishStep`, and it shared the `B3` id with
+	// the live check, so a live pass alone opened B4.
+	const source = readFileSync(path.join(import.meta.dirname, "cu-v2-acceptance.mjs"), "utf8");
+	assert.match(source, /step = "B3-acceptance"/);
+	assert.match(source, /writeEvidence\(\{/);
+	assert.match(source, /runsDir: frozen\?\.runsDir/);
+	const live = readFileSync(path.join(import.meta.dirname, "check-cu-v2-live.mjs"), "utf8");
+	assert.match(live, /\? "B6" : "B3-live"/);
+	return "B3-live + B3-acceptance";
+});
+
+await check("K4: one owner per step, and the HID click is two rows", () => {
+	const owners = Object.entries(STEP_SCRIPTS).filter(([, script]) => script);
+	assert.equal(new Set(owners.map(([, script]) => script)).size, owners.length, "a script may not own two steps");
+	const l2 = readFileSync(path.join(import.meta.dirname, "cu-v2-l2-check.mjs"), "utf8");
+	// The L2 check may mention `--with-hid` only in a comment naming the real owner.
+	assert.doesNotMatch(l2, /includes\("--with-hid"\)|withHid/, "the L2 check no longer claims B6");
+	const live = readFileSync(path.join(import.meta.dirname, "check-cu-v2-live.mjs"), "utf8");
+	assert.match(live, /runHidClick\(/, "the live check must be the one that runs the HID step");
+	const hid = readFileSync(path.join(import.meta.dirname, "lib", "hid-click.mjs"), "utf8");
+	assert.match(hid, /click went through HID/);
+	assert.match(hid, /click took effect/);
+	assert.match(hid, /cu-fixture-button/, "the effect is read back from the fixture button");
+	return "B6 = live check --with-hid";
 });
 
 await check("waiting for a fixture window has no hidden activation", async () => {

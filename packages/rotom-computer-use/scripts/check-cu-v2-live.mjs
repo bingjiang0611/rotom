@@ -6,7 +6,12 @@
  * helper, and it types into a real application. It only touches the fixture app
  * and deliberately read-only system surfaces, never user documents.
  *
- *   PI_CU_LIVE=1 node scripts/check-cu-v2-live.mjs --fixture ~/cu-v2-test/Fixture.app
+ *   PI_CU_LIVE=1 node scripts/check-cu-v2-live.mjs --fixture ~/cu-v2-test/Fixture.app \
+ *     --runs-dir ~/cu-v2-runs --expect-commit <frozen sha> \
+ *     --window-start 2026-11-06T19:53:21-0800 --window-minutes 60
+ *
+ * This is `B3-live`; with `--with-hid` it is the only script that owns B6 (review 6 K4).
+ * Everything it writes goes to `--runs-dir`, outside the worktree (K1).
  *
  * Point it at an isolated helper so a running session keeps its own daemon:
  *
@@ -24,8 +29,7 @@
  * What it cannot prove: that no other app on this machine is affected, or that
  * L2 delivery works in apps outside the compatibility list.
  */
-import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { existsSync, writeFileSync } from "node:fs";
 import path from "node:path";
 /** `--name value` on the command line, or the fallback. */
 function argument(name, fallback) {
@@ -35,12 +39,14 @@ function argument(name, fallback) {
 
 import process from "node:process";
 
-import { restoreOperatorApp, runStamp } from "./lib/live-helpers.mjs";
-import { RUNS_DIR, StepRefused, beginStep, finishStep } from "./lib/b-window.mjs";
+import { runHidClick } from "./lib/hid-click.mjs";
+import { recordRealUserInput, restoreOperatorApp, runStamp, withoutHome } from "./lib/live-helpers.mjs";
+import { StepRefused, beginStep, writeRunArchive } from "./lib/b-window.mjs";
 import { ensureFixtureWindow, launchFixture } from "./lib/fixture.mjs";
 import { GateHold, requireGate } from "./lib/gate.mjs";
 
-const EVIDENCE_DIR = path.resolve(import.meta.dirname, "..", "..", "..", "docs", "agent", "computer-use-v2", "evidence");
+/** `scripts/` -> `packages/rotom-computer-use` -> `packages` -> repository root. */
+const REPO_ROOT = path.resolve(import.meta.dirname, "..", "..", "..");
 /** Set by `beginStep`: the frozen commit and the step this run is evidence about. */
 let frozen;
 const rows = [];
@@ -84,11 +90,12 @@ async function refuseUnlessGatePasses() {
 
 
 async function main() {
-	// Review 6 P1: `--with-hid` is B6, everything else here is B3. The step is declared
+	// Review 6 P1/K3/K4: `--with-hid` is B6; the plain run is `B3-live`, and the
+	// acceptance script's `B3-acceptance` must pass too before B4. The step is declared
 	// before anything touches the desktop, and a stopped phase never reaches the gate.
-	const step = process.argv.includes("--with-hid") ? "B6" : "B3";
+	const step = process.argv.includes("--with-hid") ? "B6" : "B3-live";
 	try {
-		frozen = beginStep({ step, expectCommit: argument("--expect-commit"), dir: RUNS_DIR });
+		frozen = beginStep({ step, expectCommit: argument("--expect-commit"), runsDir: argument("--runs-dir"), cwd: REPO_ROOT });
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		record("run", "constraints", "refused", message);
@@ -216,23 +223,7 @@ async function main() {
 	// cursor and raise the target window. Keep it opt-in, and restore the app that
 	// was frontmost before the run.
 	if (withHid) {
-		const before = await macosBackend.userActivity();
-		if (!look.image) {
-			// A coordinate click needs a window image, which needs the window to be
-			// on screen. Do not pretend the marker was exercised when it was not.
-			record("background", "agent events marked", "skipped", "no window image for coordinate targeting; bring the fixture window on screen and re-run");
-		} else {
-			try {
-				const point = { x: Math.round((root.framePoints?.w ?? 400) * 0.5), y: Math.round((root.framePoints?.h ?? 400) * 0.92) };
-				const result = await macosBackend.act({ lookId: look.lookId, pid: fixture.pid, target: { x: point.x, y: point.y, rootRef: root.rootRef }, action: "click", params: {}, policy: "default" }, { timeoutMs: 20_000 });
-				const after = await macosBackend.userActivity();
-				record("background", "agent events marked", after.agentEventCount > before.agentEventCount ? "pass" : "fail", `agentEvents ${before.agentEventCount} → ${after.agentEventCount}`);
-				record("background", "user events exclude agent input", after.userEventCount === before.userEventCount ? "pass" : "inconclusive", `userEvents ${before.userEventCount} → ${after.userEventCount} (human input during the run)`);
-				record("act", "click (HID delivery)", result?.performed?.delivery === "hid" ? "pass" : "fail", `outcome=${result?.outcome ?? "?"} delivery=${result?.performed?.delivery ?? "?"}`);
-			} catch (error) {
-				record("act", "click (HID delivery)", "fail", error instanceof Error ? error.message : String(error));
-			}
-		}
+		await runHidClick({ backend: macosBackend, look, root, fixture, record });
 		// Put the user back where they were, through `focusWindow` with a lease (review 6
 		// P2). The previous version re-launched the app - which does nothing for a running
 		// app - swallowed the error and called the result `inconclusive`, so B6 could pass
@@ -240,11 +231,18 @@ async function main() {
 		await restoreOperatorApp({ backend: macosBackend, original: frontmostBefore, record });
 	} else {
 		record("background", "agent events marked", "skipped", "run with --with-hid to post real input events");
+		// The ladder can still leave a window raised (`manageWindow`), so hand the front
+		// back and read it (review 6 P2/K3): B3-live cannot pass on a session it moved.
+		await restoreOperatorApp({ backend: macosBackend, original: frontmostBefore, record });
 	}
 
-	await writeEvidence();
+	// Did the operator come back during the run? (review 6 K2) Read last: the restore above
+	// legitimately puts their app in front, and the fixture is one of this run's pids.
+	await recordRealUserInput({ helper: macosHelper, backend: macosBackend, record, activityBefore, operatorPid: frontmostBefore.pid, runPids: [fixture.pid] });
+
 	const failures = rows.filter((row) => row.result === "fail").length;
-	console.log(`[cu-v2 live] ${rows.length} rows, ${failures} failing; log written to ${EVIDENCE_DIR}`);
+	const written = await writeEvidence();
+	console.log(`[cu-v2 live] ${rows.length} rows, ${failures} failing; ${frozen.step} ${written.verdict}; archive ${written.path}`);
 }
 
 async function actOn(look, pid, action) {
@@ -299,44 +297,34 @@ function walk(outline, visit) {
 }
 
 async function writeEvidence() {
-	await mkdir(EVIDENCE_DIR, { recursive: true });
-	await mkdir(path.join(EVIDENCE_DIR, "runs"), { recursive: true });
-	const table = ["| Area | Action | Result | Note |", "| --- | --- | --- | --- |", ...rows.map((row) => `| ${row.area} | ${row.action} | ${row.result} | ${row.note.replace(/\|/g, "\\|")} |`)];
-	const failures = rows.filter((row) => row.result === "fail").length;
 	const runName = `${runStamp()}-live-check.md`;
-	const verdict = frozen ? finishStep({ step: frozen.step, commit: frozen.commit, dir: RUNS_DIR, failures, run: runName }) : undefined;
-	const body = [
-		`# Computer Use v2 live check (${new Date().toISOString()})`,
-		"",
-		`Rows: ${rows.length} · Failures: ${failures}`,
-		"",
-		...(frozen ? [`Step: ${frozen.step}`, `Commit: ${frozen.commit}`] : []),
-		...(verdict ? [`Verdict: ${verdict}`] : []),
-		"",
-		`本次运行存档：\`runs/${runName}\``,
-		"",
-		...table,
-		"",
-		"## Log",
-		"",
-		"```",
-		...log,
-		"```",
-		"",
-	].join("\n");
-	await writeFile(path.join(EVIDENCE_DIR, "live-check.md"), body);
-	// The summary above is overwritten by the next run; the archived copy is what a
-	// document cites, so an earlier result cannot silently disappear.
-	await writeFile(path.join(EVIDENCE_DIR, "runs", runName), body);
-	await writeFile(path.join(EVIDENCE_DIR, `live-check-${Date.now()}.log`), log.join("\n"));
-	if (failures > 0) process.exitCode = 1;
+	// Without `beginStep` there is no runs directory, so a refusal cannot leave an archive
+	// that a later step would read as permission.
+	const written = frozen
+		? writeRunArchive({
+			runsDir: frozen.runsDir,
+			runName,
+			title: "Computer Use v2 live check",
+			step: frozen.step,
+			commit: frozen.commit,
+			rows: rows.map((row) => ({ ...row, note: withoutHome(row.note) })),
+			log: log.map(withoutHome),
+			intro: ["One real helper, one real fixture window, only processes this run started."],
+		})
+		: { verdict: "refused", blockers: [], path: undefined, runName };
+	if (written.verdict === "fail") {
+		process.exitCode = 1;
+		console.error(`[cu-v2 live] ${frozen.step} FAILED: ${written.blockers.join("; ")}`);
+	}
+	return written;
 }
 
 try {
 	await main();
 } catch (error) {
 	record("run", "abort", "fail", error instanceof Error ? error.message : String(error));
-	await writeEvidence();
+	const written = await writeEvidence();
 	console.error(`[cu-v2 live] ${error instanceof Error ? error.message : String(error)}`);
+	if (written.path) console.error(`[cu-v2 live] ${frozen?.step ?? "run"} ${written.verdict}; archive ${written.path}`);
 	process.exitCode = 1;
 }

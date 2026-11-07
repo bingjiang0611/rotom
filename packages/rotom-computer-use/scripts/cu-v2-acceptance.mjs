@@ -11,7 +11,8 @@
  *   PI_CU_LIVE=1 node scripts/cu-v2-acceptance.mjs \
  *     --fixture ~/cu-v2-test/Fixture.app \
  *     --sign-identity "Apple Development: ... (XXXXXXXXXX)" \
- *     --simulator ~/cu-v2-test/simulator
+ *     --simulator ~/cu-v2-test/simulator \
+ *     --runs-dir ~/cu-v2-runs --expect-commit <frozen sha>
  *
  * Point it at an isolated helper so a running session keeps its own daemon:
  *
@@ -19,12 +20,16 @@
  *   PI_CU_SOCKET_PATH=~/cu-v2-test/helper.sock
  */
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
-import { RUNS_DIR, StepRefused, beginStep } from "./lib/b-window.mjs";
+import { StepRefused, beginStep } from "./lib/b-window.mjs";
 import { GateHold, requireGate } from "./lib/gate.mjs";
-import { argument, createRecorder, nowMs, requireLive, restoreOperatorApp, sessionDelta, sessionProbe, sleep, wireRefByRole, wireRefsByRole } from "./lib/live-helpers.mjs";
+import { createAgentRunner } from "./lib/acceptance-agents.mjs";
+import { argument, createRecorder, nowMs, recordRealUserInput, requireLive, restoreOperatorApp, sessionDelta, sleep, wireRefByRole } from "./lib/live-helpers.mjs";
+
+/** `scripts/` -> `packages/rotom-computer-use` -> `packages` -> repository root. */
+const REPO_ROOT = path.resolve(import.meta.dirname, "..", "..", "..");
 
 const WORK_DIR = path.join(homedir(), "cu-v2-test", "acceptance");
 const SIMULATED_TEXT = "The quick brown fox jumps over the lazy dog 0123456789 while three agents work.";
@@ -48,113 +53,32 @@ let frozen;
 
 const brackets = [];
 const instances = [];
+/** Pids this run started; anything else becoming frontmost is the operator (K2). */
+const launchedPids = [];
 let cleanupContext;
 let cleaned = false;
 
 /** Launch a copy of the fixture under its own bundle identifier. */
-function prepareInstance(index) {
-	const directory = path.join(WORK_DIR, `Fixture-${index}.app`);
-	rmSync(directory, { recursive: true, force: true });
-	cpSync(fixtureSource, directory, { recursive: true });
-	const plist = path.join(directory, "Contents", "Info.plist");
-	execFileSync("/usr/libexec/PlistBuddy", ["-c", `Set :CFBundleIdentifier com.example.cu-fixture-instance${index}`, plist]);
-	execFileSync("/usr/libexec/PlistBuddy", ["-c", `Set :CFBundleName CUFixture${index}`, plist]);
-	// Editing Info.plist invalidates the signature and this machine refuses ad-hoc
-	// signed binaries, so sign the copy again.
-	execFileSync("codesign", ["--force", "--deep", "--sign", signIdentity, directory], { stdio: "pipe" });
-	return { index, bundleId: `com.example.cu-fixture-instance${index}`, directory };
-}
-
-async function findInstance(bundleId) {
-	return (await macosBackend.listApps()).find((app) => app.bundleId === bundleId);
-}
-
-async function launchInstance(instance) {
-	try {
-		execFileSync("open", ["-n", instance.directory], { stdio: "pipe" });
-	} catch {
-		const executable = execFileSync("/usr/libexec/PlistBuddy", ["-c", "Print :CFBundleExecutable", path.join(instance.directory, "Contents", "Info.plist")]).toString().trim();
-		spawn(path.join(instance.directory, "Contents", "MacOS", executable), [], { detached: true, stdio: "ignore" }).unref();
-	}
-	const deadline = nowMs() + 8000;
-	while (nowMs() < deadline) {
-		const app = await findInstance(instance.bundleId);
-		if (app) return app;
-		await sleep(250);
-	}
-	return undefined;
-}
-
-async function fixtureWindow(pid) {
-	return (await macosBackend.listRoots({ pid })).find((candidate) => candidate.kind === "window");
-}
-
-/** One subtask, bracketed so a cursor move can be attributed to the simulator. */
-async function actWithBracket(agent, look, pid, action, options = {}) {
-	const policy = action.policy ?? "ax_only";
-	const before = await sessionProbe(macosHelper, macosBackend);
-	const result = await macosBackend.act({ lookId: look.lookId, pid, target: { ref: action.ref }, policy, ...action }, { timeoutMs: 20_000 })
-		.catch((error) => ({ ok: false, outcome: "error", error: error instanceof Error ? error.message : String(error) }));
-	const after = await sessionProbe(macosHelper, macosBackend);
-	const { cursorMoved } = sessionDelta(before, after);
-	brackets.push({ agent, action: action.action, moved: cursorMoved, before, after });
-	const outcome = result?.outcome ?? "unknown";
-	// `unknown` means the helper could not confirm delivery; when the caller checks
-	// the effect itself that is not a failure.
-	const judged = outcome === "worked" || outcome === "foreground_required" ? "pass" : outcome === "unknown" && options.verifiedByReadback ? "inconclusive" : "fail";
-	record(`agent ${agent}`, action.action, judged, `outcome=${outcome} delivery=${result?.performed?.delivery ?? "?"}${result?.error ? ` error=${result.error}` : ""}`);
-	return outcome;
-}
-
-async function tabStates(root) {
-	const look = await macosBackend.observe({ target: { windowId: root.windowId, rootRef: root.rootRef }, readText: "auto", includeImage: false });
-	return wireRefsByRole(look, "AXRadioButton").join(",");
-}
-
-/** The five fixed subtasks of PLAN §10: fill a form, switch tab, pick a row, toggle, move a slider. */
-async function runAgent(agent, pid) {
-	const root = await fixtureWindow(pid);
-	if (!root) return record(`agent ${agent}`, "window", "fail", "the fixture window never appeared");
-	const look = await macosBackend.observe({ target: { windowId: root.windowId, rootRef: root.rootRef }, readText: "auto", includeImage: false });
-	const controls = {
-		text: wireRefByRole(look, ["AXTextField"]),
-		checkbox: wireRefByRole(look, ["AXCheckBox", "AXSwitch"]),
-		slider: wireRefByRole(look, ["AXSlider"]),
-		row: wireRefByRole(look, ["AXRow"]),
-		disclosure: wireRefByRole(look, ["AXDisclosureTriangle"]),
-		tabs: wireRefsByRole(look, "AXRadioButton"),
-	};
-	const missing = Object.entries(controls).filter(([, ref]) => (Array.isArray(ref) ? ref.length === 0 : !ref)).map(([name]) => name);
-	record(`agent ${agent}`, "outline", missing.length === 0 ? "pass" : "inconclusive", `windowId=${root.windowId} missing=${missing.join(",") || "none"}`);
-
-	if (controls.text) await actWithBracket(agent, look, pid, { action: "setText", ref: controls.text, params: { text: `agent ${agent} text` } });
-	if (controls.checkbox) await actWithBracket(agent, look, pid, { action: "setChecked", ref: controls.checkbox, params: { checked: true } });
-	if (controls.slider) await actWithBracket(agent, look, pid, { action: "setValue", ref: controls.slider, params: { value: 0.4 + Number(agent.replace(/\D/g, "")) * 0.1 } });
-	if (controls.row) await actWithBracket(agent, look, pid, { action: "select", ref: controls.row });
-
-	// A SwiftUI tab has no AXPress that lands, so the click needs pid delivery. It
-	// still keeps the cursor and the frontmost app untouched, which is what this
-	// run measures, but pid delivery cannot confirm itself: read the tabs back.
-	if (controls.tabs.length > 1) {
-		const before = await tabStates(root);
-		await actWithBracket(agent, look, pid, { action: "click", ref: controls.tabs[1], policy: "background" }, { verifiedByReadback: true });
-		const after = await tabStates(root);
-		record(`agent ${agent}`, "tab switched (readback)", after !== before ? "pass" : "fail", `${before} → ${after}`);
-	}
-
-	// Switching tabs rebuilds the tree, so the refs above are stale now.
-	const refreshed = await macosBackend.observe({ target: { windowId: root.windowId, rootRef: root.rootRef }, readText: "auto", includeImage: false });
-	const disclosure = wireRefByRole(refreshed, ["AXDisclosureTriangle"]);
-	if (disclosure) await actWithBracket(agent, refreshed, pid, { action: "expand", ref: disclosure });
-	else record(`agent ${agent}`, "expand", "inconclusive", "no disclosure triangle after the tab switch");
-}
+// The three fixture copies, their subtasks and the cursor brackets live in
+// `lib/acceptance-agents.mjs`; this script owns the window, the simulator and the
+// assertions.
+const { prepareInstance, findInstance, launchInstance, fixtureWindow, runAgent } = createAgentRunner({
+	backend: macosBackend,
+	helper: macosHelper,
+	record,
+	brackets,
+	fixtureSource,
+	signIdentity,
+	workDir: WORK_DIR,
+});
 
 async function main() {
-	// Review 6 P1: the acceptance run is part of B3, so it carries the same three checks
-	// as the live check and cannot run in a stopped phase.
-	const step = "B3";
+	// Review 6 P1/K3: the acceptance run is its own step (`B3-acceptance`), so a passing
+	// live check cannot open B4 on its own; it also carries the same three checks and
+	// cannot run in a stopped phase.
+	const step = "B3-acceptance";
 	try {
-		frozen = beginStep({ step, expectCommit: argument("--expect-commit"), dir: RUNS_DIR });
+		frozen = beginStep({ step, expectCommit: argument("--expect-commit"), runsDir: argument("--runs-dir"), cwd: REPO_ROOT });
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		record("run", "constraints", "refused", message);
@@ -179,7 +103,11 @@ async function refuseUnlessGatePasses() {
 		process.exit(error instanceof GateHold ? 1 : 2);
 	}
 }
-	await refuseUnlessGatePasses();
+	const gate = await refuseUnlessGatePasses();
+	record("gate", "verdict", "pass", `minutes_left=${gate.minutes_left} helper_idle=${gate.helper_idle_seconds ?? "-"}s`);
+	// Baseline for "did the operator come back" (review 6 K2): our own posts are marked by
+	// the helper, so any growth in the real-event count is a person.
+	const activityAtStart = await macosHelper.command("userActivity", {}).catch(() => undefined);
 	const diagnostics = await macosHelper.diagnosticsCommand();
 	// Same reason as the live check: a hardcoded protocol number refuses a correct helper.
 	const { HELPER_PROTOCOL_VERSION } = await import("../src/platform/macos/helper.ts");
@@ -201,7 +129,10 @@ async function refuseUnlessGatePasses() {
 		instances.push(instance);
 		const app = await launchInstance(instance);
 		record(`agent ${index}`, "launch", app ? "pass" : "fail", app ? `pid=${app.pid} bundle=${app.bundleId}` : `${instance.bundleId} did not register`);
-		if (app) running.push({ ...instance, pid: app.pid });
+		if (app) {
+			running.push({ ...instance, pid: app.pid });
+			launchedPids.push(app.pid);
+		}
 	}
 	if (running.length === 0) throw new Error("no fixture instance started");
 	for (const agent of running) {
@@ -240,6 +171,9 @@ async function refuseUnlessGatePasses() {
 	const moves = simulated.filter((entry) => entry.kind === "move");
 	const typedCount = simulated.filter((entry) => entry.kind === "char").length;
 	record("simulator", "log", typedCount === SIMULATED_TEXT.length ? "pass" : "fail", `chars=${typedCount} moves=${moves.length}`);
+	// The event budget for the "did a person come back" row (review 6 K2). The simulator
+	// is this run's own input; its log is what separates it from the operator.
+	cleanupContext = { ...cleanupContext, expectedEvents: typedCount + moves.length * 2 + 20 };
 
 	// Assertion 1: the document holds exactly what the simulator typed.
 	const documentText = execFileSync("osascript", ["-e", 'tell application "TextEdit" to get text of document 1'], { stdio: "pipe" }).toString().replace(/\n$/, "");
@@ -296,6 +230,23 @@ async function cleanup({ textEditPid, textEditRunning, operatorFrontmost }) {
 		// a readback, and a restore that does not take is a failure.
 		await restoreOperatorApp({ backend: macosBackend, original: operatorFrontmost, record });
 	}
+	// Did the operator come back while the simulator typed? (review 6 K2) The simulator
+	// itself is counted as this run's input, so it is part of the expected event budget.
+	// The simulator posts real HID events from its own process, so the helper counts them
+	// as user input. Its own log therefore sets the budget: a typed character and a cursor
+	// move are one event each, doubled for the pairing events, plus a small allowance for
+	// the window server. More than that is a person at the machine.
+	const budget = cleanupContext?.expectedEvents ?? 0;
+	await recordRealUserInput({
+		helper: macosHelper,
+		backend: macosBackend,
+		record,
+		activityBefore: activityAtStart,
+		operatorPid: operatorFrontmost.pid,
+		runPids: launchedPids,
+		expectedEvents: budget,
+		expectedNote: "the simulator's own log",
+	});
 }
 
 try {
@@ -309,7 +260,8 @@ try {
 	}
 }
 
-writeEvidence({
+const written = writeEvidence({
+	runsDir: frozen?.runsDir,
 	fileName: "acceptance-run",
 	step: frozen?.step,
 	commit: frozen?.commit,
@@ -319,4 +271,4 @@ writeEvidence({
 		`user simulator types ${SIMULATED_TEXT.length} fixed characters into a new TextEdit document at ${CHARS_PER_MINUTE}/min and moves the real cursor.`,
 	],
 });
-console.log(`[cu-v2 acceptance] ${rows.length} rows, ${rows.filter((row) => row.result === "fail").length} failing; log written to evidence/`);
+console.log(`[cu-v2 acceptance] ${rows.length} rows, ${rows.filter((row) => row.result === "fail").length} failing; ${frozen?.step ?? "run"} ${written.verdict}; archive ${written.path ?? "nowhere (refused before the runs directory was known)"}`);

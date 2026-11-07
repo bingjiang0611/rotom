@@ -8,22 +8,26 @@
  * cell, and a cell that was never run stays `not-run` — the matrix never infers
  * success from a neighbouring app.
  *
- *   PI_CU_LIVE=1 node scripts/cu-v2-compat-matrix.mjs --apps com.apple.TextEdit,/tmp/cu-fixture
+ *   PI_CU_LIVE=1 node scripts/cu-v2-compat-matrix.mjs --apps com.apple.TextEdit,/tmp/cu-fixture \
+ *     --runs-dir ~/cu-v2-runs --expect-commit <frozen sha> \
+ *     --window-start 2026-11-06T19:53:21-0800 --window-minutes 60
  *
- * Output: docs/agent/computer-use-v2/evidence/compat-matrix.md
+ * This is B2. Everything it writes goes to `--runs-dir`, outside the worktree (review 6
+ * K1): an archive inside it would either dirty the tree or have to be committed, and a
+ * commit moves HEAD off the frozen commit, so no later step could ever start.
  *
  * Apps: only the fixture and apps where read-only actions are safe (TextEdit with
  * an empty document, Finder windows). Never drives user documents.
  */
-import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
-import { RUNS_DIR, StepRefused, beginStep, finishStep } from "./lib/b-window.mjs";
+import { StepRefused, beginStep, writeRunArchive } from "./lib/b-window.mjs";
 import { ensureFixtureWindow, launchFixture } from "./lib/fixture.mjs";
 import { GateHold, requireGate } from "./lib/gate.mjs";
-import { classifyActFailure, restoreOperatorApp } from "./lib/live-helpers.mjs";
+import { classifyActFailure, recordRealUserInput, restoreOperatorApp, withoutHome } from "./lib/live-helpers.mjs";
 
-const EVIDENCE_DIR = path.resolve(import.meta.dirname, "..", "..", "..", "docs", "agent", "computer-use-v2", "evidence");
+/** `scripts/` -> `packages/rotom-computer-use` -> `packages` -> repository root. */
+const REPO_ROOT = path.resolve(import.meta.dirname, "..", "..", "..");
 const ACTIONS = ["observe", "focus", "setText", "typeText", "press", "setChecked", "expand", "scrollTo", "select", "setValue"];
 // `argument()` is declared below and hoisted. Indexing `process.argv` directly made an
 // absent `--delivery` resolve to `process.argv[0]` (the node path), so the first B2 run
@@ -52,14 +56,15 @@ function argument(name, fallback) {
 const STEP = "B2";
 let frozen;
 try {
-	frozen = beginStep({ step: STEP, expectCommit: argument("--expect-commit"), dir: RUNS_DIR });
+	frozen = beginStep({ step: STEP, expectCommit: argument("--expect-commit"), runsDir: argument("--runs-dir"), cwd: REPO_ROOT });
 } catch (error) {
 	console.error(`[cu-v2 matrix] ${error instanceof Error ? error.message : String(error)}`);
 	process.exit(error instanceof StepRefused ? 2 : 1);
 }
 
+let gate;
 try {
-	await requireGate({
+	gate = await requireGate({
 		windowStart: argument("--window-start"),
 		windowMinutes: argument("--window-minutes"),
 		requireIdleMinutes: argument("--require-idle-minutes") ?? "10",
@@ -77,11 +82,18 @@ if (apps.length === 0) {
 }
 
 const { macosBackend } = await import("../src/platform/macos/backend.ts");
+const { macosHelper } = await import("../src/platform/macos/helper.ts");
 const { disposeFixtureRun, prepareFixtureRun } = await import("./lib/fixture.mjs");
 const { homedir } = await import("node:os");
 const { runStamp } = await import("./lib/live-helpers.mjs");
 
 const rows = [];
+// B2's own contract rows (review 6 K2): the gate reading it started from, and the proof
+// that no person touched the machine while the cells ran.
+rows.push({ area: "gate", action: "verdict", delivery: "-", result: "pass", note: `minutes_left=${gate.minutes_left} helper_idle=${gate.helper_idle_seconds ?? "-"}s` });
+const activityBefore = await macosBackend.userActivity().catch(() => undefined);
+const operatorFrontBefore = await macosBackend.getFrontmost().catch(() => undefined);
+const runPids = [];
 
 /**
  * A path argument may be a plain .app or a fixture the operator built. Each run gets
@@ -97,7 +109,7 @@ function targetFor(app) {
 	if (!copyFixtures || !app.startsWith("/")) return app;
 	const handle = prepareFixtureRun({ sourceApp: app, runRoot });
 	prepared.push(handle);
-	rows.push({ app, action: "fixture copy", delivery: "-", result: "prepared", note: `${handle.bundleId} at ${handle.bundlePath}` });
+	rows.push({ area: app, action: "fixture copy", delivery: "-", result: "prepared", note: `${handle.bundleId} at ${handle.bundlePath}` });
 	return handle.bundlePath;
 }
 
@@ -109,7 +121,7 @@ for (const requested of apps) {
 	// builds a SwiftUI window, and every other app is used exactly as the operator left
 	// it. There is no `osascript` fallback (review 6 P3).
 	if (preparedHandle) {
-		await launchFixture(macosBackend, preparedHandle).catch((error) => rows.push({ app, action: "launch", delivery: "-", result: "fail", note: message(error) }));
+		await launchFixture(macosBackend, preparedHandle).catch((error) => rows.push({ area: app, action: "launch", delivery: "-", result: "fail", note: message(error) }));
 		await new Promise((resolve) => setTimeout(resolve, 1500));
 	} else {
 		await macosBackend.manageApps({ mode: "launch", bundleId: app.includes(".") && !app.startsWith("/") ? app : undefined, path: app.startsWith("/") ? app : undefined, activates: false }).catch(() => undefined);
@@ -119,7 +131,7 @@ for (const requested of apps) {
 		? candidate.bundleId === preparedHandle.bundleId
 		: candidate.bundleId === app || app.startsWith("/") && candidate.appName.toLowerCase().includes(path.basename(app).toLowerCase()));
 	if (!installed) {
-		for (const action of ACTIONS) rows.push({ app, action, delivery: "-", result: "not-run", note: "app not running" });
+		for (const action of ACTIONS) rows.push({ area: app, action, delivery: "-", result: "not-run", note: "app not running" });
 		continue;
 	}
 	let root;
@@ -128,31 +140,32 @@ for (const requested of apps) {
 		if (root && operatorFront) {
 			// Read back instead of asserting (review 6 P3): a failed restore is a failure,
 			// because the cells would otherwise describe a session the operator lost.
-			const restore = await restoreOperatorApp({ backend: macosBackend, original: operatorFront, record: (area, action, result, note) => rows.push({ app, action: `${area} ${action}`, delivery: "-", result, note }) });
+			const restore = await restoreOperatorApp({ backend: macosBackend, original: operatorFront, record: (area, action, result, note) => rows.push({ area, action, delivery: "-", result, note }) });
 			if (!restore.restored) {
-				rows.push({ app, action: "frontmost restore", delivery: "-", result: "fail", note: "the operator's app did not come back; the cells below describe a different session" });
+				rows.push({ area: "restore", action: "frontmost restore", delivery: "-", result: "fail", note: "the operator's app did not come back; the cells below describe a different session" });
 				break;
 			}
 		}
 	} catch (error) {
-		for (const action of ACTIONS) rows.push({ app, action, delivery: "-", result: "not-run", note: `listRoots failed: ${message(error)}` });
+		for (const action of ACTIONS) rows.push({ area: app, action, delivery: "-", result: "not-run", note: `listRoots failed: ${message(error)}` });
 		continue;
 	}
 	if (!root) {
-		for (const action of ACTIONS) rows.push({ app, action, delivery: "-", result: "not-run", note: "no window" });
+		for (const action of ACTIONS) rows.push({ area: app, action, delivery: "-", result: "not-run", note: "no window" });
 		continue;
 	}
 	let look;
 	try {
 		look = await macosBackend.observe({ target: { windowId: root.windowId, rootRef: root.rootRef }, readText: "auto", includeImage: true });
-		rows.push({ app, action: "observe", delivery: "-", result: "pass", note: `${look.parsedOutline?.nodes?.length ?? 0} nodes, ${look.image ? "image" : "no image"}` });
+		rows.push({ area: app, action: "observe", delivery: "-", result: "pass", note: `${look.parsedOutline?.nodes?.length ?? 0} nodes, ${look.image ? "image" : "no image"}` });
 	} catch (error) {
-		rows.push({ app, action: "observe", delivery: "-", result: "fail", note: message(error) });
+		rows.push({ area: app, action: "observe", delivery: "-", result: "fail", note: message(error) });
 		continue;
 	}
+	runPids.push(installed.pid);
 	for (const policy of DELIVERY) {
 		for (const action of ACTIONS.filter((name) => name !== "observe")) {
-			const cell = { app, action, delivery: policy, result: "not-run", note: "" };
+			const cell = { area: app, action, delivery: policy, result: "not-run", note: "" };
 			rows.push(cell);
 			look = await macosBackend.observe({ target: { windowId: root.windowId, rootRef: root.rootRef }, readText: "auto", includeImage: true }).catch(() => look);
 			const ref = wireRefForAction(look, action);
@@ -181,7 +194,7 @@ for (const requested of apps) {
 		await restoreOperatorApp({
 			backend: macosBackend,
 			original: operatorFront,
-			record: (area, action, result, note) => rows.push({ app, action: `${area} ${action} (end)`, delivery: "-", result, note }),
+			record: (area, action, result, note) => rows.push({ area, action, delivery: "-", result, note }),
 		});
 	}
 }
@@ -227,36 +240,34 @@ function message(error) {
 
 for (const handle of prepared) {
 	const cleanup = await disposeFixtureRun(handle, macosBackend).catch(() => ({ quit: [] }));
-	rows.push({ app: path.basename(handle.bundlePath), action: "fixture cleanup", delivery: "-", result: cleanup.quit.length ? "removed" : "removed", note: `quit=${cleanup.quit.join(",") || "none"}` });
+	rows.push({ area: "cleanup", action: path.basename(handle.bundlePath), delivery: "-", result: cleanup.quit.length ? "removed" : "removed", note: `quit=${cleanup.quit.join(",") || "none"}` });
 }
 
-await mkdir(EVIDENCE_DIR, { recursive: true });
-await mkdir(path.join(EVIDENCE_DIR, "runs"), { recursive: true });
+// Did the operator come back while the cells ran? (review 6 K2) The `foreground` cells
+// raise the copy on purpose, so this is read after the last restore.
+await recordRealUserInput({ helper: macosHelper, backend: macosBackend, record: (area, action, result, note) => rows.push({ area, action, delivery: "-", result, note }), activityBefore, operatorPid: operatorFrontBefore?.pid, runPids });
+
 const counts = rows.reduce((accumulator, row) => ({ ...accumulator, [row.result]: (accumulator[row.result] ?? 0) + 1 }), {});
-// A `refused` cell is a fact about the app, a `fail` cell stops the phase: the marker is
-// what makes "one failure blocks B3 and later" true for this script too (review 6 P1).
 const failures = rows.filter((row) => row.result === "fail").length;
 const runName = `${runStamp()}-compat-matrix.md`;
-const verdict = finishStep({ step: frozen.step, commit: frozen.commit, dir: RUNS_DIR, failures, run: runName });
-const body = [
-	`# Computer Use v2 compatibility matrix (${new Date().toISOString()})`,
-	"",
-	`Cells: ${rows.length} · ${Object.entries(counts).map(([key, value]) => `${key}=${value}`).join(" · ")}`,
-	"",
-	`Step: ${frozen.step}`,
-	`Commit: ${frozen.commit}`,
-	`Verdict: ${verdict}`,
-	"",
-	"| App | Action | Delivery policy | Result | Note |",
-	"| --- | --- | --- | --- | --- |",
-	...rows.map((row) => `| ${row.app} | ${row.action} | ${row.delivery} | ${row.result} | ${row.note.replace(/\|/g, "\\|")} |`),
-	"",
-	"`not-run` cells mean the app never exposed a window during this run; they are not evidence either way.",
-	"",
-	"`l2-compat.ts` may only grow an app after every action it needs shows `pass` under the `background` policy.",
-	"",
-].join("\n");
-await writeFile(path.join(EVIDENCE_DIR, "compat-matrix.md"), body);
-await writeFile(path.join(EVIDENCE_DIR, "runs", runName), body);
-if (failures > 0) process.exitCode = 1;
-console.log(`[cu-v2 matrix] wrote ${rows.length} cells (verdict ${verdict}) to ${path.join(EVIDENCE_DIR, "runs", runName)}`);
+const written = writeRunArchive({
+	runsDir: frozen.runsDir,
+	runName,
+	title: "Computer Use v2 compatibility matrix",
+	step: frozen.step,
+	commit: frozen.commit,
+	rows: rows.map((row) => ({ area: row.area, action: row.action, result: row.result, note: withoutHome(row.note) })),
+	table: [
+		"| App | Action | Delivery policy | Result | Note |",
+		"| --- | --- | --- | --- | --- |",
+		...rows.map((row) => `| ${row.area} | ${row.action} | ${row.delivery} | ${row.result} | ${withoutHome(row.note).replace(/\|/g, "\\|")} |`),
+		"",
+		`Cells: ${rows.length} · ${Object.entries(counts).map(([key, value]) => `${key}=${value}`).join(" · ")}`,
+		"",
+		"`not-run` cells mean the app never exposed a window during this run; they are not evidence either way.",
+		"",
+		"`l2-compat.ts` may only grow an app after every action it needs shows `pass` under the `background` policy.",
+	],
+});
+if (written.verdict === "fail") process.exitCode = 1;
+console.log(`[cu-v2 matrix] wrote ${rows.length} cells (verdict ${written.verdict}) to ${written.path}`);

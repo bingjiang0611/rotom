@@ -11,17 +11,19 @@
  * belongs to the operator. A white-listed app must therefore be launched by this
  * run (start it yourself, or pass --allow-l2-app after a run that launched it).
  *
- *   PI_CU_LIVE=1 node scripts/cu-v2-l2-check.mjs --fixture ~/cu-v2-test/Fixture.app
+ *   PI_CU_LIVE=1 node scripts/cu-v2-l2-check.mjs --fixture ~/cu-v2-test/Fixture.app \
+ *     --runs-dir ~/cu-v2-runs --expect-commit <frozen sha> \
+ *     --window-start 2026-11-06T19:53:21-0800 --window-minutes 60
+ *
+ * Every file this script writes goes to `--runs-dir`, which must be outside the
+ * worktree (review 6 K1). The script never writes into the repository.
  *
  * Modes (A8):
  *
  *   --direct-l2     Ask the helper for `delivery=l2` directly, bypassing the
  *                   compatibility list, on this run's own fixture copy. Uses its own
  *                   helper socket, so a crash from a bad SkyLight signature is one
- *                   result instead of the end of the run.
- *   --with-hid      Additionally drive one action through the foreground (HID) path
- *                   and verify the operator's app is in front again afterwards. Run
- *                   this separately from the background invariant checks.
+ *                   result instead of the end of the run. This is B1.
  *   --no-fixture-copy
  *                   Operate the given path instead of a re-identified copy. Off by
  *                   default because LaunchServices keys apps by bundle id: a copy
@@ -37,15 +39,16 @@ import { homedir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 
-import { inputSourceInfo, restoreOperatorApp, runStamp } from "./lib/live-helpers.mjs";
-import { RUNS_DIR, StepRefused, beginStep, finishStep } from "./lib/b-window.mjs";
+import { inputSourceInfo, recordRealUserInput, restoreOperatorApp, runStamp, withoutHome } from "./lib/live-helpers.mjs";
+import { StepRefused, beginStep, writeRunArchive } from "./lib/b-window.mjs";
 import { ensureFixtureWindow, launchFixture } from "./lib/fixture.mjs";
 import { GateHold, requireGate } from "./lib/gate.mjs";
 import { disposeFixtureRun, isFixtureBundleId, prepareFixtureRun } from "./lib/fixture.mjs";
-import { runDirectL2, runWithHid } from "./lib/l2-modes.mjs";
+import { runDirectL2 } from "./lib/l2-modes.mjs";
 
-const EVIDENCE_DIR = path.resolve(import.meta.dirname, "..", "..", "..", "docs", "agent", "computer-use-v2", "evidence");
-/** Set by `beginStep`: the frozen commit this run is evidence about. */
+/** `scripts/` -> `packages/rotom-computer-use` -> `packages` -> repository root. */
+const REPO_ROOT = path.resolve(import.meta.dirname, "..", "..", "..");
+/** Set by `beginStep`: the frozen commit this run is evidence about, and where it writes. */
 let frozen;
 const rows = [];
 const log = [];
@@ -72,10 +75,10 @@ const fixturePath = argument("--fixture");
 if (!fixturePath || !existsSync(fixturePath)) disabled("pass --fixture <path to the built fixture app>");
 
 const directL2 = process.argv.includes("--direct-l2");
-// Review 6 P1: the step is declared, not inferred at the end. `--with-hid` is B6 and is
-// therefore only allowed after B1-B5 passed; everything else here is B1.
-const withHid = process.argv.includes("--with-hid");
-const step = withHid ? "B6" : "B1";
+// Review 6 P1: the step is declared, not inferred at the end. This script is B1 only -
+// `check-cu-v2-live.mjs --with-hid` is the single owner of B6 (K4), and a second script
+// claiming the same step made it ambiguous which run authorized the next one.
+const step = "B1";
 const fixtureCopy = !process.argv.includes("--no-fixture-copy");
 const runRoot = path.join(homedir(), "cu-v2-test", "runs", runStamp());
 mkdirSync(runRoot, { recursive: true });
@@ -151,7 +154,7 @@ async function main() {
 	// Review 6 P1, in this order: a stopped phase, then the frozen commit, then the
 	// previous step's pass. All three are refusals (exit 2), never skips.
 	try {
-		frozen = beginStep({ step, expectCommit: argument("--expect-commit"), dir: RUNS_DIR });
+		frozen = beginStep({ step, expectCommit: argument("--expect-commit"), runsDir: argument("--runs-dir"), cwd: REPO_ROOT });
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		record("run", "constraints", "refused", message);
@@ -194,6 +197,9 @@ async function main() {
 
 	const diagnostics = await macosHelper.diagnosticsCommand();
 	record("helper", "diagnostics", "pass", `protocol=${diagnostics.protocolVersion} accessibility=${diagnostics.accessibility}`);
+	// The baseline for "did the operator come back" (review 6 K2). Our own synthetic
+	// posts are marked by the helper and do not count, so any growth is a person.
+	const activityBefore = await macosHelper.command("userActivity", {}).catch(() => undefined);
 	const frontmost = await macosBackend.getFrontmost();
 	record("environment", "operator app", "pass", `${frontmost.appName} pid=${frontmost.pid}`);
 
@@ -296,7 +302,6 @@ async function main() {
 	}
 
 	if (directL2) await runDirectL2({ fixture, fixtureRun, backend: macosBackend, helper: macosHelper, record, cursor, alive, wireRefByRole, typed: TYPED, asciiInput: inputSource.ascii });
-	if (withHid) await runWithHid({ fixture, originalFrontmost: frontmost, backend: macosBackend, record, cursor, wireRefByRole });
 
 	record("helper", "still alive", (await alive()) ? "pass" : "fail", "the helper answered diagnostics after every probe (no crash)");
 
@@ -307,52 +312,37 @@ async function main() {
 
 	// Leave the operator's app in front again, and read it back (review 6 P2).
 	await restoreOperatorApp({ backend: macosBackend, original: frontmost, record });
-}
 
-/**
- * Evidence is committed to a public repository, so the operator's home directory is
- * written as `~`: the run paths are useful for reproducing the run, the account name
- * is not ours to publish.
- */
-function withoutHome(text) {
-	const home = homedir();
-	return home && home !== "/" ? text.split(home).join("~") : text;
+	// Anything that appeared in front of the operator during the run - or a real event
+	// the helper counted - means the window was not exclusively ours (K2).
+	const runPids = [fixture?.pid, ...installed.map((app) => app.pid)].filter((pid) => typeof pid === "number");
+	await recordRealUserInput({ helper: macosHelper, backend: macosBackend, record, activityBefore, operatorPid: frontmost.pid, runPids });
 }
 
 async function writeEvidence() {
-	mkdirSync(EVIDENCE_DIR, { recursive: true });
-	mkdirSync(path.join(EVIDENCE_DIR, "runs"), { recursive: true });
-	const failures = rows.filter((row) => row.result === "fail").length;
-	const table = ["| Target | Action | Result | Note |", "| --- | --- | --- | --- |", ...rows.map((row) => `| ${row.area} | ${row.action} | ${row.result} | ${row.note.replace(/\|/g, "\\|")} |`)];
 	const runName = `${runStamp()}-l2-check.md`;
-	const verdict = frozen ? finishStep({ step: frozen.step, commit: frozen.commit, dir: RUNS_DIR, failures, run: runName }) : undefined;
-	const body = withoutHome([
-		`# Computer Use v2 L2 single-action check (${new Date().toISOString()})`,
-		"",
-		`Rows: ${rows.length} · Failures: ${failures}`,
-		"",
-		...(frozen ? [`Step: ${frozen.step}`, `Commit: ${frozen.commit}`] : []),
-		...(verdict ? [`Verdict: ${verdict}`] : []),
-		"",
-		`本次运行存档：\`runs/${runName}\``,
-		"",
-		"One directed click and one directed text input per target, delivered with `background` policy.",
-		"`cursorMoved` and `frontmostChanged` say whether the action reached the user's session.",
-		"",
-		...table,
-		"",
-		"## Log",
-		"",
-		"```",
-		...log,
-		"```",
-		"",
-	].join("\n"));
-	writeFileSync(path.join(EVIDENCE_DIR, "l2-check.md"), body);
-	// The summary is overwritten by the next run; the archived copy is the citation.
-	writeFileSync(path.join(EVIDENCE_DIR, "runs", runName), body);
-	writeFileSync(path.join(EVIDENCE_DIR, `l2-check-${Date.now()}.log`), withoutHome(log.join("\n")));
-	if (failures > 0) process.exitCode = 1;
+	// Without `beginStep` there is no runs directory and no commit, so a refusal cannot
+	// write an archive that a later step would mistake for permission.
+	const written = frozen
+		? writeRunArchive({
+			runsDir: frozen.runsDir,
+			runName,
+			title: "Computer Use v2 L2 single-action check",
+			step: frozen.step,
+			commit: frozen.commit,
+			rows: rows.map((row) => ({ ...row, note: withoutHome(row.note) })),
+			log: log.map(withoutHome),
+			intro: [
+				"One directed click and one directed text input per target, delivered with `background` policy.",
+				"`cursorMoved` and `frontmostChanged` say whether the action reached the user's session.",
+			],
+		})
+		: { verdict: "refused", blockers: [], path: undefined };
+	if (written.verdict === "fail") {
+		process.exitCode = 1;
+		console.error(`[cu-v2 l2] FAILED: ${written.blockers.join("; ")}`);
+	}
+	return written;
 }
 
 try {
@@ -365,4 +355,4 @@ try {
 
 await writeEvidence();
 const failures = rows.filter((row) => row.result === "fail").length;
-console.log(`[cu-v2 l2] ${rows.length} rows, ${failures} failing; log written to ${EVIDENCE_DIR}`);
+console.log(`[cu-v2 l2] ${rows.length} rows, ${failures} failing; archive written to ${frozen?.runsDir ?? "nowhere (refused before the runs directory was known)"}`);
