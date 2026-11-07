@@ -26,7 +26,25 @@ export const commit = "0".repeat(40);
 export const helperProtocolVersion = 9;
 export const l2CompatibleBundleIds = new Set();
 
-export const gate = {
+/**
+ * A held gate, so the refusal path is executed rather than read: `gate-hold` reproduces the
+ * reading that cost a window - a hold whose reason was only in the gate JSON.
+ */
+export const gate =
+	scenario === "gate-hold"
+		? {
+			at: new Date().toISOString(),
+			window_start: "2026-01-01T00:00:00+0000",
+			window_minutes: 60,
+			minutes_left: 49.5,
+			inside_window: true,
+			hid_idle_seconds: 641.9,
+			helper: null,
+			gates: { inside_window: true, no_recent_user_input: false },
+			helper_error: "pi-computer-use helper app daemon is unavailable at ~/cu-v2-test/pi-computer-use.app.",
+			verdict: "hold",
+		}
+		: {
 	at: new Date().toISOString(),
 	window_start: "2026-01-01T00:00:00+0000",
 	window_minutes: 60,
@@ -36,8 +54,8 @@ export const gate = {
 	helper_idle_seconds: -1,
 	gates: { inside_window: true, no_recent_user_input: true },
 	helper: { listening: true, userEventCount: 0, agentEventCount: 0, lastUserInputAt: 0 },
-	verdict: "pass",
-};
+			verdict: "pass",
+		};
 
 const operator = { pid: 4242, appName: "FakeOperator", bundleId: "com.example.operator" };
 let fixtureApp;

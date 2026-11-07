@@ -76,8 +76,8 @@ function disabled(reason) {
 	process.exit(0);
 }
 
-// Review 8 T1: the dry run executes this script through a fake backend. Refused together
-// with `--expect-commit`, so a fake run can never pass for evidence about a frozen commit.
+// R8 T1: the dry run executes this script through a fake backend, refused together with
+// `--expect-commit` so a fake run cannot pass for evidence about a frozen commit.
 const fakeBackend = process.env.PI_CU_FAKE_BACKEND;
 if (fakeBackend && process.argv.includes("--expect-commit")) {
 	console.error("[cu-v2 l2] PI_CU_FAKE_BACKEND with --expect-commit is refused: a fake run is not evidence");
@@ -101,10 +101,9 @@ const fixtureCopy = !process.argv.includes("--no-fixture-copy");
 const runRoot = path.join(homedir(), "cu-v2-test", "runs", runStamp());
 mkdirSync(runRoot, { recursive: true });
 
-// A dedicated helper socket for the direct-L2 signature check: if the private
-// SkyLight call takes the helper down, that is one recorded result and the rest of
-// the run still has its own helper. Must happen before the helper module is loaded,
-// because it reads PI_CU_SOCKET_PATH at import time.
+// A dedicated helper socket for the direct-L2 signature check: if the private SkyLight call
+// takes the helper down, that is one result and the run keeps its own helper. Done before the
+// helper module loads, because it reads PI_CU_SOCKET_PATH at import time.
 if (directL2 && !process.env.PI_CU_L2_SOCKET) {
 	process.env.PI_CU_SOCKET_PATH = path.join(runRoot, "helper-direct-l2.sock");
 	record("helper", "direct L2 socket", "pass", process.env.PI_CU_SOCKET_PATH);
@@ -155,8 +154,13 @@ async function main() {
 	// The gate runs inside the script, not in an operator shell loop: on 2026-11-06 the
 	// loop ran the check unconditionally and B1 started while the user was typing.
 	// No declared window is a refusal, and a hold writes its readings and exits.
-	const gate = fake ? fake.gate : await (async () => {
+	const gate = await (async () => {
 		try {
+			// Fake readings take the same hold check, so the refusal path is executed too.
+			if (fake) {
+				if (fake.gate.verdict !== "pass") throw new GateHold(fake.gate);
+				return fake.gate;
+			}
 			return await requireGate({
 				windowStart: argument("--window-start"),
 				windowMinutes: argument("--window-minutes"),
@@ -185,8 +189,8 @@ async function main() {
 
 	const diagnostics = await macosHelper.diagnosticsCommand();
 	record("helper", "diagnostics", "pass", `protocol=${diagnostics.protocolVersion} accessibility=${diagnostics.accessibility}`);
-	// T3: refuse before launching an app when this environment is not the frozen one. Exit 2,
-	// nothing written: the step never started, so there is no marker either.
+	// T3: refuse before launching when the environment is not the frozen one. Exit 2 and write
+	// nothing: the step never started, so there is no marker either.
 	const environment = checkFixtureDigest({ appPath: fixturePath, rootDir: PACKAGE_ROOT });
 	const support = environment.ok
 		? checkHelperSupport({ activity: await macosHelper.command("userActivity", {}).catch(() => undefined), diagnostics, expectedProtocol: HELPER_PROTOCOL_VERSION })
@@ -313,8 +317,8 @@ async function main() {
 	const runPids = [fixture?.pid, ...installed.map((app) => app.pid)].filter((pid) => typeof pid === "number");
 	await recordRealUserInput({ helper: macosHelper, backend: macosBackend, record, activityBefore, operatorPid: frontmost.pid, runPids });
 
-	// Review 7 R2 step 1: report where the events came from, change no rule. Review 8 T2:
-	// a missing ring or a ring that disagrees with the counters is a failure, not a zero.
+	// R2 step 1: report where the events came from, change no rule. R8 T2: a missing ring, or a
+	// ring that disagrees with the counters, is a failure and not a zero.
 	const activityAfter = await macosHelper.command("userActivity", {}).catch(() => undefined);
 	const windowEvents = (activityAfter?.recentEvents ?? []).filter((event) => Number(event?.at) >= runStartedAt);
 	const names = resolveProcessNames(windowEvents.map((event) => Number(event?.pid)));

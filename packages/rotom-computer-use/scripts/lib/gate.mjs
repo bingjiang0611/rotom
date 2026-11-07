@@ -92,9 +92,27 @@ export async function readGate(options) {
 }
 
 /** A refusal carries the readings so the caller can archive them. */
+/**
+ * Why the gate held, in the words an operator needs.
+ *
+ * Three different situations all land as `no_recent_user_input=false`: the user came back,
+ * a helper that has not been listening long enough, and a helper that never answered at all.
+ * The first window to hit the last one read like the first, because the reading that explains
+ * it - `helper_error` - was only in the gate JSON and never in the row.
+ */
+export function holdReason(report) {
+	const gates = report.gates ?? {};
+	const readings = `inside_window=${gates.inside_window} no_recent_user_input=${gates.no_recent_user_input}`;
+	if (report.helper_error) return `${readings} helper_error=${report.helper_error}`;
+	if (!report.helper) return `${readings} no helper answered, so "no input" cannot be shown`;
+	// A helper that has seen nothing reports no idle; the listening time is the evidence then.
+	const seconds = (value) => (value === null || value === undefined ? "none" : `${value}s`);
+	return `${readings} hid_idle=${seconds(report.hid_idle_seconds)} helper_idle=${seconds(report.helper_idle_seconds)} listened=${seconds(report.listened_seconds)}`;
+}
+
 export class GateHold extends Error {
 	constructor(report) {
-		super(`gate verdict is '${report.verdict}': inside_window=${report.gates.inside_window} no_recent_user_input=${report.gates.no_recent_user_input}`);
+		super(`gate verdict is '${report.verdict}': ${holdReason(report)}`);
 		this.name = "GateHold";
 		this.report = report;
 	}

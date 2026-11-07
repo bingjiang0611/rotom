@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 // @ts-expect-error - the gate is a script-library module outside the TS program
-import { GateHold, evaluateGate, readGate, requireGate } from "../scripts/lib/gate.mjs";
+import { GateHold, evaluateGate, holdReason, readGate, requireGate } from "../scripts/lib/gate.mjs";
 
 const at = (minutesFromWindowStart: number) => Date.parse("2026-11-06T05:00:00-08:00") + minutesFromWindowStart * 60_000;
 const windowStartMs = Date.parse("2026-11-06T05:00:00-08:00");
@@ -83,4 +83,22 @@ test("readGate turns the window string into a usable verdict", async () => {
 		if (saved.socket !== undefined) process.env.PI_CU_SOCKET_PATH = saved.socket;
 		if (saved.app !== undefined) process.env.PI_COMPUTER_USE_HELPER_APP_PATH = saved.app;
 	}
+});
+
+test("a hold says why: no helper, a helper error, or the idle readings", () => {
+	// All three read as `no_recent_user_input=false`; only the reason tells them apart, and a
+	// window was once spent assuming the first when it was the second.
+	const noHelper = gate({ helper: null, helperError: "helper app daemon is unavailable at /x" });
+	assert.equal(noHelper.gates.no_recent_user_input, false);
+	assert.match(holdReason(noHelper), /helper_error=helper app daemon is unavailable at \/x/);
+	assert.match(new GateHold(noHelper).message, /helper_error=/);
+
+	const silent = gate({ helper: null });
+	assert.match(holdReason(silent), /no helper answered, so "no input" cannot be shown/);
+
+	// A helper that has listened for less than the idle window: the reading is the evidence.
+	const fresh = gate({ helper: { listening: true, lastUserInputAt: 0, userEventCount: 0 }, listeningSinceMs: at(19) });
+	assert.equal(fresh.gates.no_recent_user_input, false);
+	assert.match(holdReason(fresh), /helper_idle=none/);
+	assert.match(holdReason(fresh), /listened=60s/);
 });

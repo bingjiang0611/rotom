@@ -212,6 +212,24 @@ export const executionChecks = [
 		},
 	},
 	{
+		name: "a gate hold names the missing helper instead of leaving it to guesswork",
+		run: () => {
+			const result = runScript({ scenario: "gate-hold", args: ["--b0-attribution"] });
+			try {
+				if (result.status !== 1) throw new Error(`expected exit 1, got ${result.status}`);
+				const archive = result.archive ?? "";
+				const note = /\| gate \| verdict \| fail \| (.*) \|/.exec(archive)?.[1] ?? "";
+				if (!/helper_error=/.test(note)) throw new Error(`the hold row does not say why: ${note}`);
+				if (!/daemon is unavailable/.test(note)) throw new Error(`the helper error was dropped: ${note}`);
+				if (result.marker) throw new Error("a gate hold wrote B-STOPPED");
+				if (/\| fixture \| launch/.test(archive)) throw new Error("the run kept going after the hold");
+				return "the row carries helper_error and nothing was launched";
+			} finally {
+				result.cleanup();
+			}
+		},
+	},
+	{
 		name: "T1: the fake backend cannot be combined with --expect-commit",
 		run: () => {
 			const result = runScript({ args: ["--expect-commit", "a".repeat(40)] });

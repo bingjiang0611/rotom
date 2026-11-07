@@ -61,3 +61,10 @@
 验证：201 → **209 项测试**（新增 8 项：`l2-env` 4 项、`event-sources` 4 项新规则），dry run
 **31 项 0 失败 3 跳过**（新增 8 项执行类检查）。fixture 已按新 builder 重编：`minos 14.0`、plist 与旧 bundle
 一致、`source.sha256` 正确、签名有效。
+
+### 门禁 hold 的说明行（用户授权的第三项）
+
+`GateHold` 的 message 现在带原因：有 `helper_error` 就带它，没有 helper 应答就写明"no helper answered, so
+no input cannot be shown"，其余情况带 `hid_idle/helper_idle/listened` 三个读数。dry run 新增一项执行检查：
+假 backend 的 `gate-hold` 场景让脚本写 `gate | verdict | fail` 且 note 里必须有 `helper_error=`，并且不得继续
+启动 fixture、不得写 `B-STOPPED`。`test/cu-v2-gate.test.ts` 覆盖三种原因不同的 hold。

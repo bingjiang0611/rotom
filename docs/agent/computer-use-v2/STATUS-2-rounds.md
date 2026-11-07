@@ -187,3 +187,32 @@ dry run 新增三条检查（`createAlive` 接线、bundle 键集、计数判定
 
 第 7 轮与第 8 轮（T1–T3）的执行细节移到 [STATUS-2-r8.md](STATUS-2-r8.md)：那边写假 backend 注入点、
 四种执行情形、控制实验和归因环的两条新规则。
+
+## 第五次窗口（2026-11-07 08:50:30–09:30:30，`b6d567f0`，40 分钟）：门禁 hold，B0 没有启动
+
+`--runs-dir ~/cu-v2-runs/2026-11-07-b0-b6d567f`（仓库之外）。主机侧安静是成立的：门禁 CLI 在 09:01:57
+读到 `hid_idle 631.1s`、`verdict pass`，窗口内还剩 28.5 分钟。
+
+09:02:04 的正式运行却判定 hold，退出 1，三行存档：
+
+```
+| helper | direct L2 socket | pass | ~/cu-v2-test/runs/2026-11-07T17-02-05-114Z/helper-direct-l2.sock |
+| run | frozen commit | pass | b6d567f00fc7174770ba29ac37af82c177e2d30f step=B0 |
+| gate | verdict | fail | gate verdict is 'hold': inside_window=true no_recent_user_input=false |
+```
+
+**没有 `attribution` 行，没有 `run | real user input` 行**：门禁在 fixture 启动之前就停了，所以没有事件可归因。
+
+成因是执行方的调用方式，不是脚本缺陷也不是用户返回：没给 `PI_CU_L2_SOCKET=1` 与 `PI_CU_SOCKET_PATH=<已运行
+helper>`，脚本因此另建 socket 并尝试自拉 daemon；同时没给 `--listening-since`。门禁存档 `gate-*.json` 写得很清楚：
+`hid_idle_seconds 641.9`、`helper: null`、`helper_error: helper app daemon is unavailable at …`，
+而 `helper: null` 直接使 `no_recent_user_input=false`。
+
+从这次读到的教训（用户授权后改的代码）：
+
+- `holdReason(report)` 现在把 `helper_error`、或"没有 helper 应答"、或 `hid_idle/helper_idle/listened` 三个读数
+  写进 `GateHold` 的 message，于是 `gate | verdict` 那一行自己就说明了为什么 hold。上一轮这三件不同的事都表现为
+  `no_recent_user_input=false`，一个窗口就是这样被误读成"用户回来了"。
+- 假 backend 的读数也走同一个 `GateHold` 分支，dry run 于是能执行"门禁 hold"这条路径，而不只是 grep 它。
+- 正确的调用方式（`STATUS-2.md` 第 99–104 行一直写着）：先起 helper 并在窗口开始前已监听，然后
+  `PI_CU_L2_SOCKET=1 PI_CU_SOCKET_PATH=<sock> … --listening-since <helper 起监听时间>`。
