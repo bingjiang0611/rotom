@@ -39,6 +39,7 @@ import path from "node:path";
 import process from "node:process";
 
 import { inputSourceInfo, runStamp } from "./lib/live-helpers.mjs";
+import { ensureFixtureWindow } from "./lib/fixture.mjs";
 import { GateHold, requireGate } from "./lib/gate.mjs";
 import { disposeFixtureRun, isFixtureBundleId, prepareFixtureRun } from "./lib/fixture.mjs";
 import { runDirectL2, runWithHid } from "./lib/l2-modes.mjs";
@@ -224,15 +225,9 @@ async function main() {
 		}
 	} else {
 		record("fixture", "present", "pass", `pid=${fixture.pid} bundle=${fixture.bundleId}`);
-		let roots = await macosBackend.listRoots({ pid: fixture.pid });
-		if (!roots.some((candidate) => candidate.kind === "window")) {
-			// A fixture started from its binary is not activated, so its window is not
-			// in the window list yet. Activate once; the operator app is restored below.
-			execFileSync("osascript", ["-e", `tell application "System Events" to set frontmost of first process whose unix id is ${fixture.pid} to true`], { stdio: "pipe" });
-			await sleep(1200);
-			roots = await macosBackend.listRoots({ pid: fixture.pid });
-		}
-		const root = roots.find((candidate) => candidate.kind === "window");
+		// A fixture started from its binary is not activated, so its window is not in the
+		// window list yet; a fixed 1.2 s wait sat exactly on the edge of when it appears.
+		const root = await ensureFixtureWindow(macosBackend, { pid: fixture.pid, bundleId: fixture.bundleId, path: fixture.bundlePath });
 		if (!root) {
 			record("fixture", "window", "fail", "no window in listRoots even after activating the fixture");
 		} else {

@@ -86,3 +86,43 @@ export async function disposeFixtureRun(handle, backend) {
 	}
 	return { quit };
 }
+
+/**
+ * Wait until the fixture's window exists, raising it once if it does not.
+ *
+ * `manageApps launch` runs with `activates: false`, and a SwiftUI app started that way
+ * does not build its window until something raises it. Three live runs in the first
+ * authorized B window failed on exactly this: the matrix launched, slept 2 s, listed
+ * roots once and reported "no window" for every cell, and the L2 check activated and
+ * then waited a fixed 1.2 s, which is the sample where a separate probe did see the
+ * window - the wait sat on the edge.
+ *
+ * Raising goes through the product's own `manageApps` first. `osascript`/System Events
+ * needs Automation permission and failed silently inside a `try`, which is why a fix
+ * that only wrapped the old call still returned "no window".
+ *
+ * Returns the window root, or undefined if the app still has none after `timeoutMs`.
+ */
+export async function ensureFixtureWindow(backend, target, { activate = true, timeoutMs = 6000, intervalMs = 250 } = {}) {
+	const windowOf = async () => (await backend.listRoots({ pid: target.pid })).find((candidate) => candidate.kind === "window");
+	const pollUntil = async (deadline) => {
+		while (Date.now() < deadline) {
+			await new Promise((resolve) => setTimeout(resolve, intervalMs));
+			const root = await windowOf();
+			if (root) return root;
+		}
+		return undefined;
+	};
+	const found = await windowOf();
+	if (found || !activate) return found;
+	// Only the run's own copy is raised; every caller restores the operator's app.
+	await backend.manageApps({ mode: "launch", bundleId: target.bundleId, path: target.path, activates: true }).catch(() => undefined);
+	const raised = await pollUntil(Date.now() + timeoutMs);
+	if (raised) return raised;
+	try {
+		execFileSync("osascript", ["-e", `tell application "System Events" to set frontmost of first process whose unix id is ${target.pid} to true`], { stdio: "pipe" });
+	} catch {
+		return undefined;
+	}
+	return await pollUntil(Date.now() + timeoutMs);
+}

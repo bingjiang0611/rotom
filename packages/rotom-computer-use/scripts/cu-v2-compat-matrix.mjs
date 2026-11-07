@@ -16,8 +16,10 @@
  * an empty document, Finder windows). Never drives user documents.
  */
 import { mkdir, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
+import { ensureFixtureWindow } from "./lib/fixture.mjs";
 import { GateHold, requireGate } from "./lib/gate.mjs";
 
 const EVIDENCE_DIR = path.resolve(import.meta.dirname, "..", "..", "..", "docs", "agent", "computer-use-v2", "evidence");
@@ -100,8 +102,15 @@ for (const requested of apps) {
 		continue;
 	}
 	let root;
+	const operatorFront = await macosBackend.getFrontmost().catch(() => undefined);
 	try {
-		root = (await macosBackend.listRoots({ pid: installed.pid })).find((candidate) => candidate.kind === "window");
+		// Only a fixture copy is ours to raise. Another app is used exactly as it stands,
+		// which is also why a cell there says "no window" instead of activating it.
+		root = await ensureFixtureWindow(macosBackend, { pid: installed.pid, bundleId: preparedHandle?.bundleId, path: preparedHandle?.bundlePath }, { activate: preparedHandle !== undefined });
+		if (root && operatorFront) {
+			execFileSync("osascript", ["-e", `tell application "System Events" to set frontmost of first process whose unix id is ${operatorFront.pid} to true`], { stdio: "pipe" });
+			await new Promise((resolve) => setTimeout(resolve, 400));
+		}
 	} catch (error) {
 		for (const action of ACTIONS) rows.push({ app, action, delivery: "-", result: "not-run", note: `listRoots failed: ${message(error)}` });
 		continue;

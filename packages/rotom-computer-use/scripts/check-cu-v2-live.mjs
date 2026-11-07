@@ -36,6 +36,7 @@ function argument(name, fallback) {
 import process from "node:process";
 
 import { runStamp } from "./lib/live-helpers.mjs";
+import { ensureFixtureWindow } from "./lib/fixture.mjs";
 import { GateHold, requireGate } from "./lib/gate.mjs";
 
 const EVIDENCE_DIR = path.resolve(import.meta.dirname, "..", "..", "..", "docs", "agent", "computer-use-v2", "evidence");
@@ -113,8 +114,9 @@ async function main() {
 	const frontmostBefore = await macosBackend.getFrontmost();
 	const cursorBefore = await macosHelper.command("getMousePosition", {});
 
-	const roots = await macosBackend.listRoots({ pid: fixture.pid });
-	const root = roots.find((candidate) => candidate.kind === "window");
+	// Same activation wait as the other two live scripts: a fixture launched with
+	// `activates: false` has no window until something raises it.
+	const root = await ensureFixtureWindow(macosBackend, { pid: fixture.pid, bundleId: fixture.bundleId });
 	if (!root) throw new Error("the fixture window is not in listRoots");
 	record("root", "listRoots", root.windowId > 0 ? "pass" : "fail", `windowId=${root.windowId} frame=${JSON.stringify(root.framePoints)}`);
 
