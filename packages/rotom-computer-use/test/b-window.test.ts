@@ -281,7 +281,7 @@ test("beginStep runs its checks in order: runs dir, marker, freeze, predecessor"
 		assert.throws(() => beginStep({ step: "B2", expectCommit: HEAD, runsDir, exec: fakeGit() }), (error) => /B1 passed/.test(error.message));
 		archive(runsDir, "b1.md", { step: "B1", commit: HEAD, verdict: "pass" });
 		const started = beginStep({ step: "B2", expectCommit: HEAD, runsDir, exec: fakeGit() });
-		assert.deepEqual(started, { step: "B2", commit: HEAD, runsDir });
+		assert.deepEqual(started, { step: "B2", commit: HEAD, runsDir, reportOnly: false });
 		const warned = [];
 		beginStep({ step: "B2", expectCommit: HEAD, runsDir, exec: fakeGit(), warn: (message) => warned.push(message) });
 		assert.match(warned.at(-1), /previous steps passed/);

@@ -13,9 +13,13 @@ import test from "node:test";
 
 import {
 	B_STEPS,
+	REPORT_ONLY_STEPS,
 	STEP_CONTRACT,
 	STEP_SCRIPTS,
+	beginStep,
 	evaluateStep,
+	findPassingRun,
+	readStopMarker,
 	writeRunArchive,
 } from "../scripts/lib/b-window.mjs";
 
@@ -134,4 +138,47 @@ test("K3: B3-live and B3-acceptance judge different rows", () => {
 	assert.match(evaluateStep({ step: "B3-acceptance", rows: livePass }).blockers.join("\n"), /an agent click/);
 	const acceptance = [...common, { area: "agent 1", action: "click", result: "pass", note: "" }];
 	assert.equal(evaluateStep({ step: "B3-acceptance", rows: acceptance }).verdict, "pass");
+});
+
+test("R2: B0 is a report-only step that authorizes nothing", () => {
+	const runsDir = makeDir();
+	const exec = (command: string, args: string[]) => {
+		if (args[0] === "rev-parse" && args[1] === "HEAD") return `${HEAD}\n`;
+		if (args[0] === "status") return "";
+		if (args[0] === "rev-parse" && args[1] === "--show-toplevel") return `/repo\n`;
+		if (args[0] === "rev-parse" && args[1] === "--verify") return `${HEAD}\n`;
+		throw new Error(`unexpected git ${args.join(" ")}`);
+	};
+	try {
+		assert.ok(REPORT_ONLY_STEPS.includes("B0"));
+		assert.ok(!B_STEPS.includes("B0"));
+		// No predecessor is required, because it is not part of the ladder.
+		const started = beginStep({ step: "B0", expectCommit: HEAD, runsDir, exec: exec as never });
+		assert.equal(started.reportOnly, true);
+
+		// Even with a failing row, a report-only archive writes no marker and no verdict.
+		const written = writeRunArchive({
+			runsDir,
+			runName: "b0.md",
+			title: "B0 attribution",
+			step: "B0",
+			commit: HEAD,
+			rows: [{ area: "run", action: "real user input", result: "fail", note: "userEvents 0 → 72" }],
+			reportOnly: true,
+		});
+		assert.equal(written.verdict, "report");
+		assert.equal(written.blockers.length, 0);
+		assert.equal(readStopMarker(runsDir), null);
+		const text = readFileSync(written.path, "utf8");
+		assert.match(text, /Step: B0/);
+		assert.match(text, /不放行任何步骤/);
+		// The note line names the token, so the check is "no line starts with it".
+		assert.doesNotMatch(text, /^Verdict:/m);
+
+		// And the report cannot open B1: B1 needs nothing, B2 needs a passing B1 archive.
+		assert.equal(findPassingRun({ step: "B0", commit: HEAD, runsDir }), undefined);
+		assert.equal(findPassingRun({ step: "B1", commit: HEAD, runsDir }), undefined);
+	} finally {
+		rmSync(runsDir, { recursive: true, force: true });
+	}
 });

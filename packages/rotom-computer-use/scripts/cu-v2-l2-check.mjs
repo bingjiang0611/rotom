@@ -44,7 +44,9 @@ import { StepRefused, beginStep, writeRunArchive } from "./lib/b-window.mjs";
 import { ensureFixtureWindow, launchFixture } from "./lib/fixture.mjs";
 import { GateHold, requireGate } from "./lib/gate.mjs";
 import { disposeFixtureRun, isFixtureBundleId, prepareFixtureRun } from "./lib/fixture.mjs";
-import { runDirectL2 } from "./lib/l2-modes.mjs";
+import { attributionRows, resolveProcessNames } from "./lib/event-sources.mjs";
+import { createProbe, fixtureRef, wireRefByRole } from "./lib/l2-probe.mjs";
+import { fixtureClickCount, runDirectL2 } from "./lib/l2-modes.mjs";
 
 /** `scripts/` -> `packages/rotom-computer-use` -> `packages` -> repository root. */
 const REPO_ROOT = path.resolve(import.meta.dirname, "..", "..", "..");
@@ -75,10 +77,13 @@ const fixturePath = argument("--fixture");
 if (!fixturePath || !existsSync(fixturePath)) disabled("pass --fixture <path to the built fixture app>");
 
 const directL2 = process.argv.includes("--direct-l2");
+// Review 7 R2: B0 is the attribution run. Same gate, same commit, same actions as B1, but
+// its archive carries no `Verdict:` line, so it authorizes nothing and writes no marker.
+const b0 = process.argv.includes("--b0-attribution");
 // Review 6 P1: the step is declared, not inferred at the end. This script is B1 only -
 // `check-cu-v2-live.mjs --with-hid` is the single owner of B6 (K4), and a second script
 // claiming the same step made it ambiguous which run authorized the next one.
-const step = "B1";
+const step = b0 ? "B0" : "B1";
 const fixtureCopy = !process.argv.includes("--no-fixture-copy");
 const runRoot = path.join(homedir(), "cu-v2-test", "runs", runStamp());
 mkdirSync(runRoot, { recursive: true });
@@ -104,51 +109,7 @@ async function cursor() {
 	return { x: Number(position.x), y: Number(position.y) };
 }
 
-function wireRefByRole(look, roles) {
-	return (look.parsedOutline?.nodes ?? []).find((node) => node.wireRef && roles.includes(node.role))?.wireRef;
-}
-
-/** Fixture content controls carry identifiers; window chrome does not. */
-function fixtureRef(look, roles) {
-	const nodes = look.parsedOutline?.nodes ?? [];
-	return nodes.find((node) => node.wireRef && roles.includes(node.role) && typeof node.identifier === "string" && node.identifier.startsWith("cu-fixture"))?.wireRef;
-}
-
-function valueOfRef(look, wireRef) {
-	return (look.parsedOutline?.nodes ?? []).find((node) => node.wireRef === wireRef)?.value;
-}
-
-async function alive() {
-	try {
-		const diagnostics = await macosHelper.diagnosticsCommand();
-		return diagnostics.protocolVersion === HELPER_PROTOCOL_VERSION;
-	} catch {
-		return false;
-	}
-}
-
-/**
- * Run one action with `background` policy (the L2 delivery path), sampling the
- * cursor and the frontmost app on both sides so a side effect is attributable.
- */
-async function probe(agent, look, pid, action, controls) {
-	const before = { cursor: await cursor(), frontmost: await macosBackend.getFrontmost() };
-	const started = Date.now();
-	let result;
-	let error;
-	try {
-		result = await macosBackend.act({ lookId: look.lookId, pid, policy: "background", target: { ref: action.ref }, ...action }, { timeoutMs: 20_000 });
-	} catch (caught) {
-		error = caught instanceof Error ? caught.message : String(caught);
-	}
-	const after = { cursor: await cursor(), frontmost: await macosBackend.getFrontmost() };
-	const cursorMoved = Math.hypot(after.cursor.x - before.cursor.x, after.cursor.y - before.cursor.y) >= 1;
-	const frontmostChanged = after.frontmost.pid !== before.frontmost.pid;
-	const outcome = result?.outcome ?? (error ? "error" : "unknown");
-	const delivery = result?.performed?.delivery ?? (error ? "none" : "?");
-	record(agent, action.action, outcome === "worked" ? "pass" : outcome === "foreground_required" ? "pass" : "inconclusive", `outcome=${outcome} delivery=${delivery} cursorMoved=${cursorMoved} frontmostChanged=${frontmostChanged} ${Date.now() - started}ms${error ? ` error=${error}` : ""}`);
-	return { outcome, delivery, cursorMoved, frontmostChanged, look };
-}
+const probe = createProbe({ backend: macosBackend, record, cursor });
 
 async function main() {
 	// Review 6 P1, in this order: a stopped phase, then the frozen commit, then the
@@ -199,6 +160,7 @@ async function main() {
 	record("helper", "diagnostics", "pass", `protocol=${diagnostics.protocolVersion} accessibility=${diagnostics.accessibility}`);
 	// The baseline for "did the operator come back" (review 6 K2). Our own synthetic
 	// posts are marked by the helper and do not count, so any growth is a person.
+	const runStartedAt = Date.now();
 	const activityBefore = await macosHelper.command("userActivity", {}).catch(() => undefined);
 	const frontmost = await macosBackend.getFrontmost();
 	record("environment", "operator app", "pass", `${frontmost.appName} pid=${frontmost.pid}`);
@@ -249,7 +211,16 @@ async function main() {
 			const controls = { text: fixtureRef(look, ["AXTextField"]) ?? wireRefByRole(look, ["AXTextField"]), button: fixtureRef(look, ["AXButton"]) ?? wireRefByRole(look, ["AXButton"]) };
 			record("fixture", "controls", controls.text && controls.button ? "pass" : "inconclusive", `text=${controls.text ?? "-"} button=${controls.button ?? "-"}`);
 
-			if (controls.button) await probe("fixture (not on the L2 list)", look, fixture.pid, { action: "click", ref: controls.button }, controls);
+			if (controls.button) {
+				// Review 7 R1: the same counter judges both clicks, so this row is no longer
+				// stuck at `inconclusive` while the app really did change.
+				const target = { windowId: root.windowId, rootRef: root.rootRef };
+				const countBefore = await fixtureClickCount(macosBackend, target).catch(() => undefined);
+				await probe("fixture (not on the L2 list)", look, fixture.pid, { action: "click", ref: controls.button }, controls);
+				const countAfter = await fixtureClickCount(macosBackend, target).catch(() => undefined);
+				const readable = typeof countBefore === "number" && typeof countAfter === "number";
+				record("fixture (not on the L2 list)", "click effect", !readable ? "skipped" : countAfter === countBefore + 1 ? "pass" : countAfter === countBefore ? "fail" : "unknown", `before=clicks:${countBefore ?? "?"} after=clicks:${countAfter ?? "?"}`);
+			}
 			if (controls.text) {
 				// Point the field at a known value first so "did the input arrive" is a
 				// value change, not a guess.
@@ -317,6 +288,16 @@ async function main() {
 	// the helper counted - means the window was not exclusively ours (K2).
 	const runPids = [fixture?.pid, ...installed.map((app) => app.pid)].filter((pid) => typeof pid === "number");
 	await recordRealUserInput({ helper: macosHelper, backend: macosBackend, record, activityBefore, operatorPid: frontmost.pid, runPids });
+
+	// Review 7 R2 step 1: report where the events came from, change no rule. The helper's
+	// ring holds only the last few hundred events, so this covers the run and not the hour.
+	const activityAfter = await macosHelper.command("userActivity", {}).catch(() => undefined);
+	const recent = Array.isArray(activityAfter?.recentEvents) ? activityAfter.recentEvents : [];
+	const windowEvents = recent.filter((event) => Number(event?.at) >= runStartedAt);
+	const names = resolveProcessNames(windowEvents.map((event) => Number(event?.pid)));
+	for (const row of attributionRows(windowEvents, { processName: (pid) => names.get(pid), runPids, helperPid: diagnostics.pid })) {
+		record(row.area, row.action, row.result, row.note);
+	}
 }
 
 async function writeEvidence() {
@@ -325,6 +306,7 @@ async function writeEvidence() {
 	// write an archive that a later step would mistake for permission.
 	const written = frozen
 		? writeRunArchive({
+			reportOnly: frozen.reportOnly === true,
 			runsDir: frozen.runsDir,
 			runName,
 			title: "Computer Use v2 L2 single-action check",
@@ -333,14 +315,18 @@ async function writeEvidence() {
 			rows: rows.map((row) => ({ ...row, note: withoutHome(row.note) })),
 			log: log.map(withoutHome),
 			intro: [
-				"One directed click and one directed text input per target, delivered with `background` policy.",
+				`One directed click and one directed text input per target, delivered with \`background\` policy.${b0 ? " This is the B0 attribution run: it reports, it authorizes nothing." : ""}`,
 				"`cursorMoved` and `frontmostChanged` say whether the action reached the user's session.",
+				"`attribution` rows group the events the helper counted as real input by source process and event type (review 7, R2).",
 			],
 		})
 		: { verdict: "refused", blockers: [], path: undefined };
 	if (written.verdict === "fail") {
 		process.exitCode = 1;
 		console.error(`[cu-v2 l2] FAILED: ${written.blockers.join("; ")}`);
+	}
+	if (written.verdict === "report") {
+		console.error("[cu-v2 l2] attribution report only: no Verdict line, no step authorized, no B-STOPPED");
 	}
 	return written;
 }

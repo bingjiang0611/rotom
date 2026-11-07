@@ -398,9 +398,36 @@ private func userActivityTapCallback(
 	return Unmanaged.passUnretained(event)
 }
 
+/// One event the tap saw, kept only to answer "who posted this".
+///
+/// Deliberately carries no key code, no character and no coordinate: the attribution run
+/// (review 7, R2) needs the source, not the content, and root `CLAUDE.md` §5 keeps
+/// keypresses and screen content out of recorded metadata.
+struct EventSourceRecord {
+	let atMs: TimeInterval
+	let type: UInt32
+	let pid: Int32
+	let stateId: Int32
+	let agent: Bool
+
+	var dictionary: [String: Any] {
+		[
+			"at": atMs,
+			"type": Int(type),
+			"pid": Int(pid),
+			"stateId": Int(stateId),
+			"agent": agent,
+		]
+	}
+}
+
 /// Listen-only counter for real user input, used for idle checks and for
 /// deciding whether an action interfered with the user.
 final class UserActivityMonitor {
+	/// How many source records the ring keeps. At the 20-65 events/s this machine showed
+	/// on 2026-11-06 that is 8-25 seconds of history - enough to cover a run, bounded so
+	/// a stuck pointer cannot grow the helper.
+	static let recentEventLimit = 512
 	private let lock = NSLock()
 	private var tap: CFMachPort?
 	private var source: CFRunLoopSource?
@@ -410,6 +437,8 @@ final class UserActivityMonitor {
 	private var lastUserInputAt: TimeInterval = 0
 	private var userEventCount = 0
 	private var agentEventCount = 0
+	/// Oldest first; dropping from the front is what keeps the buffer bounded.
+	private var recentEvents: [EventSourceRecord] = []
 	private(set) var listening = false
 
 	func start() {
@@ -476,13 +505,24 @@ final class UserActivityMonitor {
 
 	func observe(event: CGEvent) {
 		let marker = event.getIntegerValueField(.eventSourceUserData)
+		let record = EventSourceRecord(
+			atMs: Date().timeIntervalSince1970 * 1000,
+			type: event.type.rawValue,
+			pid: Int32(event.getIntegerValueField(.eventSourceUnixProcessID)),
+			stateId: Int32(event.getIntegerValueField(.eventSourceStateID)),
+			agent: marker == agentEventMarker
+		)
 		lock.lock()
 		var realInput = false
-		if marker == agentEventMarker {
+		recentEvents.append(record)
+		if recentEvents.count > Self.recentEventLimit {
+			recentEvents.removeFirst(recentEvents.count - Self.recentEventLimit)
+		}
+		if record.agent {
 			agentEventCount += 1
 		} else {
 			userEventCount += 1
-			lastUserInputAt = Date().timeIntervalSince1970 * 1000
+			lastUserInputAt = record.atMs
 			realInput = true
 		}
 		let hook = onRealInput
@@ -503,6 +543,7 @@ final class UserActivityMonitor {
 		let listening = self.listening
 		let userEvents = userEventCount
 		let agentEvents = agentEventCount
+		let recent = recentEvents.map(\.dictionary)
 		lock.unlock()
 		let now = Date().timeIntervalSince1970 * 1000
 		return [
@@ -511,6 +552,8 @@ final class UserActivityMonitor {
 			"listening": listening,
 			"userEventCount": userEvents,
 			"agentEventCount": agentEvents,
+			"recentEvents": recent,
+			"recentEventLimit": Self.recentEventLimit,
 		]
 	}
 
@@ -4194,11 +4237,59 @@ enum LeaseGuardSelfTest {
 	}
 }
 
+/// Deterministic checks for the event-source ring (review 7, R2).
+///
+/// Builds real `CGEvent` objects (construction posts nothing) so the test exercises the
+/// same `observe(event:)` path the tap uses, then asserts the three things the attribution
+/// run depends on: the ring stays bounded, the counters stay exact, and a record carries
+/// no key code, character or coordinate. `--activity-self-test` prints one line per case
+/// and exits non-zero on any failure.
+enum UserActivitySelfTest {
+	static func run() -> Int {
+		let allowed: Set<String> = ["at", "type", "pid", "stateId", "agent"]
+		let monitor = UserActivityMonitor()
+		let extra = 88
+		let total = UserActivityMonitor.recentEventLimit + extra
+		var failures = 0
+		func report(_ name: String, _ passed: Bool, _ detail: String = "") {
+			FileHandle.standardOutput.write(Data("case \(name) \(passed ? "pass" : "fail")\(detail.isEmpty ? "" : " (\(detail))")\n".utf8))
+			if !passed { failures += 1 }
+		}
+
+		var built = 0
+		for index in 0..<total {
+			guard let event = CGEvent(source: nil) else { continue }
+			event.setIntegerValueField(.eventSourceUserData, value: index % 4 == 0 ? agentEventMarker : 0)
+			monitor.observe(event: event)
+			built += 1
+		}
+		report("events built", built == total, "\(built)/\(total)")
+
+		let snapshot = monitor.snapshot()
+		let recent = snapshot["recentEvents"] as? [[String: Any]] ?? []
+		report("buffer bounded", recent.count == UserActivityMonitor.recentEventLimit, "\(recent.count) kept")
+		let marked = (snapshot["agentEventCount"] as? Int) ?? -1
+		let unmarked = (snapshot["userEventCount"] as? Int) ?? -1
+		report("counters exact", marked + unmarked == total, "agent=\(marked) user=\(unmarked)")
+		let fields = Set(recent.flatMap { $0.keys })
+		report("metadata only", fields.isSubset(of: allowed), fields.sorted().joined(separator: ","))
+		// Spelled out so a future field named `keyCode`, `characters` or `x` cannot sneak
+		// into the record through a rename the subset check would accept.
+		let forbidden: Set<String> = ["keyCode", "characters", "unicode", "string", "x", "y", "location", "clickState"]
+		report("no content fields", fields.isDisjoint(with: forbidden), fields.intersection(forbidden).sorted().joined(separator: ","))
+		FileHandle.standardOutput.write(Data("activity failures=\(failures)\n".utf8))
+		return failures
+	}
+}
+
 @main
 struct PiComputerUseHelper {
 	static func main() {
 		if CommandLine.arguments.contains("--lease-self-test") {
 			exit(Int32(LeaseGuardSelfTest.run()))
+		}
+		if CommandLine.arguments.contains("--activity-self-test") {
+			exit(Int32(UserActivitySelfTest.run()))
 		}
 		// Interoperability check: the broker signs tokens in TypeScript, so a token
 		// minted there must verify here. The fixture is passed on the command line

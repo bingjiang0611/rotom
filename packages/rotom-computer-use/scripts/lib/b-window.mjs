@@ -32,6 +32,17 @@ import path from "node:path";
 export const B_STEPS = Object.freeze(["B1", "B2", "B3-live", "B3-acceptance", "B4", "B5", "B6"]);
 
 /**
+ * Steps that only collect data (review 7, R2).
+ *
+ * B0 is the attribution run: same gate, same frozen commit, same actions as B1, but its
+ * archive carries no `Verdict:` line, so `findPassingRun` never reads it as permission for
+ * anything, and it writes no stop marker, because a run that was only supposed to report
+ * cannot fail a step. It sits outside `B_STEPS` on purpose: putting it first would make B1
+ * depend on it, which is the opposite of what a report-only probe is for.
+ */
+export const REPORT_ONLY_STEPS = Object.freeze(["B0"]);
+
+/**
  * Which script owns each step, for messages and for the dry run.
  *
  * `null` means the step has no script yet; the order check refuses to skip it. `B6` has
@@ -45,6 +56,7 @@ export const STEP_SCRIPTS = Object.freeze({
 	B4: null,
 	B5: null,
 	B6: "scripts/check-cu-v2-live.mjs --with-hid",
+	B0: "scripts/cu-v2-l2-check.mjs --b0-attribution",
 });
 
 /** Marker file in the runs directory; its presence stops every live script. */
@@ -266,8 +278,9 @@ export function beginStep({ step, expectCommit, runsDir, cwd = process.cwd(), ex
 	const dir = requireRunsDir(runsDir, { cwd, exec });
 	requireNoStopMarker(dir);
 	const { head } = requireFrozenCommit({ expectCommit, cwd, exec });
-	requirePreviousStepsPassed({ step, commit: head, runsDir: dir, warn });
-	return { step, commit: head, runsDir: dir };
+	const reportOnly = REPORT_ONLY_STEPS.includes(step);
+	if (!reportOnly) requirePreviousStepsPassed({ step, commit: head, runsDir: dir, warn });
+	return { step, commit: head, runsDir: dir, reportOnly };
 }
 
 /**
@@ -323,8 +336,12 @@ export function finishStep({ step, commit, runsDir, rows = [], run, reason }) {
  * The archive keeps `Step:`, `Commit:` and `Verdict:` machine-readable; `Blockers:` names
  * what stopped a failing run instead of leaving the reader to scan the table.
  */
-export function writeRunArchive({ runsDir, runName, title, step, commit, rows = [], table, log = [], intro = [], notes = [] }) {
-	const { verdict, blockers } = finishStep({ step, commit, runsDir, rows, run: runName });
+export function writeRunArchive({ runsDir, runName, title, step, commit, rows = [], table, log = [], intro = [], notes = [], reportOnly = false }) {
+	// A report-only archive is not evidence about a step: it neither finishes one nor
+	// writes the marker (review 7, R2). No `Verdict:` line means `findPassingRun` skips it.
+	const { verdict, blockers } = reportOnly
+		? { verdict: "report", blockers: [] }
+		: finishStep({ step, commit, runsDir, rows, run: runName });
 	const lines = [
 		`# ${title} (${new Date().toISOString()})`,
 		"",
@@ -332,8 +349,9 @@ export function writeRunArchive({ runsDir, runName, title, step, commit, rows = 
 		"",
 		`Step: ${step}`,
 		`Commit: ${commit}`,
-		`Verdict: ${verdict}`,
-		...(blockers.length > 0 ? [`Blockers: ${blockers.length}`] : []),
+		...(reportOnly
+			? ["归因报告：本次运行不写 `Verdict:`，不放行任何步骤，也不写 `B-STOPPED`。"]
+			: [`Verdict: ${verdict}`, ...(blockers.length > 0 ? [`Blockers: ${blockers.length}`] : [])]),
 		"",
 		`本次运行存档：\`${runName}\``,
 		"",

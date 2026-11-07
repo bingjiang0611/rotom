@@ -16,7 +16,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { B_STEPS, STEP_CONTRACT, STEP_SCRIPTS, evaluateStep, finishStep, readStopMarker, requirePreviousStepsPassed } from "./lib/b-window.mjs";
+import { B_STEPS, REPORT_ONLY_STEPS, STEP_CONTRACT, STEP_SCRIPTS, evaluateStep, finishStep, readStopMarker, requirePreviousStepsPassed } from "./lib/b-window.mjs";
+import { attributionRows } from "./lib/event-sources.mjs";
 import { FIXTURE_BUNDLE_PREFIX, disposeFixtureRun, ensureFixtureWindow, isFixtureBundleId, prepareFixtureRun } from "./lib/fixture.mjs";
 import { buildDirectL2Request, isDirectL2 } from "./lib/l2-direct.mjs";
 import { classifyActFailure } from "./lib/live-helpers.mjs";
@@ -225,15 +226,55 @@ await check("K3: the acceptance run finishes its own step", () => {
 	return "B3-live + B3-acceptance";
 });
 
-await check("B1 reads the click's effect back from the fixture", () => {
-	// The first real directed click reported `delivery=l2` with `outcome=unknown`, which
-	// the contract treats as a blocker. The transport is proven elsewhere; what was
-	// missing is the app's own answer, so the mode reads its result line before and after.
+await check("R1: the click is judged by the fixture's own counter", () => {
+	// The boolean readback could not work: the script clicks the same button through the AX
+	// path first, so the directed click always found it already `clicked` (review 7, R1).
 	const modes = readFileSync(path.join(import.meta.dirname, "lib", "l2-modes.mjs"), "utf8");
 	assert.match(modes, /cu-fixture-button-result/, "the effect must come from the fixture's own result line");
-	assert.match(modes, /judgeDirectedClick\(/, "the judgement stays in one function");
+	assert.match(modes, /parseClickCount/, "the count is parsed, not string-compared");
+	assert.match(modes, /after === before \+ 1/, "one click must mean exactly one");
 	assert.match(modes, /"click effect"/, "the effect gets its own row");
-	return "readback + separate row";
+	const fixture = readFileSync(path.join(import.meta.dirname, "..", "native", "macos-fixture", "FixtureApp.swift"), "utf8");
+	assert.match(fixture, /model\.clicks \+= 1/, "every click increments the counter");
+	assert.match(fixture, /clicks: /, "the count is published as text");
+	return "counter +1, separate row";
+});
+
+await check("R2: the helper keeps a bounded, metadata-only source ring", () => {
+	const helper = readFileSync(path.join(import.meta.dirname, "..", "native", "macos", "bridge.swift"), "utf8");
+	assert.match(helper, /recentEventLimit = 512/, "the ring has a fixed bound");
+	assert.match(helper, /eventSourceUnixProcessID/, "the source pid is what makes attribution possible");
+	assert.match(helper, /eventSourceStateID/, "the source state is recorded too");
+	assert.match(helper, /--activity-self-test/, "the ring has a self-test");
+	const record = helper.slice(helper.indexOf("struct EventSourceRecord"), helper.indexOf("final class UserActivityMonitor"));
+	for (const forbidden of ["keyCode", "characters", "unicode", "clickState"]) {
+		assert.ok(!record.includes(forbidden), `a source record may not carry ${forbidden}`);
+	}
+	return "512 records, metadata only";
+});
+
+await check("R2: the attribution rows report and never judge", () => {
+	const rows = attributionRows(
+		[{ at: 1, type: 10, pid: 4242, stateId: 1, agent: false }, { at: 2, type: 5, pid: 4242, stateId: 1, agent: false }],
+		{ processName: () => "bridge", runPids: [], helperPid: 4242 },
+	);
+	assert.ok(rows.length >= 2, "one row per source plus a summary");
+	assert.deepEqual([...new Set(rows.map((row) => row.result))], ["recorded"], "a report row is neither pass nor fail");
+	assert.match(rows.at(-1).note, /K2 unchanged/, "the K2 rule was not widened");
+	const script = readFileSync(path.join(import.meta.dirname, "cu-v2-l2-check.mjs"), "utf8");
+	assert.match(script, /attributionRows\(/, "the live script writes the report into its archive");
+	return "grouped rows + summary";
+});
+
+await check("R2: B0 reports without authorizing anything", () => {
+	assert.ok(REPORT_ONLY_STEPS.includes("B0"), "B0 is a report-only step");
+	assert.ok(!B_STEPS.includes("B0"), "B0 is not part of the ladder, so B1 cannot depend on it");
+	const script = readFileSync(path.join(import.meta.dirname, "cu-v2-l2-check.mjs"), "utf8");
+	assert.match(script, /--b0-attribution/, "the L2 check owns the B0 mode");
+	assert.match(script, /reportOnly: frozen\.reportOnly === true/, "the archive is written report-only");
+	const window = readFileSync(path.join(import.meta.dirname, "lib", "b-window.mjs"), "utf8");
+	assert.match(window, /reportOnly\s*\n?\s*\? \{ verdict: "report"/, "a report writes no verdict");
+	return "no Verdict, no marker, no permission";
 });
 
 await check("K4: one owner per step, and the HID click is two rows", () => {
