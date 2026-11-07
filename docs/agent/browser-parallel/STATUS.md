@@ -308,6 +308,13 @@
 - **平台结论**：按评审要求把 Linux 从 L1 改为“L2（评审环境，待复跑）：112/119”，并写清哪些失败项已修、哪些要复跑确认。
 - 验证：纯文档改动，`git diff --check` 通过；逐条对照 `service-worker.js:186`（`assertTabQuotaAllowed` 用 `state.tabQuotas`）、`tab-quotas.js`（`sanitizeBrowserTabQuotasV1` 的整体回落）与 `chrome-extension.test.mjs` 里的配额用例，没有改代码。
 
+### 第 2 轮修复后的全量复跑（macOS）
+
+- 全量 e2e（23 suite，`run.mjs` 无参数）**121/121，0 failed**，`EXIT=0`，墙钟 170 s。比评审环境的 119 条多 2 条：`visibility` 新增“后台 tab 的 read_full 不依赖环境提供的动画帧”、`same-agent-parallel` 新增“一个 tab 的操作超时不打断另一个 tab 的读取”。
+- 修掉一处被本轮改动打破的既有断言：`navigate :: 子 agent 的 history 导航按 lease 判定` 原来断言 `capability === "open"`，T20 把 lease capability 统一成策略词汇后应为 `interact`。这是本轮改动的连带影响，不是新缺陷；改断言为 `interact` 并注明理由，`navigate` 7/7。
+- 单元测试：扩展侧 `.test.mjs` + `pack-chrome-extension` 219/219；Pi 侧 `.test.ts` 91/91。
+- 教训（已记入流程）：改 capability 词汇这类跨层命名后必须跑全量 suite，不能只跑名字相关的几个；第一次跑全量就是因为只跑了 `lease`/`policy` 才漏掉 `navigate`。
+
 ## 既有失败
 
 <!-- 不是本次改动造成的失败：测试名、原因、证据。 -->
