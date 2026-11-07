@@ -136,3 +136,28 @@ B1 运行并失败（[存档](evidence/runs/2026-11-06T2336-b1-directed-l2-readb
 2. K2 的真实输入行要能区分“人回来了”和“我们自己的动作”：helper 记录每个事件的来源进程
    （`eventSourceUnixProcessID`），并确认启动 fixture 副本、定向投递这些路径都打了 agent 标记。
    在这一点修好之前，B 阶段在这台机器上无法通过任何步骤。
+
+## 第一次 B0 窗口（2026-11-07 02:42:47–03:42:47）：门禁真通过，运行在写出归因前中止
+
+`--expect-commit a6286bd7`、`--runs-dir ~/cu-v2-runs/2026-11-07-b0-a6286bd`（用户指定）、
+`--direct-l2 --b0-attribution`。门禁 02:53:04 通过，这次是真实安静：helper `listening=true`、
+`userEventCount=0`、已监听 617 秒且一次事件都没见过（`idleSeconds=-1`）。
+
+11 行、2 个 fail，运行在写 `attribution` 行之前就中止（存档
+`~/cu-v2-runs/2026-11-07-b0-a6286bd/2026-11-07T10-53-12-566Z-l2-check.md`，未进仓库）：
+
+| 行 | 读数 | 缺陷 |
+| --- | --- | --- |
+| `fixture \| launch` | fail，LaunchServices“miscellaneous error” | 手工拼的 `Fixture-review7.app` 缺 `CFBundleVersion`，起不来 |
+| `run \| abort` | fail，`alive is not defined` | R2 把 `alive()` 随 probe 一起删掉，没有重新引入；测试与 dry run 都看不到这种只在真机运行时求值的名字 |
+
+report-only 设计在真机上得到验证：存档没有 `Verdict:` 行，也没有写 `B-STOPPED`。
+
+修复（代码与测试，未跑真机）：`createAlive()` 移入 `scripts/lib/l2-probe.mjs` 由脚本调用；
+新增 `scripts/build-fixture.mjs` 生成完整 bundle（8 个键 + `PkgInfo`，`-parse-as-library`，
+签名后 `--verify --strict` 并回读 plist），与已知可启动的旧 bundle 键集完全一致；
+dry run 新增三条检查（`createAlive` 接线、bundle 键集、计数判定），并把 fixture 相关检查移入
+`scripts/lib/dry-run-fixture.mjs`；新增 7 项单元测试。
+
+控制：在上一个提交里 `cu-v2-l2-check.mjs` 引用 `alive` 却没有任何定义，也不含 `createAlive(`，
+所以新 dry run 的接线检查在修复前必失败。

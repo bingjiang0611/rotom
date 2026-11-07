@@ -192,8 +192,9 @@ B1 结果（[存档](evidence/runs/2026-11-06T2240-b1-directed-l2.md)）：19 �
 | R2 第 1 步 | helper 增加有界事件来源环（512 条，只记时间/类型/来源 pid/来源 state/是否带标记，不记键码、字符、坐标），`--activity-self-test` 自测上限与字段；脚本按来源分组写进存档，附 `fromThisRun`/`fromElsewhere` 汇总，**K2 判定一个字没改**（`scripts/lib/event-sources.mjs`） |
 | R2 B0 | 新增只出报告的 B0 归因模式：`beginStep` 允许它跳过前序、`writeRunArchive({reportOnly})` 不写 `Verdict:`、不写 `B-STOPPED`、不放行任何步骤；`B_STEPS` 保持不变，所以 B1 不依赖 B0 |
 
-验证：38 项针对性测试、完整套件全通过、dry run 21 项 0 失败、Swift `--activity-self-test` 5 项通过，
-fixture 与 helper 重新编译（签名身份不变）。R3 的 `--runs-dir` 由用户指定，留给下一个窗口执行。
+验证：199 项测试全通过、dry run 23 项 0 失败、Swift `--activity-self-test` 5 项通过，fixture 与 helper
+重新编译（签名身份不变）。第一次 B0 窗口（02:53）暴露两处自身缺陷并已修，见 rounds。R3 的 `--runs-dir`
+由用户指定，留给下一个窗口执行。
 
 ## 需要审核者回答的问题
 
