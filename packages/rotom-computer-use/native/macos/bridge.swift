@@ -3657,8 +3657,11 @@ final class Bridge {
 		// can separate agent input from real user input.
 		event.setIntegerValueField(.eventSourceUserData, value: agentEventMarker)
 		if delivery == "l2" {
+			// The symbol is resolved before the first event, so nothing has been delivered.
+			// `l2_unavailable` says exactly that: the caller may repeat the same background
+			// action over pid posting, and must not escalate to the foreground (review G4).
 			if postTargetedEvent(event, pid: pid) { return }
-			throw BridgeFailure(message: "Targeted background delivery is unavailable on this macOS build", code: "foreground_required")
+			throw BridgeFailure(message: "Targeted background delivery is unavailable on this macOS build", code: "l2_unavailable")
 		}
 		if delivery == "pid" {
 			event.postToPid(pid)
@@ -3681,9 +3684,10 @@ final class Bridge {
 
 	/// Private SkyLight entry point for window-targeted event delivery.
 	///
-	/// Resolved at runtime: when the symbol is missing on a future macOS build,
-	/// L2 stays disabled and the caller gets `foreground_required` instead of a
-	/// silent fallback to foreground HID input.
+	/// Resolved at runtime: when the symbol is missing on a future macOS build, L2
+	/// stays disabled and the caller gets `l2_unavailable` - not a silent fallback to
+	/// foreground HID input, and not a foreground requirement either, because nothing
+	/// was delivered and the same background action can be repeated over pid posting.
 	private typealias SkyLightPostToPid = @convention(c) (pid_t, CGEvent) -> Void
 
 	private func postTargetedEvent(_ event: CGEvent, pid: Int32) -> Bool {

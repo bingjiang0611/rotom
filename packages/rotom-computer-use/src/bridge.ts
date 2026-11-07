@@ -35,6 +35,7 @@ import { excludeHostRoots, excludeInternalRoots, hostTargetRefusal, resolveHostA
 import { TakeoverController, type TakeoverBackend } from "./takeover.ts";
 import { backgroundDelivery } from "./policy/l2-compat.ts";
 import { buildActRequest } from "./tools/act-request.ts";
+import { attemptWithDeliveryFallback } from "./tools/act-delivery.ts";
 import { appIntent, clipboardIntent, windowIntent } from "./tools/intents.ts";
 import { scoreWindow, shouldPreferForegroundModalWindow } from "./root-selection.ts";
 import { SavedStates, type CurrentCapture, type CurrentTarget, type OperationState } from "./state.ts";
@@ -76,6 +77,8 @@ interface ExecutionTrace {
 	backgroundFirst?: boolean;
 	escalatedToForeground?: boolean;
 	escalationReason?: string;
+	/** The pinned transport was unavailable, so the action was repeated over pid posting. */
+	deliveryFallback?: "l2_unavailable";
 	backgroundAttempt?: { outcome: "foreground_required" | "didnt"; reason: string };
 	/** L1 = accessibility API, L2 = window-targeted events, L4 = foreground input. */
 	deliveryLevel?: "L1" | "L2" | "L4";
@@ -383,8 +386,8 @@ function currentDeliveryPolicy(): DeliveryPolicy {
 function nativeInputDelivery(policy = currentDeliveryPolicy(), target?: Pick<ResolvedTarget, "bundleId" | "appName">): NativeInputDelivery {
 	if (policy === "foreground") return "hid";
 	// Whitelisted apps get the window-targeted channel; everything else keeps
-	// pid-targeted posting. L2 fails closed with `foreground_required` when the
-	// platform build lacks the delivery symbol.
+	// pid-targeted posting. L2 fails with `l2_unavailable` when the platform build lacks
+	// the delivery symbol, which the act path answers by repeating over pid posting.
 	if (policy === "background" && target) return backgroundDelivery(target.bundleId, target.appName);
 	return "pid";
 }
@@ -1383,7 +1386,12 @@ async function helperAct(
 	}
 	try {
 		const initialPolicy = headless ? currentDeliveryPolicy() : "background";
-		const result = checked(await currentPlatformBackend.act(helperActRequest(target, action, initialPolicy, lease), { signal, timeoutMs }));
+		const attempt = await attemptWithDeliveryFallback({
+			mayFallBack: !headless,
+			request: (deliveryOverride) => helperActRequest(target, action, initialPolicy, lease, deliveryOverride),
+			act: (request) => currentPlatformBackend.act(request, { signal, timeoutMs }),
+		});
+		const result = checked(attempt.result);
 		if (canRetryInForeground(action, result.outcome, headless)) {
 			const foreground = checked(await currentPlatformBackend.act(helperActRequest(target, action, "foreground", lease), { signal, timeoutMs }));
 			const trace = executionTraceFromAct(foreground, "foreground");
@@ -1395,6 +1403,7 @@ async function helperAct(
 		}
 		const trace = executionTraceFromAct(result, "background");
 		trace.backgroundFirst = true;
+		if (attempt.pidFallback) trace.deliveryFallback = attempt.pidFallback;
 		return trace;
 	} catch (error) {
 		const code = (error as Error & { code?: string })?.code;
@@ -2574,9 +2583,16 @@ function recordToolTrace(
 		deliveryLevel: typeof execution?.deliveryLevel === "string" ? execution.deliveryLevel : (typeof execution?.delivery === "string" ? execution.delivery : undefined),
 		text: typed,
 		screenshots: shots.length ? shots : undefined,
-		evidence: traceEvidenceOf(details, outcome.error),
+		evidence: withDeliveryFallback(traceEvidenceOf(details, outcome.error), execution?.deliveryFallback),
 		lease: details?.leaseHolder?.agentId ? { holder: details.leaseHolder.agentId } : undefined,
 	});
+}
+
+/** Trace evidence is one short line; a delivery fallback is part of it. */
+function withDeliveryFallback(evidence: string | undefined, fallback?: "l2_unavailable"): string | undefined {
+	if (!fallback) return evidence;
+	const suffix = `delivery_fallback:${fallback}`;
+	return evidence ? `${evidence} ${suffix}` : suffix;
 }
 
 function firstRedactedText(params: Record<string, unknown> | undefined): TraceEntry["text"] | undefined {

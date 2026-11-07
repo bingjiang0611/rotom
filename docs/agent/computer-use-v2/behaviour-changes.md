@@ -54,6 +54,13 @@
    已经执行的步骤如实报告、不回滚。无 UI 的 headless 会话永远不进入 L4。
    没有 broker 时 `cu_session takeover` 直接不可用（前台必须有人仲裁）。
 
+9. **IntelliJ 的后台投递从实际 `pid` 变成 `l2`（第二期 REVIEW-5 G4，真机未验证）。**
+   TS 侧一直按兼容清单给 `com.jetbrains.intellij*` 发 `delivery: "l2"`，但 helper 先判
+   `policy: "background"` 再判显式投递，所以这块实际一直走 pid 投递。修好优先级后，这批动作
+   第一次真的走 `SLEventPostToPid`。若某个 macOS 版本没有这个私有符号，helper 报
+   `l2_unavailable`，客户端**用同一个后台策略、改 pid 投递重试一次**，不升级前台、不移动光标。
+   B1 还没有 l2 的正例，所以这里只记录行为变化，不作为已验证能力。
+
 ## 保持原来行为的两种做法
 
 ### 做法一：预先在 policy.json 里写好授权（推荐）
