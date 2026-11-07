@@ -66,6 +66,15 @@ const SCROLL_SETTLE_MS = 100;
 const PAGE_ALERT_WAIT_MS = 500;
 const NATIVE_RECONNECT_ALARM = "rotom-browser-relay-reconnect";
 const FULL_READ_COMMAND_WAIT_MS = 750;
+// `scrollTargetTo` waits for two painted frames instead of a fixed delay, so its bound has
+// to outlast a renderer that resumed animation frames late. A healthy page answers in
+// milliseconds; a renderer that never paints still stops at the operation deadline.
+const FULL_READ_SCROLL_WAIT_MS = 2_000;
+// Focus emulation makes a background tab visible, but the effect is not synchronous: a
+// scroll issued before the page reports `visible` waits for frames the frozen renderer
+// never delivers and the container looks unrendered. Confirm it instead of assuming it.
+const FULL_READ_VISIBLE_WAIT_MS = 1_000;
+const FULL_READ_VISIBLE_POLL_MS = 20;
 // The render window is an upper bound, not a fixed cost: after a scroll the reader polls
 // the container until its text and scrollHeight stop changing, because a static page is
 // ready as soon as the scroll position is and only lazy content needs the rest of it.
@@ -809,7 +818,7 @@ async function fullRenderedTextSource(debuggee, scopeId, remainingSteps, assertO
 			const original = await debuggerCommandWithin(debuggee, "Runtime.callFunctionOn", { objectId: targetObjectId, functionDeclaration: scrollTargetState.toString(), returnByValue: true });
 			if (!record(original?.result?.value)) { endReached = false; continue; }
 			const originalTop = Number(original.result.value.top) || 0;
-			let rendered = await debuggerCommandWithin(debuggee, "Runtime.callFunctionOn", { objectId: targetObjectId, arguments: [{ value: 0 }], functionDeclaration: scrollTargetTo.toString(), returnByValue: true, awaitPromise: true });
+			let rendered = await debuggerCommandWithin(debuggee, "Runtime.callFunctionOn", { objectId: targetObjectId, arguments: [{ value: 0 }], functionDeclaration: scrollTargetTo.toString(), returnByValue: true, awaitPromise: true }, FULL_READ_SCROLL_WAIT_MS);
 			await delay(FULL_READ_RENDER_WAIT_MS);
 			scannedContainers += 1;
 			let targetComplete = false;
@@ -886,7 +895,7 @@ async function fullRenderedTextSource(debuggee, scopeId, remainingSteps, assertO
 				previousHeight = scrollHeight;
 				previousTop = top;
 				previousClientHeight = clientHeight;
-				rendered = await debuggerCommandWithin(debuggee, "Runtime.callFunctionOn", { objectId: targetObjectId, arguments: [{ value: nextTop }], functionDeclaration: scrollTargetTo.toString(), returnByValue: true, awaitPromise: true });
+				rendered = await debuggerCommandWithin(debuggee, "Runtime.callFunctionOn", { objectId: targetObjectId, arguments: [{ value: nextTop }], functionDeclaration: scrollTargetTo.toString(), returnByValue: true, awaitPromise: true }, FULL_READ_SCROLL_WAIT_MS);
 				const settled = await settleAfterScroll(state);
 				settledState = settled.state;
 				// One step that happened to change something (a late font, a lazy image) must
@@ -922,6 +931,7 @@ async function fullObservation(name, item, assertOperation) {
 	// Reuse the background interaction primitive: allow rendering without selecting
 	// the tab or focusing its window. Each scroll also proves a rendered frame.
 	return withFocusEmulation({ tabId: item.tabId }, async () => {
+		await waitForVisiblePage(item, assertOperation);
 		const root = await fullRenderedTextSource({ tabId: item.tabId }, "r", FULL_READ_MAX_STEPS, assertOperation);
 		let remainingSteps = Math.max(0, FULL_READ_MAX_STEPS - root.scanSteps);
 		const sources = [root];
@@ -1123,6 +1133,19 @@ async function withFocusEmulation(debuggee, action, assertOperation) {
 	await chrome.debugger.sendCommand(debuggee, "Emulation.setFocusEmulationEnabled", { enabled: true });
 	try { return await action(); }
 	finally { await chrome.debugger.sendCommand(debuggee, "Emulation.setFocusEmulationEnabled", { enabled: false }); }
+}
+/**
+ * Wait (bounded) until the tab reports `visible` after focus emulation. The answer is not
+ * reported: if the page never becomes visible the read still runs and marks containers it
+ * could not get a frame for as unconfirmed, which is the honest outcome.
+ */
+async function waitForVisiblePage(item, assertOperation) {
+	const startedAt = Date.now();
+	for (;;) {
+		if (await readVisibilityState(item, assertOperation) === "visible") return;
+		if (Date.now() - startedAt >= FULL_READ_VISIBLE_WAIT_MS) return;
+		await delay(FULL_READ_VISIBLE_POLL_MS);
+	}
 }
 async function withBackgroundActivationGuard(item, action, assertOperation) {
 	const chrome = operationChrome(globalThis.chrome, assertOperation);
