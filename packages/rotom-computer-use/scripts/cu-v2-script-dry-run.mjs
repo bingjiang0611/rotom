@@ -18,6 +18,7 @@ import path from "node:path";
 
 import { B_STEPS, REPORT_ONLY_STEPS, STEP_CONTRACT, STEP_SCRIPTS, evaluateStep, finishStep, readStopMarker, requirePreviousStepsPassed } from "./lib/b-window.mjs";
 import { attributionRows } from "./lib/event-sources.mjs";
+import { fixtureChecks } from "./lib/dry-run-fixture.mjs";
 import { FIXTURE_BUNDLE_PREFIX, disposeFixtureRun, ensureFixtureWindow, isFixtureBundleId, prepareFixtureRun } from "./lib/fixture.mjs";
 import { buildDirectL2Request, isDirectL2 } from "./lib/l2-direct.mjs";
 import { classifyActFailure } from "./lib/live-helpers.mjs";
@@ -226,19 +227,6 @@ await check("K3: the acceptance run finishes its own step", () => {
 	return "B3-live + B3-acceptance";
 });
 
-await check("R1: the click is judged by the fixture's own counter", () => {
-	// The boolean readback could not work: the script clicks the same button through the AX
-	// path first, so the directed click always found it already `clicked` (review 7, R1).
-	const modes = readFileSync(path.join(import.meta.dirname, "lib", "l2-modes.mjs"), "utf8");
-	assert.match(modes, /cu-fixture-button-result/, "the effect must come from the fixture's own result line");
-	assert.match(modes, /parseClickCount/, "the count is parsed, not string-compared");
-	assert.match(modes, /after === before \+ 1/, "one click must mean exactly one");
-	assert.match(modes, /"click effect"/, "the effect gets its own row");
-	const fixture = readFileSync(path.join(import.meta.dirname, "..", "native", "macos-fixture", "FixtureApp.swift"), "utf8");
-	assert.match(fixture, /model\.clicks \+= 1/, "every click increments the counter");
-	assert.match(fixture, /clicks: /, "the count is published as text");
-	return "counter +1, separate row";
-});
 
 await check("R2: the helper keeps a bounded, metadata-only source ring", () => {
 	const helper = readFileSync(path.join(import.meta.dirname, "..", "native", "macos", "bridge.swift"), "utf8");
@@ -315,13 +303,8 @@ await check("a helper refusal is a refused cell, not a failed one", () => {
 	return "classified by code";
 });
 
-await check("the fixture button exposes the result on itself", () => {
-	// Review 6 P4: `press` reads the pressed control, so a result only in a sibling Text
-	// left every press `unknown`.
-	const source = readFileSync(path.join(import.meta.dirname, "..", "native", "macos-fixture", "FixtureApp.swift"), "utf8");
-	assert.match(source, /accessibilityIdentifier\("cu-fixture-button"\)[\s\S]{0,800}accessibilityValue\(/);
-	return "AXValue on cu-fixture-button";
-});
+
+for (const { name, run } of fixtureChecks) await check(name, run);
 
 const skipped = [
 	["real L2 delivery", "needs macOS, an isolated helper and a real fixture window"],

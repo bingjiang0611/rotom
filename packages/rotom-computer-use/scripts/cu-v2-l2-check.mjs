@@ -45,7 +45,7 @@ import { ensureFixtureWindow, launchFixture } from "./lib/fixture.mjs";
 import { GateHold, requireGate } from "./lib/gate.mjs";
 import { disposeFixtureRun, isFixtureBundleId, prepareFixtureRun } from "./lib/fixture.mjs";
 import { attributionRows, resolveProcessNames } from "./lib/event-sources.mjs";
-import { createProbe, fixtureRef, wireRefByRole } from "./lib/l2-probe.mjs";
+import { createAlive, createProbe, fixtureRef, wireRefByRole } from "./lib/l2-probe.mjs";
 import { fixtureClickCount, runDirectL2 } from "./lib/l2-modes.mjs";
 
 /** `scripts/` -> `packages/rotom-computer-use` -> `packages` -> repository root. */
@@ -110,6 +110,7 @@ async function cursor() {
 }
 
 const probe = createProbe({ backend: macosBackend, record, cursor });
+const alive = createAlive({ helper: macosHelper, expectedProtocol: HELPER_PROTOCOL_VERSION });
 
 async function main() {
 	// Review 6 P1, in this order: a stopped phase, then the frozen commit, then the

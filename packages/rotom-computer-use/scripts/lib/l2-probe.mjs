@@ -35,3 +35,23 @@ export function createProbe({ backend, record, cursor }) {
 		return { outcome, delivery, cursorMoved, frontmostChanged, look };
 	};
 }
+
+/**
+ * "Is the helper still answering?" as one function, so a caller cannot forget it.
+ *
+ * The B0 window on 2026-11-07 aborted with `alive is not defined`: the probe helpers moved
+ * into this module and `alive` was left behind in the script, which no test could see
+ * because the reference only evaluates during a real run. It lives here now, next to the
+ * probe that needs it, and the dry run checks the script wires this factory instead of
+ * declaring its own.
+ */
+export function createAlive({ helper, expectedProtocol }) {
+	return async function alive() {
+		try {
+			const diagnostics = await helper.diagnosticsCommand();
+			return diagnostics.protocolVersion === expectedProtocol;
+		} catch {
+			return false;
+		}
+	};
+}

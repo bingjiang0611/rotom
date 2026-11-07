@@ -121,3 +121,30 @@ export async function launchFixture(backend, handle) {
 	const result = await backend.manageApps({ mode: "launch", path: handle.bundlePath, activates: true });
 	return result;
 }
+
+/** The bundle metadata, exported so a test can check the keys without a Mac build. */
+export function fixtureInfoPlist({ bundleId = "com.example.cu-fixture", version = "1" } = {}) {
+	return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleExecutable</key>
+	<string>Fixture</string>
+	<key>CFBundleIdentifier</key>
+	<string>${bundleId}</string>
+	<key>CFBundleName</key>
+	<string>CU Fixture</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundleVersion</key>
+	<string>${version}</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+</dict>
+</plist>
+`;
+}
