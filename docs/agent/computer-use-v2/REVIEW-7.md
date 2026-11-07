@@ -74,3 +74,38 @@ fixture 的结果是二值的（`idle` → `clicked`，见 `FixtureApp.swift` �
    增加 B0 模式（dry run 覆盖：不写 `Verdict`，不放行 B1）。
 3. STATUS-2：更正 L2 的说法；B1 记两次有效失败。
 4. 只做代码和测试，不跑真机。推送后报告最终 SHA，由审核者确认后再冻结。
+
+## 复核（2026-11-07，`30b112a..a6286bd`）：接受，`a6286bd` 可作为冻结提交
+
+冻结提交：`a6286bd7a6782bae2bdd92563291e5b4872d2d2e`。
+
+### 审核者复现
+
+- 干净 worktree 连跑 2 次：192 项，191 通过、0 失败、1 跳过；dry run 21 项、0 失败、3 跳过；运行后工作区干净。
+- 用真实 `git` 在 `a6286bd` 上重放第 6 轮的全部场景：结果都不变（仓库内 `--runs-dir` 被拒绝、B1 通过后 B2 允许、
+  `inconclusive` 的 L2 点击写 `B-STOPPED`、走 `pid` 判 `fail`、B3 子步骤不能跳过）。
+- B0：`reportOnly` 为真，存档没有 `Verdict:` 行，不写 `B-STOPPED`；它的存档不能当作 B1 通过，也不能放行 B2；
+  已有 `B-STOPPED` 时 B0 同样被拒绝。
+
+### 接受的部分
+
+- R1：fixture 改为 `clicks: N`；`judgeDirectedClick` 正好加一判 `pass`，没变判 `fail`，加二及以上判 `unknown`，
+  读不到计数判 `inconclusive`。`outcome=unknown` 的定向点击可以由读回证明。
+- R2：helper 的环形缓冲区只有 `at/type/pid/stateId/agent` 五个字段，上限 512；Swift 自测断言字段是这五个的子集，
+  并逐个排除键码、字符和坐标。存档只写按（类型、来源进程、state id）分组的计数。只统计运行开始之后的事件。
+  K2 的判定（`evaluateStep`、`recordRealUserInput`）没有改动。
+- 根 `CLAUDE.md` §4 改为“调用两次、helper 未崩、效果未确认”，与本轮措辞一致。
+
+### 低优先级（不阻断）
+
+- 缓冲区溢出没有提示：一次运行超过 512 个事件时，最早的会被丢掉，汇总会少算。用运行前后的
+  `userEventCount + agentEventCount` 差值和缓冲区里的条数比较，不一致时加一行 `ring truncated`。
+- `ps -o comm=` 在 macOS 上给的是完整可执行路径，可能带家目录，也会列出机器上其他软件的名字（例如安全软件）。
+  把 B0 存档复制进公开的 `evidence/runs/` 之前，家目录要写成 `~`，并由用户看过进程名再决定是否公开。
+- 根 `CLAUDE.md` §4 同一段仍写“helper 协议已升到 8”（实际是 9）。“仲裁是协作式的”按 Q4/E4 有意保留到 B4。
+
+### 下一个窗口只跑 B0
+
+K2 规则在 B0 数据审核之前不变，所以同一窗口里接着跑 B1，大概率又因为同一批未标记事件失败，白白写一个 `B-STOPPED`。
+下一个窗口只跑 B0，审核者看完归因数据、决定 K2 怎么改之后，再授权 B1。B0 的动作和 B1 相同；输入法切到 ABC，
+定向 `typeText` 才会运行，按键投递路径也才能被归因。`--runs-dir` 由用户在授权里指定。
