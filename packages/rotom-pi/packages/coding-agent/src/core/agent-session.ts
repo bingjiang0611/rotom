@@ -659,6 +659,18 @@ export class AgentSession {
 		this.sessionManager.appendModelChange(model.provider, model.id);
 	}
 
+	/**
+	 * Record a model selection only when it changes what the branch restores to. Re-selecting
+	 * the recorded model used to append an identical entry each time, which made most of a
+	 * session's model_change entries noise.
+	 */
+	private _appendModelChangeIfChanged(model: Model<any>): void {
+		const getModel = (provider: string, modelId: string) => this._modelRuntime.getModel(provider, modelId);
+		const recorded = getBranchSelection(this.sessionManager.getBranch(), getModel);
+		if (recorded?.provider === model.provider && recorded.modelId === model.id) return;
+		this.sessionManager.appendModelChange(model.provider, model.id);
+	}
+
 	/** The model whose limits apply to the conversation. */
 	private _limitsModel(): Model<any> | undefined {
 		return this.routedModel?.model ?? this.model;
@@ -2599,7 +2611,7 @@ export class AgentSession {
 		const previousModel = this.model;
 		const thinkingLevel = this._getThinkingLevelForModelSwitch(model, options.thinkingLevel);
 		this.agent.state.model = model;
-		this.sessionManager.appendModelChange(model.provider, model.id);
+		this._appendModelChangeIfChanged(model);
 		if (options.persist) {
 			this.settingsManager.setDefaultModelAndProvider(model.provider, model.id);
 			this._addPersistedDefaultToNonEmptyScope(model);
@@ -2666,7 +2678,7 @@ export class AgentSession {
 
 		// Apply model
 		this.agent.state.model = next.model;
-		this.sessionManager.appendModelChange(next.model.provider, next.model.id);
+		this._appendModelChangeIfChanged(next.model);
 		if (options.persist) {
 			this.settingsManager.setDefaultModelAndProvider(next.model.provider, next.model.id);
 			this._addPersistedDefaultToNonEmptyScope(next.model);
@@ -2701,7 +2713,7 @@ export class AgentSession {
 
 		const thinkingLevel = this._getThinkingLevelForModelSwitch(nextModel);
 		this.agent.state.model = nextModel;
-		this.sessionManager.appendModelChange(nextModel.provider, nextModel.id);
+		this._appendModelChangeIfChanged(nextModel);
 		if (options.persist) {
 			this.settingsManager.setDefaultModelAndProvider(nextModel.provider, nextModel.id);
 			this._addPersistedDefaultToNonEmptyScope(nextModel);
