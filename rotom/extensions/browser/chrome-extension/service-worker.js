@@ -18,6 +18,7 @@ import { withTabWake } from "./lifecycle-wake.js";
 import { responseFramesV1 } from "./response-chunks.js";
 import { createMergedSessionWriter, isSessionStateKeyV3, LEGACY_SESSION_STATE_KEY_V1, LEGACY_SESSION_STATE_KEY_V2, legacyV1Sessions, legacyV2Sessions, serializeSessionStateV3, sessionStateKeyV3 } from "./session-persistence.js";
 import { interactionScrollTarget } from "./interaction-scroll-target.js";
+import { raceDispatchAgainstDialog } from "./dispatch-race.js";
 import { createOperationGuard } from "./operation-guard.js";
 import { operationChrome } from "./operation-chrome.js";
 import { consumeMatchingWindowOpenSignal } from "./window-open-correlation.js";
@@ -1515,17 +1516,18 @@ async function performInteraction(name, item, payload, assertOperation = () => u
 			effect = { dispatch: "mouseWheel", dispatchSettled: dispatched.ok, x: point.x, y: point.y, scrollBefore: Number.isFinite(before) ? before : null, scrollAfter: Number.isFinite(after) ? after : null, moved: Number.isFinite(before) && Number.isFinite(after) ? before !== after : null, scrollTargetRef: target.scrollTargetRef, scrollScope: target.scrollScope };
 		}
 	};
-	const raced = await Promise.race([
-		dispatchAction().then(() => ({ settled: true })),
-		(async () => {
-			for (let attempt = 0; attempt < 120; attempt += 1) {
-				const dialog = dialogState.get(item.tabId);
-				if (dialog !== undefined) return { dialog };
-				await new Promise((resolve) => setTimeout(resolve, 25));
-			}
-			return { settled: true };
-		})(),
-	]);
+	// A dialog suspends the page, so the dispatch cannot finish while one is open: watch for
+	// it during the dispatch. "No dialog yet" is not a completion — answering settled there
+	// would return before the action finished, release the tab lock under it, and drop the
+	// action's own effect fields. A dispatch that outlives the operation deadline is
+	// reported as a timeout, which the client turns into unknown, never into success.
+	const raced = await raceDispatchAgainstDialog({
+		dispatch: dispatchAction,
+		dialog: () => dialogState.get(item.tabId),
+		deadlineMs: relayOperationDeadlineMs("interact", payload),
+		pollMs: INTERACTION_SETTLE_POLL_MS,
+	});
+	if (raced.timedOut !== undefined) throw new Error("browser interaction dispatch timeout: 动作仍在执行，结果 unknown");
 	if (raced.dialog !== undefined) {
 		await assertOwned(item);
 		const tab = await chrome.tabs.get(item.tabId);

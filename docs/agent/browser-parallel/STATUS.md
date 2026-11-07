@@ -247,6 +247,17 @@
   - 单测把"允许一次"的原断言改成：不发布 lease scope（`ROTOM_BROWSER_LEASE_SCOPE` 保持未设置）。
 - 文档：`CLAUDE.md` §6（lease 合同、`允许一次`、旧格式、upload 需 capability）与 `docs/usage.md`（lease 段、upload 段）同步。
 
+### T18 派发与弹窗竞速：不再把仍在执行的派发当成已完成
+
+- **问题**：`service-worker.js` 的弹窗检测分支轮询 120 × 25 ms，没有弹窗就直接返回 `{ settled: true }`，不等 `dispatchAction()` 结束。慢于约 3 s 的动作于是返回 `acknowledged: true`，但 `effect` 只剩 `target`（动作自己的字段全部丢失）；更糟的是操作已经返回、tab 锁已经释放，派发还在后台跑，下一个操作会和它交叠，违反 §6 关于 `dispatchSettled` 的合同。Linux 上 `pointer` 的两条拖拽断言（`effect.action`、`moves`）就是被这个吃掉的。
+- **改法**：把竞速抽成 `chrome-extension/dispatch-race.js` 的 `raceDispatchAgainstDialog`。它只有三种答案：看到弹窗（`{dialog}`）、派发自己结束（`{settled:true}`）、派发超过 deadline（`{timedOut:true}`）。“这段时间没有弹窗”不再是完成信号。deadline 用 `relayOperationDeadlineMs("interact", payload)`（6 s），超时抛 `browser interaction dispatch timeout…`，由工具层按 unknown 返回，绝不报成功；返回时 tab 锁一定已经随派发真正结束而释放（或随超时操作一起收口）。
+- **未变**：弹窗分支仍然立刻返回 `dialogOpened + dispatchSettled:false`（页面挂起，派发本来就无法结束），派发的 rejection 在该模块里被吞掉，不会变成未处理的 rejection。
+- 验证：
+  - `node --test rotom/extensions/browser/dispatch-race.test.mjs` 5/5。核心用例注入一个 400 ms 才结束的派发，在 300 ms 时断言“既没结束也没返回”，只有派发真的结束才返回 `{settled:true}`（旧的 120 × 25 ms 窗口在这个时间点之前就会返回）；另有弹窗优先返回、deadline 报 `timedOut` 且返回后停止轮询、派发错误原样抛出、派发在后台 reject 不产生 unhandled rejection；最后一条源码断言保证 service worker 不再出现 `attempt < 120` 那种自带超时的轮询。
+  - 全量 browser 单测：`.test.mjs` + `pack-chrome-extension` 215/215、`.test.ts` 91/91。
+  - e2e macOS：`dialog` 5/5（弹窗路径未回退）、`baseline` 7/7、`pointer` 6/6（拖拽的 `effect.action`/`moves` 断言仍然成立，只是 macOS 派发够快，复现不了 Linux 上的慢派发）。
+- **未验证**：Linux 上那两条拖拽断言是否真的因此转绿，需要评审环境复跑 `pointer`。
+
 ## 既有失败
 
 <!-- 不是本次改动造成的失败：测试名、原因、证据。 -->
