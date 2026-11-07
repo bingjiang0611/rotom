@@ -287,6 +287,20 @@
   - 全量 browser 单测：`.test.ts` 91/91、`.test.mjs` 219/219。
 - **说明**：客户端超时只在扩展/native host 卡住时才会先于扩展自己的 deadline 触发，e2e 里更常见的是扩展侧 `operation timeout`；两种路径都已覆盖（前者单测，后者 e2e）。
 
+### read_full 的 focus emulation：已在，补掉 enable 竞态并给出 macOS 实测
+
+- **评审建议的那层包装已经存在**：`fullObservation`（`service-worker.js:924`）从 `d9657e12`（早于本轮评审的 `0013fe2a`）起就把整个滚动循环包在 `withFocusEmulation` 里，交互路径与读路径用的是同一个原语（`Emulation.setFocusEmulationEnabled`）。所以“Linux 每步都等到命令超时”不是缺了这层包装，而是这层包装没有在该平台上稳定生效。
+- **macOS 实测（本轮新增）**：后台 tab 同样是 `hidden`，而且**环境本身一帧 rAF 都不给**——`visibility` suite 里新增的探针在 1 500 ms 内数到 `{"frames":0,"ms":1602,"visibilityState":"hidden"}`（三次一致）。也就是说 mac 上能读完**完全依赖** focus emulation，不是“mac 不节流”。这正面回答了评审要的那条记录。
+- **改法（两处，都只动读路径）**：
+  1. **等页面真的变成 `visible` 再开始滚动**（`waitForVisiblePage`，上限 1 s、20 ms 轮询）。focus emulation 的生效是异步的：在页面还没报告 `visible` 时发出的滚动要等一个冻结渲染器永远不会画的帧，于是容器被记成“没渲染”，整次读过成 `contentComplete=false`。本轮第一次跑新增探针时就抓到一次这种失败（`steps:4`、`contentComplete:false`），不是假说。
+  2. **`scrollTargetTo` 的每步上限从 750 ms 提到 2 s**（`FULL_READ_SCROLL_WAIT_MS`，只用于两个滚动命令，稳定判定的轮询仍是 20 ms）。两帧在健康页面上是毫秒级；这个上限只决定“渲染器迟迟不画时等多久才判未确认”。上限整体仍受 `read_full` 的 25 s 操作 deadline 约束，所以真正冻结的渲染器不会把读拖成无限等待。
+- 验证：
+  - 门槛检查（对照）：把 `waitForVisiblePage` 临时去掉重跑同一条 e2e 检查，`readMs` 变成 951 / 2 825 ms（两条样本，第二条恰好撞上 2 s 的滚动上限）；带上门槛后是 464 / 451 / 487 / 566 / 481 ms。同一个页面、同样的产出（`scanSteps:4`），说明这道门槛消掉的是真实等待，不是加了一层空转。
+  - e2e `visibility` 4/4、`settle` 3/3，连跑 4 轮全绿；新增检查同时断言 `contentCoverage: "scroll-end"`、`contentComplete: true` 与结尾 sentinel 存在——若这层包装被删掉，Linux 与 macOS 都会失败。
+  - e2e `chunked` 3/3（含评审怀疑受影响的“另一个 tab 的读在分块响应进行中完成”，`read.nodes.length > 0` 在 macOS 成立）。
+  - `bench.mjs`（30 轮 / 10 并发轮，同机）`read_full`：P50 2 898 ms、P95 3 687 ms（基线 2 815 / 3 411 ms，n=10 的最近秩分位）。产出没有退化：`/large` 三次读都是 `scanSteps 55`、292 个 node、262 412 字符、`contentComplete: true`，与基线记录的“55 步、约 26 万字符”一致。其它场景仍在基线量级（`snapshot_visible` 58.2 ms、`tabs` 0.6 ms、`screenshot` 50.9 ms、`read_full` 之外的交互 5.2 ms）。
+- **未验证**：Linux 上这两处改动能否让 `read_full` 读完。本轮只能在 macOS 上证明“环境不给帧时读路径仍然读完”，Linux 的 rAF 恢复速率（若真是节流到 1 Hz，则 2 s 上限刚好够两帧）要由评审复跑确认。
+
 ## 既有失败
 
 <!-- 不是本次改动造成的失败：测试名、原因、证据。 -->
