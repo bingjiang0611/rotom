@@ -163,3 +163,33 @@ live check 和 acceptance 又都声明为 B3，`findPassingRun` 只要找到一�
 
 执行方修 K1–K4，只做代码和测试，不跑真机，报告新的最终 SHA。审核者确认后，用户以那个 SHA 授权下一个窗口。
 注意：在 B4、B5 有脚本之前，下一个窗口最多只能跑到 B3。
+
+## 第二次复核（2026-11-07，`2bd4827..bf7bd8e`）：接受，`bf7bd8e` 可作为冻结提交
+
+冻结提交：`bf7bd8e6d5c42a1a8adaf26853d673c3a6c23139`。
+
+### 审核者复现
+
+- 干净 worktree 连跑 2 次：178 项，177 通过、0 失败、1 跳过；dry run 17 项、0 失败、3 跳过；运行后工作区保持干净。
+- 在 `bf7bd8e` 的 detached worktree 上用**真实 `git`** 和真实 `b-window.mjs` 重放：
+  - `--runs-dir` 落在工作区内 → 拒绝（K1）；
+  - B1 按脚本格式写下 `pass` 存档后，B2 → **允许**，工作区仍干净（K1）；
+  - 跳过 B2 直接跑 `B3-acceptance` → 拒绝（K3）；
+  - B1 的 `direct L2 | click` 为 `inconclusive` → `Verdict: fail`、写 `B-STOPPED`，再次启动 B1 被拒绝（K2）；
+  - B1 的点击走了 `delivery=pid` → `fail`（K2）。
+- 四个真机脚本都不再写仓库内的路径。B6 只由 `check-cu-v2-live.mjs --with-hid` 承担，HID 点击拆成两行（K4）。
+
+### 残留风险（不阻断）
+
+- “真人输入”行要求 `userEventCount` 增量不超过本步预算（默认 0）。第一个窗口在当前 helper 上，启动 fixture
+  副本和 HID 运行前后计数都保持 106；更早的 `runs/2026-11-06T1435-b1-four-attempts.md` 记过 `manageApps launch` +15。
+  以前者为准。万一不准，结果是该步 `fail` 并停止阶段，方向是安全的。
+- gate 读数和 fixture 副本写在 `~/cu-v2-test/runs/<stamp>`，不在 `--runs-dir` 里。不影响判定，复制存档时一并带上。
+- B2 的必需行只有一个 `observe` 单元格，`press` 的 `unknown` 单元格不会阻断 B2；所以 B2 通过并不证明 `press` 生效。
+- B4、B5 还没有脚本：下一个窗口最多跑到 `B3-acceptance`，B6 会被拒绝，这是有意的。
+- `SLEventPostToPid` 仍未在真机执行；H2 仍待用户决定（合入 `main` 前）。
+
+### 授权条件
+
+用户授权下一个窗口时，所有真机脚本都用 `--expect-commit bf7bd8e6d5c42a1a8adaf26853d673c3a6c23139`，
+同一个仓库外的 `--runs-dir`，以及用户给出的窗口开始时间和时长。离开前把输入法切到 ABC。
