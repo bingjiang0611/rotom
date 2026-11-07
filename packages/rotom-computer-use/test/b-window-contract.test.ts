@@ -1,0 +1,137 @@
+/**
+ * Review 6 (K2-K4): the rows a step cannot pass without.
+ *
+ * `Verdict: pass` used to mean only "no row says fail", so B1 could pass with its
+ * directed click `inconclusive` and open B2. These tests drive the per-step contracts,
+ * the delivery condition on B1, and the split between B3-live and B3-acceptance.
+ */
+import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import test from "node:test";
+
+import {
+	B_STEPS,
+	STEP_CONTRACT,
+	STEP_SCRIPTS,
+	evaluateStep,
+	writeRunArchive,
+} from "../scripts/lib/b-window.mjs";
+
+const HEAD = "1111111111111111111111111111111111111111";
+
+function makeDir(prefix = "cu-v2-b-contract-") {
+	return mkdtempSync(path.join(tmpdir(), prefix));
+}
+
+test("K2: B1 does not pass without a directed L2 click", () => {
+	const rows = [
+		{ area: "gate", action: "verdict", result: "pass", note: "minutes_left=40" },
+		{ area: "direct L2", action: "click", result: "inconclusive", note: "outcome=didnt delivery=pid" },
+		{ area: "helper", action: "still alive", result: "pass", note: "" },
+		{ area: "restore", action: "operator app", result: "pass", note: "" },
+		{ area: "run", action: "real user input", result: "pass", note: "" },
+	];
+	const verdict = evaluateStep({ step: "B1", rows });
+	assert.equal(verdict.verdict, "fail");
+	assert.match(verdict.blockers.join("\n"), /required row not passing: direct L2 \| click = inconclusive/);
+
+	// A `pass` row whose note does not show the directed transport is not enough either.
+	const wrongTransport = rows.map((row) => (row.action === "click" ? { ...row, result: "pass", note: "outcome=worked delivery=pid" } : row));
+	assert.match(evaluateStep({ step: "B1", rows: wrongTransport }).blockers.join("\n"), /required row lacks/);
+
+	const passing = rows.map((row) => (row.action === "click" ? { ...row, result: "pass", note: "outcome=worked delivery=l2" } : row));
+	assert.deepEqual(evaluateStep({ step: "B1", rows: passing }), { verdict: "pass", blockers: [] });
+});
+
+test("K2: the directed text row is required only on an ASCII input source", () => {
+	const base = [
+		{ area: "gate", action: "verdict", result: "pass", note: "" },
+		{ area: "direct L2", action: "click", result: "pass", note: "delivery=l2" },
+		{ area: "helper", action: "still alive", result: "pass", note: "" },
+		{ area: "restore", action: "operator app", result: "pass", note: "" },
+		{ area: "run", action: "real user input", result: "pass", note: "" },
+	];
+	const ime = [...base, { area: "environment", action: "input source", result: "inconclusive", note: "input method com.sogou" }];
+	assert.equal(evaluateStep({ step: "B1", rows: ime }).verdict, "pass");
+	const ascii = [...base, { area: "environment", action: "input source", result: "pass", note: "layout ABC" }, { area: "direct L2", action: "typeText", result: "skipped", note: "" }];
+	const verdict = evaluateStep({ step: "B1", rows: ascii });
+	assert.equal(verdict.verdict, "fail");
+	assert.match(verdict.blockers.join("\n"), /required row not passing: direct L2 \| typeText = skipped/);
+});
+
+test("K2: real user input blocks every step, even with no failing row", () => {
+	const rows = [
+		{ area: "gate", action: "verdict", result: "pass", note: "" },
+		{ area: "direct L2", action: "click", result: "pass", note: "delivery=l2" },
+		{ area: "helper", action: "still alive", result: "pass", note: "" },
+		{ area: "restore", action: "operator app", result: "pass", note: "" },
+		// The helper counted real events during the run: the operator came back.
+		{ area: "run", action: "real user input", result: "fail", note: "userEvents 10 → 14" },
+	];
+	const verdict = evaluateStep({ step: "B1", rows });
+	assert.equal(verdict.verdict, "fail");
+	assert.match(verdict.blockers.join("\n"), /run \| real user input = fail/);
+
+	// And a missing row is not "no input seen": it is an unproven step.
+	const without = rows.filter((row) => row.action !== "real user input");
+	assert.match(evaluateStep({ step: "B1", rows: without }).blockers.join("\n"), /required row missing: run \| real user input/);
+});
+
+test("K2/K4: B6 needs both HID rows and the restore, or it fails", () => {
+	const rows = [
+		{ area: "gate", action: "verdict", result: "pass", note: "" },
+		{ area: "act", action: "click went through HID", result: "pass", note: "delivery=hid" },
+		{ area: "act", action: "click took effect", result: "unknown", note: "outcome=unknown" },
+		{ area: "restore", action: "operator app", result: "pass", note: "" },
+		{ area: "run", action: "real user input", result: "pass", note: "" },
+	];
+	assert.match(evaluateStep({ step: "B6", rows }).blockers.join("\n"), /click took effect = unknown/);
+	const effects = rows.map((row) => (row.action === "click took effect" ? { ...row, result: "pass" } : row));
+	assert.equal(evaluateStep({ step: "B6", rows: effects }).verdict, "pass");
+});
+
+test("an archive names its blockers instead of leaving the reader to scan", () => {
+	const runsDir = makeDir();
+	try {
+		const rows = [
+			{ area: "gate", action: "verdict", result: "pass", note: "" },
+			{ area: "run", action: "real user input", result: "pass", note: "" },
+		];
+		const written = writeRunArchive({ runsDir, runName: "b2.md", title: "B2", step: "B2", commit: HEAD, rows });
+		assert.equal(written.verdict, "fail");
+		const text = readFileSync(written.path, "utf8");
+		assert.match(text, /^Verdict: fail$/m);
+		assert.match(text, /^Blockers: 2$/m);
+		assert.match(text, /an observe cell/);
+		assert.match(text, /operator app/);
+	} finally {
+		rmSync(runsDir, { recursive: true, force: true });
+	}
+});
+
+test("every scripted step declares the rows it cannot pass without", () => {
+	for (const [step, contract] of Object.entries(STEP_CONTRACT)) {
+		assert.ok(contract.length > 0, `${step} needs a contract`);
+		assert.ok(contract.some((row) => row.action === "real user input"), `${step} must judge real user input`);
+	}
+	assert.ok(STEP_CONTRACT.B1.some((row) => row.note instanceof RegExp), "B1 must demand the directed transport");
+});
+
+test("K3: B3-live and B3-acceptance judge different rows", () => {
+	const common = [
+		{ area: "gate", action: "verdict", result: "pass", note: "" },
+		{ area: "restore", action: "operator app", result: "pass", note: "" },
+		{ area: "run", action: "real user input", result: "pass", note: "" },
+	];
+	// A live check with no semantic action that passed is not a live check.
+	const live = [...common, { area: "act", action: "focus", result: "unknown", note: "outcome=unknown" }, { area: "background", action: "cursor unchanged", result: "pass", note: "" }, { area: "background", action: "frontmost app unchanged", result: "pass", note: "" }];
+	assert.match(evaluateStep({ step: "B3-live", rows: live }).blockers.join("\n"), /a semantic action/);
+	const livePass = [...live.map((row) => (row.action === "focus" ? { ...row, result: "pass" } : row))];
+	assert.equal(evaluateStep({ step: "B3-live", rows: livePass }).verdict, "pass");
+	// The acceptance run's evidence is its agents, so a live pass says nothing about it.
+	assert.match(evaluateStep({ step: "B3-acceptance", rows: livePass }).blockers.join("\n"), /an agent click/);
+	const acceptance = [...common, { area: "agent 1", action: "click", result: "pass", note: "" }];
+	assert.equal(evaluateStep({ step: "B3-acceptance", rows: acceptance }).verdict, "pass");
+});
