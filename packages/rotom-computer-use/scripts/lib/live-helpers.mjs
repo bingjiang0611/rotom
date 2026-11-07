@@ -8,14 +8,12 @@
  * user's session.
  */
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 
-import { finishStep } from "./b-window.mjs";
-
-// scripts/lib -> package -> packages -> repo root
-export const EVIDENCE_DIR = path.resolve(import.meta.dirname, "..", "..", "..", "..", "docs", "agent", "computer-use-v2", "evidence");
+import { writeRunArchive } from "./b-window.mjs";
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -77,7 +75,15 @@ function skip(prefix, reason) {
 	process.exit(0);
 }
 
-/** Rows plus a plaintext log; both are written to `evidence/` at the end. */
+/**
+ * Rows plus a plaintext log, written once at the end.
+ *
+ * Every file lands in the required `--runs-dir`, which `beginStep` has already proven to
+ * be outside the worktree (review 6 K1). The earlier version wrote `<name>.md` into
+ * `docs/.../evidence/` and an immutable copy under `evidence/runs/`, so a run either
+ * dirtied the tree or had to be committed - and committing moved HEAD off the frozen
+ * commit. There is no in-repository output any more.
+ */
 export function createRecorder() {
 	const rows = [];
 	const log = [];
@@ -91,53 +97,69 @@ export function createRecorder() {
 		failures() {
 			return rows.filter((row) => row.result === "fail").length;
 		},
+		/** Record a row and stop a live run when it failed. */
+		require(area, action, result, note) {
+			this.record(area, action, result, note);
+			return result;
+		},
 		/**
-		 * Writes the summary `<fileName>.md`, a plaintext log, and an immutable copy
-		 * under `runs/` that a document can cite by name. The summary is overwritten
-		 * every run, so only the `runs/` copy proves what a specific run saw.
+		 * Write the archive a later step reads, and finish the step in the same call so a
+		 * failure always writes `B-STOPPED` (K2/K3).
 		 */
-		writeEvidence({ fileName, title, intro = [], step, commit, runsDir = path.join(EVIDENCE_DIR, "runs") }) {
-			mkdirSync(EVIDENCE_DIR, { recursive: true });
+		writeEvidence({ runsDir, fileName, title, intro = [], step, commit, notes = [] }) {
+			if (!runsDir) throw new Error("writeEvidence needs the --runs-dir the step started with");
+			if (!step || !commit) throw new Error("writeEvidence needs the step and the frozen commit: an archive without them is a record, not permission");
 			const runName = `${runStamp()}-${fileName}.md`;
-			mkdirSync(runsDir, { recursive: true });
-			const failures = rows.filter((row) => row.result === "fail").length;
-			const table = [
-				"| Area | Check | Result | Note |",
-				"| --- | --- | --- | --- |",
-				...rows.map((row) => `| ${row.area} | ${row.action} | ${row.result} | ${row.note.replace(/\|/g, "\\|")} |`),
-			];
-			// These three lines are what the B-phase order check reads: without them an
-			// archive is a record, not permission for the next step.
-			const verdict = step && commit ? finishStep({ step, commit, dir: runsDir, failures, run: runName }) : undefined;
-			const body = [
-				`# ${title} (${new Date().toISOString()})`,
-				"",
-				`Rows: ${rows.length} · Failures: ${failures}`,
-				"",
-				...(step ? [`Step: ${step}`] : []),
-				...(commit ? [`Commit: ${commit}`] : []),
-				...(verdict ? [`Verdict: ${verdict}`] : []),
-				"",
-				`本次运行存档：\`runs/${runName}\``,
-				"",
-				...intro,
-				"",
-				...table,
-				"",
-				"## Log",
-				"",
-				"```",
-				...log,
-				"```",
-				"",
-			].join("\n");
-			writeFileSync(path.join(EVIDENCE_DIR, `${fileName}.md`), body);
-			writeFileSync(path.join(runsDir, runName), body);
-			writeFileSync(path.join(EVIDENCE_DIR, `${fileName}-${Date.now()}.log`), log.join("\n"));
-			if (failures > 0) process.exitCode = 1;
-			return { failures, runName, verdict };
+			const written = writeRunArchive({ runsDir, runName, title, step, commit, rows, log, intro, notes });
+			writeFileSync(path.join(runsDir, `${runStamp()}-${fileName}.log`), log.join("\n"));
+			if (written.verdict === "fail") {
+				process.exitCode = 1;
+				console.error(`[${fileName}] ${step} FAILED: ${written.blockers.join("; ")}`);
+				console.error(`[${fileName}] the phase is stopped: ${path.join(runsDir, "B-STOPPED")} - only the operator may delete it`);
+			}
+			return { ...written, runName };
 		},
 	};
+}
+
+/**
+ * Evidence can end up in a public repository, so the operator's home directory is
+ * written as `~`: run paths are useful for reproducing a run, the account name is not
+ * ours to publish.
+ */
+export function withoutHome(text) {
+	const home = homedir();
+	return home && home !== "/" ? String(text).split(home).join("~") : String(text);
+}
+
+/**
+ * Prove the operator did not touch the machine during the run (review 6 K2).
+ *
+ * `userEventCount` is the helper's own count of *real* events: it marks its synthetic
+ * posts, so growth means a person typed, clicked or scrolled. A frontmost app that the
+ * run neither started nor restored to is the second signal. Either one stops the phase -
+ * "the user came back" is exactly the condition the window is authorized under.
+ */
+export async function recordRealUserInput({ helper, backend, record, activityBefore, operatorPid, runPids = [], expectedEvents = 0, expectedNote = "" }) {
+	let after;
+	try {
+		after = await helper.command("userActivity", {});
+	} catch (error) {
+		record("run", "real user input", "fail", `the helper did not answer userActivity (${error instanceof Error ? error.message : String(error)}), so "no input" is unproven`);
+		return { result: "fail", gained: undefined };
+	}
+	const before = Number(activityBefore?.userEventCount);
+	const gained = Number(after.userEventCount) - before;
+	const front = await backend.getFrontmost().catch(() => undefined);
+	const allowedPids = [operatorPid, ...runPids].filter((pid) => typeof pid === "number");
+	const foreign = front && allowedPids.length > 0 && !allowedPids.includes(front.pid);
+	// `expectedEvents` is the budget this run's own simulator is allowed to spend (the
+	// acceptance run types into TextEdit on purpose). Anything above it is a person.
+	const pass = Number.isFinite(gained) && gained <= expectedEvents && !foreign;
+	const budget = expectedEvents > 0 ? ` of a ${expectedEvents}-event budget (${expectedNote || "this run's own simulator"})` : "";
+	const note = `userEvents ${Number.isFinite(before) ? before : "?"} → ${after.userEventCount} (${Number.isFinite(gained) ? (gained >= 0 ? `+${gained}` : String(gained)) : "?"})${budget}; frontmost=${front?.appName ?? "?"} pid=${front?.pid ?? "?"}${foreign ? " not started by this run" : ""}`;
+	record("run", "real user input", pass ? "pass" : "fail", note);
+	return { result: pass ? "pass" : "fail", gained, foreign: Boolean(foreign), note };
 }
 
 /**

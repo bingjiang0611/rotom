@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { classifyActFailure, leaseForRestore, restoreOperatorApp, restoreOutcome } from "../scripts/lib/live-helpers.mjs";
+import { classifyActFailure, leaseForRestore, recordRealUserInput, restoreOperatorApp, restoreOutcome } from "../scripts/lib/live-helpers.mjs";
 
 function recorder() {
 	const rows = [];
@@ -94,4 +94,56 @@ test("an operator app with no window is a failure, not a silent skip", async () 
 	assert.equal(result.result, "fail");
 	assert.equal(rows.at(-1).result, "fail");
 	assert.match(rows.at(-1).note, /no window/);
+});
+
+test("K2: growth in the helper's real-event count is the operator coming back", async () => {
+	const { rows, record } = recorder();
+	const helper = { command: async () => ({ userEventCount: 14 }) };
+	const backend = { getFrontmost: async () => OPERATOR };
+	const saw = await recordRealUserInput({ helper, backend, record, activityBefore: { userEventCount: 10 }, operatorPid: OPERATOR.pid, runPids: [] });
+	assert.equal(saw.result, "fail");
+	assert.equal(saw.gained, 4);
+	assert.equal(rows.at(-1).area, "run");
+	assert.equal(rows.at(-1).action, "real user input");
+	assert.match(rows.at(-1).note, /\+4/);
+});
+
+test("K2: an app the run never started counts as the operator, even with no events", async () => {
+	const { rows, record } = recorder();
+	const helper = { command: async () => ({ userEventCount: 10 }) };
+	const backend = { getFrontmost: async () => ({ appName: "Mail", pid: 4242 }) };
+	const saw = await recordRealUserInput({ helper, backend, record, activityBefore: { userEventCount: 10 }, operatorPid: OPERATOR.pid, runPids: [98067] });
+	assert.equal(saw.result, "fail");
+	assert.match(rows.at(-1).note, /not started by this run/);
+});
+
+test("K2: an unanswerable activity probe fails rather than passing", async () => {
+	const { rows, record } = recorder();
+	const helper = { command: async () => { throw new Error("helper_error"); } };
+	const backend = { getFrontmost: async () => OPERATOR };
+	const saw = await recordRealUserInput({ helper, backend, record, activityBefore: { userEventCount: 10 }, operatorPid: OPERATOR.pid });
+	assert.equal(saw.result, "fail");
+	assert.match(rows.at(-1).note, /unproven/);
+});
+
+test("K2: an idle run with the operator's app in front passes", async () => {
+	const { rows, record } = recorder();
+	const helper = { command: async () => ({ userEventCount: 10 }) };
+	const backend = { getFrontmost: async () => ({ appName: "CU Fixture", pid: 98067 }) };
+	const saw = await recordRealUserInput({ helper, backend, record, activityBefore: { userEventCount: 10 }, operatorPid: OPERATOR.pid, runPids: [98067] });
+	assert.equal(saw.result, "pass");
+	assert.equal(rows.at(-1).result, "pass");
+});
+
+test("K2: a run whose own simulator spent the events it declared still passes", async () => {
+	const { rows, record } = recorder();
+	// The acceptance run types on purpose: its log is the budget, so growth up to it is
+	// the run's own input and a person would show up as growth beyond it.
+	const helper = { command: async () => ({ userEventCount: 320 }) };
+	const backend = { getFrontmost: async () => ({ appName: "CU Fixture", pid: 98067 }) };
+	const saw = await recordRealUserInput({ helper, backend, record, activityBefore: { userEventCount: 10 }, operatorPid: OPERATOR.pid, runPids: [98067], expectedEvents: 400, expectedNote: "the simulator's own log" });
+	assert.equal(saw.result, "pass");
+	assert.match(rows.at(-1).note, /of a 400-event budget/);
+	const over = await recordRealUserInput({ helper: { command: async () => ({ userEventCount: 500 }) }, backend, record, activityBefore: { userEventCount: 10 }, operatorPid: OPERATOR.pid, runPids: [98067], expectedEvents: 400 });
+	assert.equal(over.result, "fail");
 });
