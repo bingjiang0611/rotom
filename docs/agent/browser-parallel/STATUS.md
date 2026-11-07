@@ -418,6 +418,17 @@
   - 注入文件全部还原，`grep FAULT-INJECTION rotom/` 无命中。
 - **未验证**：Linux 实机。`linux` 分支仍只在本机用“强制 true + 故障注入”验证；评审第 4 轮已确认 Linux 121/121，本轮改动不回退任何断言，只是把两种如实超时都算通过并补回滚动恢复检查。
 
+### 安装器漏拷 `platform-paths.mjs`：native host 装好就起不来（本地安装时发现）
+
+- **症状**：本地 `node rotom/extensions/browser/install-chrome-relay.mjs install` 报 `{"status":"installed","reloadNeeded":true}`，`status` 四项全 true，但 Chrome 刷新扩展后 `browser_inspect tabs` 一直报本地 socket 缺失，`pgrep native-host.mjs` 无进程。直接跑安装后的 launcher 才看到真因：
+  `Error [ERR_MODULE_NOT_FOUND]: Cannot find module '…/browser-relay/current/platform-paths.mjs' imported from …/current/native-host.mjs`。
+- **根因**：`componentFiles()` 只 `visit("native-host.mjs")` + `visit("chrome-extension")`，而 `native-host.mjs` 第 7 行 `import … from "./platform-paths.mjs"`。该 import 是一次重构引入的（relay 目录/锁/socket 路径下沉到 `platform-paths.mjs`），当时没有同步安装器的拷贝清单，于是**每一次全新安装都产出起不来的 host**。`installedState()` 的条目白名单也只有两项，所以 `status` 一直报 `ready`，检测不到缺文件。
+- **影响面**：只影响“通过安装器把组件落到 `current/`”的路径。e2e harness 直接跑仓库里的 `native-host.mjs`，`component-storage.test.mjs` 虽然把 `platform-paths.mjs` 拷进了假 release，却从没运行过**安装后**的 host，所以全量测试一直是绿的。
+- **修复**：`componentFiles()` 增加 `visit("platform-paths.mjs")`；条目白名单提取为 `INSTALLED_COMPONENT_ENTRIES = ["chrome-extension", "native-host.mjs", "platform-paths.mjs"]`，`installedState()` 用它判定；旧的两条目安装现在报 `invalid`，重跑 `install` 即原子修复。
+- **回归用例**：`component-storage.test.mjs` 新增一段——在独立的短路径 HOME 里安装，然后**直接运行安装后的** `current/native-host.mjs`（保持 stdin 打开），断言 stderr 不含 `ERR_MODULE_NOT_FOUND` 且 15 s 内发布 `relay.sock`。对照实验：把 `visit("platform-paths.mjs")` 删掉后该用例恰好以 `Cannot find module` 失败。
+- **验证**：扩展侧 `.test.mjs` **219/219**、Pi 侧 `.test.ts` **91/91**；`component-storage` 2/2（含新用例）；本机真实安装后 `current/` 出现三个条目，host 能自行发布 socket。未跑 e2e：harness 不走安装器，该改动在 e2e 路径上无行为差异（如需可单独跑一次全量）。
+- **接近上限**：`install-chrome-relay.mjs` 现在 19 7xx bytes，距 `.githooks/pre-commit` 的 20 000 字节单文件上限只剩约 200 字节（本次已把注释压到一行才过门禁）。下次要在这个文件里加实质代码时，按“按责任拆分”把组件物化（`componentFiles()` / `digestFiles()` / `materialize()`）抽成 `component-files.mjs`，并同步 `product-config.mjs` 的 `requiredFiles` 与打包清单——不要靠继续压注释过门禁。
+
 ### 性能基线（T26）
 
 新增两个产物：`rotom/runtime/e2e-browser/bench.mjs`（与 e2e 共用隔离 harness 和 fixture，只报数字、不做断言）和 [performance-baseline.md](performance-baseline.md)（完整基线表、复测命令、回归判据、已知限制）。根 `CLAUDE.md` 已把它列为 Browser 性能改动的对照依据。
