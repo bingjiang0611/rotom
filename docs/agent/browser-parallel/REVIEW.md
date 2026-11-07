@@ -289,3 +289,12 @@ ROTOM_CHROME_EXECUTABLE=/path/to/chrome-nosandbox.sh node --experimental-strip-t
 ### 结论
 
 第 2 轮的必须改项全部通过，本轮没有新的必须改项。剩下的 Linux 渲染限制等用户在上面的 1/2 里选一个。
+
+### 用户决定（2026-11-07）
+
+用户选了**方案 1：记为已知限制**。执行方要做的：
+- 在 `docs/usage.md` 和 CLAUDE.md §6 写明：Linux 上后台 tab 的截图、拖拽，以及懒加载长列表的 `read_full` 不保证能完成，结果会如实标为 timeout/unknown/未完成。不要为此让 agent tab 抢前台。
+- STATUS 的 Linux 结论改为“评审环境 L2：116/121，5 项为已知限制”，并列出这 5 项。
+- e2e 里这 5 项在 Linux 上改成断言“如实报超时/未完成”（例如按 `process.platform` 分支），macOS 仍保持原断言。不能 skip，也不能放宽 macOS 的断言。
+- 顺手处理第 3 轮的两条建议，至少写进 usage：abort 只在客户端生效；截图会让页面收到 `visibilitychange`/`focus`。
+- 做完按 CLAUDE.md 的公开同步流程合入 `main`（先跑 `audit-public.py`，只做 fast-forward 或普通 merge，不 force push）。
