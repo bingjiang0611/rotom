@@ -114,6 +114,10 @@ node --experimental-strip-types scripts/cu-v2-l2-check.mjs --fixture ~/cu-v2-tes
 
 窗口结束后（在窗口之外）：把 `--runs-dir` 里的存档复制进 `evidence/runs/`，用 `~` 替换家目录路径，提交并推送。窗口内不提交、不改代码。
 
+**注意（实测）**：窗口内连参数写错也会终止阶段。少了 `--window-start` 的运行会写一份 `gate | arguments = fail`
+的存档并留下 `B-STOPPED`，下一次调用在门禁之前就被拒。这是有意的：一次授权只对应一次按计划进行的运行，
+拒绝启动也算没按计划跑起来。所以命令要在窗口开始前就对好，删标记只能由用户执行。
+
 **用户离开前把输入法切到 ABC**：不是 ASCII 布局时，直连 L2 的 `typeText` 会被脚本跳过，只剩
 `click` 一行能证明投递。
 
