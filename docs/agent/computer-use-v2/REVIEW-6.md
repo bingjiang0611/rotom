@@ -90,3 +90,76 @@
 1. 只做代码和测试，不跑真机：P1 的四条硬约束、P2、P3、P4，各自补 dry-run 或单元测试。
 2. 更新 STATUS-2：把 B2、B3、B6 标为“记录，非证据”，B1 为有效失败。
 3. 推送后报告最终提交的 SHA。审核者确认后，用户在下一次授权里给出这个 SHA 作为 `--expect-commit`。
+
+## 复核（2026-11-07，`c5df4ba..ce9c568`）
+
+结论：**`ce9c568` 不能作为冻结提交。** P1 的设计（冻结提交、`B-STOPPED`、固定顺序）是对的，P2、P3 也接受；
+但 K1 让 B1 之后的任何一步都不可能在窗口内开始，K2、K3 让“失败即停”仍有漏洞。
+
+审核者复现：干净 worktree 连跑 2 次，每次 162 项，161 通过、0 失败、1 跳过；dry run 13 项、0 失败、3 跳过。
+
+### K1（高，阻断）：B1 写下存档后，B2 永远无法开始
+
+`RUNS_DIR` 是 `docs/agent/computer-use-v2/evidence/runs`，在 git 工作区里面。各脚本还会覆盖受版本管理的
+`evidence/l2-check.md`、`compat-matrix.md`、`live-check.md`，并写 `.log`。`requireFrozenCommit` 把未跟踪文件
+也算作“不干净”，提交存档又会让 `HEAD` 偏离冻结提交，所以两条路都走不通。
+
+审核者在 `ce9c568` 的 detached worktree 上，用真实 `git` 和真实 `b-window.mjs` 复现：
+
+```
+before B1:     B1 ALLOWED
+after B1 pass: B2 REFUSED: the worktree is not clean (1 changed path(s), first: ?? docs/agent/computer-use-v2/evidence/runs/…-l2-check.md)
+```
+
+单元测试没有发现，是因为它们注入了假的 `exec`。
+
+修法：窗口内的一切输出（存档、日志、gate JSON、`B-STOPPED`、汇总表）都写到仓库外的目录。
+用必填参数 `--runs-dir <绝对路径>` 指定，路径在 git 工作区之内就拒绝运行。窗口结束后，执行方单独一步把存档
+复制进 `evidence/runs/` 并提交。补一条**用真实 `git`** 的测试：在临时目录 `git init`、提交一次，
+跑 `beginStep B1` → `finishStep pass`（写存档）→ `beginStep B2`，断言 B2 被允许。
+
+### K2（高）：B1 可以在没有证明 L2 的情况下判 `pass`
+
+`finishStep` 只数 `fail` 行。直连 L2 的行在结果不是 `worked` 时记为 `inconclusive`（`scripts/lib/l2-modes.mjs:75`），
+所以一次 L2 点击返回 `didnt`/`unknown` 的 B1 仍是 `Verdict: pass`，并会放行 B2。B1 存在的意义恰恰是这一行。
+
+同类问题：`user events exclude agent input` 在运行中出现真人输入时记 `inconclusive`
+（`check-cu-v2-live.mjs:230`），不会停止阶段，但这正是“用户回来了”的信号。
+
+修法：每一步声明自己的**必需行**，只有必需行全部 `pass` 才算 `pass`；必需行出现 `inconclusive` 或 `skipped`
+一律按 `fail` 处理并写 `B-STOPPED`。至少包括：
+
+- B1：`direct L2 | click` 必须 `pass` 且 `delivery=l2`；ASCII 输入源时 `direct L2 | typeText` 也必需，
+  非 ASCII 时允许 `skipped`。
+- 任何一步出现真人输入（`userEventCount` 增长，或前台切到不是本次运行启动的 App）都是 `fail`。
+
+各补一条测试。
+
+### K3（中）：acceptance 不写结论，B3 由一个脚本就能放行
+
+`cu-v2-acceptance.mjs` 调了 `beginStep`，却没有调 `finishStep`：它失败时既不写 `Verdict:`，也不写 `B-STOPPED`。
+live check 和 acceptance 又都声明为 B3，`findPassingRun` 只要找到一份 B3 `pass` 就放行 B4。
+
+修法：acceptance 写 `Step/Commit/Verdict` 并调 `finishStep`；B3 拆成两个子步骤（例如 `B3-live`、`B3-acceptance`），
+两份都在同一提交上 `pass` 才放行下一步。
+
+### K4（低）
+
+- 两个脚本都声明 B6（`cu-v2-l2-check.mjs --with-hid` 和 `check-cu-v2-live.mjs --with-hid`），`STEP_SCRIPTS`
+  写的是前者，第一个窗口跑的是后者。只保留一个，另一个的 `--with-hid` 不再算作 B6。
+- P4 的 HID 点击仍是一行：拆成“走了 HID”（`pass`/`fail`）和“点击生效”（如实记 `outcome`）。fixture 已经把按钮
+  结果写进 `accessibilityValue`，现在可以读回判定了。
+
+### 接受的部分
+
+- P1：`--expect-commit` 必填、工作区必须干净、`HEAD` 必须等于该提交；`B-STOPPED` 在门禁之前检查，只能由用户删除；
+  B4、B5 没有脚本时阻断其后所有步骤。
+- P2：恢复走带租约的 `focusWindow`，记录租约状态（`signed`/`unverified`/`unavailable`），不再吞错误，
+  前台没回到操作员的 App 就判 `fail`。
+- P3：fixture 只在启动时激活一次，矩阵恢复后读回前台。
+- STATUS-2 把 B2、B3、B6 标为“记录，非证据”，B1 为有效失败；存档已改名。
+
+### 下一步
+
+执行方修 K1–K4，只做代码和测试，不跑真机，报告新的最终 SHA。审核者确认后，用户以那个 SHA 授权下一个窗口。
+注意：在 B4、B5 有脚本之前，下一个窗口最多只能跑到 B3。
