@@ -184,3 +184,6 @@ dry run 新增三条检查（`createAlive` 接线、bundle 键集、计数判定
 和编译目标使用（两者不可能再漂移）；builder 编译后用 `otool -l` 回读 `minos`，不一致直接失败退出。
 重新编译后 `minos 14.0`、plist 与旧 bundle 完全一致。201 项测试通过、dry run 23 项 0 失败。
 **仍未验证**：这个 bundle 能不能真的启动——启动 App 不在本轮授权内。
+
+第 7 轮与第 8 轮（T1–T3）的执行细节移到 [STATUS-2-r8.md](STATUS-2-r8.md)：那边写假 backend 注入点、
+四种执行情形、控制实验和归因环的两条新规则。

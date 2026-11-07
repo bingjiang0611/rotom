@@ -184,17 +184,17 @@ B1 结果（[存档](evidence/runs/2026-11-06T2240-b1-directed-l2.md)）：19 �
 **效果未确认**：两次的 `outcome` 都是 `unknown`，读回也没能证明点击到达 fixture。所以只能说
 “真机调用两次、helper 未崩、效果未确认”，不能写成“走通”或“已验证”。这个说法同样适用于根 `CLAUDE.md` §4。
 
-## 第 7 轮审核（R1、R2，只做代码与测试，未跑真机）
+## 第 7 轮（R1、R2）与第 8 轮（T1–T3）：只做代码与测试，未跑真机
 
-| 项 | 改动 |
+| 轮次 | 改动 |
 | --- | --- |
-| R1 | fixture 的按钮结果改成单调计数 `clicks: N`（同时写进 `AXValue`），`judgeDirectedClick` 改为 `after === before + 1`：不变 → `fail`，加一 → `pass`，加二 → `unknown`；AX 那一行也用同一读回判定（`scripts/lib/l2-modes.mjs`、`native/macos-fixture/FixtureApp.swift`） |
-| R2 第 1 步 | helper 增加有界事件来源环（512 条，只记时间/类型/来源 pid/来源 state/是否带标记，不记键码、字符、坐标），`--activity-self-test` 自测上限与字段；脚本按来源分组写进存档，附 `fromThisRun`/`fromElsewhere` 汇总，**K2 判定一个字没改**（`scripts/lib/event-sources.mjs`） |
-| R2 B0 | 新增只出报告的 B0 归因模式：`beginStep` 允许它跳过前序、`writeRunArchive({reportOnly})` 不写 `Verdict:`、不写 `B-STOPPED`、不放行任何步骤；`B_STEPS` 保持不变，所以 B1 不依赖 B0 |
+| R1 | fixture 按钮结果改成单调计数 `clicks: N`，`judgeDirectedClick` 改为 `after === before + 1`：不变 `fail`、加一 `pass`、加二 `unknown` |
+| R2 | helper 有界事件来源环（512 条，只记时间/类型/来源/是否带标记）；脚本按来源分组写进存档，**K2 判定一个字没改**；新增只出报告的 B0 归因模式（不写 `Verdict:`、不写 `B-STOPPED`、不放行任何步骤） |
+| T1 | 加只用于测试的假 backend 注入点 `PI_CU_FAKE_BACKEND`（与 `--expect-commit` 同时出现即退出 2），dry run 现在把脚本当子进程真跑一遍 B0、B1 通过、B1 失败、归因缺环四种情况 |
+| T2 | helper 不返回 `recentEvents`、或环内条数与计数差值不一致 → 写 `fail` 行，不再汇总成 `unmarked=0` |
+| T3 | fixture 写入源码 SHA-256 并在启动任何 App 前比对；helper 缺 `recentEventLimit` 或协议不符就退出 2，且不写 `B-STOPPED` |
 
-验证：199 项测试全通过、dry run 23 项 0 失败、Swift `--activity-self-test` 5 项通过，fixture 与 helper
-重新编译（签名身份不变）。第一次 B0 窗口（02:53）暴露两处自身缺陷并已修，见 rounds。R3 的 `--runs-dir`
-由用户指定，留给下一个窗口执行。
+窗口账目在 [STATUS-2-rounds.md](STATUS-2-rounds.md)，T1–T3 的执行细节与控制实验在 [STATUS-2-r8.md](STATUS-2-r8.md)。
 
 ## 需要审核者回答的问题
 
