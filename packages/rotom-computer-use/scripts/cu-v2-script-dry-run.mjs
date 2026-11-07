@@ -19,6 +19,7 @@ import path from "node:path";
 import { B_STEPS, REPORT_ONLY_STEPS, STEP_CONTRACT, STEP_SCRIPTS, evaluateStep, finishStep, readStopMarker, requirePreviousStepsPassed } from "./lib/b-window.mjs";
 import { attributionRows } from "./lib/event-sources.mjs";
 import { fixtureChecks } from "./lib/dry-run-fixture.mjs";
+import { executionChecks } from "./lib/dry-run-exec.mjs";
 import { FIXTURE_BUNDLE_PREFIX, disposeFixtureRun, ensureFixtureWindow, isFixtureBundleId, prepareFixtureRun } from "./lib/fixture.mjs";
 import { buildDirectL2Request, isDirectL2 } from "./lib/l2-direct.mjs";
 import { classifyActFailure } from "./lib/live-helpers.mjs";
@@ -123,7 +124,7 @@ await check("every live script is frozen, stops on one failure and keeps the ord
 		assert.match(source, /--expect-commit/, `${name} must require the frozen commit`);
 		// Either the script calls `finishStep` itself (matrix, l2 check, live check) or it
 		// hands the step to the shared recorder, which finishes it (acceptance).
-		assert.match(source, /finishStep\(|writeRunArchive\(|step: frozen\?\.step/, `${name} must record a verdict and stop on failure`);
+		assert.match(source, /finishStep\(|writeRunArchive\(|writeEvidence\(|step: frozen\?\.step/, `${name} must record a verdict and stop on failure`);
 		// The `Step:`/`Commit:`/`Verdict:` lines are rendered in one place now, so a script
 		// either writes the archive through `writeRunArchive` or hands its step to the
 		// shared recorder.
@@ -250,7 +251,7 @@ await check("R2: the attribution rows report and never judge", () => {
 	assert.deepEqual([...new Set(rows.map((row) => row.result))], ["recorded"], "a report row is neither pass nor fail");
 	assert.match(rows.at(-1).note, /K2 unchanged/, "the K2 rule was not widened");
 	const script = readFileSync(path.join(import.meta.dirname, "cu-v2-l2-check.mjs"), "utf8");
-	assert.match(script, /attributionRows\(/, "the live script writes the report into its archive");
+	assert.match(script, /recordAttribution\(/, "the live script writes the report into its archive");
 	return "grouped rows + summary";
 });
 
@@ -259,7 +260,10 @@ await check("R2: B0 reports without authorizing anything", () => {
 	assert.ok(!B_STEPS.includes("B0"), "B0 is not part of the ladder, so B1 cannot depend on it");
 	const script = readFileSync(path.join(import.meta.dirname, "cu-v2-l2-check.mjs"), "utf8");
 	assert.match(script, /--b0-attribution/, "the L2 check owns the B0 mode");
-	assert.match(script, /reportOnly: frozen\.reportOnly === true/, "the archive is written report-only");
+	// The archive writer moved to its own module when the script had to stay under the
+	// reviewed size; the property belongs to that writer, wherever it lives.
+	const evidence = readFileSync(path.join(import.meta.dirname, "lib", "l2-evidence.mjs"), "utf8");
+	assert.match(evidence, /reportOnly: frozen\.reportOnly === true/, "the archive is written report-only");
 	const window = readFileSync(path.join(import.meta.dirname, "lib", "b-window.mjs"), "utf8");
 	assert.match(window, /reportOnly\s*\n?\s*\? \{ verdict: "report"/, "a report writes no verdict");
 	return "no Verdict, no marker, no permission";
@@ -305,6 +309,8 @@ await check("a helper refusal is a refused cell, not a failed one", () => {
 
 
 for (const { name, run } of fixtureChecks) await check(name, run);
+// Review 8 T1: these spawn the script itself, so a defect in its main path fails here.
+for (const { name, run } of executionChecks) await check(name, run);
 
 const skipped = [
 	["real L2 delivery", "needs macOS, an isolated helper and a real fixture window"],

@@ -129,3 +129,31 @@ export function attributionRows(events = [], { processName = () => undefined, ru
 	});
 	return rows;
 }
+
+/**
+ * The ring has to explain the counters, not merely be empty (review 8, T2).
+ *
+ * An older helper answers `userActivity` without `recentEvents`, and summarising that as
+ * `unmarked=0` looked exactly like "nothing happened" - which is the one thing a B0 run must
+ * never confuse. A missing ring is a failure, and so is a ring whose in-window record count
+ * disagrees with what the counters say happened (overflow or loss).
+ */
+export function recordAttribution({ activityBefore, activityAfter, runStartedAt, runPids = [], helperPid, processName, record }) {
+	const after = activityAfter ?? {};
+	const records = Array.isArray(after.recentEvents) ? after.recentEvents : undefined;
+	if (!records) {
+		record("attribution", "ring", "fail", "helper did not return recentEvents; nothing here can be attributed");
+		return { ok: false, rows: 0, expected: undefined };
+	}
+	const counted = (value) => Number(value ?? 0);
+	const expected = counted(after.userEventCount) + counted(after.agentEventCount) - counted(activityBefore?.userEventCount) - counted(activityBefore?.agentEventCount);
+	const inWindow = records.filter((event) => Number(event?.at) >= runStartedAt);
+	const rows = attributionRows(inWindow, { processName, runPids, helperPid });
+	for (const row of rows) record(row.area, row.action, row.result, row.note);
+	if (inWindow.length !== expected) {
+		record("attribution", "ring complete", "fail", `ring holds ${inWindow.length} records for this run, the counters moved by ${expected}`);
+		return { ok: false, rows: inWindow.length, expected };
+	}
+	record("attribution", "ring complete", "pass", `${inWindow.length} records match the counters`);
+	return { ok: true, rows: inWindow.length, expected };
+}

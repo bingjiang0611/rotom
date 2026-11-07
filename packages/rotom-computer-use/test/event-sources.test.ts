@@ -14,6 +14,7 @@ import {
 	attributionRows,
 	eventTypeName,
 	groupEventSources,
+	recordAttribution,
 	resolveProcessNames,
 	summarizeAttribution,
 } from "../scripts/lib/event-sources.mjs";
@@ -94,4 +95,67 @@ test("the record schema is metadata only", () => {
 	for (const forbidden of ["keyCode", "characters", "x", "y"]) {
 		assert.ok(!EVENT_SOURCE_FIELDS.includes(forbidden));
 	}
+});
+
+/** A run whose counters say `counted` events happened but whose ring holds `records`. */
+function ringCase({ records, counted, limit = 512 }) {
+	const collected: { area: string; action: string; result: string; note: string }[] = [];
+	const activity = {
+		userEventCount: counted,
+		agentEventCount: 0,
+		...(limit === undefined ? {} : { recentEventLimit: limit }),
+		...(records === undefined ? {} : { recentEvents: records }),
+	};
+	const result = recordAttribution({
+		activityBefore: { userEventCount: 0, agentEventCount: 0 },
+		activityAfter: activity,
+		runStartedAt: 1_000,
+		processName: () => "bridge",
+		helperPid: 4242,
+		record: (area: string, action: string, result: string, note: string) => collected.push({ area, action, result, note }),
+	});
+	return { collected, result };
+}
+
+test("T2: a helper that returns no ring is a failure, not zero events", () => {
+	const { collected, result } = ringCase({ records: undefined, counted: 0 });
+	assert.equal(result.ok, false);
+	const ring = collected.find((row) => row.action === "ring");
+	assert.equal(ring?.result, "fail");
+	assert.match(ring?.note ?? "", /did not return recentEvents/);
+	// The dangerous shape: a summary that reads "nothing happened" when nothing was seen.
+	assert.equal(collected.some((row) => row.action === "summary"), false);
+});
+
+test("T2: a ring that disagrees with the counters is a failure", () => {
+	const records = [{ at: 1_001, type: 1, pid: 0, stateId: 1, agent: false }];
+	const { collected, result } = ringCase({ records, counted: 3 });
+	assert.equal(result.ok, false);
+	assert.equal(result.expected, 3);
+	assert.equal(result.rows, 1);
+	const reconciliation = collected.find((row) => row.action === "ring complete");
+	assert.equal(reconciliation?.result, "fail");
+	assert.match(reconciliation?.note ?? "", /ring holds 1 records for this run, the counters moved by 3/);
+});
+
+test("T2: matching records reconcile and the summary is only a report", () => {
+	const records = [
+		{ at: 1_001, type: 1, pid: 0, stateId: 1, agent: false },
+		{ at: 1_002, type: 1, pid: 5150, stateId: 1, agent: true },
+	];
+	const { collected, result } = ringCase({ records, counted: 2 });
+	assert.equal(result.ok, true);
+	assert.equal(collected.find((row) => row.action === "ring complete")?.result, "pass");
+	const summary = collected.find((row) => row.action === "summary");
+	assert.equal(summary?.result, "recorded");
+	assert.match(summary?.note ?? "", /K2 unchanged/);
+});
+
+test("T2: events from before the run started do not count towards the reconciliation", () => {
+	const records = [
+		{ at: 999, type: 1, pid: 0, stateId: 1, agent: false },
+		{ at: 1_001, type: 1, pid: 0, stateId: 1, agent: false },
+	];
+	const { result } = ringCase({ records, counted: 1 });
+	assert.equal(result.ok, true, "an older record must not be read as this run's event");
 });

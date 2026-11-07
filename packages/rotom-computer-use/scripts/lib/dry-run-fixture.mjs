@@ -67,6 +67,7 @@ export const fixtureChecks = [
 			const builder = read("scripts", "build-fixture.mjs");
 			assert.match(builder, /-parse-as-library/, "@main needs a library compile");
 			assert.match(builder, /PkgInfo/, "the known-good bundle shipped one");
+			assert.match(builder, /source\.sha256/, "the bundle records which source it came from");
 			// A binary built without -target wants the SDK's macOS, not this one; dyld then
 			// refuses it and LaunchServices says only "a miscellaneous error occurred".
 			assert.match(builder, /-target.*arm64-apple-macos/, "the deployment target must be pinned");

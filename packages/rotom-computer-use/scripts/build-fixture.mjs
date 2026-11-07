@@ -18,6 +18,7 @@ import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:
 import path from "node:path";
 
 import { FIXTURE_MINIMUM_MACOS, fixtureInfoPlist, parseBuildVersionMinos } from "./lib/fixture.mjs";
+import { sha256Hex } from "./lib/l2-env.mjs";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 
@@ -62,6 +63,12 @@ if (minos !== FIXTURE_MINIMUM_MACOS) {
 	console.error(`built binary wants macOS ${minos ?? "?"}, expected ${FIXTURE_MINIMUM_MACOS}; pass -target so dyld can load it`);
 	process.exit(1);
 }
+
+// Review 8 T3: the bundle has to prove which source it came from, so the live script can
+// refuse a stale one before it launches anything. A file, not a plist key: the Info.plist
+// must stay identical to the bundle that is known to launch.
+mkdirSync(path.join(bundlePath, "Contents", "Resources"), { recursive: true });
+writeFileSync(path.join(bundlePath, "Contents", "Resources", "source.sha256"), `${sha256Hex(readFileSync(sourcePath))}\n`);
 
 const identity = argument("--sign-identity") ?? process.env.PI_CU_FIXTURE_SIGN_IDENTITY;
 if (identity) {

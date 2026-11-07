@@ -38,18 +38,24 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { pathToFileURL } from "node:url";
 
 import { inputSourceInfo, recordRealUserInput, restoreOperatorApp, runStamp, withoutHome } from "./lib/live-helpers.mjs";
-import { StepRefused, beginStep, writeRunArchive } from "./lib/b-window.mjs";
+import { REPORT_ONLY_STEPS, StepRefused, beginStep, requireNoStopMarker, requireRunsDir, writeRunArchive } from "./lib/b-window.mjs";
 import { ensureFixtureWindow, launchFixture } from "./lib/fixture.mjs";
 import { GateHold, requireGate } from "./lib/gate.mjs";
+import { driveListedApps } from "./lib/l2-apps.mjs";
+import { writeEvidence } from "./lib/l2-evidence.mjs";
 import { disposeFixtureRun, isFixtureBundleId, prepareFixtureRun } from "./lib/fixture.mjs";
-import { attributionRows, resolveProcessNames } from "./lib/event-sources.mjs";
+import { recordAttribution, resolveProcessNames } from "./lib/event-sources.mjs";
+import { checkFixtureDigest, checkHelperSupport } from "./lib/l2-env.mjs";
 import { createAlive, createProbe, fixtureRef, wireRefByRole } from "./lib/l2-probe.mjs";
 import { fixtureClickCount, runDirectL2 } from "./lib/l2-modes.mjs";
 
 /** `scripts/` -> `packages/rotom-computer-use` -> `packages` -> repository root. */
 const REPO_ROOT = path.resolve(import.meta.dirname, "..", "..", "..");
+/** The package this script ships in: the fixture source it was built from lives here. */
+const PACKAGE_ROOT = path.resolve(import.meta.dirname, "..");
 /** Set by `beginStep`: the frozen commit this run is evidence about, and where it writes. */
 let frozen;
 const rows = [];
@@ -70,8 +76,15 @@ function disabled(reason) {
 	process.exit(0);
 }
 
-if (process.platform !== "darwin") disabled("not macOS");
-if ((process.env.PI_CU_LIVE ?? "") !== "1") disabled("PI_CU_LIVE is not 1");
+// Review 8 T1: the dry run executes this script through a fake backend. Refused together
+// with `--expect-commit`, so a fake run can never pass for evidence about a frozen commit.
+const fakeBackend = process.env.PI_CU_FAKE_BACKEND;
+if (fakeBackend && process.argv.includes("--expect-commit")) {
+	console.error("[cu-v2 l2] PI_CU_FAKE_BACKEND with --expect-commit is refused: a fake run is not evidence");
+	process.exit(2);
+}
+if (!fakeBackend && process.platform !== "darwin") disabled("not macOS");
+if (!fakeBackend && (process.env.PI_CU_LIVE ?? "") !== "1") disabled("PI_CU_LIVE is not 1");
 
 const fixturePath = argument("--fixture");
 if (!fixturePath || !existsSync(fixturePath)) disabled("pass --fixture <path to the built fixture app>");
@@ -97,9 +110,12 @@ if (directL2 && !process.env.PI_CU_L2_SOCKET) {
 	record("helper", "direct L2 socket", "pass", process.env.PI_CU_SOCKET_PATH);
 }
 
-const { macosHelper, HELPER_PROTOCOL_VERSION } = await import("../src/platform/macos/helper.ts");
-const { macosBackend } = await import("../src/platform/macos/backend.ts");
-const { L2_COMPATIBLE_BUNDLE_IDS } = await import("../src/policy/l2-compat.ts");
+const fake = fakeBackend ? await import(pathToFileURL(path.resolve(fakeBackend)).href) : undefined;
+const { macosHelper, HELPER_PROTOCOL_VERSION } = fake
+	? { macosHelper: fake.helper, HELPER_PROTOCOL_VERSION: fake.helperProtocolVersion }
+	: await import("../src/platform/macos/helper.ts");
+const { macosBackend } = fake ? { macosBackend: fake.backend } : await import("../src/platform/macos/backend.ts");
+const { L2_COMPATIBLE_BUNDLE_IDS } = fake ? { L2_COMPATIBLE_BUNDLE_IDS: fake.l2CompatibleBundleIds ?? new Set() } : await import("../src/policy/l2-compat.ts");
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const TYPED = "l2probe";
@@ -116,7 +132,17 @@ async function main() {
 	// Review 6 P1, in this order: a stopped phase, then the frozen commit, then the
 	// previous step's pass. All three are refusals (exit 2), never skips.
 	try {
-		frozen = beginStep({ step, expectCommit: argument("--expect-commit"), runsDir: argument("--runs-dir"), cwd: REPO_ROOT });
+		// A fake run has no frozen commit to answer to: it gets an all-zero one, so the archive
+		// it writes can never authorize a real step (T1).
+		frozen = fake
+			? {
+				step,
+				commit: fake.commit,
+				runsDir: requireRunsDir(argument("--runs-dir"), { cwd: process.env.PI_CU_FAKE_REPO ?? REPO_ROOT }),
+				reportOnly: REPORT_ONLY_STEPS.includes(step),
+			}
+			: beginStep({ step, expectCommit: argument("--expect-commit"), runsDir: argument("--runs-dir"), cwd: REPO_ROOT });
+		if (fake) requireNoStopMarker(frozen.runsDir);
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		record("run", "constraints", "refused", message);
@@ -129,7 +155,7 @@ async function main() {
 	// The gate runs inside the script, not in an operator shell loop: on 2026-11-06 the
 	// loop ran the check unconditionally and B1 started while the user was typing.
 	// No declared window is a refusal, and a hold writes its readings and exits.
-	const gate = await (async () => {
+	const gate = fake ? fake.gate : await (async () => {
 		try {
 			return await requireGate({
 				windowStart: argument("--window-start"),
@@ -142,12 +168,12 @@ async function main() {
 				writeFileSync(path.join(runRoot, `gate-${runStamp()}.json`), `${JSON.stringify(error.report, null, 2)}\n`);
 				record("gate", "verdict", "fail", error.message);
 				console.error(`[cu-v2 l2] gate hold: ${error.message}`);
-				await writeEvidence();
+				await writeEvidence({ frozen, rows, log, b0 });
 				process.exit(1);
 			}
 			record("gate", "arguments", "fail", error instanceof Error ? error.message : String(error));
 			console.error(`[cu-v2 l2] ${error instanceof Error ? error.message : String(error)}`);
-			await writeEvidence();
+			await writeEvidence({ frozen, rows, log, b0 });
 			process.exit(2);
 		}
 	})();
@@ -159,6 +185,18 @@ async function main() {
 
 	const diagnostics = await macosHelper.diagnosticsCommand();
 	record("helper", "diagnostics", "pass", `protocol=${diagnostics.protocolVersion} accessibility=${diagnostics.accessibility}`);
+	// T3: refuse before launching an app when this environment is not the frozen one. Exit 2,
+	// nothing written: the step never started, so there is no marker either.
+	const environment = checkFixtureDigest({ appPath: fixturePath, rootDir: PACKAGE_ROOT });
+	const support = environment.ok
+		? checkHelperSupport({ activity: await macosHelper.command("userActivity", {}).catch(() => undefined), diagnostics, expectedProtocol: HELPER_PROTOCOL_VERSION })
+		: environment;
+	if (!support.ok) {
+		record("environment", "frozen artifacts", "refused", support.reason);
+		console.error(`[cu-v2 l2] ${support.reason}`);
+		process.exit(2);
+	}
+	record("environment", "frozen artifacts", "pass", `fixture=${environment.digest.slice(0, 12)} helper protocol=${diagnostics.protocolVersion}`);
 	// The baseline for "did the operator come back" (review 6 K2). Our own synthetic
 	// posts are marked by the helper and do not count, so any growth is a person.
 	const runStartedAt = Date.now();
@@ -178,7 +216,7 @@ async function main() {
 	let launchPath = fixturePath;
 	let fixtureRun;
 	if (fixtureCopy) {
-		fixtureRun = prepareFixtureRun({ sourceApp: fixturePath, runRoot });
+		fixtureRun = prepareFixtureRun({ sourceApp: fixturePath, runRoot, sign: !fake });
 		launchPath = fixtureRun.bundlePath;
 		record("fixture", "fresh copy", "pass", `bundle=${fixtureRun.bundleId} path=${launchPath}`);
 	}
@@ -256,22 +294,7 @@ async function main() {
 			? `${allowL2App} (pid=${preexisting.pid}) was already running before this run; this script only operates processes it started`
 			: `${allowL2App} is not running; start it and re-run, this script does not launch user apps`);
 	}
-	for (const app of installed) {
-		const roots = await macosBackend.listRoots({ pid: app.pid });
-		const root = roots.find((candidate) => candidate.kind === "window");
-		if (!root) {
-			record(app.appName ?? app.bundleId, "window", "fail", "no window in listRoots");
-			continue;
-		}
-		const look = await macosBackend.observe({ target: { windowId: root.windowId, rootRef: root.rootRef }, readText: "auto", includeImage: true });
-		const text = wireRefByRole(look, ["AXTextField", "AXTextArea"]);
-		if (text) await probe(app.appName ?? app.bundleId, look, app.pid, { action: "typeText", ref: text, params: { text: TYPED } }, {});
-		else record(app.appName ?? app.bundleId, "typeText", "skipped", "no text input element in the window; not typing blind into a user app");
-		// A directed click only where the window exposes a button: never click blind.
-		const button = wireRefByRole(look, ["AXButton"]);
-		if (button) await probe(app.appName ?? app.bundleId, look, app.pid, { action: "click", ref: button }, {});
-		else record(app.appName ?? app.bundleId, "click", "skipped", "no button in the window");
-	}
+	await driveListedApps({ backend: macosBackend, apps: installed, probe, typed: TYPED, record });
 
 	if (directL2) await runDirectL2({ fixture, fixtureRun, backend: macosBackend, helper: macosHelper, record, cursor, alive, wireRefByRole, typed: TYPED, asciiInput: inputSource.ascii });
 
@@ -290,46 +313,20 @@ async function main() {
 	const runPids = [fixture?.pid, ...installed.map((app) => app.pid)].filter((pid) => typeof pid === "number");
 	await recordRealUserInput({ helper: macosHelper, backend: macosBackend, record, activityBefore, operatorPid: frontmost.pid, runPids });
 
-	// Review 7 R2 step 1: report where the events came from, change no rule. The helper's
-	// ring holds only the last few hundred events, so this covers the run and not the hour.
+	// Review 7 R2 step 1: report where the events came from, change no rule. Review 8 T2:
+	// a missing ring or a ring that disagrees with the counters is a failure, not a zero.
 	const activityAfter = await macosHelper.command("userActivity", {}).catch(() => undefined);
-	const recent = Array.isArray(activityAfter?.recentEvents) ? activityAfter.recentEvents : [];
-	const windowEvents = recent.filter((event) => Number(event?.at) >= runStartedAt);
+	const windowEvents = (activityAfter?.recentEvents ?? []).filter((event) => Number(event?.at) >= runStartedAt);
 	const names = resolveProcessNames(windowEvents.map((event) => Number(event?.pid)));
-	for (const row of attributionRows(windowEvents, { processName: (pid) => names.get(pid), runPids, helperPid: diagnostics.pid })) {
-		record(row.area, row.action, row.result, row.note);
-	}
-}
-
-async function writeEvidence() {
-	const runName = `${runStamp()}-l2-check.md`;
-	// Without `beginStep` there is no runs directory and no commit, so a refusal cannot
-	// write an archive that a later step would mistake for permission.
-	const written = frozen
-		? writeRunArchive({
-			reportOnly: frozen.reportOnly === true,
-			runsDir: frozen.runsDir,
-			runName,
-			title: "Computer Use v2 L2 single-action check",
-			step: frozen.step,
-			commit: frozen.commit,
-			rows: rows.map((row) => ({ ...row, note: withoutHome(row.note) })),
-			log: log.map(withoutHome),
-			intro: [
-				`One directed click and one directed text input per target, delivered with \`background\` policy.${b0 ? " This is the B0 attribution run: it reports, it authorizes nothing." : ""}`,
-				"`cursorMoved` and `frontmostChanged` say whether the action reached the user's session.",
-				"`attribution` rows group the events the helper counted as real input by source process and event type (review 7, R2).",
-			],
-		})
-		: { verdict: "refused", blockers: [], path: undefined };
-	if (written.verdict === "fail") {
-		process.exitCode = 1;
-		console.error(`[cu-v2 l2] FAILED: ${written.blockers.join("; ")}`);
-	}
-	if (written.verdict === "report") {
-		console.error("[cu-v2 l2] attribution report only: no Verdict line, no step authorized, no B-STOPPED");
-	}
-	return written;
+	recordAttribution({
+		activityBefore,
+		activityAfter,
+		runStartedAt,
+		runPids,
+		helperPid: diagnostics.pid,
+		processName: (pid) => names.get(pid),
+		record,
+	});
 }
 
 try {
@@ -340,6 +337,6 @@ try {
 	process.exitCode = 1;
 }
 
-await writeEvidence();
+await writeEvidence({ frozen, rows, log, b0 });
 const failures = rows.filter((row) => row.result === "fail").length;
 console.log(`[cu-v2 l2] ${rows.length} rows, ${failures} failing; archive written to ${frozen?.runsDir ?? "nowhere (refused before the runs directory was known)"}`);
