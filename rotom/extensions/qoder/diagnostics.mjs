@@ -7,7 +7,7 @@ const ERROR_CATEGORIES = [
   ['websocket', /^WebSocket (?:error|closed)\b/u],
   ['aborted', /^This operation was aborted$/u],
   ['overloaded', /overloaded/iu],
-  ['network', /^(?:fetch failed|terminated|Connection error\.)(?: \(caused by: .*\))?$|^Qoder: (?:request|stream|connection)_failed$|\b(?:ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN)\b|socket hang up|^upstream connect error/u],
+  ['network', /^(?:fetch failed|terminated|Connection error\.)(?: \(caused by: .*\))?$|^Qoder: (?:(?:request|stream)_failed(?:_before_output)?|connection_failed)$|\b(?:ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN)\b|socket hang up|^upstream connect error/u],
   ['auth', /^API key auth failed\b/u],
   ['provider_error', /^Codex error:|^\{"type":"error"|^Qoder: /u],
 ];
@@ -27,7 +27,7 @@ export function qoderErrorAttributes(errorMessage, httpStatus) {
     || Number(raw.match(/^Qoder: http_([45]\d\d)$/u)?.[1])
     || (Number.isSafeInteger(httpStatus) && httpStatus >= 400 && httpStatus <= 599 ? httpStatus : undefined);
   const code = safe(raw.match(/^Qoder: ([a-z0-9_]+)$/u)?.[1]);
-  const normalizedCode = ['request_failed', 'connection_failed', 'stream_failed'].includes(code) ? 'transport_failure' : code;
+  const normalizedCode = ['request_failed', 'connection_failed', 'stream_failed', 'request_failed_before_output', 'stream_failed_before_output'].includes(code) ? 'transport_failure' : code;
   const category = status
     ? 'http'
     : ERROR_CATEGORIES.find(([, pattern]) => pattern.test(raw))?.[0] ?? 'unknown';

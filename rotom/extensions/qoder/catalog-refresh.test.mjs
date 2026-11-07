@@ -76,7 +76,7 @@ for (const authMode of ['qodercli', 'browser']) test(`${authMode}: expiry refres
   assert.deepEqual(f.notices, []);
 });
 
-test('refresh failure keeps stale catalog but blocks inference without retry or private error leakage', async t => {
+test('refresh failure keeps stale catalog but blocks inference without provider-side retry or private error leakage', async t => {
   const f = await fixture(t); f.expire();
   f.setCatalogHook(() => { throw new Error('PRIVATE upstream body'); });
   await assert.rejects(f.run(), /^QoderError: Qoder: catalog_refresh_failed$/);
@@ -84,6 +84,10 @@ test('refresh failure keeps stale catalog but blocks inference without retry or 
   assert.deepEqual(f.counts(), { catalogReads: 2, dispatches: 0, refreshCalls: 2 });
   await f.emit('message_end', { message: { provider: 'qoder', errorMessage: 'Qoder: catalog_refresh_failed' } });
   assert.match(f.notices.at(-1), /\/qoder-models/); assert.doesNotMatch(JSON.stringify(f.notices), /PRIVATE/);
+  // Pi retries this code; each failed attempt ends a message, but the help is shown once per burst.
+  const shown = f.notices.length;
+  await f.emit('message_end', { message: { provider: 'qoder', errorMessage: 'Qoder: catalog_refresh_failed' } });
+  assert.equal(f.notices.length, shown);
   f.setCatalogHook(undefined);
   await f.commands.get('qoder-models').handler('', f.ctx);
   assert.equal((await f.run()).type, 'done');

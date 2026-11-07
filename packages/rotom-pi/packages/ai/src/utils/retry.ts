@@ -52,6 +52,13 @@ const RETRYABLE_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 	// SSE error frame. The outer retry loop owns the bounded retry budget.
 	"provider.?returned.?(?:an.?)?error",
 	"upstream_error_frame",
+	// Qoder failures with no visible output: the catalog refresh that precedes
+	// every dispatch (no inference was sent), and transport failures before any
+	// text, reasoning or tool call arrived. A resend may be billed again; the
+	// maintainer accepted that over a manual resend. Failures after content
+	// streamed keep their plain, non-retried codes.
+	"^Qoder: catalog_refresh_failed$",
+	"^Qoder: (?:request|stream)_failed_before_output$",
 	"exceeded request buffer limit while retrying upstream",
 	// Gateway failure relaying the upstream response stream, sent as an OpenAI
 	// Responses `response.failed` event without an error code (#10920).

@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { readLocalCredential, createCredentialAccess, QoderError } from './auth.mjs';
 import { BASE_URL, SUPPORTED_MODEL_IDS, REASONING_MODEL_IDS, openQoderStream, abortable, validateReasoningSignature, OPAQUE_MODEL_IDS, VERIFIED_THINKING_LEVELS, EXPANDED_INPUT_MODEL_IDS, inputCapabilities, imageByteLength } from './transport.mjs';
 import { buildQoderPayload, isSameModelAssistant } from './messages.mjs';
-import { translateQoderStream } from './translate.mjs';
+import { beforeOutputError, translateQoderStream } from './translate.mjs';
 import { catalogMetadata, fetchCatalog, parseCatalogMetadata, CATALOG_TTL_MS } from './catalog.mjs';
 import { createBrowserOAuth, createOAuthEnvelope } from './oauth.mjs';
 import { fetchQuota } from './credits.mjs';
@@ -222,7 +222,9 @@ export async function createQoderProvider({ piAI, clampMaxTokens, getToken, getC
   };
   const wrap = method => (model, context, options = {}) => piAI.lazyStream(model, async () => {
     try { return await prepare(method, model, context, options); }
-    catch (error) {
+    catch (caught) {
+      // Setup failures happen before any response content exists.
+      const error = beforeOutputError(caught);
       // Pi lazyStream labels setup exceptions as errors. Publish bounded metadata
       // before the synthetic stream delivers its terminal error event.
       publishTerminalError(error);
