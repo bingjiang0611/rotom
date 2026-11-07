@@ -34,7 +34,7 @@
 | `browser_interact` | 53 / 7 | 13.2% | other 3，stale/observe 2，timeout 1，validation 1 |
 | `browser_inspect` | 195 / 23 | 11.8% | not found 12，timeout 7，other 4 |
 
-- 绝对错误数最高的是 `bash`：1069 次错误，其中 exit code 704、not found 172、timeout 107、permission 61。
+- 绝对错误数最高的是 `bash`：1069 次错误，其中 exit code 704、not found 172、timeout 107、permission 61。704 次非零退出码包含 grep 无匹配、TDD 中预期失败等情况，不能直接等同于工具缺陷。
 - `edit` 有 1847 次调用、124 次错误，错误率 6.7%；94 次是 old text 不匹配。
 - 124 次 `edit` 错误后，下一次调用有 66 次先 `read`、30 次立刻再次 `edit`、27 次改用 `bash`、1 次进入 `codemode`。主流恢复方式是先读再改，但约四分之一会立即重试 `edit`，容易原地打转。
 
@@ -92,13 +92,13 @@
 - Browser relay：`browser_inspect` 195 次、23 次错误；`browser_interact` 53 次、7 次错误。
 - 结构化错误中 stale/重新 observe 共 3 次，分布在 3 个会话；needs-approval 和 needs-confirmation 都是 0。
 - `fe48eeb57f` 中 Browser relay 超时后出现重复 inspect，流程明显卡住；这是本周最清楚的 Browser 失败案例。
-- Computer Use 路径使用较少：`find_roots` 17 次但 14 次失败，主要是 validation；`observe_ui` 5 次全成功；`act_ui` 4 次、2 次错误。高 `find_roots` 错误率更像调用合同使用不正确，不是审批卡住。
+- Computer Use 路径使用较少：`find_roots` 17 次但 14 次失败；`observe_ui` 5 次全成功；`act_ui` 4 次、2 次错误。第二轮读取错误模板后确认，13 次是 helper 协议或可执行文件不匹配，1 次是 helper daemon 未启动；不是审批卡住，也没有证据表明主要原因是调用合同使用错误。
 
 ### 2.10 延迟
 
 - Provider 请求：p50 5.916 秒，p95 45.633 秒；time to first content：p50 2.607 秒，p95 8.633 秒。
-- 等待型工具最慢：`subagent_wait` p50 256.086 秒、p95 1800.700 秒；`ask_user_question` p50 342.103 秒、p95 960.264 秒。这些包含子任务或人工等待，不等同于工具执行性能。
-- 非等待型工具中，`bash` p50 2.040 秒、p95 88.677 秒；`codemode` p50 2.170 秒、p95 32.896 秒；`browser_inspect` p50 0.304 秒、p95 8.415 秒。
+- 以下工具时延统一取自 `metrics.json` 的 `trace.toolDurationMs`。等待型工具最慢：`subagent_wait` p50 256.088 秒、p95 1800.717 秒；`ask_user_question` p50 63.172 秒、p95 2667.789 秒。这些包含子任务或人工等待，不等同于工具执行性能。
+- 非等待型工具中，`bash` p50 0.607 秒、p95 88.725 秒；`codemode` p50 0.413 秒、p95 32.859 秒；`browser_inspect` p50 0.446 秒、p95 8.421 秒。
 - 因此最值得优化的“执行型慢工具”是长尾 `bash`，其次是 `codemode` 和 Browser inspect；但必须先区分真实长任务与无效重试。
 
 ### 2.11 维护者这一周自己的体感
@@ -319,4 +319,4 @@
 - `trace.files` 小于窗口内会话数，未开启 trace 的会话没有工具级 span 证据。
 - Compaction、Compaction Offload 和 Context Layers 同时存在，现有观测无法单独归因哪一种机制节省或增加了 token。
 - 低摩擦抽样中的长 duration 可能包含用户离开后的等待时间，不能直接解释为 agent 连续运行时长。
-- Jev 分类器对 20 张案例卡的组件或根因分类有 19 张低于 0.7 置信度；最终案例归因均由人工复核覆盖，因此不把分类器结果当作结论。
+- Jev 是 rotom 本机配置的 TypeSafe 分类模型，用于对多条案例做初筛。它对 20 张案例卡的组件或根因分类有 19 张低于 0.7 置信度；最终案例归因均由人工复核覆盖，因此不把分类器结果当作结论。
