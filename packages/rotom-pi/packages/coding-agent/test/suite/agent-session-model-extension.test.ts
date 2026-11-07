@@ -53,6 +53,38 @@ describe("AgentSession model and extension characterization", () => {
 		expect(harness.settingsManager.getDefaultModel()).toBeUndefined();
 	});
 
+	it("re-selecting the recorded model does not append another model_change", async () => {
+		const modelEvents: string[] = [];
+		const harness = await createHarness({
+			models: [
+				{ id: "faux-1", name: "One", reasoning: true },
+				{ id: "faux-2", name: "Two", reasoning: true },
+			],
+			extensionFactories: [
+				(pi) => {
+					pi.on("model_select", async (event) => {
+						modelEvents.push(`${event.previousModel?.id ?? "none"}->${event.model.id}`);
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		const changes = () =>
+			harness.sessionManager
+				.getEntries()
+				.filter((entry) => entry.type === "model_change")
+				.map((entry) => entry.modelId);
+
+		await harness.session.setModel(harness.getModel("faux-2")!);
+		await harness.session.setModel(harness.getModel("faux-2")!);
+		expect(changes()).toEqual(["faux-2"]);
+		await harness.session.setModel(harness.getModel("faux-1")!);
+		await harness.session.setModel(harness.getModel("faux-1")!);
+		expect(changes()).toEqual(["faux-2", "faux-1"]);
+		// Selection events are unchanged: re-selecting the current model emits none, as before.
+		expect(modelEvents).toEqual(["faux-1->faux-2", "faux-2->faux-1"]);
+	});
+
 	it("only persists model and thinking defaults when requested", async () => {
 		const harness = await createHarness({
 			models: [
