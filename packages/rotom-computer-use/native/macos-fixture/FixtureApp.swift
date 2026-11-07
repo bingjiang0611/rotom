@@ -19,6 +19,11 @@ final class FixtureModel: ObservableObject {
 	@Published var expanded: Bool = true
 	@Published var selectedTab: Int = 0
 	@Published var lastMenuSelection: String = ""
+	// A monotonic counter, not a boolean (review 7, R1): a boolean is spent after the
+	// first click, so a run that clicks the same button twice - AX first, then the
+	// directed L2 post - cannot tell whether the second click landed. Every click now
+	// has to show up as "count went up by exactly one".
+	@Published var clicks: Int = 0
 
 	let rows = ["Alpha", "Bravo", "Charlie", "Delta"]
 	let tabs = ["First", "Second"]
@@ -39,14 +44,14 @@ struct FixtureView: View {
 			// tree is the close button, and clicking that closes the window the rest of
 			// the check still needs (observed 2026-11-06).
 			HStack(spacing: 8) {
-				Button("Fixture action") { model.lastMenuSelection = "button" }
+				Button("Fixture action") { model.clicks += 1 }
 					.accessibilityIdentifier("cu-fixture-button")
-					// The pressed state is also written into the button's own accessibility value
+					// The count is also written into the button's own accessibility value
 					// (review 6, P4): `press` reads back the pressed control, not its siblings, so
 					// a result living only in the neighbouring Text made every press `unknown` -
 					// truthful, but impossible for the matrix to judge.
-					.accessibilityValue(model.lastMenuSelection == "button" ? "clicked" : "idle")
-				Text(model.lastMenuSelection == "button" ? "clicked" : "idle")
+					.accessibilityValue("clicks: \(model.clicks)")
+				Text("clicks: \(model.clicks)")
 					.accessibilityIdentifier("cu-fixture-button-result")
 			}
 

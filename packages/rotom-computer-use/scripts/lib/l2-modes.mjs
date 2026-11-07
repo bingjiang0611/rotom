@@ -6,34 +6,52 @@
  * fixture copy this run started.
  */
 /**
- * Decide the directed click from the transport and from what the app reports.
+ * Decide a click from the transport and from the app's own click counter.
  *
  * The first real run (2026-11-06 22:40) returned `delivery=l2` with `outcome=unknown`:
  * the targeted post reached the app, but the helper could not confirm the effect. The
  * B-phase contract makes an unread effect a blocker, so the transport alone is not a
- * pass - the click also has to show up in the fixture's own result text. Keeping the
- * decision in one pure function is what lets a test drive the three cases.
+ * pass.
+ *
+ * The first readback compared two booleans, and that was unusable (review 7, R1): the
+ * script clicks the same button through the AX path first, so by the time the directed
+ * click runs the fixture already reports `clicked` and a second click cannot show up.
+ * The fixture now publishes `clicks: N`, and the judgement is `after == before + 1`:
+ * unchanged means the click did not land, and a jump of two means something else
+ * clicked while we were watching.
  */
-export function judgeDirectedClick({ survived, delivery, outcome, before, after }) {
+export function judgeDirectedClick({ survived, delivery, outcome, before, after, expectedDelivery = "l2" }) {
 	if (!survived) return { result: "fail", reason: "helper did not survive the directed post" };
-	if (delivery !== "l2") return { result: "fail", reason: `expected delivery=l2, got ${delivery}` };
-	if (outcome === "worked") return { result: "pass", reason: "outcome" };
-	if (before !== undefined && after !== undefined && before !== after) return { result: "pass", reason: "readback" };
-	if (outcome === "didnt") return { result: "inconclusive", reason: "didnt and no readback change" };
-	return { result: "inconclusive", reason: "unknown and no readback change" };
+	if (delivery !== expectedDelivery) return { result: "fail", reason: `expected delivery=${expectedDelivery}, got ${delivery}` };
+	if (typeof before === "number" && typeof after === "number") {
+		if (after === before + 1) return { result: "pass", reason: `readback ${before}->${after}` };
+		if (after === before) return { result: "fail", reason: `readback unchanged at ${before} (outcome=${outcome})` };
+		return { result: "unknown", reason: `readback ${before}->${after} is not exactly one click (outcome=${outcome})` };
+	}
+	return { result: "inconclusive", reason: `no click counter to read (outcome=${outcome})` };
+}
+
+/** The fixture writes `clicks: N`; this is the only parsing rule needed. */
+export function parseClickCount(text) {
+	const match = /clicks:\s*(\d+)/.exec(String(text ?? ""));
+	return match ? Number(match[1]) : undefined;
 }
 
 /**
- * A comparable snapshot of the fixture's result line.
+ * The fixture's click counter as the app itself reports it.
  *
  * A static text may carry its content in `value`, `label` or `title` depending on the
- * app, so the signature keeps all of them instead of guessing one.
+ * app, so all of them are searched instead of guessing one.
  */
-export async function fixtureResultSignature(backend, target) {
+export async function fixtureClickCount(backend, target) {
 	const look = await backend.observe({ target, readText: "auto", includeImage: false });
 	const node = (look.parsedOutline?.nodes ?? look.nodes ?? []).find((candidate) => candidate.identifier === "cu-fixture-button-result");
 	if (!node) return undefined;
-	return JSON.stringify({ value: node.value ?? null, label: node.label ?? null, title: node.title ?? null, description: node.description ?? null });
+	for (const field of [node.value, node.label, node.title, node.description]) {
+		const count = parseClickCount(field);
+		if (count !== undefined) return count;
+	}
+	return undefined;
 }
 
 /**
@@ -84,10 +102,10 @@ export async function runDirectL2({ fixture, fixtureRun, backend, helper, record
 			continue;
 		}
 		const request = buildDirectL2Request({ lookId: look.lookId, pid: fixture.pid, ref, action, params });
-		// Read the app's own result line before the post, so "did anything happen" is
+		// Read the app's own click counter before the post, so "did anything happen" is
 		// answered by the app rather than by the helper's self-report.
 		const target = { windowId: root.windowId, rootRef: root.rootRef };
-		const effectBefore = action === "click" ? await fixtureResultSignature(backend, target).catch(() => undefined) : undefined;
+		const effectBefore = action === "click" ? await fixtureClickCount(backend, target).catch(() => undefined) : undefined;
 		const cursorBefore = await cursor();
 		let outcome = "unknown";
 		let delivery = "?";
@@ -102,7 +120,7 @@ export async function runDirectL2({ fixture, fixtureRun, backend, helper, record
 		const cursorAfter = await cursor();
 		const moved = Math.hypot(cursorAfter.x - cursorBefore.x, cursorAfter.y - cursorBefore.y) >= 1;
 		const survived = await alive();
-		const effectAfter = action === "click" ? await fixtureResultSignature(backend, target).catch(() => undefined) : undefined;
+		const effectAfter = action === "click" ? await fixtureClickCount(backend, target).catch(() => undefined) : undefined;
 		const judged = action === "click"
 			? judgeDirectedClick({ survived, delivery, outcome, before: effectBefore, after: effectAfter })
 			: { result: !survived ? "fail" : outcome === "worked" ? "pass" : "inconclusive", reason: outcome };
@@ -115,11 +133,12 @@ export async function runDirectL2({ fixture, fixtureRun, backend, helper, record
 		if (action === "click") {
 			// A second row, because the transport and the effect are different questions
 			// (the same split B6 needed). Only the first row is required by the contract.
+			const readable = typeof effectBefore === "number" && typeof effectAfter === "number";
 			record(
 				"direct L2",
 				"click effect",
-				effectBefore === undefined || effectAfter === undefined ? "skipped" : effectBefore === effectAfter ? "fail" : "pass",
-				`before=${effectBefore ?? "absent"} after=${effectAfter ?? "absent"} outcome=${outcome}`,
+				!readable ? "skipped" : effectAfter === effectBefore + 1 ? "pass" : effectAfter === effectBefore ? "fail" : "unknown",
+				`before=clicks:${effectBefore ?? "?"} after=clicks:${effectAfter ?? "?"} outcome=${outcome}`,
 			);
 		}
 		if (!survived) {

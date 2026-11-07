@@ -1,47 +1,60 @@
 /**
- * B1's directed-click judgement (2026-11-06 window).
+ * B1's directed-click judgement, second form (review 7, R1).
  *
- * The first real run reported `delivery=l2` with `outcome=unknown`: the targeted post
- * reached the app, but nothing confirmed the effect, so the step could not pass. These
- * tests pin the three ways that can resolve, without a machine.
+ * The first form compared two booleans, and the 23:36 run showed why that cannot work: the
+ * script clicks the fixture button through the AX path first, so the directed click ran on
+ * an app that already said `clicked` and had nothing left to prove. The fixture now
+ * publishes `clicks: N` and the judgement is "the count went up by exactly one".
  */
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { fixtureResultSignature, judgeDirectedClick } from "../scripts/lib/l2-modes.mjs";
+import { fixtureClickCount, judgeDirectedClick, parseClickCount } from "../scripts/lib/l2-modes.mjs";
 
 const base = { survived: true, delivery: "l2", outcome: "unknown" };
 
-test("a confirmed outcome passes on the transport alone", () => {
-	assert.deepEqual(judgeDirectedClick({ ...base, outcome: "worked", before: "a", after: "a" }), { result: "pass", reason: "outcome" });
+test("count plus one passes on the readback", () => {
+	assert.deepEqual(judgeDirectedClick({ ...base, before: 0, after: 1 }), { result: "pass", reason: "readback 0->1" });
+	assert.deepEqual(judgeDirectedClick({ ...base, outcome: "worked", before: 4, after: 5 }), { result: "pass", reason: "readback 4->5" });
 });
 
-test("an unconfirmed outcome passes when the app's own result line changed", () => {
-	// This is the case the first run needed: the helper says `unknown`, the fixture says
-	// it was clicked.
-	assert.deepEqual(judgeDirectedClick({ ...base, before: '{"value":"idle"}', after: '{"value":"clicked"}' }), { result: "pass", reason: "readback" });
+test("an unchanged count is a failure even when the helper claims it worked", () => {
+	// The helper's self-report is not evidence: a setter can report success without the
+	// click landing, which is exactly what the boolean readback could not tell apart.
+	assert.equal(judgeDirectedClick({ ...base, before: 1, after: 1 }).result, "fail");
+	assert.equal(judgeDirectedClick({ ...base, outcome: "worked", before: 1, after: 1 }).result, "fail");
 });
 
-test("an unconfirmed outcome with no readback change stays inconclusive", () => {
-	assert.deepEqual(judgeDirectedClick({ ...base, before: "idle", after: "idle" }), { result: "inconclusive", reason: "unknown and no readback change" });
-	// A target that was never readable is not the same as one that did not change.
-	assert.equal(judgeDirectedClick({ ...base, before: undefined, after: undefined }).result, "inconclusive");
-	assert.match(judgeDirectedClick({ ...base, outcome: "didnt", before: "x", after: "x" }).reason, /didnt/);
+test("a jump of two is unknown, not a pass", () => {
+	// Something else clicked while we were watching; the run cannot claim the effect.
+	const judged = judgeDirectedClick({ ...base, before: 0, after: 2 });
+	assert.equal(judged.result, "unknown");
+	assert.match(judged.reason, /not exactly one click/);
 });
 
 test("a wrong transport or a dead helper is a failure, never a pass", () => {
-	assert.equal(judgeDirectedClick({ ...base, delivery: "ax", outcome: "worked" }).result, "fail");
-	assert.equal(judgeDirectedClick({ ...base, survived: false, outcome: "worked" }).result, "fail");
-	// A changed readback must not rescue a pid post: the point of B1 is `delivery=l2`.
-	assert.equal(judgeDirectedClick({ ...base, delivery: "pid", before: "idle", after: "clicked" }).result, "fail");
+	assert.equal(judgeDirectedClick({ ...base, delivery: "pid", before: 0, after: 1 }).result, "fail");
+	assert.equal(judgeDirectedClick({ ...base, survived: false, before: 0, after: 1 }).result, "fail");
+	// The AX path is judged by the same readback, with its own expected delivery.
+	assert.equal(judgeDirectedClick({ ...base, delivery: "ax", expectedDelivery: "ax", before: 0, after: 1 }).result, "pass");
 });
 
-test("the signature keeps whatever field carries the text", async () => {
+test("an unreadable counter is inconclusive, never a pass", () => {
+	assert.equal(judgeDirectedClick({ ...base, before: undefined, after: 1 }).result, "inconclusive");
+	assert.equal(judgeDirectedClick({ ...base, outcome: "worked" }).result, "inconclusive");
+});
+
+test("the counter is parsed from whatever field carries the text", async () => {
+	assert.equal(parseClickCount("clicks: 7"), 7);
+	assert.equal(parseClickCount("Fixture action clicks: 12"), 12);
+	assert.equal(parseClickCount("clicked"), undefined);
+	assert.equal(parseClickCount(undefined), undefined);
+
 	const look = (nodes: unknown[]) => ({ parsedOutline: { nodes } });
-	const withValue = { observe: async () => look([{ identifier: "cu-fixture-button-result", value: "clicked" }]) };
-	const withLabel = { observe: async () => look([{ identifier: "cu-fixture-button-result", label: "idle" }]) };
+	const withValue = { observe: async () => look([{ identifier: "cu-fixture-button-result", value: "clicks: 3" }]) };
+	const withLabel = { observe: async () => look([{ identifier: "cu-fixture-button-result", label: "clicks: 0" }]) };
 	const missing = { observe: async () => look([{ identifier: "cu-fixture-button" }]) };
-	assert.match(await fixtureResultSignature(withValue, { windowId: 1 }), /clicked/);
-	assert.match(await fixtureResultSignature(withLabel, { windowId: 1 }), /idle/);
-	assert.equal(await fixtureResultSignature(missing, { windowId: 1 }), undefined);
+	assert.equal(await fixtureClickCount(withValue, { windowId: 1 }), 3);
+	assert.equal(await fixtureClickCount(withLabel, { windowId: 1 }), 0);
+	assert.equal(await fixtureClickCount(missing, { windowId: 1 }), undefined);
 });
