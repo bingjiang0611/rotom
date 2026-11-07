@@ -80,10 +80,22 @@ export function createCuSessionTool(deps: DesktopToolDeps) {
 			const moved: string[] = [];
 			for (const lease of selected) {
 				try {
-					await session.client.transfer(lease.leaseId, params.toAgentId);
+					const handed = await session.client.transfer(lease.leaseId, params.toAgentId);
 					moved.push(lease.resourceKey);
+					// The user asks "who moved my app": ids only, never content.
+					deps.trace()?.record({
+						tool: "cu_session",
+						status: "ok",
+						transfer: { action: "transfer", toAgentId: params.toAgentId, resourceKey: lease.resourceKey, oldLeaseId: lease.leaseId, newLeaseId: handed.leaseId },
+					});
 				} catch (error) {
 					if (!(error instanceof BrokerRequestError)) throw error;
+					deps.trace()?.record({
+						tool: "cu_session",
+						status: error.code === "resource_busy" ? "lease_conflict" : "error",
+						evidence: error.code,
+						transfer: { action: "transfer", toAgentId: params.toAgentId, resourceKey: lease.resourceKey, oldLeaseId: lease.leaseId },
+					});
 					return {
 						content: [{
 							type: "text",

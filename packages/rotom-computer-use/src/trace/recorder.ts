@@ -109,6 +109,13 @@ export interface TraceEntry {
 	durationMs?: number;
 	/** Lease/epoch evidence for writes. */
 	lease?: { agentId?: string; epoch?: number; holder?: string };
+	/**
+	 * Administrative handover of a lease to another agent.
+	 *
+	 * `cu_session transfer` moves a write lease between agents, and this is the only
+	 * record of who moved it: ids and resource keys, no content (review Q2).
+	 */
+	transfer?: { action: "transfer"; toAgentId: string; resourceKey: string; oldLeaseId: string; newLeaseId?: string };
 	/** Short evidence line (state id, ref count, error code) — never a payload. */
 	evidence?: string;
 	screenshots?: string[];
