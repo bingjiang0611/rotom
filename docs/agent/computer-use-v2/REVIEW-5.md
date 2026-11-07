@@ -125,3 +125,70 @@ G1 修好后这条路径就会进入产品，所以 G2 必须和 G1 一起修。
 1. G1 + G2 一起修（同一段 Swift），再修 G3、G4，各自补测试；Swift 自测在本机跑。
 2. G5、G6 改脚本和 STATUS-2，G7 改文档，Q2 补 trace。
 3. 只做代码和测试，不跑真机。全部推送后更新 STATUS-2，再等用户给出新的 B 窗口和时长。
+
+## 复核（2026-11-07，`b07f152..d1b17d9`）
+
+结论：G1–G4、G6、G7、Q2 接受。**G5 的输入源判断有解析缺陷，修好之后才能开 B 阶段**（H1）。
+另有一项合入 `main` 前要决定的事（H2），它不阻断 B 阶段。
+
+### 审核者复现
+
+- 干净 worktree，不装 peer 依赖：连跑 2 次，每次 139 项，138 通过、0 失败、1 跳过。
+- Swift 侧（`TextWriteOutcome` 自测、`l2_unavailable`、`requireTransport`）需要 macOS，以执行方记录为准。
+- `git grep` 签名身份：只剩 `REVIEW-5.md` 里的脱敏示例。
+
+### 接受的部分
+
+- G1：`requireTransport` 成为独立字段，只有 `scripts/lib/l2-direct.mjs` 设置；`test/act-request.test.ts`
+  断言产品请求不带它。`click` 在钉死传输时也不走 `AXPress`，直连 L2 的点击行因此真正测的是 L2。
+- G2：AX 插入被接受后不再回退按键，读回不符返回 `unknown`。
+- G3：`TextWriteOutcome.classify` 三分：匹配 → `worked`，没变 → `didnt`，变了但不匹配 → `unknown`。
+- G4：`l2_unavailable` 只在单动作、非 headless 路径上用同一个后台策略改走 `pid` 重试一次，
+  trace 带 `delivery_fallback:l2_unavailable`；`foreground_required` 的处理不变。headless 的批量
+  路径收到 `l2_unavailable` 直接报错，不升级前台，可以接受。
+- G6：五个真机脚本都先过 `requireGate`，缺窗口参数退出 2，hold 退出 1 并写 `gate-*.json`。
+- G7：文档已脱敏，历史未改写，符合要求。
+- Q2：转交成功和失败都写 trace，只记 id 和资源键。
+
+### H1（中，阻断 B 阶段）：输入源解析永远判成“非 ASCII”
+
+`scripts/lib/live-helpers.mjs` 的 `inputSourceInfo` 用 `/KeyboardLayout Name = "?([^";]+)"?;/` 匹配布局名，
+但 `defaults read com.apple.HIToolbox AppleSelectedInputSources` 输出的是旧式 plist，带空格的键会加引号：
+
+```
+"KeyboardLayout Name" = ABC;
+```
+
+`Name"` 和 ` =` 之间多一个引号，所以布局名永远匹配不到，`layouts` 为空，`ascii` 恒为 false。
+审核者用这两种输出喂给函数：只选 ABC → `{"ascii":false,"description":"input method unknown"}`；
+ABC 加搜狗 → `ascii:false`（这次是对的）。后果是：即使用户离开前切到了 ABC，直连 L2 的
+`typeText` 也永远记为跳过，G5 等于没修。方向是失败安全的，但这个函数没有任何测试。
+
+修法：正则改成允许键带引号，例如 `/"?KeyboardLayout Name"?\s*=\s*"?([^";]+)"?;/`；`Input Mode` 同样处理。
+补测试：用真实格式的三种输出（只有 ABC、ABC 加输入法模式、命令失败），断言 `true / false / false`。
+
+### H2（中，合入 `main` 前决定，不阻断 B）：AX 插入成了所有 App 的默认文本路径
+
+这是审核者在 G1 里要求的方向，`behaviour-changes.md` 第 10 条也如实记录了。但影响面需要明确：
+
+- 现在只要元素声明 `AXSelectedText` 可写，`typeText` 就先 AX 插入，`foreground` 策略也一样。
+- 有些 App 对这个 setter 返回成功，却不更新值，或者更新了值但不触发页面的输入事件
+  （浏览器里的网页、Electron、自绘编辑器都可能这样）。读回不符时，按 G2 返回 `unknown` 且不回退按键。
+  这本身是对的，但在这些 App 里，产品的 `typeText` 会从“能打字”变成“永远 unknown”。
+
+建议二选一，在合入 `main` 之前定：
+
+1. **收窄**（审核者倾向）：helper 用 `TISCopyCurrentKeyboardInputSource` 读当前输入源，只有当前是
+   输入法时才走 AX 插入；纯键盘布局下保持原来的按键路径。这样多数用户行为不变，中文输入法用户得到修复。
+2. **保持现状**：B3 兼容矩阵必须包含一个网页文本框和一个 Electron App，确认 AX 插入在这些地方能落值，
+   并且能触发输入事件。
+
+### 观察（由用户决定，不要求执行方处理）
+
+`docs/agent/computer-use-background-text.md:36` 和 `STATUS.md:24` 写了本机安全软件的厂商与组件名，
+可以看出维护者单位用的安全软件。这两处已经在公开的 `main` 上。是否改写或删除，由用户决定。
+
+### 下一步
+
+执行方修 H1（脚本和测试），推送并更新 STATUS-2。H2 记入 STATUS-2 的待决问题，等用户选择。
+H1 修好后，用户就可以按原来的 B 阶段提示词授权窗口（填上时长，离开前切到 ABC）。
