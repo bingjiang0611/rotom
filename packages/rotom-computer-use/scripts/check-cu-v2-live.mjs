@@ -15,7 +15,7 @@
  *   PI_CU_LIVE=1 node scripts/check-cu-v2-live.mjs --fixture ~/cu-v2-test/Fixture.app
  *
  * What it proves when it passes:
- *   - the helper answers as protocol 8 and reports user activity
+ *   - the helper answers the current helper protocol and reports user activity
  *   - each semantic action reaches a real control and reports a verified outcome
  *   - window, clipboard and system-surface commands answer with real data
  *   - a background action leaves the frontmost app and the system cursor
@@ -83,8 +83,11 @@ async function refuseUnlessGatePasses() {
 async function main() {
 	await refuseUnlessGatePasses();
 	const diagnostics = await macosHelper.diagnosticsCommand();
-	record("helper", "diagnostics", diagnostics.protocolVersion === 8 ? "pass" : "fail", `protocol=${diagnostics.protocolVersion}`);
-	if (diagnostics.protocolVersion !== 8) throw new Error("helper must report protocol 8; install/restart the v2 helper in its own socket");
+	// Read the constant instead of repeating the number: the A-phase bump to 9 left this
+	// check refusing a correct helper, which reads exactly like a broken install.
+	const { HELPER_PROTOCOL_VERSION } = await import("../src/platform/macos/helper.ts");
+	record("helper", "diagnostics", diagnostics.protocolVersion === HELPER_PROTOCOL_VERSION ? "pass" : "fail", `protocol=${diagnostics.protocolVersion} expected=${HELPER_PROTOCOL_VERSION}`);
+	if (diagnostics.protocolVersion !== HELPER_PROTOCOL_VERSION) throw new Error(`helper must report protocol ${HELPER_PROTOCOL_VERSION}; install/restart the v2 helper in its own socket`);
 	if (!diagnostics.accessibility) throw new Error("Accessibility is not granted to the helper");
 	record("helper", "permissions", diagnostics.screenRecording ? "pass" : "fail", `accessibility=${diagnostics.accessibility} screenRecording=${diagnostics.screenRecording} executable=${diagnostics.executablePath}`);
 

@@ -29,17 +29,25 @@
 未决问题见最后一节 **Q3**（`outline.ts` 超过 20 KB 提交门槛，导致 helper 的 `secure` 标记没有进入
 `OutlineNode`）和 **Q4**（A6 未切换批次投递）。
 
-### B 阶段：**未完成**（四次 B1 尝试，`SLEventPostToPid` 仍未执行）
+### B 阶段：**未完成**（B2/B3 部分通过，B1/B6 失败，B4/B5 未执行）
 
-用户 05:36 PST 说“离开了 继续吧”之后没有再交互。这一轮真的跑起来了：门禁两次成立（`HIDIdleTime`
-619 s），B1 走到 13/15 行，**没有一次真的发出 L2 投递**。
+2026-11-06 19:53–20:53 PST 是第一个真正授权的 B 窗口。全程门禁成立（helper 侧自 20:00:28 起
+无未标记输入，最后读到 1152 s）。结果见
+[`runs/2026-11-06T1953-first-b-window.md`](evidence/runs/2026-11-06T1953-first-b-window.md)：
 
-| 尝试 | 门禁 | 结果 |
+| 项 | 结果 | 证据 |
 | --- | --- | --- |
-| 05:48 | 满足（619 s） | 副本启动、窗口、控件通过；点击落到窗口关闭按钮，窗口消失，后续 skip |
-| 05:59 | 满足（604 s） | `input received` 失败：`"l2probe"` → `"里probe"` |
-| 06:19 | 满足（604 s） | 同上前提；`direct L2 typeText` 仍是 `delivery=pid` |
-| 06:35 | **不满足**（06:27 起持续输入） | 0 失败，但这次运行本不该开始——见下 |
+| B1 L2 签名 | **失败** | `listRoots` 报 `no window`；未重试 |
+| B2 兼容矩阵 | **通过**（第 4 次运行） | 30 格：pass 24 · fail 1 · unknown 3 |
+| B3 真机回归 | 部分 | live check 33 行 0 失败 |
+| B6 `--with-hid` | **失败** | `frontmost restored` = `inconclusive`（Scry → Fixture） |
+| B4 / B5 | 未执行 | 按“出现异常即停止”，`SLEventPostToPid` 仍无真机执行 |
+
+窗口内修掉三个脚本缺陷（门禁窗口解析、`--delivery` 缺省值、fixture 副本窗口），新发现两个产品缺陷
+（见下表 B6 与 `press`）。
+
+此前四次 B1 尝试一次都没有真的发出 L2 投递（关闭按钮误点、输入法改写、`delivery=pid`、门禁不成立
+却照跑），逐次读数见 `runs/2026-11-06T1435-b1-four-attempts.md`。
 
 逐次读数、缺陷复现和修复细节见
 [`runs/2026-11-06T1435-b1-four-attempts.md`](evidence/runs/2026-11-06T1435-b1-four-attempts.md)、
@@ -57,18 +65,18 @@
 - **显式 `delivery: "l2"` 被静默降级成 `pid`**：`policy: "background"` 的分支先于显式请求生效，所以
   定向投递签名从上线到现在一次都没执行过。显式 `delivery` 现在优先，且显式投递不再被 AX 插入抢先满足。
 
-脚本侧：fixture 副本需要真实签名身份；fixture 新增内容按钮（原来唯一的 `AXButton` 是关闭按钮）；
-L2 模式每步重新 observe；证据里的家目录写成 `~`。
+脚本侧：副本需真实签名身份；fixture 新增内容按钮；L2 模式每步重新 observe；家目录写成 `~`。
 
-**门禁测量本身不可靠**：`manageApps launch` 一次 +15 事件、一次完整运行 +17…+91，都会让计数增长、
-`HIDIdleTime` 归零。只有光标移动与前台切到我们没启动的 App 才能证明“用户回来了”。
+**门禁测量本身不可靠**：一次启动 +15 事件、一次完整运行 +17…+91 都会让计数增长。只有光标移动与
+前台切到我们没启动的 App 才能证明“用户回来了”。
 
-仍未解决：系统时钟在两次交互之间整体前移约一天，`window_start` 无法再算“是否仍在窗口内”，只能靠
-helper 侧计数与用户授权。本机 122 个 `rotom-quality-pty-*` 遗留 `bridge` 孤儿进程仍在，未触碰。
+仍未解决：系统时钟整体前移约一天，`window_start` 算术不可用，只能靠 helper 侧计数与用户授权。
+本机 122 个 `rotom-quality-pty-*` 遗留 `bridge` 孤儿进程仍在，未触碰。
 
 ## B 阶段记录
 
-**状态：未完成，第 4 条前置条件不成立。** 明细见
+**状态：未完成。** 明细见
+[`runs/2026-11-06T1953-first-b-window.md`](evidence/runs/2026-11-06T1953-first-b-window.md) 与
 [`runs/2026-11-06T1435-b1-four-attempts.md`](evidence/runs/2026-11-06T1435-b1-four-attempts.md)。
 
 | 条件 | 结果 | 证据 |
@@ -78,11 +86,11 @@ helper 侧计数与用户授权。本机 122 个 `rotom-quality-pty-*` 遗留 `b
 | 当前时间仍在窗口内 | 无法核验 | 系统时钟前移约一天，用户给的时长数字也没填（Q1） |
 | 最近 10 分钟内没有真实用户输入 | **曾两次成立、随后失效** | 05:46 / 06:19 两次 619 s、604 s 通过；06:27 起持续输入，06:35 那次运行本不该开始（见总结） |
 
-跑过的东西：B1 四次（13/15/15/15 行），每次都只操作本轮自己启动的 fixture 副本，`cursorMoved`
-与 `frontmostChanged` 全程 false，操作员 App 前后都是 Scry。没有碰过用户已打开的 App。
-**没有**执行：`SLEventPostToPid`（L2 定向投递）、B2/B3/B4/B5/B6。
+跑过的东西：B1 四次（13/15/15/15 行）+ 本轮一次（13 行失败）、B2 一次有效（30 格）、B3 的 live
+check 两次（33/36 行 0 失败）。每次只操作本轮自己启动的 fixture 副本，操作员 App 前后都是 Scry。
+没有碰过用户已打开的 App。**没有**执行：`SLEventPostToPid`（L2 定向投递）、B4、B5、§10 验收。
 
-下一次窗口（每一步都由脚本自己校验闸门，缺窗口参数会拒绝运行）：
+下一次窗口的顺序（每一步都由脚本自己校验闸门，缺窗口参数会拒绝运行）：
 
 ```bash
 PI_CU_L2_SOCKET=1 PI_CU_SOCKET_PATH=~/cu-v2-test/direct-l2.sock \
@@ -92,10 +100,18 @@ node --experimental-strip-types scripts/cu-v2-l2-check.mjs --fixture ~/cu-v2-tes
   --window-start <用户给的开始时间> --window-minutes <用户给的时长> --listening-since <helper 起监听的时间>
 ```
 
+下一窗口按顺序做：
+
+1. B1 直接 L2（上面那条命令；窗口检测已修，不再是 `no window`）。
+2. B6 `--with-hid`：**先修前台恢复**（`manageApps launch activates:true` 不会重新激活已在运行的 App），否则仍会把操作员 App 留在后台。
+3. B3 的 §10 验收、B4 负向测试（脚本还没写）、B5 前台接管（需要用户模拟器）。
+
+
 **用户离开前把输入法切到 ABC**：不是 ASCII 布局时，直连 L2 的 `typeText` 会被脚本跳过（按键事件
 经过输入法会被改写），只剩 `click` 一行能证明投递。
 
-判定：`direct L2 | click` 一行必须出现 `delivery=l2` 且 helper 仍存活；ASCII 布局下 `direct L2 | typeText` 也应是 `delivery=l2`，且 `input received` 为 pass。
+判定：`direct L2 | click` 一行必须出现 `delivery=l2` 且 helper 仍存活；ASCII 布局下 `direct L2 | typeText` 也应是 `delivery=l2`，且 `input received` 为 pass。B6 的判定行是 `background | frontmost restored`，必须为 `pass`（现在
+是 `inconclusive`），而不是看“0 failing”。
 
 ## 需要审核者回答的问题
 
