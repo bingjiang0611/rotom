@@ -339,3 +339,20 @@ ROTOM_CHROME_EXECUTABLE=/path/to/chrome-nosandbox.sh node --experimental-strip-t
 ### 结论
 
 本轮通过，只剩上面一处文档订正。browser 优化这条线（T0–T26 与 4 轮评审）可以收尾。
+
+## 第 5 轮（34ed9a9..f6b0226，已快进合入 main）：验收
+
+- `main` 与 `browser-parallel` 都在 `f6b0226`，是快进合入。
+- 文档订正正确：CLAUDE.md §6 与 usage 都写明 `recover` 等结构性操作要等在跑的 tab 操作结束、FIFO 会挡住之后的读写、只有“另一个已打开的 tab 且队列里没有结构性操作”能马上继续。与 `chrome-extension/request-locks.js` 一致。
+- 两条建议都已落实：
+  - pointer 的 Linux 分支接受两种如实超时（`dispatch timeout … unknown` 与 `interact operation timeout`），别的错误仍判失败；
+  - settle 的 Linux 未完成分支也要求滚动位置恢复到 400。
+- Linux e2e（评审环境）：23 suite，121/121，EXIT=0；`audit-public.py --root .` PASS。
+
+**结论：browser 优化（T0–T26 与 5 轮评审）验收通过，没有遗留的必须改项。**
+
+仍需用户或维护者处理的事项（不属于本线的代码问题）：
+- `--no-verify` 绕过 20 KB 单文件门禁，见 STATUS“阻塞与问题”；
+- 公开历史里 17 条既有审计问题，不 force push 就清不掉；
+- Chrome 商店上架需要用户的开发者账号与图标素材（T25）；
+- Windows 仍只有 L1 证据。
