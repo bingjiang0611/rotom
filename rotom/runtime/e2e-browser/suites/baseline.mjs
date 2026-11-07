@@ -6,6 +6,8 @@ import { relayRequestFor } from "../harness.mjs";
 
 export const description = "既有 open/snapshot/interact/screenshot/close 行为在隔离架子上复现";
 
+const linux = process.platform === "linux";
+
 export async function run({ harness, fixtures, recorder }) {
 	const primary = await harness.connect("baseline-main");
 	const peer = await harness.connect("baseline-peer");
@@ -85,12 +87,31 @@ export async function run({ harness, fixtures, recorder }) {
 		assert.equal(spawned.every((tab) => tab.browserActive === false), true);
 	});
 
-	await recorder.check("screenshot 返回有界的 JPEG", async () => {
-		const screenshot = await request("screenshot", { tabName: "baseline" }, 10_000);
+	const assertJpeg = (screenshot) => {
 		const image = Buffer.from(screenshot.data, "base64");
 		assert.equal(screenshot.mimeType, "image/jpeg");
 		assert.equal(image[0], 0xff);
 		assert.equal(image[1], 0xd8);
+	};
+
+	await recorder.check("screenshot 返回有界的 JPEG", async () => {
+		if (linux) {
+			// Known limit (usage / CLAUDE.md §6): a Linux background tab is not guaranteed to
+			// composite frames, so the capture can time out. The timeout has to be reported as
+			// a timeout and must leave no lock behind; a success is held to the same standard.
+			let screenshot;
+			try {
+				screenshot = await request("screenshot", { tabName: "baseline" }, 10_000);
+			} catch (error) {
+				assert.match(String(error?.message ?? error), /timeout/iu, `截图失败必须是如实报出的 timeout：${error?.message ?? error}`);
+				const tabs = await request("tabs", {}, 10_000);
+				assert.ok(tabs.tabs.some((tab) => tab.name === "baseline"), "截图超时后 tab 锁必须已释放，session 仍可用");
+				return;
+			}
+			assertJpeg(screenshot);
+			return;
+		}
+		assertJpeg(await request("screenshot", { tabName: "baseline" }, 10_000));
 	});
 
 	await recorder.check("close 只关闭自己的 tab", async () => {
