@@ -26,6 +26,15 @@ const usingExternalHelperSocket = HELPER_SOCKET_PATH !== DEFAULT_HELPER_SOCKET_P
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const SETUP_HELPER_SCRIPT = path.join(PACKAGE_ROOT, "scripts", "setup-helper.mjs");
 
+export class HelperMismatchError extends Error {
+	readonly diagnostics: PlatformDiagnostics;
+	constructor(message: string, diagnostics: PlatformDiagnostics) {
+		super(message);
+		this.name = "HelperMismatchError";
+		this.diagnostics = diagnostics;
+	}
+}
+
 export class HelperTransportError extends Error {
 	constructor(message: string) {
 		super(message);
@@ -143,6 +152,8 @@ export class MacosHelperClient {
 	private daemonAvailable = false;
 	private requestSequence = 0;
 	private diagnosticsCache?: PlatformDiagnostics;
+	/** Set once the person declined (or could not be asked) to restart a mismatched helper. */
+	private restartDeclined = false;
 
 	get diagnostics(): PlatformDiagnostics | undefined {
 		return this.diagnosticsCache;
@@ -276,9 +287,39 @@ export class MacosHelperClient {
 
 		// A different session may own this daemon. Never stop/relaunch it merely
 		// because this package needs the new background-text protocol.
-		throw new Error(
+		throw new HelperMismatchError(
 			helperMismatchMessage(HELPER_PROTOCOL_VERSION, HELPER_APP_EXECUTABLE_PATH, diagnostics.protocolVersion, diagnostics.executablePath),
+			diagnostics,
 		);
+	}
+
+	/**
+	 * Like ensureProtocol, but on a mismatch asks the person once per session
+	 * whether to restart the helper. Only an explicit yes stops the running
+	 * helper; a no (or no UI) keeps it and makes later calls fail fast with the
+	 * same guidance instead of asking again.
+	 */
+	async ensureProtocolWithConsent(
+		confirmRestart: ((diagnostics: PlatformDiagnostics) => Promise<boolean>) | undefined,
+		signal?: AbortSignal,
+	): Promise<PlatformDiagnostics> {
+		try {
+			return await this.ensureProtocol(signal);
+		} catch (error) {
+			if (!(error instanceof HelperMismatchError)) throw error;
+			if (this.restartDeclined || !confirmRestart || !(await confirmRestart(error.diagnostics))) {
+				this.restartDeclined = true;
+				throw error;
+			}
+		}
+		await this.restart(signal);
+		try {
+			return await this.ensureProtocol(signal);
+		} catch (error) {
+			// Asked once; the person already answered for this session.
+			if (error instanceof HelperMismatchError) this.restartDeclined = true;
+			throw error;
+		}
 	}
 }
 
