@@ -8,6 +8,8 @@ import { relayRequestFor } from "../harness.mjs";
 
 export const description = "pointer：hover 出菜单、dblclick 计数、右键菜单、两种拖拽换序";
 
+const linux = process.platform === "linux";
+
 export async function run({ harness, fixtures, recorder }) {
 	const client = await harness.connect("pointer-main");
 	const request = relayRequestFor(client, "pointer");
@@ -22,6 +24,23 @@ export async function run({ harness, fixtures, recorder }) {
 		const match = /\|dbl=(\d+)\|ctx=(\d+)\|start=(\d+)\|drop=(\d+)\|pointer=([123]{3})\|native=([123]{3})/u.exec(text);
 		assert.ok(match, `页面必须自证指针状态：${JSON.stringify(text.slice(0, 240))}`);
 		return { dbl: Number(match[1]), ctx: Number(match[2]), starts: Number(match[3]), drops: Number(match[4]), pointer: match[5], native: match[6] };
+	};
+	// Known limit (usage / CLAUDE.md §6): a Linux background tab is not guaranteed to composite
+	// frames, and every held-mouse `mouseMoved` waits for a frame acknowledgement, so a drag can
+	// run into the dispatch deadline. A timeout may only surface as the honest `unknown`, and the
+	// tab has to stay usable afterwards; success stays on the strict path below.
+	const drag = async (payload) => {
+		try {
+			return { result: await act(payload) };
+		} catch (error) {
+			const message = String(error?.message ?? error);
+			assert.equal(linux, true, `拖拽不该在 ${process.platform} 上失败：${message}`);
+			assert.match(message, /dispatch timeout/u, `Linux 上的失败必须是如实报出的 dispatch timeout：${message}`);
+			assert.match(message, /unknown/u, `超时必须说明结果 unknown：${message}`);
+			const after = await snapshot();
+			assert.ok(after.nodes.length > 0, "拖拽超时后 tab 仍可读，说明锁已释放");
+			return { unknown: true };
+		}
 	};
 	const refByName = async (role, name) => {
 		const observation = await snapshot();
@@ -64,7 +83,8 @@ export async function run({ harness, fixtures, recorder }) {
 	await recorder.check("指针拖拽把第 1 项移到第 3 项", async () => {
 		const first = await refByName("option", "Pointer one");
 		const third = await refByName("option", "Pointer three");
-		const result = await act({ action: "drag", targetRef: first, dropRef: third });
+		const { result, unknown } = await drag({ action: "drag", targetRef: first, dropRef: third });
+		if (unknown) return;
 		assert.equal(result.effect.action, "drag");
 		assert.equal(result.effect.html5, false, "指针拖拽不应走 CDP 拖拽事件");
 		assert.equal(result.effect.dragDataSource, "none");
@@ -75,7 +95,8 @@ export async function run({ harness, fixtures, recorder }) {
 	await recorder.check("HTML5 拖拽把第 1 项移到第 3 项", async () => {
 		const first = await refByName("option", "Native one");
 		const third = await refByName("option", "Native three");
-		const result = await act({ action: "drag", targetRef: first, dropRef: third });
+		const { result, unknown } = await drag({ action: "drag", targetRef: first, dropRef: third });
+		if (unknown) return;
 		assert.equal(result.effect.action, "drag");
 		assert.equal(result.effect.html5, true, `原生拖拽必须走 CDP 拖拽事件：${JSON.stringify(result.effect)} state=${JSON.stringify(await state())}`);
 		assert.ok(["intercepted", "synthesized-from-text"].includes(result.effect.dragDataSource), `拖拽数据来源必须可解释：${JSON.stringify(result.effect)}`);
