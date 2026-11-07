@@ -1267,7 +1267,7 @@ async function performInteraction(name, item, payload, assertOperation = () => u
 		const currentUrl = safeUrl(tab.url);
 		const currentOrigin = itemOriginV1(currentUrl);
 		if (currentOrigin === undefined || !payload.allowedOrigins.includes(currentOrigin)) {
-			return { schemaVersion: 1, kind: "needs-approval", tabName: name, origin: currentOrigin ?? "", capability: "write", reason: "origin" };
+			return { schemaVersion: 1, kind: "needs-approval", tabName: name, origin: currentOrigin ?? "", capability: "interact", reason: "origin" };
 		}
 	}
 	if (payload.allowDownload !== undefined) {
@@ -1625,7 +1625,7 @@ async function navigateOwned(name, item, payload, assertOperation) {
 	const destination = await navigationDestinationV1(debuggee, payload);
 	assertOperation();
 	const allowed = navigationAllowedV1(allowedOrigins, destination.url);
-	if (!allowed.ok) return { schemaVersion: 1, kind: "needs-approval", origin: allowed.origin, capability: "open", reason: "origin", message: `当前 lease 未授权导航到 ${allowed.origin || "(未知来源)"}；该操作没有发出请求，需要父 agent 更新 lease 后重试。` };
+	if (!allowed.ok) return { schemaVersion: 1, kind: "needs-approval", origin: allowed.origin, capability: "interact", reason: "origin", message: `当前 lease 未授权导航到 ${allowed.origin || "(未知来源)"}；该操作没有发出请求，需要父 agent 更新 lease 后重试。` };
 	// Bump here, and record the destination before dispatching, so tabs.onUpdated does not
 	// count the same navigation a second time. Refs and coordinates from the old document
 	// are invalid from this point on; reload changes no URL and needs our own bump.

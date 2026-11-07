@@ -18,13 +18,24 @@ export const BROWSER_LEASE_MAX_BYTES = 8 * 1024;
 const MAX_LEASE_ORIGINS = 64;
 const MAX_LEASE_TOKEN_CHARS = 128;
 
-/** Capabilities a lease can grant; everything else stays denied. */
-export const BROWSER_LEASE_CAPABILITIES_V1 = ["open", "write", "devtools", "upload", "download"] as const;
+/**
+ * Capabilities a lease can grant; everything else stays denied. The names are the policy
+ * capability names, so the capability the user granted the parent is exactly the one a
+ * child inherits instead of a second vocabulary that has to be translated.
+ * `read` grants nothing on its own: reads are not gated by the lease.
+ */
+export const BROWSER_LEASE_CAPABILITIES_V1 = ["read", "interact", "devtools", "upload", "download"] as const;
 export type BrowserLeaseCapabilityV1 = (typeof BROWSER_LEASE_CAPABILITIES_V1)[number];
+
+/** One origin the parent authorized, with the capabilities it authorized for that origin. */
+export interface BrowserLeaseOriginV1 {
+	origin: string;
+	capabilities: BrowserLeaseCapabilityV1[];
+}
 
 export interface BrowserLeaseScopeV1 {
 	rootSessionId: string;
-	origins: string[];
+	origins: BrowserLeaseOriginV1[];
 	allow: { devtools: boolean; upload: boolean; download: boolean };
 	maxTabs: number;
 	keepTabs: boolean;
@@ -65,13 +76,36 @@ function leaseDirV1(relayDir: string): string {
 	return join(relayDir, "leases");
 }
 
+/**
+ * One origin entry. A bare string is the pre-capability format, which carried no
+ * capability at all: it is read as read-only rather than rejected, so a lease written
+ * before the upgrade still names its origins but never lets a child interact.
+ */
+function sanitizeLeaseOriginV1(value: unknown): BrowserLeaseOriginV1 | undefined {
+	if (typeof value === "string") {
+		const origin = leaseOriginV1(value);
+		return origin === undefined ? undefined : { origin, capabilities: [] };
+	}
+	if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+	const raw = value as Record<string, unknown>;
+	const origin = leaseOriginV1(raw.origin);
+	if (origin === undefined) return undefined;
+	if (!Array.isArray(raw.capabilities) || raw.capabilities.length > BROWSER_LEASE_CAPABILITIES_V1.length) return undefined;
+	const capabilities: BrowserLeaseCapabilityV1[] = [];
+	for (const capability of raw.capabilities) {
+		if (!BROWSER_LEASE_CAPABILITIES_V1.includes(capability as never)) return undefined;
+		if (!capabilities.includes(capability as BrowserLeaseCapabilityV1)) capabilities.push(capability as BrowserLeaseCapabilityV1);
+	}
+	return { origin, capabilities };
+}
+
 function sanitizeScopeV1(value: unknown): BrowserLeaseScopeV1 | undefined {
 	if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
 	const raw = value as Record<string, unknown>;
 	if (raw.schemaVersion !== 1) return undefined;
 	if (typeof raw.rootSessionId !== "string") return undefined;
 	if (!Array.isArray(raw.origins) || raw.origins.length > MAX_LEASE_ORIGINS) return undefined;
-	const origins = raw.origins.map((origin) => leaseOriginV1(origin));
+	const origins = raw.origins.map(sanitizeLeaseOriginV1);
 	if (origins.some((origin) => origin === undefined)) return undefined;
 	if (!raw.allow || typeof raw.allow !== "object" || Array.isArray(raw.allow)) return undefined;
 	const allow = raw.allow as Record<string, unknown>;
@@ -81,7 +115,7 @@ function sanitizeScopeV1(value: unknown): BrowserLeaseScopeV1 | undefined {
 	if (!Number.isFinite(raw.expiresAt)) return undefined;
 	return {
 		rootSessionId: raw.rootSessionId,
-		origins: origins as string[],
+		origins: origins as BrowserLeaseOriginV1[],
 		allow: { devtools: allow.devtools as boolean, upload: allow.upload as boolean, download: allow.download as boolean },
 		maxTabs: raw.maxTabs as number,
 		keepTabs: raw.keepTabs,
@@ -160,7 +194,11 @@ export function checkBrowserLeaseV1(lease: BrowserLeaseV1 | undefined, input: { 
 	if (capability === "upload" && !lease.allow.upload) return { ok: false, kind: "needs-approval", origin, capability, reason: "capability" };
 	if (capability === "download" && !lease.allow.download) return { ok: false, kind: "needs-approval", origin, capability, reason: "capability" };
 	if (origin === "") return { ok: false, kind: "needs-approval", origin, capability, reason: "origin" };
-	if (!lease.origins.includes(origin)) return { ok: false, kind: "needs-approval", origin, capability, reason: "origin" };
+	const entry = lease.origins.find((candidate) => candidate.origin === origin);
+	if (entry === undefined) return { ok: false, kind: "needs-approval", origin, capability, reason: "origin" };
+	// Naming the origin is not enough: the parent must also have authorized this exact
+	// capability for it, so a `read` grant never becomes an `interact` for a child.
+	if (!entry.capabilities.includes(capability)) return { ok: false, kind: "needs-approval", origin, capability, reason: "capability" };
 	return { ok: true };
 }
 
@@ -183,7 +221,7 @@ export async function loadBrowserLeaseForCallV1(input: { relayDir: string; token
  * have to ask again on the next call. Files that do not parse or do not belong to this
  * root session are left untouched, and rewrites are atomic with 0600.
  */
-export async function widenChildLeasesV1(input: { relayDir: string; rootSessionId: string; origin: string; allow?: Partial<BrowserLeaseScopeV1["allow"]> }): Promise<{ updated: number; skipped: number }> {
+export async function widenChildLeasesV1(input: { relayDir: string; rootSessionId: string; origin: string; capability: BrowserLeaseCapabilityV1; allow?: Partial<BrowserLeaseScopeV1["allow"]> }): Promise<{ updated: number; skipped: number }> {
 	const origin = leaseOriginV1(input.origin);
 	if (origin === undefined) return { updated: 0, skipped: 0 };
 	const directory = leaseDirV1(input.relayDir);
@@ -197,9 +235,13 @@ export async function widenChildLeasesV1(input: { relayDir: string; rootSessionI
 		if (token === undefined) { skipped += 1; continue; }
 		const lease = await readBrowserLeaseV1(input.relayDir, token);
 		if (lease === undefined || lease.rootSessionId !== input.rootSessionId) { skipped += 1; continue; }
-		const origins = lease.origins.includes(origin) ? lease.origins : [...lease.origins, origin];
+		const existing = lease.origins.find((candidate) => candidate.origin === origin);
+		const capabilities = [...new Set([...(existing?.capabilities ?? []), input.capability])];
+		const origins = existing === undefined
+			? [...lease.origins, { origin, capabilities }]
+			: lease.origins.map((candidate) => candidate.origin === origin ? { origin, capabilities } : candidate);
 		const allow = { ...lease.allow, ...(input.allow ?? {}) };
-		if (origins === lease.origins && JSON.stringify(allow) === JSON.stringify(lease.allow)) { skipped += 1; continue; }
+		if (JSON.stringify(origins) === JSON.stringify(lease.origins) && JSON.stringify(allow) === JSON.stringify(lease.allow)) { skipped += 1; continue; }
 		const next = { schemaVersion: 1, kind: "rotom-browser-lease", token, agentId: token, rootSessionId: lease.rootSessionId, origins, allow, maxTabs: lease.maxTabs, keepTabs: lease.keepTabs, expiresAt: lease.expiresAt };
 		const staging = join(directory, `.${token}.${process.pid}.${Date.now()}.tmp`);
 		const handle = await open(staging, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
