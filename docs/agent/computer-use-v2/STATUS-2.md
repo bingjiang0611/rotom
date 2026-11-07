@@ -162,6 +162,15 @@ node --experimental-strip-types scripts/cu-v2-l2-check.mjs --fixture ~/cu-v2-tes
 限制：显示效果（两个光标同时在屏、颜色是否够分辨）只到编译层面，留到 B 阶段观察；Swift 侧没有
 UI 单测，确定性只覆盖 TS 的颜色分配。
 
+## 第 5 轮审核（REVIEW-5）处理
+
+只做代码和测试，不跑真机。逐项提交，明细见下表。
+
+| 项 | 处理 | 证据 |
+| --- | --- | --- |
+| G1（高） | 传输方式改用独立字段 `params.requireTransport`；`delivery` 出现不再算钉死。请求构造移进 `src/tools/act-request.ts` 以便断言 | `test/act-request.test.ts` 5 例：产品请求不带该字段、策略算出 `l2` 也不算钉死、直连 L2 请求带 `requireTransport: true` |
+| G2（高） | AX 插入被接受后不再回退按键；读回不符报 `unknown`（`background_input_unknown`），不重复写 | 同上提交；Swift 编译通过、`--lease-self-test` `failures=0` |
+
 ## 测试稳定性观察（既有问题，不是本项引入）
 
 - 全量套件在**并行跑全部测试文件**时，基于真实 spawn 的 Broker 用例（`broker-packaged`、

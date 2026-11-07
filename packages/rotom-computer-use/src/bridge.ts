@@ -34,6 +34,7 @@ import { describeSensitiveMatch, matchSensitiveAction } from "./policy/sensitive
 import { excludeHostRoots, excludeInternalRoots, hostTargetRefusal, resolveHostApp, type HostAppInfo } from "./policy/host-exclusion.ts";
 import { TakeoverController, type TakeoverBackend } from "./takeover.ts";
 import { backgroundDelivery } from "./policy/l2-compat.ts";
+import { buildActRequest } from "./tools/act-request.ts";
 import { appIntent, clipboardIntent, windowIntent } from "./tools/intents.ts";
 import { scoreWindow, shouldPreferForegroundModalWindow } from "./root-selection.ts";
 import { SavedStates, type CurrentCapture, type CurrentTarget, type OperationState } from "./state.ts";
@@ -1408,39 +1409,19 @@ async function helperAct(
 	}
 }
 
-function helperActRequest(target: ResolvedTarget, action: NativePreparedAction, policy = currentDeliveryPolicy(), lease?: HelperLease): PlatformActRequest {
+function helperActRequest(target: ResolvedTarget, action: NativePreparedAction, policy = currentDeliveryPolicy(), lease?: HelperLease, deliveryOverride?: NativeInputDelivery): PlatformActRequest {
 	const look = currentLookOrThrow();
-	const delivery = nativeInputDelivery(policy, target);
 	// Each agent's cursor is separate (F4): the id is what keeps two agents' cursors
 	// apart, and the colour is derived from it deterministically.
-	const cursorAgentId = runtimeState.agentId ?? `session:${process.pid}`;
-	const base = { lookId: look.lookId, pid: target.pid, target: action.target, policy, cursorAgentId, ...(lease ? { lease } : {}) };
-	return (() => {
-		switch (action.action) {
-			case "press":
-			case "click": return { ...base, action: action.action, params: { ...action.params, delivery } };
-			case "setText": return { ...base, action: action.action, params: { text: action.params.text, delivery } };
-			case "typeText": return { ...base, action: action.action, params: { text: action.params.text, delivery } };
-			case "keypress": return { ...base, action: action.action, params: { keys: action.params.keys, delivery } };
-			case "scroll": return { ...base, action: action.action, params: { scrollX: action.params.scrollX, scrollY: action.params.scrollY, delivery } };
-			case "drag": return { ...base, action: action.action, params: { path: action.params.path, delivery } };
-			case "moveMouse": return { ...base, action: action.action, params: { delivery } };
-			case "hover": return { ...base, action: action.action, params: { delivery } };
-			case "select":
-				return { ...base, action: "select", params: { ...(typeof action.params.option === "string" ? { option: action.params.option } : {}), delivery } };
-			case "setChecked":
-				return { ...base, action: "setChecked", params: { checked: action.params.checked === true, delivery } };
-			case "setValue":
-				return { ...base, action: "setValue", params: { value: Number(action.params.value), delivery } };
-			case "expand":
-			case "collapse":
-			case "scrollTo":
-			case "focus":
-			case "clear":
-			case "showMenu":
-				return { ...base, action: action.action, params: { delivery } };
-		}
-	})();
+	return buildActRequest({
+		lookId: look.lookId,
+		pid: target.pid,
+		cursorAgentId: runtimeState.agentId ?? `session:${process.pid}`,
+		action: action as { action: string; params: Record<string, unknown>; target: unknown },
+		policy,
+		delivery: deliveryOverride ?? nativeInputDelivery(policy, target),
+		...(lease ? { lease } : {}),
+	});
 }
 
 function rootDeltaLines(execution: ExecutionTrace): string[] {

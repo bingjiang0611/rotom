@@ -2097,6 +2097,11 @@ final class Bridge {
 		let deferRootDelta = boolArg(request, "deferRootDelta") ?? false
 		let axStylePolicy = policy == "ax_only" || policy == "background_text"
 		let requestedDelivery = params["delivery"] as? String
+		// A caller that pinned a transport wants that transport observed, not an
+		// equivalent AX write. This is a separate field because the product always
+		// names a delivery, so "delivery exists" would make every product request
+		// pinned and would push the AX text path out of reach (review G1).
+		let requireTransport = (params["requireTransport"] as? Bool) ?? false
 		// An explicit `delivery` wins over the policy default. `l2` and `pid` are both
 		// non-foreground deliveries, so honouring the request cannot widen exposure, and
 		// `l2` still fails closed (`foreground_required`) when the private symbol is
@@ -2323,7 +2328,7 @@ final class Bridge {
 				} else {
 					throw BridgeFailure(message: "Web content requires pointer input", code: "foreground_required")
 				}
-			} else if supportsAction(element, action: kAXPressAction as CFString) {
+			} else if !requireTransport, supportsAction(element, action: kAXPressAction as CFString) {
 				let cursorPoint = try? coordinatePoint()
 				var status = AXUIElementPerformAction(element, kAXPressAction as CFString)
 				if status != .success, let refreshed = refreshElement(), supportsAction(refreshed, action: kAXPressAction as CFString) {
@@ -2391,18 +2396,24 @@ final class Bridge {
 			// The user's input method sits between key events and the field. Measured on
 			// 2026-11-06 with a Chinese IME selected: "l2probe" arrived as "里probe",
 			// because the digit picked an IME candidate. AX text insertion does not pass
-			// through the IME, so prefer it - but only when the caller did not pin a
-			// delivery. An explicit `delivery` is a request for that transport, and
-			// answering it with AX insertion would make the transport unreachable.
-			let pinnedDelivery = params["delivery"] is String
-			if !pinnedDelivery, let element, !text.isEmpty, insertTextAtCaret(element, text: text) {
+			// through the IME, so it is the normal path; only a caller that pinned a
+			// transport (`requireTransport`) gets key events instead.
+			if !requireTransport, let element, !text.isEmpty, insertTextAtCaret(element, text: text) {
 				usleep(30_000)
 				let inserted = stringAttribute(element, attribute: kAXValueAttribute as CFString) ?? ""
+				performed["grounding"] = "selection"
+				performed["delivery"] = "ax"
 				if inserted == text || inserted.hasSuffix(text) {
-					performed["grounding"] = "selection"
-					performed["delivery"] = "ax"
 					return finish(["outcome": "worked", "performed": performed, "evidence": ["value": inserted, "valueChanged": inserted != (beforeValue ?? "")]])
 				}
+				// The write was accepted. Repeating it with key events could type the text
+				// twice, so an unreadable result is reported as unknown, not retried.
+				return finish([
+					"outcome": "unknown",
+					"performed": performed,
+					"error": ["code": "background_input_unknown", "message": BackgroundTextCopy.axReadbackUnknown],
+					"evidence": ["value": inserted, "expected": text, "valueChanged": inserted != (beforeValue ?? "")],
+				])
 			}
 			try postUnicodeText(text, pid: pid, delivery: delivery)
 			performed["grounding"] = "coordinates"

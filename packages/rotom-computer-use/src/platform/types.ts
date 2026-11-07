@@ -167,7 +167,17 @@ export interface PlatformClipboardRestore {
 
 export type PlatformDeliveryPolicy = "ax_only" | "background_text" | "background" | "default" | "foreground";
 type PlatformMouseButton = "left" | "right" | "middle";
-type PlatformActDeliveryParam = { delivery?: NativeInputDelivery };
+type PlatformActDeliveryParam = {
+	delivery?: NativeInputDelivery;
+	/**
+	 * Use `delivery` instead of an equivalent AX write.
+	 *
+	 * The product always names a delivery, so this cannot be inferred from `delivery`
+	 * being present: without it, text may legitimately be inserted through AX.
+	 * Only the direct-L2 check sets it, to observe the transport itself.
+	 */
+	requireTransport?: boolean;
+};
 export type PlatformPoint = { x: number; y: number };
 
 /**

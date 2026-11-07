@@ -23,7 +23,9 @@ export function buildDirectL2Request({ lookId, pid, ref, action, params = {} }) 
 		pid: Math.trunc(pid),
 		target: { ref },
 		action,
-		params: { ...params, delivery: "l2" },
+		// `requireTransport` is what makes the helper use L2 instead of an equivalent AX
+		// write: the product always names a delivery, so naming it is not a pin (G1).
+		params: { ...params, delivery: "l2", requireTransport: true },
 		policy: "background",
 		// The overlay is a second moving part; the first real run measures delivery only.
 		cursorOverlay: false,
