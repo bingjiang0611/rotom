@@ -46,6 +46,19 @@ export async function run({ harness, fixtures, recorder }) {
 		assert.equal(waitedMs - snapshotMs > 300, true, `另一个 tab 的 snapshot (${snapshotMs}ms) 必须在 wait (${waitedMs}ms) 结束前完成`);
 	});
 
+	await recorder.check("一个 tab 的操作超时不打断另一个 tab 的读取，也不关闭连接", async () => {
+		// `par-slow` is already complete, so a wait for "loading" can never be satisfied: the
+		// relay answers with its own operation timeout while the sibling read is running.
+		const doomed = request("wait", { tabName: "par-slow", status: "loading", timeoutMs: 1_500 }, 8_000);
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		const snapshot = await request("snapshot", { tabName: "par-fast" }, 10_000);
+		assert.equal(snapshot.nodes.some((node) => node.role === "heading"), true, "超时进行中，另一个 tab 的读取仍然成功");
+		await assert.rejects(doomed, /timeout/u);
+		assert.equal(client.closed, false, "单个操作超时不得关闭共享的 relay client");
+		const after = await request("tabs", {}, 10_000);
+		assert.ok(after.tabs.some((tab) => tab.name === "par-fast"), "超时之后连接仍然可用");
+	});
+
 	await recorder.check("结构性操作必须等只读操作结束，tab 不会被中途关掉", async () => {
 		await request("open", { tabName: "par-slow2", url: slowUrl }, 10_000);
 		const slowWait = request("wait", { tabName: "par-slow2", status: "complete", timeoutMs: 15_000 }, 16_000);
