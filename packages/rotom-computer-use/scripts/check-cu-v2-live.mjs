@@ -35,11 +35,14 @@ function argument(name, fallback) {
 
 import process from "node:process";
 
-import { runStamp } from "./lib/live-helpers.mjs";
-import { ensureFixtureWindow } from "./lib/fixture.mjs";
+import { restoreOperatorApp, runStamp } from "./lib/live-helpers.mjs";
+import { RUNS_DIR, StepRefused, beginStep, finishStep } from "./lib/b-window.mjs";
+import { ensureFixtureWindow, launchFixture } from "./lib/fixture.mjs";
 import { GateHold, requireGate } from "./lib/gate.mjs";
 
 const EVIDENCE_DIR = path.resolve(import.meta.dirname, "..", "..", "..", "docs", "agent", "computer-use-v2", "evidence");
+/** Set by `beginStep`: the frozen commit and the step this run is evidence about. */
+let frozen;
 const rows = [];
 const log = [];
 
@@ -81,6 +84,19 @@ async function refuseUnlessGatePasses() {
 
 
 async function main() {
+	// Review 6 P1: `--with-hid` is B6, everything else here is B3. The step is declared
+	// before anything touches the desktop, and a stopped phase never reaches the gate.
+	const step = process.argv.includes("--with-hid") ? "B6" : "B3";
+	try {
+		frozen = beginStep({ step, expectCommit: argument("--expect-commit"), dir: RUNS_DIR });
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		record("run", "constraints", "refused", message);
+		await writeEvidence();
+		console.error(`[cu-v2 live] ${message}`);
+		process.exit(error instanceof StepRefused ? 2 : 1);
+	}
+	record("run", "frozen commit", "pass", `${frozen.commit} step=${frozen.step}`);
 	await refuseUnlessGatePasses();
 	const diagnostics = await macosHelper.diagnosticsCommand();
 	// Read the constant instead of repeating the number: the A-phase bump to 9 left this
@@ -101,12 +117,12 @@ async function main() {
 		record("app", "launch", "pass", `already running, pid=${fixture.pid} bundle=${fixture.bundleId ?? "?"}`);
 	} else {
 		try {
-			await macosBackend.manageApps({ mode: "launch", path: fixturePath, activates: false });
-			record("app", "manageApps launch", "pass", fixturePath);
+			await launchFixture(macosBackend, { bundlePath: fixturePath });
+			record("app", "launch", "pass", `${fixturePath} (activated: a background launch builds no window)`);
 		} catch (error) {
 			// LaunchServices refuses unsigned-for-Gatekeeper bundles on this machine; the
 			// fixture can still be started directly. Record the refusal, keep going.
-			record("app", "manageApps launch", "blocked", error instanceof Error ? error.message : String(error));
+			record("app", "launch", "blocked", error instanceof Error ? error.message : String(error));
 		}
 		await new Promise((resolve) => setTimeout(resolve, 2500));
 		fixture = findFixture(await macosBackend.listApps());
@@ -217,21 +233,11 @@ async function main() {
 				record("act", "click (HID delivery)", "fail", error instanceof Error ? error.message : String(error));
 			}
 		}
-		// Put the user back where they were: focus the window that was frontmost
-		// before the run instead of relaunching an app that is already running.
-		const previousRoots = await macosBackend.listRoots({ pid: frontmostBefore.pid }).catch(() => []);
-		const previousWindow = previousRoots.find((candidate) => candidate.kind === "window");
-		if (previousWindow) {
-			// focusWindow raises the window and activates its app; without the
-			// activation the previous app would stay behind the HID click target.
-			await macosBackend.focusWindow({ windowId: previousWindow.windowId, windowRef: previousWindow.rootRef, pid: frontmostBefore.pid }).catch(() => undefined);
-			if (frontmostBefore.appName) await macosHelper.command("manageApps", { mode: "launch", bundleId: frontmostBefore.bundleId, path: frontmostBefore.appPath, activates: true }).catch(() => undefined);
-			await new Promise((resolve) => setTimeout(resolve, 800));
-			const restored = await macosBackend.getFrontmost();
-			// Restoring the previous app is operator hygiene, not product behavior: the
-			// HID click legitimately raised the fixture. Report it, but do not fail.
-			record("background", "frontmost restored", restored.pid === frontmostBefore.pid ? "pass" : "inconclusive", `${frontmostBefore.appName} → ${restored.appName}; bring your app back manually`);
-		}
+		// Put the user back where they were, through `focusWindow` with a lease (review 6
+		// P2). The previous version re-launched the app - which does nothing for a running
+		// app - swallowed the error and called the result `inconclusive`, so B6 could pass
+		// while the operator's app stayed behind the fixture.
+		await restoreOperatorApp({ backend: macosBackend, original: frontmostBefore, record });
 	} else {
 		record("background", "agent events marked", "skipped", "run with --with-hid to post real input events");
 	}
@@ -298,10 +304,14 @@ async function writeEvidence() {
 	const table = ["| Area | Action | Result | Note |", "| --- | --- | --- | --- |", ...rows.map((row) => `| ${row.area} | ${row.action} | ${row.result} | ${row.note.replace(/\|/g, "\\|")} |`)];
 	const failures = rows.filter((row) => row.result === "fail").length;
 	const runName = `${runStamp()}-live-check.md`;
+	const verdict = frozen ? finishStep({ step: frozen.step, commit: frozen.commit, dir: RUNS_DIR, failures, run: runName }) : undefined;
 	const body = [
 		`# Computer Use v2 live check (${new Date().toISOString()})`,
 		"",
 		`Rows: ${rows.length} · Failures: ${failures}`,
+		"",
+		...(frozen ? [`Step: ${frozen.step}`, `Commit: ${frozen.commit}`] : []),
+		...(verdict ? [`Verdict: ${verdict}`] : []),
 		"",
 		`本次运行存档：\`runs/${runName}\``,
 		"",

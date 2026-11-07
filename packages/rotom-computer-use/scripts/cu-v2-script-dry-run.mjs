@@ -16,8 +16,10 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { FIXTURE_BUNDLE_PREFIX, disposeFixtureRun, isFixtureBundleId, prepareFixtureRun } from "./lib/fixture.mjs";
+import { B_STEPS, STEP_SCRIPTS, finishStep, readStopMarker, requirePreviousStepsPassed } from "./lib/b-window.mjs";
+import { FIXTURE_BUNDLE_PREFIX, disposeFixtureRun, ensureFixtureWindow, isFixtureBundleId, prepareFixtureRun } from "./lib/fixture.mjs";
 import { buildDirectL2Request, isDirectL2 } from "./lib/l2-direct.mjs";
+import { classifyActFailure } from "./lib/live-helpers.mjs";
 
 const rows = [];
 async function check(name, run) {
@@ -106,6 +108,89 @@ await check("every live script asks the gate before it touches the desktop", () 
 		assert.doesNotMatch(source, /process\.argv\[process\.argv\.indexOf\(/, `${name} must use argument(name, fallback)`);
 	}
 	return scripts.join(", ");
+});
+
+await check("every live script is frozen, stops on one failure and keeps the order", () => {
+	// Review 6 P1. The three checks have to be wired into each script, not only into the
+	// library: the first window ran four B2 attempts because nothing in the script said
+	// "stopped" or "wrong commit".
+	const scripts = ["check-cu-v2-live.mjs", "cu-v2-acceptance.mjs", "cu-v2-compat-matrix.mjs", "cu-v2-l2-check.mjs"];
+	for (const name of scripts) {
+		const source = readFileSync(path.join(import.meta.dirname, name), "utf8");
+		assert.match(source, /beginStep\(/, `${name} must call beginStep`);
+		assert.match(source, /--expect-commit/, `${name} must require the frozen commit`);
+		// Either the script calls `finishStep` itself (matrix, l2 check, live check) or it
+		// hands the step to the shared recorder, which finishes it (acceptance).
+		assert.match(source, /finishStep\(|step: frozen\?\.step/, `${name} must record a verdict and stop on failure`);
+		assert.match(source, /Step: \$\{|step: frozen\?\.step/, `${name} must write the Step line the order check reads`);
+		// An ad-hoc activation or restore command is exactly what a window may not use.
+		assert.doesNotMatch(source, /System Events/, `${name} must not raise apps through System Events`);
+	}
+	return scripts.length + " scripts";
+});
+
+await check("the order is B1 to B6 and a missing step blocks the rest", () => {
+	const dir = mkdtempSync(path.join(tmpdir(), "cu-v2-order-"));
+	try {
+		// Nothing has run: only B1 may start.
+		requirePreviousStepsPassed({ step: "B1", commit: "a".repeat(40), dir });
+		for (const step of B_STEPS.slice(1)) {
+			assert.throws(() => requirePreviousStepsPassed({ step, commit: "a".repeat(40), dir }), undefined, `${step} must wait`);
+		}
+		// A pass from an older commit does not authorize the next step under a new one.
+		writeFileSync(path.join(dir, "run-1.md"), "Step: B1\nCommit: " + "b".repeat(40) + "\nVerdict: pass\n");
+		assert.throws(() => requirePreviousStepsPassed({ step: "B2", commit: "a".repeat(40), dir }), /B1 passed/);
+		writeFileSync(path.join(dir, "run-2.md"), "Step: B1\nCommit: " + "a".repeat(40) + "\nVerdict: pass\n");
+		requirePreviousStepsPassed({ step: "B2", commit: "a".repeat(40), dir });
+		assert.throws(() => requirePreviousStepsPassed({ step: "B6", commit: "a".repeat(40), dir }), /B2 passed/);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+	return STEP_SCRIPTS.B4 === null ? "B1..B6, B4/B5 have no script yet" : "B1..B6";
+});
+
+await check("a failing run leaves the B-STOPPED marker behind", () => {
+	const dir = mkdtempSync(path.join(tmpdir(), "cu-v2-stop-"));
+	try {
+		assert.equal(finishStep({ step: "B2", commit: "a".repeat(40), dir, failures: 0, run: "r.md" }), "pass");
+		assert.equal(readStopMarker(dir), null);
+		assert.equal(finishStep({ step: "B2", commit: "a".repeat(40), dir, failures: 2, run: "r.md" }), "fail");
+		assert.equal(readStopMarker(dir)?.step, "B2");
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+	return "written on fail, absent on pass";
+});
+
+await check("waiting for a fixture window has no hidden activation", async () => {
+	// Review 6 P3: the old first step called `manageApps ... activates: true`, which does
+	// nothing for a running app, and the `osascript` fallback swallowed its own failure.
+	let activations = 0;
+	const backend = {
+		listRoots: async () => [],
+		manageApps: async () => { activations += 1; },
+	};
+	const rootWithoutWindow = await ensureFixtureWindow(backend, { pid: 1 }, { timeoutMs: 60, intervalMs: 20 });
+	assert.equal(rootWithoutWindow, undefined);
+	assert.equal(activations, 0, "the wait must not try to raise the app");
+	const found = await ensureFixtureWindow({ listRoots: async () => [{ kind: "window", windowId: 7 }] }, { pid: 1 }, { timeoutMs: 60 });
+	assert.equal(found.windowId, 7);
+	return "polls only";
+});
+
+await check("a helper refusal is a refused cell, not a failed one", () => {
+	// Review 6 P4: `ax_only` refusing `typeText` carries `foreground_required`.
+	assert.equal(classifyActFailure(Object.assign(new Error("ax_only cannot deliver typeText"), { code: "foreground_required" })).result, "refused");
+	assert.equal(classifyActFailure(new Error("boom")).result, "fail");
+	return "classified by code";
+});
+
+await check("the fixture button exposes the result on itself", () => {
+	// Review 6 P4: `press` reads the pressed control, so a result only in a sibling Text
+	// left every press `unknown`.
+	const source = readFileSync(path.join(import.meta.dirname, "..", "native", "macos-fixture", "FixtureApp.swift"), "utf8");
+	assert.match(source, /accessibilityIdentifier\("cu-fixture-button"\)[\s\S]{0,800}accessibilityValue\(/);
+	return "AXValue on cu-fixture-button";
 });
 
 const skipped = [

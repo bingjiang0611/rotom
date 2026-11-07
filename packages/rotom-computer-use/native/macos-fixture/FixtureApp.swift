@@ -41,6 +41,11 @@ struct FixtureView: View {
 			HStack(spacing: 8) {
 				Button("Fixture action") { model.lastMenuSelection = "button" }
 					.accessibilityIdentifier("cu-fixture-button")
+					// The pressed state is also written into the button's own accessibility value
+					// (review 6, P4): `press` reads back the pressed control, not its siblings, so
+					// a result living only in the neighbouring Text made every press `unknown` -
+					// truthful, but impossible for the matrix to judge.
+					.accessibilityValue(model.lastMenuSelection == "button" ? "clicked" : "idle")
 				Text(model.lastMenuSelection == "button" ? "clicked" : "idle")
 					.accessibilityIdentifier("cu-fixture-button-result")
 			}

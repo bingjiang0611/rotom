@@ -32,19 +32,21 @@
  *   PI_COMPUTER_USE_HELPER_APP_PATH=~/cu-v2-test/pi-computer-use.app \
  *   PI_CU_SOCKET_PATH=~/cu-v2-test/helper.sock
  */
-import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 
-import { inputSourceInfo, runStamp } from "./lib/live-helpers.mjs";
-import { ensureFixtureWindow } from "./lib/fixture.mjs";
+import { inputSourceInfo, restoreOperatorApp, runStamp } from "./lib/live-helpers.mjs";
+import { RUNS_DIR, StepRefused, beginStep, finishStep } from "./lib/b-window.mjs";
+import { ensureFixtureWindow, launchFixture } from "./lib/fixture.mjs";
 import { GateHold, requireGate } from "./lib/gate.mjs";
 import { disposeFixtureRun, isFixtureBundleId, prepareFixtureRun } from "./lib/fixture.mjs";
 import { runDirectL2, runWithHid } from "./lib/l2-modes.mjs";
 
 const EVIDENCE_DIR = path.resolve(import.meta.dirname, "..", "..", "..", "docs", "agent", "computer-use-v2", "evidence");
+/** Set by `beginStep`: the frozen commit this run is evidence about. */
+let frozen;
 const rows = [];
 const log = [];
 
@@ -70,7 +72,10 @@ const fixturePath = argument("--fixture");
 if (!fixturePath || !existsSync(fixturePath)) disabled("pass --fixture <path to the built fixture app>");
 
 const directL2 = process.argv.includes("--direct-l2");
+// Review 6 P1: the step is declared, not inferred at the end. `--with-hid` is B6 and is
+// therefore only allowed after B1-B5 passed; everything else here is B1.
 const withHid = process.argv.includes("--with-hid");
+const step = withHid ? "B6" : "B1";
 const fixtureCopy = !process.argv.includes("--no-fixture-copy");
 const runRoot = path.join(homedir(), "cu-v2-test", "runs", runStamp());
 mkdirSync(runRoot, { recursive: true });
@@ -143,6 +148,19 @@ async function probe(agent, look, pid, action, controls) {
 }
 
 async function main() {
+	// Review 6 P1, in this order: a stopped phase, then the frozen commit, then the
+	// previous step's pass. All three are refusals (exit 2), never skips.
+	try {
+		frozen = beginStep({ step, expectCommit: argument("--expect-commit"), dir: RUNS_DIR });
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		record("run", "constraints", "refused", message);
+		console.error(`[cu-v2 l2] ${message}`);
+		await writeEvidence();
+		process.exit(error instanceof StepRefused ? 2 : 1);
+	}
+	record("run", "frozen commit", "pass", `${frozen.commit} step=${frozen.step}`);
+
 	// The gate runs inside the script, not in an operator shell loop: on 2026-11-06 the
 	// loop ran the check unconditionally and B1 started while the user was typing.
 	// No declared window is a refusal, and a hold writes its readings and exits.
@@ -195,6 +213,12 @@ async function main() {
 		launchPath = fixtureRun.bundlePath;
 		record("fixture", "fresh copy", "pass", `bundle=${fixtureRun.bundleId} path=${launchPath}`);
 	}
+	// The run's own copy is the only app this phase may raise: a background launch never
+	// builds a SwiftUI window, so the launch itself activates it (review 6 P3). There is
+	// no `open -n` fallback any more - an ad-hoc launch command is not part of a frozen
+	// script, and a window that never appears is a result.
+	await launchFixture(macosBackend, fixtureRun ?? { bundlePath: launchPath }).catch((error) => record("fixture", "launch", "fail", error instanceof Error ? error.message : String(error)));
+	await sleep(1500);
 	const apps = await macosBackend.listApps();
 	let fixture = apps.find((app) => isFixtureBundleId(app.bundleId) && startedByThisRun(app))
 		?? apps.find((app) => app.bundleId === "com.example.cu-fixture")
@@ -202,22 +226,6 @@ async function main() {
 	if (fixture && !startedByThisRun(fixture)) {
 		record("fixture", "present", "skipped", `pid=${fixture.pid} was already running before this run; quit it so the check can launch its own copy`);
 		fixture = undefined;
-	} else if (!fixture) {
-		try {
-			await macosBackend.manageApps({ mode: "launch", path: launchPath, activates: false });
-		} catch {
-			execFileSync("open", ["-n", launchPath], { stdio: "pipe" });
-		}
-		await sleep(2500);
-		const launched = await macosBackend.listApps();
-		fixture = fixtureRun
-			? launched.find((app) => app.bundleId === fixtureRun.bundleId)
-			: launched.find((app) => /fixture/i.test(app.appName ?? ""));
-		if (fixture && !startedByThisRun(fixture)) {
-			// A launch that silently attached to an older copy is not this run's process.
-			record("fixture", "present", "skipped", `pid=${fixture.pid} was already running before this run`);
-			fixture = undefined;
-		}
 	}
 	if (!fixture) {
 		if (!rows.some((row) => row.area === "fixture" && row.action === "present")) {
@@ -225,9 +233,9 @@ async function main() {
 		}
 	} else {
 		record("fixture", "present", "pass", `pid=${fixture.pid} bundle=${fixture.bundleId}`);
-		// A fixture started from its binary is not activated, so its window is not in the
-		// window list yet; a fixed 1.2 s wait sat exactly on the edge of when it appears.
-		const root = await ensureFixtureWindow(macosBackend, { pid: fixture.pid, bundleId: fixture.bundleId, path: fixture.bundlePath });
+		// `launchFixture` activated the copy, so the window is being built now; poll for it
+		// instead of guessing a fixed sleep (the 1.2 s wait sat exactly on the edge).
+		const root = await ensureFixtureWindow(macosBackend, { pid: fixture.pid });
 		if (!root) {
 			record("fixture", "window", "fail", "no window in listRoots even after activating the fixture");
 		} else {
@@ -297,10 +305,8 @@ async function main() {
 		record("cleanup", "fixture copy", cleanup.quit.length ? "pass" : "inconclusive", `quit=${cleanup.quit.join(",") || "none"} removed=${fixtureRun.dir}`);
 	}
 
-	// Leave the operator's app in front again.
-	execFileSync("osascript", ["-e", `tell application "System Events" to set frontmost of first process whose unix id is ${frontmost.pid} to true`], { stdio: "pipe" });
-	const restored = await macosBackend.getFrontmost();
-	record("cleanup", "operator app restored", restored.pid === frontmost.pid ? "pass" : "inconclusive", `${frontmost.appName} → ${restored.appName}`);
+	// Leave the operator's app in front again, and read it back (review 6 P2).
+	await restoreOperatorApp({ backend: macosBackend, original: frontmost, record });
 }
 
 /**
@@ -319,10 +325,14 @@ async function writeEvidence() {
 	const failures = rows.filter((row) => row.result === "fail").length;
 	const table = ["| Target | Action | Result | Note |", "| --- | --- | --- | --- |", ...rows.map((row) => `| ${row.area} | ${row.action} | ${row.result} | ${row.note.replace(/\|/g, "\\|")} |`)];
 	const runName = `${runStamp()}-l2-check.md`;
+	const verdict = frozen ? finishStep({ step: frozen.step, commit: frozen.commit, dir: RUNS_DIR, failures, run: runName }) : undefined;
 	const body = withoutHome([
 		`# Computer Use v2 L2 single-action check (${new Date().toISOString()})`,
 		"",
 		`Rows: ${rows.length} · Failures: ${failures}`,
+		"",
+		...(frozen ? [`Step: ${frozen.step}`, `Commit: ${frozen.commit}`] : []),
+		...(verdict ? [`Verdict: ${verdict}`] : []),
 		"",
 		`本次运行存档：\`runs/${runName}\``,
 		"",

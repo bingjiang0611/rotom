@@ -16,11 +16,12 @@
  * an empty document, Finder windows). Never drives user documents.
  */
 import { mkdir, writeFile } from "node:fs/promises";
-import { execFileSync } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
-import { ensureFixtureWindow } from "./lib/fixture.mjs";
+import { RUNS_DIR, StepRefused, beginStep, finishStep } from "./lib/b-window.mjs";
+import { ensureFixtureWindow, launchFixture } from "./lib/fixture.mjs";
 import { GateHold, requireGate } from "./lib/gate.mjs";
+import { classifyActFailure, restoreOperatorApp } from "./lib/live-helpers.mjs";
 
 const EVIDENCE_DIR = path.resolve(import.meta.dirname, "..", "..", "..", "docs", "agent", "computer-use-v2", "evidence");
 const ACTIONS = ["observe", "focus", "setText", "typeText", "press", "setChecked", "expand", "scrollTo", "select", "setValue"];
@@ -44,6 +45,17 @@ if (process.platform !== "darwin" || (process.env.PI_CU_LIVE ?? "") !== "1") {
 function argument(name, fallback) {
 	const index = process.argv.indexOf(name);
 	return index >= 0 && index + 1 < process.argv.length ? process.argv[index + 1] : fallback;
+}
+
+// Review 6 P1: stopped phase, frozen commit, previous step. Any of the three is a
+// refusal (exit 2) and nothing on the desktop is touched.
+const STEP = "B2";
+let frozen;
+try {
+	frozen = beginStep({ step: STEP, expectCommit: argument("--expect-commit"), dir: RUNS_DIR });
+} catch (error) {
+	console.error(`[cu-v2 matrix] ${error instanceof Error ? error.message : String(error)}`);
+	process.exit(error instanceof StepRefused ? 2 : 1);
 }
 
 try {
@@ -91,9 +103,18 @@ function targetFor(app) {
 
 for (const requested of apps) {
 	const app = targetFor(requested);
-	await macosBackend.manageApps({ mode: "launch", bundleId: app.includes(".") && !app.startsWith("/") ? app : undefined, path: app.startsWith("/") ? app : undefined, activates: false }).catch(() => undefined);
-	await new Promise((resolve) => setTimeout(resolve, 2000));
 	const preparedHandle = prepared.find((handle) => handle.bundlePath === app);
+	const operatorFront = await macosBackend.getFrontmost().catch(() => undefined);
+	// Only the run's own copy is launched with activation: a background launch never
+	// builds a SwiftUI window, and every other app is used exactly as the operator left
+	// it. There is no `osascript` fallback (review 6 P3).
+	if (preparedHandle) {
+		await launchFixture(macosBackend, preparedHandle).catch((error) => rows.push({ app, action: "launch", delivery: "-", result: "fail", note: message(error) }));
+		await new Promise((resolve) => setTimeout(resolve, 1500));
+	} else {
+		await macosBackend.manageApps({ mode: "launch", bundleId: app.includes(".") && !app.startsWith("/") ? app : undefined, path: app.startsWith("/") ? app : undefined, activates: false }).catch(() => undefined);
+		await new Promise((resolve) => setTimeout(resolve, 2000));
+	}
 	const installed = (await macosBackend.listApps()).find((candidate) => preparedHandle
 		? candidate.bundleId === preparedHandle.bundleId
 		: candidate.bundleId === app || app.startsWith("/") && candidate.appName.toLowerCase().includes(path.basename(app).toLowerCase()));
@@ -102,14 +123,16 @@ for (const requested of apps) {
 		continue;
 	}
 	let root;
-	const operatorFront = await macosBackend.getFrontmost().catch(() => undefined);
 	try {
-		// Only a fixture copy is ours to raise. Another app is used exactly as it stands,
-		// which is also why a cell there says "no window" instead of activating it.
-		root = await ensureFixtureWindow(macosBackend, { pid: installed.pid, bundleId: preparedHandle?.bundleId, path: preparedHandle?.bundlePath }, { activate: preparedHandle !== undefined });
+		root = await ensureFixtureWindow(macosBackend, { pid: installed.pid });
 		if (root && operatorFront) {
-			execFileSync("osascript", ["-e", `tell application "System Events" to set frontmost of first process whose unix id is ${operatorFront.pid} to true`], { stdio: "pipe" });
-			await new Promise((resolve) => setTimeout(resolve, 400));
+			// Read back instead of asserting (review 6 P3): a failed restore is a failure,
+			// because the cells would otherwise describe a session the operator lost.
+			const restore = await restoreOperatorApp({ backend: macosBackend, original: operatorFront, record: (area, action, result, note) => rows.push({ app, action: `${area} ${action}`, delivery: "-", result, note }) });
+			if (!restore.restored) {
+				rows.push({ app, action: "frontmost restore", delivery: "-", result: "fail", note: "the operator's app did not come back; the cells below describe a different session" });
+				break;
+			}
 		}
 	} catch (error) {
 		for (const action of ACTIONS) rows.push({ app, action, delivery: "-", result: "not-run", note: `listRoots failed: ${message(error)}` });
@@ -143,12 +166,24 @@ for (const requested of apps) {
 				cell.result = result?.outcome === "worked" ? "pass" : result?.outcome === "didnt" ? "fail" : "unknown";
 				cell.note = `outcome=${result?.outcome ?? "?"} delivery=${result?.performed?.delivery ?? "?"}${result?.performed?.interferedWithUser ? " interfered" : ""}`;
 			} catch (error) {
-				cell.result = /foreground_required|background_unsupported|unsupported_action/.test(message(error)) ? "refused" : "fail";
-				cell.note = message(error);
+				// Classified by the helper's error code (review 6 P4): matching the message
+				// turned `ax_only` correctly refusing `typeText` into a failed cell.
+				const classified = classifyActFailure(error);
+				cell.result = classified.result;
+				cell.note = `code=${classified.code} ${message(error)}`;
 			}
 		}
 	}
 	look = undefined;
+	// The `foreground` cells raise the copy on purpose, so hand the front back and read
+	// it (review 6 P2); a restore that does not take is a failed cell, not a note.
+	if (operatorFront) {
+		await restoreOperatorApp({
+			backend: macosBackend,
+			original: operatorFront,
+			record: (area, action, result, note) => rows.push({ app, action: `${area} ${action} (end)`, delivery: "-", result, note }),
+		});
+	}
 }
 
 function actionFor(name) {
@@ -196,11 +231,21 @@ for (const handle of prepared) {
 }
 
 await mkdir(EVIDENCE_DIR, { recursive: true });
+await mkdir(path.join(EVIDENCE_DIR, "runs"), { recursive: true });
 const counts = rows.reduce((accumulator, row) => ({ ...accumulator, [row.result]: (accumulator[row.result] ?? 0) + 1 }), {});
+// A `refused` cell is a fact about the app, a `fail` cell stops the phase: the marker is
+// what makes "one failure blocks B3 and later" true for this script too (review 6 P1).
+const failures = rows.filter((row) => row.result === "fail").length;
+const runName = `${runStamp()}-compat-matrix.md`;
+const verdict = finishStep({ step: frozen.step, commit: frozen.commit, dir: RUNS_DIR, failures, run: runName });
 const body = [
 	`# Computer Use v2 compatibility matrix (${new Date().toISOString()})`,
 	"",
 	`Cells: ${rows.length} · ${Object.entries(counts).map(([key, value]) => `${key}=${value}`).join(" · ")}`,
+	"",
+	`Step: ${frozen.step}`,
+	`Commit: ${frozen.commit}`,
+	`Verdict: ${verdict}`,
 	"",
 	"| App | Action | Delivery policy | Result | Note |",
 	"| --- | --- | --- | --- | --- |",
@@ -212,4 +257,6 @@ const body = [
 	"",
 ].join("\n");
 await writeFile(path.join(EVIDENCE_DIR, "compat-matrix.md"), body);
-console.log(`[cu-v2 matrix] wrote ${rows.length} cells to ${path.join(EVIDENCE_DIR, "compat-matrix.md")}`);
+await writeFile(path.join(EVIDENCE_DIR, "runs", runName), body);
+if (failures > 0) process.exitCode = 1;
+console.log(`[cu-v2 matrix] wrote ${rows.length} cells (verdict ${verdict}) to ${path.join(EVIDENCE_DIR, "runs", runName)}`);

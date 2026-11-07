@@ -22,8 +22,9 @@ import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
+import { RUNS_DIR, StepRefused, beginStep } from "./lib/b-window.mjs";
 import { GateHold, requireGate } from "./lib/gate.mjs";
-import { argument, createRecorder, nowMs, requireLive, sessionDelta, sessionProbe, sleep, wireRefByRole, wireRefsByRole } from "./lib/live-helpers.mjs";
+import { argument, createRecorder, nowMs, requireLive, restoreOperatorApp, sessionDelta, sessionProbe, sleep, wireRefByRole, wireRefsByRole } from "./lib/live-helpers.mjs";
 
 const WORK_DIR = path.join(homedir(), "cu-v2-test", "acceptance");
 const SIMULATED_TEXT = "The quick brown fox jumps over the lazy dog 0123456789 while three agents work.";
@@ -42,6 +43,8 @@ requireLive("cu-v2 acceptance", [
 const { macosHelper } = await import("../src/platform/macos/helper.ts");
 const { macosBackend } = await import("../src/platform/macos/backend.ts");
 const { record, rows, writeEvidence } = createRecorder();
+/** Set by `beginStep`: the frozen commit this run is evidence about. */
+let frozen;
 
 const brackets = [];
 const instances = [];
@@ -147,6 +150,18 @@ async function runAgent(agent, pid) {
 }
 
 async function main() {
+	// Review 6 P1: the acceptance run is part of B3, so it carries the same three checks
+	// as the live check and cannot run in a stopped phase.
+	const step = "B3";
+	try {
+		frozen = beginStep({ step, expectCommit: argument("--expect-commit"), dir: RUNS_DIR });
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		record("run", "constraints", "refused", message);
+		console.error(`[cu-v2 acceptance] ${message}`);
+		process.exit(error instanceof StepRefused ? 2 : 1);
+	}
+	record("run", "frozen commit", "pass", `${frozen.commit} step=${frozen.step}`);
 /**
  * The gate runs here too, not in an operator loop (review G6): no declared window is a
  * refusal, and a hold stops before anything touches the desktop.
@@ -166,7 +181,9 @@ async function refuseUnlessGatePasses() {
 }
 	await refuseUnlessGatePasses();
 	const diagnostics = await macosHelper.diagnosticsCommand();
-	if (diagnostics.protocolVersion !== 8) throw new Error(`helper must report protocol 8, got ${diagnostics.protocolVersion}`);
+	// Same reason as the live check: a hardcoded protocol number refuses a correct helper.
+	const { HELPER_PROTOCOL_VERSION } = await import("../src/platform/macos/helper.ts");
+	if (diagnostics.protocolVersion !== HELPER_PROTOCOL_VERSION) throw new Error(`helper must report protocol ${HELPER_PROTOCOL_VERSION}, got ${diagnostics.protocolVersion}`);
 	record("helper", "diagnostics", "pass", `protocol=${diagnostics.protocolVersion} accessibility=${diagnostics.accessibility} screenRecording=${diagnostics.screenRecording}`);
 
 	// The operator app is whatever was frontmost before the run; the run has to
@@ -275,9 +292,9 @@ async function cleanup({ textEditPid, textEditRunning, operatorFrontmost }) {
 		if (app) execFileSync("kill", ["-TERM", String(app.pid)], { stdio: "pipe" });
 	}
 	if (operatorFrontmost.appName) {
-		execFileSync("osascript", ["-e", `tell application "System Events" to set frontmost of first process whose unix id is ${operatorFrontmost.pid} to true`], { stdio: "pipe" });
-		const restored = await macosBackend.getFrontmost();
-		record("cleanup", "operator app restored", restored.pid === operatorFrontmost.pid ? "pass" : "inconclusive", `${operatorFrontmost.appName} → ${restored.appName}; bring your app back manually if this says inconclusive`);
+		// Same restore path as the live check (review 6 P2): `focusWindow` with a lease and
+		// a readback, and a restore that does not take is a failure.
+		await restoreOperatorApp({ backend: macosBackend, original: operatorFrontmost, record });
 	}
 }
 
@@ -294,6 +311,8 @@ try {
 
 writeEvidence({
 	fileName: "acceptance-run",
+	step: frozen?.step,
+	commit: frozen?.commit,
 	title: "Computer Use v2 acceptance run, PLAN §10",
 	intro: [
 		"Three fixture instances under distinct bundle identifiers work in the background while a",
