@@ -128,6 +128,8 @@ Browser relay 的后台标签、AX/DOM ref、viewport、document generation 和 
 - 重定向不能绕过授权：relay 在派发写操作前用 `chrome.tabs.get` 取当前 origin，与 Pi 侧本次会话真正授权过的 origin 集合比对，不匹配就返回 `{kind:"needs-approval",reason:"origin"}` 且不派发；客户端把 policy 拒绝和 relay 拒绝都当作干净拒绝（不是 unknown），调用方不得重试。
 - 子 agent 的浏览器权限由 lease 决定：用户授权过的 origin **和 capability**（与策略同一套 `read`/`interact`/`devtools`/`upload`/`download`）写成私有 lease 文件（目录 0700、文件 0600、拒绝 symlink），子 agent 每次 `open`、页内写操作与 `devtools` 前重读它。只拿到 `read` 的 origin 不会被当成 `interact`；`允许一次` 只对该次调用有效，不进子 lease，只有 `本会话允许`/`总是允许` 才发布，`总是允许` 同时合并扩写已有子 lease。缺失、过期、origin 不在列表、capability 不在该条目或开关未开启时，工具层直接返回结构化 `{kind:"needs-approval",origin,capability,reason}`，不发出请求、不弹窗、不询问用户；只读操作不受 lease 限制。旧格式（只有 origin 字符串）按只读解释，不能放行 `interact`。lease 不是安全沙箱，限制的是站点范围与 capability，不是本机进程权限。
 - 安装与重载是用户显式操作；代码级 L1 不能写成真实 Chrome L2/L3。
+- Linux 上后台 tab 不保证产出合成帧：页面在 focus emulation 下会报告 `visible`，但渲染进程可能不再给帧（评审在 Linux 上实测：focus emulation 开关过几轮后，按住指针的每次 `mouseMoved` 要约 1 s 等合成帧确认）。因此 `drag`、`screenshot` 与依赖渲染帧的懒加载长列表 `read_full` 可能完不成，结果如实报 timeout/unknown/`contentComplete: false`，之后同 session 的 `tabs`/`close` 仍可用。这是 Chrome 在 Linux 上合成后台 tab 的内部行为，用户已决定记为已知限制（2026-11-07）；不得为绕过它把 agent tab 变成用户前台的可见 tab，也不得把超时改写成成功。macOS 的后台 tab 同样没有环境帧（实测 1.5 s 内 0 帧 rAF），但读路径靠 focus emulation 能正常完成。
+- 客户端取消（用户中断或 Pi 侧超时）只终止客户端等待，扩展里的操作会跑到自己的 deadline 并一直占着该 tab 的锁；relay 没有“取消某次操作”的消息，需要立刻脱身时用 `recover` 或换一个 tab。`screenshot` 期间会开 focus emulation，所以页面会收到 `visibilitychange`/`focus`（`document.visibilityState` 短暂变成 `visible`），这是读操作对页面的可观察副作用。
 - socket、锁与 native host 注册位置只由 `rotom/extensions/browser/platform-paths.mjs` 决定：macOS 字符串冻结（改了就断升级），Linux 走 XDG runtime，Windows 是命名管道与 `HKCU` 注册表。Windows 分支只有代码与单测证据，安装器只打印 `reg add` 命令，不冒充实测通过。
 
 ## 公开前隐私边界
