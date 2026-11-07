@@ -236,3 +236,56 @@ ROTOM_CHROME_EXECUTABLE=/path/to/chrome-nosandbox.sh node --experimental-strip-t
 4. 单请求超时不关 client。
 
 这 4 项都能在 macOS 上用单测或故障注入自证，不需要 Linux。然后做 `read_full` 的 focus emulation 和 bench 对照，最后订正文档。Linux 侧的 e2e 由评审下一轮复跑；请在 STATUS 里把 Linux 结论写成“评审环境 L2：112/119，待复跑”，不要写成 L1。
+
+## 第 3 轮（8bdd7b4..06d16a0）
+
+评审环境同第 2 轮：Linux x64（root、无 IPv6），Node 24.22.2，Chrome for Testing 153，分支原样、不打补丁。
+
+**复现结果**
+- browser 单测：310 项，309 通过，0 失败，1 skip。
+- `python3 scripts/audit-public.py --root .`：PASS。
+- e2e（Linux headless）：23 suite，**116 通过 / 5 失败**（第 2 轮 112/119）。剩下的 5 项**全部如实报超时**，没有一项是“没做完却报完成”，session 也不再卡死：
+  - `baseline :: screenshot`：`Page.captureScreenshot timeout`，在 5 s 内返回；之后的 `close` 通过。
+  - `settle` 两项：`contentComplete=false`；`virtual-late` 那项报 `read_full operation timeout`。
+  - `pointer` 两项拖拽：`dispatch timeout … 结果 unknown`。
+
+### 第 2 轮必须改项：全部通过
+
+- [已通过] **T20 lease 按 capability 判定。** 评审用第 2 轮的复现重跑：
+  - 父 agent 对 `bank.test` 选“允许一次 read”：不发布 lease，子 agent 点击得到 `needs-approval`，派发 0 次。
+  - 改成“本会话允许 read”：lease 发布为 `{ origin: "https://bank.test", capabilities: ["read"] }`，子 agent 点击得到 `reason: "capability"`，派发 0 次。
+  - 旧格式按只读处理；子 agent history 导航只带它自己经 `interact` 检查过的 origin。
+- [已通过] **T18 派发竞速。** `raceDispatchAgainstDialog` 只有三种答案：弹窗、派发完成、超时。超时按 unknown 报告；操作结束时 guard 失效、超时会走 `resetAfterOperationTimeout`，后台残留的派发会在下一次 `assertOperation()` 停下。
+- [已通过] **screenshot deadline。** 每条 CDP 命令各自有上限，在 Linux 上实测超时能释放锁。
+- [已通过] **单请求超时不关 client。** timeout/abort 不再 `#fail()`；迟到的普通响应和分块响应都会被丢弃，不会误判为协议错误。
+- [已通过] **文档订正。** CLAUDE.md §6 与 usage 的配额语义、lease capability、“允许一次”的范围都和代码一致；`--no-verify` 门禁问题已列入“阻塞与问题”。
+
+### Linux 后台 tab 不出帧：评审定位到的根因（需要用户决定，不再算执行方的必须改项）
+
+评审在 SW 里临时给 `chrome.debugger.sendCommand` 计时（未提交），只跑 pointer suite：拖拽时**每个按住鼠标的 `mouseMoved` 都正好要约 1016 ms**，这是 Chrome 等合成帧的输入确认超时。另外三个现象是同一个原因：
+
+- `fromSurface` 截图挂住；
+- `read_full` 等 rAF 超时；
+- `virtual-late` 读不完。
+
+页面在 focus emulation 下会报告 `visible`，但后台 tab 并不真正产出合成帧。
+
+探针结论（原始 CDP）：
+- 新开的后台 tab 上，按住鼠标的 `mouseMoved` 只要 3–17 ms，截图约 2.5 s。只有在 focus emulation 开关过几轮之后（每次交互都会开关一次），才进入“不出帧”的状态。第 2 轮的探针也显示，这种状态下重新打开 focus emulation 只能救回一次截图。
+- `placement: "agent-window"` 更糟：截图超时，`mouseMoved` 每次 5 s。所以换 placement 不是解法。
+- `Page.setWebLifecycleState` 和 screencast 都不起作用。
+
+这已经是 Chrome 在 Linux 上合成后台 tab 的内部行为，现有 CDP 手段里没找到稳定的解法。安全合同是守住的：都报超时或 unknown，不谎报完成。请用户决定 Linux 的定位，二选一：
+1. **记为已知限制**：Linux 上后台 tab 的截图、拖拽，以及懒加载长列表的 `read_full` 不保证能完成，结果会如实标为 timeout/unknown/未完成。把这一句写进 usage 和 CLAUDE.md §6，Linux 结论记为“评审环境 L2：116/121，5 项为已知限制”。
+2. **继续攻关**：需要新的设计，例如在可控的条件下让 agent tab 短暂成为可见 tab，或者换一条不依赖合成帧的截图/输入路径。这会碰到“绝不抢用户前台”的规则，必须由用户先拍板。
+
+评审建议选 1。
+
+### 建议（不阻塞）
+
+- [建议] **abort 只在客户端生效。** SW 里的操作会继续跑并占着 tab 锁，直到 SW 自己的 deadline。用户中途取消一个长 `read_full` 后，同一 tab 的下一次调用要排队等它结束。可以考虑给 relay 加一个 cancel 消息让 guard 立刻失效；不做的话就在 usage 里写明。
+- [建议] **截图现在会让页面收到 `visibilitychange`/`focus` 事件。** 截图属于读操作，但开 focus emulation 是页面能察觉的。交互路径本来就这样，在 usage 里写一句即可。
+
+### 结论
+
+第 2 轮的必须改项全部通过，本轮没有新的必须改项。剩下的 Linux 渲染限制等用户在上面的 1/2 里选一个。
