@@ -6,6 +6,37 @@
  * fixture copy this run started.
  */
 /**
+ * Decide the directed click from the transport and from what the app reports.
+ *
+ * The first real run (2026-11-06 22:40) returned `delivery=l2` with `outcome=unknown`:
+ * the targeted post reached the app, but the helper could not confirm the effect. The
+ * B-phase contract makes an unread effect a blocker, so the transport alone is not a
+ * pass - the click also has to show up in the fixture's own result text. Keeping the
+ * decision in one pure function is what lets a test drive the three cases.
+ */
+export function judgeDirectedClick({ survived, delivery, outcome, before, after }) {
+	if (!survived) return { result: "fail", reason: "helper did not survive the directed post" };
+	if (delivery !== "l2") return { result: "fail", reason: `expected delivery=l2, got ${delivery}` };
+	if (outcome === "worked") return { result: "pass", reason: "outcome" };
+	if (before !== undefined && after !== undefined && before !== after) return { result: "pass", reason: "readback" };
+	if (outcome === "didnt") return { result: "inconclusive", reason: "didnt and no readback change" };
+	return { result: "inconclusive", reason: "unknown and no readback change" };
+}
+
+/**
+ * A comparable snapshot of the fixture's result line.
+ *
+ * A static text may carry its content in `value`, `label` or `title` depending on the
+ * app, so the signature keeps all of them instead of guessing one.
+ */
+export async function fixtureResultSignature(backend, target) {
+	const look = await backend.observe({ target, readText: "auto", includeImage: false });
+	const node = (look.parsedOutline?.nodes ?? look.nodes ?? []).find((candidate) => candidate.identifier === "cu-fixture-button-result");
+	if (!node) return undefined;
+	return JSON.stringify({ value: node.value ?? null, label: node.label ?? null, title: node.title ?? null, description: node.description ?? null });
+}
+
+/**
  * F5: the first real run of the directed-delivery signature.
  *
  * The whitelist is deliberately not involved: the request asks the helper for L2 on
@@ -53,6 +84,10 @@ export async function runDirectL2({ fixture, fixtureRun, backend, helper, record
 			continue;
 		}
 		const request = buildDirectL2Request({ lookId: look.lookId, pid: fixture.pid, ref, action, params });
+		// Read the app's own result line before the post, so "did anything happen" is
+		// answered by the app rather than by the helper's self-report.
+		const target = { windowId: root.windowId, rootRef: root.rootRef };
+		const effectBefore = action === "click" ? await fixtureResultSignature(backend, target).catch(() => undefined) : undefined;
 		const cursorBefore = await cursor();
 		let outcome = "unknown";
 		let delivery = "?";
@@ -67,12 +102,26 @@ export async function runDirectL2({ fixture, fixtureRun, backend, helper, record
 		const cursorAfter = await cursor();
 		const moved = Math.hypot(cursorAfter.x - cursorBefore.x, cursorAfter.y - cursorBefore.y) >= 1;
 		const survived = await alive();
+		const effectAfter = action === "click" ? await fixtureResultSignature(backend, target).catch(() => undefined) : undefined;
+		const judged = action === "click"
+			? judgeDirectedClick({ survived, delivery, outcome, before: effectBefore, after: effectAfter })
+			: { result: !survived ? "fail" : outcome === "worked" ? "pass" : "inconclusive", reason: outcome };
 		record(
 			"direct L2",
 			label,
-			!survived ? "fail" : outcome === "worked" ? "pass" : "inconclusive",
-			`outcome=${outcome} delivery=${delivery} helperAlive=${survived} cursorMoved=${moved} bundle=${fixtureRun?.bundleId ?? fixture.bundleId}${failure ? ` error=${failure}` : ""}`,
+			judged.result,
+			`outcome=${outcome} delivery=${delivery} helperAlive=${survived} cursorMoved=${moved} judgedBy=${judged.reason} bundle=${fixtureRun?.bundleId ?? fixture.bundleId}${failure ? ` error=${failure}` : ""}`,
 		);
+		if (action === "click") {
+			// A second row, because the transport and the effect are different questions
+			// (the same split B6 needed). Only the first row is required by the contract.
+			record(
+				"direct L2",
+				"click effect",
+				effectBefore === undefined || effectAfter === undefined ? "skipped" : effectBefore === effectAfter ? "fail" : "pass",
+				`before=${effectBefore ?? "absent"} after=${effectAfter ?? "absent"} outcome=${outcome}`,
+			);
+		}
 		if (!survived) {
 			record("direct L2", "helper crashed", "fail", "the private signature took the helper down; recorded as the result of this mode");
 			break;

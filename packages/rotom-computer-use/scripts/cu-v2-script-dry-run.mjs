@@ -225,6 +225,17 @@ await check("K3: the acceptance run finishes its own step", () => {
 	return "B3-live + B3-acceptance";
 });
 
+await check("B1 reads the click's effect back from the fixture", () => {
+	// The first real directed click reported `delivery=l2` with `outcome=unknown`, which
+	// the contract treats as a blocker. The transport is proven elsewhere; what was
+	// missing is the app's own answer, so the mode reads its result line before and after.
+	const modes = readFileSync(path.join(import.meta.dirname, "lib", "l2-modes.mjs"), "utf8");
+	assert.match(modes, /cu-fixture-button-result/, "the effect must come from the fixture's own result line");
+	assert.match(modes, /judgeDirectedClick\(/, "the judgement stays in one function");
+	assert.match(modes, /"click effect"/, "the effect gets its own row");
+	return "readback + separate row";
+});
+
 await check("K4: one owner per step, and the HID click is two rows", () => {
 	const owners = Object.entries(STEP_SCRIPTS).filter(([, script]) => script);
 	assert.equal(new Set(owners.map(([, script]) => script)).size, owners.length, "a script may not own two steps");
