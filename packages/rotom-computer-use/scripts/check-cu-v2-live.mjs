@@ -27,9 +27,16 @@
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+/** `--name value` on the command line, or the fallback. */
+function argument(name, fallback) {
+	const index = process.argv.indexOf(name);
+	return index >= 0 && index + 1 < process.argv.length ? process.argv[index + 1] : fallback;
+}
+
 import process from "node:process";
 
 import { runStamp } from "./lib/live-helpers.mjs";
+import { GateHold, requireGate } from "./lib/gate.mjs";
 
 const EVIDENCE_DIR = path.resolve(import.meta.dirname, "..", "..", "..", "docs", "agent", "computer-use-v2", "evidence");
 const rows = [];
@@ -53,8 +60,27 @@ const { macosHelper } = await import("../src/platform/macos/helper.ts");
 const { macosBackend } = await import("../src/platform/macos/backend.ts");
 
 const fixturePath = process.argv[process.argv.indexOf("--fixture") + 1];
+/**
+ * The gate runs here too, not in an operator loop (review G6): no declared window is a
+ * refusal, and a hold stops before anything touches the desktop.
+ */
+async function refuseUnlessGatePasses() {
+	try {
+		return await requireGate({
+			windowStart: argument("--window-start"),
+			windowMinutes: argument("--window-minutes"),
+			requireIdleMinutes: argument("--require-idle-minutes") ?? "10",
+			listeningSince: argument("--listening-since"),
+		});
+	} catch (error) {
+		console.error(`[cu-v2 live] gate: ${error instanceof Error ? error.message : String(error)}`);
+		process.exit(error instanceof GateHold ? 1 : 2);
+	}
+}
+
 
 async function main() {
+	await refuseUnlessGatePasses();
 	const diagnostics = await macosHelper.diagnosticsCommand();
 	record("helper", "diagnostics", diagnostics.protocolVersion === 8 ? "pass" : "fail", `protocol=${diagnostics.protocolVersion}`);
 	if (diagnostics.protocolVersion !== 8) throw new Error("helper must report protocol 8; install/restart the v2 helper in its own socket");

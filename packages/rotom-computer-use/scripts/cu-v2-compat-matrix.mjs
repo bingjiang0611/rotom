@@ -18,6 +18,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { GateHold, requireGate } from "./lib/gate.mjs";
 
 const EVIDENCE_DIR = path.resolve(import.meta.dirname, "..", "..", "..", "docs", "agent", "computer-use-v2", "evidence");
 const ACTIONS = ["observe", "focus", "setText", "typeText", "press", "setChecked", "expand", "scrollTo", "select", "setValue"];
@@ -29,6 +30,27 @@ const DELIVERY = (requestedDelivery ? requestedDelivery.split(",").map((value) =
 if (process.platform !== "darwin" || (process.env.PI_CU_LIVE ?? "") !== "1") {
 	console.log("[cu-v2 matrix] not run: needs macOS and PI_CU_LIVE=1 with a real helper");
 	process.exit(0);
+}
+
+/**
+ * The gate runs here too (review G6): this matrix is the only script that deliberately
+ * uses the `foreground` policy, so it must not start without an authorized window.
+ */
+function argument(name, fallback) {
+	const index = process.argv.indexOf(name);
+	return index >= 0 && index + 1 < process.argv.length ? process.argv[index + 1] : fallback;
+}
+
+try {
+	await requireGate({
+		windowStart: argument("--window-start"),
+		windowMinutes: argument("--window-minutes"),
+		requireIdleMinutes: argument("--require-idle-minutes") ?? "10",
+		listeningSince: argument("--listening-since"),
+	});
+} catch (error) {
+	console.error(`[cu-v2 matrix] gate: ${error instanceof Error ? error.message : String(error)}`);
+	process.exit(error instanceof GateHold ? 1 : 2);
 }
 
 const apps = (process.argv[process.argv.indexOf("--apps") + 1] ?? "").split(",").map((value) => value.trim()).filter(Boolean);

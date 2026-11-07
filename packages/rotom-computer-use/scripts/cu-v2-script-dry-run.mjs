@@ -93,6 +93,18 @@ await check("cleanup quits only this run's bundle and deletes the copy", async (
 	});
 });
 
+await check("every live script asks the gate before it touches the desktop", () => {
+	// Review G6: a gate kept in an operator-side loop let a run start while the user was
+	// typing. Any script that types, clicks or raises windows must call requireGate itself.
+	const scripts = ["check-cu-v2-live.mjs", "cu-v2-acceptance.mjs", "cu-v2-compat-matrix.mjs", "cu-v2-l2-check.mjs"];
+	for (const name of scripts) {
+		const source = readFileSync(path.join(import.meta.dirname, name), "utf8");
+		assert.match(source, /requireGate\(/, `${name} must call requireGate`);
+		assert.match(source, /--window-start/, `${name} must read the authorized window`);
+	}
+	return scripts.join(", ");
+});
+
 const skipped = [
 	["real L2 delivery", "needs macOS, an isolated helper and a real fixture window"],
 	["helper crash isolation", "needs the real helper binary on a dedicated socket"],

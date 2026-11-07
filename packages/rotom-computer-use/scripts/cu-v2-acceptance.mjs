@@ -22,6 +22,7 @@ import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
+import { GateHold, requireGate } from "./lib/gate.mjs";
 import { argument, createRecorder, nowMs, requireLive, sessionDelta, sessionProbe, sleep, wireRefByRole, wireRefsByRole } from "./lib/live-helpers.mjs";
 
 const WORK_DIR = path.join(homedir(), "cu-v2-test", "acceptance");
@@ -146,6 +147,24 @@ async function runAgent(agent, pid) {
 }
 
 async function main() {
+/**
+ * The gate runs here too, not in an operator loop (review G6): no declared window is a
+ * refusal, and a hold stops before anything touches the desktop.
+ */
+async function refuseUnlessGatePasses() {
+	try {
+		return await requireGate({
+			windowStart: argument("--window-start"),
+			windowMinutes: argument("--window-minutes"),
+			requireIdleMinutes: argument("--require-idle-minutes") ?? "10",
+			listeningSince: argument("--listening-since"),
+		});
+	} catch (error) {
+		console.error(`[cu-v2 acceptance] gate: ${error instanceof Error ? error.message : String(error)}`);
+		process.exit(error instanceof GateHold ? 1 : 2);
+	}
+}
+	await refuseUnlessGatePasses();
 	const diagnostics = await macosHelper.diagnosticsCommand();
 	if (diagnostics.protocolVersion !== 8) throw new Error(`helper must report protocol 8, got ${diagnostics.protocolVersion}`);
 	record("helper", "diagnostics", "pass", `protocol=${diagnostics.protocolVersion} accessibility=${diagnostics.accessibility} screenRecording=${diagnostics.screenRecording}`);
