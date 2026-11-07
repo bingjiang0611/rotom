@@ -28,8 +28,12 @@ export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 export function inputSourceInfo(exec = execFileSync) {
 	try {
 		const out = exec("defaults", ["read", "com.apple.HIToolbox", "AppleSelectedInputSources"], { encoding: "utf8" });
-		const layouts = [...out.matchAll(/KeyboardLayout Name = "?([^";]+)"?;/g)].map((match) => match[1].trim());
-		const inputMethods = [...out.matchAll(/"Input Mode" = "?([^";]+)"?;/g)].map((match) => match[1].trim());
+		// `defaults read` prints an old-style plist: a key with a space is quoted, a
+		// single word is not (`"KeyboardLayout Name" = ABC;` vs `InputSourceKind = ...`).
+		// Matching only the bare form made every layout invisible, so ASCII was never
+		// detected and the L2 text line was always skipped (review H1).
+		const layouts = [...out.matchAll(/"?KeyboardLayout Name"?\s*=\s*"?([^";]+)"?;/g)].map((match) => match[1].trim());
+		const inputMethods = [...out.matchAll(/"?Input Mode"?\s*=\s*"?([^";]+)"?;/g)].map((match) => match[1].trim());
 		const ascii = inputMethods.length === 0 && layouts.length > 0;
 		return {
 			ascii,

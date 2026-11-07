@@ -103,6 +103,7 @@ node --experimental-strip-types scripts/cu-v2-l2-check.mjs --fixture ~/cu-v2-tes
 |---|---|---|
 | Q1 | 用户原话“大约 __ 小时不在电脑前”，时长数字没填。B 阶段的“仍在窗口内”无法按数字核验。**REVIEW-5 起窗口是脚本的必填参数，缺参数直接拒绝运行。** | 按决定 D1：以“10 分钟内无真实用户输入”作为唯一证据，并让任何真实输入立刻终止整个 B 阶段。审核者若给出确切时长，这个门禁可以收紧为“开始时间 + 时长”。 |
 | Q2（已解决） | `cu_session` 新增 `transfer` 动作是模型可写的管理动作（A4 决定）。是否需要额外的确认或审计要求？ | 按 REVIEW-5 的结论：不弹确认卡（只能转给后代，不扩大已获授权），改为补 trace —— 每次交接记录目标 agent、资源键、新旧租约 id；被拒记录错误码且无新 id。见第 5 轮表格的 Q2 行。 |
+| H2（待用户决定，不阻断 B） | AX 插入现在是所有 App 的默认文本路径（含 `foreground` 策略）。对“setter 返回成功但不落值/不触发输入事件”的 App（网页、Electron、自绘编辑器），`typeText` 会从“能打字”变成“永远 `unknown`”。REVIEW-5 复核要求合入 `main` 前二选一。 | 未改代码。方案一（复核倾向）：helper 用 `TISCopyCurrentKeyboardInputSource` 读当前输入源，只有是输入法时才走 AX 插入，纯布局保持按键路径。方案二：保持现状，B3 兼容矩阵必须覆盖网页文本框与一个 Electron App。等用户选择。 |
 | Q4 | A6 只做了许可/条件/边框/收回，没有把批次的实际投递切到 L4 全局 HID。是否按原计划等 B5 真机证据后再打开投递？ | 先保持不切换：证据不足时打开投递等于让 agent 在无人监督下真的驱动整机。B5 通过后再单独一项接上。 |
 | Q3 | `packages/rotom-computer-use/src/outline.ts` 在初始快照里就是 24,448 字节，超过 pre-commit 的 20,000 字节门槛且不在豁免名单。任何改动它的提交都会被 hook 拒绝。 | 已按 REVIEW-4 的回答处理：按职责拆分成 `src/outline/*`（最大 6,768 字节），不加入豁免名单，并把原生 `secure` 标记接进 `OutlineNode`。 |
 | Q5（已解决） | `focusWindow` 与 `clipboardRestore` 会改变状态，但不在 helper 的 `writeCommands` 里，TS 侧也没有给它们附租约。 | 依复核结论补做：两者都进了 `writeCommands`（`desktop-pid:<pid>` / `clipboard:system`），TS 侧签名强制传租约，恢复路径拿不到租约就跳过并记 `restore_skipped:lease_unavailable`。细节见 [`STATUS-2-E-items.md`](STATUS-2-E-items.md)。 |
@@ -177,6 +178,7 @@ UI 单测，确定性只覆盖 TS 的颜色分配。
 | G3（中） | 按键路径三分：以请求文本结尾 → `worked`；值没变 → `didnt`；值变了但不匹配 → `unknown` + 实际值 | 新 `native/macos/text_outcome.swift` + `test/text-outcome.swift`（7 个断言，含实测 `"里probe"` 一例） |
 | G4（中） | L2 符号缺失改成独立错误码 `l2_unavailable`；客户端用同一后台策略改 pid 重试一次，不升级前台；trace 记 `delivery_fallback:l2_unavailable` | `test/act-delivery-fallback.test.ts` 4 例（假 backend 第二次请求必须是 `background` + `pid`）；`behaviour-changes.md` 第 9 条 |
 | G5（中） | 脚本开跑前读当前输入源；不是 ASCII 布局时直连 L2 的 `typeText` 记 `skipped: input method`，改由 `click` 行证明投递 | `scripts/lib/live-helpers.mjs` `inputSourceInfo()`（实测本机 `com.sogou.inputmethod.pinyin` → 非 ASCII） |
+| H1（中，复核） | 输入源解析正则允许键带引号（`"KeyboardLayout Name" = ABC;` 这种旧式 plist），`Input Mode` 同样处理 | `test/input-source.test.ts` 3 例：只有 ABC → `true`、ABC + 输入法 → `false`、命令失败 → `false` |
 | G6（中） | 闸门搬进库 `scripts/lib/gate.mjs`，四个真机脚本（live、acceptance、compat-matrix、l2-check）自己调用：没有 `--window-start/--window-minutes` 直接退出 2，hold 退出 1，读数写进 `runs/gate-*.json` | `test/cu-v2-gate.test.ts` 7 例（窗口外、真实输入、无 helper 读数、从未见过输入、读数留存、缺参数拒绝）；dry run 新增一项断言四个脚本都调用 `requireGate` |
 | G7（低） | 文档里的签名身份统一写成 `"$PI_CU_FIXTURE_SIGN_IDENTITY"` / “本机 Apple Development 身份”，不再出现邮箱与 Team ID；历史未改写 | `STATUS.md`、`STATUS-2.md`、`evidence/runs/2026-11-05T0333-b-phase-blocked.md`；复检 `grep` 无残留（`REVIEW-5.md` 里的脱敏示例除外） |
 | Q2 | `cu_session transfer` 补 trace：成功记 `{tool:"cu_session", status:"ok", transfer:{toAgentId, resourceKey, oldLeaseId, newLeaseId}}`，被拒记 `lease_conflict`/`error` + 错误码且无新 id | `test/session-transfer-trace.test.ts` 3 例（成功、只转指定资源、被拒） |
