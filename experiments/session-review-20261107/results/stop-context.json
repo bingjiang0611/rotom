@@ -1,0 +1,378 @@
+{
+  "schema": "rotom-session-review-stop-context/v1",
+  "generatedAt": "2026-11-07T05:00:00.000Z",
+  "privacy": "counts and buckets only; assistant/user text matched locally, never emitted",
+  "handoffs": 554,
+  "byKind": {
+    "bare_continue": {
+      "n": 74,
+      "prevStop": {
+        "stop": 13,
+        "aborted": 22,
+        "error": 34,
+        "toolUse": 5
+      },
+      "model": {
+        "openai-codex/gpt-6-astra": 13,
+        "qoder/dfmodel": 44,
+        "qoder/ultimate": 4,
+        "qoder/kmodel_latest": 11,
+        "openai-codex/gpt-5.6-sol": 2
+      },
+      "endsWithQuestion": {
+        "false": 68,
+        "true": 6
+      },
+      "prevTextBytes": {
+        "<=3000": 11,
+        "<=8000": 2,
+        "<=200": 59,
+        ">8000": 1,
+        "<=1000": 1
+      },
+      "runToolCalls": {
+        "<=100": 22,
+        "<=3": 4,
+        "<=0": 14,
+        "<=10": 7,
+        "<=30": 12,
+        ">100": 15
+      },
+      "runMinutes": {
+        ">60": 19,
+        "<=60": 18,
+        "<=15": 13,
+        "<=1": 16,
+        "<=5": 8
+      },
+      "runToolErrors": {
+        ">5": 18,
+        "<=5": 9,
+        "<=2": 16,
+        "<=0": 31
+      },
+      "lastToolError": {
+        "false": 56,
+        "true": 18
+      },
+      "runAssistantErrors": {
+        "true": 39,
+        "false": 35
+      },
+      "userGap": {
+        "<=60": 22,
+        "<=300": 9,
+        "<=1800": 16,
+        ">1800": 17,
+        "<=10": 10
+      },
+      "asksPermission": {
+        "false": 68,
+        "true": 6
+      },
+      "listsRemaining": {
+        "true": 14,
+        "false": 60
+      },
+      "claimsDone": {
+        "true": 8,
+        "false": 66
+      },
+      "reportsBlocked": {
+        "true": 11,
+        "false": 63
+      },
+      "mentionsUnverified": {
+        "true": 4,
+        "false": 70
+      }
+    },
+    "bare_approve": {
+      "n": 9,
+      "prevStop": {
+        "stop": 9
+      },
+      "model": {
+        "openai-codex/gpt-6-astra": 4,
+        "openai-codex/gpt-5.6-sol": 3,
+        "qoder/dfmodel": 1,
+        "qoder/kmodel_latest": 1
+      },
+      "endsWithQuestion": {
+        "false": 8,
+        "true": 1
+      },
+      "prevTextBytes": {
+        "<=3000": 5,
+        "<=1000": 4
+      },
+      "runToolCalls": {
+        "<=0": 2,
+        "<=100": 3,
+        "<=10": 2,
+        "<=30": 2
+      },
+      "runMinutes": {
+        "<=1": 2,
+        "<=15": 2,
+        "<=60": 2,
+        "<=5": 3
+      },
+      "runToolErrors": {
+        "<=0": 6,
+        "<=2": 1,
+        ">5": 1,
+        "<=5": 1
+      },
+      "lastToolError": {
+        "false": 9
+      },
+      "runAssistantErrors": {
+        "false": 9
+      },
+      "userGap": {
+        "<=60": 4,
+        "<=300": 3,
+        "<=1800": 2
+      },
+      "asksPermission": {
+        "false": 6,
+        "true": 3
+      },
+      "listsRemaining": {
+        "false": 3,
+        "true": 6
+      },
+      "claimsDone": {
+        "false": 7,
+        "true": 2
+      },
+      "reportsBlocked": {
+        "false": 2,
+        "true": 7
+      },
+      "mentionsUnverified": {
+        "false": 8,
+        "true": 1
+      }
+    },
+    "correction_keyword": {
+      "n": 35,
+      "prevStop": {
+        "aborted": 3,
+        "stop": 30,
+        "toolUse": 1,
+        "error": 1
+      },
+      "model": {
+        "openai-codex/gpt-6-astra": 7,
+        "openai-codex/gpt-5.6-sol": 8,
+        "qoder/dfmodel": 17,
+        "qoder/kmodel_latest": 1,
+        "radius/deepseek-v4.1-flash": 1,
+        "openai-codex/gpt-6.1-sol": 1
+      },
+      "endsWithQuestion": {
+        "false": 31,
+        "true": 4
+      },
+      "prevTextBytes": {
+        "<=200": 7,
+        "<=8000": 7,
+        "<=3000": 14,
+        "<=1000": 7
+      },
+      "runToolCalls": {
+        "<=3": 2,
+        "<=10": 4,
+        "<=30": 5,
+        "<=0": 8,
+        "<=100": 12,
+        ">100": 4
+      },
+      "runMinutes": {
+        "<=5": 6,
+        "<=15": 7,
+        "<=1": 10,
+        "<=60": 7,
+        ">60": 5
+      },
+      "runToolErrors": {
+        "<=0": 17,
+        "<=2": 8,
+        ">5": 6,
+        "<=5": 4
+      },
+      "lastToolError": {
+        "false": 35
+      },
+      "runAssistantErrors": {
+        "false": 32,
+        "true": 3
+      },
+      "userGap": {
+        ">1800": 10,
+        "<=1800": 9,
+        "<=300": 8,
+        "<=60": 4,
+        "<=10": 4
+      },
+      "asksPermission": {
+        "false": 28,
+        "true": 7
+      },
+      "listsRemaining": {
+        "false": 21,
+        "true": 14
+      },
+      "claimsDone": {
+        "false": 20,
+        "true": 15
+      },
+      "reportsBlocked": {
+        "false": 15,
+        "true": 20
+      },
+      "mentionsUnverified": {
+        "false": 28,
+        "true": 7
+      }
+    },
+    "other": {
+      "n": 436,
+      "prevStop": {
+        "error": 22,
+        "stop": 390,
+        "toolUse": 11,
+        "aborted": 13
+      },
+      "model": {
+        "openai-codex/gpt-6-astra": 143,
+        "qoder/ultimate": 2,
+        "qoder/dfmodel": 173,
+        "cc-switch/claude-opus-5-5": 1,
+        "openai-codex/gpt-5.6-sol": 92,
+        "radius/recursive/flint": 1,
+        "qoder/kmodel_latest": 17,
+        "cc-switch/claude-opus-5": 1,
+        "openai-codex/gpt-5.6-luna": 3,
+        "radius/gpt-6-astra": 2,
+        "openai-codex/gpt-6.1-sol": 1
+      },
+      "endsWithQuestion": {
+        "false": 395,
+        "true": 41
+      },
+      "prevTextBytes": {
+        "<=200": 72,
+        "<=8000": 96,
+        "<=3000": 167,
+        "<=1000": 97,
+        ">8000": 4
+      },
+      "runToolCalls": {
+        "<=0": 106,
+        "<=30": 88,
+        "<=100": 76,
+        "<=10": 56,
+        "<=3": 79,
+        ">100": 31
+      },
+      "runMinutes": {
+        "<=1": 183,
+        "<=5": 104,
+        "<=15": 67,
+        "<=60": 52,
+        ">60": 30
+      },
+      "runToolErrors": {
+        "<=0": 288,
+        "<=5": 37,
+        "<=2": 75,
+        ">5": 36
+      },
+      "lastToolError": {
+        "false": 429,
+        "true": 7
+      },
+      "runAssistantErrors": {
+        "true": 29,
+        "false": 407
+      },
+      "userGap": {
+        ">1800": 53,
+        "<=300": 157,
+        "<=10": 49,
+        "<=1800": 66,
+        "<=60": 111
+      },
+      "asksPermission": {
+        "false": 333,
+        "true": 103
+      },
+      "listsRemaining": {
+        "false": 237,
+        "true": 199
+      },
+      "claimsDone": {
+        "false": 308,
+        "true": 128
+      },
+      "reportsBlocked": {
+        "false": 201,
+        "true": 235
+      },
+      "mentionsUnverified": {
+        "false": 349,
+        "true": 87
+      }
+    }
+  },
+  "bareContinueAfterNormalStop": {
+    "n": 13,
+    "featureCombos": {
+      "remaining+done+blocked": 3,
+      "asks+remaining+done+blocked+question": 2,
+      "asks+remaining+blocked": 2,
+      "remaining+question": 2,
+      "remaining+done+blocked+question": 1,
+      "asks+remaining+done+blocked": 1,
+      "remaining+blocked": 1,
+      "asks+remaining+done+question": 1
+    }
+  },
+  "aborts": {
+    "n": 38,
+    "runToolCalls": {
+      "<=3": 9,
+      "<=100": 7,
+      "<=10": 3,
+      ">100": 5,
+      "<=30": 8,
+      "<=0": 6
+    },
+    "runMinutes": {
+      "<=5": 5,
+      "<=60": 11,
+      "<=1": 13,
+      ">60": 4,
+      "<=15": 5
+    },
+    "errorTail": {
+      "<=0": 25,
+      "<=1": 11,
+      "<=2": 2
+    },
+    "runToolErrors": {
+      "<=0": 19,
+      "<=2": 8,
+      "<=5": 5,
+      ">5": 6
+    },
+    "nextUser": {
+      "correction_keyword": 3,
+      "bare_continue": 22,
+      "other": 13
+    }
+  }
+}
