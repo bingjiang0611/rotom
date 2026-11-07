@@ -35,8 +35,12 @@ export async function run({ harness, fixtures, recorder }) {
 		} catch (error) {
 			const message = String(error?.message ?? error);
 			assert.equal(linux, true, `拖拽不该在 ${process.platform} 上失败：${message}`);
-			assert.match(message, /dispatch timeout/u, `Linux 上的失败必须是如实报出的 dispatch timeout：${message}`);
-			assert.match(message, /unknown/u, `超时必须说明结果 unknown：${message}`);
+			// Two honest shapes: the dispatch race gave up (`dispatch timeout … 结果 unknown`)
+			// or the whole `interact` hit its deadline first (`browser relay interact operation
+			// timeout`). Both are unknown, never success; anything else is a real failure.
+			const dispatchTimeout = /dispatch timeout[\s\S]*unknown/u.test(message);
+			const operationTimeout = /browser relay interact operation timeout/u.test(message);
+			assert.equal(dispatchTimeout || operationTimeout, true, `Linux 上的失败必须是如实报出的超时（dispatch 或操作 deadline）：${message}`);
 			const after = await snapshot();
 			assert.ok(after.nodes.length > 0, "拖拽超时后 tab 仍可读，说明锁已释放");
 			return { unknown: true };

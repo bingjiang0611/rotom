@@ -48,13 +48,19 @@ export async function run({ harness, fixtures, recorder }) {
 			return;
 		}
 		const text = textOf(read);
+		const restoredToOrigin = async () => {
+			const restored = await evaluate("medium", "Math.round(document.scrollingElement.scrollTop)");
+			assert.equal(restored, 400, `滚动位置必须恢复到读之前，实际 ${restored}`);
+		};
 		if (linux && read.contentComplete !== true) {
 			// Incomplete is the accepted Linux outcome. It stays honest only if it also does not
-			// pretend to be truncated for a size reason, and if a read that *does* report
-			// complete really contains every section plus the tail (that path falls through to
-			// the strict assertions below, so both branches are covered).
+			// pretend to be truncated for a size reason; and the scroll position must come back
+			// either way, because reading and writing `scrollTop` does not need painted frames
+			// (measured on a hidden tab in round 2). A read that *does* report complete falls
+			// through to the strict assertions below, so both branches are covered.
 			assert.equal(read.truncated, false, "未完成不能同时报告为按字数截断");
 			assert.equal(["scroll-end", "rendered-dom"].includes(read.contentCoverage), true, `contentCoverage 必须是合同里的取值：${read.contentCoverage}`);
+			await restoredToOrigin();
 			return;
 		}
 		assert.equal(read.contentCoverage, "scroll-end", "必须真的滚动过，不能只读渲染 DOM");
@@ -65,8 +71,7 @@ export async function run({ harness, fixtures, recorder }) {
 		const missingSections = missingMediumSections(text);
 		assert.equal(missingSections.length, 0, `缺段：${missingSections.slice(0, 5).join(", ")}`);
 		assert.match(text, TAIL_SENTINEL, "尾部必须在");
-		const restored = await evaluate("medium", "Math.round(document.scrollingElement.scrollTop)");
-		assert.equal(restored, 400, `滚动位置必须恢复到读之前，实际 ${restored}`);
+		await restoredToOrigin();
 	});
 
 	await recorder.check("渲染晚于稳定窗口的列表不会静默丢行", async () => {
