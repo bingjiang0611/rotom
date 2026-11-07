@@ -6,6 +6,23 @@
   "byKind": {
     "bare_continue": {
       "n": 74,
+      "prevErrorCategory": {
+        "n/a": 18,
+        "abort_other": 22,
+        "other": 26,
+        "timeout": 2,
+        "stream_terminated": 1,
+        "bad_request": 3,
+        "connection": 1,
+        "fetch_failed": 1
+      },
+      "consecutiveErrorAttempts": {
+        "n/a": 40,
+        "<=1": 22,
+        "<=4": 9,
+        "<=8": 2,
+        ">8": 1
+      },
       "prevStop": {
         "stop": 13,
         "aborted": 22,
@@ -89,6 +106,12 @@
     },
     "bare_approve": {
       "n": 9,
+      "prevErrorCategory": {
+        "n/a": 9
+      },
+      "consecutiveErrorAttempts": {
+        "n/a": 9
+      },
       "prevStop": {
         "stop": 9
       },
@@ -158,6 +181,15 @@
     },
     "correction_keyword": {
       "n": 35,
+      "prevErrorCategory": {
+        "abort_other": 3,
+        "n/a": 31,
+        "auth": 1
+      },
+      "consecutiveErrorAttempts": {
+        "n/a": 34,
+        "<=1": 1
+      },
       "prevStop": {
         "aborted": 3,
         "stop": 30,
@@ -240,6 +272,24 @@
     },
     "other": {
       "n": 436,
+      "prevErrorCategory": {
+        "fetch_failed": 11,
+        "connection": 1,
+        "bad_request": 2,
+        "n/a": 401,
+        "rate_limit": 2,
+        "auth": 3,
+        "other": 2,
+        "abort_other": 13,
+        "overloaded": 1
+      },
+      "consecutiveErrorAttempts": {
+        "<=2": 2,
+        "<=1": 7,
+        "n/a": 414,
+        "<=4": 12,
+        ">8": 1
+      },
       "prevStop": {
         "error": 22,
         "stop": 390,
