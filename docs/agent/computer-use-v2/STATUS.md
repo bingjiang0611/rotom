@@ -18,7 +18,7 @@
 
 - OS / 架构 / 版本：macOS `27.2` (build `26B123`) / `arm64`，内核 `Darwin 27.2.0`
 - Xcode / swiftc：Xcode 26.6，Apple Swift 6.3.3（`/usr/bin/swiftc`、`/usr/bin/xcodebuild` 可用）；`node scripts/build-native.mjs --arch arm64 --output /tmp/cu-baseline-bridge` 在本机 25 秒编译成功（baseline，未改动源码）
-- Accessibility、Screen Recording 是否已授权：**是**（helpder 用本机 `Apple Development: baobingjiang@icloud.com (8Y6KR78CP7)` 身份签名后，`diagnostics` 返回 `accessibility=true, screenRecording=true`）。
+- Accessibility、Screen Recording 是否已授权：**是**（helpder 用本机 "$PI_CU_FIXTURE_SIGN_IDENTITY"（本机 Apple Development 身份） 身份签名后，`diagnostics` 返回 `accessibility=true, screenRecording=true`）。
 - 本机执行策略的实际规则（比“拒绝运行本地编译产物”窄）：
   1. ad-hoc 签名的二进制会被 `amfid` 拒：`The file is adhoc signed or signed by an unknown certificate chain`；
   2. `com.alibaba.endpoint.aliedr.ne`（阿里 EDR）会把 `/tmp` 下的非白名单进程打上 `mac_non_white_proc` 后 SIGKILL，**即使已用 Apple Development 证书签过**；
@@ -47,7 +47,7 @@ M1–M8 的详细记录（实现摘要、自证命令、未验证项、与 PLAN 
 
 ## L2 真机证据（2026-11-04）
 
-环境：macOS 27.2 / arm64，helper 用本机 `Apple Development: baobingjiang@icloud.com (8Y6KR78CP7)` 签名，产物在 `$HOME/cu-v2-test/`（**不在 `/tmp`**），独立 socket `~/cu-v2-test/helper.sock`，fixture 是 `native/macos-fixture/FixtureApp.swift` 编译出的 `~/cu-v2-test/Fixture.app`。
+环境：macOS 27.2 / arm64，helper 用本机 "$PI_CU_FIXTURE_SIGN_IDENTITY"（本机 Apple Development 身份） 签名，产物在 `$HOME/cu-v2-test/`（**不在 `/tmp`**），独立 socket `~/cu-v2-test/helper.sock`，fixture 是 `native/macos-fixture/FixtureApp.swift` 编译出的 `~/cu-v2-test/Fixture.app`。
 
 ### 可复现命令
 

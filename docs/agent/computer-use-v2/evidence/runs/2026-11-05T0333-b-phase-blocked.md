@@ -61,7 +61,7 @@ tap 连续监听满 10 分钟后才算证据；本次在满足之前就被权限
 
 签名状态（本次运行前的动作，如实记录）：为了跑 protocol 9，把
 `~/cu-v2-build/b9-bridge` 装进 `~/cu-v2-test/pi-computer-use.app/Contents/MacOS/bridge`，并用
-`Apple Development: baobingjiang@icloud.com (8Y6KR78CP7)` 重新 `codesign --force` 整个 bundle；
+"$PI_CU_FIXTURE_SIGN_IDENTITY"（本机 Apple Development 身份） 重新 `codesign --force` 整个 bundle；
 旧二进制备份在 `~/cu-v2-build/installed-bridge-2026-11-04`。设计化要求（designated requirement）
 字符串与旧签名一致（`identifier "com.injaneity.pi-computer-use" and anchor apple generic and
 certificate leaf[subject.CN] = "Apple Development: ..."`），但这不排除系统侧存的是 cdhash 型要求。

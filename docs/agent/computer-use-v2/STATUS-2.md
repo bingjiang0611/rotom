@@ -175,6 +175,8 @@ UI 单测，确定性只覆盖 TS 的颜色分配。
 | G4（中） | L2 符号缺失改成独立错误码 `l2_unavailable`；客户端用同一后台策略改 pid 重试一次，不升级前台；trace 记 `delivery_fallback:l2_unavailable` | `test/act-delivery-fallback.test.ts` 4 例（假 backend 第二次请求必须是 `background` + `pid`）；`behaviour-changes.md` 第 9 条 |
 | G5（中） | 脚本开跑前读当前输入源；不是 ASCII 布局时直连 L2 的 `typeText` 记 `skipped: input method`，改由 `click` 行证明投递 | `scripts/lib/live-helpers.mjs` `inputSourceInfo()`（实测本机 `com.sogou.inputmethod.pinyin` → 非 ASCII） |
 | G6（中） | 闸门搬进库 `scripts/lib/gate.mjs`，`cu-v2-l2-check.mjs` 真机模式下自己调用：没有 `--window-start/--window-minutes` 直接退出 2，hold 退出 1，读数写进 `runs/gate-*.json` | `test/cu-v2-gate.test.ts` 7 例（窗口外、真实输入、无 helper 读数、从未见过输入、读数留存、缺参数拒绝） |
+| G7（低） | 文档里的签名身份统一写成 `"$PI_CU_FIXTURE_SIGN_IDENTITY"` / “本机 Apple Development 身份”，不再出现邮箱与 Team ID；历史未改写 | `STATUS.md`、`STATUS-2.md`、`evidence/runs/2026-11-05T0333-b-phase-blocked.md`；复检 `grep` 无残留（`REVIEW-5.md` 里的脱敏示例除外） |
+| Q2 | `cu_session transfer` 补 trace：成功记 `{tool:"cu_session", status:"ok", transfer:{toAgentId, resourceKey, oldLeaseId, newLeaseId}}`，被拒记 `lease_conflict`/`error` + 错误码且无新 id | `test/session-transfer-trace.test.ts` 3 例（成功、只转指定资源、被拒） |
 
 ## 测试稳定性观察（既有问题，不是本项引入）
 
