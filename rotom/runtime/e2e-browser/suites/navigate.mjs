@@ -65,7 +65,7 @@ export async function run({ harness, fixtures, recorder }) {
 		const before = await request("snapshot", { tabName: "nav" }, 10_000);
 		const refused = await request("navigate", { tabName: "nav", history: "back", allowedOrigins: ["https://other.example.test"] }, 10_000);
 		assert.equal(refused.kind, "needs-approval");
-		assert.equal(refused.capability, "open");
+		assert.equal(refused.capability, "interact", "历史导航落点属于写操作，按 interact 判定");
 		const after = await request("snapshot", { tabName: "nav" }, 10_000);
 		assert.equal(after.documentGeneration, before.documentGeneration, "被拒绝的历史导航不得改动 document");
 		// Same tab, same request, lease now covers the fixture origin: it goes through.
