@@ -29,7 +29,7 @@
 未决问题见最后一节 **Q3**（`outline.ts` 超过 20 KB 提交门槛，导致 helper 的 `secure` 标记没有进入
 `OutlineNode`）和 **Q4**（A6 未切换批次投递）。
 
-### B 阶段：**未完成**（B1 是唯一有效的失败，其余全部作废）
+### B 阶段：**已停止**（两次窗口都以 B1 失败告终；第二次见下文“第二次 B 窗口”，其余步骤从未运行）
 
 2026-11-06 19:53–20:53 PST 是第一个真正授权的 B 窗口。门禁确实成立（helper 侧自 20:00:28 起无
 未标记输入，最后读到 1152 s），但**停止规则没有被执行**：B1 判定失败之后又跑了 B2 四次、B3 两次、
@@ -126,35 +126,45 @@ node --experimental-strip-types scripts/cu-v2-l2-check.mjs --fixture ~/cu-v2-tes
 
 ## 第 6 轮审核（REVIEW-6）处理
 
-只做代码和测试，不跑真机。P1 的四条硬约束是这一轮的重点：上一轮的问题不是“不知道规则”，而是“规则
-只写在文档里”。
+只做代码和测试，不跑真机。P1 的四条硬约束、P2、P3、P4 各自补了测试或 dry-run 断言；复核 K1–K4 之后又改了
+窗口输出的位置、逐步必需行、B3 拆分与 B6 归属。逐项表格见
+[`STATUS-2-rounds.md`](STATUS-2-rounds.md#第-6-轮复核k1k4)，测试共 **178** 项，dry run 17 项。
 
-| 项 | 处理 | 证据 |
-| --- | --- | --- |
-| P1-1 冻结代码 | 四个真机脚本必填 `--expect-commit <sha>`；工作区不干净或 HEAD 不等于该提交一律退出 2；存档写 `Commit:` 行 | `scripts/lib/b-window.mjs` `requireFrozenCommit`；`test/b-window.test.ts` 4 例（缺参数、未知提交、脏工作区、HEAD 不符） |
-| P1-2 一次失败即封锁 | `finishStep` 在 `fail` 行出现时写 `<runs-dir>/B-STOPPED`；所有脚本在门禁之前先查该标记，存在即退出 2，只有用户能删 | 同上 `readStopMarker/requireNoStopMarker`；测试 2 例（写入内容、阻塞后续步骤、损坏的标记仍然阻塞） |
-| P1-3 顺序固定 | `B1→B6`；第 N 项要求前一项有 **同一 commit** 的 `Verdict: pass` 存档，`B4/B5` 没有脚本所以 `B6` 必然被拒 | 同上 `requirePreviousStepsPassed`；`test/b-window.test.ts` 5 例 + dry run“顺序”一项 |
-| P1-4 窗口内禁止改代码与临时命令 | 冻结提交让任何窗口内提交自动作废后续运行；真机脚本不再用 `System Events` 拉起/恢复 App（`open -n` 兜底也删掉） | dry run“冻结/停止/顺序”一项断言四个脚本都调用 `beginStep`/`finishStep`，且不含 `System Events` |
-| P2 根因归错 | 恢复改走 `focusWindow` + 合法租约（无 broker 时明确记 `lease=unverified`），不吞错误，读回 `getFrontmost`，没恢复就是 `fail` 而不是 `inconclusive` | `restoreOperatorApp`/`leaseForRestore`/`restoreOutcome`；`test/live-helpers.test.ts` 6 例 |
-| P3 `ensureFixtureWindow` 第一步无效 | 删除“先 `manageApps` 再 `osascript`”的写法：改为启动时 `activates: true` + 纯轮询；矩阵拉起后回读前台，不是操作员 App 就判 fail 并停止 | `ensureFixtureWindow`/`launchFixture`；dry run“等待窗口没有隐藏激活”一项（断言等待期间不调用 `manageApps`） |
-| P4 记录与判定 | B6 拆成“走了 HID”（pass/fail）与“点击生效”（pass/didnt/fail/unknown）两行；矩阵按错误码 `foreground_required` 等分类拒绝；fixture 按钮把自己的状态写进 `AXValue`，`press` 可判定；`runs/…2041-matrix-third.md` 改名 `…2017-…` | `classifyActFailure`（测试 1 例）、`check-cu-v2-live.mjs` 的 HID 两行（K4 后唯一的 B6 归属）、`FixtureApp.swift` 的 `accessibilityValue`、dry run 两项断言 |
+## 第二次 B 窗口（2026-11-06 22:02–00:02，提交 `bf7bd8e6`）
 
-### 第 6 轮复核（K1–K4）
+用户授权 2 小时，顺序 B1 → B2 → B3-live → B3-acceptance。**B1 失败，阶段已停止**，B2/B3 没有运行，
+`B-STOPPED` 留在 `~/cu-v2-runs/2026-11-06T2202-bf7bd8e6/`，只有用户能删。
 
-复核结论：`ce9c568` 不能作为冻结提交；P1 的方向对，但 K1 让 B1 之后的任何一步都无法开始，K2/K3 让
-“失败即停”仍有漏洞。逐条处理，仍然只做代码和测试：
+窗口开始前的实际状态与授权值：
 
-| 项 | 处理 | 证据 |
-| --- | --- | --- |
-| K1 存档写进工作区 | 窗口输出全部移到仓库外：脚本必填 `--runs-dir`，路径在 git 工作区内即拒绝；`writeRunArchive` 是唯一写入口，仓库内不再写 `evidence/*.md`、`*.log`、汇总表 | `requireRunsDir`/`writeRunArchive`；`test/b-window.test.ts` 含**真实 git** 的用例：`beginStep B1 → finishStep pass（写存档）→ beginStep B2` 必须被允许，再往工作区丢一个文件则 B2 被拒 |
-| K2 必需行 | `STEP_CONTRACT` 逐步声明必需行；缺失或非 `pass` 即阻塞；B1 要求 `direct L2 \| click` 带 `delivery=l2`，ASCII 输入源下 `direct L2 \| typeText` 也必需 | `evaluateStep`；`test/b-window.test.ts` 4 例（inconclusive、错投递、ASCII 条件、必需行缺失） |
-| K2 真实用户输入 | 每步都有 `run \| real user input`：helper 的真实事件数增长，或前台是本次运行没启动的 App，都记 `fail`；acceptance 用它自己的模拟器日志当预算 | `recordRealUserInput`；`test/live-helpers.test.ts` 5 例（增长、外来 App、探针失败、空闲、预算内） |
-| K3 验收不留结论 | acceptance 写 `Step/Commit/Verdict` 并调用 `finishStep`；B3 拆成 `B3-live` 与 `B3-acceptance`，两份同一 commit 的 `pass` 才放行 B4 | `test/b-window.test.ts` K3 用例；dry run“验收自己收尾”一项 |
-| K4 两个 B6 归属 | 只有 `check-cu-v2-live.mjs --with-hid` 是 B6；`cu-v2-l2-check.mjs` 删除 `--with-hid` 与 `runWithHid`；HID 点击拆成两行，生效判定读回 fixture 按钮的 `AXValue` | `STEP_SCRIPTS`；dry run“一个步骤一个归属”一项 |
+| 项 | 值 |
+| --- | --- |
+| `--expect-commit` | `bf7bd8e6d5c42a1a8adaf26853d673c3a6c23139` |
+| `--runs-dir` | `~/cu-v2-runs/2026-11-06T2202-bf7bd8e6`（仓库之外） |
+| 窗口 | `2026-11-06T22:02:00-0800` + 120 分钟 |
+| helper | 从冻结提交重建（`bridge.swift` 在 19:09 改过，旧二进制是 06:36），签名身份不变，协议 9、辅助功能与屏幕录制均 `true` |
+| 门禁 | 22:40:08 通过：`minutes_left=81.9`、helper 空闲 610.9 s |
 
-测试：`node --test` 共 **177** 项（`test/b-window.test.ts` 23、`test/live-helpers.test.ts` 11）；
-dry run 17 项、0 失败、3 跳过。文件按 20 KB 门槛拆分：设计细节与逐轮表格移到
-[`STATUS-2-rounds.md`](STATUS-2-rounds.md)。
+B1 结果（[存档](evidence/runs/2026-11-06T2240-b1-directed-l2.md)）：19 行、1 个 `fail`、3 个 blocker。
+
+- **`direct L2 | click` = `inconclusive`，`delivery=l2`、helper 存活。** 定向投递第一次真的执行了：
+  `SLEventPostToPid` 没有崩，传输字段是 `l2`。但结果确认不了（`outcome=unknown`），所以按 K2 它是 blocker，
+  不能算通过。同一轮的 AX 点击也是 `outcome=unknown`，说明这是“确认面”的问题，不是 L2 独有的。
+- **`run | real user input` = `fail`：`userEvents 201 → 304`（+103）**，前台始终是 Scry。运行只持续约 11 秒，
+  脚本自己只投递了个位数事件（`agentEventCount=0`），所以这 103 个未被标记的键鼠事件来源不明。窗口内共出现
+  两次同类突发（22:19–22:30 从 34 涨到 201，22:40 再涨 103），之后安静 30 秒无增长。这与 Q6 里的安全软件
+  事件可能是同一来源，但没有证据。
+- 其余行都是 `pass`：冻结提交、门禁、helper 诊断（协议 9）、fixture 副本与清理、`restore | operator app`。
+
+对下一步的影响（都不在本次授权内，需要用户决定）：
+
+1. **K2 的真实输入行在这台机器上目前无法通过。** 事件来源未确认之前，任何一步都会因为同样的突发被判
+   `fail`。要么先在 helper 侧把未标记但非硬件的来源分出来（例如按事件来源进程/`NX_SYSDEFINED` 过滤），
+   要么把这一行改成“helper 事件数与前台变化都排除本次运行的进程”，两者都要代码改动和测试。
+2. **B1 的判定标准需要用户确认**：现在的必需行要求 `direct L2 | click` 为 `pass`，而确认点击效果需要读回
+   控件状态（fixture 按钮已有 `AXValue`，但 B1 走的是复制品里的普通按钮）。是允许“`delivery=l2` + 控件读回”
+   作为通过条件，还是要求 `outcome=worked`？
+3. 下次窗口从 B1 重新开始（B-STOPPED 已存在，删掉它之前任何脚本都会拒绝）。
 
 ## 需要审核者回答的问题
 

@@ -78,3 +78,19 @@ UI 单测，确定性只覆盖 TS 的颜色分配。
 | G7（低） | 文档里的签名身份统一写成 `"$PI_CU_FIXTURE_SIGN_IDENTITY"` / “本机 Apple Development 身份”，不再出现邮箱与 Team ID；历史未改写 | `STATUS.md`、`STATUS-2.md`、`evidence/runs/2026-11-05T0333-b-phase-blocked.md`；复检 `grep` 无残留（`REVIEW-5.md` 里的脱敏示例除外） |
 | Q2 | `cu_session transfer` 补 trace：成功记 `{tool:"cu_session", status:"ok", transfer:{toAgentId, resourceKey, oldLeaseId, newLeaseId}}`，被拒记 `lease_conflict`/`error` + 错误码且无新 id | `test/session-transfer-trace.test.ts` 3 例（成功、只转指定资源、被拒） |
 
+## 第 6 轮复核（K1–K4）
+
+复核结论：`ce9c568` 不能作为冻结提交；P1 的方向对，但 K1 让 B1 之后的任何一步都无法开始，K2/K3 让
+“失败即停”仍有漏洞。逐条处理，仍然只做代码和测试：
+
+| 项 | 处理 | 证据 |
+| --- | --- | --- |
+| K1 存档写进工作区 | 窗口输出全部移到仓库外：脚本必填 `--runs-dir`，路径在 git 工作区内即拒绝；`writeRunArchive` 是唯一写入口，仓库内不再写 `evidence/*.md`、`*.log`、汇总表 | `requireRunsDir`/`writeRunArchive`；`test/b-window.test.ts` 含**真实 git** 的用例：`beginStep B1 → finishStep pass（写存档）→ beginStep B2` 必须被允许，再往工作区丢一个文件则 B2 被拒 |
+| K2 必需行 | `STEP_CONTRACT` 逐步声明必需行；缺失或非 `pass` 即阻塞；B1 要求 `direct L2 \| click` 带 `delivery=l2`，ASCII 输入源下 `direct L2 \| typeText` 也必需 | `evaluateStep`；`test/b-window.test.ts` 4 例（inconclusive、错投递、ASCII 条件、必需行缺失） |
+| K2 真实用户输入 | 每步都有 `run \| real user input`：helper 的真实事件数增长，或前台是本次运行没启动的 App，都记 `fail`；acceptance 用它自己的模拟器日志当预算 | `recordRealUserInput`；`test/live-helpers.test.ts` 5 例（增长、外来 App、探针失败、空闲、预算内） |
+| K3 验收不留结论 | acceptance 写 `Step/Commit/Verdict` 并调用 `finishStep`；B3 拆成 `B3-live` 与 `B3-acceptance`，两份同一 commit 的 `pass` 才放行 B4 | `test/b-window.test.ts` K3 用例；dry run“验收自己收尾”一项 |
+| K4 两个 B6 归属 | 只有 `check-cu-v2-live.mjs --with-hid` 是 B6；`cu-v2-l2-check.mjs` 删除 `--with-hid` 与 `runWithHid`；HID 点击拆成两行，生效判定读回 fixture 按钮的 `AXValue` | `STEP_SCRIPTS`；dry run“一个步骤一个归属”一项 |
+
+测试：`node --test` 共 **177** 项（`test/b-window.test.ts` 23、`test/live-helpers.test.ts` 11）；
+dry run 17 项、0 失败、3 跳过。文件按 20 KB 门槛拆分：设计细节与逐轮表格移到
+[`STATUS-2-rounds.md`](STATUS-2-rounds.md)。

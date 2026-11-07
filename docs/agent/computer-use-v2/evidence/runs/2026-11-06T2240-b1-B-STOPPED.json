@@ -1,0 +1,7 @@
+{
+  "step": "B1",
+  "commit": "bf7bd8e6d5c42a1a8adaf26853d673c3a6c23139",
+  "reason": "run | real user input = fail (userEvents 201 → 304 (+103); frontmost=Scry pid=60263)",
+  "run": "2026-11-07T06-40-33-984Z-l2-check.md",
+  "at": "2026-11-07T06:40:33.984Z"
+}
