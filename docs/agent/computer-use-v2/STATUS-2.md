@@ -74,7 +74,7 @@ helper 侧计数与用户授权。本机 122 个 `rotom-quality-pty-*` 遗留 `b
 | 条件 | 结果 | 证据 |
 | --- | --- | --- |
 | A1–A8 完成并推送 | 满足 | `b5b2d58c` 已推送 |
-| 脚本已在 Linux 或假 backend 上跑通 | 满足（脚本层） | `cu-v2-script-dry-run.mjs` 6 通过 / 3 跳过；真机路径本轮才第一次跑到 15 行 |
+| 脚本已在 Linux 或假 backend 上跑通 | 满足（脚本层） | `cu-v2-script-dry-run.mjs` 7 通过 / 3 跳过；真机路径本轮才第一次跑到 15 行 |
 | 当前时间仍在窗口内 | 无法核验 | 系统时钟前移约一天，用户给的时长数字也没填（Q1） |
 | 最近 10 分钟内没有真实用户输入 | **曾两次成立、随后失效** | 05:46 / 06:19 两次 619 s、604 s 通过；06:27 起持续输入，06:35 那次运行本不该开始（见总结） |
 
@@ -85,6 +85,9 @@ helper 侧计数与用户授权。本机 122 个 `rotom-quality-pty-*` 遗留 `b
 下一次窗口（每一步都由脚本自己校验闸门，缺窗口参数会拒绝运行）：
 
 ```bash
+PI_CU_L2_SOCKET=1 PI_CU_SOCKET_PATH=~/cu-v2-test/direct-l2.sock \
+PI_COMPUTER_USE_HELPER_APP_PATH=~/cu-v2-test/pi-computer-use.app ROTOM_CU_BROKER=0 \
+PI_CU_FIXTURE_SIGN_IDENTITY="<本机 Apple Development 身份>" \
 node --experimental-strip-types scripts/cu-v2-l2-check.mjs --fixture ~/cu-v2-test/Fixture.app --direct-l2 \
   --window-start <用户给的开始时间> --window-minutes <用户给的时长> --listening-since <helper 起监听的时间>
 ```
@@ -98,8 +101,8 @@ node --experimental-strip-types scripts/cu-v2-l2-check.mjs --fixture ~/cu-v2-tes
 
 | 编号 | 问题 | 执行 agent 的处理 |
 |---|---|---|
-| Q1 | 用户原话“大约 __ 小时不在电脑前”，时长数字没填。B 阶段的“仍在窗口内”无法按数字核验。 | 按决定 D1：以“10 分钟内无真实用户输入”作为唯一证据，并让任何真实输入立刻终止整个 B 阶段。审核者若给出确切时长，这个门禁可以收紧为“开始时间 + 时长”。 |
-| Q2 | `cu_session` 新增 `transfer` 动作是模型可写的管理动作（A4 决定）。是否需要额外的确认或审计要求？ | 先按“父 agent 已获授权、转交不弹卡”实现，只允许转给自己的后代，并写进决定记录。如需要确认卡，属于新的同意层改动。 |
+| Q1 | 用户原话“大约 __ 小时不在电脑前”，时长数字没填。B 阶段的“仍在窗口内”无法按数字核验。**REVIEW-5 起窗口是脚本的必填参数，缺参数直接拒绝运行。** | 按决定 D1：以“10 分钟内无真实用户输入”作为唯一证据，并让任何真实输入立刻终止整个 B 阶段。审核者若给出确切时长，这个门禁可以收紧为“开始时间 + 时长”。 |
+| Q2（已解决） | `cu_session` 新增 `transfer` 动作是模型可写的管理动作（A4 决定）。是否需要额外的确认或审计要求？ | 按 REVIEW-5 的结论：不弹确认卡（只能转给后代，不扩大已获授权），改为补 trace —— 每次交接记录目标 agent、资源键、新旧租约 id；被拒记录错误码且无新 id。见第 5 轮表格的 Q2 行。 |
 | Q4 | A6 只做了许可/条件/边框/收回，没有把批次的实际投递切到 L4 全局 HID。是否按原计划等 B5 真机证据后再打开投递？ | 先保持不切换：证据不足时打开投递等于让 agent 在无人监督下真的驱动整机。B5 通过后再单独一项接上。 |
 | Q3 | `packages/rotom-computer-use/src/outline.ts` 在初始快照里就是 24,448 字节，超过 pre-commit 的 20,000 字节门槛且不在豁免名单。任何改动它的提交都会被 hook 拒绝。 | 已按 REVIEW-4 的回答处理：按职责拆分成 `src/outline/*`（最大 6,768 字节），不加入豁免名单，并把原生 `secure` 标记接进 `OutlineNode`。 |
 | Q5（已解决） | `focusWindow` 与 `clipboardRestore` 会改变状态，但不在 helper 的 `writeCommands` 里，TS 侧也没有给它们附租约。 | 依复核结论补做：两者都进了 `writeCommands`（`desktop-pid:<pid>` / `clipboard:system`），TS 侧签名强制传租约，恢复路径拿不到租约就跳过并记 `restore_skipped:lease_unavailable`。细节见 [`STATUS-2-E-items.md`](STATUS-2-E-items.md)。 |
