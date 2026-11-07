@@ -130,7 +130,7 @@ function readLines(path) {
 const fleet = {
 	sessions: 0, subagentSessions: 0, projects: new Set(), badLines: 0,
 	entryTypes: {}, customTypes: {}, customMessageTypes: {}, messageRoles: {},
-	models: {}, stopReasons: {}, assistantErrorCategories: {}, thinkingLevels: {},
+	models: {}, stopReasons: {}, assistantErrorCategories: {}, assistantErrorOutcomes: { absorbedByRetry: {}, endedRun: {} }, thinkingLevels: {},
 	usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, costUsd: 0 },
 	usageByModel: {},
 	tools: {}, toolErrorCategories: {}, argumentsErrors: 0,
@@ -191,6 +191,7 @@ for (const { file, records, header } of sessionCandidates) {
 	const pendingCalls = new Map();
 	const goalPrev = new Map();
 	let errorStreak = 0;
+	let pendingError;
 	let lastStop = "";
 	let assistantSinceUser = 0;
 	let usedSearchTools = false;
@@ -236,6 +237,8 @@ for (const { file, records, header } of sessionCandidates) {
 		inc(fleet.messageRoles, tag(m.role));
 
 		if (m.role === "user") {
+			// An error still pending here was the run's last response: Pi did not recover it.
+			if (pendingError) { inc(fleet.assistantErrorOutcomes.endedRun, pendingError); pendingError = undefined; }
 			const text = textOf(m.content);
 			fleet.user.messages++; s.userMessages++;
 			fleet.user.bytes.push(bytes(text));
@@ -249,6 +252,8 @@ for (const { file, records, header } of sessionCandidates) {
 		}
 
 		if (m.role === "assistant") {
+			// Pi keeps a retried attempt in raw history; a later response means the retry absorbed it.
+			if (pendingError) { inc(fleet.assistantErrorOutcomes.absorbedByRetry, pendingError); pendingError = undefined; }
 			s.assistantMessages++; assistantSinceUser++;
 			const model = `${tag(m.provider)}/${tag(m.model)}`;
 			inc(fleet.models, model); inc(s.models, model);
@@ -258,7 +263,8 @@ for (const { file, records, header } of sessionCandidates) {
 			if (m.stopReason === "aborted") s.aborted++;
 			if (m.stopReason === "error") {
 				s.assistantErrors++;
-				inc(fleet.assistantErrorCategories, classify(m.errorMessage, ERROR_CATEGORIES));
+				pendingError = classify(m.errorMessage, ERROR_CATEGORIES);
+				inc(fleet.assistantErrorCategories, pendingError);
 			}
 			const u = m.usage ?? {};
 			const cost = num(u.cost?.total);
@@ -303,6 +309,8 @@ for (const { file, records, header } of sessionCandidates) {
 		}
 	}
 	if (errorStreak >= 3) fleet.loops.errorStreaksGe3++;
+	// Errors at the end of the window or file also ended their run.
+	if (pendingError) inc(fleet.assistantErrorOutcomes.endedRun, pendingError);
 	fleet.loops.maxErrorStreak = Math.max(fleet.loops.maxErrorStreak, s.maxErrorStreak);
 
 	// 用户回复间隔：助手最后一次响应到下一条用户消息（粗略反映用户等待/介入节奏）
@@ -389,7 +397,7 @@ const output = {
 		sessions: fleet.sessions, subagentSessions: fleet.subagentSessions, projects: fleet.projects.size, unparsableLines: fleet.badLines,
 		entryTypes: fleet.entryTypes, customTypes: top(fleet.customTypes, 40), customMessageTypes: top(fleet.customMessageTypes, 40), messageRoles: fleet.messageRoles,
 		models: fleet.models, thinkingLevels: fleet.thinkingLevels, modelChanges: fleet.modelChanges, thinkingChanges: fleet.thinkingChanges,
-		stopReasons: fleet.stopReasons, assistantErrorCategories: fleet.assistantErrorCategories,
+		stopReasons: fleet.stopReasons, assistantErrorCategories: fleet.assistantErrorCategories, assistantErrorOutcomes: fleet.assistantErrorOutcomes,
 		usage: { ...fleet.usage, costUsd: Number(fleet.usage.costUsd.toFixed(4)), cacheHitRatio: fleet.usage.input + fleet.usage.cacheRead ? Number((fleet.usage.cacheRead / (fleet.usage.input + fleet.usage.cacheRead)).toFixed(3)) : null },
 		usageByModel: Object.fromEntries(Object.entries(fleet.usageByModel).map(([k, v]) => [k, { ...v, costUsd: Number(v.costUsd.toFixed(4)) }])),
 		compactions: { count: fleet.compactions.count, fromHook: fleet.compactions.fromHook, tokensBefore: quantiles(fleet.compactions.tokensBefore), summaryBytes: quantiles(fleet.compactions.summaryBytes) },

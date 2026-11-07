@@ -120,7 +120,10 @@
 | P0b | 已实现，随产品生效 | `translate.mjs` 和 `provider.mjs`：没有任何文本、reasoning 或 tool call 时，`request_failed` / `stream_failed` 改为 `*_before_output`，Pi 列为可重试；已经流出内容的失败保持原码、不重试；diagnostics 仍归类为 `transport_failure` / `network` | 同上；另有 translate 单测覆盖“只有 usage”“已有文本”“已有 reasoning”“已有工具调用”“aborted”五种情况 |
 | P2 | 源码已改；**尚未进入产品**（需要按维护流程重打 vendor 归档） | helper 不匹配时，有 UI 的会话问一次是否重启；用户确认后才重启并复检；拒绝或没有 UI 时本会话不再询问，同时告诉模型“本会话内不可用，改用 Browser 或向用户报告” | `helper-protocol.test.ts` 7/7；Computer Use 套件 74/76，唯一失败 `cu-v2-tools.test.ts` 在改动前同样失败。**没有在真实 Mac 上验证** |
 | P3 | 源码已改；**尚未进入产品**（同 P2） | `subagent_wait` 超时结果附上每个子任务最近一次活动距今多久、工具调用数、轮数和当前工具；10 分钟没有活动时建议先查 status、不要原样长等，否则建议做其他事或用 ≤10 分钟的等待 | `wait.test.mjs` 21/21（新增 2 条） |
-| P1、P4、P5 | 未做 | — | — |
+| P1 | 维护者决定不做 | — | — |
+| P4 | 已实现，随产品生效（只改提示词） | `FOLLOW_THROUGH_POLICY` 新增一条：长运行中大约每 50 次工具调用、或连续 3 次工具失败后，在**下一次工具调用的同一条回复里**写一段进度说明（做完了什么、还剩什么、是否换路），然后继续执行；进度说明不是停点 | coding-policy 10/10（去掉这条规则后对应测试失败）；评测里解析该常量的单测 9/9。效果尚未测量，下周用 `stop-context.mjs` 复测 |
+| P5a | 已实现，随产品生效 | Pi `setModel` 和两条切换模型的路径：分支当前记录的模型和新模型相同时，不再写 `model_change`；`model_select` 事件的行为不变 | 新增回归测试（去掉改动后失败）；`build:pi` 的回归测试全部通过，`check:pi` 通过 |
+| P5b | 已实现（复盘脚本） | `extract-session-metrics.mjs` 新增 `assistantErrorOutcomes`，区分 `absorbedByRetry`（之后还有 assistant 回复，说明重试成功）和 `endedRun`（错误就是这一轮的最后一条回复） | 合成会话验证 |
 
 运行时与发行门：
 - `verify-pi-runtime.test.mjs` 40/40、`test:distribution` 28/28、`build-pi-fork.test.mjs` 2/2、observability 51/51。
