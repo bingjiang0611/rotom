@@ -390,6 +390,38 @@ function result(text: string, isError = false, completions?: WaitCompletion[]): 
 }
 
 /** Build the live status shown while async work keeps subagent_wait blocked. */
+// A wait that ends with no recent subagent activity is a signal to look, not to
+// wait the same way again. Ten minutes matches the longest single wait the
+// guidance recommends.
+const QUIET_RUN_MS = 10 * 60 * 1000;
+
+/** Per-run progress at a wait timeout, and what the parent can do next. */
+export function timeoutProgress(runs: AsyncRunSummary[], at: number): string {
+	if (runs.length === 0) return " Call subagent_wait again or inspect subagent status.";
+	const quiet: string[] = [];
+	const lines = runs.map((run) => {
+		const parts: string[] = [];
+		if (run.lastActivityAt !== undefined) {
+			const idle = Math.max(0, at - run.lastActivityAt);
+			parts.push(`last activity ${formatDuration(idle)} ago`);
+			if (idle >= QUIET_RUN_MS) quiet.push(run.id);
+		} else {
+			parts.push("no recorded activity");
+		}
+		if (run.toolCount !== undefined) parts.push(`${run.toolCount} tool call(s)`);
+		if (run.turnCount !== undefined) parts.push(`${run.turnCount} turn(s)`);
+		if (run.currentTool) {
+			const running = run.currentToolStartedAt !== undefined ? ` for ${formatDuration(Math.max(0, at - run.currentToolStartedAt))}` : "";
+			parts.push(`running ${run.currentTool}${running}`);
+		}
+		return `${run.id}: ${parts.join(", ")}`;
+	});
+	const next = quiet.length > 0
+		? `No activity for at least ${formatDuration(QUIET_RUN_MS)} from ${quiet.join(", ")}: inspect subagent status before waiting again; do not repeat the same long wait, and do not resume or launch a replacement while it is still active.`
+		: "Runs are still making progress: continue independent work, or wait again with a shorter timeout (10 minutes or less) and check status between waits.";
+	return `\nProgress: ${lines.join("; ")}.\n${next}`;
+}
+
 function asyncWaitUpdate(runs: AsyncRunSummary[], providerCount: number, elapsedMs: number): AgentToolResult<Details> {
 	const activity = runs.flatMap((run) => {
 		const activeSteps = run.steps.filter((step) => step.status === "pending" || step.status === "running");
@@ -674,7 +706,7 @@ export async function waitForSubagents(
 		}
 		if (now() - startedAt >= timeoutMs) {
 			return result(
-				`Wait timed out after ${formatDuration(timeoutMs)} with ${activeInitialRuns.length} async run(s) and ${activeInitialProviderItems.length} provider item(s) still active: ${stillActive}. The work keeps going; call subagent_wait again or inspect subagent status.`,
+				`Wait timed out after ${formatDuration(timeoutMs)} with ${activeInitialRuns.length} async run(s) and ${activeInitialProviderItems.length} provider item(s) still active: ${stillActive}. The work keeps going.${timeoutProgress(activeInitialRuns, now())}`,
 				true,
 			);
 		}

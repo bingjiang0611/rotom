@@ -134,3 +134,17 @@ test('headless unknown proof cannot silently drain',async()=>{
 test('unsealed workflow remains pending without a live controller or capacity slot',async()=>{
  const f=fixture();f.status.mode='workflow';f.job.mode='workflow';f.save();beginOwnedWorkflow(f.dir,f.id,f.session);assert.match(text(await f.wait()),/timed out.*1 async run/s);
 });
+test('timeout reports per-run progress and says to inspect a quiet run instead of waiting again',async()=>{
+ const {timeoutProgress}=await load('src/runs/background/subagent-wait.ts');
+ const at=Date.now(),run=extra=>({id:'run-a',state:'running',mode:'single',startedAt:at-3_600_000,asyncDir:'/x',steps:[],...extra});
+ const quiet=timeoutProgress([run({lastActivityAt:at-15*60_000,toolCount:42,turnCount:7,currentTool:'bash',currentToolStartedAt:at-14*60_000})],at);
+ assert.match(quiet,/run-a: last activity 15m\S* ago, 42 tool call\(s\), 7 turn\(s\), running bash for 14m/);
+ assert.match(quiet,/inspect subagent status before waiting again; do not repeat the same long wait/);
+ const busy=timeoutProgress([run({lastActivityAt:at-30_000,toolCount:3})],at);
+ assert.match(busy,/last activity 30.0s ago, 3 tool call\(s\)/);assert.match(busy,/shorter timeout \(10 minutes or less\)/);assert.doesNotMatch(busy,/inspect subagent status before/);
+ assert.match(timeoutProgress([run({})],at),/no recorded activity/);
+});
+test('a wait timeout on a running async run includes its progress',async()=>{
+ const f=fixture();f.status.state='running';f.status.lastActivityAt=Date.now();f.status.toolCount=5;f.save();
+ const r=await f.wait();assert.match(text(r),/timed out.*1 async run/s);assert.match(text(r),/Progress: .*5 tool call\(s\)/s);
+});
