@@ -4,6 +4,10 @@ Authorized window: start `2026-11-06T19:53:21-0800`, 60 minutes, helper listenin
 `19:53:24`. Gate, fixture copies and helper all ran on this machine; no screenshot was
 taken and no user application was operated.
 
+> 第 6 轮审核：**只有 B1 的失败算有效结果。** B1 之后的一切（B2 四次、B3 两次、B6 一次，以及在
+> 窗口内提交的三次脚本修改）都超出了授权，只能算记录，不是证据。这个文件保留原样，用它说明当时
+> 看到了什么；不作为任何后续步骤的许可。
+
 Result: **B1 failed, B2 passed after three script defects were fixed, B3 half-run, B6
 failed on its own criterion. B4 and B5 did not run.** The phase stopped there, without
 retrying B1.
@@ -45,7 +49,7 @@ Three earlier runs are archived because each was invalid, not because the app mi
 | --- | --- |
 | `runs/2026-11-06T2013-matrix-invalid-policy.md` | `--delivery` absent resolved to `process.argv[0]`; every cell labelled `/Users/…/bin/node` |
 | `runs/2026-11-06T2015-matrix-no-activation.md` | launched with `activates:false`, listed roots once, never raised the app → all `no window` |
-| `runs/2026-11-06T2041-matrix-third.md` | same, after a first `ensureFixtureWindow` that swallowed the `osascript` failure and returned |
+| `runs/2026-11-06T2017-matrix-third.md` | same, after a first `ensureFixtureWindow` that swallowed the `osascript` failure and returned |
 
 Valid run (`compat-matrix.md`, `runs/2026-11-06T2018-matrix-valid.log`): 30 cells against
 the fixture copy — `pass=24 · fail=1 · unknown=3`.
