@@ -9,6 +9,9 @@ test('Qoder diagnostic producer keeps only exact metadata enums and finite count
   assert.deepEqual(qoderDiagnosticAttributes({ code: 'invalid_tool_arguments', reason: 'PRIVATE_BODY', argumentBytes: Infinity }), { 'pi.ai.qoder.diagnostic_code': 'invalid_tool_arguments' });
   assert.equal(qoderDiagnosticAttributes({ code: 'upstream_error_frame', status: 0 })['pi.ai.error.category'], undefined);
   assert.equal(qoderErrorAttributes('Qoder: request_failed')['pi.ai.error.category'], 'network');
+  for (const code of ['request_failed_before_output', 'stream_failed_before_output']) {
+    assert.deepEqual(qoderErrorAttributes(`Qoder: ${code}`), { 'pi.ai.qoder.error_code': 'transport_failure', 'pi.ai.error.category': 'network' });
+  }
   assert.equal(qoderErrorAttributes('Qoder: model_refusal')['pi.ai.qoder.error_code'], 'model_refusal');
   assert.doesNotMatch(JSON.stringify(qoderErrorAttributes('PRIVATE_BODY')), /PRIVATE_BODY/);
 });

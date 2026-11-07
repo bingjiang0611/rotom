@@ -14,7 +14,8 @@ async function refreshRegistry(ctx, { force = false, signal } = {}) {
     if (result.aborted || result.errors.has(PROVIDER_ID)) throw new QoderError('catalog_refresh_failed');
   } catch {
     // Registry/provider errors can contain private upstream bodies. Keep the
-    // stream error stable and non-retryable, with actionable help in the UI.
+    // stream error stable. No inference was sent, so Pi's bounded retry budget
+    // recognizes this code and re-runs the refresh on its next attempt.
     throw new QoderError(signal?.aborted ? 'aborted' : 'catalog_refresh_failed');
   }
 }
@@ -45,8 +46,10 @@ export function bindSessionAccount(manager, append, fingerprint) {
   if (!manager.getEntries().some(e => e.type === 'custom' && e.customType === BINDING_TYPE && e.data?.fingerprint === fingerprint)) throw new QoderError('account_binding_not_saved');
 }
 
+const NOTICE_REPEAT_MS = 120_000;
+
 export function installSessionPolicy(pi) {
-  let current, catalogRefresh, epoch = 0;
+  let current, catalogRefresh, epoch = 0, lastNotice = {};
   // Credits stay in persisted session entries rather than extension status UI.
   // The bundled Pi fork reads those entries into its normal usage row, while
   // /qoder-credits remains the explicit account snapshot. Numeric $0 model costs
@@ -60,7 +63,7 @@ export function installSessionPolicy(pi) {
     const code = event.message.errorMessage?.match(/Qoder: ([a-z0-9_]+)/)?.[1];
     const help = {
       catalog_refresh_required: 'Qoder 模型目录尚未就绪。请运行 /qoder-models 刷新后再发送；本次未发送推理请求。',
-      catalog_refresh_failed: 'Qoder 模型目录自动刷新未完成，本次未发送推理请求。请检查网络，用 /qoder-models 手动刷新；仅登录失效时重新登录并开启新会话。',
+      catalog_refresh_failed: 'Qoder 模型目录自动刷新未完成，本次未发送推理请求；会按重试预算自动重试。持续失败请检查网络，用 /qoder-models 手动刷新；仅登录失效时重新登录并开启新会话。',
       catalog_changed_select_again: 'Qoder 模型目录或上下文能力已变化，本次未发送推理请求。请用 /model 重新选择模型。',
       catalog_model_unavailable: '当前 Qoder 模型已不在可用目录中，本次未发送推理请求。请用 /qoder-models 查看目录，再用 /model 选择可用模型。',
       catalog_account_mismatch: 'Qoder 目录与请求账号不一致，本次未发送推理请求。请恢复原账号；切换账号须开启新会话。',
@@ -71,7 +74,12 @@ export function installSessionPolicy(pi) {
       oauth_refresh_already_attempted_login_required: 'This Qoder refresh token was already attempted. Re-login and start a new session; do not delete refresh-attempt guards to retry.',
       account_changed_start_new_session: 'Qoder account changed. Restore the original account or start a new session; existing history was not dispatched.',
     };
-    if (help[code]) ctx.ui.notify(help[code], 'warning');
+    if (!help[code]) return;
+    // A retried code ends one message per attempt; say it once per burst.
+    const now = Date.now();
+    if (lastNotice.code === code && now - lastNotice.at < NOTICE_REPEAT_MS) return;
+    lastNotice = { code, at: now };
+    ctx.ui.notify(help[code], 'warning');
   });
   const captureScope = expectedSessionId => {
     const ctx = current, capturedEpoch = epoch, sessionId = ctx?.sessionManager.getSessionId?.();

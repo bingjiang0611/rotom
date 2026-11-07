@@ -90,9 +90,9 @@ test('pre-abort bypasses credential reads and unavailable binding capture', asyn
 test('native adapter normalizes to safe error codes without another dispatch', async () => {
   // The self-owned transport no longer renders errors as a 400 Response: a
   // known QoderError code is preserved and an arbitrary failure is masked as
-  // request_failed, both surfacing as a thrown QoderError (which lazyStream
+  // request_failed (request_failed_before_output here: no content exists yet), both surfacing as a thrown QoderError (which lazyStream
   // turns into an error event) with no upstream body and no network dispatch.
-  for (const [error, expected] of [[new QoderError('credential_expired_login_with_qodercli'), 'credential_expired_login_with_qodercli'], [new Error('PRIVATE fixture error'), 'request_failed']]) {
+  for (const [error, expected] of [[new QoderError('credential_expired_login_with_qodercli'), 'credential_expired_login_with_qodercli'], [new Error('PRIVATE fixture error'), 'request_failed_before_output']]) {
     const provider = await createQoderProvider({
       authMode: 'qodercli', clampMaxTokens: (_m, _c, cap) => cap,
       piAI: { ...transcript, createProvider: p => p, lazyStream: (_m, setup) => setup() },

@@ -115,3 +115,21 @@ test('non-vision models replace user and tool images with a placeholder, not ima
 test('a tool that hard-requires strict constrained sampling fails closed', () => {
   assert.throws(() => buildQoderPayload(MODEL, { messages: [{ role: 'user', content: 'hi' }], tools: [{ name: 't', parameters: {}, constrainedSampling: { type: 'json_schema', strict: 'require' } }] }, { maxTokens: 4096 }), { code: 'tool_constrained_sampling_unsupported' });
 });
+
+test('transport failures get a retryable before-output code only when nothing visible streamed', async () => {
+  const { QoderError } = await import('./auth.mjs');
+  async function* failing(chunks, code) { for (const c of chunks) yield c; throw new QoderError(code); }
+  const terminal = async (chunks, code) => (await collect(translateQoderStream(failing(chunks, code), MODEL))).at(-1).error;
+  const usageOnly = { choices: [], usage: { prompt_tokens: 3, completion_tokens: 0 } };
+  for (const code of ['stream_failed', 'request_failed']) {
+    assert.equal((await terminal([], code)).errorMessage, `Qoder: ${code}_before_output`);
+    assert.equal((await terminal([usageOnly], code)).errorMessage, `Qoder: ${code}_before_output`);
+    assert.equal((await terminal([delta({ content: 'partial' })], code)).errorMessage, `Qoder: ${code}`);
+    assert.equal((await terminal([delta({ reasoning_content: 'thinking' })], code)).errorMessage, `Qoder: ${code}`);
+    assert.equal((await terminal([delta({ tool_calls: [{ index: 0, id: 'call_1', function: { name: 'read', arguments: '{' } }] })], code)).errorMessage, `Qoder: ${code}`);
+  }
+  // Other codes and aborts are untouched.
+  assert.equal((await terminal([], 'upstream_error_frame')).errorMessage, 'Qoder: upstream_error_frame');
+  const aborted = await terminal([], 'aborted');
+  assert.equal(aborted.stopReason, 'aborted'); assert.equal(aborted.errorMessage, 'Qoder: aborted');
+});

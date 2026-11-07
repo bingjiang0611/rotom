@@ -20,6 +20,17 @@
 
 import { QoderError } from './auth.mjs';
 
+// Transport failures that may already have reached Qoder are never retried by
+// default: a resend can be billed again. When nothing visible came back (no
+// text, reasoning or tool call), the maintainer accepted that risk because the
+// user's only remedy was a manual resend anyway; those failures get their own
+// stable codes, which Pi's bounded retry budget recognizes. Anything that
+// streamed content keeps the original, non-retried code.
+const BEFORE_OUTPUT_CODES = new Set(['request_failed', 'stream_failed']);
+export function beforeOutputError(error) {
+  return error instanceof QoderError && BEFORE_OUTPUT_CODES.has(error.code) ? new QoderError(`${error.code}_before_output`) : error;
+}
+
 const zeroUsage = () => ({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } });
 
 // Mirror the documented OpenAI/OpenRouter usage semantics used by pi-ai:
@@ -121,7 +132,8 @@ export async function* translateQoderStream(chunks, model, { onError } = {}) {
         output.stopReason = FINISH_REASON[choice.finish_reason] ?? 'stop';
       }
     }
-  } catch (error) {
+  } catch (caught) {
+    const error = blocks.length ? caught : beforeOutputError(caught);
     // Preserve whatever content already streamed and surface the stable Qoder
     // code through errorMessage; the session-policy help path matches on it.
     for (const block of blocks) if (block.type === 'toolCall') delete block.partialArgs;

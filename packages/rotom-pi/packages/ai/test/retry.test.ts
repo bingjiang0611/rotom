@@ -63,6 +63,20 @@ describe("provider retry classification", () => {
 		).toBe(true);
 	});
 
+	it.each(["Qoder: catalog_refresh_failed", "Qoder: request_failed_before_output", "Qoder: stream_failed_before_output"])(
+		"retries Qoder failures with no visible output: %s",
+		(errorMessage) => {
+			expect(isRetryableAssistantError(fauxAssistantMessage("", { stopReason: "error", errorMessage }))).toBe(true);
+		},
+	);
+
+	it.each(["Qoder: request_failed", "Qoder: stream_failed", "Qoder: catalog_refresh_required", "Qoder: catalog_refresh_failed_x"])(
+		"keeps Qoder failures after output or with other codes non-retryable: %s",
+		(errorMessage) => {
+			expect(isRetryableAssistantError(fauxAssistantMessage("", { stopReason: "error", errorMessage }))).toBe(false);
+		},
+	);
+
 	it("matches Qoder's sanitized upstream SSE error frame", () => {
 		expect(
 			isRetryableAssistantError(
@@ -206,6 +220,9 @@ describe("connection failure classification", () => {
 		"Request timed out.",
 		"overloaded_error",
 		"Qoder: request_failed",
+		"Qoder: request_failed_before_output",
+		"Qoder: stream_failed_before_output",
+		"Qoder: catalog_refresh_failed",
 	])("keeps the bounded budget for %s", (errorMessage) => {
 		expect(isConnectionFailureAssistantError(error(errorMessage))).toBe(false);
 	});
