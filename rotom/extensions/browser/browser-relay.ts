@@ -562,11 +562,15 @@ export class BrowserRelayClientV1 {
 		const encoded = `${JSON.stringify(message)}\n`;
 		if (Buffer.byteLength(encoded, "utf8") > MAX_WIRE_BYTES) throw new Error("browser relay request 超过 1 MiB");
 		const result = new Promise<unknown>((resolve, reject) => {
+			// A timeout or an abort belongs to this one request. Dropping the whole connection
+			// would reject every other tab's in-flight request sharing the session, so only
+			// protocol damage (invalid frame, digest mismatch, buffer overflow, socket closed)
+			// retires the client. The abandoned id stays out of `#pending`, so an answer that
+			// arrives later finds nothing to resolve and is dropped.
 			const timer = setTimeout(() => {
 				const error = new Error(`browser relay ${operation} timeout`);
 				this.#pending.delete(id);
 				reject(error);
-				this.#fail(error);
 			}, options.timeoutMs ?? 30_000);
 			const pending: PendingRequestV1 = { resolve, reject, timer };
 			if (options.signal) {
@@ -576,7 +580,6 @@ export class BrowserRelayClientV1 {
 					clearTimeout(timer);
 					options.signal!.removeEventListener("abort", abort);
 					reject(error);
-					this.#fail(error);
 				};
 				options.signal.addEventListener("abort", abort, { once: true });
 				pending.abort = () => options.signal!.removeEventListener("abort", abort);
