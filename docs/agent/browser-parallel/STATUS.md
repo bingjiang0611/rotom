@@ -258,6 +258,20 @@
   - e2e macOS：`dialog` 5/5（弹窗路径未回退）、`baseline` 7/7、`pointer` 6/6（拖拽的 `effect.action`/`moves` 断言仍然成立，只是 macOS 派发够快，复现不了 Linux 上的慢派发）。
 - **未验证**：Linux 上那两条拖拽断言是否真的因此转绿，需要评审环境复跑 `pointer`。
 
+### screenshot / getLayoutMetrics 的 deadline 与稳定截图方式
+
+- **问题**：`screenshot` 的 `Page.captureScreenshot`（以及前后两次 `Page.getLayoutMetrics`）直接 `await`，没有 deadline。挂住的命令一直占着 tab 锁，结构性操作（`hello`/`tabs`/`close`/`recover`）全排在后面，session 看起来死掉。评审在 Linux 上复现：滚动后再截图超时，之后连 `hello` 都超时。
+- **选的方式**：截图期间**打开 focus emulation**（`Emulation.setFocusEmulationEnabled: true`），配合**每条命令单独的 deadline**，仍然用 `fromSurface: true`。理由：
+  - 评审探针显示"开过再关掉 focus emulation 的 hidden tab"才会让 `fromSurface: true` 挂住，而开着 focus emulation 时下一次截图能回来；截图本身只关心渲染结果，把渲染进程置于 focus 状态不影响页面内容；
+  - 没有选 `fromSurface: false`：它改的是截图来源语义（渲染器合成结果而不是 surface），在可见 tab 上与现有 e2e 断言（JPEG/尺寸/字节数）语义不一致，而且同样没有 Linux 证据；
+  - deadline 是真正把"挂住"变成"有界失败"的部分，与截图方式无关：`Page.getLayoutMetrics` 3 s、`Page.captureScreenshot` 5 s，超时抛 `browser relay <method> timeout`，工具层按 timeout/unknown 处理，锁随操作结束释放；收尾的"关闭 focus emulation"也是有界的 best effort，不会把已报的超时再拖长。
+- **抽取**：`chrome-extension/screenshot-capture.js` 的 `captureScreenshotWithin`（metrics → capture → metrics，focus emulation 开关包在外层）。坐标点击路径的 `Page.getLayoutMetrics` 同样加了 3 s 的 `layoutMetricsWithin`。
+- 验证：
+  - `node --test rotom/extensions/browser/screenshot-capture.test.mjs` 4/4。故障注入：`Page.captureScreenshot` 的 `sendCommand` 返回永不 resolve 的 promise，断言 60 ms deadline 内抛 `Page.captureScreenshot timeout`（没有 deadline 时这条会一直挂到测试超时）、之后的收尾命令只发一次 disable；`getLayoutMetrics` 挂住同样超时；正常路径拿到同一对 metrics/capture；第三条用真实 `request-locks.js` 的组合复现 SW 的加锁顺序（session 读锁 + tab 锁），断言超时后结构性操作（`tabs`/`close`）能拿到 session 写锁、同一 tab 的下一个操作立刻能跑、锁计数回到 0。
+  - 全量 browser 单测：`.test.mjs` + `pack-chrome-extension` 219/219，`.test.ts` 91/91。
+  - e2e macOS：`baseline` 7/7（含 `screenshot 返回有界的 JPEG`，证明开着 focus emulation 截图仍然正常）、`devtools` 11/11（`screenshot_export` 的 PNG/JPEG 与尺寸断言）。
+- **未验证**：Linux 上这条超时链路（`screenshot` 超时后 `hello`/`close` 恢复正常）没有在本机复跑；也没有证明 focus emulation 就是 Linux 上"每次都能回来"的稳定方式，只能说探针里它有效。评审复跑时请关注 `baseline`/`settle` 两个 suite。
+
 ## 既有失败
 
 <!-- 不是本次改动造成的失败：测试名、原因、证据。 -->
