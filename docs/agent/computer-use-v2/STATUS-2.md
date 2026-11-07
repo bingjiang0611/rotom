@@ -147,9 +147,9 @@ node --experimental-strip-types scripts/cu-v2-l2-check.mjs --fixture ~/cu-v2-tes
 
 B1 结果（[存档](evidence/runs/2026-11-06T2240-b1-directed-l2.md)）：19 行、1 个 `fail`、3 个 blocker。
 
-- **`direct L2 | click` = `inconclusive`，`delivery=l2`、helper 存活。** 定向投递第一次真的执行了：
-  `SLEventPostToPid` 没有崩，传输字段是 `l2`。但结果确认不了（`outcome=unknown`），所以按 K2 它是 blocker，
-  不能算通过。同一轮的 AX 点击也是 `outcome=unknown`，说明这是“确认面”的问题，不是 L2 独有的。
+- **`direct L2 | click` = `inconclusive`，`delivery=l2`、helper 存活。** `SLEventPostToPid` 在真机上被调用，
+  没有崩，传输字段是 `l2`；但效果未确认（`outcome=unknown`），按 K2 仍是 blocker。同一轮的 AX 点击也是
+  `outcome=unknown`，说明这是“确认面”的问题，不是 L2 独有的。
 - **`run | real user input` = `fail`：`userEvents 201 → 304`（+103）**，前台始终是 Scry。运行只持续约 11 秒，
   脚本自己只投递了个位数事件（`agentEventCount=0`），所以这 103 个未被标记的键鼠事件来源不明。窗口内共出现
   两次同类突发（22:19–22:30 从 34 涨到 201，22:40 再涨 103），之后安静 30 秒无增长。这与 Q6 里的安全软件
@@ -169,31 +169,31 @@ B1 结果（[存档](evidence/runs/2026-11-06T2240-b1-directed-l2.md)）：19 �
 ## 第三次窗口（22:55 起）：门禁未通过，没有运行任何步骤
 
 1 656 秒内 helper 记录 39 540 个未标记键鼠事件（20–65 事件/秒），前台在 Scry / Chrome / Etch 之间切换，
-门禁一直 `hold`。用户随后确认那是他本人，并离开机器。细节见
-[`STATUS-2-rounds.md`](STATUS-2-rounds.md#第三次-b-窗口2026-11-06-22550055-6e6a54dc门禁未通过)。
+门禁一直 `hold`。用户确认那是他本人，并离开机器。细节见 [`STATUS-2-rounds.md`](STATUS-2-rounds.md)。
 
-## 第四次窗口（同一次授权内，23:25 起）：B1 运行并失败，阶段停止
+## 第四次窗口（同一次授权内，23:25 起）：B1 再失败一次，阶段停止
 
-用户离开后重开 helper（23:25:43），门禁在 23:36:01 通过（监听 618.7 s、零真实输入、剩余 79 分钟），
-`--expect-commit f60cb0e7`（其可执行代码与 `6e6a54dc` 完全相同，差异只有文档与存档）。
-B1 运行并失败（[存档](evidence/runs/2026-11-06T2336-b1-directed-l2-readback.md)，20 行、2 个 fail）：
+门禁 23:36:01 通过，B1 在 `f60cb0e7`（可执行代码等于 `6e6a54dc`）上失败
+（[存档](evidence/runs/2026-11-06T2336-b1-directed-l2-readback.md)）：读回在 AX 点击之后才取，以及本次运行
+内部产生的 72 个未标记事件。**没有运行 B2、B3-live、B3-acceptance**，`B-STOPPED` 仍在
+`~/cu-v2-runs/2026-11-06T2325-f60cb0e7/`。细节见 [`STATUS-2-rounds.md`](STATUS-2-rounds.md)。
 
-| Blocker | 读数 | 定位 |
-| --- | --- | --- |
-| `direct L2 \| click effect` = fail | 点击前后都是 `{"value":"clicked"}` | **读回顺序错**：脚本先用 AX 路径点了同一个按钮（第 10 行，实际生效），定向点击再成功也读不出变化 |
-| `run \| real user input` = fail | `userEvents 0 → 72`，前台始终 Scry | 用户已离开，72 个未标记事件产生于**本次运行内部**，来源未定位 |
-| `direct L2 \| click` = inconclusive | `delivery=l2`、helper 存活、`outcome=unknown` | 与上一窗口一致：传输成立，效果确认不了 |
+## 直连 L2 目前能证明到哪一步
 
-其余行全部 `pass`（冻结提交、门禁、协议 9、fixture 副本与清理、`restore | operator app`）。
-**没有运行 B2、B3-live、B3-acceptance**，`B-STOPPED` 留在
-`~/cu-v2-runs/2026-11-06T2325-f60cb0e7/`，只有用户能删。
+`SLEventPostToPid` 在真机被**调用两次**（22:40、23:36），两次都返回 `delivery=l2`，helper 都没有崩溃。
+**效果未确认**：两次的 `outcome` 都是 `unknown`，读回也没能证明点击到达 fixture。所以只能说
+“真机调用两次、helper 未崩、效果未确认”，不能写成“走通”或“已验证”。这个说法同样适用于根 `CLAUDE.md` §4。
 
-需要的两个修正（都超出本窗口授权，都是代码加测试）：
+## 第 7 轮审核（R1、R2，只做代码与测试，未跑真机）
 
-1. `--direct-l2` 必须在 AX 点击之前跑（或换成可翻转的控件），否则读回永远看不到变化。
-2. K2 的真实输入行要能区分“人回来了”和“我们自己的动作”：helper 记录每个事件的来源进程
-   （`eventSourceUnixProcessID`），并确认启动 fixture 副本、定向投递这些路径都打了 agent 标记。
-   在这一点修好之前，B 阶段在这台机器上无法通过任何步骤。
+| 项 | 改动 |
+| --- | --- |
+| R1 | fixture 的按钮结果改成单调计数 `clicks: N`（同时写进 `AXValue`），`judgeDirectedClick` 改为 `after === before + 1`：不变 → `fail`，加一 → `pass`，加二 → `unknown`；AX 那一行也用同一读回判定（`scripts/lib/l2-modes.mjs`、`native/macos-fixture/FixtureApp.swift`） |
+| R2 第 1 步 | helper 增加有界事件来源环（512 条，只记时间/类型/来源 pid/来源 state/是否带标记，不记键码、字符、坐标），`--activity-self-test` 自测上限与字段；脚本按来源分组写进存档，附 `fromThisRun`/`fromElsewhere` 汇总，**K2 判定一个字没改**（`scripts/lib/event-sources.mjs`） |
+| R2 B0 | 新增只出报告的 B0 归因模式：`beginStep` 允许它跳过前序、`writeRunArchive({reportOnly})` 不写 `Verdict:`、不写 `B-STOPPED`、不放行任何步骤；`B_STEPS` 保持不变，所以 B1 不依赖 B0 |
+
+验证：38 项针对性测试、完整套件全通过、dry run 21 项 0 失败、Swift `--activity-self-test` 5 项通过，
+fixture 与 helper 重新编译（签名身份不变）。R3 的 `--runs-dir` 由用户指定，留给下一个窗口执行。
 
 ## 需要审核者回答的问题
 

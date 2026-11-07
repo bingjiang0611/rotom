@@ -113,3 +113,26 @@ dry run 17 项、0 失败、3 跳过。文件按 20 KB 门槛拆分：设计细�
 需要用户确认：这是本人回到机器了，还是又一个来源不明的输入流（与 Q6 的安全软件、第二次窗口的 +103
 事件可能是同一件事）。在能证明“这些事件不是人”之前，K2 的 `run | real user input` 行在这台机器上
 无法通过；那需要 helper 侧按事件来源归因，属于代码改动。
+
+## 第四次窗口（同一次授权内，23:25 起）：B1 运行并失败，阶段停止
+
+用户离开后重开 helper（23:25:43），门禁在 23:36:01 通过（监听 618.7 s、零真实输入、剩余 79 分钟），
+`--expect-commit f60cb0e7`（其可执行代码与 `6e6a54dc` 完全相同，差异只有文档与存档）。
+B1 运行并失败（[存档](evidence/runs/2026-11-06T2336-b1-directed-l2-readback.md)，20 行、2 个 fail）：
+
+| Blocker | 读数 | 定位 |
+| --- | --- | --- |
+| `direct L2 \| click effect` = fail | 点击前后都是 `{"value":"clicked"}` | **读回顺序错**：脚本先用 AX 路径点了同一个按钮（第 10 行，实际生效），定向点击再成功也读不出变化 |
+| `run \| real user input` = fail | `userEvents 0 → 72`，前台始终 Scry | 用户已离开，72 个未标记事件产生于**本次运行内部**，来源未定位 |
+| `direct L2 \| click` = inconclusive | `delivery=l2`、helper 存活、`outcome=unknown` | 与上一窗口一致：传输成立，效果确认不了 |
+
+其余行全部 `pass`（冻结提交、门禁、协议 9、fixture 副本与清理、`restore | operator app`）。
+**没有运行 B2、B3-live、B3-acceptance**，`B-STOPPED` 留在
+`~/cu-v2-runs/2026-11-06T2325-f60cb0e7/`，只有用户能删。
+
+需要的两个修正（都超出本窗口授权，都是代码加测试）：
+
+1. `--direct-l2` 必须在 AX 点击之前跑（或换成可翻转的控件），否则读回永远看不到变化。
+2. K2 的真实输入行要能区分“人回来了”和“我们自己的动作”：helper 记录每个事件的来源进程
+   （`eventSourceUnixProcessID`），并确认启动 fixture 副本、定向投递这些路径都打了 agent 标记。
+   在这一点修好之前，B 阶段在这台机器上无法通过任何步骤。
