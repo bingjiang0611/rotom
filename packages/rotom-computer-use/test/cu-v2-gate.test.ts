@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 // @ts-expect-error - the gate is a script-library module outside the TS program
-import { GateHold, evaluateGate, requireGate } from "../scripts/lib/gate.mjs";
+import { GateHold, evaluateGate, readGate, requireGate } from "../scripts/lib/gate.mjs";
 
 const at = (minutesFromWindowStart: number) => Date.parse("2026-11-06T05:00:00-08:00") + minutesFromWindowStart * 60_000;
 const windowStartMs = Date.parse("2026-11-06T05:00:00-08:00");
@@ -64,4 +64,23 @@ test("the readings are kept in the report for the archive", () => {
 test("requireGate refuses without a declared window instead of running anyway", async () => {
 	await assert.rejects(requireGate({}), /--window-start and --window-minutes are required/);
 	assert.equal(GateHold.name, "GateHold");
+});
+
+test("readGate turns the window string into a usable verdict", async () => {
+	// The CLI only ever passes the window as a string; without deriving the milliseconds
+	// every call reported `minutes_left: null` and refused (found at the first B1 run).
+	const saved = { socket: process.env.PI_CU_SOCKET_PATH, app: process.env.PI_COMPUTER_USE_HELPER_APP_PATH };
+	delete process.env.PI_CU_SOCKET_PATH;
+	delete process.env.PI_COMPUTER_USE_HELPER_APP_PATH;
+	try {
+		const start = new Date(Date.now() - 5 * 60_000).toISOString();
+		const report = await readGate({ windowStart: start, windowMinutes: 60, requireIdleMinutes: 10 });
+		assert.equal(report.gates.inside_window, true);
+		assert.ok(report.minutes_left > 50, `minutes_left=${report.minutes_left}`);
+		// No helper socket means no evidence about the user, so the verdict stays a hold.
+		assert.equal(report.verdict, "hold");
+	} finally {
+		if (saved.socket !== undefined) process.env.PI_CU_SOCKET_PATH = saved.socket;
+		if (saved.app !== undefined) process.env.PI_COMPUTER_USE_HELPER_APP_PATH = saved.app;
+	}
 });

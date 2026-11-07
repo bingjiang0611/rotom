@@ -71,6 +71,10 @@ export function evaluateGate(options) {
 /** Read both sources, then decide. */
 export async function readGate(options) {
 	const nowMs = options.nowMs ?? Date.now();
+	// The window start is a string on the command line; `evaluateGate` needs it in ms.
+	// Leaving it to the caller meant every CLI invocation computed `minutes_left: null`
+	// and refused, so the gate could never pass (found while starting the first B1 run).
+	const windowStartMs = options.windowStartMs ?? Date.parse(options.windowStart);
 	const listeningSinceMs = options.listeningSince ? Date.parse(options.listeningSince) : Number.NaN;
 	let helper = null;
 	let helperError;
@@ -84,7 +88,7 @@ export async function readGate(options) {
 	} else {
 		helperError = "PI_CU_SOCKET_PATH / PI_COMPUTER_USE_HELPER_APP_PATH not set";
 	}
-	return evaluateGate({ ...options, nowMs, listeningSinceMs, hidIdle: hidIdleSeconds(options.exec ?? execFileSync), helper, helperError });
+	return evaluateGate({ ...options, windowStartMs, nowMs, listeningSinceMs, hidIdle: hidIdleSeconds(options.exec ?? execFileSync), helper, helperError });
 }
 
 /** A refusal carries the readings so the caller can archive them. */
