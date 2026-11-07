@@ -5,7 +5,7 @@
  * script's recorder and lookups passed in, and both are only ever pointed at a
  * fixture copy this run started.
  */
-import { execFileSync } from "node:child_process";
+import { restoreOperatorApp } from "./live-helpers.mjs";
 
 /**
  * F5: the first real run of the directed-delivery signature.
@@ -86,36 +86,48 @@ export async function runDirectL2({ fixture, fixtureRun, backend, helper, record
  * HID path, run separately from the background invariant checks.
  *
  * One action is delivered through the foreground policy, which is the only path that
- * moves the real cursor. The operator's app must be in front again afterwards.
+ * moves the real cursor. The operator's app must be in front again afterwards, and
+ * that is read back rather than assumed (review 6, P2): B6 exists to catch exactly the
+ * case where the run leaves the fixture in front.
  */
 export async function runWithHid({ fixture, originalFrontmost, backend, record, cursor, wireRefByRole }) {
 	if (!fixture) {
 		record("with-hid", "fixture", "skipped", "no fixture this run started");
-		return;
+		return { restore: { restored: false, result: "skipped" } };
 	}
-	const roots = await backend.listRoots({ pid: fixture.pid });
-	const root = roots.find((candidate) => candidate.kind === "window");
+	const root = await ensureRoot(backend, fixture);
 	if (!root) {
 		record("with-hid", "window", "skipped", "the fixture has no window");
-		return;
+		return { restore: { restored: false, result: "skipped" } };
 	}
 	const look = await backend.observe({ target: { windowId: root.windowId, rootRef: root.rootRef }, readText: "auto", includeImage: false });
 	const button = wireRefByRole(look, ["AXButton"]);
 	if (!button) {
 		record("with-hid", "click", "skipped", "no button in the fixture window; not clicking blind");
-		return;
+		return { restore: { restored: false, result: "skipped" } };
 	}
 	const before = await cursor();
 	let outcome = "unknown";
+	let delivery = "?";
 	try {
 		const result = await backend.act({ lookId: look.lookId, pid: fixture.pid, target: { ref: button }, action: "click", policy: "foreground" }, { timeoutMs: 20_000 });
 		outcome = result?.outcome ?? "unknown";
+		delivery = result?.performed?.delivery ?? "?";
 	} catch (error) {
 		outcome = `error:${error instanceof Error ? error.message : String(error)}`;
 	}
 	const after = await cursor();
-	record("with-hid", "click", outcome === "worked" ? "pass" : "inconclusive", `outcome=${outcome} cursorMoved=${Math.hypot(after.x - before.x, after.y - before.y) >= 1}`);
-	execFileSync("osascript", ["-e", `tell application "System Events" to set frontmost of first process whose unix id is ${originalFrontmost.pid} to true`], { stdio: "pipe" });
-	const restored = await backend.getFrontmost();
-	record("with-hid", "operator app restored", restored.pid === originalFrontmost.pid ? "pass" : "fail", `${originalFrontmost.appName} → ${restored.appName}`);
+	const moved = Math.hypot(after.x - before.x, after.y - before.y) >= 1;
+	// Two questions, two rows (review 6, P4). "Did the input go through HID" is proven by
+	// the delivery field; "did the click take effect" is what the outcome says, and an
+	// `unknown` outcome must not borrow the delivery's pass.
+	record("with-hid", "click went through HID", delivery === "hid" ? "pass" : "fail", `delivery=${delivery} outcome=${outcome} cursorMoved=${moved}`);
+	record("with-hid", "click took effect", outcome === "worked" ? "pass" : outcome === "didnt" ? "fail" : "unknown", `outcome=${outcome}`);
+	const restore = await restoreOperatorApp({ backend, original: originalFrontmost, record });
+	return { restore };
+}
+
+async function ensureRoot(backend, fixture) {
+	const roots = await backend.listRoots({ pid: fixture.pid });
+	return roots.find((candidate) => candidate.kind === "window");
 }

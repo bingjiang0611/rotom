@@ -88,41 +88,36 @@ export async function disposeFixtureRun(handle, backend) {
 }
 
 /**
- * Wait until the fixture's window exists, raising it once if it does not.
+ * Wait for the fixture's window, without inventing an activation path.
  *
- * `manageApps launch` runs with `activates: false`, and a SwiftUI app started that way
- * does not build its window until something raises it. Three live runs in the first
- * authorized B window failed on exactly this: the matrix launched, slept 2 s, listed
- * roots once and reported "no window" for every cell, and the L2 check activated and
- * then waited a fixed 1.2 s, which is the sample where a separate probe did see the
- * window - the wait sat on the edge.
+ * A SwiftUI app launched with `activates: false` never builds its window, so the run
+ * has to launch its own copy with `activates: true` (see `launchFixture`). This used to
+ * try `manageApps ... activates: true` here first - a no-op for an app that is already
+ * running, because `launchApp` refuses to steal focus - and then fall back to
+ * `osascript`, which needs Automation permission and failed silently inside a `try`
+ * (review 6, P3).
  *
- * Raising goes through the product's own `manageApps` first. `osascript`/System Events
- * needs Automation permission and failed silently inside a `try`, which is why a fix
- * that only wrapped the old call still returned "no window".
- *
- * Returns the window root, or undefined if the app still has none after `timeoutMs`.
+ * Polling is all that is left: either the window appears or the step fails.
  */
-export async function ensureFixtureWindow(backend, target, { activate = true, timeoutMs = 6000, intervalMs = 250 } = {}) {
-	const windowOf = async () => (await backend.listRoots({ pid: target.pid })).find((candidate) => candidate.kind === "window");
-	const pollUntil = async (deadline) => {
-		while (Date.now() < deadline) {
-			await new Promise((resolve) => setTimeout(resolve, intervalMs));
-			const root = await windowOf();
-			if (root) return root;
-		}
-		return undefined;
-	};
-	const found = await windowOf();
-	if (found || !activate) return found;
-	// Only the run's own copy is raised; every caller restores the operator's app.
-	await backend.manageApps({ mode: "launch", bundleId: target.bundleId, path: target.path, activates: true }).catch(() => undefined);
-	const raised = await pollUntil(Date.now() + timeoutMs);
-	if (raised) return raised;
-	try {
-		execFileSync("osascript", ["-e", `tell application "System Events" to set frontmost of first process whose unix id is ${target.pid} to true`], { stdio: "pipe" });
-	} catch {
-		return undefined;
+export async function ensureFixtureWindow(backend, target, { timeoutMs = 6000, intervalMs = 250 } = {}) {
+	const deadline = Date.now() + timeoutMs;
+	for (;;) {
+		const root = (await backend.listRoots({ pid: target.pid })).find((candidate) => candidate.kind === "window");
+		if (root) return root;
+		if (Date.now() >= deadline) return undefined;
+		await new Promise((resolve) => setTimeout(resolve, intervalMs));
 	}
-	return await pollUntil(Date.now() + timeoutMs);
+}
+
+/**
+ * Start the run's own fixture copy.
+ *
+ * `activates: true` is deliberate and the only activation in the phase: it is the one
+ * moment where raising the app is meaningful, because the window does not exist before
+ * it. Callers restore the operator's app afterwards through `focusWindow`
+ * (`restoreOperatorApp`), never by re-launching it.
+ */
+export async function launchFixture(backend, handle) {
+	const result = await backend.manageApps({ mode: "launch", path: handle.bundlePath, activates: true });
+	return result;
 }
