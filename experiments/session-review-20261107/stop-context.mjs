@@ -72,7 +72,7 @@ for (const file of walk(root)) {
 		const m = e.message;
 		if (m.role === "assistant") {
 			lastAssistant = { entry: e, m };
-			if (m.stopReason === "error") run.assistantErrors++;
+			if (m.stopReason === "error") { run.assistantErrors++; run.errorAttempts = (run.errorAttempts ?? 0) + 1; } else run.errorAttempts = 0;
 			for (const p of Array.isArray(m.content) ? m.content : []) if (p?.type === "toolCall") run.toolCalls++;
 			continue;
 		}
@@ -99,6 +99,8 @@ for (const file of walk(root)) {
 				lastToolError: run.lastToolError,
 				runAssistantErrors: run.assistantErrors > 0,
 				userGap: bucket((userTs - ts(lastAssistant.entry)) / 1000, [10, 60, 300, 1800]),
+				prevErrorCategory: prev.stopReason === "error" || prev.stopReason === "aborted" ? classifyError(prev.errorMessage) : "n/a",
+				consecutiveErrorAttempts: prev.stopReason === "error" ? bucket(run.errorAttempts ?? 0, [1, 2, 3, 4, 8]) : "n/a",
 			};
 			for (const [k, r] of Object.entries(FEATURES)) h[k] = r.test(prevText);
 			handoffs.push(h);
@@ -109,12 +111,32 @@ for (const file of walk(root)) {
 	}
 }
 
+function classifyError(text) {
+	if (typeof text !== "string" || !text) return "empty";
+	const table = [
+		["rate_limit", /\b429\b|rate.?limit|too many requests|quota|限流|额度/iu],
+		["overloaded", /\b(503|529)\b|overload|unavailable|capacity/iu],
+		["context_overflow", /context.{0,20}(length|window|limit)|maximum context|prompt is too long/iu],
+		["auth", /\b(401|403)\b|unauthori[sz]ed|forbidden|credential|token expired/iu],
+		["connection", /connection_failed|caused by:|ECONN|ENOTFOUND|EAI_AGAIN|socket|TLS|tunnel/iu],
+		["fetch_failed", /fetch failed/iu],
+		["stream_terminated", /terminated|websocket|premature/iu],
+		["timeout", /timed? ?out|timeout|ETIMEDOUT/iu],
+		["server_5xx", /\b5\d\d\b|internal server error|bad gateway/iu],
+		["bad_request", /\b400\b|invalid|bad request/iu],
+		["abort_user", /abort(ed)? by user|user (abort|cancel|interrupt)|interrupted by user/iu],
+		["abort_other", /abort|cancel/iu],
+	];
+	for (const [name, pattern] of table) if (pattern.test(text)) return name;
+	return "other";
+}
+
 function crosstab(rows, keys) {
 	const out = {};
 	for (const k of keys) { out[k] = {}; for (const r of rows) inc(out[k], String(r[k])); }
 	return out;
 }
-const featureKeys = ["prevStop", "model", "endsWithQuestion", "prevTextBytes", "runToolCalls", "runMinutes", "runToolErrors", "lastToolError", "runAssistantErrors", "userGap", ...Object.keys(FEATURES)];
+const featureKeys = ["prevErrorCategory", "consecutiveErrorAttempts", "prevStop", "model", "endsWithQuestion", "prevTextBytes", "runToolCalls", "runMinutes", "runToolErrors", "lastToolError", "runAssistantErrors", "userGap", ...Object.keys(FEATURES)];
 const byKind = {};
 for (const kind of ["bare_continue", "bare_approve", "correction_keyword", "other"]) {
 	const rows = handoffs.filter((h) => h.kind === kind);
