@@ -13,6 +13,7 @@ const macosSourcePaths = [
 	"background_text.swift",
 	"bridge.swift",
 	"takeover_border.swift",
+	"text_outcome.swift",
 ].map((file) => path.join(rootDir, "native", "macos", file));
 const windowsCrateDir = path.join(rootDir, "native", "windows", "bridge-rs");
 const linuxCrateDir = path.join(rootDir, "native", "linux", "bridge-rs");

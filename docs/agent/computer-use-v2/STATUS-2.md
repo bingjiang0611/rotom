@@ -170,6 +170,7 @@ UI 单测，确定性只覆盖 TS 的颜色分配。
 | --- | --- | --- |
 | G1（高） | 传输方式改用独立字段 `params.requireTransport`；`delivery` 出现不再算钉死。请求构造移进 `src/tools/act-request.ts` 以便断言 | `test/act-request.test.ts` 5 例：产品请求不带该字段、策略算出 `l2` 也不算钉死、直连 L2 请求带 `requireTransport: true` |
 | G2（高） | AX 插入被接受后不再回退按键；读回不符报 `unknown`（`background_input_unknown`），不重复写 | 同上提交；Swift 编译通过、`--lease-self-test` `failures=0` |
+| G3（中） | 按键路径三分：以请求文本结尾 → `worked`；值没变 → `didnt`；值变了但不匹配 → `unknown` + 实际值 | 新 `native/macos/text_outcome.swift` + `test/text-outcome.swift`（7 个断言，含实测 `"里probe"` 一例） |
 
 ## 测试稳定性观察（既有问题，不是本项引入）
 

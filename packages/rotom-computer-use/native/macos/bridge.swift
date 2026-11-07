@@ -2422,10 +2422,16 @@ final class Bridge {
 				let afterValue = stringAttribute(element, attribute: kAXValueAttribute as CFString) ?? ""
 				let changed = afterValue != (beforeValue ?? "")
 				// Key events can be rewritten by the input method, so "the value moved" is
-				// not the same as "the caller's text arrived". Only an exact suffix counts
-				// as worked; anything else is `didnt` with the text that actually landed.
-				let landed = afterValue.hasSuffix(text)
-				return finish(["outcome": landed ? "worked" : "didnt", "performed": performed, "evidence": ["value": afterValue, "valueChanged": changed, "expected": text]])
+				// not the same as "the caller's text arrived". `didnt` means nothing
+				// happened and invites a retry (including the opt-in foreground retry), so a
+				// changed value that does not end with the requested text is `unknown`
+				// instead: something was written, we just cannot vouch for what (review G3).
+				let outcome = TextWriteOutcome.classify(before: beforeValue ?? "", after: afterValue, expected: text)
+				var response: [String: Any] = ["outcome": outcome, "performed": performed, "evidence": ["value": afterValue, "valueChanged": changed, "expected": text]]
+				if outcome == "unknown" {
+					response["error"] = ["code": "background_input_unknown", "message": BackgroundTextCopy.unknown]
+				}
+				return finish(response)
 			}
 		} else if action == "keypress" {
 			let preserveFocus = params["preserveFocus"] as? Bool ?? false
