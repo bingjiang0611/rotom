@@ -3,7 +3,8 @@
 This is a rotom-maintained fork, not an upstream release.
 
 - Upstream baseline: `@injaneity/pi-computer-use` **0.5.1** (MIT; original `LICENSE` retained).
-- Fork version: **0.5.1-rotom.2**.
+- Fork version: **0.5.1-rotom.3**.
+- `.rotom.3`: refresh the vendored source and ad-hoc macOS artifacts for protocol 8 and the v2 tool registrations, broker, policy and trace implementation. Windows/Linux artifacts remain unchanged. This rebuild does not replace or restart an installed helper.
 - `.rotom.2`: tool schemas, focus/condition guidance, recovery state and result evidence now live in the native component. Product composition retains only Relay-first browser fallback. Native helper bytes/signatures are unchanged from `.rotom.1`.
 - Windows and Linux native artifacts remain byte-for-byte from upstream 0.5.1.
 - macOS arm64, x64 and universal helper artifacts are now rebuilt from this source tree and **ad-hoc signed**, not Developer ID signed or notarized.
@@ -32,7 +33,7 @@ This is not a guarantee that an application can never activate itself. Foregroun
 
 ### Helper lifecycle and signing
 
-The macOS native protocol is now 7. A protocol/executable mismatch no longer automatically stops and relaunches a daemon potentially owned by another session. Close the owning sessions and explicitly update/restart the helper, or use a separate helper app and socket.
+The macOS native protocol is now 8. A protocol/executable mismatch no longer automatically stops and relaunches a daemon potentially owned by another session. Close the owning sessions and explicitly update/restart the helper, or use a separate helper app and socket.
 
 The installer refuses to replace an existing helper with the bundled ad-hoc app unless `PI_COMPUTER_USE_ALLOW_ADHOC_UPDATE=1` is explicitly supplied. This can require macOS permission review and does not override system execution policy. No personal development-certificate signatures are included in the public archive. Local live tests used a separately signed copy, without changing the installed helper.
 
@@ -50,6 +51,8 @@ npm pack --ignore-scripts
 `--arch all` also rebuilds the universal app preferred by the installer. Do not retain an older signed universal app beside new per-arch executables. Update the vendored tgz, third-party lock and product integrity pin together. `pack:release` never repacks this source automatically.
 
 ## Verification and remaining limits
+
+The live checks below describe the earlier background-text artifacts, not the rebuilt `.rotom.3` helpers. The `.rotom.3` packaging and tool-registration checks do not establish live app/window management, clipboard, system-surface or L2 event delivery. Active helpers are not replaced or restarted by this rebuild.
 
 - Node focused regressions cover no implicit foreground retry and accepting the matching helper/rejecting mismatches without restarting another session's daemon.
 - Current native source compiled for arm64 and x64; universal app signature and architecture checks passed. x64 was not run on hardware.

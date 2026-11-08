@@ -152,7 +152,8 @@ test("two clients spawning at once converge on one broker and share arbitration"
 		first?.close();
 		second?.close();
 		if (brokerPid) await terminateProcess(brokerPid);
-		rmSync(root, { recursive: true, force: true });
+		// Concurrent bootstrap teardown can transiently return ENOTEMPTY on macOS.
+		rmSync(root, { recursive: true, force: true, maxRetries: 3 });
 	}
 });
 

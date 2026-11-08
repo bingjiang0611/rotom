@@ -24,16 +24,17 @@ The `.rotom.5` baseline also included the terminal-projection fix: projection fa
 
 ## Locked Computer Use distribution
 
-The default product selects **`@injaneity/pi-computer-use@0.5.1-rotom.2`**, independently maintained in `packages/rotom-computer-use/`. This is a Computer Use fork, not a Pi fork.
+The default product selects **`@injaneity/pi-computer-use@0.5.1-rotom.3`**, independently maintained in `packages/rotom-computer-use/`. This is a Computer Use fork, not a Pi fork.
 
-- Archive: `injaneity-pi-computer-use-0.5.1-rotom.2.tgz`
-- SHA256: `6c401991d1854180954663621ba85cde978608b14abe7297c993f1de1fded9b8`
-- SHA512 SRI: `sha512-dcJn+H5u9jwvrrDPeAC38NsyaZzJ17cNxqxFtaaW41DzHh+pxmh0p6r497L5DFNp+0+iKkmPD9Kpcc7wFo9QfQ==`
+- Archive: `injaneity-pi-computer-use-0.5.1-rotom.3.tgz`
+- SHA256: `9e8d92720ad329ec8a804bf4e084dbbd0669bdbf5b85c31715dd93275841d114`
+- SHA512 SRI: `sha512-ajoDLEVK85uW+gkpSd6feVrv+uw4foxn4web8WUn5fVkOcYe62T6IJwjroyMj4lYEPJGmI1u2dk3wcQoBREvLw==`
+- `.rotom.3` restores source/archive agreement for the v2 tool registrations, broker, policy and trace implementation. All macOS helpers are rebuilt and ad-hoc signed for protocol 8; Windows/Linux artifacts are unchanged. This packaging update does not replace or restart an active helper.
 - `.rotom.2` moves schema descriptions, recovery and result evidence into the component. Relay-first browser fallback stays product-specific. This TS-only rebuild retains all prior native helper bytes and signatures; no helper is installed or launched.
 - Upstream: `@injaneity/pi-computer-use`, License MIT (original notice retained in `package/LICENSE`; provenance in `package/UPSTREAM.md`).
 - Adds bounded IDEA background text via exact window/ref binding, synthetic internal focus and per-character full readback. Accepted AX writes without matching readback are unknown, never a reason to replay. Batches stop on unknown as well as refusal. Legacy speculative foreground retry remains off by default and unavailable in headless mode.
-- macOS arm64/x64/universal artifacts are rebuilt and **ad-hoc signed**; Windows/Linux artifacts are unchanged. Replacing an existing helper with the ad-hoc bundle needs explicit authorization. Protocol 7 mismatch no longer restarts another session's daemon. No personal certificate signatures are shipped.
-- Rebuilt arm64 code passed bounded real-plugin input checks using an isolated, separately signed helper. Installed upgrade, final-version concurrent input, x64 execution and Swift deterministic assertions remain unverified. See [verification and limits](../../../../docs/agent/computer-use-background-text.md).
+- macOS arm64/x64/universal artifacts are rebuilt and **ad-hoc signed**; Windows/Linux artifacts are unchanged. Replacing an existing helper with the ad-hoc bundle needs explicit authorization. Protocol 8 mismatch no longer restarts another session's daemon. No personal certificate signatures are shipped.
+- Earlier background-text arm64 artifacts passed bounded real-plugin checks using an isolated, separately signed helper. Those checks do not validate the rebuilt `.rotom.3` helpers or live v2 app/window management, clipboard, system-surface and L2 actions. Active-helper upgrade, final-version concurrent input, x64 execution and Swift deterministic assertions remain unverified. See [verification and limits](../../../../docs/agent/computer-use-background-text.md).
 
 ## Locked Goal distribution
 

@@ -1,6 +1,6 @@
 # Computer Use 结果证据与 stale 恢复
 
-实现位置：`packages/rotom-computer-use/src/recovery.ts`，由原生组件注册时接入；当前组件为 `@injaneity/pi-computer-use@0.5.1-rotom.2`。产品 `computer-use/recovery.ts` 只保留 Relay-first fallback 的跨组件策略。测试已移入 `packages/rotom-computer-use/test/recovery.test.ts`。本次不修改或启动 native helper。
+实现位置：`packages/rotom-computer-use/src/recovery.ts`，由原生组件注册时接入；当前组件为 `@injaneity/pi-computer-use@0.5.1-rotom.3`。产品 `computer-use/recovery.ts` 只保留 Relay-first fallback 的跨组件策略。测试已移入 `packages/rotom-computer-use/test/recovery.test.ts`。本节的恢复回归不修改或启动 native helper。
 
 ## 已修复的组合层缺口
 
