@@ -32,7 +32,7 @@ function original(entry: SessionEntry): Part[] {
   }
   return parts;
 }
-export function recall(view: View, ref: string, mode: "one" | "full", offset: number, images: boolean, query?: string) {
+export function recall(view: View, ref: string, mode: "one" | "full", offset: number, images: boolean) {
   const entries = new Map(view.branch.map(e => [e.id, e]));
   let parts: Part[] = [];
   if (ref.startsWith("@")) {
@@ -60,7 +60,6 @@ export function recall(view: View, ref: string, mode: "one" | "full", offset: nu
       }
     }
   }
-  if (query) parts = parts.filter(p => p.type === "text" && p.text.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
   if (offset > parts.length) throw new Error(COPY.offset);
   const content: Part[] = [];
   let chars = 0, cursor = offset;
@@ -75,6 +74,6 @@ export function recall(view: View, ref: string, mode: "one" | "full", offset: nu
     content.push(part); chars += part.text.length; cursor++;
   }
   const details = { ref, mode, offset, nextOffset: cursor < parts.length ? cursor : null, complete: cursor === parts.length,
-    coverage: query ? "matching-parts" : "requested-view", totalParts: parts.length, ...(query ? { query } : {}) };
+    coverage: "requested-view", totalParts: parts.length };
   return { content: [{ type: "text" as const, text: JSON.stringify(details) }, ...content], details };
 }

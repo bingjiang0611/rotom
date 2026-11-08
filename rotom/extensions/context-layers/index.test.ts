@@ -3,161 +3,132 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
-import { candidates, commitDrafts, planCompression, status, search } from "./blocks.ts";
+import { search, BLOCK_ENTRY, RECALL_TOOL } from "./blocks.ts";
 import { recall } from "./recall.ts";
-import { fixture, view, apply, fold, SessionManager, estimateTokens, DefaultResourceLoader, SettingsManager, ModelRuntime, createAgentSession, fauxAssistantMessage, fauxToolCall, fauxProvider } from "./test-helpers.ts";
+import { COPY } from "./copy.ts";
+import { fixture, view, SessionManager, DefaultResourceLoader, SettingsManager, ModelRuntime, createAgentSession, fauxAssistantMessage, fauxToolCall, fauxProvider } from "./test-helpers.ts";
 
-test("incremental projection shrinks, preserves raw originals, and rejects protected/empty/nonshrinking ranges", () => {
-  const { manager: m, ids } = fixture();
-  const raw = m.getBranch().filter(e => e.type === "message");
-  const before = m.buildSessionProjection().messages.reduce((n, x) => n + estimateTokens(x), 0);
-  const ranges = candidates(view(m), estimateTokens);
-  assert.equal(ranges[0].start, `@${ids[0]}`);
-  fold(m, `@${ids[0]}`, `@${ids[2]}`, "b1");
-  assert.equal(view(m).states.get("b1"), "active");
-  assert.deepEqual(m.getBranch().filter(e => e.type === "message"), raw);
-  assert.ok(m.buildSessionProjection().messages.reduce((n, x) => n + estimateTokens(x), 0) < before);
-  assert.throws(() => planCompression(view(m), { start: `@${ids[12]}`, end: `@${ids[13]}`, summary: "x" }, estimateTokens, "bad"), /protected/);
-  assert.throws(() => planCompression(view(m), { start: `@${ids[3]}`, end: `@${ids[4]}`, summary: " " }, estimateTokens, "bad"));
-  assert.throws(() => planCompression(view(m), { start: `@${ids[3]}`, end: `@${ids[4]}`, summary: "long ".repeat(10000) }, estimateTokens, "bad"), /smaller/);
-  assert.throws(() => fold(m, `@${ids[0]}`, `@${ids[1]}`, "bad"));
-});
-
-test("three-tier graph, rewrite, one-level/full recall and search use real original entries", () => {
-  const { manager: m, ids } = fixture();
-  for (let n = 0; n < 4; n++) fold(m, `@${ids[n * 2]}`, `@${ids[n * 2 + 1]}`, `b${n}`, "retained details ".repeat(20));
-  const merge = (blocks: string[], id: string, summary: string) => {
-    const p = planCompression(view(m), { blocks, summary }, estimateTokens, id);
-    apply(m, commitDrafts(view(m), p));
-  };
-  merge(["b0", "b1"], "b4", "first pair ".repeat(10));
-  merge(["b2", "b3"], "b5", "second pair ".repeat(10));
-  merge(["b4", "b5"], "b6", "all pairs");
-  assert.equal(view(m).blocks.get("b6")!.tier, 3);
-  assert.equal(view(m).states.get("b4"), "superseded");
-  const one = recall(view(m), "b6", "one", 0, false);
-  assert.match(JSON.stringify(one), /first pair/);
-  assert.doesNotMatch(JSON.stringify(one), /secret-0/);
-  let offset = 0, all = "", pages = 0;
-  do {
-    const result = recall(view(m), "b6", "full", offset, false);
-    all += JSON.stringify(result.content); pages++;
-    if (result.details.nextOffset === null) break;
-    offset = result.details.nextOffset;
-  } while (pages < 100);
-  assert.ok(pages > 1); assert.match(all, /secret-0/); assert.match(all, /secret-7/);
-  assert.ok(search(view(m), "secret-7", 0).matches.length);
-  merge(["b6"], "b7", "all");
-  assert.equal(view(m).blocks.get("b7")!.tier, 3);
-  assert.equal(view(m).states.get("b6"), "superseded");
-});
-
-test("disk resume, fork, native compaction and interrupted writes preserve evidence", () => {
-  const dir = mkdtempSync(join(tmpdir(), "context-layers-test-"));
-  try {
-    const { manager: m, ids } = fixture(SessionManager.create(dir, dir));
-    const oldLeaf = m.getLeafId()!;
-    const p = fold(m, `@${ids[0]}`, `@${ids[2]}`, "b1");
-    const path = m.getSessionFile()!;
-    const reopened = SessionManager.open(path);
-    assert.equal(view(reopened).states.get("b1"), "active");
-    assert.match(JSON.stringify(recall(view(reopened), "b1", "full", 0, false)), /secret-0/);
-    m.branch(oldLeaf);
-    assert.equal(view(m).blocks.size, 0);
-    assert.throws(() => recall(view(m), "b1", "full", 0, false));
-    apply(m, commitDrafts(view(m), p).slice(0, 2));
-    assert.equal(view(m).states.get("b1"), "partial");
-    assert.match(JSON.stringify(recall(view(m), "b1", "full", 0, false)), /secret-0/);
-    reopened.appendCompaction("Native checkpoint", ids[10], 5000);
-    assert.equal(view(reopened).states.get("b1"), "archived");
-    assert.match(JSON.stringify(recall(view(reopened), "b1", "full", 0, false)), /secret-0/);
-  } finally { rmSync(dir, { recursive: true, force: true }); }
-});
-
-test("stale snapshots and incomplete tool pairs are rejected; images are paged without flattening", () => {
-  const { manager: m, ids } = fixture();
-  const p = planCompression(view(m), { start: `@${ids[0]}`, end: `@${ids[1]}`, summary: "short" }, estimateTokens, "b1");
-  m.appendContextEdit(ids[0], { content: [{ type: "text", text: "changed" }] });
-  assert.throws(() => commitDrafts(view(m), p), /changed/);
-  const imageId = m.appendMessage({ role: "user", content: [{ type: "image", mimeType: "image/png", data: "cGl4ZWxz" }], timestamp: 10 });
-  const header = recall(view(m), `@${imageId}`, "full", 0, true);
-  assert.equal(header.details.nextOffset, 1);
-  assert.throws(() => recall(view(m), `@${imageId}`, "full", 1, false), /does not support images/);
-  assert.equal(recall(view(m), `@${imageId}`, "full", 1, true).content[1].type, "image");
-  const broken = SessionManager.inMemory(process.cwd());
-  broken.appendMessage({ role: "user", content: "task", timestamp: 1 });
-  const brokenId = broken.appendMessage(fauxAssistantMessage([fauxToolCall("read", {}, { id: "no-result" })], { stopReason: "toolUse" }));
-  for (let n = 0; n < 6; n++) broken.appendMessage(fauxAssistantMessage("after"));
-  assert.equal(view(broken).units.find(u => u.ref === `@${brokenId}`)!.eligible, false);
-});
-
-test("real SDK loader: queued tool -> turn boundary -> next request projection, cancellation and opt-out", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "context-layers-sdk-"));
+test("tool surface is one sequential model-only recall tool; opt-out and explicit selection both apply", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "context-layers-surface-"));
   const settings = SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } });
   const loader = new DefaultResourceLoader({ cwd: dir, agentDir: dir, settingsManager: settings,
     noExtensions: true, additionalExtensionPaths: [resolve(import.meta.dirname, "index.ts")], noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true });
   let session: any;
+  let restricted: any;
   try {
-    await loader.reload(); assert.deepEqual(loader.getExtensions().errors, []);
+    await loader.reload();
+    assert.deepEqual(loader.getExtensions().errors, []);
     const ext = loader.getExtensions().extensions[0];
-    assert.equal(ext.tools.size, 3);
-    for (const { definition } of ext.tools.values()) assert.equal(definition.exposure, "model-only");
-    const { manager: m, ids } = fixture();
+    assert.deepEqual([...ext.tools.keys()], [RECALL_TOOL]);
+    const definition = ext.tools.get(RECALL_TOOL)!.definition;
+    assert.equal(definition.exposure, "model-only");
+    assert.equal(definition.executionMode, "sequential");
+    assert.deepEqual(ext.handlers.get("turn_end"), undefined, "retrieval-only extension must not write at turn boundaries");
+
+    const { manager: m, ids } = fixture(undefined, 6);
     const faux = fauxProvider({ provider: "layers-test", models: [{ id: "test", contextWindow: 30000, maxTokens: 1024 }] });
     const runtime = await ModelRuntime.create({ authPath: join(dir, "auth.json"), modelsPath: null, refreshOnCreate: false });
     runtime.registerNativeProvider(faux.provider);
     const created = await createAgentSession({ cwd: dir, agentDir: dir, modelRuntime: runtime, model: faux.getModel(),
-      tools: ["context_status", "context_compress", "context_recall"], resourceLoader: loader, settingsManager: settings, sessionManager: m,
+      tools: [RECALL_TOOL], resourceLoader: loader, settingsManager: settings, sessionManager: m,
       sessionStartEvent: { type: "session_start", reason: "startup" } });
     session = created.session;
     const errors: unknown[] = [];
     await session.bindExtensions({ mode: "print", onError: (e: unknown) => errors.push(e) });
     faux.setResponses([
-      fauxAssistantMessage([fauxToolCall("context_compress", { start: `@${ids[0]}`, end: `@${ids[2]}`, summary: "files reviewed; preserve exact details via recall" })], { stopReason: "toolUse" }),
-      fauxAssistantMessage([fauxToolCall("context_status", {})], { stopReason: "toolUse" }),
-      fauxAssistantMessage("done"),
+      fauxAssistantMessage([fauxToolCall(RECALL_TOOL, { query: "secret-3" }, { id: "search-1" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage("found it"),
     ]);
-    await session.prompt("Compress finished work and inspect the receipt.");
+    await session.prompt("Find the recorded detail for row three.");
     assert.deepEqual(errors, []);
-    assert.equal([...view(m).states.values()].filter(s => s === "active").length, 1);
-    const result = session.messages.findLast((x: any) => x.role === "toolResult" && x.toolName === "context_status");
-    assert.match(JSON.stringify(result), /applied/);
-    assert.match(JSON.stringify(result), /rewriteAllowed/);
-    assert.match(JSON.stringify(result), /mergeWithNext/);
-    assert.match(ext.tools.get("context_status")!.definition.description, /never span rows/);
-    assert.match(ext.tools.get("context_compress")!.definition.description, /Refresh candidates after native compaction/);
-    const block = [...view(m).blocks.values()][0];
-    assert.match(JSON.stringify(recall(view(m), block.id, "full", 0, false)), /secret-0/);
+    const result = session.messages.findLast((x: any) => x.role === "toolResult" && x.toolName === RECALL_TOOL);
+    const details = JSON.parse(result.content[0].text);
+    assert.equal(details.coverage, "matching-parts");
+    assert.equal(details.matches[0].role, "toolResult:read");
+    assert.match(details.matches[0].excerpt, /secret-3/);
+    assert.ok(details.matches[0].excerpt.length <= 320, "excerpts are bounded");
 
-    // Exercise the actual loaded handlers, not a reimplementation of cancellation.
-    const ctx = { sessionManager: m, model: faux.getModel(), getContextUsage: () => ({ tokens: 100000, contextWindow: 200000, percent: 50 }), signal: undefined } as any;
-    await ext.tools.get("context_compress")!.definition.execute("cancel", { start: `@${ids[4]}`, end: `@${ids[5]}`, summary: "cancelled" }, undefined, undefined, ctx);
-    await assert.rejects(() => ext.tools.get("context_compress")!.definition.execute("overlap", { start: `@${ids[4]}`, end: `@${ids[5]}`, summary: "duplicate" }, undefined, undefined, ctx), /already queued/);
-    const boundary = await ext.handlers.get("turn_end")![0]({ entries: [], outcome: "aborted" } as any, ctx) as any;
-    assert.ok(boundary.entries.every((e: any) => e.type !== "context_edit"));
-    assert.match(JSON.stringify(boundary), /not-applied/);
-    const initial = status(view(m), estimateTokens);
-    assert.ok(initial.items.length > 0);
-    assert.equal(ext.handlers.get("context"), undefined, "no automatic context-usage reminder is injected into requests");
+    // Explicit tool selection still wins over the extension default surface.
+    restricted = (await createAgentSession({ cwd: dir, agentDir: dir, modelRuntime: runtime, model: faux.getModel(),
+      tools: ["read"], resourceLoader: loader, settingsManager: settings, sessionManager: SessionManager.inMemory(dir),
+      sessionStartEvent: { type: "session_start", reason: "startup" } })).session;
+    assert.equal(restricted.getActiveToolNames().includes(RECALL_TOOL), false);
+    restricted.dispose(); restricted = undefined;
+
     process.env.ROTOM_CONTEXT_LAYERS = "0";
     await loader.reload();
     assert.equal(loader.getExtensions().extensions[0].tools.size, 0);
-  } finally { delete process.env.ROTOM_CONTEXT_LAYERS; session?.dispose(); rmSync(dir, { recursive: true, force: true }); }
+  } finally { delete process.env.ROTOM_CONTEXT_LAYERS; session?.dispose(); restricted?.dispose(); rmSync(dir, { recursive: true, force: true }); }
 });
 
-test("every interrupted commit prefix retains originals and never claims a completed fold", () => {
-  for (let cut = 1; cut <= 6; cut++) {
-    const { manager: m, ids } = fixture();
-    const plan = planCompression(view(m), { start: `@${ids[0]}`, end: `@${ids[2]}`, summary: "retained provenance" }, estimateTokens, "partial");
-    const drafts = commitDrafts(view(m), plan);
-    apply(m, drafts.slice(0, cut));
-    assert.equal(view(m).states.get("partial"), "partial");
-    assert.match(JSON.stringify(recall(view(m), "partial", "full", 0, false)), /secret-0/);
-    assert.ok(m.getBranch().some(e => e.type === "message" && e.id === ids[0]));
-  }
+test("query and ref are mutually exclusive in runtime, and mode only applies to ref", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "context-layers-args-"));
+  const settings = SettingsManager.inMemory({ compaction: { enabled: false } });
+  const loader = new DefaultResourceLoader({ cwd: dir, agentDir: dir, settingsManager: settings,
+    noExtensions: true, additionalExtensionPaths: [resolve(import.meta.dirname, "index.ts")], noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true });
+  try {
+    await loader.reload();
+    const { manager: m, ids } = fixture(undefined, 6);
+    const execute = (args: unknown) => loader.getExtensions().extensions[0].tools.get(RECALL_TOOL)!.definition
+      .execute("call", args, undefined, undefined, { sessionManager: m, model: undefined } as any);
+    const schema = loader.getExtensions().extensions[0].tools.get(RECALL_TOOL)!.definition.parameters as any;
+    assert.deepEqual(schema.required ?? [], [], "neither selector may be schema-required; both are checked at runtime");
+    await assert.rejects(() => execute({}), new RegExp(COPY.selector));
+    await assert.rejects(() => execute({ query: "secret-1", ref: `@${ids[1]}` }), new RegExp(COPY.selector));
+    await assert.rejects(() => execute({ query: "secret-1", mode: "full" }), new RegExp(COPY.modeWithQuery));
+    const found = await execute({ query: "secret-1" });
+    assert.equal(JSON.parse((found as any).content[0].text).matches.length, 1);
+    const page = await execute({ ref: `@${ids[1]}`, mode: "full" });
+    assert.equal((page as any).details.coverage, "requested-view");
+    await assert.rejects(() => execute({ ref: "missing-block" }), new RegExp(COPY.unknownBlock));
+    await assert.rejects(() => execute({ ref: `@${ids[1]}`, offset: 99 }), new RegExp(COPY.offset));
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test("recall pages preserve Unicode, tool error evidence and images without exposing reasoning signatures", () => {
+test("search covers original text, tool names, tool arguments and legacy summaries, and never reasoning or siblings", () => {
+  const { manager: m, ids } = fixture(undefined, 8);
+  const blockId = m.appendCustomEntry(BLOCK_ENTRY, { version: 1, id: "legacy-1", tier: 1, carrier: ids[0], direct: [ids[0]],
+    covered: [ids[0]], children: [], summary: "Legacy gamma summary about the deployment checklist", before: 100, after: 10 });
+  m.appendMessage(fauxAssistantMessage([{ type: "thinking", thinking: "private-thought-token", thinkingSignature: "sig" }, { type: "text", text: "public line" }]));
+  const mainLeaf = m.getLeafId();
+  m.branch(ids[1]);
+  m.appendMessage({ role: "user", content: "sibling-only-token", timestamp: 99 });
+  m.branch(mainLeaf);
+  const current = view(m);
+  assert.equal(m.getBranch().some(e => e.type === "custom" && e.customType === BLOCK_ENTRY), true, blockId);
+
+  const textHit = search(current, "public line", 0);
+  assert.equal(textHit.matches.length, 1);
+  assert.equal(textHit.matches[0].role, "assistant");
+  assert.equal(search(current, "PUBLIC LINE", 0).matches.length, 1, "search is case-insensitive");
+  assert.deepEqual(search(current, "file-5", 0).matches.map(h => h.ref), [`@${ids[5]}`], "tool arguments are searchable");
+  assert.equal(search(current, "read", 0).matches.length, 8, "tool names are searchable once per call");
+  assert.deepEqual(search(current, "deployment checklist", 0).matches.map(h => h.ref), ["legacy-1"]);
+  assert.equal(search(current, "GAMMA SUMMARY", 0).matches[0].role, "summary");
+  assert.equal(search(current, "private-thought-token", 0).matches.length, 0, "provider reasoning is never searchable");
+  assert.equal(search(current, "sibling-only-token", 0).matches.length, 0, "search stays on the current branch");
+  assert.equal(search(current, "secret-7", 0).matches[0].role, "toolResult:read");
+});
+
+test("search paginates with complete/nextOffset and rejects an offset past the result", () => {
+  const { manager: m } = fixture(undefined, 40);
+  const current = view(m);
+  const first = search(current, "secret-", 0);
+  assert.equal(first.matches.length, 24);
+  assert.equal(first.complete, false);
+  assert.equal(first.coverage, "matching-parts");
+  const second = search(current, "secret-", first.nextOffset!);
+  assert.equal(second.matches.length, 16);
+  assert.equal(second.complete, true);
+  assert.equal(second.nextOffset, null);
+  assert.deepEqual([...first.matches, ...second.matches].map(h => h.ref).length, 40);
+  const empty = search(current, "secret-", 40);
+  assert.deepEqual(empty.matches, [], "offset at the match count returns an empty final page");
+  assert.equal(empty.complete, true);
+  assert.throws(() => search(current, "secret-", 41), new RegExp(COPY.offset));
+});
+
+test("recall pages Unicode, keeps tool error evidence, images and arguments, and hides reasoning signatures", () => {
   const m = SessionManager.inMemory(process.cwd());
   const body = "a".repeat(11999) + "😀" + "b".repeat(12001);
   const id = m.appendMessage({ role: "user", content: body, timestamp: 1 });
@@ -165,9 +136,11 @@ test("recall pages preserve Unicode, tool error evidence and images without expo
   let offset = 0;
   for (;;) {
     const page = recall(view(m), `@${id}`, "full", offset, false);
-    for (const part of page.content.slice(1)) if (part.type === "text" && !part.text.startsWith("[Historical entry")) {
-      assert.equal(part.text.isWellFormed(), true);
-      textParts.push(part.text);
+    for (const part of page.content.slice(1)) {
+      if (part.type === "text" && !part.text.startsWith("[Historical entry")) {
+        assert.equal(part.text.isWellFormed(), true);
+        textParts.push(part.text);
+      }
     }
     if (page.details.nextOffset === null) break;
     offset = page.details.nextOffset;
@@ -175,17 +148,32 @@ test("recall pages preserve Unicode, tool error evidence and images without expo
   assert.equal(textParts.join(""), body);
   const privateId = m.appendMessage(fauxAssistantMessage([{ type: "thinking", thinking: "private-thought", thinkingSignature: "private-signature" }, { type: "text", text: "public-evidence" }]));
   const result = JSON.stringify(recall(view(m), `@${privateId}`, "full", 0, false));
-  assert.match(result, /public-evidence/); assert.doesNotMatch(result, /private-thought|private-signature/);
+  assert.match(result, /public-evidence/);
+  assert.doesNotMatch(result, /private-thought|private-signature/);
+  const callsId = m.appendMessage(fauxAssistantMessage([fauxToolCall("read", { path: "kept/argument.txt" }, { id: "call-1" })], { stopReason: "toolUse" }));
+  assert.match(JSON.stringify(recall(view(m), `@${callsId}`, "full", 0, false)), /kept\/argument.txt/, "tool call arguments stay recoverable");
   const errorId = m.appendMessage({ role: "toolResult", toolCallId: "failure", toolName: "read", isError: true, content: [{ type: "text", text: "ENOENT" }], timestamp: 1 });
   assert.match(JSON.stringify(recall(view(m), `@${errorId}`, "full", 0, false)), /isError/);
+  const imageId = m.appendMessage({ role: "user", content: [{ type: "image", mimeType: "image/png", data: "cGl4ZWxz" }], timestamp: 10 });
+  const header = recall(view(m), `@${imageId}`, "full", 0, true);
+  assert.equal(header.details.nextOffset, 1);
+  assert.throws(() => recall(view(m), `@${imageId}`, "full", 1, false), /does not support images/);
+  assert.equal(recall(view(m), `@${imageId}`, "full", 1, true).content[1].type, "image");
+  assert.throws(() => recall(view(m), "@unknown", "full", 0, false), new RegExp(COPY.missing));
 });
 
-test("non-contiguous/mixed-tier blocks, duplicate selectors and history foreign edits fail closed", () => {
-  const { manager: m, ids } = fixture();
-  fold(m, `@${ids[0]}`, `@${ids[1]}`, "a", "details ".repeat(20));
-  fold(m, `@${ids[4]}`, `@${ids[5]}`, "b", "details ".repeat(20));
-  for (const blocks of [["a", "a"], ["a", "b"], ["missing"]]) assert.throws(() => planCompression(view(m), { blocks, summary: "short" }, estimateTokens, "bad"));
-  assert.throws(() => planCompression(view(m), { start: `@${ids[2]}`, end: `@${ids[3]}`, blocks: ["a"], summary: "short" }, estimateTokens, "bad"));
-  m.appendContextEdit(ids[2], { content: [{ type: "text", text: "foreign policy" }] });
-  assert.throws(() => fold(m, `@${ids[2]}`, `@${ids[3]}`, "bad"));
+test("corrupt and unknown block records are rejected instead of inferred", () => {
+  const bad = (data: unknown) => {
+    const m = SessionManager.inMemory(process.cwd());
+    m.appendMessage({ role: "user", content: "task", timestamp: 1 });
+    m.appendCustomEntry(BLOCK_ENTRY, data);
+    assert.throws(() => view(m), new RegExp(COPY.corrupt));
+  };
+  bad({ version: 2, id: "x", carrier: "a", covered: ["a"], children: [], direct: [], summary: "s", tier: 1 });
+  bad({ version: 1, id: "x", tier: 1, carrier: "a", direct: [], covered: [], children: [], summary: "s" });
+  bad({ version: 1, id: "x", tier: 1, carrier: "a", direct: [], covered: ["a"], children: ["missing"], summary: "s" });
+  const ok = SessionManager.inMemory(process.cwd());
+  const id = ok.appendMessage({ role: "user", content: "task", timestamp: 1 });
+  ok.appendCustomEntry(BLOCK_ENTRY, { version: 1, id: "x", tier: 1, carrier: id, direct: [id], covered: [id], children: [], summary: "s", before: 10, after: 2 });
+  assert.equal(view(ok).states.get("x"), "partial");
 });

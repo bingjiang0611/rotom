@@ -11,6 +11,7 @@ import { PRODUCT_SUBAGENT_ALLOWED_ACTIONS, PRODUCT_SUBAGENT_BLOCKED_FIELDS } fro
 import { PRODUCT_SUBAGENT_ALLOWED_COMMANDS } from "../extensions/third-party/subagent/policy.ts";
 import { RESOURCE_DESCRIPTORS_V1 } from "./product-config.mjs";
 import { verifyPiRuntime } from "./verify-pi-runtime.mjs";
+import { assertInactiveGoalSurface } from "./smoke-goal-surface.mjs";
 
 const [piExecutable, agentDirInput] = process.argv.slice(2);
 if (!piExecutable || !agentDirInput) {
@@ -20,7 +21,7 @@ if (!piExecutable || !agentDirInput) {
 const agentDir = resolve(agentDirInput);
 const goalToolNames = ["goal_complete", "goal_blocked", "goal_wait", "goal_continue"];
 const SOL_PI_SESSION_TOOL_NAMES = ["obs_recall"];
-const contextLayerTools = process.env.ROTOM_CONTEXT_LAYERS === "0" ? [] : ["context_status", "context_compress", "context_recall"];
+const contextLayerTools = process.env.ROTOM_CONTEXT_LAYERS === "0" ? [] : ["context_recall"];
 const deferredToolsActive = deferredToolsEnabled(process.env);
 process.env[DEFERRED_DEFAULT_SURFACE_ENV] = "1";
 const declarations = RESOURCE_DESCRIPTORS_V1.map((resource) => `${resource.kind}:${resolve(agentDir, resource.path)}`);
@@ -224,24 +225,15 @@ try {
 		isProjectTrusted: () => false,
 		ui: { notify() {}, setStatus() {}, theme: { fg: (_color, value) => value } },
 	};
-	const toolsBeforeInactiveChecks = created.session.getActiveToolNames();
-	for (const name of goalToolNames) {
-		assert.ok(activeTools.includes(name), `${name} schema must remain active without a Goal`);
-		const definition = thirdParty.tools.get(name).definition;
-		assert.match(definition.description, /Tool visibility alone does not activate Goal mode/u);
-		const branchBefore = JSON.stringify(session.getBranch());
-		const params = {
-			goal_complete: { goal_id: "inactive-smoke-goal", summary: "Fixture completion evidence" },
-			goal_blocked: { goal_id: "inactive-smoke-goal", reason: "Fixture blocker", evidence: "Fixture evidence", repeated_turns: 3 },
-			goal_wait: { goal_id: "inactive-smoke-goal", reason: "Fixture external wait" },
-			goal_continue: { goal_id: "inactive-smoke-goal", next_action: "Fixture next action" },
-		}[name];
-		const rejected = await definition.execute(`inactive-${name}`, params, undefined, undefined, shutdownContext);
-		assert.match(rejected.content.filter((block) => block.type === "text").map((block) => block.text).join("\n"), /rejected: no active goal/u);
-		assert.notEqual(rejected.terminate, true, "inactive Goal tools must not terminate ordinary work");
-		assert.equal(JSON.stringify(session.getBranch()), branchBefore, "inactive calls must not persist Goal transitions");
-		assert.deepEqual(created.session.getActiveToolNames(), toolsBeforeInactiveChecks, "inactive calls must not change the tool policy");
-	}
+	await assertInactiveGoalSurface({
+		assert,
+		goalNames: goalToolNames,
+		activeNames: activeTools,
+		thirdParty,
+		manager: session,
+		agentSession: created.session,
+		context: shutdownContext,
+	});
 	for (const handler of observability?.handlers.get("session_shutdown") ?? []) await handler({ type: "session_shutdown", reason: "quit" }, shutdownContext);
 	await browser.handlers.get("session_shutdown")[0]({ type: "session_shutdown", reason: "quit" }, shutdownContext);
 	for (const handler of thirdParty.handlers.get("session_shutdown") ?? []) await handler({ type: "session_shutdown", reason: "quit" }, shutdownContext);

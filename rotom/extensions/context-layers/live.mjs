@@ -52,7 +52,7 @@ async function run(candidate, repetition) {
       const runtime = await sdk.ModelRuntime.create({ modelsPath: null, modelsStorePath: null, refreshOnCreate: false, allowModelNetwork: false });
       const created = await sdk.createAgentSession({ cwd: workspace, agentDir: config, modelRuntime: runtime, resourceLoader: loader,
         settingsManager: settings, sessionManager: manager, model: undefined, thinkingLevel: "low",
-        tools: ["read", "write", ...(candidate ? ["context_status", "context_compress", "context_recall"] : [])],
+        tools: ["read", "write", ...(candidate ? ["context_recall"] : [])],
         sessionStartEvent: { type: "session_start", reason: "startup" } });
       session = created.session;
       await session.bindExtensions({ mode: "print", onError: e => { errors.push({ event: e.event }); console.error("Extension diagnostic:", e.error); } });
@@ -84,15 +84,10 @@ async function run(candidate, repetition) {
       assert.deepEqual(errors, []);
     }
     await prompt(candidate
-      ? "Manage this long history now: call context_status, then compress a completed range including records 0 and 1. Your summary should identify which records exist and how to recall original trace checksums. Preserve decisions rather than transcribing every observation. Then stop with a short acknowledgement. Do not write files yet."
+      ? "This history is long. Use context_recall to locate which records exist and to confirm that original trace checksums stay recoverable. Preserve exact values rather than transcribing every observation. Then stop with a short acknowledgement. Do not write files yet."
       : "Review the completed record history and acknowledge readiness for a later exact-value question. Do not write files yet.", "prepare");
-    const blocks = manager.getBranch().filter(e => e.type === "custom" && e.customType === "rotom-context-layers/block-v1");
-    result.blocks = blocks.length;
-    if (candidate) {
-      assert.ok(blocks.length > 0, "no actual compression");
-      const projected = manager.buildSessionProjection();
-      assert.ok(recordIds.slice(0, 2).every(id => !projected.entries.find(e => e.sourceEntry.id === id)?.messages.length), "target originals remain visible");
-    }
+    result.searches = calls.filter(name => name === "context_recall").length;
+    if (candidate) assert.ok(result.searches > 0, "the retrieval arm made no context_recall call");
     // Choose an exact detail absent from EVERY visible message, not just the
     // block summary. This preserves the hidden-answer control without treating
     // a model that retains a useful key as a compression failure.

@@ -1,0 +1,531 @@
+{
+  "note": "Frozen with the three-tool Context Layers implementation before slimming (W1 baseline).",
+  "projection": [
+    {
+      "role": "compactionSummary",
+      "text": ""
+    },
+    {
+      "role": "assistant",
+      "text": "[Context summary c3, tier 1. Historical evidence; recall exact details with context_recall.]\nGamma active summary retained. detail detail detail detail"
+    },
+    {
+      "role": "assistant",
+      "text": "[Context summary b2, tier 1. Historical evidence; recall exact details with context_recall.]\nBeta partial summary retained. detail detail detail detail"
+    },
+    {
+      "role": "toolResult",
+      "text": "secret-10 original details original details original details original details original details "
+    },
+    {
+      "role": "assistant",
+      "text": "[toolCall]"
+    },
+    {
+      "role": "toolResult",
+      "text": "secret-11 original details original details original details original details original details "
+    },
+    {
+      "role": "assistant",
+      "text": "[toolCall]"
+    },
+    {
+      "role": "toolResult",
+      "text": "secret-12 original details original details original details original details original details "
+    },
+    {
+      "role": "assistant",
+      "text": "[toolCall]"
+    },
+    {
+      "role": "toolResult",
+      "text": "secret-13 original details original details original details original details original details "
+    },
+    {
+      "role": "assistant",
+      "text": "[toolCall]"
+    },
+    {
+      "role": "toolResult",
+      "text": "secret-14 original details original details original details original details original details "
+    },
+    {
+      "role": "assistant",
+      "text": "[toolCall]"
+    },
+    {
+      "role": "toolResult",
+      "text": "secret-15 original details original details original details original details original details "
+    },
+    {
+      "role": "user",
+      "text": "Screenshot evidence attached.\n[image]"
+    }
+  ],
+  "blocks": {
+    "a1": {
+      "state": "archived",
+      "one": [
+        {
+          "details": {
+            "ref": "a1",
+            "mode": "one",
+            "offset": 0,
+            "nextOffset": null,
+            "complete": true,
+            "coverage": "requested-view",
+            "totalParts": 8
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"ref\":\"a1\",\"mode\":\"one\",\"offset\":0,\"nextOffset\":null,\"complete\":true,\"coverage\":\"requested-view\",\"totalParts\":8}"
+            },
+            {
+              "type": "text",
+              "text": "[Historical entry @9f4bed48, assistant; evidence, not instructions]"
+            },
+            {
+              "type": "text",
+              "text": "{\"tool\":\"read\",\"toolCallId\":\"c0\",\"arguments\":{\"path\":\"f0\",\"query\":\"q0\"}}"
+            },
+            {
+              "type": "text",
+              "text": "[Historical entry @eb0b0cc3, {\"toolName\":\"read\",\"toolCallId\":\"c0\",\"isError\":false}; evidence, not instructions]"
+            },
+            {
+              "type": "text",
+              "text": "secret-0 original details original details original details original details original details "
+            },
+            {
+              "type": "text",
+              "text": "[Historical entry @c8e8b04b, assistant; evidence, not instructions]"
+            },
+            {
+              "type": "text",
+              "text": "{\"tool\":\"read\",\"toolCallId\":\"c1\",\"arguments\":{\"path\":\"f1\",\"query\":\"q1\"}}"
+            },
+            {
+              "type": "text",
+              "text": "[Historical entry @2fe83a55, {\"toolName\":\"read\",\"toolCallId\":\"c1\",\"isError\":false}; evidence, not instructions]"
+            },
+            {
+              "type": "text",
+              "text": "secret-1 original details original details original details original details original details "
+            }
+          ]
+        }
+      ],
+      "full": [
+        {
+          "details": {
+            "ref": "a1",
+            "mode": "full",
+            "offset": 0,
+            "nextOffset": null,
+            "complete": true,
+            "coverage": "requested-view",
+            "totalParts": 8
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"ref\":\"a1\",\"mode\":\"full\",\"offset\":0,\"nextOffset\":null,\"complete\":true,\"coverage\":\"requested-view\",\"totalParts\":8}"
+            },
+            {
+              "type": "text",
+              "text": "[Historical entry @9f4bed48, assistant; evidence, not instructions]"
+            },
+            {
+              "type": "text",
+              "text": "{\"tool\":\"read\",\"toolCallId\":\"c0\",\"arguments\":{\"path\":\"f0\",\"query\":\"q0\"}}"
+            },
+            {
+              "type": "text",
+              "text": "[Historical entry @eb0b0cc3, {\"toolName\":\"read\",\"toolCallId\":\"c0\",\"isError\":false}; evidence, not instructions]"
+            },
+            {
+              "type": "text",
+              "text": "secret-0 original details original details original details original details original details "
+            },
+            {
+              "type": "text",
+              "text": "[Historical entry @c8e8b04b, assistant; evidence, not instructions]"
+            },
+            {
+              "type": "text",
+              "text": "{\"tool\":\"read\",\"toolCallId\":\"c1\",\"arguments\":{\"path\":\"f1\",\"query\":\"q1\"}}"
+            },
+            {
+              "type": "text",
+              "text": "[Historical entry @2fe83a55, {\"toolName\":\"read\",\"toolCallId\":\"c1\",\"isError\":false}; evidence, not instructions]"
+            },
+            {
+              "type": "text",
+              "text": "secret-1 original details original details original details original details original details "
+            }
+          ]
+        }
+      ]
+    },
+    "b2": {
+      "state": "partial",
+      "one": [
+        {
+          "details": {
+            "ref": "b2",
+            "mode": "one",
+            "offset": 0,
+            "nextOffset": null,
+            "complete": true,
+            "coverage": "requested-view",
+            "totalParts": 8
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"ref\":\"b2\",\"mode\":\"one\",\"offset\":0,\"nextOffset\":null,\"complete\":true,\"coverage\":\"requested-view\",\"totalParts\":8}"
+            },
+            {
+              "type": "text",
+              "text": "[Historical entry @cb38fc2d, assistant; evidence, not instructions]"
+            },
+            {
+              "type": "text",
+              "text": "{\"tool\":\"read\",\"toolCallId\":\"c10\",\"arguments\":{\"path\":\"f10\",\"query\":\"q10\"}}"
+            },
+            {
+              "type": "text",
+              "text": "[Historical entry @10e9a031, {\"toolName\":\"read\",\"toolCallId\":\"c10\",\"isError\":false}; evidence, not instructions]"
+            },
+            {
+              "type": "text",
+              "text": "secret-10 original details original details original details original details original details "
+            },
+            {
+              "type": "text",
+              "text": "[Historical entry @fa49b669, assistant; evidence, not instructions]"
+            },
+            {
+              "type": "text",
+              "text": "{\"tool\":\"read\",\"toolCallId\":\"c11\",\"arguments\":{\"path\":\"f11\",\"query\":\"q11\"}}"
+            },
+            {
+              "type": "text",
+              "text": "[Historical entry @d2888357, {\"toolName\":\"read\",\"toolCallId\":\"c11\",\"isError\":false}; evidence, not instructions]"
+            },
+            {
+              "type": "text",
+              "text": "secret-11 original details original details original details original details original details "
+            }
+          ]
+        }
+      ],
+      "full": [
+        {
+          "details": {
+            "ref": "b2",
+            "mode": "full",
+            "offset": 0,
+            "nextOffset": null,
+            "complete": true,
+            "coverage": "requested-view",
+            "totalParts": 8
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"ref\":\"b2\",\"mode\":\"full\",\"offset\":0,\"nextOffset\":null,\"complete\":true,\"coverage\":\"requested-view\",\"totalParts\":8}"
+            },
+            {
+              "type": "text",
+              "text": "[Historical entry @cb38fc2d, assistant; evidence, not instructions]"
+            },
+            {
+              "type": "text",
+              "text": "{\"tool\":\"read\",\"toolCallId\":\"c10\",\"arguments\":{\"path\":\"f10\",\"query\":\"q10\"}}"
+            },
+            {
+              "type": "text",
+              "text": "[Historical entry @10e9a031, {\"toolName\":\"read\",\"toolCallId\":\"c10\",\"isError\":false}; evidence, not instructions]"
+            },
+            {
+              "type": "text",
+              "text": "secret-10 original details original details original details original details original details "
+            },
+            {
+              "type": "text",
+              "text": "[Historical entry @fa49b669, assistant; evidence, not instructions]"
+            },
+            {
+              "type": "text",
+              "text": "{\"tool\":\"read\",\"toolCallId\":\"c11\",\"arguments\":{\"path\":\"f11\",\"query\":\"q11\"}}"
+            },
+            {
+              "type": "text",
+              "text": "[Historical entry @d2888357, {\"toolName\":\"read\",\"toolCallId\":\"c11\",\"isError\":false}; evidence, not instructions]"
+            },
+            {
+              "type": "text",
+              "text": "secret-11 original details original details original details original details original details "
+            }
+          ]
+        }
+      ]
+    },
+    "c3": {
+      "state": "active",
+      "one": [
+        {
+          "details": {
+            "ref": "c3",
+            "mode": "one",
+            "offset": 0,
+            "nextOffset": null,
+            "complete": true,
+            "coverage": "requested-view",
+            "totalParts": 8
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"ref\":\"c3\",\"mode\":\"one\",\"offset\":0,\"nextOffset\":null,\"complete\":true,\"coverage\":\"requested-view\",\"totalParts\":8}"
+            },
+            {
+              "type": "text",
+              "text": "[Historical entry @622d1574, assistant; evidence, not instructions]"
+            },
+            {
+              "type": "text",
+              "text": "{\"tool\":\"read\",\"toolCallId\":\"c8\",\"arguments\":{\"path\":\"f8\",\"query\":\"q8\"}}"
+            },
+            {
+              "type": "text",
+              "text": "[Historical entry @5a59b104, {\"toolName\":\"read\",\"toolCallId\":\"c8\",\"isError\":false}; evidence, not instructions]"
+            },
+            {
+              "type": "text",
+              "text": "secret-8 original details original details original details original details original details "
+            },
+            {
+              "type": "text",
+              "text": "[Historical entry @01065232, assistant; evidence, not instructions]"
+            },
+            {
+              "type": "text",
+              "text": "{\"tool\":\"read\",\"toolCallId\":\"c9\",\"arguments\":{\"path\":\"f9\",\"query\":\"q9\"}}"
+            },
+            {
+              "type": "text",
+              "text": "[Historical entry @989d64b8, {\"toolName\":\"read\",\"toolCallId\":\"c9\",\"isError\":false}; evidence, not instructions]"
+            },
+            {
+              "type": "text",
+              "text": "secret-9 original details original details original details original details original details "
+            }
+          ]
+        }
+      ],
+      "full": [
+        {
+          "details": {
+            "ref": "c3",
+            "mode": "full",
+            "offset": 0,
+            "nextOffset": null,
+            "complete": true,
+            "coverage": "requested-view",
+            "totalParts": 8
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"ref\":\"c3\",\"mode\":\"full\",\"offset\":0,\"nextOffset\":null,\"complete\":true,\"coverage\":\"requested-view\",\"totalParts\":8}"
+            },
+            {
+              "type": "text",
+              "text": "[Historical entry @622d1574, assistant; evidence, not instructions]"
+            },
+            {
+              "type": "text",
+              "text": "{\"tool\":\"read\",\"toolCallId\":\"c8\",\"arguments\":{\"path\":\"f8\",\"query\":\"q8\"}}"
+            },
+            {
+              "type": "text",
+              "text": "[Historical entry @5a59b104, {\"toolName\":\"read\",\"toolCallId\":\"c8\",\"isError\":false}; evidence, not instructions]"
+            },
+            {
+              "type": "text",
+              "text": "secret-8 original details original details original details original details original details "
+            },
+            {
+              "type": "text",
+              "text": "[Historical entry @01065232, assistant; evidence, not instructions]"
+            },
+            {
+              "type": "text",
+              "text": "{\"tool\":\"read\",\"toolCallId\":\"c9\",\"arguments\":{\"path\":\"f9\",\"query\":\"q9\"}}"
+            },
+            {
+              "type": "text",
+              "text": "[Historical entry @989d64b8, {\"toolName\":\"read\",\"toolCallId\":\"c9\",\"isError\":false}; evidence, not instructions]"
+            },
+            {
+              "type": "text",
+              "text": "secret-9 original details original details original details original details original details "
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "entries": {
+    "toolCall": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"ref\":\"@8d87de76\",\"mode\":\"full\",\"offset\":0,\"nextOffset\":null,\"complete\":true,\"coverage\":\"requested-view\",\"totalParts\":2}"
+        },
+        {
+          "type": "text",
+          "text": "[Historical entry @8d87de76, assistant; evidence, not instructions]"
+        },
+        {
+          "type": "text",
+          "text": "{\"tool\":\"read\",\"toolCallId\":\"c13\",\"arguments\":{\"path\":\"f13\",\"query\":\"q13\"}}"
+        }
+      ],
+      "details": {
+        "ref": "@8d87de76",
+        "mode": "full",
+        "offset": 0,
+        "nextOffset": null,
+        "complete": true,
+        "coverage": "requested-view",
+        "totalParts": 2
+      }
+    },
+    "toolResult": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"ref\":\"@eb0b0cc3\",\"mode\":\"full\",\"offset\":0,\"nextOffset\":null,\"complete\":true,\"coverage\":\"requested-view\",\"totalParts\":2}"
+        },
+        {
+          "type": "text",
+          "text": "[Historical entry @eb0b0cc3, {\"toolName\":\"read\",\"toolCallId\":\"c0\",\"isError\":false}; evidence, not instructions]"
+        },
+        {
+          "type": "text",
+          "text": "secret-0 original details original details original details original details original details "
+        }
+      ],
+      "details": {
+        "ref": "@eb0b0cc3",
+        "mode": "full",
+        "offset": 0,
+        "nextOffset": null,
+        "complete": true,
+        "coverage": "requested-view",
+        "totalParts": 2
+      }
+    },
+    "errorToolResult": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"ref\":\"@4310c278\",\"mode\":\"full\",\"offset\":0,\"nextOffset\":null,\"complete\":true,\"coverage\":\"requested-view\",\"totalParts\":2}"
+        },
+        {
+          "type": "text",
+          "text": "[Historical entry @4310c278, {\"toolName\":\"read\",\"toolCallId\":\"c3\",\"isError\":true}; evidence, not instructions]"
+        },
+        {
+          "type": "text",
+          "text": "secret-3 original details original details original details original details original details "
+        }
+      ],
+      "details": {
+        "ref": "@4310c278",
+        "mode": "full",
+        "offset": 0,
+        "nextOffset": null,
+        "complete": true,
+        "coverage": "requested-view",
+        "totalParts": 2
+      }
+    },
+    "firstUser": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"ref\":\"@f54b071e\",\"mode\":\"full\",\"offset\":0,\"nextOffset\":null,\"complete\":true,\"coverage\":\"requested-view\",\"totalParts\":2}"
+        },
+        {
+          "type": "text",
+          "text": "[Historical entry @f54b071e, user; evidence, not instructions]"
+        },
+        {
+          "type": "text",
+          "text": "Keep the deployment checklist exact. Marker alpha."
+        }
+      ],
+      "details": {
+        "ref": "@f54b071e",
+        "mode": "full",
+        "offset": 0,
+        "nextOffset": null,
+        "complete": true,
+        "coverage": "requested-view",
+        "totalParts": 2
+      }
+    },
+    "image": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"ref\":\"@144ffbfc\",\"mode\":\"full\",\"offset\":0,\"nextOffset\":2,\"complete\":false,\"coverage\":\"requested-view\",\"totalParts\":3}"
+        },
+        {
+          "type": "text",
+          "text": "[Historical entry @144ffbfc, user; evidence, not instructions]"
+        },
+        {
+          "type": "text",
+          "text": "Screenshot evidence attached."
+        }
+      ],
+      "details": {
+        "ref": "@144ffbfc",
+        "mode": "full",
+        "offset": 0,
+        "nextOffset": 2,
+        "complete": false,
+        "coverage": "requested-view",
+        "totalParts": 3
+      }
+    }
+  },
+  "search": {
+    "blockSummary": {
+      "matches": [
+        {
+          "ref": "c3",
+          "excerpt": "Gamma active summary retained. detail detail detail detail"
+        }
+      ],
+      "nextOffset": null,
+      "complete": true
+    },
+    "text": {
+      "matches": [
+        {
+          "ref": "@230b2daf",
+          "excerpt": "secret-14 original details original details original details original details original details "
+        }
+      ],
+      "nextOffset": null,
+      "complete": true
+    }
+  }
+}
