@@ -42,13 +42,12 @@ import { pathToFileURL } from "node:url";
 
 import { inputSourceInfo, recordRealUserInput, restoreOperatorApp, runStamp, withoutHome } from "./lib/live-helpers.mjs";
 import { REPORT_ONLY_STEPS, StepRefused, beginStep, requireNoStopMarker, requireRunsDir, writeRunArchive } from "./lib/b-window.mjs";
-import { ensureFixtureWindow, launchFixture } from "./lib/fixture.mjs";
+import { bringUpFixture, disposeFixtureRun, ensureFixtureWindow } from "./lib/fixture.mjs";
 import { GateHold, requireGate } from "./lib/gate.mjs";
 import { driveListedApps } from "./lib/l2-apps.mjs";
 import { writeEvidence } from "./lib/l2-evidence.mjs";
-import { disposeFixtureRun, isFixtureBundleId, prepareFixtureRun } from "./lib/fixture.mjs";
 import { recordAttribution, resolveProcessNames } from "./lib/event-sources.mjs";
-import { checkFixtureDigest, checkHelperSupport } from "./lib/l2-env.mjs";
+import { checkFixture, checkHelperSupport } from "./lib/l2-env.mjs";
 import { createAlive, createProbe, fixtureRef, wireRefByRole } from "./lib/l2-probe.mjs";
 import { fixtureClickCount, runDirectL2 } from "./lib/l2-modes.mjs";
 
@@ -69,6 +68,14 @@ function record(area, action, result, note) {
 function argument(name, fallback) {
 	const index = process.argv.indexOf(name);
 	return index === -1 ? fallback : process.argv[index + 1];
+}
+
+/** Not the frozen environment: exit 2 and write nothing, because the step never started. */
+function refuse(reason, area = "fixture", action = "signature") {
+	const why = String(reason?.message ?? reason);
+	record(area, action, "refused", why);
+	console.error(`[cu-v2 l2] ${why}`);
+	process.exit(2);
 }
 
 function disabled(reason) {
@@ -189,17 +196,12 @@ async function main() {
 
 	const diagnostics = await macosHelper.diagnosticsCommand();
 	record("helper", "diagnostics", "pass", `protocol=${diagnostics.protocolVersion} accessibility=${diagnostics.accessibility}`);
-	// T3: refuse before launching when the environment is not the frozen one. Exit 2 and write
-	// nothing: the step never started, so there is no marker either.
-	const environment = checkFixtureDigest({ appPath: fixturePath, rootDir: PACKAGE_ROOT });
+	// T3: refuse before launching when the environment is not the frozen one.
+	const environment = checkFixture({ appPath: fixturePath, rootDir: PACKAGE_ROOT, identity: process.env.PI_CU_FIXTURE_SIGN_IDENTITY, willCopy: fixtureCopy && !fake });
 	const support = environment.ok
 		? checkHelperSupport({ activity: await macosHelper.command("userActivity", {}).catch(() => undefined), diagnostics, expectedProtocol: HELPER_PROTOCOL_VERSION })
 		: environment;
-	if (!support.ok) {
-		record("environment", "frozen artifacts", "refused", support.reason);
-		console.error(`[cu-v2 l2] ${support.reason}`);
-		process.exit(2);
-	}
+	if (!support.ok) refuse(support.reason, "environment", "frozen artifacts");
 	record("environment", "frozen artifacts", "pass", `fixture=${environment.digest.slice(0, 12)} helper protocol=${diagnostics.protocolVersion}`);
 	// The baseline for "did the operator come back" (review 6 K2). Our own synthetic
 	// posts are marked by the helper and do not count, so any growth is a person.
@@ -217,32 +219,17 @@ async function main() {
 	const startedByThisRun = (app) => !beforeRun.has(app.pid);
 
 	// ---- fixture: not on the L2 list, so the product path must refuse it ----
-	let launchPath = fixturePath;
-	let fixtureRun;
-	if (fixtureCopy) {
-		fixtureRun = prepareFixtureRun({ sourceApp: fixturePath, runRoot, sign: !fake });
-		launchPath = fixtureRun.bundlePath;
-		record("fixture", "fresh copy", "pass", `bundle=${fixtureRun.bundleId} path=${launchPath}`);
+	// Copy, sign, launch and wait for the window live in `fixture.mjs`: a copy that amfid
+	// refuses, or a window that never appears, is a result to record, not a crash to handle here.
+	let brought;
+	try {
+		brought = await bringUpFixture({ backend: macosBackend, fixturePath, runRoot: fixtureCopy ? runRoot : undefined, sign: !fake, startedByThisRun, record });
+	} catch (error) {
+		refuse(error);
 	}
-	// The run's own copy is the only app this phase may raise: a background launch never
-	// builds a SwiftUI window, so the launch itself activates it (review 6 P3). There is
-	// no `open -n` fallback any more - an ad-hoc launch command is not part of a frozen
-	// script, and a window that never appears is a result.
-	await launchFixture(macosBackend, fixtureRun ?? { bundlePath: launchPath }).catch((error) => record("fixture", "launch", "fail", error instanceof Error ? error.message : String(error)));
-	await sleep(1500);
-	const apps = await macosBackend.listApps();
-	let fixture = apps.find((app) => isFixtureBundleId(app.bundleId) && startedByThisRun(app))
-		?? apps.find((app) => app.bundleId === "com.example.cu-fixture")
-		?? apps.find((app) => /fixture/i.test(app.appName ?? ""));
-	if (fixture && !startedByThisRun(fixture)) {
-		record("fixture", "present", "skipped", `pid=${fixture.pid} was already running before this run; quit it so the check can launch its own copy`);
-		fixture = undefined;
-	}
-	if (!fixture) {
-		if (!rows.some((row) => row.area === "fixture" && row.action === "present")) {
-			record("fixture", "present", "fail", "the fixture app is not running and could not be launched");
-		}
-	} else {
+	const fixture = brought.fixture;
+	const fixtureRun = brought.run;
+	if (fixture) {
 		record("fixture", "present", "pass", `pid=${fixture.pid} bundle=${fixture.bundleId}`);
 		// `launchFixture` activated the copy, so the window is being built now; poll for it
 		// instead of guessing a fixed sleep (the 1.2 s wait sat exactly on the edge).

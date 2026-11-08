@@ -9,6 +9,7 @@
  * refusal - exit 2, no stop marker, because the step never started.
  */
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
@@ -33,8 +34,44 @@ export function expectedFixtureSourceDigest(rootDir) {
 	return sha256Hex(readFileSync(path.join(rootDir, "native", "macos-fixture", "FixtureApp.swift")));
 }
 
+/** `codesign -dv` writes its report to stderr and exits 0 even for an ad-hoc signature. */
+function codesignReport(appPath) {
+	const done = spawnSync("codesign", ["-dv", "--verbose=2", appPath], { encoding: "utf8" });
+	return `${done.stdout ?? ""}${done.stderr ?? ""}`;
+}
+
+/** What `codesign` says about a bundle, so signing cannot be assumed from the fact it ran. */
+export function signatureOf(appPath, { exec = codesignReport } = {}) {
+	let text = "";
+	try {
+		text = String(exec(appPath));
+	} catch (error) {
+		text = String(error?.stderr ?? "");
+	}
+	if (!text.includes("Signature")) return { adhoc: true, authority: undefined, note: "no embedded signature" };
+	const adhoc = /flags=\S*\(adhoc\)/.test(text) || /Signature=adhoc/.test(text);
+	return { adhoc, authority: /Authority=([^\n]+)/.exec(text)?.[1]?.trim() };
+}
+
+/**
+ * A copy signed ad hoc is killed by amfid at exec (`AMFI ... -423`), so the run sees an app
+ * that launches and then has no window - which is what one window spent its time on. The
+ * identity has to be in the environment, because `codesign -s -` is the silent default.
+ */
+export function checkFixtureSignature({ appPath, identity, willCopy }) {
+	if (!willCopy) return { ok: true };
+	if (!identity) {
+		return { ok: false, reason: "PI_CU_FIXTURE_SIGN_IDENTITY is unset, so the fixture copy would be ad-hoc signed and amfid would kill it at exec; export it and rebuild nothing" };
+	}
+	const source = signatureOf(appPath);
+	if (source.adhoc) {
+		return { ok: false, reason: `fixture ${appPath} is ad-hoc signed (${source.note ?? "Signature=adhoc"}); rebuild it with build-fixture.mjs --sign-identity` };
+	}
+	return { ok: true, authority: source.authority };
+}
+
 /** Refuse to drive a fixture built from other source than the checkout under test. */
-export function checkFixtureDigest({ appPath, rootDir }) {
+export function checkFixture({ appPath, rootDir, identity, willCopy }) {
 	const actual = fixtureSourceDigest(appPath);
 	if (!actual) {
 		return { ok: false, reason: `fixture ${appPath} carries no ${FIXTURE_SOURCE_DIGEST_FILE}; rebuild it with scripts/build-fixture.mjs --output <app>` };
@@ -43,6 +80,8 @@ export function checkFixtureDigest({ appPath, rootDir }) {
 	if (actual !== expected) {
 		return { ok: false, reason: `fixture was built from other source (${actual.slice(0, 12)} != ${expected.slice(0, 12)}); rebuild it from this commit` };
 	}
+	const signature = checkFixtureSignature({ appPath, identity, willCopy });
+	if (!signature.ok) return signature;
 	return { ok: true, digest: expected };
 }
 

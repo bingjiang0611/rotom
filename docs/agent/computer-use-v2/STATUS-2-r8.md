@@ -68,3 +68,41 @@
 no input cannot be shown"，其余情况带 `hid_idle/helper_idle/listened` 三个读数。dry run 新增一项执行检查：
 假 backend 的 `gate-hold` 场景让脚本写 `gate | verdict | fail` 且 note 里必须有 `helper_error=`，并且不得继续
 启动 fixture、不得写 `B-STOPPED`。`test/cu-v2-gate.test.ts` 覆盖三种原因不同的 hold。
+
+### 第六次窗口（2026-11-07 09:12:48 起，`eea25fb4`，用户睡觉期间不限时）：fixture 终于启动，然后被 amfid 杀掉
+
+门禁 09:22:59 pass（`hid_idle 1052s`、`listened 611.9s`、`helper_idle none`）。B0 运行 09:23:06–09:23:20，
+18 行、1 fail、退出 0、无 `Verdict:`、无 `B-STOPPED`。
+
+第一次拿到真正的进展：`fixture | fresh copy` 与 `fixture | present | pass pid=82579`——`minos` 修复成立，
+`source.sha256` 校验也通过。紧接着 `fixture | window | fail`，系统日志给出原因：
+
+```
+09:23:07.169 amfid: …/fixture-1794072187038/…/Fixture not valid:
+AppleMobileFileIntegrityError Code=-423 "The file is adhoc signed or signed by an unknown certificate chain"
+```
+
+`prepareFixtureRun` 用 `codesign --force --deep --sign "${identity || "-"}"` 重签副本，而当时环境里
+`PI_CU_*` 变量一个都没有，于是副本是 **ad-hoc** 的：amfid 在 exec 阶段拒绝，进程秒退，所以既没有窗口，
+也没有崩溃报告，cleanup 只能报 `quit=none`。
+
+改法（用户授权）：
+
+- `signatureOf(appPath)` 读回 `codesign -dv --verbose=2`（它写在 stderr，且 ad-hoc 也退出 0），
+  `checkFixtureSignature` 在**环境阶段**判断：`willCopy` 为真但没有 `PI_CU_FIXTURE_SIGN_IDENTITY`、
+  或源 bundle 本身是 ad-hoc，都直接 `refuse`（退出 2、不写存档、不写 `B-STOPPED`）。
+- 副本签名失败（`codesign` 抛错）同样走 `refuse`，不再是“跑完一堆跳过的行”。
+- fixture 的复制、签名、启动、等待窗口收进 `fixture.mjs` 的 `bringUpFixture`：这是花钱最多的序列，
+  应该只有一处行为。脚本因此从 20.1 KB 回到 19.0 KB。
+- 文档里 `PI_CU_FIXTURE_SIGN_IDENTITY="$PI_CU_FIXTURE_SIGN_IDENTITY"` 改成显式身份，并写明留空等于 ad-hoc。
+
+这次运行的 B0 读数（唯一一次，未重跑）：
+
+```
+| run | real user input | pass | userEvents 0 → 0 (+0); frontmost=Scry pid=46038 |
+| attribution | summary | recorded | unmarked=0 fromThisRun=0 fromElsewhere=0 agentMarked=0 K2 unchanged |
+| attribution | ring complete | pass | 0 records match the counters |
+```
+
+也就是说：LaunchServices 注册 + 拉起进程这一步产生 0 个未标记事件。但 App 在画出窗口之前就被杀了，
+所以对 `+72`/`+103` 仍然没有结论。

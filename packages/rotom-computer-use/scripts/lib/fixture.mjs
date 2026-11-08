@@ -164,3 +164,39 @@ export function fixtureInfoPlist({ bundleId = "com.example.cu-fixture", version 
 </plist>
 `;
 }
+
+/**
+ * Copy, sign, launch the run's own fixture and wait for its window.
+ *
+ * This is the sequence that has cost the most windows, so it lives in one place with one
+ * behaviour: a copy amfid refuses throws (the caller refuses the run), an already-running
+ * copy that this run did not start is reported and never touched, and a launch that produces
+ * no window is a recorded result rather than a crash.
+ */
+export async function bringUpFixture({ backend, fixturePath, runRoot, sign, startedByThisRun, record }) {
+	let run;
+	let launchPath = fixturePath;
+	if (runRoot) {
+		run = prepareFixtureRun({ sourceApp: fixturePath, runRoot, sign });
+		launchPath = run.bundlePath;
+		record("fixture", "fresh copy", "pass", `bundle=${run.bundleId} path=${launchPath}`);
+	}
+	// A background launch never builds a SwiftUI window, so the launch activates the copy
+	// (review 6 P3). There is no `open -n` fallback: an ad-hoc launch command is not part of a
+	// frozen script, and a window that never appears is a result.
+	await launchFixture(backend, run ?? { bundlePath: launchPath }).catch((error) => record("fixture", "launch", "fail", error instanceof Error ? error.message : String(error)));
+	await new Promise((resolve) => setTimeout(resolve, 1500));
+	const apps = await backend.listApps();
+	let fixture = apps.find((app) => isFixtureBundleId(app.bundleId) && startedByThisRun(app))
+		?? apps.find((app) => app.bundleId === "com.example.cu-fixture")
+		?? apps.find((app) => /fixture/i.test(app.appName ?? ""));
+	if (fixture && !startedByThisRun(fixture)) {
+		record("fixture", "present", "skipped", `pid=${fixture.pid} was already running before this run; quit it so the check can launch its own copy`);
+		fixture = undefined;
+	} else if (fixture) {
+		record("fixture", "present", "pass", `pid=${fixture.pid} bundle=${fixture.bundleId}`);
+	} else {
+		record("fixture", "present", "fail", "the fixture app is not running and could not be launched");
+	}
+	return { fixture, run, launchPath };
+}

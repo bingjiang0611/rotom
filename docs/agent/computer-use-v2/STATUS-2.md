@@ -98,11 +98,14 @@ B4 租约负向测试、B5 前台接管、§10 验收。
 ```bash
 PI_CU_L2_SOCKET=1 PI_CU_SOCKET_PATH=~/cu-v2-test/direct-l2.sock \
 PI_COMPUTER_USE_HELPER_APP_PATH=~/cu-v2-test/pi-computer-use.app ROTOM_CU_BROKER=0 \
-PI_CU_FIXTURE_SIGN_IDENTITY="$PI_CU_FIXTURE_SIGN_IDENTITY" \
+PI_CU_FIXTURE_SIGN_IDENTITY="Apple Development: <你的名字> (<TEAMID>)" \
 node --experimental-strip-types scripts/cu-v2-l2-check.mjs --fixture ~/cu-v2-test/Fixture.app --direct-l2 \
   --expect-commit <审核者确认的 sha> --runs-dir ~/cu-v2-runs/2026-11-XX \
   --window-start <用户给的开始时间> --window-minutes <用户给的时长> --listening-since <helper 起监听的时间>
 ```
+
+签名身份必须显式：留空就是 ad-hoc，amfid 在 exec 阶段杀掉副本（`-423`），表现为“启动成功但没有窗口”；
+脚本现在遇到这种情况直接退出 2，不写 `B-STOPPED`。
 
 下一窗口的顺序（每一步都用同一个 `--expect-commit` 和同一个 `--runs-dir`，且前一项要留下 `Verdict: pass`）：
 
@@ -190,9 +193,9 @@ B1 结果（[存档](evidence/runs/2026-11-06T2240-b1-directed-l2.md)）：19 �
 | --- | --- |
 | R1 | fixture 按钮结果改成单调计数 `clicks: N`，`judgeDirectedClick` 改为 `after === before + 1`：不变 `fail`、加一 `pass`、加二 `unknown` |
 | R2 | helper 有界事件来源环（512 条，只记时间/类型/来源/是否带标记）；脚本按来源分组写进存档，**K2 判定一个字没改**；新增只出报告的 B0 归因模式（不写 `Verdict:`、不写 `B-STOPPED`、不放行任何步骤） |
-| T1 | 加只用于测试的假 backend 注入点 `PI_CU_FAKE_BACKEND`（与 `--expect-commit` 同时出现即退出 2），dry run 现在把脚本当子进程真跑一遍 B0、B1 通过、B1 失败、归因缺环四种情况 |
+| T1 | 加只用于测试的假 backend 注入点 `PI_CU_FAKE_BACKEND`（与 `--expect-commit` 同时出现即退出 2），dry run 把脚本当子进程真跑 B0、B1 通过、B1 失败、归因缺环 |
 | T2 | helper 不返回 `recentEvents`、或环内条数与计数差值不一致 → 写 `fail` 行，不再汇总成 `unmarked=0` |
-| T3 | fixture 写入源码 SHA-256 并在启动任何 App 前比对；helper 缺 `recentEventLimit` 或协议不符就退出 2，且不写 `B-STOPPED` |
+| T3 | fixture 写入源码 SHA-256 并在启动前比对；helper 缺 `recentEventLimit`、协议不符、或副本会是 ad-hoc 签名，都退出 2 且不写 `B-STOPPED` |
 
 窗口账目在 [STATUS-2-rounds.md](STATUS-2-rounds.md)，T1–T3 的执行细节与控制实验在 [STATUS-2-r8.md](STATUS-2-r8.md)。
 
@@ -200,7 +203,7 @@ B1 结果（[存档](evidence/runs/2026-11-06T2240-b1-directed-l2.md)）：19 �
 
 | 编号 | 问题 | 执行 agent 的处理 |
 |---|---|---|
-| Q1 | 用户原话“大约 __ 小时不在电脑前”，时长数字没填。B 阶段的“仍在窗口内”无法按数字核验。**REVIEW-5 起窗口是脚本的必填参数，缺参数直接拒绝运行。** | 按决定 D1：以“10 分钟内无真实用户输入”作为唯一证据，并让任何真实输入立刻终止整个 B 阶段。审核者若给出确切时长，这个门禁可以收紧为“开始时间 + 时长”。 |
+| Q1（已解决） | 窗口由用户给起点 + 时长，脚本缺参数即拒绝运行 | 门禁按“10 分钟内无真实输入”判定，任何真实输入立即终止整个 B 阶段 |
 | Q2（已解决） | `cu_session` 新增 `transfer` 动作是模型可写的管理动作（A4 决定）。是否需要额外的确认或审计要求？ | 按 REVIEW-5 的结论：不弹确认卡（只能转给后代，不扩大已获授权），改为补 trace —— 每次交接记录目标 agent、资源键、新旧租约 id；被拒记录错误码且无新 id。见第 5 轮表格的 Q2 行。 |
 | H2（待用户决定，不阻断 B） | AX 插入现在是所有 App 的默认文本路径（含 `foreground` 策略）。对“setter 返回成功但不落值/不触发输入事件”的 App（网页、Electron、自绘编辑器），`typeText` 会从“能打字”变成“永远 `unknown`”。REVIEW-5 复核要求合入 `main` 前二选一。 | 未改代码。方案一（复核倾向）：helper 用 `TISCopyCurrentKeyboardInputSource` 读当前输入源，只有是输入法时才走 AX 插入，纯布局保持按键路径。方案二：保持现状，B3 兼容矩阵必须覆盖网页文本框与一个 Electron App。等用户选择。 |
 | Q6（需用户决定） | 2026-11-06 20:17 PST 本机安全软件界面（`com.alibaba.security.ui`）在一次矩阵运行后短暂成为前台，原因不明。合成输入、自签名 helper 与私有 SkyLight 符号都可能触发它。 | 没有继续排查，也没有改动任何系统设置。**建议先看它的告警记录**，再决定下一个窗口是否仍在这台受管理的机器上进行；这与 REVIEW-6 的“需要用户决定的事”一致。 |
