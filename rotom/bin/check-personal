@@ -59,6 +59,7 @@ PI_SUBAGENTS_EXECUTION_SCOPE= PI_SUBAGENTS_TEMP_ROOT= ROTOM_PI="$pi_command" ROT
 	rotom/extensions/browser/dialog-state.test.mjs \
 	rotom/extensions/browser/batch-actions.test.mjs \
 	rotom/extensions/browser/browser-policy.test.mjs \
+	rotom/extensions/browser/module-packaging.test.mjs \
 	rotom/extensions/browser/devtools.test.mjs \
 	rotom/extensions/browser/platform-paths.test.mjs \
 	rotom/extensions/browser/dispatch-race.test.mjs \
@@ -71,10 +72,30 @@ PI_SUBAGENTS_EXECUTION_SCOPE= PI_SUBAGENTS_TEMP_ROOT= ROTOM_PI="$pi_command" ROT
 	rotom/extensions/browser/downloads.test.mjs \
 	rotom/extensions/observability/*.test.ts \
 	rotom/extensions/observability/dashboard*.test.mjs \
-	rotom/extensions/browser/index.test.ts \
+	rotom/extensions/browser/browser-integration-routing.test.ts \
+	rotom/extensions/browser/browser-integration-contract.test.ts \
+	rotom/extensions/browser/browser-integration-interact.test.ts \
+	rotom/extensions/browser/browser-integration-snapshot.test.ts \
+	rotom/extensions/browser/browser-launch-gate.test.ts \
+	rotom/extensions/browser/browser-command.test.ts \
+	rotom/extensions/browser/browser-console.test.ts \
+	rotom/extensions/browser/browser-upload.test.ts \
+	rotom/extensions/browser/browser-dialog.test.ts \
+	rotom/extensions/browser/browser-batch.test.ts \
+	rotom/extensions/browser/browser-policy-access.test.ts \
+	rotom/extensions/browser/browser-lease.test.ts \
+	rotom/extensions/browser/browser-sensitive-actions.test.ts \
+	rotom/extensions/browser/browser-downloads.test.ts \
+	rotom/extensions/browser/browser-devtools.test.ts \
 	rotom/extensions/browser/browser-relay.test.ts \
 	rotom/extensions/browser/native-host.test.mjs \
-	rotom/extensions/browser/chrome-extension.test.mjs \
+	rotom/extensions/browser/chrome-manifest.test.mjs \
+	rotom/extensions/browser/chrome-tab-management.test.mjs \
+	rotom/extensions/browser/chrome-observation.test.mjs \
+	rotom/extensions/browser/chrome-interaction.test.mjs \
+	rotom/extensions/browser/chrome-deadline.test.mjs \
+	rotom/extensions/browser/chrome-lifecycle.test.mjs \
+	rotom/extensions/browser/chrome-installer.test.mjs \
 	rotom/extensions/browser/component-storage.test.mjs \
 	rotom/extensions/browser/artifact-ownership.test.ts \
 	rotom/extensions/browser/runtime-ownership.test.ts \
