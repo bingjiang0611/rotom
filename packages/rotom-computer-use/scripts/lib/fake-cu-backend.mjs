@@ -14,6 +14,7 @@
  *   fail         - the directed L2 click does not land
  *   ring-lost    - the ring is gone on the second read (T2, missing ring)
  *   lost-events  - the ring drops a record the counters counted (T2, reconciliation)
+ *   activate-only - the directed post activates the window but presses nothing (R9)
  *   no-support   - the helper reports no ring at all, so T3 refuses the run
  */
 import { readFileSync } from "node:fs";
@@ -63,6 +64,7 @@ let clicks = 0;
 let text = "";
 let lookSeq = 0;
 let activityCalls = 0;
+let activatedByPost = false;
 // The counters are the helper's own tally, not a count of the ring: a ring that overflows or
 // loses a record must disagree with them, which is what T2 asks the script to notice.
 const events = [];
@@ -106,6 +108,7 @@ export const backend = {
 		return [{ kind: "window", windowId: 7, pid: pid ?? operator.pid, rootRef: "@r7" }];
 	},
 	async getFrontmost() {
+		if (activatedByPost && fixtureApp) return { pid: fixtureApp.pid, appName: "Fixture", windowId: 7 };
 		return { ...operator, windowId: 7 };
 	},
 	async focusWindow() {
@@ -151,7 +154,8 @@ export const helper = {
 		if (name === "getMousePosition") return { x: 10, y: 10 };
 		if (name === "userActivity") return activity();
 		if (name === "act") {
-			if (scenario !== "fail") clicks += 1;
+			if (scenario === "activate-only") activatedByPost = true;
+			if (scenario !== "fail" && scenario !== "activate-only") clicks += 1;
 			pushEvent(true);
 			if (scenario === "lost-events") events.pop();
 			return { outcome: "unknown", performed: { delivery: args?.delivery ?? "l2" }, supported: true };

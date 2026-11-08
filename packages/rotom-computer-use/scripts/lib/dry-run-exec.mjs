@@ -159,6 +159,25 @@ export const executionChecks = [
 		},
 	},
 	{
+		name: "R9: a post that only activates the window is neither a pass nor a plain failure",
+		run: () => {
+			const result = runScript({ scenario: "activate-only", args: ["--b0-attribution"] });
+			try {
+				expectOk(result, "activate-only run");
+				const archive = result.archive ?? "";
+				const click = /\| direct L2 \| click \| (\w+) \| (.*) \|/.exec(archive);
+				if (click?.[1] !== "inconclusive") throw new Error(`direct L2 | click = ${click?.[1]}: ${click?.[2]}`);
+				if (!/activated the fixture window/.test(click?.[2] ?? "")) throw new Error(`the reason does not name activation: ${click?.[2]}`);
+				if (row(archive, "direct L2", "activation") !== "pass") throw new Error("the activation was not reported as its own row");
+				if (row(archive, "direct L2", "target active") !== "recorded") throw new Error("the pre-post activation state is not a report row");
+				if (row(archive, "direct L2", "click effect") !== "inconclusive") throw new Error(`click effect = ${row(archive, "direct L2", "click effect")}`);
+				return "activating post told apart from a pressed control";
+			} finally {
+				result.cleanup();
+			}
+		},
+	},
+	{
 		name: "T2: a ring that disappears mid-run is a failure, not an empty summary",
 		run: () => {
 			const result = runScript({ scenario: "ring-lost", args: ["--b0-attribution"] });

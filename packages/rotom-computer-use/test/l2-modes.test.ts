@@ -58,3 +58,17 @@ test("the counter is parsed from whatever field carries the text", async () => {
 	assert.equal(await fixtureClickCount(withLabel, { windowId: 1 }), 0);
 	assert.equal(await fixtureClickCount(missing, { windowId: 1 }), undefined);
 });
+
+test("R9: an unchanged counter is ambiguous only when the click activated the window", () => {
+	const base = { survived: true, delivery: "l2", outcome: "unknown", before: 1, after: 1 };
+	// The second B0 window could not tell these apart, which is why the activation readback exists.
+	const activated = judgeDirectedClick({ ...base, activated: true });
+	assert.equal(activated.result, "inconclusive");
+	assert.match(activated.reason, /activated the fixture window/);
+	const nothing = judgeDirectedClick({ ...base, activated: false });
+	assert.equal(nothing.result, "fail");
+	assert.match(nothing.reason, /readback unchanged at 1/);
+	// A click that was counted is a pass whether or not the window had to be activated first.
+	assert.equal(judgeDirectedClick({ ...base, after: 2, activated: true }).result, "pass");
+	assert.equal(judgeDirectedClick({ ...base, after: 3, activated: false }).result, "unknown");
+});

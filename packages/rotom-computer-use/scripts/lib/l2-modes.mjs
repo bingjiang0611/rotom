@@ -20,12 +20,19 @@
  * unchanged means the click did not land, and a jump of two means something else
  * clicked while we were watching.
  */
-export function judgeDirectedClick({ survived, delivery, outcome, before, after, expectedDelivery = "l2" }) {
+export function judgeDirectedClick({ survived, delivery, outcome, before, after, activated = false, expectedDelivery = "l2" }) {
 	if (!survived) return { result: "fail", reason: "helper did not survive the directed post" };
 	if (delivery !== expectedDelivery) return { result: "fail", reason: `expected delivery=${expectedDelivery}, got ${delivery}` };
 	if (typeof before === "number" && typeof after === "number") {
 		if (after === before + 1) return { result: "pass", reason: `readback ${before}->${after}` };
-		if (after === before) return { result: "fail", reason: `readback unchanged at ${before} (outcome=${outcome})` };
+		if (after === before) {
+			// AppKit spends the first click on an inactive window activating it, so "the counter
+			// did not move" and "the post never arrived" are different answers and only the
+			// activation readback tells them apart (the second B0 window could not).
+			return activated
+				? { result: "inconclusive", reason: `readback unchanged at ${before}, but the click activated the fixture window (outcome=${outcome})` }
+				: { result: "fail", reason: `readback unchanged at ${before} (outcome=${outcome})` };
+		}
 		return { result: "unknown", reason: `readback ${before}->${after} is not exactly one click (outcome=${outcome})` };
 	}
 	return { result: "inconclusive", reason: `no click counter to read (outcome=${outcome})` };
@@ -106,6 +113,10 @@ export async function runDirectL2({ fixture, fixtureRun, backend, helper, record
 		// answered by the app rather than by the helper's self-report.
 		const target = { windowId: root.windowId, rootRef: root.rootRef };
 		const effectBefore = action === "click" ? await fixtureClickCount(backend, target).catch(() => undefined) : undefined;
+		// Whether the fixture already holds activation decides what a first click can do, so it
+		// is read before the post and reported as a fact rather than judged as a failure.
+		const frontBefore = action === "click" ? await backend.getFrontmost().catch(() => undefined) : undefined;
+		const targetActive = frontBefore?.pid === fixture.pid;
 		const cursorBefore = await cursor();
 		let outcome = "unknown";
 		let delivery = "?";
@@ -121,8 +132,10 @@ export async function runDirectL2({ fixture, fixtureRun, backend, helper, record
 		const moved = Math.hypot(cursorAfter.x - cursorBefore.x, cursorAfter.y - cursorBefore.y) >= 1;
 		const survived = await alive();
 		const effectAfter = action === "click" ? await fixtureClickCount(backend, target).catch(() => undefined) : undefined;
+		const frontAfter = action === "click" ? await backend.getFrontmost().catch(() => undefined) : undefined;
+		const activated = Boolean(action === "click" && !targetActive && frontAfter?.pid === fixture.pid);
 		const judged = action === "click"
-			? judgeDirectedClick({ survived, delivery, outcome, before: effectBefore, after: effectAfter })
+			? judgeDirectedClick({ survived, delivery, outcome, before: effectBefore, after: effectAfter, activated })
 			: { result: !survived ? "fail" : outcome === "worked" ? "pass" : "inconclusive", reason: outcome };
 		record(
 			"direct L2",
@@ -131,13 +144,22 @@ export async function runDirectL2({ fixture, fixtureRun, backend, helper, record
 			`outcome=${outcome} delivery=${delivery} helperAlive=${survived} cursorMoved=${moved} judgedBy=${judged.reason} bundle=${fixtureRun?.bundleId ?? fixture.bundleId}${failure ? ` error=${failure}` : ""}`,
 		);
 		if (action === "click") {
+			record(
+				"direct L2",
+				"target active",
+				"recorded",
+				targetActive
+					? "the fixture was already the frontmost app before the post"
+					: `frontmost=${frontBefore?.appName ?? "?"} pid=${frontBefore?.pid ?? "?"}; a first click on an inactive window activates it instead of pressing the control`,
+			);
+			if (activated) record("direct L2", "activation", "pass", `the directed post activated the fixture window (frontmost ${frontBefore?.appName ?? "?"} → ${frontAfter?.appName ?? "?"})`);
 			// A second row, because the transport and the effect are different questions
 			// (the same split B6 needed). Only the first row is required by the contract.
 			const readable = typeof effectBefore === "number" && typeof effectAfter === "number";
 			record(
 				"direct L2",
 				"click effect",
-				!readable ? "skipped" : effectAfter === effectBefore + 1 ? "pass" : effectAfter === effectBefore ? "fail" : "unknown",
+				!readable ? "skipped" : effectAfter === effectBefore + 1 ? "pass" : effectAfter !== effectBefore ? "unknown" : activated ? "inconclusive" : "fail",
 				`before=clicks:${effectBefore ?? "?"} after=clicks:${effectAfter ?? "?"} outcome=${outcome}`,
 			);
 		}

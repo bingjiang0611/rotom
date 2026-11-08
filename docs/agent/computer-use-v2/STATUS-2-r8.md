@@ -143,3 +143,13 @@ B1 需要重做这个判定，且必须在一个真正安静且 fixture 被激�
 **自己引入的缺陷（已修）**：把复制/启动移进 `bringUpFixture` 之后，脚本里旧的
 `record("fixture","present","pass")` 没有删，于是本次存档同一个 pid 出现了两次（`05:38:31.526Z` 两行）。
 已删掉并给 dry run 加了“`fixture | present` 只能出现一次”的断言。
+
+**R9（`direct L2` 的激活与按压分开）**：`judgeDirectedClick` 增加 `activated` 输入。计数没动时，
+若这次 post 让 fixture 变成前台窗口，判 `inconclusive` 并写明“激活了窗口”，不再直接判 fail；
+同一情形在 `click effect` 行同样记 `inconclusive`。点击前后各读一次前台应用，新增两行：
+`direct L2 | target active`（`recorded`，说明 post 之前 fixture 是否已持有激活）与
+`direct L2 | activation`（`pass`，仅当 post 确实激活了窗口）。契约要求的 `direct L2 | click`
+行名与 `delivery=l2` 注记不变，B1 合同无需改动；计数真的 +1 时仍是 pass，与激活状态无关。
+fake backend 新增 `activate-only` 场景，dry run 执行该路径并断言三行（33 项 0 失败），
+`test/l2-modes.test.ts` 覆盖“激活/未激活/加一/异常增量”四种判定。213 项测试，
+唯一失败是已知的 `broker-scheduler` 并发超时，单跑 5/5 通过。
