@@ -379,22 +379,28 @@ for (const [protocolRevision, capabilities] of [
 	} finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
 });
 
-test("relay client 请求超时后销毁连接，避免复用卡死队列", async (t) => {
+test("relay client 单个请求超时或 abort 只失败自己，不关闭共享连接", async (t) => {
 	const socketPath = `/tmp/rotom-browser-relay-timeout-${process.pid}-${Date.now()}.sock`;
-	let socketClosed!: () => void;
-	const closed = new Promise<void>((resolve) => { socketClosed = resolve; });
+	const seen: any[] = [];
+	const sockets = new Set<any>();
+	const frame = (request: any, result: unknown) => `${JSON.stringify({ schemaVersion: 1, kind: "response", id: request.id, sessionId: request.sessionId, generation: request.generation, ok: true, result })}\n`;
 	const server = createServer((socket) => {
+		sockets.add(socket);
 		socket.setEncoding("utf8"); let buffer = "";
-		socket.on("close", () => socketClosed());
 		socket.on("data", (chunk) => {
 			buffer += chunk;
 			for (;;) {
 				const newline = buffer.indexOf("\n"); if (newline < 0) break;
 				const line = buffer.slice(0, newline); buffer = buffer.slice(newline + 1); if (!line) continue;
 				const request = JSON.parse(line);
-				if (request.operation !== "hello") continue;
-				const result = { schemaVersion: 1, kind: "rotom-browser-relay-ready", protocolRevision: 21, nonce: request.payload.nonce, capabilities: ["virtualized-frame-scroll", "multi-client-multiplex", "coordinate-click", "interaction-target-state", "page-alert-readback", "targeted-keypress", "snapshot-query"] };
-				socket.write(`${JSON.stringify({ schemaVersion: 1, kind: "response", id: request.id, sessionId: request.sessionId, generation: request.generation, ok: true, result })}\n`);
+				seen.push(request);
+				if (request.operation === "hello") {
+					socket.write(frame(request, { schemaVersion: 1, kind: "rotom-browser-relay-ready", protocolRevision: 21, nonce: request.payload.nonce, capabilities: ["virtualized-frame-scroll", "multi-client-multiplex", "coordinate-click", "interaction-target-state", "page-alert-readback", "targeted-keypress", "snapshot-query"] }));
+					continue;
+				}
+				// `slow` is never answered: the caller times out or aborts it.
+				if (request.operation === "slow") continue;
+				socket.write(frame(request, { operation: request.operation }));
 			}
 		});
 	});
@@ -402,10 +408,31 @@ test("relay client 请求超时后销毁连接，避免复用卡死队列", asyn
 	catch (error) { if ((error as NodeJS.ErrnoException).code === "EPERM") { t.skip("sandbox 禁止 Unix socket listen"); return; } throw error; }
 	try {
 		const client = await BrowserRelayClientV1.connect({ sessionId: "session-timeout", generation: "generation-timeout", socketPath });
-		await assert.rejects(client.request("snapshot", {}, { timeoutMs: 30 }), /browser relay snapshot timeout/u);
-		assert.equal(client.closed, true);
-		await Promise.race([closed, new Promise((_, reject) => setTimeout(() => reject(new Error("relay timeout socket close timeout")), 1_000))]);
-		await assert.rejects(client.request("tabs", {}), /browser relay client 已关闭/u);
+		// Two requests share one connection, as `browser_inspect` does across tabs.
+		const slow = client.request("slow", {}, { timeoutMs: 80 });
+		const sibling = client.request("tabs", {}, { timeoutMs: 2_000 });
+		await assert.rejects(slow, /browser relay slow timeout/u);
+		assert.deepEqual(await sibling, { operation: "tabs" }, "兄弟请求不受另一个 tab 的超时影响");
+		assert.equal(client.closed, false, "单个请求超时不得关闭 client");
+		assert.deepEqual(await client.request("tabs", {}), { operation: "tabs" }, "连接仍然可用");
+
+		// A late answer for the abandoned id is dropped instead of becoming protocol damage.
+		const abandoned = seen.find((request) => request.operation === "slow");
+		assert.ok(abandoned, "server 必须收到过那个慢请求");
+		for (const socket of sockets) socket.write(frame(abandoned, { operation: "slow", late: true }));
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		assert.equal(client.closed, false, "迟到的响应不得关闭连接");
+		assert.deepEqual(await client.request("tabs", {}), { operation: "tabs" });
+
+		// Abort is the same contract: only the aborted request fails.
+		const controller = new AbortController();
+		const aborted = client.request("slow", {}, { signal: controller.signal, timeoutMs: 2_000 });
+		const survivor = client.request("tabs", {}, { timeoutMs: 2_000 });
+		controller.abort(new Error("caller gave up"));
+		await assert.rejects(aborted, /caller gave up/u);
+		assert.deepEqual(await survivor, { operation: "tabs" });
+		assert.equal(client.closed, false, "abort 不得关闭 client");
+		client.close();
 	} finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
 });
 

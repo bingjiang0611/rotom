@@ -16,11 +16,12 @@ import {
 const ROOT = "session-root";
 const TOKEN = "run-abc123";
 const ORIGIN = "https://example.test";
+const ORIGIN_ENTRY = { origin: ORIGIN, capabilities: ["read", "interact", "devtools", "upload", "download"] };
 
 const scope = (overrides = {}) => JSON.stringify({
 	schemaVersion: 1,
 	rootSessionId: ROOT,
-	origins: [ORIGIN],
+	origins: [ORIGIN_ENTRY],
 	allow: { devtools: false, upload: false, download: false },
 	maxTabs: 4,
 	keepTabs: false,
@@ -35,13 +36,16 @@ async function privateRelayDir() {
 }
 
 test("lease: absent, expired, foreign origin and allow switches all refuse", () => {
-	const lease = { token: TOKEN, agentId: TOKEN, rootSessionId: ROOT, origins: [ORIGIN], allow: { devtools: false, upload: false, download: false }, maxTabs: 4, keepTabs: false, expiresAt: 1_000 };
-	assert.deepEqual(checkBrowserLeaseV1(undefined, { origin: ORIGIN, capability: "open", now: 0 }), { ok: false, kind: "needs-approval", origin: ORIGIN, capability: "open", reason: "missing" });
-	assert.deepEqual(checkBrowserLeaseV1(lease, { origin: ORIGIN, capability: "open", now: 1_001 }), { ok: false, kind: "needs-approval", origin: ORIGIN, capability: "open", reason: "expired" });
-	assert.deepEqual(checkBrowserLeaseV1(lease, { origin: "https://other.test", capability: "open", now: 0 }), { ok: false, kind: "needs-approval", origin: "https://other.test", capability: "open", reason: "origin" });
+	const lease = { token: TOKEN, agentId: TOKEN, rootSessionId: ROOT, origins: [ORIGIN_ENTRY], allow: { devtools: false, upload: false, download: false }, maxTabs: 4, keepTabs: false, expiresAt: 1_000 };
+	assert.deepEqual(checkBrowserLeaseV1(undefined, { origin: ORIGIN, capability: "interact", now: 0 }), { ok: false, kind: "needs-approval", origin: ORIGIN, capability: "interact", reason: "missing" });
+	assert.deepEqual(checkBrowserLeaseV1(lease, { origin: ORIGIN, capability: "interact", now: 1_001 }), { ok: false, kind: "needs-approval", origin: ORIGIN, capability: "interact", reason: "expired" });
+	assert.deepEqual(checkBrowserLeaseV1(lease, { origin: "https://other.test", capability: "interact", now: 0 }), { ok: false, kind: "needs-approval", origin: "https://other.test", capability: "interact", reason: "origin" });
 	assert.deepEqual(checkBrowserLeaseV1(lease, { origin: ORIGIN, capability: "download", now: 0 }), { ok: false, kind: "needs-approval", origin: ORIGIN, capability: "download", reason: "capability" });
-	assert.deepEqual(checkBrowserLeaseV1(lease, { origin: ORIGIN, capability: "open", now: 0 }), { ok: true });
-	assert.deepEqual(checkBrowserLeaseV1(lease, { origin: ORIGIN, capability: "write", now: 0 }), { ok: true });
+	assert.deepEqual(checkBrowserLeaseV1(lease, { origin: ORIGIN, capability: "interact", now: 0 }), { ok: true });
+	// The origin alone is not a grant: the entry must name the capability too.
+	const readOnly = { ...lease, expiresAt: Date.now() + 60_000, origins: [{ origin: ORIGIN, capabilities: ["read"] }] };
+	assert.deepEqual(checkBrowserLeaseV1(readOnly, { origin: ORIGIN, capability: "interact", now: 0 }), { ok: false, kind: "needs-approval", origin: ORIGIN, capability: "interact", reason: "capability" });
+	assert.deepEqual(checkBrowserLeaseV1(readOnly, { origin: ORIGIN, capability: "read", now: 0 }), { ok: true });
 	// Only http(s) origins are comparable; everything else has no origin to match.
 	assert.equal(leaseOriginV1("about:blank"), undefined);
 	assert.equal(leaseOriginV1("file:///etc/passwd"), undefined);
@@ -57,16 +61,16 @@ test("lease: a child materializes the inherited scope once, then the file is aut
 		assert.equal(created?.token, TOKEN);
 		assert.equal(created?.agentId, TOKEN, "the lease names the agent it was written for");
 		assert.equal(created?.rootSessionId, ROOT);
-		assert.deepEqual(created?.origins, [ORIGIN]);
+		assert.deepEqual(created?.origins, [ORIGIN_ENTRY]);
 
 		// The parent widens the lease by rewriting the file; the next check re-reads it.
 		const file = join(relayDir, "leases", `${TOKEN}.json`);
 		const stored = JSON.parse(await readFile(file, "utf8"));
 		assert.equal(stored.kind, "rotom-browser-lease");
-		await writeFile(file, JSON.stringify({ ...stored, origins: [ORIGIN, "https://added.test"] }));
+		await writeFile(file, JSON.stringify({ ...stored, origins: [ORIGIN_ENTRY, { origin: "https://added.test", capabilities: ["interact"] }] }));
 		const widened = await loadBrowserLeaseForCallV1({ relayDir, token: TOKEN, scope: process.env[BROWSER_LEASE_SCOPE_ENV_V1] });
-		assert.deepEqual(widened?.origins, [ORIGIN, "https://added.test"], "the file wins over the inherited scope");
-		assert.deepEqual(checkBrowserLeaseV1(widened, { origin: "https://added.test", capability: "open" }), { ok: true });
+		assert.deepEqual(widened?.origins, [ORIGIN_ENTRY, { origin: "https://added.test", capabilities: ["interact"] }], "the file wins over the inherited scope");
+		assert.deepEqual(checkBrowserLeaseV1(widened, { origin: "https://added.test", capability: "interact" }), { ok: true });
 	} finally {
 		if (scopeEnv === undefined) delete process.env[BROWSER_LEASE_SCOPE_ENV_V1];
 		else process.env[BROWSER_LEASE_SCOPE_ENV_V1] = scopeEnv;
@@ -78,18 +82,25 @@ test("lease: without a scope or token there is no lease to allow anything", asyn
 	assert.equal(await loadBrowserLeaseForCallV1({ relayDir, token: TOKEN, scope: undefined }), undefined);
 	assert.equal(await loadBrowserLeaseForCallV1({ relayDir, token: undefined, scope: scope() }), undefined);
 	assert.equal(await loadBrowserLeaseForCallV1({ relayDir, token: "../../etc/passwd", scope: scope() }), undefined);
-	assert.deepEqual(checkBrowserLeaseV1(await readBrowserLeaseV1(relayDir, TOKEN), { origin: ORIGIN, capability: "open" }), { ok: false, kind: "needs-approval", origin: ORIGIN, capability: "open", reason: "missing" });
+	assert.deepEqual(checkBrowserLeaseV1(await readBrowserLeaseV1(relayDir, TOKEN), { origin: ORIGIN, capability: "interact" }), { ok: false, kind: "needs-approval", origin: ORIGIN, capability: "interact", reason: "missing" });
 });
 
 test("lease: malformed, oversized, symlinked and world-readable leases are rejected", async () => {
 	const relayDir = await privateRelayDir();
 	assert.equal(await materializeBrowserLeaseV1(relayDir, "{", TOKEN), undefined);
-	assert.equal(await materializeBrowserLeaseV1(relayDir, scope({ origins: ["about:blank"] }), TOKEN), undefined);
+	assert.equal(await materializeBrowserLeaseV1(relayDir, scope({ origins: [{ origin: "about:blank", capabilities: ["interact"] }] }), TOKEN), undefined);
+	assert.equal(await materializeBrowserLeaseV1(relayDir, scope({ origins: [{ origin: ORIGIN, capabilities: ["write"] }] }), TOKEN), undefined, "未知 capability 一律拒绝");
 	assert.equal(await materializeBrowserLeaseV1(relayDir, scope({ maxTabs: -1 }), TOKEN), undefined);
 	assert.equal(await materializeBrowserLeaseV1(relayDir, scope({ allow: { devtools: "yes", upload: false, download: false } }), TOKEN), undefined);
 
-	const good = await materializeBrowserLeaseV1(relayDir, scope({ origins: ["https://ok.test"] }), "run-ok");
-	assert.deepEqual(good?.origins, ["https://ok.test"]);
+	// The pre-capability format (bare origin strings) is read as read-only: it names its
+	// origin but grants no capability, so it can never widen into interact.
+	const legacy = await materializeBrowserLeaseV1(relayDir, scope({ origins: [ORIGIN] }), "run-legacy");
+	assert.deepEqual(legacy?.origins, [{ origin: ORIGIN, capabilities: [] }]);
+	assert.deepEqual(checkBrowserLeaseV1(legacy, { origin: ORIGIN, capability: "interact" }), { ok: false, kind: "needs-approval", origin: ORIGIN, capability: "interact", reason: "capability" });
+
+	const good = await materializeBrowserLeaseV1(relayDir, scope({ origins: [{ origin: "https://ok.test", capabilities: ["interact"] }] }), "run-ok");
+	assert.deepEqual(good?.origins, [{ origin: "https://ok.test", capabilities: ["interact"] }]);
 	const file = join(relayDir, "leases", "run-ok.json");
 	await chmod(file, 0o644);
 	assert.equal(await readBrowserLeaseV1(relayDir, "run-ok"), undefined, "a group/world readable lease file is not trusted");
@@ -107,9 +118,9 @@ test("lease: malformed, oversized, symlinked and world-readable leases are rejec
 
 test("lease: an existing lease is never overwritten by a new scope", async () => {
 	const relayDir = await privateRelayDir();
-	await materializeBrowserLeaseV1(relayDir, scope({ origins: ["https://first.test"] }), TOKEN);
-	const second = await materializeBrowserLeaseV1(relayDir, scope({ origins: ["https://second.test"] }), TOKEN);
-	assert.deepEqual(second?.origins, ["https://first.test"]);
+	await materializeBrowserLeaseV1(relayDir, scope({ origins: [{ origin: "https://first.test", capabilities: ["interact"] }] }), TOKEN);
+	const second = await materializeBrowserLeaseV1(relayDir, scope({ origins: [{ origin: "https://second.test", capabilities: ["interact"] }] }), TOKEN);
+	assert.deepEqual(second?.origins, [{ origin: "https://first.test", capabilities: ["interact"] }]);
 });
 
 test("widenChildLeasesV1：只给本 run 的子 lease 加 origin，保留其它字段", async () => {
@@ -126,21 +137,26 @@ test("widenChildLeasesV1：只给本 run 的子 lease 加 origin，保留其它�
 		await writeFile(file, JSON.stringify({ schemaVersion: 1, kind: "rotom-browser-lease", token, agentId: token, rootSessionId, origins, allow: { devtools: false, upload: false, download: false }, maxTabs: 2, keepTabs: false, expiresAt: Date.now() + 60_000 }), { mode: 0o600 });
 		await chmod(file, 0o600);
 	};
-	await write("child-a", "root-1", ["https://a.test"]);
-	await write("child-b", "root-1", ["https://b.test"]);
-	await write("other-run", "root-2", ["https://c.test"]);
-	const widened = await widenChildLeasesV1({ relayDir, rootSessionId: "root-1", origin: "https://new.test" });
+	await write("child-a", "root-1", [{ origin: "https://a.test", capabilities: ["read"] }]);
+	await write("child-b", "root-1", [{ origin: "https://b.test", capabilities: ["interact"] }]);
+	await write("other-run", "root-2", [{ origin: "https://c.test", capabilities: ["interact"] }]);
+	const widened = await widenChildLeasesV1({ relayDir, rootSessionId: "root-1", origin: "https://new.test", capability: "interact" });
 	assert.deepEqual(widened, { updated: 2, skipped: 1 });
 	const a = JSON.parse(await readFile(join(leases, "child-a.json"), "utf8"));
-	assert.deepEqual(a.origins, ["https://a.test", "https://new.test"]);
+	assert.deepEqual(a.origins, [{ origin: "https://a.test", capabilities: ["read"] }, { origin: "https://new.test", capabilities: ["interact"] }]);
 	assert.equal(a.maxTabs, 2);
 	assert.equal(a.rootSessionId, "root-1");
 	const other = JSON.parse(await readFile(join(leases, "other-run.json"), "utf8"));
-	assert.deepEqual(other.origins, ["https://c.test"], "别的 run 的 lease 不能被动");
+	assert.deepEqual(other.origins, [{ origin: "https://c.test", capabilities: ["interact"] }], "别的 run 的 lease 不能被动");
+	// 同一 origin 再加别的 capability 是就地合并，不新增条目。
+	await widenChildLeasesV1({ relayDir, rootSessionId: "root-1", origin: "https://a.test", capability: "devtools", allow: { devtools: true } });
+	const merged = JSON.parse(await readFile(join(leases, "child-a.json"), "utf8"));
+	assert.deepEqual(merged.origins, [{ origin: "https://a.test", capabilities: ["read", "devtools"] }, { origin: "https://new.test", capabilities: ["interact"] }]);
+	assert.equal(merged.allow.devtools, true);
 	// 重复调用不再写入。
-	assert.deepEqual(await widenChildLeasesV1({ relayDir, rootSessionId: "root-1", origin: "https://new.test" }), { updated: 0, skipped: 3 });
+	assert.deepEqual(await widenChildLeasesV1({ relayDir, rootSessionId: "root-1", origin: "https://new.test", capability: "interact" }), { updated: 0, skipped: 3 });
 	// 非法 origin 不做任何事。
-	assert.deepEqual(await widenChildLeasesV1({ relayDir, rootSessionId: "root-1", origin: "file:///etc/passwd" }), { updated: 0, skipped: 0 });
+	assert.deepEqual(await widenChildLeasesV1({ relayDir, rootSessionId: "root-1", origin: "file:///etc/passwd", capability: "interact" }), { updated: 0, skipped: 0 });
 	const { rm } = await import("node:fs/promises");
 	await rm(root, { recursive: true, force: true });
 });

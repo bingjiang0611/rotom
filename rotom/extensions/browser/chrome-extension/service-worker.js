@@ -18,6 +18,8 @@ import { withTabWake } from "./lifecycle-wake.js";
 import { responseFramesV1 } from "./response-chunks.js";
 import { createMergedSessionWriter, isSessionStateKeyV3, LEGACY_SESSION_STATE_KEY_V1, LEGACY_SESSION_STATE_KEY_V2, legacyV1Sessions, legacyV2Sessions, serializeSessionStateV3, sessionStateKeyV3 } from "./session-persistence.js";
 import { interactionScrollTarget } from "./interaction-scroll-target.js";
+import { raceDispatchAgainstDialog } from "./dispatch-race.js";
+import { captureScreenshotWithin } from "./screenshot-capture.js";
 import { createOperationGuard } from "./operation-guard.js";
 import { operationChrome } from "./operation-chrome.js";
 import { consumeMatchingWindowOpenSignal } from "./window-open-correlation.js";
@@ -64,6 +66,15 @@ const SCROLL_SETTLE_MS = 100;
 const PAGE_ALERT_WAIT_MS = 500;
 const NATIVE_RECONNECT_ALARM = "rotom-browser-relay-reconnect";
 const FULL_READ_COMMAND_WAIT_MS = 750;
+// `scrollTargetTo` waits for two painted frames instead of a fixed delay, so its bound has
+// to outlast a renderer that resumed animation frames late. A healthy page answers in
+// milliseconds; a renderer that never paints still stops at the operation deadline.
+const FULL_READ_SCROLL_WAIT_MS = 2_000;
+// Focus emulation makes a background tab visible, but the effect is not synchronous: a
+// scroll issued before the page reports `visible` waits for frames the frozen renderer
+// never delivers and the container looks unrendered. Confirm it instead of assuming it.
+const FULL_READ_VISIBLE_WAIT_MS = 1_000;
+const FULL_READ_VISIBLE_POLL_MS = 20;
 // The render window is an upper bound, not a fixed cost: after a scroll the reader polls
 // the container until its text and scrollHeight stop changing, because a static page is
 // ready as soon as the scroll position is and only lazy content needs the rest of it.
@@ -807,7 +818,7 @@ async function fullRenderedTextSource(debuggee, scopeId, remainingSteps, assertO
 			const original = await debuggerCommandWithin(debuggee, "Runtime.callFunctionOn", { objectId: targetObjectId, functionDeclaration: scrollTargetState.toString(), returnByValue: true });
 			if (!record(original?.result?.value)) { endReached = false; continue; }
 			const originalTop = Number(original.result.value.top) || 0;
-			let rendered = await debuggerCommandWithin(debuggee, "Runtime.callFunctionOn", { objectId: targetObjectId, arguments: [{ value: 0 }], functionDeclaration: scrollTargetTo.toString(), returnByValue: true, awaitPromise: true });
+			let rendered = await debuggerCommandWithin(debuggee, "Runtime.callFunctionOn", { objectId: targetObjectId, arguments: [{ value: 0 }], functionDeclaration: scrollTargetTo.toString(), returnByValue: true, awaitPromise: true }, FULL_READ_SCROLL_WAIT_MS);
 			await delay(FULL_READ_RENDER_WAIT_MS);
 			scannedContainers += 1;
 			let targetComplete = false;
@@ -884,7 +895,7 @@ async function fullRenderedTextSource(debuggee, scopeId, remainingSteps, assertO
 				previousHeight = scrollHeight;
 				previousTop = top;
 				previousClientHeight = clientHeight;
-				rendered = await debuggerCommandWithin(debuggee, "Runtime.callFunctionOn", { objectId: targetObjectId, arguments: [{ value: nextTop }], functionDeclaration: scrollTargetTo.toString(), returnByValue: true, awaitPromise: true });
+				rendered = await debuggerCommandWithin(debuggee, "Runtime.callFunctionOn", { objectId: targetObjectId, arguments: [{ value: nextTop }], functionDeclaration: scrollTargetTo.toString(), returnByValue: true, awaitPromise: true }, FULL_READ_SCROLL_WAIT_MS);
 				const settled = await settleAfterScroll(state);
 				settledState = settled.state;
 				// One step that happened to change something (a late font, a lazy image) must
@@ -920,6 +931,7 @@ async function fullObservation(name, item, assertOperation) {
 	// Reuse the background interaction primitive: allow rendering without selecting
 	// the tab or focusing its window. Each scroll also proves a rendered frame.
 	return withFocusEmulation({ tabId: item.tabId }, async () => {
+		await waitForVisiblePage(item, assertOperation);
 		const root = await fullRenderedTextSource({ tabId: item.tabId }, "r", FULL_READ_MAX_STEPS, assertOperation);
 		let remainingSteps = Math.max(0, FULL_READ_MAX_STEPS - root.scanSteps);
 		const sources = [root];
@@ -1038,7 +1050,7 @@ async function interactionTarget(name, item, payload, assertOperation) {
 	}
 	if (action === "click" && payload.targetRef === undefined) {
 		const debuggee = { tabId: item.tabId };
-		const metrics = await chrome.debugger.sendCommand(debuggee, "Page.getLayoutMetrics");
+		const metrics = await layoutMetricsWithin(debuggee, assertOperation);
 		const point = validateCoordinateBinding(item, payload, metrics);
 		const hit = await coordinateHitTarget(debuggee, point, assertOperation);
 		await assertOwned(item);
@@ -1105,11 +1117,35 @@ async function coordinateHitTarget(debuggee, point, assertOperation) {
 	const hit = validateCoordinateHit({ backendNodeId: located.value.backendNodeId, nodeName: described.value?.node?.localName || described.value?.node?.nodeName });
 	return hit;
 }
+// A hung CDP command holds the tab lock until the whole operation deadline, and structural
+// operations queue behind it, so layout metrics get their own bound too.
+const LAYOUT_METRICS_WAIT_MS = 3_000;
+/** `Page.getLayoutMetrics` with its own bound: a hung metrics call must not hold the tab lock. */
+async function layoutMetricsWithin(debuggee, assertOperation) {
+	const chrome = operationChrome(globalThis.chrome, assertOperation);
+	const bounded = await valueWithinRelayDeadline(chrome.debugger.sendCommand(debuggee, "Page.getLayoutMetrics"), LAYOUT_METRICS_WAIT_MS);
+	if (!bounded.ok) throw new Error("browser relay layout metrics timeout");
+	assertOperation();
+	return bounded.value;
+}
 async function withFocusEmulation(debuggee, action, assertOperation) {
 	const chrome = operationChrome(globalThis.chrome, assertOperation);
 	await chrome.debugger.sendCommand(debuggee, "Emulation.setFocusEmulationEnabled", { enabled: true });
 	try { return await action(); }
 	finally { await chrome.debugger.sendCommand(debuggee, "Emulation.setFocusEmulationEnabled", { enabled: false }); }
+}
+/**
+ * Wait (bounded) until the tab reports `visible` after focus emulation. The answer is not
+ * reported: if the page never becomes visible the read still runs and marks containers it
+ * could not get a frame for as unconfirmed, which is the honest outcome.
+ */
+async function waitForVisiblePage(item, assertOperation) {
+	const startedAt = Date.now();
+	for (;;) {
+		if (await readVisibilityState(item, assertOperation) === "visible") return;
+		if (Date.now() - startedAt >= FULL_READ_VISIBLE_WAIT_MS) return;
+		await delay(FULL_READ_VISIBLE_POLL_MS);
+	}
 }
 async function withBackgroundActivationGuard(item, action, assertOperation) {
 	const chrome = operationChrome(globalThis.chrome, assertOperation);
@@ -1267,7 +1303,7 @@ async function performInteraction(name, item, payload, assertOperation = () => u
 		const currentUrl = safeUrl(tab.url);
 		const currentOrigin = itemOriginV1(currentUrl);
 		if (currentOrigin === undefined || !payload.allowedOrigins.includes(currentOrigin)) {
-			return { schemaVersion: 1, kind: "needs-approval", tabName: name, origin: currentOrigin ?? "", capability: "write", reason: "origin" };
+			return { schemaVersion: 1, kind: "needs-approval", tabName: name, origin: currentOrigin ?? "", capability: "interact", reason: "origin" };
 		}
 	}
 	if (payload.allowDownload !== undefined) {
@@ -1515,17 +1551,18 @@ async function performInteraction(name, item, payload, assertOperation = () => u
 			effect = { dispatch: "mouseWheel", dispatchSettled: dispatched.ok, x: point.x, y: point.y, scrollBefore: Number.isFinite(before) ? before : null, scrollAfter: Number.isFinite(after) ? after : null, moved: Number.isFinite(before) && Number.isFinite(after) ? before !== after : null, scrollTargetRef: target.scrollTargetRef, scrollScope: target.scrollScope };
 		}
 	};
-	const raced = await Promise.race([
-		dispatchAction().then(() => ({ settled: true })),
-		(async () => {
-			for (let attempt = 0; attempt < 120; attempt += 1) {
-				const dialog = dialogState.get(item.tabId);
-				if (dialog !== undefined) return { dialog };
-				await new Promise((resolve) => setTimeout(resolve, 25));
-			}
-			return { settled: true };
-		})(),
-	]);
+	// A dialog suspends the page, so the dispatch cannot finish while one is open: watch for
+	// it during the dispatch. "No dialog yet" is not a completion — answering settled there
+	// would return before the action finished, release the tab lock under it, and drop the
+	// action's own effect fields. A dispatch that outlives the operation deadline is
+	// reported as a timeout, which the client turns into unknown, never into success.
+	const raced = await raceDispatchAgainstDialog({
+		dispatch: dispatchAction,
+		dialog: () => dialogState.get(item.tabId),
+		deadlineMs: relayOperationDeadlineMs("interact", payload),
+		pollMs: INTERACTION_SETTLE_POLL_MS,
+	});
+	if (raced.timedOut !== undefined) throw new Error("browser interaction dispatch timeout: 动作仍在执行，结果 unknown");
 	if (raced.dialog !== undefined) {
 		await assertOwned(item);
 		const tab = await chrome.tabs.get(item.tabId);
@@ -1625,7 +1662,7 @@ async function navigateOwned(name, item, payload, assertOperation) {
 	const destination = await navigationDestinationV1(debuggee, payload);
 	assertOperation();
 	const allowed = navigationAllowedV1(allowedOrigins, destination.url);
-	if (!allowed.ok) return { schemaVersion: 1, kind: "needs-approval", origin: allowed.origin, capability: "open", reason: "origin", message: `当前 lease 未授权导航到 ${allowed.origin || "(未知来源)"}；该操作没有发出请求，需要父 agent 更新 lease 后重试。` };
+	if (!allowed.ok) return { schemaVersion: 1, kind: "needs-approval", origin: allowed.origin, capability: "interact", reason: "origin", message: `当前 lease 未授权导航到 ${allowed.origin || "(未知来源)"}；该操作没有发出请求，需要父 agent 更新 lease 后重试。` };
 	// Bump here, and record the destination before dispatching, so tabs.onUpdated does not
 	// count the same navigation a second time. Refs and coordinates from the old document
 	// are invalid from this point on; reload changes no URL and needs our own bump.
@@ -1915,9 +1952,13 @@ async function handleOperation(state, operation, payload, expectedEpoch, assertO
 		await attach(item, assertOperation);
 		await assertOwned(item);
 		const debuggee = { tabId: item.tabId };
-		const metricsBefore = await chrome.debugger.sendCommand(debuggee, "Page.getLayoutMetrics");
-		const captured = await chrome.debugger.sendCommand(debuggee, "Page.captureScreenshot", { format: "jpeg", quality: 55, fromSurface: true, captureBeyondViewport: false });
-		const metricsAfter = await chrome.debugger.sendCommand(debuggee, "Page.getLayoutMetrics");
+		const chrome = operationChrome(globalThis.chrome, assertOperation);
+		// Bounded per command: a capture that never resolves is reported as a timeout that
+		// releases the tab lock, instead of holding `hello`/`tabs`/`close` behind it.
+		const { metricsBefore, captured, metricsAfter } = await captureScreenshotWithin({
+			sendCommand: (method, parameters) => chrome.debugger.sendCommand(debuggee, method, parameters),
+			assertOperation,
+		});
 		if (typeof captured?.data !== "string" || Math.ceil(captured.data.length * 3 / 4) > MAX_SCREENSHOT_BYTES) throw new Error("screenshot exceeds relay limit");
 		const beforeViewport = coordinateViewport(metricsBefore);
 		const afterViewport = coordinateViewport(metricsAfter);

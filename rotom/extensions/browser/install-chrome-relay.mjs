@@ -32,6 +32,9 @@ const supportDir = browserRelayDirectoryV1({ platform, home });
 const currentDir = join(supportDir, "current");
 const extensionDir = join(currentDir, "chrome-extension");
 const nativeHostPath = join(currentDir, "native-host.mjs");
+// Exactly what `materialize` writes, in sorted order: the extension directory plus the two
+// host modules. Anything else means the stable directory is not ours to trust.
+const INSTALLED_COMPONENT_ENTRIES = Object.freeze(["chrome-extension", "native-host.mjs", "platform-paths.mjs"]);
 const launcherPath = join(supportDir, platform === "win32" ? "native-host-launcher.cmd" : "native-host-launcher.sh");
 const installLock = join(supportDir, ".install.lock");
 // Windows Chrome reads the host path from the registry, so the manifest lives next to the
@@ -110,6 +113,7 @@ async function componentFiles(base, privateFiles = false) {
 		} finally { await handle.close(); }
 	}
 	await visit("native-host.mjs");
+	await visit("platform-paths.mjs"); // native-host.mjs imports it relatively
 	await visit("chrome-extension");
 	if (!files.has("chrome-extension/manifest.json") || !files.has("chrome-extension/service-worker.js")) throw new ComponentIdentityError("browser component 入口缺失");
 	return files;
@@ -143,7 +147,7 @@ async function installedState() {
 		}
 		directoryExists = true;
 		const names = (await readdir(currentDir)).sort();
-		if (JSON.stringify(names) !== JSON.stringify(["chrome-extension", "native-host.mjs"])) return { state: "invalid" };
+		if (JSON.stringify(names) !== JSON.stringify(INSTALLED_COMPONENT_ENTRIES)) return { state: "invalid" };
 		return { state: "ready", ...componentDigests(await componentFiles(currentDir, true)) };
 	} catch (error) {
 		if (error instanceof ComponentIdentityError) return { state: "invalid" };

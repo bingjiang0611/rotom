@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { chmod, cp, lstat, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import test from "node:test";
-import { browserRelayDirectoryV1 } from "./platform-paths.mjs";
+import { browserRelayDirectoryV1, browserRelaySocketPathV1 } from "./platform-paths.mjs";
 
 const root = import.meta.dirname;
 
@@ -51,6 +52,31 @@ test("stable component directory upgrades in place across releases and rejects c
 	const launcher = await readFile(first.launcherPath, "utf8");
 	assert.ok(!launcher.includes(releaseA)); assert.ok(!launcher.includes(root));
 	assert.ok(launcher.includes(join(relayDir, "current", "native-host.mjs")), "launcher execs the stable native host path");
+
+	// The installed host has to run from the stable directory alone: its relative imports
+	// (platform-paths.mjs) must be materialized next to it, not left behind in the release.
+	// A dedicated HOME keeps the relay directory exactly as the installer left it, because
+	// the host deliberately refuses one it did not create itself.
+	// Short root: the relay socket lives under HOME and must stay within sun_path.
+	const hostHome = await mkdtemp("/tmp/browser-host-home-");
+	t.after(() => rm(hostHome, { recursive: true, force: true }));
+	const hostInstall = run(releaseA, "install", hostHome);
+	assert.equal(hostInstall.status, 0, hostInstall.stderr);
+	const installedHost = join(dirname(JSON.parse(hostInstall.stdout).extensionDir), "native-host.mjs");
+	const socketPath = browserRelaySocketPathV1({ platform: process.platform, home: hostHome, env: {} });
+	// Keep stdin open so it stays a native-messaging host, then wait for its socket.
+	const hostChild = spawn(process.execPath, [installedHost], { env: { ...process.env, HOME: hostHome, XDG_RUNTIME_DIR: undefined }, stdio: ["pipe", "pipe", "pipe"] });
+	let hostStderr = "";
+	hostChild.stderr.setEncoding("utf8");
+	hostChild.stderr.on("data", (chunk) => { hostStderr = `${hostStderr}${chunk}`.slice(-2_048); });
+	try {
+		const deadline = Date.now() + 15_000;
+		while (!existsSync(socketPath) && Date.now() < deadline && hostChild.exitCode === null) await new Promise((done) => setTimeout(done, 50));
+		assert.equal(/ERR_MODULE_NOT_FOUND|Cannot find module/u.test(hostStderr), false, `安装后的 native host 不能缺模块：${hostStderr.slice(0, 300)}`);
+		assert.equal(existsSync(socketPath), true, `安装后的 native host 必须发布 socket（exit=${hostChild.exitCode}，stderr=${hostStderr.slice(0, 300)}）`);
+	} finally {
+		hostChild.kill("SIGKILL");
+	}
 
 	// A deleted release plus unrelated product-file churn must not change the component.
 	await rm(releaseA, { recursive: true });

@@ -21,17 +21,19 @@ export async function run({ harness, fixtures, recorder, workspace }) {
 	await chmod(leaseDir, 0o700);
 	const leaseFile = join(leaseDir, `${TOKEN}.json`);
 
-	// A child scope names exactly one origin: the one the fixture server answers on.
+	// A child scope names exactly one origin: the one the fixture server answers on. The
+	// entry carries the capability too, so a read-only grant can never become a write.
 	const allowed = new URL(fixtures.url("/baseline")).origin;
-	const writeLease = async (origins, expiresAt = Date.now() + 60_000) => {
-		await writeFile(leaseFile, JSON.stringify({ schemaVersion: 1, kind: "rotom-browser-lease", token: TOKEN, agentId: TOKEN, rootSessionId: "e2e-root", origins, allow: { devtools: false, upload: false, download: false }, maxTabs: 4, keepTabs: false, expiresAt }), { mode: 0o600 });
+	const entry = (origin, capabilities = ["interact"]) => ({ origin, capabilities });
+	const writeLease = async (origins, expiresAt = Date.now() + 60_000, allow = { devtools: false, upload: false, download: false }) => {
+		await writeFile(leaseFile, JSON.stringify({ schemaVersion: 1, kind: "rotom-browser-lease", token: TOKEN, agentId: TOKEN, rootSessionId: "e2e-root", origins, allow, maxTabs: 4, keepTabs: false, expiresAt }), { mode: 0o600 });
 		await chmod(leaseFile, 0o600);
 	};
 	const scopeEnv = process.env.ROTOM_BROWSER_LEASE_SCOPE;
 	const tokenEnv = process.env.ROTOM_BROWSER_LEASE;
 	// The main agent publishes its scope into the environment; here it is the fixture
 	// origin, which is what a parent that already opened the site would publish.
-	process.env.ROTOM_BROWSER_LEASE_SCOPE = JSON.stringify({ schemaVersion: 1, rootSessionId: "e2e-root", origins: [allowed], allow: { devtools: false, upload: false, download: false }, maxTabs: 4, keepTabs: false, expiresAt: Date.now() + 60_000 });
+	process.env.ROTOM_BROWSER_LEASE_SCOPE = JSON.stringify({ schemaVersion: 1, rootSessionId: "e2e-root", origins: [entry(allowed)], allow: { devtools: false, upload: false, download: false }, maxTabs: 4, keepTabs: false, expiresAt: Date.now() + 60_000 });
 	const tools = await loadBrowserTools({ socketPath: harness.socketPath, workspace });
 	const restoreEnv = () => {
 		if (scopeEnv === undefined) delete process.env.ROTOM_BROWSER_LEASE_SCOPE; else process.env.ROTOM_BROWSER_LEASE_SCOPE = scopeEnv;
@@ -48,7 +50,7 @@ export async function run({ harness, fixtures, recorder, workspace }) {
 		process.env.ROTOM_BROWSER_LEASE = TOKEN;
 		child = await loadBrowserTools({ socketPath: harness.socketPath, workspace });
 		await recorder.check("没有 lease 的子 agent 被本地拒绝", async () => {
-			await writeLease([allowed]);
+			await writeLease([entry(allowed)]);
 			await chmod(leaseFile, 0o644);
 			const result = await child.inspect({ operation: "open", tabName: "lease-none", url: deniedOrigin, limit: 5 });
 			assert.equal(result.details.kind, "needs-approval");
@@ -58,13 +60,13 @@ export async function run({ harness, fixtures, recorder, workspace }) {
 
 		// 2. A lease that covers another origin refuses this one, and the site is untouched.
 		await recorder.check("lease 未覆盖的 origin 返回 needs-approval 且没有网络请求", async () => {
-			await writeLease(["https://other.example.test"]);
+			await writeLease([entry("https://other.example.test")]);
 			const before = fixtures.requestsTo("/lease-target").length;
 			const result = await child.inspect({ operation: "open", tabName: "lease-denied", url: deniedOrigin, limit: 5 });
 			assert.equal(result.details.kind, "needs-approval");
 			assert.equal(result.details.reason, "origin");
 			assert.equal(result.details.origin, new URL(deniedOrigin).origin);
-			assert.equal(result.details.capability, "open");
+			assert.equal(result.details.capability, "interact");
 			assert.match(result.content[0].text, /needs-approval/u);
 			// Chrome would have requested the page if the open had been dispatched.
 			assert.equal(fixtures.requestsTo("/lease-target").length, before, "拒绝的 open 不得让站点收到请求");
@@ -72,7 +74,7 @@ export async function run({ harness, fixtures, recorder, workspace }) {
 
 		// 3. An expired lease refuses even an origin it lists.
 		await recorder.check("过期 lease 同样拒绝", async () => {
-			await writeLease([allowed], Date.now() - 1_000);
+			await writeLease([entry(allowed)], Date.now() - 1_000);
 			const result = await child.inspect({ operation: "open", tabName: "lease-expired", url: fixtures.url("/baseline"), limit: 5 });
 			assert.equal(result.details.kind, "needs-approval");
 			assert.equal(result.details.reason, "expired");
@@ -81,7 +83,7 @@ export async function run({ harness, fixtures, recorder, workspace }) {
 
 		// 4. The parent widens the lease file; the child re-reads it per call and passes.
 		await recorder.check("父 agent 更新 lease 后放行", async () => {
-			await writeLease([allowed]);
+			await writeLease([entry(allowed)]);
 			const opened = await child.inspect({ operation: "open", tabName: "lease-allowed", url: fixtures.url("/baseline"), limit: 5 });
 			assert.equal(opened.details.kind, "observation");
 			assert.equal(opened.details.observation.tabName, "lease-allowed");
@@ -96,24 +98,30 @@ export async function run({ harness, fixtures, recorder, workspace }) {
 			assert.ok(targetRef, "需要至少一个可选中的 ref");
 			const allowedClick = await child.interact({ operation: "execute", tabName: "lease-allowed", action: "click", targetRef });
 			assert.equal(allowedClick.details.kind, "browser-interaction-result", "lease 覆盖该 origin 时写操作放行");
-			await writeLease(["https://other.example.test"]);
+			await writeLease([entry("https://other.example.test")]);
 			const deniedClick = await child.interact({ operation: "execute", tabName: "lease-allowed", action: "click", targetRef });
 			assert.equal(deniedClick.details.kind, "needs-approval");
-			assert.equal(deniedClick.details.capability, "write");
+			assert.equal(deniedClick.details.capability, "interact");
 			assert.equal(deniedClick.details.reason, "origin");
+			// Same origin, read-only capability: naming it is not enough to write there.
+			await writeLease([entry(allowed, ["read"])]);
+			const readOnlyClick = await child.interact({ operation: "execute", tabName: "lease-allowed", action: "click", targetRef });
+			assert.equal(readOnlyClick.details.kind, "needs-approval");
+			assert.equal(readOnlyClick.details.capability, "interact");
+			assert.equal(readOnlyClick.details.reason, "capability", "lease 只给了 read，不能变成 interact");
 		});
 
 		// 5b. navigate follows the same lease rule as open.
 		await recorder.check("navigate 到 lease 外的 origin 也被拒绝，且没有网络请求", async () => {
-			await writeLease([allowed]);
+			await writeLease([entry(allowed)]);
 			await child.inspect({ operation: "navigate", tabName: "lease-allowed", url: fixtures.url("/license-target"), limit: 5 });
-			await writeLease(["https://other.example.test"]);
+			await writeLease([entry("https://other.example.test")]);
 			const before = fixtures.requestsTo("/lease-target").length;
 			const denied = await child.inspect({ operation: "navigate", tabName: "lease-allowed", url: deniedOrigin, limit: 5 });
 			assert.equal(denied.details.kind, "needs-approval");
 			assert.equal(denied.details.reason, "origin");
 			assert.equal(fixtures.requestsTo("/lease-target").length, before, "被拒绝的 navigate 不得让站点收到请求");
-			await writeLease([allowed]);
+			await writeLease([entry(allowed)]);
 			const allowedNavigate = await child.inspect({ operation: "navigate", tabName: "lease-allowed", url: fixtures.url("/popup"), limit: 5 });
 			assert.equal(allowedNavigate.details.kind, "observation", "lease 覆盖时 navigate 放行");
 			assert.ok(fixtures.requestsTo("/popup").length > 0, "放行后站点必须真的收到请求");
@@ -129,7 +137,7 @@ export async function run({ harness, fixtures, recorder, workspace }) {
 			await writeFile(file, body);
 			const sha256 = createHash("sha256").update(body).digest("hex");
 			try {
-				await writeLease([allowed]);
+				await writeLease([entry(allowed)]);
 				await child.inspect({ operation: "open", tabName: "lease-upload", url: fixtures.url("/upload"), limit: 5 });
 				await child.inspect({ operation: "wait", tabName: "lease-upload", status: "complete", timeoutMs: 10_000 });
 				const snapshot = await child.inspect({ operation: "snapshot_visible", tabName: "lease-upload", limit: 100 });
@@ -140,7 +148,8 @@ export async function run({ harness, fixtures, recorder, workspace }) {
 				assert.equal(denied.details.kind, "needs-approval");
 				assert.equal(denied.details.capability, "upload");
 				assert.equal(fixtures.uploads.length, before, "被拒绝的上传不得让站点收到文件");
-				await writeFile(leaseFile, JSON.stringify({ schemaVersion: 1, kind: "rotom-browser-lease", token: TOKEN, agentId: TOKEN, rootSessionId: "e2e-root", origins: [allowed], allow: { devtools: false, upload: true, download: false }, maxTabs: 4, keepTabs: false, expiresAt: Date.now() + 60_000 }), { mode: 0o600 });
+				// The upload switch alone is not a grant: the entry must name upload as well.
+				await writeLease([entry(allowed, ["interact", "upload"])], Date.now() + 60_000, { devtools: false, upload: true, download: false });
 				const uploaded = await child.interact({ operation: "execute", tabName: "lease-upload", action: "upload", targetRef: input.ref, paths: [file] });
 				assert.equal(uploaded.details.kind, "browser-interaction-result", "allow.upload 为 true 时放行");
 				for (let attempt = 0; attempt < 50; attempt += 1) {
