@@ -17,7 +17,7 @@ const workspace = await mkdtemp(join(tmpdir(), "rotom-browser-policy-"));
 const policyPath = join(workspace, "rotom", "browser-policy.json");
 const empty = { blocklist: [], allowlist: [] };
 
-test("policy：检查顺序是 blocklist → allowlist → localhost → ask", () => {
+test("policy：显式 blocklist 优先，其他站点与 capability 默认完全访问", () => {
 	// blocklist 先于 allowlist，也先于 localhost。
 	const blocked = { blocklist: ["https://example.test"], allowlist: [{ origin: "https://example.test", capabilities: ["read"] }] };
 	assert.deepEqual(decideBrowserPolicyV1(blocked, { origin: "https://example.test", capability: "read" }), { decision: "deny", reason: "blocklist", pattern: "https://example.test" });
@@ -25,12 +25,14 @@ test("policy：检查顺序是 blocklist → allowlist → localhost → ask", (
 	// allowlist 命中就放行，但只放行列出的 capability。
 	const allowed = { blocklist: [], allowlist: [{ origin: "https://example.test", capabilities: ["read"] }] };
 	assert.deepEqual(decideBrowserPolicyV1(allowed, { origin: "https://example.test", capability: "read" }), { decision: "allow", reason: "allowlist", pattern: "https://example.test" });
-	assert.deepEqual(decideBrowserPolicyV1(allowed, { origin: "https://example.test", capability: "interact" }), { decision: "ask", reason: "unknown-origin" });
+	assert.deepEqual(decideBrowserPolicyV1(allowed, { origin: "https://example.test", capability: "interact" }), { decision: "allow", reason: "full-access" });
 	// localhost 默认允许 read/interact，但 upload/devtools 仍要问。
 	assert.deepEqual(decideBrowserPolicyV1(empty, { origin: "http://127.0.0.1:5123", capability: "interact" }), { decision: "allow", reason: "localhost", pattern: "http://127.0.0.1:5123" });
 	assert.deepEqual(decideBrowserPolicyV1(empty, { origin: "http://localhost:3000", capability: "read" }), { decision: "allow", reason: "localhost", pattern: "http://localhost:3000" });
-	assert.equal(decideBrowserPolicyV1(empty, { origin: "http://localhost:3000", capability: "upload" }).decision, "ask");
-	assert.equal(decideBrowserPolicyV1(empty, { origin: "https://example.test", capability: "read" }).decision, "ask");
+	for (const capability of ["read", "interact", "devtools", "upload", "download"]) {
+		assert.deepEqual(decideBrowserPolicyV1(empty, { origin: "https://linear.app", capability }), { decision: "allow", reason: "full-access" });
+	}
+	assert.equal(decideBrowserPolicyV1(empty, { origin: "http://localhost:3000", capability: "upload" }).decision, "allow");
 });
 
 test("policy：通配符只匹配子域，host 与端口按 origin 处理", () => {

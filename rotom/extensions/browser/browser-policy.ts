@@ -1,9 +1,6 @@
-// Per-site browser authorization (T20).
-//
-// The lease decides what a *subagent* may touch; this decides what *any* agent may touch
-// when the site has not been authorized yet. The order is fixed and testable: blocklist,
-// then allowlist, then localhost, then ask the user. Nothing here talks to a browser, so
-// every rule is unit-tested without a relay.
+// Browser access defaults to full access without per-site prompts.
+// Explicit blocklists still apply to every agent; child leases independently limit scope.
+// Existing allowlist files remain readable, but new sites need no persisted grant.
 
 import { constants } from "node:fs";
 import { lstat, mkdir, open, readFile, rename, rm } from "node:fs/promises";
@@ -26,9 +23,9 @@ export interface BrowserPolicyV1 {
 }
 
 export interface BrowserPolicyDecisionV1 {
-	decision: "allow" | "deny" | "ask";
-	reason: "blocklist" | "allowlist" | "localhost" | "unknown-origin";
-	/** Canonical pattern that matched, for the ask/refusal text. */
+	decision: "allow" | "deny";
+	reason: "blocklist" | "allowlist" | "localhost" | "full-access";
+	/** Canonical pattern that matched, for the decision/refusal text. */
 	pattern?: string;
 }
 
@@ -87,7 +84,7 @@ export function isLocalOriginV1(origin: string): boolean {
 	return url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]" || url.hostname === "::1";
 }
 
-/** Fixed order: blocklist, allowlist, localhost, ask. */
+/** Explicit blocks win; otherwise access is allowed without asking. */
 export function decideBrowserPolicyV1(policy: BrowserPolicyV1, input: { origin: string; capability: BrowserPolicyCapabilityV1 }): BrowserPolicyDecisionV1 {
 	const { origin, capability } = input;
 	const blocked = policy.blocklist.find((pattern) => policyMatchesOriginV1(pattern, origin));
@@ -96,7 +93,7 @@ export function decideBrowserPolicyV1(policy: BrowserPolicyV1, input: { origin: 
 	const allowed = policy.allowlist.find((entry) => policyMatchesOriginV1(entry.origin, origin) && entry.capabilities.includes(capability));
 	if (allowed !== undefined) return { decision: "allow", reason: "allowlist", pattern: allowed.origin };
 	if (isLocalOriginV1(origin) && (capability === "read" || capability === "interact")) return { decision: "allow", reason: "localhost", pattern: origin };
-	return { decision: "ask", reason: "unknown-origin" };
+	return { decision: "allow", reason: "full-access" };
 }
 
 function sanitizePolicyV1(value: unknown): BrowserPolicyV1 {

@@ -29,16 +29,10 @@ for (const name of names) {
 		fixtures = await createFixtureServer();
 		harness = await launchHarness({ startUrl: suite.startUrlPage ? fixtures.url(suite.startUrlPage) : undefined });
 		await waitForRelay(harness);
-		// Grant the fixture sites explicitly: a local origin only implies read/interact, so
-		// upload/devtools-style suites must authorize them the way a user would.
-		// Sensitive-action confirmation is a per-action user decision, and the fixture site is
-		// on 127.0.0.1, so the suites approve automatically. The `confirm` suite turns this
-		// switch off to observe the refusal path.
+		// Main agents need no site grants. Child-agent fixture actions retain the local
+		// development exception; the confirm suite disables it to verify full access.
 		process.env.ROTOM_BROWSER_CONFIRM = "auto-approve-localhost";
-		await installSuiteBrowserPolicy(harness, {
-			blocklist: [],
-			allowlist: [fixtures.origin, fixtures.frameOrigin].map((origin) => ({ origin, capabilities: ["read", "interact", "upload", "devtools", "download"] })),
-		});
+		await installSuiteBrowserPolicy(harness, { blocklist: [], allowlist: [] });
 		await suite.run({
 			harness,
 			fixtures,

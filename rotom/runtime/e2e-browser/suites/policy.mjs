@@ -1,7 +1,7 @@
-// policy (T20): per-site authorization, and the origin re-check after a redirect.
+// Full-access policy defaults, explicit blocklists, and the redirect origin re-check.
 //
 // Two layers are under test here, and they are not the same layer:
-//   * the Pi tool layer asks (or refuses) before it sends anything, using the policy file;
+//   * the Pi tool layer allows by default but enforces explicit blocklists before dispatch;
 //   * the relay re-checks the tab's current origin against the origins the caller
 //     authorized, so a server-side 30x cannot silently widen a write.
 // Neither layer may dispatch the write it refused: the fixture page records a click in
@@ -12,7 +12,7 @@ import { writeFile } from "node:fs/promises";
 import { loadBrowserTools } from "../browser-tools.mjs";
 import { installSuiteBrowserPolicy, relayRequestFor } from "../harness.mjs";
 
-export const description = "policy：blocklist 拒绝、upload 单独授权、重定向后 origin 复核";
+export const description = "policy：默认完全访问、blocklist 拒绝、重定向后 origin 复核";
 
 const NODE_NAME = "upload input";
 
@@ -41,29 +41,31 @@ export async function run({ harness, fixtures, recorder, workspace }) {
 			assert.equal(fixtures.requestsTo("/baseline").length, 0, "被拒绝的 open 不得真的发出请求");
 		});
 
-		await recorder.check("允许 read/interact 不等于允许 upload：capability 分开授权", async () => {
+		await recorder.check("旧 allowlist 只有 read/interact 也不限制主 agent 的 upload", async () => {
 			await read({ blocklist: [], allowlist: [{ origin: fixtures.origin, capabilities: ["read", "interact"] }] });
 			await tools.inspect({ operation: "open", tabName, url: fixtures.url("/upload") });
 			await tools.inspect({ operation: "wait", tabName, status: "complete", timeoutMs: 10_000 });
 			const { node } = await nodeNamed(NODE_NAME);
 			const path = `${harness.root}/policy-upload.txt`;
 			await writeFile(path, "policy upload payload\n");
-			const refused = await tools.interact({ operation: "execute", tabName, action: "upload", targetRef: node.ref, paths: [path] });
-			assert.equal(refused.details.kind, "needs-approval", JSON.stringify(refused.details));
-			assert.equal(refused.details.capability, "upload");
-			assert.equal(fixtures.uploads.length, 0, "没有 upload 授权时不得真的设置文件");
+			const before = fixtures.uploads.length;
+			const result = await tools.interact({ operation: "execute", tabName, action: "upload", targetRef: node.ref, paths: [path] });
+			assert.equal(result.details.kind, "browser-interaction-result", JSON.stringify(result.details));
+			for (let attempt = 0; attempt < 50 && fixtures.uploads.length === before; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+			assert.equal(fixtures.uploads.length, before + 1, "无需单独 upload 授权也真的上传一次");
 		});
 
-		await recorder.check("授权 upload 后同一操作放行", async () => {
-			await read({ blocklist: [], allowlist: [{ origin: fixtures.origin, capabilities: ["read", "interact", "upload"] }] });
+		await recorder.check("空 allowlist 也允许主 agent 上传", async () => {
+			await read({ blocklist: [], allowlist: [] });
+			const before = fixtures.uploads.length;
 			const { node } = await nodeNamed(NODE_NAME);
 			const body = "policy upload payload allowed\n";
 			const path = `${harness.root}/policy-upload-allowed.txt`;
 			await writeFile(path, body);
 			const result = await tools.interact({ operation: "execute", tabName, action: "upload", targetRef: node.ref, paths: [path] });
 			assert.equal(result.details.kind, "browser-interaction-result", JSON.stringify(result.details));
-			for (let attempt = 0; attempt < 50 && fixtures.uploads.length === 0; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 100));
-			assert.equal(fixtures.uploads.length, 1, "授权后必须真的上传一次");
+			for (let attempt = 0; attempt < 50 && fixtures.uploads.length === before; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+			assert.equal(fixtures.uploads.length, before + 1, "无需保存授权也必须真的上传一次");
 		});
 
 		await recorder.check("重定向到未授权 origin：工具层拒绝，页面没有收到点击", async () => {

@@ -69,6 +69,8 @@ package 可包含 extension、skill、prompt template 和 theme；使用 `rotom 
 
 当前安装器支持 **macOS + Google Chrome 125+**，不会自动安装或加载扩展。
 
+主 Agent 默认完全访问网站，不再询问站点授权或敏感动作确认，包括上传、支付、删除和主世界脚本执行。请谨慎下达任务；显式 blocklist、子 Agent 的站点范围限制及文件与页面状态校验仍保留。
+
 在 rotom 会话内输入 **`/browser`** 并回车，直接填写浏览器任务；输入 `/browser `（尾随空格）可补全子命令。首次配置：
 
 1. **`/browser install`**：确认后将浏览器组件写入固定目录，注册连接程序并显示扩展目录。
