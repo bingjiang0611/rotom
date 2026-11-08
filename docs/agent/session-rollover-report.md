@@ -6,7 +6,7 @@
 
 - 基于提交：`f266b305`（`claude/kind-bardeen-roufe9`）；最终提交：见本文件最后一次提交（文末“提交记录”）。
 - 环境：Node v24.18.0 / npm 12.2.0 / macOS 27.3（darwin, arm64）
-- 工作包状态：W1 完成 / W2 完成 / W3 完成 / W4 完成 / W5 完成 / W6 进行中
+- 工作包状态：W1 完成 / W2 完成（已运行） / W3 完成 / W4 完成 / W5 完成 / W6 完成
 
 ## 基线
 
@@ -36,7 +36,8 @@
 
 | 内容 | 文件 |
 |---|---|
-| 各工作包的改动、测试与负向对照（W1–W6） | [session-rollover-report-workpackages.md](session-rollover-report-workpackages.md) |
+| 各工作包的改动、测试与负向对照（W1–W4） | [session-rollover-report-workpackages.md](session-rollover-report-workpackages.md) |
+| W5、W6 与收尾决策记录 | [session-rollover-report-integration.md](session-rollover-report-integration.md) |
 | 阶段 0 离线统计的聚合数字 | [session-rollover-report-stats.md](session-rollover-report-stats.md) |
 
 ## 决策记录
@@ -82,4 +83,5 @@
 | W2 | `4ae7a618` |
 | W3 | `6b100a86` |
 | W4 | `a66ea48e` |
-| W5 | 见本次提交 |
+| W5 | `530ce563` |
+| W6 | 见本次提交 |
