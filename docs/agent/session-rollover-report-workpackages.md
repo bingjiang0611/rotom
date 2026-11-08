@@ -137,6 +137,46 @@ W1 用例覆盖设计 3.5 的每一条：
 - `live.mjs` 未跑：需要真实模型与费用授权。
 - 相位用例里 “reply usage 越线” 用 `contextWindow - 10 000`，介于阈值与窗口之间；不构造真实溢出（overflow 需要真实 provider 错误形状）。
 
-## W4 … W6
+## W4：轮转扩展
+
+### 改动摘要（文件级）
+
+| 文件 | 改动 |
+|---|---|
+| `rotom/extensions/session-rollover/index.ts` | 开关 `ROTOM_SESSION_ROLLOVER === "1"`（否则不注册任何处理器）；`input` 处理器按 4.1/4.2 判断后调用 `ctx.resetContext()`；`session_before_compact` 只在 `reason === "threshold" && phase === "after-run"` 且具备资格时 `{ cancel: true }`；失败按 7.2 回读分支、不重复追加 |
+| `rotom/extensions/session-rollover/eligibility.ts` | 4.2 的 14 种阻止原因、`rolloverWatermark()`（`contextWindow - 2 × reserveTokens`）、最后助手消息/未配对 tool call/Goal 状态的机械判定 |
+| `rotom/extensions/session-rollover/summary.ts` | 5.1 的确定性摘要：检索说明 + 逐字尾部摘录，预算 `reserveTokens / 4`，超预算从中间截断并标注被截断的 `@entryId` |
+| `rotom/extensions/session-rollover/copy.ts` | 模型可见文案（英文）与用户提示（中文）集中一处 |
+| `rotom/extensions/session-rollover/{eligibility,summary,index}.test.ts` | 19 个用例 |
+| `rotom/extensions/session-rollover/test-helpers.ts` | 复用 `context-layers` 的 Pi 定位方式；faux provider、12 000 窗口 + 1 000 reserve 的固定 fixture |
+
+### 测试
+
+```bash
+ROTOM_PI="$(node rotom/runtime/resolve-installed-pi.mjs rotom)" \
+  node --experimental-strip-types --test --test-concurrency=1 rotom/extensions/session-rollover/*.test.ts
+```
+
+19 passed / 0 failed。覆盖：开关（未设置 0 个处理器 / `1` 时 2 个）；水位边界（等于水位不轮转、+1 轮转、`3 ×` 反例）；14 条资格各自单独阻止；正常结束越过水位 → 下一次提交恰好一条轮转条目、会话 ID 不变、输入只记录一次、只派发一次请求、`session_compact` 记为 `rollover`、投影只剩轮转条目与新输入而 `getBranch()` 保留原文；轮转后不立刻触发阈值压缩；连续两次轮转（估算跨条目延续）；轮末：先置事件的 probe 看到 `threshold/after-run`、后置 probe 看不到（取消生效）、不产生摘要请求；不具备资格时轮末压缩照常执行；其他处理器取消轮转时本次正常提交且无条目；轮转前工具结果可用 `context_recall` 找回；追加失败回读判定三态。
+
+`npm run build:pi` exit 0（fork `1.4.0-rotom.2`，摘要 `c69b9f9c…`）；`npm run check:pi` exit 0。
+
+### 负向对照（临时破坏，确认失败，已恢复，未提交）
+
+| 破坏 | 结果 |
+|---|---|
+| 水位改成 `contextWindow - 3 × reserveTokens` | `water mark derives…`、`exactly at the water mark…` 两项失败（3 passed / 2 failed） |
+| 删掉轮末取消（`threshold` 直接放行） | `an eligible after-run threshold compaction is deferred…` 失败：`the cancelling handler runs before later handlers`（8 passed / 1 failed） |
+| 轮转后把同一输入再派发一次（`sendUserMessage` + `handled`） | 5 项失败，首个断言 `the input is recorded once`（4 passed / 5 failed） |
+| 把估算源换成 `getContextUsage()` | **未失败**：轮转后的投影仍带着回复的 usage，两种来源给出同一数字；见“未验证项” |
+
+### 未验证项与原因
+
+- 设计 5.4 表中各处理器的真实组件行为：Goal 部分由“active Goal 时资格阻止”覆盖（其轮转处理器不会被触发）；Offload 用“先置/后置 probe + 取消后不再产生摘要请求”证明顺序与短路；Subagent 依赖的 `session_compact` 已断言；observability 的 `event.preparation?.tokensBefore` 已是可选安全（代码核对）；Qoder session policy 不看 `reason`（代码核对）。三者未加载真实包跑端到端。
+- 用户提示只验证到“不抛错”（print 模式 `ui.notify` 是空实现），TUI 真实显示未验证。
+- 摘录预算用扩展内的 `chars / 4` 估算（与 Pi 的 `estimateTokens()` 对文本同一规则），未与 Pi 的估算器逐 token 对齐：扩展源文件在测试运行时无法解析 Pi 包的模块路径。
+- 估算源负向对照未触发失败，说明“共用估算”这一条在当前测试面里只由水位与资格用例间接保护；真正的共用由 W3 的接缝实现保证（`getContextThresholdEstimate()` 与 `_checkCompaction` 调同一函数）。
+
+## W5 … W6
 
 见后续提交。

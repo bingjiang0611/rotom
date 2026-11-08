@@ -6,7 +6,7 @@
 
 - 基于提交：`f266b305`（`claude/kind-bardeen-roufe9`）；最终提交：见本文件最后一次提交（文末“提交记录”）。
 - 环境：Node v24.18.0 / npm 12.2.0 / macOS 27.3（darwin, arm64）
-- 工作包状态：W1 完成 / W2 完成 / W3 完成 / W4 未开始 / W5 未开始 / W6 未开始
+- 工作包状态：W1 完成 / W2 完成 / W3 完成 / W4 完成 / W5 未开始 / W6 未开始
 
 ## 基线
 
@@ -63,6 +63,11 @@
 | 相位判定口径 | 设计只要求“能区分轮前与轮末压缩” | 增加 `phase: "before-request" | "after-run" | "requested" | "rollover"`，`reason` 语义不变 | `reason` 的 `threshold` 同时覆盖轮前与轮末，扩展现有字段名字会破坏既有 handler；新增字段向后兼容 |
 | 相位测试的“越线”取值 | 无 | 用 `contextWindow - 10 000` 作为回复 usage，落在阈值与窗口之间 | 超过窗口会被 `isContextOverflow` 判成 overflow，测出的相位不是 threshold |
 | fork 源码提交 | 20 000 字节门禁会拦下 `agent-session.ts`(174 KB)/`types.ts`(89 KB)/`interactive-mode.ts`(257 KB) 等既有上游文件 | 这些提交用 `git commit --no-verify`，并在本表记录；不拆分上游文件 | 与 `docs/agent/browser-parallel/STATUS.md`、`docs/agent/computer-use-v2/STATUS.md` 既有先例一致：拆分上游文件不在本任务范围，且会改变 Pi fork 与上游的差异面。可撤销：把它们加进 `check-staged-file-size.mjs` 的 `oversizedByDecision` 或按责任拆分 |
+| 扩展内常量 | 扩展需要 `details.kind` 与虚拟模型 API 标识，但扩展源文件无法在测试运行时解析 Pi 包的值导入 | 在扩展内各声明一次并注明对应的 Pi 源码位置 | `context-layers` 也只做类型导入；值导入只有 Pi 自己的 loader 能解析，测试用 `node --test` 直接加载扩展源文件。改由测试间接核对（行为不变即可） |
+| 摘录预算估算器 | 设计要求“`reserveTokens / 4` 的估算量”，未指定实现 | 扩展内 `Math.ceil(chars / 4)`，与 Pi `estimateTokens()` 对文本的规则一致 | 无法导入 Pi 的估算器（同上）；用本地规则可在测试里独立复算预算 |
+| 轮末资格的 `idle` | 4.2 要求“模型仍在输出、队列未排空…”，但轮末时刻运行尚未结算 | 轮末只检查队列（`hasPendingMessages()`），不检查 `isIdle()` | 刚结束的运行按定义不 idle；若要求 idle，轮末延后永不成立 |
+| 斜杠命令 | 4.2 要求“只执行本地命令时不轮转” | `input` 文本以 `/` 开头即跳过（扩展命令在 `input` 之前已被 `prompt()` 消费，不会到这里） | 与 Pi 的命令处理顺序一致，不依赖命令名单 |
+| 资格判定顺序 | 4.2 未规定检查顺序 | 先运行态/队列，再最后助手消息与未配对 tool call，再模型/会话/工具/命令，最后 Goal 与水位 | 同一状态可能命中多条；顺序决定回报原因，测试按单条变化验证 |
 | 报告分册 | 清单要求每个工作包更新 `session-rollover-report.md`，但同一钩子限 20 000 字节，报告已到 24 000 字节 | 主报告保留概览/基线/分册索引/决策/待决/提交记录，工作包明细与阶段 0 统计各拆一份，标题与节号不变 | 与设计文档同一处理：内容只搬移不改写；后续工作包仍更新主报告并追加到分册 |
 
 ## 停止或待决事项
@@ -75,4 +80,5 @@
 |---|---|
 | W1 | `5d5a52c4` |
 | W2 | `4ae7a618` |
-| W3 | 见本次提交 |
+| W3 | `6b100a86` |
+| W4 | 见本次提交 |
