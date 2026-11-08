@@ -899,6 +899,8 @@ final class Bridge {
 			return getMousePosition()
 		case "userActivity":
 			return userActivity()
+		case "calibrateHidEventSource":
+			return try calibrateHidEventSource()
 		case "takeoverBegin":
 			return try takeoverBegin(request)
 		case "takeoverEnd":
@@ -2303,13 +2305,13 @@ final class Bridge {
 			switch action {
 			case "press", "click":
 				animateCursor(at: point)
-				try postMouseClick(at: point, pid: pid, button: mouseButton(params["button"] as? String ?? "left"), clickCount: max(1, min(3, (params["clickCount"] as? NSNumber)?.intValue ?? 1)), delivery: delivery)
+				try postMouseClick(at: point, pid: pid, windowId: record.windowId, button: mouseButton(params["button"] as? String ?? "left"), clickCount: max(1, min(3, (params["clickCount"] as? NSNumber)?.intValue ?? 1)), delivery: delivery)
 			case "moveMouse":
 				animateCursor(at: point)
-				try postMouseMove(to: point, pid: pid, delivery: delivery)
+				try postMouseMove(to: point, pid: pid, windowId: record.windowId, delivery: delivery)
 			case "scroll":
 				animateCursor(at: point)
-				try postScrollWheel(at: point, deltaX: (params["scrollX"] as? NSNumber)?.intValue ?? 0, deltaY: (params["scrollY"] as? NSNumber)?.intValue ?? 0, pid: pid, delivery: delivery)
+				try postScrollWheel(at: point, deltaX: (params["scrollX"] as? NSNumber)?.intValue ?? 0, deltaY: (params["scrollY"] as? NSNumber)?.intValue ?? 0, pid: pid, windowId: record.windowId, delivery: delivery)
 			case "drag":
 				guard let rawPath = params["path"] as? [[String: Any]], rawPath.count >= 2 else {
 					throw BridgeFailure(message: "drag requires path", code: "invalid_args")
@@ -2321,7 +2323,7 @@ final class Bridge {
 					return lookPoint(record: record, x: x, y: y)
 				}
 				animateCursor(at: point)
-				try postMouseDrag(points: points, pid: pid, delivery: delivery)
+				try postMouseDrag(points: points, pid: pid, windowId: record.windowId, delivery: delivery)
 			default:
 				throw BridgeFailure(message: "Action \(action) cannot use coordinate grounding", code: "invalid_args")
 			}
@@ -2354,6 +2356,7 @@ final class Bridge {
 				element: element,
 				params: params,
 				pid: pid,
+				windowId: record.windowId,
 				delivery: delivery,
 				performed: &performed,
 				coordinatePoint: coordinatePoint,
@@ -3750,12 +3753,20 @@ final class Bridge {
 
 	private var skyLightPostToPid: SkyLightPostToPid? { Bridge.skyLightPostToPidSymbol }
 
-	private func postMouseMove(to point: CGPoint, pid: Int32, delivery: String = "hid") throws {
+	fileprivate func targetMouseEvent(_ event: CGEvent, delivery: String, windowId: UInt32) {
+		guard delivery == "l2" || delivery == "pid" else { return }
+		let target = Int64(windowId)
+		event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: target)
+		event.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: target)
+	}
+
+	private func postMouseMove(to point: CGPoint, pid: Int32, windowId: UInt32, delivery: String = "hid") throws {
 		if delivery == "hid" { physicalInputLock.lock() }
 		defer { if delivery == "hid" { physicalInputLock.unlock() } }
 		guard let move = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left) else {
 			throw BridgeFailure(message: "Failed to create mouse move event", code: "input_failed")
 		}
+		targetMouseEvent(move, delivery: delivery, windowId: windowId)
 		try postEvent(move, pid: pid, delivery: delivery)
 	}
 
@@ -3803,10 +3814,10 @@ final class Bridge {
 		}
 	}
 
-	private func postMouseClick(at point: CGPoint, pid: Int32, button: CGMouseButton = .left, clickCount: Int = 1, delivery: String = "hid") throws {
+	private func postMouseClick(at point: CGPoint, pid: Int32, windowId: UInt32, button: CGMouseButton = .left, clickCount: Int = 1, delivery: String = "hid") throws {
 		if delivery == "hid" { physicalInputLock.lock() }
 		defer { if delivery == "hid" { physicalInputLock.unlock() } }
-		try postMouseMove(to: point, pid: pid, delivery: delivery)
+		try postMouseMove(to: point, pid: pid, windowId: windowId, delivery: delivery)
 		for index in 1...max(1, clickCount) {
 			guard let down = CGEvent(mouseEventSource: nil, mouseType: mouseDownType(for: button), mouseCursorPosition: point, mouseButton: button),
 				let up = CGEvent(mouseEventSource: nil, mouseType: mouseUpType(for: button), mouseCursorPosition: point, mouseButton: button)
@@ -3815,6 +3826,8 @@ final class Bridge {
 			}
 			down.setIntegerValueField(.mouseEventClickState, value: Int64(index))
 			up.setIntegerValueField(.mouseEventClickState, value: Int64(index))
+			targetMouseEvent(down, delivery: delivery, windowId: windowId)
+			targetMouseEvent(up, delivery: delivery, windowId: windowId)
 			try postEvent(down, pid: pid, delivery: delivery)
 			usleep(12_000)
 			try postEvent(up, pid: pid, delivery: delivery)
@@ -3824,39 +3837,40 @@ final class Bridge {
 		}
 	}
 
-	private func postMouseDrag(points: [CGPoint], pid: Int32, delivery: String = "hid") throws {
+	private func postMouseDrag(points: [CGPoint], pid: Int32, windowId: UInt32, delivery: String = "hid") throws {
 		if delivery == "hid" { physicalInputLock.lock() }
 		defer { if delivery == "hid" { physicalInputLock.unlock() } }
 		guard points.count >= 2, let first = points.first else {
 			throw BridgeFailure(message: "Drag requires at least two points", code: "invalid_args")
 		}
-		try postMouseMove(to: first, pid: pid, delivery: delivery)
+		try postMouseMove(to: first, pid: pid, windowId: windowId, delivery: delivery)
 		guard let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: first, mouseButton: .left) else {
 			throw BridgeFailure(message: "Failed to create mouse down event", code: "input_failed")
 		}
+		targetMouseEvent(down, delivery: delivery, windowId: windowId)
 		try postEvent(down, pid: pid, delivery: delivery)
 		usleep(12_000)
-
 		for point in points.dropFirst() {
 			guard let drag = CGEvent(mouseEventSource: nil, mouseType: mouseDraggedType(for: .left), mouseCursorPosition: point, mouseButton: .left) else {
 				throw BridgeFailure(message: "Failed to create mouse drag event", code: "input_failed")
 			}
+			targetMouseEvent(drag, delivery: delivery, windowId: windowId)
 			try postEvent(drag, pid: pid, delivery: delivery)
 			usleep(8_000)
 		}
-
 		guard let last = points.last,
 			let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: last, mouseButton: .left)
 		else {
 			throw BridgeFailure(message: "Failed to create mouse up event", code: "input_failed")
 		}
+		targetMouseEvent(up, delivery: delivery, windowId: windowId)
 		try postEvent(up, pid: pid, delivery: delivery)
 	}
 
-	private func postScrollWheel(at point: CGPoint, deltaX: Int, deltaY: Int, pid: Int32, delivery: String = "hid") throws {
+	private func postScrollWheel(at point: CGPoint, deltaX: Int, deltaY: Int, pid: Int32, windowId: UInt32, delivery: String = "hid") throws {
 		if delivery == "hid" { physicalInputLock.lock() }
 		defer { if delivery == "hid" { physicalInputLock.unlock() } }
-		try postMouseMove(to: point, pid: pid, delivery: delivery)
+		try postMouseMove(to: point, pid: pid, windowId: windowId, delivery: delivery)
 		guard let event = CGEvent(
 			scrollWheelEvent2Source: nil,
 			units: .pixel,
@@ -3868,6 +3882,7 @@ final class Bridge {
 			throw BridgeFailure(message: "Failed to create scroll event", code: "input_failed")
 		}
 		event.location = point
+		targetMouseEvent(event, delivery: delivery, windowId: windowId)
 		try postEvent(event, pid: pid, delivery: delivery)
 	}
 
@@ -4273,11 +4288,45 @@ enum UserActivitySelfTest {
 		report("counters exact", marked + unmarked == total, "agent=\(marked) user=\(unmarked)")
 		let fields = Set(recent.flatMap { $0.keys })
 		report("metadata only", fields.isSubset(of: allowed), fields.sorted().joined(separator: ","))
+		let calibrationMonitor = UserActivityMonitor()
+		if let calibration = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: .zero, mouseButton: .left) {
+			calibration.setIntegerValueField(.eventSourceUserData, value: agentEventMarker)
+			calibrationMonitor.observe(event: calibration)
+		}
+		let calibrationRow = (calibrationMonitor.snapshot()["recentEvents"] as? [[String: Any]])?.last
+		let calibrationShape = calibrationRow?["agent"] as? Bool == true &&
+			calibrationRow?["type"] as? Int == Int(CGEventType.mouseMoved.rawValue) &&
+			calibrationRow?["pid"] is Int && calibrationRow?["stateId"] is Int
+		report("calibration metadata", calibrationShape, "pid/state/type/agent")
 		// Spelled out so a future field named `keyCode`, `characters` or `x` cannot sneak
 		// into the record through a rename the subset check would accept.
 		let forbidden: Set<String> = ["keyCode", "characters", "unicode", "string", "x", "y", "location", "clickState"]
 		report("no content fields", fields.isDisjoint(with: forbidden), fields.intersection(forbidden).sorted().joined(separator: ","))
 		FileHandle.standardOutput.write(Data("activity failures=\(failures)\n".utf8))
+		return failures
+	}
+}
+
+/// Deterministic check for REVIEW-10 Y2. Event construction and field writes do not post input.
+enum MouseEventTargetSelfTest {
+	static func run() -> Int {
+		let bridge = Bridge()
+		let windowId: UInt32 = 4242
+		var failures = 0
+		for delivery in ["l2", "pid", "hid"] {
+			guard let event = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: .zero, mouseButton: .left) else {
+				failures += 1
+				continue
+			}
+			bridge.targetMouseEvent(event, delivery: delivery, windowId: windowId)
+			let under = event.getIntegerValueField(.mouseEventWindowUnderMousePointer)
+			let handler = event.getIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent)
+			let expected = delivery == "hid" ? Int64(0) : Int64(windowId)
+			let passed = under == expected && handler == expected
+			FileHandle.standardOutput.write(Data("case target-\(delivery) \(passed ? "pass" : "fail") (under=\(under) handler=\(handler))\n".utf8))
+			if !passed { failures += 1 }
+		}
+		FileHandle.standardOutput.write(Data("mouse-target failures=\(failures)\n".utf8))
 		return failures
 	}
 }
@@ -4290,6 +4339,9 @@ struct PiComputerUseHelper {
 		}
 		if CommandLine.arguments.contains("--activity-self-test") {
 			exit(Int32(UserActivitySelfTest.run()))
+		}
+		if CommandLine.arguments.contains("--mouse-target-self-test") {
+			exit(Int32(MouseEventTargetSelfTest.run()))
 		}
 		// Interoperability check: the broker signs tokens in TypeScript, so a token
 		// minted there must verify here. The fixture is passed on the command line
@@ -4312,6 +4364,45 @@ extension Bridge {
 	/// foreground takeover is allowed at all.
 	func userActivity() -> [String: Any] {
 		userActivityMonitor.snapshot()
+	}
+
+	/// REVIEW-10 Y3: post one marked zero-displacement move at the HID tap and report
+	/// how the activity ring describes it. No pointer coordinate enters the response.
+	func calibrateHidEventSource() throws -> [String: Any] {
+		guard let source = CGEvent(source: nil) else {
+			throw BridgeFailure(message: "Could not read the current pointer location", code: "input_failed")
+		}
+		physicalInputLock.lock()
+		defer { physicalInputLock.unlock() }
+		let startedAt = Date().timeIntervalSince1970 * 1000
+		let before = userActivityMonitor.snapshot()
+		guard let event = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: source.location, mouseButton: .left) else {
+			throw BridgeFailure(message: "Could not build the calibration mouse move", code: "input_failed")
+		}
+		event.setIntegerValueField(.eventSourceUserData, value: agentEventMarker)
+		event.post(tap: .cghidEventTap)
+		var after = userActivityMonitor.snapshot()
+		var match: [String: Any]?
+		for _ in 0..<20 {
+			usleep(25_000)
+			after = userActivityMonitor.snapshot()
+			let recent = (after["recentEvents"] as? [[String: Any]]) ?? []
+			match = recent.last { row in
+				(row["agent"] as? Bool) == true &&
+				(row["type"] as? Int) == Int(CGEventType.mouseMoved.rawValue) &&
+				((row["at"] as? Double) ?? 0) >= startedAt
+			}
+			if match != nil { break }
+		}
+		let beforeAgent = (before["agentEventCount"] as? Int) ?? 0
+		let afterAgent = (after["agentEventCount"] as? Int) ?? 0
+		return [
+			"found": match != nil,
+			"pid": match?["pid"] as? Int ?? -1,
+			"stateId": match?["stateId"] as? Int ?? -1,
+			"type": match?["type"] as? Int ?? -1,
+			"agentDelta": afterAgent - beforeAgent,
+		]
 	}
 
 	/// Show the border, swallow Escape, and report the moment the user takes over.
@@ -4716,6 +4807,7 @@ extension Bridge {
 		element: AXUIElement,
 		params: [String: Any],
 		pid: Int32,
+		windowId: UInt32,
 		delivery: String,
 		performed: inout [String: Any],
 		coordinatePoint: () throws -> CGPoint,
@@ -4765,7 +4857,7 @@ extension Bridge {
 				throw BridgeFailure(message: "Hovering needs targeted pointer delivery, which this app does not support in the background", code: "foreground_required")
 			}
 			let point = try coordinatePoint()
-			try postMouseMove(to: point, pid: pid, delivery: delivery)
+			try postMouseMove(to: point, pid: pid, windowId: windowId, delivery: delivery)
 			performed["grounding"] = "coordinates"
 			performed["delivery"] = delivery
 			return ["outcome": "worked", "performed": performed]
@@ -4993,7 +5085,7 @@ final class LeaseGuard {
 	/// both are writes like the rest (review Q5). Moving the cursor, reading state and
 	/// `clipboardGet`/`clipboardSnapshot` stay outside this set.
 	static let writeCommands: Set<String> = [
-		"act", "clipboardSet", "clipboardClear", "clipboardRestore", "focusWindow", "manageApps", "manageWindow", "takeoverBegin",
+		"act", "calibrateHidEventSource", "clipboardSet", "clipboardClear", "clipboardRestore", "focusWindow", "manageApps", "manageWindow", "takeoverBegin",
 	]
 
 	private struct Claims {
@@ -5108,6 +5200,8 @@ final class LeaseGuard {
 	/// `manageWindow list` used to be treated as writes and would fail under enforcement.
 	private static func requirement(command: String, request: [String: Any]) -> Requirement {
 		switch command {
+		case "calibrateHidEventSource":
+			return .write(["desktop-foreground"])
 		case "clipboardSet", "clipboardClear", "clipboardRestore":
 			return .write(["clipboard:system"])
 		case "focusWindow":

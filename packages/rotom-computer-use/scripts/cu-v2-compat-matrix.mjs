@@ -239,8 +239,9 @@ function message(error) {
 }
 
 for (const handle of prepared) {
-	const cleanup = await disposeFixtureRun(handle, macosBackend).catch(() => ({ quit: [] }));
-	rows.push({ area: "cleanup", action: path.basename(handle.bundlePath), delivery: "-", result: cleanup.quit.length ? "removed" : "removed", note: `quit=${cleanup.quit.join(",") || "none"}` });
+	const cleanupRecord = (area, action, result, note) => rows.push({ area, action, delivery: "-", result, note });
+	const cleanup = await disposeFixtureRun(handle, macosBackend, { record: cleanupRecord }).catch((error) => ({ quit: [], refused: [], remaining: [], removed: false, error: message(error) }));
+	rows.push({ area: "cleanup", action: path.basename(handle.bundlePath), delivery: "-", result: cleanup.removed && cleanup.refused.length === 0 ? "removed" : "fail", note: cleanup.error ?? `quit=${cleanup.quit.join(",") || "none"} refused=${cleanup.refused.join(",") || "none"} remaining=${cleanup.remaining.join(",") || "none"}` });
 }
 
 // Did the operator come back while the cells ran? (review 6 K2) The `foreground` cells

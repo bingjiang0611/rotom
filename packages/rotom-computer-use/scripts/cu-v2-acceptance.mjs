@@ -19,14 +19,15 @@
  *   PI_COMPUTER_USE_HELPER_APP_PATH=~/cu-v2-test/pi-computer-use.app \
  *   PI_CU_SOCKET_PATH=~/cu-v2-test/helper.sock
  */
-import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { StepRefused, beginStep } from "./lib/b-window.mjs";
 import { GateHold, requireGate } from "./lib/gate.mjs";
 import { createAgentRunner } from "./lib/acceptance-agents.mjs";
 import { argument, createRecorder, nowMs, recordRealUserInput, requireLive, restoreOperatorApp, sessionDelta, sleep, wireRefByRole } from "./lib/live-helpers.mjs";
+import { createRunAppOwnership, quitRunOwnedApp, rememberRunLaunch } from "./lib/run-owned-apps.mjs";
 
 /** `scripts/` -> `packages/rotom-computer-use` -> `packages` -> repository root. */
 const REPO_ROOT = path.resolve(import.meta.dirname, "..", "..", "..");
@@ -53,8 +54,9 @@ let frozen;
 
 const brackets = [];
 const instances = [];
-/** Pids this run started; anything else becoming frontmost is the operator (K2). */
-const launchedPids = [];
+/** Pids returned by a new helper launch; discovery or `alreadyRunning` never grants ownership. */
+const ownedPids = createRunAppOwnership();
+const runPids = new Set();
 let cleanupContext;
 let cleaned = false;
 
@@ -70,6 +72,7 @@ const { prepareInstance, findInstance, launchInstance, fixtureWindow, runAgent }
 	fixtureSource,
 	signIdentity,
 	workDir: WORK_DIR,
+	ownedPids,
 });
 
 async function main() {
@@ -117,21 +120,25 @@ async function refuseUnlessGatePasses() {
 	// The operator app is whatever was frontmost before the run; the run has to
 	// leave the machine on that app again.
 	const operatorFrontmost = await macosBackend.getFrontmost();
-	const textEditRunning = spawnSync("pgrep", ["-x", "TextEdit"]).status === 0;
-	cleanupContext = { operatorFrontmost, textEditRunning };
+	cleanupContext = { operatorFrontmost };
 	record("environment", "operator app", "pass", `${operatorFrontmost.appName} pid=${operatorFrontmost.pid}`);
-	record("environment", "TextEdit state", "pass", textEditRunning ? "already running" : "not running");
 
 	mkdirSync(WORK_DIR, { recursive: true });
 	const running = [];
 	for (let index = 1; index <= instanceCount; index += 1) {
+		const bundleId = `com.example.cu-fixture-instance${index}`;
+		const preexisting = await findInstance(bundleId);
+		if (preexisting) {
+			record(`agent ${index}`, "launch", "fail", `refused pid=${preexisting.pid}; ${bundleId} was already running before this run`);
+			throw new Error(`${bundleId} was already running before this run`);
+		}
 		const instance = prepareInstance(index);
 		instances.push(instance);
 		const app = await launchInstance(instance);
 		record(`agent ${index}`, "launch", app ? "pass" : "fail", app ? `pid=${app.pid} bundle=${app.bundleId}` : `${instance.bundleId} did not register`);
 		if (app) {
 			running.push({ ...instance, pid: app.pid });
-			launchedPids.push(app.pid);
+			runPids.add(app.pid);
 		}
 	}
 	if (running.length === 0) throw new Error("no fixture instance started");
@@ -141,7 +148,12 @@ async function refuseUnlessGatePasses() {
 	}
 	record("environment", "fixture windows", running.length === instances.length ? "pass" : "inconclusive", `${running.length}/${instances.length} instances up`);
 
-	execFileSync("open", ["-a", "TextEdit"], { stdio: "pipe" });
+	const textEditLaunch = await macosBackend.manageApps({ mode: "launch", bundleId: "com.apple.TextEdit", activates: true });
+	const textEditOwnedPid = rememberRunLaunch(ownedPids, textEditLaunch);
+	record("environment", "TextEdit state", textEditOwnedPid ? "pass" : "fail", textEditOwnedPid ? `started pid=${textEditOwnedPid}` : `refused pid=${textEditLaunch.pid ?? "?"}; TextEdit was not newly launched by this run`);
+	if (!textEditOwnedPid) throw new Error("TextEdit was already running or its launch pid was not owned by this run");
+	cleanupContext = { ...cleanupContext, textEditPid: textEditOwnedPid, textEditOwnedPid };
+	runPids.add(textEditOwnedPid);
 	await sleep(1200);
 	execFileSync("osascript", ["-e", 'tell application "TextEdit" to make new document'], { stdio: "pipe" });
 	execFileSync("osascript", ["-e", 'tell application "TextEdit" to activate'], { stdio: "pipe" });
@@ -149,7 +161,7 @@ async function refuseUnlessGatePasses() {
 
 	const textEditFrontmost = await macosBackend.getFrontmost();
 	const textEditPid = textEditFrontmost.pid;
-	cleanupContext = { ...cleanupContext, textEditPid };
+	cleanupContext = { ...cleanupContext, textEditPid, textEditOwnedPid };
 	record("simulator", "TextEdit frontmost", textEditFrontmost.appName?.includes("TextEdit") ? "pass" : "fail", `${textEditFrontmost.appName} pid=${textEditPid}`);
 	const baselineRoots = await macosBackend.listRoots({ pid: textEditPid });
 	const windowIds = (roots) => roots.map((root) => `${root.kind}:${root.windowId}`).join(",");
@@ -206,24 +218,29 @@ async function refuseUnlessGatePasses() {
 	cleaned = true;
 }
 
-async function cleanup({ textEditPid, textEditRunning, operatorFrontmost }) {
-	// Close only the document this run created, and never save it.
-	execFileSync("osascript", ["-e", 'tell application "TextEdit" to close document 1 saving no'], { stdio: "pipe" }).toString();
-	record("cleanup", "test document closed", "pass", "saving no");
-	if (!textEditRunning) {
-		execFileSync("osascript", ["-e", 'tell application "TextEdit" to quit saving no'], { stdio: "pipe" }).toString();
-		record("cleanup", "TextEdit quit", "pass", "it was not running before the run");
+async function cleanup({ textEditPid, textEditOwnedPid, operatorFrontmost }) {
+	if (textEditOwnedPid) {
+		// The run owns this TextEdit process and its only document.
+		try {
+			execFileSync("osascript", ["-e", 'tell application "TextEdit" to close document 1 saving no'], { stdio: "pipe" }).toString();
+			record("cleanup", "test document closed", "pass", "saving no");
+		} catch (error) {
+			record("cleanup", "test document closed", "fail", error instanceof Error ? error.message : String(error));
+		}
+		const quit = await quitRunOwnedApp({ backend: macosBackend, ownedPids, pid: textEditOwnedPid, record, area: "cleanup", action: "TextEdit quit" });
+		if (quit.stopped) record("cleanup", "TextEdit quit", "pass", `pid=${textEditOwnedPid}; force=false; terminated=true`);
+	} else {
+		record("cleanup", "test document closed", "skipped", "this run did not create a TextEdit process or document");
+		record("cleanup", "TextEdit quit", "skipped", `pid=${textEditPid ?? "?"} was not launched by this run`);
 	}
 	for (const instance of instances) {
 		const app = await findInstance(instance.bundleId);
 		if (!app) continue;
-		await macosBackend.manageApps({ mode: "quit", pid: app.pid, activates: false }).catch(() => undefined);
-		record("cleanup", `fixture ${instance.index} quit`, "pass", `pid=${app.pid}`);
-	}
-	await sleep(600);
-	for (const instance of instances) {
-		const app = await findInstance(instance.bundleId);
-		if (app) execFileSync("kill", ["-TERM", String(app.pid)], { stdio: "pipe" });
+		const quit = await quitRunOwnedApp({ backend: macosBackend, ownedPids, pid: app.pid, record, area: "cleanup", action: `fixture ${instance.index} quit` });
+		if (quit.stopped) {
+			rmSync(instance.directory, { recursive: true, force: true });
+			record("cleanup", `fixture ${instance.index} quit`, "pass", `pid=${app.pid}; force=false; terminated=true; copy removed`);
+		}
 	}
 	if (operatorFrontmost.appName) {
 		// Same restore path as the live check (review 6 P2): `focusWindow` with a lease and
@@ -243,7 +260,7 @@ async function cleanup({ textEditPid, textEditRunning, operatorFrontmost }) {
 		record,
 		activityBefore: activityAtStart,
 		operatorPid: operatorFrontmost.pid,
-		runPids: launchedPids,
+		runPids: [...runPids],
 		expectedEvents: budget,
 		expectedNote: "the simulator's own log",
 	});

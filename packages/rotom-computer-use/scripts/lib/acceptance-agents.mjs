@@ -6,11 +6,12 @@
  * a bracket has to line up with a logged simulator move, which is how "the agents did not
  * disturb the user's session" becomes checkable rather than asserted.
  */
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { cpSync, rmSync } from "node:fs";
 import path from "node:path";
 
 import { nowMs, sessionDelta, sessionProbe, sleep, wireRefByRole, wireRefsByRole } from "./live-helpers.mjs";
+import { rememberRunLaunch } from "./run-owned-apps.mjs";
 
 /**
  * Build the agent helpers bound to one run's backend, helper binary and work directory.
@@ -18,7 +19,7 @@ import { nowMs, sessionDelta, sessionProbe, sleep, wireRefByRole, wireRefsByRole
  * `brackets` is shared with the assertions: it is the only record of *when* each action
  * ran, and the cursor evidence is judged against it afterwards.
  */
-export function createAgentRunner({ backend, helper, record, brackets, fixtureSource, signIdentity, workDir }) {
+export function createAgentRunner({ backend, helper, record, brackets, fixtureSource, signIdentity, workDir, ownedPids }) {
 	function prepareInstance(index) {
 		const directory = path.join(workDir, `Fixture-${index}.app`);
 		rmSync(directory, { recursive: true, force: true });
@@ -37,16 +38,13 @@ export function createAgentRunner({ backend, helper, record, brackets, fixtureSo
 	}
 
 	async function launchInstance(instance) {
-		try {
-			execFileSync("open", ["-n", instance.directory], { stdio: "pipe" });
-		} catch {
-			const executable = execFileSync("/usr/libexec/PlistBuddy", ["-c", "Print :CFBundleExecutable", path.join(instance.directory, "Contents", "Info.plist")]).toString().trim();
-			spawn(path.join(instance.directory, "Contents", "MacOS", executable), [], { detached: true, stdio: "ignore" }).unref();
-		}
+		const launch = await backend.manageApps({ mode: "launch", path: instance.directory, activates: true });
+		const pid = rememberRunLaunch(ownedPids, launch);
+		if (!pid) return undefined;
 		const deadline = nowMs() + 8000;
 		while (nowMs() < deadline) {
 			const app = await findInstance(instance.bundleId);
-			if (app) return app;
+			if (app?.pid === pid) return app;
 			await sleep(250);
 		}
 		return undefined;

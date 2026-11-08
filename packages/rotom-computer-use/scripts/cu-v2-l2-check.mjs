@@ -2,21 +2,8 @@
 /**
  * Computer Use v2 L2 single-action check (macOS, real helper).
  *
- * Runs one directed click and one directed text input against the fixture app and
- * against an app on the L2 compatibility list, and records what actually happened:
- * did the cursor move, did the app receive the event, did the helper survive. A
- * crash is a result, not a failure of the harness.
- *
- * Only processes this run started are ever operated: anything already running
- * belongs to the operator. A white-listed app must therefore be launched by this
- * run (start it yourself, or pass --allow-l2-app after a run that launched it).
- *
- *   PI_CU_LIVE=1 node scripts/cu-v2-l2-check.mjs --fixture ~/cu-v2-test/Fixture.app \
- *     --runs-dir ~/cu-v2-runs --expect-commit <frozen sha> \
- *     --window-start 2026-11-06T19:53:21-0800 --window-minutes 60
- *
- * Every file this script writes goes to `--runs-dir`, which must be outside the
- * worktree (review 6 K1). The script never writes into the repository.
+ * Records directed fixture/listed-app delivery without operating any process that
+ * this run did not start. Evidence is written only to the external `--runs-dir`.
  *
  * Modes (A8):
  *
@@ -24,15 +11,15 @@
  *                   compatibility list, on this run's own fixture copy. Uses its own
  *                   helper socket, so a crash from a bad SkyLight signature is one
  *                   result instead of the end of the run. This is B1.
+ *   --launch-twice  Report the event delta and elapsed time for two launches of the
+ *                   same copied/signed bundle. Report-only: it authorizes no B step.
+ *   --prewarm        Launch and quit the prepared copy before the formal quiet gate;
+ *                   opt-in until the launch-twice result has been reviewed.
  *   --no-fixture-copy
  *                   Operate the given path instead of a re-identified copy. Off by
  *                   default because LaunchServices keys apps by bundle id: a copy
  *                   with the same id can attach to the operator's instance (-10825).
  *
- * Isolated helper, same as the other live scripts:
- *
- *   PI_COMPUTER_USE_HELPER_APP_PATH=~/cu-v2-test/pi-computer-use.app \
- *   PI_CU_SOCKET_PATH=~/cu-v2-test/helper.sock
  */
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -50,6 +37,7 @@ import { recordAttribution, resolveProcessNames } from "./lib/event-sources.mjs"
 import { checkFixture, checkHelperSupport } from "./lib/l2-env.mjs";
 import { createAlive, createProbe, fixtureRef, wireRefByRole } from "./lib/l2-probe.mjs";
 import { fixtureClickCount, runDirectL2 } from "./lib/l2-modes.mjs";
+import { prepareLaunchTwiceExperiment, preparePrewarmedFixture, recordHidCalibration } from "./lib/l2-launch-cycle.mjs";
 
 /** `scripts/` -> `packages/rotom-computer-use` -> `packages` -> repository root. */
 const REPO_ROOT = path.resolve(import.meta.dirname, "..", "..", "..");
@@ -97,9 +85,11 @@ const fixturePath = argument("--fixture");
 if (!fixturePath || !existsSync(fixturePath)) disabled("pass --fixture <path to the built fixture app>");
 
 const directL2 = process.argv.includes("--direct-l2");
-// Review 7 R2: B0 is the attribution run. Same gate, same commit, same actions as B1, but
-// its archive carries no `Verdict:` line, so it authorizes nothing and writes no marker.
-const b0 = process.argv.includes("--b0-attribution");
+const launchTwice = process.argv.includes("--launch-twice");
+const prewarm = process.argv.includes("--prewarm");
+if (launchTwice && prewarm) refuse("--launch-twice and --prewarm are separate experiments and cannot be combined", "run", "arguments");
+// Review 7 R2: B0 and the Z2 experiment are report-only. They authorize nothing and write no marker.
+const b0 = process.argv.includes("--b0-attribution") || launchTwice;
 // Review 6 P1: the step is declared, not inferred at the end. This script is B1 only -
 // `check-cu-v2-live.mjs --with-hid` is the single owner of B6 (K4), and a second script
 // claiming the same step made it ambiguous which run authorized the next one.
@@ -158,38 +148,50 @@ async function main() {
 	}
 	record("run", "frozen commit", "pass", `${frozen.commit} step=${frozen.step}`);
 
-	// The gate runs inside the script, not in an operator shell loop: on 2026-11-06 the
-	// loop ran the check unconditionally and B1 started while the user was typing.
-	// No declared window is a refusal, and a hold writes its readings and exits.
-	const gate = await (async () => {
-		try {
-			// Fake readings take the same hold check, so the refusal path is executed too.
-			if (fake) {
-				if (fake.gate.verdict !== "pass") throw new GateHold(fake.gate);
-				return fake.gate;
-			}
-			return await requireGate({
-				windowStart: argument("--window-start"),
-				windowMinutes: argument("--window-minutes"),
-				requireIdleMinutes: argument("--require-idle-minutes") ?? "10",
-				listeningSince: argument("--listening-since"),
-			});
-		} catch (error) {
-			if (error instanceof GateHold) {
-				writeFileSync(path.join(runRoot, `gate-${runStamp()}.json`), `${JSON.stringify(error.report, null, 2)}\n`);
-				record("gate", "verdict", "fail", error.message);
-				console.error(`[cu-v2 l2] gate hold: ${error.message}`);
+	// A prewarm has two gates: one before it may touch the desktop, then a fresh quiet
+	// interval after the launch event burst. The second gate only polls read-only state.
+	async function passGate(action, { waitForQuiet = false } = {}) {
+		for (;;) {
+			try {
+				let report;
+				if (fake) {
+					if (fake.gate.verdict !== "pass") throw new GateHold(fake.gate);
+					report = fake.gate;
+				} else {
+					report = await requireGate({
+						windowStart: argument("--window-start"),
+						windowMinutes: argument("--window-minutes"),
+						requireIdleMinutes: argument("--require-idle-minutes") ?? "10",
+						listeningSince: argument("--listening-since"),
+					});
+				}
+				writeFileSync(path.join(runRoot, `gate-${action.replaceAll(" ", "-")}-${runStamp()}.json`), `${JSON.stringify(report, null, 2)}\n`);
+				record("gate", action, "pass", `minutes_left=${report.minutes_left} hid_idle=${report.hid_idle_seconds}s helper_idle=${report.helper_idle_seconds ?? "-"}s`);
+				return report;
+			} catch (error) {
+				if (error instanceof GateHold && waitForQuiet && error.report?.inside_window && !error.report?.helper_error) {
+					writeFileSync(path.join(runRoot, `gate-hold-${runStamp()}.json`), `${JSON.stringify(error.report, null, 2)}\n`);
+					await sleep(15_000);
+					continue;
+				}
+				const failureAction = error instanceof GateHold ? action : "arguments";
+				record("gate", failureAction, "fail", error instanceof Error ? error.message : String(error));
+				console.error(`[cu-v2 l2] gate: ${error instanceof Error ? error.message : String(error)}`);
 				await writeEvidence({ frozen, rows, log, b0 });
-				process.exit(1);
+				process.exit(error instanceof GateHold ? 1 : 2);
 			}
-			record("gate", "arguments", "fail", error instanceof Error ? error.message : String(error));
-			console.error(`[cu-v2 l2] ${error instanceof Error ? error.message : String(error)}`);
-			await writeEvidence({ frozen, rows, log, b0 });
-			process.exit(2);
 		}
-	})();
-	writeFileSync(path.join(runRoot, `gate-${runStamp()}.json`), `${JSON.stringify(gate, null, 2)}\n`);
-	record("gate", "verdict", "pass", `minutes_left=${gate.minutes_left} hid_idle=${gate.hid_idle_seconds}s helper_idle=${gate.helper_idle_seconds ?? "-"}s`);
+	}
+
+	let preparedRun;
+	if (prewarm) {
+		if (!fixtureCopy) refuse("--prewarm requires the run-owned copied fixture", "prewarm", "arguments");
+		await passGate("prewarm safety");
+		const checked = checkFixture({ appPath: fixturePath, rootDir: PACKAGE_ROOT, identity: process.env.PI_CU_FIXTURE_SIGN_IDENTITY, willCopy: !fake });
+		if (!checked.ok) refuse(checked.reason, "prewarm", "frozen artifacts");
+		preparedRun = await preparePrewarmedFixture({ sourceApp: fixturePath, runRoot, sign: !fake, backend: macosBackend, helper: macosHelper, record });
+	}
+	const gate = await passGate("verdict", { waitForQuiet: prewarm });
 
 	const inputSource = inputSourceInfo();
 	record("environment", "input source", inputSource.ascii ? "pass" : "inconclusive", `${inputSource.description}; ASCII text typing needs a plain layout`);
@@ -203,6 +205,7 @@ async function main() {
 		: environment;
 	if (!support.ok) refuse(support.reason, "environment", "frozen artifacts");
 	record("environment", "frozen artifacts", "pass", `fixture=${environment.digest.slice(0, 12)} helper protocol=${diagnostics.protocolVersion}`);
+	if (b0) await recordHidCalibration({ helper: macosHelper, record });
 	// The baseline for "did the operator come back" (review 6 K2). Our own synthetic
 	// posts are marked by the helper and do not count, so any growth is a person.
 	const runStartedAt = Date.now();
@@ -210,25 +213,27 @@ async function main() {
 	const frontmost = await macosBackend.getFrontmost();
 	record("environment", "operator app", "pass", `${frontmost.appName} pid=${frontmost.pid}`);
 
-	// Anything already running belongs to the operator. This run may only act on
-	// processes it started itself, so an app that was here before is never a target -
-	// not even the fixture, and not an app the operator named with --allow-l2-app.
+	// Anything already running belongs to the operator and is never a target.
 	const atStartup = await macosBackend.listApps();
 	const beforeRun = new Set(atStartup.map((app) => app.pid));
 	record("environment", "apps at startup", "pass", `${beforeRun.size} running; only processes started by this run may be operated`);
 	const startedByThisRun = (app) => !beforeRun.has(app.pid);
 
-	// ---- fixture: not on the L2 list, so the product path must refuse it ----
-	// Copy, sign, launch and wait for the window live in `fixture.mjs`: a copy that amfid
-	// refuses, or a window that never appears, is a result to record, not a crash to handle here.
+	// The fixture is not on the L2 list, so the product path must refuse it.
 	let brought;
-	try {
-		brought = await bringUpFixture({ backend: macosBackend, fixturePath, runRoot: fixtureCopy ? runRoot : undefined, sign: !fake, startedByThisRun, record });
-	} catch (error) {
-		refuse(error);
+	let fixture;
+	let fixtureRun;
+	if (launchTwice) {
+		await prepareLaunchTwiceExperiment({ sourceApp: fixturePath, runRoot, sign: !fake, backend: macosBackend, helper: macosHelper, record });
+	} else {
+		try {
+			brought = await bringUpFixture({ backend: macosBackend, fixturePath, runRoot: fixtureCopy ? runRoot : undefined, preparedRun, sign: !fake, startedByThisRun, record });
+		} catch (error) {
+			refuse(error);
+		}
+		fixture = brought.fixture;
+		fixtureRun = brought.run;
 	}
-	const fixture = brought.fixture;
-	const fixtureRun = brought.run;
 	if (fixture) {
 		// `launchFixture` activated the copy, so the window is being built now; poll for it
 		// instead of guessing a fixed sleep (the 1.2 s wait sat exactly on the edge).
@@ -271,9 +276,7 @@ async function main() {
 		}
 	}
 
-	// ---- apps on the L2 list: the positive path ----
-	// Never drive an app the operator already had open unless they name it: the
-	// point of the check is to type into something this run owns.
+	// Apps on the L2 list are a positive path only when this run owns them.
 	const allowL2App = argument("--allow-l2-app");
 	const onList = (await macosBackend.listApps()).filter((app) => app.bundleId && L2_COMPATIBLE_BUNDLE_IDS.has(app.bundleId));
 	const installed = onList.filter((app) => allowL2App && app.bundleId === allowL2App && startedByThisRun(app));
@@ -285,15 +288,15 @@ async function main() {
 			? `${allowL2App} (pid=${preexisting.pid}) was already running before this run; this script only operates processes it started`
 			: `${allowL2App} is not running; start it and re-run, this script does not launch user apps`);
 	}
-	await driveListedApps({ backend: macosBackend, apps: installed, probe, typed: TYPED, record });
+	if (!launchTwice) await driveListedApps({ backend: macosBackend, apps: installed, probe, typed: TYPED, record });
 
-	if (directL2) await runDirectL2({ fixture, fixtureRun, backend: macosBackend, helper: macosHelper, record, cursor, alive, wireRefByRole, typed: TYPED, asciiInput: inputSource.ascii });
+	if (directL2 && !launchTwice) await runDirectL2({ fixture, fixtureRun, backend: macosBackend, helper: macosHelper, record, cursor, alive, wireRefByRole, typed: TYPED, asciiInput: inputSource.ascii });
 
 	record("helper", "still alive", (await alive()) ? "pass" : "fail", "the helper answered diagnostics after every probe (no crash)");
 
 	if (fixtureRun) {
-		const cleanup = await disposeFixtureRun(fixtureRun, macosBackend);
-		record("cleanup", "fixture copy", cleanup.quit.length ? "pass" : "inconclusive", `quit=${cleanup.quit.join(",") || "none"} removed=${fixtureRun.dir}`);
+		const cleanup = await disposeFixtureRun(fixtureRun, macosBackend, { record });
+		record("cleanup", "fixture copy", cleanup.removed && cleanup.refused.length === 0 ? "pass" : "fail", `quit=${cleanup.quit.join(",") || "none"} refused=${cleanup.refused.join(",") || "none"} remaining=${cleanup.remaining.join(",") || "none"} removed=${cleanup.removed}`);
 	}
 
 	// Leave the operator's app in front again, and read it back (review 6 P2).

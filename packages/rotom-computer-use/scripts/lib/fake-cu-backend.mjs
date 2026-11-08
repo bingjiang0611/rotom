@@ -121,7 +121,7 @@ export const backend = {
 		}
 		if (request.mode === "quit") {
 			fixtureApp = undefined;
-			return { quit: [5150] };
+			return { quitRequested: true, terminated: true, forced: false, unsavedChangesMayBlock: false };
 		}
 		return {};
 	},
@@ -153,6 +153,11 @@ export const helper = {
 	async command(name, args) {
 		if (name === "getMousePosition") return { x: 10, y: 10 };
 		if (name === "userActivity") return activity();
+		if (name === "calibrateHidEventSource") {
+			pushEvent(true);
+			events.at(-1).at -= 1000; // calibration precedes the formal action window
+			return { found: true, pid: 4242, stateId: 1, type: 5, agentDelta: 1 };
+		}
 		if (name === "act") {
 			if (scenario === "activate-only") activatedByPost = true;
 			if (scenario !== "fail" && scenario !== "activate-only") clicks += 1;

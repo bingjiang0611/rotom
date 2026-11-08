@@ -118,3 +118,14 @@ summary   unmarked=157 fromThisRun=0 fromElsewhere=157
 3. 修改 K2 归因规则，让“已证明来自外部非用户来源的事件”不再直接判 fail——这是审核者的权限，不是我改的。
 
 在这三条里任一条成立之前，B 阶段在这台机器上无法推进。这一点必须在继续之前让用户知道。
+
+### REVIEW-10 / REVIEW-11 代码收口（未跑真机）
+
+本轮只改代码和自动化测试。没有启动 helper、fixture 或其他 App，也没有生成新的真机证据。
+
+- Z1：B 阶段退出 App 只接受本次运行记录为“新启动”的 pid；`alreadyRunning` 和外部 pid 均拒绝并写 `fail`；App 退出固定 `force:false`。只有 `terminated:true` 或进程消失的读回可释放所有权；未退出的进程保留所有权和 App 副本并写 `fail`。后续 fixture 启动对照使用 `--launch-twice` 脚本模式，不再用临时命令实验。
+- Y2：`l2`/`pid` 鼠标事件写入两个目标窗口字段；`hid` 不写。新增 Swift 自测和源码合同测试。
+- Y3：B0 在正式基线前投递带 agent 标记、零位移的 HID `mouseMoved`，归档环中 `pid/state/type` 和 agent 增量。
+- Z2：`cu-v2-l2-check.mjs --launch-twice` 对同一 copied/signed bundle 连续启动两次并记录耗时和事件增量；`--prewarm` 是显式可选项，先通过安全门禁，预热后只读等待新的安静区间再通过正式门禁，**当前不默认启用**。
+
+**L2 决定不变：默认开启。** `ROTOM_CU_L2=0` 仍是显式关闭开关；本轮没有因为现有负向真机结果而关闭或降级 L2。新代码须先通过审核，之后才能冻结新的真机窗口。

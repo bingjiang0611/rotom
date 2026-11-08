@@ -112,6 +112,8 @@ export const executionChecks = [
 				const presence = (archive.match(/^\| fixture \| present \|/gm) ?? []).length;
 				if (presence !== 1) throw new Error(`fixture | present appears ${presence} times`);
 				if (row(archive, "fixture", "launch") !== undefined) throw new Error("the fake launch failed");
+				if (row(archive, "calibration", "marked HID mouseMoved") !== "recorded") throw new Error("the B0 calibration event was not recorded");
+				if (!/calibration \| marked HID mouseMoved \| recorded \| pid=4242 state=1 type=5 agentDelta=1/.test(archive)) throw new Error("the calibration row omitted pid/state/type");
 				if (row(archive, "attribution", "ring") !== undefined && row(archive, "attribution", "ring") !== "pass") throw new Error("the fake helper reported no ring");
 				if (!/\| attribution \| summary \| recorded \|/.test(archive)) throw new Error("no attribution summary row");
 				const effect = /\| direct L2 \| click effect \| pass \| before=clicks:(\d+) after=clicks:(\d+)/.exec(archive);
@@ -172,6 +174,43 @@ export const executionChecks = [
 				if (row(archive, "direct L2", "target active") !== "recorded") throw new Error("the pre-post activation state is not a report row");
 				if (row(archive, "direct L2", "click effect") !== "inconclusive") throw new Error(`click effect = ${row(archive, "direct L2", "click effect")}`);
 				return "activating post told apart from a pressed control";
+			} finally {
+				result.cleanup();
+			}
+		},
+	},
+	{
+		name: "Z2: launch-twice measures two launches of one copied bundle and remains report-only",
+		run: () => {
+			const result = runScript({ scenario: "pass", args: ["--launch-twice"] });
+			try {
+				expectOk(result, "launch-twice run");
+				const archive = result.archive ?? "";
+				if (/^Verdict:/m.test(archive) || result.marker) throw new Error("launch-twice authorized or stopped a B step");
+				for (const action of ["first launch", "second launch"]) {
+					if (row(archive, "launch twice", action) !== "recorded") throw new Error(`${action} was not recorded`);
+				}
+				if ((archive.match(/^\| fixture \| fresh copy \|/gm) ?? []).length !== 1) throw new Error("launch-twice did not reuse one prepared copy");
+				return "first and second launch recorded against one fresh copy; no Verdict or marker";
+			} finally {
+				result.cleanup();
+			}
+		},
+	},
+	{
+		name: "Z2: optional prewarm completes before the formal run without becoming the default",
+		run: () => {
+			const result = runScript({ scenario: "pass", args: ["--prewarm", "--b0-attribution"] });
+			try {
+				expectOk(result, "prewarm run");
+				const archive = result.archive ?? "";
+				if (row(archive, "prewarm", "fixture") !== "pass") throw new Error("the prewarm cycle did not complete");
+				if (row(archive, "fixture", "present") !== "pass") throw new Error("the formal post-gate launch did not run");
+				const safety = archive.indexOf("| gate | prewarm safety | pass |");
+				const warmed = archive.indexOf("| prewarm | fixture | pass |");
+				const formal = archive.indexOf("| gate | verdict | pass |");
+				if (!(safety >= 0 && safety < warmed && warmed < formal)) throw new Error("prewarm did not run between the safety and formal gates");
+				return "safety gate → prewarm → fresh formal gate → fixture launch";
 			} finally {
 				result.cleanup();
 			}

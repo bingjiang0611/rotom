@@ -23,6 +23,7 @@ import { executionChecks } from "./lib/dry-run-exec.mjs";
 import { FIXTURE_BUNDLE_PREFIX, disposeFixtureRun, ensureFixtureWindow, isFixtureBundleId, prepareFixtureRun } from "./lib/fixture.mjs";
 import { buildDirectL2Request, isDirectL2 } from "./lib/l2-direct.mjs";
 import { classifyActFailure } from "./lib/live-helpers.mjs";
+import { rememberRunLaunch } from "./lib/run-owned-apps.mjs";
 
 const rows = [];
 async function check(name, run) {
@@ -79,23 +80,42 @@ await check("direct L2 refuses anything it cannot verify", () => {
 
 await check("cleanup quits only this run's bundle and deletes the copy", async () => {
 	const quit = [];
+	let running = true;
 	const backend = {
 		async listApps() {
 			return [
-				{ appName: "Fixture", bundleId: first.bundleId, pid: 700 },
+				...(running ? [{ appName: "Fixture", bundleId: first.bundleId, pid: 700 }] : []),
 				{ appName: "Operator App", bundleId: "com.example.operator", pid: 42 },
 			];
 		},
 		async manageApps(request) {
 			quit.push(request.pid);
+			running = false;
+			return { quitRequested: true, terminated: true, forced: false, unsavedChangesMayBlock: false };
 		},
 	};
+	rememberRunLaunch(first.startedPids, { launched: true, alreadyRunning: false, pid: 700 });
 	return await disposeFixtureRun(first, backend).then((result) => {
 		assert.deepEqual(result.quit, [700]);
 		assert.deepEqual(quit, [700], "the operator's app is never touched");
 		assert.equal(existsSync(first.dir), false, "the copy is gone");
 		return "one pid quit, directory removed";
 	});
+});
+
+await check("an unconfirmed fixture quit keeps ownership and the copied bundle", async () => {
+	const stuck = prepareFixtureRun({ sourceApp, runRoot: root, stamp: "stuck", sign: false });
+	rememberRunLaunch(stuck.startedPids, { launched: true, alreadyRunning: false, pid: 701 });
+	const backend = {
+		listApps: async () => [{ appName: "Fixture", bundleId: stuck.bundleId, pid: 701 }],
+		manageApps: async () => ({ quitRequested: true, terminated: false, forced: false, unsavedChangesMayBlock: true }),
+	};
+	const result = await disposeFixtureRun(stuck, backend);
+	assert.equal(result.removed, false);
+	assert.equal(stuck.startedPids.has(701), true);
+	assert.equal(existsSync(stuck.dir), true);
+	rmSync(stuck.dir, { recursive: true, force: true });
+	return "ownership retained, bundle kept";
 });
 
 await check("every live script asks the gate before it touches the desktop", () => {

@@ -198,7 +198,7 @@ B1 结果（[存档](evidence/runs/2026-11-06T2240-b1-directed-l2.md)）：19 �
 | T3 | fixture 写入源码 SHA-256 并在启动前比对；helper 缺 `recentEventLimit`、协议不符、或副本会是 ad-hoc 签名，都退出 2 且不写 `B-STOPPED` |
 | R9 | 计数没动但 post 激活了窗口 → `inconclusive`，另加 `target active`/`activation` 两行 |
 
-窗口账目见 [STATUS-2-rounds.md](STATUS-2-rounds.md)，T1–T3、R9 细节见 [STATUS-2-r8.md](STATUS-2-r8.md)。
+窗口与 REVIEW-10/11、“L2 默认开启”决定见 [STATUS-2-r9.md](STATUS-2-r9.md)。
 B 阶段改在测试机运行的方案见 [STATUS-2-testmachine.md](STATUS-2-testmachine.md)（待批准，尚未安装任何东西）。
 
 ## 需要审核者回答的问题

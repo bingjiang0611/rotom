@@ -18,6 +18,8 @@ import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
+import { createRunAppOwnership, quitRunOwnedApp, rememberRunLaunch } from "./run-owned-apps.mjs";
+
 export const FIXTURE_BUNDLE_PREFIX = "com.example.cu-fixture.";
 
 /**
@@ -78,29 +80,28 @@ export function prepareFixtureRun({
 	if (sign) {
 		execFileSync("codesign", ["--force", "--deep", "--sign", identity || "-", bundlePath], { stdio: "pipe" });
 	}
-	return { bundlePath, bundleId, dir, sourceApp };
+	return { bundlePath, bundleId, dir, sourceApp, startedPids: createRunAppOwnership() };
 }
 
 /**
- * Quit every process of the run's own bundle id, then delete the copy.
- *
- * Quitting by bundle id (not by name) is what keeps the operator's own apps out of
- * this: only processes whose bundle id carries this run's stamp can match.
+ * Quit only pids whose launch result proved this run created them, then delete the copy.
+ * The unique bundle id finds candidates; it never grants quit authority by itself.
  */
-export async function disposeFixtureRun(handle, backend) {
+export async function disposeFixtureRun(handle, backend, { record } = {}) {
 	const quit = [];
-	try {
-		const apps = await backend.listApps();
-		for (const app of apps) {
-			if (app.bundleId === handle.bundleId) {
-				quit.push(app.pid);
-				await backend.manageApps({ mode: "quit", pid: app.pid, force: true }).catch(() => undefined);
-			}
-		}
-	} finally {
-		rmSync(handle.dir, { recursive: true, force: true });
+	const refused = [];
+	const apps = await backend.listApps();
+	for (const app of apps) {
+		if (app.bundleId !== handle.bundleId) continue;
+		const result = await quitRunOwnedApp({ backend, ownedPids: handle.startedPids, pid: app.pid, record, area: "cleanup", action: "fixture copy" });
+		if (result.refused) refused.push(app.pid);
+		else if (result.stopped) quit.push(app.pid);
 	}
-	return { quit };
+	const remaining = (await backend.listApps()).filter((app) => app.bundleId === handle.bundleId).map((app) => app.pid);
+	const removed = remaining.length === 0;
+	if (removed) rmSync(handle.dir, { recursive: true, force: true });
+	else record?.("cleanup", "fixture copy removal", "fail", `kept ${handle.dir}; still running pid=${remaining.join(",")}`);
+	return { quit, refused, remaining, removed };
 }
 
 /**
@@ -150,6 +151,7 @@ export async function ensureFixtureWindow(backend, target, { timeoutMs = FIXTURE
  */
 export async function launchFixture(backend, handle) {
 	const result = await backend.manageApps({ mode: "launch", path: handle.bundlePath, activates: true });
+	if (handle.startedPids) rememberRunLaunch(handle.startedPids, result);
 	return result;
 }
 
@@ -188,13 +190,15 @@ export function fixtureInfoPlist({ bundleId = "com.example.cu-fixture", version 
  * copy that this run did not start is reported and never touched, and a launch that produces
  * no window is a recorded result rather than a crash.
  */
-export async function bringUpFixture({ backend, fixturePath, runRoot, sign, startedByThisRun, record }) {
-	let run;
-	let launchPath = fixturePath;
-	if (runRoot) {
+export async function bringUpFixture({ backend, fixturePath, runRoot, preparedRun, sign, startedByThisRun, record }) {
+	let run = preparedRun;
+	let launchPath = run?.bundlePath ?? fixturePath;
+	if (runRoot && !run) {
 		run = prepareFixtureRun({ sourceApp: fixturePath, runRoot, sign });
 		launchPath = run.bundlePath;
 		record("fixture", "fresh copy", "pass", `bundle=${run.bundleId} path=${launchPath}`);
+	} else if (run) {
+		record("fixture", "prepared copy", "pass", `bundle=${run.bundleId} path=${launchPath}`);
 	}
 	// A background launch never builds a SwiftUI window, so the launch activates the copy
 	// (review 6 P3). There is no `open -n` fallback: an ad-hoc launch command is not part of a
