@@ -175,3 +175,32 @@ fixture 进程被列出（`present pass pid=45289`），但 6 秒轮询里没有
 
 同样未验证：R9 的 `target active` / `activation` 两行在真机上一次都没跑到——`direct L2` 整段被
 `fixture | window` 跳过，所以 R9 目前只有 dry run（fake backend `activate-only`）与单元测试的证据。
+
+### 第九次窗口（2026-11-07 22:22:14–22:42:14，`760ead26`，20 分钟）：fixture 又正常了，但未标记事件有了第二个干净样本
+
+门禁 22:30:42 pass（`hid_idle 652s`），运行 22:30:47–22:30:58，27 行、3 fail、退出 0。开头 `userEvents` 只有 1 条
+（21:59:49 之后没有输入），所以这次可以确定**机器上没有人**。
+
+fixture 这次一切都对：`present pid=58306`、`controls text=e10 button=e11`、AX 点击 `clicks:0→1`、
+`input received field="l2probe"`、`cleanup quit=58306`。也就是说 22:14 那次“没有窗口”是偶发，R10 的活体行这次没有触发。
+
+**未标记事件不是人。** 这次 `+101`：
+
+```
+2026-11-08T06:30:51.458Z – 52.260Z  mouseMoved   pid 0 state 1  ×100
+2026-11-08T06:30:52.336Z           leftMouseDown pid 0 state 1  ×1
+```
+
+时间对照：`06:30:49.027Z` 复制副本 → **06:30:51.5 起 0.8 秒内 100 次移动** → `06:30:55.700Z` 进程被列出 →
+`06:30:58.254Z` 定向 L2 点击。也就是说 100 次移动发生在**启动过程中**，与 21:38 那次（复制 24.919 → 移动 27.735 →
+present 31.526）偏移完全一致，都是复制后约 2.4–2.8 秒、约 125 Hz（正好是鼠标 HID 轮询率）、然后一次按下。
+
+21:38 有用户在，22:30 没有用户，两次却在同一个相对时刻出现同一形态，所以“用户动鼠标”解释不了它；
+更可能来自启动/激活路径本身（helper 的 `manageApps activates:true` 或 LaunchServices 激活）。
+这是下一个可判定的实验：用 `activates:false` 再启动一次，看这一段是否消失。`fromThisRun=0` 说明它没有走
+我们的标记路径，所以现在的归因只能说“不是本次运行标记的事件”，不能说“不是我们这一侧产生的”。
+
+**定向 L2 有了带判别的负结果**：`direct L2 | target active | recorded | frontmost=Scry pid=46038`，
+并且**没有** `activation` 行，按 R9 规则因此判 `fail` 而不是 `inconclusive`——这次 post 既没有让计数 +1，
+也没有激活窗口（`cursorMoved=false`，helper 存活）。在这个宿主上，`SLEventPostToPid` 的点击
+没有按到控件、也没有激活窗口，这是目前最清楚的一次 L2 负证据；但仍只覆盖 fixture 这一个 App。
