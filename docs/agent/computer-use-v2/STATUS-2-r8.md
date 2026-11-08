@@ -153,3 +153,25 @@ B1 需要重做这个判定，且必须在一个真正安静且 fixture 被激�
 fake backend 新增 `activate-only` 场景，dry run 执行该路径并断言三行（33 项 0 失败），
 `test/l2-modes.test.ts` 覆盖“激活/未激活/加一/异常增量”四种判定。213 项测试，
 唯一失败是已知的 `broker-scheduler` 并发超时，单跑 5/5 通过。
+
+### 第八次窗口（2026-11-07 21:44–22:44，`553190a7`，60 分钟）：第一次真正无人值守，但窗口没出现
+
+门禁 22:14:05 pass（`hid_idle 946.1s`）。运行 22:14:10–22:14:25，18 行、1 fail、退出 0、无 `Verdict:`、无 `B-STOPPED`。
+
+`run | real user input` 第一次 **pass**：`userEvents 0 → 0 (+0); frontmost=Scry pid=46038`。
+归因环 0 条记录、`ring complete pass`——安静机器上确实没有未标记事件，T2 的“环与计数一致”在真机第一次成立。
+
+失败的只有 `fixture | window | fail | no window in listRoots even after activating the fixture`：
+fixture 进程被列出（`present pass pid=45289`），但 6 秒轮询里没有任何窗口，`cleanup | fixture copy` 变成
+`inconclusive quit=none`（没有可退出的进程）。
+
+排查（只读）：`amfid` 在该窗口没有任何拒绝记录，也没有崩溃报告，所以不是 R8 修掉的 ad-hoc 路径；
+`pmset -g log` + `loginwindow` 通知显示屏幕 21:57:09 上锁、21:58:09 解锁，之后一直未锁——**不是锁屏导致的窗口不可见**。
+`fixture | launch` 没有 fail 行，说明 `open` 本身成功。
+
+因此现在无法区分“进程很快就退出”和“进程活着但没画出窗口”。缺的是一行证据，而不是又一次运行：
+窗口超时时应当重新确认该 pid 是否还活着（存在与否、AX 是否应答），并把这个结果单独写一行。
+在这行存在之前，`fixture | window = fail` 只能记为“原因未知”，不能再靠推断。
+
+同样未验证：R9 的 `target active` / `activation` 两行在真机上一次都没跑到——`direct L2` 整段被
+`fixture | window` 跳过，所以 R9 目前只有 dry run（fake backend `activate-only`）与单元测试的证据。
