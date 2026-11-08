@@ -8,6 +8,15 @@
 
 ## 1. 虚拟化工具
 
+先说清楚要装的是什么：**macOS 虚拟机**，不是 Linux 虚拟机。
+
+被测试的东西全是 macOS 专属的：helper 是 Swift 二进制，依赖辅助功能（AX）API 和一个私有 SkyLight 符号
+（`SLEventPostToPid`）；fixture 是 SwiftUI App；门禁读的是 macOS 的 HID 空闲时间；签名、amfid、TCC 权限也都只有 macOS 有。
+Linux 虚拟机里这些一样都不存在，跑起来测的就不是同一个东西。
+
+机器上已经有 Linux 虚拟机（colima/lima，给 Docker 用，`default` 实例正在跑），它跟本文无关，也不能代替这一台。
+Apple 芯片上 macOS 客人只能用 Apple Virtualization.framework 引导，QEMU 跑不了，所以选型只能是下面两个。
+
 选 **tart**（`brew install cirruslabs/cli/tart`），备选 **UTM**（`brew install --cask utm`）。
 
 | 项 | tart | UTM |
@@ -34,6 +43,7 @@
 | 项 | 值 |
 | --- | --- |
 | 虚拟机配额 | 4 CPU / 8 GB 内存 / 64 GB 磁盘（宿主 10 CPU / 32 GB / 数据卷剩 202 GiB） |
+| 已有占用 | colima 的 `default` 实例已在用 2 CPU / 4 GB；加上本方案峰值 6 CPU / 12 GB，仍在 10 / 32 之内 |
 | 磁盘占用 | 系统 ~25 GB + Xcode 命令行工具（如果装）+ 存档，峰值按 40 GB 估 |
 | 存放位置 | 默认在 `~/.tart/vms/<name>`；不够可改到外置盘 |
 | 不用时 | `tart stop` 或直接 `tart run` 的窗口关掉；不需要常驻 |
@@ -93,6 +103,8 @@ SSH 登录拿到的是普通会话，所以分工如下。
 在上述环境里运行 Virtualization.framework 虚拟机有这些风险：
 
 1. **可能触发告警或违反 IT 规定**：企业 EDR 通常会上报虚拟化、内核扩展、异常进程等行为。
+   一个减轻证据：这台机器上 colima 的 Linux 虚拟机现在就在用 `vmType: vz`（Virtualization.framework）跑，
+   说明 VZ 本身没有被策略拦。但这不等于策略允许一台 macOS 客人，也不等于不会告警。
 2. **可能被策略直接阻断**：有的策略禁止 `Virtualization.framework` 或禁止未登记的虚拟机。
 3. **网络流量**：下载 IPSW 约 15 GB、以后拉代码与依赖，都会经过公司网络。
 4. **同一个干净系统假设可能不成立**：如果企业代理也装进虚拟机（一般不会，但要看策略），
