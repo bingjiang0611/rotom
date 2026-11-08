@@ -204,3 +204,34 @@ present 31.526）偏移完全一致，都是复制后约 2.4–2.8 秒、约 125
 并且**没有** `activation` 行，按 R9 规则因此判 `fail` 而不是 `inconclusive`——这次 post 既没有让计数 +1，
 也没有激活窗口（`cursorMoved=false`，helper 存活）。在这个宿主上，`SLEventPostToPid` 的点击
 没有按到控件、也没有激活窗口，这是目前最清楚的一次 L2 负证据；但仍只覆盖 fixture 这一个 App。
+
+### 第十次窗口（2026-11-08 01:09:25–05:09:25，`32910e2f`）：第三次样本，并修正“pid 0 等于硬件”的读法
+
+用户改为继续在宿主上跑。门禁 01:19:34 pass（`hid_idle 634.2s`），运行 01:19:40–01:19:51，27 行、3 fail、退出 0。
+
+fixture 正常：`present pid=52322`、`controls text=e360 button=e361`、AX 点击 `clicks:0→1`、`input received field="l2probe"`、
+`cleanup quit=52322`。定向 L2 点击第四次给出同样的负结果（`target active` 记录前台是 Scry，无 `activation` 行）。
+
+新增的未标记事件样本：
+
+```
+复制副本  2026-11-08T09:19:41.473Z
+移动      09:19:44.483Z – 09:19:45.884Z   ×156（约 111 Hz，持续 1.4 s）
+按下      09:19:46.133Z                    ×1
+summary   unmarked=157 fromThisRun=0 fromElsewhere=157
+```
+
+开启后约 3.0 秒开始，和 21:38（2.8 s）、22:30（2.4 s）一致。现在是 **3/3**：窗口出现就有突发，
+22:14 那次进程在、窗口没出现，`+0`。
+
+**两点需要更正 REVIEW-9 的前提：**
+
+1. `pid 0 / state 1` **不能**当作“真实硬件或虚拟 HID 驱动”的证明。`CGEventPost` 投到 HID tap 的事件同样是
+   HID 系统状态、同样没有投递进程 pid。所以这一段突发不能用来论证“机器上有人在动鼠标”，也不能用来排除
+   “某个有辅助功能权限的进程在合成输入”。`ioreg` 里只有 Apple 自己的 `Keyboard Backlight` 一个用户态 HID 设备，
+   这只排除了“装了第三方虚拟 HID 驱动”这一条机制。
+2. 两处源码可以排除自己的代码：fixture（`native/macos-fixture/FixtureApp.swift`）没有任何 `CGEvent`/`NSEvent`/定时器；
+   helper 的 `launchApp` 只用 `NSWorkspace.openApplication(activates:)`，整条路径没有合成输入。突发是外部产生的。
+
+目前定位只能到这里：外部、与“新窗口出现”相关（不是与“启动调用”相关）、约 150 次移动加一次点击。
+最后的可能源是机器上的企业安全/办公客户端那一类有辅助功能权限的进程，但没有证据能把它指实。
