@@ -1,11 +1,11 @@
 # 同会话轮转与 Context Layers 精简技术方案
 
-状态：设计草案，尚未实现或启用。本文不修改当前运行时合同，也不代表性能收益已经验证。
+状态：设计已定稿，待实施；执行清单见 [session-rollover-worklist.md](session-rollover-worklist.md)。本文不代表性能收益已经验证。
 
 本方案分两部分，按顺序独立推进：
 
 - **A. Context Layers 精简为只读检索**（第 3 节）：删去模型驱动的分层压缩，只保留搜索与原文回查。已有实测不支持压缩部分的费用收益，检索部分对原生压缩后的回查和 B 都有用；可以先做，不依赖 B。
-- **B. 同会话轮转**（第 4–9 节）：上下文达到轮间水位时，在下一轮开始前于**同一会话**追加一条不调用模型的轮转条目，清空模型可见上下文，旧原文留在分支上按需检索。必须先完成阶段 0 离线统计（第 9.1 节）；统计不支持时停在设计阶段。
+- **B. 同会话轮转**（第 4–9 节）：上下文达到轮间水位时，在下一轮开始前于**同一会话**追加一条不调用模型的轮转条目，清空模型可见上下文，旧原文留在分支上按需检索。默认关闭；阶段 0 离线统计（第 9.1 节）决定它能否合入公开 `main`，统计不支持时整体撤回。
 
 本文早期版本设计为“轮转时创建新会话并导出分支日志”。改为同会话后，会话 ID、插件实例、Browser tab、子任务与 Goal 状态都不随轮转变化，也不再需要日志导出、切换事件新取值和订阅重绑。早期版本只查 Git history。
 
@@ -50,7 +50,7 @@
 | Context Layers 摘要以 `[Context summary <id>, tier <n>. … recall exact details with context_recall.]` 呈现，由 Pi 原生 `context_edit` 投影 | [copy.ts](../../rotom/extensions/context-layers/copy.ts) | 旧会话中已有摘要在扩展精简后仍会显示，需保留按块 ID 回查（3.3） |
 | Goal 每次自动续跑的提示都包含完整目标（“The full objective persists across turns”） | [Goal prompts](../../packages/rotom-goal/src/prompts.ts) | Goal 续跑边界是后续可考虑的轮转点（第 9 节之后的阶段 2），首版不做 |
 
-轮转判断与条目写入是 Pi fork 的运行流程改动，放在 `AgentSession` 的提交入口，TUI、RPC 与 SDK 共用，不在各宿主复制策略。
+实现分为 Pi fork 中三处通用接缝与一个 rotom 扩展，结构见第 8 节。
 
 ## 3. A：Context Layers 精简为只读检索
 
@@ -106,7 +106,7 @@ context_recall({ ref, mode?, offset? })       → @entryId 或旧摘要块 ID �
 
 ### 4.1 判断时间、估算源与轮间水位
 
-下一次空闲提交、实际调用 `prompt()` **之前**做判断，此时 `_prepareRun` 尚未运行。
+在下一次空闲提交的 `input` 事件中判断：它在 `prompt()` 内、模板/Skill 展开与 `_prepareRun` 之前执行，并被等待完成，因此判断与写入先于本次请求的任何压缩检查。只处理 `source` 为 `interactive` 或 `rpc`、且 `streamingBehavior` 为空（空闲）的输入；`extension` 来源的输入（如其他插件 `sendUserMessage`）不触发轮转。
 
 **估算源与压缩一致。** 从 `_checkCompaction` 的阈值分支中抽出一个只读函数，按它现有的优先级（Provider usage → 有 `context_edit` 时投影估算 → 错误/零 usage 时消息估算，含“usage 早于最近压缩则不计”的检查）给出当前上下文量。轮间判断与 `_checkCompaction` 共用这个函数，不另写估算，不额外发模型请求；估算不是 Provider 精确计费量。
 
@@ -190,51 +190,70 @@ context_recall({ ref, mode?, offset? })       → @entryId 或旧摘要块 ID �
 
 ### 7.1 顺序
 
-以下是设计顺序，不是现有 API 签名：
+以下是设计顺序，不是最终 API 签名：
 
-1. 宿主接受普通输入；仍在运行时按原有 steering/follow-up 规则处理，不轮转。
-2. 空闲时按第 4 节判断。未触发则正常提交。
-3. 发出 `session_before_compact`（`reason: "rollover"`）；被取消则正常提交。
-4. 生成 5.1 的内容并追加轮转条目，刷新投影，发出 `session_compact`。
-5. 在同一会话中正常调用 `prompt()` 提交本次输入及附件。输入转换、模板/Skill 展开和模型派发只发生一次。
+1. 宿主接受普通输入；运行中按原有 steering/follow-up 规则处理，不轮转。
+2. `prompt()` 照常处理扩展命令，随后发出 `input` 事件；轮转扩展在其中按第 4 节判断。未触发则返回 `continue`。
+3. 触发时调用 Pi 的“重置上下文”接缝（8.1）：发出 `session_before_compact`（`reason: "rollover"`），未被取消则追加 5.1 的轮转条目、刷新投影、发出 `session_compact`，整个过程被等待完成，不中止运行。
+4. 扩展返回 `continue`，`prompt()` 在同一会话中继续展开模板/Skill、`_prepareRun` 与派发。输入只经过一次 `prompt()`，不重发、不改来源。
 
-轮转发生在 `prompt()` 之外，不重放 `prompt()`，不存在“旧入口已消费输入”的问题。宿主不需要重绑订阅，RPC 不需要回报新 session ID。
+宿主不需要重绑订阅，RPC 的 prompt 响应语义不变，也不需要回报新 session ID。
 
 ### 7.2 失败
 
+轮转失败一律退回“不轮转”：本次输入照常提交，原有压缩路径接管，并提示用户。不丢弃输入，也不因轮转失败阻止请求。
+
 | 情况 | 行为 |
 | --- | --- |
-| 插件取消 | 本次正常提交，照常走压缩路径；显示取消原因，不重试轮转 |
-| 生成摘录或追加条目失败 | 不提交本次输入；保留输入并显示明确错误。追加是单条 JSONL 写入，写入状态不明时先回读分支确认，不盲目再追加 |
+| 插件取消 | 本次正常提交；显示取消原因，不重试轮转 |
+| 生成摘录失败（写入前） | 不写条目，本次正常提交并提示 |
+| 追加条目报错 | 先回读当前分支：条目已存在按成功处理；不存在按未轮转处理，本次正常提交。不盲目再追加 |
 | 轮转成功后提交失败 | 轮转条目保留，按现有提交失败语义处理；不撤销条目、不再次轮转 |
 | 模型请求或外部操作已派发，结果未知 | 沿用现有 unknown 与有界恢复合同 |
 
-## 8. B：开关与修改位置
+## 8. 实现结构
 
-单一 opt-in 开关 `ROTOM_SESSION_ROLLOVER=1`，未设置时关闭；名称及行为尚未实现。实现前核对 launcher 现有环境合同，不增加阈值百分比、水位配置或模式配置。
+### 8.1 Pi fork：三处通用接缝
 
-| 修改位置 | 目的 |
+只提供能力，不含 rotom 策略（水位、资格、摘录、开关都不在 Pi 内）：
+
+| 接缝 | 内容 | 为什么扩展现有 API 做不到 |
+| --- | --- | --- |
+| 可等待的“重置上下文” | `ExtensionContext` 新增方法（名称由实施者定，建议 `resetContext({ summary, details })`），仅在空闲且处于 `input` 处理器内可用，否则拒绝；以 `reason: "rollover"` 发出 `session_before_compact`（处理器可取消，返回的替代 `compaction` 被忽略），写入 `firstKeptEntryId` 指向自身的压缩条目，发出 `session_compact`；返回成功、被取消或失败；不调用 `abort()` | 现有 `ctx.compact()` 不等待完成且先 `abort()`，在 `input` 中调用会与本次提交竞争；扩展只有只读 SessionManager，返回的压缩结果无法让 `firstKeptEntryId` 指向自身 |
+| 压缩事件阶段 | `session_before_compact` 增加阶段字段，至少区分“下一次请求前”（`prepareNextTurnWithContext` 与 `_prepareRun`）、“运行结束后”（`_handlePostAgentRun`）、手动/扩展请求与轮转；`reason` 增加 `"rollover"` | 轮内与轮末阈值压缩的 `reason` 都是 `threshold`，扩展无法只延后轮末那次 |
+| 估算与呈现 | 从 `_checkCompaction` 抽出共用的阈值估算，并以只读方式提供给扩展（新增方法或扩展 `getContextUsage` 的返回，不改变其现有字段语义）；压缩条目 `details.kind === "rotom-rollover"` 时投影使用专用前缀 | `getContextUsage()` 使用投影估算、压缩后返回 `null`，与 `_checkCompaction` 的 usage 优先估算不同；`COMPACTION_SUMMARY_PREFIX` 无法由扩展替换 |
+
+这些都是 Pi extension API 的新增能力，CHANGELOG 记录；现有字段语义不变。Pi 源码改动后按仓库合同 `build:pi`、`check:pi` 并提交重建后的归档与 lock，fork 版本号不变（与既有 fork 修复提交一致）。
+
+### 8.2 rotom 扩展 `rotom/extensions/session-rollover/`
+
+| 职责 | 实现 |
 | --- | --- |
-| Pi `AgentSession` | 抽出共用的只读上下文量估算；计算水位与资格；提交前追加轮转条目；`_handlePostAgentRun` 在具备资格时延后轮末阈值压缩 |
-| Pi `SessionManager`/消息投影 | 按 `details.kind` 选择轮转前缀 |
-| Pi extension types、CHANGELOG | `session_before_compact` 新增 `"rollover"` |
-| 第 5.4 节所列插件 | 核对并按需调整 |
-| rotom launcher、产品配置 | 接入开关；非产品 SDK 默认不变 |
-| TUI/RPC 文案模块 | 轮转提示与取消原因 |
+| 开关 | `ROTOM_SESSION_ROLLOVER=1` 时注册，未设置或其他值不注册任何处理器；不增加水位、百分比或模式配置 |
+| 判断 | `input` 处理器：按 4.1 的共用估算与水位、4.2 的资格判断；`context_recall` 是否在当前可用工具中由此判断 |
+| 写入 | 生成 5.1 的检索说明与尾部摘录，调用 8.1 的重置接缝；失败按 7.2 退回 |
+| 延后轮末压缩 | `session_before_compact` 中，阶段为“运行结束后”、`reason` 为 `threshold`、且具备 4.2 资格时取消；其余一律不干预 |
+| 产品声明 | 在 `product-config.mjs` 中声明，位置在 `third-party` 之前：handler 按扩展加载顺序执行且首个取消即返回，保证轮末取消先于 Offload 生效 |
+| 文案 | 轮转提示、取消原因集中在扩展的 copy 模块 |
 
-不改 npm 版本，不改现有自动压缩默认，不覆盖存活会话安装。Pi 源码改动按仓库合同重新 `build:pi`、验证归档与 capability。
+### 8.3 与 Context Layers 的关系
+
+检索留在精简后的 `context-layers` 扩展，不并入轮转扩展：检索默认开启并服务于原生压缩后回查和旧会话摘要，轮转默认关闭且可能整体撤回；两者只通过“`context_recall` 是否可用”这一条资格相连，不共享代码与状态。轮转实测通过并改为默认开启后，再评估合并为一个上下文扩展及旧标识的兼容迁移。
+
+不改 npm 版本，不改现有自动压缩默认，不覆盖存活会话安装。
 
 ## 9. 验证与启用条件
 
-### 9.1 阶段 0：B 实现前的离线统计
+### 9.1 阶段 0：离线统计
 
-在写 B 的运行时代码之前，用维护者本机已有的会话 JSONL 离线回放，不调用模型、不产生费用：
+用维护者本机已有的会话 JSONL 离线回放，不调用模型、不产生费用。统计脚本与 B 的实现可以并行开发；B 默认关闭，统计结果决定它能否合入公开 `main`：
 
 - 逐个请求重算 4.1 的估算，统计越过压缩阈值的事件中，有多少发生在轮中途、多少发生在轮末；
 - 对候选水位及另外一两个由 `reserveTokens` 派生的候选做同样统计，并统计单轮上下文增长分布；
 - 另统计越线发生时是否存在 active Goal，用于评估阶段 2 的价值；
 - 输出只含聚合计数与分布，不含消息内容、路径或 session ID；会话文件和原始统计不进仓库；
-- 实施前写定通过门槛（例如：候选水位下，原本会发生原生压缩的会话中至少一半能在轮间被接管）。不达门槛时 B 停在设计阶段，A 不受影响。
+- 通过门槛：候选水位下，原本发生过原生阈值压缩的会话中，至少一半在第一次原生压缩之前就能在某个轮间被轮转接管。不达门槛时 B 不合入 `main`，A 不受影响。
+- 统计脚本放在 `rotom/evals/`（维护面，不进产品包），附带用合成会话 fixture 的单测；会话目录默认读 `$PI_CODING_AGENT_DIR/sessions`，未设置时为 `~/.pi/agent/sessions`。
 
 ### 9.2 B 的确定性检查
 
@@ -251,7 +270,9 @@ context_recall({ ref, mode?, offset? })       → @entryId 或旧摘要块 ID �
 | 后续原生压缩 | 轮转条目作为 `previousSummary` 合并；旧原文仍可回查 |
 | `"rollover"` 事件 | 5.4 每个处理器行为符合预期；取消后正常提交；替代结果被忽略 |
 | Browser tab、子任务 | 轮转前后保持不变 |
-| 失败与重启 | 写入失败不派发输入；写入状态不明时回读确认，不重复追加 |
+| 失败与重启 | 每种 7.2 失败都退回正常提交且输入只派发一次；追加报错时回读确认，不重复追加 |
+| 接缝约束 | 重置接缝在非空闲或 `input` 处理器之外调用时被拒绝；不调用 `abort()`；返回的替代 `compaction` 被忽略 |
+| 加载顺序 | 轮末取消发生在 Offload 处理器之前，Offload 不在被取消的那次运行 |
 | 负向对照 | 禁用轮转入口、漏掉输入、改用另一估算源或去掉专用前缀时，相关检查必须失败 |
 
 优先扩展 `agent-session-auto-compaction-queue.test.ts`、`agent-session-compaction.test.ts`、`agent-session-runtime-events.test.ts`、`rpc-prompt-response-semantics.test.ts` 与 Context Layers 扩展测试；执行前重新定位实际文件与 scripts。
@@ -281,4 +302,4 @@ Goal 每次自动续跑都重新注入完整目标，续跑提交是天然的轮
 - **会话文件持续增长**：旧原文都留在同一 JSONL，与现有压缩行为一致。
 - 整轮可能很长，轮内原生压缩仍会发生；本方案不是“永不压缩”。
 - 外部页面、已删除文件或被截断的工具输出，不因原文仍在会话中而可恢复。
-- 本轮只交付技术方案。A 的精简、阶段 0 统计、B 的代码与开关及全部实测均未实现或执行。
+- 截至本文定稿，A 的精简、阶段 0 统计、B 的代码与开关及全部实测均未实现或执行；进度以执行清单的回报为准。
