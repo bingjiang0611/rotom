@@ -4,6 +4,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { launchFixture, selectFixtureForRun } from "../scripts/lib/fixture.mjs";
 import { createRunAppOwnership, quitRunOwnedApp, rememberRunLaunch } from "../scripts/lib/run-owned-apps.mjs";
 
 const scripts = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "scripts");
@@ -16,6 +17,54 @@ test("only a new launch records cleanup authority", () => {
 	assert.equal(rememberRunLaunch(owned, { launched: false, alreadyRunning: false, pid: 43 }), undefined);
 	assert.equal(rememberRunLaunch(owned, { launched: true, alreadyRunning: false, pid: 0 }), undefined);
 	assert.deepEqual([...owned], [41]);
+});
+
+test("a pending copied fixture records the one new pid with its unique bundle id", async () => {
+	const bundleId = "com.example.cu-fixture.pending";
+	const owned = createRunAppOwnership();
+	let launched = false;
+	const backend = {
+		listApps: async () => launched
+			? [{ pid: 51, bundleId: "com.example.operator" }, { pid: 52, bundleId }]
+			: [{ pid: 51, bundleId: "com.example.operator" }],
+		manageApps: async () => {
+			launched = true;
+			return { launched: false, pending: true, alreadyRunning: false };
+		},
+	};
+	const result = await launchFixture(backend, { bundlePath: "/tmp/Fixture.app", bundleId, startedPids: owned }, { pendingTimeoutMs: 10, pendingIntervalMs: 0 });
+	assert.equal(result.pid, 52);
+	assert.deepEqual([...owned], [52]);
+});
+
+test("a pending copied fixture never claims a same-bundle pid that predates the launch", async () => {
+	const bundleId = "com.example.cu-fixture.preexisting";
+	const owned = createRunAppOwnership();
+	const backend = {
+		listApps: async () => [{ pid: 52, bundleId }],
+		manageApps: async () => ({ launched: false, pending: true, alreadyRunning: true }),
+	};
+	const result = await launchFixture(backend, { bundlePath: "/tmp/Fixture.app", bundleId, startedPids: owned }, { pendingTimeoutMs: 0, pendingIntervalMs: 0 });
+	assert.equal(result.pid, undefined);
+	assert.deepEqual([...owned], []);
+});
+
+test("a copied run selects only its exact bundle id and recorded pid", () => {
+	const run = { bundleId: "com.example.cu-fixture.owned", startedPids: new Set([52]) };
+	const apps = [
+		{ pid: 51, bundleId: "com.example.cu-fixture.other", appName: "Fixture" },
+		{ pid: 52, bundleId: run.bundleId, appName: "Fixture" },
+	];
+	assert.deepEqual(selectFixtureForRun(apps, { run, startedByThisRun: () => true }), apps[1]);
+});
+
+test("a copied run never falls back to an unowned exact or other fixture process", () => {
+	const run = { bundleId: "com.example.cu-fixture.owned", startedPids: new Set<number>() };
+	const apps = [
+		{ pid: 51, bundleId: "com.example.cu-fixture.other", appName: "Fixture" },
+		{ pid: 52, bundleId: run.bundleId, appName: "Fixture" },
+	];
+	assert.equal(selectFixtureForRun(apps, { run, startedByThisRun: () => true }), undefined);
 });
 
 test("cleanup refuses an already-running or otherwise foreign pid", async () => {

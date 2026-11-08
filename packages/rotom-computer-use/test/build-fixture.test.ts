@@ -6,11 +6,13 @@
  * run had no fixture to click. These tests pin the keys to the last bundle that launched.
  */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { FIXTURE_MINIMUM_MACOS, fixtureInfoPlist, parseBuildVersionMinos } from "../scripts/lib/fixture.mjs";
 
 const plist = fixtureInfoPlist({ version: "1" });
+const fixtureSource = readFileSync(new URL("../native/macos-fixture/FixtureApp.swift", import.meta.url), "utf8");
 
 test("every key the known-good bundle had is present", () => {
 	for (const key of [
@@ -47,6 +49,13 @@ test("the deployment target and the plist cannot drift apart", () => {
 	// `-target` produced minos 28.0 on a 27.3 host, and the app then failed to launch.
 	assert.equal(FIXTURE_MINIMUM_MACOS, "14.0");
 	assert.match(plist, new RegExp(`<key>LSMinimumSystemVersion</key>\\s*<string>${FIXTURE_MINIMUM_MACOS}</string>`));
+});
+
+test("W3 fixture exposes an independent acceptsFirstMouse AppKit counter", () => {
+	assert.match(fixtureSource, /override func acceptsFirstMouse\(for event: NSEvent\?\) -> Bool \{ true \}/);
+	assert.match(fixtureSource, /cu-fixture-first-mouse-button/);
+	assert.match(fixtureSource, /setAccessibilityValue\(FixtureCopy\.firstMouseCount\(clicks\)\)/);
+	assert.match(fixtureSource, /@Published var firstMouseClicks: Int = 0/);
 });
 
 test("the built binary's minos is read back and compared", () => {

@@ -50,15 +50,87 @@ export function parseClickCount(text) {
  * A static text may carry its content in `value`, `label` or `title` depending on the
  * app, so all of them are searched instead of guessing one.
  */
-export async function fixtureClickCount(backend, target) {
-	const look = await backend.observe({ target, readText: "auto", includeImage: false });
-	const node = (look.parsedOutline?.nodes ?? look.nodes ?? []).find((candidate) => candidate.identifier === "cu-fixture-button-result");
+export function fixtureNodeCount(node) {
 	if (!node) return undefined;
 	for (const field of [node.value, node.label, node.title, node.description]) {
 		const count = parseClickCount(field);
 		if (count !== undefined) return count;
 	}
 	return undefined;
+}
+
+export async function fixtureControlCount(backend, target, identifier) {
+	const look = await backend.observe({ target, readText: "auto", includeImage: false });
+	const node = (look.parsedOutline?.nodes ?? look.nodes ?? []).find((candidate) => candidate.identifier === identifier);
+	return fixtureNodeCount(node);
+}
+
+export async function fixtureClickCount(backend, target) {
+	return fixtureControlCount(backend, target, "cu-fixture-button-result");
+}
+
+/**
+ * W3: compare the two native process-targeted transports against a SwiftUI button
+ * and an AppKit button whose first click is accepted while the window is inactive.
+ * Every cell restores the operator App first and reports the fixture's own counter.
+ */
+export async function runDeliveryMatrix({ fixture, fixtureRun, backend, helper, record, alive, restore }) {
+	if (!fixture) {
+		record("delivery matrix", "fixture", "skipped", "no fixture this run started; nothing to address directly");
+		return;
+	}
+	const roots = await backend.listRoots({ pid: fixture.pid });
+	const root = roots.find((candidate) => candidate.kind === "window");
+	if (!root) {
+		record("delivery matrix", "window", "skipped", "the fixture has no window; the matrix needs one");
+		return;
+	}
+	const { buildDirectTransportRequest } = await import("./l2-direct.mjs");
+	const target = { windowId: root.windowId, rootRef: root.rootRef };
+	const buttons = [
+		{ label: "SwiftUI", identifier: "cu-fixture-button" },
+		{ label: "acceptsFirstMouse", identifier: "cu-fixture-first-mouse-button" },
+	];
+
+	for (const delivery of ["l2", "pid"]) {
+		for (const button of buttons) {
+			const restored = await restore();
+			if (restored?.restored !== true) {
+				record("delivery matrix", `${delivery} / ${button.label}`, "fail", "operator App could not be restored before the inactive-window probe");
+				continue;
+			}
+			const look = await backend.observe({ target, readText: "auto", includeImage: false });
+			const node = (look.parsedOutline?.nodes ?? look.nodes ?? []).find((candidate) => candidate.identifier === button.identifier);
+			if (!node?.wireRef) {
+				record("delivery matrix", `${delivery} / ${button.label}`, "skipped", `no ${button.identifier} target in the fixture window`);
+				continue;
+			}
+			const before = fixtureNodeCount(node);
+			const frontBefore = await backend.getFrontmost().catch(() => undefined);
+			const request = buildDirectTransportRequest({ lookId: look.lookId, pid: fixture.pid, ref: node.wireRef, action: "click", delivery });
+			let outcome = "unknown";
+			let actualDelivery = "?";
+			let failure = "";
+			try {
+				const result = await helper.command("act", request, { timeoutMs: 20_000 });
+				outcome = result?.outcome ?? "unknown";
+				actualDelivery = result?.performed?.delivery ?? "?";
+			} catch (error) {
+				failure = error instanceof Error ? error.message : String(error);
+			}
+			const survived = await alive();
+			const after = await fixtureControlCount(backend, target, button.identifier).catch(() => undefined);
+			const frontAfter = await backend.getFrontmost().catch(() => undefined);
+			const activated = frontBefore?.pid !== fixture.pid && frontAfter?.pid === fixture.pid;
+			const judged = judgeDirectedClick({ survived, delivery: actualDelivery, outcome, before, after, activated, expectedDelivery: delivery });
+			record(
+				"delivery matrix",
+				`${delivery} / ${button.label}`,
+				judged.result,
+				`button=${button.identifier} before=${before ?? "?"} after=${after ?? "?"} outcome=${outcome} delivery=${actualDelivery} requireTransport=true helperAlive=${survived} targetActiveBefore=${frontBefore?.pid === fixture.pid} targetActiveAfter=${frontAfter?.pid === fixture.pid} judgedBy=${judged.reason} bundle=${fixtureRun?.bundleId ?? fixture.bundleId}${failure ? ` error=${failure}` : ""}`,
+			);
+		}
+	}
 }
 
 /**

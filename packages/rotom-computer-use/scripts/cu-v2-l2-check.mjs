@@ -13,6 +13,9 @@
  *                   result instead of the end of the run. This is B1.
  *   --launch-twice  Report the event delta and elapsed time for two launches of the
  *                   same copied/signed bundle. Report-only: it authorizes no B step.
+ *   --delivery-matrix
+ *                   Report l2/pid clicks against SwiftUI and acceptsFirstMouse AppKit
+ *                   buttons. Report-only: it authorizes no B step.
  *   --prewarm        Launch and quit the prepared copy before the formal quiet gate;
  *                   opt-in until the launch-twice result has been reviewed.
  *   --no-fixture-copy
@@ -36,7 +39,8 @@ import { writeEvidence } from "./lib/l2-evidence.mjs";
 import { recordAttribution, resolveProcessNames } from "./lib/event-sources.mjs";
 import { checkFixture, checkHelperSupport } from "./lib/l2-env.mjs";
 import { createAlive, createProbe, fixtureRef, wireRefByRole } from "./lib/l2-probe.mjs";
-import { fixtureClickCount, runDirectL2 } from "./lib/l2-modes.mjs";
+import { runFixtureBaseline } from "./lib/l2-fixture-baseline.mjs";
+import { runDeliveryMatrix, runDirectL2 } from "./lib/l2-modes.mjs";
 import { prepareLaunchTwiceExperiment, preparePrewarmedFixture, recordHidCalibration } from "./lib/l2-launch-cycle.mjs";
 
 /** `scripts/` -> `packages/rotom-computer-use` -> `packages` -> repository root. */
@@ -86,24 +90,27 @@ if (!fixturePath || !existsSync(fixturePath)) disabled("pass --fixture <path to 
 
 const directL2 = process.argv.includes("--direct-l2");
 const launchTwice = process.argv.includes("--launch-twice");
+const deliveryMatrix = process.argv.includes("--delivery-matrix");
 const prewarm = process.argv.includes("--prewarm");
-if (launchTwice && prewarm) refuse("--launch-twice and --prewarm are separate experiments and cannot be combined", "run", "arguments");
-// Review 7 R2: B0 and the Z2 experiment are report-only. They authorize nothing and write no marker.
-const b0 = process.argv.includes("--b0-attribution") || launchTwice;
+if ([directL2, launchTwice, deliveryMatrix].filter(Boolean).length > 1) refuse("--direct-l2, --launch-twice and --delivery-matrix are separate modes", "run", "arguments");
+if ((launchTwice || deliveryMatrix) && prewarm) refuse("report-only launch experiments cannot be combined with --prewarm", "run", "arguments");
+// Review 7 R2: B0 experiments are report-only. They authorize nothing and write no marker.
+const b0 = process.argv.includes("--b0-attribution") || launchTwice || deliveryMatrix;
 // Review 6 P1: the step is declared, not inferred at the end. This script is B1 only -
 // `check-cu-v2-live.mjs --with-hid` is the single owner of B6 (K4), and a second script
 // claiming the same step made it ambiguous which run authorized the next one.
 const step = b0 ? "B0" : "B1";
 const fixtureCopy = !process.argv.includes("--no-fixture-copy");
+if (deliveryMatrix && !fixtureCopy) refuse("--delivery-matrix requires the run-owned copied fixture", "run", "arguments");
 const runRoot = path.join(homedir(), "cu-v2-test", "runs", runStamp());
 mkdirSync(runRoot, { recursive: true });
 
 // A dedicated helper socket for the direct-L2 signature check: if the private SkyLight call
 // takes the helper down, that is one result and the run keeps its own helper. Done before the
 // helper module loads, because it reads PI_CU_SOCKET_PATH at import time.
-if (directL2 && !process.env.PI_CU_L2_SOCKET) {
-	process.env.PI_CU_SOCKET_PATH = path.join(runRoot, "helper-direct-l2.sock");
-	record("helper", "direct L2 socket", "pass", process.env.PI_CU_SOCKET_PATH);
+if ((directL2 || deliveryMatrix) && !process.env.PI_CU_L2_SOCKET) {
+	process.env.PI_CU_SOCKET_PATH = path.join(runRoot, "helper-direct-delivery.sock");
+	record("helper", "direct delivery socket", "pass", process.env.PI_CU_SOCKET_PATH);
 }
 
 const fake = fakeBackend ? await import(pathToFileURL(path.resolve(fakeBackend)).href) : undefined;
@@ -246,32 +253,8 @@ async function main() {
 			const controls = { text: fixtureRef(look, ["AXTextField"]) ?? wireRefByRole(look, ["AXTextField"]), button: fixtureRef(look, ["AXButton"]) ?? wireRefByRole(look, ["AXButton"]) };
 			record("fixture", "controls", controls.text && controls.button ? "pass" : "inconclusive", `text=${controls.text ?? "-"} button=${controls.button ?? "-"}`);
 
-			if (controls.button) {
-				// Review 7 R1: the same counter judges both clicks, so this row is no longer
-				// stuck at `inconclusive` while the app really did change.
-				const target = { windowId: root.windowId, rootRef: root.rootRef };
-				const countBefore = await fixtureClickCount(macosBackend, target).catch(() => undefined);
-				await probe("fixture (not on the L2 list)", look, fixture.pid, { action: "click", ref: controls.button }, controls);
-				const countAfter = await fixtureClickCount(macosBackend, target).catch(() => undefined);
-				const readable = typeof countBefore === "number" && typeof countAfter === "number";
-				record("fixture (not on the L2 list)", "click effect", !readable ? "skipped" : countAfter === countBefore + 1 ? "pass" : countAfter === countBefore ? "fail" : "unknown", `before=clicks:${countBefore ?? "?"} after=clicks:${countAfter ?? "?"}`);
-			}
-			if (controls.text) {
-				// Point the field at a known value first so "did the input arrive" is a
-				// value change, not a guess.
-				// The successful click above changed the tree, so its refs are stale:
-				// observe again instead of reusing an evicted look.
-				const fresh = await macosBackend.observe({ target: { windowId: root.windowId, rootRef: root.rootRef }, readText: "auto", includeImage: false });
-				const textRef = wireRefByRole(fresh, ["AXTextField"]);
-				if (!textRef) {
-					record("fixture (not on the L2 list)", "typeText", "skipped", "the text field disappeared after the click");
-				} else {
-					await macosBackend.act({ lookId: fresh.lookId, pid: fixture.pid, target: { ref: textRef }, action: "clear", policy: "ax_only" }, { timeoutMs: 20_000 }).catch(() => undefined);
-					const typed = await probe("fixture (not on the L2 list)", fresh, fixture.pid, { action: "typeText", ref: textRef, params: { text: TYPED } });
-					const after = await macosBackend.observe({ target: { windowId: root.windowId, rootRef: root.rootRef }, readText: "auto", includeImage: false });
-					const received = String((after.parsedOutline?.nodes ?? []).find((node) => node.role === "AXTextField")?.value ?? "");
-					record("fixture (not on the L2 list)", "input received", received === TYPED ? "pass" : typed.outcome === "worked" ? "fail" : "pass", `field="${received}" expected="${TYPED}" outcome=${typed.outcome}`);
-				}
+			if (!deliveryMatrix) {
+				await runFixtureBaseline({ backend: macosBackend, fixture, root, look, controls, probe, record, typed: TYPED });
 			}
 		}
 	}
@@ -288,9 +271,20 @@ async function main() {
 			? `${allowL2App} (pid=${preexisting.pid}) was already running before this run; this script only operates processes it started`
 			: `${allowL2App} is not running; start it and re-run, this script does not launch user apps`);
 	}
-	if (!launchTwice) await driveListedApps({ backend: macosBackend, apps: installed, probe, typed: TYPED, record });
+	if (!launchTwice && !deliveryMatrix) await driveListedApps({ backend: macosBackend, apps: installed, probe, typed: TYPED, record });
 
 	if (directL2 && !launchTwice) await runDirectL2({ fixture, fixtureRun, backend: macosBackend, helper: macosHelper, record, cursor, alive, wireRefByRole, typed: TYPED, asciiInput: inputSource.ascii });
+	if (deliveryMatrix && !launchTwice) {
+		await runDeliveryMatrix({
+			fixture,
+			fixtureRun,
+			backend: macosBackend,
+			helper: macosHelper,
+			record,
+			alive,
+			restore: () => restoreOperatorApp({ backend: macosBackend, original: frontmost, record }),
+		});
+	}
 
 	record("helper", "still alive", (await alive()) ? "pass" : "fail", "the helper answered diagnostics after every probe (no crash)");
 

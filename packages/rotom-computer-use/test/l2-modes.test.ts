@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { fixtureClickCount, judgeDirectedClick, parseClickCount } from "../scripts/lib/l2-modes.mjs";
+import { fixtureClickCount, fixtureControlCount, judgeDirectedClick, parseClickCount } from "../scripts/lib/l2-modes.mjs";
 
 const base = { survived: true, delivery: "l2", outcome: "unknown" };
 
@@ -47,6 +47,7 @@ test("an unreadable counter is inconclusive, never a pass", () => {
 test("the counter is parsed from whatever field carries the text", async () => {
 	assert.equal(parseClickCount("clicks: 7"), 7);
 	assert.equal(parseClickCount("Fixture action clicks: 12"), 12);
+	assert.equal(parseClickCount("appkit-clicks: 4"), 4);
 	assert.equal(parseClickCount("clicked"), undefined);
 	assert.equal(parseClickCount(undefined), undefined);
 
@@ -57,6 +58,8 @@ test("the counter is parsed from whatever field carries the text", async () => {
 	assert.equal(await fixtureClickCount(withValue, { windowId: 1 }), 3);
 	assert.equal(await fixtureClickCount(withLabel, { windowId: 1 }), 0);
 	assert.equal(await fixtureClickCount(missing, { windowId: 1 }), undefined);
+	const appKit = { observe: async () => look([{ identifier: "cu-fixture-first-mouse-button", value: "appkit-clicks: 2" }]) };
+	assert.equal(await fixtureControlCount(appKit, { windowId: 1 }, "cu-fixture-first-mouse-button"), 2);
 });
 
 test("R9: an unchanged counter is ambiguous only when the click activated the window", () => {

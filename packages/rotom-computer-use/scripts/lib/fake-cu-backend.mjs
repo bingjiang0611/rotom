@@ -61,6 +61,7 @@ export const gate =
 const operator = { pid: 4242, appName: "FakeOperator", bundleId: "com.example.operator" };
 let fixtureApp;
 let clicks = 0;
+let firstMouseClicks = 0;
 let text = "";
 let lookSeq = 0;
 let activityCalls = 0;
@@ -92,6 +93,7 @@ function outlineNodes() {
 		{ role: "AXButton", identifier: "cu-fixture-button", wireRef: "@e2", value: `clicks: ${clicks}` },
 		{ role: "AXStaticText", identifier: "cu-fixture-button-result", wireRef: "@e3", value: `clicks: ${clicks}` },
 		{ role: "AXButton", identifier: "operator-close", wireRef: "@e4", value: "" },
+		{ role: "AXButton", identifier: "cu-fixture-first-mouse-button", wireRef: "@e5", value: `appkit-clicks: ${firstMouseClicks}` },
 	];
 }
 
@@ -112,6 +114,7 @@ export const backend = {
 		return { ...operator, windowId: 7 };
 	},
 	async focusWindow() {
+		activatedByPost = false;
 		return { focused: true, alreadyFocused: true, windowId: 7, reason: null };
 	},
 	async manageApps(request) {
@@ -132,7 +135,8 @@ export const backend = {
 		const action = request.action;
 		if (action === "click") {
 			// The AX path always lands: the directed click is what the scenarios vary.
-			clicks += 1;
+			if (request.target?.ref === "@e5") firstMouseClicks += 1;
+			else clicks += 1;
 			pushEvent(true);
 			return { outcome: "unknown", performed: { delivery: "ax" } };
 		}
@@ -160,10 +164,13 @@ export const helper = {
 		}
 		if (name === "act") {
 			if (scenario === "activate-only") activatedByPost = true;
-			if (scenario !== "fail" && scenario !== "activate-only") clicks += 1;
+			if (scenario !== "fail" && scenario !== "activate-only") {
+				if (args?.target?.ref === "@e5") firstMouseClicks += 1;
+				else clicks += 1;
+			}
 			pushEvent(true);
 			if (scenario === "lost-events") events.pop();
-			return { outcome: "unknown", performed: { delivery: args?.delivery ?? "l2" }, supported: true };
+			return { outcome: "unknown", performed: { delivery: args?.params?.delivery ?? args?.delivery ?? "l2" }, supported: true };
 		}
 		throw new Error(`fake helper does not implement ${name}`);
 	},

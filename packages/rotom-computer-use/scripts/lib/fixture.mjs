@@ -18,7 +18,7 @@ import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-import { createRunAppOwnership, quitRunOwnedApp, rememberRunLaunch } from "./run-owned-apps.mjs";
+import { createRunAppOwnership, quitRunOwnedApp, rememberRunCopiedFixture, rememberRunLaunch } from "./run-owned-apps.mjs";
 
 export const FIXTURE_BUNDLE_PREFIX = "com.example.cu-fixture.";
 
@@ -141,6 +141,14 @@ export async function ensureFixtureWindow(backend, target, { timeoutMs = FIXTURE
 	}
 }
 
+/** Select a copied fixture only through its exact recorded ownership proof. */
+export function selectFixtureForRun(apps, { run, startedByThisRun }) {
+	if (run) return apps.find((app) => app.bundleId === run.bundleId && run.startedPids.has(app.pid));
+	return apps.find((app) => isFixtureBundleId(app.bundleId) && startedByThisRun(app))
+		?? apps.find((app) => app.bundleId === "com.example.cu-fixture")
+		?? apps.find((app) => /fixture/i.test(app.appName ?? ""));
+}
+
 /**
  * Start the run's own fixture copy.
  *
@@ -149,10 +157,26 @@ export async function ensureFixtureWindow(backend, target, { timeoutMs = FIXTURE
  * it. Callers restore the operator's app afterwards through `focusWindow`
  * (`restoreOperatorApp`), never by re-launching it.
  */
-export async function launchFixture(backend, handle) {
+export async function launchFixture(backend, handle, { pendingTimeoutMs = 8_000, pendingIntervalMs = 200 } = {}) {
+	const canProveCopiedFixture = handle.startedPids && typeof handle.bundleId === "string";
+	const beforePids = canProveCopiedFixture
+		? new Set((await backend.listApps()).map((app) => Number(app.pid)).filter((pid) => Number.isInteger(pid) && pid > 0))
+		: undefined;
 	const result = await backend.manageApps({ mode: "launch", path: handle.bundlePath, activates: true });
-	if (handle.startedPids) rememberRunLaunch(handle.startedPids, result);
-	return result;
+	if (!canProveCopiedFixture || rememberRunLaunch(handle.startedPids, result) || result?.pending !== true) return result;
+
+	const deadline = Date.now() + pendingTimeoutMs;
+	for (;;) {
+		const candidates = (await backend.listApps()).filter((app) => app.bundleId === handle.bundleId && !beforePids.has(Number(app.pid)));
+		if (candidates.length === 1) {
+			const pid = rememberRunCopiedFixture(handle.startedPids, { bundleId: handle.bundleId, beforePids, app: candidates[0] });
+			if (pid) return { ...result, pid };
+		}
+		// More than one new process with the supposedly unique id is ambiguous and
+		// therefore grants no quit authority.
+		if (candidates.length > 1 || Date.now() >= deadline) return result;
+		await new Promise((resolve) => setTimeout(resolve, pendingIntervalMs));
+	}
 }
 
 /** The bundle metadata, exported so a test can check the keys without a Mac build. */
@@ -206,10 +230,11 @@ export async function bringUpFixture({ backend, fixturePath, runRoot, preparedRu
 	await launchFixture(backend, run ?? { bundlePath: launchPath }).catch((error) => record("fixture", "launch", "fail", error instanceof Error ? error.message : String(error)));
 	await new Promise((resolve) => setTimeout(resolve, 1500));
 	const apps = await backend.listApps();
-	let fixture = apps.find((app) => isFixtureBundleId(app.bundleId) && startedByThisRun(app))
-		?? apps.find((app) => app.bundleId === "com.example.cu-fixture")
-		?? apps.find((app) => /fixture/i.test(app.appName ?? ""));
-	if (fixture && !startedByThisRun(fixture)) {
+	let fixture = selectFixtureForRun(apps, { run, startedByThisRun });
+	const unownedCopy = run && !fixture ? apps.find((app) => app.bundleId === run.bundleId) : undefined;
+	if (unownedCopy) {
+		record("fixture", "present", "skipped", `pid=${unownedCopy.pid} has the copied bundle id but no launch ownership proof`);
+	} else if (fixture && !run && !startedByThisRun(fixture)) {
 		record("fixture", "present", "skipped", `pid=${fixture.pid} was already running before this run; quit it so the check can launch its own copy`);
 		fixture = undefined;
 	} else if (fixture) {

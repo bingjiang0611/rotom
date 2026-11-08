@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { buildActRequest } from "../src/tools/act-request.ts";
-import { buildDirectL2Request } from "../scripts/lib/l2-direct.mjs";
+import { buildDirectL2Request, buildDirectTransportRequest } from "../scripts/lib/l2-direct.mjs";
 
 const context = {
 	lookId: "look-1",
@@ -32,6 +32,15 @@ test("the direct-L2 check pins the transport explicitly", () => {
 	assert.equal(request.params.delivery, "l2");
 	assert.equal(request.params.requireTransport, true);
 	assert.equal(request.policy, "background");
+});
+
+test("the delivery matrix pins both native process transports explicitly", () => {
+	for (const delivery of ["l2", "pid"] as const) {
+		const request = buildDirectTransportRequest({ lookId: "look-1", pid: 4242, ref: "e7", action: "click", delivery });
+		assert.equal(request.params.delivery, delivery);
+		assert.equal(request.params.requireTransport, true);
+		assert.equal(request.policy, "background");
+	}
 });
 
 test("the lease and cursor identity travel with the request", () => {

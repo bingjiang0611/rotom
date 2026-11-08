@@ -53,14 +53,14 @@ function fixtureBundle({ digest = expectedFixtureSourceDigest(PACKAGE_ROOT) } = 
 	return app;
 }
 
-function runScript({ scenario = "pass", args = [], app = fixtureBundle(), repo = tempRepo() } = {}) {
+function runScript({ scenario = "pass", args = [], modeArgs = ["--direct-l2"], app = fixtureBundle(), repo = tempRepo() } = {}) {
 	const runsDir = mkdtempSync(path.join(tmpdir(), "cu-v2-exec-runs-"));
 	const home = mkdtempSync(path.join(tmpdir(), "cu-v2-exec-home-"));
 	const spawned = spawnSync(
 		process.execPath,
-		// `--direct-l2` is what the live B0/B1 command uses, and the rows it produces are the
-		// ones the B1 contract requires; without it the run would pass while skipping them.
-		[SCRIPT, "--fixture", app, "--runs-dir", runsDir, "--window-start", "2026-01-01T00:00:00+0000", "--window-minutes", "60", "--direct-l2", ...args],
+		// Direct L2 remains the default because its rows are the B1 contract. Report-only
+		// experiments supply their own mode so the real script path is still executed.
+		[SCRIPT, "--fixture", app, "--runs-dir", runsDir, "--window-start", "2026-01-01T00:00:00+0000", "--window-minutes", "60", ...modeArgs, ...args],
 		{
 			encoding: "utf8",
 			timeout: 120_000,
@@ -182,7 +182,7 @@ export const executionChecks = [
 	{
 		name: "Z2: launch-twice measures two launches of one copied bundle and remains report-only",
 		run: () => {
-			const result = runScript({ scenario: "pass", args: ["--launch-twice"] });
+			const result = runScript({ scenario: "pass", modeArgs: ["--launch-twice"] });
 			try {
 				expectOk(result, "launch-twice run");
 				const archive = result.archive ?? "";
@@ -192,6 +192,25 @@ export const executionChecks = [
 				}
 				if ((archive.match(/^\| fixture \| fresh copy \|/gm) ?? []).length !== 1) throw new Error("launch-twice did not reuse one prepared copy");
 				return "first and second launch recorded against one fresh copy; no Verdict or marker";
+			} finally {
+				result.cleanup();
+			}
+		},
+	},
+	{
+		name: "W3: the delivery matrix executes all four pinned transport/control cells",
+		run: () => {
+			const result = runScript({ scenario: "pass", modeArgs: ["--delivery-matrix"] });
+			try {
+				expectOk(result, "delivery-matrix run");
+				const archive = result.archive ?? "";
+				if (/^Verdict:/m.test(archive) || result.marker) throw new Error("delivery-matrix authorized or stopped a B step");
+				for (const action of ["l2 / SwiftUI", "l2 / acceptsFirstMouse", "pid / SwiftUI", "pid / acceptsFirstMouse"]) {
+					if (row(archive, "delivery matrix", action) !== "pass") throw new Error(`${action} did not execute and change its counter`);
+					const escaped = action.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+					if (!new RegExp(`\\| delivery matrix \\| ${escaped} \\| pass \\| .*requireTransport=true`).test(archive)) throw new Error(`${action} did not pin its transport`);
+				}
+				return "l2 and pid each clicked the SwiftUI and acceptsFirstMouse buttons with pinned transport";
 			} finally {
 				result.cleanup();
 			}

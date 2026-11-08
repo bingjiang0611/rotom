@@ -24,9 +24,53 @@ final class FixtureModel: ObservableObject {
 	// directed L2 post - cannot tell whether the second click landed. Every click now
 	// has to show up as "count went up by exactly one".
 	@Published var clicks: Int = 0
+	@Published var firstMouseClicks: Int = 0
 
 	let rows = ["Alpha", "Bravo", "Charlie", "Delta"]
 	let tabs = ["First", "Second"]
+}
+
+private enum FixtureCopy {
+	static let firstMouseAction = "First mouse action"
+	static func firstMouseCount(_ count: Int) -> String { "appkit-clicks: \(count)" }
+}
+
+@MainActor
+final class AcceptsFirstMouseButton: NSButton {
+	override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
+struct FirstMouseButtonView: NSViewRepresentable {
+	@Binding var clicks: Int
+
+	final class Coordinator: NSObject {
+		var parent: FirstMouseButtonView
+
+		init(parent: FirstMouseButtonView) {
+			self.parent = parent
+		}
+
+		@objc func press(_ sender: NSButton) {
+			parent.clicks += 1
+		}
+	}
+
+	func makeCoordinator() -> Coordinator {
+		Coordinator(parent: self)
+	}
+
+	func makeNSView(context: Context) -> NSButton {
+		let button = AcceptsFirstMouseButton(title: FixtureCopy.firstMouseAction, target: context.coordinator, action: #selector(Coordinator.press(_:)))
+		button.bezelStyle = .rounded
+		button.setAccessibilityIdentifier("cu-fixture-first-mouse-button")
+		button.setAccessibilityLabel(FixtureCopy.firstMouseAction)
+		return button
+	}
+
+	func updateNSView(_ button: NSButton, context: Context) {
+		context.coordinator.parent = self
+		button.setAccessibilityValue(FixtureCopy.firstMouseCount(clicks))
+	}
 }
 
 struct FixtureView: View {
@@ -53,6 +97,12 @@ struct FixtureView: View {
 					.accessibilityValue("clicks: \(model.clicks)")
 				Text("clicks: \(model.clicks)")
 					.accessibilityIdentifier("cu-fixture-button-result")
+			}
+
+			HStack(spacing: 8) {
+				FirstMouseButtonView(clicks: $model.firstMouseClicks)
+				Text(FixtureCopy.firstMouseCount(model.firstMouseClicks))
+					.accessibilityIdentifier("cu-fixture-first-mouse-result")
 			}
 
 			Toggle("Enable option", isOn: $model.checked)

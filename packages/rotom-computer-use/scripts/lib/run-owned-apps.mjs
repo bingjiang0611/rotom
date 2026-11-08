@@ -19,6 +19,28 @@ export function rememberRunLaunch(ownedPids, result) {
 }
 
 /**
+ * A prepared fixture copy has a unique bundle id that no user App shares. When its
+ * launch returns `pending` without a pid, a later process may be attributed to this
+ * run only when it has that exact id and its pid was absent before the launch.
+ *
+ * This exception is deliberately separate from `rememberRunLaunch`: callers must
+ * never use it for TextEdit or another user App whose bundle id can predate the run.
+ */
+export function rememberRunCopiedFixture(ownedPids, { bundleId, beforePids, app }) {
+	const pid = Number(app?.pid);
+	if (
+		typeof bundleId !== "string"
+		|| app?.bundleId !== bundleId
+		|| !(beforePids instanceof Set)
+		|| !Number.isInteger(pid)
+		|| pid <= 0
+		|| beforePids.has(pid)
+	) return undefined;
+	ownedPids.add(pid);
+	return pid;
+}
+
+/**
  * Quit only a pid proven to have been created by this run. B-stage cleanup never
  * escalates to force: an app that does not terminate is evidence, not permission to kill it.
  */
