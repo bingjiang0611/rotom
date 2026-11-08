@@ -53,3 +53,29 @@
 2. REVIEW-10 的 Y2（窗口字段）和 Y3（校准事件）。
 3. Z2 的 `--launch-twice` 模式，以及预热选项（先不默认开启）。
 4. 只做代码和测试，不跑真机。推送后报告 SHA，先审后冻结。
+
+## 复核（2026-11-08，`e2c6b00..26629d8`）：接受，`26629d8` 可作为 B0 的冻结提交
+
+冻结提交：`26629d8341284994a905b81df215cc8519499f60`。用户决定 L2 保持默认开启，REVIEW-10 Y2 的“产品保护”不做。
+
+### 审核者复现
+
+- 干净 worktree 连跑 2 次：221 项，220 通过、0 失败、1 跳过；dry run 36 项、0 失败、3 跳过；工作区干净。
+  dry run 用假 backend 实际执行了 `--launch-twice` 和预热两种模式。
+- Swift 自测（`--mouse-target-self-test`、`--activity-self-test`）需要 macOS，审核者无法复现，窗口开始前由执行方跑
+  `scripts/check-macos-native-self-tests.mjs` 并贴出结果。
+
+### 接受的部分
+
+- Z1：`rememberRunLaunch` 只认“本次调用新建了进程”（`launched` 为真且 `alreadyRunning` 不为真）；所有退出都经过
+  `quitRunOwnedApp`，脚本里不再有 `force:true`。B3-acceptance 遇到已在运行的 TextEdit 直接拒绝，不会往用户的文档里打字。
+- Y2：`l2` 和 `pid` 投递的移动、点击、拖拽、滚轮事件都填上了目标窗口号，`hid` 不变；Swift 自测覆盖三种投递。
+- Y3：`calibrateHidEventSource` 在每次 B0 开头、建立计数基线之前投一个带标记、位移为零的移动，只回传 pid、state、
+  type 和标记计数，不回传坐标；它按写命令要 `desktop-foreground` 租约。
+- Z2：`--launch-twice` 对同一个副本启动两次，各记启动耗时和未标记事件增量，只出报告，退出只走归属检查。
+  预热需要显式加 `--prewarm`，不能和 `--launch-twice` 同时用，前后各过一次门禁。
+
+### 下一个窗口
+
+两次 B0，都只出报告：先 `--launch-twice`（回答突发是不是首次启动校验），再 `--direct-l2`（看补上窗口号后定向点击的计数
+能不能从 1 变成 2）。用户在电脑前但不碰键鼠，门禁空闲改为 2 分钟。
