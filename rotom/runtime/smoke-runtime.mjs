@@ -74,7 +74,7 @@ try {
 	const loaded = loader.getExtensions();
 	assert.deepEqual(loaded.errors, []);
 	assert.deepEqual(loaded.extensions.map((extension) => resolve(extension.path)), [...extensions, nativeExtension]);
-	assert.equal(loaded.extensions.length, 7);
+	assert.equal(loaded.extensions.length, 8);
 	assert.equal(loaded.extensions.find((extension) => resolve(extension.path) === nativeExtension)?.commands.has("native-extension-smoke"), true, "Pi agentDir extensions 必须无需产品声明即可发现");
 	assert.deepEqual(skills, [resolve(agentDir, "skills/pi-subagents")], "产品只加载自有精简版 Subagent skill");
 	assert.equal(loader.getSkills().skills.filter((skill) => skill.name === "pi-subagents").length, 1, "不得同时加载上游完整指南");

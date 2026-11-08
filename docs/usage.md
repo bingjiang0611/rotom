@@ -118,11 +118,17 @@ Reducer 会额外请求模型，按该 provider 正常计费或消耗订阅额�
 
 **升级注意：** 如果以前自己安装过 `pi-context-view` 或 SoL-Pi（`~/.pi/agent/settings.json` 的 `packages` 里有它们），升级后请用 `rotom remove` 删掉。否则同一扩展会加载两次：`/context` 会出现重复命令，SoL-Pi 的结果处理也会执行两遍。
 
-## Context Layers：分层摘要与原文回查（默认开启）
+## Context Layers：原文回查（默认开启）
 
-产品默认加载 `context_status`、`context_compress`、`context_recall` 三个 model-only 工具。模型可把完成的步骤增量压缩、合并最多三级摘要，并从当前分支的原始 session 回查文本或图片；写入在成功步骤结束后生效，原始消息不删除。显式工具限制优先，`ROTOM_CONTEXT_LAYERS=0` 关闭工具和提醒，但不会自动展开已有摘要。
+产品默认加载一个 model-only、只读的 `context_recall` 工具：模型可以从当前分支的原始 session 回查被压缩或轮转清出的文本与图片。它不写摘要、不合并、不改原文，报告里的内容只出现在这一次工具结果中，不进入下一轮请求。显式工具限制优先，`ROTOM_CONTEXT_LAYERS=0` 关闭工具。旧的三工具分层摘要已删除，没有迁移或兼容开关。
 
-这是上下文管理能力，不是无限窗口或省钱承诺。本次 Qoder 精确恢复测试通过；小型对照中压缩减少上下文但增加了请求和 credits。实现、恢复边界、验证及限制见 [Context Layers](agent/context-layers.md)。源码启用不会热更新当前会话或已安装旧发行版。
+这是检索能力，不是无限窗口或省钱承诺。实现、边界与限制见 [Context Layers](agent/context-layers.md)。源码启用不会热更新当前会话或已安装旧发行版。
+
+## 同会话上下文轮转（默认关闭）
+
+`ROTOM_SESSION_ROLLOVER=1` 时，产品额外加载一个轮转 extension：在一次运行结束、下一次输入到达时，如果上下文已越过水位（`contextWindow - 2 × reserveTokens`）且满足资格（空闲、无排队消息、上一轮正常结束、模型窗口可用、自动压缩开启、会话已落盘、`context_recall` 可用、非本地命令、无 active Goal），就先写一条轮转条目清出可见上下文，再把输入照常提交。被清出的内容仍可用 `context_recall` 找回；轮末的阈值压缩在这类会话里推迟到轮转，避免同一轮既压缩又轮转。
+
+判定、摘要内容、失败回退和已知限制见 [同会话上下文轮转](agent/session-rollover.md)。它不改窗口大小，也不保证省钱。
 
 ## Codemode 与模型能力（Pi 1.0 源码）
 

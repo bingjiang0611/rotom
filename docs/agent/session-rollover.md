@@ -1,6 +1,6 @@
 # 同会话轮转与 Context Layers 精简技术方案
 
-状态：设计已定稿，待实施；执行清单见 [session-rollover-worklist.md](session-rollover-worklist.md)。本文不代表性能收益已经验证。
+状态：设计已定稿；W1–W4 已实现（A 精简、阶段 0 统计、B 的接缝与 extension），W5 产品接入与 W6 终验见 [回报](session-rollover-report.md)。执行清单见 [session-rollover-worklist.md](session-rollover-worklist.md)。本文不代表性能收益已经验证，B 默认关闭且未做真实模型实测。
 
 本方案分两部分，按顺序独立推进：
 
@@ -84,6 +84,8 @@
 | 延后轮末压缩 | `session_before_compact` 中，阶段为“运行结束后”、`reason` 为 `threshold`、且具备 4.2 资格时取消；其余一律不干预 |
 | 产品声明 | 在 `product-config.mjs` 中声明，位置在 `third-party` 之前：handler 按扩展加载顺序执行且首个取消即返回，保证轮末取消先于 Offload 生效 |
 | 文案 | 轮转提示、取消原因集中在扩展的 copy 模块 |
+
+实现回填（与上文表格的差异，理由见[回报的决策记录](session-rollover-report.md)）：扩展不能从 Pi 包做值导入，`details.kind` 与虚拟模型 API 标识在扩展内各镜像一份；摘录预算用扩展内 `chars / 4` 估算而不是 Pi 的估算器；轮末判断不检查空闲（刚结束的运行必然不空闲），只检查队列；`input` 文本以 `/` 开头即视为本地命令跳过。
 
 ### 8.3 与 Context Layers 的关系
 
