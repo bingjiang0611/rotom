@@ -11,6 +11,7 @@
 		"benchmark:doctor": "./bin/benchmark doctor",
 		"eval": "./bin/eval",
 		"eval:container": "./bin/eval-container",
+		"rollover-stats": "./bin/rollover-stats",
 		"test": "./bin/test",
 		"check:quality": "./bin/test test/quality-contracts.test.ts test/quality-regressions.test.ts",
 		"test:benchmark-adapters": "./bin/test-benchmark-adapters",
