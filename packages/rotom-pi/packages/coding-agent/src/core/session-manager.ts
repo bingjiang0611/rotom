@@ -37,6 +37,7 @@ import {
 	createBranchSummaryMessage,
 	createCompactionSummaryMessage,
 	createCustomMessage,
+	ROLLOVER_DETAILS_KIND,
 } from "./messages.ts";
 export const CURRENT_SESSION_VERSION = 3;
 
@@ -432,6 +433,11 @@ function getSessionContextSettings(path: SessionEntry[]): Pick<SessionContext, "
 	return { thinkingLevel, model };
 }
 
+/** A rollover entry clears the earlier context without summarizing it, so it renders a dedicated prefix. */
+function isRolloverEntry(entry: CompactionEntry): boolean {
+	return (entry.details as { kind?: unknown } | undefined)?.kind === ROLLOVER_DETAILS_KIND;
+}
+
 /**
  * Project one selected session entry into LLM/runtime messages.
  * Plain custom entries are display/state entries and do not participate in context.
@@ -459,7 +465,12 @@ export function sessionEntryToContextMessages(entry: SessionEntry): AgentMessage
 		return [createBranchSummaryMessage(entry.summary, entry.fromId, entry.timestamp)];
 	}
 	if (entry.type === "compaction") {
-		const summary = createCompactionSummaryMessage(entry.summary, entry.tokensBefore, entry.timestamp);
+		const summary = createCompactionSummaryMessage(
+			entry.summary,
+			entry.tokensBefore,
+			entry.timestamp,
+			isRolloverEntry(entry) ? "rollover" : undefined,
+		);
 		return entry.systemMessage ? [entry.systemMessage, summary] : [summary];
 	}
 	return [];

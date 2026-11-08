@@ -16,6 +16,21 @@ export const COMPACTION_SUMMARY_PREFIX = `The conversation history before this p
 export const COMPACTION_SUMMARY_SUFFIX = `
 </summary>`;
 
+/**
+ * Projection prefix for a context rollover entry (`details.kind === "rotom-rollover"`). The history
+ * was not summarized, so saying "compacted into the following summary" would misdescribe it.
+ */
+export const ROLLOVER_SUMMARY_PREFIX = `The earlier conversation in this session was cleared from the context without a summary. Its original messages are still in this session and can be retrieved on demand:
+
+<cleared-context>
+`;
+
+export const ROLLOVER_SUMMARY_SUFFIX = `
+</cleared-context>`;
+
+/** Entry details kind that marks a rollover entry rather than a summarized compaction. */
+export const ROLLOVER_DETAILS_KIND = "rotom-rollover";
+
 export const BRANCH_SUMMARY_PREFIX = `The following is a summary of a branch that this conversation came back from:
 
 <summary>
@@ -64,6 +79,8 @@ export interface CompactionSummaryMessage {
 	summary: string;
 	tokensBefore: number;
 	timestamp: number;
+	/** Set for a context rollover entry, which has no summary of the earlier conversation. */
+	kind?: "rollover";
 }
 
 // Extend CustomAgentMessages via declaration merging
@@ -110,12 +127,14 @@ export function createCompactionSummaryMessage(
 	summary: string,
 	tokensBefore: number,
 	timestamp: string,
+	kind?: "rollover",
 ): CompactionSummaryMessage {
 	return {
 		role: "compactionSummary",
 		summary: summary,
 		tokensBefore,
 		timestamp: new Date(timestamp).getTime(),
+		...(kind ? { kind } : {}),
 	};
 }
 
@@ -173,14 +192,15 @@ export function convertToLlm(messages: AgentMessage[]): Message[] {
 						content: [{ type: "text" as const, text: BRANCH_SUMMARY_PREFIX + m.summary + BRANCH_SUMMARY_SUFFIX }],
 						timestamp: m.timestamp,
 					};
-				case "compactionSummary":
+				case "compactionSummary": {
+					const prefix = m.kind === "rollover" ? ROLLOVER_SUMMARY_PREFIX : COMPACTION_SUMMARY_PREFIX;
+					const suffix = m.kind === "rollover" ? ROLLOVER_SUMMARY_SUFFIX : COMPACTION_SUMMARY_SUFFIX;
 					return {
 						role: "user",
-						content: [
-							{ type: "text" as const, text: COMPACTION_SUMMARY_PREFIX + m.summary + COMPACTION_SUMMARY_SUFFIX },
-						],
+						content: [{ type: "text" as const, text: prefix + m.summary + suffix }],
 						timestamp: m.timestamp,
 					};
+				}
 				case "system":
 				case "user":
 				case "assistant":

@@ -108,6 +108,8 @@ describe("ExtensionRunner", () => {
 		shutdown: () => {},
 		getContextUsage: () => undefined,
 		compact: () => {},
+		getContextThresholdEstimate: () => undefined,
+		resetContext: async () => ({ status: "failed", reason: "not supported in this test" }),
 		getSystemPrompt: () => "",
 		getScopedModels: () => [],
 	};

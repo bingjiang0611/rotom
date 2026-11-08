@@ -2378,6 +2378,11 @@ export class InteractiveMode {
 					}
 				})();
 			},
+			getContextThresholdEstimate: () => this.session.getContextThresholdEstimate(),
+			resetContext: async () => ({
+				status: "failed",
+				reason: "resetContext() is only available inside an input handler",
+			}),
 			getSystemPrompt: () => this.session.systemPrompt,
 		});
 
