@@ -135,3 +135,14 @@
 - 以 root 运行时，EACCES 相关测试不成立；`find` 相关测试需要 `fd`。因此装了 `fd`，并改用非 root 用户构建。
 - 这个容器里的 npm 10.9.9 重新生成 `runtime/pi/package-lock.json` 时漏掉了一条嵌套依赖，导致 `npm ci` 失败。所以保留原来的 lock 结构，只替换 7 个 Pi 归档的 integrity，之后 `check:pi` 和 `npm ci` 都通过。
 - 以上都没有修改构建脚本或发布脚本。
+
+## 6. Mac 验证（`results/verify-impl.md`，`1a4ec0e`）
+
+- **Pi fork 可以重现。** 在 Mac 上（Node 24.18、npm 12.2）从源码 `build:pi`，结果与提交版本逐字节一致：7 个归档、lock 和 `fork-build.json` 都没有差异，各包回归测试 1074 通过 / 3 跳过 / 0 失败。云端手工保留 lock 结构的做法和 Mac 的结果一致。
+- **测试结果与云端一致。** 唯一的失败是 `cu-v2-tools.test.ts`（模块解析错误），`main` 上同样失败。云端 `model-selector` 的那个失败在 Mac 上没有复现。启动 smoke 在本分支和 `main` 上的失败完全一致（vendor 里的 Computer Use 归档仍是旧版）。
+- **抽查**：P0/P0b 的分类在安装后的产物上成立，P4 的规则唯一存在。
+- **P5b 口径**：
+  - 合计 484 比 477 多 7，是脚本的 bug：`--now` 只用来算窗口起点，没有限制终点，本轮运行时比 `--now` 晚约 24 小时，这段时间的活动也被算进去了。已修复，现在窗口是 `[since, now]`，会话条目和 trace 都按这个范围过滤，合成数据已验证。本地 agent 用加了上界的口径复算，结果正好是 477（吸收 391 / 终结 86）。
+  - `endedRun` 不是 57，是因为任务书的预期写错了，不是脚本有问题。57 只统计“错误后紧跟用户消息、且排除子 agent 会话”的情况；`endedRun` 按 P5b 的定义还包括“错误是窗口内最后一条记录”（26 条）和子 agent 会话。两个桶合计等于全部 error 数，字段本身是自洽的。
+- **仍未验证**：P2 的真机端到端流程；P2、P3 进入产品（需要重打 vendor 归档）；P0/P0b 对真实 provider 失败的恢复效果；P4 的效果；`pack:release` 和安装、升级路径。
+- **`main` 已经前进了 16 个 commit**（都是 Browser 相关），和本分支 `git merge-tree` 检查无冲突。

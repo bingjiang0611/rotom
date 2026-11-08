@@ -163,7 +163,9 @@ const seenEntryIds = new Set();
 for (const { file, records, header } of sessionCandidates) {
 	const windowRecords = [];
 	for (const record of records) {
-		if (timestampMs(record) < since) continue;
+		// The window is [since, now]: entries after --now belong to a later review.
+		const at = timestampMs(record);
+		if (at < since || at > now) continue;
 		if (record?.id && seenEntryIds.has(record.id)) continue;
 		if (record?.id) seenEntryIds.add(record.id);
 		windowRecords.push(record);
@@ -350,7 +352,7 @@ for (const file of traces) {
 		if (r.kind === "span_start" && r.spanId) spanStarts.set(r.spanId, ownAttributes);
 		const a = { ...(spanStarts.get(r.spanId) ?? {}), ...ownAttributes };
 		const ts = Date.parse(r.timestamp ?? "") || 0;
-		if (ts && ts < since) continue;
+		if (ts && (ts < since || ts > now)) continue;
 		if (ownAttributes["pi.runtime.version"]) inc(trace.runtimeVersions, tag(ownAttributes["rotom.product.version"] ?? ownAttributes["pi.runtime.version"]));
 		if (r.kind !== "span_end") continue;
 		inc(trace.spans, tag(r.name));
