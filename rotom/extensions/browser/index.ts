@@ -552,12 +552,17 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 	};
 	const readTabs = async (relayClient: Awaited<ReturnType<typeof client>>, signal?: AbortSignal) => validateTabs(await relayClient.request("tabs", {}, { signal, timeoutMs: relayClientTimeoutMs("tabs", {}) }));
 
-	// Origins the user actually authorized in this run. A tab's current URL is not one:
-	// it can change through a redirect, a page-initiated navigation, or by claiming a tab
-	// the user already had open, so publishing it would hand a child more than the user
-	// granted. Only these reach a child lease; a child never publishes one for its own
-	// children.
-	const parentGrantedOrigins = new Set<string>();
+	// Origins the user actually authorized in this run, with the capabilities they were
+	// authorized for. A tab's current URL is not one of them: it can change through a
+	// redirect, a page-initiated navigation, or by claiming a tab the user already had
+	// open, so publishing it would hand a child more than the user granted. Only these
+	// reach a child lease; a child never publishes one for its own children.
+	const parentGrantedOrigins = new Map<string, Set<BrowserLeaseCapabilityV1>>();
+	const grantParentOrigin = (origin: string, capability: BrowserLeaseCapabilityV1) => {
+		const granted = parentGrantedOrigins.get(origin) ?? new Set<BrowserLeaseCapabilityV1>();
+		granted.add(capability);
+		parentGrantedOrigins.set(origin, granted);
+	};
 	// Origins this run has opened. Used for in-flight relay checks, never as a grant.
 	const authorizedOrigins = new Set<string>();
 	const publishLeaseScope = (relayClient: Awaited<ReturnType<typeof client>>) => {
@@ -566,7 +571,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 		process.env[BROWSER_LEASE_SCOPE_ENV_V1] = JSON.stringify({
 			schemaVersion: 1,
 			rootSessionId: relayClient.rootSessionId,
-			origins: [...parentGrantedOrigins],
+			origins: [...parentGrantedOrigins].map(([origin, capabilities]) => ({ origin, capabilities: [...capabilities] })),
 			allow: { devtools: false, upload: false, download: false },
 			maxTabs: LEASE_DEFAULT_MAX_TABS,
 			keepTabs: relayClient.keepTabs,
@@ -593,7 +598,8 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 		const token = relayClient.leaseToken;
 		if (token === undefined) return true;
 		const lease = await loadBrowserLeaseForCallV1({ relayDir: dirname(relayClient.socketPath), token, scope: process.env[BROWSER_LEASE_SCOPE_ENV_V1] });
-		return checkBrowserLeaseV1(lease, { origin: lease?.origins[0], capability: "download" }).ok;
+		if (lease === undefined) return false;
+		return lease.origins.some((entry) => checkBrowserLeaseV1(lease, { origin: entry.origin, capability: "download" }).ok);
 	};
 	/** Returns a refusal result, or undefined when the operation may proceed. */
 	const leaseDenial = async (relayClient: Awaited<ReturnType<typeof client>>, capability: BrowserLeaseCapabilityV1, origin: string | undefined) => {
@@ -645,7 +651,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			return undefined;
 		}
 		const grantKey = `${origin}\u0000${capability}`;
-		if (policySessionGrants.has(grantKey)) { policyAuthorizedOrigins.add(origin); parentGrantedOrigins.add(origin); return undefined; }
+		if (policySessionGrants.has(grantKey)) { policyAuthorizedOrigins.add(origin); grantParentOrigin(origin, capability); return undefined; }
 		let decision: BrowserPolicyDecisionV1;
 		try {
 			decision = decideBrowserPolicyV1(await readBrowserPolicyV1(browserPolicyPathV1()), { origin, capability });
@@ -653,7 +659,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			// An unreadable or malformed policy must not silently authorize the site.
 			return policyRefusal({ origin, capability, reason: "invalid-policy", message: `${error instanceof Error ? error.message : String(error)}；该操作没有发出请求。` });
 		}
-		if (decision.decision === "allow") { policyAuthorizedOrigins.add(origin); parentGrantedOrigins.add(origin); return undefined; }
+		if (decision.decision === "allow") { policyAuthorizedOrigins.add(origin); grantParentOrigin(origin, capability); return undefined; }
 		if (decision.decision === "deny") return policyRefusal({ origin, capability, reason: "blocklist", message: `${origin} 在 browser-policy.json 的 blocklist 里（${decision.pattern}），不允许 ${capability}。` });
 		if (!ctx.hasUI || typeof ctx.ui.select !== "function") {
 			// No UI means no one can approve: refuse instead of allowing by default.
@@ -669,16 +675,18 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 			void pending.finally(() => { policyPrompts.delete(grantKey); }).catch(() => undefined);
 		}
 		const choice = await pending;
-		if (choice === "允许一次") { policyAuthorizedOrigins.add(origin); parentGrantedOrigins.add(origin); return undefined; }
+		// "允许一次" is this call only. It deliberately does not enter the child lease: the
+		// user approved one action, not this run's children.
+		if (choice === "允许一次") { policyAuthorizedOrigins.add(origin); return undefined; }
 		if (choice !== "本会话允许" && choice !== "总是允许") return policyRefusal({ origin, capability, reason: "user-denied", message: `用户拒绝授权 ${capability} ${origin}；不要重试。` });
 		policySessionGrants.add(grantKey);
 		policyAuthorizedOrigins.add(origin);
-		parentGrantedOrigins.add(origin);
+		grantParentOrigin(origin, capability);
 		if (choice === "总是允许") {
 			const granted = await grantBrowserPolicyV1({ origin, capability, path: browserPolicyPathV1() });
 			// The children of this run re-read their lease files per call, so the parent's
 			// grant reaches a child that already reported needs-approval.
-			await widenChildLeasesV1({ relayDir: dirname(relayClient.socketPath), rootSessionId: relayClient.rootSessionId, origin, ...(capability === "upload" ? { allow: { upload: true } } : {}) });
+			await widenChildLeasesV1({ relayDir: dirname(relayClient.socketPath), rootSessionId: relayClient.rootSessionId, origin, capability, ...(capability === "upload" ? { allow: { upload: true } } : {}) });
 			authorizedOrigins.add(origin);
 			void granted;
 		}
@@ -877,7 +885,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 				if (placement !== undefined && !BROWSER_OPEN_PLACEMENTS_V1.includes(placement as never)) throw new Error("open placement 无效");
 				// A child may only open origins its lease covers; the refusal is local,
 				// so no open request reaches the relay or the site.
-				const denied = await leaseDenial(relayClient, "open", leaseOriginV1(openUrl));
+				const denied = await leaseDenial(relayClient, "interact", leaseOriginV1(openUrl));
 				if (denied) return denied;
 				const policyDenied = await policyDenial(relayClient, "interact", leaseOriginV1(openUrl), ctx);
 				if (policyDenied) return policyDenied;
@@ -895,7 +903,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 				// here; a history target is resolved inside the relay, so the lease origins
 				// travel with the request and the refusal happens before the tab moves.
 				if (navigateUrl !== undefined) {
-					const denied = await leaseDenial(relayClient, "open", leaseOriginV1(navigateUrl));
+					const denied = await leaseDenial(relayClient, "interact", leaseOriginV1(navigateUrl));
 					if (denied) return denied;
 					const policyDenied = await policyDenial(relayClient, "interact", leaseOriginV1(navigateUrl), ctx);
 					if (policyDenied) return policyDenied;
@@ -910,7 +918,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 				// History navigation is resolved inside the relay; the lease decision comes back
 				// as a refusal instead of an observation, and nothing was dispatched.
 				if (record(requested) && requested.kind === "needs-approval") {
-					return leaseRefusal({ origin: typeof requested.origin === "string" ? requested.origin : "", capability: "open", reason: typeof requested.reason === "string" ? requested.reason : "origin" });
+					return leaseRefusal({ origin: typeof requested.origin === "string" ? requested.origin : "", capability: "interact", reason: typeof requested.reason === "string" ? requested.reason : "origin" });
 				}
 				// The target tab may already be suspended by a dialog (beforeunload is the
 				// common case): the relay refuses before moving the tab.
@@ -1112,7 +1120,7 @@ export function createBrowserRelayExtensionV1(dependencies: BrowserRelayExtensio
 				// that covers the tab's current origin. Upload is its own capability: a child
 				// that may click may still be forbidden from attaching local files.
 				if (action !== "scroll") {
-					const denied = await leaseDenial(relayClient, action === "upload" ? "upload" : "write", leaseOriginV1(tab.url));
+					const denied = await leaseDenial(relayClient, action === "upload" ? "upload" : "interact", leaseOriginV1(tab.url));
 					if (denied) return denied;
 					const policyDenied = await policyDenial(relayClient, action === "upload" ? "upload" : "interact", policyOriginV1(tab.url), ctx);
 					if (policyDenied) return policyDenied;

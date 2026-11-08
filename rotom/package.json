@@ -103,6 +103,8 @@
     "extensions/browser/chrome-extension/shared-tab-group.js",
     "extensions/browser/chrome-extension/tab-list-status.js",
     "extensions/browser/chrome-extension/window-open-correlation.js",
+    "extensions/browser/chrome-extension/dispatch-race.js",
+    "extensions/browser/chrome-extension/screenshot-capture.js",
     "extensions/qoder/index.ts",
     "extensions/qoder/auth.mjs",
     "extensions/qoder/catalog.mjs",

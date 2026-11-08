@@ -1134,6 +1134,10 @@ test("browser policy：blocklist 拒绝、无 UI 按拒绝、会话允许只影�
 	const { createBrowserRelayExtensionV1 } = await jiti.import(join(process.cwd(), "rotom/extensions/browser/index.ts")) as any;
 	const { writeBrowserPolicyV1, readBrowserPolicyV1, BROWSER_POLICY_PATH_ENV_V1 } = await import("./browser-policy.ts");
 	const policyPath = await allowPolicyFor(workspace, []);
+	// The lease scope is process-wide, so start from no scope at all: this test is about
+	// what the parent publishes, not what an earlier test left behind.
+	const inheritedScope = process.env.ROTOM_BROWSER_LEASE_SCOPE;
+	delete process.env.ROTOM_BROWSER_LEASE_SCOPE;
 	const opened: string[] = [];
 	// The same extension serves the parent and its children, so the lease token is what
 	// decides which side of the policy gate runs.
@@ -1187,13 +1191,8 @@ test("browser policy：blocklist 拒绝、无 UI 按拒绝、会话允许只影�
 		assert.equal(once.details.kind, "observation");
 		assert.equal(opened.length, 1);
 		await tool.execute("policy-tabs", { operation: "tabs" }, undefined, undefined, selecting(true));
-		const published = JSON.parse(process.env.ROTOM_BROWSER_LEASE_SCOPE ?? "{}");
-		assert.equal(published.rootSessionId, "root-session", "父 agent 发布的 lease scope 必须带 rootSessionId");
-		// Only what the user authorized is published. The tab's current URL is not a grant:
-		// it can change through a redirect, a page-initiated navigation, or by claiming a tab
-		// the user already had open, so a child lease must not inherit it.
-		assert.deepEqual(published.origins, ["https://unknown.test"], `父授权 origin 只来自用户授权：${JSON.stringify(published.origins)}`);
-		assert.equal(published.origins.includes("https://allowed.test"), false, "tab 当前 URL 不得进入子 lease");
+		// "允许一次" is the one call the user approved, so it never reaches a child lease.
+		assert.equal(process.env.ROTOM_BROWSER_LEASE_SCOPE, undefined, "允许一次不得发布给子 agent");
 		const afterOnce = await tool.execute("policy-once-again", { operation: "open", tabName: "site", url: "https://unknown.test/y" }, undefined, undefined, ctx0());
 		assert.equal(afterOnce.details.reason, "no-ui", "允许一次不能变成会话授权");
 		assert.deepEqual((await readBrowserPolicyV1(policyPath)).allowlist, [], "允许一次不写策略文件");
@@ -1207,6 +1206,14 @@ test("browser policy：blocklist 拒绝、无 UI 按拒绝、会话允许只影�
 		assert.equal(again.details.kind, "observation");
 		assert.equal(choices.length, choicesBefore, "本会话允许后不再询问");
 		assert.deepEqual((await readBrowserPolicyV1(policyPath)).allowlist, [], "本会话允许不写策略文件");
+		// Only what the user authorized is published, and only with the capability that was
+		// authorized. The tab's current URL is not a grant: it can change through a redirect,
+		// a page-initiated navigation, or by claiming a tab the user already had open.
+		await tool.execute("policy-tabs-2", { operation: "tabs" }, undefined, undefined, selecting(true));
+		const published = JSON.parse(process.env.ROTOM_BROWSER_LEASE_SCOPE ?? "{}");
+		assert.equal(published.rootSessionId, "root-session", "父 agent 发布的 lease scope 必须带 rootSessionId");
+		assert.deepEqual(published.origins, [{ origin: "https://session.test", capabilities: ["interact"] }], `父授权 origin 只来自用户授权：${JSON.stringify(published.origins)}`);
+		assert.equal(published.origins.some((entry: { origin: string }) => entry.origin === "https://allowed.test"), false, "tab 当前 URL 不得进入子 lease");
 
 		// 总是允许：写回策略文件，并扩大本次 run 的子 lease。
 		const always = selecting(true, "总是允许");
@@ -1219,11 +1226,13 @@ test("browser policy：blocklist 拒绝、无 UI 按拒绝、会话允许只影�
 		await mkdir(leases, { recursive: true, mode: 0o700 });
 		await chmod(leases, 0o700);
 		const childFile = join(leases, "child.json");
-		await writeFile(childFile, JSON.stringify({ schemaVersion: 1, kind: "rotom-browser-lease", token: "child", agentId: "child", rootSessionId: "root-session", origins: ["https://allowed.test"], allow: { devtools: false, upload: false, download: false }, maxTabs: 2, keepTabs: false, expiresAt: Date.now() + 60_000 }), { mode: 0o600 });
+		await writeFile(childFile, JSON.stringify({ schemaVersion: 1, kind: "rotom-browser-lease", token: "child", agentId: "child", rootSessionId: "root-session", origins: [{ origin: "https://allowed.test", capabilities: ["interact"] }], allow: { devtools: false, upload: false, download: false }, maxTabs: 2, keepTabs: false, expiresAt: Date.now() + 60_000 }), { mode: 0o600 });
 		await chmod(childFile, 0o600);
 		await tool.execute("policy-always-2", { operation: "open", tabName: "site", url: "https://second.test/x" }, undefined, undefined, selecting(true, "总是允许"));
 		const child = JSON.parse(await readFile(childFile, "utf8"));
-		assert.deepEqual(child.origins, ["https://allowed.test", "https://second.test"], "父 agent 的确认必须传给本次 run 的子 lease");
+		// The widening adds the capability the user just authorized and keeps what the child
+		// lease already had; it does not rewrite an existing entry into a new one.
+		assert.deepEqual(child.origins, [{ origin: "https://allowed.test", capabilities: ["interact"] }, { origin: "https://second.test", capabilities: ["interact"] }], "父 agent 的确认必须传给本次 run 的子 lease");
 		assert.notEqual(process.env[BROWSER_POLICY_PATH_ENV_V1], undefined);
 
 		// browser_inspect is a parallel tool: two structural calls on the same origin must
@@ -1262,6 +1271,93 @@ test("browser policy：blocklist 拒绝、无 UI 按拒绝、会话允许只影�
 		assert.equal(opened.length, openedBefore, "blocklist 拒绝的子 agent 请求不得派发");
 		assert.equal(choices.length, choicesBeforeChild, "子 agent 不产生询问");
 		childLeaseToken = undefined;
+	} finally {
+		if (inheritedScope === undefined) delete process.env.ROTOM_BROWSER_LEASE_SCOPE; else process.env.ROTOM_BROWSER_LEASE_SCOPE = inheritedScope;
+		for (const handler of browser.handlers.get("session_shutdown") ?? []) await handler({ type: "session_shutdown", reason: "quit" }, {});
+		await rm(workspace, { recursive: true, force: true });
+	}
+});
+
+test("browser lease：子 agent 只继承 capability，父 agent 的 read 不会变成 interact", async () => {
+	const workspace = await mkdtemp(join(tmpdir(), "pi-browser-lease-capability-"));
+	const piDist = findPiDist();
+	const loaderUrl = pathToFileURL(join(piDist, "core/extensions/loader.js")).href;
+	const [{ loadExtensions, loadExtensionFromFactory }, { SessionManager }] = await Promise.all([
+		import(loaderUrl),
+		import(pathToFileURL(join(piDist, "core/session-manager.js")).href),
+	]);
+	const { createJiti } = await import(pathToFileURL(findPiDependency(piDist, "jiti/lib/jiti.mjs")).href);
+	const jiti = createJiti(loaderUrl, { moduleCache: false, alias: {
+		"@earendil-works/pi-ai": findPiDependency(piDist, "@earendil-works/pi-ai/dist/index.js"),
+		"@earendil-works/pi-coding-agent": join(piDist, "index.js"),
+	} });
+	const { createBrowserRelayExtensionV1 } = await jiti.import(join(process.cwd(), "rotom/extensions/browser/index.ts")) as any;
+	// No allowlist: every site here needs the user's answer, exactly like a claimed user tab.
+	await allowPolicyFor(workspace, []);
+	const origin = "https://bank.test";
+	let childLeaseToken: string | undefined;
+	const interacts: Array<Record<string, unknown>> = [];
+	const observation = (generation: number) => ({ schemaVersion: 1, kind: "rotom-browser-observation", tabName: "account", tabId: 71, documentGeneration: generation, observationEpoch: 1, url: `${origin}/account`, title: "account", status: "complete", contentCoverage: "rendered-dom", contentComplete: false, nodes: [{ ref: "ax_1_1", role: "button", name: "Transfer", states: [] }], digest: `bank-${generation}` });
+	const relay = {
+		get closed() { return false; },
+		close() {},
+		get leaseToken() { return childLeaseToken; },
+		get keepTabs() { return false; },
+		rootSessionId: "root-session",
+		get socketPath() { return join(workspace, "relay.sock"); },
+		async request(operation: string, payload: Record<string, unknown>) {
+			if (operation === "tabs") return { schemaVersion: 1, kind: "rotom-browser-tabs", tabs: [{ name: "account", tabId: 71, documentGeneration: 1, url: `${origin}/account`, title: "account", status: "complete", current: true, browserActive: false, ownership: "claimed", relayAttached: true }] };
+			if (operation === "snapshot") return observation(1);
+			if (operation === "interact") {
+				interacts.push({ ...payload });
+				return { schemaVersion: 1, kind: "rotom-browser-interaction-result", tabName: "account", actionId: payload.actionId, action: payload.action, acknowledged: true, effect: { dispatch: "mouse" }, readback: observation(2) };
+			}
+			throw new Error(`unexpected operation ${operation}`);
+		},
+	};
+	const loaded = await loadExtensions([], workspace);
+	const browser = await loadExtensionFromFactory(createBrowserRelayExtensionV1({
+		async connectRelay() { return relay; },
+		openArtifactStore: async () => (await import("./browser-relay.ts")).BrowserArtifactStoreV1.open(),
+	}), workspace, undefined, loaded.runtime, join(process.cwd(), "rotom/extensions/browser"));
+	const session = SessionManager.inMemory(workspace);
+	loaded.runtime.appendEntry = () => {};
+	const answering = (answer: string) => ({ cwd: workspace, sessionManager: session, mode: "print", hasUI: true, ui: { notify() {}, setStatus() {}, async confirm() { return true; }, async select() { return answer; }, theme: { fg: (_color: string, value: string) => value } } }) as any;
+	try {
+		await new Promise((resolve) => setImmediate(resolve));
+		for (const handler of browser.handlers.get("session_start") ?? []) await handler({ type: "session_start", reason: "startup" }, answering("拒绝"));
+		const inspect = browser.tools.get("browser_inspect")?.definition;
+		const interact = browser.tools.get("browser_interact")?.definition;
+		assert.ok(inspect && interact);
+
+		// 1. The parent may only read the claimed user tab, so that is all it publishes.
+		const read = await inspect.execute("lease-read", { operation: "snapshot_visible", tabName: "account" }, undefined, undefined, answering("本会话允许"));
+		assert.equal(read.details.kind, "observation");
+		// The scope is published on the next call, which is when a child would inherit it.
+		await inspect.execute("lease-tabs", { operation: "tabs" }, undefined, undefined, answering("本会话允许"));
+		const published = JSON.parse(process.env.ROTOM_BROWSER_LEASE_SCOPE ?? "{}");
+		assert.deepEqual(published.origins, [{ origin, capabilities: ["read"] }], `父的 read 授权只发布 read：${JSON.stringify(published.origins)}`);
+
+		// 2. A child inherits that file, so its click is refused locally and never dispatched.
+		childLeaseToken = "lease-child";
+		const denied = await interact.execute("lease-child-click", { operation: "execute", tabName: "account", action: "click", targetRef: "ax_1_1" }, undefined, undefined, answering("本会话允许"));
+		assert.equal(denied.details.kind, "needs-approval");
+		assert.equal(denied.details.capability, "interact", "拒绝必须报这次操作需要的 capability");
+		assert.equal(denied.details.reason, "capability", "origin 在 lease 里，但 capability 不在");
+		assert.equal(interacts.length, 0, "被拒绝的写操作不得发到 relay");
+
+		// 3. After the user really authorizes interact for the parent, the same click goes
+		// through: the widened lease carries both capabilities, still on one origin entry.
+		childLeaseToken = undefined;
+		const clicked = await interact.execute("lease-parent-click", { operation: "execute", tabName: "account", action: "click", targetRef: "ax_1_1" }, undefined, undefined, answering("总是允许"));
+		assert.equal(clicked.details.kind, "browser-interaction-result");
+		assert.equal(interacts.length, 1);
+		const childFile = JSON.parse(await readFile(join(workspace, "leases", "lease-child.json"), "utf8"));
+		assert.deepEqual(childFile.origins, [{ origin, capabilities: ["read", "interact"] }]);
+		childLeaseToken = "lease-child";
+		const allowed = await interact.execute("lease-child-click-2", { operation: "execute", tabName: "account", action: "click", targetRef: "ax_1_1" }, undefined, undefined, answering("本会话允许"));
+		assert.equal(allowed.details.kind, "browser-interaction-result", "父 agent 授权 interact 后子 agent 才能点");
+		assert.equal(interacts.length, 2);
 	} finally {
 		for (const handler of browser.handlers.get("session_shutdown") ?? []) await handler({ type: "session_shutdown", reason: "quit" }, {});
 		await rm(workspace, { recursive: true, force: true });
