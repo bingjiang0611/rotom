@@ -107,6 +107,10 @@ export const executionChecks = [
 				if (/^Verdict:/m.test(archive)) throw new Error("B0 wrote a Verdict line, so it authorizes a step");
 				if (result.marker) throw new Error("B0 wrote B-STOPPED");
 				if (row(archive, "fixture", "present") !== "pass") throw new Error(`fixture | present = ${row(archive, "fixture", "present")}; the fake fixture never launched`);
+				// One row per fact: the real B0 run recorded the same pid twice after the copy was
+				// moved into a library, which reads as two launches.
+				const presence = (archive.match(/^\| fixture \| present \|/gm) ?? []).length;
+				if (presence !== 1) throw new Error(`fixture | present appears ${presence} times`);
 				if (row(archive, "fixture", "launch") !== undefined) throw new Error("the fake launch failed");
 				if (row(archive, "attribution", "ring") !== undefined && row(archive, "attribution", "ring") !== "pass") throw new Error("the fake helper reported no ring");
 				if (!/\| attribution \| summary \| recorded \|/.test(archive)) throw new Error("no attribution summary row");

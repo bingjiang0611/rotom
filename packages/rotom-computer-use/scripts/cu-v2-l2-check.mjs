@@ -230,7 +230,6 @@ async function main() {
 	const fixture = brought.fixture;
 	const fixtureRun = brought.run;
 	if (fixture) {
-		record("fixture", "present", "pass", `pid=${fixture.pid} bundle=${fixture.bundleId}`);
 		// `launchFixture` activated the copy, so the window is being built now; poll for it
 		// instead of guessing a fixed sleep (the 1.2 s wait sat exactly on the edge).
 		const root = await ensureFixtureWindow(macosBackend, { pid: fixture.pid });

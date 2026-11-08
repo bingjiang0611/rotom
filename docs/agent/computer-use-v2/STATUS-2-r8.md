@@ -106,3 +106,40 @@ AppleMobileFileIntegrityError Code=-423 "The file is adhoc signed or signed by a
 
 也就是说：LaunchServices 注册 + 拉起进程这一步产生 0 个未标记事件。但 App 在画出窗口之前就被杀了，
 所以对 `+72`/`+103` 仍然没有结论。
+
+### 第七次窗口（2026-11-07 21:21:19–22:21:19，`d1c3ad5f`，60 分钟）：fixture 跑通了，归因第一次有真实数据
+
+门禁 21:38:18 pass（`hid_idle 643.5s`）。运行 21:38:24–21:38:35，28 行、4 fail、退出 0、无 `Verdict:`、无 `B-STOPPED`。
+
+**成立的部分**：`fixture | fresh copy` → `fixture | present pid=97651` → `fixture | controls text=e11 button=e12`，
+然后 AX 路径真的生效：`fixture (not on the L2 list) | click pass outcome=worked`、
+`click effect pass before=clicks:0 after=clicks:1`、`typeText pass`、`input received pass field="l2probe"`。
+即 `minos` 修复、`source.sha256` 校验、`PI_CU_FIXTURE_SIGN_IDENTITY` 三处都对。
+
+**没有得到支持的部分**：`direct L2 | click fail | outcome=unknown delivery=l2 helperAlive=true cursorMoved=false
+judgedBy=readback unchanged at 1`。定向 `postToPid` 点击没有让 fixture 的计数 +1，而同一个按钮的 AX 点击可以。
+helper 没崩、光标没动。**但这次不能当结论**：运行期间真实用户回到了机器（见下），fixture 从未成为前台窗口，
+非活动窗口的第一次鼠标点击按 AppKit 语义只用来激活窗口，所以这个 fail 与“点击落在窗口上但没按到按钮”不可区分。
+B1 需要重做这个判定，且必须在一个真正安静且 fixture 被激活的窗口里做。
+
+**归因第一次有真实数据**（用户明确要求贴出来的就是这三行加一行）：
+
+```
+| run | real user input | fail | userEvents 188650 → 188939 (+289); frontmost=Scry pid=46038 not started by this run |
+| attribution | mouseMoved / pid 0 / state 1 | recorded | count=286 pid=0 first=2026-11-08T05:38:27.735Z last=2026-11-08T05:38:32.713Z |
+| attribution | leftMouseDown / pid 0 / state 1 | recorded | count=2 pid=0 first=2026-11-08T05:38:29.688Z last=2026-11-08T05:38:32.104Z |
+| attribution | leftMouseDragged / pid 0 / state 1 | recorded | count=1 pid=0 first=2026-11-08T05:38:32.110Z last=2026-11-08T05:38:32.110Z |
+| attribution | summary | recorded | unmarked=289 fromThisRun=0 fromElsewhere=289 agentMarked=0 K2 unchanged |
+| attribution | ring complete | pass | 289 records match the counters |
+```
+
+结论：这 289 个未标记事件**全部来自 HID 系统状态**（pid 0 / state 1），形态是“鼠标连续移动 + 两次按下 + 一次拖拽”，
+并且 `fromThisRun=0`——本次运行自己一个事件都没产生。门禁通过后 2.8 秒鼠标开始动，`restore | operator app`
+因此从 Etch 变成 Scry、`run | real user input` 判 fail，都是如实记录。
+
+对最初 `+72`/`+103` 的意义：那两个谜题读数的形态与这次完全一致（pid 0 / state 1，鼠标移动为主）。
+现在有第一个真实样本说明：**这个形态在有人用鼠标时就会持续产生**，而启动/激活/点击 fixture 自己产生 0 个。
+
+**自己引入的缺陷（已修）**：把复制/启动移进 `bringUpFixture` 之后，脚本里旧的
+`record("fixture","present","pass")` 没有删，于是本次存档同一个 pid 出现了两次（`05:38:31.526Z` 两行）。
+已删掉并给 dry run 加了“`fixture | present` 只能出现一次”的断言。
