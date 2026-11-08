@@ -183,10 +183,9 @@ B1 结果（[存档](evidence/runs/2026-11-06T2240-b1-directed-l2.md)）：19 �
 
 ## 直连 L2 目前能证明到哪一步
 
-`SLEventPostToPid` 在真机被**调用三次**（22:40、23:36、05:38），两次都返回 `delivery=l2`，helper 都没有崩溃。
-**效果未确认**：三次 `outcome` 都是 `unknown`，读回都没证明按到控件。第三次（B0）期间用户回到机器、
-fixture 从未前台，“读回不变”与“只激活窗口”不可区分，R9 已把两者分开记录。所以只能说
-“真机调用三次、helper 未崩、效果未确认”，不能写成“走通”或“已验证”。这个说法同样适用于根 `CLAUDE.md` §4。
+`SLEventPostToPid` 在真机被**调用三次**，都返回 `delivery=l2`，helper 都没崩。**效果未确认**：三次 `outcome`
+都是 `unknown`，读回都没证明按到控件；最近一次（B0，R9 判别）既没加计数也没激活窗口。所以只能写
+“调用三次、未崩、效果未确认”，不能写“走通”或“已验证”；根 `CLAUDE.md` §4 同理。
 
 ## 第 7 轮（R1、R2）与第 8 轮（T1–T3）：只做代码与测试，未跑真机
 
@@ -200,6 +199,7 @@ fixture 从未前台，“读回不变”与“只激活窗口”不可区分，
 | R9 | 计数没动但 post 激活了窗口 → `inconclusive`，另加 `target active`/`activation` 两行 |
 
 窗口账目见 [STATUS-2-rounds.md](STATUS-2-rounds.md)，T1–T3、R9 细节见 [STATUS-2-r8.md](STATUS-2-r8.md)。
+B 阶段改在测试机运行的方案见 [STATUS-2-testmachine.md](STATUS-2-testmachine.md)（待批准，尚未安装任何东西）。
 
 ## 需要审核者回答的问题
 
