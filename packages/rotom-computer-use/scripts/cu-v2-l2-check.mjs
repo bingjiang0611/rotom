@@ -42,7 +42,7 @@ import { pathToFileURL } from "node:url";
 
 import { inputSourceInfo, recordRealUserInput, restoreOperatorApp, runStamp, withoutHome } from "./lib/live-helpers.mjs";
 import { REPORT_ONLY_STEPS, StepRefused, beginStep, requireNoStopMarker, requireRunsDir, writeRunArchive } from "./lib/b-window.mjs";
-import { bringUpFixture, disposeFixtureRun, ensureFixtureWindow } from "./lib/fixture.mjs";
+import { FIXTURE_WINDOW_TIMEOUT_MS, bringUpFixture, disposeFixtureRun, ensureFixtureWindow, explainWindowTimeout } from "./lib/fixture.mjs";
 import { GateHold, requireGate } from "./lib/gate.mjs";
 import { driveListedApps } from "./lib/l2-apps.mjs";
 import { writeEvidence } from "./lib/l2-evidence.mjs";
@@ -234,7 +234,8 @@ async function main() {
 		// instead of guessing a fixed sleep (the 1.2 s wait sat exactly on the edge).
 		const root = await ensureFixtureWindow(macosBackend, { pid: fixture.pid });
 		if (!root) {
-			record("fixture", "window", "fail", "no window in listRoots even after activating the fixture");
+			const why = await explainWindowTimeout(macosBackend, { pid: fixture.pid });
+			record("fixture", "window", "fail", `no window in listRoots within ${FIXTURE_WINDOW_TIMEOUT_MS}ms of activating the fixture; ${why}`);
 		} else {
 			const look = await macosBackend.observe({ target: { windowId: root.windowId, rootRef: root.rootRef }, readText: "auto", includeImage: false });
 			const controls = { text: fixtureRef(look, ["AXTextField"]) ?? wireRefByRole(look, ["AXTextField"]), button: fixtureRef(look, ["AXButton"]) ?? wireRefByRole(look, ["AXButton"]) };

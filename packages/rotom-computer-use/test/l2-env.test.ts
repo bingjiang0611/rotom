@@ -13,6 +13,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { checkFixture, checkHelperSupport, expectedFixtureSourceDigest, fixtureSourceDigest, sha256Hex, signatureOf } from "../scripts/lib/l2-env.mjs";
+import { explainWindowTimeout } from "../scripts/lib/fixture.mjs";
 
 const PACKAGE_ROOT = path.resolve(import.meta.dirname, "..");
 const SOURCE = path.join(PACKAGE_ROOT, "native", "macos-fixture", "FixtureApp.swift");
@@ -106,4 +107,18 @@ test("a copy that would be ad-hoc signed is refused before anything runs", () =>
 	} finally {
 		rmSync(path.dirname(app), { recursive: true, force: true });
 	}
+});
+
+test("the window timeout says whether the fixture is still running or already gone", async () => {
+	const backend = (apps: Array<{ pid: number }> | Error) => ({
+		listApps: async () => {
+			if (apps instanceof Error) throw apps;
+			return apps;
+		},
+	});
+	// The 22:14 run recorded only "no window", which is the same row for a dead app and a
+	// hung one; this is the row that tells them apart.
+	assert.match(await explainWindowTimeout(backend([{ pid: 7 }]) as never, { pid: 7 }), /still running without a window/);
+	assert.match(await explainWindowTimeout(backend([{ pid: 8 }]) as never, { pid: 7 }), /exited before drawing a window/);
+	assert.match(await explainWindowTimeout(backend(new Error("denied")) as never, { pid: 7 }), /unknown/);
 });

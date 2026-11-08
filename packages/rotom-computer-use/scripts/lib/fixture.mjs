@@ -115,7 +115,22 @@ export async function disposeFixtureRun(handle, backend) {
  *
  * Polling is all that is left: either the window appears or the step fails.
  */
-export async function ensureFixtureWindow(backend, target, { timeoutMs = 6000, intervalMs = 250 } = {}) {
+export const FIXTURE_WINDOW_TIMEOUT_MS = 6000;
+
+/**
+ * The fixture was listed as running a moment ago. If it is gone now the launch failed after
+ * the process appeared; if it is alive without a window the window itself never got built.
+ * Both look identical in the archive otherwise (2026-11-08 22:14 could not tell them apart).
+ */
+export async function explainWindowTimeout(backend, target) {
+	const apps = await backend.listApps().catch(() => undefined);
+	if (!apps) return "listApps failed, so the process state is unknown";
+	return apps.some((app) => app.pid === target.pid)
+		? `pid=${target.pid} is still running without a window`
+		: `pid=${target.pid} exited before drawing a window`;
+}
+
+export async function ensureFixtureWindow(backend, target, { timeoutMs = FIXTURE_WINDOW_TIMEOUT_MS, intervalMs = 250 } = {}) {
 	const deadline = Date.now() + timeoutMs;
 	for (;;) {
 		const root = (await backend.listRoots({ pid: target.pid })).find((candidate) => candidate.kind === "window");
