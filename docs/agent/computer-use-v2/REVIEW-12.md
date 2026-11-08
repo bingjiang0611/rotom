@@ -64,3 +64,19 @@ fixture 新增一个 AppKit 按钮（独立计数，写进 `accessibilityValue`�
 1. W1：副本按唯一 bundle id 证明归属，`pending` 时轮询拿 pid，补测试。
 2. W3：fixture 加 AppKit 按钮，脚本加 `--delivery-matrix`，dry run 用假 backend 实际执行。
 3. W2 暂缓。只做代码和测试，不跑真机。推送后报告 SHA，先审后冻结。
+
+## 复核（2026-11-08，`1938972..6cce9fe`）：接受，`6cce9fe` 可作为 B0 的冻结提交
+
+冻结提交：`6cce9fe229db73573a519ef8748509af84a3f4d2`。
+
+- 审核者复现：干净 worktree 连跑 2 次，227 项，226 通过、0 失败、1 跳过；dry run 37 项、0 失败、3 跳过（其中 W3 的四格
+  在假 backend 上实际执行）；工作区干净。
+- W1：`rememberRunCopiedFixture` 只在调用方带着副本的 `bundleId` 时使用，要求 bundle id 完全相同且 pid 在启动前不存在；
+  出现多个候选就不登记。非副本的启动（不带 `bundleId`）用不上这条例外，TextEdit 仍然只认带 pid 的新启动。
+- W3：fixture 新增 `acceptsFirstMouse` 的 AppKit 按钮，独立计数写进 `accessibilityValue`；`--delivery-matrix` 是只出报告的
+  独立模式，只能用本次复制的副本；每一格之前先恢复操作员的 App，`l2`、`pid` 各点两个按钮，都带 `requireTransport`，
+  按计数变化判定。
+- 低优先级：`launchFixture` 的副本判断只看 `handle.bundleId` 是否存在，可以再加一道 `isFixtureBundleId` 校验，防止以后
+  有人传入非副本的 id。不阻断。
+
+下一个窗口两次 B0，都只出报告：先 `--delivery-matrix`，再 `--launch-twice`（W1 修好后重跑）。
