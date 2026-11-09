@@ -1,5 +1,7 @@
 # 同会话轮转 · 验证与启用条件
 
+> **v1，已被 v2 取代**（2026-11-09）：本文描述轮间接管、水位与三处 Pi 接缝的旧设计，作为历史记录保留，正文不再改写；产品行为以 [session-rollover-v2.md](session-rollover-v2.md) 与 [第 2 轮回报](session-rollover-report-v2.md) 为准。
+
 设计依据见 [session-rollover.md](session-rollover.md)（第 1–8 节），执行清单见 [session-rollover-worklist.md](session-rollover-worklist.md)。本文件承接原设计文档的第 9、10 节，节号保持不变，以便其他章节的“第 9.x 节”引用继续成立。
 
 ## 9. 验证与启用条件

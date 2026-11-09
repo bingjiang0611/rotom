@@ -88,3 +88,5 @@
 | W5 | `530ce563` |
 | W6 | `98c16d2d` |
 | 第 1 轮返工（R1–R5） | 见本次提交 |
+
+> 第 2 轮（v2 无摘要接管，W7–W12）见 [session-rollover-report-v2.md](session-rollover-report-v2.md)。

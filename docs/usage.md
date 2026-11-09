@@ -126,9 +126,9 @@ Reducer 会额外请求模型，按该 provider 正常计费或消耗订阅额�
 
 ## 同会话上下文轮转（默认关闭）
 
-`ROTOM_SESSION_ROLLOVER=1` 时，产品额外加载一个轮转 extension：在一次运行结束、下一次输入到达时，如果上下文已越过水位（`contextWindow - 2 × reserveTokens`）且满足资格（空闲、无排队消息、上一轮正常结束、模型窗口可用、自动压缩开启、会话已落盘、`context_recall` 可用、非本地命令、无 active Goal），就先写一条轮转条目清出可见上下文，再把输入照常提交。被清出的内容仍可用 `context_recall` 找回；轮末的阈值压缩在这类会话里推迟到轮转，避免同一轮既压缩又轮转。
+`ROTOM_SESSION_ROLLOVER=1` 时，产品额外加载一个轮转 extension：它不设自己的水位，只在 Pi 本来就要自动压缩时接手——`threshold`（请求前或运行结束后越线）与 `overflow`（超窗恢复）两种来源——用一条无摘要条目替代模型摘要。条目文本是确定性的检索说明（含切点 `@<entryId>`）加上被切走范围内的最近一条用户请求原文（超过 `reserveTokens / 4` 时中间截断并标注），保留范围沿用 Pi 已算好的切点，被清出内容用 `context_recall` 找回。轮转本身不调用模型。手动 `/compact` 与扩展请求的压缩不接管；`context_recall` 不在激活工具中、缺少 `preparation` 或摘要生成出错时，走原生摘要。
 
-判定、摘要内容、失败回退和已知限制见 [同会话上下文轮转](agent/session-rollover.md)。它不改窗口大小，也不保证省钱。
+判定、摘要内容、失败回退和已知限制见 [同会话上下文轮转](agent/session-rollover.md)。它不改窗口大小，也不保证省钱：取代原生摘要的质量与费用收益未经真实模型对比，目前只有 faux 干跑与离线统计。
 
 ## Codemode 与模型能力（Pi 1.0 源码）
 
