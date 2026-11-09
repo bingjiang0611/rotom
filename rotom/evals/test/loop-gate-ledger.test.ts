@@ -1,8 +1,9 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { appendFileSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { continuationCases } from "../src/continuation-cases.ts";
-import { gateVerdict, judgeGateCase, parseGateManifest, type GateCase } from "../src/loop/gate.ts";
+import { appendGateHistory, gateHistoryRecords, gateVerdict, judgeGateCase, parseGateHistory, parseGateManifest, poolGateHistory, type GateCase, type GateHistoryRecord } from "../src/loop/gate.ts";
 import { parseLedger, PROMPT_RENT_SINCE } from "../src/loop/ledger.ts";
 
 const evalsRoot = resolve(import.meta.dirname, "..");
@@ -46,6 +47,8 @@ describe("loop gate", () => {
 		expect(() => parseGateManifest(JSON.stringify({ ...valid, cases: [valid.cases[0], valid.cases[0]] }))).toThrow(/duplicate/u);
 		expect(() => parseGateManifest(JSON.stringify({ ...valid, cases: [{ ...valid.cases[0], reproduction: { model: "qoder/dfmodel", verdict: "maybe", detail: "x" } }] }))).toThrow(/verdict/u);
 		expect(() => parseGateManifest(JSON.stringify({ ...valid, cases: [{ ...valid.cases[0], reproduction: { model: "qoder/dfmodel", verdict: "not-reproduced", detail: " " } }] }))).toThrow(/detail/u);
+		const flaky = parseGateManifest(JSON.stringify({ ...valid, cases: [{ ...valid.cases[0], reproduction: { model: "qoder/dfmodel", verdict: "flaky-candidate", detail: "fails 1/3" } }] }));
+		expect(flaky.cases[0].reproduction?.verdict).toBe("flaky-candidate");
 	});
 
 	it("carries recorded reproduction evidence into the summary", () => {
@@ -92,5 +95,78 @@ describe("loop ledger", () => {
 		expect(() => parseLedger(JSON.stringify([{ ...entry, evidence: "improved" }, { ...entry, evidence: "improved" }]))).toThrow(/duplicate/u);
 		expect(() => parseLedger(JSON.stringify([{ ...entry, id: "L-2026-01-01-x" }]))).toThrow(/match the id/u);
 		expect(() => parseLedger(JSON.stringify([{ ...entry, evidence: "improved", source: "docs/nope.md" }]), repoRoot)).toThrow(/does not exist/u);
+	});
+});
+
+describe("loop gate history", () => {
+	const base: Omit<GateHistoryRecord, "caseId" | "verdict" | "pairs" | "baselinePass" | "candidatePass"> = {
+		schema: "rotom-loop-gate-history/v1",
+		recordedAt: "2026-11-10T10:00:00.000Z",
+		runId: "gate-1",
+		model: { provider: "qoder", model: "dfmodel" },
+		repeats: 5,
+		candidateCommit: "a".repeat(40),
+		baselineProduct: "/tmp/pre-fix/rotom",
+		candidateProduct: "/repo/rotom",
+		role: "control",
+		artifacts: "/loop/gate-1/behavior-status-is-not-authorization",
+	};
+	const sample = (over: Partial<GateHistoryRecord>): GateHistoryRecord => ({ ...base, caseId: "behavior-status-is-not-authorization", verdict: "held", pairs: 5, baselinePass: 5, candidatePass: 5, ...over });
+
+	it("appends private samples and never truncates earlier ones", () => {
+		const dir = mkdtempSync(join(tmpdir(), "gate-history-"));
+		const path = join(dir, "gate-history.jsonl");
+		appendGateHistory(path, [sample({})]);
+		appendGateHistory(path, [sample({ runId: "gate-2", candidatePass: 4, verdict: "regressed" })]);
+		const text = readFileSync(path, "utf8");
+		expect(text.trim().split("\n")).toHaveLength(2);
+		expect((statSync(path).mode & 0o777).toString(8)).toBe("600");
+		expect(parseGateHistory(text).map((record) => record.runId)).toEqual(["gate-1", "gate-2"]);
+		expect(() => parseGateHistory(`${text}{"schema":"other"}\n`)).toThrow(/schema/u);
+		expect(() => parseGateHistory(`${text}not json\n`)).toThrow(/not JSON/u);
+	});
+
+	it("turns case results into samples with explicit pass counts", () => {
+		const records = gateHistoryRecords({
+			recordedAt: "2026-11-10T10:00:00.000Z",
+			runId: "gate-1",
+			model: { provider: "qoder", model: "dfmodel" },
+			repeats: 5,
+			candidateCommit: "b".repeat(40),
+			baselineProduct: "/tmp/pre-fix/rotom",
+			candidateProduct: "/repo/rotom",
+			results: [judgeGateCase(item, 5, "/a", report(5, 3 / 5, 1))],
+		});
+		expect(records).toHaveLength(1);
+		expect(records[0]).toMatchObject({ caseId: item.caseId, pairs: 5, baselinePass: 3, candidatePass: 5, verdict: "held" });
+	});
+
+	it("pools re-runs per candidate commit and keeps earlier failures", () => {
+		const failed = sample({ runId: "gate-1", candidatePass: 3, verdict: "regressed" });
+		const passedLater = sample({ runId: "gate-2", candidatePass: 5 });
+		const [pooled] = poolGateHistory([failed, passedLater]);
+		expect(pooled).toMatchObject({ runs: 2, pairs: 10, candidatePass: 8, verdict: "regressed" });
+
+		const otherCommit = sample({ candidateCommit: "c".repeat(40), runId: "gate-3" });
+		const groups = poolGateHistory([failed, passedLater, otherCommit]);
+		expect(groups).toHaveLength(2);
+		expect(groups.find((group) => group.candidateCommit === "c".repeat(40))?.verdict).toBe("held");
+
+		// A different baseline or model is a different experiment, not extra samples.
+		expect(poolGateHistory([failed, sample({ baselineProduct: "/other/rotom" })])).toHaveLength(2);
+		expect(poolGateHistory([failed, sample({ model: { provider: "qoder", model: "other" } })])).toHaveLength(2);
+	});
+
+	it("honours --since and --case, and never turns unscorable samples into held", () => {
+		const early = sample({ runId: "gate-1", recordedAt: "2026-11-01T00:00:00.000Z", candidatePass: 3, verdict: "regressed" });
+		const late = sample({ runId: "gate-2", recordedAt: "2026-11-10T00:00:00.000Z" });
+		expect(poolGateHistory([early, late], { since: new Date("2026-11-05T00:00:00.000Z") })[0]).toMatchObject({ runs: 1, verdict: "held" });
+		expect(poolGateHistory([early, late])[0].verdict).toBe("regressed");
+		expect(poolGateHistory([sample({ caseId: "other-case" })], { caseId: "behavior-status-is-not-authorization" })).toHaveLength(0);
+
+		const unknown = sample({ runId: "gate-3", pairs: 0, baselinePass: 0, candidatePass: 0, verdict: "unknown" });
+		expect(poolGateHistory([unknown])[0]).toMatchObject({ verdict: "unknown", unknownRuns: 1 });
+		// Unknown samples add no pairs, so a scorable failure still decides the pool.
+		expect(poolGateHistory([unknown, sample({ candidatePass: 4, verdict: "regressed" })])[0]).toMatchObject({ pairs: 5, candidatePass: 4, verdict: "regressed", unknownRuns: 1 });
 	});
 });
