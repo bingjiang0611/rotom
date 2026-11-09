@@ -40,6 +40,10 @@ export const PRODUCT_SUBAGENT_BLOCKED_FIELDS = [
 	"runStatus",
 	"summary",
 	"config",
+	// `share` uploads the child session to a GitHub Gist; `sessionDir` writes logs to a
+	// model-chosen directory. Neither belongs to the product's privacy boundary.
+	"share",
+	"sessionDir",
 ] as const;
 
 export const PRODUCT_SUBAGENT_DESCRIPTION =
@@ -79,8 +83,6 @@ export function constrainSubagentParameters<T>(parameters: T, scoped = process.e
 		maxRuntimeMs: "Alias: timeoutMs. Single runs use config timeoutMs or 30m; async composites have no default parent deadline.",
 		usageBudget: "Root reported-usage budget. Hard limits block new child launches, not running children.",
 		agentScope: "Discovery: user, project, or both (default). Project wins name collisions.",
-		share: "Upload session to GitHub Gist (default false).",
-		sessionDir: "Session log directory (default temp); enables logs even with share:false.",
 		skill: "Skills: comma-separated names or string array; false disables, true uses default.",
 		model: "Child model override: provider/id or bare id resolved in the active registry.",
 		outputSchema: "Strict output JSON Schema; root must be an object.",
