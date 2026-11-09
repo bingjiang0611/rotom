@@ -1,6 +1,6 @@
 # Goal 默认自动续跑改造（交接说明）
 
-> 状态：已实现于 Goal `0.54.4-rotom.10`（第一阶段 A–E 与第二阶段 F–H 均已完成；审阅额度耗尽改为 `review_exhausted` 暂停）。本文保留为设计与验收记录，当前合同以组件 README、UPSTREAM.md 与 CLAUDE.md 为准。
+> 状态：已实现于 Goal `0.54.4-rotom.10`，并在 `0.54.4-rotom.11` 把完成审阅改为 opt-in（第一阶段 A–E 与第二阶段 F–H 均已完成；审阅额度耗尽改为 `review_exhausted` 暂停）。本文保留为设计与验收记录，当前合同以组件 README、UPSTREAM.md 与 CLAUDE.md 为准。
 > 背景调研全文：<https://claude.ai/artifact/PoTUCJqLti4zegdF2Whq5a>（只是背景，以本文为准）。
 
 ## 1. 问题

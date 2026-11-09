@@ -13,7 +13,7 @@
 - 额外审阅用量单独记录，已报告 token 计入 Goal budget admission；最终请求可能超出 admission 阈值，USD/credits 保持 unknown。
 - rejected 可按新证据修复；unknown/取消/中断不自动再审，resume/edit 不补审阅额度。修改摘要不算新候选。
 - 当前 reader 只接受不超过 24,000 bytes 的完整文本文件。需要验收更大文件、被省略记录或外部状态时保持 unverified；若这种需求成为常态，应另行实现带覆盖证明的有界分页，不自动放宽审批或假装已读全文。
-- 用户可在已有 `pi-goal.json` 设置 `"completionReview": false` 后 `/reload` 明确关闭审阅；不可因审阅失败由 Agent 自动关闭。显式工具白名单须新增 `goal_continue`。
+- 完成审阅默认关闭，`goal_complete` 按模型声明完成。用户可在 `pi-goal.json` 显式设置 `"completionReview": true` 后 `/reload` 开启，代价是额外 provider 用量；不可由 Agent 自行开关审阅。显式工具白名单须新增 `goal_continue`。
 - 不引入 task tree、项目 Goal 数据库或独立完成条件字段；完整 objective 仍是需求权威来源。
 
 ## 本地发行包安装

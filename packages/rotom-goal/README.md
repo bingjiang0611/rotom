@@ -1,6 +1,6 @@
 # rotom Goal
 
-rotom-maintained `@narumitw/pi-goal@0.54.4-rotom.10`. MIT upstream provenance is in [UPSTREAM.md](UPSTREAM.md). Use the integrated [rotom installation](../../docs/usage.md), not a second upstream Goal extension.
+rotom-maintained `@narumitw/pi-goal@0.54.4-rotom.11`. MIT upstream provenance is in [UPSTREAM.md](UPSTREAM.md). Use the integrated [rotom installation](../../docs/usage.md), not a second upstream Goal extension.
 
 ## One session, one objective
 
@@ -52,9 +52,9 @@ Session restoration automatically queues one fresh continuation for a previously
 
 Stable `stopReason` codes are stored in the existing `goal-state` entry and shown in status/menu views; raw provider error bodies are not added to this metadata. The opt-in managed-run `pi-goal:event:<runId>` state event retains its existing statuses and adds `activity` (`running`, `recovering`, `waiting`), recovery kind, optional wait `resumeAt`, and `stopReason`. Activity changes publish even when status stays active; identical snapshots are deduplicated. These are display data, not wake/replay authority. External consumers must adopt these optional fields; this change does not modify a separate dashboard application.
 
-## Completion reviewer (default on)
+## Completion reviewer (opt-in)
 
-`goal_complete` first checks ownership, current Goal identity and the existing completion guards. It then persists a review attempt **before** requesting the selected model via Pi's public `ModelRegistry.complete` API. No nested AgentSession, resource discovery, provider change or provider-failure fallback is used.
+`goal_complete` first checks ownership, current Goal identity and the existing completion guards. When the reviewer is enabled, it then persists a review attempt **before** requesting the selected model via Pi's public `ModelRegistry.complete` API. No nested AgentSession, resource discovery, provider change or provider-failure fallback is used. With the default settings, `goal_complete` completes from the model's claim and this section does not apply.
 
 The reviewer receives the full objective, an explicitly untrusted completion claim, bounded recent session tool records, and only `review_read` / `review_list`. Those tools read project-relative local text files/directories; they do not execute shell commands, edit files, browse pages or load project extensions/skills. Symlinks, paths outside the project, `.git`, `.pi` and `node_modules` are excluded. This limited tool surface is **not an OS sandbox**: trusted provider code still runs as the local user.
 
@@ -64,7 +64,7 @@ The reviewer must inspect requirements individually and finish with `<approved/>
 - **Rejected:** distinguish an observed work defect from a proof gap. Remain active for an evidenced, authorized repair, read-only evidence gathering or other unfinished requirements; a rejection is neither authorization nor proof that prior work failed. Never repeat successful/unknown external writes to satisfy the reviewer or manufacture a fresh candidate. If every remaining requirement depends on unavailable evidence or a user/external action, call `goal_blocked`. Reviewer text is an untrusted assessment, not instructions.
 - **Unknown/error:** never complete or automatically repeat the same evidence candidate. The paid attempt persists across resume/edit and recovery, but a genuinely new candidate may use the remaining attempt and reported-token allowance.
 - **Cancelled/stale:** a late provider reply cannot approve a newer run. Ownership loss still records known usage and cannot manufacture completion.
-- Bounded continuation/wait tool results and text-only user/host announcements can support procedural requirements during review (an announcement is not proof of its claimed external effect), but are not proof of semantic progress or fresh work. Repeating the same candidate returns a rejection without dispatching a review. A new candidate after the fixed attempt or reported-token allowance is exhausted pauses with `stopReason: review_exhausted`; manual acceptance must be followed by `/goal clear`, or the user can set `completionReview: false` in `pi-goal.json` and run `/goal resume`. Changing the completion summary or only issuing control calls does not create a fresh candidate. Resume/edit do not replenish the allowance.
+- Bounded continuation/wait tool results and text-only user/host announcements can support procedural requirements during review (an announcement is not proof of its claimed external effect), but are not proof of semantic progress or fresh work. Repeating the same candidate returns a rejection without dispatching a review. A new candidate after the fixed attempt or reported-token allowance is exhausted pauses with `stopReason: review_exhausted`; manual acceptance must be followed by `/goal clear`. Changing the completion summary or only issuing control calls does not create a fresh candidate. Resume/edit do not replenish the allowance.
 
 ### Fixed bounds and cost
 
@@ -83,7 +83,7 @@ The reviewer must inspect requirements individually and finish with `<approved/>
 
 Token accounting is **reported and partial**. A final in-flight response can exceed an admission budget; byte limits are not token estimates. Review usage is separately attributable from parent model usage; the Goal token-budget admission covers their sum. USD/credits remain unknown rather than `$0`. Cancellation cannot guarantee that the upstream provider stops billing. Provider retries are requested off; a custom provider that ignores cancellation/retry options is not certified by this extension.
 
-The user-owned opt-out is `completionReview: false` in the existing user `pi-goal.json` (normally `~/.pi/agent/pi-goal.json`), followed by `/reload`. Disabling the reviewer explicitly restores model-reported completion, not independently verified completion. Do not disable it automatically after a rejection or error.
+The reviewer is opt-in: set `completionReview: true` in the user `pi-goal.json` (normally `~/.pi/agent/pi-goal.json`) and run `/reload`. The default is model-reported completion, which is not independently verified completion. Do not enable or disable the reviewer automatically after an error or rejection; the choice belongs to the user, and enabling it spends extra provider usage.
 
 ```json
 {

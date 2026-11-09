@@ -20,6 +20,8 @@ test(
 		const cwd = mkdtempSync(join(tmpdir(), "rotom-goal-sdk-"));
 		t.after(() => rmSync(cwd, { recursive: true, force: true }));
 		writeFileSync(join(cwd, "result.txt"), "verified");
+		// Review is opt-in; this test is the reviewer's end-to-end contract.
+		writeFileSync(join(cwd, "goal-settings.json"), `${JSON.stringify({ completionReview: true })}\n`);
 		const settingsManager = SettingsManager.inMemory({
 			retry: { enabled: false },
 			compaction: { enabled: false },
