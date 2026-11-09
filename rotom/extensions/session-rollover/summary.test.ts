@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildRolloverSummary, tailExcerpt } from "./summary.ts";
 import { COPY } from "./copy.ts";
+import { buildTakeoverSummary } from "./summary.ts";
 
 const userEntry = (id: string, content: any) =>
 	({ type: "message", id, parentId: null, timestamp: new Date().toISOString(), message: { role: "user", content, timestamp: 0 } }) as any;
@@ -12,23 +12,35 @@ const toolResultEntry = (id: string, text: string) =>
 
 const words = (count: number, tag: string) => Array.from({ length: count }, (_, index) => `${tag}${index}`).join(" ");
 
-test("excerpt keeps the last user input and assistant text verbatim with their entry ids", () => {
-	const branch = [
-		userEntry("u1", "first requirement"),
-		assistantEntry("a1", [{ type: "text", text: "first answer" }]),
-		userEntry("u2", "exact requirement: keep the ledger at 42"),
-		assistantEntry("a2", [{ type: "text", text: "Recorded exactly: the ledger is at 42." }]),
-		userEntry("u3", "and the untracked draft input"),
-	];
-	const excerpt = tailExcerpt(branch, 1_000);
-	assert.ok(excerpt);
-	assert.ok(excerpt!.includes(`[user @u3]\nand the untracked draft input`));
-	assert.ok(excerpt!.includes("[assistant @a2]\nRecorded exactly: the ledger is at 42."));
-	assert.ok(!excerpt!.includes("first requirement"), "only the tail is quoted");
-	assert.ok(!excerpt!.includes(COPY.omitted([]).slice(0, 5)), "no truncation marker when everything fits");
+const SUMMARY_BUDGET = 200;
+const build = (branch: any[], firstKeptEntryId: string) =>
+	buildTakeoverSummary({ branch, firstKeptEntryId, reserveTokens: SUMMARY_BUDGET * 4 });
+
+test("the summary is the retrieval note when no request was removed with the cut", () => {
+	const branch = [assistantEntry("a1", [{ type: "text", text: "only reasoning and answers" }])];
+	const summary = build(branch, "a1");
+	assert.equal(summary, COPY.intro("a1"));
+	assert.ok(summary.includes("@a1"), "the note names the cut point");
+	assert.ok(summary.includes("context_recall"), "the note explains retrieval");
+	assert.equal(summary.includes(COPY.currentRequestOpen), false, "no request quote without a removed request");
 });
 
-test("excerpt excludes tool results, tool calls, thinking and attachments", () => {
+test("a request still inside the kept range is not quoted back", () => {
+	const branch = [userEntry("u1", "first request"), assistantEntry("a1", [{ type: "text", text: "answer" }]), userEntry("u2", "kept request")];
+	// `u2` is at or after the cut point, so the model still sees it verbatim.
+	assert.equal(build(branch, "u2"), COPY.intro("u2"));
+	assert.equal(build(branch, "a1"), COPY.intro("a1"));
+});
+
+test("a request removed with the cut is quoted verbatim with its entry id", () => {
+	const branch = [userEntry("u1", "exact requirement: keep the ledger at 42"), assistantEntry("a1", [{ type: "text", text: "answer" }]), assistantEntry("a2", [{ type: "text", text: "later answer" }])];
+	const summary = build(branch, "a2");
+	assert.ok(summary.includes(COPY.currentRequest("u1", "exact requirement: keep the ledger at 42")));
+	assert.ok(summary.includes(COPY.currentRequestOpen) && summary.includes(COPY.currentRequestClose));
+	assert.equal(summary.includes("later answer"), false, "assistant text is never copied into the summary");
+});
+
+test("tool results, tool calls, thinking and images never reach the summary", () => {
 	const branch = [
 		userEntry("u1", [{ type: "text", text: "read the notes" }, { type: "image", data: "AAAA", mimeType: "image/png" }]),
 		assistantEntry("a1", [
@@ -37,45 +49,39 @@ test("excerpt excludes tool results, tool calls, thinking and attachments", () =
 			{ type: "text", text: "Here is the summary." },
 		]),
 		toolResultEntry("r1", "secret-tool-output"),
+		assistantEntry("a2", [{ type: "text", text: "kept tail" }]),
 	];
-	const excerpt = tailExcerpt(branch, 1_000)!;
-	assert.ok(excerpt.includes("read the notes"));
-	assert.ok(excerpt.includes("Here is the summary."));
-	for (const forbidden of ["private reasoning", "secret-path", "secret-tool-output", "AAAA"]) {
-		assert.equal(excerpt.includes(forbidden), false, forbidden);
+	const summary = build(branch, "a2");
+	assert.ok(summary.includes("read the notes"));
+	for (const forbidden of ["private reasoning", "secret-path", "secret-tool-output", "AAAA", "Here is the summary."]) {
+		assert.equal(summary.includes(forbidden), false, forbidden);
 	}
 });
 
-test("an over-budget excerpt is cut in the middle and names the cut entries", () => {
-	const head = words(400, "head");
-	const tail = words(400, "tail");
-	const branch = [userEntry("u1", head), assistantEntry("a1", [{ type: "text", text: tail }])];
-	const budget = 200;
-	const excerpt = tailExcerpt(branch, budget)!;
-	assert.ok(Math.ceil(excerpt.length / 4) <= budget, "the excerpt stays within the budget");
-	const lines = excerpt.split("\n");
-	const headText = lines[lines.indexOf("[user @u1]") + 1] as string;
-	assert.ok(head.startsWith(headText), "the head stays a verbatim prefix");
-	const tailText = lines[lines.indexOf("[assistant @a1]") + 1] as string;
-	assert.ok(tailText.length > 0, "the tail keeps some of its final words");
-	assert.ok(tail.endsWith(tailText), "the tail stays a verbatim suffix");
-	assert.ok(excerpt.includes("@u1") && excerpt.includes("@a1"), "the marker names both cut entries");
-	assert.ok(excerpt.includes("context_recall"), "the marker points at the retrieval tool");
+test("an over-long request is cut in the middle, stays in budget and names the entry", () => {
+	const long = words(2_000, "request");
+	const branch = [userEntry("u1", long), assistantEntry("a2", [{ type: "text", text: "kept tail" }])];
+	const summary = build(branch, "a2");
+	const quoted = summary.slice(summary.indexOf(COPY.currentRequestOpen));
+	const label = `[user @u1]\n`;
+	const text = quoted.slice(quoted.indexOf(label) + label.length, quoted.indexOf(COPY.currentRequestClose));
+	assert.ok(Math.ceil(text.length / 4) <= SUMMARY_BUDGET, `the quoted request fits the budget (${Math.ceil(text.length / 4)})`);
+	assert.ok(quoted.length < long.length, "the long request was shortened");
+	assert.ok(quoted.includes("@u1"), "the marker names the entry that still holds it");
+	assert.match(quoted, /characters omitted from the middle/);
+	const head = long.slice(0, 40);
+	const tail = long.slice(-40);
+	assert.ok(quoted.includes(head), "the head stays a verbatim prefix");
+	assert.ok(quoted.includes(tail), "the tail stays a verbatim suffix");
 });
 
-test("a summary without usable tail text is the retrieval instructions alone", () => {
-	const branch = [assistantEntry("a1", [{ type: "thinking", thinking: "only reasoning" }])];
-	assert.equal(tailExcerpt(branch, 1_000), undefined);
-	assert.equal(buildRolloverSummary(branch, 16_384), COPY.intro);
+test("an unlocatable cut point still quotes the request instead of dropping it", () => {
+	const branch = [userEntry("u1", "exact requirement: keep the ledger at 42")];
+	const summary = build(branch, "missing-entry");
+	assert.ok(summary.includes("exact requirement: keep the ledger at 42"));
 });
 
-test("the summary budget is a quarter of reserveTokens", () => {
-	const long = words(4_000, "filler");
-	const branch = [userEntry("u1", long), assistantEntry("a1", [{ type: "text", text: long }])];
-	const reserveTokens = 4_000;
-	const summary = buildRolloverSummary(branch, reserveTokens);
-	const excerpt = summary.slice(COPY.intro.length + 2);
-	assert.ok(Math.ceil(excerpt.length / 4) <= reserveTokens / 4, "excerpt fits reserveTokens / 4");
-	assert.ok(excerpt.length < long.length * 2, "the long text was shortened");
-	assert.ok(summary.startsWith(COPY.intro));
+test("a request with no visible text adds nothing", () => {
+	const branch = [userEntry("u1", [{ type: "image", data: "AAAA", mimeType: "image/png" }]), assistantEntry("a2", [{ type: "text", text: "kept tail" }])];
+	assert.equal(build(branch, "a2"), COPY.intro("a2"));
 });

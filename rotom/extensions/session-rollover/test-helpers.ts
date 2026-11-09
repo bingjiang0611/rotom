@@ -14,15 +14,14 @@ export const { fauxAssistantMessage, fauxToolCall, fauxText, fauxProvider } = aw
   pathToFileURL(resolve(piRoot, "../pi-ai/dist/index.js")).href
 );
 
-// A small window keeps the water mark reachable with short fixtures; the rule under test is the
-// same as for a real window because both water marks derive from reserveTokens.
+// A small window keeps the threshold reachable with short fixtures; the rule under test is the same
+// as for a real window because the threshold derives from reserveTokens.
 export const CONTEXT_WINDOW = 12_000;
 export const RESERVE_TOKENS = 1_000;
-/** Threshold compaction at `contextWindow - reserveTokens`; rollover one reserve below it. */
+/** Threshold compaction at `contextWindow - reserveTokens`. */
 export const THRESHOLD = CONTEXT_WINDOW - RESERVE_TOKENS;
-export const WATERMARK = CONTEXT_WINDOW - 2 * RESERVE_TOKENS;
 
-/** An assistant message whose provider usage claims `tokens`, which is what the estimate reads. */
+/** An assistant message whose provider usage claims `tokens`, which is what Pi's estimate reads. */
 export function assistantWithUsage(text: string, tokens: number, timestamp = Date.now()): any {
   return {
     ...fauxAssistantMessage(text),
@@ -38,17 +37,23 @@ export interface HarnessOptions {
   /** Load the real context-layers extension so `context_recall` exists. */
   recall?: boolean;
   tools?: string[];
+  /** Provider usage claimed by the seeded assistant message, which Pi's pre-prompt estimate reads. */
   historyTokens?: number;
   compactionEnabled?: boolean;
   /** Extension source appended after this extension, to observe or cancel its events. */
   probeSource?: string;
-  /** Extension source loaded before the rollover extension, to observe events it cancels. */
+  /** Extension source loaded before the rollover extension, to observe events before it runs. */
   earlyProbeSource?: string;
   /** Reopen an existing session file instead of seeding a new branch (resume path). */
   resumeFrom?: string;
-  /** Seed the persisted branch with one user message and one tool result carrying `secret`. */
+  /** Seed the persisted branch with one tool call and one tool result carrying a known secret. */
   seedToolResult?: boolean;
+  /** Seed one user message that carries an image block. */
   seedImage?: boolean;
+  /** Let the faux model accept image input, which is what makes `context_recall` return images. */
+  imageInput?: boolean;
+  /** Seed one user message of `userText` before the recorded requirement. */
+  seedUserText?: string;
 }
 
 export interface Harness {
@@ -58,6 +63,8 @@ export interface Harness {
   error: string | undefined;
   toolDefinitions: Map<string, any>;
   handlerNames: string[];
+  /** Entry ids of the seeded fixtures, for retrieval assertions. */
+  seeded: Record<string, string>;
   loader: any;
   settings: any;
   runtime: any;
@@ -86,8 +93,7 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
   }
 
   const settings = SettingsManager.inMemory({
-    // `keepRecentTokens: 1` keeps every threshold compaction preparable from short test messages;
-    // the water mark is still derived from reserveTokens.
+    // `keepRecentTokens: 1` keeps every threshold compaction preparable from short test messages.
     compaction: { enabled: options.compactionEnabled ?? true, reserveTokens: RESERVE_TOKENS, keepRecentTokens: 1 },
     retry: { enabled: false },
   });
@@ -106,19 +112,35 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
   const loaded = loader.getExtensions();
   if (loaded.errors.length > 0) throw new Error(`extension load failed: ${JSON.stringify(loaded.errors)}`);
 
+  const seeded: Record<string, string> = {};
   const resumed = options.resumeFrom !== undefined;
   const manager = resumed ? SessionManager.open(options.resumeFrom!, dir, dir) : SessionManager.create(dir, dir);
-  if (!resumed) manager.appendMessage({ role: "user", content: [{ type: "text", text: "Keep the recorded requirement exact." }], timestamp: Date.now() - 3_000 });
-  if (!resumed) manager.appendMessage(assistantWithUsage("Recorded earlier answer.", 10, Date.now() - 2_500));
+  if (!resumed) {
+    if (options.seedUserText !== undefined) {
+      manager.appendMessage({ role: "user", content: [{ type: "text", text: options.seedUserText }], timestamp: Date.now() - 3_500 });
+    }
+    seeded.requirement = manager.appendMessage({ role: "user", content: [{ type: "text", text: "Keep the recorded requirement exact." }], timestamp: Date.now() - 3_000 });
+    manager.appendMessage(assistantWithUsage("Recorded earlier answer.", 10, Date.now() - 2_500));
+  }
   if (options.seedToolResult) {
-    manager.appendMessage(assistantWithUsage([fauxToolCall("read", { path: "notes.txt" }, { id: "old-call" })], 20, Date.now() - 2_400));
-    manager.appendMessage({ role: "toolResult", toolCallId: "old-call", toolName: "read", content: [{ type: "text", text: "secret-old-result-42" }], isError: false, timestamp: Date.now() - 2_300 });
+    seeded.toolCall = manager.appendMessage(assistantWithUsage([fauxToolCall("read", { path: "notes.txt" }, { id: "old-call" })], 20, Date.now() - 2_400));
+    seeded.toolResult = manager.appendMessage({ role: "toolResult", toolCallId: "old-call", toolName: "read", content: [{ type: "text", text: "secret-old-result-42" }], isError: false, timestamp: Date.now() - 2_300 });
+  }
+  if (options.seedImage) {
+    seeded.image = manager.appendMessage({
+      role: "user",
+      content: [{ type: "text", text: "the recorded screenshot" }, { type: "image", data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==", mimeType: "image/png" }],
+      timestamp: Date.now() - 2_200,
+    });
   }
   if (options.historyTokens !== undefined) {
-    manager.appendMessage(assistantWithUsage("Context filler before the inter-turn point.", options.historyTokens, Date.now() - 2_000));
+    manager.appendMessage(assistantWithUsage("Context filler before the request.", options.historyTokens, Date.now() - 2_000));
   }
 
-  const faux = fauxProvider({ provider: "rollover-test", models: [{ id: "test", contextWindow: CONTEXT_WINDOW, maxTokens: 4_096 }] });
+  const faux = fauxProvider({
+    provider: "rollover-test",
+    models: [{ id: "test", contextWindow: CONTEXT_WINDOW, maxTokens: 4_096, ...(options.imageInput ? { input: ["text", "image"] as const } : {}) }],
+  });
   const runtime = await ModelRuntime.create({ authPath: join(dir, "auth.json"), modelsPath: null, refreshOnCreate: false });
   runtime.registerNativeProvider(faux.provider);
 
@@ -154,6 +176,7 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
     get error() { return error; },
     toolDefinitions,
     handlerNames,
+    seeded,
     loader,
     settings,
     runtime,
@@ -170,22 +193,14 @@ export function longReply(tokens: number): string {
   return "measured reply sentence. ".repeat(Math.ceil((tokens * 4) / 25)).slice(0, tokens * 4);
 }
 
-/** Branch entry types with system patches dropped, which is what a rollover changes. */
-export function visibleEntryTypes(session: any): string[] {
-  return session.sessionManager
-    .getBranch()
-    .filter((entry: any) => entry.type !== "message" || entry.message.role !== "system")
-    .map((entry: any) => (entry.type === "compaction" ? "compaction" : entry.type));
-}
-
 export function compactionEntries(session: any): any[] {
   return session.sessionManager.getBranch().filter((entry: any) => entry.type === "compaction");
 }
 
-/** Prompt text recorded once in the branch (template and skill expansion must not duplicate it). */
-export function userTextCount(session: any, text: string): number {
-  return session.sessionManager
-    .getBranch()
-    .filter((entry: any) => entry.type === "message" && entry.message.role === "user")
-    .filter((entry: any) => JSON.stringify(entry.message.content).includes(text)).length;
+export function projectionMessages(session: any): any[] {
+  return session.sessionManager.buildSessionProjection().messages;
+}
+
+export function branchEntries(session: any): any[] {
+  return session.sessionManager.getBranch();
 }

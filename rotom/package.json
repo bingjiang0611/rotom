@@ -56,7 +56,6 @@
     "extensions/context-layers/recall.ts",
     "extensions/context-layers/copy.ts",
     "extensions/session-rollover/index.ts",
-    "extensions/session-rollover/eligibility.ts",
     "extensions/session-rollover/summary.ts",
     "extensions/session-rollover/copy.ts",
     "extensions/browser/index.ts",

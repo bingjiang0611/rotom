@@ -1,14 +1,8 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { COPY } from "./copy.ts";
 
-interface ExcerptPart {
-	entryId: string;
-	role: "user" | "assistant";
-	text: string;
-}
-
 /**
- * Token estimate of the rendered excerpt. Pi's `estimateTokens()` counts text as `chars / 4`, the
+ * Token estimate of the rendered summary. Pi's `estimateTokens()` counts text as `chars / 4`, the
  * same rule compaction uses; it cannot be imported here because an extension source file has no
  * module resolution for the Pi package outside Pi's own loader.
  */
@@ -26,75 +20,49 @@ function textOf(content: unknown): string {
 }
 
 /**
- * The verbatim tail of the cleared context: the last user input and the last finished assistant
- * text. Tool calls, tool results, thinking and attachments are excluded by construction.
+ * Cut a request out of the middle until the rendered form fits `budgetTokens`. The head stays a
+ * verbatim prefix and the tail a verbatim suffix; the marker names the entry that still holds the
+ * whole text, so nothing is lost silently.
  */
-function excerptParts(branch: readonly SessionEntry[]): ExcerptPart[] {
-	const parts: ExcerptPart[] = [];
-	const user = branch.findLast(
-		(entry) => entry.type === "message" && entry.message.role === "user",
-	);
-	if (user?.type === "message" && user.message.role === "user") {
-		const text = textOf(user.message.content);
-		if (text.trim() !== "") parts.push({ entryId: user.id, role: "user", text });
-	}
-	const assistant = branch.findLast(
-		(entry) => entry.type === "message" && entry.message.role === "assistant",
-	);
-	if (assistant?.type === "message" && assistant.message.role === "assistant") {
-		const text = textOf(assistant.message.content);
-		if (text.trim() !== "") parts.push({ entryId: assistant.id, role: "assistant", text });
-	}
-	return parts;
-}
-
-function render(parts: readonly ExcerptPart[], headText: string, tailText: string, cut: readonly string[]): string {
-	const lines = [COPY.excerptOpen];
-	const head = parts[0] as ExcerptPart;
-	if (headText !== "") lines.push(COPY.excerptPart(head.role, head.entryId, headText));
-	if (cut.length > 0) lines.push(COPY.omitted(cut));
-	const tail = parts[1];
-	if (tail !== undefined && tailText !== "") lines.push(COPY.excerptPart(tail.role, tail.entryId, tailText));
-	lines.push(COPY.excerptClose);
-	return lines.join("\n");
-}
-
-/**
- * Tail excerpt bounded by `budgetTokens`. Over budget, text is cut out of the middle: the head stays
- * a verbatim prefix of the first part and the tail a verbatim suffix of the last part, with a marker
- * naming the entries whose text was cut. Returns undefined when even the labels do not fit.
- */
-export function tailExcerpt(branch: readonly SessionEntry[], budgetTokens: number): string | undefined {
-	const parts = excerptParts(branch);
-	if (parts.length === 0) return undefined;
-	const headPart = parts[0] as ExcerptPart;
-	const tailPart = parts[1];
-	let headText = headPart.text;
-	let tailText = tailPart?.text ?? "";
-	const full = render(parts, headText, tailText, []);
-	if (estimate(full) <= budgetTokens) return full;
-
-	const cut = new Set<string>();
+function truncateMiddle(text: string, budgetTokens: number, entryId: string): string {
+	if (estimate(text) <= budgetTokens) return text;
+	let headLength = Math.ceil(text.length * 0.6);
+	let tailLength = Math.ceil(text.length * 0.2);
 	for (;;) {
-		const cutIds = parts.length > 1 ? [headPart.entryId, tailPart?.entryId].filter((id): id is string => id !== undefined && cut.has(id)) : [];
-		const rendered = render(parts, headText, tailText, cutIds);
+		const head = text.slice(0, headLength);
+		const tail = tailLength > 0 ? text.slice(text.length - tailLength) : "";
+		const omitted = text.length - head.length - tail.length;
+		if (omitted <= 0) return text;
+		const rendered = [head, COPY.requestOmitted(omitted, entryId), tail].filter((line) => line !== "").join("\n");
 		if (estimate(rendered) <= budgetTokens) return rendered;
-		if (headText.length === 0 && tailText.length === 0) return undefined;
-		if (headText.length >= tailText.length) {
-			headText = headText.slice(0, headText.length - Math.max(1, Math.ceil(headText.length / 8)));
-			if (headText.length > 0) cut.add(headPart.entryId);
-		} else {
-			tailText = tailText.slice(Math.min(tailText.length, Math.max(1, Math.ceil(tailText.length / 8))));
-			if (tailText.length > 0 && tailPart) cut.add(tailPart.entryId);
-		}
+		if (headLength === 0 && tailLength === 0) return COPY.requestOmitted(text.length, entryId);
+		headLength = Math.floor(headLength * 0.75);
+		tailLength = Math.floor(tailLength * 0.75);
 	}
 }
 
 /**
- * Deterministic rollover summary: how to retrieve the cleared entries, then a bounded verbatim tail.
- * No model call, no task summary, no constraint extraction.
+ * Deterministic takeover summary: how to retrieve the cleared entries, then the latest user request
+ * verbatim when the cut removed it. No model call, no task summary, no constraint extraction, and
+ * no nesting: a second takeover in the same session reads the same branch, so it never repeats an
+ * earlier summary.
  */
-export function buildRolloverSummary(branch: readonly SessionEntry[], reserveTokens: number): string {
-	const excerpt = tailExcerpt(branch, Math.floor(reserveTokens / 4));
-	return excerpt === undefined ? COPY.intro : `${COPY.intro}\n\n${excerpt}`;
+export function buildTakeoverSummary(input: {
+	branch: readonly SessionEntry[];
+	firstKeptEntryId: string;
+	reserveTokens: number;
+}): string {
+	const intro = COPY.intro(input.firstKeptEntryId);
+	const user = input.branch.findLast((entry) => entry.type === "message" && entry.message.role === "user");
+	if (user?.type !== "message" || user.message.role !== "user") return intro;
+	const keptIndex = input.branch.findIndex((entry) => entry.id === input.firstKeptEntryId);
+	const userIndex = input.branch.indexOf(user);
+	// The kept range is still visible after the compaction entry, so a request inside it is not
+	// repeated; only a request the cut removed is quoted back.
+	if (keptIndex >= 0 && userIndex >= keptIndex) return intro;
+	const text = textOf(user.message.content);
+	if (text.trim() === "") return intro;
+	const budget = Math.floor(input.reserveTokens / 4);
+	const request = truncateMiddle(text, budget, user.id);
+	return [intro, COPY.currentRequestOpen, COPY.currentRequest(user.id, request), COPY.currentRequestClose].join("\n");
 }
