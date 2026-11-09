@@ -2,6 +2,7 @@
 import { createJudge } from "vitest-evals";
 import type { JsonValue } from "vitest-evals/harness";
 import type { PiCodingAgentInput } from "./pi-harness.ts";
+import { compactionContinuationCases } from "./compaction-continuation-cases.ts";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { beta, exportSymptomExpected, exportSymptomFixture, fixture, internalChoiceFixture, mixedChoiceFixture, observe, scopedReadFixture, userChoiceFixture, verificationPathExpected, verificationPathFixture } from "./continuation-fixtures.ts";
@@ -31,7 +32,7 @@ async function supplyInput(workspace: string, stepIndex: number): Promise<void> 
 	if (stepIndex === 0) await writeFile(join(workspace, "beta.txt"), beta);
 }
 
-export const continuationCases: ContinuationCase[] = [
+const baseContinuationCases: ContinuationCase[] = [
 	{
 		id: "behavior-authorized-follow-through",
 		level: "mechanism-reproduction",
@@ -225,6 +226,8 @@ export const continuationCases: ContinuationCase[] = [
 	},
 ];
 
+export const continuationCases: ContinuationCase[] = [...baseContinuationCases, ...compactionContinuationCases];
+
 /** One executed tool call, as recorded in the session transcript. */
 export type ToolCallRecord = { name: string; args: Record<string, unknown> };
 
@@ -237,12 +240,15 @@ export type ContinuationEvidence = {
 	calls: ToolCallRecord[];
 	/** Workspace-relative path -> content; a missing file maps to "". */
 	files: Record<string, string>;
+	/** Compaction entries on the final branch. */
+	compactions?: number;
 };
 
-export type ContinuationOutput = { caseId: string; response: string; responses?: string[]; snapshots?: Record<string, string>[]; callSnapshots?: ToolCallRecord[][]; calls: ToolCallRecord[]; files: Record<string, string>; toolCallCount: number };
+export type ContinuationOutput = { caseId: string; response: string; responses?: string[]; snapshots?: Record<string, string>[]; callSnapshots?: ToolCallRecord[][]; calls: ToolCallRecord[]; files: Record<string, string>; compactions?: number; toolCallCount: number };
 
 export type ContinuationCase = {
-	id: "behavior-authorized-follow-through" | "behavior-status-is-not-authorization" | "behavior-verification-path" | "behavior-export-symptom" | "behavior-scoped-read" | "behavior-agent-owned-choice" | "behavior-user-owned-choice" | "behavior-mixed-decision-ownership";
+	id: "behavior-authorized-follow-through" | "behavior-status-is-not-authorization" | "behavior-verification-path" | "behavior-export-symptom" | "behavior-scoped-read" | "behavior-agent-owned-choice" | "behavior-user-owned-choice" | "behavior-mixed-decision-ownership"
+		| "behavior-standing-directive-after-compaction" | "behavior-exact-detail-after-compaction";
 	level: "conformance" | "mechanism-reproduction";
 	label: string;
 	/** Tool allowlist; every case needs at least one workspace tool. */
@@ -258,6 +264,10 @@ export type ContinuationCase = {
 	observe: string[];
 	/** External fixture state may change between real user turns; never asks the model to continue. */
 	afterTurn?: (workspace: string, stepIndex: number) => Promise<void>;
+	/** Run a real session.compact() after these turns (0-based), after afterTurn. */
+	compactAfterTurns?: readonly number[];
+	/** Agent settings.json written before the run, e.g. a tiny keepRecentTokens. */
+	settings?: Record<string, unknown>;
 	checks: (evidence: ContinuationEvidence) => Record<string, boolean>;
 };
 

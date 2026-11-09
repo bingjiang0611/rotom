@@ -28,7 +28,16 @@
 
 环境说明：容器以 root 运行且无 `fd`，Pi 定向测试中 2 个 EACCES 用例和 5 个 find 用例因此失败；安装 `fd-find` 并以非 root 用户重跑后全部通过。隔离 npm HOME 不继承本容器代理 CA，使用只设置 `NODE_EXTRA_CA_CERTS` 的本地 npm 包装，未改构建或发布脚本。
 
-## P1 / gate：被环境阻塞
+## P1：离线部分已实施
+
+| 项 | 改动 | 证据 |
+|---|---|---|
+| P1-2 | harvest 新增每次压缩的后续观察（`compactions.jsonl`、报告 “After compaction” 节、`summary.json` 汇总）：压缩前 token、摘要 token、前后 cacheRead、5 条助手消息内重读摘要所列文件与回查次数、3 个用户轮内介入与 Goal 暂停，并列全局介入率 | 合成会话单测；尚未在真实会话上运行 |
+| P1-1 | 两个压缩后续跑用例（长期指令、精确参数），第 1 轮后真实 `session.compact()`，`keepRecentTokens: 1` | 离线 oracle 6 例：压缩后第 1 轮原文不在上下文；正确轨迹通过，再问、未压缩、忘参数、先错后改均失败。状态 `oracle-ready`，未跑 baseline |
+
+P1-3（coding-policy 整段开关 A/B）、P1-4（Subagent 有/无）、P1-5（Reducer 配对）需要真实模型运行，未实施。
+
+## P1 / gate：付费部分被环境阻塞
 
 `docs/agent/optimization-loop.md` 要求改 coding-policy、上下文/压缩、Subagent 默认策略后跑 gate，且用户已授权 gate/回放使用 `qoder/dfmodel`。本容器没有 Qoder 登录凭据，也没有本机会话目录（harvest 的输入），因此 P1-1～P1-5 与 gate 都未运行。账本新增三条 `open` 机制条目与一条 `kept-off` 提示条目（P0-3），等待本机执行：
 
