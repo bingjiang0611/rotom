@@ -17,10 +17,15 @@ const USAGE = `Usage: npm run loop -- <command>
       Scan local Pi sessions (default ${defaultSessionsDir()}) into a private incident
       queue and weekly intervention rate under ${defaultLoopDir()}. No model calls.
 
-  gate --baseline /abs/frozen/rotom [--candidate /abs/rotom] [--case ID] [--repeats N] [--out DIR]
+  gate --baseline /abs/frozen/rotom [--candidate /abs/rotom] [--case ID] [--repeats N] [--out DIR] [--smoke]
       Re-run reproduced regression cases from loop/gate.json against both products
       and print held / regressed / unknown. Appends each case to the private gate
       history. Calls the configured model.
+
+      --smoke runs one pair per case and audits the recorded scores: both arms must
+      score, every check must be a boolean, and no check may read a file the fixture
+      did not observe. It is not a sample, so nothing is appended to the history.
+      Run it before a real gate run.
 
   gate-pool --since ISO [--case ID] [--history PATH]
       Merge every recorded gate run of the same candidate commit and baseline for
@@ -71,7 +76,8 @@ async function main(argv: string[]): Promise<number> {
 	if (command === "gate") {
 		const { values } = parseArgs({
 			args: rest,
-			options: { baseline: { type: "string" }, candidate: { type: "string" }, case: { type: "string" }, repeats: { type: "string" }, out: { type: "string" } },
+			options: { baseline: { type: "string" }, candidate: { type: "string" }, case: { type: "string" }, repeats: { type: "string" }, out: { type: "string" }, smoke: { type: "boolean" } },
+			allowNegative: false,
 		});
 		if (!values.baseline) throw new Error("gate needs --baseline /absolute/frozen/rotom");
 		const manifest = parseGateManifest(readFileSync(GATE_MANIFEST, "utf8"));
@@ -79,6 +85,8 @@ async function main(argv: string[]): Promise<number> {
 		if (!Number.isSafeInteger(repeats) || repeats < 1 || repeats > 5) throw new Error("--repeats must be an integer from 1 to 5");
 		const candidateProduct = values.candidate ?? resolve(evalsRoot, "..");
 		const outDir = values.out ?? join(defaultLoopDir(), `gate-${stamp()}`);
+		const smoke = values.smoke === true;
+		if (smoke && values.repeats !== undefined) throw new Error("--smoke always runs one pair per case; drop --repeats");
 		const result = runGate({
 			evalsRoot,
 			manifest: { ...manifest, repeats },
@@ -86,10 +94,17 @@ async function main(argv: string[]): Promise<number> {
 			candidateProduct,
 			only: values.case,
 			outDir,
+			smoke,
 		});
 		for (const item of result.results) {
 			const rate = (value: number | null) => (value === null ? "N/A" : `${Math.round(value * 100)}%`);
 			console.log(`${item.verdict.padEnd(9)} ${item.role.padEnd(10)} ${item.caseId}  baseline=${rate(item.baselinePassRate)} candidate=${rate(item.candidatePassRate)} pairs=${item.pairs}/${item.expectedPairs}${item.reason ? `  (${item.reason})` : ""}`);
+		}
+		if (smoke) {
+			console.log(`smoke: ${result.smokeProblems.length === 0 ? "ok" : "failed"}`);
+			for (const problem of result.smokeProblems) console.log(`  - ${problem}`);
+			console.log(`summary: ${result.summaryPath}`);
+			return result.smokeProblems.length === 0 ? 0 : 1;
 		}
 		const historyPath = gateHistoryPath();
 		const records = gateHistoryRecords({

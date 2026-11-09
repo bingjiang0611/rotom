@@ -141,29 +141,75 @@ export type RunGateOptions = {
 	outDir: string;
 	only?: string;
 	env?: NodeJS.ProcessEnv;
+	/** One pair per case plus a judge audit; not a sample, so it is never recorded as one. */
+	smoke?: boolean;
 };
 
-export function runGate(options: RunGateOptions): { verdict: GateCaseVerdict; results: GateCaseResult[]; summaryPath: string } {
+/** One scored run as the artifact side records it. */
+export type SmokeScore = { checks?: Record<string, unknown>; missingObservation?: unknown };
+
+/**
+ * A smoke run proves the recorded output can be scored before spending a full run on it:
+ * every arm produced a score, every check resolved to a boolean, and no check read a file
+ * the fixture never observed. The last one is the failure this audit exists for: a judge
+ * reading an unobserved path silently scored `false` and voided a whole batch.
+ */
+export function auditSmokeScores(scores: readonly SmokeScore[]): { ok: boolean; problems: string[] } {
+	const problems: string[] = [];
+	if (scores.length === 0) problems.push("no score was recorded for this case");
+	for (const [index, score] of scores.entries()) {
+		const checks = score.checks;
+		if (!checks || typeof checks !== "object") {
+			problems.push(`score ${index + 1} has no checks`);
+			continue;
+		}
+		for (const [name, value] of Object.entries(checks)) if (typeof value !== "boolean") problems.push(`check ${name} is ${value === undefined ? "missing" : typeof value}, not a boolean`);
+		const missing = score.missingObservation;
+		if (Array.isArray(missing) && missing.length > 0) problems.push(`checks read unobserved path(s): ${missing.map(String).join(", ")}`);
+		if (missing !== undefined && !Array.isArray(missing)) problems.push("missingObservation is not a list");
+	}
+	return { ok: problems.length === 0, problems };
+}
+
+/** Reads the judge verdicts the eval artifacts recorded for one case. */
+export function smokeScoresFromResults(report: unknown): SmokeScore[] {
+	const results = (report as { testResults?: { assertionResults?: unknown[] }[] } | undefined)?.testResults ?? [];
+	const scores: SmokeScore[] = [];
+	for (const file of results) {
+		for (const assertion of file.assertionResults ?? []) {
+			const item = assertion as { meta?: { eval?: { scores?: { metadata?: { output?: unknown } }[] } } };
+			for (const score of item.meta?.eval?.scores ?? []) {
+				const output = score.metadata?.output as { checks?: Record<string, unknown>; missingObservation?: unknown } | undefined;
+				if (output) scores.push({ checks: output.checks, missingObservation: output.missingObservation });
+			}
+		}
+	}
+	return scores;
+}
+
+export function runGate(options: RunGateOptions): { verdict: GateCaseVerdict; results: GateCaseResult[]; summaryPath: string; smokeProblems: string[] } {
 	for (const [label, path] of [["baseline", options.baselineProduct], ["candidate", options.candidateProduct]] as const) {
 		if (!isAbsolute(path) || !existsSync(join(path, "runtime", "resolve-installed-pi.mjs"))) throw new Error(`${label} product must be an absolute rotom product directory: ${path}`);
 	}
 	if (resolve(options.baselineProduct) === resolve(options.candidateProduct)) throw new Error("baseline and candidate are the same directory; that is an A/A runner smoke, not a gate");
 	const cases = options.manifest.cases.filter((item) => !options.only || item.caseId === options.only);
 	if (cases.length === 0) throw new Error(`no gate case matches ${options.only}`);
+	const repeats = options.smoke ? 1 : options.manifest.repeats;
 	mkdirSync(options.outDir, { recursive: true, mode: 0o700 });
 	const results: GateCaseResult[] = [];
+	const smokeProblems: string[] = [];
 	for (const item of cases) {
 		const artifacts = join(options.outDir, item.caseId);
 		const env: NodeJS.ProcessEnv = {
 			...(options.env ?? process.env),
 			[item.enableEnv]: "1",
 			[item.caseEnv]: item.caseId,
-			[item.repeatsEnv]: String(options.manifest.repeats),
+			[item.repeatsEnv]: String(repeats),
 			ROTOM_EVAL_BASELINE_PRODUCT: options.baselineProduct,
 			ROTOM_EVAL_CANDIDATE_PRODUCT: options.candidateProduct,
 			ROTOM_EVAL_ARTIFACT_DIR: artifacts,
 		};
-		console.error(`[gate] ${item.caseId} (${item.role}) × ${options.manifest.repeats} → ${artifacts}`);
+		console.error(`[gate] ${item.caseId} (${item.role}) × ${repeats}${options.smoke ? " (smoke)" : ""} → ${artifacts}`);
 		const run = spawnSync(join(options.evalsRoot, "bin", "eval"), ["--provider", options.manifest.model.provider, "--model", options.manifest.model.model, item.suite], {
 			cwd: options.evalsRoot,
 			env,
@@ -177,7 +223,20 @@ export function runGate(options: RunGateOptions): { verdict: GateCaseVerdict; re
 		} catch {
 			report = undefined;
 		}
-		results.push(judgeGateCase(item, options.manifest.repeats, artifacts, report));
+		results.push(judgeGateCase(item, repeats, artifacts, report));
+		if (options.smoke) {
+			let recorded: unknown;
+			try {
+				recorded = JSON.parse(readFileSync(join(artifacts, "vitest-results.json"), "utf8"));
+			} catch {
+				recorded = undefined;
+			}
+			const scores = smokeScoresFromResults(recorded);
+			// Both arms must score even though the smoke list may be one case: a baseline arm
+			// that never scored hides a fixture the judge cannot read.
+			if (scores.length < 2) smokeProblems.push(`${item.caseId}: only ${scores.length}/2 arm(s) recorded a score`);
+			for (const problem of auditSmokeScores(scores).problems) smokeProblems.push(`${item.caseId}: ${problem}`);
+		}
 	}
 	const verdict = gateVerdict(results);
 	const summaryPath = join(options.outDir, "gate-summary.json");
@@ -185,14 +244,15 @@ export function runGate(options: RunGateOptions): { verdict: GateCaseVerdict; re
 		schema: GATE_SCHEMA,
 		finishedAt: new Date().toISOString(),
 		model: options.manifest.model,
-		repeats: options.manifest.repeats,
+		repeats,
+		...(options.smoke ? { smoke: true, smokeOk: smokeProblems.length === 0, smokeProblems } : {}),
 		baselineProduct: options.baselineProduct,
 		candidateProduct: options.candidateProduct,
 		verdict,
 		results,
 	};
 	writeFileSync(summaryPath, `${JSON.stringify(summary, null, 2)}\n`, { mode: 0o600 });
-	return { verdict, results, summaryPath };
+	return { verdict, results, summaryPath, smokeProblems };
 }
 
 /**

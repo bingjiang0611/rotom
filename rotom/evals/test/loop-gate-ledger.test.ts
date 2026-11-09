@@ -2,8 +2,8 @@ import { appendFileSync, mkdtempSync, readFileSync, statSync, writeFileSync } fr
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
-import { continuationCases } from "../src/continuation-cases.ts";
-import { appendGateHistory, gateHistoryRecords, gateVerdict, judgeGateCase, parseGateHistory, parseGateManifest, poolGateHistory, type GateCase, type GateHistoryRecord } from "../src/loop/gate.ts";
+import { continuationCaseFor, continuationCases, scoreContinuationCase, unobservedReads } from "../src/continuation-cases.ts";
+import { appendGateHistory, auditSmokeScores, gateHistoryRecords, smokeScoresFromResults, gateVerdict, judgeGateCase, parseGateHistory, parseGateManifest, poolGateHistory, type GateCase, type GateHistoryRecord } from "../src/loop/gate.ts";
 import { parseLedger, PROMPT_RENT_SINCE } from "../src/loop/ledger.ts";
 
 const evalsRoot = resolve(import.meta.dirname, "..");
@@ -168,5 +168,50 @@ describe("loop gate history", () => {
 		expect(poolGateHistory([unknown])[0]).toMatchObject({ verdict: "unknown", unknownRuns: 1 });
 		// Unknown samples add no pairs, so a scorable failure still decides the pool.
 		expect(poolGateHistory([unknown, sample({ candidatePass: 4, verdict: "regressed" })])[0]).toMatchObject({ pairs: 5, candidatePass: 4, verdict: "regressed", unknownRuns: 1 });
+	});
+});
+
+describe("gate smoke audit", () => {
+	const score = (checks: Record<string, unknown>, missingObservation?: unknown) => ({ checks, missingObservation });
+
+	it("accepts scored boolean checks with full observation coverage", () => {
+		expect(auditSmokeScores([score({ caseIdentity: true, symptomGone: false }), score({ caseIdentity: true })])).toEqual({ ok: true, problems: [] });
+	});
+
+	it("fails when an arm never scored", () => {
+		expect(auditSmokeScores([]).ok).toBe(false);
+	});
+
+	it("fails when a check is not a boolean", () => {
+		expect(auditSmokeScores([score({ caseIdentity: true, fixturePreserved: undefined })]).problems).toEqual(["check fixturePreserved is missing, not a boolean"]);
+	});
+
+	it("fails when a check read a file the fixture never observed", () => {
+		// The regression this audit exists for: the judge read check.mjs, observe did not
+		// list it, and every arm scored 0.00 while the behaviour was correct.
+		const audit = auditSmokeScores([score({ caseIdentity: true }, ["check.mjs"])]);
+		expect(audit.ok).toBe(false);
+		expect(audit.problems).toEqual(["checks read unobserved path(s): check.mjs"]);
+	});
+
+	it("reads judge verdicts out of the eval artifact", () => {
+		const artifact = { testResults: [{ assertionResults: [{ meta: { eval: { scores: [{ metadata: { output: { checks: { caseIdentity: true }, missingObservation: [] } } }] } } }] }] };
+		expect(smokeScoresFromResults(artifact)).toEqual([{ checks: { caseIdentity: true }, missingObservation: [] }]);
+		expect(smokeScoresFromResults(undefined)).toEqual([]);
+	});
+});
+
+describe("continuation judge observation coverage", () => {
+	it("flags a path the judge reads but observe never records", () => {
+		// The round-2 slip: the judge read check.mjs, observe did not list it, every arm
+		// scored 0.00 while the behaviour was correct.
+		expect(unobservedReads(["report.out", "export.log"], ["report.out", "check.mjs"])).toEqual(["check.mjs"]);
+		expect(unobservedReads(["rollout/"], ["rollout/runs.log"])).toEqual([]);
+	});
+
+	it("reports nothing when every read path is observed", () => {
+		const item = continuationCaseFor("behavior-export-symptom");
+		const scored = scoreContinuationCase("behavior-export-symptom", { caseId: item.id, response: "", calls: [], files: item.fixture, toolCallCount: 0 });
+		expect(scored.missingObservation).toEqual([]);
 	});
 });
