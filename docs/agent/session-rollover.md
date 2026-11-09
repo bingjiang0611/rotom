@@ -1,5 +1,7 @@
 # 同会话轮转与 Context Layers 精简技术方案
 
+> **B 已重新设计（2026-11-09）**：轮间接管经阶段 0 统计证明覆盖不足，改为在原生自动压缩时以无摘要条目接管，见 [session-rollover-v2.md](session-rollover-v2.md) 与 [执行清单 2](session-rollover-worklist-2.md)。下文 B 的部分是 v1 历史设计；A 不变。
+
 状态：设计已定稿；W1–W4 已实现（A 精简、阶段 0 统计、B 的接缝与 extension），W5 产品接入与 W6 终验见 [回报](session-rollover-report.md)。执行清单见 [session-rollover-worklist.md](session-rollover-worklist.md)。本文不代表性能收益已经验证，B 默认关闭且未做真实模型实测。
 
 本方案分两部分，按顺序独立推进：
