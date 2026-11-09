@@ -90,3 +90,5 @@
 | 第 1 轮返工（R1–R5） | 见本次提交 |
 
 > 第 2 轮（v2 无摘要接管，W7–W12）见 [session-rollover-report-v2.md](session-rollover-report-v2.md)。
+>
+> 第 3 轮（v2 真实模型对比，W13–W16）见 [session-rollover-report-v3.md](session-rollover-report-v3.md)。
