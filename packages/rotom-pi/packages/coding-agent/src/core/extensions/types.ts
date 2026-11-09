@@ -318,44 +318,6 @@ export interface CompactOptions {
 }
 
 /**
- * Read-only threshold estimate, produced by the same function that decides threshold compaction:
- * provider usage first, the projection when `context_edit` entries exist, and a message estimate
- * for error or zero-usage responses (including the stale pre-compaction usage check).
- *
- * It is not a provider-exact billable amount.
- */
-export interface ContextThresholdEstimate {
-	/** Estimated context tokens. */
-	tokens: number;
-	contextWindow: number;
-	reserveTokens: number;
-	/** `contextWindow - reserveTokens`, the threshold auto-compaction compares against. */
-	thresholdTokens: number;
-	/** Which input the estimate came from. */
-	source: "usage" | "projection" | "messages";
-	/**
-	 * True when the newest provider usage predates the latest compaction, so `tokens` is a message
-	 * estimate rather than reported usage. Threshold compaction itself does not act on this state.
-	 */
-	stale: boolean;
-	/** False when auto-compaction is disabled for the current model; the estimate is informational then. */
-	enabled: boolean;
-}
-
-export interface ResetContextOptions {
-	/** Summary text stored on the compaction entry that replaces the visible context. */
-	summary: string;
-	/** Extension data stored on the entry. */
-	details?: unknown;
-}
-
-export type ResetContextResult =
-	| { status: "applied"; entryId: string }
-	/** A `session_before_compact` handler cancelled the reset. */
-	| { status: "cancelled"; reason: string }
-	| { status: "failed"; reason: string };
-
-/**
  * Context passed to extension event handlers.
  */
 export type ExtensionMode = "tui" | "rpc" | "json" | "print";
@@ -398,22 +360,6 @@ export interface ExtensionContext {
 	getContextUsage(): ContextUsage | undefined;
 	/** Trigger compaction without awaiting completion. */
 	compact(options?: CompactOptions): void;
-	/**
-	 * Read-only context estimate used by threshold compaction. Unlike `getContextUsage()`, it keeps
-	 * returning an estimate after a compaction and it reports which input the number came from.
-	 */
-	getContextThresholdEstimate(): ContextThresholdEstimate | undefined;
-	/**
-	 * Replace the visible context with a compaction entry whose `firstKeptEntryId` points at itself,
-	 * awaited before this `input` handling finishes, without calling `abort()`.
-	 *
-	 * Emits `session_before_compact` with `reason: "rollover"`. A handler may cancel; a replacement
-	 * compaction is ignored and reported as an extension error, because the call already supplies
-	 * the summary and keeps nothing. Only available while the agent is idle and inside an `input`
-	 * handler, where it is awaited before the submission continues; anywhere else it resolves to
-	 * `failed`.
-	 */
-	resetContext(options?: ResetContextOptions): Promise<ResetContextResult>;
 	/** Get the current effective system prompt. */
 	getSystemPrompt(): string;
 }
@@ -835,31 +781,14 @@ export interface SessionBeforeForkEvent {
 	position: "before" | "at";
 }
 
-/**
- * Where a compaction request sits in the run lifecycle:
- * - `before-request`: before the next provider request (`_prepareRun`, or the next-turn projection).
- * - `after-run`: an automatic check right after a run ended (`_handlePostAgentRun`).
- * - `requested`: an explicit `/compact` or `ExtensionContext.compact()` call.
- * - `rollover`: an awaited `ExtensionContext.resetContext()` call inside an `input` handler.
- */
-export type CompactionPhase = "before-request" | "after-run" | "requested" | "rollover";
-
+/** Fired before context compaction (can be cancelled or customized) */
 export interface SessionBeforeCompactEvent {
 	type: "session_before_compact";
-	/**
-	 * Planned summary cut point. Absent for `reason: "rollover"`: a context reset clears the visible
-	 * context without choosing entries to summarize or keep.
-	 */
-	preparation?: CompactionPreparation;
+	preparation: CompactionPreparation;
 	branchEntries: SessionEntry[];
 	customInstructions?: string;
-	/** What triggered compaction: /compact, ExtensionContext.compact(), threshold, overflow recovery, or a context reset. */
-	reason: "manual" | "extension" | "threshold" | "overflow" | "rollover";
-	/**
-	 * Where the request sits in the run lifecycle. Use it to tell a before-request threshold
-	 * compaction from the after-run one; `reason` alone reports `threshold` for both.
-	 */
-	phase: CompactionPhase;
+	/** What triggered compaction: /compact, ExtensionContext.compact(), threshold, or overflow recovery. */
+	reason: "manual" | "extension" | "threshold" | "overflow";
 	/** True when the aborted turn is retried after this compaction (overflow recovery) */
 	willRetry: boolean;
 	signal: AbortSignal;
@@ -870,8 +799,8 @@ export interface SessionCompactEvent {
 	type: "session_compact";
 	compactionEntry: CompactionEntry;
 	fromExtension: boolean;
-	/** What triggered compaction: /compact, ExtensionContext.compact(), threshold, overflow recovery, or a context reset. */
-	reason: "manual" | "extension" | "threshold" | "overflow" | "rollover";
+	/** What triggered compaction: /compact, ExtensionContext.compact(), threshold, or overflow recovery. */
+	reason: "manual" | "extension" | "threshold" | "overflow";
 	/** True when the aborted turn is retried after this compaction (overflow recovery) */
 	willRetry: boolean;
 	/** Timing of each built-in summary request; absent when an extension supplied the compaction. */
@@ -881,8 +810,8 @@ export interface SessionCompactEvent {
 /** Fired after context compaction fails or is aborted */
 export interface SessionCompactFailedEvent {
 	type: "session_compact_failed";
-	/** What triggered compaction: /compact, ExtensionContext.compact(), threshold, overflow recovery, or a context reset. */
-	reason: "manual" | "extension" | "threshold" | "overflow" | "rollover";
+	/** What triggered compaction: /compact, ExtensionContext.compact(), threshold, or overflow recovery. */
+	reason: "manual" | "extension" | "threshold" | "overflow";
 	/** Error text when compaction failed for a non-abort reason. */
 	errorMessage?: string;
 	/** True when compaction was cancelled or aborted. */
@@ -2302,8 +2231,6 @@ export interface ExtensionContextActions {
 	shutdown: () => void;
 	getContextUsage: () => ContextUsage | undefined;
 	compact: (options?: CompactOptions) => void;
-	getContextThresholdEstimate: () => ContextThresholdEstimate | undefined;
-	resetContext: (options?: ResetContextOptions) => Promise<ResetContextResult>;
 	getSystemPrompt: () => string;
 	getSystemPromptOptions?: () => BuildSystemPromptOptions;
 	/** Backs `ExtensionToolContext.executeTool()`. Without it, nested calls fail. */

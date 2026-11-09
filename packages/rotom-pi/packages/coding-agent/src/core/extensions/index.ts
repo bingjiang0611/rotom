@@ -51,8 +51,6 @@ export type {
 	CacheWarmingDecisionEvent,
 	CacheWarmingDecisionEventResult,
 	CompactionEntryDraft,
-	// Compaction phase reported to `session_before_compact`
-	CompactionPhase,
 	// Context
 	CompactOptions,
 	ContextEditEntryDraft,
@@ -60,7 +58,6 @@ export type {
 	ContextEvent,
 	// Event Results
 	ContextEventResult,
-	ContextThresholdEstimate,
 	ContextUsage,
 	ContextWithSystemEvent,
 	CustomEntryDraft,
@@ -146,8 +143,6 @@ export type {
 	RegisteredCommand,
 	RegisteredTool,
 	ReplacedSessionContext,
-	ResetContextOptions,
-	ResetContextResult,
 	ResolvedCommand,
 	// Events - Resources
 	ResourcesDiscoverEvent,

@@ -40,7 +40,6 @@ import type {
 	CompactOptions,
 	ContextEvent,
 	ContextEventResult,
-	ContextThresholdEstimate,
 	ContextUsage,
 	ContextWithSystemEvent,
 	EntryRenderer,
@@ -74,8 +73,6 @@ import type {
 	RegisteredCommand,
 	RegisteredTool,
 	ReplacedSessionContext,
-	ResetContextOptions,
-	ResetContextResult,
 	ResolvedCommand,
 	ResourcesDiscoverEvent,
 	ResourcesDiscoverResult,
@@ -383,11 +380,6 @@ export class ExtensionRunner {
 	private hasPendingMessagesFn: () => boolean = () => false;
 	private getContextUsageFn: () => ContextUsage | undefined = () => undefined;
 	private compactFn: (options?: CompactOptions) => void = () => {};
-	private getContextThresholdEstimateFn: () => ContextThresholdEstimate | undefined = () => undefined;
-	private resetContextFn: (options?: ResetContextOptions) => Promise<ResetContextResult> = async () => ({
-		status: "failed",
-		reason: "resetting the context is not supported by this session",
-	});
 	private getSystemPromptFn: () => string = () => "";
 	private getSystemPromptOptionsFn: () => BuildSystemPromptOptions = () =>
 		normalizeBuildSystemPromptOptions({ cwd: this.cwd });
@@ -463,8 +455,6 @@ export class ExtensionRunner {
 		this.shutdownHandler = contextActions.shutdown;
 		this.getContextUsageFn = contextActions.getContextUsage;
 		this.compactFn = contextActions.compact;
-		this.getContextThresholdEstimateFn = contextActions.getContextThresholdEstimate;
-		this.resetContextFn = contextActions.resetContext;
 		this.getSystemPromptFn = contextActions.getSystemPrompt;
 		this.getSystemPromptOptionsFn =
 			contextActions.getSystemPromptOptions ?? (() => normalizeBuildSystemPromptOptions({ cwd: this.cwd }));
@@ -965,14 +955,6 @@ export class ExtensionRunner {
 				runner.assertActive();
 				runner.compactFn(options);
 			},
-			getContextThresholdEstimate: () => {
-				runner.assertActive();
-				return runner.getContextThresholdEstimateFn();
-			},
-			resetContext: (options) => {
-				runner.assertActive();
-				return runner.resetContextFn(options);
-			},
 			getSystemPrompt: () => {
 				runner.assertActive();
 				return runner.getSystemPromptFn();
@@ -1122,24 +1104,6 @@ export class ExtensionRunner {
 					const handlerResult = await handler(event, ctx);
 
 					if (this.isSessionBeforeEvent(event) && handlerResult) {
-						if (event.type === "session_before_compact" && event.reason === "rollover") {
-							// A context reset carries its own summary and keeps nothing, so a replacement
-							// compaction cannot be applied. Record it and keep only the cancellation.
-							const replacement = (handlerResult as SessionBeforeCompactResult).compaction;
-							if (replacement) {
-								this.emitError({
-									extensionPath: ext.path,
-									event: "session_before_compact",
-									error: 'a replacement compaction is ignored for reason "rollover"',
-								});
-							}
-							const cancelOnly = { cancel: (handlerResult as SessionBeforeCompactResult).cancel };
-							if (cancelOnly.cancel) {
-								result = cancelOnly as SessionBeforeEventResult;
-								return result as RunnerEmitResult<TEvent>;
-							}
-							continue;
-						}
 						result = handlerResult as SessionBeforeEventResult;
 						if (result.cancel) {
 							return result as RunnerEmitResult<TEvent>;

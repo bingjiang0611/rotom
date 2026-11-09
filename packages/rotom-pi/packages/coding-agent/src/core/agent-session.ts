@@ -90,8 +90,6 @@ import { createToolHtmlRenderer } from "./export-html/tool-renderer.ts";
 import {
 	type AgentActivityOutcome,
 	type BoundaryContextPreview,
-	type CompactionPhase,
-	type ContextThresholdEstimate,
 	type ContextUsage,
 	type ExecuteToolOptions,
 	type ExtensionCommandContextActions,
@@ -104,8 +102,6 @@ import {
 	type MessageStartEvent,
 	type MessageUpdateEvent,
 	type ReplacedSessionContext,
-	type ResetContextOptions,
-	type ResetContextResult,
 	type SessionBeforeCompactResult,
 	type SessionBeforeTreeResult,
 	type SessionBoundaryDraft,
@@ -425,8 +421,6 @@ export class AgentSession {
 
 	// Compaction state
 	private _manualCompactionPending = false;
-	/** Depth of nested `input` handler dispatch; `resetContext()` is only valid while > 0. */
-	private _inputHandlerDepth = 0;
 	private _compactionAbortController: AbortController | undefined = undefined;
 	private _autoCompactionAbortController: AbortController | undefined = undefined;
 	private _overflowRecoveryAttempted = false;
@@ -821,7 +815,7 @@ export class AgentSession {
 		if (!model || isVirtualModel(model) || !this._exceedsCompactionThreshold(model, projection)) {
 			return { ...context, messages: projection.messages };
 		}
-		await this._runAutoCompaction("threshold", false, "before-request");
+		await this._runAutoCompaction("threshold", false);
 		return { ...context, messages: this.sessionManager.buildSessionProjection().messages };
 	}
 
@@ -1995,7 +1989,7 @@ export class AgentSession {
 		// The starting message is sent below, so do not call agent.continue() here.
 		const lastAssistant = this._findLastAssistantMessage();
 		if (lastAssistant) {
-			await this._checkCompaction(lastAssistant, false, "before-request");
+			await this._checkCompaction(lastAssistant, false);
 		}
 
 		const selectedToolsBefore = this._baseSystemPromptOptions.selectedTools;
@@ -2072,7 +2066,7 @@ export class AgentSession {
 			this._resetRetryAttempts();
 		}
 
-		if (await this._checkCompaction(message, true, "after-run")) {
+		if (await this._checkCompaction(message)) {
 			return !this._agentRunAbortRequested;
 		}
 
@@ -2115,13 +2109,7 @@ export class AgentSession {
 			return { text, images };
 		}
 
-		this._inputHandlerDepth++;
-		let inputResult: Awaited<ReturnType<typeof this._extensionRunner.emitInput>>;
-		try {
-			inputResult = await this._extensionRunner.emitInput(text, images, source, streamingBehavior);
-		} finally {
-			this._inputHandlerDepth--;
-		}
+		const inputResult = await this._extensionRunner.emitInput(text, images, source, streamingBehavior);
 		if (inputResult.action === "handled") {
 			return undefined;
 		}
@@ -2961,7 +2949,6 @@ export class AgentSession {
 					branchEntries: pathEntries,
 					customInstructions,
 					reason,
-					phase: "requested",
 					willRetry: false,
 					signal: this._compactionAbortController.signal,
 				})) as SessionBeforeCompactResult | undefined;
@@ -3113,11 +3100,7 @@ export class AgentSession {
 	 * @param skipAbortedCheck If false, include aborted messages (for pre-prompt check). Default: true
 	 * @returns Whether the post-run loop should call `agent.continue()` for overflow recovery or queued messages
 	 */
-	private async _checkCompaction(
-		assistantMessage: AssistantMessage,
-		skipAbortedCheck = true,
-		phase: CompactionPhase = "after-run",
-	): Promise<boolean> {
+	private async _checkCompaction(assistantMessage: AssistantMessage, skipAbortedCheck = true): Promise<boolean> {
 		const settings = this.settingsManager.getCompactionSettings(this.model);
 		if (!settings.enabled) return false;
 
@@ -3182,7 +3165,7 @@ export class AgentSession {
 			// Case 2: the response completed successfully. Compact, but do not retry because
 			// agent.continue() cannot continue from a completed assistant response.
 			if (!willRetry) {
-				return await this._runAutoCompaction("overflow", false, phase);
+				return await this._runAutoCompaction("overflow", false);
 			}
 
 			if (this._overflowRecoveryAttempted) {
@@ -3210,62 +3193,47 @@ export class AgentSession {
 			// Persistently omit the selected final attempt before post-run recovery compaction.
 			this._overflowRecoveryAttempted = true;
 			this._omitRecoveryAttempt(assistantMessage);
-			const retry = await this._runAutoCompaction("overflow", willRetry, phase);
+			const retry = await this._runAutoCompaction("overflow", willRetry);
 			if (retry) this._failedResponse = assistantMessage;
 			return retry;
 		}
 
 		// Case 3: threshold compaction without retry.
-		const estimate = this._estimateThresholdContext(assistantMessage, currentProjection, branch, compactionEntry);
-		// A usage source from before the latest compaction must not trigger compaction again.
-		if (estimate.stale) return false;
-		if (shouldCompact(estimate.tokens, contextWindow, settings)) {
-			return await this._runAutoCompaction("threshold", false, phase);
-		}
-		return false;
-	}
-
-	/**
-	 * Context amount that threshold compaction compares against the model's threshold, shared with
-	 * extensions through `getContextThresholdEstimate()`.
-	 *
-	 * Priority matches the threshold branch it was extracted from: provider usage first, the
-	 * projection when `context_edit` entries exist, and a message estimate for error or all-zero
-	 * usage responses. Without an assistant message (an extension asking at an idle point) the same
-	 * priority applies with the last valid provider usage found in the current messages.
-	 *
-	 * `stale` reports that the usage source predates the latest compaction. Its tokens are then the
-	 * message estimate, which threshold compaction itself refuses to act on.
-	 */
-	private _estimateThresholdContext(
-		assistantMessage: AssistantMessage | undefined,
-		projection: SessionProjection,
-		branch: SessionEntry[],
-		compactionEntry: CompactionEntry | null,
-	): { tokens: number; source: "usage" | "projection" | "messages"; stale: boolean } {
+		// For error messages or all-zero usage messages, estimate from the last valid response.
+		// This ensures sessions that hit persistent API errors (e.g. 529) or malformed zero-usage
+		// responses can still compact and do not reset context accounting.
+		let contextTokens: number;
+		const projection = currentProjection;
 		const hasContextEdits = projection.entries.some((entry) => entry.sourceEntry.type === "context_edit");
+		const directContextTokens = assistantMessage.usage ? calculateContextTokens(assistantMessage.usage) : 0;
 		if (hasContextEdits) {
-			return { tokens: estimateProjectedContextTokens(projection, branch).tokens, source: "projection", stale: false };
-		}
-		const directContextTokens = assistantMessage?.usage ? calculateContextTokens(assistantMessage.usage) : 0;
-		if (!assistantMessage || assistantMessage.stopReason === "error" || directContextTokens === 0) {
+			contextTokens = estimateProjectedContextTokens(projection, branch).tokens;
+		} else if (assistantMessage.stopReason === "error" || directContextTokens === 0) {
 			const messages = this.agent.state.messages;
 			const estimate = estimateContextTokens(messages);
 			// Without provider usage, estimate.tokens is the pure message-size estimate.
 			// Only usage-backed estimates need the stale pre-compaction check.
 			if (estimate.lastUsageIndex !== null) {
-				// Kept pre-compaction messages have stale usage reflecting the old (larger) context
-				// and would falsely trigger compaction right after one just finished.
+				// Verify the usage source is post-compaction. Kept pre-compaction messages
+				// have stale usage reflecting the old (larger) context and would falsely
+				// trigger compaction right after one just finished.
 				const usageMsg = messages[estimate.lastUsageIndex];
-				const stale =
-					compactionEntry !== null &&
+				if (
+					compactionEntry &&
 					usageMsg.role === "assistant" &&
-					(usageMsg as AssistantMessage).timestamp <= new Date(compactionEntry.timestamp).getTime();
-				return { tokens: estimate.tokens, source: "messages", stale };
+					(usageMsg as AssistantMessage).timestamp <= new Date(compactionEntry.timestamp).getTime()
+				) {
+					return false;
+				}
 			}
-			return { tokens: estimate.tokens, source: "messages", stale: false };
+			contextTokens = estimate.tokens;
+		} else {
+			contextTokens = directContextTokens;
 		}
-		return { tokens: directContextTokens, source: "usage", stale: false };
+		if (shouldCompact(contextTokens, contextWindow, settings)) {
+			return await this._runAutoCompaction("threshold", false);
+		}
+		return false;
 	}
 
 	/**
@@ -3278,11 +3246,7 @@ export class AgentSession {
 	 * @param willRetry Whether to continue the interrupted turn after overflow compaction
 	 * @returns Whether the post-run loop should call `agent.continue()`
 	 */
-	private async _runAutoCompaction(
-		reason: "overflow" | "threshold",
-		willRetry: boolean,
-		phase: CompactionPhase = "after-run",
-	): Promise<boolean> {
+	private async _runAutoCompaction(reason: "overflow" | "threshold", willRetry: boolean): Promise<boolean> {
 		const model = this.model;
 		const settings = this.settingsManager.getCompactionSettings(model);
 		let abortController: AbortController | undefined;
@@ -3316,7 +3280,6 @@ export class AgentSession {
 					branchEntries: pathEntries,
 					customInstructions: undefined,
 					reason,
-					phase,
 					willRetry,
 					signal: abortController.signal,
 				})) as SessionBeforeCompactResult | undefined;
@@ -3433,105 +3396,6 @@ export class AgentSession {
 			}
 			this._resolveIdleWaitIfIdle();
 		}
-	}
-
-	/**
-	 * Read-only threshold estimate shared with extensions. Uses the same function as threshold
-	 * compaction, so an extension can compare it against `thresholdTokens` without a second
-	 * estimate source; it is not a provider-exact billable amount.
-	 */
-	getContextThresholdEstimate(): ContextThresholdEstimate | undefined {
-		const model = this._limitsModel();
-		if (!model) return undefined;
-		const contextWindow = model.contextWindow ?? 0;
-		if (contextWindow <= 0) return undefined;
-
-		const settings = this.settingsManager.getCompactionSettings(this.model);
-		const branch = this.sessionManager.getBranch();
-		const compactionEntry = getLatestCompactionEntry(branch);
-		const estimate = this._estimateThresholdContext(
-			undefined,
-			this.sessionManager.buildSessionProjection(),
-			branch,
-			compactionEntry,
-		);
-		return {
-			tokens: estimate.tokens,
-			contextWindow,
-			reserveTokens: settings.reserveTokens,
-			thresholdTokens: contextWindow - settings.reserveTokens,
-			source: estimate.source,
-			stale: estimate.stale,
-			enabled: settings.enabled,
-		};
-	}
-
-	/**
-	 * Replace the visible context with a compaction entry that keeps nothing, without aborting the
-	 * run and without calling a model. Only valid while idle and inside an `input` handler, where it
-	 * is awaited before the submission continues, so it cannot race the request it prepares for.
-	 */
-	private async _resetContext(options: ResetContextOptions | undefined): Promise<ResetContextResult> {
-		if (this._inputHandlerDepth === 0) {
-			return { status: "failed", reason: "resetContext() is only available inside an input handler" };
-		}
-		if (!this.isIdle) {
-			return { status: "failed", reason: "resetContext() requires an idle session" };
-		}
-		if (!this.model) {
-			return { status: "failed", reason: formatNoModelSelectedMessage() };
-		}
-		const summary = options?.summary;
-		if (typeof summary !== "string" || summary.trim() === "") {
-			return { status: "failed", reason: "resetContext() requires a non-empty summary" };
-		}
-
-		const branch = this.sessionManager.getBranch();
-		const abortController = new AbortController();
-		if (this._extensionRunner.hasHandlers("session_before_compact")) {
-			const result = (await this._extensionRunner.emit({
-				type: "session_before_compact",
-				branchEntries: branch,
-				customInstructions: undefined,
-				reason: "rollover",
-				phase: "rollover",
-				willRetry: false,
-				signal: abortController.signal,
-			})) as SessionBeforeCompactResult | undefined;
-			if (result?.cancel) {
-				return { status: "cancelled", reason: "cancelled by a session_before_compact handler" };
-			}
-			// A replacement compaction is ignored inside ExtensionRunner.emit() and reported there.
-		}
-
-		const estimate = this._estimateThresholdContext(
-			undefined,
-			this.sessionManager.buildSessionProjection(),
-			branch,
-			getLatestCompactionEntry(branch),
-		);
-		let entryId: string;
-		try {
-			// A null firstKeptEntryId makes the entry point at itself, so no older message stays visible.
-			entryId = this.sessionManager.appendCompaction(summary, null, estimate.tokens, options?.details, false);
-		} catch (error) {
-			return { status: "failed", reason: error instanceof Error ? error.message : "failed to append the entry" };
-		}
-		this._refreshFinalizedContext();
-
-		const compactionEntry = this.sessionManager
-			.getEntries()
-			.find((entry): entry is CompactionEntry => entry.type === "compaction" && entry.id === entryId);
-		if (compactionEntry) {
-			await this._extensionRunner.emit({
-				type: "session_compact",
-				compactionEntry,
-				fromExtension: false,
-				reason: "rollover",
-				willRetry: false,
-			});
-		}
-		return { status: "applied", entryId };
 	}
 
 	/**
@@ -3757,8 +3621,6 @@ export class AgentSession {
 						}
 					})();
 				},
-				getContextThresholdEstimate: () => this.getContextThresholdEstimate(),
-				resetContext: (options) => this._resetContext(options),
 				getSystemPrompt: () => this.systemPrompt,
 				getSystemPromptOptions: () => this._baseSystemPromptOptions,
 				executeTool: (callerId, name, args, options) => this._executeNestedToolCall(callerId, name, args, options),
