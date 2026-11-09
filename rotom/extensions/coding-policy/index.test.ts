@@ -1,17 +1,25 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import codingPolicy, { codingResultPhases, CODING_EXECUTION_HYGIENE_POLICY, FINAL_REPORT_POLICY, FOLLOW_THROUGH_POLICY } from "./index.ts";
+import codingPolicy, { codingResultPhases, CODING_EXECUTION_HYGIENE_POLICY, CODING_POLICY_SECTION, CODING_POLICY_TEXT, FINAL_REPORT_POLICY, FOLLOW_THROUGH_POLICY } from "./index.ts";
 
 test("coding policy 只在编码工具激活时注入执行与证据范围约束", () => {
 	let handler: ((event: any) => any) | undefined;
 	codingPolicy({ on(event: string, candidate: (event: any) => any) { if (event === "before_agent_start") handler = candidate; } } as any);
 	assert.ok(handler);
 	for (const selectedTools of [[], ["read"], ["browser_inspect"], ["ask_user_question"]]) {
-		assert.equal(handler({ systemPrompt: "base", systemPromptOptions: { selectedTools } }), undefined);
+		const options = { selectedTools, sections: {} };
+		assert.equal(handler({ systemPrompt: "base", systemPromptOptions: options }), undefined);
+		assert.deepEqual(options.sections, {}, "non-coding tool sets must not receive the policy section");
 	}
 	assert.equal(handler({ systemPrompt: "base" }), undefined);
-	const result = handler({ systemPrompt: "base", systemPromptOptions: { selectedTools: ["read", "bash", "edit"] } });
-	assert.equal(result.systemPrompt, `base\n\n${CODING_EXECUTION_HYGIENE_POLICY}\n\n${FOLLOW_THROUGH_POLICY}\n\n${FINAL_REPORT_POLICY}`);
+	// The policy is a named section, never a returned (forced) prompt: a forced prompt
+	// collapses Pi's structured system messages and defeats section patches and caching.
+	const options = { selectedTools: ["read", "bash", "edit"], sections: { other: "kept" } as Record<string, string> };
+	assert.equal(handler({ systemPrompt: "base", systemPromptOptions: options }), undefined);
+	assert.deepEqual(Object.keys(options.sections), ["other", CODING_POLICY_SECTION]);
+	assert.equal(options.sections[CODING_POLICY_SECTION], `${CODING_EXECUTION_HYGIENE_POLICY}\n\n${FOLLOW_THROUGH_POLICY}\n\n${FINAL_REPORT_POLICY}`);
+	const result = { systemPrompt: options.sections[CODING_POLICY_SECTION] };
+	assert.equal(result.systemPrompt, CODING_POLICY_TEXT);
 	for (const required of ["in the same response as your next tool call", "Then keep working", "not a stopping point", "change approach instead of repeating", "not the first plausible explanation", "not to simple questions", "check it now instead of listing it", "exact access, system, or decision", "possibly A or B", "read the rest of any source", "including edits and tests", "did not authorize", "existing authorization and unknown-result rules still apply", "diagnosed bug is not fixed yet", "pending-confirmation items", "one concrete owner and action", "no owner", "across turns and after compaction", "does not revoke it", "do not assume the previous observation remains current", "re-check that condition once", "without asking for another", "does not authorize new scope or external writes"]) {
 		assert.ok(FOLLOW_THROUGH_POLICY.includes(required), `missing follow-through rule: ${required}`);
 	}
@@ -23,7 +31,9 @@ test("coding policy 只在编码工具激活时注入执行与证据范围约束
 		assert.ok(result.systemPrompt.includes(required), `missing evidence boundary: ${required}`);
 	}
 	for (const tool of ["bash", "edit", "write"]) {
-		assert.deepEqual(handler({ systemPrompt: "base", systemPromptOptions: { selectedTools: [tool] } }), result);
+		const single: { selectedTools: string[]; sections?: Record<string, string> } = { selectedTools: [tool] };
+		assert.equal(handler({ systemPrompt: "base", systemPromptOptions: single }), undefined);
+		assert.equal(single.sections?.[CODING_POLICY_SECTION], CODING_POLICY_TEXT);
 	}
 	assert.doesNotMatch(CODING_EXECUTION_HYGIENE_POLICY, /quick[^\n]*directed[^\n]*full|fast[^\n]*canary[^\n]*full/iu, "用户明确排除的分层验证建议不得进入产品 policy");
 });
