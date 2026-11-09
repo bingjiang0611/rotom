@@ -18,6 +18,8 @@
  *   no-support   - the helper reports no ring at all, so T3 refuses the run
  */
 import { readFileSync } from "node:fs";
+
+export const inputSource = { ascii: true, description: "fake plain keyboard layout" };
 import path from "node:path";
 
 const scenario = process.env.PI_CU_FAKE_SCENARIO ?? "pass";
@@ -155,6 +157,10 @@ export const helper = {
 			return { found: true, pid: 4343, stateId: 1, type: 5, agentDelta: 1 };
 		}
 		if (name === "act") {
+			if (args?.action === "typeText") {
+				text = String(args.params?.text ?? "");
+				return { outcome: "worked", performed: { delivery: args.params?.delivery ?? "l2" }, evidence: { value: text } };
+			}
 			if (scenario === "activate-only") activatedByPost = true;
 			if (scenario !== "fail" && scenario !== "activate-only") {
 				if (args?.target?.ref === "@e5") firstMouseClicks += 1;

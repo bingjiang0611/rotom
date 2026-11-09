@@ -1,4 +1,4 @@
-import type { PolicyCheckInput, PolicyDecision, PolicyGate } from "../broker/core.ts";
+import type { PolicyCheckInput, PolicyDecision, PolicyGate } from "../broker/policy.ts";
 import type { TargetAppInfo } from "../broker/protocol.ts";
 import { appPolicyKey, catalogueTierOf, classifyApp, type AppIdentity, type AppTier } from "./catalog.ts";
 import { defaultPolicyPath, defaultProjectPolicyPath, PolicyStore } from "./policy-store.ts";
@@ -68,13 +68,13 @@ export function createPolicyGate(options: GateOptions): PolicyGate {
 				cacheKey: sensitive ? `${appKey}#sensitive:${sensitive.rule.id}` : `${appKey}#tier`,
 			};
 		},
-		foregroundGranted(app: TargetAppInfo | undefined, fallbackKey?: string): boolean {
-			const store = storeFor(undefined);
-			if (app?.bundleId || app?.appName || fallbackKey) {
-				if (staticStore) return staticStore.hasForeground(app, fallbackKey);
-				return store.hasForeground(app, fallbackKey);
-			}
-			return false;
+		foregroundGranted(app: TargetAppInfo | undefined, fallbackKey?: string, cwd?: string): boolean {
+			const store = storeFor(cwd);
+			// A paused takeover must not resume on a cached, subsequently withdrawn
+			// grant. Project policy can revoke it, but never grant it.
+			store.invalidate();
+			if (store.effective().error) return false;
+			return store.hasForeground(app, fallbackKey);
 		},
 		/** Persist the user's explicit foreground (L4) grant. */
 		allowForeground(app: TargetAppInfo | undefined): void {

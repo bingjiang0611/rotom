@@ -460,6 +460,11 @@ final class UserActivityMonitor {
 			| (1 << CGEventType.scrollWheel.rawValue)
 			| (1 << CGEventType.mouseMoved.rawValue)
 			| (1 << CGEventType.leftMouseDragged.rawValue)
+			| (1 << CGEventType.rightMouseDragged.rawValue)
+			| (1 << CGEventType.otherMouseDragged.rawValue)
+			| (1 << CGEventType.leftMouseUp.rawValue)
+			| (1 << CGEventType.rightMouseUp.rawValue)
+			| (1 << CGEventType.otherMouseUp.rawValue)
 		let maskValue = CGEventMask(mask)
 
 		let thread = Thread { [weak self] in
@@ -497,14 +502,17 @@ final class UserActivityMonitor {
 	func reenable() {
 		lock.lock()
 		let tap = self.tap
+		listeningSinceAt = Date().timeIntervalSince1970 * 1000
+		let hook = onRealInput
 		lock.unlock()
-		if let tap {
-			CGEvent.tapEnable(tap: tap, enable: true)
-		}
+		// An observation gap cannot count toward a continuous quiet period.
+		hook?()
+		if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
 	}
 
 	/// Called from the tap thread when a real (non-agent) input arrives.
-	var onRealInput: (() -> Void)?
+	private var onRealInput: (() -> Void)?
+	private var onStopInput: (() -> Void)?
 
 	func observe(event: CGEvent) {
 		let marker = event.getIntegerValueField(.eventSourceUserData)
@@ -528,15 +536,17 @@ final class UserActivityMonitor {
 			lastUserInputAt = record.atMs
 			realInput = true
 		}
-		let hook = onRealInput
+		let escape = event.type == .keyDown && event.getIntegerValueField(.keyboardEventKeycode) == 53
+		let hook = escape ? onStopInput : onRealInput
 		lock.unlock()
 		// Outside the lock: the hook talks to the broker and must not hold the tap.
 		if realInput { hook?() }
 	}
 
-	func setRealInputHook(_ hook: (() -> Void)?) {
+	func setRealInputHook(_ hook: (() -> Void)?, onStop: (() -> Void)? = nil) {
 		lock.lock()
 		onRealInput = hook
+		onStopInput = onStop
 		lock.unlock()
 	}
 
@@ -558,6 +568,7 @@ final class UserActivityMonitor {
 		lock.unlock()
 		let now = Date().timeIntervalSince1970 * 1000
 		return [
+			"observedAt": now,
 			"lastUserInputAt": last,
 			"idleSeconds": last == 0 ? -1 : max(0, (now - last) / 1000),
 			"listening": listening,
@@ -590,7 +601,10 @@ final class Bridge {
 	private let leaseGuard = LeaseGuard()
 	private let takeoverBorder = TakeoverBorder()
 	/// Agent holding the foreground, when a takeover is visible.
-	private var takeoverAgentId: String?
+	private let takeoverState = TakeoverState()
+	private let takeoverQueue = DispatchQueue(label: "rotom-takeover-lifecycle")
+	private var requestAgentId: String? { Thread.current.threadDictionary["rotom-request-agent"] as? String }
+	private var requestTakeoverId: String? { Thread.current.threadDictionary["rotom-takeover-id"] as? String }
 	private lazy var stopControl = StopControl(link: BrokerLink(socketPath: BrokerLink.defaultSocketPath(), leaseGuard: leaseGuard))
 	private let physicalInputLock = NSRecursiveLock()
 	private let supportsAgentCursor = CommandLine.arguments.contains("serve")
@@ -623,11 +637,21 @@ final class Bridge {
 			userActivityMonitor.start()
 			// The menu bar control is the user's own stop button: it lists agents
 			// from the broker and can stop one or all of them without a terminal.
+			stopControl.onStop = { [weak self] target in
+				guard let self, let state = self.takeoverState.snapshot, target == nil || target == state.agentId else { return }
+				self.endTakeover(reason: "released_by_user")
+			}
+			stopControl.link.onEvent = { [weak self] event, message in
+				guard let self, let state = self.takeoverState.snapshot else { return }
+				if event == "revoked", ((message["leaseIds"] as? [String]) ?? []).contains(state.leaseId) { self.endTakeover(reason: "authorization_lost", report: false) }
+				if event == "takeover_state", message["agentId"] as? String == state.agentId, message["takeoverId"] as? String == state.id, message["state"] as? String == "ended" { self.endTakeover(reason: message["reason"] as? String ?? "authorization_lost", report: false) }
+			}
 			stopControl.install()
 			// Two seconds is well inside the broker's 10s heartbeat timeout, so the
 			// helper never looks dead while still reporting fresh user activity.
 			Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
 				guard let self else { return }
+				self.takeoverQueue.async { [weak self] in self?.tickTakeover() }
 				let activity = self.userActivityMonitor.snapshot()
 				let lastUserInputAt = (activity["lastUserInputAt"] as? Double) ?? 0
 				// Off the main thread: the link waits for a reply, and the menu bar must
@@ -768,6 +792,10 @@ final class Bridge {
 					"result": result,
 				], to: responseSocket)
 			} catch let failure as BridgeFailure {
+				if TakeoverState.isInterruption(failure.code), ["act", "actBatch"].contains(object["cmd"] as? String ?? "") {
+					send(["id": id, "ok": true, "result": ["outcome": "unknown", "error": ["code": failure.code, "message": failure.message]]], to: responseSocket)
+					return
+				}
 				send([
 					"id": id,
 					"ok": false,
@@ -851,7 +879,11 @@ final class Bridge {
 		let cmd = try stringArg(request, "cmd")
 		// Lease enforcement happens in one place, before any command runs: a write
 		// without a valid, unrevoked, unexpired token never reaches the app.
-		try leaseGuard.check(request, command: cmd)
+		if let agent = try leaseGuard.check(request, command: cmd) { Thread.current.threadDictionary["rotom-request-agent"] = agent }
+		defer { Thread.current.threadDictionary.removeObject(forKey: "rotom-request-agent") }
+		if let state = takeoverState.snapshot { Thread.current.threadDictionary["rotom-takeover-id"] = "\(state.id):\(state.sequence)" }
+		defer { Thread.current.threadDictionary.removeObject(forKey: "rotom-takeover-id") }
+		if LeaseGuard.writeCommands.contains(cmd) || cmd == "actBatch" { try takeoverState.dispatch(expected: requestTakeoverId) {} }
 		if cmd == "actBatch" {
 			for action in (request["actions"] as? [[String: Any]] ?? []) {
 				try leaseGuard.check(action, command: "act")
@@ -919,6 +951,10 @@ final class Bridge {
 		case "takeoverBegin":
 			return try takeoverBegin(request)
 		case "takeoverEnd":
+			if let state = takeoverState.snapshot,
+				(request["agentId"] as? String != state.agentId || request["leaseId"] as? String != state.leaseId) {
+				throw BridgeFailure(message: "Only the current holder may release this takeover", code: "not_holder")
+			}
 			endTakeover()
 			return ["hidden": true]
 		case "clipboardGet":
@@ -1036,7 +1072,7 @@ final class Bridge {
 		var output: [String: Any] = [
 			"protocolVersion": protocolVersion,
 			"architectureVersion": 1,
-			"invariants": ["state-scoped-observations", "bounded-observation-history", "multi-root-forest", "progressive-disclosure", "atomic-physical-input", "concurrent-requests", "transactional-batching", "background-delivery-no-cursor-warp"],
+			"invariants": ["state-scoped-observations", "bounded-observation-history", "multi-root-forest", "progressive-disclosure", "atomic-physical-input", "concurrent-requests", "transactional-batching", "background-delivery-no-cursor-warp", "takeover-pause-resume-30s"],
 			"pid": Int32(getpid()),
 			"parentPid": parentPid,
 			"executablePath": CommandLine.arguments.first ?? "",
@@ -1317,7 +1353,7 @@ final class Bridge {
 			throw BridgeFailure(message: "App with pid \(pid) is no longer running", code: "app_not_found")
 		}
 
-		let appRestored = app.activate()
+		let appRestored = guardedActivate(app)
 		var restoredWindowTitle = ""
 		var windowRestored = false
 
@@ -2145,6 +2181,9 @@ final class Bridge {
 	}
 
 	private func act(_ request: [String: Any]) throws -> [String: Any] {
+		let previousAgent = Thread.current.threadDictionary["rotom-request-agent"]
+		if let agent = try leaseGuard.check(request, command: "act") { Thread.current.threadDictionary["rotom-request-agent"] = agent }
+		defer { Thread.current.threadDictionary["rotom-request-agent"] = previousAgent }
 		let lookId = try stringArg(request, "lookId")
 		guard let record = lookRecord(for: lookId) else {
 			throw BridgeFailure(message: "Look id '\(lookId)' is no longer available", code: "stale_look")
@@ -2209,6 +2248,11 @@ final class Bridge {
 		let beforeSelected: String?
 		func finish(_ response: [String: Any]) -> [String: Any] {
 			var enriched = response
+			if takeoverState.interrupted(expected: requestTakeoverId) {
+				enriched["outcome"] = "unknown"
+				enriched["error"] = ["code": "user_input_pause", "message": "Interrupted by user input; do not replay or continue the text."]
+				return enriched
+			}
 			// The frontmost app changed while the user was typing: report it as
 			// interference so the caller stops instead of continuing to act on a
 			// screen the user is now driving.
@@ -2279,7 +2323,7 @@ final class Bridge {
 		func focusTargetForPhysicalInput() {
 			guard delivery == "hid" else { return }
 			if let app = NSRunningApplication(processIdentifier: pid), !app.isActive {
-				performed["activated"] = app.activate()
+				performed["activated"] = guardedActivate(app)
 			}
 			if let window = windowElement(pid: pid, windowId: record.windowId) {
 				_ = AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
@@ -2457,9 +2501,9 @@ final class Bridge {
 			// The user's input method sits between key events and the field. Measured on
 			// 2026-11-06 with a Chinese IME selected: "l2probe" arrived as "里probe",
 			// because the digit picked an IME candidate. AX text insertion does not pass
-			// through the IME, so it is the normal path; only a caller that pinned a
-			// transport (`requireTransport`) gets key events instead.
-			if !requireTransport, let element, !text.isEmpty, insertTextAtCaret(element, text: text) {
+			// through the IME. Only an active input method uses AX first; plain keyboard
+			// layouts keep key events. A pinned transport always keeps its requested path.
+			if InputSourcePolicy.currentPrefersAX(requireTransport: requireTransport), let element, !text.isEmpty, insertTextAtCaret(element, text: text) {
 				usleep(30_000)
 				let inserted = stringAttribute(element, attribute: kAXValueAttribute as CFString) ?? ""
 				performed["grounding"] = "selection"
@@ -2588,7 +2632,7 @@ final class Bridge {
 				steps.append(step)
 				if (step["outcome"] as? String) != "worked" { stoppedAt = index; break }
 			} catch let failure as BridgeFailure {
-				steps.append(["outcome": "didnt", "error": ["code": failure.code, "message": failure.message]])
+				steps.append(["outcome": TakeoverState.isInterruption(failure.code) ? "unknown" : "didnt", "error": ["code": failure.code, "message": failure.message]])
 				stoppedAt = index
 				break
 			}
@@ -3714,6 +3758,7 @@ final class Bridge {
 	}
 
 	private func postEvent(_ event: CGEvent, pid: Int32, delivery: String = "hid") throws {
+		try takeoverState.dispatch(expected: requestTakeoverId) {}
 		// Every synthetic event carries the agent marker so the user activity tap
 		// can separate agent input from real user input.
 		event.setIntegerValueField(.eventSourceUserData, value: agentEventMarker)
@@ -3721,11 +3766,11 @@ final class Bridge {
 			// The symbol is resolved before the first event, so nothing has been delivered.
 			// `l2_unavailable` says exactly that: the caller may repeat the same background
 			// action over pid posting, and must not escalate to the foreground (review G4).
-			if postTargetedEvent(event, pid: pid) { return }
+			if try takeoverState.dispatch(expected: requestTakeoverId, { postTargetedEvent(event, pid: pid) }) { return }
 			throw BridgeFailure(message: "Targeted background delivery is unavailable on this macOS build", code: "l2_unavailable")
 		}
 		if delivery == "pid" {
-			event.postToPid(pid)
+			try takeoverState.dispatch(expected: requestTakeoverId) { event.postToPid(pid); trackHeldInput(event, pid: pid, delivery: delivery) }
 			return
 		}
 		// Post as a real foreground HID event. AppKit views with mouseDown handlers
@@ -3734,14 +3779,17 @@ final class Bridge {
 		// window, then post at the session event tap.
 		if let app = NSRunningApplication(processIdentifier: pid), !app.isActive {
 			if #available(macOS 14.0, *) {
-				_ = app.activate()
+				_ = guardedActivate(app)
 			} else {
-				_ = app.activate(options: [.activateIgnoringOtherApps])
+				_ = guardedActivate(app)
 			}
 			usleep(20_000)
 		}
-		userActivityMonitor.recordAgentHidEvent()
-		event.post(tap: .cghidEventTap)
+		try takeoverState.dispatch(expected: requestTakeoverId) {
+			userActivityMonitor.recordAgentHidEvent()
+			event.post(tap: .cghidEventTap)
+			trackHeldInput(event, pid: pid, delivery: delivery)
+		}
 	}
 
 	/// Private SkyLight entry point for window-targeted event delivery.
@@ -3752,9 +3800,37 @@ final class Bridge {
 	/// was delivered and the same background action can be repeated over pid posting.
 	private typealias SkyLightPostToPid = @convention(c) (pid_t, CGEvent) -> Void
 
+	private func trackHeldInput(_ event: CGEvent, pid: Int32, delivery: String) {
+		guard let state = takeoverState.snapshot, requestAgentId == state.agentId,
+			let transition = TakeoverState.transition(event, pid: pid, delivery: delivery) else { return }
+		let input = transition.input
+		if !transition.down { takeoverState.trackUp(input); return }
+		// Preserve only target-window identity for targeted delivery, never coordinates or text.
+		let windowId = UInt32(event.getIntegerValueField(.mouseEventWindowUnderMousePointer))
+		takeoverState.trackDown(input) { [weak self] in
+			guard let self else { return false }
+			let position = input.kind == .button ? CGEvent(source: nil)?.location : nil
+			guard let release = TakeoverState.releaseEvent(input, position: position, flags: CGEventSource.flagsState(.hidSystemState)) else { return false }
+			release.setIntegerValueField(.eventSourceUserData, value: agentEventMarker)
+			if input.kind == .button { self.targetMouseEvent(release, delivery: delivery, windowId: windowId) }
+			// Conservatively include every surrender up in this counter, including
+			// targeted ups. A background safety check must never overlook a release.
+			if delivery == "l2" {
+				guard let post = self.skyLightPostToPid else { return false }
+				self.userActivityMonitor.recordAgentHidEvent(); post(pid, release)
+			} else if delivery == "pid" {
+				self.userActivityMonitor.recordAgentHidEvent(); release.postToPid(pid)
+			} else {
+				self.userActivityMonitor.recordAgentHidEvent(); release.post(tap: .cghidEventTap)
+			}
+			return true
+		}
+	}
+
 	private func postTargetedEvent(_ event: CGEvent, pid: Int32) -> Bool {
 		guard let post = skyLightPostToPid else { return false }
 		post(pid, event)
+		trackHeldInput(event, pid: pid, delivery: "l2")
 		return true
 	}
 
@@ -4358,6 +4434,8 @@ struct PiComputerUseHelper {
 		if CommandLine.arguments.contains("--activity-self-test") {
 			exit(Int32(UserActivitySelfTest.run()))
 		}
+		if CommandLine.arguments.contains("--input-source-self-test") { exit(Int32(InputSourcePolicy.selfTest())) }
+		if CommandLine.arguments.contains("--takeover-state-self-test") { exit(Int32(TakeoverStateSelfTest.run())) }
 		if CommandLine.arguments.contains("--mouse-target-self-test") {
 			exit(Int32(MouseEventTargetSelfTest.run()))
 		}
@@ -4398,8 +4476,10 @@ extension Bridge {
 			throw BridgeFailure(message: "Could not build the calibration mouse move", code: "input_failed")
 		}
 		event.setIntegerValueField(.eventSourceUserData, value: agentEventMarker)
-		userActivityMonitor.recordAgentHidEvent()
-		event.post(tap: .cghidEventTap)
+		try takeoverState.dispatch(expected: requestTakeoverId) {
+			userActivityMonitor.recordAgentHidEvent()
+			event.post(tap: .cghidEventTap)
+		}
 		var after = userActivityMonitor.snapshot()
 		var match: [String: Any]?
 		for _ in 0..<20 {
@@ -4424,46 +4504,128 @@ extension Bridge {
 		]
 	}
 
-	/// Show the border, swallow Escape, and report the moment the user takes over.
-	///
-	/// The lease token is already checked before dispatch (`LeaseGuard`), so only an
-	/// agent the broker granted `desktop-foreground` can paint this border.
+	/// Begin only with a live target window and the same 30-second quiet gate as B6.
 	private func takeoverBegin(_ request: [String: Any]) throws -> Any {
-		let pid = try intArg(request, "pid")
-		let label = (request["label"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-		guard let agentId = request["agentId"] as? String, !agentId.isEmpty else {
-			throw BridgeFailure(message: "takeoverBegin requires the agent that holds the foreground", code: "invalid_request")
+		let pid = Int32(try intArg(request, "pid"))
+		guard let app = NSRunningApplication(processIdentifier: pid),
+			let bundleId = app.bundleIdentifier,
+			let window = cgWindowCandidates(pid: pid).first,
+			let axWindow = windowElement(pid: pid, windowId: window.windowId),
+			let agentId = request["agentId"] as? String, requestAgentId == agentId,
+			let leaseId = request["leaseId"] as? String,
+			TakeoverState.quiet(userActivityMonitor.snapshot()) else {
+			throw BridgeFailure(message: "Takeover needs a live window, a lease and 30 seconds without unmarked input", code: "takeover_conditions")
 		}
-		guard pid > 0, !label.isEmpty else {
-			throw BridgeFailure(message: "takeoverBegin requires a pid and a label", code: "invalid_request")
+		let state = TakeoverState.Session(id: UUID().uuidString, agentId: agentId, leaseId: leaseId, pid: pid,
+			windowId: window.windowId, windowRef: refStore.storeWindow(axWindow), bundleId: bundleId, launchDate: app.launchDate,
+			label: request["label"] as? String ?? bundleId, startedAt: Date().timeIntervalSince1970)
+		try takeoverQueue.sync {
+			try takeoverState.begin(state)
+			userActivityMonitor.setRealInputHook({ [weak self] in self?.pauseTakeover() }, onStop: { [weak self] in self?.endTakeover(reason: "released_by_user") })
+			// Cover input arriving between the first quiet check and hook installation.
+			if !TakeoverState.quiet(userActivityMonitor.snapshot()) { pauseTakeover() }
+			let reply = lifecycleRequest(state, phase: "begin", extra: ["app": ["bundleId": bundleId, "appName": app.localizedName ?? bundleId]])
+			guard reply?["ok"] as? Bool == true else {
+				endTakeover(reason: "authorization_lost", report: false)
+				throw BridgeFailure(message: "Broker did not admit the takeover", code: "takeover_conditions")
+			}
 		}
-		takeoverAgentId = agentId
-		DispatchQueue.main.async { [takeoverBorder] in takeoverBorder.show(label: label) }
-		// Any real input ends the takeover: the observation is native (event tap),
-		// the consequence is the broker's.
-		userActivityMonitor.setRealInputHook { [weak self] in self?.reportTakeoverPreempted() }
-		return ["shown": true, "pid": pid]
+		renderTakeover()
+		return ["shown": true, "pid": pid, "windowId": window.windowId]
 	}
 
-	private func reportTakeoverPreempted() {
-		guard let agentId = takeoverAgentId else { return }
-		endTakeover()
-		let request: [String: Any] = [
-			"id": "preempted-\(Int(Date().timeIntervalSince1970 * 1000))",
-			"type": "preempted",
-			"targetAgentId": agentId,
-			"reason": "user_input",
-		]
-		DispatchQueue.global(qos: .userInitiated).async { [stopControl] in
-			_ = stopControl.link.request(request)
+	private func lifecycleRequest(_ state: TakeoverState.Session, phase: String, extra: [String: Any] = [:]) -> [String: Any]? {
+		var request: [String: Any] = ["id": UUID().uuidString, "type": "takeover_state", "phase": phase,
+			"targetAgentId": state.agentId, "leaseId": state.leaseId, "takeoverId": state.id, "sequence": state.sequence]
+		request.merge(extra) { _, new in new }
+		return stopControl.link.request(request)
+	}
+
+	private func pauseTakeover() {
+		guard let yielded = takeoverState.pause(now: Date().timeIntervalSince1970) else { return }
+		renderTakeover()
+		// The local latch is already closed and outstanding ups have been posted.
+		takeoverQueue.async { [weak self] in
+			self?.reportYieldReleases(yielded)
+			_ = self?.lifecycleRequest(yielded.session, phase: "pause")
+		}
+		if !takeoverState.unresolvedInputs.isEmpty { endTakeover(reason: "release_failed") }
+	}
+
+	private func takeoverTargetValid(_ state: TakeoverState.Session) -> Bool {
+		guard let app = NSRunningApplication(processIdentifier: state.pid),
+			app.bundleIdentifier == state.bundleId, app.launchDate == state.launchDate else { return false }
+		guard pidForWindowId(state.windowId) == state.pid,
+			let original = refStore.window(for: state.windowRef),
+			let current = windowElement(pid: state.pid, windowId: state.windowId) else { return false }
+		return CFEqual(original, current)
+	}
+
+	private func tickTakeover() {
+		guard let state = takeoverState.snapshot else { return }
+		let now = Date().timeIntervalSince1970
+		if now - state.startedAt >= TakeoverState.maxDuration { endTakeover(reason: "takeover_duration_limit"); return }
+		guard let pausedAt = state.pausedAt else { return }
+		if now - pausedAt >= TakeoverState.pauseTimeout { endTakeover(reason: "resume_timeout"); return }
+		if state.resumes >= TakeoverState.maxResumes { endTakeover(reason: "resume_limit"); return }
+		guard takeoverTargetValid(state) else { endTakeover(reason: "target_lost"); return }
+		let activity = userActivityMonitor.snapshot()
+		guard TakeoverState.quiet(activity) else { return }
+		let reply = lifecycleRequest(state, phase: "prepare_resume", extra: ["activity": activity, "targetValid": true])
+		guard reply?["ok"] as? Bool == true else { endTakeover(reason: "authorization_lost"); return }
+		guard reply?["allowed"] as? Bool == true else { return }
+		// Admission is committed while the native dispatch latch is still closed.
+		let committed = lifecycleRequest(state, phase: "commit_resume", extra: ["activity": userActivityMonitor.snapshot(), "targetValid": takeoverTargetValid(state)])
+		guard committed?["ok"] as? Bool == true else { endTakeover(reason: "authorization_lost"); return }
+		guard committed?["allowed"] as? Bool == true else { return }
+		// A stop or newer real input during either round trip cannot revive this generation.
+		guard takeoverTargetValid(state), takeoverState.resume(id: state.id, sequence: state.sequence,
+			quiet: TakeoverState.quiet(userActivityMonitor.snapshot()), now: Date().timeIntervalSince1970) else { return }
+		let ack = lifecycleRequest(state, phase: "resumed", extra: ["activity": userActivityMonitor.snapshot(), "targetValid": takeoverTargetValid(state)])
+		guard ack?["ok"] as? Bool == true else { endTakeover(reason: "authorization_lost"); return }
+		guard ack?["allowed"] as? Bool == true else { pauseTakeover(); return }
+		renderTakeover()
+	}
+
+	private func renderTakeover() {
+		DispatchQueue.main.async { [weak self] in
+			guard let self else { return }
+			guard let state = self.takeoverState.snapshot else { self.takeoverBorder.hide(); return }
+			self.takeoverBorder.show(label: state.label, paused: state.pausedAt != nil, onStop: { [weak self] in self?.endTakeover(reason: "released_by_user") })
 		}
 	}
 
-	private func endTakeover() {
-		guard takeoverAgentId != nil || takeoverBorder.isVisible else { return }
-		takeoverAgentId = nil
+	private func endTakeover(reason: String = "released_by_user", report: Bool = true) {
+		guard let yielded = takeoverState.end() else { return }
 		userActivityMonitor.setRealInputHook(nil)
-		DispatchQueue.main.async { [takeoverBorder] in takeoverBorder.hide() }
+		renderTakeover()
+		takeoverQueue.async { [weak self] in
+			self?.reportYieldReleases(yielded)
+			if report {
+				let terminalReason = self?.takeoverState.unresolvedInputs.isEmpty == false ? "release_failed" : reason
+				_ = self?.lifecycleRequest(yielded.session, phase: "end", extra: ["reason": terminalReason])
+			}
+		}
+	}
+
+	private func reportYieldReleases(_ yielded: TakeoverState.Yield) {
+		guard !yielded.releases.isEmpty else { return }
+		_ = stopControl.link.request(["id": UUID().uuidString, "type": "release_on_yield", "targetAgentId": yielded.session.agentId,
+			"releases": yielded.releases.map(\.metadata)])
+	}
+
+	private func guardedActivate(_ app: NSRunningApplication) -> Bool {
+		do { try takeoverState.admitWrite(expected: requestTakeoverId); return app.activate() } catch { return false }
+	}
+
+	// Admit each AX operation, but never block surrender behind a cross-process reply.
+	private func AXUIElementSetAttributeValue(_ element: AXUIElement, _ attribute: CFString, _ value: CFTypeRef) -> AXError {
+		do { try takeoverState.admitWrite(expected: requestTakeoverId) } catch { return .cannotComplete }
+		return ApplicationServices.AXUIElementSetAttributeValue(element, attribute, value)
+	}
+	private func AXUIElementPerformAction(_ element: AXUIElement, _ action: CFString) -> AXError {
+		do { try takeoverState.admitWrite(expected: requestTakeoverId) } catch { return .cannotComplete }
+		return ApplicationServices.AXUIElementPerformAction(element, action)
 	}
 
 	/// Copy the current clipboard text. Length-limited so a huge payload cannot
@@ -5140,6 +5302,7 @@ final class LeaseGuard {
 	]
 
 	private struct Claims {
+		let agentId: String
 		let leaseId: String
 		let resourceKey: String
 		let pid: Int?
@@ -5186,25 +5349,25 @@ final class LeaseGuard {
 		return key != nil
 	}
 
-	func check(_ request: [String: Any], command: String) throws {
+	@discardableResult func check(_ request: [String: Any], command: String) throws -> String? {
 		let nowMs = Date().timeIntervalSince1970 * 1000
 		lock.lock()
 		let key = self.key
 		revoked = revoked.filter { $0.value > nowMs }
 		let revoked = Set(revoked.keys)
 		lock.unlock()
-		guard let key else { return }
+		guard let key else { return nil }
 		// Reads need no lease; a write whose target cannot be computed is refused
 		// instead of allowed (review E3).
 		let requirement = Self.requirement(command: command, request: request)
-		if case .read = requirement { return }
+		if case .read = requirement { return nil }
 		if case .undeterminable = requirement {
 			throw BridgeFailure(
 				message: "\(command) would write, but its target app or window cannot be determined; refusing to run it without a matching lease",
 				code: "lease_invalid",
 			)
 		}
-		guard case let .write(accepted) = requirement else { return }
+		guard case let .write(accepted) = requirement else { return nil }
 
 		guard let lease = request["lease"] as? [String: Any],
 			let token = lease["token"] as? String,
@@ -5233,6 +5396,7 @@ final class LeaseGuard {
 				throw BridgeFailure(message: "Lease is for pid \(claimPid), but this command targets pid \(targetPid)", code: "lease_invalid")
 			}
 		}
+		return claims.agentId
 	}
 
 	/// What a command needs before it may run (review E3).
@@ -5364,6 +5528,7 @@ final class LeaseGuard {
 		}
 		guard let object = (try? JSONSerialization.jsonObject(with: payloadData)) as? [String: Any],
 			let leaseId = object["leaseId"] as? String,
+			let agentId = object["agentId"] as? String,
 			let resourceKey = object["resourceKey"] as? String
 		else {
 			throw BridgeFailure(message: "Lease token payload is not a lease", code: "lease_invalid")
@@ -5384,7 +5549,7 @@ final class LeaseGuard {
 		} else if let value = object["pid"] as? NSNumber {
 			pid = value.intValue
 		}
-		return Claims(leaseId: leaseId, resourceKey: resourceKey, pid: pid, expiresAt: expiresAt)
+		return Claims(agentId: agentId, leaseId: leaseId, resourceKey: resourceKey, pid: pid, expiresAt: expiresAt)
 	}
 
 	private static func base64URLData(_ value: String) -> Data? {
@@ -5582,7 +5747,10 @@ final class BrokerLink {
 		slot?.semaphore.signal()
 	}
 
+	var onEvent: ((String, [String: Any]) -> Void)?
+
 	private func handleEvent(_ event: String, _ message: [String: Any]) {
+		onEvent?(event, message)
 		// Only revocations matter here: the helper refuses a token the moment the
 		// broker says the lease ended (stop, transfer, expiry, disconnect).
 		guard event == "revoked" else { return }
@@ -5616,6 +5784,7 @@ final class StopControl: NSObject, NSMenuDelegate {
 	private var chordTap: CFMachPort?
 	private var chordRunLoop: CFRunLoop?
 	private var lastStopAt: TimeInterval = 0
+	var onStop: ((String?) -> Void)?
 
 	init(link: BrokerLink) {
 		self.link = link
@@ -5744,6 +5913,7 @@ final class StopControl: NSObject, NSMenuDelegate {
 	}
 
 	private func stopAll() {
+		onStop?(nil)
 		_ = link.request(["id": "stop-all-\(Int(Date().timeIntervalSince1970 * 1000))", "type": "stop"])
 	}
 
@@ -5753,6 +5923,7 @@ final class StopControl: NSObject, NSMenuDelegate {
 
 	@objc private func stopAgentFromMenu(_ sender: NSMenuItem) {
 		guard let agentId = sender.representedObject as? String else { return }
+		onStop?(agentId)
 		_ = link.request([
 			"id": "stop-\(agentId)-\(Int(Date().timeIntervalSince1970 * 1000))",
 			"type": "stop",

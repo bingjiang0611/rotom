@@ -11,8 +11,11 @@ const macosSourcePaths = [
 	"agent_cursor.swift",
 	"agent_cursor_motion.swift",
 	"background_text.swift",
+	"input_source.swift",
 	"bridge.swift",
 	"takeover_border.swift",
+	"takeover_state.swift",
+	"takeover_state_test.swift",
 	"text_outcome.swift",
 ].map((file) => path.join(rootDir, "native", "macos", file));
 const windowsCrateDir = path.join(rootDir, "native", "windows", "bridge-rs");

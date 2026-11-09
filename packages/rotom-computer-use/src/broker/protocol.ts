@@ -195,15 +195,37 @@ export interface TakeoverApprovalRequest {
  * A real user input arrived while an agent held the foreground.
  *
  * Reported by the helper (it is the only process that can see the event tap), and
- * the broker owns the consequence: the takeover lease is revoked and the agent is
- * told `preempted_by_user`. The already-dispatched steps stay as they happened.
+ * the broker retains the lease while the helper pauses delivery. Resume needs
+ * fresh helper evidence; a model cannot resume itself or replay interrupted input.
  */
-export interface PreemptedRequest {
+export const TAKEOVER_END_REASONS = ["released_by_user", "authorization_lost", "target_lost", "resume_timeout", "resume_limit", "takeover_duration_limit", "release_failed"] as const;
+export type TakeoverEndReason = typeof TAKEOVER_END_REASONS[number];
+
+export interface YieldRelease {
+	kind: "key" | "modifier" | "button";
+	code: number;
+	posted: boolean;
+}
+
+export interface ReleaseOnYieldRequest {
 	id: string;
-	type: "preempted";
+	type: "release_on_yield";
 	targetAgentId: string;
-	/** Constant reason code; never user content. */
-	reason?: "user_input";
+	releases: YieldRelease[];
+}
+
+export interface TakeoverStateRequest {
+	id: string;
+	type: "takeover_state";
+	phase: "begin" | "pause" | "prepare_resume" | "commit_resume" | "resumed" | "end";
+	targetAgentId: string;
+	leaseId: string;
+	takeoverId: string;
+	sequence?: number;
+	app?: TargetAppInfo;
+	targetValid?: boolean;
+	activity?: { observedAt: number; listening: boolean; listeningSeconds: number; lastUserInputAt: number; idleSeconds: number };
+	reason?: TakeoverEndReason;
 }
 
 /** Resume a paused agent. User control only: the helper connection may ask. */
@@ -245,7 +267,8 @@ export type BrokerRequest =
 	| StopRequest
 	| InterferenceRequest
 	| TakeoverApprovalRequest
-	| PreemptedRequest
+	| TakeoverStateRequest
+	| ReleaseOnYieldRequest
 	| ResumeRequest
 	| ApprovalResponseRequest
 	| PolicyRequest;
@@ -287,7 +310,7 @@ export interface BrokerStatus {
 	waiters: Array<{ agentId: string; resourceKey: string; deadline: number }>;
 	lastUserInputAt?: number;
 	/** Who currently holds the foreground, if anyone. */
-	takeover?: { agentId: string; since: number };
+	takeover?: { agentId: string; since: number; paused: boolean; resumes: number; leaseId: string };
 }
 
 export type BrokerFailureCode = BrokerErrorCode;
@@ -384,13 +407,6 @@ export interface TakeoverApprovalResponse {
 	approvedAt: number;
 }
 
-export interface PreemptedResponse {
-	ok: true;
-	type: "preempted";
-	/** True when the agent really held the foreground at that moment. */
-	revoked: boolean;
-}
-
 export interface ApprovalResponseAck {
 	ok: true;
 	type: "approval_response";
@@ -410,7 +426,15 @@ export interface PolicyResponse {
 	};
 }
 
+export interface TakeoverStateResponse {
+	ok: true;
+	type: "takeover_state";
+	allowed: boolean;
+}
+
 export type BrokerResponse =
+	| { ok: true; type: "release_on_yield" }
+	| TakeoverStateResponse
 	| HelloResponse
 	| PongResponse
 	| AcquireResponse
@@ -422,7 +446,6 @@ export type BrokerResponse =
 	| StopResponse
 	| InterferenceResponse
 	| TakeoverApprovalResponse
-	| PreemptedResponse
 	| ResumeResponse
 	| ApprovalResponseAck
 	| PolicyResponse;
@@ -444,7 +467,7 @@ export interface RevokedEvent {
 	event: "revoked";
 	agentId: string;
 	leaseIds: string[];
-	reason: "stopped_by_user" | "owner_disconnected" | "expired" | "transferred" | "paused_interfered" | "preempted_by_user";
+	reason: "stopped_by_user" | "owner_disconnected" | "expired" | "transferred" | "paused_interfered" | "preempted_by_user" | "released_by_user" | "takeover_ended";
 	/**
 	 * Milliseconds after which the helper may forget these ids (the latest expiry among
 	 * them). Without it the helper's revoked set would only ever grow, and a restarted
@@ -474,20 +497,34 @@ export interface StoppedEvent {
 	agentId: string;
 }
 
-/** The user touched the machine while this agent held the foreground (L4 ended). */
-export interface PreemptedEvent {
-	event: "preempted";
+export interface TakeoverStateEvent {
+	event: "takeover_state";
 	agentId: string;
-	reason: "user_input";
+	state: "paused" | "resumed" | "ended";
+	takeoverId: string;
+	leaseId: string;
+	reason: string;
 	at: number;
 }
 
-export type BrokerEvent = ApprovalRequestEvent | RevokedEvent | StoppedEvent | PausedEvent | ResumedEvent | PreemptedEvent;
+export interface ReleaseOnYieldEvent {
+	event: "release_on_yield";
+	agentId: string;
+	releases: YieldRelease[];
+}
+
+export type BrokerEvent = ReleaseOnYieldEvent | TakeoverStateEvent | ApprovalRequestEvent | RevokedEvent | StoppedEvent | PausedEvent | ResumedEvent;
+
+export interface BrokerTransport {
+	/** Deliver an unsolicited event to one agent; false when it is not connected. */
+	send(agentId: string, event: BrokerEvent): boolean;
+	connectedAgents(): number;
+}
 
 export function isBrokerEvent(value: unknown): value is BrokerEvent {
 	if (!value || typeof value !== "object") return false;
 	const event = (value as { event?: unknown }).event;
-	return event === "approval" || event === "revoked" || event === "stopped" || event === "paused" || event === "resumed" || event === "preempted";
+	return event === "release_on_yield" || event === "takeover_state" || event === "approval" || event === "revoked" || event === "stopped" || event === "paused" || event === "resumed";
 }
 
 /** Response envelope: either a typed success or a structured failure. */

@@ -105,7 +105,7 @@ export interface TraceEntry {
 	target?: TraceTargetSummary;
 	/** L1 / L2 / L4 delivery level when the platform reports it. */
 	deliveryLevel?: string;
-	status: "ok" | "error" | "unknown" | "lease_conflict" | "stopped";
+	status: "ok" | "error" | "unknown" | "lease_conflict" | "stopped" | "paused" | "resumed";
 	durationMs?: number;
 	/** Lease/epoch evidence for writes. */
 	lease?: { agentId?: string; epoch?: number; holder?: string };
@@ -121,6 +121,8 @@ export interface TraceEntry {
 	screenshots?: string[];
 	/** Redacted text-input evidence. */
 	text?: { length: number; sha256: string };
+	/** One surrender release, never text, pointer coordinates or event payloads. */
+	releaseOnYield?: { kind: "key" | "modifier" | "button"; code: number };
 	/** Why an agent clipboard write was not undone (reason code only, no content). */
 	clipboardRestoreSkipped?: "user_changed_clipboard" | "no_snapshot" | "restore_failed" | "lease_unavailable";
 	/** Set when the broker paused this agent because an action disturbed the user. */

@@ -11,20 +11,20 @@ import type { PlatformApp } from "./platform/types.ts";
  * idleness (or a fresh "let it take over" click) and that nobody else holds the
  * foreground. This class is the client half: it acquires the global lease, asks
  * the helper to show the border, keeps the lease alive, and stops using it the
- * moment the broker says the user took the foreground back.
+ * moment the helper reports a pause. The lease keeps renewing while paused.
  *
  * Input delivery over L4 is not switched on here: this item wires the permission,
- * the border and the preemption. A batch keeps using the normal ladder until the
+ * the border and the helper-owned pause/resume lifecycle. A batch keeps using the normal ladder until the
  * real-machine evidence in B5 exists.
  */
 export interface TakeoverBackend {
 	/** Show the full-screen border and start swallowing Escape. */
 	takeoverBegin(
-		input: { pid: number; label: string; agentId: string; lease?: { token: string; resourceKey: string } },
+		input: { pid: number; label: string; agentId: string; leaseId: string; lease?: { token: string; resourceKey: string } },
 		signal?: AbortSignal,
 	): Promise<void>;
 	/** Remove the border and stop swallowing Escape. */
-	takeoverEnd(signal?: AbortSignal): Promise<void>;
+	takeoverEnd(input: { agentId: string; leaseId: string }, signal?: AbortSignal): Promise<void>;
 }
 
 export interface TakeoverDeps {
@@ -48,6 +48,8 @@ interface ActiveTakeover {
 	leaseId: string;
 	expiresAt: number;
 	timer: ReturnType<typeof setInterval> | undefined;
+	paused: boolean;
+	pending: boolean;
 }
 
 /** Default renewal: well inside the broker's 60 s lease TTL. */
@@ -64,13 +66,13 @@ export class TakeoverController {
 		this.renewMs = deps.renewMs ?? DEFAULT_RENEW_MS;
 	}
 
-	get state(): { pid: number; leaseId: string; expiresAt: number } | undefined {
-		return this.active ? { pid: this.active.pid, leaseId: this.active.leaseId, expiresAt: this.active.expiresAt } : undefined;
+	get state(): { pid: number; leaseId: string; expiresAt: number; paused: boolean } | undefined {
+		return this.active ? { pid: this.active.pid, leaseId: this.active.leaseId, expiresAt: this.active.expiresAt, paused: this.active.paused } : undefined;
 	}
 
 	/** True while the agent holds the foreground; a batch checks this each step. */
 	get activeTakeover(): boolean {
-		return this.active !== undefined;
+		return this.active !== undefined && !this.active.paused && !this.active.pending;
 	}
 
 	get preempted(): boolean {
@@ -83,6 +85,9 @@ export class TakeoverController {
 		this.stopLocal();
 	}
 
+	markPaused(): void { if (this.active) this.active.paused = true; }
+	markResumed(): void { if (this.active) this.active.paused = false; }
+
 	async start(pid: number, signal?: AbortSignal): Promise<TakeoverStart> {
 		if (this.deps.headless()) {
 			return { ok: false, code: "headless", message: "Foreground takeover (L4) is never used in a headless session: there is no user watching the screen it would take over." };
@@ -93,6 +98,7 @@ export class TakeoverController {
 		const app = apps.find((candidate) => candidate.pid === pid);
 		if (!app) return { ok: false, code: "unknown_app", message: `No running app has pid ${pid}.` };
 		if (this.active) {
+			if (this.active.pending) return { ok: false, code: "not_holder", message: "A takeover request is still being admitted by the helper." };
 			if (this.active.pid === pid) return { ok: true, pid, app, leaseId: this.active.leaseId, expiresAt: this.active.expiresAt };
 			return { ok: false, code: "not_holder", message: `This session already holds the foreground for ${this.active.app.appName} (pid ${this.active.pid}); release it first.` };
 		}
@@ -117,12 +123,16 @@ export class TakeoverController {
 			return { ok: false, code: unavailable as "broker_unavailable", message: error instanceof Error ? error.message : String(error) };
 		}
 
+		this.preemptedAt = undefined;
+		this.active = { pid, app, leaseId: reply.lease.leaseId, expiresAt: reply.lease.expiresAt, timer: undefined, paused: false, pending: true };
+		this.startRenewal(session);
 		try {
 			await this.deps.backend().takeoverBegin(
 				{
 					pid,
 					label: app.appName,
 					agentId: session.client.agentId,
+					leaseId: reply.lease.leaseId,
 					...(reply.lease.token ? { lease: { token: reply.lease.token, resourceKey: reply.lease.resourceKey } } : {}),
 				},
 				signal,
@@ -130,13 +140,13 @@ export class TakeoverController {
 		} catch (error) {
 			// The border is part of the promise: without it the user cannot see that
 			// the machine is being driven, so the lease must not stay held.
+			if (this.active?.leaseId === reply.lease.leaseId) this.stopLocal();
 			await session.client.release(reply.lease.leaseId).catch(() => undefined);
 			return { ok: false, code: "denied", message: `The takeover border could not be shown: ${error instanceof Error ? error.message : String(error)}` };
 		}
 
-		this.preemptedAt = undefined;
-		this.active = { pid, app, leaseId: reply.lease.leaseId, expiresAt: reply.lease.expiresAt, timer: undefined };
-		this.startRenewal(session);
+		if (this.active?.leaseId !== reply.lease.leaseId) return { ok: false, code: "denied", message: "The takeover ended while it was being admitted. Request a new authorization." };
+		this.active.pending = false;
 		return { ok: true, pid, app, leaseId: reply.lease.leaseId, expiresAt: reply.lease.expiresAt };
 	}
 
@@ -144,8 +154,10 @@ export class TakeoverController {
 		const active = this.active;
 		this.stopLocal();
 		const session = this.deps.broker();
-		if (active && session) await session.client.release(active.leaseId).catch(() => undefined);
-		await this.deps.backend().takeoverEnd().catch(() => undefined);
+		if (active && session) {
+			await this.deps.backend().takeoverEnd({ agentId: session.client.agentId, leaseId: active.leaseId }).catch(() => undefined);
+			await session.client.release(active.leaseId).catch(() => undefined);
+		}
 		return { released: active?.leaseId, pid: active?.pid };
 	}
 

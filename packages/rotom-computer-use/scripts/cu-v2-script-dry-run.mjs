@@ -24,6 +24,7 @@ import { FIXTURE_BUNDLE_PREFIX, disposeFixtureRun, ensureFixtureWindow, isFixtur
 import { buildDirectL2Request, isDirectL2 } from "./lib/l2-direct.mjs";
 import { classifyActFailure } from "./lib/live-helpers.mjs";
 import { rememberRunLaunch } from "./lib/run-owned-apps.mjs";
+import { checkTakeoverLifecycle } from "./lib/dry-run-takeover.mjs";
 
 const rows = [];
 async function check(name, run) {
@@ -34,6 +35,8 @@ async function check(name, run) {
 		rows.push({ name, result: "fail", note: error instanceof Error ? error.message : String(error) });
 	}
 }
+
+await check("HANDOFF-5: pause, bounded resume and hard stop (no replay)", checkTakeoverLifecycle);
 
 const root = mkdtempSync(path.join(tmpdir(), "cu-v2-fixture-"));
 const sourceApp = path.join(root, "Fixture.app");

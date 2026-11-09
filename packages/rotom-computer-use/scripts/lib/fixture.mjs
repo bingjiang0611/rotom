@@ -151,7 +151,7 @@ export function selectFixtureForRun(apps, { run, startedByThisRun }) {
  * without activating the application. LaunchServices therefore never needs to steal focus.
  */
 export async function launchFixture(backend, handle, { pendingTimeoutMs = 8_000, pendingIntervalMs = 200 } = {}) {
-	const canProveCopiedFixture = handle.startedPids && typeof handle.bundleId === "string";
+	const canProveCopiedFixture = handle.startedPids && isFixtureBundleId(handle.bundleId);
 	const beforePids = canProveCopiedFixture
 		? new Set((await backend.listApps()).map((app) => Number(app.pid)).filter((pid) => Number.isInteger(pid) && pid > 0))
 		: undefined;

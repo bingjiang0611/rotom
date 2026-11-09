@@ -202,11 +202,6 @@ export class BrokerClient {
 		return reply.ok === true;
 	}
 
-	async reportPreempted(targetAgentId: string): Promise<boolean> {
-		const reply = (await this.request({ type: "preempted", targetAgentId } as Omit<BrokerRequest, "id">)) as { revoked?: boolean };
-		return reply.revoked === true;
-	}
-
 	async reportInterference(evidence?: string): Promise<boolean> {
 		return ((await this.expect({ type: "interference", evidence })) as InterferenceResponse).paused;
 	}

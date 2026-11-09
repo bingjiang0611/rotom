@@ -19,6 +19,8 @@ const helper = path.join(root, "prebuilt", "macos", arch, "bridge");
 for (const test of [
 	{ flag: "--activity-self-test", expected: "case calibration metadata pass" },
 	{ flag: "--mouse-target-self-test", expected: "case target-hid pass" },
+	{ flag: "--input-source-self-test", expected: "input-source cases=6 failures=0" },
+	{ flag: "--takeover-state-self-test", expected: "takeover-state failures=0" },
 ]) {
 	const result = spawnSync(helper, [test.flag], { cwd: root, encoding: "utf8" });
 	process.stdout.write(result.stdout ?? "");

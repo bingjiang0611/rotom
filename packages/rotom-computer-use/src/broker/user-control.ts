@@ -9,6 +9,7 @@ import {
 	type BrokerReply,
 	type BrokerTransport,
 	type TargetAppInfo,
+	type ReleaseOnYieldRequest,
 } from "./protocol.ts";
 
 /**
@@ -28,7 +29,7 @@ export interface UserControlContext {
 	/** Agents paused after interfering with the user (PLAN §6 / F3). */
 	paused: Map<string, { reason: "interfered_with_user"; at: number }>;
 	/** True when the user allowed this app to take the foreground (L4). */
-	foregroundGranted(app: TargetAppInfo | undefined): boolean;
+	foregroundGranted(app: TargetAppInfo | undefined, agentId: string): boolean;
 }
 
 function helperOrRefusal(ctx: UserControlContext, agentId: string | undefined, action: string): { ok: true } | { ok: false; reply: BrokerReply } {
@@ -50,6 +51,22 @@ export function handleStop(ctx: UserControlContext, agentId: string | undefined,
 		ctx.transport()?.send(target, { event: "stopped", agentId: target });
 	}
 	return { ok: true, type: "stop", stopped: targets };
+}
+
+/** Metadata only: surrender releases cannot grant authorization or resume an agent. */
+export function handleReleaseOnYield(ctx: UserControlContext, agentId: string | undefined, request: ReleaseOnYieldRequest): BrokerReply {
+	const permission = helperOrRefusal(ctx, agentId, "report surrender releases");
+	if (!permission.ok) return permission.reply;
+	if (!ctx.registry.get(request.targetAgentId)) return failure("unknown_agent", "No such release recipient.");
+	const valid = Array.isArray(request.releases) && request.releases.every((release) => release
+		&& ["key", "modifier", "button"].includes(release.kind)
+		&& Number.isInteger(release.code) && release.code >= 0
+		&& release.code <= (release.kind === "button" ? 31 : 65535)
+		&& typeof release.posted === "boolean");
+	if (!valid) return failure("invalid_request", "Release metadata must contain only key codes or button categories and dispatch status.");
+	const releases = request.releases.map(({ kind, code, posted }) => ({ kind, code, posted }));
+	ctx.transport()?.send(request.targetAgentId, { event: "release_on_yield", agentId: request.targetAgentId, releases });
+	return { ok: true, type: "release_on_yield" };
 }
 
 /**
@@ -85,24 +102,6 @@ export function handleTakeoverApproval(ctx: UserControlContext, agentId: string 
 }
 
 /**
- * A real user input arrived while an agent held the foreground (PLAN §7).
- *
- * The helper observes it; the broker owns the consequence, so the rule is the
- * same for every agent: the takeover lease is revoked with `preempted_by_user`,
- * the agent is told, and the steps it already dispatched are reported as they
- * happened rather than rolled back.
- */
-export function handlePreempted(ctx: UserControlContext, agentId: string | undefined, targetAgentId: string): BrokerReply {
-	const permission = helperOrRefusal(ctx, agentId, "report that the user took the foreground back");
-	if (!permission.ok) return permission.reply;
-	const lease = ctx.leases.holder(TAKEOVER_RESOURCE);
-	const revoked = Boolean(lease && lease.agentId === targetAgentId);
-	if (revoked) ctx.leases.revokeAgent(targetAgentId, "preempted_by_user");
-	ctx.transport()?.send(targetAgentId, { event: "preempted", agentId: targetAgentId, reason: "user_input", at: ctx.now() });
-	return { ok: true, type: "preempted", revoked };
-}
-
-/**
  * PLAN §7 conditions for L4, all three of which must hold.
  *
  * 1. the user allowed this app's foreground mode,
@@ -118,7 +117,7 @@ export function takeoverRefusal(
 ): BrokerReply | undefined {
 	const app = request.app;
 	const name = app?.appName ?? app?.bundleId ?? "this app";
-	if (!ctx.foregroundGranted(app)) {
+	if (!ctx.foregroundGranted(app, agentId)) {
 		return failure(
 			"takeover_conditions",
 			`The user has not allowed ${name} to take the foreground. Add it to the foreground list in the Computer Use policy, or ask the user to allow it.`,
@@ -150,10 +149,4 @@ export function takeoverRefusal(
 		});
 	}
 	return undefined;
-}
-
-/** Who currently holds the foreground, if anyone. */
-export function takeoverHolder(ctx: UserControlContext): { agentId: string; since: number } | undefined {
-	const lease = ctx.leases.holder(TAKEOVER_RESOURCE);
-	return lease ? { agentId: lease.agentId, since: lease.createdAt } : undefined;
 }

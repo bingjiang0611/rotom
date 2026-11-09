@@ -166,37 +166,32 @@ test("two agents cannot both hold the foreground", async () => {
 	assert.equal((second as { holder: { agentId: string } }).holder.agentId, AGENT_A.agentId);
 });
 
-test("a real user input ends the takeover as preempted_by_user", async () => {
+test("real input pauses without surrendering the lease, and paused renewal continues", async () => {
 	const { core, clock, delivered } = setup();
-	await hello(core, HELPER);
-	await hello(core, AGENT_A);
-	await hello(core, AGENT_B);
+	await hello(core, HELPER); await hello(core, AGENT_A); await hello(core, AGENT_B);
 	await reportActivity(core, clock.now() - 30_000);
-	const taken = await takeover(core, AGENT_A.agentId);
-	assert.equal(taken.ok, true);
-
-	const preempted = await call(core, HELPER.agentId, { type: "preempted", targetAgentId: AGENT_A.agentId });
-	assert.equal(preempted.ok, true);
-	assert.equal((preempted as { revoked: boolean }).revoked, true);
-	assert.ok(delivered.some((entry) => entry.agentId === AGENT_A.agentId && entry.event === "preempted"));
-	assert.equal(core.leases.holder(TAKEOVER_RESOURCE), undefined, "the takeover lease is gone after preemption");
-
-	// The same agent may ask again (idle), a different one is no longer blocked.
-	assert.equal((await takeover(core, AGENT_B.agentId)).ok, true);
+	const taken = await takeover(core, AGENT_A.agentId) as { ok: true; lease: { leaseId: string } };
+	const lifecycle = (phase: string) => call(core, HELPER.agentId, { type: "takeover_state", takeoverId: "one", targetAgentId: AGENT_A.agentId, leaseId: taken.lease.leaseId, phase, app: APP, sequence: 1 });
+	assert.equal((await lifecycle("begin")).ok, true);
+	assert.equal((await lifecycle("pause")).ok, true);
+	assert.ok(delivered.some((entry) => entry.event === "takeover_state"));
+	assert.equal(core.leases.holder(TAKEOVER_RESOURCE)?.leaseId, taken.lease.leaseId);
+	assert.equal((await call(core, AGENT_A.agentId, { type: "renew", leaseId: taken.lease.leaseId })).ok, true);
+	assert.equal((await takeover(core, AGENT_A.agentId)).ok, false, "paused writes cannot reacquire");
+	assert.equal((await takeover(core, AGENT_B.agentId)).ok, false, "another agent cannot take the retained lease");
+	assert.equal((await call(core, AGENT_A.agentId, { type: "release", leaseId: taken.lease.leaseId })).ok, true);
+	assert.equal(core.leases.holder(TAKEOVER_RESOURCE), undefined);
 });
 
-test("an agent may not report that the user took the foreground back", async () => {
+test("an agent cannot forge a helper pause or resume", async () => {
 	const { core, clock } = setup();
-	await hello(core, HELPER);
-	await hello(core, AGENT_A);
-	await hello(core, AGENT_B);
+	await hello(core, HELPER); await hello(core, AGENT_A);
 	await reportActivity(core, clock.now() - 30_000);
-	assert.equal((await takeover(core, AGENT_A.agentId)).ok, true);
-
-	const forged = await call(core, AGENT_B.agentId, { type: "preempted", targetAgentId: AGENT_A.agentId });
-	assert.equal(forged.ok, false, "preempting a peer would let an agent evict its competitor");
+	const taken = await takeover(core, AGENT_A.agentId) as { ok: true; lease: { leaseId: string } };
+	const forged = await call(core, AGENT_A.agentId, { type: "takeover_state", phase: "pause", targetAgentId: AGENT_A.agentId, leaseId: taken.lease.leaseId, takeoverId: "one", sequence: 1 });
+	assert.equal(forged.ok, false);
 	assert.equal((forged as { code: string }).code, "not_permitted");
-	assert.ok(core.leases.holder(TAKEOVER_RESOURCE), "the holder keeps the foreground");
+	assert.ok(core.leases.holder(TAKEOVER_RESOURCE));
 });
 
 /** Fake broker session: records calls, answers with a lease, never touches a socket. */
@@ -291,6 +286,23 @@ test("the client shows the border, keeps the lease alive, and releases it", asyn
 	assert.equal(controller.activeTakeover, false);
 });
 
+test("a paused client retains and renews its lease but cannot dispatch until a helper resume event", async () => {
+	const { session, calls } = fakeSession();
+	const { backend } = fakeBackend();
+	const controller = new TakeoverController({ broker: () => session, backend: () => backend, listApps: async () => APPS, headless: () => false, renewMs: 5 });
+	await controller.start(812);
+	controller.markPaused();
+	assert.equal(controller.activeTakeover, false);
+	assert.equal(controller.state?.leaseId, "lease-a");
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	assert.ok(calls.includes("renew:lease-a"));
+	controller.markResumed();
+	assert.equal(controller.activeTakeover, true);
+	await controller.end();
+	controller.markResumed();
+	assert.equal(controller.activeTakeover, false, "late events cannot resurrect a released takeover");
+});
+
 test("a refused or unknown takeover never shows the border", async () => {
 	const { session } = fakeSession({ busy: true });
 	const { backend, shown } = fakeBackend();
@@ -315,5 +327,5 @@ test("a failed renewal marks the takeover preempted instead of acting on a lost 
 	assert.equal(controller.activeTakeover, false);
 	assert.equal(controller.preempted, true);
 	await controller.end();
-	assert.equal(hiddenTimes(), 1);
+	assert.equal(hiddenTimes(), 0, "an ended controller cannot hide another border");
 });

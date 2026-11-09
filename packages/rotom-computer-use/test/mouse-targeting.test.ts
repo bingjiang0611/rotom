@@ -29,8 +29,8 @@ test("l2 and pid pointer events carry both target-window fields while hid stays 
 	assert.match(source, /--mouse-target-self-test/);
 });
 
-test("B0 calibration posts one marked zero-displacement HID mouseMoved and returns ring metadata", () => {
-	const calibration = between("func calibrateHidEventSource", "/// Show the border");
+test("diagnostic calibration posts one marked zero-displacement HID mouseMoved and returns ring metadata", () => {
+	const calibration = between("func calibrateHidEventSource", "private func takeoverBegin");
 	assert.match(calibration, /mouseCursorPosition: source\.location/);
 	assert.match(calibration, /eventSourceUserData, value: agentEventMarker/);
 	assert.match(calibration, /event\.post\(tap: \.cghidEventTap\)/);

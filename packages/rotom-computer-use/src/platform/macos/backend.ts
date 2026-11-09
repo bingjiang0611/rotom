@@ -1,8 +1,9 @@
+import { takeoverCopy } from "../../constants/copy.ts";
 import { getComputerUseConfig } from "../../config.ts";
 import { parseLookResponse, type LookResponse } from "../../outline.ts";
 import { cursorColorFor } from "../../cursor-colors.ts";
 import { toBoolean, toFiniteNumber, toOptionalString } from "../coerce.ts";
-import type { HelperLease, ComputerUsePlatformBackend, FramePoints, HelperActResult, PlatformActRequest, PlatformApp, PlatformAppLaunchResult, PlatformAppQuitResult, PlatformClipboardRead, PlatformClipboardRestore, PlatformClipboardSnapshot, PlatformClipboardWrite, PlatformDisplay, PlatformFocusWindowResult, PlatformFrontmostResult, PlatformObserveRequest, PlatformReadTextRequest, PlatformReadTextResponse, PlatformRoot, PlatformRootKind, PlatformRootQuery, PlatformSystemSurface, PlatformSystemSurfaceName, PlatformTakeoverInput, PlatformTarget, PlatformUserActivity, PlatformWaitForRequest, PlatformWaitForResponse, PlatformWindowMutationResult } from "../types.ts";
+import type { HelperLease, ComputerUsePlatformBackend, FramePoints, HelperActResult, PlatformActRequest, PlatformApp, PlatformAppLaunchResult, PlatformAppQuitResult, PlatformClipboardRead, PlatformClipboardRestore, PlatformClipboardSnapshot, PlatformClipboardWrite, PlatformDisplay, PlatformDiagnostics, PlatformFocusWindowResult, PlatformFrontmostResult, PlatformObserveRequest, PlatformReadTextRequest, PlatformReadTextResponse, PlatformRoot, PlatformRootKind, PlatformRootQuery, PlatformSystemSurface, PlatformSystemSurfaceName, PlatformTakeoverInput, PlatformTarget, PlatformUserActivity, PlatformWaitForRequest, PlatformWaitForResponse, PlatformWindowMutationResult } from "../types.ts";
 import { macosHelper } from "./helper.ts";
 
 function parseApps(result: unknown): PlatformApp[] {
@@ -164,16 +165,19 @@ export const macosBackend: Pick<ComputerUsePlatformBackend, "listApps" | "listRo
 	},
 
 	async takeoverBegin(input: PlatformTakeoverInput, signal?: AbortSignal): Promise<void> {
+		const diagnostics = await macosHelper.command<PlatformDiagnostics>("diagnostics", {}, { signal });
+		if (!diagnostics.invariants?.includes("takeover-pause-resume-30s")) throw new Error(takeoverCopy.unsupportedHelper);
 		await macosHelper.command<any>("takeoverBegin", {
 			pid: input.pid,
 			label: input.label,
 			agentId: input.agentId,
+			leaseId: input.leaseId,
 			...(input.lease ? { lease: input.lease } : {}),
 		}, { signal });
 	},
 
-	async takeoverEnd(signal?: AbortSignal): Promise<void> {
-		await macosHelper.command<any>("takeoverEnd", {}, { signal });
+	async takeoverEnd(input: { agentId: string; leaseId: string }, signal?: AbortSignal): Promise<void> {
+		await macosHelper.command<any>("takeoverEnd", input, { signal });
 	},
 
 	async clipboardGet(signal?: AbortSignal): Promise<PlatformClipboardRead> {

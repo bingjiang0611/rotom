@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { toLeaseInfo, type Lease } from "./leases.ts";
 
 /**
  * Lease tokens: the broker's write authority in a form the native helper can check.
@@ -49,6 +50,20 @@ function mac(secret: Buffer, payload: string): string {
 export function signLeaseToken(secret: Buffer, claims: LeaseClaims): string {
 	const payload = Buffer.from(JSON.stringify(claims), "utf8").toString("base64url");
 	return `${payload}.${mac(secret, payload)}`;
+}
+
+/** Lease info plus the native-helper-checkable token for the current holder. */
+export function toSignedLeaseInfo(secret: Buffer, lease: Lease) {
+	return {
+		...toLeaseInfo(lease),
+		token: signLeaseToken(secret, {
+			agentId: lease.agentId,
+			resourceKey: lease.resourceKey,
+			pid: leasePidOf(lease.resourceKey),
+			leaseId: lease.leaseId,
+			expiresAt: lease.expiresAt,
+		}),
+	};
 }
 
 export type LeaseTokenCheck =

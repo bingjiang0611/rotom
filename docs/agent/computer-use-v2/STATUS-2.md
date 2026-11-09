@@ -2,7 +2,7 @@
 
 由执行 agent 维护。每完成一项就更新并推送；审核者只看这个文件、提交和 `evidence/runs/`。
 
-第一期的 `STATUS.md` 不改，按 `HANDOFF-2.md` 的约定由审核者在第二期合入时更新。
+H2 决定：仅输入法优先 AX，键盘布局仍发按键；[HANDOFF-5 / H2 状态](STATUS-2-handoff5.md)。
 
 ## 总结（2026-11-04 19:50 PST）
 

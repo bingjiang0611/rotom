@@ -175,7 +175,7 @@ export class MacosHelperClient {
 	}
 
 	async launchDaemon(signal?: AbortSignal): Promise<void> {
-		if (usingExternalHelperSocket) throw new HelperTransportError(`External helper socket is unavailable at ${HELPER_SOCKET_PATH}.`);
+		if (usingExternalHelperSocket) throw new HelperTransportError(`外部 socket 上没有 helper 在监听，请先用 serve --socket ${HELPER_SOCKET_PATH} 启动。`);
 		await mkdir(path.dirname(HELPER_SOCKET_PATH), { recursive: true });
 		// Open the resolved bundle directly so a legacy system-wide copy with the
 		// same bundle id cannot win LaunchServices resolution.
@@ -218,7 +218,7 @@ export class MacosHelperClient {
 			this.daemonAvailable = true;
 			return true;
 		} catch {}
-		await this.launchDaemon(signal).catch(() => undefined);
+		await this.launchDaemon(signal);
 		for (let index = 0; index < 30; index += 1) {
 			try {
 				await this.daemonCommand("diagnostics", {}, 1_000, signal);

@@ -640,11 +640,17 @@ export async function ensureComputerUseBroker(ctx: ExtensionContext): Promise<vo
 						paused: { reason: event.reason, at: event.at },
 					});
 				}
-				if (event.event === "preempted") {
-					// The user touched the machine: L4 ends here, and the steps already
-					// dispatched stay reported as they happened.
-					takeoverController?.markPreempted(event.at);
-					activeTraceRecorder()?.record({ tool: "cu_session", status: "stopped", evidence: "preempted_by_user" });
+				if (event.event === "release_on_yield") {
+					for (const release of event.releases) activeTraceRecorder()?.record({
+						tool: "cu_session", status: release.posted ? "ok" : "unknown", evidence: "release_on_yield",
+						releaseOnYield: { kind: release.kind, code: release.code },
+					});
+				}
+				if (event.event === "takeover_state" && event.leaseId === takeoverController?.state?.leaseId) {
+					if (event.state === "paused") takeoverController?.markPaused();
+					if (event.state === "resumed") takeoverController?.markResumed();
+					if (event.state === "ended") takeoverController?.markPreempted(event.at);
+					activeTraceRecorder()?.record({ tool: "cu_session", status: event.state === "ended" ? "stopped" : event.state, evidence: event.reason });
 				}
 				if (event.event === "revoked") {
 					brokerRevocations.push({ reason: event.reason, leaseIds: event.leaseIds, at: Date.now() });

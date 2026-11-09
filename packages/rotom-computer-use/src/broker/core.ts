@@ -1,8 +1,10 @@
 import { randomBytes } from "node:crypto";
+import { TakeoverLifecycle } from "./takeover-lifecycle.ts";
+import { permissivePolicy, takeoverGrantValid, type PolicyGate, type PolicyDecision } from "./policy.ts";
 import { parseUserActivityReport } from "./activity.ts";
 import { EpochRegistry } from "./epochs.ts";
-import { leasePidOf, signLeaseToken } from "./lease-token.ts";
-import { LeaseManager, toLeaseInfo, holderInfo, realSchedule, type Lease, type Schedule } from "./leases.ts";
+import { toSignedLeaseInfo } from "./lease-token.ts";
+import { LeaseManager, holderInfo, realSchedule, type Lease, type Schedule } from "./leases.ts";
 import {
 	BROKER_PROTOCOL_VERSION,
 	DEFAULT_APPROVAL_TIMEOUT_MS,
@@ -12,87 +14,29 @@ import {
 	TAKEOVER_RESOURCE,
 	failure,
 	type AcquireRequest,
-	type ActionIntent,
 	type AppTier,
 	type ApprovalDecision,
-	type BrokerEvent,
+	type BrokerTransport,
 	type BrokerReply,
 	type BrokerRequest,
 	type BrokerStatus,
-	type TargetAppInfo,
 } from "./protocol.ts";
 import { AgentRegistry, type AgentRecord } from "./registry.ts";
 import { buildStatus } from "./status.ts";
 import {
 	handleInterference,
-	handlePreempted,
 	handleResume,
 	handleStop,
+	handleReleaseOnYield,
 	handleTakeoverApproval,
-	takeoverHolder,
 	takeoverRefusal,
 	type UserControlContext,
 } from "./user-control.ts";
 
-export interface PolicyCheckInput {
-	agentId: string;
-	resourceKey: string;
-	app?: TargetAppInfo;
-	action?: ActionIntent;
-	/** Session working directory, so the broker can apply the tighter project policy. */
-	cwd?: string;
-}
+export type { PolicyCheckInput, PolicyDecision, PolicyGate } from "./policy.ts";
+export { permissivePolicy } from "./policy.ts";
 
-export interface PolicyDecision {
-	tier: AppTier;
-	/** Shown on the approval card; present for high-risk app categories. */
-	warning?: string;
-	/** False when the tier already allows the action without asking the user. */
-	requiresApproval: boolean;
-	/** Set when the app is denied outright (policy `deny` or an unreadable policy file). */
-	denied?: string;
-	/** Stable identity used for the per-session approval cache. */
-	cacheKey: string;
-}
-
-export interface PolicyGate {
-	check(input: PolicyCheckInput): PolicyDecision;
-	/** Persist a permanent grant ("始终允许"). */
-	allowApp(app: TargetAppInfo | undefined, tier: AppTier): void;
-	/** Effective tier without an action check, used when persisting a grant. */
-	tierForApp(app: TargetAppInfo | undefined, fallbackKey: string): AppTier;
-	/**
-	 * True when the user allowed this app to take the foreground (L4).
-	 *
-	 * Taking the foreground is a bigger permission than writing to an app: the
-	 * agent gets physical input and can reach whatever the app can reach. The grant
-	 * lives in the user's policy file, so an agent cannot hand it to itself.
-	 */
-	foregroundGranted(app: TargetAppInfo | undefined, fallbackKey?: string): boolean;
-	describe(): Record<string, unknown>;
-}
-
-export const permissivePolicy: PolicyGate = {
-	check(input) {
-		return { tier: "full", requiresApproval: false, cacheKey: input.app?.bundleId ?? input.app?.appName ?? input.resourceKey };
-	},
-	allowApp() {},
-	tierForApp() {
-		return "full";
-	},
-	foregroundGranted() {
-		return true;
-	},
-	describe() {
-		return { apps: {}, sensitive: false };
-	},
-};
-
-export interface BrokerTransport {
-	/** Deliver an unsolicited event to one agent; false when it is not connected. */
-	send(agentId: string, event: BrokerEvent): boolean;
-	connectedAgents(): number;
-}
+export type { BrokerTransport } from "./protocol.ts";
 
 export interface BrokerCoreOptions {
 	now?: () => number;
@@ -151,6 +95,7 @@ export class BrokerCore {
 	 */
 	private takeoverApprovedAt: number | undefined;
 	private readonly pendingApprovals = new Map<string, PendingApproval>();
+	readonly takeovers: TakeoverLifecycle;
 	private transport: BrokerTransport | undefined;
 	private approvalCounter = 0;
 
@@ -172,7 +117,19 @@ export class BrokerCore {
 			ttlMs: options.leaseTtlMs ?? DEFAULT_LEASE_TTL_MS,
 			waitTimeoutMs: options.waitTimeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS,
 		});
+		this.takeovers = new TakeoverLifecycle({
+			now: this.now,
+			holder: () => this.leases.holder(TAKEOVER_RESOURCE),
+			granted: (app, agentId) => takeoverGrantValid(this.policy, app, agentId, this.registry.get(agentId)?.cwd),
+			end: (agentId, reason) => { this.leases.revokeAgent(agentId, reason === "released_by_user" ? "released_by_user" : "takeover_ended"); },
+			emit: (agentId, state, reason, takeoverId, leaseId) => {
+				const event = { event: "takeover_state" as const, agentId, state, reason, takeoverId, leaseId, at: this.now() };
+				this.transport?.send(agentId, event);
+				for (const helper of this.registry.agentsWithRole("helper")) this.transport?.send(helper.agentId, event);
+			},
+		});
 		this.leases.onRevoke = (revocation) => {
+			this.takeovers.revoked(revocation.leaseIds, revocation.reason);
 			this.transport?.send(revocation.agentId, { event: "revoked", ...revocation });
 			// The helper enforces tokens, so it has to learn about every revocation:
 			// otherwise a token the broker already took away would keep working.
@@ -191,7 +148,7 @@ export class BrokerCore {
 			leases: this.leases,
 			transport: () => this.transport,
 			paused: this.paused,
-			foregroundGranted: (app) => this.policy.foregroundGranted(app, app?.bundleId ?? app?.appName),
+			foregroundGranted: (app, agentId) => takeoverGrantValid(this.policy, app, agentId, this.registry.get(agentId)?.cwd),
 		};
 	}
 
@@ -203,10 +160,14 @@ export class BrokerCore {
 	handleDisconnect(agentId: string): void {
 		// A subagent holds an app on its parent's authority: when it exits, the app
 		// goes back to the parent instead of staying locked until the TTL expires.
+		const foreground = this.leases.holder(TAKEOVER_RESOURCE);
+		if (foreground?.agentId === agentId) this.leases.release(agentId, foreground.leaseId);
+		this.takeovers.revoked(foreground?.agentId === agentId ? [foreground.leaseId] : [], "authorization_lost");
 		const parentAgentId = this.registry.get(agentId)?.parentAgentId;
 		const parent = parentAgentId ? this.registry.get(parentAgentId) : undefined;
 		if (parent?.connected) this.leases.transferAll(agentId, parent.agentId);
 		else this.leases.revokeAgent(agentId, "owner_disconnected");
+		if (this.registry.get(agentId)?.role === "helper") this.takeovers.helperDisconnected();
 		this.registry.disconnect(agentId);
 		this.registry.remove(agentId);
 		this.paused.delete(agentId);
@@ -216,6 +177,7 @@ export class BrokerCore {
 	sweep(): void {
 		for (const agentId of this.registry.sweep()) this.handleDisconnect(agentId);
 		this.leases.sweep();
+		this.takeovers.sweep();
 		for (const pending of [...this.pendingApprovals.values()]) {
 			if (!this.registry.get(pending.agentId)?.connected) this.settleApproval(pending.requestId, "unavailable");
 		}
@@ -239,7 +201,7 @@ export class BrokerCore {
 				if (request.lastUserInputAt !== undefined && this.registry.get(agentId)?.role === "helper") {
 					const activity = parseUserActivityReport(request.lastUserInputAt, this.now());
 					if (!activity.ok) return failure("invalid_request", "lastUserInputAt must be milliseconds since the epoch.");
-					this.registry.lastUserInputAt = activity.value;
+					this.registry.lastUserInputAt = Math.max(this.registry.lastUserInputAt ?? 0, activity.value);
 				}
 				return { ok: true, type: "ping", now: this.now() };
 			case "acquire":
@@ -250,6 +212,7 @@ export class BrokerCore {
 			case "release":
 				if (!agentId) return failure("unknown_agent", "Register with hello before releasing a lease.");
 				if (!this.leases.release(agentId, request.leaseId)) return failure("not_holder", `Agent ${agentId} does not hold ${request.leaseId}.`);
+				this.takeovers.revoked([request.leaseId], "released_by_user");
 				return { ok: true, type: "release", leaseId: request.leaseId };
 			case "transfer":
 				if (!agentId) return failure("unknown_agent", "Register with hello before transferring a lease.");
@@ -272,8 +235,11 @@ export class BrokerCore {
 				if (reply.ok) this.takeoverApprovedAt = approvedAt;
 				return reply;
 			}
-			case "preempted":
-				return handlePreempted(this.userControl(), agentId, request.targetAgentId);
+			case "release_on_yield":
+				return handleReleaseOnYield(this.userControl(), agentId, request);
+			case "takeover_state":
+				if (!agentId || this.registry.get(agentId)?.role !== "helper") return failure("not_permitted", "Only the helper may report takeover state or resume it.");
+				return this.takeovers.handle(request);
 			case "approval_response": {
 				const pending = this.pendingApprovals.get(request.requestId);
 				if (!pending) return failure("invalid_request", `No pending approval ${request.requestId}.`);
@@ -299,7 +265,7 @@ export class BrokerCore {
 
 	status(): BrokerStatus {
 		this.sweep();
-		return buildStatus({
+		const status = buildStatus({
 			registry: this.registry,
 			leases: this.leases,
 			epochs: this.epochs,
@@ -308,6 +274,8 @@ export class BrokerCore {
 			now: this.now(),
 			paused: this.paused,
 		});
+		if (this.takeovers.status) status.takeover = this.takeovers.status;
+		return status;
 	}
 
 	close(): void {
@@ -355,6 +323,7 @@ export class BrokerCore {
 		const agent = this.registry.get(agentId);
 		if (!agent) return failure("unknown_agent", `Unknown agent ${agentId}.`);
 		if (!request.resourceKey) return failure("invalid_request", "acquire requires a resourceKey.");
+		if (this.takeovers.pausedAgent === agentId) return failure("takeover_conditions", "The takeover is paused by user input; only the helper may automatically resume it.");
 		const pause = this.paused.get(agentId);
 		if (pause) {
 			return failure(
@@ -399,16 +368,18 @@ export class BrokerCore {
 			}
 			return failure("resource_busy", `Resource ${request.resourceKey} is held by ${result.holder.agentId}.`, { holder: result.holder });
 		}
-		return { ok: true, type: "acquire", lease: this.leaseInfo(result.lease), tier: decision.tier, approved: decision.requiresApproval || undefined };
+		return { ok: true, type: "acquire", lease: toSignedLeaseInfo(this.leaseSecret, result.lease), tier: decision.tier, approved: decision.requiresApproval || undefined };
 	}
 
 	private onRenew(agentId: string, leaseId: string): BrokerReply {
+		this.takeovers.sweep();
 		const lease: Lease | undefined = this.leases.renew(agentId, leaseId);
 		if (!lease) return failure("not_holder", `Agent ${agentId} does not hold ${leaseId}.`);
-		return { ok: true, type: "renew", lease: this.leaseInfo(lease) };
+		return { ok: true, type: "renew", lease: toSignedLeaseInfo(this.leaseSecret, lease) };
 	}
 
 	private onTransfer(agentId: string, leaseId: string, toAgentId: string): BrokerReply {
+		if (this.leases.holder(TAKEOVER_RESOURCE)?.leaseId === leaseId) return failure("not_permitted", "Foreground takeover cannot transfer; release it and request a new authorization.");
 		if (!this.registry.get(toAgentId)) return failure("unknown_agent", `Unknown agent ${toAgentId}.`);
 		// Handing an app to a stranger would widen the parent's authorization to a
 		// process the user never approved: only own descendants may receive it.
@@ -418,22 +389,7 @@ export class BrokerCore {
 		}
 		const lease = this.leases.transfer(agentId, leaseId, toAgentId);
 		if (!lease) return failure("not_holder", `Agent ${agentId} does not hold ${leaseId}.`);
-		return { ok: true, type: "transfer", lease: this.leaseInfo(lease) };
-	}
-
-	/** Lease info plus the helper-checkable token for the current holder. */
-	private leaseInfo(lease: Lease) {
-		const info = toLeaseInfo(lease);
-		return {
-			...info,
-			token: signLeaseToken(this.leaseSecret, {
-				agentId: lease.agentId,
-				resourceKey: lease.resourceKey,
-				pid: leasePidOf(lease.resourceKey),
-				leaseId: lease.leaseId,
-				expiresAt: lease.expiresAt,
-			}),
-		};
+		return { ok: true, type: "transfer", lease: toSignedLeaseInfo(this.leaseSecret, lease) };
 	}
 
 	private async requestApproval(

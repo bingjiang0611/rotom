@@ -40,6 +40,13 @@ test("a pending copied fixture records the one new pid with its unique bundle id
 	assert.deepEqual(request, { mode: "launch", path: "/tmp/Fixture.app", bundleId, activates: false, arguments: ["--show-without-activation"] });
 });
 
+test("a non-fixture bundle cannot acquire copied-fixture cleanup authority", async () => {
+	const owned = createRunAppOwnership();
+	const result = await launchFixture({ listApps: async () => { throw new Error("must not discover a non-fixture process"); }, manageApps: async () => ({ pending: true, pid: 52 }) }, { bundlePath: "/tmp/Foreign.app", bundleId: "com.example.operator", startedPids: owned });
+	assert.equal(result.pending, true);
+	assert.deepEqual([...owned], []);
+});
+
 test("a pending copied fixture never claims a same-bundle pid that predates the launch", async () => {
 	const bundleId = "com.example.cu-fixture.preexisting";
 	const owned = createRunAppOwnership();

@@ -7,8 +7,14 @@ import ApplicationServices
 /// click-through and can never take focus, so it cannot intercept the input the
 /// takeover is allowed to use; the helper's own windows are excluded from capture
 /// (see `captureWindow`), so it never ends up in an observation either.
+private enum TakeoverCopy {
+	static func active(_ label: String) -> String { "\(label) — the agent is driving. Touch input to pause; Esc ends takeover." }
+	static func paused(_ label: String) -> String { "\(label) — paused. Continues after 30 seconds of quiet. Esc ends takeover." }
+}
+
 final class TakeoverBorderView: NSView {
 	let label: String
+	var paused = false { didSet { needsDisplay = true } }
 
 	init(frame: NSRect, label: String) {
 		self.label = label
@@ -23,13 +29,13 @@ final class TakeoverBorderView: NSView {
 
 	override func draw(_ dirtyRect: NSRect) {
 		guard let context = NSGraphicsContext.current?.cgContext else { return }
-		let accent = NSColor(red: 1.0, green: 0x78 / 255.0, blue: 0x18 / 255.0, alpha: 0.95)
+		let accent = paused ? NSColor.systemGray : NSColor(red: 1.0, green: 0x78 / 255.0, blue: 0x18 / 255.0, alpha: 0.95)
 		context.setStrokeColor(accent.cgColor)
 		context.setLineWidth(8)
 		let inset = bounds.insetBy(dx: 4, dy: 4)
 		context.stroke(inset)
 
-		let text = "\(label) — the agent is driving. Touch anything to take back control."
+		let text = paused ? TakeoverCopy.paused(label) : TakeoverCopy.active(label)
 		let attributes: [NSAttributedString.Key: Any] = [
 			.font: NSFont.systemFont(ofSize: 15, weight: .semibold),
 			.foregroundColor: NSColor.white,
@@ -78,6 +84,9 @@ final class EscapeSwallowTap {
 	private var runLoop: CFRunLoop?
 	private var thread: Thread?
 	private var active = false
+	var onStop: (() -> Void)?
+
+	fileprivate func stopFromEscape() { onStop?() }
 
 	var isActive: Bool {
 		lock.lock()
@@ -161,7 +170,9 @@ private let escapeSwallowCallback: CGEventTapCallBack = { _proxy, type, event, u
 		return Unmanaged.passUnretained(event)
 	}
 	if (type == .keyDown || type == .keyUp || type == .flagsChanged),
-		event.getIntegerValueField(.keyboardEventKeycode) == 53 {
+		event.getIntegerValueField(.keyboardEventKeycode) == 53,
+		event.getIntegerValueField(.eventSourceUserData) != agentEventMarker {
+		if type == .keyDown, let userInfo { Unmanaged<EscapeSwallowTap>.fromOpaque(userInfo).takeUnretainedValue().stopFromEscape() }
 		return nil
 	}
 	return Unmanaged.passUnretained(event)
@@ -174,11 +185,13 @@ final class TakeoverBorder {
 
 	var isVisible: Bool { window != nil }
 
-	func show(label: String) {
-		if window != nil { return }
+	func show(label: String, paused: Bool, onStop: @escaping () -> Void) {
+		swallow.onStop = onStop
+		if let view = window?.contentView as? TakeoverBorderView { view.paused = paused; return }
 		let frame = NSScreen.main?.frame ?? NSScreen.screens.first?.frame ?? .zero
 		let window = TakeoverBorderWindow(contentRect: frame, styleMask: .borderless, backing: .buffered, defer: false)
 		let view = TakeoverBorderView(frame: CGRect(origin: .zero, size: frame.size), label: label)
+		view.paused = paused
 		window.contentView = view
 		window.level = .statusBar
 		window.orderFrontRegardless()
@@ -188,6 +201,7 @@ final class TakeoverBorder {
 
 	func hide() {
 		swallow.stop()
+		swallow.onStop = nil
 		guard let window else { return }
 		window.orderOut(nil)
 		window.contentView = nil

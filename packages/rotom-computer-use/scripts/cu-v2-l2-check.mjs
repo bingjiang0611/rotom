@@ -195,7 +195,7 @@ async function main() {
 	}
 	await passGate("verdict");
 
-	const inputSource = inputSourceInfo();
+	const inputSource = fake ? fake.inputSource : inputSourceInfo();
 	record("environment", "input source", inputSource.ascii ? "pass" : "inconclusive", `${inputSource.description}; ASCII text typing needs a plain layout`);
 
 	const diagnostics = await macosHelper.diagnosticsCommand();

@@ -190,8 +190,9 @@ export interface PlatformTakeoverInput {
 	pid: number;
 	/** App name shown on the border and in the trace; never user content. */
 	label: string;
-	/** Agent holding the foreground; the helper reports preemption for it. */
+	/** Agent holding the foreground; the helper reports pause/resume for it. */
 	agentId: string;
+	leaseId: string;
 	lease?: HelperLease;
 }
 
@@ -275,7 +276,7 @@ export interface PlatformUserActivity {
 	listening: boolean;
 	userEventCount: number;
 	agentEventCount: number;
-	/** Synthetic events posted through the session HID tap, excluding pid/L2 delivery. */
+	/** Session HID posts plus all surrender ups (conservatively including targeted ups). */
 	agentHidEventCount: number;
 }
 
@@ -366,7 +367,7 @@ export interface ComputerUsePlatformBackend {
 	userActivity?(signal?: AbortSignal): Promise<PlatformUserActivity>;
 	/** Show the takeover border and swallow Escape for the duration (L4). */
 	takeoverBegin?(input: PlatformTakeoverInput, signal?: AbortSignal): Promise<void>;
-	takeoverEnd?(signal?: AbortSignal): Promise<void>;
+	takeoverEnd?(input: { agentId: string; leaseId: string }, signal?: AbortSignal): Promise<void>;
 	clipboardGet?(signal?: AbortSignal): Promise<PlatformClipboardRead>;
 	clipboardSet?(text: string, signal?: AbortSignal, lease?: HelperLease): Promise<PlatformClipboardWrite>;
 	clipboardClear?(signal?: AbortSignal, lease?: HelperLease): Promise<PlatformClipboardWrite>;

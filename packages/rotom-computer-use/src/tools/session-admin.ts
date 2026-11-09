@@ -1,4 +1,5 @@
 import path from "node:path";
+import { takeoverCopy } from "../constants/copy.ts";
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { BrokerRequestError } from "../broker/client.ts";
 import { exportTraceMarkdown } from "../trace/report.ts";
@@ -40,7 +41,7 @@ export function createCuSessionTool(deps: DesktopToolDeps) {
 			return {
 				content: [{
 					type: "text",
-					text: `Foreground taken for ${started.app.appName} (pid ${started.pid}) until ${new Date(started.expiresAt).toISOString()}. The user can take it back at any time by touching the machine; the border shows the takeover.`,
+					text: takeoverCopy.started(started.app.appName, started.pid, new Date(started.expiresAt).toISOString()),
 				}],
 				details: {
 					tool: "cu_session",
