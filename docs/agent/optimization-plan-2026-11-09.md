@@ -131,6 +131,5 @@
 
 - Qoder provider 的缓存行为（决定 P2-6 价值）。
 - Codemode/程序化调用是否绕过 `tool_result` 钩子（影响 repair-hints 现状覆盖面）。
-- `share` 在 scoped 路径的实际可达性（无论如何删除）。
 - 各项收益幅度；社区参数（Claude Code 具体阈值）来源互相矛盾，仅作方向参考。
-- 本方案基于只读审阅，未运行测试或模型。
+- 本方案基于只读审阅；P0 的实施、验证与既有问题见 [执行记录](optimization-plan-2026-11-09-execution.md)。
