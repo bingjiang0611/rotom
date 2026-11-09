@@ -1,7 +1,7 @@
 interface:
-  display_name: "Agent 回归"
-  short_description: "将真实失败入集，或在 rotom 改动后与冻结基线比较"
-  default_prompt: "使用 agent-regression：先将 case 分类为 mechanism、conformance 或 harness；只有 mechanism 进入真实失败闭环。验证 oracle 后跑真实 baseline，稳定复现才修 Agent，最后同条件跑 candidate。不得把离线 judge 绿色或教学题通过写成 Agent 通过。"
+  display_name: "Agent 优化循环"
+  short_description: "从真实会话挖掘失败、复现后修复、跑回归 gate 并记账"
+  default_prompt: "使用 agent-loop：先 harvest 看介入率和分诊队列；只有冻结基线稳定复现的 mechanism 失败才修 Agent，优先改机制；同条件跑 candidate 与 gate；把结果写进实验账本。不得把离线绿色、skip 或 unknown 写成通过。"
 compatibility:
   canonical_format: "Agent Skills SKILL.md"
   adapter_targets: [pi]
