@@ -103,7 +103,7 @@ Native host 在任何 socket 探测/回收前持有进程寿命的 OS 文件锁�
 
 ## 代码地图
 
-- `rotom/extensions/context-layers/`：默认启用的增量摘要、最多三级合并/改写、分页原文回查。使用 Pi session 和 `context_edit`，不增加代理或数据库；细节及实测限制见 [Context Layers](context-layers.md)。
+- `rotom/extensions/context-layers/`：默认启用的单一只读工具 `context_recall`（`ROTOM_CONTEXT_LAYERS=0` 不注册），按子串或 `@entryId` 有界分页回查当前分支的原始条目；不摘要、不合并、不写入，不增加代理或数据库。旧 `context_status`/`context_compress` 与三级摘要已删除；细节及限制见 [Context Layers](context-layers.md)。
 
 - `rotom/package.json`：npm 产品元数据、公开 bin 和显式发行文件清单；不声明任何 npm dependency，也没有产品级 lockfile（npm 12 不再打包或读取 `npm-shrinkwrap.json`），固定通过公开作用域包 `@bingjiang0611/rotom` 分发。
 - `packages/rotom-pi/`：仓内 Pi 源码 fork、上游来源与 MIT 许可证、锁定公开模型目录；`rotom/scripts/build-pi-fork.mjs` 隔离构建八个 CLI/SDK runtime 归档。
