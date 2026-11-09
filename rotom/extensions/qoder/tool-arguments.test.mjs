@@ -9,12 +9,12 @@ import { translateQoderStream } from './translate.mjs';
 const usage = { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 };
 const frame = value => `data: ${JSON.stringify(value)}\n\n`;
 const chunk = (delta, finish_reason = null) => ({ choices: [{ index: 0, delta, finish_reason }] });
-const tool = (id, args) => ({ index: 0, id, type: 'function', function: { name: 'context_status', ...(args === undefined ? {} : { arguments: args }) } });
+const tool = (id, args) => ({ index: 0, id, type: 'function', function: { name: 'context_recall', ...(args === undefined ? {} : { arguments: args }) } });
 const ending = frame(chunk({}, 'tool_calls')) + frame({ choices: [], usage }) + 'data: [DONE]\n\n';
 
 async function translate(wire, options = {}) {
   const events = [];
-  for await (const event of translateQoderStream(qoderChunks(new Response(wire).body, { toolNames: ['context_status'], ...options }), MODEL)) events.push(event);
+  for await (const event of translateQoderStream(qoderChunks(new Response(wire).body, { toolNames: ['context_recall'], ...options }), MODEL)) events.push(event);
   return events;
 }
 
@@ -26,7 +26,7 @@ test('omitted, empty and whitespace arguments become empty objects on direct and
       const events = await translate(wire, { allowLegacyEnvelope: legacy });
       assert.equal(events.at(-1).type, 'done');
       assert.equal(events.at(-1).reason, 'toolUse');
-      assert.deepEqual(events.at(-1).message.content, [{ type: 'toolCall', id: 'call_empty', name: 'context_status', arguments: {} }]);
+      assert.deepEqual(events.at(-1).message.content, [{ type: 'toolCall', id: 'call_empty', name: 'context_recall', arguments: {} }]);
       assert.equal(events.filter(e => e.type === 'toolcall_end').length, 1);
     }
   }
@@ -101,7 +101,7 @@ for (const required of [false, true]) {
       initialState: {
         model: MODEL,
         tools: [{
-          name: 'context_status', label: 'fixture', description: 'fixture',
+          name: 'context_recall', label: 'fixture', description: 'fixture',
           parameters: { type: 'object', properties: { command: { type: 'string' } }, ...(required ? { required: ['command'] } : {}), additionalProperties: false },
           execute: async (_id, args) => {
             executions++;
