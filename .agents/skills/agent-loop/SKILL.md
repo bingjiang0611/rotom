@@ -11,12 +11,13 @@ description: "运行 rotom 的 Agent 优化循环：从本机会话挖掘失败�
 
 - **找问题**：`npm --prefix rotom/evals run loop -- harvest`。读 `report.md` 的周介入率和分诊队列，再读 `incidents.jsonl` 前列事件对应的原始会话。只在本机读取；输出不入 Git。
 - **新失败入集**：分类 → oracle → baseline → 修复 → candidate，顺序不可交换（见合同 ②–④）。
-- **改了 Agent 行为**：改动涉及 coding-policy、工具、Goal 续跑、上下文/压缩或 Subagent 默认时，跑 `npm --prefix rotom/evals run loop -- gate --baseline <冻结产品>`。
+- **改了 Agent 行为**：改动涉及 coding-policy、工具、Goal 续跑、上下文/压缩或 Subagent 默认时，跑 `npm --prefix rotom/evals run loop -- gate --baseline <冻结产品>`。样本不足就加轮次，再用 `gate-pool --since <起跑时间> [--case ID]` 合并判定：合并只看 pass/fail 累加，后一轮通过不会抵消前一轮失败。
 - **收尾**：每个实验（含撤回和未复现）在 `rotom/evals/loop/ledger.json` 追加一项，并跑 `npm --prefix rotom/evals run loop -- ledger`。
 
 ## 不可妥协
 
-- 只有冻结基线上 `reproduced-regression`（3 次中 ≥2 次失败）才改 Agent；`not-reproduced`、`flaky-candidate` 不改。不为制造改善放宽 judge、删反例或改阈值。
+- 只有冻结基线上 `reproduced-regression`（3 次中 ≥2 次失败，或 gate-pool 合并后同门槛）才改 Agent；`not-reproduced`、`flaky-candidate` 不改。不为制造改善放宽 judge、删反例或改阈值。
+- gate 结果只在 `~/.rotom/loop/gate-history.jsonl` 累加，不用重跑覆盖旧失败；判定按合并后的 pass/fail 数，不按最近一次。
 - 优先改机制；纯提示改动没有 `evidence: improved` 不得 shipped，并报告 token 变化。
 - baseline 与 candidate 同 case、fixture、judge、runner、模型、thinking、输入和重复数；中途改评测则两侧重跑。
 - skip、超时、provider 错误、identity gate 失败和 unknown 单列，不算通过；gate 的 `unknown` 不是 `held`。

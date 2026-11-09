@@ -1,7 +1,8 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { parseGateManifest, runGate } from "./gate.ts";
+import { appendGateHistory, gateHistoryRecords, parseGateHistory, parseGateManifest, poolGateHistory, runGate } from "./gate.ts";
 import { defaultLoopDir, defaultSessionsDir, harvest } from "./harvest-run.ts";
 import { parseLedger } from "./ledger.ts";
 
@@ -16,9 +17,14 @@ const USAGE = `Usage: npm run loop -- <command>
       Scan local Pi sessions (default ${defaultSessionsDir()}) into a private incident
       queue and weekly intervention rate under ${defaultLoopDir()}. No model calls.
 
-  gate --baseline /abs/frozen/rotom [--candidate /abs/rotom] [--case ID] [--out DIR]
+  gate --baseline /abs/frozen/rotom [--candidate /abs/rotom] [--case ID] [--repeats N] [--out DIR]
       Re-run reproduced regression cases from loop/gate.json against both products
-      and print held / regressed / unknown. Calls the configured model.
+      and print held / regressed / unknown. Appends each case to the private gate
+      history. Calls the configured model.
+
+  gate-pool --since ISO [--case ID] [--history PATH]
+      Merge every recorded gate run of the same candidate commit and baseline for
+      each case since ISO, then judge the pooled pass and fail counts.
 
   ledger
       Validate loop/ledger.json and print the experiment history.
@@ -26,6 +32,18 @@ const USAGE = `Usage: npm run loop -- <command>
 
 function stamp(): string {
 	return new Date().toISOString().replace(/[:.]/gu, "-");
+}
+
+/** History lives next to the other private loop artifacts, never in Git. */
+function gateHistoryPath(env: NodeJS.ProcessEnv = process.env): string {
+	return join(defaultLoopDir(env), "gate-history.jsonl");
+}
+
+/** Candidate commit of the product under test; `unknown` when it is not a Git checkout. */
+function commitOf(product: string): string {
+	const run = spawnSync("git", ["-C", product, "rev-parse", "HEAD"], { encoding: "utf8" });
+	const commit = run.status === 0 ? run.stdout.trim() : "";
+	return /^[0-9a-f]{40}$/u.test(commit) ? commit : "unknown";
 }
 
 async function main(argv: string[]): Promise<number> {
@@ -53,24 +71,58 @@ async function main(argv: string[]): Promise<number> {
 	if (command === "gate") {
 		const { values } = parseArgs({
 			args: rest,
-			options: { baseline: { type: "string" }, candidate: { type: "string" }, case: { type: "string" }, out: { type: "string" } },
+			options: { baseline: { type: "string" }, candidate: { type: "string" }, case: { type: "string" }, repeats: { type: "string" }, out: { type: "string" } },
 		});
 		if (!values.baseline) throw new Error("gate needs --baseline /absolute/frozen/rotom");
 		const manifest = parseGateManifest(readFileSync(GATE_MANIFEST, "utf8"));
+		const repeats = values.repeats === undefined ? manifest.repeats : Number(values.repeats);
+		if (!Number.isSafeInteger(repeats) || repeats < 1 || repeats > 5) throw new Error("--repeats must be an integer from 1 to 5");
+		const candidateProduct = values.candidate ?? resolve(evalsRoot, "..");
+		const outDir = values.out ?? join(defaultLoopDir(), `gate-${stamp()}`);
 		const result = runGate({
 			evalsRoot,
-			manifest,
+			manifest: { ...manifest, repeats },
 			baselineProduct: values.baseline,
-			candidateProduct: values.candidate ?? resolve(evalsRoot, ".."),
+			candidateProduct,
 			only: values.case,
-			outDir: values.out ?? join(defaultLoopDir(), `gate-${stamp()}`),
+			outDir,
 		});
 		for (const item of result.results) {
 			const rate = (value: number | null) => (value === null ? "N/A" : `${Math.round(value * 100)}%`);
 			console.log(`${item.verdict.padEnd(9)} ${item.role.padEnd(10)} ${item.caseId}  baseline=${rate(item.baselinePassRate)} candidate=${rate(item.candidatePassRate)} pairs=${item.pairs}/${item.expectedPairs}${item.reason ? `  (${item.reason})` : ""}`);
 		}
+		const historyPath = gateHistoryPath();
+		const records = gateHistoryRecords({
+			recordedAt: new Date().toISOString(),
+			runId: outDir.split("/").at(-1) ?? outDir,
+			model: manifest.model,
+			repeats,
+			candidateCommit: commitOf(candidateProduct),
+			baselineProduct: resolve(values.baseline),
+			candidateProduct: resolve(candidateProduct),
+			results: result.results,
+		});
+		appendGateHistory(historyPath, records);
 		console.log(`gate: ${result.verdict} · ${result.summaryPath}`);
+		console.log(`history: ${historyPath} (+${records.length} samples)`);
 		return result.verdict === "held" ? 0 : result.verdict === "regressed" ? 1 : 2;
+	}
+	if (command === "gate-pool") {
+		const { values } = parseArgs({ args: rest, options: { since: { type: "string" }, case: { type: "string" }, history: { type: "string" } } });
+		if (!values.since) throw new Error("gate-pool needs --since <ISO time>");
+		const since = new Date(values.since);
+		if (Number.isNaN(since.getTime())) throw new Error("--since must be an ISO timestamp");
+		const historyPath = values.history ?? gateHistoryPath();
+		if (!existsSync(historyPath)) throw new Error(`no gate history at ${historyPath}`);
+		const pooled = poolGateHistory(parseGateHistory(readFileSync(historyPath, "utf8")), { since, caseId: values.case });
+		if (pooled.length === 0) throw new Error(`no gate samples since ${since.toISOString()}`);
+		for (const group of pooled) {
+			const failures = (total: number, pass: number) => total - pass;
+			console.log(`${group.verdict.padEnd(9)} ${(group.role ?? "?").padEnd(10)} ${group.caseId}`);
+			console.log(`          runs=${group.runs} pairs=${group.pairs} baselineFail=${failures(group.pairs, group.baselinePass)} candidateFail=${failures(group.pairs, group.candidatePass)} unknownRuns=${group.unknownRuns}`);
+			console.log(`          candidate=${group.candidateCommit} baseline=${group.baselineProduct} model=${group.model.provider}/${group.model.model}`);
+		}
+		return pooled.some((group) => group.verdict === "regressed") ? 1 : pooled.some((group) => group.verdict === "unknown") ? 2 : 0;
 	}
 	if (command === "ledger") {
 		const entries = parseLedger(readFileSync(LEDGER, "utf8"), repoRoot);
