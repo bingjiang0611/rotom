@@ -27,6 +27,11 @@ const oversizedByDecision = new Set([
 	"CLAUDE.md",
 	"packages/rotom-computer-use/src/bridge.ts",
 	"packages/rotom-computer-use/native/macos/bridge.swift",
+	// 2026-11-10: the ai type surface and the faux provider mirror upstream shapes
+	// one field at a time; splitting either fragments an import path for every
+	// caller instead of separating a responsibility.
+	"packages/rotom-pi/packages/ai/src/types.ts",
+	"packages/rotom-pi/packages/ai/src/providers/faux.ts",
 ]);
 
 function git(args, input) {
