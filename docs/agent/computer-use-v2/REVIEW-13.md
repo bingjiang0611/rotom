@@ -94,3 +94,36 @@
 
 遗留进程：PID 5269（`~/cu-v2-test/Fixture.app`，原始 fixture）、61467 和 69339（11-08 的旧副本）都不是这次运行启动的，
 按规则没有退出。由用户自己退出，或在授权里明确允许执行方核对 bundle id 后礼貌退出这三个 pid。
+
+## 更正（2026-11-09）：中止的真正原因是端点安全，不是 helper 没启动
+
+执行方补查到系统日志：
+
+```
+launchd ... com.example.cu-fixture.1794215717634 [20249] exited with exit reason
+(namespace: 27 code: 0x1) - OS_REASON_ENDPOINTSECURITY | An Endpoint Security product
+on the system denied the process from executing., ran for 11038ms
+```
+
+所以上一节"helper 没起在独立 socket 上"的判断不是根因。真正的原因是：这台公司管理的 Mac 上的端点安全产品
+（本机装有 AliEntSafe）在进程启动约 11 秒后将其终止。这同时改写了更早几次"进程在、没有窗口"的偶发失败——
+那些很可能也是端点安全终止了 fixture，而不是窗口轮询超时。
+
+机制（已核对代码）：
+
+- 脚本不接受 ad-hoc 签名的 fixture（`l2-env.mjs` `checkFixtureSignature`），所以这次 fixture 是用某张真实证书签了名、
+  启动后才被杀的。
+- 早期能跑通的窗口（第 7/9/10 次）用的是 Apple Development 证书（Apple 链、带团队 ID），端点安全放行。
+- mac2 讨论引入的自签名证书 `rotom-cu-test` 不在 Apple 链上；它过得了脚本检查，但端点安全仍会终止它。
+
+**待查**：本次运行 `PI_CU_FIXTURE_SIGN_IDENTITY` 与 helper 签名用的是哪张证书。若是自签名证书，换回早期放行过的
+Apple Development 证书即可，这是合规签名，不是规避管控。
+
+**结论与边界**：
+
+1. 被终止的是测试用的一次性 fixture（每次新 bundle id、重新签名），不是产品路径；真实用户操作的是已安装、已受信的 App，
+   不复现这个模式。因此本次终止不能推断产品的后台操作有问题。
+2. 但这台公司机器的端点安全会主动终止非 Apple 链的自签名二进制，说明它不是干净的测试环境，这与此前追查的
+   未标记事件来源一致。记为环境发现。
+3. 不得以任何方式规避端点安全管控。合规路径只有两条：用端点安全已放行的 Apple Development 证书签名；
+   或由安全/IT 管理员按日志（时间、PID、路径）加例外，或改在非受管机器/虚拟机上测（HANDOFF-3）。
