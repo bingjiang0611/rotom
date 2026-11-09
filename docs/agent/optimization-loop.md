@@ -41,6 +41,8 @@ npm --prefix rotom/evals run loop -- harvest --days 7 --no-excerpts
 | 失败 | `goal_pause` | Goal 暂停且原因不是用户暂停、会话恢复或 `agent_interruption`（后者是上游错误的后果，由对应事件记录） |
 | 失败 | `compaction_failed` | trace 中压缩 span 以 error 结束 |
 
+**压缩后观察**（`compactions.jsonl` 与报告的 “After compaction” 节，只含计数，不含正文）：每次压缩记录压缩前 token、摘要 token、前后各一次请求的 cacheRead；之后 5 条助手消息内重读摘要所列文件的数量与 `context_recall`/`obs_recall` 次数；之后 3 个用户轮内的介入与 Goal 暂停。报告并列“压缩后每 100 用户轮介入”与全局值，用于判断压缩改动（优化方案 P1-2）；它是候选信号，不是质量结论。
+
 **北极星指标**：每 100 个用户 turn 的介入次数（同一 turn 多个信号只计一次，中断单独计）。`report.md` 给出每周数值和按权重排序的分诊队列；`incidents.jsonl` 的 `entryId` 可直接定位到会话分叉点。
 
 局限：`/skill:<name>` 展开的模板文本会被剥掉，只比较用户真正输入的部分；其他经 `sendUserMessage` 注入的 user 消息仍无法与人工输入区分；关键词检测是候选排序，不是结论；单人数据有偏。同一段对话被 fork 到多个会话文件时，用户 turn 与事件按 entryId 只计一次。不把 harvest 数值写成产品质量结论，只比较同一来源的周趋势。

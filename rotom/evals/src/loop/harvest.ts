@@ -51,8 +51,8 @@ export type SessionSummary = {
 	incidentCounts: Partial<Record<IncidentKind, number>>;
 };
 
-type Entry = { type: string; id: string; parentId: string | null; timestamp: string; [key: string]: unknown };
-type Message = { role: string; [key: string]: unknown };
+export type Entry = { type: string; id: string; parentId: string | null; timestamp: string; [key: string]: unknown };
+export type Message = { role: string; [key: string]: unknown };
 type Block = { type?: string; text?: string; name?: string; id?: string; arguments?: Record<string, unknown> };
 
 const EXCERPT_CHARS = 240;
@@ -88,7 +88,7 @@ const THEN_RUN_FAILED = "[then_run:failed]";
 /** `/skill:<name>` expands into this block; only the text after it is what the user typed. */
 const SKILL_BLOCK = /^<skill name="[^"]*" location="[^"]*">\n[\s\S]*?\n<\/skill>(?:\n\n([\s\S]+))?$/u;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -141,7 +141,7 @@ export function isBareContinue(text: string): boolean {
 	return BARE_CONTINUE.has(text.trim().toLowerCase().replace(/[。.!！~～]+$/u, "")) || BARE_CONTINUE.has(text.trim());
 }
 
-function parseLines(lines: readonly string[]): { header?: Record<string, unknown>; entries: Entry[] } {
+export function parseLines(lines: readonly string[]): { header?: Record<string, unknown>; entries: Entry[] } {
 	let header: Record<string, unknown> | undefined;
 	const entries: Entry[] = [];
 	for (const line of lines) {
@@ -164,7 +164,7 @@ function parseLines(lines: readonly string[]): { header?: Record<string, unknown
 }
 
 /** Every root→leaf path through the session tree, capped; incidents dedupe by anchor. */
-function paths(entries: readonly Entry[]): Entry[][] {
+export function paths(entries: readonly Entry[]): Entry[][] {
 	const byId = new Map(entries.map((entry) => [entry.id, entry]));
 	const hasChild = new Set(entries.map((entry) => entry.parentId).filter((id): id is string => id !== null));
 	const leaves = entries.filter((entry) => !hasChild.has(entry.id)).slice(-MAX_LEAVES);
@@ -179,7 +179,7 @@ function paths(entries: readonly Entry[]): Entry[][] {
 	});
 }
 
-function messageOf(entry: Entry): Message | undefined {
+export function messageOf(entry: Entry): Message | undefined {
 	return entry.type === "message" && isRecord(entry.message) && typeof entry.message.role === "string"
 		? (entry.message as Message)
 		: undefined;

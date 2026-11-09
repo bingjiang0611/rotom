@@ -250,7 +250,7 @@ describe("loop harvest output", () => {
 		expect(result.skipped).toBe(1);
 		expect(((await lstat(result.outDir)).mode & 0o777)).toBe(0o700);
 		const files = (await readdir(result.outDir)).sort();
-		expect(files).toEqual(["incidents.jsonl", "report.md", "sessions.jsonl", "summary.json"]);
+		expect(files).toEqual(["compactions.jsonl", "incidents.jsonl", "report.md", "sessions.jsonl", "summary.json"]);
 		for (const file of files) expect(((await lstat(join(result.outDir, file))).mode & 0o777)).toBe(0o600);
 		const report = await readFile(join(result.outDir, "report.md"), "utf8");
 		expect(report).toContain("| 2026-W45 | 1 | 2 | 1 | 50 | 1 |");
