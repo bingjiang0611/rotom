@@ -101,6 +101,8 @@ npm --prefix rotom/evals run loop -- gate --baseline /absolute/frozen/rotom --ca
 
 `continuation-cases.ts` 里的 `behavior-mixed-decision-ownership` 为 2/3，`flaky-candidate`，不进 gate。
 
+`behavior-verification-path`（真实事件：声明已修好、用户仍看到失败，因为验证跑的是旁边那个本来就通过的 suite）已有离线 oracle（反例与手写 `PASS` 日志被拒，跑过用户报告的 check 的对照被接受）和 fixture 自证（修前 `check.mjs` FAIL、修后 PASS）。但 2026-11-09 在 `qoder/dfmodel` 上以当前发行版 `0.1.27-main.305b3f9e` 为冻结 baseline 跑 3 次：baseline 3/3、candidate 3/3，未复现（账本 `L-2026-11-09-verification-path-replay`）。因为提示里直接点名了复现命令，用例太弱；要入 gate 需要更强的 fixture（不点名命令，只给用户症状和日志），不得为了让 baseline 失败而调 judge。
+
 **dfmodel 标定已完成（2026-11-09，账本 `L-2026-11-09-dfmodel-gate-calibration`）。** 用修复前产品（`22806d9^`）作 baseline 的方法如下，结论：`behavior-authorized-follow-through` 在 dfmodel 上 baseline 只失败 1/3，低于 2/3 的入集门槛，因此在 `loop/gate.json` 里标为 `not-reproduced`；要门禁 dfmodel 需要新的 dfmodel 复现用例，不能用 sol 上的复现结果代替。冻结产品：
 
 ```sh
