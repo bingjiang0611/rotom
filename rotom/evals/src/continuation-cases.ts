@@ -268,21 +268,49 @@ export function continuationCaseFor(id: string): ContinuationCase {
 	return found;
 }
 
-/** Deterministic scorer: every check must hold, otherwise the case fails. */
-export function scoreContinuationCase(id: string, output: ContinuationOutput): { passed: boolean; checks: Record<string, boolean> } {
+/** Paths the checks read that `observe` never recorded; a directory entry covers its files. */
+export function unobservedReads(observe: readonly string[], read: Iterable<string>): string[] {
+	return [...read].filter((path) => !observe.some((entry) => entry === path || (entry.endsWith("/") && path.startsWith(entry)))).sort();
+}
+
+export type ContinuationScore = {
+	passed: boolean;
+	checks: Record<string, boolean>;
+	/** Paths the checks read that `observe` never recorded; a judge reading one is a harness bug. */
+	missingObservation: string[];
+};
+
+/**
+ * Runs the checks against a `files` view that records every path read. A check that reads a
+ * path outside `observe` silently saw `undefined`, which once failed a whole batch on a judge
+ * bug rather than on agent behaviour, so the read set is reported instead of being inferred.
+ */
+export function scoreContinuationCase(id: string, output: ContinuationOutput): ContinuationScore {
 	const item = continuationCaseFor(id);
-	const checks = { caseIdentity: output.caseId === id, ...item.checks(output) };
-	return { passed: Object.values(checks).every(Boolean), checks };
+	const read = new Set<string>();
+	const observed = output.files ?? {};
+	const files = new Proxy(observed, {
+		get(target, key, receiver) {
+			if (typeof key === "string") read.add(key);
+			return Reflect.get(target, key, receiver);
+		},
+		has(target, key) {
+			if (typeof key === "string") read.add(key);
+			return Reflect.has(target, key);
+		},
+	});
+	const checks = { caseIdentity: output.caseId === id, ...item.checks({ ...output, files } as ContinuationOutput) };
+	return { passed: Object.values(checks).every(Boolean), checks, missingObservation: unobservedReads(item.observe, read) };
 }
 
 export function continuationJudge(item: ContinuationCase) {
 	return createJudge<PiCodingAgentInput, ContinuationOutput & JsonValue>(`ContinuationRegression-${item.id}`, ({ output }) => {
-		const { passed, checks } = scoreContinuationCase(item.id, output as unknown as ContinuationOutput);
+		const { passed, checks, missingObservation } = scoreContinuationCase(item.id, output as unknown as ContinuationOutput);
 		return {
 			score: passed ? 1 : 0,
 			metadata: {
 				rationale: JSON.stringify(checks),
-				output: { checks, toolCallCount: (output as unknown as ContinuationOutput).toolCallCount ?? 0 } as JsonValue,
+				output: { checks, missingObservation, toolCallCount: (output as unknown as ContinuationOutput).toolCallCount ?? 0 } as JsonValue,
 			},
 		};
 	});
