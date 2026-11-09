@@ -58,6 +58,14 @@ test("native surrender tracks only the verified agent and never copies old event
 	assert.doesNotMatch(state.slice(state.indexOf("static func releaseEvent(")), /keyDown: true|\.mouseMoved|\.mouseDragged/);
 });
 
+test("successful L2 posting records held input, matching its surrender release branch", () => {
+	const start = native.indexOf("\tprivate func postTargetedEvent(");
+	const end = native.indexOf("\tprivate static let skyLightPostToPidSymbol", start);
+	const targeted = native.slice(start, end);
+	assert.match(targeted, /guard let post = skyLightPostToPid else \{ return false \}/);
+	assert.match(targeted, /post\(pid, event\)\s*trackHeldInput\(event, pid: pid, delivery: "l2"\)\s*return true/);
+});
+
 test("interrupted native actions are unknown, stop the batch and cannot resume old text", () => {
 	assert.match(native, /TakeoverState\.isInterruption\(failure\.code\) \? "unknown" : "didnt"/);
 	assert.match(native, /takeoverState\.interrupted\(expected: requestTakeoverId\)/);

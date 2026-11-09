@@ -23,7 +23,7 @@ test("external socket failure explains serve --socket and never launches a helpe
 		const {MacosHelperClient} = await import(${JSON.stringify(module)});
 		const client = new MacosHelperClient();
 		client.daemonCommand = async () => { throw new Error('no listener'); };
-		await assert.rejects(client.ensureDaemon(), /外部 socket 上没有 helper 在监听.*serve --socket \\/tmp\\/cu-h5-no-helper.sock/);
+		await assert.rejects(client.ensureDaemon(), /No helper is listening on the external socket.*serve --socket \\/tmp\\/cu-h5-no-helper.sock/);
 	`], { env: { ...process.env, PI_CU_SOCKET_PATH: "/tmp/cu-h5-no-helper.sock" }, encoding: "utf8" });
 	assert.equal(result.status, 0, result.stderr);
 });
@@ -36,6 +36,16 @@ test("H2 branches on the real TIS source; plain layouts and pinned transports re
 	assert.match(source, /kTISTypeKeyboardInputMode/);
 	assert.match(bridge, /if InputSourcePolicy\.currentPrefersAX\(requireTransport: requireTransport\), let element, !text\.isEmpty, insertTextAtCaret/);
 	assert.match(bridge, /try postUnicodeText\(text, pid: pid, delivery: delivery\)/);
+});
+
+test("K1 reads TIS only on main and exercises the worker-to-main hop", () => {
+	const source = read("../native/macos/input_source.swift");
+	assert.match(source, /if Thread\.isMainThread/);
+	assert.match(source, /DispatchQueue\.main\.sync \{ currentInputSourceType\(\) \}/);
+	assert.match(source, /private static func currentInputSourceType\(\)[\s\S]*?precondition\(Thread\.isMainThread\)[\s\S]*?TISCopyCurrentKeyboardInputSource/);
+	assert.match(source, /precondition\(!Thread\.isMainThread\)/);
+	assert.match(source, /DispatchQueue\.global\(qos: \.userInitiated\)\.async\(execute: background\)/);
+	assert.match(source, /RunLoop\.current\.run/);
 });
 
 test("native pause gates cover post boundaries, focus and AX writes; resume uses target identity", () => {

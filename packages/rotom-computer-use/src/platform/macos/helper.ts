@@ -175,7 +175,7 @@ export class MacosHelperClient {
 	}
 
 	async launchDaemon(signal?: AbortSignal): Promise<void> {
-		if (usingExternalHelperSocket) throw new HelperTransportError(`外部 socket 上没有 helper 在监听，请先用 serve --socket ${HELPER_SOCKET_PATH} 启动。`);
+		if (usingExternalHelperSocket) throw new HelperTransportError(`No helper is listening on the external socket; start it with serve --socket ${HELPER_SOCKET_PATH}.`);
 		await mkdir(path.dirname(HELPER_SOCKET_PATH), { recursive: true });
 		// Open the resolved bundle directly so a legacy system-wide copy with the
 		// same bundle id cannot win LaunchServices resolution.
