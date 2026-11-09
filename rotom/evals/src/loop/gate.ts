@@ -27,6 +27,11 @@ export type GateCase = {
 	repeatsEnv: string;
 	/** Ledger entry that admitted this case. */
 	ledger: string;
+	/**
+	 * Last recorded reproduction evidence. `not-reproduced` means the frozen baseline no longer
+	 * fails the case on that model, so it cannot show improvement there and needs a new case.
+	 */
+	reproduction?: { model: string; verdict: "reproduced" | "not-reproduced"; detail: string };
 };
 
 export type GateManifest = {
@@ -51,6 +56,14 @@ export function parseGateManifest(text: string): GateManifest {
 		if (item.role !== "reproduced" && item.role !== "control") throw new Error(`gate case ${item.caseId} role must be reproduced or control`);
 		for (const name of [item.enableEnv, item.caseEnv, item.repeatsEnv]) if (typeof name !== "string" || !ENV_NAME.test(name)) throw new Error(`gate case ${item.caseId} has an invalid env name`);
 		if (typeof item.ledger !== "string" || !item.ledger) throw new Error(`gate case ${item.caseId} must cite a ledger entry`);
+		if (item.reproduction !== undefined) {
+			const reproduction = item.reproduction as Partial<GateCase["reproduction"]> | null;
+			if (typeof reproduction !== "object" || reproduction === null) throw new Error(`gate case ${item.caseId} reproduction must be an object`);
+			for (const field of ["model", "detail"] as const) {
+				if (typeof reproduction[field] !== "string" || !(reproduction[field] as string).trim()) throw new Error(`gate case ${item.caseId} reproduction.${field} is required`);
+			}
+			if (reproduction.verdict !== "reproduced" && reproduction.verdict !== "not-reproduced") throw new Error(`gate case ${item.caseId} reproduction.verdict must be reproduced or not-reproduced`);
+		}
 		const key = `${item.suite}#${item.caseId}`;
 		if (seen.has(key)) throw new Error(`duplicate gate case ${key}`);
 		seen.add(key);
@@ -71,6 +84,8 @@ export type GateCaseVerdict = "held" | "regressed" | "unknown";
 export type GateCaseResult = {
 	caseId: string;
 	role: GateCase["role"];
+	/** Recorded reproduction evidence carried into the summary, if any. */
+	reproduction?: GateCase["reproduction"];
 	verdict: GateCaseVerdict;
 	pairs: number;
 	expectedPairs: number;
@@ -84,7 +99,7 @@ export type GateCaseResult = {
 };
 
 export function judgeGateCase(item: GateCase, repeats: number, artifacts: string, report: ComparisonsReport | undefined): GateCaseResult {
-	const base = { caseId: item.caseId, role: item.role, expectedPairs: repeats, artifacts };
+	const base = { caseId: item.caseId, role: item.role, reproduction: item.reproduction, expectedPairs: repeats, artifacts };
 	const comparisons = report?.evalSets?.flatMap((set) => set.comparisons) ?? [];
 	if (!report || comparisons.length !== 1) {
 		return { ...base, verdict: "unknown", pairs: 0, baselinePassRate: null, candidatePassRate: null, candidateMeanTokens: null, baselineMeanTokens: null, diagnostics: report?.diagnostics?.length ?? 0, reason: report ? "expected exactly one baseline/candidate comparison" : "comparisons.json missing" };
