@@ -67,7 +67,7 @@ The default product selects **`sol-pi@0.1.0-rotom.6`**, maintained in `packages/
 - Tests: `.rotom.2` passes upstream's suite plus the rotom usage and quote-diagnostic tests, 168/168, against both the Pi `1.3.0-rotom.2` packages and the pinned upstream Pi `0.85.1` devDependencies (`.rotom.1`: 167/167; `.rotom.0`: 166/166 on `1.3.0-rotom.1`). In `packages/rotom-sol-pi/` itself, the 2 `tests/install-guide.test.ts` cases fail because they read the non-imported upstream `AGENTS.md`/`CLAUDE.md`.
 - `extensions/third-party/sol-pi.ts` supplies rotom's default (Action Fusion, Observation Pack, Evidence-Preserving Reducer and Compaction Offload on; only Online Context Compact off) only when no SoL-Pi config file exists; `ROTOM_COMPACTION_OFFLOAD=1|0` overrides the latter after config loading, with Observation Pack required.
 
-`pi-context-view@0.7.1` is taken unmodified from the public npm registry and pinned by its registry integrity in `package-lock.json` and `runtime/product-config.mjs`.
+`pi-context-view@0.8.3` is taken unmodified from the public npm registry and pinned by its registry integrity in `package-lock.json` and `runtime/product-config.mjs`.
 
 All vendored archives: `package.json` keeps the exact version, `package-lock.json` resolves it to the relative archive, and `runtime/product-config.mjs` pins version + integrity; build-time checks and locked npm ci verify archives, which are not duplicated in the product package. Use the same fresh-prefix `npm ci` guidance above; **do not run npm ci over a directory still used by live sessions.**
 
