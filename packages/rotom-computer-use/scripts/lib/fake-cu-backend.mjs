@@ -38,11 +38,8 @@ export const gate =
 			window_start: "2026-01-01T00:00:00+0000",
 			window_minutes: 60,
 			minutes_left: 49.5,
-			inside_window: true,
-			hid_idle_seconds: 641.9,
-			helper: null,
-			gates: { inside_window: true, no_recent_user_input: false },
-			helper_error: "pi-computer-use helper app daemon is unavailable at ~/cu-v2-test/pi-computer-use.app.",
+			inside_window: false,
+			gates: { inside_window: false },
 			verdict: "hold",
 		}
 		: {
@@ -51,10 +48,7 @@ export const gate =
 	window_minutes: 60,
 	minutes_left: 49.5,
 	inside_window: true,
-	hid_idle_seconds: 640,
-	helper_idle_seconds: -1,
-	gates: { inside_window: true, no_recent_user_input: true },
-	helper: { listening: true, userEventCount: 0, agentEventCount: 0, lastUserInputAt: 0 },
+	gates: { inside_window: true },
 			verdict: "pass",
 		};
 
@@ -160,7 +154,7 @@ export const helper = {
 		if (name === "calibrateHidEventSource") {
 			pushEvent(true);
 			events.at(-1).at -= 1000; // calibration precedes the formal action window
-			return { found: true, pid: 4242, stateId: 1, type: 5, agentDelta: 1 };
+			return { found: true, pid: 4343, stateId: 1, type: 5, agentDelta: 1 };
 		}
 		if (name === "act") {
 			if (scenario === "activate-only") activatedByPost = true;
@@ -175,13 +169,13 @@ export const helper = {
 		throw new Error(`fake helper does not implement ${name}`);
 	},
 	async diagnosticsCommand() {
-		return { protocolVersion: helperProtocolVersion, accessibility: true, pid: 4242 };
+		return { protocolVersion: helperProtocolVersion, accessibility: true, pid: 4343, invariants: ["background-delivery-no-cursor-warp"] };
 	},
 };
 
 function activity() {
 	activityCalls += 1;
-	const payload = { listening: true, lastUserInputAt: 0, idleSeconds: -1, ...counters };
+	const payload = { listening: true, lastUserInputAt: 0, idleSeconds: -1, agentHidEventCount: 0, ...counters };
 	// An older helper: no ring and no declared limit, which T3 refuses.
 	if (scenario === "no-support") return payload;
 	// A helper that answered at the start and can no longer list its ring.

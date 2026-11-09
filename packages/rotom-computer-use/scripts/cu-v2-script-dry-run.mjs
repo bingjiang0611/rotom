@@ -179,9 +179,10 @@ await check("a failing run leaves the B-STOPPED marker behind", () => {
 	const dir = mkdtempSync(path.join(tmpdir(), "cu-v2-stop-"));
 	const base = [
 		{ area: "gate", action: "verdict", result: "pass", note: "" },
-		{ area: "run", action: "real user input", result: "pass", note: "" },
+		{ area: "background", action: "agent HID events", result: "pass", note: "" },
+		{ area: "background", action: "focus taken", result: "pass", note: "" },
+		{ area: "background", action: "cursor warped", result: "pass", note: "" },
 		{ area: "Fixture", action: "observe", result: "pass", note: "" },
-		{ area: "restore", action: "operator app", result: "pass", note: "" },
 	];
 	try {
 		assert.equal(finishStep({ step: "B2", commit: "a".repeat(40), runsDir: dir, rows: base, run: "r.md" }).verdict, "pass");
@@ -210,29 +211,25 @@ await check("K1: no live script writes into the worktree", () => {
 });
 
 await check("K2: every step names the rows it cannot pass without", () => {
-	// A `pass` verdict used to mean "no fail rows", so a B1 whose directed click came back
-	// `inconclusive` still opened B2.
-	const withHid = [{ area: "gate", action: "verdict", result: "pass", note: "" }, { area: "run", action: "real user input", result: "pass", note: "" }];
-	for (const step of B_STEPS) {
-		const contract = STEP_CONTRACT[step];
-		assert.ok(contract?.length, `${step} must have a contract`);
-		assert.ok(contract.some((row) => row.action === "real user input"), `${step} must judge real user input`);
-	}
-	// B4 and B5 have no script yet, so their only row is "no real user input"; every
-	// step that can run today must reject two passing rows as insufficient.
-	for (const step of ["B1", "B2", "B3-live", "B3-acceptance", "B6"]) {
-		assert.equal(evaluateStep({ step, rows: withHid }).verdict, "fail", `${step} must not pass on two rows`);
+	const background = [
+		{ area: "background", action: "agent HID events", result: "pass", note: "" },
+		{ area: "background", action: "focus taken", result: "pass", note: "" },
+		{ area: "background", action: "cursor warped", result: "pass", note: "" },
+	];
+	for (const step of B_STEPS) assert.ok(STEP_CONTRACT[step]?.length, `${step} must have a contract`);
+	for (const step of ["B1", "B2", "B3-live", "B3-acceptance", "B4"]) {
+		for (const row of background) assert.ok(STEP_CONTRACT[step].some((required) => required.action === row.action), `${step} must require ${row.action}`);
 	}
 	const b1 = [
 		{ area: "gate", action: "verdict", result: "pass", note: "" },
 		{ area: "direct L2", action: "click", result: "pass", note: "delivery=l2" },
 		{ area: "helper", action: "still alive", result: "pass", note: "" },
-		{ area: "restore", action: "operator app", result: "pass", note: "" },
-		{ area: "run", action: "real user input", result: "pass", note: "userEvents 10 → 10" },
+		...background,
+		{ area: "run", action: "real user input", result: "recorded", note: "userEvents 10 → 14" },
 	];
 	assert.equal(evaluateStep({ step: "B1", rows: b1 }).verdict, "pass");
 	assert.equal(evaluateStep({ step: "B1", rows: b1.map((row) => (row.action === "click" ? { ...row, result: "inconclusive" } : row)) }).verdict, "fail");
-	assert.equal(evaluateStep({ step: "B1", rows: b1.map((row) => (row.action === "real user input" ? { ...row, result: "fail" } : row)) }).verdict, "fail");
+	assert.equal(evaluateStep({ step: "B1", rows: b1.filter((row) => row.action !== "real user input") }).verdict, "pass");
 	return B_STEPS.length + " steps";
 });
 
@@ -269,7 +266,7 @@ await check("R2: the attribution rows report and never judge", () => {
 	);
 	assert.ok(rows.length >= 2, "one row per source plus a summary");
 	assert.deepEqual([...new Set(rows.map((row) => row.result))], ["recorded"], "a report row is neither pass nor fail");
-	assert.match(rows.at(-1).note, /K2 unchanged/, "the K2 rule was not widened");
+	assert.match(rows.at(-1).note, /does not affect B0-B4 verdict/, "operator activity stays report-only");
 	const script = readFileSync(path.join(import.meta.dirname, "cu-v2-l2-check.mjs"), "utf8");
 	assert.match(script, /recordAttribution\(/, "the live script writes the report into its archive");
 	return "grouped rows + summary";

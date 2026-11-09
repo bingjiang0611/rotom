@@ -108,6 +108,16 @@ test("K2: growth in the helper's real-event count is the operator coming back", 
 	assert.match(rows.at(-1).note, /\+4/);
 });
 
+test("B0-B4 record operator activity without judging it", async () => {
+	const { rows, record } = recorder();
+	const helper = { command: async () => ({ userEventCount: 14 }) };
+	const backend = { getFrontmost: async () => ({ appName: "Mail", pid: 4242 }) };
+	const saw = await recordRealUserInput({ helper, backend, record, activityBefore: { userEventCount: 10 }, operatorPid: OPERATOR.pid, runPids: [], judged: false });
+	assert.equal(saw.result, "recorded");
+	assert.equal(rows.at(-1).result, "recorded");
+	assert.match(rows.at(-1).note, /\+4/);
+});
+
 test("K2: an app the run never started counts as the operator, even with no events", async () => {
 	const { rows, record } = recorder();
 	const helper = { command: async () => ({ userEventCount: 10 }) };
@@ -123,7 +133,7 @@ test("K2: an unanswerable activity probe fails rather than passing", async () =>
 	const backend = { getFrontmost: async () => OPERATOR };
 	const saw = await recordRealUserInput({ helper, backend, record, activityBefore: { userEventCount: 10 }, operatorPid: OPERATOR.pid });
 	assert.equal(saw.result, "fail");
-	assert.match(rows.at(-1).note, /unproven/);
+	assert.match(rows.at(-1).note, /did not answer userActivity/);
 });
 
 test("K2: an idle run with the operator's app in front passes", async () => {

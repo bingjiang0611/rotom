@@ -12,6 +12,7 @@ const launch = source.slice(launchStart, launchEnd);
 test("a pending NSWorkspace launch retains its configuration until completion", () => {
 	assert.ok(launchStart >= 0 && launchEnd > launchStart, "launchApp source is present");
 	assert.match(source, /private var pendingLaunchConfigurations: \[UUID: NSWorkspace\.OpenConfiguration\]/);
+	assert.match(launch, /configuration\.arguments = request\["arguments"\] as\? \[String\] \?\? \[\]/);
 	assert.match(launch, /pendingLaunchConfigurations\[launchId\] = configuration/);
 	assert.ok(
 		launch.indexOf("pendingLaunchConfigurations[launchId] = configuration") < launch.indexOf("NSWorkspace.shared.openApplication"),

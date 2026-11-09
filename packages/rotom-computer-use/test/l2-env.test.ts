@@ -58,8 +58,8 @@ test("a fixture from other source, or with no record at all, is refused", () => 
 });
 
 test("a helper that cannot attribute is refused before anything is launched", () => {
-	const diagnostics = { protocolVersion: 9, accessibility: true };
-	const full = { userEventCount: 0, agentEventCount: 0, recentEvents: [], recentEventLimit: 512 };
+	const diagnostics = { protocolVersion: 9, accessibility: true, invariants: ["background-delivery-no-cursor-warp"] };
+	const full = { userEventCount: 0, agentEventCount: 0, agentHidEventCount: 0, recentEvents: [], recentEventLimit: 512 };
 	assert.deepEqual(checkHelperSupport({ activity: full, diagnostics, expectedProtocol: 9 }).ok, true);
 
 	const older = checkHelperSupport({ activity: { userEventCount: 0, agentEventCount: 0 }, diagnostics, expectedProtocol: 9 });
@@ -68,6 +68,14 @@ test("a helper that cannot attribute is refused before anything is launched", ()
 
 	const noRing = checkHelperSupport({ activity: { recentEventLimit: 512 }, diagnostics, expectedProtocol: 9 });
 	assert.equal(noRing.ok, false);
+
+	const noHidCounter = checkHelperSupport({ activity: { recentEventLimit: 512, recentEvents: [] }, diagnostics, expectedProtocol: 9 });
+	assert.equal(noHidCounter.ok, false);
+	assert.match(noHidCounter.reason ?? "", /agentHidEventCount/);
+
+	const noCursorInvariant = checkHelperSupport({ activity: full, diagnostics: { protocolVersion: 9 }, expectedProtocol: 9 });
+	assert.equal(noCursorInvariant.ok, false);
+	assert.match(noCursorInvariant.reason ?? "", /background-delivery-no-cursor-warp/);
 
 	const wrongProtocol = checkHelperSupport({ activity: full, diagnostics: { protocolVersion: 8 }, expectedProtocol: 9 });
 	assert.equal(wrongProtocol.ok, false);

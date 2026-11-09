@@ -273,6 +273,8 @@ export interface PlatformUserActivity {
 	listening: boolean;
 	userEventCount: number;
 	agentEventCount: number;
+	/** Synthetic events posted through the session HID tap, excluding pid/L2 delivery. */
+	agentHidEventCount: number;
 }
 
 export interface PlatformClipboardRead {

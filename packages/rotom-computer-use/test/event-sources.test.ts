@@ -66,7 +66,7 @@ test("the rows are inert: they record, they never pass or fail a step", () => {
 	assert.deepEqual([...new Set(rows.map((row) => row.result))], ["recorded"]);
 	const [source, summary] = rows;
 	assert.match(source.action, /keyDown \/ Google Chrome \/ state 1/);
-	assert.match(summary.note, /K2 unchanged/);
+	assert.match(summary.note, /does not affect B0-B4 verdict/);
 });
 
 test("event types are named, unknown raw values stay visible", () => {
@@ -148,7 +148,7 @@ test("T2: matching records reconcile and the summary is only a report", () => {
 	assert.equal(collected.find((row) => row.action === "ring complete")?.result, "pass");
 	const summary = collected.find((row) => row.action === "summary");
 	assert.equal(summary?.result, "recorded");
-	assert.match(summary?.note ?? "", /K2 unchanged/);
+	assert.match(summary?.note ?? "", /does not affect B0-B4 verdict/);
 });
 
 test("T2: events from before the run started do not count towards the reconciliation", () => {

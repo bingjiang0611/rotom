@@ -107,14 +107,9 @@ export async function disposeFixtureRun(handle, backend, { record } = {}) {
 /**
  * Wait for the fixture's window, without inventing an activation path.
  *
- * A SwiftUI app launched with `activates: false` never builds its window, so the run
- * has to launch its own copy with `activates: true` (see `launchFixture`). This used to
- * try `manageApps ... activates: true` here first - a no-op for an app that is already
- * running, because `launchApp` refuses to steal focus - and then fall back to
- * `osascript`, which needs Automation permission and failed silently inside a `try`
- * (review 6, P3).
- *
- * Polling is all that is left: either the window appears or the step fails.
+ * The fixture's explicit startup mode calls `orderFrontRegardless()` without activating
+ * the application. Polling is all that is left: either AX sees that window or the step
+ * fails. There is no `osascript` or focus-stealing fallback.
  */
 export const FIXTURE_WINDOW_TIMEOUT_MS = 6000;
 
@@ -150,19 +145,23 @@ export function selectFixtureForRun(apps, { run, startedByThisRun }) {
 }
 
 /**
- * Start the run's own fixture copy.
+ * Start the run's own fixture copy without taking the foreground.
  *
- * `activates: true` is deliberate and the only activation in the phase: it is the one
- * moment where raising the app is meaningful, because the window does not exist before
- * it. Callers restore the operator's app afterwards through `focusWindow`
- * (`restoreOperatorApp`), never by re-launching it.
+ * The fixture's explicit startup mode orders its own window front without activating
+ * the application. LaunchServices therefore never needs to steal focus on its behalf.
  */
 export async function launchFixture(backend, handle, { pendingTimeoutMs = 8_000, pendingIntervalMs = 200 } = {}) {
 	const canProveCopiedFixture = handle.startedPids && typeof handle.bundleId === "string";
 	const beforePids = canProveCopiedFixture
 		? new Set((await backend.listApps()).map((app) => Number(app.pid)).filter((pid) => Number.isInteger(pid) && pid > 0))
 		: undefined;
-	const result = await backend.manageApps({ mode: "launch", path: handle.bundlePath, activates: true });
+	const result = await backend.manageApps({
+		mode: "launch",
+		path: handle.bundlePath,
+		bundleId: handle.bundleId,
+		activates: false,
+		arguments: ["--show-without-activation"],
+	});
 	if (!canProveCopiedFixture || rememberRunLaunch(handle.startedPids, result) || result?.pending !== true) return result;
 
 	const deadline = Date.now() + pendingTimeoutMs;
@@ -214,19 +213,19 @@ export function fixtureInfoPlist({ bundleId = "com.example.cu-fixture", version 
  * copy that this run did not start is reported and never touched, and a launch that produces
  * no window is a recorded result rather than a crash.
  */
-export async function bringUpFixture({ backend, fixturePath, runRoot, preparedRun, sign, startedByThisRun, record }) {
+export async function bringUpFixture({ backend, fixturePath, runRoot, preparedRun, sign, identity, startedByThisRun, record }) {
 	let run = preparedRun;
 	let launchPath = run?.bundlePath ?? fixturePath;
 	if (runRoot && !run) {
-		run = prepareFixtureRun({ sourceApp: fixturePath, runRoot, sign });
+		run = prepareFixtureRun({ sourceApp: fixturePath, runRoot, sign, identity });
 		launchPath = run.bundlePath;
 		record("fixture", "fresh copy", "pass", `bundle=${run.bundleId} path=${launchPath}`);
 	} else if (run) {
 		record("fixture", "prepared copy", "pass", `bundle=${run.bundleId} path=${launchPath}`);
 	}
-	// A background launch never builds a SwiftUI window, so the launch activates the copy
-	// (review 6 P3). There is no `open -n` fallback: an ad-hoc launch command is not part of a
-	// frozen script, and a window that never appears is a result.
+	// The fixture orders its own window front without activating. There is no `open -n`
+	// fallback: an ad-hoc launch command is not part of a frozen script, and a window that
+	// never appears is a result.
 	await launchFixture(backend, run ?? { bundlePath: launchPath }).catch((error) => record("fixture", "launch", "fail", error instanceof Error ? error.message : String(error)));
 	await new Promise((resolve) => setTimeout(resolve, 1500));
 	const apps = await backend.listApps();

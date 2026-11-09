@@ -23,11 +23,13 @@ test("a pending copied fixture records the one new pid with its unique bundle id
 	const bundleId = "com.example.cu-fixture.pending";
 	const owned = createRunAppOwnership();
 	let launched = false;
+	let request: Record<string, unknown> | undefined;
 	const backend = {
 		listApps: async () => launched
 			? [{ pid: 51, bundleId: "com.example.operator" }, { pid: 52, bundleId }]
 			: [{ pid: 51, bundleId: "com.example.operator" }],
-		manageApps: async () => {
+		manageApps: async (next: Record<string, unknown>) => {
+			request = next;
 			launched = true;
 			return { launched: false, pending: true, alreadyRunning: false };
 		},
@@ -35,6 +37,7 @@ test("a pending copied fixture records the one new pid with its unique bundle id
 	const result = await launchFixture(backend, { bundlePath: "/tmp/Fixture.app", bundleId, startedPids: owned }, { pendingTimeoutMs: 10, pendingIntervalMs: 0 });
 	assert.equal(result.pid, 52);
 	assert.deepEqual([...owned], [52]);
+	assert.deepEqual(request, { mode: "launch", path: "/tmp/Fixture.app", bundleId, activates: false, arguments: ["--show-without-activation"] });
 });
 
 test("a pending copied fixture never claims a same-bundle pid that predates the launch", async () => {
@@ -89,8 +92,16 @@ test("B-stage scripts contain no force App quit path", () => {
 		assert.doesNotMatch(source, /(?:mode|action):\s*"quit"[^}]*force:\s*true/s, `${name} force-quits an App`);
 	}
 	const acceptance = readFileSync(path.join(scripts, "cu-v2-acceptance.mjs"), "utf8");
-	assert.match(acceptance, /mode: "launch", bundleId: "com\.apple\.TextEdit"/, "TextEdit launch must let the helper detect an already-running foreign process");
-	assert.doesNotMatch(acceptance, /mode: "launch", path: [^\n]*TextEdit/, "path launch cannot prove TextEdit ownership");
+	assert.doesNotMatch(acceptance, /TextEdit|Simulator/, "B3 acceptance must not depend on a spare foreground application");
+	const acceptanceAgents = readFileSync(path.join(scripts, "lib", "acceptance-agents.mjs"), "utf8");
+	assert.match(acceptanceAgents, /launchFixture\(backend, instance,/, "B3 acceptance must retain pending copied launches until exact PID ownership is known");
+	const matrix = readFileSync(path.join(scripts, "cu-v2-compat-matrix.mjs"), "utf8");
+	assert.match(matrix, /launchHandle\.startedPids\.has\(candidate\.pid\)/, "B2 must never select a pre-existing app process");
+	assert.match(matrix, /quitRunOwnedApp\(/, "B2 must politely clean up bundle-id apps it launched");
+	const live = readFileSync(path.join(scripts, "check-cu-v2-live.mjs"), "utf8");
+	assert.match(live, /bringUpFixture\(/, "B3 live must launch a fresh run-owned fixture copy");
+	assert.match(live, /disposeFixtureRun\(/, "B3 live must politely clean up only that copy");
+	assert.doesNotMatch(live, /already running, pid=/, "B3 live must never attach to a foreign fixture");
 });
 
 test("an unconfirmed polite quit retains ownership and records failure", async () => {

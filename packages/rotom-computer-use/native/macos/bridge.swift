@@ -437,6 +437,7 @@ final class UserActivityMonitor {
 	private var lastUserInputAt: TimeInterval = 0
 	private var userEventCount = 0
 	private var agentEventCount = 0
+	private var agentHidEventCount = 0
 	/// Oldest first; dropping from the front is what keeps the buffer bounded.
 	private var recentEvents: [EventSourceRecord] = []
 	private(set) var listening = false
@@ -537,12 +538,19 @@ final class UserActivityMonitor {
 		lock.unlock()
 	}
 
+	func recordAgentHidEvent() {
+		lock.lock()
+		agentHidEventCount += 1
+		lock.unlock()
+	}
+
 	func snapshot() -> [String: Any] {
 		lock.lock()
 		let last = lastUserInputAt
 		let listening = self.listening
 		let userEvents = userEventCount
 		let agentEvents = agentEventCount
+		let agentHidEvents = agentHidEventCount
 		let recent = recentEvents.map(\.dictionary)
 		lock.unlock()
 		let now = Date().timeIntervalSince1970 * 1000
@@ -552,6 +560,7 @@ final class UserActivityMonitor {
 			"listening": listening,
 			"userEventCount": userEvents,
 			"agentEventCount": agentEvents,
+			"agentHidEventCount": agentHidEvents,
 			"recentEvents": recent,
 			"recentEventLimit": Self.recentEventLimit,
 		]
@@ -1023,7 +1032,7 @@ final class Bridge {
 		var output: [String: Any] = [
 			"protocolVersion": protocolVersion,
 			"architectureVersion": 1,
-			"invariants": ["state-scoped-observations", "bounded-observation-history", "multi-root-forest", "progressive-disclosure", "atomic-physical-input", "concurrent-requests", "transactional-batching"],
+			"invariants": ["state-scoped-observations", "bounded-observation-history", "multi-root-forest", "progressive-disclosure", "atomic-physical-input", "concurrent-requests", "transactional-batching", "background-delivery-no-cursor-warp"],
 			"pid": Int32(getpid()),
 			"parentPid": parentPid,
 			"executablePath": CommandLine.arguments.first ?? "",
@@ -3727,6 +3736,7 @@ final class Bridge {
 			}
 			usleep(20_000)
 		}
+		userActivityMonitor.recordAgentHidEvent()
 		event.post(tap: .cghidEventTap)
 	}
 
@@ -4288,6 +4298,8 @@ enum UserActivitySelfTest {
 		let marked = (snapshot["agentEventCount"] as? Int) ?? -1
 		let unmarked = (snapshot["userEventCount"] as? Int) ?? -1
 		report("counters exact", marked + unmarked == total, "agent=\(marked) user=\(unmarked)")
+		monitor.recordAgentHidEvent()
+		report("HID counter explicit", (monitor.snapshot()["agentHidEventCount"] as? Int) == 1, "one recorded post")
 		let fields = Set(recent.flatMap { $0.keys })
 		report("metadata only", fields.isSubset(of: allowed), fields.sorted().joined(separator: ","))
 		let calibrationMonitor = UserActivityMonitor()
@@ -4382,6 +4394,7 @@ extension Bridge {
 			throw BridgeFailure(message: "Could not build the calibration mouse move", code: "input_failed")
 		}
 		event.setIntegerValueField(.eventSourceUserData, value: agentEventMarker)
+		userActivityMonitor.recordAgentHidEvent()
 		event.post(tap: .cghidEventTap)
 		var after = userActivityMonitor.snapshot()
 		var match: [String: Any]?
@@ -4569,6 +4582,7 @@ extension Bridge {
 		let configuration = NSWorkspace.OpenConfiguration()
 		configuration.activates = activates
 		configuration.createsNewApplicationInstance = false
+		configuration.arguments = request["arguments"] as? [String] ?? []
 		var launchError: Error?
 		var launchedApp: NSRunningApplication?
 		// A newly re-signed fixture can remain suspended while syspolicyd verifies it.

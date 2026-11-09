@@ -77,6 +77,7 @@ function parseUserActivity(result: any): PlatformUserActivity {
 		listening: toBoolean(result?.listening),
 		userEventCount: Math.trunc(toFiniteNumber(result?.userEventCount, 0)),
 		agentEventCount: Math.trunc(toFiniteNumber(result?.agentEventCount, 0)),
+		agentHidEventCount: Math.trunc(toFiniteNumber(result?.agentHidEventCount, 0)),
 	};
 }
 

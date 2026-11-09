@@ -128,6 +128,8 @@ struct FixtureView: View {
 			}
 			.frame(height: 80)
 			.accessibilityIdentifier("cu-fixture-tabs")
+			Text("selected-tab: \(model.selectedTab)")
+				.accessibilityIdentifier("cu-fixture-selected-tab")
 
 			Text(model.lastMenuSelection.isEmpty ? "No menu choice" : "Chose \(model.lastMenuSelection)")
 			Spacer()
@@ -145,6 +147,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		// A stable bundle identity keeps the accessibility element tree cacheable
 		// across observations; without it AX re-enumerates on every look.
 		NSApp.setActivationPolicy(.regular)
+		if CommandLine.arguments.contains("--show-without-activation") {
+			showWindowWithoutActivation(attempts: 20)
+		}
+	}
+
+	private func showWindowWithoutActivation(attempts: Int) {
+		DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(50)) {
+			if let window = NSApp.windows.first(where: { !$0.title.isEmpty }) {
+				window.orderFrontRegardless()
+				return
+			}
+			if attempts > 1 {
+				self.showWindowWithoutActivation(attempts: attempts - 1)
+			}
+		}
 	}
 }
 

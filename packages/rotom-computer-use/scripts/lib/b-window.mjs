@@ -72,34 +72,35 @@ const isAsciiInput = (rows) => rows.some((row) => row.area === "environment" && 
  * makes a row conditional (the directed text line only exists on an ASCII input source).
  * `optional` rows are recorded but never block.
  */
+const BACKGROUND_CONTRACT = Object.freeze([
+	{ area: "background", action: "agent HID events" },
+	{ area: "background", action: "focus taken" },
+	{ area: "background", action: "cursor warped" },
+]);
+
 export const STEP_CONTRACT = Object.freeze({
+	B0: BACKGROUND_CONTRACT,
 	B1: Object.freeze([
 		{ area: "gate", action: "verdict" },
 		{ area: "direct L2", action: "click", note: /delivery=l2/ },
 		{ area: "direct L2", action: "typeText", note: /delivery=l2/, when: isAsciiInput },
 		{ area: "helper", action: "still alive" },
-		{ area: "restore", action: "operator app" },
-		{ area: "run", action: "real user input" },
+		...BACKGROUND_CONTRACT,
 	]),
 	B2: Object.freeze([
 		{ area: "gate", action: "verdict" },
 		{ matches: (row) => row.action === "observe" && row.result === "pass", label: "an observe cell" },
-		{ area: "restore", action: "operator app" },
-		{ area: "run", action: "real user input" },
+		...BACKGROUND_CONTRACT,
 	]),
 	"B3-live": Object.freeze([
 		{ area: "gate", action: "verdict" },
 		{ matches: (row) => row.area === "act" && row.result === "pass", label: "a semantic action" },
-		{ area: "background", action: "cursor unchanged" },
-		{ area: "background", action: "frontmost app unchanged" },
-		{ area: "restore", action: "operator app" },
-		{ area: "run", action: "real user input" },
+		...BACKGROUND_CONTRACT,
 	]),
 	"B3-acceptance": Object.freeze([
 		{ area: "gate", action: "verdict" },
 		{ matches: (row) => row.area.startsWith("agent") && row.action === "click", label: "an agent click" },
-		{ area: "restore", action: "operator app" },
-		{ area: "run", action: "real user input" },
+		...BACKGROUND_CONTRACT,
 	]),
 	B6: Object.freeze([
 		{ area: "gate", action: "verdict" },
@@ -108,7 +109,7 @@ export const STEP_CONTRACT = Object.freeze({
 		{ area: "restore", action: "operator app" },
 		{ area: "run", action: "real user input" },
 	]),
-	B4: Object.freeze([{ area: "run", action: "real user input" }]),
+	B4: BACKGROUND_CONTRACT,
 	B5: Object.freeze([{ area: "run", action: "real user input" }]),
 });
 

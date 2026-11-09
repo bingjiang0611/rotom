@@ -133,33 +133,31 @@ export function withoutHome(text) {
 }
 
 /**
- * Prove the operator did not touch the machine during the run (review 6 K2).
- *
- * `userEventCount` is the helper's own count of *real* events: it marks its synthetic
- * posts, so growth means a person typed, clicked or scrolled. A frontmost app that the
- * run neither started nor restored to is the second signal. Either one stops the phase -
- * "the user came back" is exactly the condition the window is authorized under.
+ * Report the operator's real input. Background steps deliberately do not judge it:
+ * B0-B4 must remain safe while the operator continues using the Mac.
  */
-export async function recordRealUserInput({ helper, backend, record, activityBefore, operatorPid, runPids = [], expectedEvents = 0, expectedNote = "" }) {
+export async function recordRealUserInput({ helper, backend, record, activityBefore, operatorPid, runPids = [], expectedEvents = 0, expectedNote = "", judged = true }) {
 	let after;
 	try {
 		after = await helper.command("userActivity", {});
 	} catch (error) {
-		record("run", "real user input", "fail", `the helper did not answer userActivity (${error instanceof Error ? error.message : String(error)}), so "no input" is unproven`);
-		return { result: "fail", gained: undefined };
+		const result = judged ? "fail" : "recorded";
+		record("run", "real user input", result, `the helper did not answer userActivity (${error instanceof Error ? error.message : String(error)})`);
+		return { result, gained: undefined };
 	}
 	const before = Number(activityBefore?.userEventCount);
 	const gained = Number(after.userEventCount) - before;
 	const front = await backend.getFrontmost().catch(() => undefined);
 	const allowedPids = [operatorPid, ...runPids].filter((pid) => typeof pid === "number");
 	const foreign = front && allowedPids.length > 0 && !allowedPids.includes(front.pid);
-	// `expectedEvents` is the budget this run's own simulator is allowed to spend (the
-	// acceptance run types into TextEdit on purpose). Anything above it is a person.
+	// Foreground-only callers may declare a bounded synthetic-event budget. Background
+	// B0-B4 callers set `judged:false`, so this remains diagnostic only.
 	const pass = Number.isFinite(gained) && gained <= expectedEvents && !foreign;
 	const budget = expectedEvents > 0 ? ` of a ${expectedEvents}-event budget (${expectedNote || "this run's own simulator"})` : "";
 	const note = `userEvents ${Number.isFinite(before) ? before : "?"} → ${after.userEventCount} (${Number.isFinite(gained) ? (gained >= 0 ? `+${gained}` : String(gained)) : "?"})${budget}; frontmost=${front?.appName ?? "?"} pid=${front?.pid ?? "?"}${foreign ? " not started by this run" : ""}`;
-	record("run", "real user input", pass ? "pass" : "fail", note);
-	return { result: pass ? "pass" : "fail", gained, foreign: Boolean(foreign), note };
+	const result = judged ? (pass ? "pass" : "fail") : "recorded";
+	record("run", "real user input", result, note);
+	return { result, gained, foreign: Boolean(foreign), note };
 }
 
 /**

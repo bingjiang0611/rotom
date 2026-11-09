@@ -7,6 +7,7 @@
  * and deliberately read-only system surfaces, never user documents.
  *
  *   PI_CU_LIVE=1 node scripts/check-cu-v2-live.mjs --fixture ~/cu-v2-test/Fixture.app \
+ *     --sign-identity "Apple Development: ... (TEAMID)" \
  *     --runs-dir ~/cu-v2-runs --expect-commit <frozen sha> \
  *     --window-start 2026-11-06T19:53:21-0800 --window-minutes 60
  *
@@ -23,13 +24,14 @@
  *   - the helper answers the current helper protocol and reports user activity
  *   - each semantic action reaches a real control and reports a verified outcome
  *   - window, clipboard and system-surface commands answer with real data
- *   - a background action leaves the frontmost app and the system cursor
- *     untouched and is counted as an agent event, not a user event
+ *   - B3 background actions post no HID events, never make the run-owned fixture/helper
+ *     frontmost, and use no cursor-warp path
  *
  * What it cannot prove: that no other app on this machine is affected, or that
  * L2 delivery works in apps outside the compatibility list.
  */
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 /** `--name value` on the command line, or the fallback. */
 function argument(name, fallback) {
@@ -39,10 +41,11 @@ function argument(name, fallback) {
 
 import process from "node:process";
 
+import { createBackgroundEvidence } from "./lib/background-evidence.mjs";
 import { runHidClick } from "./lib/hid-click.mjs";
 import { recordRealUserInput, restoreOperatorApp, runStamp, withoutHome } from "./lib/live-helpers.mjs";
 import { StepRefused, beginStep, writeRunArchive } from "./lib/b-window.mjs";
-import { ensureFixtureWindow, launchFixture } from "./lib/fixture.mjs";
+import { bringUpFixture, disposeFixtureRun, ensureFixtureWindow } from "./lib/fixture.mjs";
 import { GateHold, requireGate } from "./lib/gate.mjs";
 
 /** `scripts/` -> `packages/rotom-computer-use` -> `packages` -> repository root. */
@@ -66,10 +69,15 @@ function disabled(reason) {
 if (process.platform !== "darwin") disabled("not macOS");
 if ((process.env.PI_CU_LIVE ?? "") !== "1") disabled("PI_CU_LIVE is not 1");
 
-const { macosHelper } = await import("../src/platform/macos/helper.ts");
-const { macosBackend } = await import("../src/platform/macos/backend.ts");
+const { macosHelper: rawHelper } = await import("../src/platform/macos/helper.ts");
+const { macosBackend: rawBackend } = await import("../src/platform/macos/backend.ts");
+const runOwnedPids = new Set();
+const background = createBackgroundEvidence({ backend: rawBackend, helper: rawHelper, record, ownedPids: runOwnedPids });
+const macosHelper = background.helper;
+const macosBackend = background.backend;
 
 const fixturePath = argument("--fixture");
+let fixtureRun;
 /**
  * The gate runs here too, not in an operator loop (review G6): no declared window is a
  * refusal, and a hold stops before anything touches the desktop.
@@ -79,8 +87,6 @@ async function refuseUnlessGatePasses() {
 		return await requireGate({
 			windowStart: argument("--window-start"),
 			windowMinutes: argument("--window-minutes"),
-			requireIdleMinutes: argument("--require-idle-minutes") ?? "10",
-			listeningSince: argument("--listening-since"),
 		});
 	} catch (error) {
 		console.error(`[cu-v2 live] gate: ${error instanceof Error ? error.message : String(error)}`);
@@ -93,7 +99,8 @@ async function main() {
 	// Review 6 P1/K3/K4: `--with-hid` is B6; the plain run is `B3-live`, and the
 	// acceptance script's `B3-acceptance` must pass too before B4. The step is declared
 	// before anything touches the desktop, and a stopped phase never reaches the gate.
-	const step = process.argv.includes("--with-hid") ? "B6" : "B3-live";
+	const withHid = process.argv.includes("--with-hid");
+	const step = withHid ? "B6" : "B3-live";
 	try {
 		frozen = beginStep({ step, expectCommit: argument("--expect-commit"), runsDir: argument("--runs-dir"), cwd: REPO_ROOT });
 	} catch (error) {
@@ -113,35 +120,36 @@ async function main() {
 	if (diagnostics.protocolVersion !== HELPER_PROTOCOL_VERSION) throw new Error(`helper must report protocol ${HELPER_PROTOCOL_VERSION}; install/restart the v2 helper in its own socket`);
 	if (!diagnostics.accessibility) throw new Error("Accessibility is not granted to the helper");
 	record("helper", "permissions", diagnostics.screenRecording ? "pass" : "fail", `accessibility=${diagnostics.accessibility} screenRecording=${diagnostics.screenRecording} executable=${diagnostics.executablePath}`);
+	if (!withHid) {
+		background.setHelperPid(diagnostics.pid, diagnostics.invariants);
+		await background.start();
+	}
 
 	const activityBefore = await macosBackend.userActivity();
 	record("helper", "userActivity", activityBefore.listening ? "pass" : "fail", `idle=${activityBefore.idleSeconds.toFixed(1)}s userEvents=${activityBefore.userEventCount} agentEvents=${activityBefore.agentEventCount}`);
 
 	if (!fixturePath || !existsSync(fixturePath)) throw new Error("pass --fixture <path to the built fixture app>");
-	const findFixture = (list) => list.find((app) => /fixture/i.test(app.appName) || /fixture/i.test(app.bundleId ?? ""));
-	let fixture = findFixture(await macosBackend.listApps());
-	if (fixture) {
-		record("app", "launch", "pass", `already running, pid=${fixture.pid} bundle=${fixture.bundleId ?? "?"}`);
-	} else {
-		try {
-			await launchFixture(macosBackend, { bundlePath: fixturePath });
-			record("app", "launch", "pass", `${fixturePath} (activated: a background launch builds no window)`);
-		} catch (error) {
-			// LaunchServices refuses unsigned-for-Gatekeeper bundles on this machine; the
-			// fixture can still be started directly. Record the refusal, keep going.
-			record("app", "launch", "blocked", error instanceof Error ? error.message : String(error));
-		}
-		await new Promise((resolve) => setTimeout(resolve, 2500));
-		fixture = findFixture(await macosBackend.listApps());
-		if (!fixture) throw new Error("the fixture app is not running and could not be launched; start it directly, then re-run");
-	}
-	record("app", "present", "pass", `pid=${fixture.pid} bundle=${fixture.bundleId ?? "?"}`);
+	const identity = argument("--sign-identity") ?? process.env.PI_CU_FIXTURE_SIGN_IDENTITY;
+	if (!identity) throw new Error("pass --sign-identity or set PI_CU_FIXTURE_SIGN_IDENTITY so the run can create its own fixture copy");
+	const beforeRun = new Set((await macosBackend.listApps()).map((app) => app.pid));
+	const runRoot = mkdtempSync(path.join(tmpdir(), "cu-v2-live-fixture-"));
+	const broughtUp = await bringUpFixture({
+		backend: macosBackend,
+		fixturePath,
+		runRoot,
+		sign: true,
+		identity,
+		startedByThisRun: (app) => !beforeRun.has(app.pid),
+		record,
+	});
+	const fixture = broughtUp.fixture;
+	fixtureRun = broughtUp.run;
+	if (!fixture) throw new Error("the run-owned fixture copy did not launch");
+	if (!withHid) background.own(fixture.pid);
 
 	const frontmostBefore = await macosBackend.getFrontmost();
-	const cursorBefore = await macosHelper.command("getMousePosition", {});
 
-	// Same activation wait as the other two live scripts: a fixture launched with
-	// `activates: false` has no window until something raises it.
+	// The fixture orders its window front without activating the application.
 	const root = await ensureFixtureWindow(macosBackend, { pid: fixture.pid, bundleId: fixture.bundleId });
 	if (!root) throw new Error("the fixture window is not in listRoots");
 	record("root", "listRoots", root.windowId > 0 ? "pass" : "fail", `windowId=${root.windowId} frame=${JSON.stringify(root.framePoints)}`);
@@ -204,21 +212,6 @@ async function main() {
 		}
 	}
 
-	// The background invariant: everything above was delivered without touching the
-	// user's session. Judge it here, before any opt-in HID step, because HID
-	// delivery is allowed to move the cursor and raise the target window.
-	const frontmostAfter = await macosBackend.getFrontmost();
-	const cursorAfter = await macosHelper.command("getMousePosition", {});
-	const cursorDelta = Math.hypot(Number(cursorAfter.x) - Number(cursorBefore.x), Number(cursorAfter.y) - Number(cursorBefore.y));
-	const withHid = process.argv.includes("--with-hid");
-	if (withHid) {
-		record("background", "cursor unchanged", "skipped", "not judged in a --with-hid run: HID delivery moves the session cursor by design");
-		record("background", "frontmost app unchanged", "skipped", "not judged in a --with-hid run: HID delivery raises the target window by design");
-	} else {
-		record("background", "cursor unchanged", cursorDelta < 1 ? "pass" : "fail", `(${cursorBefore.x},${cursorBefore.y}) → (${cursorAfter.x},${cursorAfter.y}) delta=${cursorDelta.toFixed(1)}pt`);
-		record("background", "frontmost app unchanged", frontmostAfter.pid === frontmostBefore.pid ? "pass" : "fail", `${frontmostBefore.appName} (${frontmostBefore.pid}) → ${frontmostAfter.appName} (${frontmostAfter.pid})`);
-	}
-
 	// HID delivery posts real events through the session tap, so it can move the
 	// cursor and raise the target window. Keep it opt-in, and restore the app that
 	// was frontmost before the run.
@@ -229,16 +222,12 @@ async function main() {
 		// app - swallowed the error and called the result `inconclusive`, so B6 could pass
 		// while the operator's app stayed behind the fixture.
 		await restoreOperatorApp({ backend: macosBackend, original: frontmostBefore, record });
-	} else {
-		record("background", "agent events marked", "skipped", "run with --with-hid to post real input events");
-		// The ladder can still leave a window raised (`manageWindow`), so hand the front
-		// back and read it (review 6 P2/K3): B3-live cannot pass on a session it moved.
-		await restoreOperatorApp({ backend: macosBackend, original: frontmostBefore, record });
 	}
 
-	// Did the operator come back during the run? (review 6 K2) Read last: the restore above
-	// legitimately puts their app in front, and the fixture is one of this run's pids.
-	await recordRealUserInput({ helper: macosHelper, backend: macosBackend, record, activityBefore, operatorPid: frontmostBefore.pid, runPids: [fixture.pid] });
+	if (fixtureRun) await disposeFixtureRun(fixtureRun, macosBackend, { record });
+	fixtureRun = undefined;
+	await recordRealUserInput({ helper: macosHelper, backend: macosBackend, record, activityBefore, operatorPid: frontmostBefore.pid, runPids: [fixture.pid], judged: withHid });
+	if (!withHid) await background.finish();
 
 	const failures = rows.filter((row) => row.result === "fail").length;
 	const written = await writeEvidence();
@@ -254,9 +243,9 @@ async function runAction(name, run) {
 		const result = await run();
 		const outcome = result?.outcome ?? "unknown";
 		const interfered = result?.performed?.interferedWithUser === true;
-		// `interferedWithUser` means real user input overlapped the action, which makes
-		// the click ambiguous. That is a signal about the machine, not a defect.
-		const result_status = result?.ok === false || outcome !== "worked" ? "fail" : interfered ? "inconclusive" : "pass";
+		// Operator activity may overlap a background action; its own readback decides
+		// success, not whether the operator happened to use the Mac at the same time.
+		const result_status = result?.ok === false || outcome !== "worked" ? "fail" : "pass";
 		record("act", name, result_status, `outcome=${outcome} delivery=${result?.performed?.delivery ?? "?"} mechanism=${result?.performed?.mechanism ?? "-"}${interfered ? " user input overlapped" : ""}`);
 	} catch (error) {
 		record("act", name, "fail", error instanceof Error ? error.message : String(error));
@@ -323,6 +312,10 @@ try {
 	await main();
 } catch (error) {
 	record("run", "abort", "fail", error instanceof Error ? error.message : String(error));
+	if (fixtureRun) {
+		await disposeFixtureRun(fixtureRun, macosBackend, { record }).catch((cleanupError) => record("cleanup", "fixture copy", "fail", String(cleanupError)));
+		fixtureRun = undefined;
+	}
 	const written = await writeEvidence();
 	console.error(`[cu-v2 live] ${error instanceof Error ? error.message : String(error)}`);
 	if (written.path) console.error(`[cu-v2 live] ${frozen?.step ?? "run"} ${written.verdict}; archive ${written.path}`);

@@ -96,11 +96,17 @@ export function checkHelperSupport({ activity, diagnostics, expectedProtocol }) 
 	if (protocol !== expectedProtocol) {
 		return { ok: false, reason: `helper protocol ${protocol ?? "?"} != ${expectedProtocol}; rebuild it from this commit` };
 	}
+	if (!Array.isArray(diagnostics?.invariants) || !diagnostics.invariants.includes("background-delivery-no-cursor-warp")) {
+		return { ok: false, reason: "helper does not report background-delivery-no-cursor-warp; rebuild it from this commit" };
+	}
 	if (!Number.isFinite(activity?.recentEventLimit)) {
 		return { ok: false, reason: "helper does not report recentEventLimit, so it cannot attribute events; rebuild it from this commit" };
 	}
 	if (!Array.isArray(activity?.recentEvents)) {
 		return { ok: false, reason: "helper does not report recentEvents, so it cannot attribute events; rebuild it from this commit" };
+	}
+	if (!Number.isFinite(activity?.agentHidEventCount)) {
+		return { ok: false, reason: "helper does not report agentHidEventCount, so it cannot prove background delivery avoided HID; rebuild it from this commit" };
 	}
 	return { ok: true };
 }

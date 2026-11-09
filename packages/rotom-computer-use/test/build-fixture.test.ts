@@ -51,6 +51,17 @@ test("the deployment target and the plist cannot drift apart", () => {
 	assert.match(plist, new RegExp(`<key>LSMinimumSystemVersion</key>\\s*<string>${FIXTURE_MINIMUM_MACOS}</string>`));
 });
 
+test("fixture can show its window without activating itself", () => {
+	assert.match(fixtureSource, /--show-without-activation/);
+	assert.match(fixtureSource, /window\.orderFrontRegardless\(\)/);
+	assert.doesNotMatch(fixtureSource, /NSApp\.activate|activate\(ignoringOtherApps:/);
+});
+
+test("fixture exposes selected tab state for background click readback", () => {
+	assert.match(fixtureSource, /cu-fixture-selected-tab/);
+	assert.ok(fixtureSource.includes('Text("selected-tab: \\(model.selectedTab)")'));
+});
+
 test("W3 fixture exposes an independent acceptsFirstMouse AppKit counter", () => {
 	assert.match(fixtureSource, /override func acceptsFirstMouse\(for event: NSEvent\?\) -> Bool \{ true \}/);
 	assert.match(fixtureSource, /cu-fixture-first-mouse-button/);

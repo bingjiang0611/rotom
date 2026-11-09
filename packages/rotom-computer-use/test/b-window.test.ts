@@ -132,8 +132,10 @@ test("K1: a real repository - B2 is allowed after a passing B1", () => {
 			{ area: "gate", action: "verdict", result: "pass", note: "minutes_left=40" },
 			{ area: "direct L2", action: "click", result: "pass", note: "outcome=worked delivery=l2 helperAlive=true" },
 			{ area: "helper", action: "still alive", result: "pass", note: "" },
-			{ area: "restore", action: "operator app", result: "pass", note: "Scry → Scry" },
-			{ area: "run", action: "real user input", result: "pass", note: "userEvents 10 → 10" },
+			{ area: "background", action: "agent HID events", result: "pass", note: "agentEvents 10 → 10 (+0)" },
+			{ area: "background", action: "focus taken", result: "pass", note: "owned/helper focus events=0" },
+			{ area: "background", action: "cursor warped", result: "pass", note: "static source check: no cursor positioning APIs" },
+			{ area: "run", action: "real user input", result: "recorded", note: "userEvents 10 → 12" },
 		];
 		const written = writeRunArchive({ runsDir, runName: "b1.md", title: "B1", step: "B1", commit: head, rows: passingB1 });
 		assert.equal(written.verdict, "pass");
@@ -247,8 +249,9 @@ test("one failing row writes the stop marker, and only the operator removes it",
 	try {
 		const clean = [
 			{ area: "gate", action: "verdict", result: "pass", note: "" },
-			{ area: "run", action: "real user input", result: "pass", note: "" },
-			{ area: "restore", action: "operator app", result: "pass", note: "" },
+			{ area: "background", action: "agent HID events", result: "pass", note: "" },
+			{ area: "background", action: "focus taken", result: "pass", note: "" },
+			{ area: "background", action: "cursor warped", result: "pass", note: "" },
 		];
 		assert.equal(finishStep({ step: "B2", commit: HEAD, runsDir, rows: [...clean, { area: "Fixture", action: "observe", result: "pass", note: "" }], run: "b2.md" }).verdict, "pass");
 		assert.equal(readStopMarker(runsDir), null);

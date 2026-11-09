@@ -21,15 +21,10 @@ function arg(name, fallback) {
 const windowStart = arg("--window-start");
 const windowMinutes = Number(arg("--window-minutes", "60"));
 if (!windowStart || !Number.isFinite(windowMinutes)) {
-	console.error("usage: cu-v2-gate.mjs --window-start <iso> [--window-minutes 60] [--require-idle-minutes 10] [--listening-since <iso>]");
+	console.error("usage: cu-v2-gate.mjs --window-start <iso> [--window-minutes 60]");
 	process.exit(2);
 }
 
-const report = await readGate({
-	windowStart,
-	windowMinutes,
-	requireIdleMinutes: Number(arg("--require-idle-minutes", "10")),
-	listeningSince: arg("--listening-since"),
-});
+const report = await readGate({ windowStart, windowMinutes });
 console.log(JSON.stringify(report));
 process.exit(report.verdict === "pass" ? 0 : 1);

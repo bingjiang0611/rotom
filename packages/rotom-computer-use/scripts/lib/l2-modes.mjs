@@ -72,9 +72,10 @@ export async function fixtureClickCount(backend, target) {
 /**
  * W3: compare the two native process-targeted transports against a SwiftUI button
  * and an AppKit button whose first click is accepted while the window is inactive.
- * Every cell restores the operator App first and reports the fixture's own counter.
+ * The fixture never activates, so every cell can report the fixture's own counter
+ * without moving the operator back to an earlier App.
  */
-export async function runDeliveryMatrix({ fixture, fixtureRun, backend, helper, record, alive, restore }) {
+export async function runDeliveryMatrix({ fixture, fixtureRun, backend, helper, record, alive }) {
 	if (!fixture) {
 		record("delivery matrix", "fixture", "skipped", "no fixture this run started; nothing to address directly");
 		return;
@@ -94,11 +95,6 @@ export async function runDeliveryMatrix({ fixture, fixtureRun, backend, helper, 
 
 	for (const delivery of ["l2", "pid"]) {
 		for (const button of buttons) {
-			const restored = await restore();
-			if (restored?.restored !== true) {
-				record("delivery matrix", `${delivery} / ${button.label}`, "fail", "operator App could not be restored before the inactive-window probe");
-				continue;
-			}
 			const look = await backend.observe({ target, readText: "auto", includeImage: false });
 			const node = (look.parsedOutline?.nodes ?? look.nodes ?? []).find((candidate) => candidate.identifier === button.identifier);
 			if (!node?.wireRef) {

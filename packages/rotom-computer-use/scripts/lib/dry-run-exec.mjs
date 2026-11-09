@@ -112,10 +112,11 @@ export const executionChecks = [
 				const presence = (archive.match(/^\| fixture \| present \|/gm) ?? []).length;
 				if (presence !== 1) throw new Error(`fixture | present appears ${presence} times`);
 				if (row(archive, "fixture", "launch") !== undefined) throw new Error("the fake launch failed");
-				if (row(archive, "calibration", "marked HID mouseMoved") !== "recorded") throw new Error("the B0 calibration event was not recorded");
-				if (!/calibration \| marked HID mouseMoved \| recorded \| pid=4242 state=1 type=5 agentDelta=1/.test(archive)) throw new Error("the calibration row omitted pid/state/type");
 				if (row(archive, "attribution", "ring") !== undefined && row(archive, "attribution", "ring") !== "pass") throw new Error("the fake helper reported no ring");
 				if (!/\| attribution \| summary \| recorded \|/.test(archive)) throw new Error("no attribution summary row");
+				for (const action of ["agent HID events", "focus taken", "cursor warped"]) {
+					if (row(archive, "background", action) !== "pass") throw new Error(`background | ${action} did not pass`);
+				}
 				const effect = /\| direct L2 \| click effect \| pass \| before=clicks:(\d+) after=clicks:(\d+)/.exec(archive);
 				if (!effect) throw new Error("the directed click was not judged against the fixture counter");
 				if (Number(effect[2]) !== Number(effect[1]) + 1) throw new Error(`the directed click moved the counter ${effect[1]} → ${effect[2]}`);
@@ -133,10 +134,11 @@ export const executionChecks = [
 				expectOk(result, "B1 run");
 				if (!/^Verdict: pass$/m.test(result.archive ?? "")) throw new Error(`no passing verdict:\n${(result.archive ?? "no archive").slice(0, 800)}`);
 				if (result.marker) throw new Error("a passing run wrote B-STOPPED");
-				for (const [area, action] of [["gate", "verdict"], ["helper", "still alive"], ["restore", "operator app"], ["run", "real user input"]]) {
+				for (const [area, action] of [["gate", "verdict"], ["helper", "still alive"], ["background", "agent HID events"], ["background", "focus taken"], ["background", "cursor warped"]]) {
 					const value = row(result.archive, area, action);
 					if (value !== "pass") throw new Error(`${area} | ${action} = ${value ?? "missing"}, which the B1 contract requires`);
 				}
+				if (row(result.archive, "run", "real user input") !== "recorded") throw new Error("real user input was not recorded");
 				return "every required B1 row passed";
 			} finally {
 				result.cleanup();
@@ -293,18 +295,17 @@ export const executionChecks = [
 		},
 	},
 	{
-		name: "a gate hold names the missing helper instead of leaving it to guesswork",
+		name: "a gate hold names the closed authorization window",
 		run: () => {
 			const result = runScript({ scenario: "gate-hold", args: ["--b0-attribution"] });
 			try {
 				if (result.status !== 1) throw new Error(`expected exit 1, got ${result.status}`);
 				const archive = result.archive ?? "";
 				const note = /\| gate \| verdict \| fail \| (.*) \|/.exec(archive)?.[1] ?? "";
-				if (!/helper_error=/.test(note)) throw new Error(`the hold row does not say why: ${note}`);
-				if (!/daemon is unavailable/.test(note)) throw new Error(`the helper error was dropped: ${note}`);
+				if (!/inside_window=false/.test(note)) throw new Error(`the hold row does not say why: ${note}`);
 				if (result.marker) throw new Error("a gate hold wrote B-STOPPED");
 				if (/\| fixture \| launch/.test(archive)) throw new Error("the run kept going after the hold");
-				return "the row carries helper_error and nothing was launched";
+				return "the row carries inside_window=false and nothing was launched";
 			} finally {
 				result.cleanup();
 			}

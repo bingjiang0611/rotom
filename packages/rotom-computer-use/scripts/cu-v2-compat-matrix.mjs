@@ -8,7 +8,7 @@
  * cell, and a cell that was never run stays `not-run` — the matrix never infers
  * success from a neighbouring app.
  *
- *   PI_CU_LIVE=1 node scripts/cu-v2-compat-matrix.mjs --apps com.apple.TextEdit,/tmp/cu-fixture \
+ *   PI_CU_LIVE=1 node scripts/cu-v2-compat-matrix.mjs --apps /tmp/cu-fixture.app \
  *     --runs-dir ~/cu-v2-runs --expect-commit <frozen sha> \
  *     --window-start 2026-11-06T19:53:21-0800 --window-minutes 60
  *
@@ -16,15 +16,17 @@
  * K1): an archive inside it would either dirty the tree or have to be committed, and a
  * commit moves HEAD off the frozen commit, so no later step could ever start.
  *
- * Apps: only the fixture and apps where read-only actions are safe (TextEdit with
- * an empty document, Finder windows). Never drives user documents.
+ * Apps: only disposable fixture copies or equally isolated test applications. Never
+ * drives user documents.
  */
 import path from "node:path";
 import process from "node:process";
+import { createBackgroundEvidence } from "./lib/background-evidence.mjs";
 import { StepRefused, beginStep, writeRunArchive } from "./lib/b-window.mjs";
 import { ensureFixtureWindow, launchFixture } from "./lib/fixture.mjs";
 import { GateHold, requireGate } from "./lib/gate.mjs";
-import { classifyActFailure, recordRealUserInput, restoreOperatorApp, withoutHome } from "./lib/live-helpers.mjs";
+import { classifyActFailure, recordRealUserInput, withoutHome } from "./lib/live-helpers.mjs";
+import { createRunAppOwnership, quitRunOwnedApp } from "./lib/run-owned-apps.mjs";
 
 /** `scripts/` -> `packages/rotom-computer-use` -> `packages` -> repository root. */
 const REPO_ROOT = path.resolve(import.meta.dirname, "..", "..", "..");
@@ -33,19 +35,18 @@ const ACTIONS = ["observe", "focus", "setText", "typeText", "press", "setChecked
 // absent `--delivery` resolve to `process.argv[0]` (the node path), so the first B2 run
 // labelled every cell with a policy that does not exist and ran one policy, not three.
 const requestedDelivery = argument("--delivery");
-// `foreground` raises the target window and posts HID input; leave it out on a
-// machine someone is using and say so instead of quietly skipping it.
-const DELIVERY = (requestedDelivery ? requestedDelivery.split(",").map((value) => value.trim()).filter(Boolean) : ["ax_only", "background", "foreground"]);
+const DELIVERY = (requestedDelivery ? requestedDelivery.split(",").map((value) => value.trim()).filter(Boolean) : ["ax_only", "background"]);
+if (DELIVERY.includes("foreground")) {
+	console.error("[cu-v2 matrix] B2 is background-only; foreground delivery belongs to B5/B6");
+	process.exit(2);
+}
 
 if (process.platform !== "darwin" || (process.env.PI_CU_LIVE ?? "") !== "1") {
 	console.log("[cu-v2 matrix] not run: needs macOS and PI_CU_LIVE=1 with a real helper");
 	process.exit(0);
 }
 
-/**
- * The gate runs here too (review G6): this matrix is the only script that deliberately
- * uses the `foreground` policy, so it must not start without an authorized window.
- */
+/** The authorization-window gate runs before any application is touched. */
 function argument(name, fallback) {
 	const index = process.argv.indexOf(name);
 	return index >= 0 && index + 1 < process.argv.length ? process.argv[index + 1] : fallback;
@@ -67,8 +68,6 @@ try {
 	gate = await requireGate({
 		windowStart: argument("--window-start"),
 		windowMinutes: argument("--window-minutes"),
-		requireIdleMinutes: argument("--require-idle-minutes") ?? "10",
-		listeningSince: argument("--listening-since"),
 	});
 } catch (error) {
 	console.error(`[cu-v2 matrix] gate: ${error instanceof Error ? error.message : String(error)}`);
@@ -81,71 +80,61 @@ if (apps.length === 0) {
 	process.exit(2);
 }
 
-const { macosBackend } = await import("../src/platform/macos/backend.ts");
-const { macosHelper } = await import("../src/platform/macos/helper.ts");
+const { macosBackend: rawBackend } = await import("../src/platform/macos/backend.ts");
+const { macosHelper: rawHelper } = await import("../src/platform/macos/helper.ts");
 const { disposeFixtureRun, prepareFixtureRun } = await import("./lib/fixture.mjs");
 const { homedir } = await import("node:os");
 const { runStamp } = await import("./lib/live-helpers.mjs");
 
 const rows = [];
-// B2's own contract rows (review 6 K2): the gate reading it started from, and the proof
-// that no person touched the machine while the cells ran.
-rows.push({ area: "gate", action: "verdict", delivery: "-", result: "pass", note: `minutes_left=${gate.minutes_left} helper_idle=${gate.helper_idle_seconds ?? "-"}s` });
-const activityBefore = await macosBackend.userActivity().catch(() => undefined);
+const record = (area, action, result, note) => rows.push({ area, action, delivery: "-", result, note });
+const runOwnedPids = new Set();
+const background = createBackgroundEvidence({ backend: rawBackend, helper: rawHelper, record, ownedPids: runOwnedPids });
+const macosBackend = background.backend;
+const macosHelper = background.helper;
+rows.push({ area: "gate", action: "verdict", delivery: "-", result: "pass", note: `minutes_left=${gate.minutes_left}` });
+const diagnostics = await macosHelper.diagnosticsCommand();
+background.setHelperPid(diagnostics.pid, diagnostics.invariants);
+const activityBefore = await macosHelper.command("userActivity", {}).catch(() => undefined);
 const operatorFrontBefore = await macosBackend.getFrontmost().catch(() => undefined);
+await background.start();
 const runPids = [];
 
 /**
  * A path argument may be a plain .app or a fixture the operator built. Each run gets
  * a fresh copy with its own bundle id, so LaunchServices cannot attach the matrix to
  * a copy that is already running (-10825) and the operator's instance is never the
- * target. `--no-fixture-copy` keeps the old behavior for a path that is already
- * unique per run.
+ * target.
  */
-const copyFixtures = !process.argv.includes("--no-fixture-copy");
 const runRoot = path.join(homedir(), "cu-v2-test", "runs", runStamp());
 const prepared = [];
 function targetFor(app) {
-	if (!copyFixtures || !app.startsWith("/")) return app;
+	if (!app.startsWith("/")) return app;
 	const handle = prepareFixtureRun({ sourceApp: app, runRoot });
 	prepared.push(handle);
 	rows.push({ area: app, action: "fixture copy", delivery: "-", result: "prepared", note: `${handle.bundleId} at ${handle.bundlePath}` });
 	return handle.bundlePath;
 }
 
+const launchedApps = [];
 for (const requested of apps) {
 	const app = targetFor(requested);
 	const preparedHandle = prepared.find((handle) => handle.bundlePath === app);
-	const operatorFront = await macosBackend.getFrontmost().catch(() => undefined);
-	// Only the run's own copy is launched with activation: a background launch never
-	// builds a SwiftUI window, and every other app is used exactly as the operator left
-	// it. There is no `osascript` fallback (review 6 P3).
-	if (preparedHandle) {
-		await launchFixture(macosBackend, preparedHandle).catch((error) => rows.push({ area: app, action: "launch", delivery: "-", result: "fail", note: message(error) }));
-		await new Promise((resolve) => setTimeout(resolve, 1500));
-	} else {
-		await macosBackend.manageApps({ mode: "launch", bundleId: app.includes(".") && !app.startsWith("/") ? app : undefined, path: app.startsWith("/") ? app : undefined, activates: false }).catch(() => undefined);
-		await new Promise((resolve) => setTimeout(resolve, 2000));
-	}
-	const installed = (await macosBackend.listApps()).find((candidate) => preparedHandle
-		? candidate.bundleId === preparedHandle.bundleId
-		: candidate.bundleId === app || app.startsWith("/") && candidate.appName.toLowerCase().includes(path.basename(app).toLowerCase()));
+	const launchHandle = preparedHandle ?? { bundleId: app, startedPids: createRunAppOwnership() };
+	// Every target must have exact launch ownership. A pre-existing bundle-id process is
+	// reported as not-run and is never operated.
+	await launchFixture(macosBackend, launchHandle).catch((error) => rows.push({ area: app, action: "launch", delivery: "-", result: "fail", note: message(error) }));
+	await new Promise((resolve) => setTimeout(resolve, 1500));
+	const installed = (await macosBackend.listApps()).find((candidate) => candidate.bundleId === launchHandle.bundleId && launchHandle.startedPids.has(candidate.pid));
 	if (!installed) {
 		for (const action of ACTIONS) rows.push({ area: app, action, delivery: "-", result: "not-run", note: "app not running" });
 		continue;
 	}
+	background.own(installed.pid);
+	if (!preparedHandle) launchedApps.push({ app, pid: installed.pid, startedPids: launchHandle.startedPids });
 	let root;
 	try {
 		root = await ensureFixtureWindow(macosBackend, { pid: installed.pid });
-		if (root && operatorFront) {
-			// Read back instead of asserting (review 6 P3): a failed restore is a failure,
-			// because the cells would otherwise describe a session the operator lost.
-			const restore = await restoreOperatorApp({ backend: macosBackend, original: operatorFront, record: (area, action, result, note) => rows.push({ area, action, delivery: "-", result, note }) });
-			if (!restore.restored) {
-				rows.push({ area: "restore", action: "frontmost restore", delivery: "-", result: "fail", note: "the operator's app did not come back; the cells below describe a different session" });
-				break;
-			}
-		}
 	} catch (error) {
 		for (const action of ACTIONS) rows.push({ area: app, action, delivery: "-", result: "not-run", note: `listRoots failed: ${message(error)}` });
 		continue;
@@ -188,15 +177,6 @@ for (const requested of apps) {
 		}
 	}
 	look = undefined;
-	// The `foreground` cells raise the copy on purpose, so hand the front back and read
-	// it (review 6 P2); a restore that does not take is a failed cell, not a note.
-	if (operatorFront) {
-		await restoreOperatorApp({
-			backend: macosBackend,
-			original: operatorFront,
-			record: (area, action, result, note) => rows.push({ area, action, delivery: "-", result, note }),
-		});
-	}
 }
 
 function actionFor(name) {
@@ -238,15 +218,18 @@ function message(error) {
 	return error instanceof Error ? error.message : String(error);
 }
 
+const cleanupRecord = (area, action, result, note) => rows.push({ area, action, delivery: "-", result, note });
 for (const handle of prepared) {
-	const cleanupRecord = (area, action, result, note) => rows.push({ area, action, delivery: "-", result, note });
 	const cleanup = await disposeFixtureRun(handle, macosBackend, { record: cleanupRecord }).catch((error) => ({ quit: [], refused: [], remaining: [], removed: false, error: message(error) }));
 	rows.push({ area: "cleanup", action: path.basename(handle.bundlePath), delivery: "-", result: cleanup.removed && cleanup.refused.length === 0 ? "removed" : "fail", note: cleanup.error ?? `quit=${cleanup.quit.join(",") || "none"} refused=${cleanup.refused.join(",") || "none"} remaining=${cleanup.remaining.join(",") || "none"}` });
 }
+for (const launched of launchedApps) {
+	const cleanup = await quitRunOwnedApp({ backend: macosBackend, ownedPids: launched.startedPids, pid: launched.pid });
+	rows.push({ area: "cleanup", action: launched.app, delivery: "-", result: cleanup.stopped ? "pass" : "fail", note: cleanup.stopped ? `pid=${launched.pid} terminated; force=false` : `pid=${launched.pid} did not confirm termination` });
+}
 
-// Did the operator come back while the cells ran? (review 6 K2) The `foreground` cells
-// raise the copy on purpose, so this is read after the last restore.
-await recordRealUserInput({ helper: macosHelper, backend: macosBackend, record: (area, action, result, note) => rows.push({ area, action, delivery: "-", result, note }), activityBefore, operatorPid: operatorFrontBefore?.pid, runPids });
+await recordRealUserInput({ helper: macosHelper, backend: macosBackend, record, activityBefore, operatorPid: operatorFrontBefore?.pid, runPids, judged: false });
+await background.finish();
 
 const counts = rows.reduce((accumulator, row) => ({ ...accumulator, [row.result]: (accumulator[row.result] ?? 0) + 1 }), {});
 const failures = rows.filter((row) => row.result === "fail").length;

@@ -92,9 +92,9 @@ export function resolveProcessNames(pids, { exec = execFileSync } = {}) {
 /**
  * Split the window's records into "processes this run started" and everything else.
  *
- * This is a report, not a rule: the K2 judgement stays exactly as written (review 7, R2
- * accepted that only after the data is reviewed). The helper's own pid counts as ours,
- * because the helper posts the directed L2 event.
+ * This is a report, not a gate. Operator activity remains visible, but B0-B4 judge only
+ * agent-marked HID, run-owned/helper focus, and cursor-warp behavior. The helper's own pid
+ * counts as ours for attribution because it posts directed L2 events.
  */
 export function summarizeAttribution(groups = [], { runPids = [], helperPid } = {}) {
 	const ours = new Set([...runPids, helperPid].filter((pid) => Number.isFinite(pid)));
@@ -123,9 +123,9 @@ export function attributionRows(events = [], { processName = () => undefined, ru
 	rows.push({
 		area: "attribution",
 		action: "summary",
-		// Inert by design: R2 collected the data first, the K2 rule was not widened.
+		// Inert by design: activity is recorded but does not change the B0-B4 verdict.
 		result: "recorded",
-		note: `unmarked=${summary.total} fromThisRun=${summary.fromThisRun} fromElsewhere=${summary.fromElsewhere} agentMarked=${groups.filter((group) => group.agent).reduce((sum, group) => sum + group.count, 0)} K2 unchanged`,
+		note: `unmarked=${summary.total} fromThisRun=${summary.fromThisRun} fromElsewhere=${summary.fromElsewhere} agentMarked=${groups.filter((group) => group.agent).reduce((sum, group) => sum + group.count, 0)} does not affect B0-B4 verdict`,
 	});
 	return rows;
 }
