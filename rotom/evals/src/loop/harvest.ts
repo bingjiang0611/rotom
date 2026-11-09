@@ -8,6 +8,13 @@
  */
 
 import { providerDetail, traceErrorSpans } from "./harvest-provider.ts";
+import { clip, humanText, isBareContinue, isCorrection, isRecord, normalized, similarity, textOf } from "./harvest-text.ts";
+import { isControlEntry, interruptActivity, interruptFollowUp, toolErrorCategory, type InterruptActivity, type InterruptCause, type InterruptFollowUp } from "./harvest-signals.ts";
+import { messageOf, parseLines, paths, type Block, type Entry, type Message } from "./harvest-tree.ts";
+
+// Re-exported so the detectors, the report and the tests keep one import surface.
+export { isBareContinue, isCorrection, similarity } from "./harvest-text.ts";
+export { TOOL_ERROR_CATEGORIES, interruptActivity, interruptFollowUp, toolErrorCategory, type InterruptActivity, type InterruptFollowUp, type ToolErrorCategory } from "./harvest-signals.ts";
 
 export const HARVEST_SCHEMA = "rotom-loop-harvest/v1";
 
@@ -38,45 +45,30 @@ export type Incident = {
 	excerpt?: { user?: string; assistant?: string; error?: string };
 };
 
+/** Where `startedAt` came from, so a reconstructed date is never mistaken for a measured one. */
+export type StartSource = "header" | "first-entry" | "file-mtime" | "unknown";
+
 export type SessionSummary = {
 	sessionId: string;
 	sessionFile: string;
 	cwd: string;
 	startedAt: string;
+	startedAtSource: StartSource;
+	/** User turns attributed to the model that answered them, `provider/model` → count. */
+	modelTurns: Record<string, number>;
+	/** Release path this session ran, when a stack trace embedded one. Biased toward errors. */
+	release?: string;
 	models: string[];
 	userTurns: number;
 	assistantMessages: number;
 	toolCalls: number;
 	toolErrors: number;
 	interventions: number;
+	/** Interrupts the structure proved non-human (injected message, compaction) and therefore excluded. */
+	interruptExcluded: number;
 	failures: number;
 	incidentCounts: Partial<Record<IncidentKind, number>>;
 };
-
-type Entry = { type: string; id: string; parentId: string | null; timestamp: string; [key: string]: unknown };
-type Message = { role: string; [key: string]: unknown };
-type Block = { type?: string; text?: string; name?: string; id?: string; arguments?: Record<string, unknown> };
-
-const EXCERPT_CHARS = 240;
-const MAX_LEAVES = 200;
-
-// Strong-ish phrases only; precision over recall, since every hit costs triage time.
-const CORRECTION_PATTERNS: readonly RegExp[] = [
-	/^(不对|不是|错了|搞错|理解错)/u,
-	/(不对[，,。!！]|不是这样|你搞错|你理解错|理解错了|搞错了)/u,
-	/(你没有|你没|你漏了|漏掉了|你忘了|你又)/u,
-	/(我说的是|我是说|我的意思是|我让你|不是让你|我要的是|我没让你|我没有让你)/u,
-	/(为什么没|为什么不|为什么又|怎么又|又错|还是不行|还是没|还是错)/u,
-	/(别再|不要再|不要这样|不需要你|谁让你)/u,
-	/\b(that'?s (wrong|not right|not what)|not what i (asked|meant|said|wanted))\b/iu,
-	/\b(you (didn'?t|did not|forgot|missed|ignored)|i (said|asked|told you)|why did(n'?t)? you|still (broken|failing|wrong|not working))\b/iu,
-	/^(no[,.! ]|wrong\b|stop\b)/iu,
-];
-
-const BARE_CONTINUE = new Set([
-	"继续", "继续吧", "继续做", "继续啊", "接着", "接着做", "接着来", "往下做", "下一步", "别停", "不要停", "然后呢", "继续执行", "go", "go on",
-	"continue", "keep going", "proceed", "next", "carry on", "继续。", "继续!", "继续！",
-]);
 
 const READ_TOOLS = new Set(["read", "obs_recall"]);
 const EDIT_TOOLS = new Set(["edit", "write", "multi_edit", "apply_patch"]);
@@ -87,118 +79,51 @@ const BENIGN_GOAL_PAUSES = new Set(["explicit_pause", "session_restored", "agent
  * run means the command after the edit failed, not that the file was left unchanged.
  */
 const THEN_RUN_FAILED = "[then_run:failed]";
-/** `/skill:<name>` expands into this block; only the text after it is what the user typed. */
-const SKILL_BLOCK = /^<skill name="[^"]*" location="[^"]*">\n[\s\S]*?\n<\/skill>(?:\n\n([\s\S]+))?$/u;
-/** `/goal resume` delivers the goal contract as a user message; the text is injected, not typed. */
-const GOAL_RESUME_BLOCK = /^The user explicitly resumed the paused \/goal\.[\s\S]*$/u;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function textOf(content: unknown): string {
-	if (typeof content === "string") return content;
-	if (!Array.isArray(content)) return "";
-	return content
-		.filter((block): block is Block => isRecord(block) && block.type === "text" && typeof block.text === "string")
-		.map((block) => block.text)
-		.join("\n");
-}
-
-/** The part of a user message the human wrote; a skill template is injected text, not a request. */
-function humanText(text: string): string {
-	const match = text.match(SKILL_BLOCK);
-	if (match) return (match[1] ?? "").trim();
-	return GOAL_RESUME_BLOCK.test(text) ? "" : text;
-}
-
-function clip(text: string, fromEnd = false): string {
-	const flat = text.replace(/\s+/gu, " ").trim();
-	if (flat.length <= EXCERPT_CHARS) return flat;
-	return fromEnd ? `…${flat.slice(-EXCERPT_CHARS)}` : `${flat.slice(0, EXCERPT_CHARS)}…`;
-}
-
-function normalized(text: string): string {
-	return text.toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
-}
-
-function bigrams(text: string): Set<string> {
-	const result = new Set<string>();
-	for (let index = 0; index < text.length - 1; index++) result.add(text.slice(index, index + 2));
-	return result;
-}
-
-export function similarity(left: string, right: string): number {
-	const a = bigrams(normalized(left));
-	const b = bigrams(normalized(right));
-	if (a.size === 0 || b.size === 0) return normalized(left) === normalized(right) ? 1 : 0;
-	let shared = 0;
-	for (const gram of a) if (b.has(gram)) shared++;
-	return shared / (a.size + b.size - shared);
-}
-
-export function isCorrection(text: string): boolean {
-	const head = text.trim().slice(0, 400);
-	return head.length > 0 && CORRECTION_PATTERNS.some((pattern) => pattern.test(head));
-}
-
-export function isBareContinue(text: string): boolean {
-	return BARE_CONTINUE.has(text.trim().toLowerCase().replace(/[。.!！~～]+$/u, "")) || BARE_CONTINUE.has(text.trim());
-}
-
-function parseLines(lines: readonly string[]): { header?: Record<string, unknown>; entries: Entry[] } {
-	let header: Record<string, unknown> | undefined;
-	const entries: Entry[] = [];
-	for (const line of lines) {
-		if (!line.trim()) continue;
-		let value: unknown;
-		try {
-			value = JSON.parse(line);
-		} catch {
-			continue; // A torn final line from a live session is expected; skip, never guess.
-		}
-		if (!isRecord(value) || typeof value.type !== "string") continue;
-		if (value.type === "session") {
-			header ??= value;
-			continue;
-		}
-		if (typeof value.id !== "string" || typeof value.timestamp !== "string") continue;
-		entries.push({ ...value, parentId: typeof value.parentId === "string" ? value.parentId : null } as Entry);
-	}
-	return { header, entries };
-}
-
-/** Every root→leaf path through the session tree, capped; incidents dedupe by anchor. */
-function paths(entries: readonly Entry[]): Entry[][] {
-	const byId = new Map(entries.map((entry) => [entry.id, entry]));
-	const hasChild = new Set(entries.map((entry) => entry.parentId).filter((id): id is string => id !== null));
-	const leaves = entries.filter((entry) => !hasChild.has(entry.id)).slice(-MAX_LEAVES);
-	return leaves.map((leaf) => {
-		const path: Entry[] = [];
-		const seen = new Set<string>();
-		for (let cursor: Entry | undefined = leaf; cursor && !seen.has(cursor.id); cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined) {
-			seen.add(cursor.id);
-			path.push(cursor);
-		}
-		return path.reverse();
-	});
-}
-
-function messageOf(entry: Entry): Message | undefined {
-	return entry.type === "message" && isRecord(entry.message) && typeof entry.message.role === "string"
-		? (entry.message as Message)
-		: undefined;
-}
-
-export type AnalyzeOptions = { sessionFile: string; excerpts: boolean; traceLines?: readonly string[]; shared?: HarvestShared };
+export type AnalyzeOptions = { sessionFile: string; excerpts: boolean; traceLines?: readonly string[]; shared?: HarvestShared; fileMtimeMs?: number };
 /**
  * Harvest-wide state. Forks copy their parent's entries, so a conversation continued in a
  * second session file must not count its user turns or incidents twice.
  */
-export type HarvestShared = { incidentKeys: Set<string>; userEntries: Set<string> };
+export type HarvestShared = { incidentKeys: Set<string>; userEntries: Set<string>; turnModels: Map<string, string> };
 
 export function createHarvestShared(): HarvestShared {
-	return { incidentKeys: new Set<string>(), userEntries: new Set<string>() };
+	return { incidentKeys: new Set<string>(), userEntries: new Set<string>(), turnModels: new Map<string, string>() };
+}
+
+/** A timestamp is usable only if it parses and is not the 1970 epoch a broken clock writes. */
+function usableTimestamp(value: unknown): string | undefined {
+	if (typeof value !== "string" || !value) return undefined;
+	const time = Date.parse(value);
+	if (Number.isNaN(time)) return undefined;
+	return new Date(time).getUTCFullYear() < 2000 ? undefined : value;
+}
+
+export function releaseOf(lines: readonly string[]): string | undefined {
+	const pattern = /releases\/([0-9A-Za-z.-]+)\/node_modules/gu;
+	const counts = new Map<string, number>();
+	for (const line of lines) for (const match of line.matchAll(pattern)) counts.set(match[1], (counts.get(match[1]) ?? 0) + 1);
+	let best: string | undefined;
+	for (const [release, count] of counts) if (!best || count > (counts.get(best) ?? 0)) best = release;
+	return best;
+}
+
+/** Milliseconds from the entry that started this request to the abort, when the message carries none. */
+function elapsedSinceParent(parent: Entry | undefined, entry: Entry): number | undefined {
+	if (!parent) return undefined;
+	const from = Date.parse(parent.timestamp);
+	const to = Date.parse(entry.timestamp);
+	if (Number.isNaN(from) || Number.isNaN(to) || to < from) return undefined;
+	return to - from;
+}
+
+export function resolveStartedAt(headerTimestamp: unknown, firstEntryTimestamp: unknown, fileMtimeMs?: number): { startedAt: string; startedAtSource: StartSource } {
+	const header = usableTimestamp(headerTimestamp);
+	if (header) return { startedAt: header, startedAtSource: "header" };
+	const first = usableTimestamp(firstEntryTimestamp);
+	if (first) return { startedAt: first, startedAtSource: "first-entry" };
+	const mtime = fileMtimeMs !== undefined && Number.isFinite(fileMtimeMs) ? new Date(fileMtimeMs).toISOString() : undefined;
+	if (mtime && usableTimestamp(mtime)) return { startedAt: mtime, startedAtSource: "file-mtime" };
+	return { startedAt: "", startedAtSource: "unknown" };
 }
 
 export function analyzeSession(lines: readonly string[], options: AnalyzeOptions): { session: SessionSummary; incidents: Incident[] } | undefined {
@@ -206,17 +131,16 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 	if (!header || typeof header.id !== "string") return undefined;
 	const sessionId = header.id;
 	const shared = options.shared ?? createHarvestShared();
+	const byId = new Map(entries.map((entry) => [entry.id, entry]));
 	const incidents = new Map<string, Incident>();
 	// A user turn counts once even when several signals fire on it.
 	const intervenedUserEntries = new Set<string>();
-	let interrupts = 0;
 	const add = (incident: Omit<Incident, "sessionId" | "sessionFile">) => {
 		const key = `${incident.kind}:${incident.entryId}`;
 		if (incidents.has(key) || shared.incidentKeys.has(key)) return;
 		incidents.set(key, { ...incident, sessionId, sessionFile: options.sessionFile });
 		shared.incidentKeys.add(key);
-		if (incident.kind === "user_interrupt") interrupts++;
-		else if ((INTERVENTION_KINDS as readonly string[]).includes(incident.kind)) intervenedUserEntries.add(incident.entryId);
+		if (incident.kind !== "user_interrupt" && (INTERVENTION_KINDS as readonly string[]).includes(incident.kind)) intervenedUserEntries.add(incident.entryId);
 	};
 	const withExcerpt = (excerpt: Incident["excerpt"]) => (options.excerpts ? { excerpt } : {});
 
@@ -227,6 +151,9 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 	const models = new Set<string>();
 
 	for (const path of paths(entries)) {
+		const aborts: { index: number; incident: Incident; requestText: string }[] = [];
+		let pendingUser: { id: string; text: string } | undefined;
+		let lastUserText = "";
 		let lastAssistant: { entry: Entry; message: Message } | undefined;
 		const recentUsers: { entry: Entry; text: string }[] = [];
 		const callArgs = new Map<string, { name: string; path?: string; action: string }>();
@@ -237,7 +164,7 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 		let errorRun: { entryId: string; attempts: number; incident?: Incident } | undefined;
 		const providerSpans = traceErrorSpans(options.traceLines);
 
-		for (const entry of path) {
+		for (const [index, entry] of path.entries()) {
 			if (entry.type === "custom" && entry.customType === "goal-state" && isRecord(entry.data)) {
 				const goal = isRecord(entry.data.goal) ? entry.data.goal : undefined;
 				const reason = goal && goal.status === "paused" && typeof goal.stopReason === "string" ? goal.stopReason : undefined;
@@ -258,6 +185,8 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 					userEntries.add(entry.id);
 				}
 				const text = humanText(textOf(message.content));
+				lastUserText = text;
+				if (isNewTurn) pendingUser = { id: entry.id, text };
 				const previousAssistantText = lastAssistant ? textOf(lastAssistant.message.content) : "";
 				const excerpt = { user: clip(text), assistant: previousAssistantText ? clip(previousAssistantText, true) : undefined };
 				if (lastAssistant && isBareContinue(text) && lastAssistant.message.stopReason === "stop") {
@@ -291,6 +220,11 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 				assistantEntries.add(entry.id);
 				lastAssistant = { entry, message };
 				if (typeof message.provider === "string" && typeof message.model === "string") models.add(`${message.provider}/${message.model}`);
+				// The first assistant message after a user turn is the model that answered it.
+				if (pendingUser && typeof message.provider === "string" && typeof message.model === "string") {
+					if (!shared.turnModels.has(pendingUser.id)) shared.turnModels.set(pendingUser.id, `${message.provider}/${message.model}`);
+					pendingUser = undefined;
+				}
 				const blocks = Array.isArray(message.content) ? (message.content as unknown[]).filter(isRecord) as Block[] : [];
 				for (const block of blocks) {
 					if (block.type !== "toolCall" || typeof block.id !== "string" || typeof block.name !== "string") continue;
@@ -312,7 +246,17 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 				const errorText = typeof message.errorMessage === "string" ? message.errorMessage : "";
 				if (message.stopReason === "aborted") {
 					errorRun = undefined;
-					add({ kind: "user_interrupt", entryId: entry.id, timestamp: entry.timestamp, detail: {} });
+					const parent = index > 0 ? path[index - 1] : byId.get(entry.parentId ?? "");
+					const activity = interruptActivity(message, parent);
+					const elapsed = typeof message.durationMs === "number" && Number.isFinite(message.durationMs) ? message.durationMs : elapsedSinceParent(parent, entry);
+					add({
+						kind: "user_interrupt",
+						entryId: entry.id,
+						timestamp: entry.timestamp,
+						detail: { ...activity, ...(elapsed === undefined ? {} : { elapsedMs: Math.max(0, Math.round(elapsed)) }), cause: "unknown", nextUser: "none" },
+					});
+					const created = incidents.get(`user_interrupt:${entry.id}`);
+					if (created) aborts.push({ index, incident: created, requestText: lastUserText });
 				} else if (message.stopReason === "error") {
 					if (errorRun) {
 						errorRun.attempts++;
@@ -357,12 +301,36 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 						kind: "tool_error_streak",
 						entryId: entry.id,
 						timestamp: entry.timestamp,
-						detail: { tool: toolName },
+						detail: { tool: toolName, category: toolErrorCategory(resultText) },
 						...withExcerpt({ error: clip(resultText) }),
 					});
 				}
 				if (mutationFailed && call?.path && EDIT_TOOLS.has(toolName)) failedEditPaths.set(call.path, entry.id);
 			}
+		}
+
+		// Resolve each abort against what the session did next: that is the only deterministic
+		// evidence of whether a human stopped it or the session moved on by itself.
+		for (const abort of aborts) {
+			if (abort.incident.detail.cause !== "unknown") continue;
+			let cause: InterruptCause = "no-following-turn";
+			let followUp: InterruptFollowUp = "none";
+			for (let index = abort.index + 1; index < path.length; index++) {
+				const next = path[index];
+				if (isControlEntry(next)) continue;
+				if (next.type === "compaction") { cause = "compaction"; break; }
+				if (next.type === "custom_message") { cause = "injected"; followUp = "injected"; break; }
+				const nextMessage = messageOf(next);
+				if (nextMessage?.role === "user") {
+					const text = humanText(textOf(nextMessage.content));
+					if (text) { cause = "human"; followUp = interruptFollowUp(abort.requestText, text); } else { cause = "injected"; followUp = "injected"; }
+					break;
+				}
+				cause = nextMessage?.role === "system" ? "system" : "unknown";
+				break;
+			}
+			abort.incident.detail.cause = cause;
+			abort.incident.detail.nextUser = followUp;
 		}
 	}
 
@@ -386,20 +354,35 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 	const list = [...incidents.values()].sort((left, right) => left.timestamp.localeCompare(right.timestamp));
 	const incidentCounts: Partial<Record<IncidentKind, number>> = {};
 	for (const incident of list) incidentCounts[incident.kind] = (incidentCounts[incident.kind] ?? 0) + 1;
-	const interventions = intervenedUserEntries.size + interrupts;
+	const modelTurns: Record<string, number> = {};
+	for (const id of userEntries) {
+		const model = shared.turnModels.get(id);
+		if (model) modelTurns[model] = (modelTurns[model] ?? 0) + 1;
+	}
+	const started = resolveStartedAt(header.timestamp, entries[0]?.timestamp, options.fileMtimeMs);
+	const release = releaseOf(lines);
+	// An injected message or a compaction moved the session on by itself; only the rest are
+	// interrupts a person is known to have caused.
+	const interruptList = list.filter((incident) => incident.kind === "user_interrupt");
+	const excluded = interruptList.filter((incident) => incident.detail.cause === "injected" || incident.detail.cause === "compaction").length;
+	const interventions = intervenedUserEntries.size + interruptList.length - excluded;
 	const failures = FAILURE_KINDS.reduce((sum, kind) => sum + (incidentCounts[kind] ?? 0), 0);
 	return {
 		session: {
 			sessionId,
 			sessionFile: options.sessionFile,
 			cwd: typeof header.cwd === "string" ? header.cwd : "",
-			startedAt: typeof header.timestamp === "string" ? header.timestamp : "",
+			startedAt: started.startedAt,
+			startedAtSource: started.startedAtSource,
+			modelTurns,
+			...(release ? { release } : {}),
 			models: [...models].sort(),
 			userTurns: userEntries.size,
 			assistantMessages: assistantEntries.size,
 			toolCalls: toolCallIds.size,
 			toolErrors: toolErrorIds.size,
 			interventions,
+			interruptExcluded: excluded,
 			failures,
 			incidentCounts,
 		},

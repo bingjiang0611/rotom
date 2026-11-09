@@ -7,6 +7,7 @@ import { lstat, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { FAILURE_KINDS, HARVEST_SCHEMA, INTERVENTION_KINDS, type Incident, type IncidentKind, type SessionSummary, analyzeSession, createHarvestShared } from "./harvest.ts";
 import { summarizeProviderErrors } from "./harvest-provider.ts";
+import { dayBreakdown, interruptTables, modelShareWeeks, poissonRateInterval, toolErrorTables } from "./harvest-breakdown.ts";
 
 /** ISO-8601 week label, e.g. 2026-W45. */
 export function isoWeek(timestamp: string): string {
@@ -27,6 +28,8 @@ export type WeekMetric = {
 	interventions: number;
 	/** North star: user interventions per 100 user turns. */
 	interventionsPer100Turns: number | null;
+	/** 95% Poisson band for that rate; see {@link poissonRateInterval}. */
+	interventionsInterval: { low: number; high: number } | null;
 	failures: number;
 	incidentCounts: Partial<Record<IncidentKind, number>>;
 };
@@ -35,7 +38,7 @@ export function weeklyMetrics(sessions: readonly SessionSummary[]): WeekMetric[]
 	const weeks = new Map<string, WeekMetric>();
 	for (const session of sessions) {
 		const week = isoWeek(session.startedAt);
-		const metric = weeks.get(week) ?? { week, sessions: 0, userTurns: 0, interventions: 0, interventionsPer100Turns: null, failures: 0, incidentCounts: {} };
+		const metric = weeks.get(week) ?? { week, sessions: 0, userTurns: 0, interventions: 0, interventionsPer100Turns: null, interventionsInterval: null, failures: 0, incidentCounts: {} };
 		metric.sessions++;
 		metric.userTurns += session.userTurns;
 		metric.interventions += session.interventions;
@@ -49,6 +52,7 @@ export function weeklyMetrics(sessions: readonly SessionSummary[]): WeekMetric[]
 		.map((metric) => ({
 			...metric,
 			interventionsPer100Turns: metric.userTurns > 0 ? Math.round((metric.interventions / metric.userTurns) * 1000) / 10 : null,
+			interventionsInterval: poissonRateInterval(metric.interventions, metric.userTurns) ?? null,
 		}))
 		.sort((left, right) => left.week.localeCompare(right.week));
 }
@@ -73,6 +77,15 @@ export function triageScore(session: SessionSummary): number {
 export function renderReport(input: { generatedAt: string; since: string; sessionsDir: string; sessions: readonly SessionSummary[]; incidents: readonly Incident[]; skipped: number }): string {
 	const weeks = weeklyMetrics(input.sessions);
 	const providerRows = summarizeProviderErrors(input.incidents.filter((incident) => incident.kind === "provider_error"));
+	const weekOf = (session: SessionSummary) => isoWeek(session.startedAt);
+	const modelRows = modelShareWeeks(input.sessions, weekOf);
+	const interrupts = interruptTables(input.incidents);
+	const toolErrors = toolErrorTables(input.incidents);
+	// The peak is the highest rate among weeks with enough turns for the ratio to mean anything.
+	const peak = weeks.filter((week) => week.userTurns >= 20).sort((left, right) => (right.interventionsPer100Turns ?? 0) - (left.interventionsPer100Turns ?? 0))[0];
+	const startSources = new Map<string, number>();
+	for (const session of input.sessions) startSources.set(session.startedAtSource, (startSources.get(session.startedAtSource) ?? 0) + 1);
+	const releases = input.sessions.filter((session) => session.release).length;
 	const lines = [
 		"# rotom loop harvest",
 		"",
@@ -82,9 +95,72 @@ export function renderReport(input: { generatedAt: string; since: string; sessio
 		"",
 		"## Weekly intervention rate",
 		"",
-		"| Week | Sessions | User turns | Interventions | per 100 turns | Agent-side failures |",
-		"| --- | ---: | ---: | ---: | ---: | ---: |",
-		...weeks.map((week) => `| ${week.week} | ${week.sessions} | ${week.userTurns} | ${week.interventions} | ${week.interventionsPer100Turns ?? "N/A"} | ${week.failures} |`),
+		"`95% band` is the Poisson normal approximation `k ± 1.96√k` per 100 turns: a rough sampling band, not a product-quality claim.",
+		"",
+		"| Week | Sessions | User turns | Interventions | per 100 turns | 95% band | Agent-side failures |",
+		"| --- | ---: | ---: | ---: | ---: | --- | ---: |",
+		...weeks.map((week) => `| ${week.week} | ${week.sessions} | ${week.userTurns} | ${week.interventions} | ${week.interventionsPer100Turns ?? "N/A"} | ${week.interventionsInterval ? `${week.interventionsInterval.low}–${week.interventionsInterval.high}` : "N/A"} | ${week.failures} |`),
+		"",
+		"## Model share by user turn",
+		"",
+		"Each user turn is attributed to the model of the first assistant message that answered it.",
+		"",
+		"| Week | Model | Turns | Share |",
+		"| --- | --- | ---: | ---: |",
+		...modelRows.map((row) => `| ${row.week} | ${row.model} | ${row.turns} | ${row.share}% |`),
+		"",
+	];
+	if (peak) {
+		const days = dayBreakdown(input.sessions, peak.week, weekOf);
+		lines.push(
+			`## ${peak.week} by day and provider`,
+			"",
+			`The peak week (${peak.interventionsPer100Turns ?? "N/A"} interventions per 100 turns). A session is attributed to the provider that answered most of its turns, so its interventions all count there.`,
+			"",
+			"| Day | Provider | Sessions | User turns | Interventions | per 100 turns | Failures |",
+			"| --- | --- | ---: | ---: | ---: | ---: | ---: |",
+			...days.map((row) => `| ${row.day} | ${row.provider} | ${row.sessions} | ${row.turns} | ${row.interventions} | ${row.per100 ?? "N/A"} | ${row.failures} |`),
+			"",
+		);
+	}
+	lines.push(
+		"## Interrupts",
+		"",
+		`\`cause\` is the first non-control entry after the aborted message. A human message with typed text is \`human\` (${interrupts.humanShare}% of interrupts); an injected contract or skill block is \`injected\`; \`compaction\` and \`system\` moved the session on without the user; \`no-following-turn\` means the file ends there, so the cause stays unknown.`,
+		"",
+		"| Cause | Count |",
+		"| --- | ---: |",
+		...interrupts.byCause.map((row) => `| ${row.key} | ${row.count} |`),
+		"",
+		"| Running when aborted | Count |",
+		"| --- | ---: |",
+		...interrupts.byActivity.map((row) => `| ${row.key} | ${row.count} |`),
+		"",
+		"| Aborted after | Count |",
+		"| --- | ---: |",
+		...interrupts.byDuration.map((row) => `| ${row.key} | ${row.count} |`),
+		"",
+		"| Next user message | Count |",
+		"| --- | ---: |",
+		...interrupts.byFollowUp.map((row) => `| ${row.key} | ${row.count} |`),
+		"",
+		"| Cause | Running when aborted | Count |",
+		"| --- | --- | ---: |",
+		...interrupts.causeActivity.map((row) => `| ${row.cause} | ${row.activity} | ${row.count} |`),
+		"",
+		"## Tool error streaks",
+		"",
+		"| Tool | Streaks |",
+		"| --- | ---: |",
+		...toolErrors.byTool.slice(0, 12).map((row) => `| ${row.key} | ${row.count} |`),
+		"",
+		"| Error class | Streaks |",
+		"| --- | ---: |",
+		...toolErrors.byCategory.map((row) => `| ${row.key} | ${row.count} |`),
+		"",
+		"| Tool | Error class | Streaks |",
+		"| --- | --- | ---: |",
+		...toolErrors.toolCategory.slice(0, 15).map((row) => `| ${row.tool} | ${row.category} | ${row.count} |`),
 		"",
 		"## Incidents by kind",
 		"",
@@ -94,19 +170,25 @@ export function renderReport(input: { generatedAt: string; since: string; sessio
 		"",
 		"## Provider errors by provider, category and outcome",
 		"",
-		"`final` says whether the retry run ended with a usable assistant message. `no` is the user-visible failure; `yes` was absorbed by Pi's bounded retry.",
+		"`Outcome` is `recovered` when a usable assistant message closed the retry run (Pi absorbed the error) and `user-visible` when the run ended without one, so the user saw the failure. Read the recovered share, not the user-visible share, as the retry budget working.",
 		"",
-		"| Provider | Model | Category | Final | Incidents | Attempts |",
+		"| Provider | Model | Category | Outcome | Incidents | Attempts |",
 		"| --- | --- | --- | --- | ---: | ---: |",
-		...providerRows.rows.map((row) => `| ${row.provider} | ${row.model} | ${row.category} | ${row.final ? "yes" : "no"} | ${row.count} | ${row.attempts} |`),
+		...providerRows.rows.map((row) => `| ${row.provider} | ${row.model} | ${row.category} | ${row.final ? "recovered" : "user-visible"} | ${row.count} | ${row.attempts} |`),
 		"",
 		`Provider errors: ${providerRows.total} incidents, ${providerRows.final} recovered, ${providerRows.total - providerRows.final} reached the user.`,
+		"",
+		"## Provenance",
+		"",
+		`\`startedAt\` source: ${[...startSources].sort((left, right) => right[1] - left[1]).map(([source, count]) => `${source} ${count}`).join(", ")}. A session whose own timestamps are missing or pre-2000 falls back to the file mtime, so a reconstructed date is visible here instead of becoming 1970-W01.`,
+		"",
+		`Release: ${releases} of ${input.sessions.length} sessions embed a rotom release path, and only in stack traces, so a release split is biased toward failures and is not reported.`,
 		"",
 		"## Triage queue (top sessions)",
 		"",
 		"| Score | Session | Started | Turns | Incidents | File |",
 		"| ---: | --- | --- | ---: | --- | --- |",
-	];
+	);
 	const ranked = [...input.sessions].filter((session) => triageScore(session) > 0).sort((left, right) => triageScore(right) - triageScore(left)).slice(0, 20);
 	for (const session of ranked) {
 		const counts = Object.entries(session.incidentCounts).map(([kind, count]) => `${kind}×${count}`).join(", ");
@@ -188,7 +270,7 @@ export async function harvest(options: HarvestOptions): Promise<{ outDir: string
 			continue;
 		}
 		const tracePath = join(dirname(file), "observability", `${basename(file).replace(/\.jsonl$/u, "")}.trace.jsonl`);
-		const result = analyzeSession(lines, { sessionFile: file, excerpts: options.excerpts, traceLines: await readOptional(tracePath), shared });
+		const result = analyzeSession(lines, { sessionFile: file, excerpts: options.excerpts, traceLines: await readOptional(tracePath), shared, fileMtimeMs: info.mtimeMs });
 		if (!result) {
 			skipped++;
 			continue;

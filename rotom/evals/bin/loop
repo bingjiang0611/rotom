@@ -3,4 +3,6 @@ set -eu
 
 node_command=${ROTOM_NODE:-$(command -v node)}
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
-exec "$node_command" "$script_dir/../src/loop/cli.ts" "$@"
+# One session file can be hundreds of MB; parsing it and walking its branch paths needs more
+# than the default V8 heap. This is local batch analysis, so a larger cap is safe.
+exec "$node_command" --max-old-space-size="${ROTOM_LOOP_HEAP_MB:-8192}" "$script_dir/../src/loop/cli.ts" "$@"
