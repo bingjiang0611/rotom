@@ -10,13 +10,12 @@ import {
 	collect,
 	contextTokens,
 	defaultAgentDirectory,
-	formatReport,
-	judge,
 	listSessionFiles,
 	loadContextWindows,
 	parseSessionBody,
 	userReserveTokens,
 } from "../scripts/rollover-stats.mjs";
+import { formatReport, judge } from "../scripts/rollover-stats-report.mjs";
 
 const WINDOW = 10_000;
 const RESERVE = 1_000;
@@ -308,6 +307,23 @@ describe("stage-0 collection", () => {
 		expect(active.nativeDuringUnknownGoal).toBe(0);
 		const unknown = compactionStatsOf(new SessionBuilder().model().user().goal().compaction("native", { usage: { input: 10 } }).entries);
 		expect(unknown.nativeDuringUnknownGoal).toBe(1);
+	});
+
+	it("reports the uncached-input and output shares separately from the cache-dominated total", () => {
+		const first = analyze(new SessionBuilder().model().user().assistant(9_000).compaction("native", { usage: { input: 1_000, output: 2_000 } }));
+		const second = analyze(new SessionBuilder().model().user().assistant(3_000));
+		// Cache reads dominate the total; they must not hide the summary cost in the input share.
+		second.compactions.assistantUsage.cacheRead = 900_000;
+		second.compactions.assistantUsage.output = 8_000;
+		const report = aggregate([first, second]);
+		expect(report.compactions.inputShare).toBeCloseTo(1_000 / 12_000, 6);
+		expect(report.compactions.outputShare).toBeCloseTo(2_000 / 8_000, 6);
+		expect(report.compactions.usageShare).toBeCloseTo(3_000 / (12_000 + 8_000 + 900_000), 6);
+		const text = formatReport(report, judge(report));
+		expect(text).toContain("summaryShares uncachedInput=8.3% output=25.0%");
+		const empty = aggregate([analyze(new SessionBuilder().model().user().compaction("native", { usage: { input: 10 } }))]);
+		expect(empty.compactions.inputShare).toBeNull();
+		expect(empty.compactions.outputShare).toBeNull();
 	});
 
 	it("reports the summary share of assistant usage and a null share without assistant usage", () => {

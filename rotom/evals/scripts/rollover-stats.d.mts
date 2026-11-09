@@ -49,8 +49,12 @@ export interface Stage0Report {
 	candidates: Stage0Candidate[];
 	turnGrowth: { samples: number; p50: number | null; p90: number | null; max: number | null };
 	requestsByModel: Record<string, number>;
-	/** Summary-call accounting; `usageShare` is null when no assistant usage was readable. */
-	compactions: CompactionStats & { usageShare: number | null };
+	/**
+	 * Summary-call accounting. `usageShare` divides by all assistant usage (mostly cache reads);
+	 * `inputShare` and `outputShare` divide by the uncached input and the output fields. Each is null
+	 * when its denominator is zero.
+	 */
+	compactions: CompactionStats & { usageShare: number | null; inputShare: number | null; outputShare: number | null };
 	skippedFiles?: number;
 }
 
@@ -90,8 +94,6 @@ export function buildBranch(entries: unknown[]): any[];
 export function compactionStatsOf(branch: unknown[]): CompactionStats;
 export function analyzeSession(entries: unknown[], options: { windows: Map<string, number>; reserveTokens?: number }): Stage0Analysis;
 export function aggregate(analyses: Stage0Analysis[], options?: { reserveTokens?: number }): Stage0Report;
-export function judge(report: Stage0Report, options?: { threshold?: number }): Stage0Verdict;
-export function formatReport(report: Stage0Report, verdict: Stage0Verdict): string;
 export function listSessionFiles(root: string): Promise<string[]>;
 export function defaultAgentDirectory(environment?: NodeJS.ProcessEnv, home?: string): string;
 export function collect(options?: {
