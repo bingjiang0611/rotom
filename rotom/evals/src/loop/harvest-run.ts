@@ -5,6 +5,7 @@
  */
 import { lstat, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
+import { type CompactionObservation, analyzeCompactions, compactionMetrics, renderCompactionSection } from "./compaction-harvest.ts";
 import { FAILURE_KINDS, HARVEST_SCHEMA, INTERVENTION_KINDS, type Incident, type IncidentKind, type SessionSummary, analyzeSession, createHarvestShared } from "./harvest.ts";
 import { summarizeProviderErrors } from "./harvest-provider.ts";
 import { dayBreakdown, interruptTables, modelShareWeeks, poissonRateInterval, toolErrorTables } from "./harvest-breakdown.ts";
@@ -74,7 +75,7 @@ export function triageScore(session: SessionSummary): number {
 	return (Object.entries(session.incidentCounts) as [IncidentKind, number][]).reduce((sum, [kind, count]) => sum + TRIAGE_WEIGHT[kind] * count, 0);
 }
 
-export function renderReport(input: { generatedAt: string; since: string; sessionsDir: string; sessions: readonly SessionSummary[]; incidents: readonly Incident[]; skipped: number }): string {
+export function renderReport(input: { generatedAt: string; since: string; sessionsDir: string; sessions: readonly SessionSummary[]; incidents: readonly Incident[]; skipped: number; compactions?: readonly CompactionObservation[] }): string {
 	const weeks = weeklyMetrics(input.sessions);
 	const providerRows = summarizeProviderErrors(input.incidents.filter((incident) => incident.kind === "provider_error"));
 	const weekOf = (session: SessionSummary) => isoWeek(session.startedAt);
@@ -184,6 +185,7 @@ export function renderReport(input: { generatedAt: string; since: string; sessio
 		"",
 		`Release: ${releases} of ${input.sessions.length} sessions embed a rotom release path, and only in stack traces, so a release split is biased toward failures and is not reported.`,
 		"",
+		...renderCompactionSection(input.compactions ?? [], input.sessions),
 		"## Triage queue (top sessions)",
 		"",
 		"| Score | Session | Started | Turns | Incidents | File |",
@@ -251,7 +253,7 @@ export function defaultLoopDir(env: NodeJS.ProcessEnv = process.env): string {
 
 export type HarvestOptions = { sessionsDir: string; outRoot: string; since: Date; now?: Date; excerpts: boolean };
 
-export async function harvest(options: HarvestOptions): Promise<{ outDir: string; sessions: SessionSummary[]; incidents: Incident[]; skipped: number }> {
+export async function harvest(options: HarvestOptions): Promise<{ outDir: string; sessions: SessionSummary[]; incidents: Incident[]; compactions: CompactionObservation[]; skipped: number }> {
 	const now = options.now ?? new Date();
 	const sessionsDir = resolve(options.sessionsDir);
 	const rootInfo = await lstat(sessionsDir).catch(() => undefined);
@@ -260,6 +262,8 @@ export async function harvest(options: HarvestOptions): Promise<{ outDir: string
 	let skipped = skippedLinks;
 	const sessions: SessionSummary[] = [];
 	const incidents: Incident[] = [];
+	const compactions: CompactionObservation[] = [];
+	const seenCompactions = new Set<string>();
 	const shared = createHarvestShared();
 	for (const file of files) {
 		const info = await lstat(file);
@@ -278,6 +282,7 @@ export async function harvest(options: HarvestOptions): Promise<{ outDir: string
 		if (result.session.userTurns === 0) continue;
 		sessions.push(result.session);
 		incidents.push(...result.incidents);
+		compactions.push(...analyzeCompactions(lines, result.incidents, seenCompactions));
 	}
 
 	const stamp = now.toISOString().replace(/[:.]/gu, "-");
@@ -289,10 +294,11 @@ export async function harvest(options: HarvestOptions): Promise<{ outDir: string
 	const since = options.since.toISOString();
 	await write("sessions.jsonl", sessions.map((session) => JSON.stringify(session)).join("\n") + (sessions.length ? "\n" : ""));
 	await write("incidents.jsonl", incidents.map((incident) => JSON.stringify(incident)).join("\n") + (incidents.length ? "\n" : ""));
+	await write("compactions.jsonl", compactions.map((compaction) => JSON.stringify(compaction)).join("\n") + (compactions.length ? "\n" : ""));
 	await write(
 		"summary.json",
-		`${JSON.stringify({ schema: HARVEST_SCHEMA, generatedAt: now.toISOString(), since, sessionsDir, excerpts: options.excerpts, sessions: sessions.length, incidents: incidents.length, skipped, weeks: weeklyMetrics(sessions) }, null, 2)}\n`,
+		`${JSON.stringify({ schema: HARVEST_SCHEMA, generatedAt: now.toISOString(), since, sessionsDir, excerpts: options.excerpts, sessions: sessions.length, incidents: incidents.length, skipped, weeks: weeklyMetrics(sessions), compactions: compactionMetrics(compactions) }, null, 2)}\n`,
 	);
-	await write("report.md", renderReport({ generatedAt: now.toISOString(), since, sessionsDir, sessions, incidents, skipped }));
-	return { outDir, sessions, incidents, skipped };
+	await write("report.md", renderReport({ generatedAt: now.toISOString(), since, sessionsDir, sessions, incidents, skipped, compactions }));
+	return { outDir, sessions, incidents, compactions, skipped };
 }

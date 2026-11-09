@@ -41,6 +41,8 @@ npm --prefix rotom/evals run loop -- harvest --days 7 --no-excerpts
 | 失败 | `goal_pause` | Goal 暂停且原因不是用户暂停、会话恢复或 `agent_interruption`（后者是上游错误的后果，由对应事件记录） |
 | 失败 | `compaction_failed` | trace 中压缩 span 以 error 结束 |
 
+**压缩后观察**（`compactions.jsonl` 与报告的 “After compaction” 节，只含计数，不含正文）：每次压缩记录压缩前 token、摘要 token、前后各一次请求的 cacheRead；之后 5 条助手消息内重读摘要所列文件的数量与 `context_recall`/`obs_recall` 次数；之后 3 个用户轮内的介入与 Goal 暂停。报告并列“压缩后每 100 用户轮介入”与全局值，用于判断压缩改动（优化方案 P1-2）；它是候选信号，不是质量结论。
+
 **北极星指标**：每 100 个用户 turn 的介入次数（同一 turn 多个信号只计一次，中断单独计）。`report.md` 给出每周数值与 95% 泊松区间（周样本小时只有区间能说明“尖峰”是否超出噪声）、按权重排序的分诊队列，以及下面这些拆分；`incidents.jsonl` 的 `entryId` 可直接定位到会话分叉点。
 
 `user_interrupt` 另记 `activity`（`waiting-first-byte` / `streaming-text` / `streaming-thinking` / `streaming-tool-call` / `tool-executing` 及工具名）、`elapsedMs` 与 `nextUser`（下一条用户消息的类别），并在结构上区分来源：助手被中断后若第一个非控制 entry 是注入的 goal 合同、压缩标记或系统消息，记 `injected` / `compaction` / `system` 并从介入计数里排除（`interruptExcluded`），剩余算 `human`；中断后没有下一条 turn 记 `no-following-turn`。`tool_error_streak` 同时记工具名与错误类别（timeout / command-failed / not-found / ambiguous-match / stale / other），所以“哪个工具在什么错误上重复”可以直接读出来。模型占比按 turn 计，逐周列出领先的 provider/model。会话自身时间戳缺失或早于 2000 年时回退到会话文件 mtime，并在 Provenance 一节写明有多少条来自回退，不生成 1970 周。
