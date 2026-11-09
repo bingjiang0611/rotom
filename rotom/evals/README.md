@@ -5,7 +5,7 @@
 `AgentSession`、`vitest-evals`、隔离临时工作区和原生 session artifact，比较 baseline 与 candidate
 的任务正确率、token、延迟和估算成本。
 
-真实失败入集与修改后回归见 [Agent 回归工作流](../../docs/agent/agent-regression.md)，维护入口为 `/skill:agent-regression`。
+优化循环（从真实会话挖掘失败、回放、门禁与实验账本）见 [Agent 优化循环](../../docs/agent/optimization-loop.md)，维护入口为 `/skill:agent-loop`，命令为 `npm run loop -- harvest|gate|ledger`。
 
 产品与项目仓库为全小写 [rotom](https://github.com/bingjiang0611/rotom)。`dev-agent` arm、`DevAgentPi` adapter、`dev-agent-evals` 包名及既有 artifact schema 保留实验 identity；产品环境变量使用当前源码中的 `ROTOM_*`，不能按历史品牌猜测。
 

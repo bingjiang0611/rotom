@@ -156,6 +156,7 @@ Browser relay 的后台标签、AX/DOM ref、viewport、document generation 和 
 | 术语、架构、代码定位或首次安装 | [架构与地图](docs/agent/architecture.md) |
 | 修改对应领域/边界 | [检查清单](docs/agent/change-checklists.md)，只展开受影响领域 |
 | 普通代码、UI、跨边界或发布验证 | [验证与交付](docs/agent/verification.md)，按下述范围选择小节 |
+| 改 Agent 行为（policy、工具、续跑、上下文）、挖掘真实失败、回归 gate 与实验账本 | [Agent 优化循环](docs/agent/optimization-loop.md) |
 
 ## 最小验证与完成条件
 

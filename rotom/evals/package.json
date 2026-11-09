@@ -15,7 +15,8 @@
 		"check:quality": "./bin/test test/quality-contracts.test.ts test/quality-regressions.test.ts",
 		"test:benchmark-adapters": "./bin/test-benchmark-adapters",
 		"test:container": "./bin/eval-container --container-command=test",
-		"typecheck": "./bin/typecheck"
+		"typecheck": "./bin/typecheck",
+		"loop": "./bin/loop"
 	},
 	"devDependencies": {
 		"@types/node": "22.19.19",

@@ -1,0 +1,25 @@
+{
+	"schema": "rotom-loop-gate/v1",
+	"model": { "provider": "qoder", "model": "dfmodel" },
+	"repeats": 3,
+	"cases": [
+		{
+			"suite": "cases/continuation-regression.eval.ts",
+			"caseId": "behavior-authorized-follow-through",
+			"role": "reproduced",
+			"enableEnv": "ROTOM_EVAL_CONTINUATION",
+			"caseEnv": "ROTOM_EVAL_CONTINUATION_CASE",
+			"repeatsEnv": "ROTOM_EVAL_CONTINUATION_REPEATS",
+			"ledger": "L-2026-11-02-follow-through-recheck"
+		},
+		{
+			"suite": "cases/continuation-regression.eval.ts",
+			"caseId": "behavior-status-is-not-authorization",
+			"role": "control",
+			"enableEnv": "ROTOM_EVAL_CONTINUATION",
+			"caseEnv": "ROTOM_EVAL_CONTINUATION_CASE",
+			"repeatsEnv": "ROTOM_EVAL_CONTINUATION_REPEATS",
+			"ledger": "L-2026-11-02-follow-through-recheck"
+		}
+	]
+}

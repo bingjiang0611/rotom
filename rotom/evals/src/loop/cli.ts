@@ -1,0 +1,91 @@
+import { readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { parseArgs } from "node:util";
+import { parseGateManifest, runGate } from "./gate.ts";
+import { defaultLoopDir, defaultSessionsDir, harvest } from "./harvest.ts";
+import { parseLedger } from "./ledger.ts";
+
+const evalsRoot = resolve(import.meta.dirname, "../..");
+const repoRoot = resolve(evalsRoot, "../..");
+export const GATE_MANIFEST = join(evalsRoot, "loop", "gate.json");
+export const LEDGER = join(evalsRoot, "loop", "ledger.json");
+
+const USAGE = `Usage: npm run loop -- <command>
+
+  harvest [--sessions DIR] [--out DIR] [--days N | --since YYYY-MM-DD] [--no-excerpts]
+      Scan local Pi sessions (default ${defaultSessionsDir()}) into a private incident
+      queue and weekly intervention rate under ${defaultLoopDir()}. No model calls.
+
+  gate --baseline /abs/frozen/rotom [--candidate /abs/rotom] [--case ID] [--out DIR]
+      Re-run reproduced regression cases from loop/gate.json against both products
+      and print held / regressed / unknown. Calls the configured model.
+
+  ledger
+      Validate loop/ledger.json and print the experiment history.
+`;
+
+function stamp(): string {
+	return new Date().toISOString().replace(/[:.]/gu, "-");
+}
+
+async function main(argv: string[]): Promise<number> {
+	const [command, ...rest] = argv;
+	if (command === "harvest") {
+		const { values } = parseArgs({
+			args: rest,
+			options: { sessions: { type: "string" }, out: { type: "string" }, days: { type: "string" }, since: { type: "string" }, "no-excerpts": { type: "boolean" } },
+		});
+		if (values.days && values.since) throw new Error("use --days or --since, not both");
+		const days = values.days ? Number(values.days) : 28;
+		if (!Number.isFinite(days) || days <= 0) throw new Error("--days must be a positive number");
+		const since = values.since ? new Date(`${values.since}T00:00:00Z`) : new Date(Date.now() - days * 86_400_000);
+		if (Number.isNaN(since.getTime())) throw new Error("--since must be YYYY-MM-DD");
+		const result = await harvest({
+			sessionsDir: values.sessions ?? defaultSessionsDir(),
+			outRoot: values.out ?? defaultLoopDir(),
+			since,
+			excerpts: !values["no-excerpts"],
+		});
+		console.log(`sessions=${result.sessions.length} incidents=${result.incidents.length} skipped=${result.skipped}`);
+		console.log(`report: ${join(result.outDir, "report.md")}`);
+		return 0;
+	}
+	if (command === "gate") {
+		const { values } = parseArgs({
+			args: rest,
+			options: { baseline: { type: "string" }, candidate: { type: "string" }, case: { type: "string" }, out: { type: "string" } },
+		});
+		if (!values.baseline) throw new Error("gate needs --baseline /absolute/frozen/rotom");
+		const manifest = parseGateManifest(readFileSync(GATE_MANIFEST, "utf8"));
+		const result = runGate({
+			evalsRoot,
+			manifest,
+			baselineProduct: values.baseline,
+			candidateProduct: values.candidate ?? resolve(evalsRoot, ".."),
+			only: values.case,
+			outDir: values.out ?? join(defaultLoopDir(), `gate-${stamp()}`),
+		});
+		for (const item of result.results) {
+			const rate = (value: number | null) => (value === null ? "N/A" : `${Math.round(value * 100)}%`);
+			console.log(`${item.verdict.padEnd(9)} ${item.role.padEnd(10)} ${item.caseId}  baseline=${rate(item.baselinePassRate)} candidate=${rate(item.candidatePassRate)} pairs=${item.pairs}/${item.expectedPairs}${item.reason ? `  (${item.reason})` : ""}`);
+		}
+		console.log(`gate: ${result.verdict} · ${result.summaryPath}`);
+		return result.verdict === "held" ? 0 : result.verdict === "regressed" ? 1 : 2;
+	}
+	if (command === "ledger") {
+		const entries = parseLedger(readFileSync(LEDGER, "utf8"), repoRoot);
+		for (const entry of entries) console.log(`${entry.date}  ${entry.change.padEnd(9)} ${entry.evidence.padEnd(15)} ${entry.decision.padEnd(8)} ${entry.title}`);
+		console.log(`${entries.length} entries; ${entries.filter((entry) => entry.evidence === "improved").length} with measured improvement`);
+		return 0;
+	}
+	console.error(USAGE);
+	return command === undefined || command === "help" || command === "--help" ? 0 : 64;
+}
+
+main(process.argv.slice(2)).then(
+	(code) => process.exit(code),
+	(error: unknown) => {
+		console.error(error instanceof Error ? error.message : String(error));
+		process.exit(1);
+	},
+);
