@@ -37,11 +37,13 @@ npm --prefix rotom/evals run loop -- harvest --days 7 --no-excerpts
 | 介入 | `user_interrupt` | 助手消息 `stopReason: aborted` |
 | 失败 | `tool_error_streak` | 同一动作（工具 + 相同命令/路径）在没有同动作成功的情况下第 2 次报错 |
 | 失败 | `edit_retry_without_read` | 文件写入本身失败后，未重新 read 同一路径就再改；Action Fusion 的 `[then_run:failed]` 表示改动已写入、后续命令失败，不算写入失败 |
-| 失败 | `provider_error` / `length_stop` | `stopReason` 为 `error` / `length`；一次连续重试算一条，`detail.attempts` 记录尝试次数。`provider_error` 另记 `provider`/`model`、`category`（trace 的 `pi.ai.error.category`，否则按错误消息归类为 connect / 429 / 5xx / timeout / `qoder:<code>` / other）、`categorySource`，以及 `final`（这次重试运行最后是否以成功的助手消息结束）。`final: false` 才是用户真正看到的失败；`report.md` 按 provider × 类别 × final 汇总 |
+| 失败 | `provider_error` / `length_stop` | `stopReason` 为 `error` / `length`；一次连续重试算一条，`detail.attempts` 记录尝试次数。`provider_error` 另记 `provider`/`model`、`category`（trace 的 `pi.ai.error.category`，否则按错误消息归类为 connect / 429 / 5xx / timeout / `qoder:<code>` / other）、`categorySource`，以及 `final`（这次重试运行最后是否以成功的助手消息结束）。`final: true` 表示被后续成功回答吸收，`final: false` 才是用户真正看到的失败——字段名叫 `final` 但含义是“恢复了”，`report.md` 用 recovered / user-visible 两种取值呈现，避免读反；按 provider × 类别 × 结果汇总 |
 | 失败 | `goal_pause` | Goal 暂停且原因不是用户暂停、会话恢复或 `agent_interruption`（后者是上游错误的后果，由对应事件记录） |
 | 失败 | `compaction_failed` | trace 中压缩 span 以 error 结束 |
 
-**北极星指标**：每 100 个用户 turn 的介入次数（同一 turn 多个信号只计一次，中断单独计）。`report.md` 给出每周数值和按权重排序的分诊队列；`incidents.jsonl` 的 `entryId` 可直接定位到会话分叉点。
+**北极星指标**：每 100 个用户 turn 的介入次数（同一 turn 多个信号只计一次，中断单独计）。`report.md` 给出每周数值与 95% 泊松区间（周样本小时只有区间能说明“尖峰”是否超出噪声）、按权重排序的分诊队列，以及下面这些拆分；`incidents.jsonl` 的 `entryId` 可直接定位到会话分叉点。
+
+`user_interrupt` 另记 `activity`（`waiting-first-byte` / `streaming-text` / `streaming-thinking` / `streaming-tool-call` / `tool-executing` 及工具名）、`elapsedMs` 与 `nextUser`（下一条用户消息的类别），并在结构上区分来源：助手被中断后若第一个非控制 entry 是注入的 goal 合同、压缩标记或系统消息，记 `injected` / `compaction` / `system` 并从介入计数里排除（`interruptExcluded`），剩余算 `human`；中断后没有下一条 turn 记 `no-following-turn`。`tool_error_streak` 同时记工具名与错误类别（timeout / command-failed / not-found / ambiguous-match / stale / other），所以“哪个工具在什么错误上重复”可以直接读出来。模型占比按 turn 计，逐周列出领先的 provider/model。会话自身时间戳缺失或早于 2000 年时回退到会话文件 mtime，并在 Provenance 一节写明有多少条来自回退，不生成 1970 周。
 
 局限：`/skill:<name>` 展开的模板文本与 `/goal resume` 重新投递的 goal 合同都会被剥掉，只比较用户真正输入的部分（被剥掉的消息仍计为用户 turn）；其他经 `sendUserMessage` 注入的 user 消息仍无法与人工输入区分；关键词检测是候选排序，不是结论；单人数据有偏。同一段对话被 fork 到多个会话文件时，用户 turn 与事件按 entryId 只计一次。不把 harvest 数值写成产品质量结论，只比较同一来源的周趋势。
 
@@ -86,7 +88,15 @@ npm --prefix rotom/evals run loop -- gate --baseline /absolute/frozen/rotom
 npm --prefix rotom/evals run loop -- gate --baseline /absolute/frozen/rotom --case behavior-authorized-follow-through
 ```
 
-`--candidate` 默认当前仓库的 `rotom/`；两侧必须是不同的绝对产品目录（同一目录只是 A/A smoke）。结果写到 `~/.rotom/loop/gate-<时间>/`。判定只看 candidate：每个用例全部重复通过为 `held`，否则 `regressed`；可评分配对不足为 `unknown`。退出码 0/1/2 对应 held/regressed/unknown；vitest 自身的退出码不作判定。baseline 通过率只用于观察：对照修复前产品时证明用例仍有区分度，对照上一发行版时预期同样通过。`--repeats N` 可在 1–5 之间覆盖清单里的重复数。
+`--candidate` 默认当前仓库的 `rotom/`；两侧必须是不同的绝对产品目录（同一目录那是 A/A 对照，不是 gate）。结果写到 `~/.rotom/loop/gate-<时间>/`。判定只看 candidate：每个用例全部重复通过为 `held`，否则 `regressed`；可评分配对不足为 `unknown`。退出码 0/1/2 对应 held/regressed/unknown；vitest 自身的退出码不作判定。baseline 通过率只用于观察：对照修复前产品时证明用例仍有区分度，对照上一发行版时预期同样通过。`--repeats N` 可在 1–5 之间覆盖清单里的重复数。
+
+### 正式运行前先 smoke
+
+```sh
+npm --prefix rotom/evals run loop -- gate --baseline /absolute/frozen/rotom --case behavior-authorized-follow-through --smoke
+```
+
+`--smoke` 每个用例只跑一对，然后审录下来的分数：两侧都必须真的产出分数、每个 check 都必须是布尔值、且没有 check 读取 `observe` 未记录的文件。最后一条是本轮新增的审计——上一轮 `behavior-export-symptom` 的 judge 读了 `observe` 里漏掉的 `check.mjs`，于是 10 个 arm 全判 0.00、整批作废，而 agent 的行为其实是对的。smoke 不是样本：它不写 `gate-history.jsonl`，也不能代替 `--repeats`。先 smoke 通过，再花完整轮次。
 
 ### 合并统计（gate-pool）
 
