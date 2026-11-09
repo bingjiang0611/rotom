@@ -270,6 +270,8 @@ export interface PlatformUserActivity {
 	lastUserInputAt: number;
 	/** Seconds since the last real user input, or -1 when none was seen yet. */
 	idleSeconds: number;
+	/** Seconds for which the helper's listen-only tap has continuously observed input. */
+	listeningSeconds: number;
 	listening: boolean;
 	userEventCount: number;
 	agentEventCount: number;

@@ -102,11 +102,16 @@ export function createBackgroundEvidence({ backend, helper, record, ownedPids = 
 		const activityAfter = await helper.command("userActivity", {}).catch(() => undefined);
 		const finalFrontmost = await sampleFrontmost("finish");
 		if (finalFrontmost && isOwned(finalFrontmost.pid)) focusViolations.push(`finish: ${finalFrontmost.appName ?? "?"}(${finalFrontmost.pid}) remained frontmost`);
-		const before = Number(activityBefore?.agentHidEventCount);
-		const after = Number(activityAfter?.agentHidEventCount);
-		const delta = after - before;
-		const agentResult = Number.isFinite(delta) && delta === 0 ? "pass" : "fail";
-		record("background", "agent HID events", agentResult, `agentHidEvents ${Number.isFinite(before) ? before : "?"} → ${Number.isFinite(after) ? after : "?"} (${Number.isFinite(delta) ? (delta >= 0 ? `+${delta}` : String(delta)) : "?"})`);
+		const hidBefore = Number(activityBefore?.agentHidEventCount);
+		const hidAfter = Number(activityAfter?.agentHidEventCount);
+		const hidDelta = hidAfter - hidBefore;
+		const tapBefore = Number(activityBefore?.agentEventCount);
+		const tapAfter = Number(activityAfter?.agentEventCount);
+		const tapDelta = tapAfter - tapBefore;
+		const agentResult = Number.isFinite(hidDelta) && hidDelta === 0 && Number.isFinite(tapDelta) && tapDelta === 0 ? "pass" : "fail";
+		record("background", "agent HID events", agentResult,
+			`HID posts ${Number.isFinite(hidBefore) ? hidBefore : "?"} → ${Number.isFinite(hidAfter) ? hidAfter : "?"} (${Number.isFinite(hidDelta) ? (hidDelta >= 0 ? `+${hidDelta}` : String(hidDelta)) : "?"}); `
+			+ `tap-observed agent events ${Number.isFinite(tapBefore) ? tapBefore : "?"} → ${Number.isFinite(tapAfter) ? tapAfter : "?"} (${Number.isFinite(tapDelta) ? (tapDelta >= 0 ? `+${tapDelta}` : String(tapDelta)) : "?"})`);
 		record("background", "focus taken", focusViolations.length === 0 ? "pass" : "fail", focusViolations.length === 0
 			? `${checkedActions} actions checked; user switches=${userSwitches.length}`
 			: focusViolations.join("; "));

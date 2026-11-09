@@ -12,7 +12,7 @@ const launch = source.slice(launchStart, launchEnd);
 test("a pending NSWorkspace launch retains its configuration until completion", () => {
 	assert.ok(launchStart >= 0 && launchEnd > launchStart, "launchApp source is present");
 	assert.match(source, /private var pendingLaunchConfigurations: \[UUID: NSWorkspace\.OpenConfiguration\]/);
-	assert.match(launch, /configuration\.arguments = request\["arguments"\] as\? \[String\] \?\? \[\]/);
+	assert.match(launch, /configuration\.arguments = arguments/);
 	assert.match(launch, /pendingLaunchConfigurations\[launchId\] = configuration/);
 	assert.ok(
 		launch.indexOf("pendingLaunchConfigurations[launchId] = configuration") < launch.indexOf("NSWorkspace.shared.openApplication"),
@@ -24,5 +24,14 @@ test("a pending NSWorkspace launch retains its configuration until completion", 
 	assert.ok(
 		launch.indexOf("if !waited") < launch.indexOf("if let launchError"),
 		"a timeout returns pending before callback-owned results are read",
+	);
+});
+
+test("launch arguments only allow the fixture's non-activating startup flag", () => {
+	assert.match(launch, /requestedArguments\.allSatisfy\(\{ \$0 == "--show-without-activation" \}\)/);
+	assert.match(launch, /launch arguments may only contain --show-without-activation/);
+	assert.ok(
+		launch.indexOf("requestedArguments.allSatisfy") < launch.indexOf("alreadyRunning"),
+		"arguments are rejected even when a matching app is already running",
 	);
 });

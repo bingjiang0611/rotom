@@ -149,7 +149,7 @@ async function main() {
 
 	const frontmostBefore = await macosBackend.getFrontmost();
 
-	// The fixture orders its window front without activating the application.
+	// The fixture orders its window behind the user's windows without activating the application.
 	const root = await ensureFixtureWindow(macosBackend, { pid: fixture.pid, bundleId: fixture.bundleId });
 	if (!root) throw new Error("the fixture window is not in listRoots");
 	record("root", "listRoots", root.windowId > 0 ? "pass" : "fail", `windowId=${root.windowId} frame=${JSON.stringify(root.framePoints)}`);
@@ -216,12 +216,14 @@ async function main() {
 	// cursor and raise the target window. Keep it opt-in, and restore the app that
 	// was frontmost before the run.
 	if (withHid) {
-		await runHidClick({ backend: macosBackend, look, root, fixture, record });
-		// Put the user back where they were, through `focusWindow` with a lease (review 6
-		// P2). The previous version re-launched the app - which does nothing for a running
-		// app - swallowed the error and called the result `inconclusive`, so B6 could pass
-		// while the operator's app stayed behind the fixture.
-		await restoreOperatorApp({ backend: macosBackend, original: frontmostBefore, record });
+		const hid = await runHidClick({ backend: macosBackend, helper: macosHelper, look, root, fixture, record });
+		if (!hid.stopped) {
+			// Put the user back where they were, through `focusWindow` with a lease (review 6
+			// P2). The previous version re-launched the app - which does nothing for a running
+			// app - swallowed the error and called the result `inconclusive`, so B6 could pass
+			// while the operator's app stayed behind the fixture.
+			await restoreOperatorApp({ backend: macosBackend, original: frontmostBefore, record });
+		}
 	}
 
 	if (fixtureRun) await disposeFixtureRun(fixtureRun, macosBackend, { record });

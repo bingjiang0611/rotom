@@ -435,6 +435,7 @@ final class UserActivityMonitor {
 	private var thread: Thread?
 	/// Milliseconds since 1970, like every other timestamp the broker sees.
 	private var lastUserInputAt: TimeInterval = 0
+	private var listeningSinceAt: TimeInterval = 0
 	private var userEventCount = 0
 	private var agentEventCount = 0
 	private var agentHidEventCount = 0
@@ -481,6 +482,7 @@ final class UserActivityMonitor {
 				CFRunLoopAddSource(runLoop, source, .commonModes)
 			}
 			self.listening = true
+			self.listeningSinceAt = Date().timeIntervalSince1970 * 1000
 			self.lock.unlock()
 			CGEvent.tapEnable(tap: tap, enable: true)
 			CFRunLoopRun()
@@ -548,6 +550,7 @@ final class UserActivityMonitor {
 		lock.lock()
 		let last = lastUserInputAt
 		let listening = self.listening
+		let listeningSince = listeningSinceAt
 		let userEvents = userEventCount
 		let agentEvents = agentEventCount
 		let agentHidEvents = agentHidEventCount
@@ -558,6 +561,7 @@ final class UserActivityMonitor {
 			"lastUserInputAt": last,
 			"idleSeconds": last == 0 ? -1 : max(0, (now - last) / 1000),
 			"listening": listening,
+			"listeningSeconds": listeningSince == 0 ? 0 : max(0, (now - listeningSince) / 1000),
 			"userEventCount": userEvents,
 			"agentEventCount": agentEvents,
 			"agentHidEventCount": agentHidEvents,
@@ -4563,6 +4567,18 @@ extension Bridge {
 		let bundleId = optionalStringArg(request, "bundleId")
 		let appPath = optionalStringArg(request, "path")
 		let activates = boolArg(request, "activates") ?? false
+		let arguments: [String]
+		if let rawArguments = request["arguments"] {
+			guard let requestedArguments = rawArguments as? [String] else {
+				throw BridgeFailure(message: "launch arguments must be an array of strings", code: "invalid_args")
+			}
+			guard requestedArguments.allSatisfy({ $0 == "--show-without-activation" }) else {
+				throw BridgeFailure(message: "launch arguments may only contain --show-without-activation", code: "invalid_args")
+			}
+			arguments = requestedArguments
+		} else {
+			arguments = []
+		}
 		var url: URL?
 		if let appPath, !appPath.isEmpty {
 			url = URL(fileURLWithPath: appPath)
@@ -4582,7 +4598,7 @@ extension Bridge {
 		let configuration = NSWorkspace.OpenConfiguration()
 		configuration.activates = activates
 		configuration.createsNewApplicationInstance = false
-		configuration.arguments = request["arguments"] as? [String] ?? []
+		configuration.arguments = arguments
 		var launchError: Error?
 		var launchedApp: NSRunningApplication?
 		// A newly re-signed fixture can remain suspended while syspolicyd verifies it.

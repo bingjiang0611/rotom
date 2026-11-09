@@ -22,3 +22,8 @@ test("helper exposes the checked background-delivery invariant and HID-post coun
 	assert.match(source, /"agentHidEventCount": agentHidEvents/);
 	assert.match(source, /report\("HID counter explicit"/);
 });
+
+test("helper reports how long its tap has continuously observed user input", () => {
+	assert.match(source, /private var listeningSinceAt: TimeInterval = 0/);
+	assert.match(source, /"listeningSeconds": listeningSince == 0 \? 0 : max/);
+});

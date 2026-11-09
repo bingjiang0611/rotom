@@ -1,3 +1,5 @@
+import { requireQuietGlobalInput } from "./global-input-gate.mjs";
+
 /**
  * The opt-in HID step (B6), kept out of the live check so the check stays readable.
  *
@@ -23,16 +25,23 @@ export async function readIdentifier(backend, target, identifier) {
  * Click the fixture's own button through the foreground policy and judge it twice.
  *
  * `look` must be the observation the ref came from; a stale ref is the helper's
- * business, not something to guess around.
+ * business, not something to guess around. Immediately before the global action,
+ * the helper must prove that it observed no unmarked input for 30 seconds.
  */
-export async function runHidClick({ backend, look, root, fixture, record }) {
-	const before = await backend.userActivity();
+export async function runHidClick({ backend, helper, look, root, fixture, record }) {
 	const button = nodeByIdentifier(look, "cu-fixture-button");
 	if (!button?.wireRef) {
 		record("act", "click went through HID", "fail", "the fixture button carrying cu-fixture-button is not in the outline; not clicking blind");
 		record("act", "click took effect", "skipped", "nothing was clicked");
-		return { delivery: undefined, outcome: undefined, pressed: undefined };
+		return { delivery: undefined, outcome: undefined, pressed: undefined, stopped: true };
 	}
+	const quiet = await requireQuietGlobalInput({ helper, record });
+	if (!quiet.allowed) {
+		record("act", "click went through HID", "skipped", "global input quiet gate did not pass; no HID action was sent");
+		record("act", "click took effect", "skipped", "nothing was clicked");
+		return { delivery: undefined, outcome: undefined, pressed: undefined, stopped: true };
+	}
+	const before = await backend.userActivity();
 	let delivery = "?";
 	let outcome = "?";
 	try {
@@ -58,5 +67,5 @@ export async function runHidClick({ backend, look, root, fixture, record }) {
 		pressed === "clicked" ? "pass" : outcome === "didnt" || pressed === "idle" ? "fail" : "unknown",
 		`value=${pressed ?? "absent"} outcome=${outcome} result=${sibling ?? "absent"}`,
 	);
-	return { delivery, outcome, pressed };
+	return { delivery, outcome, pressed, stopped: false };
 }

@@ -74,6 +74,7 @@ function parseUserActivity(result: any): PlatformUserActivity {
 	return {
 		lastUserInputAt: toFiniteNumber(result?.lastUserInputAt, 0),
 		idleSeconds: toFiniteNumber(result?.idleSeconds, -1),
+		listeningSeconds: toFiniteNumber(result?.listeningSeconds, 0),
 		listening: toBoolean(result?.listening),
 		userEventCount: Math.trunc(toFiniteNumber(result?.userEventCount, 0)),
 		agentEventCount: Math.trunc(toFiniteNumber(result?.agentEventCount, 0)),

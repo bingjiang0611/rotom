@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { createBackgroundEvidence } from "../scripts/lib/background-evidence.mjs";
 
-function harness(frontmost: Array<{ pid: number; appName: string; bundleId?: string }>, agentCounts = [4, 4]) {
+function harness(frontmost: Array<{ pid: number; appName: string; bundleId?: string }>, hidCounts = [4, 4], tapCounts = [9, 9]) {
 	const rows: Array<{ area: string; action: string; result: string; note: string }> = [];
 	let activityIndex = 0;
 	let currentFrontmost = frontmost[0] ?? { pid: 10, appName: "Editor" };
@@ -16,9 +16,14 @@ function harness(frontmost: Array<{ pid: number; appName: string; bundleId?: str
 		manageApps: async () => ({ launched: true, alreadyRunning: false, pid: 51 }),
 	};
 	const helper = {
-		command: async (command: string) => command === "userActivity"
-			? { agentHidEventCount: agentCounts[Math.min(activityIndex++, agentCounts.length - 1)] }
-			: { outcome: "worked" },
+		command: async (command: string) => {
+			if (command !== "userActivity") return { outcome: "worked" };
+			const index = activityIndex++;
+			return {
+				agentHidEventCount: hidCounts[Math.min(index, hidCounts.length - 1)],
+				agentEventCount: tapCounts[Math.min(index, tapCounts.length - 1)],
+			};
+		},
 	};
 	const evidence = createBackgroundEvidence({
 		backend,
@@ -54,13 +59,22 @@ test("a launch that makes its own process frontmost fails focus safety", async (
 	assert.equal(rows.find((row) => row.action === "focus taken")?.result, "fail");
 });
 
-test("agent-marked HID growth fails a background step", async () => {
+test("agent HID-post growth fails a background step", async () => {
 	const { evidence, rows } = harness([], [7, 8]);
 	await evidence.start();
 	await evidence.finish();
 	const row = rows.find((candidate) => candidate.action === "agent HID events");
 	assert.equal(row?.result, "fail");
 	assert.match(row?.note ?? "", /\+1/);
+});
+
+test("tap-observed agent event growth also fails a background step", async () => {
+	const { evidence, rows } = harness([], [7, 7], [12, 13]);
+	await evidence.start();
+	await evidence.finish();
+	const row = rows.find((candidate) => candidate.action === "agent HID events");
+	assert.equal(row?.result, "fail");
+	assert.match(row?.note ?? "", /tap-observed agent events 12 → 13 \(\+1\)/);
 });
 
 test("missing helper identity makes focus evidence fail", async () => {
@@ -84,7 +98,7 @@ test("failed frontmost reads make focus evidence fail", async () => {
 	const rows: Array<{ area: string; action: string; result: string; note: string }> = [];
 	const evidence = createBackgroundEvidence({
 		backend: { getFrontmost: async () => { throw new Error("AX unavailable"); }, act: async () => ({ outcome: "worked" }) },
-		helper: { command: async () => ({ agentHidEventCount: 0 }) },
+		helper: { command: async () => ({ agentHidEventCount: 0, agentEventCount: 0 }) },
 		record: (area: string, action: string, result: string, note: string) => rows.push({ area, action, result, note }),
 	});
 	evidence.setHelperPid(99, ["background-delivery-no-cursor-warp"]);

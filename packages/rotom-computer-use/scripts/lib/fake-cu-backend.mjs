@@ -131,12 +131,10 @@ export const backend = {
 			// The AX path always lands: the directed click is what the scenarios vary.
 			if (request.target?.ref === "@e5") firstMouseClicks += 1;
 			else clicks += 1;
-			pushEvent(true);
 			return { outcome: "unknown", performed: { delivery: "ax" } };
 		}
 		if (action === "typeText") {
 			text = String(request.params?.text ?? "");
-			pushEvent(true);
 			return { outcome: "worked", performed: { delivery: "ax" } };
 		}
 		if (action === "clear") {
@@ -162,8 +160,9 @@ export const helper = {
 				if (args?.target?.ref === "@e5") firstMouseClicks += 1;
 				else clicks += 1;
 			}
-			pushEvent(true);
-			if (scenario === "lost-events") events.pop();
+			// Targeted L2/PID delivery never reaches the session HID tap. The lost-events
+			// scenario increments only the helper tally to exercise ring disagreement.
+			if (scenario === "lost-events") counters.agentEventCount += 1;
 			return { outcome: "unknown", performed: { delivery: args?.params?.delivery ?? args?.delivery ?? "l2" }, supported: true };
 		}
 		throw new Error(`fake helper does not implement ${name}`);
@@ -175,7 +174,7 @@ export const helper = {
 
 function activity() {
 	activityCalls += 1;
-	const payload = { listening: true, lastUserInputAt: 0, idleSeconds: -1, agentHidEventCount: 0, ...counters };
+	const payload = { listening: true, listeningSeconds: 60, lastUserInputAt: 0, idleSeconds: -1, agentHidEventCount: 0, ...counters };
 	// An older helper: no ring and no declared limit, which T3 refuses.
 	if (scenario === "no-support") return payload;
 	// A helper that answered at the start and can no longer list its ring.

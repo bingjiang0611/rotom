@@ -148,18 +148,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		// across observations; without it AX re-enumerates on every look.
 		NSApp.setActivationPolicy(.regular)
 		if CommandLine.arguments.contains("--show-without-activation") {
-			showWindowWithoutActivation(attempts: 20)
+			showWindowBehindUser(attempts: 20)
 		}
 	}
 
-	private func showWindowWithoutActivation(attempts: Int) {
+	private func showWindowBehindUser(attempts: Int) {
 		DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(50)) {
 			if let window = NSApp.windows.first(where: { !$0.title.isEmpty }) {
-				window.orderFrontRegardless()
+				window.orderBack(nil)
 				return
 			}
 			if attempts > 1 {
-				self.showWindowWithoutActivation(attempts: attempts - 1)
+				self.showWindowBehindUser(attempts: attempts - 1)
 			}
 		}
 	}

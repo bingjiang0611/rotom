@@ -104,13 +104,17 @@ export const STEP_CONTRACT = Object.freeze({
 	]),
 	B6: Object.freeze([
 		{ area: "gate", action: "verdict" },
+		{ area: "gate", action: "global input quiet" },
 		{ area: "act", action: "click went through HID" },
 		{ area: "act", action: "click took effect" },
 		{ area: "restore", action: "operator app" },
 		{ area: "run", action: "real user input" },
 	]),
 	B4: BACKGROUND_CONTRACT,
-	B5: Object.freeze([{ area: "run", action: "real user input" }]),
+	B5: Object.freeze([
+		{ area: "gate", action: "global input quiet" },
+		{ area: "run", action: "real user input" },
+	]),
 });
 
 /** A refusal is a process exit code 2, never a silent skip. */

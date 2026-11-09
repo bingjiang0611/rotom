@@ -237,7 +237,7 @@ async function main() {
 	}
 	if (fixture) {
 		background.own(fixture.pid);
-		// The fixture orders its window front without activating; poll until AX sees it.
+		// The fixture orders its window behind the user's windows without activating; poll until AX sees it.
 		const root = await ensureFixtureWindow(macosBackend, { pid: fixture.pid });
 		if (!root) {
 			const why = await explainWindowTimeout(macosBackend, { pid: fixture.pid });

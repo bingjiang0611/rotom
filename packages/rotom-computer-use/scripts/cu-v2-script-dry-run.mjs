@@ -295,13 +295,17 @@ await check("K4: one owner per step, and the HID click is two rows", () => {
 	const live = readFileSync(path.join(import.meta.dirname, "check-cu-v2-live.mjs"), "utf8");
 	assert.match(live, /runHidClick\(/, "the live check must be the one that runs the HID step");
 	const hid = readFileSync(path.join(import.meta.dirname, "lib", "hid-click.mjs"), "utf8");
+	assert.match(hid, /requireQuietGlobalInput/);
 	assert.match(hid, /click went through HID/);
 	assert.match(hid, /click took effect/);
 	assert.match(hid, /cu-fixture-button/, "the effect is read back from the fixture button");
-	return "B6 = live check --with-hid";
+	return "B6 = live check --with-hid; every HID action requires 30s quiet input";
 });
 
-await check("waiting for a fixture window has no hidden activation", async () => {
+await check("fixture stays behind the user and waiting has no hidden activation", async () => {
+	const fixtureSource = readFileSync(path.join(import.meta.dirname, "..", "native", "macos-fixture", "FixtureApp.swift"), "utf8");
+	assert.match(fixtureSource, /window\.orderBack\(nil\)/, "the fixture must be placed behind the user's windows");
+	assert.doesNotMatch(fixtureSource, /orderFrontRegardless|NSApp\.activate|activate\(ignoringOtherApps:/, "the fixture must not cover or activate the user's app");
 	// Review 6 P3: the old first step called `manageApps ... activates: true`, which does
 	// nothing for a running app, and the `osascript` fallback swallowed its own failure.
 	let activations = 0;
@@ -314,7 +318,7 @@ await check("waiting for a fixture window has no hidden activation", async () =>
 	assert.equal(activations, 0, "the wait must not try to raise the app");
 	const found = await ensureFixtureWindow({ listRoots: async () => [{ kind: "window", windowId: 7 }] }, { pid: 1 }, { timeoutMs: 60 });
 	assert.equal(found.windowId, 7);
-	return "polls only";
+	return "window ordered behind the user; polls only";
 });
 
 await check("a helper refusal is a refused cell, not a failed one", () => {

@@ -107,9 +107,9 @@ export async function disposeFixtureRun(handle, backend, { record } = {}) {
 /**
  * Wait for the fixture's window, without inventing an activation path.
  *
- * The fixture's explicit startup mode calls `orderFrontRegardless()` without activating
- * the application. Polling is all that is left: either AX sees that window or the step
- * fails. There is no `osascript` or focus-stealing fallback.
+ * The fixture's explicit startup mode orders its window behind the user's windows without
+ * activating the application. Polling is all that is left: either AX sees that window or
+ * the step fails. There is no `osascript` or focus-stealing fallback.
  */
 export const FIXTURE_WINDOW_TIMEOUT_MS = 6000;
 
@@ -147,8 +147,8 @@ export function selectFixtureForRun(apps, { run, startedByThisRun }) {
 /**
  * Start the run's own fixture copy without taking the foreground.
  *
- * The fixture's explicit startup mode orders its own window front without activating
- * the application. LaunchServices therefore never needs to steal focus on its behalf.
+ * The fixture's explicit startup mode orders its own window behind the user's windows
+ * without activating the application. LaunchServices therefore never needs to steal focus.
  */
 export async function launchFixture(backend, handle, { pendingTimeoutMs = 8_000, pendingIntervalMs = 200 } = {}) {
 	const canProveCopiedFixture = handle.startedPids && typeof handle.bundleId === "string";
@@ -223,7 +223,7 @@ export async function bringUpFixture({ backend, fixturePath, runRoot, preparedRu
 	} else if (run) {
 		record("fixture", "prepared copy", "pass", `bundle=${run.bundleId} path=${launchPath}`);
 	}
-	// The fixture orders its own window front without activating. There is no `open -n`
+	// The fixture orders its own window behind the user's windows without activating. There is no `open -n`
 	// fallback: an ad-hoc launch command is not part of a frozen script, and a window that
 	// never appears is a result.
 	await launchFixture(backend, run ?? { bundlePath: launchPath }).catch((error) => record("fixture", "launch", "fail", error instanceof Error ? error.message : String(error)));

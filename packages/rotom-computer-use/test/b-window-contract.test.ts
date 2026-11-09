@@ -80,9 +80,10 @@ test("K2: real user input is recorded but does not block B0-B4", () => {
 	assert.equal(evaluateStep({ step: "B1", rows: rows.filter((row) => row.action !== "real user input") }).verdict, "pass");
 });
 
-test("K2/K4: B6 needs both HID rows and the restore, or it fails", () => {
+test("K2/K4: B6 needs the quiet-input gate, both HID rows and the restore, or it fails", () => {
 	const rows = [
 		{ area: "gate", action: "verdict", result: "pass", note: "" },
+		{ area: "gate", action: "global input quiet", result: "pass", note: "30s" },
 		{ area: "act", action: "click went through HID", result: "pass", note: "delivery=hid" },
 		{ area: "act", action: "click took effect", result: "unknown", note: "outcome=unknown" },
 		{ area: "restore", action: "operator app", result: "pass", note: "" },
@@ -91,6 +92,12 @@ test("K2/K4: B6 needs both HID rows and the restore, or it fails", () => {
 	assert.match(evaluateStep({ step: "B6", rows }).blockers.join("\n"), /click took effect = unknown/);
 	const effects = rows.map((row) => (row.action === "click took effect" ? { ...row, result: "pass" } : row));
 	assert.equal(evaluateStep({ step: "B6", rows: effects }).verdict, "pass");
+	assert.match(evaluateStep({ step: "B6", rows: effects.filter((row) => row.action !== "global input quiet") }).blockers.join("\n"), /required row missing: gate \| global input quiet/);
+});
+
+test("B5 cannot pass without the quiet-input gate", () => {
+	const rows = [{ area: "run", action: "real user input", result: "pass", note: "" }];
+	assert.match(evaluateStep({ step: "B5", rows }).blockers.join("\n"), /required row missing: gate \| global input quiet/);
 });
 
 test("an archive names its blockers instead of leaving the reader to scan", () => {

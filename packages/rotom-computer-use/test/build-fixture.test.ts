@@ -51,10 +51,10 @@ test("the deployment target and the plist cannot drift apart", () => {
 	assert.match(plist, new RegExp(`<key>LSMinimumSystemVersion</key>\\s*<string>${FIXTURE_MINIMUM_MACOS}</string>`));
 });
 
-test("fixture can show its window without activating itself", () => {
+test("fixture puts its window behind the user without activating itself", () => {
 	assert.match(fixtureSource, /--show-without-activation/);
-	assert.match(fixtureSource, /window\.orderFrontRegardless\(\)/);
-	assert.doesNotMatch(fixtureSource, /NSApp\.activate|activate\(ignoringOtherApps:/);
+	assert.match(fixtureSource, /window\.orderBack\(nil\)/);
+	assert.doesNotMatch(fixtureSource, /orderFrontRegardless|NSApp\.activate|activate\(ignoringOtherApps:/);
 });
 
 test("fixture exposes selected tab state for background click readback", () => {
