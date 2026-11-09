@@ -147,3 +147,26 @@ Apple WWDR → Apple Root CA。被杀的运行副本用的也是同一张证书�
 - **不要再在签名上找解法,也不要用 notarize 等手段专门去躲 EDR**——那是在规避管控。合规路径只剩两条:
   由安全/IT 管理员按日志(时间、PID、路径)加例外;或改用非受管机器 / 虚拟机(HANDOFF-3)测试。
 - 本机的 B0 到此为止,不在本机重试,直到上述其一落地。
+
+## 日志核对（2026-11-09）：端点安全只拦到一次性 fixture，没拦到 helper
+
+执行方只读查询 `log show --last 2d`(默认级别):
+
+| 对象 | `OS_REASON_ENDPOINTSECURITY` 终止记录 |
+| --- | --- |
+| `com.injaneity.pi-computer-use`(helper,固定身份) | 0 条 |
+| `com.example.cu-fixture…`(一次性测试 fixture,每次新 bundle id) | 1 条(09:15:28 UTC,PID 20249) |
+
+含义(在本次查询到的日志范围内):
+
+- 被端点安全终止的只有测试用的一次性 fixture。固定身份的 helper 没有被终止记录;第 7/9/10 次窗口里 helper
+  也确实正常执行过 AX 操作。
+- 边界:日志只保留两天,"未发现记录"不等于"历史上始终放行",也不能证明 EDR 只拦 fixture。结论限于查询到的范围。
+
+对"不加白是否影响日常使用"的判断:
+
+- 日常使用 Computer Use 是用固定身份的 helper 操作用户已装、已受信的 App,不复现 fixture"每次造新抛弃程序"的模式。
+  现有证据下,helper 未被端点安全终止,因此**不加白大概率不影响日常后台操作**。
+- 需要加白/IT 例外的,是在本机继续跑**这套测试**——因为测试不断造新 bundle id 的一次性 fixture,正好踩中 EDR。
+- 第三条可选(测试侧):改用一个固定身份、安装一次的 fixture(像 helper 那样),让它积累 reputation,代价是要另解
+  LaunchServices `-10825`(同 bundle id 多路径附着)问题。属于较大的测试改造,未决。
