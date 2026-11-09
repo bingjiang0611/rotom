@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
 	aggregate,
 	analyzeSession,
+	compactionStatsOf,
 	buildBranch,
 	collect,
 	contextTokens,
@@ -52,8 +53,14 @@ class SessionBuilder {
 		});
 	}
 
-	compaction(summary = "compacted") {
-		return this.add({ type: "compaction", summary });
+	compaction(summary = "compacted", options: { usage?: Record<string, number>; fromHook?: boolean; details?: unknown } = {}) {
+		return this.add({
+			type: "compaction",
+			summary,
+			...(options.usage === undefined ? {} : { usage: options.usage }),
+			...(options.fromHook === undefined ? {} : { fromHook: options.fromHook }),
+			...(options.details === undefined ? {} : { details: options.details }),
+		});
 	}
 
 	goal(status?: string) {
@@ -270,6 +277,52 @@ describe("stage-0 collection", () => {
 		});
 		expect(skipped).toBe(1);
 		expect(report).toMatchObject({ reserveTokens: RESERVE, totals: { sessions: 1, crossingSegments: 1, midTurnCrossings: 1 } });
+	});
+
+	it("counts native and extension compactions separately and keeps fromHook out of the summary usage", () => {
+		const stats = compactionStatsOf(
+			new SessionBuilder()
+				.model()
+				.user()
+				.assistant(9_000)
+				.compaction("native", { usage: { input: 9_000, output: 500, cacheRead: 100, cacheWrite: 0 } })
+				.user()
+				.compaction("rollover", { fromHook: true, details: { kind: "rotom-rollover", version: 2 } })
+				.compaction("other", { fromHook: true, details: { kind: "sol-pi" } })
+				.entries,
+		);
+		expect(stats).toMatchObject({ entries: 3, native: 1, extension: 2, rollover: 1, otherExtension: 1, nativeWithUsage: 1, nativeWithoutUsage: 0 });
+		expect(stats.usage).toEqual({ input: 9_000, output: 500, cacheRead: 100, cacheWrite: 0, totalTokens: 0 });
+		expect(contextTokens(stats.usage)).toBe(9_600);
+	});
+
+	it("marks native compactions without usable usage instead of treating them as free", () => {
+		const stats = compactionStatsOf(new SessionBuilder().model().user().assistant(9_500).compaction("no usage").compaction("zero", { usage: { input: 0 } }).entries);
+		expect(stats).toMatchObject({ native: 2, nativeWithUsage: 0, nativeWithoutUsage: 2 });
+		expect(contextTokens(stats.usage)).toBe(0);
+	});
+
+	it("counts native compactions by Goal state and keeps an unreadable goal unknown", () => {
+		const active = compactionStatsOf(new SessionBuilder().model().user().assistant(9_500).goal("active").compaction("native", { usage: { input: 10 } }).goal("blocked").compaction("native", { usage: { input: 20 } }).entries);
+		expect(active.nativeDuringActiveGoal).toBe(1);
+		expect(active.nativeDuringUnknownGoal).toBe(0);
+		const unknown = compactionStatsOf(new SessionBuilder().model().user().goal().compaction("native", { usage: { input: 10 } }).entries);
+		expect(unknown.nativeDuringUnknownGoal).toBe(1);
+	});
+
+	it("reports the summary share of assistant usage and a null share without assistant usage", () => {
+		const report = aggregate([
+			analyze(new SessionBuilder().model().user().assistant(9_000).compaction("native", { usage: { input: 1_000 } })),
+			analyze(new SessionBuilder().model().user().assistant(3_000)),
+		]);
+		expect(report.compactions.usage.input).toBe(1_000);
+		expect(report.compactions.assistantUsage.input).toBe(12_000);
+		expect(report.compactions.usageShare).toBeCloseTo(1_000 / 12_000, 6);
+		const empty = aggregate([analyze(new SessionBuilder().model().user().compaction("native", { usage: { input: 10 } }))]);
+		expect(empty.compactions.usageShare).toBeNull();
+		const text = formatReport(report, judge(report));
+		expect(text).toContain("compactions entries=1 native=1 extension=0 rollover=0");
+		expect(text).toContain("summaryShare=8.3%");
 	});
 
 	it("resolves the agent directory from PI_CODING_AGENT_DIR and falls back to the home directory", () => {

@@ -126,6 +126,73 @@ function turnOwnershipOf(branch) {
 	return (index) => lastRequestOfTurn.get(turnKeyOf(index)) === index;
 }
 
+const USAGE_FIELDS = ["input", "output", "cacheRead", "cacheWrite", "totalTokens"];
+
+function emptyUsage() {
+	return Object.fromEntries(USAGE_FIELDS.map((field) => [field, 0]));
+}
+
+function addUsage(totals, usage) {
+	if (!usage) return false;
+	for (const field of USAGE_FIELDS) {
+		if (Number.isFinite(usage[field])) totals[field] += usage[field];
+	}
+	return true;
+}
+
+/**
+ * Summary-call accounting for one branch. Pi writes a compaction entry with `fromHook` unset and its
+ * own `usage` when it summarized; an extension-provided entry carries `fromHook: true` and cost
+ * whatever that extension spent (`0` for the summary-free rollover). Both are counted, but only the
+ * native entries contribute to the summary usage totals.
+ */
+export function compactionStatsOf(branch) {
+	const stats = {
+		entries: 0,
+		native: 0,
+		extension: 0,
+		rollover: 0,
+		otherExtension: 0,
+		nativeWithUsage: 0,
+		nativeWithoutUsage: 0,
+		nativeDuringActiveGoal: 0,
+		nativeDuringUnknownGoal: 0,
+		usage: emptyUsage(),
+		assistantUsage: emptyUsage(),
+	};
+	let goalStatus = "none";
+	let goalKnown = true;
+	for (const entry of branch) {
+		if (entry.type === "custom" && entry.customType === "goal-state") {
+			const status = entry.data?.goal?.status;
+			if (typeof status === "string") goalStatus = status;
+			else goalKnown = false;
+			continue;
+		}
+		if (entry.type === "message" && entry.message?.role === "assistant") {
+			addUsage(stats.assistantUsage, entry.message.usage);
+			continue;
+		}
+		if (entry.type !== "compaction") continue;
+		stats.entries++;
+		if (entry.fromHook === true) {
+			stats.extension++;
+			if (entry.details?.kind === "rotom-rollover") stats.rollover++;
+			else stats.otherExtension++;
+			continue;
+		}
+		stats.native++;
+		// Same rule as `requestOf`: only a usage block with a positive total is accounting evidence.
+		if (contextTokens(entry.usage) > 0) {
+			addUsage(stats.usage, entry.usage);
+			stats.nativeWithUsage++;
+		} else stats.nativeWithoutUsage++;
+		if (!goalKnown) stats.nativeDuringUnknownGoal++;
+		else if (goalStatus === "active") stats.nativeDuringActiveGoal++;
+	}
+	return stats;
+}
+
 /**
  * Analyze one session. Turn boundaries are user messages; an inter-turn point is the
  * moment right after a turn's last request, before the next user message.
@@ -144,6 +211,7 @@ export function analyzeSession(entries, { windows, reserveTokens = DEFAULT_RESER
 		goalUnknownCrossings: 0,
 		turnGrowth: [],
 		requestsByModel: {},
+		compactions: compactionStatsOf([]),
 	};
 	// The model in effect and an active Goal both survive a compaction boundary, so they are
 	// tracked across the branch while segment accounting restarts.
@@ -151,6 +219,7 @@ export function analyzeSession(entries, { windows, reserveTokens = DEFAULT_RESER
 	let goalStatus = "none";
 	let goalKnown = true;
 	const branch = buildBranch(entries);
+	result.compactions = compactionStatsOf(branch);
 	const isLastRequestOfTurn = turnOwnershipOf(branch);
 	for (const segment of segmentsOf(branch)) {
 		result.segments++;
@@ -235,6 +304,7 @@ export function aggregate(analyses, { reserveTokens = DEFAULT_RESERVE_TOKENS } =
 	const takeover = Object.fromEntries(CANDIDATE_RESERVE_MULTIPLES.map((multiple) => [multiple, 0]));
 	const growth = [];
 	const requestsByModel = {};
+	const compactions = { entries: 0, native: 0, extension: 0, rollover: 0, otherExtension: 0, nativeWithUsage: 0, nativeWithoutUsage: 0, nativeDuringActiveGoal: 0, nativeDuringUnknownGoal: 0, usage: emptyUsage(), assistantUsage: emptyUsage() };
 	for (const analysis of analyses) {
 		totals.segments += analysis.segments;
 		totals.unknownWindowSegments += analysis.unknownWindowSegments;
@@ -246,6 +316,14 @@ export function aggregate(analyses, { reserveTokens = DEFAULT_RESERVE_TOKENS } =
 		totals.goalUnknownCrossings += analysis.goalUnknownCrossings;
 		growth.push(...analysis.turnGrowth);
 		for (const [model, count] of Object.entries(analysis.requestsByModel)) requestsByModel[model] = (requestsByModel[model] ?? 0) + count;
+		for (const field of Object.keys(compactions)) {
+			if (field === "usage" || field === "assistantUsage") continue;
+			compactions[field] += analysis.compactions?.[field] ?? 0;
+		}
+		if (analysis.compactions) {
+			addUsage(compactions.usage, analysis.compactions.usage);
+			addUsage(compactions.assistantUsage, analysis.compactions.assistantUsage);
+		}
 		if (analysis.crossingSegments > 0) {
 			totals.sessionsWithCrossing++;
 			for (const multiple of CANDIDATE_RESERVE_MULTIPLES) {
@@ -275,6 +353,12 @@ export function aggregate(analyses, { reserveTokens = DEFAULT_RESERVE_TOKENS } =
 			max: growth.length ? growth.at(-1) : null,
 		},
 		requestsByModel,
+		compactions: {
+			...compactions,
+			// Summary usage as a share of every assistant usage on the same branches. `null` when no
+			// assistant usage was readable, so an empty denominator never reads as zero cost.
+			usageShare: contextTokens(compactions.assistantUsage) > 0 ? contextTokens(compactions.usage) / contextTokens(compactions.assistantUsage) : null,
+		},
 	};
 }
 
@@ -310,6 +394,12 @@ export function formatReport(report, verdict) {
 	for (const candidate of report.candidates) {
 		lines.push(`candidate ${candidate.waterMark}: segments=${candidate.takeoverSegments} share=${share(candidate.takeoverSegmentShare)} sessions=${candidate.takeoverSessions} share=${share(candidate.takeoverSessionShare)}`);
 	}
+	const usage = report.compactions.usage;
+	const assistantUsage = report.compactions.assistantUsage;
+	lines.push(`compactions entries=${report.compactions.entries} native=${report.compactions.native} extension=${report.compactions.extension} rollover=${report.compactions.rollover} otherExtension=${report.compactions.otherExtension}`);
+	lines.push(`summaryUsage input=${usage.input} output=${usage.output} cacheRead=${usage.cacheRead} cacheWrite=${usage.cacheWrite} total=${contextTokens(usage)} nativeWithUsage=${report.compactions.nativeWithUsage} nativeWithoutUsage=${report.compactions.nativeWithoutUsage}`);
+	lines.push(`assistantUsage input=${assistantUsage.input} output=${assistantUsage.output} cacheRead=${assistantUsage.cacheRead} cacheWrite=${assistantUsage.cacheWrite} total=${contextTokens(assistantUsage)} summaryShare=${share(report.compactions.usageShare)}`);
+	lines.push(`nativeCompactionsDuringGoal active=${report.compactions.nativeDuringActiveGoal} unknown=${report.compactions.nativeDuringUnknownGoal}`);
 	lines.push(`gate>=${share(verdict.threshold)} passed=${verdict.passed} selected=${verdict.selectedWaterMark ?? "none"}`);
 	return `${lines.join("\n")}\n`;
 }

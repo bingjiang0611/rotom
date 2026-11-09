@@ -7,6 +7,29 @@ export interface Stage0Candidate {
 	takeoverSessionShare: number | null;
 }
 
+export interface UsageSums {
+	[field: string]: number;
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+	totalTokens: number;
+}
+
+export interface CompactionStats {
+	entries: number;
+	native: number;
+	extension: number;
+	rollover: number;
+	otherExtension: number;
+	nativeWithUsage: number;
+	nativeWithoutUsage: number;
+	nativeDuringActiveGoal: number;
+	nativeDuringUnknownGoal: number;
+	usage: UsageSums;
+	assistantUsage: UsageSums;
+}
+
 export interface Stage0Report {
 	schema: string;
 	reserveTokens: number;
@@ -26,6 +49,8 @@ export interface Stage0Report {
 	candidates: Stage0Candidate[];
 	turnGrowth: { samples: number; p50: number | null; p90: number | null; max: number | null };
 	requestsByModel: Record<string, number>;
+	/** Summary-call accounting; `usageShare` is null when no assistant usage was readable. */
+	compactions: CompactionStats & { usageShare: number | null };
 	skippedFiles?: number;
 }
 
@@ -43,6 +68,7 @@ export interface Stage0Analysis {
 	goalUnknownCrossings: number;
 	turnGrowth: number[];
 	requestsByModel: Record<string, number>;
+	compactions: CompactionStats;
 }
 
 export interface Stage0Verdict {
@@ -61,6 +87,7 @@ export function loadContextWindows(store: unknown): Map<string, number>;
 export function userReserveTokens(settings: unknown): number;
 export function parseSessionBody(text: string): unknown[] | null;
 export function buildBranch(entries: unknown[]): any[];
+export function compactionStatsOf(branch: unknown[]): CompactionStats;
 export function analyzeSession(entries: unknown[], options: { windows: Map<string, number>; reserveTokens?: number }): Stage0Analysis;
 export function aggregate(analyses: Stage0Analysis[], options?: { reserveTokens?: number }): Stage0Report;
 export function judge(report: Stage0Report, options?: { threshold?: number }): Stage0Verdict;
