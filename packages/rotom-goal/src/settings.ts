@@ -8,7 +8,10 @@ export const GOAL_SETTINGS_FILE = "pi-goal.json";
 export type ContinuationLimit = number | null;
 
 export interface GoalSettings {
-	/** User-owned opt-out; disabling review does not prove completion. */
+	/**
+	 * Opt-in completion review. Off by default: completion is model-reported unless
+	 * the user asks for the bounded file-only second opinion.
+	 */
 	completionReview: boolean;
 	/** Resume a restored active, non-waiting Goal once the session is idle. */
 	resumeOnRestore: boolean;
@@ -22,7 +25,7 @@ export interface GoalSettings {
 }
 
 export const DEFAULT_GOAL_SETTINGS: GoalSettings = {
-	completionReview: true,
+	completionReview: false,
 	resumeOnRestore: true,
 	rpc: { enabled: false },
 	continuationLimits: { automaticTurns: null, noProgressTurns: 3 },
@@ -45,7 +48,9 @@ interface GoalSettingsSaveFileSystem {
 export function normalizeGoalSettings(value: unknown): GoalSettings | undefined {
 	if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
 
-	const completionReview = Object.hasOwn(value, "completionReview") ? Reflect.get(value, "completionReview") : true;
+	const completionReview = Object.hasOwn(value, "completionReview")
+		? Reflect.get(value, "completionReview")
+		: DEFAULT_GOAL_SETTINGS.completionReview;
 	if (typeof completionReview !== "boolean") return undefined;
 	const resumeOnRestore = Object.hasOwn(value, "resumeOnRestore")
 		? Reflect.get(value, "resumeOnRestore")
