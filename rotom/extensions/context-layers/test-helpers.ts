@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { buildView, commitDrafts, planCompression } from "./blocks.ts";
+import { buildView } from "./blocks.ts";
 
 let piRoot = process.env.ROTOM_PI ? dirname(process.env.ROTOM_PI) : resolve(import.meta.dirname, "../../runtime/pi/node_modules/@earendil-works/pi-coding-agent");
 while (!existsSync(join(piRoot, "package.json")) || JSON.parse(readFileSync(join(piRoot, "package.json"), "utf8")).name !== "@earendil-works/pi-coding-agent") {
@@ -22,14 +22,14 @@ export function fixture(manager = SessionManager.inMemory(process.cwd()), steps 
   return { manager, ids };
 }
 export const view = (m: any) => buildView(m.getBranch(), m.buildSessionProjection());
-export function apply(m: any, drafts: any[]) {
-  for (const d of drafts) {
-    if (d.type === "custom") m.appendCustomEntry(d.customType, d.data);
-    else m.appendContextEdit(d.targetId, d.replacement);
-  }
-}
-export function fold(m: any, start: string, end: string, id: string, summary = "Decisions and paths retained.") {
-  const plan = planCompression(view(m), { start, end, summary }, estimateTokens, id);
-  apply(m, commitDrafts(view(m), plan));
-  return plan;
+/**
+ * Legacy session fixture is replayed read-only. `session` holds the branch entries and
+ * `expected` holds the outputs frozen by the pre-slimming (three-tool) implementation;
+ * both are stored separately so neither file grows past the commit size budget.
+ */
+export function legacyFixture() {
+  const dir = join(import.meta.dirname, "fixtures");
+  const session = JSON.parse(readFileSync(join(dir, "legacy-session.json"), "utf8"));
+  const expected = JSON.parse(readFileSync(join(dir, "legacy-session-expected.json"), "utf8"));
+  return { session, expected, manager: SessionManager.inMemory(session.cwd, undefined, session.entries) };
 }
