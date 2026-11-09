@@ -6,6 +6,7 @@
 import { lstat, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { FAILURE_KINDS, HARVEST_SCHEMA, INTERVENTION_KINDS, type Incident, type IncidentKind, type SessionSummary, analyzeSession, createHarvestShared } from "./harvest.ts";
+import { summarizeProviderErrors } from "./harvest-provider.ts";
 
 /** ISO-8601 week label, e.g. 2026-W45. */
 export function isoWeek(timestamp: string): string {
@@ -71,6 +72,7 @@ export function triageScore(session: SessionSummary): number {
 
 export function renderReport(input: { generatedAt: string; since: string; sessionsDir: string; sessions: readonly SessionSummary[]; incidents: readonly Incident[]; skipped: number }): string {
 	const weeks = weeklyMetrics(input.sessions);
+	const providerRows = summarizeProviderErrors(input.incidents.filter((incident) => incident.kind === "provider_error"));
 	const lines = [
 		"# rotom loop harvest",
 		"",
@@ -89,6 +91,16 @@ export function renderReport(input: { generatedAt: string; since: string; sessio
 		"| Kind | Count |",
 		"| --- | ---: |",
 		...[...INTERVENTION_KINDS, ...FAILURE_KINDS].map((kind) => `| ${kind} | ${input.incidents.filter((incident) => incident.kind === kind).length} |`),
+		"",
+		"## Provider errors by provider, category and outcome",
+		"",
+		"`final` says whether the retry run ended with a usable assistant message. `no` is the user-visible failure; `yes` was absorbed by Pi's bounded retry.",
+		"",
+		"| Provider | Model | Category | Final | Incidents | Attempts |",
+		"| --- | --- | --- | --- | ---: | ---: |",
+		...providerRows.rows.map((row) => `| ${row.provider} | ${row.model} | ${row.category} | ${row.final ? "yes" : "no"} | ${row.count} | ${row.attempts} |`),
+		"",
+		`Provider errors: ${providerRows.total} incidents, ${providerRows.final} recovered, ${providerRows.total - providerRows.final} reached the user.`,
 		"",
 		"## Triage queue (top sessions)",
 		"",
