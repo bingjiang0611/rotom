@@ -119,6 +119,7 @@ rotom 没有需要每次源码改动递增的统一 App 版本。普通提交不
 - 更新第三方 package 时，同步 `extensions/third-party/package.json`、lockfile、`runtime/product-config.mjs` 的 version/integrity、本文件中的数量/版本描述和 package identity tests。
 - 允许为本地调试和验证编辑 Pi / third-party `node_modules`，但不覆盖活跃安装；交付前固化为受版本管理的源码或可复现 patch，并同步依赖与 identity 合同。标准依赖安装仍使用[架构文档](architecture.md#启动与依赖入口)中的 `npm ci --ignore-scripts --omit=optional --legacy-peer-deps`，重装后验证改动可复现。
 - 更新 eval harness 依赖时只修改 `rotom/evals` 自己的 package/lock，不把 eval dependency 带入运行时产品。
+- 干净安装的锁文件入口与 npm 12 实测（2026-11-10，npm 12.2.0 / node v24.18.0）：`rotom/evals`（52 packages）、`rotom/runtime/pi`（120）、`rotom/extensions/third-party`（14）、`packages/rotom-pi`（332）四个目录的 `npm ci --ignore-scripts` 都成功。`rotom/` 根目录按设计没有 `package-lock.json`（产品本身不声明 npm 依赖），所以在那里跑 `npm ci` 得到 `EUSAGE`（“can only install with an existing package-lock.json”）是预期行为，不是缺陷；安装依赖只在上面四个目录进行。npm 报 `Missing: <name> from lock file` 表示 lock 与 package.json 脱节，此时 `npm install --ignore-scripts` 重新生成后再核对 managed lockfile diff，不要用 global/hoisted 依赖绕过。
 - 修改 launcher/runtime 组合后，从仓库外临时业务 Git 项目验证 cwd/argv、五 extensions（Qoder 默认启用 / `ROTOM_QODER=0` 关闭）、一个 skill、无 bundled templates 和 Claude Skill bridge。
 - 不把 token、密码、cookie、私钥、业务正文或本机 trace/eval artifact 提交进仓库。
 - 提交前检查 staged diff，只提交当前任务相关文件；提交与推送授权统一遵守根 `CLAUDE.md`，此处不另设相反默认。
