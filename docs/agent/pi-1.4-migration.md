@@ -75,3 +75,18 @@ macOS checkout 位于 `/tmp` 时先 `cd` 到 `pwd -P` 的 canonical 路径，避
 - 初次、增量、split-turn 前缀和分支摘要提示都追加 `SUMMARY_SOURCE_RULES`：范围、自主推进和交付方式的长期指令按用户原话放进 Constraints & Preferences，直到用户撤销、替换或工作完成；进度询问、阶段完成或暂停不算撤销；扩展消息不是用户目标或约束。
 
 验证：`compaction-serialization` 与 `compaction-summary-reasoning` 新增回归，回退源码后两者失败；压缩、分支摘要与 bug-report 相关 vitest 25 文件通过。这只证明提示与序列化输入正确，不证明真实模型一定照做；摘要质量需要真实长会话回放验证。
+
+## 1.4.0-rotom.3：摘要序列化保留结尾、限制工具参数
+
+压缩、split-turn 前缀与分支摘要都先把历史序列化成文本。原实现对工具结果只保留前 2000 字符，工具调用参数却全量写入：
+
+- 命令输出的失败原因、退出状态和测试汇总通常在结尾，只留开头会把摘要最需要的部分截掉。
+- `write`/`edit` 的参数可能是整个文件，会撑大摘要请求，而结果和后续轮次已经记录了发生了什么。
+
+修复（`compaction/utils.ts`）：
+
+- 工具结果超过 2000 字符时保留开头约 1000 与结尾约 1000 字符，中间标注 `[... N characters truncated ...]`。
+- 工具调用参数按同样的 2000 字符预算截断，短参数保持原样。
+- 公开的 `serializeConversation()` / `serializeMessagesForSummary()` 签名不变，只是截断方式变化。
+
+验证：`compaction-serialization` 回归覆盖头尾保留、参数截断与短参数原样。这只证明摘要输入更完整，不证明真实模型的摘要质量更好；后者需要优化方案（`docs/agent/optimization-plan-2026-11-09.md`）P1-1 的压缩后续跑基准。

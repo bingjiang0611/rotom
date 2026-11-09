@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { serializeConversation, serializeMessagesForSummary } from "../src/core/compaction/utils.ts";
 
 describe("serializeConversation", () => {
-	it("should truncate long tool results", () => {
-		const longContent = "x".repeat(5000);
+	it("should truncate long tool results, keeping the head and the tail", () => {
+		const longContent = `${"h".repeat(2500)}${"t".repeat(2499)}E`;
 		const messages: Message[] = [
 			{
 				role: "toolResult",
@@ -18,11 +18,65 @@ describe("serializeConversation", () => {
 
 		const result = serializeConversation(messages);
 
-		expect(result).toContain("[Tool result]:");
-		expect(result).toContain("[... 3000 more characters truncated]");
-		expect(result).not.toContain("x".repeat(3000));
-		// First 2000 chars should be present
-		expect(result).toContain("x".repeat(2000));
+		expect(result).toBe(
+			`[Tool result]: ${"h".repeat(1000)}\n\n[... 3000 characters truncated ...]\n\n${"t".repeat(999)}E`,
+		);
+		// Failures and test totals come last in command output; the tail must survive.
+		expect(result.endsWith("E")).toBe(true);
+	});
+
+	it("should bound tool call arguments, keeping the head and the tail", () => {
+		const content = "c".repeat(6000);
+		const messages: Message[] = [
+			{
+				role: "assistant",
+				content: [{ type: "toolCall", id: "tc1", name: "write", arguments: { path: "big.ts", content } }],
+				api: "anthropic",
+				provider: "anthropic",
+				model: "test",
+				usage: {
+					input: 0,
+					output: 0,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 0,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+				},
+				stopReason: "toolUse",
+				timestamp: Date.now(),
+			},
+		];
+
+		const result = serializeConversation(messages);
+
+		expect(result.startsWith('[Assistant tool calls]: write(path="big.ts", content="')).toBe(true);
+		expect(result).toContain("characters truncated ...]");
+		expect(result.endsWith('c")')).toBe(true);
+		expect(result.length).toBeLessThan(2200);
+	});
+
+	it("should keep short tool call arguments intact", () => {
+		const messages: Message[] = [
+			{
+				role: "assistant",
+				content: [{ type: "toolCall", id: "tc1", name: "read", arguments: { path: "a.ts", offset: 10 } }],
+				api: "anthropic",
+				provider: "anthropic",
+				model: "test",
+				usage: {
+					input: 0,
+					output: 0,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 0,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+				},
+				stopReason: "toolUse",
+				timestamp: Date.now(),
+			},
+		];
+
+		expect(serializeConversation(messages)).toBe('[Assistant tool calls]: read(path="a.ts", offset=10)');
 	});
 
 	it("should not truncate short tool results", () => {

@@ -93,15 +93,23 @@ export function formatFileOperations(readFiles: string[], modifiedFiles: string[
 
 /** Maximum characters for a tool result in serialized summaries. */
 const TOOL_RESULT_MAX_CHARS = 2000;
+/** Maximum characters for one tool call's serialized arguments in summaries. */
+const TOOL_CALL_ARGS_MAX_CHARS = 2000;
 
 /**
  * Truncate text to a maximum character length for summarization.
- * Keeps the beginning and appends a truncation marker.
+ * Keeps both the beginning and the end: command output puts the failure, exit
+ * status, and test totals last, so a head-only cut dropped exactly the part a
+ * summary needs.
  */
 function truncateForSummary(text: string, maxChars: number): string {
 	if (text.length <= maxChars) return text;
+	const headChars = Math.ceil(maxChars / 2);
+	const tailChars = maxChars - headChars;
 	const truncatedChars = text.length - maxChars;
-	return `${text.slice(0, maxChars)}\n\n[... ${truncatedChars} more characters truncated]`;
+	const head = text.slice(0, headChars);
+	const tail = tailChars > 0 ? text.slice(text.length - tailChars) : "";
+	return `${head}\n\n[... ${truncatedChars} characters truncated ...]\n\n${tail}`;
 }
 
 /**
@@ -109,8 +117,9 @@ function truncateForSummary(text: string, maxChars: number): string {
  * This prevents the model from treating it as a conversation to continue.
  * Call convertToLlm() first to handle custom message types.
  *
- * Tool results are truncated to keep the summarization request within
- * reasonable token budgets. Full content is not needed for summarization.
+ * Tool results and tool call arguments are truncated (head and tail kept) to
+ * keep the summarization request within reasonable token budgets. Full content
+ * is not needed for summarization.
  *
  * Thinking is omitted. Providers return summaries of the real reasoning, and
  * replayed thinking is often not part of the model's live context: for example,
@@ -134,7 +143,9 @@ export function serializeConversation(messages: Message[]): string {
 					const argsStr = Object.entries(args)
 						.map(([k, v]) => `${k}=${JSON.stringify(v)}`)
 						.join(", ");
-					toolCalls.push(`${block.name}(${argsStr})`);
+					// Write/edit payloads can be whole files; the result and later turns
+					// record what happened, so bound the call text like a tool result.
+					toolCalls.push(`${block.name}(${truncateForSummary(argsStr, TOOL_CALL_ARGS_MAX_CHARS)})`);
 				}
 			}
 
