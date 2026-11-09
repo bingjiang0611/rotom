@@ -82,6 +82,7 @@ export function fauxAssistantMessage(
 		deferred?: DeferredHandle;
 		errorMessage?: string;
 		responseId?: string;
+		retryAfterMs?: number;
 		timestamp?: number;
 	} = {},
 ): AssistantMessage {
@@ -96,6 +97,7 @@ export function fauxAssistantMessage(
 		...(options.deferred === undefined ? {} : { deferred: options.deferred }),
 		...(options.errorMessage === undefined ? {} : { errorMessage: options.errorMessage }),
 		...(options.responseId === undefined ? {} : { responseId: options.responseId }),
+		...(options.retryAfterMs === undefined ? {} : { retryAfterMs: options.retryAfterMs }),
 		timestamp: options.timestamp ?? Date.now(),
 	};
 }
