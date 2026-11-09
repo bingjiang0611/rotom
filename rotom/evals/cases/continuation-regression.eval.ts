@@ -94,11 +94,12 @@ async function writeFixture(caseDefinition: ContinuationCase, workspace: string)
 	}
 }
 
-async function setupWorkspace({ input, workspace }: PiEvalWorkspaceContext): Promise<void> {
+async function setupWorkspace({ input, workspace, configDir }: PiEvalWorkspaceContext): Promise<void> {
 	const id = !Array.isArray(input) && typeof input === "object" ? input.id : undefined;
 	const caseDefinition = continuationCases.find((item) => item.id === id);
 	if (!caseDefinition) throw new Error(`Unknown behavioural case: ${String(id)}`);
 	await writeFixture(caseDefinition, workspace);
+	if (caseDefinition.settings) await writeFile(join(configDir, "settings.json"), `${JSON.stringify(caseDefinition.settings)}\n`, "utf8");
 	// Cases run inside a Git worktree so the product's own hygiene rules see a
 	// normal repository instead of an unversioned directory.
 	const initialized = spawnSync("git", ["init", "--quiet"], { cwd: workspace, encoding: "utf8", timeout: 30_000 });
@@ -140,6 +141,8 @@ function harness(name: string, productAgentDir: string, caseDefinition: Continua
 			snapshots.push(await readObserved(workspace, caseDefinition.observe));
 			callSnapshots.push([...successfulCalls]);
 			await caseDefinition.afterTurn?.(workspace, stepIndex);
+			// A real compaction through the session's own model: the next turn must work from the summary.
+			if (caseDefinition.compactAfterTurns?.includes(stepIndex)) await session.compact();
 			return undefined;
 		},
 		async output({ input, workspace, response, session }) {
@@ -157,6 +160,7 @@ function harness(name: string, productAgentDir: string, caseDefinition: Continua
 				callSnapshots: callSnapshots as unknown as JsonValue,
 				calls: calls as unknown as JsonValue,
 				files: (await readObserved(workspace, resolved.observe)) as unknown as JsonValue,
+				compactions: session.sessionManager.getBranch().filter((entry) => entry.type === "compaction").length,
 				toolCallCount: calls.length,
 			} as ContinuationOutput & JsonValue;
 		},
