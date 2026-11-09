@@ -60,7 +60,7 @@ describe("loop gate", () => {
 describe("loop ledger", () => {
 	it("checked-in ledger is valid and every source exists", () => {
 		const entries = parseLedger(ledgerText, repoRoot);
-		expect(entries.length).toBeGreaterThanOrEqual(9);
+		expect(entries.length).toBeGreaterThanOrEqual(10);
 		expect(entries.map((entry) => entry.date)).toEqual([...entries.map((entry) => entry.date)].sort());
 	});
 

@@ -1,5 +1,7 @@
 # 任务收尾与目标保持：真实模型 A/B（2026-10-30）
 
+> **历史记录（2026-11-09）**：本文涉及的 `task-closure`、`goal-scope` 与 `end-review` suite 已因基线从未稳定失败而删除，下文命令不再可运行，代码只查 Git history。现行流程见 [Agent 优化循环](optimization-loop.md)，结论汇总在实验账本。
+
 ## 决策
 
 **INCONCLUSIVE：未证明提示改动改善行为，不交付任何候选运行时提示。**
