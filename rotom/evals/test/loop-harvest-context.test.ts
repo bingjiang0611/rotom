@@ -213,7 +213,7 @@ describe("harvest aggregation", () => {
 		const { session: summary } = analyze(sessionHeader, chain([
 			message({
 				role: "assistant",
-				content: [{ type: "text", text: "Error: boom\n    at x (file:///Users/x/.local/share/rotom/releases/0.1.27-main.802706be/node_modules/@bingjiang0611/rotom/a.js:1:1)" }],
+				content: [{ type: "text", text: "Error: boom\n    at x (file:///opt/rotom/releases/0.1.27-main.802706be/node_modules/@bingjiang0611/rotom/a.js:1:1)" }],
 				stopReason: "stop",
 				provider: "qoder",
 				model: "dfmodel",
