@@ -54,3 +54,19 @@
 
 1. V1（阻断冻结）；V2；两项低优先级可以一起做。
 2. 只做代码和测试，不跑真机。推送后报告 SHA，审过再冻结。
+
+## 复核（2026-11-09，`a4420e9..b7295f6`）：接受，`b7295f6` 可作为 B0 的冻结提交
+
+冻结提交：`b7295f6268cbf070bac86b6a50cdf9984fae55c2`。
+
+- 审核者复现：干净 worktree 连跑 3 次，246 项，245 通过、0 失败、1 跳过；dry run 37 项、0 失败、3 跳过；工作区干净。
+- V1：fixture 改用 `orderBack(nil)`，不再置顶，也不调用 activate；dry run 断言 fixture 源码里不出现 `orderFrontRegardless`、
+  `NSApp.activate` 或 `activate(ignoringOtherApps:)`。仓库里剩下的两处 `orderFrontRegardless` 在 agent 光标覆盖层和接管边框里，
+  它们按设计显示在最上层，并且点击穿透、不抢焦点。
+- V2：`requireQuietGlobalInput` 要求 helper 已经连续监听满 30 秒，并且这 30 秒里没有未标记输入，否则全局点击不执行。
+  B6 因此记为跳过并停止阶段。
+- 低优先级两项都做了：`launchApp` 的 `arguments` 只接受 `--show-without-activation`；`agent HID events` 同时要求 helper
+  自己的 HID 计数和 tap 观察到的带标记事件增量都为 0。
+
+下一个窗口两次 B0，都只出报告，用户照常使用电脑：先 `--delivery-matrix`（fixture 窗口在用户窗口后面，这正是真实的后台场景），
+再 `--launch-twice`。
