@@ -2,7 +2,8 @@ import { lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { analyzeSession, harvest, isBareContinue, isCorrection, isoWeek, weeklyMetrics } from "../src/loop/harvest.ts";
+import { analyzeSession, isBareContinue, isCorrection } from "../src/loop/harvest.ts";
+import { harvest, isoWeek, weeklyMetrics } from "../src/loop/harvest-run.ts";
 
 let counter = 0;
 type Line = Record<string, unknown>;
@@ -113,6 +114,104 @@ describe("loop harvest detectors", () => {
 		expect(summary.userTurns).toBe(3);
 	});
 
+	it("does not read a fused follow-up command failure as an edit failure", () => {
+		// Action Fusion returns the applied mutation plus `[then_run:failed]` when the command
+		// after the edit failed. The file did change, so retrying it without a read is expected.
+		const fused = "Successfully replaced 1 block(s) in a.ts.\n\n[then_run:failed]\n1 test failed";
+		const { incidents } = analyze(chain([
+			user("改一下 a.ts"),
+			call("c1", "edit", { path: "a.ts" }),
+			result("c1", "edit", true, fused),
+			call("c2", "edit", { path: "a.ts" }),
+			result("c2", "edit", false),
+			reply("done"),
+		]));
+		expect(incidents.map((incident) => incident.kind)).toEqual([]);
+		const skipped = analyze(chain([
+			user("改一下 a.ts"),
+			call("c1", "edit", { path: "a.ts" }),
+			result("c1", "edit", true, "oldText not found\n\n[then_run:skipped] the command was not run."),
+			call("c2", "edit", { path: "a.ts" }),
+			result("c2", "edit", false),
+			reply("done"),
+		]));
+		expect(skipped.incidents.map((incident) => incident.kind)).toEqual(["edit_retry_without_read"]);
+	});
+
+	it("counts a tool error streak only when the same action fails again", () => {
+		const differentCommands = analyze(chain([
+			user("看看这两个目录"),
+			call("c1", "bash", { command: "ls -d a" }),
+			result("c1", "bash", true, "(no output) Command exited with code 1"),
+			call("c2", "bash", { command: "ls -d b" }),
+			result("c2", "bash", true, "(no output) Command exited with code 1"),
+			reply("没有这两个目录"),
+		]));
+		expect(differentCommands.incidents.map((incident) => incident.kind)).toEqual([]);
+		const sameCommand = analyze(chain([
+			user("跑测试"),
+			call("c1", "bash", { command: "npm test" }),
+			result("c1", "bash", true, "1 test failed"),
+			call("c2", "bash", { command: "npm test" }),
+			result("c2", "bash", true, "1 test failed"),
+			reply("还在失败"),
+		]));
+		expect(sameCommand.incidents.map((incident) => incident.kind)).toEqual(["tool_error_streak"]);
+		const recovered = analyze(chain([
+			user("跑测试"),
+			call("c1", "bash", { command: "npm test" }),
+			result("c1", "bash", true, "1 test failed"),
+			call("c2", "bash", { command: "npm test" }),
+			result("c2", "bash", false, "all passed"),
+			call("c3", "bash", { command: "npm test" }),
+			result("c3", "bash", true, "1 test failed"),
+			reply("又失败了"),
+		]));
+		expect(recovered.incidents.map((incident) => incident.kind)).toEqual([]);
+	});
+
+	it("counts one provider error per retry run, not per attempt", () => {
+		const { incidents, session: summary } = analyze(chain([
+			user("跑一下"),
+			reply("", "error"),
+			reply("", "error"),
+			reply("", "error"),
+			reply("done"),
+			reply("", "error"),
+		]));
+		const errors = incidents.filter((incident) => incident.kind === "provider_error");
+		expect(errors).toHaveLength(2);
+		expect(errors[0].detail.attempts).toBe(3);
+		expect(errors[1].detail.attempts).toBe(1);
+		expect(summary.failures).toBe(2);
+	});
+
+	it("ignores a skill template when judging whether the user repeated or corrected", () => {
+		const skill = (task: string) => `<skill name="impeccable" location="/skills/impeccable/SKILL.md">\n# Impeccable\nPolish the interface, keep spacing even.\n</skill>\n\n${task}`;
+		const { incidents } = analyze(chain([
+			user(skill("把这个页面做得更干净，间距保持一致")),
+			reply("改好了"),
+			user(skill("把这个页面做得更干净，间距保持一致")),
+			reply("好的"),
+		]));
+		expect(incidents.map((incident) => incident.kind)).toEqual(["user_repeat"]);
+		expect(incidents[0].excerpt?.user).toBe("把这个页面做得更干净，间距保持一致");
+		const templateOnly = analyze(chain([
+			user(`<skill name="impeccable" location="/skills/impeccable/SKILL.md">\nYou did not run the build.\n</skill>`),
+			reply("好的"),
+		]));
+		expect(templateOnly.incidents.map((incident) => incident.kind)).toEqual([]);
+	});
+
+	it("does not report an interruption-induced Goal pause as a Goal failure", () => {
+		const { incidents } = analyze(chain([
+			user("/goal ship it"),
+			{ entryType: "custom", customType: "goal-state", data: { goal: { id: "g1", status: "paused", stopReason: "agent_interruption" } } },
+			{ entryType: "custom", customType: "goal-state", data: { goal: { id: "g2", status: "paused", stopReason: "missing_decision" } } },
+		]));
+		expect(incidents.map((incident) => [incident.kind, incident.detail.reason])).toEqual([["goal_pause", "missing_decision"]]);
+	});
+
 	it("computes ISO weeks and the per-100-turn north star", () => {
 		expect(isoWeek("2026-11-09T08:00:00Z")).toBe("2026-W46");
 		expect(isoWeek("2026-01-01T00:00:00Z")).toBe("2026-W01");
@@ -156,5 +255,22 @@ describe("loop harvest output", () => {
 		const report = await readFile(join(result.outDir, "report.md"), "utf8");
 		expect(report).toContain("| 2026-W45 | 1 | 2 | 1 | 50 | 1 |");
 		expect(JSON.parse(await readFile(join(result.outDir, "summary.json"), "utf8"))).toMatchObject({ schema: "rotom-loop-harvest/v1", sessions: 1, incidents: 2 });
+	});
+
+	it("counts a conversation copied into a fork once", async () => {
+		const root = await mkdtemp(join(tmpdir(), "loop-harvest-fork-"));
+		roots.push(root);
+		const sessions = join(root, "sessions", "--work-app--");
+		await mkdir(sessions, { recursive: true });
+		const shared = chain([user("修 bug"), reply("done"), user("不对，你没有跑测试"), reply("好的")]);
+		const forkTail = { type: "message", id: "tail", parentId: shared[3].id, timestamp: "2026-11-03T13:00:00.000Z", message: user("继续") };
+		const header = (id: string) => JSON.stringify({ type: "session", version: 3, id, timestamp: "2026-11-03T10:00:00.000Z", cwd: "/work/app" });
+		await writeFile(join(sessions, "2026-11-03_s-1.jsonl"), [header("s-1"), ...shared.map((line) => JSON.stringify(line))].join("\n"));
+		await writeFile(join(sessions, "2026-11-04_s-2.jsonl"), [header("s-2"), ...shared.map((line) => JSON.stringify(line)), JSON.stringify(forkTail)].join("\n"));
+
+		const result = await harvest({ sessionsDir: join(root, "sessions"), outRoot: join(root, "loop"), since: new Date("2026-01-01T00:00:00Z"), now: new Date("2026-11-09T00:00:00Z"), excerpts: false });
+		expect(result.incidents.map((incident) => incident.kind)).toEqual(["user_correction", "bare_continue"]);
+		expect(result.sessions.reduce((sum, item) => sum + item.userTurns, 0)).toBe(3);
+		expect(result.sessions.reduce((sum, item) => sum + item.interventions, 0)).toBe(2);
 	});
 });

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { parseGateManifest, runGate } from "./gate.ts";
-import { defaultLoopDir, defaultSessionsDir, harvest } from "./harvest.ts";
+import { defaultLoopDir, defaultSessionsDir, harvest } from "./harvest-run.ts";
 import { parseLedger } from "./ledger.ts";
 
 const evalsRoot = resolve(import.meta.dirname, "../..");
