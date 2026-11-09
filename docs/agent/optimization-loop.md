@@ -43,7 +43,7 @@ npm --prefix rotom/evals run loop -- harvest --days 7 --no-excerpts
 
 **北极星指标**：每 100 个用户 turn 的介入次数（同一 turn 多个信号只计一次，中断单独计）。`report.md` 给出每周数值和按权重排序的分诊队列；`incidents.jsonl` 的 `entryId` 可直接定位到会话分叉点。
 
-局限：`/skill:<name>` 展开的模板文本会被剥掉，只比较用户真正输入的部分；其他经 `sendUserMessage` 注入的 user 消息仍无法与人工输入区分；关键词检测是候选排序，不是结论；单人数据有偏。同一段对话被 fork 到多个会话文件时，用户 turn 与事件按 entryId 只计一次。不把 harvest 数值写成产品质量结论，只比较同一来源的周趋势。
+局限：`/skill:<name>` 展开的模板文本与 `/goal resume` 重新投递的 goal 合同都会被剥掉，只比较用户真正输入的部分（被剥掉的消息仍计为用户 turn）；其他经 `sendUserMessage` 注入的 user 消息仍无法与人工输入区分；关键词检测是候选排序，不是结论；单人数据有偏。同一段对话被 fork 到多个会话文件时，用户 turn 与事件按 entryId 只计一次。不把 harvest 数值写成产品质量结论，只比较同一来源的周趋势。
 
 ## ② 分诊
 
