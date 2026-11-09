@@ -66,6 +66,27 @@ test('terminal memory state with missing durable records is not an empty wait',a
 test('exact id and prefix find the unpublished admitted run',async()=>{
  const f=fixture();for(const id of [f.id,f.id.slice(0,8)])assert.match(text(await f.wait({id})),/timed out.*1 async run/s);
 });
+test('the wait tool makes blocking waits 10 minutes by default and never more than 15',async()=>{
+ const {applyWaitTimeoutPolicy,withWaitTimeoutDescription}=await load('src/runs/background/wait-timeouts.ts');
+ const f=fixture(),policed=params=>waitForSubagents(applyWaitTimeoutPolicy({all:true,...params}),undefined,f.deps);
+ assert.match(text(await policed({})),/timed out after 10m0s/);
+ assert.match(text(await policed({timeoutMs:60*60*1000})),/timed out after 15m0s/);
+ assert.match(text(await policed({timeoutMs:120000})),/timed out after 2m0s/);
+ // A non-blocking subscription's timeout is a wake deadline, not a held turn.
+ assert.deepEqual(applyWaitTimeoutPolicy({id:'x',nonBlocking:true}),{id:'x',nonBlocking:true});
+ assert.deepEqual(applyWaitTimeoutPolicy({id:'x',nonBlocking:true,timeoutMs:3600000}),{id:'x',nonBlocking:true,timeoutMs:3600000});
+ const schema={type:'object',properties:{timeoutMs:{type:'integer',minimum:1,description:'old'},id:{type:'string'}}};
+ const described=withWaitTimeoutDescription(schema);
+ assert.match(described.properties.timeoutMs.description,/default to 600000.*capped at 900000/);
+ assert.equal(described.properties.timeoutMs.minimum,1);
+ assert.equal(schema.properties.timeoutMs.description,'old','the component schema is not mutated');
+});
+test('the registered wait tool publishes the bounded timeout description',async()=>{
+ const {registerWaitTool}=await load('src/runs/background/wait-tool.ts');
+ let tool;registerWaitTool({registerTool:t=>{tool=t},events:{on(){},emit(){}}},{currentSessionId:undefined,asyncJobs:new Map(),foregroundRuns:new Map(),workflowControllers:new Map()},true);
+ assert.match(tool.parameters.properties.timeoutMs.description,/capped at 900000/);
+ assert.match(tool.description,/maximum 15 min/);
+});
 test('foreign session roster does not become current work',async()=>{
  const f=fixture();f.job.sessionId=randomUUID();assert.match(text(await f.wait()),/Nothing to wait/);
 });

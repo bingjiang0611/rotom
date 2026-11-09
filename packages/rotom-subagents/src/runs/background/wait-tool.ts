@@ -4,6 +4,7 @@ import { SubagentWaitParams } from "../../extension/schemas.ts";
 import type { Details, SubagentState } from "../../shared/types.ts";
 import { resolveWaitToolConfig, waitForSubagents } from "./subagent-wait.ts";
 import type { WaitSubscriptionManager } from "./wait-subscriptions.ts";
+import { applyWaitTimeoutPolicy, withWaitTimeoutDescription } from "./wait-timeouts.ts";
 
 export function registerWaitTool(pi: ExtensionAPI, state: SubagentState, enabled = resolveWaitToolConfig().enabled, subscriptions?: Pick<WaitSubscriptionManager, "arm">, blockingRunIds?: () => readonly string[], ephemeral = false): void {
 	const tool: ToolDefinition<typeof SubagentWaitParams, Details> = {
@@ -18,12 +19,12 @@ In an interactive chat, do not call this merely to wait: return control to the u
 • { id: "..." } — wait for one async or remembered detached foreground subagent run (id or prefix).
 • { id: "...", nonBlocking: true } — resolve the prefix once, persist an exact-run wake subscription, and return immediately. The originating interactive session wakes on completion, failure, attention, reconciliation failure, or timeout.
 • { id: "...", until: "terminal" } — after advisory attention, keep waiting for the same run's terminal result instead of repeatedly polling. A real pending supervisor reply still interrupts: answer that request before waiting again. Do not combine with nonBlocking.
-• { timeoutMs: 600000 } — stop waiting after N ms; active work keeps running.
+• { timeoutMs: 300000 } — stop waiting after N ms (blocking default 10 min, maximum 15 min); active work keeps running. After a timeout, do not repeat the same wait: report progress or continue other work, and let the completion wake the session.
 
 Non-blocking subscriptions are visible in subagent status and differ from disabling waitTool: waitTool.enabled=false returns immediately without registering any future wake. Provider jobs are session-scoped and identified exactly, so replacing one job with another cannot hide a completion. Provider extensions must be explicitly loaded in this process. In a child agent, keep \`subagent_wait\` in the child tool allowlist and load each provider through the agent's extensions or subagentOnlyExtensions; this tool never loads providers or grants tools itself.${enabled ? "" : "\n\nConfigured behavior: subagent_wait is disabled by config.waitTool or PI_SUBAGENT_WAIT_TOOL_ENABLED and returns immediately without blocking."}`,
-		parameters: SubagentWaitParams,
+		parameters: withWaitTimeoutDescription(SubagentWaitParams),
 		execute(_id, params, signal, onUpdate, ctx) {
-			return waitForSubagents(params, signal, {
+			return waitForSubagents(applyWaitTimeoutPolicy(params), signal, {
 				state,
 				events: pi.events,
 				enabled,

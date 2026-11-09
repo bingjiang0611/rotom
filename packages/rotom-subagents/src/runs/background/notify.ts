@@ -6,6 +6,8 @@
  * observation channel, not a delivery acknowledgement.
  */
 
+import * as fs from "node:fs";
+import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { buildCompletionKey, markSeenWithTtl } from "./completion-dedupe.ts";
 import {
@@ -14,7 +16,7 @@ import {
 	createCompletionBatcher,
 	resolveCompletionBatchConfig,
 } from "./completion-batcher.ts";
-import { SUBAGENT_ASYNC_COMPLETE_EVENT, SUBAGENT_FOREGROUND_COMPLETE_EVENT, type ParallelHandoffReference, type ScheduleOrigin, type SubagentState } from "../../shared/types.ts";
+import { SUBAGENT_ASYNC_COMPLETE_EVENT, SUBAGENT_FOREGROUND_COMPLETE_EVENT, TEMP_ROOT_DIR, type ParallelHandoffReference, type ScheduleOrigin, type SubagentState } from "../../shared/types.ts";
 import { isUnexplainedProcessSignal } from "../shared/process-signal.ts";
 
 export interface SubagentNotifyDetails {
@@ -213,9 +215,88 @@ function completionBatchKey(result: CompletionNotification): string {
 	return cwd ? `cwd:${cwd}` : "unknown";
 }
 
-export function buildCompletionDetails(result: CompletionNotification): SubagentNotifyDetails {
+/** Largest completion text, in UTF-8 bytes, that enters the parent conversation verbatim. */
+export const COMPLETION_PREVIEW_MAX_BYTES = 8 * 1024;
+const COMPLETION_PREVIEW_TAIL_BYTES = 2 * 1024;
+/** Saved full outputs older than this are removed on the next save, so the directory stays bounded. */
+export const COMPLETION_OUTPUT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+
+export interface CompletionPreviewOptions {
+	/** Private directory for full outputs; defaults to `<execution store>/completion-output`. */
+	outputDir?: string;
+	maxBytes?: number;
+	now?: () => number;
+}
+
+function utf8Slice(bytes: Buffer, start: number, end: number): string {
+	// Cutting inside a multi-byte character yields U+FFFD at the edge; drop it.
+	return bytes.subarray(start, end).toString("utf8").replace(/^\uFFFD+|\uFFFD+$/gu, "");
+}
+
+function pruneExpiredCompletions(outputDir: string, now: number): void {
+	// Best effort: only regular .md files this module wrote, never links or directories.
+	for (const name of fs.readdirSync(outputDir)) {
+		if (!name.endsWith(".md")) continue;
+		const file = path.join(outputDir, name);
+		try {
+			const info = fs.lstatSync(file);
+			if (info.isFile() && now - info.mtimeMs > COMPLETION_OUTPUT_RETENTION_MS) fs.unlinkSync(file);
+		} catch {
+			// A concurrent prune or a vanished file is not an error for delivery.
+		}
+	}
+}
+
+function persistFullCompletion(text: string, runId: string, outputDir: string, now: number): { path: string } | { error: string } {
+	try {
+		fs.mkdirSync(outputDir, { recursive: true, mode: 0o700 });
+		const info = fs.lstatSync(outputDir);
+		if (!info.isDirectory() || info.isSymbolicLink()) return { error: "output directory is not a private directory" };
+		pruneExpiredCompletions(outputDir, now);
+		const safeId = runId.replace(/[^A-Za-z0-9._-]/gu, "_").slice(0, 80) || "run";
+		const file = path.join(outputDir, `${safeId}-${now}-${process.pid}.md`);
+		const fd = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | (fs.constants.O_NOFOLLOW ?? 0), 0o600);
+		try {
+			fs.writeFileSync(fd, text, "utf8");
+		} finally {
+			fs.closeSync(fd);
+		}
+		return { path: file };
+	} catch (error) {
+		return { error: (error as NodeJS.ErrnoException).code ?? "write failed" };
+	}
+}
+
+/**
+ * Bound the completion text that enters the parent conversation. Full child reports
+ * reached 77 KB and triggered a new turn each; past the bound the parent sees the head
+ * and the tail, an explicit not-complete marker and a private file with the full text.
+ * Saved files are kept for seven days.
+ */
+export function boundCompletionPreview(text: string, runId: string, options: CompletionPreviewOptions = {}): string {
+	const maxBytes = options.maxBytes ?? COMPLETION_PREVIEW_MAX_BYTES;
+	const bytes = Buffer.from(text, "utf8");
+	if (bytes.length <= maxBytes) return text;
+	const tailBytes = Math.min(COMPLETION_PREVIEW_TAIL_BYTES, Math.floor(maxBytes / 4));
+	const headBytes = maxBytes - tailBytes;
+	const saved = persistFullCompletion(text, runId, options.outputDir ?? path.join(TEMP_ROOT_DIR, "completion-output"), (options.now ?? Date.now)());
+	const where = "path" in saved
+		? `The full output is saved at ${saved.path}; read it before relying on any omitted part.`
+		: `The full output could not be saved (${saved.error}); inspect the run with subagent status before relying on any omitted part.`;
+	return [
+		utf8Slice(bytes, 0, headBytes),
+		"",
+		`[Subagent output truncated: showing the first ${headBytes} and last ${tailBytes} of ${bytes.length} bytes. This is not the complete result. ${where}]`,
+		"",
+		utf8Slice(bytes, bytes.length - tailBytes, bytes.length),
+	].join("\n");
+}
+
+export function buildCompletionDetails(result: CompletionNotification, previewOptions: CompletionPreviewOptions = {}): SubagentNotifyDetails {
 	const agent = result.agent ?? "unknown";
-	const summary = typeof result.summary === "string" ? result.summary : "";
+	const rawSummary = typeof result.summary === "string" ? result.summary : "";
+	const runId = typeof result.id === "string" && result.id ? result.id : typeof result.runId === "string" ? result.runId : agent;
+	const summary = boundCompletionPreview(rawSummary, runId, previewOptions);
 	const stopped = result.stopped === true
 		|| result.state === "stopped"
 		|| (result.success !== true && result.exitCode !== 0 && isUnexplainedProcessSignal(result))
@@ -225,7 +306,7 @@ export function buildCompletionDetails(result: CompletionNotification): Subagent
 	const paused = !stopped && !result.success && (
 		result.exitCode === 0
 		|| result.state === "paused"
-		|| summary.startsWith("Paused after interrupt.")
+		|| rawSummary.startsWith("Paused after interrupt.")
 	);
 	const status = stopped ? "stopped" : paused ? "paused" : result.success ? "completed" : "failed";
 	const taskInfo =

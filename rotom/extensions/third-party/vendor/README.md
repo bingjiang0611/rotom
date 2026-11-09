@@ -1,11 +1,13 @@
 # Locked Subagent distribution
 
-The default product selects **`pi-subagents@0.52.1-rotom.12`**, independently maintained in the repository's `packages/rotom-subagents/`. New builds consume its reviewed archive, not installed source or a patch stack. This is a Subagent fork, not a Pi fork.
+The default product selects **`pi-subagents@0.52.1-rotom.15`**, independently maintained in the repository's `packages/rotom-subagents/`. New builds consume its reviewed archive, not installed source or a patch stack. This is a Subagent fork, not a Pi fork.
 
-- Archive: `pi-subagents-0.52.1-rotom.12.tgz`
-- SHA256: `f1a423b72e3bf5886cedb6141ddfec651de4ab72760001d8d5c609a9d1de6592`
-- SHA512 SRI: `sha512-SrRHxUSjnFXA2nd6RDdbdgK9O9COVuS26eIDvYSu3P6wwKsYbU40/oU8BtqiuZc73KGdJ3U0CA/GdTc1eSf69g==`
-- Source digest: `8b3daa673bc2aa69c5920de2a34be7584bbc9971684f8865d7685712c629e07c`
+- Archive: `pi-subagents-0.52.1-rotom.15.tgz`
+- SHA256: `75d54d674731b6cb9be1b296acb12582ffc02abe2bda370a308494483e5c9314`
+- SHA512 SRI: `sha512-44hMxgbrF7zFfJMjZJCsFuR9HtoSFjyqiDjK7mB8Sz1ci4Dlb9kT7YJyyo/QvnFVYFYREuzvGHkRgHj6Ndrstg==`
+- Source digest: `14eaa5df802760128842d367c86bf0b1c365f0bde958eff423ed577a26d2bef5`
+
+`.rotom.15` blocks `share` (GitHub Gist upload) and `sessionDir` on the product surface, makes the builtin `scout` read-only with no default output file, bounds completion notices at 8 KB with the full text in a private store file kept for seven days, and shortens blocking `subagent_wait` to a 10-minute default and 15-minute cap. `.rotom.14` loads the product browser extension for children that request browser tools. `.rotom.12` extends store device-topology checks across restarts to all POSIX platforms.
 
 `.rotom.11` owns the explicitly selected ephemeral tool surface and evidence projection. Product wrappers retain only host publication fencing and product command/shortcut selection; standalone defaults remain unchanged.
 

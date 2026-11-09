@@ -1,11 +1,10 @@
 ---
 name: pi-subagents
 description: |
-  Delegate work to builtin or custom subagents with single-agent, parallel,
-  scripted-chaining, async, forked-context, and coordinated workflows. Use
-  for advisory review, implementation handoffs, and multi-step tasks where a
-  single agent should stay in control while other agents contribute context,
-  planning, or execution.
+  Delegate work to builtin or custom subagents: single async tasks and
+  scripted sequential or parallel workflows, each starting from fresh
+  context. Use for independent search, review and narrowly scoped edits
+  while the main agent keeps decisions, implementation and acceptance.
 ---
 
 # Pi Subagents
