@@ -20,11 +20,13 @@ import type { PiCodingAgentInput, PiCodingAgentScenario } from "./pi-harness.ts"
 
 export type HygieneOutput = { response: string };
 type RecordValue = Record<string, JsonValue>;
-type BeforeAgentStartLike = { systemPrompt: string; systemPromptOptions?: { selectedTools?: unknown } };
+type BeforeAgentStartLike = { systemPrompt: string; systemPromptOptions?: { selectedTools?: unknown; sections?: Record<string, string> } };
 
 // Must stay in sync with CODING_TOOLS in extensions/coding-policy/index.ts; the
 // gate is part of what the reconstructed arms reproduce.
 const CODING_TOOLS = new Set(["bash", "edit", "write"]);
+// Must stay in sync with CODING_POLICY_SECTION in extensions/coding-policy/index.ts.
+const CODING_POLICY_SECTION = "coding_policy";
 
 function parseObject(response: string): RecordValue | undefined {
 	const fenced = response.match(/```(?:json)?\s*([\s\S]*?)```/iu)?.[1] ?? response;
@@ -155,22 +157,25 @@ export function hygienePolicyText(policy: HygienePolicy, omitted: readonly strin
  * Rebuild the product's own injection path with a chosen rule subset.
  *
  * This mirrors `extensions/coding-policy` exactly: a `before_agent_start` hook
- * that appends the policy to the fully composed per-turn prompt, gated on a
+ * that writes the policy into the same named system prompt section, gated on a
  * coding tool being selected. Using the same mechanism and position is what
  * makes the reconstructed arms comparable to the real product arm; appending
  * via the loader's system-prompt override instead would duplicate Pi's skill
- * catalogue and cwd footer and inflate every reconstructed arm.
+ * catalogue and cwd footer and inflate every reconstructed arm, and returning
+ * `systemPrompt` would force a collapsed prompt the product no longer sends.
  */
 export function hygienePolicyInlineExtension(policy: HygienePolicy, omitted: readonly string[] = []): InlineExtension {
 	// Same order as the product: rules, follow-through, final report; empty sections are skipped.
 	const text = [hygienePolicyText(policy, omitted), policy.followThrough, policy.finalReport].filter(Boolean).join("\n\n");
 	return {
 		name: "eval-hygiene-policy",
-		factory: (pi: { on: (event: string, handler: (event: BeforeAgentStartLike) => { systemPrompt: string } | undefined) => void }) => {
+		factory: (pi: { on: (event: string, handler: (event: BeforeAgentStartLike) => undefined) => void }) => {
 			pi.on("before_agent_start", (event) => {
-				const selectedTools = Array.isArray(event.systemPromptOptions?.selectedTools) ? event.systemPromptOptions.selectedTools : [];
-				if (!selectedTools.some((tool) => CODING_TOOLS.has(tool))) return undefined;
-				return { systemPrompt: `${event.systemPrompt}\n\n${text}` };
+				const options = event.systemPromptOptions;
+				const selectedTools = Array.isArray(options?.selectedTools) ? options.selectedTools : [];
+				if (!options || !selectedTools.some((tool) => CODING_TOOLS.has(tool))) return undefined;
+				(options.sections ??= {})[CODING_POLICY_SECTION] = text;
+				return undefined;
 			});
 		},
 	} as InlineExtension;

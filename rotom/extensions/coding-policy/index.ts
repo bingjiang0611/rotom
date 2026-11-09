@@ -55,11 +55,21 @@ export function codingResultPhases(event: { toolName: string; input: Record<stri
 	return { mutation: "applied" as const, followup: phases.followup, source: "tool-reported" as const };
 }
 
+/** System prompt section that carries the policy; rendered as `<coding_policy>…</coding_policy>`. */
+export const CODING_POLICY_SECTION = "coding_policy";
+export const CODING_POLICY_TEXT = `${CODING_EXECUTION_HYGIENE_POLICY}\n\n${FOLLOW_THROUGH_POLICY}\n\n${FINAL_REPORT_POLICY}`;
+
 export default function codingPolicy(pi: ExtensionAPI): void {
+	// Contribute a named section instead of returning `systemPrompt`. A returned prompt
+	// becomes Pi's forced prompt, which collapses every system message into one leading
+	// block: section patches stop working, any tool loadout change rewrites the whole
+	// cached prefix, and later handlers' section edits are silently overridden.
 	pi.on("before_agent_start", (event) => {
-		const selectedTools = Array.isArray(event.systemPromptOptions?.selectedTools) ? event.systemPromptOptions.selectedTools : [];
-		if (!selectedTools.some((tool) => CODING_TOOLS.has(tool))) return undefined;
-		return { systemPrompt: `${event.systemPrompt}\n\n${CODING_EXECUTION_HYGIENE_POLICY}\n\n${FOLLOW_THROUGH_POLICY}\n\n${FINAL_REPORT_POLICY}` };
+		const options = event.systemPromptOptions;
+		const selectedTools = Array.isArray(options?.selectedTools) ? options.selectedTools : [];
+		if (!options || !selectedTools.some((tool) => CODING_TOOLS.has(tool))) return undefined;
+		(options.sections ??= {})[CODING_POLICY_SECTION] = CODING_POLICY_TEXT;
+		return undefined;
 	});
 	// Attach evidence to the two coding failures that otherwise dead-end into a
 	// blind retry. The hint is additive: original tool output and isError stay.
