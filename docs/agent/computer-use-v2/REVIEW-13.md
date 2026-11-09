@@ -70,3 +70,27 @@
 
 下一个窗口两次 B0，都只出报告，用户照常使用电脑：先 `--delivery-matrix`（fixture 窗口在用户窗口后面，这正是真实的后台场景），
 再 `--launch-twice`。
+
+## 2026-11-09 窗口：B0 在连接 helper 时中止
+
+现象：`run | abort | fail | pi-computer-use helper app daemon is unavailable at ~/cu-v2-build/b7295f6-20261109-b0/pi-computer-use.app.`
+执行方按规则停止，没有重试，没有运行 `--launch-twice`，没有遗留本次运行的进程。
+
+审核者对代码的判断（还需要执行方确认当时的环境变量）：
+
+- `--delivery-matrix` 要求 `PI_CU_L2_SOCKET`，B 阶段一直用 `PI_CU_SOCKET_PATH` 指向一个独立 socket，以免碰到用户日常用的 helper。
+- `src/platform/macos/helper.ts` 的 `launchDaemon` 在使用外部 socket 时**按设计不启动 helper**，直接抛出
+  “External helper socket is unavailable”。之前的窗口里，helper 都是执行方在窗口开始前手动起在这个 socket 上的。
+  这次重建到了新路径，但没有启动。
+- `ensureDaemon` 用 `.catch(() => undefined)` 吞掉了这个错误，最后只报“`<app 路径>` 上的 daemon 不可用”，掩盖了真正的原因。
+
+处理：
+
+1. **冻结提交 `b7295f6` 仍然有效**，不需要新提交就能重跑。窗口开始前的准备工作增加一步：把重建的 helper 起在 B 阶段的独立 socket 上，
+   然后取一次 `diagnostics`，确认协议号正确、`accessibility=true`、`screenRecording=true`、`invariants` 含
+   `background-delivery-no-cursor-warp`。任何一项不满足，就不开窗口，先报给用户。这一步只启动我们自己的 helper，不操作任何用户 App。
+2. 低优先级（产品代码，下一轮再改）：`ensureDaemon` 保留 `launchDaemon` 的错误；使用外部 socket 时，报错写明
+   “外部 socket 上没有 helper 在监听，请先用 `serve --socket <路径>` 启动”。
+
+遗留进程：PID 5269（`~/cu-v2-test/Fixture.app`，原始 fixture）、61467 和 69339（11-08 的旧副本）都不是这次运行启动的，
+按规则没有退出。由用户自己退出，或在授权里明确允许执行方核对 bundle id 后礼貌退出这三个 pid。
