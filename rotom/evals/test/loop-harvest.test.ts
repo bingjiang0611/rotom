@@ -186,6 +186,31 @@ describe("loop harvest detectors", () => {
 		expect(summary.failures).toBe(2);
 	});
 
+	it("records provider, model, category and whether the retry run recovered", () => {
+		const errorReply = (text: string) => ({ role: "assistant", content: [{ type: "text", text: "" }], stopReason: "error", provider: "qoder", model: "dfmodel", errorMessage: text, timestamp: 0 });
+		const recovered = analyze(chain([user("跑一下"), errorReply("Qoder: stream_failed"), reply("done")]));
+		const first = recovered.incidents[0];
+		expect(first.detail).toMatchObject({ provider: "qoder", model: "dfmodel", category: "qoder:stream_failed", categorySource: "message", final: true, attempts: 1 });
+
+		// A run that ends on the error or on a user turn never reached the user as an answer.
+		const unrecovered = analyze(chain([user("跑一下"), errorReply("Qoder: connection_failed"), user("还在吗")]));
+		expect(unrecovered.incidents[0].detail).toMatchObject({ category: "connect", final: false });
+		const aborted = analyze(chain([user("跑一下"), errorReply("fetch failed"), reply("", "aborted")]));
+		expect(aborted.incidents[0].detail).toMatchObject({ category: "connect", final: false });
+	});
+
+	it("prefers the local trace category for a failed request span", () => {
+		const errorReply = (text: string) => ({ role: "assistant", content: [{ type: "text", text: "" }], stopReason: "error", provider: "qoder", model: "dfmodel", errorMessage: text, timestamp: 0 });
+		const lines = chain([user("跑一下"), errorReply("Qoder: stream_failed"), reply("done")]);
+		const stamp = lines[2].timestamp as string;
+		const trace = [JSON.stringify({ kind: "span_end", name: "pi.ai.request", status: "error", timestamp: stamp, attributes: { "pi.ai.error.category": "network", "pi.ai.qoder.error_code": "transport_failure" } })];
+		const traced = analyze(lines, true, trace);
+		expect(traced.incidents[0].detail).toMatchObject({ category: "network", categorySource: "trace", provider: "qoder" });
+		// The span is consumed once; a second error without its own span falls back to the message.
+		const twoRuns = analyze(chain([user("跑一下"), errorReply("Qoder: stream_failed"), reply("done"), errorReply("Qoder: stream_failed"), reply("done")]), true, trace);
+		expect(twoRuns.incidents.map((incident) => incident.detail.categorySource)).toEqual(["trace", "message"]);
+	});
+
 	it("ignores a skill template when judging whether the user repeated or corrected", () => {
 		const skill = (task: string) => `<skill name="impeccable" location="/skills/impeccable/SKILL.md">\n# Impeccable\nPolish the interface, keep spacing even.\n</skill>\n\n${task}`;
 		const { incidents } = analyze(chain([

@@ -37,7 +37,7 @@ npm --prefix rotom/evals run loop -- harvest --days 7 --no-excerpts
 | 介入 | `user_interrupt` | 助手消息 `stopReason: aborted` |
 | 失败 | `tool_error_streak` | 同一动作（工具 + 相同命令/路径）在没有同动作成功的情况下第 2 次报错 |
 | 失败 | `edit_retry_without_read` | 文件写入本身失败后，未重新 read 同一路径就再改；Action Fusion 的 `[then_run:failed]` 表示改动已写入、后续命令失败，不算写入失败 |
-| 失败 | `provider_error` / `length_stop` | `stopReason` 为 `error` / `length`；一次连续重试算一条，`detail.attempts` 记录尝试次数 |
+| 失败 | `provider_error` / `length_stop` | `stopReason` 为 `error` / `length`；一次连续重试算一条，`detail.attempts` 记录尝试次数。`provider_error` 另记 `provider`/`model`、`category`（trace 的 `pi.ai.error.category`，否则按错误消息归类为 connect / 429 / 5xx / timeout / `qoder:<code>` / other）、`categorySource`，以及 `final`（这次重试运行最后是否以成功的助手消息结束）。`final: false` 才是用户真正看到的失败；`report.md` 按 provider × 类别 × final 汇总 |
 | 失败 | `goal_pause` | Goal 暂停且原因不是用户暂停、会话恢复或 `agent_interruption`（后者是上游错误的后果，由对应事件记录） |
 | 失败 | `compaction_failed` | trace 中压缩 span 以 error 结束 |
 

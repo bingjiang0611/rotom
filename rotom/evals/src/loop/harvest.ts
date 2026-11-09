@@ -7,6 +7,8 @@
  * they do not decide that the agent was wrong.
  */
 
+import { providerDetail, traceErrorSpans } from "./harvest-provider.ts";
+
 export const HARVEST_SCHEMA = "rotom-loop-harvest/v1";
 
 /** Human-side signals: the user had to step in. These form the north-star metric. */
@@ -230,6 +232,7 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 		let lastGoalPause: string | undefined;
 		// A retrying provider produces one failed request per attempt; that is one incident.
 		let errorRun: { entryId: string; attempts: number; incident?: Incident } | undefined;
+		const providerSpans = traceErrorSpans(options.traceLines);
 
 		for (const entry of path) {
 			if (entry.type === "custom" && entry.customType === "goal-state" && isRecord(entry.data)) {
@@ -312,14 +315,23 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 						errorRun.attempts++;
 						if (errorRun.incident) errorRun.incident.detail.attempts = errorRun.attempts;
 					} else {
+						const detail = providerDetail({
+							provider: typeof message.provider === "string" ? message.provider : "unknown",
+							model: typeof message.model === "string" ? message.model : "unknown",
+							errorMessage: errorText,
+							spans: providerSpans,
+							timestamp: entry.timestamp,
+						});
 						errorRun = { entryId: entry.id, attempts: 1 };
-						add({ kind: "provider_error", entryId: entry.id, timestamp: entry.timestamp, detail: { attempts: 1 }, ...withExcerpt({ error: clip(errorText) }) });
+						add({ kind: "provider_error", entryId: entry.id, timestamp: entry.timestamp, detail: { attempts: 1, ...detail, final: false }, ...withExcerpt({ error: clip(errorText) }) });
 						errorRun.incident = incidents.get(`provider_error:${entry.id}`);
 					}
 				} else if (message.stopReason === "length") {
 					errorRun = undefined;
 					add({ kind: "length_stop", entryId: entry.id, timestamp: entry.timestamp, detail: {} });
 				} else {
+					// A usable answer ends the retry run: the provider failure did not reach the user.
+					if (errorRun?.incident) errorRun.incident.detail.final = true;
 					errorRun = undefined;
 				}
 				continue;
