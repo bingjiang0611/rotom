@@ -81,16 +81,6 @@ Harbor、Apple container、adapter import 和 product 文件。
 
 `test/continuation-regression.test.ts` 用离线 provider 驱动真实 Pi 文件工具，并保存每轮工作区与累计工具快照。真实 runner 只允许 case 声明的 editable 文件和精确脚本；C4 用结构化 decision id 判定，拒绝“先问内部实现”“未经选择先改公开合同”和“无工具证据直接伪造结果”。它不证明真实模型已改善。独立 A/B 入口为 `cases/continuation-regression.eval.ts`，需 `ROTOM_EVAL_CONTINUATION=1`、`ROTOM_EVAL_PROVIDER`、`ROTOM_EVAL_MODEL` 和 `ROTOM_EVAL_BASELINE_PRODUCT`；重复次数用 `ROTOM_EVAL_CONTINUATION_REPEATS`，单例选择用 `ROTOM_EVAL_CONTINUATION_CASE`。真实调用仍需明确授权。
 
-## 长会话工程纪律回归
-
-`src/workflow-discipline-regressions.ts`、`cases/workflow-discipline.eval.ts` 和 `test/workflow-discipline-regressions.test.ts` 保存从一次长 PR 会话脱敏派生的 C1–C3，并显式区分三种层级：
-
-- `mechanism-reproduction`：`delivery-ref-stale-handoff` 在两轮之间改变权威 ref，使人工交接变旧；`candidate-changed-after-full-gate` 在第一次完整门禁后更新 requirements，要求最终候选重新验证。默认真实评测只运行这一层。
-- `conformance`：原 `delivery-ref-*` 与 `frozen-candidate-*` 保留为短程规则遵循控制，不再冒充已复现失败。
-- `harness-regression`：`repo-size-*` 验证真实 Pi edit、大小门禁和判定基础设施；它修复过评测自身的大参数超时，不归因于 Agent。
-
-离线判定使用不可变脚本、每轮权威状态和命令台账，不按总耗时评分。模型 A/B 需显式设置 `ROTOM_EVAL_WORKFLOW_DISCIPLINE=1`、两侧绝对产品根、provider/model 和重复数；可用 `ROTOM_EVAL_WORKFLOW_DISCIPLINE_CASE` 显式选择任意层级的单个 case。未授权时 suite 仅跳过，不算通过。
-
 ## 运行评测
 
 以后在 `cases/**/*.eval.ts` 增加评测集后执行：
