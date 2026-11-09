@@ -602,6 +602,8 @@ final class Bridge {
 	private var grantedPermissionStatus: [String: Any]?
 	private let completedRequestLock = NSLock()
 	private var recentCompletedRequestIds: [String] = []
+	private let pendingLaunchLock = NSLock()
+	private var pendingLaunchConfigurations: [UUID: NSWorkspace.OpenConfiguration] = [:]
 
 	func run() {
 		if CommandLine.arguments.contains("serve") {
@@ -4569,23 +4571,42 @@ extension Bridge {
 		configuration.createsNewApplicationInstance = false
 		var launchError: Error?
 		var launchedApp: NSRunningApplication?
-		// `openApplication` delivers its completion on the main queue, which this
-		// thread occupies, so wait on a background-resolved semaphore with a bound.
+		// A newly re-signed fixture can remain suspended while syspolicyd verifies it.
+		// Returning `pending` used to release the configuration at five seconds; on
+		// macOS 27 that invalidated the launch assertion and killed the still-suspended
+		// process before verification completed. Retain the configuration until the
+		// completion arrives. W1 can then attribute the PID while the launch continues.
+		let launchId = UUID()
+		pendingLaunchLock.lock()
+		pendingLaunchConfigurations[launchId] = configuration
+		pendingLaunchLock.unlock()
 		let semaphore = DispatchSemaphore(value: 0)
-		NSWorkspace.shared.openApplication(at: url, configuration: configuration) { app, error in
+		NSWorkspace.shared.openApplication(at: url, configuration: configuration) { [weak self] app, error in
 			launchedApp = app
 			launchError = error
+			if let self {
+				self.pendingLaunchLock.lock()
+				self.pendingLaunchConfigurations.removeValue(forKey: launchId)
+				self.pendingLaunchLock.unlock()
+			}
 			semaphore.signal()
+		}
+		// Do not retain a launch forever if LaunchServices never calls back.
+		DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(60)) { [weak self] in
+			guard let self else { return }
+			self.pendingLaunchLock.lock()
+			self.pendingLaunchConfigurations.removeValue(forKey: launchId)
+			self.pendingLaunchLock.unlock()
 		}
 		let deadline = DispatchTime.now() + .seconds(5)
 		let waited = semaphore.wait(timeout: deadline) == .success
-		if let launchError {
-			throw BridgeFailure(message: "Failed to launch application: \(launchError.localizedDescription)", code: "app_launch_failed")
-		}
 		if !waited {
 			// Launch requests outlive the request/response window; report the
-			// observable fact instead of pretending the app is running.
+			// observable fact instead of racing the callback-owned result values.
 			return ["launched": false, "pending": true, "activated": activates]
+		}
+		if let launchError {
+			throw BridgeFailure(message: "Failed to launch application: \(launchError.localizedDescription)", code: "app_launch_failed")
 		}
 		return [
 			"launched": launchedApp != nil,
