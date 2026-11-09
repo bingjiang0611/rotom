@@ -89,6 +89,8 @@ const BENIGN_GOAL_PAUSES = new Set(["explicit_pause", "session_restored", "agent
 const THEN_RUN_FAILED = "[then_run:failed]";
 /** `/skill:<name>` expands into this block; only the text after it is what the user typed. */
 const SKILL_BLOCK = /^<skill name="[^"]*" location="[^"]*">\n[\s\S]*?\n<\/skill>(?:\n\n([\s\S]+))?$/u;
+/** `/goal resume` delivers the goal contract as a user message; the text is injected, not typed. */
+const GOAL_RESUME_BLOCK = /^The user explicitly resumed the paused \/goal\.[\s\S]*$/u;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -106,7 +108,8 @@ function textOf(content: unknown): string {
 /** The part of a user message the human wrote; a skill template is injected text, not a request. */
 function humanText(text: string): string {
 	const match = text.match(SKILL_BLOCK);
-	return match ? (match[1] ?? "").trim() : text;
+	if (match) return (match[1] ?? "").trim();
+	return GOAL_RESUME_BLOCK.test(text) ? "" : text;
 }
 
 function clip(text: string, fromEnd = false): string {

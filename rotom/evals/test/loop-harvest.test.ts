@@ -221,6 +221,12 @@ describe("loop harvest detectors", () => {
 		]));
 		expect(incidents.map((incident) => incident.kind)).toEqual(["user_repeat"]);
 		expect(incidents[0].excerpt?.user).toBe("把这个页面做得更干净，间距保持一致");
+		// `/goal resume` re-delivers the goal contract verbatim; that is not the user repeating a request.
+		const resume = "The user explicitly resumed the paused /goal. Continue working toward this goal: <goal_objective> 完成 M1 到 M6 并给我验收报告 </goal_objective>";
+		const resumed = analyze(chain([user(resume), reply("收到"), user(resume), reply("继续")]));
+		expect(resumed.incidents.map((incident) => incident.kind)).toEqual([]);
+		expect(resumed.session.userTurns).toBe(2);
+
 		const templateOnly = analyze(chain([
 			user(`<skill name="impeccable" location="/skills/impeccable/SKILL.md">\nYou did not run the build.\n</skill>`),
 			reply("好的"),
