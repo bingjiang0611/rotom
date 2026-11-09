@@ -44,6 +44,14 @@ describe("loop gate", () => {
 		expect(() => parseGateManifest(JSON.stringify({ ...valid, cases: valid.cases.map((entry: GateCase) => ({ ...entry, role: "control" })) }))).toThrow(/reproduced/u);
 		expect(() => parseGateManifest(JSON.stringify({ ...valid, cases: [{ ...valid.cases[0], enableEnv: "PATH" }] }))).toThrow(/env/u);
 		expect(() => parseGateManifest(JSON.stringify({ ...valid, cases: [valid.cases[0], valid.cases[0]] }))).toThrow(/duplicate/u);
+		expect(() => parseGateManifest(JSON.stringify({ ...valid, cases: [{ ...valid.cases[0], reproduction: { model: "qoder/dfmodel", verdict: "maybe", detail: "x" } }] }))).toThrow(/verdict/u);
+		expect(() => parseGateManifest(JSON.stringify({ ...valid, cases: [{ ...valid.cases[0], reproduction: { model: "qoder/dfmodel", verdict: "not-reproduced", detail: " " } }] }))).toThrow(/detail/u);
+	});
+
+	it("carries recorded reproduction evidence into the summary", () => {
+		const annotated: GateCase = { ...item, reproduction: { model: "qoder/dfmodel", verdict: "not-reproduced", detail: "baseline fails 1/3" } };
+		expect(judgeGateCase(annotated, 3, "/a", report(3, 1 / 3, 1))).toMatchObject({ verdict: "held", reproduction: annotated.reproduction });
+		expect(judgeGateCase(item, 3, "/a", report(3, 1 / 3, 1)).reproduction).toBeUndefined();
 	});
 
 	it("judges from the candidate arm and never turns missing data into held", () => {
