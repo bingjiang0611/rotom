@@ -127,7 +127,12 @@ export function installSessionPolicy(pi) {
     if (!valid()) throw new QoderError('account_binding_stale');
     if (signal?.aborted) throw new QoderError('aborted');
   };
-  return { captureBinding, captureMetering, captureScope, refreshCatalog };
+  const notify = (text, level = 'warning') => {
+    const ctx = current;
+    if (!ctx?.hasUI) return;
+    ctx.ui.notify(text, level);
+  };
+  return { captureBinding, captureMetering, captureScope, refreshCatalog, notify };
 }
 
 export async function installQoderExtension(pi, options = {}) {
@@ -137,11 +142,20 @@ export async function installQoderExtension(pi, options = {}) {
     if (!attributes || !Object.keys(attributes).length) return;
     try { pi.events.emit(PROVIDER_METADATA_EVENT, { provider: PROVIDER_ID, attributes }); } catch { /* Optional diagnostics are fail-open. */ }
   };
+  // A catalog refresh that failed before dispatch is absorbed by the last validated
+  // directory, so it never becomes a request failure. Say it once per session instead.
+  let staleReuseNoticed = false;
+  const noticeCatalogStaleReuse = () => {
+    if (staleReuseNoticed) return;
+    staleReuseNoticed = true;
+    policy.notify('Qoder 模型目录刷新失败，本次沿用上次已知目录并继续推理；目录可能不是最新。持续失败请检查网络，或用 /qoder-models 手动刷新。');
+  };
   const provider = await createQoderProvider({
     ...options,
     captureBinding: policy.captureBinding,
     captureMetering: policy.captureMetering,
     refreshCatalog: policy.refreshCatalog,
+    onCatalogStaleReuse: noticeCatalogStaleReuse,
     onDiagnostic(diagnostic) {
       emitMetadata(qoderDiagnosticAttributes(diagnostic));
       return externalDiagnostic?.(diagnostic);
