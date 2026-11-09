@@ -35,15 +35,15 @@ npm --prefix rotom/evals run loop -- harvest --days 7 --no-excerpts
 | 介入 | `user_repeat` | 最近三条内重复同一请求（字符 bigram ≥ 0.8；provider 错误或中断后的重发除外） |
 | 介入 | `bare_continue` | 助手正常结束后用户只回“继续/continue” |
 | 介入 | `user_interrupt` | 助手消息 `stopReason: aborted` |
-| 失败 | `tool_error_streak` | 同一工具连续第 2 次报错 |
-| 失败 | `edit_retry_without_read` | edit/write 失败后未重新 read 同一路径就再改 |
-| 失败 | `provider_error` / `length_stop` | `stopReason` 为 `error` / `length` |
-| 失败 | `goal_pause` | Goal 暂停且原因不是用户暂停或会话恢复 |
+| 失败 | `tool_error_streak` | 同一动作（工具 + 相同命令/路径）在没有同动作成功的情况下第 2 次报错 |
+| 失败 | `edit_retry_without_read` | 文件写入本身失败后，未重新 read 同一路径就再改；Action Fusion 的 `[then_run:failed]` 表示改动已写入、后续命令失败，不算写入失败 |
+| 失败 | `provider_error` / `length_stop` | `stopReason` 为 `error` / `length`；一次连续重试算一条，`detail.attempts` 记录尝试次数 |
+| 失败 | `goal_pause` | Goal 暂停且原因不是用户暂停、会话恢复或 `agent_interruption`（后者是上游错误的后果，由对应事件记录） |
 | 失败 | `compaction_failed` | trace 中压缩 span 以 error 结束 |
 
 **北极星指标**：每 100 个用户 turn 的介入次数（同一 turn 多个信号只计一次，中断单独计）。`report.md` 给出每周数值和按权重排序的分诊队列；`incidents.jsonl` 的 `entryId` 可直接定位到会话分叉点。
 
-局限：扩展经 `sendUserMessage` 注入的 user 消息无法与人工输入区分；关键词检测是候选排序，不是结论；单人数据有偏。不把 harvest 数值写成产品质量结论，只比较同一来源的周趋势。
+局限：`/skill:<name>` 展开的模板文本会被剥掉，只比较用户真正输入的部分；其他经 `sendUserMessage` 注入的 user 消息仍无法与人工输入区分；关键词检测是候选排序，不是结论；单人数据有偏。同一段对话被 fork 到多个会话文件时，用户 turn 与事件按 entryId 只计一次。不把 harvest 数值写成产品质量结论，只比较同一来源的周趋势。
 
 ## ② 分诊
 

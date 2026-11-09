@@ -1,15 +1,11 @@
 /**
- * Optimization-loop harvester: turns the maintainer's own Pi sessions into a
- * ranked queue of incident candidates and a weekly intervention-rate metric.
+ * Optimization-loop harvester analysis: turns one Pi session into incident candidates.
  *
- * Zero model calls. Reads session JSONL (and the sibling local trace when
- * present) on this machine only; every output stays under a private local
- * directory and is never meant for Git. Detectors are deterministic and
- * deliberately simple: they rank candidates for human triage, they do not
- * decide that the agent was wrong.
+ * Zero model calls. Reads session JSONL (and the sibling local trace when present) on this
+ * machine only; every output stays under a private local directory and is never meant for Git.
+ * Detectors are deterministic and deliberately simple: they rank candidates for human triage,
+ * they do not decide that the agent was wrong.
  */
-import { lstat, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { basename, dirname, join, resolve } from "node:path";
 
 export const HARVEST_SCHEMA = "rotom-loop-harvest/v1";
 
@@ -82,7 +78,15 @@ const BARE_CONTINUE = new Set([
 
 const READ_TOOLS = new Set(["read", "obs_recall"]);
 const EDIT_TOOLS = new Set(["edit", "write", "multi_edit", "apply_patch"]);
-const BENIGN_GOAL_PAUSES = new Set(["explicit_pause", "session_restored"]);
+/** Independent of the run, a paused Goal needs no action; the cause is already an incident. */
+const BENIGN_GOAL_PAUSES = new Set(["explicit_pause", "session_restored", "agent_interruption"]);
+/**
+ * Action Fusion appends the follow-up command outcome to the mutation result. A failed fused
+ * run means the command after the edit failed, not that the file was left unchanged.
+ */
+const THEN_RUN_FAILED = "[then_run:failed]";
+/** `/skill:<name>` expands into this block; only the text after it is what the user typed. */
+const SKILL_BLOCK = /^<skill name="[^"]*" location="[^"]*">\n[\s\S]*?\n<\/skill>(?:\n\n([\s\S]+))?$/u;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -95,6 +99,12 @@ function textOf(content: unknown): string {
 		.filter((block): block is Block => isRecord(block) && block.type === "text" && typeof block.text === "string")
 		.map((block) => block.text)
 		.join("\n");
+}
+
+/** The part of a user message the human wrote; a skill template is injected text, not a request. */
+function humanText(text: string): string {
+	const match = text.match(SKILL_BLOCK);
+	return match ? (match[1] ?? "").trim() : text;
 }
 
 function clip(text: string, fromEnd = false): string {
@@ -175,20 +185,31 @@ function messageOf(entry: Entry): Message | undefined {
 		: undefined;
 }
 
-export type AnalyzeOptions = { sessionFile: string; excerpts: boolean; traceLines?: readonly string[] };
+export type AnalyzeOptions = { sessionFile: string; excerpts: boolean; traceLines?: readonly string[]; shared?: HarvestShared };
+/**
+ * Harvest-wide state. Forks copy their parent's entries, so a conversation continued in a
+ * second session file must not count its user turns or incidents twice.
+ */
+export type HarvestShared = { incidentKeys: Set<string>; userEntries: Set<string> };
+
+export function createHarvestShared(): HarvestShared {
+	return { incidentKeys: new Set<string>(), userEntries: new Set<string>() };
+}
 
 export function analyzeSession(lines: readonly string[], options: AnalyzeOptions): { session: SessionSummary; incidents: Incident[] } | undefined {
 	const { header, entries } = parseLines(lines);
 	if (!header || typeof header.id !== "string") return undefined;
 	const sessionId = header.id;
+	const shared = options.shared ?? createHarvestShared();
 	const incidents = new Map<string, Incident>();
 	// A user turn counts once even when several signals fire on it.
 	const intervenedUserEntries = new Set<string>();
 	let interrupts = 0;
 	const add = (incident: Omit<Incident, "sessionId" | "sessionFile">) => {
 		const key = `${incident.kind}:${incident.entryId}`;
-		if (incidents.has(key)) return;
+		if (incidents.has(key) || shared.incidentKeys.has(key)) return;
 		incidents.set(key, { ...incident, sessionId, sessionFile: options.sessionFile });
+		shared.incidentKeys.add(key);
 		if (incident.kind === "user_interrupt") interrupts++;
 		else if ((INTERVENTION_KINDS as readonly string[]).includes(incident.kind)) intervenedUserEntries.add(incident.entryId);
 	};
@@ -203,10 +224,12 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 	for (const path of paths(entries)) {
 		let lastAssistant: { entry: Entry; message: Message } | undefined;
 		const recentUsers: { entry: Entry; text: string }[] = [];
-		const callArgs = new Map<string, { name: string; path?: string }>();
-		const lastResultByTool = new Map<string, { isError: boolean; streak: number }>();
+		const callArgs = new Map<string, { name: string; path?: string; action: string }>();
+		const lastResultByAction = new Map<string, { isError: boolean; streak: number }>();
 		const failedEditPaths = new Map<string, string>(); // path -> entryId of failed edit
 		let lastGoalPause: string | undefined;
+		// A retrying provider produces one failed request per attempt; that is one incident.
+		let errorRun: { entryId: string; attempts: number; incident?: Incident } | undefined;
 
 		for (const entry of path) {
 			if (entry.type === "custom" && entry.customType === "goal-state" && isRecord(entry.data)) {
@@ -223,8 +246,12 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 			if (!message) continue;
 
 			if (message.role === "user") {
-				userEntries.add(entry.id);
-				const text = textOf(message.content);
+				const isNewTurn = !shared.userEntries.has(entry.id);
+				if (isNewTurn) {
+					shared.userEntries.add(entry.id);
+					userEntries.add(entry.id);
+				}
+				const text = humanText(textOf(message.content));
 				const previousAssistantText = lastAssistant ? textOf(lastAssistant.message.content) : "";
 				const excerpt = { user: clip(text), assistant: previousAssistantText ? clip(previousAssistantText, true) : undefined };
 				if (lastAssistant && isBareContinue(text) && lastAssistant.message.stopReason === "stop") {
@@ -248,8 +275,9 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 				}
 				recentUsers.push({ entry, text });
 				if (recentUsers.length > 3) recentUsers.shift();
-				lastResultByTool.clear();
+				lastResultByAction.clear();
 				failedEditPaths.clear();
+				errorRun = undefined;
 				continue;
 			}
 
@@ -262,7 +290,8 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 					if (block.type !== "toolCall" || typeof block.id !== "string" || typeof block.name !== "string") continue;
 					toolCallIds.add(`${entry.id}:${block.id}`);
 					const target = isRecord(block.arguments) && typeof block.arguments.path === "string" ? block.arguments.path : undefined;
-					callArgs.set(block.id, { name: block.name, path: target });
+					const command = isRecord(block.arguments) && typeof block.arguments.command === "string" ? block.arguments.command : undefined;
+					callArgs.set(block.id, { name: block.name, path: target, action: `${block.name}\u0000${command ?? target ?? ""}` });
 					if (target && EDIT_TOOLS.has(block.name) && failedEditPaths.has(target)) {
 						add({
 							kind: "edit_retry_without_read",
@@ -276,33 +305,48 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 				}
 				const errorText = typeof message.errorMessage === "string" ? message.errorMessage : "";
 				if (message.stopReason === "aborted") {
+					errorRun = undefined;
 					add({ kind: "user_interrupt", entryId: entry.id, timestamp: entry.timestamp, detail: {} });
 				} else if (message.stopReason === "error") {
-					add({ kind: "provider_error", entryId: entry.id, timestamp: entry.timestamp, detail: {}, ...withExcerpt({ error: clip(errorText) }) });
+					if (errorRun) {
+						errorRun.attempts++;
+						if (errorRun.incident) errorRun.incident.detail.attempts = errorRun.attempts;
+					} else {
+						errorRun = { entryId: entry.id, attempts: 1 };
+						add({ kind: "provider_error", entryId: entry.id, timestamp: entry.timestamp, detail: { attempts: 1 }, ...withExcerpt({ error: clip(errorText) }) });
+						errorRun.incident = incidents.get(`provider_error:${entry.id}`);
+					}
 				} else if (message.stopReason === "length") {
+					errorRun = undefined;
 					add({ kind: "length_stop", entryId: entry.id, timestamp: entry.timestamp, detail: {} });
+				} else {
+					errorRun = undefined;
 				}
 				continue;
 			}
 
 			if (message.role === "toolResult") {
 				const toolName = typeof message.toolName === "string" ? message.toolName : "unknown";
+				const resultText = textOf(message.content);
 				const isError = message.isError === true;
 				if (isError) toolErrorIds.add(entry.id);
-				const previous = lastResultByTool.get(toolName);
-				const streak = isError ? (previous?.isError ? previous.streak + 1 : 1) : 0;
-				lastResultByTool.set(toolName, { isError, streak });
+				// A failed fused follow-up is a command outcome; the mutation itself was applied.
+				const mutationFailed = isError && !resultText.includes(THEN_RUN_FAILED);
+				const call = typeof message.toolCallId === "string" ? callArgs.get(message.toolCallId) : undefined;
+				const action = call?.action ?? toolName;
+				const previous = lastResultByAction.get(action);
+				const streak = mutationFailed ? (previous?.isError ? previous.streak + 1 : 1) : 0;
+				lastResultByAction.set(action, { isError: mutationFailed, streak });
 				if (streak === 2) {
 					add({
 						kind: "tool_error_streak",
 						entryId: entry.id,
 						timestamp: entry.timestamp,
 						detail: { tool: toolName },
-						...withExcerpt({ error: clip(textOf(message.content)) }),
+						...withExcerpt({ error: clip(resultText) }),
 					});
 				}
-				const call = typeof message.toolCallId === "string" ? callArgs.get(message.toolCallId) : undefined;
-				if (isError && call?.path && EDIT_TOOLS.has(toolName)) failedEditPaths.set(call.path, entry.id);
+				if (mutationFailed && call?.path && EDIT_TOOLS.has(toolName)) failedEditPaths.set(call.path, entry.id);
 			}
 		}
 	}
@@ -346,199 +390,4 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 		},
 		incidents: list,
 	};
-}
-
-/** ISO-8601 week label, e.g. 2026-W45. */
-export function isoWeek(timestamp: string): string {
-	const date = new Date(timestamp);
-	if (Number.isNaN(date.getTime())) return "unknown";
-	const day = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-	const weekday = day.getUTCDay() || 7;
-	day.setUTCDate(day.getUTCDate() + 4 - weekday);
-	const yearStart = new Date(Date.UTC(day.getUTCFullYear(), 0, 1));
-	const week = Math.ceil(((day.getTime() - yearStart.getTime()) / 86_400_000 + 1) / 7);
-	return `${day.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
-}
-
-export type WeekMetric = {
-	week: string;
-	sessions: number;
-	userTurns: number;
-	interventions: number;
-	/** North star: user interventions per 100 user turns. */
-	interventionsPer100Turns: number | null;
-	failures: number;
-	incidentCounts: Partial<Record<IncidentKind, number>>;
-};
-
-export function weeklyMetrics(sessions: readonly SessionSummary[]): WeekMetric[] {
-	const weeks = new Map<string, WeekMetric>();
-	for (const session of sessions) {
-		const week = isoWeek(session.startedAt);
-		const metric = weeks.get(week) ?? { week, sessions: 0, userTurns: 0, interventions: 0, interventionsPer100Turns: null, failures: 0, incidentCounts: {} };
-		metric.sessions++;
-		metric.userTurns += session.userTurns;
-		metric.interventions += session.interventions;
-		metric.failures += session.failures;
-		for (const [kind, count] of Object.entries(session.incidentCounts) as [IncidentKind, number][]) {
-			metric.incidentCounts[kind] = (metric.incidentCounts[kind] ?? 0) + count;
-		}
-		weeks.set(week, metric);
-	}
-	return [...weeks.values()]
-		.map((metric) => ({
-			...metric,
-			interventionsPer100Turns: metric.userTurns > 0 ? Math.round((metric.interventions / metric.userTurns) * 1000) / 10 : null,
-		}))
-		.sort((left, right) => left.week.localeCompare(right.week));
-}
-
-const TRIAGE_WEIGHT: Record<IncidentKind, number> = {
-	user_correction: 3,
-	user_repeat: 2,
-	bare_continue: 2,
-	user_interrupt: 1,
-	tool_error_streak: 1,
-	edit_retry_without_read: 1,
-	provider_error: 0.5,
-	length_stop: 0.5,
-	goal_pause: 1,
-	compaction_failed: 1,
-};
-
-export function triageScore(session: SessionSummary): number {
-	return (Object.entries(session.incidentCounts) as [IncidentKind, number][]).reduce((sum, [kind, count]) => sum + TRIAGE_WEIGHT[kind] * count, 0);
-}
-
-export function renderReport(input: { generatedAt: string; since: string; sessionsDir: string; sessions: readonly SessionSummary[]; incidents: readonly Incident[]; skipped: number }): string {
-	const weeks = weeklyMetrics(input.sessions);
-	const lines = [
-		"# rotom loop harvest",
-		"",
-		`Generated ${input.generatedAt} · sessions since ${input.since} · source \`${input.sessionsDir}\``,
-		"",
-		"Local, private output. Detectors are heuristic candidates for triage, not verdicts.",
-		"",
-		"## Weekly intervention rate",
-		"",
-		"| Week | Sessions | User turns | Interventions | per 100 turns | Agent-side failures |",
-		"| --- | ---: | ---: | ---: | ---: | ---: |",
-		...weeks.map((week) => `| ${week.week} | ${week.sessions} | ${week.userTurns} | ${week.interventions} | ${week.interventionsPer100Turns ?? "N/A"} | ${week.failures} |`),
-		"",
-		"## Incidents by kind",
-		"",
-		"| Kind | Count |",
-		"| --- | ---: |",
-		...[...INTERVENTION_KINDS, ...FAILURE_KINDS].map((kind) => `| ${kind} | ${input.incidents.filter((incident) => incident.kind === kind).length} |`),
-		"",
-		"## Triage queue (top sessions)",
-		"",
-		"| Score | Session | Started | Turns | Incidents | File |",
-		"| ---: | --- | --- | ---: | --- | --- |",
-	];
-	const ranked = [...input.sessions].filter((session) => triageScore(session) > 0).sort((left, right) => triageScore(right) - triageScore(left)).slice(0, 20);
-	for (const session of ranked) {
-		const counts = Object.entries(session.incidentCounts).map(([kind, count]) => `${kind}×${count}`).join(", ");
-		lines.push(`| ${triageScore(session)} | ${session.sessionId.slice(0, 8)} | ${session.startedAt.slice(0, 16)} | ${session.userTurns} | ${counts} | \`${session.sessionFile}\` |`);
-	}
-	if (input.skipped > 0) lines.push("", `${input.skipped} file(s) skipped (symlink, unreadable or not a session).`);
-	lines.push("", "Next: pick incidents from `incidents.jsonl`, classify them, and turn reproducible ones into replay cases (see docs/agent/optimization-loop.md).", "");
-	return lines.join("\n");
-}
-
-async function sessionFiles(root: string): Promise<{ files: string[]; skipped: number }> {
-	const files: string[] = [];
-	let skipped = 0;
-	const walk = async (directory: string, depth: number): Promise<void> => {
-		if (depth > 4) return;
-		const items = await readdir(directory, { withFileTypes: true });
-		for (const item of items) {
-			const path = join(directory, item.name);
-			if (item.isSymbolicLink()) {
-				skipped++;
-				continue;
-			}
-			if (item.isDirectory()) {
-				// Trace sidecars, subagent artifacts and child-agent stores are not user sessions.
-				if (item.name === "observability" || item.name.includes("subagent")) continue;
-				await walk(path, depth + 1);
-			} else if (item.isFile() && item.name.endsWith(".jsonl")) {
-				files.push(path);
-			}
-		}
-	};
-	await walk(root, 0);
-	return { files: files.sort(), skipped };
-}
-
-async function readOptional(path: string): Promise<string[] | undefined> {
-	try {
-		const info = await lstat(path);
-		if (!info.isFile()) return undefined;
-		return (await readFile(path, "utf8")).split("\n");
-	} catch {
-		return undefined;
-	}
-}
-
-async function ensurePrivateDirectory(path: string): Promise<void> {
-	await mkdir(path, { recursive: true, mode: 0o700 });
-	const info = await lstat(path);
-	if (!info.isDirectory() || info.isSymbolicLink()) throw new Error(`refusing non-directory or symlink output: ${path}`);
-}
-
-export function defaultSessionsDir(env: NodeJS.ProcessEnv = process.env): string {
-	const agentDir = env.PI_CODING_AGENT_DIR || join(env.HOME ?? "", ".pi", "agent");
-	return join(agentDir, "sessions");
-}
-
-export function defaultLoopDir(env: NodeJS.ProcessEnv = process.env): string {
-	return env.ROTOM_LOOP_DIR || join(env.HOME ?? "", ".rotom", "loop");
-}
-
-export type HarvestOptions = { sessionsDir: string; outRoot: string; since: Date; now?: Date; excerpts: boolean };
-
-export async function harvest(options: HarvestOptions): Promise<{ outDir: string; sessions: SessionSummary[]; incidents: Incident[]; skipped: number }> {
-	const now = options.now ?? new Date();
-	const sessionsDir = resolve(options.sessionsDir);
-	const rootInfo = await lstat(sessionsDir).catch(() => undefined);
-	if (!rootInfo?.isDirectory()) throw new Error(`sessions directory not found: ${sessionsDir} (set --sessions or PI_CODING_AGENT_DIR)`);
-	const { files, skipped: skippedLinks } = await sessionFiles(sessionsDir);
-	let skipped = skippedLinks;
-	const sessions: SessionSummary[] = [];
-	const incidents: Incident[] = [];
-	for (const file of files) {
-		const info = await lstat(file);
-		if (info.mtime < options.since) continue;
-		const lines = await readOptional(file);
-		if (!lines) {
-			skipped++;
-			continue;
-		}
-		const tracePath = join(dirname(file), "observability", `${basename(file).replace(/\.jsonl$/u, "")}.trace.jsonl`);
-		const result = analyzeSession(lines, { sessionFile: file, excerpts: options.excerpts, traceLines: await readOptional(tracePath) });
-		if (!result) {
-			skipped++;
-			continue;
-		}
-		if (result.session.userTurns === 0) continue;
-		sessions.push(result.session);
-		incidents.push(...result.incidents);
-	}
-
-	const stamp = now.toISOString().replace(/[:.]/gu, "-");
-	const outRoot = resolve(options.outRoot);
-	await ensurePrivateDirectory(outRoot);
-	const outDir = join(outRoot, `harvest-${stamp}`);
-	await ensurePrivateDirectory(outDir);
-	const write = (name: string, body: string) => writeFile(join(outDir, name), body, { mode: 0o600, flag: "wx" });
-	const since = options.since.toISOString();
-	await write("sessions.jsonl", sessions.map((session) => JSON.stringify(session)).join("\n") + (sessions.length ? "\n" : ""));
-	await write("incidents.jsonl", incidents.map((incident) => JSON.stringify(incident)).join("\n") + (incidents.length ? "\n" : ""));
-	await write(
-		"summary.json",
-		`${JSON.stringify({ schema: HARVEST_SCHEMA, generatedAt: now.toISOString(), since, sessionsDir, excerpts: options.excerpts, sessions: sessions.length, incidents: incidents.length, skipped, weeks: weeklyMetrics(sessions) }, null, 2)}\n`,
-	);
-	await write("report.md", renderReport({ generatedAt: now.toISOString(), since, sessionsDir, sessions, incidents, skipped }));
-	return { outDir, sessions, incidents, skipped };
 }
