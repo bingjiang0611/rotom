@@ -11,7 +11,8 @@
 ```
 
 - 唯一工具是 `context_recall`：`sequential`、model-only、默认激活，尊重显式工具选择；`ROTOM_CONTEXT_LAYERS=0` 不注册。它不声明、不合并、不修改摘要，也不改变模型下一次看到的上下文。
-- 结果只出现在这一次工具调用里；检索到的内容不会自动注入后续请求，也不会让被清出的条目重新变成可见历史。
+- 结果是普通工具结果：它留在后续请求的上下文中（因此可能再次被压缩或清出），不会自动重新展开历史，也不会改变被清出条目的可见性。
+- `query` 在当前分支的**全部**消息里做大小写不敏感的子串搜索，不只是被清出的部分；`ref` 按 `@entryId` 或摘要块读取。
 - 原文来自当前分支的 session 条目。`one` 返回子块摘要与本层直接原文；`full` 返回覆盖范围全部可呈现原始内容；可用 `@entryId` 精确回查。工具参数、错误标记与 call ID 保留；provider-private thinking/signature 不作为工具文本回显，原始 session 不变。
 - 文本页约 12000 UTF-16 字符，不拆开代理对；图片单独分页并保持原始 mime/data。图片页遇到文本模型明确报错，不静默转文字。`nextOffset=null` 与 `complete=true` 只描述选定视图；query 结果标为 matching-parts，不冒充全文。
 - 块状态由当前分支及 Pi 可见投影重建，不从其他分支恢复。原生压缩或轮转覆盖的块标为 `archived`，只要原文仍在分支上就能回查。
@@ -29,4 +30,4 @@ ROTOM_PI="$(node rotom/runtime/resolve-installed-pi.mjs rotom)" \
   node --experimental-strip-types --test rotom/extensions/context-layers/*.test.ts
 ```
 
-`live.mjs` 与 `experiments/context-layers/` 是旧的压缩/收益测量脚本，需要真实模型和 Qoder credits 授权；它们描述已删除的写入路径，不能作为当前能力的证据，也不再属于验证门禁。
+`live.mjs` 是检索臂的真实模型对照脚本，需要 Qoder credits 授权，不属于验证门禁。`experiments/context-layers/` 只保留 credits/time 预算保护（`budget.mjs` 与 `budget.test.mjs`）；测量压缩收益的 `stress.mjs` 随写入能力一起删除。

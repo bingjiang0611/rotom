@@ -153,17 +153,72 @@ test("an eligible after-run threshold compaction is deferred and the next submis
 	}
 }));
 
-test("a second submission above the water mark rolls over again", withDir(async (dir) => {
+test("no rollover right after a manual compaction", withDir(async (dir) => {
+	const h = await createHarness({ dir, rollover: "1", recall: true, historyTokens: WATERMARK + 500 });
+	try {
+		h.faux.setResponses([fauxAssistantMessage("manual summary of earlier work")]);
+		await h.session.compact();
+		assert.equal(h.session.getContextThresholdEstimate().stale, true, "the usage predates the manual compaction");
+
+		h.faux.setResponses([assistantWithUsage("reply", 10)]);
+		await h.session.prompt("next request");
+
+		assert.deepEqual(
+			compactionEntries(h.session).map((entry: any) => entry.details?.kind ?? "native"),
+			["native"],
+			"the manual summary stays the newest compaction entry",
+		);
+	} finally {
+		h.dispose();
+	}
+}));
+
+test("no rollover after resuming a session whose newest entry is a compaction", withDir(async (dir) => {
+	const first = await createHarness({ dir, rollover: "1", recall: true, historyTokens: WATERMARK + 500 });
+	let sessionFile: string;
+	try {
+		first.faux.setResponses([fauxAssistantMessage("manual summary of earlier work")]);
+		await first.session.compact();
+		sessionFile = first.session.sessionManager.getSessionFile();
+	} finally {
+		first.dispose();
+	}
+
+	const resumed = await createHarness({ dir, rollover: "1", recall: true, resumeFrom: sessionFile });
+	try {
+		assert.equal(resumed.session.getContextThresholdEstimate().stale, true, "resuming keeps the pre-compaction usage");
+		resumed.faux.setResponses([assistantWithUsage("reply", 10)]);
+		await resumed.session.prompt("next request");
+		assert.deepEqual(
+			compactionEntries(resumed.session).map((entry: any) => entry.details?.kind ?? "native"),
+			["native"],
+			"old usage does not cause a rollover on resume",
+		);
+	} finally {
+		resumed.dispose();
+	}
+}));
+
+test("a rollover resumes only from a fresh estimate", withDir(async (dir) => {
 	const h = await createHarness({ dir, rollover: "1", recall: true, historyTokens: WATERMARK + 500 });
 	try {
 		h.faux.setResponses([fauxAssistantMessage(longReply(THRESHOLD + 500))]);
 		await h.session.prompt("first");
 		assert.equal(compactionEntries(h.session).length, 1, "the first submission rolls over");
 
+		// The reply that arrived before the entry describes the cleared context, so its pre-rollover
+		// usage is stale by the same rule threshold compaction uses: no rollover on it.
 		h.faux.setResponses([assistantWithUsage("second reply", 10)]);
 		await h.session.prompt("second");
-		assert.equal(compactionEntries(h.session).length, 2, "the estimate survives the rollover entry");
-		assert.ok(compactionEntries(h.session).every((entry: any) => entry.details.kind === "rotom-rollover"));
+		assert.equal(compactionEntries(h.session).length, 1, "a stale estimate does not roll over again");
+		assert.equal(h.session.getContextThresholdEstimate().stale, false, "the reply updates the estimate");
+
+		// The retained turn is still large, so the next submission rolls over from a fresh estimate.
+		h.faux.setResponses([assistantWithUsage("third reply", 10)]);
+		await h.session.prompt("third");
+		const compactions = compactionEntries(h.session);
+		assert.equal(compactions.length, 2, "a fresh estimate above the water mark rolls over again");
+		assert.ok(compactions.every((entry: any) => entry.details.kind === "rotom-rollover"));
 	} finally {
 		h.dispose();
 	}
@@ -184,6 +239,19 @@ test("an ineligible after-run threshold compaction keeps its existing path", wit
 		const compactions = compactionEntries(h.session);
 		assert.equal(compactions.length, 1, "native compaction proceeds without the recall tool");
 		assert.notEqual(compactions[0].details?.kind, "rotom-rollover");
+	} finally {
+		h.dispose();
+	}
+}));
+
+test("a slash command input still rolls over", withDir(async (dir) => {
+	const h = await createHarness({ dir, rollover: "1", recall: true, historyTokens: WATERMARK + 500 });
+	try {
+		h.faux.setResponses([assistantWithUsage("reply", 10)]);
+		await h.session.prompt("/skill:review the diff");
+
+		assert.equal(compactionEntries(h.session).length, 1, "a slash input dispatches a request, so it is not skipped");
+		assert.equal(h.faux.state.callCount, 1);
 	} finally {
 		h.dispose();
 	}

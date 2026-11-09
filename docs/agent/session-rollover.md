@@ -5,7 +5,7 @@
 本方案分两部分，按顺序独立推进：
 
 - **A. Context Layers 精简为只读检索**（第 3 节）：删去模型驱动的分层压缩，只保留搜索与原文回查。已有实测不支持压缩部分的费用收益，检索部分对原生压缩后的回查和 B 都有用；可以先做，不依赖 B。
-- **B. 同会话轮转**（第 4–9 节，分册见下）：上下文达到轮间水位时，在下一轮开始前于**同一会话**追加一条不调用模型的轮转条目，清空模型可见上下文，旧原文留在分支上按需检索。默认关闭；阶段 0 离线统计（第 9.1 节）决定它能否合入公开 `main`，统计不支持时整体撤回。
+- **B. 同会话轮转**（第 4–9 节，分册见下）：上下文达到轮间水位时，在下一轮开始前于**同一会话**追加一条不调用模型的轮转条目，清空模型可见上下文，旧原文留在分支上按需检索。默认关闭；阶段 0 离线统计（第 9.1 节）决定它能否合入公开 `main`，返工后的统计不达门槛，因此 B 保持 opt-in、不改默认、也不改门槛。
 
 本文早期版本设计为“轮转时创建新会话并导出分支日志”。改为同会话后，会话 ID、插件实例、Browser tab、子任务与 Goal 状态都不随轮转变化，也不再需要日志导出、切换事件新取值和订阅重绑。早期版本只查 Git history。
 
@@ -46,7 +46,7 @@
 | 阈值估算有两条路径：`_exceedsCompactionThreshold` 用投影估算；`_checkCompaction` 优先用 Provider usage，有 `context_edit` 时用投影估算，错误或零 usage 时退回消息估算 | 同上 | 轮间判断必须与 `_checkCompaction` 共用估算（4.1） |
 | `session_before_compact` 的 `reason` 为 `manual \| extension \| threshold \| overflow`，处理器可取消或提供替代结果 | [extension types](../../packages/rotom-pi/packages/coding-agent/src/core/extensions/types.ts) | 轮转新增 `"rollover"`，需逐一核对现有处理器（5.4） |
 | 现有 `session_before_compact` 处理器：Offload（只处理 `threshold`）、Goal（记账、可取消续跑或因预算取消）、Subagent（非 manual 时挂起 widget）、observability（记录）、Qoder session policy | [offload.ts](../../packages/rotom-sol-pi/src/sol-pi/extensions/observation-pack/offload.ts)、[Goal lifecycle](../../packages/rotom-goal/src/lifecycle.ts)、[Subagent](../../packages/rotom-subagents/src/extension/index.ts)、[observability](../../rotom/extensions/observability/index.ts)、[Qoder session policy](../../rotom/extensions/qoder/session-policy.mjs) | 同上 |
-| Context Layers 的 `context_status` 带 `query` 时在**整条分支**全部消息中做子串搜索，返回 `@entryId` 与摘录；`context_recall` 按 `@entryId` 或摘要块返回原文（含工具参数、图片，不回显 thinking/signature）；搜索只覆盖文本部分，不含 tool call 参数 | [blocks.ts](../../rotom/extensions/context-layers/blocks.ts)、[recall.ts](../../rotom/extensions/context-layers/recall.ts) | B 的检索直接复用，不另做导出；A 需补全搜索覆盖 |
+| 精简后的 Context Layers 只有 `context_recall`：带 `query` 时在**整条分支**全部消息中做子串搜索（含 tool call 工具名与参数文本），返回 `@entryId` 与摘录；带 `ref` 时按 `@entryId` 或摘要块返回原文（含工具参数、图片，不回显 thinking/signature） | [blocks.ts](../../rotom/extensions/context-layers/blocks.ts)、[recall.ts](../../rotom/extensions/context-layers/recall.ts) | B 的检索直接复用，不另做导出；A 需补全搜索覆盖 |
 | Context Layers 摘要以 `[Context summary <id>, tier <n>. … recall exact details with context_recall.]` 呈现，由 Pi 原生 `context_edit` 投影 | [copy.ts](../../rotom/extensions/context-layers/copy.ts) | 旧会话中已有摘要在扩展精简后仍会显示，需保留按块 ID 回查（3.3） |
 | Goal 每次自动续跑的提示都包含完整目标（“The full objective persists across turns”） | [Goal prompts](../../packages/rotom-goal/src/prompts.ts) | Goal 续跑边界是后续可考虑的轮转点（第 9 节之后的阶段 2），首版不做 |
 

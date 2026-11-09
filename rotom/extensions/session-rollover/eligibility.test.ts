@@ -16,7 +16,7 @@ function state(overrides: Partial<RolloverState> = {}): RolloverState {
 	return {
 		trigger: "input",
 		model: { api: "faux" },
-		estimate: { tokens: WATERMARK + 1, contextWindow: CONTEXT_WINDOW, reserveTokens: RESERVE_TOKENS, enabled: true },
+		estimate: { tokens: WATERMARK + 1, contextWindow: CONTEXT_WINDOW, reserveTokens: RESERVE_TOKENS, enabled: true, stale: false },
 		sessionFile: "/tmp/session.jsonl",
 		activeTools: ["context_recall"],
 		branch: [userEntry("u1"), assistantEntry("a1")],
@@ -34,7 +34,7 @@ test("water mark derives from reserveTokens and stays below the compaction thres
 });
 
 test("exactly at the water mark does not roll over; one token above does", () => {
-	const atMark = decideRollover(state({ estimate: { tokens: WATERMARK, contextWindow: CONTEXT_WINDOW, reserveTokens: RESERVE_TOKENS, enabled: true } }));
+	const atMark = decideRollover(state({ estimate: { tokens: WATERMARK, contextWindow: CONTEXT_WINDOW, reserveTokens: RESERVE_TOKENS, enabled: true, stale: false } }));
 	assert.deepEqual(atMark, { allowed: false, reason: "below-watermark" });
 	assert.equal(decideRollover(state()).allowed, true);
 });
@@ -51,10 +51,9 @@ test("every eligibility rule blocks rollover on its own", () => {
 		],
 		["no model or window", { estimate: undefined }, "no-model"],
 		["virtual model", { model: { api: "pi-virtual" } }, "virtual-model"],
-		["compaction disabled", { estimate: { tokens: WATERMARK + 1, contextWindow: CONTEXT_WINDOW, reserveTokens: RESERVE_TOKENS, enabled: false } }, "compaction-disabled"],
+		["compaction disabled", { estimate: { tokens: WATERMARK + 1, contextWindow: CONTEXT_WINDOW, reserveTokens: RESERVE_TOKENS, enabled: false, stale: false } }, "compaction-disabled"],
 		["in-memory session", { sessionFile: undefined }, "no-session"],
 		["no recall tool", { activeTools: ["read"] }, "no-recall-tool"],
-		["local command", { input: { text: "/model sonnet", source: "interactive" } }, "local-command"],
 		["extension input", { input: { text: "continue", source: "extension" } }, "extension-input"],
 		["streaming input", { input: { text: "continue", source: "interactive", streamingBehavior: "steer" } }, "streaming-input"],
 		["active Goal", { branch: [userEntry("u1"), assistantEntry("a1"), goalEntry("active")] }, "goal-active"],
@@ -62,6 +61,19 @@ test("every eligibility rule blocks rollover on its own", () => {
 	for (const [name, overrides, reason] of cases) {
 		assert.deepEqual(decideRollover(state(overrides)), { allowed: false, reason }, name);
 	}
+});
+
+test("an estimate that predates the newest compaction blocks both triggers", () => {
+	const stale = { tokens: WATERMARK + 1, contextWindow: CONTEXT_WINDOW, reserveTokens: RESERVE_TOKENS, enabled: true, stale: true };
+	assert.deepEqual(decideRollover(state({ estimate: stale })), { allowed: false, reason: "stale-estimate" });
+	assert.deepEqual(decideRollover(state({ trigger: "after-run", estimate: stale })), { allowed: false, reason: "stale-estimate" });
+});
+
+test("slash inputs are rollover points because Pi expands them into model requests", () => {
+	// Extension commands run before the `input` event, so anything that still reaches it dispatches.
+	assert.equal(decideRollover(state({ input: { text: "/skill:review the diff", source: "interactive" } })).allowed, true);
+	assert.equal(decideRollover(state({ input: { text: "/template-name argument", source: "interactive" } })).allowed, true);
+	assert.equal(decideRollover(state({ input: { text: "/model sonnet", source: "rpc" } })).allowed, true);
 });
 
 test("a paired tool call and a non-active Goal do not block", () => {

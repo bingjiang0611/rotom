@@ -126,6 +126,15 @@ describe("stage-0 crossing classification", () => {
 		expect(analysis).toMatchObject({ segments: 2, requests: 3, crossingSegments: 2, midTurnCrossings: 0, turnEndCrossings: 2 });
 	});
 
+	it("keeps a crossing inside a turn that continues after a compaction as mid-turn", () => {
+		// window 10_000, reserve 1_000: the 9_500 request is not the turn's last request, because the
+		// same turn keeps requesting (3_000, 4_000) after the compaction entry.
+		const analysis = analyze(
+			new SessionBuilder().model().user().assistant(5_000).assistant(9_500).compaction().assistant(3_000).assistant(4_000).user().assistant(4_500),
+		);
+		expect(analysis).toMatchObject({ segments: 2, crossingSegments: 1, midTurnCrossings: 1, turnEndCrossings: 0 });
+	});
+
 	it("reports a segment with an unresolved model window separately instead of inventing one", () => {
 		const analysis = analyze(new SessionBuilder().model("other", "unknown-model").user().assistant(50_000));
 		expect(analysis).toMatchObject({ segments: 1, unknownWindowSegments: 1, requests: 1, crossingSegments: 0 });
@@ -183,6 +192,32 @@ describe("stage-0 aggregation and gate", () => {
 			[4, 2],
 		]);
 		expect(report.candidates.map((candidate) => candidate.takeoverSessionShare)).toEqual([0, 1, 1]);
+	});
+
+	it("judges the session share on the first crossing segment only", () => {
+		// First crossing sits in a turn with no earlier inter-turn point; the second one could be
+		// taken over at the 3x and 4x water marks (7_500 > 10_000 - 3 x 1_000).
+		const session = new SessionBuilder()
+			.model()
+			.user()
+			.assistant(8_500)
+			.assistant(9_500)
+			.compaction()
+			.user()
+			.assistant(7_500)
+			.user()
+			.assistant(9_500);
+		const analysis = analyze(session);
+		expect(analysis).toMatchObject({ crossingSegments: 2 });
+		expect(analysis.takeover).toEqual({ 2: 0, 3: 1, 4: 1 });
+		expect(analysis.firstCrossingTakeover).toEqual({ 2: 0, 3: 0, 4: 0 });
+		const report = aggregate([analysis], { reserveTokens: RESERVE });
+		expect(report.candidates.map((candidate) => [candidate.takeoverSegments, candidate.takeoverSessions])).toEqual([
+			[0, 0],
+			[1, 0],
+			[1, 0],
+		]);
+		expect(report.candidates.map((candidate) => candidate.takeoverSessionShare)).toEqual([0, 0, 0]);
 	});
 
 	it("selects the latest qualifying water mark and fails when none reaches the gate", () => {

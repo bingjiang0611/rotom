@@ -37,6 +37,8 @@ export interface Stage0Analysis {
 	midTurnCrossings: number;
 	turnEndCrossings: number;
 	takeover: Record<number, number>;
+	/** Takeover in the session's first crossing segment only, which the design gate reads. */
+	firstCrossingTakeover: Record<number, number>;
 	goalActiveCrossings: number;
 	goalUnknownCrossings: number;
 	turnGrowth: number[];

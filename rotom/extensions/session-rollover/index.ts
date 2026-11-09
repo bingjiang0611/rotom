@@ -1,18 +1,29 @@
 import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { COPY } from "./copy.ts";
-import { decideRollover, type RolloverDecision, type RolloverState } from "./eligibility.ts";
+import { decideRollover, type RolloverDecision, type RolloverEstimate, type RolloverState } from "./eligibility.ts";
 import { buildRolloverSummary } from "./summary.ts";
 
 /** Mirrors `ROLLOVER_DETAILS_KIND` in Pi's `core/messages.ts`; Pi projects entries with this kind. */
 export const ROLLOVER_DETAILS_KIND = "rotom-rollover";
 const ROLLOVER_DETAILS = { kind: ROLLOVER_DETAILS_KIND, version: 1 } as const;
 
+/**
+ * Read only the fields the decision uses. `stale` matters: right after a compaction the estimate is
+ * a message estimate of the pre-compaction context, which threshold compaction itself ignores.
+ */
+function readEstimate(ctx: ExtensionContext): RolloverEstimate | undefined {
+	const estimate = ctx.getContextThresholdEstimate();
+	if (!estimate) return undefined;
+	const { tokens, contextWindow, reserveTokens, enabled, stale } = estimate;
+	return { tokens, contextWindow, reserveTokens, enabled, stale };
+}
+
 /** Read the current state once, so one decision sees one consistent snapshot. */
 function readState(pi: ExtensionAPI, ctx: ExtensionContext, trigger: RolloverState["trigger"], input?: RolloverState["input"]): RolloverState {
 	return {
 		trigger,
 		model: ctx.model,
-		estimate: ctx.getContextThresholdEstimate(),
+		estimate: readEstimate(ctx),
 		sessionFile: ctx.sessionManager.getSessionFile(),
 		activeTools: pi.getActiveTools(),
 		branch: ctx.sessionManager.getBranch(),

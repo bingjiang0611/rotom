@@ -14,12 +14,12 @@
 
 ```text
 压缩阈值  = contextWindow - reserveTokens          （现有，不变）
-轮间水位  = contextWindow - 2 × reserveTokens      （阶段 0 确认）
+轮间水位  = contextWindow - 2 × reserveTokens      （阶段 0 未达门槛，见下方说明）
 轮转条件：当前估算量 > 轮间水位，且满足 4.2 全部资格
 ```
 
 - 水位由现有 `reserveTokens` 派生，不新增配置项、百分比或模式。最终取值由阶段 0 统计决定并写回本节。
-- **阶段 0 已确认 2 × 取值**（`rotom/evals/bin/rollover-stats`，维护者本机会话离线回放，数值见 [session-rollover-report.md](session-rollover-report.md)）：越过压缩阈值的 113 个会话中，59 个（52.2%）在首次越线前已有轮间点越过 `contextWindow - 2 × reserveTokens`；3 × 与 4 × 分别为 69.9% 与 76.1%，但都提前更多上下文，故取最接近压缩阈值的 2 ×。原始统计与会话文件不进制库。
+- **阶段 0 的 2 × 结论已被第 1 轮返工推翻**（分类修正 + 会话级只看首次越线段，数值见 [session-rollover-report-stats.md](session-rollover-report-stats.md)）：越过阈值的 113 个会话中，只有 30 个（26.6%）能在首次原生压缩前被 2 × 轮间点接管；3 × / 4 × 为 41.6% / 48.7%，均不达 50% 门槛。按本节“不达门槛时 B 不合入 `main`”，B 保持默认关闭的 opt-in，取值不改、门槛不改；是否撤回或重新设计属于用户决定。原始统计与会话文件不进制库。
 - 代价：处于水位与阈值之间的会话会比原来更早清空可见上下文，只能检索。第 9.3 节必须测量它对续做正确性的影响。
 - 共用估算源且水位 ≤ 阈值，所以判定“不轮转”后，只有不具备资格的会话会在随后的 `_prepareRun` 里被压缩。
 
@@ -34,7 +34,8 @@
 - 当前没有可用模型/窗口、选中的是虚拟模型，或 `compaction.enabled` 为 false（用户关闭自动压缩时不引入任何阈值行为）。
 - `--no-session` 或内存会话：没有持久分支可供回查。
 - Context Layers 被 `ROTOM_CONTEXT_LAYERS=0` 关闭，或显式工具选择不含 `context_recall`：清空后没有检索入口。
-- 只执行 `/model`、`/compact`、`/new` 等本地命令，尚未提交普通模型请求。
+- 本地命令不派发请求：Pi 在 `input` 事件**之前**执行扩展命令，内置命令（如 `/model`、`/compact`、`/new`）由 TUI 直接处理，所以到达 `input` 的 `/` 文本（`/skill:name`、模板命令、普通斜杠文本）都会展开成真实请求，按正常轮转处理。
+- 估算 `stale`（最近一次 Provider usage 早于最新压缩条目，例如手动 `/compact` 之后、或回到压缩后的位置）：`tokens` 此时是压缩前上下文的估算量，不是当前占用。与 `_checkCompaction` 同口径：不轮转，也不取消轮末压缩。
 - 存在 `status: active` 的 Goal（含 waiting 与 Provider 恢复等待）。同会话下 Goal 状态不受影响，但 Goal 的压缩处理器会取消续跑工作，首版不改变这条路径（阶段 2 见第 9 节之后）。
 - 插件对 `session_before_compact`（`reason: "rollover"`）返回取消。
 

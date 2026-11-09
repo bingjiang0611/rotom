@@ -7,6 +7,7 @@
 - 基于提交：`f266b305`（`claude/kind-bardeen-roufe9`）；最终提交：见本文件最后一次提交（文末“提交记录”）。
 - 环境：Node v24.18.0 / npm 12.2.0 / macOS 27.3（darwin, arm64）
 - 工作包状态：W1 完成 / W2 完成（已运行） / W3 完成 / W4 完成 / W5 完成 / W6 完成
+- 第 1 轮返工：R1–R5 完成；阶段 0 重跑后门槛不达标（2× 26.6%），B 保持默认关闭，见[第 1 轮返工](session-rollover-report-integration.md#第-1-轮返工)
 
 ## 基线
 
@@ -37,7 +38,7 @@
 | 内容 | 文件 |
 |---|---|
 | 各工作包的改动、测试与负向对照（W1–W4） | [session-rollover-report-workpackages.md](session-rollover-report-workpackages.md) |
-| W5、W6 与收尾决策记录 | [session-rollover-report-integration.md](session-rollover-report-integration.md) |
+| W5、W6、收尾决策与第 1 轮返工 | [session-rollover-report-integration.md](session-rollover-report-integration.md) |
 | 阶段 0 离线统计的聚合数字 | [session-rollover-report-stats.md](session-rollover-report-stats.md) |
 
 ## 决策记录
@@ -74,6 +75,7 @@
 ## 停止或待决事项
 
 - context footprint 基线漂移（+1 986 schema 字节 / 与本任务无关）需要维护者确认来源；本任务只调整自身差值。
+- 阶段 0 返工后不达门槛：B 是否保留为 opt-in、撤回，或改候选水位/门槛，需要用户决定（本轮按规则不改）。
 
 ## 提交记录
 
@@ -84,4 +86,5 @@
 | W3 | `6b100a86` |
 | W4 | `a66ea48e` |
 | W5 | `530ce563` |
-| W6 | 见本次提交 |
+| W6 | `98c16d2d` |
+| 第 1 轮返工（R1–R5） | 见本次提交 |

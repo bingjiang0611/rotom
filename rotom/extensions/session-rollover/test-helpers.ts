@@ -44,6 +44,8 @@ export interface HarnessOptions {
   probeSource?: string;
   /** Extension source loaded before the rollover extension, to observe events it cancels. */
   earlyProbeSource?: string;
+  /** Reopen an existing session file instead of seeding a new branch (resume path). */
+  resumeFrom?: string;
   /** Seed the persisted branch with one user message and one tool result carrying `secret`. */
   seedToolResult?: boolean;
   seedImage?: boolean;
@@ -104,9 +106,10 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
   const loaded = loader.getExtensions();
   if (loaded.errors.length > 0) throw new Error(`extension load failed: ${JSON.stringify(loaded.errors)}`);
 
-  const manager = SessionManager.create(dir, dir);
-  manager.appendMessage({ role: "user", content: [{ type: "text", text: "Keep the recorded requirement exact." }], timestamp: Date.now() - 3_000 });
-  manager.appendMessage(assistantWithUsage("Recorded earlier answer.", 10, Date.now() - 2_500));
+  const resumed = options.resumeFrom !== undefined;
+  const manager = resumed ? SessionManager.open(options.resumeFrom!, dir, dir) : SessionManager.create(dir, dir);
+  if (!resumed) manager.appendMessage({ role: "user", content: [{ type: "text", text: "Keep the recorded requirement exact." }], timestamp: Date.now() - 3_000 });
+  if (!resumed) manager.appendMessage(assistantWithUsage("Recorded earlier answer.", 10, Date.now() - 2_500));
   if (options.seedToolResult) {
     manager.appendMessage(assistantWithUsage([fauxToolCall("read", { path: "notes.txt" }, { id: "old-call" })], 20, Date.now() - 2_400));
     manager.appendMessage({ role: "toolResult", toolCallId: "old-call", toolName: "read", content: [{ type: "text", text: "secret-old-result-42" }], isError: false, timestamp: Date.now() - 2_300 });
@@ -128,7 +131,7 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
     resourceLoader: loader,
     settingsManager: settings,
     sessionManager: manager,
-    sessionStartEvent: { type: "session_start", reason: "startup" },
+    sessionStartEvent: { type: "session_start", reason: resumed ? "resume" : "startup" },
   });
   const session = created.session;
   const events: unknown[] = [];

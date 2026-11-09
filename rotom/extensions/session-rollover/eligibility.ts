@@ -17,9 +17,9 @@ export type BlockReason =
 	| "compaction-disabled"
 	| "no-session"
 	| "no-recall-tool"
-	| "local-command"
 	| "extension-input"
 	| "streaming-input"
+	| "stale-estimate"
 	| "goal-active"
 	| "below-watermark";
 
@@ -33,6 +33,11 @@ export interface RolloverEstimate {
 	contextWindow: number;
 	reserveTokens: number;
 	enabled: boolean;
+	/**
+	 * The newest provider usage predates the latest compaction, so `tokens` is a message estimate of
+	 * the pre-compaction context. Threshold compaction refuses to act on it; rollover must too.
+	 */
+	stale: boolean;
 }
 
 export interface RolloverInput {
@@ -100,6 +105,8 @@ export function decideRollover(state: RolloverState): RolloverDecision {
 	if (!estimate) return block("no-model");
 	if (state.model?.api === VIRTUAL_MODEL_API) return block("virtual-model");
 	if (!estimate.enabled) return block("compaction-disabled");
+	// Same boundary as `_checkCompaction`: a pre-compaction usage estimate is not a current size.
+	if (estimate.stale) return block("stale-estimate");
 	if (state.sessionFile === undefined) return block("no-session");
 	if (!state.activeTools.includes(RECALL_TOOL)) return block("no-recall-tool");
 	if (state.trigger === "input") {
@@ -107,8 +114,9 @@ export function decideRollover(state: RolloverState): RolloverDecision {
 		if (!input) return block("extension-input");
 		if (input.source !== "interactive" && input.source !== "rpc") return block("extension-input");
 		if (input.streamingBehavior !== undefined) return block("streaming-input");
-		// Local commands such as /model or /new do not dispatch a model request to roll over before.
-		if (input.text.trimStart().startsWith("/")) return block("local-command");
+		// No leading-slash rule: Pi executes extension commands before emitting `input` and expands
+		// skill/template commands only afterwards, so a slash text that arrives here still dispatches
+		// a model request and is a normal rollover point.
 	}
 	if (goalIsActive(state.branch)) return block("goal-active");
 	if (!(estimate.tokens > rolloverWatermark(estimate.contextWindow, estimate.reserveTokens))) {

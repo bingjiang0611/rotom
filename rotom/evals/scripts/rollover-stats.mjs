@@ -92,16 +92,38 @@ function requestOf(entry) {
 function segmentsOf(branch) {
 	const segments = [];
 	let current = [];
-	for (const entry of branch) {
+	const flush = () => {
+		if (current.length) segments.push(current);
+		current = [];
+	};
+	for (const [index, entry] of branch.entries()) {
 		if (entry.type === "compaction") {
-			if (current.length) segments.push(current);
-			current = [];
+			flush();
 			continue;
 		}
-		current.push(entry);
+		current.push([index, entry]);
 	}
-	if (current.length) segments.push(current);
+	flush();
 	return segments;
+}
+
+/**
+ * Turn ownership over the whole branch. Compaction entries end a segment but not a turn: Pi can
+ * compact in the middle of a turn and keep requesting, so a segment-local view would count that
+ * crossing as a turn end.
+ */
+function turnOwnershipOf(branch) {
+	const userIndexes = [];
+	branch.forEach((entry, index) => {
+		if (entry.type === "message" && entry.message?.role === "user") userIndexes.push(index);
+	});
+	const turnKeyOf = (index) => userIndexes.filter((userIndex) => userIndex < index).at(-1) ?? -1;
+	const lastRequestOfTurn = new Map();
+	branch.forEach((entry, index) => {
+		if (requestOf(entry) === null) return;
+		lastRequestOfTurn.set(turnKeyOf(index), index);
+	});
+	return (index) => lastRequestOfTurn.get(turnKeyOf(index)) === index;
 }
 
 /**
@@ -117,6 +139,7 @@ export function analyzeSession(entries, { windows, reserveTokens = DEFAULT_RESER
 		midTurnCrossings: 0,
 		turnEndCrossings: 0,
 		takeover: Object.fromEntries(CANDIDATE_RESERVE_MULTIPLES.map((multiple) => [multiple, 0])),
+		firstCrossingTakeover: Object.fromEntries(CANDIDATE_RESERVE_MULTIPLES.map((multiple) => [multiple, 0])),
 		goalActiveCrossings: 0,
 		goalUnknownCrossings: 0,
 		turnGrowth: [],
@@ -127,11 +150,13 @@ export function analyzeSession(entries, { windows, reserveTokens = DEFAULT_RESER
 	let modelKey = null;
 	let goalStatus = "none";
 	let goalKnown = true;
-	for (const segment of segmentsOf(buildBranch(entries))) {
+	const branch = buildBranch(entries);
+	const isLastRequestOfTurn = turnOwnershipOf(branch);
+	for (const segment of segmentsOf(branch)) {
 		result.segments++;
 		const requests = [];
 		const userIndexes = [];
-		for (const [index, entry] of segment.entries()) {
+		for (const [index, entry] of segment) {
 			if (entry.type === "model_change") {
 				modelKey = `${entry.provider}/${entry.modelId}`;
 				continue;
@@ -145,7 +170,14 @@ export function analyzeSession(entries, { windows, reserveTokens = DEFAULT_RESER
 			if (entry.type === "message" && entry.message?.role === "user") userIndexes.push(index);
 			const tokens = requestOf(entry);
 			if (tokens === null) continue;
-			requests.push({ index, tokens, window: modelKey ? (windows.get(modelKey) ?? null) : null, modelKey, goal: goalKnown ? goalStatus : "unknown" });
+			requests.push({
+				index,
+				tokens,
+				window: modelKey ? (windows.get(modelKey) ?? null) : null,
+				modelKey,
+				goal: goalKnown ? goalStatus : "unknown",
+				isTurnEnd: isLastRequestOfTurn(index),
+			});
 		}
 		result.requests += requests.length;
 		for (const request of requests) {
@@ -169,8 +201,9 @@ export function analyzeSession(entries, { windows, reserveTokens = DEFAULT_RESER
 		if (crossingIndex < 0) continue;
 		const crossing = requests[crossingIndex];
 		const crossingTurnIndex = turns.findIndex((turn) => turn.requests.includes(crossing));
+		const isFirstCrossing = result.crossingSegments === 0;
 		result.crossingSegments++;
-		if (turns[crossingTurnIndex].requests.at(-1) === crossing) result.turnEndCrossings++;
+		if (crossing.isTurnEnd) result.turnEndCrossings++;
 		else result.midTurnCrossings++;
 		if (crossing.goal === "active") result.goalActiveCrossings++;
 		else if (crossing.goal === "unknown") result.goalUnknownCrossings++;
@@ -181,7 +214,11 @@ export function analyzeSession(entries, { windows, reserveTokens = DEFAULT_RESER
 				const last = turn.requests.at(-1);
 				return last.tokens > last.window - multiple * reserveTokens;
 			});
-			if (takeover) result.takeover[multiple]++;
+			if (!takeover) continue;
+			result.takeover[multiple]++;
+			// The gate asks whether a session could be taken over before its first native
+			// compaction, so only the first crossing segment counts per session.
+			if (isFirstCrossing) result.firstCrossingTakeover[multiple]++;
 		}
 	}
 	return result;
@@ -213,7 +250,7 @@ export function aggregate(analyses, { reserveTokens = DEFAULT_RESERVE_TOKENS } =
 			totals.sessionsWithCrossing++;
 			for (const multiple of CANDIDATE_RESERVE_MULTIPLES) {
 				takeover[multiple] += analysis.takeover[multiple];
-				if (analysis.takeover[multiple] > 0) totals.sessionsSupplyingTakeover[multiple] = (totals.sessionsSupplyingTakeover[multiple] ?? 0) + 1;
+				if (analysis.firstCrossingTakeover[multiple] > 0) totals.sessionsSupplyingTakeover[multiple] = (totals.sessionsSupplyingTakeover[multiple] ?? 0) + 1;
 			}
 		}
 	}
@@ -242,10 +279,11 @@ export function aggregate(analyses, { reserveTokens = DEFAULT_RESERVE_TOKENS } =
 }
 
 /**
- * The design gate: at least half of the sessions that hit native threshold compaction
- * could have been taken over at an inter-turn point. Among the qualifying candidates the
- * latest one wins, i.e. the smallest reserve multiplier: its water mark sits closest to the
- * compaction threshold, so it changes existing behavior the least.
+ * The design gate: at least half of the sessions that hit native threshold compaction could have
+ * been taken over at an inter-turn point *before their first native compaction*, so the session
+ * share reads `firstCrossingTakeover` (segment share still counts every crossing segment). Among
+ * the qualifying candidates the latest one wins, i.e. the smallest reserve multiplier: its water
+ * mark sits closest to the compaction threshold, so it changes existing behavior the least.
  */
 export function judge(report, { threshold = 0.5 } = {}) {
 	const qualifies = (candidate) => (candidate.takeoverSessionShare ?? 0) >= threshold;
