@@ -1,7 +1,3 @@
-import { findPackageJSON } from 'node:module';
-import { readFile } from 'node:fs/promises';
-import { isAbsolute } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { readLocalCredential, createCredentialAccess, QoderError } from './auth.mjs';
 import { BASE_URL, SUPPORTED_MODEL_IDS, REASONING_MODEL_IDS, openQoderStream, abortable, validateReasoningSignature, OPAQUE_MODEL_IDS, VERIFIED_THINKING_LEVELS, EXPANDED_INPUT_MODEL_IDS, inputCapabilities, imageByteLength } from './transport.mjs';
 import { buildQoderPayload, isSameModelAssistant } from './messages.mjs';
@@ -10,70 +6,14 @@ import { catalogMetadata, fetchCatalog, parseCatalogMetadata, CATALOG_TTL_MS } f
 import { createBrowserOAuth, createOAuthEnvelope } from './oauth.mjs';
 import { fetchQuota } from './credits.mjs';
 import { qoderMetadataForError } from './diagnostics.mjs';
+import { DECLARED_MODELS, MODEL, MODELS, PROVIDER_ID, catalogModel, controlsFor, nativeOutputBudget, thinkingMap } from './model-catalog.mjs';
 
-export const PROVIDER_ID = 'qoder';
-export const MODEL = {
-  id: 'lite', name: 'Qoder Lite',
-  // Self-owned api identity: the extension builds the request payload and
-  // translates the response itself (messages.mjs + translate.mjs), so sessions
-  // are pinned to "qoder" and never share replay history with the former
-  // "openai-completions" identity. Older sessions fail model_scope by design.
-  api: 'qoder', provider: PROVIDER_ID, baseUrl: BASE_URL,
-  reasoning: false, input: ['text'],
-  // Managed input window; zero means no declared output maximum in Pi.
-  // The service owns the default output budget, not a guessed adapter cap.
-  contextWindow: 32000, maxTokens: 0,
-  // Pi requires numeric prices. These placeholders are NOT zero-cost evidence.
-  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-  compat: { supportsStore: false, supportsDeveloperRole: false, supportsReasoningEffort: false, supportsStrictMode: false, maxTokensField: 'max_tokens' },
-};
-
-// Offline baseline retains the two historical identities; named labels come from discovery.
-export const MODELS = Object.freeze(['lite', 'performance'].map(id => Object.freeze({
-  ...MODEL, id, name: `Qoder ${id === 'lite' ? 'Lite' : 'Performance'}`,
-})));
-
-const THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
-function controlsFor(entry, declared = false) {
-  const reviewed = VERIFIED_THINKING_LEVELS[entry?.id];
-  if (!reviewed || !declared && !entry.reportedThinking) return;
-  const levels = reviewed.filter(level => declared || (level === 'off' ? entry.reportedThinking.disabled : entry.reportedThinking.efforts.includes(level)));
-  if (!levels.length) return;
-  return { levels, defaultLevel: levels.includes(entry.reportedThinking?.defaultEffort) ? entry.reportedThinking.defaultEffort : levels.find(l => l !== 'off') ?? 'off' };
-}
-const thinkingMap = levels => Object.freeze(Object.fromEntries(THINKING_LEVELS.map(l => [l, levels.includes(l) ? l === 'off' ? 'none' : l : null])));
-function catalogModel(entry, declared = false) {
-  const declaredExpanded = declared && EXPANDED_INPUT_MODEL_IDS.includes(entry.id);
-  const { id, name, contextWindow = declaredExpanded ? 272000 : 32000 } = entry, reasoning = REASONING_MODEL_IDS.includes(id), controls = controlsFor(entry, declared);
-  return Object.freeze({ ...MODEL, id, name: `Qoder ${name}`, contextWindow, reasoning, input: Object.freeze(declaredExpanded || inputCapabilities(entry).images ? ['text', 'image'] : ['text']),
-    ...(reasoning ? { thinkingLevelMap: controls ? thinkingMap(controls.levels) : { off: null, minimal: null, low: null, medium: 'enabled', high: null, xhigh: null, max: null } } : {}),
-    ...(controls ? { compat: { ...MODEL.compat, supportsReasoningEffort: true } } : {}),
-  });
-}
-// Pi selects an explicit/resumed model before session_start; refreshing the
-// provider catalog does not replace that session's selected model object. Declare
-// reviewed upper bounds here so native image/budget gates see them at startup,
-// without programmatically reselecting the user's model or thinking level.
-// Availability still filters to the baseline until discovery. Current-account
-// dispatch gates reject absent/narrowed capabilities, including stale maxima.
-const DECLARED_MODELS = Object.freeze(SUPPORTED_MODEL_IDS.map(id => MODELS.find(m => m.id === id) ?? catalogModel({ id, name: `${id} [catalog required]` }, true)));
-
-// Pi's extension loader aliases the ai root to compat.js, so importing an
-// arbitrary ai subpath through jiti would become compat.js/api/…. Resolve the
-// public export from the launcher-verified Pi (or explicit SDK probe Pi), never
-// from the business cwd or an unrelated global installation.
-async function nativeOutputBudget() {
-  const executable = process.env.ROTOM_VERIFIED_PI_EXECUTABLE ?? process.env.ROTOM_PI;
-  if (!executable || !isAbsolute(executable)) throw new QoderError('pi_budget_runtime_unavailable');
-  const metadata = findPackageJSON('@earendil-works/pi-ai/api/simple-options', pathToFileURL(executable));
-  const pkg = JSON.parse(await readFile(metadata, 'utf8'));
-  const exported = pkg.exports?.['./api/*']?.import;
-  if (pkg.name !== '@earendil-works/pi-ai' || exported !== './dist/api/*.js') throw new QoderError('pi_budget_runtime_unavailable');
-  return (await import(new URL(exported.replace('*', 'simple-options'), pathToFileURL(metadata)).href)).clampMaxTokensToContext;
-}
+// The declared model shape lives in model-catalog.mjs; these stay exported from
+// here because every caller and test imports them from the provider entry point.
+export { MODEL, MODELS, PROVIDER_ID };
 
 export async function createQoderProvider({ piAI, clampMaxTokens, getToken, getCredential, captureBinding, captureMetering, fetchImpl, onDiagnostic, onMetadata, onMetering,
-  authMode = process.env.ROTOM_QODER_AUTH ?? 'browser', oauthOptions = {}, refreshCatalog } = {}) {
+  authMode = process.env.ROTOM_QODER_AUTH ?? 'browser', oauthOptions = {}, refreshCatalog, onCatalogStaleReuse } = {}) {
   if (!['browser', 'qodercli'].includes(authMode)) throw new QoderError('invalid_auth_mode');
   const envelope = authMode === 'browser' ? createOAuthEnvelope() : undefined;
   let browserFingerprint;
@@ -88,10 +28,12 @@ export async function createQoderProvider({ piAI, clampMaxTokens, getToken, getC
   const readCLI = sourceCLI ? async signal => { const c = await sourceCLI(signal); observedCLI = c.fingerprint; return c; } : undefined;
   const baseline = id => MODELS.some(m => m.id === id);
   const currentModels = () => catalogState?.models ?? DECLARED_MODELS;
-  const checkCatalog = (credential, id, snapshot) => {
+  const checkCatalog = (credential, id, snapshot, staleReuse = false) => {
     if (snapshot !== catalogState) throw new QoderError('catalog_changed_select_again');
     if (baseline(id) && (!snapshot || snapshot.fingerprint !== credential.fingerprint)) return;
-    if (!snapshot || snapshot.expiresAt <= Date.now()) throw new QoderError('catalog_refresh_required');
+    // A stale catalog reused after a failed refresh still belongs to this account; an
+    // account switch must never be served from it.
+    if ((!snapshot || snapshot.expiresAt <= Date.now()) && !staleReuse) throw new QoderError('catalog_refresh_required');
     if (snapshot.fingerprint !== credential.fingerprint) throw new QoderError('catalog_account_mismatch');
     if (!snapshot.models.some(m => m.id === id)) throw new QoderError('catalog_model_unavailable');
   };
@@ -119,12 +61,24 @@ export async function createQoderProvider({ piAI, clampMaxTokens, getToken, getC
     // Refresh through the session's native registry before building any payload,
     // including tool continuations and compaction. Never retry an inference.
     // Standalone/offline providers without this seam retain explicit discovery.
+    let staleReuse = false;
     if (refreshCatalog && (catalogState ? catalogState.expiresAt <= Date.now() : !baseline(model.id))) {
-      await refreshCatalog({ signal: options.signal });
+      try {
+        await refreshCatalog({ signal: options.signal });
+      } catch (error) {
+        // Only a refresh that failed on its own is absorbed. A cancelled run, a replaced
+        // session or an account change must still stop here, before any dispatch.
+        if (!(error instanceof QoderError) || error.code !== 'catalog_refresh_failed') throw error;
+        // Such a failure must not cost the request its retry budget: the last catalog we
+        // validated still describes this account. With no snapshot there is nothing to serve.
+        if (!catalogState) throw error;
+        staleReuse = true;
+        try { onCatalogStaleReuse?.(error); } catch { /* A notice cannot change inference. */ }
+      }
     }
     if (options.signal?.aborted) throw new QoderError('aborted');
     const snapshot = catalogState;
-    if ((!baseline(model.id) && !snapshot) || snapshot?.expiresAt <= Date.now()) throw new QoderError('catalog_refresh_required');
+    if ((!baseline(model.id) && !snapshot) || (snapshot?.expiresAt <= Date.now() && !staleReuse)) throw new QoderError('catalog_refresh_required');
     if (snapshot && !snapshot.models.some(m => m.id === model.id)) throw new QoderError('catalog_model_unavailable');
     const entry = snapshot?.entries.find(e => e.id === model.id), controls = controlsFor(entry), input = inputCapabilities(entry);
     if (model.contextWindow > input.contextWindow) throw new QoderError('catalog_changed_select_again');
@@ -164,7 +118,7 @@ export async function createQoderProvider({ piAI, clampMaxTokens, getToken, getC
     const requestToken = envelope || readCLI ? createCredentialAccess({
       readCredential: async signal => {
         const c = envelope ? envelope.read(options.apiKey) : await readCLI(signal);
-        checkCatalog(c, model.id, snapshot);
+        checkCatalog(c, model.id, snapshot, staleReuse);
         requestCredential = c;
         return c;
       }, captureBinding: browserBinding,

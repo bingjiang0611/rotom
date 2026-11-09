@@ -76,22 +76,24 @@ for (const authMode of ['qodercli', 'browser']) test(`${authMode}: expiry refres
   assert.deepEqual(f.notices, []);
 });
 
-test('refresh failure keeps stale catalog but blocks inference without provider-side retry or private error leakage', async t => {
+test('a failed refresh serves the last known catalog instead of spending the retry budget', async t => {
   const f = await fixture(t); f.expire();
   f.setCatalogHook(() => { throw new Error('PRIVATE upstream body'); });
-  await assert.rejects(f.run(), /^QoderError: Qoder: catalog_refresh_failed$/);
+  // The refresh failure is absorbed: one inference, not a bounded retry of the whole turn.
+  assert.equal((await f.run()).type, 'done');
+  assert.deepEqual(f.counts(), { catalogReads: 2, dispatches: 1, refreshCalls: 2 });
   assert.equal(f.provider.getModels()[0].id, 'auto');
-  assert.deepEqual(f.counts(), { catalogReads: 2, dispatches: 0, refreshCalls: 2 });
-  await f.emit('message_end', { message: { provider: 'qoder', errorMessage: 'Qoder: catalog_refresh_failed' } });
-  assert.match(f.notices.at(-1), /\/qoder-models/); assert.doesNotMatch(JSON.stringify(f.notices), /PRIVATE/);
-  // Pi retries this code; each failed attempt ends a message, but the help is shown once per burst.
-  const shown = f.notices.length;
-  await f.emit('message_end', { message: { provider: 'qoder', errorMessage: 'Qoder: catalog_refresh_failed' } });
+  assert.match(f.notices.at(-1), /沿用上次已知目录/); assert.doesNotMatch(JSON.stringify(f.notices), /PRIVATE/);
+  // Expired again, failing again: still one dispatch and one notice for the session.
+  const shown = f.notices.length; f.expire();
+  assert.equal((await f.run()).type, 'done');
   assert.equal(f.notices.length, shown);
+  assert.deepEqual(f.counts(), { catalogReads: 3, dispatches: 2, refreshCalls: 3 });
+  // A manual refresh clears the condition, so the next request reads a fresh catalog.
   f.setCatalogHook(undefined);
   await f.commands.get('qoder-models').handler('', f.ctx);
   assert.equal((await f.run()).type, 'done');
-  assert.deepEqual(f.counts(), { catalogReads: 3, dispatches: 1, refreshCalls: 3 });
+  assert.deepEqual(f.counts(), { catalogReads: 4, dispatches: 3, refreshCalls: 4 });
 });
 
 test('terminal metadata precedes streamed errors and setup rejection', async t => {
@@ -163,16 +165,18 @@ test('raw stream shares the pre-dispatch refresh path', async t => {
   assert.deepEqual(f.counts(), { catalogReads: 2, dispatches: 1, refreshCalls: 2 });
 });
 
-test('registry deadline bounds a noncooperative refresh and blocks late dispatch', async t => {
+test('registry deadline bounds a noncooperative refresh, then serves the last known catalog', async t => {
   const f = await fixture(t), started = deferred(), release = deferred(), deadline = new AbortController();
   f.expire();
   const original = AbortSignal.timeout;
   t.mock.method(AbortSignal, 'timeout', ms => ms === 30000 ? deadline.signal : original(ms));
   f.setCatalogHook(async () => { started.resolve(); await release.promise; });
-  const pending = f.run(); const rejected = assert.rejects(pending, /catalog_refresh_failed/);
-  await started.promise; deadline.abort(); await rejected;
+  const pending = f.run();
+  await started.promise; deadline.abort();
+  assert.equal((await pending).type, 'done');
   release.resolve(); await new Promise(setImmediate);
-  assert.equal(f.counts().dispatches, 0);
+  // The deadline ends the refresh, not the turn: one dispatch with the catalog already known.
+  assert.deepEqual(f.counts(), { catalogReads: 2, dispatches: 1, refreshCalls: 2 });
   assert.deepEqual(f.provider.filterModels(f.provider.getModels()).map(model => model.id), ['auto']);
 });
 
