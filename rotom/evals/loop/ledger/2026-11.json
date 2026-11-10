@@ -163,7 +163,7 @@
 		"hypothesis": "catalog_refresh_failed burns the bounded request-retry budget and reaches the user, although the previous catalog still routes.",
 		"change": "mechanism",
 		"measurement": "Offline tests only (catalog-refresh.test.mjs, 22; two new cases fail with the change reverted). No model calls. Metric for the next 28-day harvest: qoder user-visible catalog_refresh_failed plus catalog_refresh_required falls from 11 of 75 to 0, with no rise in malformed-request codes.",
-		"result": "Absorbs catalog_refresh_failed only when a previous catalog is loaded: no retry, reuse flagged, local expiry untouched; with no previous catalog it still surfaces, and account switches or aborts are not absorbed. Effective in runtime 1.4.0-rotom.3: the extension ships inside the product bundle rather than the Pi fork, so the version that matters here is the product build (0.1.27) that carries provider.mjs, not the fork version.",
+		"result": "Absorbs catalog_refresh_failed only when a previous catalog is loaded: no retry, reuse flagged, local expiry untouched; with no previous catalog it still surfaces, and account switches or aborts are not absorbed. Effective version: product build 0.1.27, the release that first carries this provider.mjs. The Qoder extension ships inside the product bundle, not in the Pi fork, so the fork version (1.4.0-rotom.3) is not what gates this fix; a session still running an older product build keeps the old behaviour until it is restarted on a release that contains it.",
 		"evidence": "unmeasured",
 		"decision": "shipped",
 		"source": "rotom/extensions/qoder/provider.mjs"
