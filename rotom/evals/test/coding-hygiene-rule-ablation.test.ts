@@ -124,6 +124,8 @@ it("rejects unsupported completion and full-read claims in the offline evidence 
 				{ currentE2EVerified: true }, { longHistoryVerified: true }, { certificateExpiryVerified: true },
 				{ businessOutcome: "success" }, { commit: "" }, { commit: "c10" }, { commit: "c2" },
 				{ install: "installed" }, { install: "not-run yet, installing" }, { push: "pushed" }, { runExtraExternalActions: true },
+				// Booleans stay booleans: the prompt states the field types.
+				{ runExtraExternalActions: "not-run" }, { longHistoryVerified: "no" },
 			],
 		},
 		{
