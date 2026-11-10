@@ -97,6 +97,22 @@ describe("compaction offload handlers", () => {
 		expect((await ledger()).map((r) => r.event)).toContain("offload_defer_stale");
 		expect((await ledger()).at(-1).reason).toBe("no_candidates");
 	});
+	it("projects offloaded results in place, keeping mid-conversation system messages where they are", async () => {
+		// Pi (0.87+, and rotom's fork) collapses every mid-conversation system message
+		// into one leading message when a context handler returns new message objects,
+		// which breaks the provider's cached prefix on every later request.
+		const { pi, ctx, event, messages } = await fixture();
+		expect(await pi.emit("session_before_compact", event, ctx)).toEqual({ cancel: true });
+		const system = (content: string) => ({ role: "system", content, timestamp: 1 }) as unknown as AgentMessage;
+		const conversation: AgentMessage[] = [system("prompt"), messages[0]!, system("tool declaration delta"), messages[1]!];
+		const projected = await pi.emitContext(conversation, ctx);
+		expect(projected.map((message) => message.role)).toEqual(conversation.map((message) => message.role));
+		expect(projected[0]).toEqual(conversation[0]);
+		expect(projected[2]).toEqual(conversation[2]);
+		expect(body(projected[1]!)).toContain("[older tool result offloaded before compaction]");
+		expect(body(projected[3]!)).toContain("[older tool result offloaded before compaction]");
+		expect(body(conversation[1]!)).not.toContain("offloaded");
+	});
 	it.each(["manual", "extension", "overflow"])("does nothing for %s", async (reason) => {
 		const { pi, ctx, event, manager } = await fixture();
 		expect(await pi.emit("session_before_compact", { ...event, reason }, ctx)).toBeUndefined();
