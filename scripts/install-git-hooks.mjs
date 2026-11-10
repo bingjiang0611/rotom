@@ -29,7 +29,11 @@ const MARKER = "# rotom-hook-copy";
 const root = git("rev-parse", "--show-toplevel");
 // A repository with no commit yet cannot name one; the header then says so instead of failing.
 const commit = spawnSync("git", ["rev-parse", "--short=12", "HEAD"], { encoding: "utf8" }).stdout.trim() || "unborn";
-const destination = git("rev-parse", "--path-format=absolute", "--git-path", "rotom-hooks");
+// The hooks directory lives in the shared git directory, not in a worktree: every worktree of
+// this repository pushes through the same installed copies, and a worktree-private path would
+// break the others as soon as this one is pruned.
+const commonDir = git("rev-parse", "--path-format=absolute", "--git-common-dir");
+const destination = join(commonDir, "rotom-hooks");
 
 /**
  * The hook body is read from the worktree that runs this installer and copied, never linked.

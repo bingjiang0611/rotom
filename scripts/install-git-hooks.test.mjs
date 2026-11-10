@@ -106,6 +106,25 @@ describe("git hook installation", () => {
 		for (const name of HOOKS) assert.equal(lstatSync(installed(name)).isSymbolicLink(), false, `${name} is now a copy`);
 	});
 
+	it("feeds the same commit range to the identity check and the range audit", () => {
+		// The range arrives on stdin once; a guard that reads it first consumes it. Stubs record
+		// what each one received, so the wiring is checked without running the real scans.
+		const log = join(directory, "received.log");
+		mkdirSync(join(cwd, "scripts"), { recursive: true });
+		for (const name of ["hook-identity", "hook-audit"]) {
+			writeFileSync(join(cwd, "scripts", `${name}.mjs`), `import { appendFileSync, readFileSync } from "node:fs";\nappendFileSync(${JSON.stringify(log)}, ${JSON.stringify(`${name} `)} + JSON.stringify(readFileSync(0, "utf8")) + "\\n");\n`);
+		}
+		assert.equal(install().status, 0);
+		const refs = "refs/heads/main 1111111111111111111111111111111111111111 refs/heads/main 2222222222222222222222222222222222222222\n";
+		const pushed = spawnSync("sh", [installed("pre-push"), "origin", "git@example.invalid:x.git"], { cwd, env, input: refs, encoding: "utf8" });
+		assert.equal(pushed.status, 0, pushed.stderr);
+		const received = readFileSync(log, "utf8").trim().split("\n");
+		assert.equal(received.length, 2, received.join("\n"));
+		assert.ok(received[0].startsWith("hook-identity "), received[0]);
+		assert.ok(received[1].startsWith("hook-audit "), received[1]);
+		for (const line of received) assert.ok(line.includes("1111111111111111111111111111111111111111"), line);
+	});
+
 	it("refuses a repository hook that is a symlink", () => {
 		const elsewhere = join(directory, "other-worktree");
 		mkdirSync(join(elsewhere, ".githooks"), { recursive: true });
