@@ -1,15 +1,20 @@
-import { appendFileSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { continuationCaseFor, continuationCases, scoreContinuationCase, unobservedReads } from "../src/continuation-cases.ts";
 import { appendGateHistory, auditSmokeScores, gateHistoryRecords, smokeScoresFromResults, gateVerdict, judgeGateCase, parseGateHistory, parseGateManifest, poolGateHistory, type GateCase, type GateHistoryRecord } from "../src/loop/gate.ts";
-import { parseLedger, PROMPT_RENT_SINCE } from "../src/loop/ledger.ts";
+import { parseLedger, parseLedgerDir, PROMPT_RENT_SINCE, shardFile } from "../src/loop/ledger.ts";
 
 const evalsRoot = resolve(import.meta.dirname, "..");
 const repoRoot = resolve(evalsRoot, "../..");
 const manifestText = readFileSync(resolve(evalsRoot, "loop/gate.json"), "utf8");
-const ledgerText = readFileSync(resolve(evalsRoot, "loop/ledger.json"), "utf8");
+const ledgerDir = resolve(evalsRoot, "loop/ledger");
+const ledgerText = `[${readdirSync(ledgerDir)
+	.filter((name) => name.endsWith(".json"))
+	.sort()
+	.map((name) => readFileSync(join(ledgerDir, name), "utf8").trim().replace(/^\[/u, "").replace(/\]$/u, ""))
+	.join(",")}]`;
 
 const item: GateCase = {
 	suite: "cases/continuation-regression.eval.ts",
@@ -73,6 +78,36 @@ describe("loop ledger", () => {
 		const entries = parseLedger(ledgerText, repoRoot);
 		expect(entries.length).toBeGreaterThanOrEqual(10);
 		expect(entries.map((entry) => entry.date)).toEqual([...entries.map((entry) => entry.date)].sort());
+	});
+
+	it("validates every monthly shard, in month order, with ids unique across shards", () => {
+		const shards = readdirSync(ledgerDir).filter((name) => name.endsWith(".json")).sort();
+		expect(shards.length).toBeGreaterThanOrEqual(2);
+		const entries = parseLedgerDir(ledgerDir, repoRoot);
+		expect(entries.length).toBeGreaterThanOrEqual(20);
+		// A shard holds exactly the entries of the month its file name names.
+		for (const shard of shards) {
+			const month = shard.replace(/\.json$/u, "");
+			for (const entry of parseLedger(readFileSync(join(ledgerDir, shard), "utf8"))) expect(entry.date.startsWith(`${month}-`)).toBe(true);
+		}
+		expect(new Set(entries.map((entry) => entry.id)).size).toBe(entries.length);
+	});
+
+	it("rejects a duplicate id that two different shards each accept on their own", () => {
+		const directory = mkdtempSync(join(tmpdir(), "loop-ledger-shards-"));
+		const entry = (id: string, date: string) => ({
+			schema: "rotom-loop-ledger/v1", id, date, title: "t", hypothesis: "h", change: "eval", measurement: "m",
+			result: "r", evidence: "unmeasured", decision: "shipped", source: "docs/agent/optimization-loop.md",
+		});
+		const write = (month: string, entries: unknown[]) => {
+			mkdirSync(directory, { recursive: true });
+			writeFileSync(join(directory, shardFile(month)), JSON.stringify(entries));
+		};
+		write("2026-09", [entry("L-2026-09-01-a", "2026-09-01")]);
+		write("2026-10", [entry("L-2026-09-01-a", "2026-09-01")]);
+		expect(() => parseLedgerDir(directory)).toThrow(/duplicate id/u);
+		write("2026-10", [entry("L-2026-09-02-b", "2026-09-02")]);
+		expect(() => parseLedgerDir(directory)).toThrow(/is dated/u);
 	});
 
 	it("requires measured improvement for prompt changes shipped under the new rule", () => {
