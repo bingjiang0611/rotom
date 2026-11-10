@@ -9,7 +9,7 @@ import { defaultLoopDir, defaultSessionsDir, harvest } from "./harvest-run.ts";
 import { defaultModelExperiment } from "./harvest-models.ts";
 import { parseLedgerDir } from "./ledger.ts";
 import { buildWeekly, parseWeeklyConfig, writeWeekly } from "./weekly.ts";
-import { replayIncident } from "./replay-run.ts";
+import { originCheck, replayIncident } from "./replay-run.ts";
 import { readdirSync } from "node:fs";
 
 const evalsRoot = resolve(import.meta.dirname, "../..");
@@ -46,7 +46,7 @@ const USAGE = `Usage: npm run loop -- <command>
       Validate every loop/ledger/<month>.json shard and print the experiment history.
 
   replay --incident <sessionId:entryId> [--repeats N] [--frozen DIR] [--current DIR]
-         [--model provider/model] [--check COMMAND] [--out DIR]
+         [--model provider/model] [--check COMMAND] [--origin-check [--origin-only]] [--out DIR]
       Re-run one recorded failure against a frozen product in an isolated copy of the
       session's own project: a worktree at the last commit before the session, its
       remotes removed, a scrubbed environment with its own HOME and a shell shim that
@@ -58,7 +58,10 @@ const USAGE = `Usage: npm run loop -- <command>
       failure, anything else unknown) and admits reproduced (replay) at three of five
       failing runs. The check runs in the clone with REPLAY_TRANSCRIPT (this run's
       output) and REPLAY_WORKSPACE set. Tool calls and usage count the replay's new
-      turns only.
+      turns only. --origin-check applies the same check to what the original run
+      produced before any model call: a pass means the event was never a failure,
+      so it is skipped and counted as a harvest false positive. --origin-only stops
+      after that verdict and spends no model call.
 
   weekly [--sessions DIR] [--days N] [--out DIR]
       Harvest the last N days (default 28) and write ~/.rotom/loop/weekly-<date>/:
@@ -139,7 +142,7 @@ async function main(argv: string[]): Promise<number> {
 	if (command === "replay") {
 		const { values } = parseArgs({
 			args: rest,
-			options: { incident: { type: "string" }, repeats: { type: "string" }, frozen: { type: "string" }, current: { type: "string" }, model: { type: "string" }, check: { type: "string" }, out: { type: "string" } },
+			options: { incident: { type: "string" }, repeats: { type: "string" }, frozen: { type: "string" }, current: { type: "string" }, model: { type: "string" }, check: { type: "string" }, "origin-check": { type: "boolean" }, "origin-only": { type: "boolean" }, out: { type: "string" } },
 		});
 		if (!values.incident) throw new Error("replay needs --incident <sessionId:entryId>");
 		const [sessionId, entryId] = values.incident.split(":");
@@ -160,6 +163,13 @@ async function main(argv: string[]): Promise<number> {
 		const frozen = values.frozen ?? resolve(homeDir(), ".local/share/rotom/releases", "0.1.27-main.50ccdc87/node_modules/rotom");
 		const products = [{ label: "frozen", directory: frozen }];
 		if (values.current) products.push({ label: "current", directory: resolve(values.current) });
+		if (values["origin-check"]) {
+			const judged = await originCheck({ sessionFile: incident.sessionFile, entryId: incident.entryId, ...(values.check ? { check: values.check } : {}) });
+			console.log(`origin: ${judged.verdict}${judged.verdict === "pass" ? " (harvest false positive: the original run satisfied the check, so no replay)" : ""}`);
+			if (judged.verdict === "pass") return 0;
+			// `--repeats 0` judges the original run only: no model call is spent on the event.
+			if (values["origin-only"]) return 0;
+		}
 		const outcome = await replayIncident({
 			incidentId: values.incident,
 			sessionFile: incident.sessionFile,

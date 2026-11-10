@@ -189,15 +189,37 @@ export type NewTurnStats = {
  * context, so counting every entry would report the incident's history as the replay's work; the
  * cut entry is the boundary and everything at or before it is history.
  */
-export function newTurnStats(sessionText: string, entryId: string): NewTurnStats {
-	const lines = sessionText.split("\n").filter(Boolean);
-	const cut = lines.findIndex((line) => {
+/**
+ * The last entry the replay restored. The original entry id survives a restore in most sessions, but
+ * a replayed branch can be re-emitted with fresh ids; the failing message text is the reliable
+ * marker then. Later markers win, so a message that also appears earlier does not cut too soon.
+ */
+function boundaryIndex(lines: readonly string[], entryId: string, failingMessage?: string): number {
+	const text = (line: string): string => {
 		try {
-			return (JSON.parse(line) as { id?: string }).id === entryId;
+			const content = (JSON.parse(line) as { message?: { content?: unknown } }).message?.content;
+			if (typeof content === "string") return content;
+			if (!Array.isArray(content)) return "";
+			return content.map((part) => (typeof part === "object" && part !== null && (part as { type?: string }).type === "text" ? String((part as { text?: unknown }).text ?? "") : "")).join("");
 		} catch {
-			return false;
+			return "";
 		}
+	};
+	let boundary = -1;
+	lines.forEach((line, index) => {
+		try {
+			if ((JSON.parse(line) as { id?: string }).id === entryId) boundary = index;
+		} catch {
+			// A torn final line is expected.
+		}
+		if (failingMessage && text(line).trim() === failingMessage.trim()) boundary = index;
 	});
+	return boundary;
+}
+
+export function newTurnStats(sessionText: string, entryId: string, failingMessage?: string): NewTurnStats {
+	const lines = sessionText.split("\n").filter(Boolean);
+	const cut = boundaryIndex(lines, entryId, failingMessage);
 	const stats: NewTurnStats = { assistantMessages: 0, toolCalls: 0, toolCallNames: {}, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 } };
 	for (const line of lines.slice(cut + 1)) {
 		let entry: { message?: { role?: string; content?: unknown; usage?: Partial<TurnUsage> } };
@@ -242,4 +264,38 @@ export function admissionFor(verdicts: readonly CheckVerdict[], threshold = 3): 
 	const total = verdicts.length;
 	const verdict: Admission["verdict"] = failed >= threshold ? "reproduced" : passed >= threshold ? "not-reproduced" : "unknown";
 	return { verdict, passed, failed, unknown, total };
+}
+
+/**
+ * What the original run produced after the cut, in the shape a check can read: assistant text and
+ * the name of every tool it called, without arguments. Restoring the original working tree is
+ * usually impossible, so a check that only reads the transcript can still be applied to the
+ * original run and tell whether the event was a real failure.
+ */
+export function originalTranscript(sessionText: string, entryId: string): string {
+	const lines = sessionText.split("\n").filter(Boolean);
+	const cut = lines.findIndex((line) => {
+		try {
+			return (JSON.parse(line) as { id?: string }).id === entryId;
+		} catch {
+			return false;
+		}
+	});
+	const parts: string[] = [];
+	for (const line of lines.slice(cut + 1)) {
+		let entry: { message?: { role?: string; content?: unknown } };
+		try {
+			entry = JSON.parse(line) as typeof entry;
+		} catch {
+			continue;
+		}
+		const message = entry.message;
+		if (message?.role !== "assistant" || !Array.isArray(message.content)) continue;
+		for (const part of message.content) {
+			const piece = part as { type?: string; text?: string; name?: string };
+			if (piece.type === "text" && piece.text) parts.push(piece.text);
+			else if (piece.type === "toolCall") parts.push(`[tool: ${piece.name ?? "unknown"}]`);
+		}
+	}
+	return parts.join("\n");
 }

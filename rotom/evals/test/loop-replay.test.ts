@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { admissionFor, cutBranch, forbiddenCopies, newTurnStats, refusalFor, repositoryCheck, sandboxShim, scrubbedEnvironment, timepoint } from "../src/loop/replay.ts";
+import { admissionFor, cutBranch, forbiddenCopies, newTurnStats, originalTranscript, refusalFor, repositoryCheck, sandboxShim, scrubbedEnvironment, timepoint } from "../src/loop/replay.ts";
 
 const header = JSON.stringify({ type: "session", version: 1, id: "session-1", timestamp: "2026-11-01T00:00:00Z", cwd: "/repo" });
 const user = (id: string, text: string) => JSON.stringify({ type: "message", id, parentId: null, timestamp: "2026-11-01T00:01:00Z", message: { role: "user", content: [{ type: "text", text }] } });
@@ -172,5 +172,24 @@ describe("replay scoring", () => {
 		// Unknowns are not a quiet pass: two failures and three unscoreable runs is not an admission.
 		expect(admissionFor(["fail", "fail", "unknown", "unknown", "unknown"])).toMatchObject({ verdict: "unknown", failed: 2, unknown: 3 });
 		expect(admissionFor(["unknown", "unknown"])).toMatchObject({ verdict: "unknown" });
+	});
+});
+
+describe("original-trace gate", () => {
+	it("rebuilds only the assistant text and tool names after the cut", () => {
+		const line = (id: string, role: string, content: unknown[]) => JSON.stringify({ id, message: { role, content } });
+		const sessionText = [
+			line("e1", "assistant", [{ type: "text", text: "history answer" }]),
+			line("cut", "user", [{ type: "text", text: "this is broken" }]),
+			line("e3", "assistant", [{ type: "text", text: "answer one" }, { type: "toolCall", name: "read", arguments: { path: "/secret" } }]),
+			line("e4", "toolResult", [{ type: "text", text: "file contents" }]),
+			line("e5", "assistant", [{ type: "text", text: "answer two" }]),
+		].join("\n");
+		const transcript = originalTranscript(sessionText, "cut");
+		expect(transcript).toBe("answer one\n[tool: read]\nanswer two");
+		// The argument text is not part of the transcript: a check must not see file contents.
+		expect(transcript).not.toContain("/secret");
+		expect(transcript).not.toContain("file contents");
+		expect(transcript).not.toContain("history answer");
 	});
 });

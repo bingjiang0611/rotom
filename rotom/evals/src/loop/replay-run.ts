@@ -5,9 +5,10 @@
  */
 import { spawn } from "node:child_process";
 import { copyFile, lstat, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { basename, join, resolve } from "node:path";
-import { REPLAY_TOOLS, admissionFor, newTurnStats, refusalFor, readBranch, repositoryCheck, sandboxShim, scrubbedEnvironment, timepoint, type Admission, type CheckVerdict, type NewTurnStats, type ReplayPlan } from "./replay.ts";
+import { REPLAY_TOOLS, admissionFor, newTurnStats, originalTranscript, refusalFor, readBranch, repositoryCheck, sandboxShim, scrubbedEnvironment, timepoint, type Admission, type CheckVerdict, type NewTurnStats, type ReplayPlan } from "./replay.ts";
 
 /** Files copied into the replay agent dir so the runtime can authenticate without an inherited env. */
 const CREDENTIAL_FILES = ["auth.json", "models.json", "models-store.json"];
@@ -119,8 +120,9 @@ async function runOnce(options: {
 	for (const name of sessionFiles) if (name.endsWith(".jsonl")) sessionText += await readFile(join(sessions, name), "utf8").catch(() => "");
 	if (sessionText) await writeFile(join(base, "session.jsonl"), sessionText, { mode: 0o600 });
 	const refusals = [...output.matchAll(/replay-sandbox: refused ([^\n]+)/gu)].map((match) => match[1] ?? "");
-	const stats = newTurnStats(sessionText, plan.branch.entryId);
-	const judged = await runCheck({ outDir: base, workspace, env, shim, transcript: join(base, "transcript.txt"), check: options.check });
+	const stats = newTurnStats(sessionText, plan.branch.entryId, plan.branch.message);
+	const session = join(base, "session.jsonl");
+	const judged = await runCheck({ outDir: base, workspace, env, shim, transcript: join(base, "transcript.txt"), ...(existsSync(session) ? { session, cut: plan.branch.entryId, cutText: plan.branch.message, mode: "after" as const } : {}), check: options.check });
 	return { label: product.label, product: product.directory, repeat, exitCode, transcript: output, refusals, stats, check: judged.verdict, checkOutput: judged.output, failed: exitCode !== 0 };
 }
 
@@ -129,11 +131,50 @@ async function runOnce(options: {
  * scrubbed environment, same shim, so a check cannot become the external write the agent was
  * refused. Exit 0 passes, exit 1 is the failure the event is about, anything else is `unknown`.
  */
-async function runCheck(options: { outDir: string; workspace: string; env: NodeJS.ProcessEnv; shim: string; transcript: string; check?: string }): Promise<{ verdict: CheckVerdict; output: string }> {
+/**
+ * The zero-cost gate: apply the event's own check to what the original run produced, before
+ * spending a single model call. A pass means the event was never a failure, so it is skipped and
+ * counted as a harvest false positive; a check that cannot decide (it needs the original working
+ * tree, which is gone) leaves the event in the queue.
+ */
+export async function originCheck(options: { sessionFile: string; entryId: string; check?: string }): Promise<{ verdict: CheckVerdict; output: string }> {
+	if (!options.check) return { verdict: "unknown", output: "no --check was given, so the original run cannot be judged" };
+	const transcript = originalTranscript(readFileSync(options.sessionFile, "utf8"), options.entryId);
+	const { mkdtemp, writeFile: write, rm } = await import("node:fs/promises");
+	const { tmpdir } = await import("node:os");
+	const base = await mkdtemp(join(tmpdir(), "rotom-origin-"));
+	const file = join(base, "transcript.txt");
+	await write(file, transcript, { mode: 0o600 });
+	const home = join(base, "home");
+	await mkdir(home, { recursive: true, mode: 0o700 });
+	const shim = join(base, "sandbox.sh");
+	await write(shim, sandboxShim(), { mode: 0o600 });
+	try {
+		// The original checkout is not the replay's clone, so the check runs in an empty directory:
+		// a check that inspects files reports unknown instead of reading the live repository.
+		const judged = await runCheck({ outDir: base, workspace: base, env: scrubbedEnvironment(process.env, home), shim, transcript: file, session: options.sessionFile, cut: options.entryId, mode: "before", check: options.check });
+		return judged;
+	} finally {
+		await rm(base, { recursive: true, force: true });
+	}
+}
+
+async function runCheck(options: { outDir: string; workspace: string; env: NodeJS.ProcessEnv; shim: string; transcript: string; session?: string; cut?: string; cutText?: string; mode?: "before" | "after"; check?: string }): Promise<{ verdict: CheckVerdict; output: string }> {
 	if (!options.check) return { verdict: "unknown", output: "no --check was given, so no run can be scored" };
 	// `REPLAY_TRANSCRIPT` lets a check read the answer this run produced; `REPLAY_WORKSPACE` names
 	// the clone. Neither is exported to the agent, so a check cannot leak into the run.
-	const env = { ...options.env, BASH_ENV: options.shim, REPLAY_TRANSCRIPT: options.transcript, REPLAY_WORKSPACE: options.workspace };
+	const env = {
+		...options.env,
+		BASH_ENV: options.shim,
+		REPLAY_TRANSCRIPT: options.transcript,
+		REPLAY_WORKSPACE: options.workspace,
+		...(options.session ? { REPLAY_SESSION: options.session } : {}),
+		...(options.cut ? { REPLAY_CUT: options.cut } : {}),
+		...(options.cutText ? { REPLAY_CUT_TEXT: options.cutText } : {}),
+		// The original run is judged on the turn the person reacted to; a replay is judged on the
+		// turns it produced after the same cut.
+		...(options.mode ? { VIEW_MODE: options.mode } : {}),
+	};
 	const proc = spawn("/bin/bash", ["-c", options.check], { cwd: options.workspace, env, stdio: ["ignore", "pipe", "pipe"] });
 	let output = "";
 	const collect = (chunk: Buffer) => {
