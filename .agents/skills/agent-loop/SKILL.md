@@ -9,7 +9,7 @@ description: "运行 rotom 的 Agent 优化循环：从本机会话挖掘失败�
 
 ## 按意图选入口
 
-- **找问题**：`npm --prefix rotom/evals run loop -- harvest`。读 `report.md` 的周介入率和分诊队列，再读 `incidents.jsonl` 前列事件对应的原始会话。只在本机读取；输出不入 Git。
+- **找问题**：`npm --prefix rotom/evals run loop -- harvest`。读 `report.md` 的周介入率和分诊队列，再读 `incidents.jsonl` 前列事件对应的原始会话。周表之外还要看按模型、runtime、产品版本、SoL-Pi 版本的 v2 与区间，以及敏感性（去掉 v2 最多的会话后重算）和任务规模（每会话 turn、每 turn 工具调用中位数）——先排除“难任务挑了那个模型”再谈模型质量。只在本机读取；输出不入 Git。
 - **新失败入集**：分类 → oracle → baseline → 修复 → candidate，顺序不可交换（见合同 ②–④）。
 - **改了 Agent 行为**：改动涉及 coding-policy、工具、Goal 续跑、上下文/压缩或 Subagent 默认时，先 `gate --baseline <冻结产品> --smoke` 用一对样本审分数（两侧都出分、check 都是布尔、没有 check 读 `observe` 外的文件），再跑 `npm --prefix rotom/evals run loop -- gate --baseline <冻结产品>`。smoke 不算样本、不写 gate 历史。样本不足就加轮次，再用 `gate-pool --since <起跑时间> [--case ID]` 合并判定：合并只看 pass/fail 累加，后一轮通过不会抵消前一轮失败。
 - **收尾**：每个实验（含撤回和未复现）在 `rotom/evals/loop/ledger/<YYYY-MM>.json` 对应月份分片追加一项，并跑 `npm --prefix rotom/evals run loop -- ledger`。
@@ -22,7 +22,8 @@ description: "运行 rotom 的 Agent 优化循环：从本机会话挖掘失败�
 - 优先改机制；纯提示改动没有 `evidence: improved` 不得 shipped，并报告 token 变化。
 - baseline 与 candidate 同 case、fixture、judge、runner、模型、thinking、输入和重复数；中途改评测则两侧重跑。
 - skip、超时、provider 错误、identity gate 失败和 unknown 单列，不算通过；gate 的 `unknown` 不是 `held`。
-- 已授权：`qoder/dfmodel`、不设预算，用于 gate、回放与分诊；发送范围为脱敏 fixture、产品提示和分诊所需会话摘录。换模型或发送完整会话正文需另行询问。
+- 已授权：`qoder/dfmodel`、`openai-codex/gpt-6.1-sol`（对照 `openai-codex/gpt-6-astra`），不设预算，用于 gate、回放与分诊；发送范围为脱敏 fixture、产品提示和分诊所需会话摘录。换到其他模型或发送完整会话正文需另行询问。
+- gate 清单可给单个用例指定 `model`；`reproduction` 是按模型分开的记录列表，一个模型上的 `not-reproduced` 不能外推到另一个模型。
 - 真实会话、截图、凭据与运行产物不入 Git；公开用例必须重新虚构名称、路径与 ID。
 - 推送前必须 `python3 scripts/audit-public.py --root . --history`，不能只跑 tree 模式：只扫树看不到提交身份。pre-push hook 会再拦一次非 noreply 身份；被拦就按提示 `--reset-author`，不绕 hook。
 

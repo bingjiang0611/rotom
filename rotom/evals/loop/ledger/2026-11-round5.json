@@ -11,5 +11,31 @@
 		"evidence": "not-reproduced",
 		"decision": "shipped",
 		"source": "rotom/evals/loop/gate.json"
+	},
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-11-10-default-model-field-comparison",
+		"date": "2026-11-10",
+		"title": "Field comparison of the default model: gpt-6-astra on odd days, gpt-6.1-sol on even days",
+		"hypothesis": "Published per-model v2 rates differ by more than sampling noise (openai-codex/gpt-6-astra 5.3 vs openai-codex/gpt-6.1-sol 10.2 per 100 turns in the 28-day window), but a person chooses the model per task, so the difference may be task selection rather than model quality. Randomising the default by day removes that choice for the sessions that never switch.",
+		"change": "eval",
+		"measurement": "Run 2026-11-11 through 2026-11-24 (14 days). Odd days default to openai-codex/gpt-6-astra, even days to openai-codex/gpt-6.1-sol; the user switches the default themselves and this round does not touch personal settings. View: `npm --prefix rotom/evals run loop -- harvest --experiment default-model`. A session counts only when its first assistant message already used that day's default model; a session that started on the default and then switched is listed separately and excluded. Primary metric: v2 per 100 user turns per group with its 95% Poisson band. Secondary: the share of provider errors that reach the user, and tokens/credits per session. Pre-registered decision rule, fixed before the run: a difference counts only if the 95% interval of the difference between the two groups excludes zero.",
+		"result": "Not started. The baseline view over the preceding 28 days, computed with the same parity rule, already shows overlapping bands (astra 4.6 per 100 over 283 turns, band 2.1–7.1; gpt-6.1-sol 6.7 over 298 turns, band 3.8–9.7), with 20 sessions excluded for switching away from the day's default and 567 for never using it — that is the shape of the data the experiment has to move, not evidence for either model. Secondary metrics are not collected yet: per-session tokens and credits are not in the harvest, so they will be read from the trace when the window closes.",
+		"evidence": "unmeasured",
+		"decision": "open",
+		"source": "docs/agent/optimization-loop.md"
+	},
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-11-10-harvest-baseline-per-model-intervals",
+		"date": "2026-11-10",
+		"title": "28-day harvest baseline: per-model v2 with intervals, sensitivity, task size and version layers",
+		"hypothesis": "The loop reported a v2 rate per model as a single number and a weekly trend that mixed models, so a one-session outlier or a model that only gets small tasks could look like a product-quality change. Before starting the field comparison the window needs a baseline with its uncertainty and its selection bias visible.",
+		"change": "eval",
+		"measurement": "No model calls. `npm --prefix rotom/evals run loop -- harvest --days 28 --experiment default-model` over ~/.pi/agent/sessions: 715 sessions, 1,678 incidents, 240 files outside the window, 706 artifact-store and 59 deep-directory subtrees skipped. Output stays in ~/.rotom/loop/harvest-2026-11-10T08-25-42-714Z.",
+		"result": "Weekly v2 per 100 turns: W42 6.9, W43 7.8, W44 2.9, W45 5.4, W46 8.0. Per model with 95% Poisson bands: gpt-6-astra 5.3 (4–6.5, 1,314 turns), dfmodel 6.7 (5–8.4, 940), gpt-6.1-sol 10.2 (8.1–12.3, 901), gpt-5.6-sol 2.2 (0.9–3.5, 498), claude-opus-5-5 2.1 (239). Sensitivity: dropping the session with the most v2 events moves gpt-6.1-sol from 10.2 to 7.7 and dfmodel from 6.7 to 6.5, so about a quarter of sol's apparent rate is one conversation. Task size: median user turns per session 3–4 for all three main models; median tool calls per user turn 13.3 (astra), 27 (gpt-6.1-sol), 33.7 (dfmodel) — the harder, tool-heavy sessions do go to dfmodel and gpt-6.1-sol, which is the bias the field comparison has to control. Per product version: 0.1.27 4.3 (723 turns), 0.1.27-tps.1 7.5 (549), 0.1.26 6.6 (423), 0.1.27-main.0d90623 16.6 (302), 0.1.27-main.50ccdc87 14.3 (70); 167 of 715 sessions stay `unknown`. Per SoL-Pi version: 670 of 715 sessions are `unknown` because nothing records the loaded SoL-Pi version per session, and the rest resolve through older archive paths only. This is a baseline, not an improvement claim.",
+		"evidence": "unmeasured",
+		"decision": "shipped",
+		"source": "rotom/evals/src/loop/harvest-models.ts"
 	}
 ]
