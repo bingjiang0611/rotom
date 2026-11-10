@@ -9,7 +9,7 @@
 | 类别 | 检测 | 含义 |
 | --- | --- | --- |
 | 介入 | `user_correction` | 用户在助手回复后纠正（中英强短语，宁漏勿滥） |
-| 介入 | `user_repeat` | 最近三条内重复同一请求（字符 bigram ≥ 0.8；provider 错误或中断后的重发除外） |
+| 介入 | `user_repeat` | 最近三条内重复同一请求（字符 bigram ≥ 0.8；provider 错误或中断后的重发除外）；窗口内同一句话出现 ≥3 次且前一次回答正常收尾时记为常规重发（`detail.routine`），不计入介入数 |
 | 介入 | `bare_continue` | 助手正常结束后用户只回“继续/continue” |
 | 介入 | `user_interrupt` | 助手消息 `stopReason: aborted` |
 | 失败 | `tool_error_streak` | 同一动作（工具 + 相同命令/路径）在没有同动作成功的情况下第 2 次报错 |

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { analyzeSession, isBareContinue, isCorrection } from "../src/loop/harvest.ts";
+import { analyzeSession, createHarvestShared, isBareContinue, isCorrection } from "../src/loop/harvest.ts";
+import { applyRoutineRepeats, markRoutineRepeats } from "../src/loop/harvest-repeat.ts";
 import { isoWeek, weeklyMetrics } from "../src/loop/harvest-run.ts";
 
 let counter = 0;
@@ -251,5 +252,55 @@ describe("loop harvest detectors", () => {
 		]);
 		expect(weeks).toHaveLength(1);
 		expect(weeks[0]).toMatchObject({ week: "2026-W45", sessions: 2, userTurns: 40, interventions: 4, interventionsPer100Turns: 10, incidentCounts: { user_correction: 3, bare_continue: 1 } });
+	});
+});
+
+describe("routine repeat detection", () => {
+	// A periodic instruction that the agent answered correctly each time is noise, not a person
+	// having to step in. The rule needs the whole window's counts, so it runs after the walk.
+	const instruction = "本次仅是维护验证，请实际用只读工具读取两个配置，只回答采集通道与 workspaceId";
+
+	function walk(lines: Line[]) {
+		const shared = createHarvestShared();
+		const analyzed = analyzeSession(session(lines), { sessionFile: "/s.jsonl", excerpts: true, shared });
+		if (!analyzed) throw new Error("not a session");
+		applyRoutineRepeats([analyzed.session], markRoutineRepeats(shared));
+		return analyzed;
+	}
+
+	it("drops a periodic re-send that was answered correctly every time", () => {
+		const { incidents, session: summary } = walk(chain([
+			user(instruction), reply("- 采集通道：trace、scry - workspaceId：rate-native"),
+			user(instruction), reply("- 采集通道：trace、scry - workspaceId：rate-native"),
+			user(instruction), reply("- 采集通道：trace、scry - workspaceId：rate-native"),
+		]));
+		const repeats = incidents.filter((incident) => incident.kind === "user_repeat");
+		expect(repeats).toHaveLength(2);
+		expect(repeats.every((incident) => incident.detail.routine === true)).toBe(true);
+		// Both totals drop the excluded repeats: the incidents stay in the queue for triage.
+		expect(summary.interventions).toBe(0);
+		expect(summary.northStarV2).toBe(0);
+	});
+
+	it("keeps a repeat that followed an answer with no content", () => {
+		const { incidents, session: summary } = walk(chain([
+			user(instruction), reply(""),
+			user(instruction), reply(""),
+			user(instruction), reply("采集通道 trace/scry，workspaceId rate-native"),
+		]));
+		const repeats = incidents.filter((incident) => incident.kind === "user_repeat");
+		expect(repeats.length).toBeGreaterThan(0);
+		expect(repeats.some((incident) => incident.detail.routine !== true)).toBe(true);
+		expect(summary.northStarV2).toBeGreaterThan(0);
+	});
+
+	it("keeps a one-off repeat: periodicity needs three occurrences", () => {
+		const { incidents } = walk(chain([
+			user(instruction), reply("采集通道 trace/scry，workspaceId rate-native"),
+			user(instruction), reply("采集通道 trace/scry，workspaceId rate-native"),
+		]));
+		const repeats = incidents.filter((incident) => incident.kind === "user_repeat");
+		expect(repeats).toHaveLength(1);
+		expect(repeats[0].detail.routine).toBeUndefined();
 	});
 });

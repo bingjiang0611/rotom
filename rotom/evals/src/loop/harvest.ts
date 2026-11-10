@@ -99,10 +99,21 @@ export type AnalyzeOptions = { sessionFile: string; excerpts: boolean; traceLine
  * Harvest-wide state. Forks copy their parent's entries, so a conversation continued in a
  * second session file must not count its user turns or incidents twice.
  */
-export type HarvestShared = { incidentKeys: Set<string>; userEntries: Set<string>; turnModels: Map<string, string> };
+/** One held repeat: the incident, what the person said, and how the answer before it ended. */
+export type RepeatCandidate = { incident: Incident; key: string; priorAnswerCompleted: boolean };
+
+export type HarvestShared = {
+	incidentKeys: Set<string>;
+	userEntries: Set<string>;
+	turnModels: Map<string, string>;
+	/** Every user message in the window, keyed by normalized text; see harvest-repeat.ts. */
+	userTextCounts: Map<string, number>;
+	/** Repeats held until the walk ends, when the cross-session counts are final. */
+	repeatCandidates: RepeatCandidate[];
+};
 
 export function createHarvestShared(): HarvestShared {
-	return { incidentKeys: new Set<string>(), userEntries: new Set<string>(), turnModels: new Map<string, string>() };
+	return { incidentKeys: new Set<string>(), userEntries: new Set<string>(), turnModels: new Map<string, string>(), userTextCounts: new Map<string, number>(), repeatCandidates: [] };
 }
 
 /** Milliseconds from the entry that started this request to the abort, when the message carries none. */
@@ -130,10 +141,12 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 	const intervenedUserEntries = new Set<string>();
 	const add = (incident: Omit<Incident, "sessionId" | "sessionFile">) => {
 		const key = `${incident.kind}:${incident.entryId}`;
-		if (incidents.has(key) || shared.incidentKeys.has(key)) return;
-		incidents.set(key, { ...incident, sessionId, sessionFile: options.sessionFile });
+		if (incidents.has(key) || shared.incidentKeys.has(key)) return undefined;
+		const created = { ...incident, sessionId, sessionFile: options.sessionFile };
+		incidents.set(key, created);
 		shared.incidentKeys.add(key);
 		if (incident.kind !== "user_interrupt" && (INTERVENTION_KINDS as readonly string[]).includes(incident.kind)) intervenedUserEntries.add(incident.entryId);
+		return created;
 	};
 	const withExcerpt = (excerpt: Incident["excerpt"]) => (options.excerpts ? { excerpt } : {});
 
@@ -196,18 +209,21 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 				} else if (lastAssistant && isCorrection(text)) {
 					add({ kind: "user_correction", entryId: entry.id, timestamp: entry.timestamp, detail: { ...modelDetail }, ...withExcerpt(excerpt) });
 				}
-				if (normalized(text).length >= 12) {
+				const normalizedText = normalized(text);
+				if (normalizedText.length >= 12) shared.userTextCounts.set(normalizedText, (shared.userTextCounts.get(normalizedText) ?? 0) + 1);
+				if (normalizedText.length >= 12) {
 					const repeated = recentUsers.find((previous) => similarity(previous.text, text) >= 0.8);
 					// Re-sending after a provider error or an interrupt is not the agent ignoring the request.
 					const resentAfterFailure = lastAssistant?.message.stopReason === "error" || lastAssistant?.message.stopReason === "aborted";
 					if (repeated && lastAssistant && !resentAfterFailure) {
-						add({
+						const incident = add({
 							kind: "user_repeat",
 							entryId: entry.id,
 							timestamp: entry.timestamp,
 							detail: { repeatsEntry: repeated.entry.id, ...modelDetail },
 							...withExcerpt(excerpt),
 						});
+						if (incident) shared.repeatCandidates.push({ incident, key: normalizedText, priorAnswerCompleted: lastAssistant.message.stopReason === "stop" && previousAssistantText.trim().length > 0 });
 					}
 				}
 				recentUsers.push({ entry, text });

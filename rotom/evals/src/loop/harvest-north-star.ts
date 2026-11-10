@@ -28,6 +28,14 @@ function causedByHuman(incident: Incident): boolean {
 	return incident.detail.cause !== "injected" && incident.detail.cause !== "compaction";
 }
 
+/**
+ * A periodic re-send of an instruction that was already answered counts as noise, not as the agent
+ * needing a person. The harvest marks it; everything else still counts.
+ */
+function routineRepeat(incident: Incident): boolean {
+	return incident.kind === "user_repeat" && incident.detail.routine === true;
+}
+
 export function northStar(incidents: readonly Incident[], intervenedEntries: number): NorthStar {
 	const interrupts = incidents.filter((incident) => incident.kind === "user_interrupt");
 	const excluded = interrupts.filter((incident) => !causedByHuman(incident)).length;
@@ -37,7 +45,7 @@ export function northStar(incidents: readonly Incident[], intervenedEntries: num
 	const interventionModels: Record<string, number> = {};
 	const v2Models: Record<string, number> = {};
 	for (const incident of incidents) {
-		if (!isIntervention(incident.kind) || !causedByHuman(incident)) continue;
+		if (!isIntervention(incident.kind) || !causedByHuman(incident) || routineRepeat(incident)) continue;
 		const model = typeof incident.detail.model === "string" ? incident.detail.model : "unknown";
 		interventionModels[model] = (interventionModels[model] ?? 0) + 1;
 		if (incident.kind !== "user_interrupt" || incident.detail.triage === "quality") v2Models[model] = (v2Models[model] ?? 0) + 1;

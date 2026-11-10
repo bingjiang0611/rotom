@@ -7,6 +7,7 @@ import { lstat, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { type CompactionObservation, analyzeCompactions, compactionMetrics } from "./compaction-harvest.ts";
 import { HARVEST_SCHEMA, type Incident, type SessionSummary, analyzeSession, createHarvestShared } from "./harvest.ts";
+import { applyRoutineRepeats, markRoutineRepeats } from "./harvest-repeat.ts";
 import { renderReport, type SkipCounts, type SkipReason } from "./harvest-report.ts";
 import { defaultModelExperiment } from "./harvest-models.ts";
 import { weeklyMetrics } from "./harvest-report.ts";
@@ -122,6 +123,8 @@ export async function harvest(options: HarvestOptions): Promise<{ outDir: string
 		incidents.push(...result.incidents);
 		compactions.push(...analyzeCompactions(lines, result.incidents, seenCompactions));
 	}
+
+	applyRoutineRepeats(sessions, markRoutineRepeats(shared));
 
 	const stamp = now.toISOString().replace(/[:.]/gu, "-");
 	const outRoot = resolve(options.outRoot);
