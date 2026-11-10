@@ -4,8 +4,8 @@
  * aggregation tables built on top.
  */
 import { describe, expect, it } from "vitest";
-import { analyzeSession, resolveStartedAt, toolErrorCategory, type Incident, type SessionSummary } from "../src/loop/harvest.ts";
-import { dayBreakdown, interruptTables, modelShareWeeks, poissonRateInterval, toolErrorTables } from "../src/loop/harvest-breakdown.ts";
+import { analyzeSession, interruptTriage, resolveStartedAt, runtimeVersionOf, toolErrorCategory, type Incident, type SessionSummary } from "../src/loop/harvest.ts";
+import { dayBreakdown, dimensionRates, interruptTables, modelDimensionRates, modelShareWeeks, modelSwitchTables, modelTurnShare, northStarWeeks, poissonRateInterval, toolErrorTables, triageTable } from "../src/loop/harvest-breakdown.ts";
 import { isoWeek, weeklyMetrics } from "../src/loop/harvest-run.ts";
 
 let counter = 0;
@@ -168,6 +168,10 @@ describe("harvest aggregation", () => {
 		startedAt: "2026-11-03T10:00:00.000Z",
 		startedAtSource: "header",
 		modelTurns: {},
+		interventionModels: {},
+		northStarV2: 0,
+		v2Models: {},
+		interruptTriage: { "self-retract": 0, quality: 0, other: 0 },
 		models: [],
 		userTurns: 1,
 		assistantMessages: 0,

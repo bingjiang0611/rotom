@@ -1,219 +1,50 @@
 /**
- * Harvest output: session walking, the weekly north-star metric, the triage queue and the
- * report files. Analysis of one session lives in `harvest.ts`; these functions only aggregate
- * it and write the private `~/.rotom/loop/harvest-<stamp>/` directory.
+ * Harvest output: walking the sessions root and writing the private
+ * `~/.rotom/loop/harvest-<stamp>/` directory. Analysis of one session lives in
+ * `harvest.ts`; the report text and the weekly metric live in `harvest-report.ts`.
  */
 import { lstat, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
-import { FAILURE_KINDS, HARVEST_SCHEMA, INTERVENTION_KINDS, type Incident, type IncidentKind, type SessionSummary, analyzeSession, createHarvestShared } from "./harvest.ts";
-import { summarizeProviderErrors } from "./harvest-provider.ts";
-import { dayBreakdown, interruptTables, modelShareWeeks, poissonRateInterval, toolErrorTables } from "./harvest-breakdown.ts";
+import { HARVEST_SCHEMA, type Incident, type SessionSummary, analyzeSession, createHarvestShared } from "./harvest.ts";
+import { renderReport, type SkipCounts, type SkipReason } from "./harvest-report.ts";
+import { weeklyMetrics } from "./harvest-report.ts";
 
-/** ISO-8601 week label, e.g. 2026-W45. */
-export function isoWeek(timestamp: string): string {
-	const date = new Date(timestamp);
-	if (Number.isNaN(date.getTime())) return "unknown";
-	const day = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-	const weekday = day.getUTCDay() || 7;
-	day.setUTCDate(day.getUTCDate() + 4 - weekday);
-	const yearStart = new Date(Date.UTC(day.getUTCFullYear(), 0, 1));
-	const week = Math.ceil(((day.getTime() - yearStart.getTime()) / 86_400_000 + 1) / 7);
-	return `${day.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+export { isoWeek, renderReport, triageScore, weeklyMetrics, type SkipCounts, type SkipReason, type WeekMetric } from "./harvest-report.ts";
+
+function bump(counts: SkipCounts, reason: SkipReason): void {
+	counts[reason] = (counts[reason] ?? 0) + 1;
 }
 
-export type WeekMetric = {
-	week: string;
-	sessions: number;
-	userTurns: number;
-	interventions: number;
-	/** North star: user interventions per 100 user turns. */
-	interventionsPer100Turns: number | null;
-	/** 95% Poisson band for that rate; see {@link poissonRateInterval}. */
-	interventionsInterval: { low: number; high: number } | null;
-	failures: number;
-	incidentCounts: Partial<Record<IncidentKind, number>>;
-};
+/** Directory names the product writes beside sessions; none of them is a user session file. */
+const ARTIFACT_SEGMENTS = new Set(["observability", "observation-pack"]);
 
-export function weeklyMetrics(sessions: readonly SessionSummary[]): WeekMetric[] {
-	const weeks = new Map<string, WeekMetric>();
-	for (const session of sessions) {
-		const week = isoWeek(session.startedAt);
-		const metric = weeks.get(week) ?? { week, sessions: 0, userTurns: 0, interventions: 0, interventionsPer100Turns: null, interventionsInterval: null, failures: 0, incidentCounts: {} };
-		metric.sessions++;
-		metric.userTurns += session.userTurns;
-		metric.interventions += session.interventions;
-		metric.failures += session.failures;
-		for (const [kind, count] of Object.entries(session.incidentCounts) as [IncidentKind, number][]) {
-			metric.incidentCounts[kind] = (metric.incidentCounts[kind] ?? 0) + count;
-		}
-		weeks.set(week, metric);
-	}
-	return [...weeks.values()]
-		.map((metric) => ({
-			...metric,
-			interventionsPer100Turns: metric.userTurns > 0 ? Math.round((metric.interventions / metric.userTurns) * 1000) / 10 : null,
-			interventionsInterval: poissonRateInterval(metric.interventions, metric.userTurns) ?? null,
-		}))
-		.sort((left, right) => left.week.localeCompare(right.week));
+function isArtifactSegment(name: string): boolean {
+	return ARTIFACT_SEGMENTS.has(name) || name.includes("subagent");
 }
 
-const TRIAGE_WEIGHT: Record<IncidentKind, number> = {
-	user_correction: 3,
-	user_repeat: 2,
-	bare_continue: 2,
-	user_interrupt: 1,
-	tool_error_streak: 1,
-	edit_retry_without_read: 1,
-	provider_error: 0.5,
-	length_stop: 0.5,
-	goal_pause: 1,
-	compaction_failed: 1,
-};
+/** A session file lives at `<cwd>/<name>.jsonl` or `<cwd>/<store>/<id>/<name>.jsonl`; deeper is an artifact tree. */
+const MAX_DEPTH = 4;
 
-export function triageScore(session: SessionSummary): number {
-	return (Object.entries(session.incidentCounts) as [IncidentKind, number][]).reduce((sum, [kind, count]) => sum + TRIAGE_WEIGHT[kind] * count, 0);
-}
-
-export function renderReport(input: { generatedAt: string; since: string; sessionsDir: string; sessions: readonly SessionSummary[]; incidents: readonly Incident[]; skipped: number }): string {
-	const weeks = weeklyMetrics(input.sessions);
-	const providerRows = summarizeProviderErrors(input.incidents.filter((incident) => incident.kind === "provider_error"));
-	const weekOf = (session: SessionSummary) => isoWeek(session.startedAt);
-	const modelRows = modelShareWeeks(input.sessions, weekOf);
-	const interrupts = interruptTables(input.incidents);
-	const toolErrors = toolErrorTables(input.incidents);
-	// The peak is the highest rate among weeks with enough turns for the ratio to mean anything.
-	const peak = weeks.filter((week) => week.userTurns >= 20).sort((left, right) => (right.interventionsPer100Turns ?? 0) - (left.interventionsPer100Turns ?? 0))[0];
-	const startSources = new Map<string, number>();
-	for (const session of input.sessions) startSources.set(session.startedAtSource, (startSources.get(session.startedAtSource) ?? 0) + 1);
-	const releases = input.sessions.filter((session) => session.release).length;
-	const lines = [
-		"# rotom loop harvest",
-		"",
-		`Generated ${input.generatedAt} · sessions since ${input.since} · source \`${input.sessionsDir}\``,
-		"",
-		"Local, private output. Detectors are heuristic candidates for triage, not verdicts.",
-		"",
-		"## Weekly intervention rate",
-		"",
-		"`95% band` is the Poisson normal approximation `k ± 1.96√k` per 100 turns: a rough sampling band, not a product-quality claim.",
-		"",
-		"| Week | Sessions | User turns | Interventions | per 100 turns | 95% band | Agent-side failures |",
-		"| --- | ---: | ---: | ---: | ---: | --- | ---: |",
-		...weeks.map((week) => `| ${week.week} | ${week.sessions} | ${week.userTurns} | ${week.interventions} | ${week.interventionsPer100Turns ?? "N/A"} | ${week.interventionsInterval ? `${week.interventionsInterval.low}–${week.interventionsInterval.high}` : "N/A"} | ${week.failures} |`),
-		"",
-		"## Model share by user turn",
-		"",
-		"Each user turn is attributed to the model of the first assistant message that answered it.",
-		"",
-		"| Week | Model | Turns | Share |",
-		"| --- | --- | ---: | ---: |",
-		...modelRows.map((row) => `| ${row.week} | ${row.model} | ${row.turns} | ${row.share}% |`),
-		"",
-	];
-	if (peak) {
-		const days = dayBreakdown(input.sessions, peak.week, weekOf);
-		lines.push(
-			`## ${peak.week} by day and provider`,
-			"",
-			`The peak week (${peak.interventionsPer100Turns ?? "N/A"} interventions per 100 turns). A session is attributed to the provider that answered most of its turns, so its interventions all count there.`,
-			"",
-			"| Day | Provider | Sessions | User turns | Interventions | per 100 turns | Failures |",
-			"| --- | --- | ---: | ---: | ---: | ---: | ---: |",
-			...days.map((row) => `| ${row.day} | ${row.provider} | ${row.sessions} | ${row.turns} | ${row.interventions} | ${row.per100 ?? "N/A"} | ${row.failures} |`),
-			"",
-		);
-	}
-	lines.push(
-		"## Interrupts",
-		"",
-		`\`cause\` is the first non-control entry after the aborted message. A human message with typed text is \`human\` (${interrupts.humanShare}% of interrupts); an injected contract or skill block is \`injected\`; \`compaction\` and \`system\` moved the session on without the user; \`no-following-turn\` means the file ends there, so the cause stays unknown.`,
-		"",
-		"| Cause | Count |",
-		"| --- | ---: |",
-		...interrupts.byCause.map((row) => `| ${row.key} | ${row.count} |`),
-		"",
-		"| Running when aborted | Count |",
-		"| --- | ---: |",
-		...interrupts.byActivity.map((row) => `| ${row.key} | ${row.count} |`),
-		"",
-		"| Aborted after | Count |",
-		"| --- | ---: |",
-		...interrupts.byDuration.map((row) => `| ${row.key} | ${row.count} |`),
-		"",
-		"| Next user message | Count |",
-		"| --- | ---: |",
-		...interrupts.byFollowUp.map((row) => `| ${row.key} | ${row.count} |`),
-		"",
-		"| Cause | Running when aborted | Count |",
-		"| --- | --- | ---: |",
-		...interrupts.causeActivity.map((row) => `| ${row.cause} | ${row.activity} | ${row.count} |`),
-		"",
-		"## Tool error streaks",
-		"",
-		"| Tool | Streaks |",
-		"| --- | ---: |",
-		...toolErrors.byTool.slice(0, 12).map((row) => `| ${row.key} | ${row.count} |`),
-		"",
-		"| Error class | Streaks |",
-		"| --- | ---: |",
-		...toolErrors.byCategory.map((row) => `| ${row.key} | ${row.count} |`),
-		"",
-		"| Tool | Error class | Streaks |",
-		"| --- | --- | ---: |",
-		...toolErrors.toolCategory.slice(0, 15).map((row) => `| ${row.tool} | ${row.category} | ${row.count} |`),
-		"",
-		"## Incidents by kind",
-		"",
-		"| Kind | Count |",
-		"| --- | ---: |",
-		...[...INTERVENTION_KINDS, ...FAILURE_KINDS].map((kind) => `| ${kind} | ${input.incidents.filter((incident) => incident.kind === kind).length} |`),
-		"",
-		"## Provider errors by provider, category and outcome",
-		"",
-		"`Outcome` is `recovered` when a usable assistant message closed the retry run (Pi absorbed the error) and `user-visible` when the run ended without one, so the user saw the failure. Read the recovered share, not the user-visible share, as the retry budget working.",
-		"",
-		"| Provider | Model | Category | Outcome | Incidents | Attempts |",
-		"| --- | --- | --- | --- | ---: | ---: |",
-		...providerRows.rows.map((row) => `| ${row.provider} | ${row.model} | ${row.category} | ${row.final ? "recovered" : "user-visible"} | ${row.count} | ${row.attempts} |`),
-		"",
-		`Provider errors: ${providerRows.total} incidents, ${providerRows.final} recovered, ${providerRows.total - providerRows.final} reached the user.`,
-		"",
-		"## Provenance",
-		"",
-		`\`startedAt\` source: ${[...startSources].sort((left, right) => right[1] - left[1]).map(([source, count]) => `${source} ${count}`).join(", ")}. A session whose own timestamps are missing or pre-2000 falls back to the file mtime, so a reconstructed date is visible here instead of becoming 1970-W01.`,
-		"",
-		`Release: ${releases} of ${input.sessions.length} sessions embed a rotom release path, and only in stack traces, so a release split is biased toward failures and is not reported.`,
-		"",
-		"## Triage queue (top sessions)",
-		"",
-		"| Score | Session | Started | Turns | Incidents | File |",
-		"| ---: | --- | --- | ---: | --- | --- |",
-	);
-	const ranked = [...input.sessions].filter((session) => triageScore(session) > 0).sort((left, right) => triageScore(right) - triageScore(left)).slice(0, 20);
-	for (const session of ranked) {
-		const counts = Object.entries(session.incidentCounts).map(([kind, count]) => `${kind}×${count}`).join(", ");
-		lines.push(`| ${triageScore(session)} | ${session.sessionId.slice(0, 8)} | ${session.startedAt.slice(0, 16)} | ${session.userTurns} | ${counts} | \`${session.sessionFile}\` |`);
-	}
-	if (input.skipped > 0) lines.push("", `${input.skipped} file(s) skipped (symlink, unreadable or not a session).`);
-	lines.push("", "Next: pick incidents from `incidents.jsonl`, classify them, and turn reproducible ones into replay cases (see docs/agent/optimization-loop.md).", "");
-	return lines.join("\n");
-}
-
-async function sessionFiles(root: string): Promise<{ files: string[]; skipped: number }> {
+async function sessionFiles(root: string): Promise<{ files: string[]; skipped: SkipCounts }> {
 	const files: string[] = [];
-	let skipped = 0;
+	const skipped: SkipCounts = {};
 	const walk = async (directory: string, depth: number): Promise<void> => {
-		if (depth > 4) return;
+		if (depth > MAX_DEPTH) {
+			bump(skipped, "deep-directory");
+			return;
+		}
 		const items = await readdir(directory, { withFileTypes: true });
 		for (const item of items) {
 			const path = join(directory, item.name);
 			if (item.isSymbolicLink()) {
-				skipped++;
+				bump(skipped, "symlink");
 				continue;
 			}
 			if (item.isDirectory()) {
-				// Trace sidecars, subagent artifacts and child-agent stores are not user sessions.
-				if (item.name === "observability" || item.name.includes("subagent")) continue;
+				if (isArtifactSegment(item.name)) {
+					bump(skipped, "artifact-store");
+					continue;
+				}
 				await walk(path, depth + 1);
 			} else if (item.isFile() && item.name.endsWith(".jsonl")) {
 				files.push(path);
@@ -251,31 +82,36 @@ export function defaultLoopDir(env: NodeJS.ProcessEnv = process.env): string {
 
 export type HarvestOptions = { sessionsDir: string; outRoot: string; since: Date; now?: Date; excerpts: boolean };
 
-export async function harvest(options: HarvestOptions): Promise<{ outDir: string; sessions: SessionSummary[]; incidents: Incident[]; skipped: number }> {
+export async function harvest(options: HarvestOptions): Promise<{ outDir: string; sessions: SessionSummary[]; incidents: Incident[]; skipped: SkipCounts }> {
 	const now = options.now ?? new Date();
 	const sessionsDir = resolve(options.sessionsDir);
 	const rootInfo = await lstat(sessionsDir).catch(() => undefined);
 	if (!rootInfo?.isDirectory()) throw new Error(`sessions directory not found: ${sessionsDir} (set --sessions or PI_CODING_AGENT_DIR)`);
-	const { files, skipped: skippedLinks } = await sessionFiles(sessionsDir);
-	let skipped = skippedLinks;
+	const { files, skipped } = await sessionFiles(sessionsDir);
 	const sessions: SessionSummary[] = [];
 	const incidents: Incident[] = [];
 	const shared = createHarvestShared();
 	for (const file of files) {
 		const info = await lstat(file);
-		if (info.mtime < options.since) continue;
+		if (info.mtime < options.since) {
+			bump(skipped, "outside-window");
+			continue;
+		}
 		const lines = await readOptional(file);
 		if (!lines) {
-			skipped++;
+			bump(skipped, "unreadable");
 			continue;
 		}
 		const tracePath = join(dirname(file), "observability", `${basename(file).replace(/\.jsonl$/u, "")}.trace.jsonl`);
 		const result = analyzeSession(lines, { sessionFile: file, excerpts: options.excerpts, traceLines: await readOptional(tracePath), shared, fileMtimeMs: info.mtimeMs });
 		if (!result) {
-			skipped++;
+			bump(skipped, "not-a-session");
 			continue;
 		}
-		if (result.session.userTurns === 0) continue;
+		if (result.session.userTurns === 0) {
+			bump(skipped, "no-user-turns");
+			continue;
+		}
 		sessions.push(result.session);
 		incidents.push(...result.incidents);
 	}

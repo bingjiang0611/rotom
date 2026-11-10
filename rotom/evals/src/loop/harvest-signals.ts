@@ -1,5 +1,7 @@
-import { bigrams, isCorrection, isRecord, normalized, similarity, textOf } from "./harvest-text.ts";
+import { bigrams, humanText, isCorrection, isRecord, normalized, similarity, textOf } from "./harvest-text.ts";
 import { messageOf, type Entry, type Message } from "./harvest-tree.ts";
+
+export type StartSource = "header" | "first-entry" | "file-mtime" | "unknown";
 
 // Signal classification for one incident: which error class a failed tool result belongs to,
 // and what the session was doing when the user's abort landed.
@@ -46,6 +48,50 @@ export function interruptActivity(message: Message, parent: Entry | undefined): 
 	return { activity: "waiting-first-byte" };
 }
 
+/**
+ * Why an interrupt counts against quality, which is the second north star.
+ *
+ * `self-retract` is the person giving up before anything happened: still waiting for the first
+ * byte and under two seconds. `quality` is a run that was already doing something (tool,
+ * text, tool call) or a wait long enough that giving up is a judgement about the run.
+ * Everything else is `other` and stays out of v2.
+ */
+export type InterruptTriage = "self-retract" | "quality" | "other";
+
+/** Under two seconds of silence is the person retracting, not a verdict on the run. */
+export const SELF_RETRACT_MAX_MS = 2_000;
+/** Ten seconds of waiting is long enough that the user is judging the run, not the click. */
+export const QUALITY_WAIT_MS = 10_000;
+
+export function interruptTriage(activity: InterruptActivity | string | undefined, elapsedMs: number | undefined): InterruptTriage {
+	if (activity === "tool-executing" || activity === "streaming-text" || activity === "streaming-tool-call") return "quality";
+	const elapsed = typeof elapsedMs === "number" && Number.isFinite(elapsedMs) ? elapsedMs : undefined;
+	if (elapsed !== undefined && elapsed >= QUALITY_WAIT_MS) return "quality";
+	if (activity === "waiting-first-byte" && elapsed !== undefined && elapsed < SELF_RETRACT_MAX_MS) return "self-retract";
+	return "other";
+}
+
+/**
+ * Product runtime that served a session, from the trace's `pi.session.runtime` span. Only
+ * sessions with observability enabled carry it, so the runtime split has partial coverage and
+ * the report says how many sessions it covers instead of treating silence as a version.
+ */
+export function runtimeVersionOf(traceLines: readonly string[] | undefined): string | undefined {
+	for (const line of traceLines ?? []) {
+		let record: unknown;
+		try {
+			record = JSON.parse(line);
+		} catch {
+			continue;
+		}
+		if (!isRecord(record) || record.name !== "pi.session.runtime" || record.kind !== "span_start") continue;
+		const attributes = isRecord(record.attributes) ? record.attributes : {};
+		const version = attributes["pi.runtime.version"] ?? attributes["rotom.product.version"];
+		if (typeof version === "string" && version) return version;
+	}
+	return undefined;
+}
+
 export function interruptFollowUp(requestText: string, text: string): InterruptFollowUp {
 	if (!text) return "injected";
 	if (isCorrection(text)) return "correction";
@@ -63,4 +109,74 @@ export function isControlEntry(entry: Entry): boolean {
 	if (entry.type === "model_change" || entry.type === "thinking_level_change" || entry.type === "session" || entry.type === "custom") return true;
 	const message = messageOf(entry);
 	return message?.role === "system" && textOf(message.content).trim() === "";
+}
+
+/** A timestamp is usable only if it parses and is not the 1970 epoch a broken clock writes. */
+export function usableTimestamp(value: unknown): string | undefined {
+	if (typeof value !== "string" || !value) return undefined;
+	const time = Date.parse(value);
+	if (Number.isNaN(time)) return undefined;
+	return new Date(time).getUTCFullYear() < 2000 ? undefined : value;
+}
+
+/** Session start and where it came from; the file mtime is the last resort before `unknown`. */
+export function resolveStartedAt(headerTimestamp: unknown, firstEntryTimestamp: unknown, fileMtimeMs?: number): { startedAt: string; startedAtSource: StartSource } {
+	const header = usableTimestamp(headerTimestamp);
+	if (header) return { startedAt: header, startedAtSource: "header" };
+	const first = usableTimestamp(firstEntryTimestamp);
+	if (first) return { startedAt: first, startedAtSource: "first-entry" };
+	const mtime = fileMtimeMs !== undefined && Number.isFinite(fileMtimeMs) ? new Date(fileMtimeMs).toISOString() : undefined;
+	if (mtime && usableTimestamp(mtime)) return { startedAt: mtime, startedAtSource: "file-mtime" };
+	return { startedAt: "", startedAtSource: "unknown" };
+}
+
+/** The product release a session ran on, read from the module paths in its own lines. */
+export function releaseOf(lines: readonly string[]): string | undefined {
+	const pattern = /releases\/([0-9A-Za-z.-]+)\/node_modules/gu;
+	const counts = new Map<string, number>();
+	for (const line of lines) for (const match of line.matchAll(pattern)) counts.set(match[1], (counts.get(match[1]) ?? 0) + 1);
+	let best: string | undefined;
+	for (const [release, count] of counts) if (!best || count > (counts.get(best) ?? 0)) best = release;
+	return best;
+}
+
+/** One aborted request, positioned in the session path so what followed can be read. */
+export type AbortPoint = { index: number; requestText: string; detail: Record<string, unknown> };
+
+/**
+ * Resolve each abort against what the session did next: that is the only deterministic evidence
+ * of whether a human stopped it, whether context compression moved it on, or whether it simply
+ * ran out. A `model_change` before the next user message is recorded too: the person changed
+ * model at the interrupt rather than later, which points at the model rather than the task.
+ */
+export function resolveInterruptCauses(path: readonly Entry[], aborts: readonly AbortPoint[]): void {
+	for (const abort of aborts) {
+		if (abort.detail.cause !== "unknown") continue;
+		let cause: InterruptCause = "no-following-turn";
+		let followUp: InterruptFollowUp = "none";
+		for (let index = abort.index + 1; index < path.length; index++) {
+			const next = path[index];
+			if (isControlEntry(next)) continue;
+			if (next.type === "compaction") { cause = "compaction"; break; }
+			if (next.type === "custom_message") { cause = "injected"; followUp = "injected"; break; }
+			const nextMessage = messageOf(next);
+			if (nextMessage?.role === "user") {
+				const text = humanText(textOf(nextMessage.content));
+				if (text) { cause = "human"; followUp = interruptFollowUp(abort.requestText, text); } else { cause = "injected"; followUp = "injected"; }
+				break;
+			}
+			cause = nextMessage?.role === "system" ? "system" : "unknown";
+			break;
+		}
+		abort.detail.cause = cause;
+		abort.detail.nextUser = followUp;
+		for (let index = abort.index + 1; index < path.length; index++) {
+			const next = path[index];
+			if (next.type === "model_change") {
+				if (typeof next.provider === "string" && typeof next.modelId === "string") abort.detail.modelSwitchAfter = `${next.provider}/${next.modelId}`;
+				break;
+			}
+			if (messageOf(next)?.role === "user") break;
+		}
+	}
 }

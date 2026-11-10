@@ -247,8 +247,10 @@ describe("loop harvest detectors", () => {
 		expect(isoWeek("2026-11-09T08:00:00Z")).toBe("2026-W46");
 		expect(isoWeek("2026-01-01T00:00:00Z")).toBe("2026-W01");
 		const weeks = weeklyMetrics([
-			{ sessionId: "a", sessionFile: "", cwd: "", startedAt: "2026-11-03T00:00:00Z", startedAtSource: "header", modelTurns: {}, interruptExcluded: 0, models: [], userTurns: 30, assistantMessages: 0, toolCalls: 0, toolErrors: 0, interventions: 3, failures: 1, incidentCounts: { user_correction: 3 } },
-			{ sessionId: "b", sessionFile: "", cwd: "", startedAt: "2026-11-04T00:00:00Z", startedAtSource: "header", modelTurns: {}, interruptExcluded: 0, models: [], userTurns: 10, assistantMessages: 0, toolCalls: 0, toolErrors: 0, interventions: 1, failures: 0, incidentCounts: { bare_continue: 1 } },
+			{ sessionId: "a", sessionFile: "", cwd: "", startedAt: "2026-11-03T00:00:00Z", startedAtSource: "header", modelTurns: {}, interventionModels: {}, northStarV2: 0,
+		v2Models: {}, interruptTriage: { "self-retract": 0, quality: 0, other: 0 }, interruptExcluded: 0, models: [], userTurns: 30, assistantMessages: 0, toolCalls: 0, toolErrors: 0, interventions: 3, failures: 1, incidentCounts: { user_correction: 3 } },
+			{ sessionId: "b", sessionFile: "", cwd: "", startedAt: "2026-11-04T00:00:00Z", startedAtSource: "header", modelTurns: {}, interventionModels: {}, northStarV2: 0,
+		v2Models: {}, interruptTriage: { "self-retract": 0, quality: 0, other: 0 }, interruptExcluded: 0, models: [], userTurns: 10, assistantMessages: 0, toolCalls: 0, toolErrors: 0, interventions: 1, failures: 0, incidentCounts: { bare_continue: 1 } },
 		]);
 		expect(weeks).toHaveLength(1);
 		expect(weeks[0]).toMatchObject({ week: "2026-W45", sessions: 2, userTurns: 40, interventions: 4, interventionsPer100Turns: 10, incidentCounts: { user_correction: 3, bare_continue: 1 } });
@@ -278,13 +280,14 @@ describe("loop harvest output", () => {
 		const result = await harvest({ sessionsDir: join(root, "sessions"), outRoot: out, since: new Date("2026-01-01T00:00:00Z"), now: new Date("2026-11-09T00:00:00Z"), excerpts: true });
 		expect(result.sessions).toHaveLength(1);
 		expect(result.incidents.map((incident) => incident.kind).sort()).toEqual(["compaction_failed", "user_correction"]);
-		expect(result.skipped).toBe(1);
+		// One symlink plus the trace and subagent subtrees the product writes beside sessions.
+		expect(result.skipped).toEqual({ symlink: 1, "artifact-store": 2 });
 		expect(((await lstat(result.outDir)).mode & 0o777)).toBe(0o700);
 		const files = (await readdir(result.outDir)).sort();
 		expect(files).toEqual(["incidents.jsonl", "report.md", "sessions.jsonl", "summary.json"]);
 		for (const file of files) expect(((await lstat(join(result.outDir, file))).mode & 0o777)).toBe(0o600);
 		const report = await readFile(join(result.outDir, "report.md"), "utf8");
-		expect(report).toContain("| 2026-W45 | 1 | 2 | 1 | 50 | 0–148 | 1 |");
+		expect(report).toContain("| 2026-W45 | 1 | 2 | 1 | 50 | 0–148 | 1 | 50 |");
 		expect(JSON.parse(await readFile(join(result.outDir, "summary.json"), "utf8"))).toMatchObject({ schema: "rotom-loop-harvest/v1", sessions: 1, incidents: 2 });
 	});
 
