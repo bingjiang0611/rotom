@@ -167,3 +167,13 @@ npm --prefix rotom/evals run loop -- gate --baseline /absolute/rotom-pre-fix/rot
 - 离线测试通过 ≠ Agent 通过；suite skipped ≠ 评测通过；`oracle-ready` ≠ 入集完成。
 - judge 分数不是业务成功；估算费用不是账单；harvest 指标是单人本地趋势，不是产品质量统计。
 - 回放与 gate 只覆盖所跑用例；真实 App、设备与外部业务仍按 [verification.md](verification.md) 单独验收。
+
+## 推送前
+
+每次推送前跑一次历史审计，不只扫工作树：
+
+```sh
+python3 scripts/audit-public.py --root . --history
+```
+
+tree 模式看不到提交身份，而作者/提交者泄露只能在推送前发现——推上去之后再改就要改写公开历史。`--history` 放行的身份只有三类：`*@users.noreply.github.com`、提交者 `noreply@github.com`（GitHub 网页合并自动写入）、精确地址 `noreply@anthropic.com`（维护者已同意的历史豁免，同域名其他地址照样拦）。pre-push hook 用同一规则在推送时兜底，拦下时按它打印的命令 `--reset-author` 改写，不用 `--no-verify`。

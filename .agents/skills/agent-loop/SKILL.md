@@ -23,6 +23,7 @@ description: "运行 rotom 的 Agent 优化循环：从本机会话挖掘失败�
 - skip、超时、provider 错误、identity gate 失败和 unknown 单列，不算通过；gate 的 `unknown` 不是 `held`。
 - 已授权：`qoder/dfmodel`、不设预算，用于 gate、回放与分诊；发送范围为脱敏 fixture、产品提示和分诊所需会话摘录。换模型或发送完整会话正文需另行询问。
 - 真实会话、截图、凭据与运行产物不入 Git；公开用例必须重新虚构名称、路径与 ID。
+- 推送前必须 `python3 scripts/audit-public.py --root . --history`，不能只跑 tree 模式：只扫树看不到提交身份。pre-push hook 会再拦一次非 noreply 身份；被拦就按提示 `--reset-author`，不绕 hook。
 
 ## 报告
 

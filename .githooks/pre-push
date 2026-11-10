@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+# The commit range arrives on stdin; the guard reads it directly.
+node_command=${ROTOM_NODE:-$(command -v node)}
+exec "$node_command" scripts/hook-identity.mjs

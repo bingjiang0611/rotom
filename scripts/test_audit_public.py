@@ -179,6 +179,31 @@ class PrivacyAuditTests(unittest.TestCase):
                 MODULE['audit_history'](root, tagged)
                 self.assertEqual({item['rule'] for item in tagged.findings}, expected | {'non-noreply-tagger'})
 
+    def test_anthropic_noreply_exemption_is_exact_and_symmetric(self):
+        noreply = 'fixture@users.noreply.github.com'
+        cases = [
+            ('noreply@anthropic.com', noreply, set()),
+            (noreply, 'noreply@anthropic.com', set()),
+            ('someone@anthropic.com', noreply, {'non-noreply-author'}),
+            ('Noreply@anthropic.com', noreply, {'non-noreply-author'}),
+            (noreply, 'someone@anthropic.com', {'non-noreply-committer'}),
+            ('noreply@anthropic.com.example.invalid', noreply, {'non-noreply-author'}),
+        ]
+        for author, committer, expected in cases:
+            with self.subTest(author=author, committer=committer), tempfile.TemporaryDirectory(prefix='rotom-audit-anthropic-') as work:
+                root = Path(work).resolve()
+                def git(*args):
+                    return subprocess.check_output(['git', '-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false',
+                                                    '-C', str(root), *args], stderr=subprocess.DEVNULL)
+                git('init', '-q', '--initial-branch=main')
+                git('config', 'user.name', 'Fixture')
+                git('config', 'user.email', committer)
+                git('commit', '--allow-empty', '--author', 'Fixture <' + author + '>', '-qm', 'identity fixture')
+                audit = Audit()
+                MODULE['audit_history'](root, audit)
+                self.assertEqual({item['rule'] for item in audit.findings}, expected)
+                self.assertNotIn('anthropic', json.dumps(audit.findings))
+
     def test_history_skips_only_fork_archives_recorded_by_a_passing_audit(self):
         with tempfile.TemporaryDirectory(prefix='rotom-audit-test-') as work:
             root = Path(work).resolve()
