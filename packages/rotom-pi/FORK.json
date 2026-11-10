@@ -2,7 +2,7 @@
   "upstream": "https://github.com/earendil-works/pi",
   "revision": "4a080252f06caf63a525d7873c5d94d3c23887e0",
   "upstreamVersion": "1.4.0",
-  "forkVersion": "1.4.0-rotom.2",
+  "forkVersion": "1.4.0-rotom.3",
   "modelData": {
     "package": "@earendil-works/pi-ai@1.4.0",
     "integrity": "sha512-hQM/C4+1w8rHYACzDDf+0vQMnEnpzIop1tptIERVgR3ZeT/hHSzBNG8PaWPgxWQjqSeKCyBZSyp8uTT6eKK1pQ==",
@@ -18,7 +18,8 @@
     "Retain upstream classifier models/APIs, virtual model routing and the built-in MCP extension; Rotom adds no classifier or virtual model of its own",
     "Merge v1.3.0 over the 1.1.0 fork; upstream removed the experimental client/protocol/server stack and the chord runtime dependency",
     "Settle aborted turns locally instead of dispatching a provider request with an aborted signal; expose pi.appendUsage for extension-made model requests",
-    "Merge v1.4.0; retain Rotom compaction metrics, concurrent split summaries, context projection, connection recovery and Codemode direct-only boundaries"
+    "Merge v1.4.0; retain Rotom compaction metrics, concurrent split summaries, context projection, connection recovery and Codemode direct-only boundaries",
+    "Honour Retry-After / retry-after-ms on 429 within the agent delay cap, and treat quota, balance and 402 failures as non-retryable with one actionable hint"
   ],
   "omittedMaintenanceFiles": [
     ".github/APPROVED_CONTRIBUTORS",

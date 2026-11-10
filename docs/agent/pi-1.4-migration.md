@@ -75,3 +75,15 @@ macOS checkout 位于 `/tmp` 时先 `cd` 到 `pwd -P` 的 canonical 路径，避
 - 初次、增量、split-turn 前缀和分支摘要提示都追加 `SUMMARY_SOURCE_RULES`：范围、自主推进和交付方式的长期指令按用户原话放进 Constraints & Preferences，直到用户撤销、替换或工作完成；进度询问、阶段完成或暂停不算撤销；扩展消息不是用户目标或约束。
 
 验证：`compaction-serialization` 与 `compaction-summary-reasoning` 新增回归，回退源码后两者失败；压缩、分支摘要与 bug-report 相关 vitest 25 文件通过。这只证明提示与序列化输入正确，不证明真实模型一定照做；摘要质量需要真实长会话回放验证。
+
+## 1.4.0-rotom.3：provider 重试策略
+
+28 天 harvest 显示 provider 失败里 `http`（62/253 到用户面前）与 `429`（6）占相当比例，另有一次实测：网关返回 402 余额不足，Pi 的有界重试仍花了三次尝试才把错误交给用户。
+
+修复（`packages/ai/src/utils/retry.ts`）：
+
+- 429 的等待优先取 `retryAfterMs` 或 `Retry-After` 头，`retry-after-ms` 文本形式也认；取值按现有 `maxAgentDelayMs` 封顶，服务端没给请求延迟时仍走指数退避。
+- 额度 / 余额 / 402 类错误归为不可重试，`limitErrorHint()` 在最终错误后附一条可操作提示（充值或换模型）。
+- 有界重试预算与“请求未曾发出的连接错误无限重试”合同不变。
+
+验证：`test/retry.test.ts` 与 `test/retry-limits.test.ts` 共 76 条通过；临时回退实现时 5 条新测试失败，恢复后全通过。这只证明策略分支正确，不证明真实 provider 的 429 窗口或额度错误分布改变；验收要等新 runtime 实际加载后的 28 天 harvest。
