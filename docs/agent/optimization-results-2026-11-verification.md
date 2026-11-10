@@ -20,3 +20,12 @@
 S3：本分支带 policy 12/13 vs 基线 13/13，p=1.0，没有回归证据；gate 的 `regressed` 是三次样本中一次失败的机械判定，归因与 `gate.json` 已记录的 `flaky-candidate` 一致。
 
 S4 的 `cacheDrops 450/466` 是压缩改写前缀的预期结果，不是新问题；压缩后介入率 17.6 vs 全局 10.6 与重读率 33.1% 是相关信号，支持把下一批压缩用例从 harvest 里压缩后的真实介入事件构造（P1-1 的两个合成用例在 dfmodel 上没有复现）。
+
+## S9 核验（2026-11-10）
+
+`1fd0052` 只改结果文档、本核验文件与账本分片；账本校验与 tree 审计通过。两点修正：
+
+- **target repository root 没有变弱。** S9 是独立的第二轮，不是“更大样本”。单看 S9：5/5 vs 1/5，p=0.048；与 S6 合并：10/10 vs 1/10，p=0.0001。这条规则的遵循效果是两轮里唯一重复出现的强信号（仍是计划题，只证明规则被遵循）。
+- **completion evidence scope 的主因是题面的类型歧义，原题即有。** “not-run for actions not performed” 让模型把布尔字段 `runExtraExternalActions` 也写成字符串（5 次 `noExtraWrites` 失败中的 4 次）。已在题面写明哪些字段是布尔、哪些是字符串（`e978030` 之后的修正提交），需要 S10 重跑；S9 的 2/5 vs 2/5 与之后的结果不可比。
+
+分支上 `ceae1ff`、`51b9af7`（pre-push 身份校验、commit-msg 账本 trailer）来自另一会话，不在 `main` 上，也不属于本方案；合入时需单独决定。

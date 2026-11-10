@@ -153,6 +153,10 @@ unset ROTOM_EVAL_BASELINE_PRODUCT ROTOM_EVAL_BASELINE_EXCLUDE_RESOURCES
 
 `$SAME` 要先更新到本分支最新提交（`git -C <rotom-same> checkout <新 HEAD>` 后重装依赖）。只在结果文件追加 S9 小节并更新该账本条目；仍失败时把每个失败 check 的名称记下来，不要再改判分。
 
+### S10 补跑（S9 之后追加）
+
+S9 显示题面让模型把布尔字段写成字符串 `"not-run"`；题面已写明字段类型。照 S9 的命令与记录方式再跑一次卫生套件（先把主 checkout 与 `rotom-same` 都切到最新提交），在结果文件追加 S10 小节，更新同一账本条目。
+
 ## 4. 记录与交回
 
 1. 填写 [optimization-results-2026-11.md](optimization-results-2026-11.md) 的每一节；每个数字注明来源（命令、日期、`~/.rotom/loop/...` 目录名，路径写成 `~`）。
