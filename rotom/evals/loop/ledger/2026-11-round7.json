@@ -61,5 +61,18 @@
 		"evidence": "unmeasured",
 		"decision": "shipped",
 		"source": "docs/agent/optimization-loop.md#⑥-账本与节奏"
+	},
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-11-10-replay-isolated-worktree",
+		"date": "2026-11-10",
+		"title": "A replay that cannot publish, cannot see credentials and starts from the recorded branch",
+		"hypothesis": "Re-running a recorded failure by hand is what the loop never did, because a naive replay would run a real model with real tools inside a live project and could publish, read a token from the environment, or start from the wrong code.",
+		"change": "eval",
+		"measurement": "No model calls for the tooling itself; one real replay to prove the pipeline. `loop replay --incident <sessionId:entryId>` cuts the session at the failing user message (header kept, that message is the only new turn), pins the last commit at or before the session start (`rev-list -1 --before`), and refuses when the cwd is not a git repository or that instant has no commit. Isolation: a `clone --shared` copy instead of a registered worktree, all remotes removed, tools limited to read/edit/bash, HOME and PI_CODING_AGENT_DIR inside the replay directory, the environment stripped of *_TOKEN/*_KEY/*_SECRET/NPM_*/GH_*/GITHUB_*/AWS_*/SSH_AUTH_SOCK, and a BASH_ENV shim that exits 97 and prints a refusal for git push, npm publish, gh, ssh, scp, rsync and curl/wget writes. 13 tests cover branch cutting and its refusal paths, the timepoint selection, the environment scrub, the shim rules and the shim running for real in bash. Artifacts only under ~/.rotom/loop/replay-<stamp>/, never in Git.",
+		"result": "One real replay, incident 01a1c36e:e2191f8b (user_correction in the trade-telemetry checkout, qoder/dfmodel): 49 earlier user turns replayed from commit f5b24c84, frozen product 0.1.27-main.50ccdc87, exit 0, 2,447 tool calls, no refusal, transcripts and the resulting session under the private replay directory, 4m35s. The 3-events-times-5-repeats admission run was NOT executed this round: at about five minutes per replay that is roughly 75 minutes of real sessions, and running it beside the round's own verification would contend for the same machine and provider. Admission stays unmeasured; the next step is the same command with --repeats 5 per event and a per-event deterministic check. Replay cases stay local-private: the ledger records only the mechanism, never the transcript, the case file or the session id.",
+		"evidence": "unmeasured",
+		"decision": "shipped",
+		"source": "docs/agent/optimization-loop.md"
 	}
 ]

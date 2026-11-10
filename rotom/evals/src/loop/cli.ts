@@ -2,14 +2,18 @@ import { existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { homedir } from "node:os";
 import { parseGateManifest, runGate } from "./gate.ts";
 import { appendGateHistory, gateHistoryRecords, parseGateHistory, poolGateHistory } from "./gate-history.ts";
 import { defaultLoopDir, defaultSessionsDir, harvest } from "./harvest-run.ts";
 import { defaultModelExperiment } from "./harvest-models.ts";
 import { parseLedgerDir } from "./ledger.ts";
 import { buildWeekly, parseWeeklyConfig, writeWeekly } from "./weekly.ts";
+import { replayIncident } from "./replay-run.ts";
+import { readdirSync } from "node:fs";
 
 const evalsRoot = resolve(import.meta.dirname, "../..");
+const homeDir = () => process.env.HOME ?? homedir();
 const repoRoot = resolve(evalsRoot, "../..");
 export const GATE_MANIFEST = join(evalsRoot, "loop", "gate.json");
 export const WEEKLY_CONFIG = join(evalsRoot, "loop", "weekly.json");
@@ -40,6 +44,16 @@ const USAGE = `Usage: npm run loop -- <command>
 
   ledger
       Validate every loop/ledger/<month>.json shard and print the experiment history.
+
+  replay --incident <sessionId:entryId> [--repeats N] [--frozen DIR] [--current DIR]
+         [--model provider/model] [--out DIR]
+      Re-run one recorded failure against a frozen product in an isolated copy of the
+      session's own project: a worktree at the last commit before the session, its
+      remotes removed, a scrubbed environment with its own HOME and a shell shim that
+      refuses pushes, publishes and remote writes. Artifacts only under
+      ~/.rotom/loop/replay-<stamp>/. The incident is read from the newest harvest.
+      Product and model default to the frozen release the incident ran and the model
+      that answered it; a replay never switches model.
 
   weekly [--sessions DIR] [--days N] [--out DIR]
       Harvest the last N days (default 28) and write ~/.rotom/loop/weekly-<date>/:
@@ -115,6 +129,46 @@ async function main(argv: string[]): Promise<number> {
 		console.log(`weekly: ${directory}/report.md`);
 		console.log(`experiment: ${report.experiment.state}; arms ${report.experiment.arms.map((arm) => `${arm.arm}=${arm.sessions}`).join(" ")}`);
 		for (const row of report.records) console.log(`record ${row.status.padEnd(12)} ${row.id}  turns=${row.turns} observed=${row.observedPer100 ?? "N/A"} baseline=${row.baselinePer100 ?? "N/A"}`);
+		return 0;
+	}
+	if (command === "replay") {
+		const { values } = parseArgs({
+			args: rest,
+			options: { incident: { type: "string" }, repeats: { type: "string" }, frozen: { type: "string" }, current: { type: "string" }, model: { type: "string" }, out: { type: "string" } },
+		});
+		if (!values.incident) throw new Error("replay needs --incident <sessionId:entryId>");
+		const [sessionId, entryId] = values.incident.split(":");
+		if (!sessionId || !entryId) throw new Error("--incident must look like <sessionId>:<entryId>");
+		const repeats = values.repeats === undefined ? 1 : Number(values.repeats);
+		if (!Number.isSafeInteger(repeats) || repeats < 1 || repeats > 10) throw new Error("--repeats must be an integer from 1 to 10");
+		const loopDir = defaultLoopDir();
+		const harvests = readdirSync(loopDir).filter((name) => name.startsWith("harvest-")).sort();
+		const newest = harvests.at(-1);
+		if (!newest) throw new Error(`no harvest artifact in ${loopDir}; run \`loop harvest\` first`);
+		const incidents = readFileSync(join(loopDir, newest, "incidents.jsonl"), "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line) as { kind: string; sessionId: string; sessionFile: string; entryId: string; timestamp: string; detail: Record<string, unknown> });
+		const incident = incidents.find((item) => item.sessionId === sessionId && item.entryId === entryId);
+		if (!incident) throw new Error(`no incident ${values.incident} in ${join(loopDir, newest)}`);
+		if (incident.kind !== "user_correction" && incident.kind !== "user_repeat") throw new Error(`incident ${values.incident} is ${incident.kind}; only user_correction and user_repeat are replayable`);
+		const modelText = values.model ?? String(incident.detail.model ?? "");
+		const [provider, model] = modelText.split("/");
+		if (!provider || !model) throw new Error("the incident records no model; pass --model provider/model");
+		const frozen = values.frozen ?? resolve(homeDir(), ".local/share/rotom/releases", "0.1.27-main.50ccdc87/node_modules/rotom");
+		const products = [{ label: "frozen", directory: frozen }];
+		if (values.current) products.push({ label: "current", directory: resolve(values.current) });
+		const outcome = await replayIncident({
+			incidentId: values.incident,
+			sessionFile: incident.sessionFile,
+			cwd: (JSON.parse(readFileSync(incident.sessionFile, "utf8").split("\n")[0] ?? "{}") as { cwd?: string }).cwd ?? "",
+			incidentTimestamp: incident.timestamp,
+			entryId: incident.entryId,
+			products,
+			repeats,
+			outRoot: values.out ?? loopDir,
+			agentSource: join(homeDir(), ".pi", "agent"),
+			model: { provider, model },
+		});
+		for (const run of outcome.runs) console.log(`${run.label} run ${run.repeat}: exit=${run.exitCode ?? "signal"} toolCalls=${run.toolCalls.length} refusals=${run.refusals.length}${run.failed ? " FAILED" : ""}`);
+		console.log(`replay: ${outcome.outDir}`);
 		return 0;
 	}
 	if (command === "gate") {

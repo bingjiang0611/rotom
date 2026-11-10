@@ -149,6 +149,10 @@ npm --prefix rotom/evals run loop -- gate --baseline /absolute/rotom-pre-fix/rot
 - **每次相关改动**：`gate`。
 - **每次发版**：`gate` + 记录当周介入率；Terminal-Bench `release-smoke` 接入 Linux 容器后加入发版检查（见 `rotom/evals/README.md`）。
 
+## ⑦ 回放（可选，需显式授权）
+
+`loop replay --incident <sessionId:entryId> [--repeats N]`：把一次记录在案的失败在隔离副本里重放——从事件会话自己的分支切口、固定到会话时间点之前的 commit、去掉全部 remote、清掉凭据环境、用 shell shim 拒绝外写，产物只落 `~/.rotom/loop/replay-*`。只在显式授权真实会话回放时执行，未授权就跳过整块。规则、产物与评判方式见 [回放](loop-replay.md)。
+
 ## 已退役
 
 2026-11-09 删除了基线从未失败的 suite：`session-identity`（6/6）、`task-closure` 与 `goal-scope`（配对基线 26/27）、`workflow-discipline`（mechanism C1/C2 各 3/3，其余为 conformance/harness），以及依赖它们的只读停止审查原型 `end-review`（误拦正确修复、无净收益）。代码只查 Git history，没有新的复现证据不重建。历史结论见 [收尾/目标 A/B](agent-behavior-ab-20261030.md) 与 [只读停止审查](agent-stopping-review-20261030.md)。
