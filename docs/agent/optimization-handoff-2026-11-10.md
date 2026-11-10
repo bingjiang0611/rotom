@@ -143,7 +143,7 @@ unset ROTOM_EVAL_BASELINE_PRODUCT ROTOM_EVAL_BASELINE_ENV
 ## 4. 记录与交回
 
 1. 填写 [optimization-results-2026-11.md](optimization-results-2026-11.md) 的每一节；每个数字注明来源（命令、日期、`~/.rotom/loop/...` 目录名，路径写成 `~`）。
-2. 更新 `rotom/evals/loop/ledger.json` 中这些条目的 `measurement`/`result`/`evidence`/`decision`：`L-2026-11-09-coding-policy-sections`、`L-2026-11-09-compaction-serialization-head-tail`、`L-2026-11-09-subagent-surface-bounds`、`L-2026-11-09-compaction-continuation-cases`、`L-2026-11-09-post-compaction-harvest`、`L-2026-11-10-same-product-feature-arms`、`L-2026-11-10-subagent-ab-suite`。gate held 时三条机制条目可改为 `decision: shipped`（`evidence` 仍按实测，没有改善证据就保持 `unmeasured`）。`npm --prefix rotom/evals run loop -- ledger` 必须通过。
+2. 更新 `rotom/evals/loop/ledger/optimization-plan-2026-11-09.json`（本方案的账本分片）中这些条目的 `measurement`/`result`/`evidence`/`decision`：`L-2026-11-09-coding-policy-sections`、`L-2026-11-09-compaction-serialization-head-tail`、`L-2026-11-09-subagent-surface-bounds`、`L-2026-11-09-compaction-continuation-cases`、`L-2026-11-09-post-compaction-harvest`、`L-2026-11-10-same-product-feature-arms`、`L-2026-11-10-subagent-ab-suite`。gate held 时三条机制条目可改为 `decision: shipped`（`evidence` 仍按实测，没有改善证据就保持 `unmeasured`）。`npm --prefix rotom/evals run loop -- ledger` 必须通过。
 3. 提交前：`git diff --check`；`node scripts/check-staged-file-size.mjs`；`python3 scripts/audit-public.py --root .`（tree 扫描，不能有新增发现）。
 4. 按可读粒度提交（修复、gate 清单、结果记录分开），推送到 `claude/rotom-pi-features-adylp5`。提交信息结尾沿用仓库现有的 Co-Authored-By 约定。
 5. 结果文件顶部的“总览”表给出每步状态：`passed` / `failed`（附证据）/ `blocked`（附缺什么）/ `skipped`（附原因）。
