@@ -73,7 +73,7 @@ SSH 登录拿到的是普通会话，所以分工如下。
 
 - 虚拟机里有自己的 `git checkout`（`git clone` + `git checkout <冻结提交>`）。
 - `--expect-commit <sha>` 照常检查，脚本里的冻结校验不因为换了机器而放宽。
-- `--runs-dir` 指向虚拟机内的绝对路径（例如 `/Users/cutest/cu-v2-runs/<日期>-<短SHA>`），
+- `--runs-dir` 指向虚拟机内的绝对路径（例如 `~/cu-v2-runs/<日期>-<短SHA>`，传参前展开 `~`），
   存档先落在虚拟机里，事后用 `scp` 复制回宿主，再按需摘进 `docs/`。
 - 冻结提交的代码必须先推送，虚拟机只按 SHA 取，不从宿主拷工作区。
 
