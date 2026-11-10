@@ -127,6 +127,7 @@
     "extensions/qoder/oauth.mjs",
     "extensions/qoder/refresh-guard.mjs",
     "extensions/qoder/messages.mjs",
+    "extensions/qoder/model-catalog.mjs",
     "extensions/qoder/provider.mjs",
     "extensions/qoder/session-policy.mjs",
     "extensions/qoder/transport.mjs",
