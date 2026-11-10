@@ -76,7 +76,7 @@ gate 输出目录（`~/.rotom/loop/gate-…`）：
 
 ## S8 Reducer 开/关（P1-5）
 
-用户是否同意 openai-codex 花费：
+openai-codex 花费：用户 2026-11-10 已授权。本机 openai-codex 登录状态：
 
 | 套件 | Reducer 开 通过 | 关 通过 | 是否触发 Reducer | 总 token 差（含 Reducer） | 耗时差 |
 |---|---|---|---|---|---|

@@ -8,7 +8,7 @@
 
 - 只在分支 `claude/rotom-pi-features-adylp5` 上提交和推送；**不合入 `main`、不发布 npm、不改动或覆盖正在使用的 rotom 安装**（`~/.local/...` 下的安装与存活会话都不碰）。
 - 评测只用本仓库 checkout 与 `git worktree`，不用当前在用的 rotom 命令跑评测。
-- 付费范围：`qoder/dfmodel`。用户授权见 [optimization-loop.md](optimization-loop.md) 的 gate 与回放授权（不设预算上限、只发脱敏 fixture 与产品提示），以及用户 2026-11-10 把本机验证交给你的决定。**P1-5 会额外调用 `openai-codex/gpt-5.6-luna`（Reducer），不在已有授权内：开始前问用户一次，不同意就跳过并记为 blocked。**
+- 付费范围：`qoder/dfmodel`。用户授权见 [optimization-loop.md](optimization-loop.md) 的 gate 与回放授权（不设预算上限、只发脱敏 fixture 与产品提示），以及用户 2026-11-10 把本机验证交给你的决定。**P1-5 会额外调用 `openai-codex/gpt-5.6-luna`（Reducer）：用户已于 2026-11-10 授权这部分花费，只用于 S8 的配对运行，不必再问。**
 - harvest 读取本机会话：只在仓库里记录聚合数字，**绝不提交会话正文、摘录、绝对路径或 `~/.rotom/loop/` 下的文件**；提交前把出现的 home 路径换成 `~`。
 - 外部结果 unknown 时不重放；不为让结果好看改 judge、阈值或删反例（[optimization-loop.md](optimization-loop.md) ③④）。
 
@@ -126,9 +126,9 @@ ROTOM_EVAL_SUBAGENT_AB=1 ROTOM_EVAL_SUBAGENT_AB_REPEATS=3 ./bin/eval --provider 
 
 先跑 1 次确认两臂都产出分数、候选臂确实调用了 `subagent`（`subagentCalls>0`）；候选臂一次都没委派时如实记录（这本身是结论：模型在这类任务上不委派）。子任务用量在本次运行私有的 Subagent store（`$TMPDIR/rotom-subagent-ab-*/store`）里，可从其中的结果文件汇总 usage；拿不到就记 unknown。比较：正确率、父会话 usage、子任务 usage（如有）、耗时。
 
-### S8 P1-5 Reducer 开/关（需用户先同意 openai-codex 花费）
+### S8 P1-5 Reducer 开/关（openai-codex 花费已授权）
 
-同意后：
+本机需要已登录 `openai-codex`；未登录时停下请用户登录。
 
 ```sh
 cd rotom/evals
@@ -151,7 +151,7 @@ unset ROTOM_EVAL_BASELINE_PRODUCT ROTOM_EVAL_BASELINE_ENV
 ## 5. 必须停下问用户的情况
 
 - Qoder 未登录或 dfmodel 不可用；
-- P1-5 的 openai-codex 花费；
+- P1-5 需要的 `openai-codex` 未登录；
 - 需要改产品默认行为、删规则或功能（P2 范围）；
 - gate `regressed` 且确认由本分支引起、但修复需要改变方案里已定的设计。
 
