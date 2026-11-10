@@ -71,6 +71,8 @@ beforeEach(() => {
 		resolve("scripts/hook-identity.mjs"),
 		join(cwd, "scripts/hook-identity.mjs"),
 	);
+	// .githooks/commit-msg runs this; without it every real commit in the fixture fails.
+	copyFileSync(resolve("scripts/hook-ledger.mjs"), join(cwd, "scripts/hook-ledger.mjs"));
 });
 
 afterEach(() => rmSync(directory, { recursive: true, force: true }));

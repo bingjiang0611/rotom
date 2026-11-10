@@ -1,0 +1,15 @@
+[
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-09-08-handoff-guidance",
+		"date": "2026-09-08",
+		"title": "Maka 2/3/4: ownership fencing + evidence-linked handoff guidance",
+		"hypothesis": "Unified handoff/summary guidance plus Browser/Subagent ownership fencing improves multi-step task success.",
+		"change": "prompt",
+		"measurement": "Fixed micro-eval, 8 cases, three strict full-pass rounds, baseline vs candidate.",
+		"result": "5/8→4/8, 4/8→5/8, 5/8→4/8 (direction unstable); total tokens +21.72%, est. cost +21.65%. Fencing verified locally.",
+		"evidence": "inconclusive",
+		"decision": "shipped",
+		"source": "docs/agent/maka-234-report.md"
+	}
+]

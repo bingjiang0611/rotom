@@ -1,7 +1,9 @@
 /**
- * Experiment ledger: a JSON array with one entry per optimization attempt, so
- * the loop's history is queryable instead of scattered across narrative
- * reports. (Not JSONL: the public audit treats tracked .jsonl as session data.)
+ * Experiment ledger: one JSON array per month under `loop/ledger/`, with one
+ * entry per optimization attempt, so the loop's history is queryable instead of
+ * scattered across narrative reports. (Not JSONL: the public audit treats
+ * tracked .jsonl as session data.) Shards keep each file small enough for the
+ * staged-file size hook without abbreviating what an entry records.
  */
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -33,6 +35,14 @@ export const PROMPT_RENT_SINCE = "2026-11-09";
 
 const ID = /^L-\d{4}-\d{2}-\d{2}-[a-z0-9-]+$/u;
 const DATE = /^\d{4}-\d{2}-\d{2}$/u;
+// `2026-11.json`, or `2026-11-<series>.json` when one month outgrows the staged-file budget.
+const SHARD = /^(\d{4}-\d{2})(?:-[a-z][a-z0-9-]*)?\.json$/u;
+
+/** A shard file name is the month its entries must fall in. */
+export function shardFile(month: string): string {
+	if (!/^\d{4}-\d{2}$/u.test(month)) throw new Error(`ledger: month must look like YYYY-MM, got ${month}`);
+	return `${month}.json`;
+}
 
 export function parseLedger(text: string, repoRoot?: string): LedgerEntry[] {
 	let parsed: unknown;
@@ -69,32 +79,31 @@ export function parseLedger(text: string, repoRoot?: string): LedgerEntry[] {
 }
 
 /**
- * The whole ledger: `ledger.json` plus every `ledger/*.json` shard, one shard per
- * experiment series, so no file outgrows the staged-file budget. Each file is
- * validated on its own; ids are unique across files; entries come back in date
- * order (stable, so same-day entries keep their file order).
+ * Validate every shard and return the entries in date order. A duplicate id
+ * across two shards is rejected here, because each shard only guards itself.
  */
-export function readLedger(loopDir: string, repoRoot?: string): LedgerEntry[] {
-	const files = [join(loopDir, "ledger.json")];
-	const shardDir = join(loopDir, "ledger");
-	if (existsSync(shardDir)) {
-		for (const name of readdirSync(shardDir).filter((name) => name.endsWith(".json")).sort()) files.push(join(shardDir, name));
-	}
+export function parseLedgerDir(directory: string, repoRoot?: string): LedgerEntry[] {
+	const files = readdirSync(directory).filter((name) => name.endsWith(".json")).sort();
+	// A JSON file the shard rule does not name would otherwise be skipped without a word.
+	const stray = files.find((name) => !SHARD.test(name));
+	if (stray) throw new Error(`ledger: ${stray} is not named YYYY-MM.json or YYYY-MM-<series>.json`);
+	const shards = files;
+	if (shards.length === 0) throw new Error(`ledger: no shards in ${directory}`);
 	const entries: LedgerEntry[] = [];
-	const ids = new Map<string, string>();
-	for (const file of files) {
-		let parsed: LedgerEntry[];
-		try {
-			parsed = parseLedger(readFileSync(file, "utf8"), repoRoot);
-		} catch (error) {
-			throw new Error(`${file}: ${(error as Error).message}`);
-		}
+	const seen = new Map<string, string>();
+	for (const shard of shards) {
+		const month = SHARD.exec(shard)![1];
+		const parsed = parseLedger(readFileSync(join(directory, shard), "utf8"), repoRoot);
 		for (const entry of parsed) {
-			const previous = ids.get(entry.id);
-			if (previous) throw new Error(`${file}: duplicate id ${entry.id} (also in ${previous})`);
-			ids.set(entry.id, file);
-			entries.push(entry);
+			// Duplicate first: one id in two shards is the more precise diagnosis, and a shard
+			// holding a foreign month would otherwise report the date rule instead.
+			const previous = seen.get(entry.id);
+			if (previous) throw new Error(`${shard}: duplicate id ${entry.id} (already in ${previous})`);
+			seen.set(entry.id, shard);
+			if (!entry.date.startsWith(`${month}-`)) throw new Error(`${shard}: ${entry.id} is dated ${entry.date}`);
 		}
+		entries.push(...parsed);
 	}
+	// A month split across a series shard is read file by file, so restore date order (stable).
 	return entries.map((entry, index) => ({ entry, index })).sort((left, right) => left.entry.date.localeCompare(right.entry.date) || left.index - right.index).map(({ entry }) => entry);
 }

@@ -1,15 +1,20 @@
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { continuationCaseFor, continuationCases, scoreContinuationCase, unobservedReads } from "../src/continuation-cases.ts";
 import { appendGateHistory, auditSmokeScores, gateHistoryRecords, smokeScoresFromResults, gateVerdict, judgeGateCase, parseGateHistory, parseGateManifest, poolGateHistory, type GateCase, type GateHistoryRecord } from "../src/loop/gate.ts";
-import { parseLedger, PROMPT_RENT_SINCE, readLedger } from "../src/loop/ledger.ts";
+import { parseLedger, parseLedgerDir, PROMPT_RENT_SINCE, shardFile } from "../src/loop/ledger.ts";
 
 const evalsRoot = resolve(import.meta.dirname, "..");
 const repoRoot = resolve(evalsRoot, "../..");
 const manifestText = readFileSync(resolve(evalsRoot, "loop/gate.json"), "utf8");
-const loopDir = resolve(evalsRoot, "loop");
+const ledgerDir = resolve(evalsRoot, "loop/ledger");
+const ledgerText = `[${readdirSync(ledgerDir)
+	.filter((name) => name.endsWith(".json"))
+	.sort()
+	.map((name) => readFileSync(join(ledgerDir, name), "utf8").trim().replace(/^\[/u, "").replace(/\]$/u, ""))
+	.join(",")}]`;
 
 const item: GateCase = {
 	suite: "cases/continuation-regression.eval.ts",
@@ -29,7 +34,7 @@ describe("loop gate", () => {
 	it("checked-in manifest only names real mechanism cases admitted through the ledger", () => {
 		const manifest = parseGateManifest(manifestText);
 		expect(manifest.model).toEqual({ provider: "qoder", model: "dfmodel" });
-		const ledgerIds = new Set(readLedger(loopDir).map((entry) => entry.id));
+		const ledgerIds = new Set(parseLedger(ledgerText).map((entry) => entry.id));
 		for (const gateCase of manifest.cases) {
 			const definition = continuationCases.find((candidate) => candidate.id === gateCase.caseId);
 			expect(definition, gateCase.caseId).toBeDefined();
@@ -70,24 +75,55 @@ describe("loop gate", () => {
 
 describe("loop ledger", () => {
 	it("checked-in ledger is valid and every source exists", () => {
-		// Each file stays date-ordered on its own; the merged view is date-ordered too.
-		expect(parseLedger(readFileSync(resolve(loopDir, "ledger.json"), "utf8")).map((entry) => entry.date)).toEqual(
-			[...parseLedger(readFileSync(resolve(loopDir, "ledger.json"), "utf8")).map((entry) => entry.date)].sort(),
-		);
-		const entries = readLedger(loopDir, repoRoot);
-		expect(entries.length).toBeGreaterThanOrEqual(10);
+		expect(parseLedger(ledgerText, repoRoot).length).toBeGreaterThanOrEqual(10);
+		const entries = parseLedgerDir(ledgerDir, repoRoot);
 		expect(entries.map((entry) => entry.date)).toEqual([...entries.map((entry) => entry.date)].sort());
 	});
 
-	it("reads shards, rejects an id repeated across files and keeps same-day file order", () => {
-		const dir = mkdtempSync(join(tmpdir(), "rotom-ledger-shards-"));
-		const entry = (id: string, date: string) => ({ schema: "rotom-loop-ledger/v1", id, date, title: "t", hypothesis: "h", change: "eval", measurement: "m", result: "r", evidence: "unmeasured", decision: "open", source: "docs/agent/optimization-loop.md" });
-		writeFileSync(join(dir, "ledger.json"), JSON.stringify([entry("L-2026-11-10-main", "2026-11-10")]));
-		mkdirSync(join(dir, "ledger"));
-		writeFileSync(join(dir, "ledger", "series.json"), JSON.stringify([entry("L-2026-11-09-series", "2026-11-09"), entry("L-2026-11-10-series", "2026-11-10")]));
-		expect(readLedger(dir).map((item) => item.id)).toEqual(["L-2026-11-09-series", "L-2026-11-10-main", "L-2026-11-10-series"]);
-		writeFileSync(join(dir, "ledger", "dup.json"), JSON.stringify([entry("L-2026-11-10-main", "2026-11-10")]));
-		expect(() => readLedger(dir)).toThrow(/duplicate id L-2026-11-10-main/u);
+	it("validates every monthly shard, in month order, with ids unique across shards", () => {
+		const shards = readdirSync(ledgerDir).filter((name) => name.endsWith(".json")).sort();
+		expect(shards.length).toBeGreaterThanOrEqual(2);
+		const entries = parseLedgerDir(ledgerDir, repoRoot);
+		expect(entries.length).toBeGreaterThanOrEqual(20);
+		// A shard holds exactly the entries of the month its file name names.
+		for (const shard of shards) {
+			const month = shard.slice(0, "YYYY-MM".length);
+			for (const entry of parseLedger(readFileSync(join(ledgerDir, shard), "utf8"))) expect(entry.date.startsWith(`${month}-`)).toBe(true);
+		}
+		expect(new Set(entries.map((entry) => entry.id)).size).toBe(entries.length);
+	});
+
+	it("rejects a duplicate id that two different shards each accept on their own", () => {
+		const directory = mkdtempSync(join(tmpdir(), "loop-ledger-shards-"));
+		const entry = (id: string, date: string) => ({
+			schema: "rotom-loop-ledger/v1", id, date, title: "t", hypothesis: "h", change: "eval", measurement: "m",
+			result: "r", evidence: "unmeasured", decision: "shipped", source: "docs/agent/optimization-loop.md",
+		});
+		const write = (month: string, entries: unknown[]) => {
+			mkdirSync(directory, { recursive: true });
+			writeFileSync(join(directory, shardFile(month)), JSON.stringify(entries));
+		};
+		write("2026-09", [entry("L-2026-09-01-a", "2026-09-01")]);
+		write("2026-10", [entry("L-2026-09-01-a", "2026-09-01")]);
+		expect(() => parseLedgerDir(directory)).toThrow(/duplicate id/u);
+		write("2026-10", [entry("L-2026-09-02-b", "2026-09-02")]);
+		expect(() => parseLedgerDir(directory)).toThrow(/is dated/u);
+	});
+
+	it("reads a named series shard inside its month, in date order, and refuses stray files", () => {
+		const directory = mkdtempSync(join(tmpdir(), "loop-ledger-series-"));
+		const entry = (id: string, date: string) => ({
+			schema: "rotom-loop-ledger/v1", id, date, title: "t", hypothesis: "h", change: "eval", measurement: "m",
+			result: "r", evidence: "unmeasured", decision: "open", source: "docs/agent/optimization-loop.md",
+		});
+		writeFileSync(join(directory, "2026-11.json"), JSON.stringify([entry("L-2026-11-01-a", "2026-11-01"), entry("L-2026-11-12-c", "2026-11-12")]));
+		writeFileSync(join(directory, "2026-11-plan.json"), JSON.stringify([entry("L-2026-11-09-b", "2026-11-09")]));
+		expect(parseLedgerDir(directory).map((item) => item.id)).toEqual(["L-2026-11-01-a", "L-2026-11-09-b", "L-2026-11-12-c"]);
+		writeFileSync(join(directory, "2026-11-plan.json"), JSON.stringify([entry("L-2026-10-09-b", "2026-10-09")]));
+		expect(() => parseLedgerDir(directory)).toThrow(/is dated/u);
+		writeFileSync(join(directory, "2026-11-plan.json"), "[]");
+		writeFileSync(join(directory, "plan.json"), "[]");
+		expect(() => parseLedgerDir(directory)).toThrow(/plan\.json is not named/u);
 	});
 
 	it("requires measured improvement for prompt changes shipped under the new rule", () => {

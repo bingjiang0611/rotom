@@ -4,12 +4,12 @@ import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { appendGateHistory, gateHistoryRecords, parseGateHistory, parseGateManifest, poolGateHistory, runGate } from "./gate.ts";
 import { defaultLoopDir, defaultSessionsDir, harvest } from "./harvest-run.ts";
-import { readLedger } from "./ledger.ts";
+import { parseLedgerDir } from "./ledger.ts";
 
 const evalsRoot = resolve(import.meta.dirname, "../..");
 const repoRoot = resolve(evalsRoot, "../..");
 export const GATE_MANIFEST = join(evalsRoot, "loop", "gate.json");
-export const LOOP_DIR = join(evalsRoot, "loop");
+export const LEDGER = join(evalsRoot, "loop", "ledger");
 
 const USAGE = `Usage: npm run loop -- <command>
 
@@ -32,7 +32,7 @@ const USAGE = `Usage: npm run loop -- <command>
       each case since ISO, then judge the pooled pass and fail counts.
 
   ledger
-      Validate loop/ledger.json plus loop/ledger/*.json and print the experiment history.
+      Validate every loop/ledger/<month>.json shard and print the experiment history.
 `;
 
 function stamp(): string {
@@ -69,7 +69,7 @@ async function main(argv: string[]): Promise<number> {
 			since,
 			excerpts: !values["no-excerpts"],
 		});
-		console.log(`sessions=${result.sessions.length} incidents=${result.incidents.length} skipped=${result.skipped}`);
+		console.log(`sessions=${result.sessions.length} incidents=${result.incidents.length} skipped=${Object.entries(result.skipped).map(([reason, count]) => `${reason}:${count}`).join(",") || "0"}`);
 		console.log(`report: ${join(result.outDir, "report.md")}`);
 		return 0;
 	}
@@ -140,7 +140,7 @@ async function main(argv: string[]): Promise<number> {
 		return pooled.some((group) => group.verdict === "regressed") ? 1 : pooled.some((group) => group.verdict === "unknown") ? 2 : 0;
 	}
 	if (command === "ledger") {
-		const entries = readLedger(LOOP_DIR, repoRoot);
+		const entries = parseLedgerDir(LEDGER, repoRoot);
 		for (const entry of entries) console.log(`${entry.date}  ${entry.change.padEnd(9)} ${entry.evidence.padEnd(15)} ${entry.decision.padEnd(8)} ${entry.title}`);
 		console.log(`${entries.length} entries; ${entries.filter((entry) => entry.evidence === "improved").length} with measured improvement`);
 		return 0;

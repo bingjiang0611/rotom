@@ -1,0 +1,80 @@
+[
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-10-20-context-layers",
+		"date": "2026-10-20",
+		"title": "Context Layers (user-requested, default on)",
+		"hypothesis": "Model-driven layered summaries with recall keep long sessions working at lower cost.",
+		"change": "mechanism",
+		"measurement": "Qoder dfmodel: recall fixtures, two image round-trips, one paired 32-turn long session.",
+		"result": "Recall PASS; fixture credits 1.502× control; long session credits +30.2% vs native compaction.",
+		"evidence": "regressed",
+		"decision": "shipped",
+		"source": "docs/agent/context-layers-history.md"
+	},
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-10-30-bash-compact-output",
+		"date": "2026-10-30",
+		"title": "Tool hygiene: bounded bash output and edit repair hints",
+		"hypothesis": "Compact bash output and edit repair hints reduce tokens without losing evidence.",
+		"change": "mechanism",
+		"measurement": "tool-efficiency eval, 5 natural tasks × 2 arms × 2 reps plus 6 targeted candidate runs.",
+		"result": "Correctness passed in both arms; candidate did not reduce overall output or model tokens.",
+		"evidence": "no-difference",
+		"decision": "shipped",
+		"source": "docs/agent/tool-efficiency.md"
+	},
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-10-30-closure-goal-prompts",
+		"date": "2026-10-30",
+		"title": "Task-closure / goal-scope runtime prompt candidates",
+		"hypothesis": "Extra coding-policy text stops weakened acceptance, premature handoff and goal drift.",
+		"change": "prompt",
+		"measurement": "qoder/dfmodel high, 6 synthetic cases, 8 batches, 5 prompt variants, 200 samples.",
+		"result": "Final batch 27/30 vs 27/30; complete pairs baseline 26/27, candidate 25/27 (1 win, 2 losses). Baseline already near ceiling.",
+		"evidence": "no-difference",
+		"decision": "reverted",
+		"source": "docs/agent/agent-behavior-ab-20261030.md"
+	},
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-10-30-compaction-offload",
+		"date": "2026-10-30",
+		"title": "Compaction Offload: swap old tool results for recall pointers before summarizing",
+		"hypothesis": "Offloading medium tool results defers native compaction and cuts compaction wait without hurting correctness.",
+		"change": "mechanism",
+		"measurement": "openai-codex/gpt-5.6-luna low, two replays, 9 valid pairs, 64K threshold.",
+		"result": "Correct 6/6 and 3/3 both arms; native compactions 12→3 and 6→3; mean compaction wait 9.2 s→3.0 s and 9.4 s→5.6 s.",
+		"evidence": "improved",
+		"decision": "shipped",
+		"source": "docs/agent/compaction-offload.md"
+	},
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-10-30-compaction-summary-rewrite",
+		"date": "2026-10-30",
+		"title": "Compaction summary update rewrites current state instead of keeping everything",
+		"hypothesis": "A rewrite-style update prompt yields shorter summaries with no loss of required facts.",
+		"change": "prompt",
+		"measurement": "Two real long-session compactions per model, two models, pre-registered fact spot-checks.",
+		"result": "Output −29.7%, observed time −29.4% on the first pair; spot-checks found no candidate-only loss; 2 cases per model.",
+		"evidence": "inconclusive",
+		"decision": "shipped",
+		"source": "docs/agent/compaction-update-evaluation.md"
+	},
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-10-30-stopping-review",
+		"date": "2026-10-30",
+		"title": "Read-only stopping review before ending a turn",
+		"hypothesis": "A read-only reviewer catches unfinished work before the agent stops.",
+		"change": "mechanism",
+		"measurement": "24 fixed-state calibration samples; 24 live shadow samples on task-closure/goal-scope.",
+		"result": "Calibration 24/24; live 11/12 vs 11/12 with one false block of a correct fix; ~21 s added per review.",
+		"evidence": "no-difference",
+		"decision": "kept-off",
+		"source": "docs/agent/agent-stopping-review-20261030.md"
+	}
+]

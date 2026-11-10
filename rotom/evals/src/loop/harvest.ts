@@ -9,17 +9,18 @@
 
 import { providerDetail, traceErrorSpans } from "./harvest-provider.ts";
 import { clip, humanText, isBareContinue, isCorrection, isRecord, normalized, similarity, textOf } from "./harvest-text.ts";
-import { isControlEntry, interruptActivity, interruptFollowUp, toolErrorCategory, type InterruptActivity, type InterruptCause, type InterruptFollowUp } from "./harvest-signals.ts";
+import { interruptActivity, interruptFollowUp, interruptTriage, resolveInterruptCauses, resolveStartedAt, runtimeVersionOf, releaseOf, toolErrorCategory, type StartSource, type InterruptActivity, type InterruptCause, type InterruptFollowUp, type InterruptTriage } from "./harvest-signals.ts";
 import { messageOf, parseLines, paths, type Block, type Entry, type Message } from "./harvest-tree.ts";
 
 // Re-exported so the detectors, the report and the tests keep one import surface.
 export { isBareContinue, isCorrection, similarity } from "./harvest-text.ts";
-export { TOOL_ERROR_CATEGORIES, interruptActivity, interruptFollowUp, toolErrorCategory, type InterruptActivity, type InterruptFollowUp, type ToolErrorCategory } from "./harvest-signals.ts";
+export { releaseOf, resolveStartedAt } from "./harvest-signals.ts";
+export { TOOL_ERROR_CATEGORIES, interruptActivity, interruptFollowUp, interruptTriage, runtimeVersionOf, toolErrorCategory, type InterruptActivity, type InterruptFollowUp, type InterruptTriage, type ToolErrorCategory } from "./harvest-signals.ts";
 
 export const HARVEST_SCHEMA = "rotom-loop-harvest/v1";
+import { INTERVENTION_KINDS, compactionFailuresFromTrace, northStar, type InterventionKind } from "./harvest-north-star.ts";
+export { INTERVENTION_KINDS, type InterventionKind } from "./harvest-north-star.ts";
 
-/** Human-side signals: the user had to step in. These form the north-star metric. */
-export const INTERVENTION_KINDS = ["user_correction", "user_repeat", "bare_continue", "user_interrupt"] as const;
 /** Agent-side signals: something went wrong without (yet) a user reaction. */
 export const FAILURE_KINDS = [
 	"tool_error_streak",
@@ -29,7 +30,6 @@ export const FAILURE_KINDS = [
 	"goal_pause",
 	"compaction_failed",
 ] as const;
-export type InterventionKind = (typeof INTERVENTION_KINDS)[number];
 export type FailureKind = (typeof FAILURE_KINDS)[number];
 export type IncidentKind = InterventionKind | FailureKind;
 
@@ -46,7 +46,6 @@ export type Incident = {
 };
 
 /** Where `startedAt` came from, so a reconstructed date is never mistaken for a measured one. */
-export type StartSource = "header" | "first-entry" | "file-mtime" | "unknown";
 
 export type SessionSummary = {
 	sessionId: string;
@@ -66,6 +65,16 @@ export type SessionSummary = {
 	interventions: number;
 	/** Interrupts the structure proved non-human (injected message, compaction) and therefore excluded. */
 	interruptExcluded: number;
+	/** Interventions per model, so a rate can be read per model instead of per week. */
+	interventionModels: Record<string, number>;
+	/** North-star v2 numerator: corrections, repeats, bare continues and quality interrupts. */
+	northStarV2: number;
+	/** The v2 numerator per model, so a rate can be read per model rather than per week. */
+	v2Models: Record<string, number>;
+	/** Interrupts by triage class, counted the way v1 counts them (excluded ones are separate). */
+	interruptTriage: Record<InterruptTriage, number>;
+	/** Product runtime that served this session, when its trace recorded one. */
+	runtimeVersion?: string;
 	failures: number;
 	incidentCounts: Partial<Record<IncidentKind, number>>;
 };
@@ -90,23 +99,6 @@ export function createHarvestShared(): HarvestShared {
 	return { incidentKeys: new Set<string>(), userEntries: new Set<string>(), turnModels: new Map<string, string>() };
 }
 
-/** A timestamp is usable only if it parses and is not the 1970 epoch a broken clock writes. */
-function usableTimestamp(value: unknown): string | undefined {
-	if (typeof value !== "string" || !value) return undefined;
-	const time = Date.parse(value);
-	if (Number.isNaN(time)) return undefined;
-	return new Date(time).getUTCFullYear() < 2000 ? undefined : value;
-}
-
-export function releaseOf(lines: readonly string[]): string | undefined {
-	const pattern = /releases\/([0-9A-Za-z.-]+)\/node_modules/gu;
-	const counts = new Map<string, number>();
-	for (const line of lines) for (const match of line.matchAll(pattern)) counts.set(match[1], (counts.get(match[1]) ?? 0) + 1);
-	let best: string | undefined;
-	for (const [release, count] of counts) if (!best || count > (counts.get(best) ?? 0)) best = release;
-	return best;
-}
-
 /** Milliseconds from the entry that started this request to the abort, when the message carries none. */
 function elapsedSinceParent(parent: Entry | undefined, entry: Entry): number | undefined {
 	if (!parent) return undefined;
@@ -116,14 +108,9 @@ function elapsedSinceParent(parent: Entry | undefined, entry: Entry): number | u
 	return to - from;
 }
 
-export function resolveStartedAt(headerTimestamp: unknown, firstEntryTimestamp: unknown, fileMtimeMs?: number): { startedAt: string; startedAtSource: StartSource } {
-	const header = usableTimestamp(headerTimestamp);
-	if (header) return { startedAt: header, startedAtSource: "header" };
-	const first = usableTimestamp(firstEntryTimestamp);
-	if (first) return { startedAt: first, startedAtSource: "first-entry" };
-	const mtime = fileMtimeMs !== undefined && Number.isFinite(fileMtimeMs) ? new Date(fileMtimeMs).toISOString() : undefined;
-	if (mtime && usableTimestamp(mtime)) return { startedAt: mtime, startedAtSource: "file-mtime" };
-	return { startedAt: "", startedAtSource: "unknown" };
+/** Detail fragment naming the model in force; an unknown model stays absent rather than "unknown". */
+function modelKey(model: string | undefined): { model?: string } {
+	return model ? { model } : {};
 }
 
 export function analyzeSession(lines: readonly string[], options: AnalyzeOptions): { session: SessionSummary; incidents: Incident[] } | undefined {
@@ -152,6 +139,8 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 
 	for (const path of paths(entries)) {
 		const aborts: { index: number; incident: Incident; requestText: string }[] = [];
+		// The model in force for the message being read, so an intervention can name it.
+		let currentModel: string | undefined;
 		let pendingUser: { id: string; text: string } | undefined;
 		let lastUserText = "";
 		let lastAssistant: { entry: Entry; message: Message } | undefined;
@@ -165,6 +154,11 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 		const providerSpans = traceErrorSpans(options.traceLines);
 
 		for (const [index, entry] of path.entries()) {
+			if (entry.type === "model_change") {
+				// A model switch writes provider/modelId, not a message; it resets the attribution.
+				if (typeof entry.provider === "string" && typeof entry.modelId === "string") currentModel = `${entry.provider}/${entry.modelId}`;
+				continue;
+			}
 			if (entry.type === "custom" && entry.customType === "goal-state" && isRecord(entry.data)) {
 				const goal = isRecord(entry.data.goal) ? entry.data.goal : undefined;
 				const reason = goal && goal.status === "paused" && typeof goal.stopReason === "string" ? goal.stopReason : undefined;
@@ -189,10 +183,11 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 				if (isNewTurn) pendingUser = { id: entry.id, text };
 				const previousAssistantText = lastAssistant ? textOf(lastAssistant.message.content) : "";
 				const excerpt = { user: clip(text), assistant: previousAssistantText ? clip(previousAssistantText, true) : undefined };
+				const modelDetail = modelKey(currentModel);
 				if (lastAssistant && isBareContinue(text) && lastAssistant.message.stopReason === "stop") {
-					add({ kind: "bare_continue", entryId: entry.id, timestamp: entry.timestamp, detail: {}, ...withExcerpt(excerpt) });
+					add({ kind: "bare_continue", entryId: entry.id, timestamp: entry.timestamp, detail: { ...modelDetail }, ...withExcerpt(excerpt) });
 				} else if (lastAssistant && isCorrection(text)) {
-					add({ kind: "user_correction", entryId: entry.id, timestamp: entry.timestamp, detail: {}, ...withExcerpt(excerpt) });
+					add({ kind: "user_correction", entryId: entry.id, timestamp: entry.timestamp, detail: { ...modelDetail }, ...withExcerpt(excerpt) });
 				}
 				if (normalized(text).length >= 12) {
 					const repeated = recentUsers.find((previous) => similarity(previous.text, text) >= 0.8);
@@ -203,7 +198,7 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 							kind: "user_repeat",
 							entryId: entry.id,
 							timestamp: entry.timestamp,
-							detail: { repeatsEntry: repeated.entry.id },
+							detail: { repeatsEntry: repeated.entry.id, ...modelDetail },
 							...withExcerpt(excerpt),
 						});
 					}
@@ -219,7 +214,10 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 			if (message.role === "assistant") {
 				assistantEntries.add(entry.id);
 				lastAssistant = { entry, message };
-				if (typeof message.provider === "string" && typeof message.model === "string") models.add(`${message.provider}/${message.model}`);
+				if (typeof message.provider === "string" && typeof message.model === "string") {
+					models.add(`${message.provider}/${message.model}`);
+					currentModel = `${message.provider}/${message.model}`;
+				}
 				// The first assistant message after a user turn is the model that answered it.
 				if (pendingUser && typeof message.provider === "string" && typeof message.model === "string") {
 					if (!shared.turnModels.has(pendingUser.id)) shared.turnModels.set(pendingUser.id, `${message.provider}/${message.model}`);
@@ -249,11 +247,12 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 					const parent = index > 0 ? path[index - 1] : byId.get(entry.parentId ?? "");
 					const activity = interruptActivity(message, parent);
 					const elapsed = typeof message.durationMs === "number" && Number.isFinite(message.durationMs) ? message.durationMs : elapsedSinceParent(parent, entry);
+					const waited = elapsed === undefined ? undefined : Math.max(0, Math.round(elapsed));
 					add({
 						kind: "user_interrupt",
 						entryId: entry.id,
 						timestamp: entry.timestamp,
-						detail: { ...activity, ...(elapsed === undefined ? {} : { elapsedMs: Math.max(0, Math.round(elapsed)) }), cause: "unknown", nextUser: "none" },
+						detail: { ...activity, ...(waited === undefined ? {} : { elapsedMs: waited }), triage: interruptTriage(activity.activity, waited), ...modelKey(currentModel), cause: "unknown", nextUser: "none" },
 					});
 					const created = incidents.get(`user_interrupt:${entry.id}`);
 					if (created) aborts.push({ index, incident: created, requestText: lastUserText });
@@ -309,46 +308,12 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 			}
 		}
 
-		// Resolve each abort against what the session did next: that is the only deterministic
-		// evidence of whether a human stopped it or the session moved on by itself.
-		for (const abort of aborts) {
-			if (abort.incident.detail.cause !== "unknown") continue;
-			let cause: InterruptCause = "no-following-turn";
-			let followUp: InterruptFollowUp = "none";
-			for (let index = abort.index + 1; index < path.length; index++) {
-				const next = path[index];
-				if (isControlEntry(next)) continue;
-				if (next.type === "compaction") { cause = "compaction"; break; }
-				if (next.type === "custom_message") { cause = "injected"; followUp = "injected"; break; }
-				const nextMessage = messageOf(next);
-				if (nextMessage?.role === "user") {
-					const text = humanText(textOf(nextMessage.content));
-					if (text) { cause = "human"; followUp = interruptFollowUp(abort.requestText, text); } else { cause = "injected"; followUp = "injected"; }
-					break;
-				}
-				cause = nextMessage?.role === "system" ? "system" : "unknown";
-				break;
-			}
-			abort.incident.detail.cause = cause;
-			abort.incident.detail.nextUser = followUp;
-		}
+		// Resolved after the walk, because the answer is what the session did *next*.
+		resolveInterruptCauses(path, aborts.map((abort) => ({ index: abort.index, requestText: abort.requestText, detail: abort.incident.detail })));
 	}
 
-	for (const line of options.traceLines ?? []) {
-		let record: unknown;
-		try {
-			record = JSON.parse(line);
-		} catch {
-			continue;
-		}
-		if (isRecord(record) && record.kind === "span_end" && record.name === "pi.session.compaction" && record.status === "error") {
-			add({
-				kind: "compaction_failed",
-				entryId: typeof record.spanId === "string" ? `trace:${record.spanId}` : "trace",
-				timestamp: typeof record.timestamp === "string" ? record.timestamp : String(header.timestamp ?? ""),
-				detail: {},
-			});
-		}
+	for (const failure of compactionFailuresFromTrace(options.traceLines ?? [], String(header.timestamp ?? ""))) {
+		add({ kind: failure.kind, entryId: failure.entryId, timestamp: failure.timestamp, detail: failure.detail });
 	}
 
 	const list = [...incidents.values()].sort((left, right) => left.timestamp.localeCompare(right.timestamp));
@@ -361,12 +326,10 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 	}
 	const started = resolveStartedAt(header.timestamp, entries[0]?.timestamp, options.fileMtimeMs);
 	const release = releaseOf(lines);
-	// An injected message or a compaction moved the session on by itself; only the rest are
-	// interrupts a person is known to have caused.
-	const interruptList = list.filter((incident) => incident.kind === "user_interrupt");
-	const excluded = interruptList.filter((incident) => incident.detail.cause === "injected" || incident.detail.cause === "compaction").length;
-	const interventions = intervenedUserEntries.size + interruptList.length - excluded;
+	const runtimeVersion = runtimeVersionOf(options.traceLines);
+	const star = northStar(list, intervenedUserEntries.size);
 	const failures = FAILURE_KINDS.reduce((sum, kind) => sum + (incidentCounts[kind] ?? 0), 0);
+
 	return {
 		session: {
 			sessionId,
@@ -381,8 +344,13 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 			assistantMessages: assistantEntries.size,
 			toolCalls: toolCallIds.size,
 			toolErrors: toolErrorIds.size,
-			interventions,
-			interruptExcluded: excluded,
+			interventions: star.interventions,
+			interruptExcluded: star.interruptExcluded,
+			interventionModels: star.interventionModels,
+			northStarV2: star.northStarV2,
+			v2Models: star.v2Models,
+			interruptTriage: star.interruptTriage,
+			...(runtimeVersion ? { runtimeVersion } : {}),
 			failures,
 			incidentCounts,
 		},

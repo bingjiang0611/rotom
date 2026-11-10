@@ -1,15 +1,15 @@
 export const VERIFIED_PI_PACKAGE = "@earendil-works/pi-coding-agent";
-export const DISTRIBUTION_PI_VERSION = "1.4.0-rotom.3";
-export const DISTRIBUTION_PI_BUILD_SHA256 = "2a3da96bb771dbf6cb42a7e1ca50cc580b95bfadc556e4bd0b691f1b73a43d72";
+export const DISTRIBUTION_PI_VERSION = "1.4.0-rotom.4";
+export const DISTRIBUTION_PI_BUILD_SHA256 = "c219ef0ad706eedbc1529fef7bca26fc8b85a6861c77886ec7c625a4c2ea1911";
 export const MINIMUM_NODE_VERSION = "24.0.0";
 
 export const VERIFIED_THIRD_PARTY_PACKAGES = {
 	"@injaneity/pi-computer-use": { version: "0.5.1-rotom.3", integrity: "sha512-ajoDLEVK85uW+gkpSd6feVrv+uw4foxn4web8WUn5fVkOcYe62T6IJwjroyMj4lYEPJGmI1u2dk3wcQoBREvLw==", archive: "vendor/injaneity-pi-computer-use-0.5.1-rotom.3.tgz" },
-	"@juicesharp/rpiv-ask-user-question": { version: "2.6.2", integrity: "sha512-DS9yZHcaPr+/nf0x2CCfiXBod/1aWjGyakGM3lZAObuGDhYI0nFRE5gxTcCOfQug6JtJXjt1GlzyX8Pljefdzg==" },
+	"@juicesharp/rpiv-ask-user-question": { version: "2.15.0", integrity: "sha512-Gm6de5IZF52BaSeh9dnDqJBn821Z5XfJkCmhkCmqTzvNv3SCpSv1mA4Gj5VBcfrSe+xTtWSVQzJwIqJFQHH3Lg==" },
 	"pi-subagents": { version: "0.52.1-rotom.15", integrity: "sha512-44hMxgbrF7zFfJMjZJCsFuR9HtoSFjyqiDjK7mB8Sz1ci4Dlb9kT7YJyyo/QvnFVYFYREuzvGHkRgHj6Ndrstg==", archive: "vendor/pi-subagents-0.52.1-rotom.15.tgz" },
 	"@narumitw/pi-goal": { version: "0.54.4-rotom.11", integrity: "sha512-lq0kDQwbZgsFSTw2FHlV3/LY5CgMr5koQoZremJhxuhcaHmxcyNmLAVxE/LenQPDBZGN0O1V+9u44Bx3TN6J3Q==", archive: "vendor/narumitw-pi-goal-0.54.4-rotom.11.tgz" },
-	"pi-context-view": { version: "0.7.1", integrity: "sha512-74bg+Tb5SOVdjeUSW70I/yieDtAKcNeEETPj5zU3UFWlYnE3NCjGgA/fLCi6vsO9vmwbRcFmCINJBaoksxH1aw==" },
-	"sol-pi": { version: "0.1.0-rotom.6", integrity: "sha512-Zg+2NTOEsvOdgI3ANpUXiuvYe0jJ1F4F93YXd3y56d4UQj6Q8p9pSQ+Cf3x/qv2ecaEai7UyQTEQ1XAjVHMvjg==", archive: "vendor/sol-pi-0.1.0-rotom.6.tgz" },
+	"pi-context-view": { version: "0.8.3", integrity: "sha512-gkeblBXXwz0uxhCSWa4RrMU64E3TYHr8vSyM10wcIkOAKaL8zoO6ob4bE9s+KjFfNVZ7WcPClSDnOOo2BjyhUw==" },
+	"sol-pi": { version: "0.1.1-rotom.7", integrity: "sha512-YlHuTRppocF2m/JlhF0HFta1mkvmDJLRUAEUdkHCsFrrzq9Y2xrvYA7X3qazvA00fwF4xv8d4hUPjozAoSENDw==", archive: "vendor/sol-pi-0.1.1-rotom.7.tgz" },
 };
 
 export const RESOURCE_DESCRIPTORS_V1 = [
