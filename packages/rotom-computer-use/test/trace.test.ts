@@ -24,12 +24,15 @@ test("entries are private, sequential, and read back by trace_export", () => {
 	try {
 		recorder.record({ tool: "observe_ui", status: "ok", target: { app: "TextEdit", ref: "@r1" }, deliveryLevel: "L2" });
 		recorder.record({ tool: "act_ui", status: "ok", target: { role: "button", label: "Save" }, text: redactText("hello") });
+		const approval = { requestId: "approval-1", phase: "response_ack" as const };
+		recorder.record({ tool: "cu_approval", status: "ok", approval });
 		const file = recorder.filePath;
 		assert.equal(statSync(file).mode & 0o777, 0o600);
 		assert.equal(statSync(path.dirname(file)).mode & 0o777, 0o700);
-		assert.equal(recorder.stats.writes, 2);
+		assert.equal(recorder.stats.writes, 3);
 		const raw = readFileSync(file, "utf-8");
-		assert.equal(raw.trim().split("\n").length, 2);
+		assert.equal(raw.trim().split("\n").length, 3);
+		assert.deepEqual(JSON.parse(raw.trim().split("\n")[2]).approval, approval);
 		assert.equal(raw.includes("hello"), false);
 		const markdown = exportTraceMarkdown(path.dirname(file), path.basename(file));
 		assert.match(markdown, /Computer Use trace/);

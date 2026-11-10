@@ -12,6 +12,7 @@
  *   - Files are private (`0700` dirs, `0600` files), symlinks are refused,
  *     retained for `retentionMs` and capped per session, and never uploaded.
  */
+import type { ApprovalDiagnostic } from "../broker/protocol.ts";
 import { createHash } from "node:crypto";
 import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, statSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
@@ -99,6 +100,8 @@ export interface TraceTargetSummary {
 }
 
 export interface TraceEntry {
+	/** Approval lifecycle only: correlation id, phase and decision enum. */
+	approval?: ApprovalDiagnostic;
 	/** Tool that produced this entry. */
 	tool: string;
 	/** Resolved target summary (never the full outline). */

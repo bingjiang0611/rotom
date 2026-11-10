@@ -53,6 +53,7 @@ export interface BrokerCoreOptions {
 
 interface PendingApproval {
 	requestId: string;
+	deadline: number;
 	agentId: string;
 	cacheKey: string;
 	resolve(decision: ApprovalDecision | "timeout" | "unavailable"): void;
@@ -246,6 +247,10 @@ export class BrokerCore {
 				if (pending.agentId !== agentId && !this.registry.ancestors(pending.agentId).some((record) => record.agentId === agentId)) {
 					return failure("invalid_request", `Agent ${agentId} may not answer ${request.requestId}.`);
 				}
+				if (this.now() >= pending.deadline) {
+					this.settleApproval(request.requestId, "timeout");
+					return failure("invalid_request", "Approval deadline has expired.");
+				}
 				this.settleApproval(request.requestId, request.decision);
 				return { ok: true, type: "approval_response", requestId: request.requestId };
 			}
@@ -405,6 +410,7 @@ export class BrokerCore {
 		const outcome = new Promise<ApprovalDecision | "timeout" | "unavailable">((resolve) => {
 			this.pendingApprovals.set(requestId, {
 				requestId,
+				deadline,
 				agentId: agent.agentId,
 				cacheKey: decision.cacheKey,
 				resolve,

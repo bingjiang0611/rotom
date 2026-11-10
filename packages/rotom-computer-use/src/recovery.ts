@@ -1,4 +1,5 @@
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { brokerCopy } from "./constants/copy.ts";
 
 export const COMPUTER_USE_STALE_RECOVERY_GUIDELINE =
 	"After a UI state/ref stale or unavailable error, call observe_ui once and use its new stateId/@e refs; do not retry act_ui with the old state/ref, and retry the intended action at most once.";
@@ -168,7 +169,9 @@ export function computerUseEvidenceResult<T extends { content: Array<{ type: str
 	const details = record(result.details);
 	if (!details) return result;
 	let summary: string;
-	if (toolName === "inspect_ui") {
+	if (toolName === "act_ui" && details.status === "lease_conflict" && details.dispatch === "not_started") {
+		summary = brokerCopy.notDispatched;
+	} else if (toolName === "inspect_ui") {
 		const rect = record(record(details.target)?.rect);
 		if (!rect || !(rect.w === 0 || rect.h === 0)) return result;
 		summary = "Target geometry unavailable (zero-sized rect). AX press capability alone does not prove visibility or a live target. Re-observe once; do not use these coordinates or keep trying alternate clicks.";

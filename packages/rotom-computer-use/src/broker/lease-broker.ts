@@ -1,5 +1,5 @@
-import { BrokerClient, BrokerRequestError, BrokerUnavailableError } from "./client.ts";
-import type { ApprovalDecision, ApprovalRequestEvent, BrokerEvent, TargetAppInfo } from "./protocol.ts";
+import { BrokerClient, BrokerRequestError, BrokerUnavailableError, type BrokerClientOptions } from "./client.ts";
+import type { BrokerEvent, TargetAppInfo } from "./protocol.ts";
 import { StaleResourceStateError, LeaseUnavailableError, type LeaseAcquireRequest, type LeaseBroker, type LeaseGrant } from "../runtime.ts";
 
 /**
@@ -105,7 +105,7 @@ export class ClientLeaseBroker implements LeaseBroker {
 			}
 		}
 		if (error instanceof BrokerUnavailableError) {
-			return new LeaseUnavailableError("broker_unavailable", `${error.message} Set ROTOM_CU_BROKER=0 to run without cross-process arbitration.`);
+			return new LeaseUnavailableError("broker_unavailable", error.message);
 		}
 		return error instanceof Error ? error : new Error(String(error));
 	}
@@ -120,7 +120,7 @@ export class UnavailableLeaseBroker implements LeaseBroker {
 	}
 
 	async acquire(): Promise<LeaseGrant> {
-		throw new LeaseUnavailableError("broker_unavailable", `${this.reason} Set ROTOM_CU_BROKER=0 to run without cross-process arbitration.`);
+		throw new LeaseUnavailableError("broker_unavailable", this.reason);
 	}
 
 	async release(): Promise<void> {}
@@ -144,7 +144,8 @@ export interface ConnectLeaseBrokerOptions {
 	pidChain?: number[];
 	heartbeatMs?: number;
 	onEvent?: (event: BrokerEvent) => void;
-	onApproval?: (event: ApprovalRequestEvent) => Promise<ApprovalDecision>;
+	onApproval?: BrokerClientOptions["onApproval"];
+	onApprovalDiagnostic?: BrokerClientOptions["onApprovalDiagnostic"];
 }
 
 export interface ConnectedLeaseBroker {
@@ -166,6 +167,7 @@ export async function connectLeaseBroker(options: ConnectLeaseBrokerOptions): Pr
 		heartbeatMs: options.heartbeatMs,
 		onEvent: options.onEvent,
 		onApproval: options.onApproval,
+		onApprovalDiagnostic: options.onApprovalDiagnostic,
 	});
 	return { broker: new ClientLeaseBroker(client), client };
 }

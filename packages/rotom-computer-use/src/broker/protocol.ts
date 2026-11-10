@@ -255,6 +255,13 @@ export interface PolicyRequest {
 export type AppTier = "view" | "click" | "full";
 export type ApprovalDecision = "allow_session" | "always" | "deny";
 
+/** Local diagnostic metadata only; never includes app, label, UI text or errors. */
+export interface ApprovalDiagnostic {
+	requestId: string;
+	phase: "received" | "prompt_requested" | "decision" | "unavailable" | "expired" | "cancelled" | "ui_error" | "response_ack" | "response_error";
+	decision?: ApprovalDecision;
+}
+
 export type BrokerRequest =
 	| HelloRequest
 	| PingRequest

@@ -27,10 +27,10 @@ import { toolProblem, unsupportedToolResult } from "./tools/results.ts";
 import { createCuSessionTool } from "./tools/session-admin.ts";
 import { createWindowTool } from "./tools/windows-admin.ts";
 import type { ListWindowsDetails, WindowRow } from "./tools/window-types.ts";
-import type { ApprovalRequestEvent, BrokerEvent } from "./broker/protocol.ts";
+import type { ApprovalDiagnostic, BrokerEvent } from "./broker/protocol.ts";
+import { createBrokerApprovalHandler } from "./broker/approval-ui.ts";
 import { processAncestry } from "./broker/identity.ts";
-import { approvalCopy } from "./constants/copy.ts";
-import { describeSensitiveMatch, matchSensitiveAction } from "./policy/sensitive.ts";
+import { leaseConflictResult } from "./broker/lease-result.ts";
 import { excludeHostRoots, excludeInternalRoots, hostTargetRefusal, resolveHostApp, type HostAppInfo } from "./policy/host-exclusion.ts";
 import { TakeoverController, type TakeoverBackend } from "./takeover.ts";
 import { backgroundDelivery } from "./policy/l2-compat.ts";
@@ -148,16 +148,6 @@ interface ComputerUseDetails {
 		| "duplicated_ax_labels"
 		| "browser_wait_verification";
 }
-/** Structured refusal from the cross-process write arbiter. */
-interface LeaseConflictDetails {
-	tool: string;
-	status: "lease_conflict";
-	code: "resource_busy" | "denied" | "approval_unavailable" | "approval_denied" | "stopped_by_user" | "broker_unavailable";
-	message: string;
-	leaseHolder?: { agentId: string; remainingMs: number };
-	retry: "safe" | "unsafe" | "never";
-}
-
 interface TerminalDesktopActionDetails {
 	tool: "act_ui";
 	status: "target_closed" | "post_action_observation_failed";
@@ -626,6 +616,16 @@ export async function ensureComputerUseBroker(ctx: ExtensionContext): Promise<vo
 	});
 	agentPidChain = registration.pidChain;
 	runtimeState.agentId = registration.agentId;
+	// Bind diagnostics to this session, not a later session reusing the bridge.
+	const approvalRecorder = sessionTrace(ctx);
+	const recordApproval = (approval: ApprovalDiagnostic) => {
+		approvalRecorder?.record({
+			tool: "cu_approval",
+			status: approval.phase.endsWith("_error") ? "error"
+				: ["expired", "cancelled", "unavailable"].includes(approval.phase) ? "stopped" : "ok",
+			approval,
+		});
+	};
 	brokerStopRequested = false;
 	try {
 		brokerSession = await connectLeaseBroker({
@@ -657,7 +657,8 @@ export async function ensureComputerUseBroker(ctx: ExtensionContext): Promise<vo
 					while (brokerRevocations.length > 8) brokerRevocations.shift();
 				}
 			},
-			onApproval: createBrokerApprovalHandler(ctx, registration.cwd),
+			onApproval: createBrokerApprovalHandler(ctx, recordApproval),
+			onApprovalDiagnostic: recordApproval,
 		});
 		resourceScheduler.setBroker(brokerSession.broker);
 	} catch (error) {
@@ -665,32 +666,6 @@ export async function ensureComputerUseBroker(ctx: ExtensionContext): Promise<vo
 		resourceScheduler.setBroker(new UnavailableLeaseBroker(`The Desktop Broker is unavailable: ${message}`));
 		if (ctx.hasUI) ctx.ui.notify(`Computer Use broker unavailable: ${message}`, "warning");
 	}
-}
-
-/**
- * Turn a broker approval request into the user's three-way decision.
- *
- * This runs only in the UI-capable session the broker routed to; the model never
- * sees the card and has no tool that can answer it.
- */
-function createBrokerApprovalHandler(ctx: ExtensionContext, cwd: string | undefined) {
-	void cwd;
-	const options = approvalCopy.options();
-	return async (event: ApprovalRequestEvent): Promise<"allow_session" | "always" | "deny"> => {
-		if (!ctx.hasUI) return "deny";
-		const sensitive = matchSensitiveAction(event.action);
-		const choice = await ctx.ui.select(approvalCopy.title({
-			app: event.app?.appName ?? event.app?.bundleId ?? event.resourceKey,
-			tier: event.tier,
-			action: `Action: ${event.action?.name ?? "unknown"}`,
-			label: event.action?.label,
-			sensitive: sensitive ? describeSensitiveMatch(sensitive) : undefined,
-			warning: event.warning,
-		}), [...options]);
-		if (choice === approvalCopy.allowAlways) return "always";
-		if (choice === approvalCopy.allowSession) return "allow_session";
-		return "deny";
-	};
 }
 
 /**
@@ -728,7 +703,7 @@ let traceRecorder: TraceRecorder | undefined;
 let traceRecorderKey: string | undefined;
 
 /**
- * Trace recorder for this session, created on first tool call.
+ * Trace recorder for this session's tool and approval diagnostics.
  *
  * Disabled by config (`trace: false`) or `ROTOM_CU_TRACE=0`. Never throws: a
  * trace that cannot be written must not change what the agent did.
@@ -2512,27 +2487,6 @@ async function executeTool<P, T>(ctx: ExtensionContext, params: P, signal: Abort
 		persistOperation(operation);
 		return result;
 	});
-}
-
-function leaseConflictResult(tool: string, error: LeaseUnavailableError): AgentToolResult<LeaseConflictDetails> {
-	const retry: LeaseConflictDetails["retry"] = error.code === "resource_busy" || error.code === "broker_unavailable" ? "safe" : "never";
-	const holder = error.holder
-		? ` Held by agent ${error.holder.agentId} (${Math.ceil(error.holder.remainingMs / 1000)}s remaining).`
-		: "";
-	const next = retry === "safe"
-		? " Nothing was delivered. Retry after that agent releases the app, or ask the user to stop it from the menu bar or with Ctrl+Option+Cmd+."
-		: " Nothing was delivered.";
-	return {
-		content: [{ type: "text", text: `${tool} did not run: ${error.message}${holder}${next}` }],
-		details: {
-			tool,
-			status: "lease_conflict",
-			code: error.code,
-			message: error.message,
-			leaseHolder: error.holder ? { agentId: error.holder.agentId, remainingMs: error.holder.remainingMs } : undefined,
-			retry,
-		},
-	};
 }
 
 /**
