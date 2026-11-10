@@ -22,19 +22,24 @@
 需要 Python 3 与 Git，不联网、不上传文件、不调用模型：
 
 ```bash
-python3 -m unittest discover -s scripts -p 'test_audit_public.py'
+python3 -m unittest discover -s scripts -p 'test_audit*.py'
 python3 scripts/audit-public.py --root .
-# 对准备上传的独立仓库检查所有 refs 的历史：
+# 只检查一次推送引入的 commit 与 blob（pre-push hook 自动运行同一条命令）：
+python3 scripts/audit-public.py --root . --history-range origin/main..HEAD
+# 发布独立仓库前检查所有 refs 的完整历史：
 python3 scripts/audit-public.py --root . --history
-# 完整 PASS 后把历史中的 fork 归档 blob 记入账本（随后提交 scripts/audited-history-archives.json）：
-python3 scripts/audit-public.py --root . --history --record-audited-archives
+# 把本次实际扫描且自身没有发现的 fork 归档 blob 记入账本（记录是累加的，写进
+# scripts/audited-history-archives.d/NNN.json 分片；原始 scripts/audited-history-archives.json 保持不变）：
+python3 scripts/audit-public.py --root . --history-range origin/main..HEAD --record-audited-archives
 # 检查实际分发包，递归覆盖嵌套 vendor tgz：
 python3 scripts/audit-public.py --artifact /absolute/path/to/rotom.tgz
 ```
 
 `--deny-term` 可重复传入企业域名、私有 namespace 或个人标记。不要把这些真实值提交到公共规则文件，也不要把含私有历史路径的审计结果公开。脚本仅报告相对位置、分类和 digest，不回显命中正文；超预算、无法读取或无完整覆盖时返回非零。
 
-检查项包括常见凭据形状/私钥块、个人 HOME 路径、内网地址/域名、凭据与状态文件、归档 symlink/path traversal，以及历史中的非 GitHub noreply 邮箱。`pack:release` 自动执行 tracked-tree 与实际归档检查；Git 全历史检查仍须独立执行。
+检查项包括常见凭据形状/私钥块、个人 HOME 路径、内网地址/域名、凭据与状态文件、归档 symlink/path traversal，以及历史中的非 GitHub noreply 邮箱。`pack:release` 自动执行 tracked-tree 与实际归档检查。
+
+两种历史范围各回答不同的问题，不能互相替代：`--history-range <base>..<head>` 只扫这次推送新增的 commit、它们引入的 blob 和这两侧的提交身份，内容与全量一样逐字节检查，只是不重扫已经公开的部分；`--history` 扫全部 refs，是“这个仓库能不能公开”的问题，字节预算按这个尺度设定。推送前跑范围模式（`.githooks/pre-push` 已接入，身份检查通过后再跑），发布独立仓库或改写历史后跑全量。范围模式下 `findings` 里只会出现这次新增的内容，所以 PASS 的含义是“这次没有引入新泄漏”，不是“历史已经干净”。归档账本只记录**该 blob 自身扫不出发现**的归档：同一范围内别的文件有问题，不会连带阻止登记一个干净归档，也不会因为一次干净的运行就顺手登记一个没扫到的归档。
 
 ## 上游内容与局限
 

@@ -1,14 +1,9 @@
-import io
 import json
 from pathlib import Path
-import runpy
-import subprocess
 import tarfile
-import tempfile
 import unittest
 
-MODULE = runpy.run_path(str(Path(__file__).with_name('audit-public.py')))
-Audit = MODULE['Audit']
+from audit_test_support import Audit, MODULE, archive
 
 
 class PrivacyAuditTests(unittest.TestCase):
@@ -105,20 +100,10 @@ class PrivacyAuditTests(unittest.TestCase):
         audit.scan('example.txt', (address + '\n' + hostname).encode())
         self.assertEqual({f['rule'] for f in audit.findings}, {'private-network-address', 'internal-host'})
 
-    def archive(self, name, data, kind=tarfile.REGTYPE):
-        stream = io.BytesIO()
-        with tarfile.open(fileobj=stream, mode='w:gz') as tar:
-            item = tarfile.TarInfo(name); item.type = kind
-            if kind == tarfile.REGTYPE:
-                item.size = len(data); tar.addfile(item, io.BytesIO(data))
-            else:
-                item.linkname = '/outside'; tar.addfile(item)
-        return stream.getvalue()
-
     def test_nested_archives_are_scanned_without_extraction(self):
         private = 'sk-proj-' + 'b' * 40
-        inner = self.archive('package/config.txt', private.encode())
-        outer = self.archive('package/vendor/inner.tgz', inner)
+        inner = archive('package/config.txt', private.encode())
+        outer = archive('package/vendor/inner.tgz', inner)
         audit = Audit(); audit.scan('release.tgz', outer)
         self.assertEqual(audit.files, 3)
         self.assertTrue(any(f['rule'] == 'credential-shape' for f in audit.findings))
@@ -127,118 +112,8 @@ class PrivacyAuditTests(unittest.TestCase):
     def test_archive_paths_links_and_state_are_blocked(self):
         for name, kind in [('../escape', tarfile.REGTYPE), ('package/link', tarfile.SYMTYPE), ('package/.pi/state', tarfile.REGTYPE)]:
             with self.subTest(name=name):
-                audit = Audit(); audit.scan('release.tgz', self.archive(name, b'x', kind))
+                audit = Audit(); audit.scan('release.tgz', archive(name, b'x', kind))
                 self.assertTrue(audit.findings)
-
-    def test_original_history_and_commit_email_are_not_hidden_by_deletion(self):
-        with tempfile.TemporaryDirectory(prefix='rotom-audit-test-') as work:
-            root = Path(work).resolve()
-            def git(*args):
-                return subprocess.check_output(['git', '-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false', '-C', str(root), *args], stderr=subprocess.DEVNULL)
-            git('init', '-q', '--initial-branch=main')
-            with self.assertRaises(ValueError):
-                MODULE['audit_history'](root, Audit())
-            git('config', 'user.name', 'Fixture')
-            git('config', 'user.email', 'fixture@example.invalid')
-            (root / 'old.txt').write_text('private-marker')
-            git('add', 'old.txt'); git('commit', '-qm', 'private-marker')
-            git('rm', '-q', 'old.txt'); git('commit', '-qm', 'remove fixture')
-            git('tag', '-a', 'fixture-tag', '-m', 'private-marker')
-            audit = Audit(['private-marker']); MODULE['audit_tree'](root, audit)
-            self.assertEqual(audit.findings, [])
-            MODULE['audit_history'](root, audit)
-            self.assertEqual(audit.commits, 2)
-            self.assertTrue(any(f['rule'] == 'private-marker' for f in audit.findings))
-            self.assertTrue(any(f['rule'] == 'private-marker' and f['path'].endswith('::commit-message') for f in audit.findings))
-            self.assertTrue(any(f['rule'] == 'non-noreply-author' for f in audit.findings))
-            self.assertTrue(any(f['rule'] == 'non-noreply-tagger' for f in audit.findings))
-            self.assertNotIn('fixture@example.invalid', json.dumps(audit.findings))
-
-    def test_github_service_noreply_exception_is_exact_and_committer_only(self):
-        cases = [
-            ('fixture@users.noreply.github.com', 'noreply@github.com', set()),
-            ('noreply@github.com', 'fixture@users.noreply.github.com', {'non-noreply-author'}),
-            ('fixture@users.noreply.github.com', 'other@github.com', {'non-noreply-committer'}),
-            ('fixture@users.noreply.github.com', 'noreply@github.com.example.invalid', {'non-noreply-committer'}),
-        ]
-        for author, committer, expected in cases:
-            with self.subTest(author=author, committer=committer), tempfile.TemporaryDirectory(prefix='rotom-audit-identity-') as work:
-                root = Path(work).resolve()
-                def git(*args):
-                    return subprocess.check_output(['git', '-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false',
-                                                    '-C', str(root), *args], stderr=subprocess.DEVNULL)
-                git('init', '-q', '--initial-branch=main')
-                git('config', 'user.name', 'Fixture')
-                git('config', 'user.email', committer)
-                git('commit', '--allow-empty', '--author', 'Fixture <' + author + '>', '-qm', 'identity fixture')
-                audit = Audit()
-                MODULE['audit_history'](root, audit)
-                self.assertEqual({item['rule'] for item in audit.findings}, expected)
-                git('-c', 'user.email=noreply@github.com', 'tag', '-a', 'service-tag', '-m', 'tag fixture')
-                tagged = Audit()
-                MODULE['audit_history'](root, tagged)
-                self.assertEqual({item['rule'] for item in tagged.findings}, expected | {'non-noreply-tagger'})
-
-    def test_anthropic_noreply_exemption_is_exact_and_symmetric(self):
-        noreply = 'fixture@users.noreply.github.com'
-        cases = [
-            ('noreply@anthropic.com', noreply, set()),
-            (noreply, 'noreply@anthropic.com', set()),
-            ('someone@anthropic.com', noreply, {'non-noreply-author'}),
-            ('Noreply@anthropic.com', noreply, {'non-noreply-author'}),
-            (noreply, 'someone@anthropic.com', {'non-noreply-committer'}),
-            ('noreply@anthropic.com.example.invalid', noreply, {'non-noreply-author'}),
-        ]
-        for author, committer, expected in cases:
-            with self.subTest(author=author, committer=committer), tempfile.TemporaryDirectory(prefix='rotom-audit-anthropic-') as work:
-                root = Path(work).resolve()
-                def git(*args):
-                    return subprocess.check_output(['git', '-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false',
-                                                    '-C', str(root), *args], stderr=subprocess.DEVNULL)
-                git('init', '-q', '--initial-branch=main')
-                git('config', 'user.name', 'Fixture')
-                git('config', 'user.email', committer)
-                git('commit', '--allow-empty', '--author', 'Fixture <' + author + '>', '-qm', 'identity fixture')
-                audit = Audit()
-                MODULE['audit_history'](root, audit)
-                self.assertEqual({item['rule'] for item in audit.findings}, expected)
-                self.assertNotIn('anthropic', json.dumps(audit.findings))
-
-    def test_history_skips_only_fork_archives_recorded_by_a_passing_audit(self):
-        with tempfile.TemporaryDirectory(prefix='rotom-audit-test-') as work:
-            root = Path(work).resolve()
-            def git(*args):
-                return subprocess.check_output(['git', '-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false', '-C', str(root), *args], stderr=subprocess.DEVNULL)
-            git('init', '-q', '--initial-branch=main')
-            git('config', 'user.name', 'Fixture'); git('config', 'user.email', 'fixture@users.noreply.github.com')
-            vendor = root / 'rotom/runtime/pi/vendor'; vendor.mkdir(parents=True)
-            archive = vendor / 'pi-1.0.0.tgz'
-            archive.write_bytes(self.archive('package/clean.txt', b'clean'))
-            git('add', '.'); git('commit', '-qm', 'clean fork archive')
-            clean_oid = git('rev-parse', 'HEAD:rotom/runtime/pi/vendor/pi-1.0.0.tgz').decode().strip()
-            archive.write_bytes(self.archive('package/leak.txt', b'private-marker'))
-            git('add', '.'); git('commit', '-qm', 'replaced fork archive')
-            archive.write_bytes(self.archive('package/clean.txt', b'clean again'))
-            git('add', '.'); git('commit', '-qm', 'replaced again')
-
-            # Recording covers every fork archive blob in history, scanned or already audited.
-            first = Audit(); MODULE['audit_history'](root, first)
-            self.assertEqual(len(first.ledger_archives), 3)
-            self.assertEqual(first.skipped_audited_archives, 0)
-
-            # Only the exact recorded oid is skipped; the replaced, unrecorded archive is still scanned.
-            audit = Audit(['private-marker']); MODULE['audit_history'](root, audit, {clean_oid})
-            self.assertEqual(audit.skipped_audited_archives, 1)
-            self.assertTrue(any(f['rule'] == 'private-marker' and 'leak.txt' in f['path'] for f in audit.findings))
-            self.assertFalse(any(clean_oid[:12] in f['path'] for f in audit.findings))
-            self.assertLess(audit.expanded, first.expanded)
-
-            ledger = root / 'ledger.json'
-            MODULE['write_audited_archives']({clean_oid: 'rotom/runtime/pi/vendor/pi-1.0.0.tgz'}, ledger)
-            self.assertEqual(MODULE['load_audited_archives'](ledger), {clean_oid})
-            ledger.write_text('{"schema": 2, "archives": []}')
-            with self.assertRaises(ValueError):
-                MODULE['load_audited_archives'](ledger)
 
     def test_archive_input_budget_does_not_relax_regular_file_limit(self):
         with self.assertRaises(ValueError):

@@ -153,10 +153,10 @@ npm --prefix rotom/evals run loop -- gate --baseline /absolute/rotom-pre-fix/rot
 
 ## 推送前
 
-每次推送前跑一次历史审计，不只扫工作树：
+每次推送前跑一次范围审计，不只扫工作树：
 
 ```sh
-python3 scripts/audit-public.py --root . --history
+python3 scripts/audit-public.py --root . --history-range origin/main..HEAD
 ```
 
-tree 模式看不到提交身份，而作者/提交者泄露只能在推送前发现——推上去之后再改就要改写公开历史。`--history` 放行的身份只有三类：`*@users.noreply.github.com`、提交者 `noreply@github.com`（GitHub 网页合并自动写入）、精确地址 `noreply@anthropic.com`（维护者已同意的历史豁免，同域名其他地址照样拦）。pre-push hook 用同一规则在推送时兜底，拦下时按它打印的命令 `--reset-author` 改写，不用 `--no-verify`。
+`.githooks/pre-push` 已经跑同一条命令（先拦身份，再扫范围），所以手工这一步主要在 hook 不可用时兜底。tree 模式看不到提交身份，而作者/提交者泄露只能在推送前发现——推上去之后再改就要改写公开历史。全量 `--history` 是“这个仓库能不能公开”的问题，只在发布独立仓库或改写历史后跑。两种历史模式放行的身份都只有三类：`*@users.noreply.github.com`、提交者 `noreply@github.com`（GitHub 网页合并自动写入）、精确地址 `noreply@anthropic.com`（维护者已同意的历史豁免，同域名其他地址照样拦）。pre-push hook 用同一规则在推送时兜底，拦下时按它打印的命令 `--reset-author` 改写，不用 `--no-verify`。

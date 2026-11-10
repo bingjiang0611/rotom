@@ -23,7 +23,16 @@ import {
 } from "./hook-identity.mjs";
 
 const HOOKS = ["pre-commit", "commit-msg", "pre-push"];
-const GUARDS = ["hook-identity.mjs", "hook-ledger.mjs", "check-staged-file-size.mjs"];
+const GUARDS = [
+	"hook-identity.mjs",
+	"hook-ledger.mjs",
+	"hook-audit.mjs",
+	"check-staged-file-size.mjs",
+	"audit-public.py",
+	"audit_rules.py",
+	"audit_history_rules.py",
+	"pi-public-examples.json",
+];
 const installer = resolve("scripts/install-git-hooks.mjs");
 const NOREPLY = "bingjiang0611@users.noreply.github.com";
 

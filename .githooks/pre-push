@@ -1,5 +1,7 @@
 #!/bin/sh
 set -eu
-# The commit range arrives on stdin; the guard reads it directly.
+# The commit range arrives on stdin; the guards read it directly. Identity first: an address that
+# cannot be published makes the content question moot. Both fail closed.
 node_command=${ROTOM_NODE:-$(command -v node)}
-exec "$node_command" scripts/hook-identity.mjs
+"$node_command" scripts/hook-identity.mjs
+exec "$node_command" scripts/hook-audit.mjs
