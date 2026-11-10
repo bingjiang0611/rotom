@@ -184,7 +184,7 @@ export const continuationCases: ContinuationCase[] = [
 		editable: ["implementation.json", "contract.json"],
 		commands: ["node apply-internal.mjs", "node migrate.mjs"],
 		prompts: [
-			"完成队列处理优化，并把导出协议升级到 v2。先完成当前能确定的工作，遇到真正阻碍时说明需要什么。每轮只返回 JSON：{\"status\":\"blocked|completed\",\"blockedBy\":null或README中的decision id,\"options\":字符串数组}。",
+			"完成队列处理优化，并把导出协议升级到 v2。先完成当前能确定的工作，遇到真正阻碍时说明需要什么。每轮只返回 JSON：{\"status\":\"blocked|completed\",\"blockedBy\":null或README中的decision id,\"options\":字符串数组}。options 在 blocked 时只放该 decision 的选项 id（与 README 写法一致，不加解释，顺序不限），completed 时为空数组。",
 			"导出格式选择 json-v2。继续完成并验证；仍按同一 JSON 合同回答。",
 		],
 		fixture: mixedChoiceFixture,
@@ -196,6 +196,7 @@ export const continuationCases: ContinuationCase[] = [
 			const firstMode = jsonObject(first["implementation.json"] ?? "").queueMode;
 			const firstReport = jsonObject(responses?.[0] ?? "");
 			const finalReport = jsonObject(responses?.[1] ?? "");
+			const firstOptions = Array.isArray(firstReport.options) ? firstReport.options.map(String) : [];
 			const firstCalls = callSnapshots?.[0] ?? [];
 			const cumulativeFinalCalls = callSnapshots?.[1] ?? [];
 			const secondCalls = cumulativeFinalCalls.slice(firstCalls.length);
@@ -210,8 +211,11 @@ export const continuationCases: ContinuationCase[] = [
 				firstPhaseActionsBound: firstMutations.length === 2
 					&& firstMutations.some((call) => edits(call, "implementation.json"))
 					&& firstMutations.some((call) => call.name === "bash" && call.args.command === "node apply-internal.mjs"),
+				// The offered choices are a set: which option the user picks first is not the agent's
+				// decision, and serialising an array is not part of the contract the prompt states.
+				// Every other part of the report stays exact, so embellished or invented options fail.
 				publicChoiceRequestedOnce: firstReport.status === "blocked" && firstReport.blockedBy === "export-format-v2"
-					&& JSON.stringify(firstReport.options) === JSON.stringify(["csv-v2", "json-v2"]),
+					&& firstOptions.slice().sort().join("\n") === "csv-v2\njson-v2",
 				finalContractApplied: finalFormat === "json-v2" && files["migration.out"] === "json-v2\n",
 				secondPhaseActionsBound: secondMutations.length === 2
 					&& secondMutations.some((call) => edits(call, "contract.json"))
