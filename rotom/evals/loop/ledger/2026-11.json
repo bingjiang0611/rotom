@@ -180,5 +180,18 @@
 		"evidence": "unmeasured",
 		"decision": "shipped",
 		"source": "packages/rotom-pi/packages/ai/src/utils/retry.ts"
+	},
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-11-10-login-without-default-model",
+		"date": "2026-11-10",
+		"title": "Successful custom-provider login guides model selection instead of reporting an error",
+		"hypothesis": "A provider missing from Pi's built-in default-model map can authenticate successfully; reporting that absence as an error misrepresents Qoder and other extension providers. Keep model selection explicit rather than inventing a provider default.",
+		"change": "mechanism",
+		"measurement": "Deterministic regression only, no provider/model calls: on public baseline 35de9563, four new Qoder/custom-provider cases fail and eight adjacent cases pass; with the fix, all 12 pass. Cases cover OAuth, API key, cached and empty catalogs, deferred catalog discovery, selection failure, and preserving a user-selected model during refresh. Added the regression file to build:pi. Clean offline build/typecheck and its selected tests pass (1086 passed, 3 credential-dependent tests skipped); builder tests 2/2; Biome and check:pi pass. An isolated install from the rebuilt runtime lock passes three direct installed-code checks: populated catalog, empty catalog, existing selection.",
+		"result": "Login success is followed by a neutral /model selection hint when no default is declared. No Qoder default is introduced, no model is selected implicitly, and real selection/catalog failures keep their existing errors or warnings. Copy is centralized. Rebuilt all seven Pi fork artifacts and synchronized source/builder digests, runtime lock and product identity. No active installation was overwritten; real Qoder OAuth and interactive terminal replay remain unverified. Public sync is blocked by pre-existing history-audit findings on origin/main; this fix is retained locally, without bypassing the audit or rewriting public history. Model-driven optimization gates are not applicable to this deterministic login UI correction; no cost or broad agent-quality claim.",
+		"evidence": "improved",
+		"decision": "open",
+		"source": "packages/rotom-pi/packages/coding-agent/test/suite/regressions/7027-credential-refresh-hang.test.ts"
 	}
 ]
