@@ -50,5 +50,18 @@
 		"evidence": "no-difference",
 		"decision": "shipped",
 		"source": "rotom/evals/src/continuation-cases.ts"
+	},
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-11-10-harvest-peak-sensitivity-columns",
+		"date": "2026-11-10",
+		"title": "Print each row's rate without the one session that carries it",
+		"hypothesis": "One long session can decide a model's or a product version's v2 rate, so a table that only shows the total invites reading one conversation as a property of a model or a release.",
+		"change": "eval",
+		"measurement": "28-day window ending 2026-11-10: 706 sessions, 1,670 incidents, 4,146 user turns. Per model, v2 per 100 with and without the row's largest session: openai-codex/gpt-6.1-sol 10.3 -> 7.8 (dropped `01a154f3`), openai-codex/gpt-6-astra 5.1 -> 4.5 (`01a13b2e`), qoder/dfmodel 6.6 -> 6.2 (`01a1a214`). Per product version: 0.1.27-main.0d90623 16.6 -> 9.6 (the same `01a154f3`), 0.1.22 10.1 -> 6.8 (`01a13b2e`), 0.1.27 4.2 -> 3.9 (`01a1b1d7`).",
+		"result": "The per-model table and the per-product-version table gain a 'v2 per 100 without its largest session' column. A model row subtracts only that model's own turns and v2 events from the session, a version row subtracts the whole session, and a row with no v2 events says so instead of showing a zero effect. `01a154f3` (2026-10-19, 124 user turns, 33 v2 events, 13,797 assistant messages) belonged to product version 0.1.27-main.0d90623 and was attributed mostly to openai-codex/gpt-6.1-sol (82 of its turns): it moves that product version's rate by -7.0 and the model's by -2.5, which is why both tables now show it.",
+		"evidence": "no-difference",
+		"decision": "shipped",
+		"source": "rotom/evals/src/loop/harvest-models.ts"
 	}
 ]
