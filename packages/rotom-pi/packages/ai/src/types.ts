@@ -594,6 +594,11 @@ export interface AssistantMessage {
 	errorMessage?: string;
 	rawStopReason?: string;
 	/**
+	 * Server-requested delay before the next attempt, when the failure answered with
+	 * `Retry-After` or `Retry-After-Ms`. The agent-level retry honors it up to its own cap.
+	 */
+	retryAfterMs?: number;
+	/**
 	 * Provider indication of whether the model explicitly ended its turn.
 	 * Preserved for debugging and does not currently affect agent control flow.
 	 */

@@ -11,7 +11,7 @@ import { GoalCommandController } from "../src/commands.js";
 import { GoalRunController, GOAL_RUN_START_CHANNEL, GOAL_RUN_CANCEL_CHANNEL, goalRunEventChannel } from "../src/run-protocol.js";
 import { GOAL_TOOL_NAMES } from "../src/tool-policy.js";
 import { normalizeLoadedGoal } from "../src/persistence.js";
-import { normalizeGoalSettings } from "../src/settings.js";
+import { DEFAULT_GOAL_SETTINGS, normalizeGoalSettings } from "../src/settings.js";
 import { nextToolFreeRepeatState } from "../src/safety.js";
 import { digest, REVIEW_LIMITS, type ReviewResult } from "../src/reviewer.js";
 import { REVIEW_REJECTION_GUIDANCE } from "../src/prompts.js";
@@ -58,6 +58,8 @@ export function fixture(t: any, review?: any) {
 	assert.equal(runtime.acquireWorkflow(), true);
 	runtime.activeGoal = createGoal("Write and inspect result.txt", undefined, 0);
 	runtime.beginAgentRun(runtime.activeGoal.id, "automatic");
+	// Review is opt-in; only tests that supply a reviewer exercise that path.
+	if (review) runtime.settings = { ...runtime.settings, completionReview: true };
 	registerGoalTools(pi, runtime, review);
 	const controller = new GoalRunController(runtime, new GoalCommandController(runtime));
 	registerGoalLifecycle(pi, runtime, controller, { settingsPath });
@@ -87,11 +89,13 @@ const finish = (h: ReturnType<typeof fixture>) =>
 		h.ctx,
 	);
 
-test("four stable tools; defaults enable completion review; excluded continue is not reactivated", (t) => {
+test("four stable tools; completion review is opt-in; excluded continue is not reactivated", (t) => {
 	const h = fixture(t);
 	assert.equal(h.tools.size, 4);
-	assert.equal(normalizeGoalSettings({})?.completionReview, true);
+	assert.equal(DEFAULT_GOAL_SETTINGS.completionReview, false);
+	assert.equal(normalizeGoalSettings({})?.completionReview, false);
 	assert.equal(normalizeGoalSettings({})?.resumeOnRestore, true);
+	assert.equal(normalizeGoalSettings({ completionReview: true })?.completionReview, true);
 	assert.equal(normalizeGoalSettings({ completionReview: false })?.completionReview, false);
 	assert.equal(normalizeGoalSettings({ resumeOnRestore: false })?.resumeOnRestore, false);
 	assert.equal(normalizeGoalSettings({ completionReview: "false" }), undefined);

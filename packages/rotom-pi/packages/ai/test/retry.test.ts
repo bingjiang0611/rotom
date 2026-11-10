@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { fauxAssistantMessage } from "../src/providers/faux.ts";
 import {
+	annotateLimitError,
 	isConnectionFailureAssistantError,
+	isNonRetryableLimitAssistantError,
 	isRetryableAssistantError,
+	serverRequestedDelayMs,
 	type RetryPolicy,
 	retryAssistantCall,
 	retryDelayMs,

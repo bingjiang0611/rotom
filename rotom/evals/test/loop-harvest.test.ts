@@ -186,6 +186,31 @@ describe("loop harvest detectors", () => {
 		expect(summary.failures).toBe(2);
 	});
 
+	it("records provider, model, category and whether the retry run recovered", () => {
+		const errorReply = (text: string) => ({ role: "assistant", content: [{ type: "text", text: "" }], stopReason: "error", provider: "qoder", model: "dfmodel", errorMessage: text, timestamp: 0 });
+		const recovered = analyze(chain([user("跑一下"), errorReply("Qoder: stream_failed"), reply("done")]));
+		const first = recovered.incidents[0];
+		expect(first.detail).toMatchObject({ provider: "qoder", model: "dfmodel", category: "qoder:stream_failed", categorySource: "message", final: true, attempts: 1 });
+
+		// A run that ends on the error or on a user turn never reached the user as an answer.
+		const unrecovered = analyze(chain([user("跑一下"), errorReply("Qoder: connection_failed"), user("还在吗")]));
+		expect(unrecovered.incidents[0].detail).toMatchObject({ category: "connect", final: false });
+		const aborted = analyze(chain([user("跑一下"), errorReply("fetch failed"), reply("", "aborted")]));
+		expect(aborted.incidents[0].detail).toMatchObject({ category: "connect", final: false });
+	});
+
+	it("prefers the local trace category for a failed request span", () => {
+		const errorReply = (text: string) => ({ role: "assistant", content: [{ type: "text", text: "" }], stopReason: "error", provider: "qoder", model: "dfmodel", errorMessage: text, timestamp: 0 });
+		const lines = chain([user("跑一下"), errorReply("Qoder: stream_failed"), reply("done")]);
+		const stamp = lines[2].timestamp as string;
+		const trace = [JSON.stringify({ kind: "span_end", name: "pi.ai.request", status: "error", timestamp: stamp, attributes: { "pi.ai.error.category": "network", "pi.ai.qoder.error_code": "transport_failure" } })];
+		const traced = analyze(lines, true, trace);
+		expect(traced.incidents[0].detail).toMatchObject({ category: "network", categorySource: "trace", provider: "qoder" });
+		// The span is consumed once; a second error without its own span falls back to the message.
+		const twoRuns = analyze(chain([user("跑一下"), errorReply("Qoder: stream_failed"), reply("done"), errorReply("Qoder: stream_failed"), reply("done")]), true, trace);
+		expect(twoRuns.incidents.map((incident) => incident.detail.categorySource)).toEqual(["trace", "message"]);
+	});
+
 	it("ignores a skill template when judging whether the user repeated or corrected", () => {
 		const skill = (task: string) => `<skill name="impeccable" location="/skills/impeccable/SKILL.md">\n# Impeccable\nPolish the interface, keep spacing even.\n</skill>\n\n${task}`;
 		const { incidents } = analyze(chain([
@@ -196,6 +221,12 @@ describe("loop harvest detectors", () => {
 		]));
 		expect(incidents.map((incident) => incident.kind)).toEqual(["user_repeat"]);
 		expect(incidents[0].excerpt?.user).toBe("把这个页面做得更干净，间距保持一致");
+		// `/goal resume` re-delivers the goal contract verbatim; that is not the user repeating a request.
+		const resume = "The user explicitly resumed the paused /goal. Continue working toward this goal: <goal_objective> 完成 M1 到 M6 并给我验收报告 </goal_objective>";
+		const resumed = analyze(chain([user(resume), reply("收到"), user(resume), reply("继续")]));
+		expect(resumed.incidents.map((incident) => incident.kind)).toEqual([]);
+		expect(resumed.session.userTurns).toBe(2);
+
 		const templateOnly = analyze(chain([
 			user(`<skill name="impeccable" location="/skills/impeccable/SKILL.md">\nYou did not run the build.\n</skill>`),
 			reply("好的"),
@@ -216,8 +247,8 @@ describe("loop harvest detectors", () => {
 		expect(isoWeek("2026-11-09T08:00:00Z")).toBe("2026-W46");
 		expect(isoWeek("2026-01-01T00:00:00Z")).toBe("2026-W01");
 		const weeks = weeklyMetrics([
-			{ sessionId: "a", sessionFile: "", cwd: "", startedAt: "2026-11-03T00:00:00Z", models: [], userTurns: 30, assistantMessages: 0, toolCalls: 0, toolErrors: 0, interventions: 3, failures: 1, incidentCounts: { user_correction: 3 } },
-			{ sessionId: "b", sessionFile: "", cwd: "", startedAt: "2026-11-04T00:00:00Z", models: [], userTurns: 10, assistantMessages: 0, toolCalls: 0, toolErrors: 0, interventions: 1, failures: 0, incidentCounts: { bare_continue: 1 } },
+			{ sessionId: "a", sessionFile: "", cwd: "", startedAt: "2026-11-03T00:00:00Z", startedAtSource: "header", modelTurns: {}, interruptExcluded: 0, models: [], userTurns: 30, assistantMessages: 0, toolCalls: 0, toolErrors: 0, interventions: 3, failures: 1, incidentCounts: { user_correction: 3 } },
+			{ sessionId: "b", sessionFile: "", cwd: "", startedAt: "2026-11-04T00:00:00Z", startedAtSource: "header", modelTurns: {}, interruptExcluded: 0, models: [], userTurns: 10, assistantMessages: 0, toolCalls: 0, toolErrors: 0, interventions: 1, failures: 0, incidentCounts: { bare_continue: 1 } },
 		]);
 		expect(weeks).toHaveLength(1);
 		expect(weeks[0]).toMatchObject({ week: "2026-W45", sessions: 2, userTurns: 40, interventions: 4, interventionsPer100Turns: 10, incidentCounts: { user_correction: 3, bare_continue: 1 } });
@@ -253,7 +284,7 @@ describe("loop harvest output", () => {
 		expect(files).toEqual(["incidents.jsonl", "report.md", "sessions.jsonl", "summary.json"]);
 		for (const file of files) expect(((await lstat(join(result.outDir, file))).mode & 0o777)).toBe(0o600);
 		const report = await readFile(join(result.outDir, "report.md"), "utf8");
-		expect(report).toContain("| 2026-W45 | 1 | 2 | 1 | 50 | 1 |");
+		expect(report).toContain("| 2026-W45 | 1 | 2 | 1 | 50 | 0–148 | 1 |");
 		expect(JSON.parse(await readFile(join(result.outDir, "summary.json"), "utf8"))).toMatchObject({ schema: "rotom-loop-harvest/v1", sessions: 1, incidents: 2 });
 	});
 

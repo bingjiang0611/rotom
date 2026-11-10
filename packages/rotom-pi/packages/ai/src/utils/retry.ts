@@ -21,6 +21,20 @@ const NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN = buildProviderErrorPattern([
 	"out of budget",
 	"quota exceeded",
 	"billing",
+	// HTTP 402 Payment Required and the balance/credit wording gateways use for it.
+	// "402 Payment Required: <gateway> account balance is insufficient" was observed
+	// in the local harvest as a failure that reached the user.
+	"(?<![0-9])402(?![0-9])",
+	"payment required",
+	"insufficient (?:balance|credit|credits|funds)",
+	"balance is insufficient",
+	"out of credits",
+	"credit balance",
+	"no credits remaining",
+	// Provider-reported account limits that only a top-up or an admin can lift.
+	"exceeded your current quota",
+	"usage limit reached",
+	"account is suspended",
 
 	// Sign in with ChatGPT: the subscription's shared usage limit, which resets
 	// after hours rather than seconds.
@@ -241,15 +255,23 @@ export async function retryAssistantCall(
 			return response;
 		}
 
-		// Non-retryable, or budget exhausted: return the final error message.
+		// Non-retryable, or budget exhausted: return the final error message. An account
+		// limit gets actionable advice, because no retry can clear it.
 		if (attempt >= maxAttempts || !isRetryableAssistantError(response)) {
-			if (lastRetry) await callbacks?.onRetryFinished?.(false, lastRetry.attempt, response.errorMessage);
-			return response;
+			const final = annotateLimitError(response);
+			if (lastRetry) await callbacks?.onRetryFinished?.(false, lastRetry.attempt, final.errorMessage);
+			return final;
 		}
 
 		attempt++;
 		lastRetry = { attempt, errorMessage: response.errorMessage || "Unknown error" };
-		const delayMs = retryDelayMs(policy!, attempt);
+		// A provider that answered with Retry-After decides the wait, capped by the same
+		// agent-level maximum as the exponential backoff.
+		const requestedDelayMs = serverRequestedDelayMs(response);
+		const delayMs =
+			requestedDelayMs === undefined
+				? retryDelayMs(policy!, attempt)
+				: Math.min(requestedDelayMs, policy?.maxAgentDelayMs ?? DEFAULT_MAX_AGENT_RETRY_DELAY_MS);
 		await callbacks?.onRetryScheduled?.(attempt, maxAttempts, delayMs, lastRetry.errorMessage);
 
 		// Normalize aborts during retry backoff to the same AssistantMessage shape as
@@ -282,6 +304,58 @@ export function isRetryableAssistantError(message: AssistantMessage): boolean {
 	const errorMessage = message.errorMessage;
 	if (NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN.test(errorMessage)) return false;
 	return RETRYABLE_PROVIDER_ERROR_PATTERN.test(errorMessage);
+}
+
+/**
+ * Whether the failure is an account limit (HTTP 402, balance, quota, billing) that no
+ * retry can fix, so the caller can stop at once and tell the user what to do.
+ */
+export function isNonRetryableLimitAssistantError(message: AssistantMessage): boolean {
+	return message.stopReason === "error" && !!message.errorMessage && NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN.test(message.errorMessage);
+}
+
+/** Marks the appended advice, so re-annotating a message never repeats it. */
+const LIMIT_HINT_MARKER = "[rotom]";
+
+/**
+ * Actionable advice for an account limit: which provider stopped the request and what the
+ * user can do. Appended to the provider's own text, which stays first and keeps matching.
+ */
+export function limitErrorHint(provider: string): string {
+	const name = provider || "The provider";
+	return `${LIMIT_HINT_MARKER} ${name} reported an account limit (balance, quota or billing). Retrying cannot succeed: top up that provider account or switch models.`;
+}
+
+/** Appends the limit advice once, leaving non-limit and already-annotated messages untouched. */
+export function annotateLimitError(message: AssistantMessage): AssistantMessage {
+	if (!isNonRetryableLimitAssistantError(message)) return message;
+	const errorMessage = message.errorMessage!;
+	if (errorMessage.includes(LIMIT_HINT_MARKER)) return message;
+	return { ...message, errorMessage: `${errorMessage}\n${limitErrorHint(message.provider)}` };
+}
+
+const RETRY_AFTER_MS_HINT = /retry-after-ms\s*[:=]\s*(\d+(?:\.\d+)?)/i;
+const SERVER_REQUESTED_DELAY = /server requested (\d+(?:\.\d+)?)s retry delay/i;
+const RETRY_AFTER_HINT = /retry-after\s*[:=]\s*(\d+(?:\.\d+)?)/i;
+
+/**
+ * The delay a provider asked for, in milliseconds: the structured field when a provider sets
+ * it, otherwise the `retry-after-ms` / `retry-after` value (or the reported seconds from the
+ * provider retry cap) that the provider wrote into the error text.
+ */
+export function serverRequestedDelayMs(message: AssistantMessage): number | undefined {
+	if (typeof message.retryAfterMs === "number" && Number.isFinite(message.retryAfterMs) && message.retryAfterMs >= 0) {
+		return message.retryAfterMs;
+	}
+	const errorMessage = message.errorMessage;
+	if (!errorMessage) return undefined;
+	const ms = RETRY_AFTER_MS_HINT.exec(errorMessage);
+	if (ms) return Math.round(Number(ms[1]));
+	const requested = SERVER_REQUESTED_DELAY.exec(errorMessage);
+	if (requested) return Math.round(Number(requested[1]) * 1000);
+	const seconds = RETRY_AFTER_HINT.exec(errorMessage);
+	if (seconds) return Math.round(Number(seconds[1]) * 1000);
+	return undefined;
 }
 
 // Failures that prove the request never reached the provider: DNS, refused or

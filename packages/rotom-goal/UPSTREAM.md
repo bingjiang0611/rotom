@@ -4,7 +4,7 @@
 - Repository: <https://github.com/narumiruna/pi-extensions> (`packages/pi-goal`)
 - Baseline: upstream `0.54.4`, 22 TypeScript source files.
 - License: MIT; original notice retained in `LICENSE`.
-- Maintained version: `0.54.4-rotom.10`, private component of [rotom](https://github.com/bingjiang0611/rotom), not an upstream or npm release.
+- Maintained version: `0.54.4-rotom.11`, private component of [rotom](https://github.com/bingjiang0611/rotom), not an upstream or npm release.
 - `.rotom.2`: Qoder Ultimate live evaluation exposed missing verdict markers when the request contained only JSON. The request now carries the same review contract outside the untrusted payload, and file tools explain the project-root path. Bounded `goal_continue`/`goal_wait` tool results and text-only user/host announcements are now visible to the reviewer for procedural requirements, but remain excluded from candidate identity and progress. The request also clarifies pre-completion timing and native control semantics; evidence retains complete records up to the existing 12KB bound instead of prematurely dropping them after six records. Strict verdict parsing, model-call/attempt limits and token/byte budgets are unchanged.
 
 ## Retained upstream behavior
@@ -26,7 +26,7 @@ This version takes design inspiration from `tmonk/pi-goal-x` commit `323fd4c3b07
 - `goal_continue` is the fourth stable tool. A current run declares one next action before yielding. Missing decisions pause without a repair turn. Existing Goal dispatch ownership, wait and budget machinery are reused; no second scheduler/allowance is added. Mixed lifecycle-tool batches are rejected before any sibling executes.
 - Control-only narration and `goal_continue` arguments are excluded from progress fingerprints.
 - `goal_complete` defaults to a bounded file-only reviewer using the selected provider through public `ModelRegistry.complete`. It creates no nested AgentSession, discovers no resources and never gets bash/browser/write tools.
-- `completionReview` defaults true in existing settings. An explicit user opt-out restores the old model-reported completion path.
+- `completionReview` is opt-in. Model-reported completion remains the default path; an explicit `completionReview: true` enables the bounded file-only reviewer.
 - Review attempts and partial reported-token usage persist in the existing Goal state before dispatch. Resume/edit do not replenish the allowance. Unknown/in-flight attempts are not replayed; restore pauses them. Approval checks the current run/Goal, selected evidence and inspected file digests.
 - Requirements remain in the complete original objective. Reviewer approval is a second opinion, not independent proof of arbitrary external effects. File scope, budgets, cancellation limits and unknown USD/credits are documented in [README.md](README.md).
 
@@ -63,6 +63,12 @@ After Pi exhausts one provider request's configured retries, Goal schedules fres
 Completion-review `unknown` results return to the active Goal without automatically replaying the same evidence candidate. A genuinely new candidate may spend the remaining persisted attempt and reported-token allowance. Repeating the same candidate still returns a rejection without dispatching a review; a new candidate after either allowance is exhausted pauses with `stopReason: review_exhausted` and requires manual acceptance plus `/goal clear`, or an explicit `completionReview: false` setting followed by `/goal resume`. In-flight `running` restore remains fail-closed, and all existing attempt, token, file, call and timeout bounds are unchanged.
 
 Deterministic tests cover automatic continuation, length truncation, both guards, mixed `goal_continue`, numeric limits, legacy state, restoration and the decision schema. The maintained suite passed 99 tests plus TypeScript type checking. No live model, Qoder credit, external-service reliability or completion-quality evaluation was run.
+
+### `.rotom.11`: completion review is opt-in
+
+The automatic completion reviewer now defaults to **off**. `goal_complete` completes from the model's claim unless the user explicitly sets `"completionReview": true` in `pi-goal.json` and reloads. A machine whose `pi-goal.json` still says `true` keeps the reviewer; a machine with no settings file changes behavior and no longer spends extra provider requests on review. Model-reported completion is not independently verified completion, so nothing here weakens the evidence rules: the reviewer's bounds, allowance, `review_exhausted` pause and no-replay rules are unchanged for users who opt in. No tool schema, persisted-state field, continuation limit or provider request was added; `DEFAULT_GOAL_SETTINGS` and missing-key normalization both report `false`.
+
+Rationale from the maintained fork: the reported-token admission across one Goal's reviews (24,000) is smaller than a single full review can consume (up to 4 model requests), so one `unknown` review result could exhaust the allowance before any judgment existed and left long-running Goals paused for manual acceptance. An opt-in reviewer keeps that second opinion available without charging every Goal for it.
 
 ## Compatibility and verification
 
