@@ -1,17 +1,28 @@
 # Upstream provenance — rotom SoL-Pi
 
 - Upstream: SoL-Pi, <https://github.com/NVlabs/SoL-Pi>. License: MIT, Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES; the original notice stays in `LICENSE`.
-- Upstream base: `2b791687` ("Update Pi to 0.85.1 and verify 0.84.2 compatibility (#63)").
-- Source: the maintainer's SoL-Pi branch at `b463fad0ffab6e42488f5c80687adab67174a0ee`, imported from its tracked files. On top of the upstream base it carries five commits: recalled pages keep source references (`81b80b0`), the Pi 0.85 compaction-reason test (`83c5426`), the 0.85.1 baseline merge (`807ad60`), selected upstream reliability backports (`32840b2`), and Pi error-result handling plus runtime compatibility repairs (`b463fad`).
-- Maintained version: `0.1.0-rotom.6`, a private component of [rotom](https://github.com/bingjiang0611/rotom). It is not an upstream or npm release.
+- Upstream base: `2195680` (upstream `main` on 2026-10-18, "Merge pull request #111 from HaozheLiu-ST/pi-1x-compat"; package version `0.1.1`). Up to `.rotom.6` the base was `2b791687` ("Update Pi to 0.85.1 and verify 0.84.2 compatibility (#63)").
+- Source: up to `.rotom.6`, the maintainer's SoL-Pi branch at `b463fad0ffab6e42488f5c80687adab67174a0ee`, imported from its tracked files (five commits on `2b791687`: recalled pages keep source references `81b80b0`, the Pi 0.85 compaction-reason test `83c5426`, the 0.85.1 baseline merge `807ad60`, selected upstream reliability backports `32840b2`, and Pi error-result handling plus runtime compatibility repairs `b463fad`). `.rotom.7` is a three-way merge of upstream `2b791687..2195680` into that tree; see below.
+- Maintained version: `0.1.1-rotom.7`, a private component of [rotom](https://github.com/bingjiang0611/rotom). It is not an upstream or npm release.
 
 ## Changes in this import
 
 - `package.json` / `package-lock.json`: version `0.1.0-rotom.1`, rotom description, `UPSTREAM.md` added to and the hero image removed from the packed files.
-- Not imported: `.github/`, `AGENTS.md`, `CLAUDE.md`, `.gitattributes` and `assets/` (the README hero image link is therefore broken in this copy).
+- Not imported: `.github/`, `AGENTS.md`, `CLAUDE.md`, `.gitattributes`, `assets/` and `examples/` (the README hero image and News example links are therefore broken in this copy).
 - `src/` and `tests/` were byte-identical to the source commit in `0.1.0-rotom.0`.
 
 ## rotom changes
+
+- `.rotom.7`: three-way merge of upstream `2b791687..2195680` (base `2b791687`, ours `.rotom.6`, theirs `2195680`); version `0.1.1-rotom.7`. Taken from upstream:
+  - Pi 1.x and codemode support for all four mechanisms (`a9d1ee3`): Action Fusion reports the follow-up status explicitly and skips the savings notice for calls nested in codemode scripts; the Reducer ignores nested tool results (`parentToolCallId`) and leaves a result unreduced when its exit state disagrees with `isError`; OCC registers `update_plan` as model-only, cancels Pi's threshold compaction while a boundary compaction is selected, resumes after a failed boundary compaction, and no longer reports a missing continuation on Pi >= 0.87.
+  - Observation Pack edits the context handler's message clone in place instead of returning new message objects. Since Pi 0.87 (and in rotom's Pi fork) returned objects make Pi collapse every mid-conversation system message into one leading message, which breaks the provider's cached prefix. rotom's Compaction Offload projection now edits in place too.
+  - Action Fusion inherits Pi's file-backed `shellPath`/`shellCommandPrefix` through `SettingsManager`, respecting project trust; malformed settings fail initialization (`da08030`). Windows shell drive paths (`/c/…`, `/mnt/c/…`, `/cygdrive/c/…`) are converted like Pi does; a no-op off Windows (`7d7f082`).
+  - OCC economics and recovery (`5c85108`, `b20b7f7`, `efacbbf`, `4101906`, `2f9f748`, `5213f22` with the new `projection.ts`, `06814c1`, `1d90af2`, `f997dde`, `753d156`) and ephemeral-session archives (`148b398`, already partly present).
+  - Pi peer ranges `>=0.84.2` (`e47ce2d`); `scripts/check-pi-compat.mjs` (`760ff50`, not packed); tests and docs. rotom's Pi `1.4.0-rotom.2` is a prerelease and does not satisfy that range under strict semver; rotom installs third-party packages with `--legacy-peer-deps`, so the range is not enforced there.
+  Kept from rotom over upstream:
+  - Action Fusion result contract: once the mutation is applied, a failed (non-zero `isError` result, or a thrown bash error such as a timeout) or skipped (hash guard cannot confirm the target) `then_run` is returned as an `isError` result with `details.actionFusion = { version: 1, mutation: "applied", followup }` plus the mutation's own details; upstream throws in those two cases. A mutation that threw or returned an error result carries no record. `runFusedMutation` also returns the upstream status.
+  - Compaction Offload, recall pagination, Reducer usage and quote diagnostics, the `minBytes` observation threshold, and the `undici` override (now alongside upstream's `source-map-js` override).
+  New tests: the then_run record on success, failure, thrown bash errors, skipped hash guard and mutation error results; Compaction Offload projection keeps mid-conversation system messages in place (fails against the `.rotom.6` projection). Upstream's in-place Observation Pack tests are included.
 
 - `.rotom.6`: `obs_recall` text and packed EOF pages expose `next_offset=null` at `eof=true` and tell callers to stop paging. The tool description and observation placeholders carry the same stop condition. Numeric `details.nextOffset` and ledger offsets remain byte-end positions for persisted source validation. Legacy EOF text is retained instead of repacked when exact-page validation no longer matches; a new recall returns the terminal cursor. Offline regression reproduces the observed text-only numeric-cursor loop using sanitized one-page and multi-page UTF-8 content, and covers exact EOF, out-of-range rejection and legacy-page preservation. This is not live-model A/B evidence.
 
@@ -26,8 +37,13 @@
 
 ## How rotom uses it
 
-rotom loads SoL-Pi from the third-party composition root (`rotom/extensions/third-party/sol-pi.ts`). The SoL-Pi loader is unchanged: a project `.pi/sol-pi.json` (trusted projects only) or `~/.pi/agent/sol-pi.json` wins. Only when neither file exists does rotom supply its own default instead of SoL-Pi's all-off default: Action Fusion, Observation Pack and the Evidence-Preserving Reducer on, Online Context Compact and Compaction Offload off. rotom applies `ROTOM_COMPACTION_OFFLOAD=1|0` after loading that configuration; enabling still requires Observation Pack.
+rotom loads SoL-Pi from the third-party composition root (`rotom/extensions/third-party/sol-pi.ts`). The SoL-Pi loader is unchanged: a project `.pi/sol-pi.json` (trusted projects only) or `~/.pi/agent/sol-pi.json` wins. Only when neither file exists does rotom supply its own default instead of SoL-Pi's all-off default: Action Fusion, Observation Pack, the Evidence-Preserving Reducer and Compaction Offload on, Online Context Compact off. rotom applies `ROTOM_COMPACTION_OFFLOAD=1|0` after loading that configuration; enabling still requires Observation Pack.
 
 ## Verification
 
 `npm ci && npm run typecheck && npm test` runs the upstream suite against the Pi `1.3.0` devDependencies pinned in `package-lock.json`, not against rotom's Pi fork. Compatibility with the rotom Pi fork is covered by rotom's own runtime tests and smoke runs.
+
+`.rotom.7` (Linux, Node 24.22.1, offline/faux providers only, no live model calls):
+
+- Pinned Pi `1.3.0` devDependencies: typecheck passes; 324 tests pass, only the 2 `tests/install-guide.test.ts` cases fail (they read the non-imported `AGENTS.md`/`CLAUDE.md`).
+- rotom's Pi fork `1.4.0-rotom.2` (its seven packages linked over the devDependencies in a scratch copy): typecheck passes and `scripts/check-pi-compat.mjs` reports all API checks OK with an "untested version" warning. 312 pass and 14 fail: the 2 install-guide cases; 3 `package.test.ts` cases that assert the compat check prints no warning for the installed Pi; 8 OCC/codemode cases that count one `agent_settled` event per automatic continuation, where the fork reports fewer (the same counts already fail for `.rotom.6` on the fork; compaction counts, provider calls and final replies match); and 1 OCC case whose scripted faux responses expect one summary request for Pi's threshold compaction where the fork makes two (split-turn prefix). The compaction-reason label (`manual` on Pi 1.3.0, `extension` on the fork) and codemode's refusal wording for a model-only tool are accepted in both forms. rotom ships OCC disabled.
