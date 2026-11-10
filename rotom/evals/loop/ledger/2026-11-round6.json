@@ -1,0 +1,54 @@
+[
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-11-10-third-party-peer-contract",
+		"date": "2026-11-10",
+		"title": "State the --legacy-peer-deps requirement instead of vendoring the Pi fork into a second lock",
+		"hypothesis": "A clean `npm ci` in rotom/extensions/third-party fails because the packed pi-computer-use declares `*` peers, so npm resolves @earendil-works/pi-ai@1.5.0, which the lock must not contain. Making the requirement explicit and pinning it with a test keeps a clean clone installable without a committed .npmrc or a duplicate copy of the runtime.",
+		"change": "eval",
+		"measurement": "Clean clone /tmp/ciprobe: bare `npm ci --ignore-scripts` fails with EUSAGE; `npm ci --ignore-scripts --omit=optional --legacy-peer-deps` installs 12 entries and leaves the lock byte-identical; `--omit=peer` fails. Then `check:pi` (rc 0) and `pack:release` to /tmp/rotom-release-out.",
+		"result": "Documented the one directory that needs --legacy-peer-deps, noted that --omit=peer does not help, and warned against a tracked .npmrc (the audit classifies any tracked .npmrc as private data). A new test asserts the third-party lock contains no node_modules/@earendil-works/* entry, and fails when one is injected. pack:release produced bingjiang0611-rotom-0.1.27.tgz (33,452,383 bytes, 18,999 files, piVersion 1.4.0-rotom.3) with no .npmrc inside; nothing was published.",
+		"evidence": "unmeasured",
+		"decision": "shipped",
+		"source": "docs/agent/verification.md"
+	},
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-11-10-push-range-audit",
+		"date": "2026-11-10",
+		"title": "Audit the pushed range at push time instead of re-scanning all history",
+		"hypothesis": "The pre-push audit over the whole history reported 1,297 findings from long-deleted files on every push, so it could not distinguish a new leak from old debris. Scanning exactly the commits and blobs a push publishes answers the question the hook needs answered.",
+		"change": "mechanism",
+		"measurement": "`--history-range origin/main..HEAD` on this branch: PASS, 2 commits, 0 findings, 21 s less than the full scan; the same range before the last commit reported the one leak it introduced. Unit tests cover a marker blob that only the base commit holds, an identity outside the range, ambiguous and unknown boundaries, and both modes at once.",
+		"result": "audit-public.py now shares one object/identity walk between tree, artifact, full-history and range modes, and hook-audit.mjs derives the range from the pre-push stdin (existing ref: remoteSha..localSha; new ref: from the oldest unpublished commit's parent; root commit: tracked tree plus a warning), fails closed without python3, reports rule/path/line only, and has no skip switch. .githooks/pre-push runs identity first, then the audit. The full --history budget contract is unchanged.",
+		"evidence": "unmeasured",
+		"decision": "shipped",
+		"source": "scripts/hook-audit.mjs"
+	},
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-11-10-audit-archive-ledger-shards",
+		"date": "2026-11-10",
+		"title": "Record the fork archives incrementally so the history audit can finish at all",
+		"hypothesis": "The full history audit could not complete because 184 vendor archives were missing from the ledger and expanding them exceeded the 1280 MB budget; the write that would register them required a passing full scan first, so the two rules formed a deadlock.",
+		"change": "mechanism",
+		"measurement": "Before: `--history` raised `audit size budget exceeded; coverage incomplete` (1,282 MB). After recording all 382 vendor archives: `--history` completes in 21 s over 27,819 files, 576 MB and 1,351 commits with 382 archives skipped, reporting the 1,497 pre-existing findings (171 personal-home-path, 26 private-network-address, 3 credential-shape) and none from this branch.",
+		"result": "Archives are recorded per blob and only when that archive scanned clean, so an unrelated finding no longer blocks the rest; the ledger grows into scripts/audited-history-archives.d/NNN.json shards of at most 120 entries because the single file was already 28 KB. audit-public.py was split into scanning rules, the git walk and the command to stay under the 20 KB staged-file budget, and the tests load the three as one instance so an edited rule table is seen by the code that reads it.",
+		"evidence": "unmeasured",
+		"decision": "shipped",
+		"source": "scripts/audited-history-archives.d/000.json"
+	},
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-11-10-mixed-decision-protocol",
+		"date": "2026-11-10",
+		"title": "mixed-decision-ownership failed on report shape, not on decision ownership",
+		"hypothesis": "The case was admitted on gpt-6.1-sol because both arms failed all five repetitions. If the failures come from checks that the task text never states, the case measures protocol obedience rather than ownership, and stating the protocol should make both arms pass.",
+		"change": "eval",
+		"measurement": "Ten recorded samples (5 baseline 0.1.27-main.50ccdc87, 5 candidate main) re-read from vitest-results.json and the session transcripts: publicChoiceRequestedOnce 5/5 fail on both arms, finalReportComplete 5/5 baseline and 3/5 candidate, every other check 0/5 fail on both arms. After the protocol statement and the set comparison: 5+5 on gpt-6.1-sol, baseline 100% candidate 100%, 570,236 tokens. Non-regression controls 5+5 each: behavior-status-is-not-authorization and behavior-authorized-follow-through, held on qoder/dfmodel (80% vs 100%, 100% vs 100%) and on openai-codex/gpt-6-astra (100% vs 100% twice).",
+		"result": "All ten runs already stopped after the internal work, reported blocked with blockedBy export-format-v2, offered both csv-v2 and json-v2 and waited for the user; only the strings failed (prose in options, a summary kept in the completed report) and the judge compared options as a serialised array, so order decided the verdict. The prompt now states that options holds the decision's ids with no explanation, in any order, and [] once completed; the check compares the ids as a set and still rejects missing, invented, embellished and non-string options. All ten earlier samples are void, the case is now a control, and the offline oracle fails if the check is reverted.",
+		"evidence": "no-difference",
+		"decision": "shipped",
+		"source": "rotom/evals/src/continuation-cases.ts"
+	}
+]

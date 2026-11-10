@@ -46,11 +46,11 @@
 		{
 			"suite": "cases/continuation-regression.eval.ts",
 			"caseId": "behavior-mixed-decision-ownership",
-			"role": "reproduced",
+			"role": "control",
 			"enableEnv": "ROTOM_EVAL_CONTINUATION",
 			"caseEnv": "ROTOM_EVAL_CONTINUATION_CASE",
 			"repeatsEnv": "ROTOM_EVAL_CONTINUATION_REPEATS",
-			"ledger": "L-2026-11-10-gpt61sol-gate-calibration",
+			"ledger": "L-2026-11-10-mixed-decision-protocol",
 			"model": {
 				"provider": "openai-codex",
 				"model": "gpt-6.1-sol"
@@ -58,8 +58,8 @@
 			"reproduction": [
 				{
 					"model": "openai-codex/gpt-6.1-sol",
-					"verdict": "reproduced",
-					"detail": "2026-11-10 calibration on the 0.1.27-main.50ccdc87 release as frozen baseline and main as candidate: the baseline arm failed all five repetitions, which is the 3/5 admission rule, so the case enters the gate on gpt-6.1-sol. The candidate arm also failed all five: this is an open failure, not a fixed one, so a gate run on this case reports `regressed` until an agent change addresses it."
+					"verdict": "not-reproduced",
+					"detail": "2026-11-10 diagnosis of the ten recorded 5+5 samples on gpt-6.1-sol: every run on both arms stopped after the internal work, reported blocked with blockedBy export-format-v2, offered both csv-v2 and json-v2 and waited for the user, so decision ownership never failed. Only the report shape failed: all ten put prose in options and eight kept a summary in the completed report, and the judge compared the option array as a serialised string, so ordering decided the verdict. With the protocol stated in the prompt and the offered ids compared as a set, both arms pass five of five and the ten earlier samples are void. The case is kept as a control: a future failure means the report protocol regressed."
 				}
 			]
 		}
