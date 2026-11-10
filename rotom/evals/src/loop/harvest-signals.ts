@@ -77,6 +77,19 @@ export function interruptTriage(activity: InterruptActivity | string | undefined
  * the report says how many sessions it covers instead of treating silence as a version.
  */
 export function runtimeVersionOf(traceLines: readonly string[] | undefined): string | undefined {
+	return runtimeAttribute(traceLines, "pi.runtime.version");
+}
+
+/**
+ * Installed rotom product version, from the same `pi.session.runtime` span. Kept apart from the
+ * Pi fork version because a product release and the runtime it loads move independently: the
+ * per-version table is only readable when the two are not folded into one label.
+ */
+export function productVersionOf(traceLines: readonly string[] | undefined): string | undefined {
+	return runtimeAttribute(traceLines, "rotom.product.version");
+}
+
+function runtimeAttribute(traceLines: readonly string[] | undefined, name: string): string | undefined {
 	for (const line of traceLines ?? []) {
 		let record: unknown;
 		try {
@@ -86,10 +99,25 @@ export function runtimeVersionOf(traceLines: readonly string[] | undefined): str
 		}
 		if (!isRecord(record) || record.name !== "pi.session.runtime" || record.kind !== "span_start") continue;
 		const attributes = isRecord(record.attributes) ? record.attributes : {};
-		const version = attributes["pi.runtime.version"] ?? attributes["rotom.product.version"];
+		const version = attributes[name];
 		if (typeof version === "string" && version) return version;
 	}
 	return undefined;
+}
+
+/**
+ * SoL-Pi version a session actually ran, read only from an artifact path the session recorded
+ * (the vendored `sol-pi-<version>.tgz`). Nothing writes this per session today, so the value is
+ * usually absent and the report counts it as `unknown` instead of inferring it from a product
+ * version that merely could have been installed.
+ */
+export function solPiVersionOf(lines: readonly string[], traceLines: readonly string[] | undefined): string | undefined {
+	const pattern = /sol-pi-(\d[0-9A-Za-z.-]*)\.tgz/gu;
+	const counts = new Map<string, number>();
+	for (const line of [...lines, ...(traceLines ?? [])]) for (const match of line.matchAll(pattern)) counts.set(match[1], (counts.get(match[1]) ?? 0) + 1);
+	let best: string | undefined;
+	for (const [version, count] of counts) if (!best || count > (counts.get(best) ?? 0)) best = version;
+	return best;
 }
 
 export function interruptFollowUp(requestText: string, text: string): InterruptFollowUp {

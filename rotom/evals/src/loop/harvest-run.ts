@@ -7,6 +7,7 @@ import { lstat, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { HARVEST_SCHEMA, type Incident, type SessionSummary, analyzeSession, createHarvestShared } from "./harvest.ts";
 import { renderReport, type SkipCounts, type SkipReason } from "./harvest-report.ts";
+import { defaultModelExperiment } from "./harvest-models.ts";
 import { weeklyMetrics } from "./harvest-report.ts";
 
 export { isoWeek, renderReport, triageScore, weeklyMetrics, type SkipCounts, type SkipReason, type WeekMetric } from "./harvest-report.ts";
@@ -80,7 +81,9 @@ export function defaultLoopDir(env: NodeJS.ProcessEnv = process.env): string {
 	return env.ROTOM_LOOP_DIR || join(env.HOME ?? "", ".rotom", "loop");
 }
 
-export type HarvestOptions = { sessionsDir: string; outRoot: string; since: Date; now?: Date; excerpts: boolean };
+export type HarvestExperiment = "default-model";
+
+export type HarvestOptions = { sessionsDir: string; outRoot: string; since: Date; now?: Date; excerpts: boolean; experiment?: HarvestExperiment };
 
 export async function harvest(options: HarvestOptions): Promise<{ outDir: string; sessions: SessionSummary[]; incidents: Incident[]; skipped: SkipCounts }> {
 	const now = options.now ?? new Date();
@@ -129,6 +132,17 @@ export async function harvest(options: HarvestOptions): Promise<{ outDir: string
 		"summary.json",
 		`${JSON.stringify({ schema: HARVEST_SCHEMA, generatedAt: now.toISOString(), since, sessionsDir, excerpts: options.excerpts, sessions: sessions.length, incidents: incidents.length, skipped, weeks: weeklyMetrics(sessions) }, null, 2)}\n`,
 	);
-	await write("report.md", renderReport({ generatedAt: now.toISOString(), since, sessionsDir, sessions, incidents, skipped }));
+	await write(
+		"report.md",
+		renderReport({
+			generatedAt: now.toISOString(),
+			since,
+			sessionsDir,
+			sessions,
+			incidents,
+			skipped,
+			...(options.experiment === "default-model" ? { experiment: { kind: "default-model" as const, view: defaultModelExperiment(sessions) } } : {}),
+		}),
+	);
 	return { outDir, sessions, incidents, skipped };
 }
