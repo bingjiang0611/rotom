@@ -12,7 +12,7 @@ description: "运行 rotom 的 Agent 优化循环：从本机会话挖掘失败�
 - **找问题**：`npm --prefix rotom/evals run loop -- harvest`。读 `report.md` 的周介入率和分诊队列，再读 `incidents.jsonl` 前列事件对应的原始会话。只在本机读取；输出不入 Git。
 - **新失败入集**：分类 → oracle → baseline → 修复 → candidate，顺序不可交换（见合同 ②–④）。
 - **改了 Agent 行为**：改动涉及 coding-policy、工具、Goal 续跑、上下文/压缩或 Subagent 默认时，先 `gate --baseline <冻结产品> --smoke` 用一对样本审分数（两侧都出分、check 都是布尔、没有 check 读 `observe` 外的文件），再跑 `npm --prefix rotom/evals run loop -- gate --baseline <冻结产品>`。smoke 不算样本、不写 gate 历史。样本不足就加轮次，再用 `gate-pool --since <起跑时间> [--case ID]` 合并判定：合并只看 pass/fail 累加，后一轮通过不会抵消前一轮失败。
-- **收尾**：每个实验（含撤回和未复现）在 `rotom/evals/loop/ledger.json` 追加一项，并跑 `npm --prefix rotom/evals run loop -- ledger`。
+- **收尾**：每个实验（含撤回和未复现）在 `rotom/evals/loop/ledger/<YYYY-MM>.json` 对应月份分片追加一项，并跑 `npm --prefix rotom/evals run loop -- ledger`。
 
 ## 不可妥协
 

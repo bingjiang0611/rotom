@@ -13,7 +13,7 @@
 
 ## 为什么这样设计
 
-2026-09 到 2026-11 的实验见 [账本](../../rotom/evals/loop/ledger.json)（`npm --prefix rotom/evals run loop -- ledger`）。10 条记录里只有 2 条测到改善：一条是机制（Compaction Offload），一条是先在真实失败上复现再修的提示（follow-through）。其余为 inconclusive、no-difference 或成本上升。根因是：
+2026-09 到 2026-11 的实验见 [账本目录](../../rotom/evals/loop/ledger/)（`npm --prefix rotom/evals run loop -- ledger`）。21 条记录（按月分片存放）里只有 2 条测到改善：一条是机制（Compaction Offload），一条是先在真实失败上复现再修的提示（follow-through）。其余为 inconclusive、no-difference 或成本上升。根因是：
 
 1. **失败来源靠记忆。** 本机会话和 trace 一直在记录，从未被系统挖掘。
 2. **合成题撞天花板。** 14 个失败回归用例只有 1 个在冻结基线上复现；任务收尾/目标保持完整配对基线 26/27。改动无从显示差别。
@@ -27,7 +27,7 @@ npm --prefix rotom/evals run loop -- harvest            # 默认最近 28 天
 npm --prefix rotom/evals run loop -- harvest --days 7 --no-excerpts
 ```
 
-读取 `$PI_CODING_AGENT_DIR/sessions`（默认 `~/.pi/agent/sessions`）的会话 JSONL 与同目录 `observability/` trace，**不调用模型**。输出写到 `$ROTOM_LOOP_DIR`（默认 `~/.rotom/loop/harvest-<时间>/`），目录 `0700`、文件 `0600`，拒绝 symlink 输出；永不入 Git。跳过 symlink 会话文件、trace 目录与 subagent 存储；只按会话文件 mtime 过滤时间窗。
+读取 `$PI_CODING_AGENT_DIR/sessions`（默认 `~/.pi/agent/sessions`）的会话 JSONL 与同目录 `observability/` trace，**不调用模型**。输出写到 `$ROTOM_LOOP_DIR`（默认 `~/.rotom/loop/harvest-<时间>/`），目录 `0700`、文件 `0600`，拒绝 symlink 输出；永不入 Git。跳过的条目按原因计数并写进 `report.md`（`symlink`、`artifact-store`（`observability/`、`observation-pack/`、含 `subagent` 的子树）、`deep-directory`（深度 > 4 的子树）、`outside-window`、`no-user-turns`、`not-a-session`），这样单个 `skipped` 数字可以被审计而不是被信任。`artifact-store` 与 `deep-directory` 计的是目录，其余计文件。只按会话文件 mtime 过滤时间窗。
 
 | 类别 | 检测 | 含义 |
 | --- | --- | --- |
@@ -41,7 +41,12 @@ npm --prefix rotom/evals run loop -- harvest --days 7 --no-excerpts
 | 失败 | `goal_pause` | Goal 暂停且原因不是用户暂停、会话恢复或 `agent_interruption`（后者是上游错误的后果，由对应事件记录） |
 | 失败 | `compaction_failed` | trace 中压缩 span 以 error 结束 |
 
-**北极星指标**：每 100 个用户 turn 的介入次数（同一 turn 多个信号只计一次，中断单独计）。`report.md` 给出每周数值与 95% 泊松区间（周样本小时只有区间能说明“尖峰”是否超出噪声）、按权重排序的分诊队列，以及下面这些拆分；`incidents.jsonl` 的 `entryId` 可直接定位到会话分叉点。
+**北极星指标**：每 100 个用户 turn 的介入次数（同一 turn 多个信号只计一次，中断单独计）。`report.md` 同时给出两个口径与 95% 泊松区间（周样本小时只有区间能说明“尖峰”是否超出噪声）、按权重排序的分诊队列，以及下面这些拆分；`incidents.jsonl` 的 `entryId` 可直接定位到会话分叉点。
+
+- **v1**：所有介入。
+- **v2**：纠正 + 重复 + 单独回“继续” + `quality` 中断。中断分三类：`self-retract`（还在等第一个字节且 < 2 s，多半是人自己改主意）、`quality`（Agent 已在执行工具、输出文字或发起工具调用，或等待/思考 ≥ 10 s）、`other`（其余，含没有下一条 turn 的中断）。v2 是“产品让它多做/做错”的那部分，v1 保留为完整背景，两者都要报。
+
+周与周之间模型构成变化大，所以除周表外还按模型和 runtime 分别给 v2 每百 turn 与区间：模型维度用**每个模型的 turn 数**作分母（不是会话的主模型），runtime 维度读 trace 的 `pi.session.runtime` span（`pi.runtime.version`，回退 `rotom.product.version`），没有 trace 的会话记 `unknown` 而不归给某个版本。中断后在下一条用户消息之前出现 `model_change` 的，单独统计“换掉的 provider/model”与“中断前已等待时长”，这是人在换模型而不是在换话题的证据。
 
 `user_interrupt` 另记 `activity`（`waiting-first-byte` / `streaming-text` / `streaming-thinking` / `streaming-tool-call` / `tool-executing` 及工具名）、`elapsedMs` 与 `nextUser`（下一条用户消息的类别），并在结构上区分来源：助手被中断后若第一个非控制 entry 是注入的 goal 合同、压缩标记或系统消息，记 `injected` / `compaction` / `system` 并从介入计数里排除（`interruptExcluded`），剩余算 `human`；中断后没有下一条 turn 记 `no-following-turn`。`tool_error_streak` 同时记工具名与错误类别（timeout / command-failed / not-found / ambiguous-match / stale / other），所以“哪个工具在什么错误上重复”可以直接读出来。模型占比按 turn 计，逐周列出领先的 provider/model。会话自身时间戳缺失或早于 2000 年时回退到会话文件 mtime，并在 Provenance 一节写明有多少条来自回退，不生成 1970 周。
 
@@ -77,6 +82,7 @@ skip、超时、provider 错误、identity gate 失败和外部写入 unknown �
 - 先找机制层的修复：工具行为、错误恢复、续跑策略、上下文管理、harness。
 - 只有 `reproduced-regression` 才能改 Agent；不为制造改善放宽 judge、删反例或改阈值。
 - 修复后同条件跑 candidate：同 case、fixture、judge、runner、模型、thinking、输入、重复数，按轮次交替 arm 顺序。baseline fail→candidate pass 才是改善；中途改 fixture/judge/runner 则旧 baseline 作废，两侧重跑。
+- **机制改动只有在进入产品实际加载的 runtime 后才能（继续）标 `shipped`。** 改源码不算发货：Pi fork 里的改动要重建 fork（`npm run build:pi`）、同步 `vendor/*.tgz`、`runtime/pi/fork-build.json`、`runtime/pi` 的 `package.json`/lock 与 `product-config` 的版本和 integrity，直到 `node rotom/scripts/build-pi-fork.mjs --check`（`check:pi`）通过；再按锁在**新的**产品目录安装后，`grep` 到 installed dist 里的新代码。只在源码里改过、`check:pi` 未过或 installed dist 里看不到的改动，账本 `result` 必须写明“仅源码/未重建 fork”，并把验收期起点定在用户日常安装切换到该版本的那天；否则这条修复等于没上线（2026-11-10 的 retry 改动就是这样漏掉的，见账本 `L-2026-11-10-retry-after-and-quota-errors`）。
 - **自 2026-11-09 起，纯提示改动只有在账本中 `evidence: improved` 时才能 `shipped`**（`ledger.ts` 强制）。新增规则要同时报告 token 变化。现有 `coding-policy` 规则用 `cases/coding-hygiene-rule-ablation.eval.ts` 逐条消融；测不出作用的规则删除。
 
 ## ⑤ gate：已复现用例的回归门禁
@@ -144,7 +150,7 @@ npm --prefix rotom/evals run loop -- gate --baseline /absolute/rotom-pre-fix/rot
 
 ## ⑥ 账本与节奏
 
-每个实验（包括失败与撤回）在 [`rotom/evals/loop/ledger.json`](../../rotom/evals/loop/ledger.json) 追加一项：假设、改动类型（mechanism/prompt/eval/removal）、测量（模型、用例、N）、结果、证据级别、决定、来源文档。`npm --prefix rotom/evals run loop -- ledger` 校验格式、来源文件存在和提示房租规则。不再为每个实验单独写长篇报告；需要细节时在来源文档追加。
+每个实验（包括失败与撤回）在 [`rotom/evals/loop/ledger/<YYYY-MM>.json`](../../rotom/evals/loop/ledger/) 里按月追加一项（分片按月份命名，条目日期必须落在分片月份内，id 跨分片唯一）：假设、改动类型（mechanism/prompt/eval/removal）、测量（模型、用例、N）、结果、证据级别、决定、来源文档。`npm --prefix rotom/evals run loop -- ledger` 校验所有分片的格式、来源文件存在、id 唯一和提示房租规则。不再为每个实验单独写长篇报告；需要细节时在来源文档追加。
 
 建议节奏：
 
