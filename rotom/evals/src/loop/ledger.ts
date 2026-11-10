@@ -1,9 +1,11 @@
 /**
- * Experiment ledger: a JSON array with one entry per optimization attempt, so
- * the loop's history is queryable instead of scattered across narrative
- * reports. (Not JSONL: the public audit treats tracked .jsonl as session data.)
+ * Experiment ledger: one JSON array per month under `loop/ledger/`, with one
+ * entry per optimization attempt, so the loop's history is queryable instead of
+ * scattered across narrative reports. (Not JSONL: the public audit treats
+ * tracked .jsonl as session data.) Shards keep each file small enough for the
+ * staged-file size hook without abbreviating what an entry records.
  */
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export const LEDGER_SCHEMA = "rotom-loop-ledger/v1";
@@ -33,6 +35,13 @@ export const PROMPT_RENT_SINCE = "2026-11-09";
 
 const ID = /^L-\d{4}-\d{2}-\d{2}-[a-z0-9-]+$/u;
 const DATE = /^\d{4}-\d{2}-\d{2}$/u;
+const SHARD = /^\d{4}-\d{2}\.json$/u;
+
+/** A shard file name is the month its entries must fall in. */
+export function shardFile(month: string): string {
+	if (!/^\d{4}-\d{2}$/u.test(month)) throw new Error(`ledger: month must look like YYYY-MM, got ${month}`);
+	return `${month}.json`;
+}
 
 export function parseLedger(text: string, repoRoot?: string): LedgerEntry[] {
 	let parsed: unknown;
@@ -64,6 +73,31 @@ export function parseLedger(text: string, repoRoot?: string): LedgerEntry[] {
 		if (repoRoot && !existsSync(join(repoRoot, (value.source as string).split("#")[0]))) throw new Error(`${where}: source ${value.source} does not exist`);
 		ids.add(value.id);
 		entries.push(value as LedgerEntry);
+	}
+	return entries;
+}
+
+/**
+ * Validate every shard and return the entries in month order. A duplicate id
+ * across two shards is rejected here, because each shard only guards itself.
+ */
+export function parseLedgerDir(directory: string, repoRoot?: string): LedgerEntry[] {
+	const shards = readdirSync(directory).filter((name) => SHARD.test(name)).sort();
+	if (shards.length === 0) throw new Error(`ledger: no shards in ${directory}`);
+	const entries: LedgerEntry[] = [];
+	const seen = new Map<string, string>();
+	for (const shard of shards) {
+		const month = shard.replace(/\.json$/u, "");
+		const parsed = parseLedger(readFileSync(join(directory, shard), "utf8"), repoRoot);
+		for (const entry of parsed) {
+			// Duplicate first: one id in two shards is the more precise diagnosis, and a shard
+			// holding a foreign month would otherwise report the date rule instead.
+			const previous = seen.get(entry.id);
+			if (previous) throw new Error(`${shard}: duplicate id ${entry.id} (already in ${previous})`);
+			seen.set(entry.id, shard);
+			if (!entry.date.startsWith(`${month}-`)) throw new Error(`${shard}: ${entry.id} is dated ${entry.date}`);
+		}
+		entries.push(...parsed);
 	}
 	return entries;
 }
