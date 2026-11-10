@@ -252,7 +252,7 @@ export function renderReport(input: { generatedAt: string; since: string; sessio
 			"",
 			"### Interrupts followed by a model switch",
 			"",
-			`${switches.total} interrupts were followed by a \`model_change\` before the next user message: the person changed model at the interrupt rather than later.`,
+			`${switches.total} interrupts were followed by a \`model_change\` to a *different* model before the next user message${switches.unattributed > 0 ? `, plus ${switches.unattributed} where the aborted request never named its model` : ""}. Pi writes a \`model_change\` entry after an abort even when the model did not change (241 of 258 in the 2026-11 window), so counting every entry would report a switch that never happened.`,
 			"",
 			...(switches.total === 0 ? ["None in this window.", ""] : [
 				"| Model switched away from | Count |",

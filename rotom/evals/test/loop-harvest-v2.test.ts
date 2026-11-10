@@ -84,6 +84,34 @@ describe("model attribution and runtime", () => {
 		expect(switches.byDuration).toEqual([{ duration: "10-30s", count: 1 }]);
 	});
 
+	it("does not call a re-written model entry a switch", () => {
+		// Pi writes `model_change` after an abort even when the model is unchanged, so an entry
+		// that names the same model is not evidence that the person moved.
+		const { incidents } = analyze(sessionHeader, chain([
+			message({ role: "user", content: "把 parser 的 bug 修了", timestamp: 0 }, "2026-11-03T10:00:00.000Z"),
+			message({ role: "assistant", content: [], stopReason: "aborted", provider: "qoder", model: "dfmodel", errorMessage: "aborted", durationMs: 900, timestamp: 0 }, "2026-11-03T10:00:00.900Z"),
+			{ type: "model_change", fields: { provider: "qoder", modelId: "dfmodel" }, timestamp: "2026-11-03T10:00:05.000Z" },
+			message({ role: "user", content: "继续", timestamp: 0 }, "2026-11-03T10:00:20.000Z"),
+		]));
+		const interrupt = incidents.find((incident) => incident.kind === "user_interrupt");
+		expect(interrupt?.detail.modelSwitchAfter).toBeUndefined();
+		expect(interrupt?.detail.modelSwitchUnattributed).toBeUndefined();
+		expect(modelSwitchTables(incidents).total).toBe(0);
+	});
+
+	it("keeps a switch it can see but cannot attribute to a before-model", () => {
+		const { incidents } = analyze(sessionHeader, chain([
+			message({ role: "user", content: "把 parser 的 bug 修了", timestamp: 0 }, "2026-11-03T10:00:00.000Z"),
+			message({ role: "assistant", content: [], stopReason: "aborted", errorMessage: "aborted", durationMs: 900 }, "2026-11-03T10:00:01.000Z"),
+			{ type: "model_change", fields: { provider: "openai-codex", modelId: "gpt-6.1-sol" }, timestamp: "2026-11-03T10:00:05.000Z" },
+			message({ role: "user", content: "继续", timestamp: 0 }, "2026-11-03T10:00:20.000Z"),
+		]));
+		const interrupt = incidents.find((incident) => incident.kind === "user_interrupt");
+		expect(interrupt?.detail.modelSwitchAfter).toBeUndefined();
+		expect(interrupt?.detail.modelSwitchUnattributed).toBe("openai-codex/gpt-6.1-sol");
+		expect(modelSwitchTables(incidents)).toMatchObject({ total: 0, unattributed: 1 });
+	});
+
 	it("does not count a switch the person made after sending the next message", () => {
 		const { incidents } = analyze(sessionHeader, chain([
 			message({ role: "user", content: "把 parser 的 bug 修了", timestamp: 0 }, "2026-11-03T10:00:00.000Z"),

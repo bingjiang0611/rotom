@@ -230,6 +230,8 @@ export function modelTurnShare(sessions: readonly SessionSummary[]): { model: st
 /** Interrupts that ended with a different model selected before the next user message. */
 export type ModelSwitchTables = {
 	total: number;
+	/** Switches away from a model that the interrupted request never named. */
+	unattributed: number;
 	byModel: { model: string; count: number }[];
 	byDuration: { duration: string; count: number }[];
 	byModelDuration: { model: string; duration: string; count: number }[];
@@ -244,6 +246,7 @@ export function modelSwitchTables(incidents: readonly Incident[]): ModelSwitchTa
 	}
 	return {
 		total: switches.length,
+		unattributed: incidents.filter((incident) => incident.kind === "user_interrupt" && typeof incident.detail.modelSwitchUnattributed === "string").length,
 		byModel: countBy(switches, (incident) => String(incident.detail.model ?? "unknown")).map((row) => ({ model: row.key, count: row.count })),
 		byDuration: DURATION_BUCKETS.filter((bucket) => switches.some((incident) => durationBucket(incident.detail.elapsedMs) === bucket)).map((bucket) => ({
 			duration: bucket,
