@@ -143,7 +143,12 @@ ROTOM_EVAL_BASELINE_PRODUCT=/absolute/rotom-same/rotom \
   ./bin/eval --provider qoder --model dfmodel cases/continuation-regression.eval.ts
 ```
 
-P1-3 在 continuation、tool-efficiency、tool-error-repair 与 coding-execution-hygiene 上各跑一遍，看 candidate（有 coding-policy）相对 baseline 是否有可重复的改善；无差异的部分按“提示房租”规则删除。P1-5 把覆盖换成 `ROTOM_EVAL_BASELINE_ENV`，选会产生 ≥4 KB 构建/测试输出的套件，并需要本机 `openai-codex` 登录；比较任务成功率、总 token（含 Reducer 自己的请求）与耗时。P1-4（Subagent 有/无）没有现成套件：现有用例都用不含 Subagent 的工具白名单，需要先设计检索/评审类任务。
+P1-3 在 continuation、tool-efficiency、tool-error-repair 与 coding-execution-hygiene 上各跑一遍，看 candidate（有 coding-policy）相对 baseline 是否有可重复的改善；无差异的部分按“提示房租”规则删除。P1-5 把覆盖换成 `ROTOM_EVAL_BASELINE_ENV`，选会产生 ≥4 KB 构建/测试输出的套件，并需要本机 `openai-codex` 登录；比较任务成功率、总 token（含 Reducer 自己的请求）与耗时。P1-4（Subagent 有/无）用独立套件 `cases/subagent-ab.eval.ts`：同一产品、同一组只读工具，候选臂多 `subagent`/`subagent_wait`；两个任务（跨 24 个服务的 legacyFetch 清点、按 README 约定的代码审查）答案由生成的 fixture 决定，按正确性判分，父会话用量与工具次数随结果记录。子任务用量在本次运行私有的 Subagent store 里，不在分数中。离线 oracle（`test/subagent-ab.test.ts`）证明答案键与 fixture 一致、判分能区分漏报/误报/被干扰项骗到，以及真实会话里两臂只差 Subagent 工具；委派本身需要真实模型：
+
+```sh
+cd rotom/evals
+ROTOM_EVAL_SUBAGENT_AB=1 ROTOM_EVAL_SUBAGENT_AB_REPEATS=3 ./bin/eval --provider qoder --model dfmodel cases/subagent-ab.eval.ts
+```
 
 ## ⑥ 账本与节奏
 

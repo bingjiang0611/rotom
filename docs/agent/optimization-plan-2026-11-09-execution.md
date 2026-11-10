@@ -37,7 +37,9 @@
 
 | P1-3 / P1-5 | 同一产品的特性开关对照：`ROTOM_EVAL_BASELINE_EXCLUDE_RESOURCES`、`ROTOM_EVAL_BASELINE_ENV` 只作用于 baseline 臂；产品新增 `ROTOM_EVIDENCE_REDUCER=0|1` | 单测与一次端到端 faux 请求（baseline 臂请求里没有 coding-policy，candidate 臂有）；Reducer 开关测试在旧代码上失败。未做付费配对 |
 
-P1-4（Subagent 有/无）没有现成套件，需要先设计检索/评审类任务；P1-1/P1-3/P1-5 的付费运行见下节。
+| P1-4 | Subagent 有/无配对套件 `cases/subagent-ab.eval.ts`：同一产品，两臂只差 `subagent`/`subagent_wait`；清点与审查两个任务按生成 fixture 的答案判分 | 离线 oracle 4 例：答案键与 fixture 一致、判分区分漏报/误报/干扰项、真实会话两臂工具只差 Subagent。子任务需要真实模型，未运行 |
+
+P1 的付费运行见下节。
 
 ## P1 / gate：付费部分被环境阻塞
 
