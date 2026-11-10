@@ -157,32 +157,6 @@
 	},
 	{
 		"schema": "rotom-loop-ledger/v1",
-		"id": "L-2026-11-10-qoder-catalog-stale-reuse",
-		"date": "2026-11-10",
-		"title": "Qoder: keep working on the last catalog when a background refresh fails",
-		"hypothesis": "catalog_refresh_failed burns the bounded request-retry budget and reaches the user, although the previous catalog still routes.",
-		"change": "mechanism",
-		"measurement": "Offline tests only (catalog-refresh.test.mjs, 22; two new cases fail with the change reverted). No model calls. Metric for the next 28-day harvest: qoder user-visible catalog_refresh_failed plus catalog_refresh_required falls from 11 of 75 to 0, with no rise in malformed-request codes.",
-		"result": "Absorbs catalog_refresh_failed only when a previous catalog is loaded: no retry, reuse flagged, local expiry untouched; with no previous catalog it still surfaces, and account switches or aborts are not absorbed. Effective version: product build 0.1.27, the release that first carries this provider.mjs. The Qoder extension ships inside the product bundle, not in the Pi fork, so the fork version (1.4.0-rotom.3) is not what gates this fix; a session still running an older product build keeps the old behaviour until it is restarted on a release that contains it.",
-		"evidence": "unmeasured",
-		"decision": "shipped",
-		"source": "rotom/extensions/qoder/provider.mjs"
-	},
-	{
-		"schema": "rotom-loop-ledger/v1",
-		"id": "L-2026-11-10-retry-after-and-quota-errors",
-		"date": "2026-11-10",
-		"title": "Retry policy: honour Retry-After on 429 and stop retrying quota errors",
-		"hypothesis": "Retrying a 429 on the built-in backoff arrives before the server window; retrying a 402/balance error cannot succeed and hides the one action a user can take.",
-		"change": "mechanism",
-		"measurement": "Offline tests only (packages/ai retry.test.ts and retry-limits.test.ts, 76 cases; 5 fail with the change reverted). No model calls. Metric for the next 28-day harvest: user-visible http and 429 failures fall from 62 + 6 of 847 provider incidents, and no quota error costs more than one attempt.",
-		"result": "429 delays use retryAfterMs or Retry-After, capped at the existing maximum, with exponential backoff as fallback; quota/402/balance errors are non-retryable and the final message adds one actionable hint. Bounded and connect retry unchanged. Correction from round 4: this shipped only as source at first push. The Pi fork was not rebuilt then, so the runtime the product loads still had the old retry path; 8204224 alone could not change behaviour. commit 6ae816d7 rebuilt the fork as 1.4.0-rotom.3 (vendored archives, fork-build.json, runtime/pi lock, product-config version and integrity all follow it), and an isolated install from that lockfile greps the new code in the installed pi-ai dist. The acceptance window therefore starts the day the daily install is switched to 1.4.0-rotom.3, not the day of 8204224.",
-		"evidence": "unmeasured",
-		"decision": "shipped",
-		"source": "packages/rotom-pi/packages/ai/src/utils/retry.ts"
-	},
-	{
-		"schema": "rotom-loop-ledger/v1",
 		"id": "L-2026-11-10-login-without-default-model",
 		"date": "2026-11-10",
 		"title": "Successful custom-provider login guides model selection instead of reporting an error",

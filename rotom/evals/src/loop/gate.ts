@@ -13,6 +13,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
+import { describeProducts, preflightFailure, preflightGate } from "./gate-preflight.ts";
 
 export const GATE_SCHEMA = "rotom-loop-gate/v1";
 
@@ -222,6 +223,12 @@ export function runGate(options: RunGateOptions): { verdict: GateCaseVerdict; re
 		if (!isAbsolute(path) || !existsSync(join(path, "runtime", "resolve-installed-pi.mjs"))) throw new Error(`${label} product must be an absolute rotom product directory: ${path}`);
 	}
 	if (resolve(options.baselineProduct) === resolve(options.candidateProduct)) throw new Error("baseline and candidate are the same directory; that is an A/A runner smoke, not a gate");
+	// Both products are checked against their own lock and fork build before anything is spent:
+	// last round's candidate arm installed an older archive than its product declared and only
+	// failed once the baseline arm had already been paid for.
+	const preflight = preflightGate([{ product: options.baselineProduct, label: "baseline" }, { product: options.candidateProduct, label: "candidate" }]);
+	if (preflight.problems.length > 0) throw new Error(preflightFailure(preflight.problems));
+	for (const line of describeProducts(preflight.products)) console.error(line);
 	const cases = options.manifest.cases.filter((item) => !options.only || item.caseId === options.only);
 	if (cases.length === 0) throw new Error(`no gate case matches ${options.only}`);
 	const repeats = options.smoke ? 1 : options.manifest.repeats;
@@ -281,6 +288,7 @@ export function runGate(options: RunGateOptions): { verdict: GateCaseVerdict; re
 		...(options.smoke ? { smoke: true, smokeOk: smokeProblems.length === 0, smokeProblems } : {}),
 		baselineProduct: options.baselineProduct,
 		candidateProduct: options.candidateProduct,
+		products: preflight.products,
 		verdict,
 		results,
 	};
