@@ -3,7 +3,7 @@
  * the loop's history is queryable instead of scattered across narrative
  * reports. (Not JSONL: the public audit treats tracked .jsonl as session data.)
  */
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export const LEDGER_SCHEMA = "rotom-loop-ledger/v1";
@@ -66,4 +66,35 @@ export function parseLedger(text: string, repoRoot?: string): LedgerEntry[] {
 		entries.push(value as LedgerEntry);
 	}
 	return entries;
+}
+
+/**
+ * The whole ledger: `ledger.json` plus every `ledger/*.json` shard, one shard per
+ * experiment series, so no file outgrows the staged-file budget. Each file is
+ * validated on its own; ids are unique across files; entries come back in date
+ * order (stable, so same-day entries keep their file order).
+ */
+export function readLedger(loopDir: string, repoRoot?: string): LedgerEntry[] {
+	const files = [join(loopDir, "ledger.json")];
+	const shardDir = join(loopDir, "ledger");
+	if (existsSync(shardDir)) {
+		for (const name of readdirSync(shardDir).filter((name) => name.endsWith(".json")).sort()) files.push(join(shardDir, name));
+	}
+	const entries: LedgerEntry[] = [];
+	const ids = new Map<string, string>();
+	for (const file of files) {
+		let parsed: LedgerEntry[];
+		try {
+			parsed = parseLedger(readFileSync(file, "utf8"), repoRoot);
+		} catch (error) {
+			throw new Error(`${file}: ${(error as Error).message}`);
+		}
+		for (const entry of parsed) {
+			const previous = ids.get(entry.id);
+			if (previous) throw new Error(`${file}: duplicate id ${entry.id} (also in ${previous})`);
+			ids.set(entry.id, file);
+			entries.push(entry);
+		}
+	}
+	return entries.map((entry, index) => ({ entry, index })).sort((left, right) => left.entry.date.localeCompare(right.entry.date) || left.index - right.index).map(({ entry }) => entry);
 }
