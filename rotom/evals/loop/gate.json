@@ -23,7 +23,7 @@
 				{
 					"model": "openai-codex/gpt-6.1-sol",
 					"verdict": "not-reproduced",
-					"detail": "2026-11-10 calibration on the 0.1.27-main.50ccdc87 release as frozen baseline and main as candidate: baseline reports one failure in five runs, below the 3/5 admission rule, so on gpt-6.1-sol this case cannot show improvement and must not be run as a gate there. The dfmodel record above is unchanged."
+					"detail": "2026-11-10 calibration on the 0.1.27-main.50ccdc87 release as frozen baseline and main as candidate: five of five repetitions passed on each arm (0/5 baseline failures), below the 3/5 admission rule, so on gpt-6.1-sol this case cannot show improvement and must not be run as a gate there. The dfmodel record above is unchanged."
 				}
 			]
 		},
