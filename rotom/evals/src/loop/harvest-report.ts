@@ -235,7 +235,16 @@ export function renderReport(input: { generatedAt: string; since: string; sessio
 	const skipRows = Object.entries(input.skipped).sort((left, right) => right[1] - left[1]);
 	if (skipRows.length > 0) {
 		// Each reason is named, so a skip count can be audited instead of trusted.
-		lines.push("", "## Skipped files", "", "`outside-window` is a session file older than the window and `no-user-turns` is one with no user message; neither can hide a usable session inside the window.", "", "| Reason | Files |", "| --- | ---: |", ...skipRows.map(([reason, count]) => `| ${reason} | ${count} |`));
+		lines.push(
+			"",
+			"## Skipped entries",
+			"",
+			"`artifact-store` (trace sidecars, observation packs, subagent stores) and `deep-directory` count directories; the rest count files. `outside-window` is a session older than the window and `no-user-turns` is one with no user message, so neither can hide a usable session inside the window.",
+			"",
+			"| Reason | Entries |",
+			"| --- | ---: |",
+			...skipRows.map(([reason, count]) => `| ${reason} | ${count} |`),
+		);
 	}
 	const triage = triageTable(input.incidents);
 	const switches = modelSwitchTables(input.incidents);
