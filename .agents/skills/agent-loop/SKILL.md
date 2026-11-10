@@ -13,6 +13,7 @@ description: "运行 rotom 的 Agent 优化循环：从本机会话挖掘失败�
 - **新失败入集**：分类 → oracle → baseline → 修复 → candidate，顺序不可交换（见合同 ②–④）。
 - **改了 Agent 行为**：改动涉及 coding-policy、工具、Goal 续跑、上下文/压缩或 Subagent 默认时，先 `gate --baseline <冻结产品> --smoke` 用一对样本审分数（两侧都出分、check 都是布尔、没有 check 读 `observe` 外的文件），再跑 `npm --prefix rotom/evals run loop -- gate --baseline <冻结产品>`。smoke 不算样本、不写 gate 历史。样本不足就加轮次，再用 `gate-pool --since <起跑时间> [--case ID]` 合并判定：合并只看 pass/fail 累加，后一轮通过不会抵消前一轮失败。
 - **收尾**：每个实验（含撤回和未复现）在 `rotom/evals/loop/ledger/<YYYY-MM>.json` 对应月份分片追加一项，并跑 `npm --prefix rotom/evals run loop -- ledger`。
+- **改动必须入账**：改 `rotom/extensions/**`、`rotom/runtime/**`、`rotom/skills/**`、`rotom/bin/**`、`packages/**` 的 commit 要带 `Ledger: L-YYYY-MM-DD-slug`（该条目已写入分片）或 `Ledger: none — <理由>` trailer，commit-msg hook 会拦。只改测试、文档、evals 的提交豁免。循环之外做的机制、依赖或提示升级同样要记账；`evidence: unmeasured` 也要写清它预期影响哪个 harvest 指标。
 
 ## 不可妥协
 

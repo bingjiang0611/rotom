@@ -16,7 +16,7 @@ function git(...args) {
 
 // Every hook this repository owns. A new hook must be linked here as well, otherwise a
 // clone that already installed an older version silently keeps running without it.
-const HOOKS = ["pre-commit", "pre-push"];
+const HOOKS = ["pre-commit", "commit-msg", "pre-push"];
 
 const root = git("rev-parse", "--show-toplevel");
 const sources = new Map(HOOKS.map((name) => [name, join(root, ".githooks", name)]));

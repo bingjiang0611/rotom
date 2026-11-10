@@ -152,6 +152,8 @@ npm --prefix rotom/evals run loop -- gate --baseline /absolute/rotom-pre-fix/rot
 
 每个实验（包括失败与撤回）在 [`rotom/evals/loop/ledger/<YYYY-MM>.json`](../../rotom/evals/loop/ledger/) 里按月追加一项（分片按月份命名，条目日期必须落在分片月份内，id 跨分片唯一）：假设、改动类型（mechanism/prompt/eval/removal）、测量（模型、用例、N）、结果、证据级别、决定、来源文档。`npm --prefix rotom/evals run loop -- ledger` 校验所有分片的格式、来源文件存在、id 唯一和提示房租规则。不再为每个实验单独写长篇报告；需要细节时在来源文档追加。
 
+改动 `rotom/extensions/**`、`rotom/runtime/**`、`rotom/skills/**`、`rotom/bin/**`、`packages/**` 的 commit 必须带 trailer：`Ledger: L-YYYY-MM-DD-slug` 指向已写入的条目，或 `Ledger: none — <理由>` 说明为什么这次改动不在循环里。只改测试、文档或 evals 的 commit 豁免。`.githooks/commit-msg` 会拦，被拦时补条目而不是绕 hook——循环之外做的机制、依赖和提示升级同样要能回答“它是哪次实验”。
+
 建议节奏：
 
 - **每周**：`harvest`，看介入率趋势，分诊前 10 个事件，至少推进 1 个到回放用例。
