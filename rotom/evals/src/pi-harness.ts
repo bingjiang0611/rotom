@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import { contentText, normalizeSteps, createCustomMessageWaiter, promptAgent, latestAssistantResponse } from "./pi-harness-lifecycle.ts";
+import { baselineArmOverrides, withExclusiveEnvironment } from "./pi-harness-environment.ts";
 export { latestAssistantResponse } from "./pi-harness-lifecycle.ts";
 import type { AgentSession, CreateAgentSessionOptions, InlineExtension } from "@earendil-works/pi-coding-agent";
 import {
@@ -123,35 +124,6 @@ export function resolveEvalToolSelection(
 	return { ...requested, noTools: "all" };
 }
 
-let environmentQueue: Promise<void> = Promise.resolve();
-
-async function withExclusiveEnvironment<T>(
-	overrides: Readonly<Record<string, string | undefined>>,
-	run: () => Promise<T>,
-): Promise<T> {
-	let release = () => {};
-	const previous = environmentQueue;
-	environmentQueue = new Promise<void>((resolveQueue) => {
-		release = resolveQueue;
-	});
-	await previous;
-	const original = new Map<string, string | undefined>();
-	try {
-		for (const [name, value] of Object.entries(overrides)) {
-			original.set(name, process.env[name]);
-			if (value === undefined) delete process.env[name];
-			else process.env[name] = value;
-		}
-		return await run();
-	} finally {
-		for (const [name, value] of original) {
-			if (value === undefined) delete process.env[name];
-			else process.env[name] = value;
-		}
-		release();
-	}
-}
-
 export function resolveModelSelection(
 	explicitModel: PiCodingAgentModelSelection | undefined,
 	environment: { ROTOM_EVAL_PROVIDER?: string; ROTOM_EVAL_MODEL?: string } = process.env,
@@ -236,14 +208,15 @@ async function runPiCodingAgent<TOutput extends JsonValue>(
 	setArtifact: HarnessContext["setArtifact"],
 	options: PiCodingAgentHarnessOptions | PiCodingAgentHarnessWithOutput<TOutput>,
 ): Promise<SimpleHarnessResult<string | TOutput>> {
-	return withExclusiveEnvironment({ ...options.environment, ROTOM_VERIFIED_PI_EXECUTABLE: undefined }, async () => {
+	const arm = baselineArmOverrides(options.productAgentDir ?? defaultProductAgentDir());
+	return withExclusiveEnvironment({ ...options.environment, ...arm.environment, ROTOM_VERIFIED_PI_EXECUTABLE: undefined }, async () => {
 		const startedAt = performance.now();
 		signal?.throwIfAborted();
 		const selection = resolveModelSelection(options.model);
 		const product = await loadProductRuntime({
 			agentDir: options.productAgentDir ?? defaultProductAgentDir(),
 			piExecutable: options.piExecutable,
-			excludedResourceKeys: options.excludedResourceKeys,
+			excludedResourceKeys: [...(options.excludedResourceKeys ?? []), ...arm.excludedResourceKeys],
 		});
 		// Auxiliary requests with explicit output budgets must resolve helpers
 		// from this verified Pi, not an inherited launcher or another A/B arm.

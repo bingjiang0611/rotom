@@ -35,7 +35,9 @@
 | P1-2 | harvest 新增每次压缩的后续观察（`compactions.jsonl`、报告 “After compaction” 节、`summary.json` 汇总）：压缩前 token、摘要 token、前后 cacheRead、5 条助手消息内重读摘要所列文件与回查次数、3 个用户轮内介入与 Goal 暂停，并列全局介入率 | 合成会话单测；尚未在真实会话上运行 |
 | P1-1 | 两个压缩后续跑用例（长期指令、精确参数），第 1 轮后真实 `session.compact()`，`keepRecentTokens: 1` | 离线 oracle 6 例：压缩后第 1 轮原文不在上下文；正确轨迹通过，再问、未压缩、忘参数、先错后改均失败。状态 `oracle-ready`，未跑 baseline |
 
-P1-3（coding-policy 整段开关 A/B）、P1-4（Subagent 有/无）、P1-5（Reducer 配对）需要真实模型运行，未实施。
+| P1-3 / P1-5 | 同一产品的特性开关对照：`ROTOM_EVAL_BASELINE_EXCLUDE_RESOURCES`、`ROTOM_EVAL_BASELINE_ENV` 只作用于 baseline 臂；产品新增 `ROTOM_EVIDENCE_REDUCER=0|1` | 单测与一次端到端 faux 请求（baseline 臂请求里没有 coding-policy，candidate 臂有）；Reducer 开关测试在旧代码上失败。未做付费配对 |
+
+P1-4（Subagent 有/无）没有现成套件，需要先设计检索/评审类任务；P1-1/P1-3/P1-5 的付费运行见下节。
 
 ## P1 / gate：付费部分被环境阻塞
 

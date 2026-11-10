@@ -124,6 +124,27 @@ npm --prefix /absolute/rotom-pre-fix/rotom/extensions/third-party ci --ignore-sc
 npm --prefix rotom/evals run loop -- gate --baseline /absolute/rotom-pre-fix/rotom
 ```
 
+### 同一产品的特性开关对照（优化方案 P1-3 / P1-5）
+
+已有 baseline/candidate 两臂的套件可以对同一提交做“开/关某个特性”的配对：用同一提交的第二个 checkout 作 baseline 目录，再只对 baseline 臂施加覆盖（`src/pi-harness-environment.ts`）。
+
+- `ROTOM_EVAL_BASELINE_EXCLUDE_RESOURCES=extension:coding-policy`：baseline 臂不加载 coding-policy（P1-3）。资源键写错会直接报错，不会留下两臂相同的“对照”。
+- `ROTOM_EVAL_BASELINE_ENV='{"ROTOM_EVIDENCE_REDUCER":"0"}'`：只给 baseline 臂设置 `ROTOM_*` 变量，例如关掉 Reducer（P1-5）。不能设置 `ROTOM_EVAL_*`、`ROTOM_PI`、`ROTOM_NODE` 等身份与选择变量。
+- baseline 与 candidate（未设置时为当前 checkout）是同一目录时拒绝运行，因为覆盖会同时作用于两臂。
+
+```sh
+git worktree add /absolute/rotom-same "$(git rev-parse HEAD)"
+npm --prefix /absolute/rotom-same/rotom/runtime/pi ci --ignore-scripts
+npm --prefix /absolute/rotom-same/rotom/extensions/third-party ci --ignore-scripts --omit=optional --legacy-peer-deps
+cd rotom/evals
+ROTOM_EVAL_BASELINE_PRODUCT=/absolute/rotom-same/rotom \
+  ROTOM_EVAL_BASELINE_EXCLUDE_RESOURCES=extension:coding-policy \
+  ROTOM_EVAL_CONTINUATION=1 ROTOM_EVAL_CONTINUATION_REPEATS=5 \
+  ./bin/eval --provider qoder --model dfmodel cases/continuation-regression.eval.ts
+```
+
+P1-3 在 continuation、tool-efficiency、tool-error-repair 与 coding-execution-hygiene 上各跑一遍，看 candidate（有 coding-policy）相对 baseline 是否有可重复的改善；无差异的部分按“提示房租”规则删除。P1-5 把覆盖换成 `ROTOM_EVAL_BASELINE_ENV`，选会产生 ≥4 KB 构建/测试输出的套件，并需要本机 `openai-codex` 登录；比较任务成功率、总 token（含 Reducer 自己的请求）与耗时。P1-4（Subagent 有/无）没有现成套件：现有用例都用不含 Subagent 的工具白名单，需要先设计检索/评审类任务。
+
 ## ⑥ 账本与节奏
 
 每个实验（包括失败与撤回）在 [`rotom/evals/loop/ledger.json`](../../rotom/evals/loop/ledger.json) 追加一项：假设、改动类型（mechanism/prompt/eval/removal）、测量（模型、用例、N）、结果、证据级别、决定、来源文档。`npm --prefix rotom/evals run loop -- ledger` 校验格式、来源文件存在和提示房租规则。不再为每个实验单独写长篇报告；需要细节时在来源文档追加。

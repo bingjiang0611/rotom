@@ -150,6 +150,10 @@ export function selectProductResources(
 	excludedResourceKeys: readonly string[] = [],
 ): ProductResourceDescriptor[] {
 	const excluded = new Set(excludedResourceKeys);
+	// An unknown key would leave an A/B arm silently identical to the other one.
+	const known = new Set(resources.map(productResourceKey));
+	const unknown = [...excluded].filter((key) => !known.has(key));
+	if (unknown.length > 0) throw new Error(`Unknown product resource key(s): ${unknown.join(", ")}`);
 	return resources.filter((resource) => !excluded.has(productResourceKey(resource)));
 }
 
