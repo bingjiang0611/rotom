@@ -46,7 +46,7 @@ npm --prefix rotom/evals run loop -- harvest --days 7 --no-excerpts
 - **v1**：所有介入。
 - **v2**：纠正 + 重复 + 单独回“继续” + `quality` 中断。中断分三类：`self-retract`（还在等第一个字节且 < 2 s，多半是人自己改主意）、`quality`（Agent 已在执行工具、输出文字或发起工具调用，或等待/思考 ≥ 10 s）、`other`（其余，含没有下一条 turn 的中断）。v2 是“产品让它多做/做错”的那部分，v1 保留为完整背景，两者都要报。
 
-周与周之间模型构成变化大，所以除周表外还按模型和 runtime 分别给 v2 每百 turn 与区间：模型维度用**每个模型的 turn 数**作分母（不是会话的主模型），runtime 维度读 trace 的 `pi.session.runtime` span（`pi.runtime.version`，回退 `rotom.product.version`），没有 trace 的会话记 `unknown` 而不归给某个版本。中断后在下一条用户消息之前出现 `model_change` 的，单独统计“换掉的 provider/model”与“中断前已等待时长”，这是人在换模型而不是在换话题的证据。
+周与周之间模型构成变化大，所以除周表外还按模型和 runtime 分别给 v2 每百 turn 与区间：模型维度用**每个模型的 turn 数**作分母（不是会话的主模型），runtime 维度读 trace 的 `pi.session.runtime` span（`pi.runtime.version`，回退 `rotom.product.version`），没有 trace 的会话记 `unknown` 而不归给某个版本。中断后在下一条用户消息之前出现 `model_change` 的，单独统计“换掉的 provider/model”与“中断前已等待时长”。只计**换成不同模型**的：Pi 在中断后即使模型没变也会写一条 `model_change`（2026-11 窗口里 258 条有 241 条写的是同一个模型），把这些当成换模型会把结论读反。
 
 `user_interrupt` 另记 `activity`（`waiting-first-byte` / `streaming-text` / `streaming-thinking` / `streaming-tool-call` / `tool-executing` 及工具名）、`elapsedMs` 与 `nextUser`（下一条用户消息的类别），并在结构上区分来源：助手被中断后若第一个非控制 entry 是注入的 goal 合同、压缩标记或系统消息，记 `injected` / `compaction` / `system` 并从介入计数里排除（`interruptExcluded`），剩余算 `human`；中断后没有下一条 turn 记 `no-following-turn`。`tool_error_streak` 同时记工具名与错误类别（timeout / command-failed / not-found / ambiguous-match / stale / other），所以“哪个工具在什么错误上重复”可以直接读出来。模型占比按 turn 计，逐周列出领先的 provider/model。会话自身时间戳缺失或早于 2000 年时回退到会话文件 mtime，并在 Provenance 一节写明有多少条来自回退，不生成 1970 周。
 

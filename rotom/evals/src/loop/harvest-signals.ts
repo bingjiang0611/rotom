@@ -173,7 +173,12 @@ export function resolveInterruptCauses(path: readonly Entry[], aborts: readonly 
 		for (let index = abort.index + 1; index < path.length; index++) {
 			const next = path[index];
 			if (next.type === "model_change") {
-				if (typeof next.provider === "string" && typeof next.modelId === "string") abort.detail.modelSwitchAfter = `${next.provider}/${next.modelId}`;
+				// Pi writes a model_change entry after an abort even when the model stayed the same
+				// (241 of 258 in the 2026-11 window), so only a different model is a switch.
+				const after = typeof next.provider === "string" && typeof next.modelId === "string" ? `${next.provider}/${next.modelId}` : undefined;
+				const before = typeof abort.detail.model === "string" ? abort.detail.model : undefined;
+				if (after && before && after !== before) abort.detail.modelSwitchAfter = after;
+				else if (after && !before) abort.detail.modelSwitchUnattributed = after;
 				break;
 			}
 			if (messageOf(next)?.role === "user") break;
