@@ -12,7 +12,6 @@ function session(overrides: Partial<SessionSummary> & { startedAt: string }): Se
 		sessionId: overrides.sessionId ?? `s-${overrides.startedAt}`,
 		sessionFile: `/sessions/${overrides.startedAt}.jsonl`,
 		cwd: "/repo",
-		startedAt: overrides.startedAt,
 		startedAtSource: "header",
 		modelTurns: {},
 		models: [],
