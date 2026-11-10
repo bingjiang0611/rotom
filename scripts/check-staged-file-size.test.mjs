@@ -6,6 +6,7 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	readdirSync,
 	realpathSync,
 	rmSync,
 	symlinkSync,
@@ -60,13 +61,16 @@ beforeEach(() => {
 	git("config", "user.name", "Hook test");
 	git("config", "user.email", "hook@example.invalid");
 	git("config", "commit.gpgsign", "false");
-	file(
-		".githooks/pre-commit",
-		readFileSync(resolve(".githooks/pre-commit"), "utf8"),
-	);
-	chmodSync(join(cwd, ".githooks/pre-commit"), 0o755);
+	for (const name of readdirSync(resolve(".githooks"))) {
+		file(`.githooks/${name}`, readFileSync(resolve(".githooks", name), "utf8"));
+		chmodSync(join(cwd, ".githooks", name), 0o755);
+	}
 	mkdirSync(join(cwd, "scripts"));
 	copyFileSync(checker, join(cwd, "scripts/check-staged-file-size.mjs"));
+	copyFileSync(
+		resolve("scripts/hook-identity.mjs"),
+		join(cwd, "scripts/hook-identity.mjs"),
+	);
 });
 
 afterEach(() => rmSync(directory, { recursive: true, force: true }));
