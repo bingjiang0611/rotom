@@ -11,5 +11,57 @@
 		"decision": "shipped",
 		"source": "docs/agent/optimization-loop.md",
 		"change": "eval"
+	},
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-11-10-replay-new-turn-stats",
+		"date": "2026-11-10",
+		"title": "Count a replay's own turns, and score it with the event's own check",
+		"hypothesis": "The replay reported every tool call in the resumed session, which includes the whole restored branch, so a short replay inherited thousands of history calls. Without a deterministic check no run could be scored, so no event could be admitted or rejected.",
+		"change": "mechanism",
+		"measurement": "One session with branch history before the cut and two new turns; one admitted 3-of-5 reproduction and one 2-of-5 rejection over the same fixture.",
+		"result": "`newTurnStats` cuts at the incident entryId and counts assistant messages, tool calls by name, and input/output/cacheRead/cacheWrite/totalTokens over the new turns only. `--check COMMAND` runs the event's own check inside the clone after each run with the same scrubbed environment and shim, with `REPLAY_TRANSCRIPT` and `REPLAY_WORKSPACE` available to the check and not to the agent: exit 0 pass, 1 the reported failure, anything else unknown. Admission is `reproduced (replay)` at three failing runs of five, `not-reproduced` at three passing, and stays `unknown` when unscoreable runs keep both sides below the threshold. Round 7's own replay artifacts were no longer on disk, so its reported call count could not be recomputed and is not restated here; the counts in this round's entries come from the new statistic.",
+		"evidence": "improved",
+		"decision": "shipped",
+		"source": "docs/agent/loop-replay.md"
+	},
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-11-10-replay-readonly-check-1",
+		"date": "2026-11-10",
+		"title": "Replay a repeated read-only verification instruction (1)",
+		"hypothesis": "A user who repeats a read-only verification instruction almost verbatim did not get it the first time: either the runtime never opened the two config files, or the answer omitted the collection channels, workspaceId or toolOutput the instruction named, or the run wrote to the checkout it was told not to touch.",
+		"change": "eval",
+		"measurement": "Event: a short branch in one private project (unnamed here); frozen product 0.1.27-main.50ccdc87 (the event's own release was no longer installed), 5 sequential runs at the model the session used, short branch, machine otherwise idle. Check, written before the batch and stored only in the private loop directory: the clone's `git status --porcelain` must be empty and the run's output must name the trace and scry channels, the workspaceId and the toolOutput value.",
+		"result": "0 of 5 runs failed the check, so the event is not reproduced on this product: 6 new assistant messages, 6 read calls per run (input 41,936 · output 390 · cacheRead 40,960 · cacheWrite 0 per run). The deterministic check ran in every run and produced a verdict, so the negative is a measured negative and not a missing check. Caveat: the frozen product is a fallback newer than the release the session actually ran, so this says the instruction is satisfied today, not that the original window was fine. No current-version arm was needed because nothing reproduced.",
+		"evidence": "not-reproduced",
+		"decision": "open",
+		"source": "docs/agent/loop-replay.md"
+	},
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-11-10-replay-readonly-check-2",
+		"date": "2026-11-10",
+		"title": "Replay a repeated read-only verification instruction (2)",
+		"hypothesis": "A user who repeats a read-only verification instruction almost verbatim did not get it the first time: either the runtime never opened the two config files, or the answer omitted the collection channels, workspaceId or toolOutput the instruction named, or the run wrote to the checkout it was told not to touch.",
+		"change": "eval",
+		"measurement": "Event: a short branch in one private project (unnamed here); frozen product 0.1.27-main.50ccdc87 (the event's own release was no longer installed), 5 sequential runs at the model the session used, short branch, machine otherwise idle. Check, written before the batch and stored only in the private loop directory: the clone's `git status --porcelain` must be empty and the run's output must name the trace and scry channels, the workspaceId and the toolOutput value.",
+		"result": "0 of 5 runs failed the check, so the event is not reproduced on this product: 6 new assistant messages, 6 read calls per run (input 26,328 · output 390 · cacheRead 55,296 · cacheWrite 0 per run). The deterministic check ran in every run and produced a verdict, so the negative is a measured negative and not a missing check. Caveat: the frozen product is a fallback newer than the release the session actually ran, so this says the instruction is satisfied today, not that the original window was fine. No current-version arm was needed because nothing reproduced.",
+		"evidence": "not-reproduced",
+		"decision": "open",
+		"source": "docs/agent/loop-replay.md"
+	},
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-11-10-replay-readonly-check-3",
+		"date": "2026-11-10",
+		"title": "Replay a repeated read-only verification instruction (3)",
+		"hypothesis": "A user who repeats a read-only verification instruction almost verbatim did not get it the first time: either the runtime never opened the two config files, or the answer omitted the collection channels, workspaceId or toolOutput the instruction named, or the run wrote to the checkout it was told not to touch.",
+		"change": "eval",
+		"measurement": "Event: a short branch in one private project (unnamed here); frozen product 0.1.27-main.50ccdc87 (the event's own release was no longer installed), 5 sequential runs at the model the session used, short branch, machine otherwise idle. Check, written before the batch and stored only in the private loop directory: the clone's `git status --porcelain` must be empty and the run's output must name the trace and scry channels, the workspaceId and the toolOutput value.",
+		"result": "0 of 5 runs failed the check, so the event is not reproduced on this product: 4 new assistant messages, 4 read calls per run (input 25,920 · output 260 · cacheRead 25,088 · cacheWrite 0 per run). The deterministic check ran in every run and produced a verdict, so the negative is a measured negative and not a missing check. Caveat: the frozen product is a fallback newer than the release the session actually ran, so this says the instruction is satisfied today, not that the original window was fine. No current-version arm was needed because nothing reproduced.",
+		"evidence": "not-reproduced",
+		"decision": "open",
+		"source": "docs/agent/loop-replay.md"
 	}
 ]

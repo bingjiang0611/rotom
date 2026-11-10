@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { cutBranch, forbiddenCopies, refusalFor, repositoryCheck, sandboxShim, scrubbedEnvironment, timepoint } from "../src/loop/replay.ts";
+import { admissionFor, cutBranch, forbiddenCopies, newTurnStats, refusalFor, repositoryCheck, sandboxShim, scrubbedEnvironment, timepoint } from "../src/loop/replay.ts";
 
 const header = JSON.stringify({ type: "session", version: 1, id: "session-1", timestamp: "2026-11-01T00:00:00Z", cwd: "/repo" });
 const user = (id: string, text: string) => JSON.stringify({ type: "message", id, parentId: null, timestamp: "2026-11-01T00:01:00Z", message: { role: "user", content: [{ type: "text", text }] } });
@@ -144,5 +144,33 @@ describe("replay timepoint", () => {
 		};
 		expect(repositoryCheck(git, plain)).toEqual({ reason: `${plain} is not a git repository` });
 		expect(repositoryCheck(git, join(directory, "gone"))).toEqual({ reason: expect.stringContaining("no longer exists") });
+	});
+});
+
+describe("replay scoring", () => {
+	it("counts only the replay's own turns, never the restored branch", () => {
+		const line = (id: string, role: string, extra: Record<string, unknown> = {}) => JSON.stringify({ id, message: { role, ...extra } });
+		const tool = (name: string) => ({ type: "toolCall", name, arguments: {} });
+		const sessionText = [
+			line("e1", "user", { content: [{ type: "text", text: "earlier" }] }),
+			line("e2", "assistant", { content: [tool("read"), tool("bash")], usage: { input: 100, output: 10, cacheRead: 900, cacheWrite: 0, totalTokens: 1010 } }),
+			line("cut", "user", { content: [{ type: "text", text: "this is broken" }] }),
+			line("e4", "assistant", { content: [tool("edit")], usage: { input: 20, output: 30, cacheRead: 40, cacheWrite: 50, totalTokens: 140 } }),
+			line("e5", "toolResult", { content: [] }),
+			line("e6", "assistant", { content: [tool("bash"), tool("bash")], usage: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, totalTokens: 10 } }),
+		].join("\n");
+		const stats = newTurnStats(sessionText, "cut");
+		expect(stats.assistantMessages).toBe(2);
+		expect(stats.toolCalls).toBe(3);
+		expect(stats.toolCallNames).toEqual({ edit: 1, bash: 2 });
+		expect(stats.usage).toEqual({ input: 21, output: 32, cacheRead: 43, cacheWrite: 54, totalTokens: 150 });
+	});
+
+	it("admits a reproduction only at three of five failing checks", () => {
+		expect(admissionFor(["fail", "fail", "fail", "pass", "pass"])).toMatchObject({ verdict: "reproduced", failed: 3, passed: 2 });
+		expect(admissionFor(["fail", "fail", "pass", "pass", "pass"])).toMatchObject({ verdict: "not-reproduced", failed: 2 });
+		// Unknowns are not a quiet pass: two failures and three unscoreable runs is not an admission.
+		expect(admissionFor(["fail", "fail", "unknown", "unknown", "unknown"])).toMatchObject({ verdict: "unknown", failed: 2, unknown: 3 });
+		expect(admissionFor(["unknown", "unknown"])).toMatchObject({ verdict: "unknown" });
 	});
 });

@@ -46,14 +46,19 @@ const USAGE = `Usage: npm run loop -- <command>
       Validate every loop/ledger/<month>.json shard and print the experiment history.
 
   replay --incident <sessionId:entryId> [--repeats N] [--frozen DIR] [--current DIR]
-         [--model provider/model] [--out DIR]
+         [--model provider/model] [--check COMMAND] [--out DIR]
       Re-run one recorded failure against a frozen product in an isolated copy of the
       session's own project: a worktree at the last commit before the session, its
       remotes removed, a scrubbed environment with its own HOME and a shell shim that
       refuses pushes, publishes and remote writes. Artifacts only under
       ~/.rotom/loop/replay-<stamp>/. The incident is read from the newest harvest.
       Product and model default to the frozen release the incident ran and the model
-      that answered it; a replay never switches model.
+      that answered it; a replay never switches model. --check runs the event's own
+      deterministic check in the same sandbox after each run (exit 0 pass, 1 the
+      failure, anything else unknown) and admits reproduced (replay) at three of five
+      failing runs. The check runs in the clone with REPLAY_TRANSCRIPT (this run's
+      output) and REPLAY_WORKSPACE set. Tool calls and usage count the replay's new
+      turns only.
 
   weekly [--sessions DIR] [--days N] [--out DIR]
       Harvest the last N days (default 28) and write ~/.rotom/loop/weekly-<date>/:
@@ -134,7 +139,7 @@ async function main(argv: string[]): Promise<number> {
 	if (command === "replay") {
 		const { values } = parseArgs({
 			args: rest,
-			options: { incident: { type: "string" }, repeats: { type: "string" }, frozen: { type: "string" }, current: { type: "string" }, model: { type: "string" }, out: { type: "string" } },
+			options: { incident: { type: "string" }, repeats: { type: "string" }, frozen: { type: "string" }, current: { type: "string" }, model: { type: "string" }, check: { type: "string" }, out: { type: "string" } },
 		});
 		if (!values.incident) throw new Error("replay needs --incident <sessionId:entryId>");
 		const [sessionId, entryId] = values.incident.split(":");
@@ -166,8 +171,15 @@ async function main(argv: string[]): Promise<number> {
 			outRoot: values.out ?? loopDir,
 			agentSource: join(homeDir(), ".pi", "agent"),
 			model: { provider, model },
+			...(values.check ? { check: values.check } : {}),
 		});
-		for (const run of outcome.runs) console.log(`${run.label} run ${run.repeat}: exit=${run.exitCode ?? "signal"} toolCalls=${run.toolCalls.length} refusals=${run.refusals.length}${run.failed ? " FAILED" : ""}`);
+		for (const run of outcome.runs) {
+			const usage = run.stats.usage;
+			console.log(`${run.label} run ${run.repeat}: exit=${run.exitCode ?? "signal"} check=${run.check} assistant=${run.stats.assistantMessages} toolCalls=${run.stats.toolCalls} usage=input ${usage.input} output ${usage.output} cacheRead ${usage.cacheRead} cacheWrite ${usage.cacheWrite} refusals=${run.refusals.length}${run.failed ? " FAILED" : ""}`);
+			const names = Object.entries(run.stats.toolCallNames).sort((left, right) => right[1] - left[1]).map(([name, count]) => `${name}=${count}`).join(" ");
+			if (names) console.log(`  tools: ${names}`);
+		}
+		for (const { label, admission } of outcome.admissions) console.log(`${label}: ${admission.verdict} (pass ${admission.passed}, fail ${admission.failed}, unknown ${admission.unknown} of ${admission.total})`);
 		console.log(`replay: ${outcome.outDir}`);
 		return 0;
 	}

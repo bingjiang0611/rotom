@@ -172,3 +172,74 @@ export function describePlan(plan: ReplayPlan): string[] {
 export function readBranch(sessionFile: string, entryId: string): Branch {
 	return cutBranch(readFileSync(sessionFile, "utf8").split("\n"), entryId);
 }
+
+export type TurnUsage = { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number };
+
+export type NewTurnStats = {
+	/** Assistant messages after the cut, i.e. the turns this replay produced. */
+	assistantMessages: number;
+	toolCalls: number;
+	toolCallNames: Record<string, number>;
+	/** Summed over the new assistant messages only. */
+	usage: TurnUsage;
+};
+
+/**
+ * Statistics for the replay's own turns. The replayed session carries the whole branch as restored
+ * context, so counting every entry would report the incident's history as the replay's work; the
+ * cut entry is the boundary and everything at or before it is history.
+ */
+export function newTurnStats(sessionText: string, entryId: string): NewTurnStats {
+	const lines = sessionText.split("\n").filter(Boolean);
+	const cut = lines.findIndex((line) => {
+		try {
+			return (JSON.parse(line) as { id?: string }).id === entryId;
+		} catch {
+			return false;
+		}
+	});
+	const stats: NewTurnStats = { assistantMessages: 0, toolCalls: 0, toolCallNames: {}, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 } };
+	for (const line of lines.slice(cut + 1)) {
+		let entry: { message?: { role?: string; content?: unknown; usage?: Partial<TurnUsage> } };
+		try {
+			entry = JSON.parse(line) as typeof entry;
+		} catch {
+			continue; // A torn final line from a killed run is expected.
+		}
+		const message = entry.message;
+		if (message?.role !== "assistant") continue;
+		stats.assistantMessages += 1;
+		if (Array.isArray(message.content)) {
+			for (const part of message.content) {
+				if ((part as { type?: string }).type !== "toolCall") continue;
+				const name = String((part as { name?: unknown }).name ?? "unknown");
+				stats.toolCalls += 1;
+				stats.toolCallNames[name] = (stats.toolCallNames[name] ?? 0) + 1;
+			}
+		}
+		for (const key of ["input", "output", "cacheRead", "cacheWrite", "totalTokens"] as const) {
+			const value = message.usage?.[key];
+			if (typeof value === "number" && Number.isFinite(value)) stats.usage[key] += value;
+		}
+	}
+	return stats;
+}
+
+/** Outcome of the event's deterministic check, run inside the replay workspace. */
+export type CheckVerdict = "pass" | "fail" | "unknown";
+
+export type Admission = { verdict: "reproduced" | "not-reproduced" | "unknown"; passed: number; failed: number; unknown: number; total: number };
+
+/**
+ * `reproduced (replay)` means the failure still shows up here: at least three of five runs end with
+ * the check failing. A run whose check never produced a verdict is not counted as either side; when
+ * unknowns keep either side below the threshold the admission is `unknown`, not a quiet pass.
+ */
+export function admissionFor(verdicts: readonly CheckVerdict[], threshold = 3): Admission {
+	const passed = verdicts.filter((verdict) => verdict === "pass").length;
+	const failed = verdicts.filter((verdict) => verdict === "fail").length;
+	const unknown = verdicts.filter((verdict) => verdict === "unknown").length;
+	const total = verdicts.length;
+	const verdict: Admission["verdict"] = failed >= threshold ? "reproduced" : passed >= threshold ? "not-reproduced" : "unknown";
+	return { verdict, passed, failed, unknown, total };
+}
