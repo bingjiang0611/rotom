@@ -22,7 +22,8 @@ import {
 	pendingCommitShas,
 } from "./hook-identity.mjs";
 
-const guard = resolve("scripts/hook-identity.mjs");
+const HOOKS = ["pre-commit", "commit-msg", "pre-push"];
+const GUARDS = ["hook-identity.mjs", "hook-ledger.mjs", "check-staged-file-size.mjs"];
 const installer = resolve("scripts/install-git-hooks.mjs");
 const NOREPLY = "bingjiang0611@users.noreply.github.com";
 
@@ -158,13 +159,14 @@ describe("pre-push hook over a real push", () => {
 		git("config", "commit.gpgsign", "false");
 		git("remote", "add", "origin", remote);
 		mkdirSync(join(cwd, ".githooks"));
-		for (const name of ["pre-commit", "pre-push"]) {
+		// The installer wires every hook it finds; a temp repo without the commit-msg hook would
+		// fail the install, so the fixture carries the whole set.
+		for (const name of HOOKS) {
 			writeFileSync(join(cwd, ".githooks", name), readFileSync(resolve(join(".githooks", name)), "utf8"));
 			chmodSync(join(cwd, ".githooks", name), 0o755);
 		}
 		mkdirSync(join(cwd, "scripts"));
-		copyFileSync(guard, join(cwd, "scripts/hook-identity.mjs"));
-		copyFileSync(resolve("scripts/check-staged-file-size.mjs"), join(cwd, "scripts/check-staged-file-size.mjs"));
+		for (const name of GUARDS) copyFileSync(resolve(join("scripts", name)), join(cwd, "scripts", name));
 		assert.equal(run(process.execPath, [installer]).status, 0);
 	});
 
