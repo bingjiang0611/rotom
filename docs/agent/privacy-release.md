@@ -22,19 +22,24 @@
 需要 Python 3 与 Git，不联网、不上传文件、不调用模型：
 
 ```bash
-python3 -m unittest discover -s scripts -p 'test_audit_public.py'
+python3 -m unittest discover -s scripts -p 'test_audit*.py'
 python3 scripts/audit-public.py --root .
-# 对准备上传的独立仓库检查所有 refs 的历史：
+# 只检查一次推送引入的 commit 与 blob（pre-push hook 自动运行同一条命令）：
+python3 scripts/audit-public.py --root . --history-range origin/main..HEAD
+# 发布独立仓库前检查所有 refs 的完整历史：
 python3 scripts/audit-public.py --root . --history
-# 完整 PASS 后把历史中的 fork 归档 blob 记入账本（随后提交 scripts/audited-history-archives.json）：
-python3 scripts/audit-public.py --root . --history --record-audited-archives
+# 把本次实际扫描且自身没有发现的 fork 归档 blob 记入账本（记录是累加的，写进
+# scripts/audited-history-archives.d/NNN.json 分片；原始 scripts/audited-history-archives.json 保持不变）：
+python3 scripts/audit-public.py --root . --history-range origin/main..HEAD --record-audited-archives
 # 检查实际分发包，递归覆盖嵌套 vendor tgz：
 python3 scripts/audit-public.py --artifact /absolute/path/to/rotom.tgz
 ```
 
 `--deny-term` 可重复传入企业域名、私有 namespace 或个人标记。不要把这些真实值提交到公共规则文件，也不要把含私有历史路径的审计结果公开。脚本仅报告相对位置、分类和 digest，不回显命中正文；超预算、无法读取或无完整覆盖时返回非零。
 
-检查项包括常见凭据形状/私钥块、个人 HOME 路径、内网地址/域名、凭据与状态文件、归档 symlink/path traversal，以及历史中的非 GitHub noreply 邮箱。`pack:release` 自动执行 tracked-tree 与实际归档检查；Git 全历史检查仍须独立执行。
+检查项包括常见凭据形状/私钥块、个人 HOME 路径、内网地址/域名、凭据与状态文件、归档 symlink/path traversal，以及历史中的非 GitHub noreply 邮箱。`pack:release` 自动执行 tracked-tree 与实际归档检查。
+
+两种历史范围各回答不同的问题，不能互相替代：`--history-range <base>..<head>` 只扫这次推送新增的 commit、它们引入的 blob 和这两侧的提交身份，内容与全量一样逐字节检查，只是不重扫已经公开的部分；`--history` 扫全部 refs，是“这个仓库能不能公开”的问题，字节预算按这个尺度设定。推送前跑范围模式（`.githooks/pre-push` 已接入，身份检查通过后再跑），发布独立仓库或改写历史后跑全量。范围模式下 `findings` 里只会出现这次新增的内容，所以 PASS 的含义是“这次没有引入新泄漏”，不是“历史已经干净”。归档账本只记录**该 blob 自身扫不出发现**的归档：同一范围内别的文件有问题，不会连带阻止登记一个干净归档，也不会因为一次干净的运行就顺手登记一个没扫到的归档。
 
 ## 上游内容与局限
 
@@ -61,13 +66,15 @@ Pi 1.1.0 fork 追加记录：`1.1.0-rotom.2` 的新 fork 归档提交后，完�
 
 2026-10-11 已审计 fork 归档账本：每次 fork 重建都会在历史中留下一组约 32 MiB 的归档，按 64 MiB 档反复加预算不可持续。经用户批准，历史扫描只跳过 `scripts/audited-history-archives.json` 中列出精确 blob oid 的 `rotom/runtime/pi/vendor/*.tgz`；账本只由完整 PASS 的 `--history --record-audited-archives` 写入，新出现或被替换的归档仍会完整扫描，被跳过的数量以 `skippedAuditedArchives` 单独报告、不计入字节预算。tracked tree 中的当前归档始终扫描。限制：账本信任维护者提交的 oid，评审时须核对其 diff 只来自 `--record-audited-archives`；检测规则变化时须清空账本并完整重扫，若届时超出 1280 MiB 仍需重新审批预算。
 
+2026-11-10 账本分片与历史现状：全量 `--history` 曾因 184 个归档未登记、展开后超过 1280 MiB 而返回 `BLOCKED`，而登记它们又要求全量 PASS，形成死锁。现在登记按单个归档判定并累加到 `scripts/audited-history-archives.d/NNN.json` 分片（每片最多 120 条，原 `scripts/audited-history-archives.json` 保持不动），范围模式 `--history-range BASE..HEAD --record-audited-archives` 也能写入。382 个归档全部登记后，全量 `--history` 21 秒完成（27,819 个文件、576 MB、1,351 个 commit），报告 1,497 条既有发现：171 条 `personal-home-path`、26 条 `private-network-address`、3 条 `credential-shape`，全部位于早已删除的历史文件里，本分支没有新增。3 条 `credential-shape` 已逐条只读核查：都来自同一份已删除的 `docs/agent/eval-system/reports/14-behavioral-regression-cases.md`（blob `8bcc79c8` 于 `49d7e2f2`、`ea06dd1d`，blob `4fb0aaef` 于 `255edfcd`，2026-10-26；文件于 2026-10-28 由 `ef2b490a` 删除），两个候选串是合成示例（一个是形如 `sk-learn-…` 的包名式字符串，一个是连续字母序列的 `sk-proj-…`），当前 tracked tree 中都不存在，判定为格式误报，不需要轮换。历史未改写。
+
 扫描是有界文本启发式，不是任意秘密不存在、二进制/OCR 内容安全、第三方供应链安全或代码所有权证明。未发现确认的真实密钥；若后续确认真实凭据泄露，应撤销/轮换，不能仅删文件或重建历史。
 
 ## 本轮复检
 
 | 检查 | 结果 |
 |---|---|
-| 审计器确定性回归 | 10 passed，覆盖脱敏、嵌套归档、路径/链接、历史删除、noreply、预算和精确公开示例例外 |
+| 审计器确定性回归 | 21 passed（扫描级 12、历史与范围模式 9），覆盖脱敏、嵌套归档、路径/链接、历史删除、noreply、预算、归档账本分片与只登记自身干净的归档，以及精确公开示例例外 |
 | `check-personal` | 123 passed / 0 skipped；default runtimeContractGate PASS |
 | runtime identity | 32 passed / 0 skipped |
 | Chrome API fixture | 21 passed；不是真实 Chrome 交互 |

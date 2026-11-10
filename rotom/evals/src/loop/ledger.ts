@@ -35,8 +35,12 @@ export const PROMPT_RENT_SINCE = "2026-11-09";
 
 const ID = /^L-\d{4}-\d{2}-\d{2}-[a-z0-9-]+$/u;
 const DATE = /^\d{4}-\d{2}-\d{2}$/u;
-// `2026-11.json`, or `2026-11-<series>.json` when one month outgrows the staged-file budget.
-const SHARD = /^(\d{4}-\d{2})(?:-[a-z][a-z0-9-]*)?\.json$/u;
+/**
+ * `<YYYY-MM>.json` is the month's shard; `<YYYY-MM>-<slug>.json` is an overflow shard for a
+ * month whose single file would exceed the 20 KB staged-file budget. The month prefix still
+ * decides which dates the file may hold.
+ */
+const SHARD = /^(\d{4}-\d{2})(?:-[a-z0-9-]+)?\.json$/u;
 
 /** A shard file name is the month its entries must fall in. */
 export function shardFile(month: string): string {
@@ -79,20 +83,16 @@ export function parseLedger(text: string, repoRoot?: string): LedgerEntry[] {
 }
 
 /**
- * Validate every shard and return the entries in date order. A duplicate id
+ * Validate every shard and return the entries in month order. A duplicate id
  * across two shards is rejected here, because each shard only guards itself.
  */
 export function parseLedgerDir(directory: string, repoRoot?: string): LedgerEntry[] {
-	const files = readdirSync(directory).filter((name) => name.endsWith(".json")).sort();
-	// A JSON file the shard rule does not name would otherwise be skipped without a word.
-	const stray = files.find((name) => !SHARD.test(name));
-	if (stray) throw new Error(`ledger: ${stray} is not named YYYY-MM.json or YYYY-MM-<series>.json`);
-	const shards = files;
+	const shards = readdirSync(directory).filter((name) => SHARD.test(name)).sort();
 	if (shards.length === 0) throw new Error(`ledger: no shards in ${directory}`);
 	const entries: LedgerEntry[] = [];
 	const seen = new Map<string, string>();
 	for (const shard of shards) {
-		const month = SHARD.exec(shard)![1];
+		const month = SHARD.exec(shard)?.[1];
 		const parsed = parseLedger(readFileSync(join(directory, shard), "utf8"), repoRoot);
 		for (const entry of parsed) {
 			// Duplicate first: one id in two shards is the more precise diagnosis, and a shard
@@ -104,6 +104,7 @@ export function parseLedgerDir(directory: string, repoRoot?: string): LedgerEntr
 		}
 		entries.push(...parsed);
 	}
-	// A month split across a series shard is read file by file, so restore date order (stable).
-	return entries.map((entry, index) => ({ entry, index })).sort((left, right) => left.entry.date.localeCompare(right.entry.date) || left.index - right.index).map(({ entry }) => entry);
+	// Shard file names sort by month, but an overflow shard ("2026-11-x.json") sorts before its
+	// own month ("2026-11.json"), so the merged list is sorted by date to stay chronological.
+	return entries.sort((left, right) => left.date.localeCompare(right.date));
 }

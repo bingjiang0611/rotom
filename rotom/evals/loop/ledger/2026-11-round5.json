@@ -1,0 +1,41 @@
+[
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-11-10-gpt61sol-gate-calibration",
+		"date": "2026-11-10",
+		"title": "Gate calibration on openai-codex/gpt-6.1-sol: one of six cases reproduces",
+		"hypothesis": "The loop has only ever calibrated cases on qoder/dfmodel, where five of six candidates failed to discriminate. A stronger reasoning model may fail where dfmodel does not, and a case that only reproduces on one model must not be run as a gate on the other.",
+		"change": "eval",
+		"measurement": "openai-codex/gpt-6.1-sol, gate repeats 5 per arm, smoke first. Frozen baseline = installed release 0.1.27-main.50ccdc87 (Pi fork 1.4.0-rotom.2, SoL-Pi 0.1.0-rotom.6); candidate = origin/main 35de9563. Per case: `loop gate --case <id> --smoke` (1 pair), then `loop gate --case <id> --repeats 5`. Artifacts under ~/.rotom/loop/gate-2026-11-10T07-40..08-11. Total 2,969,160 tokens across smoke and repeat runs (baseline 1,480,707 / candidate 1,488,453), estimated cost $2.00 by Pi's price table, which is an estimate and not a bill.",
+		"result": "Smoke: 6 of 6 cases passed the score audit (both arms scored, every check boolean, no check read a file the fixture never observed), no run was voided. Baseline failures out of five: behavior-authorized-follow-through 0/5, behavior-status-is-not-authorization 0/5 (control), behavior-mixed-decision-ownership 5/5, behavior-export-symptom 0/5, behavior-scoped-read 0/5, behavior-verification-path 0/5 (conformance control). Admission: only behavior-mixed-decision-ownership reaches the 3/5 rule and enters loop/gate.json on gpt-6.1-sol; the other five are recorded as not-reproduced for this model, and the dfmodel records stay as they were. The admitted case is an open failure, not a fixed one: the candidate arm also fails 5/5, so a gate run on it reports `regressed` until an agent change addresses it. Nothing about the agent changed in this round, so this entry measures reproduction only.",
+		"evidence": "not-reproduced",
+		"decision": "shipped",
+		"source": "rotom/evals/loop/gate.json"
+	},
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-11-10-default-model-field-comparison",
+		"date": "2026-11-10",
+		"title": "Field comparison of the default model: gpt-6-astra on odd days, gpt-6.1-sol on even days (28 days)",
+		"hypothesis": "Published per-model v2 rates differ by more than sampling noise (openai-codex/gpt-6-astra 5.3 vs openai-codex/gpt-6.1-sol 10.2 per 100 turns in the 28-day window), but a person chooses the model per task, so the difference may be task selection rather than model quality. Randomising the default by day removes that choice for the sessions that never switch.",
+		"change": "eval",
+		"measurement": "Run 2026-11-11 through 2026-12-08 (28 days). This window was extended from 14 days on 2026-11-10, before any experiment-period data existed or was analysed: a 14-day window gives a half-width near ±2.1 per 100 turns for this metric, which cannot separate two models whose 28-day bands differ by about 2, while 28 days gives about ±1.5. Odd days default to openai-codex/gpt-6-astra, even days to openai-codex/gpt-6.1-sol; the user switches the default themselves with ~/.rotom/loop/set-default-model.sh (local only, not in Git) and this round does not touch personal settings. The script pins defaultThinkingLevel to the value recorded on 2026-11-10 (`high`) so the arms differ only in model, and only appends missing enabledModels entries instead of reordering them. View: `npm --prefix rotom/evals run loop -- harvest --experiment default-model`. A session counts only when its first assistant message already used that day's default model (the compliance rate is reported per group); a session that started on the default and then switched is listed separately and excluded. Primary metric: v2 per 100 user turns per group with its 95% Poisson band. Pre-registered decision rule, fixed before the run: a difference counts only if the 95% interval of the difference between the two groups excludes zero. Pre-registered sensitivity analysis: recompute both groups after dropping the single session that contributes the most v2 events, because one long session can carry the rate; the conclusion must survive that drop or be reported as sensitive to one session. The switch time of this round's version change is recorded when the user performs it, and the window starts after it.",
+		"result": "Not started. The baseline view over the preceding 28 days, computed with the same parity rule, already shows overlapping bands (astra 4.6 per 100 over 283 turns, band 2.1–7.1; gpt-6.1-sol 6.7 over 298 turns, band 3.8–9.7), with 20 sessions excluded for switching away from the day's default and 567 for never using it — that is the shape of the data the experiment has to move, not evidence for either model. Secondary metrics are not collected yet: per-session tokens and credits are not in the harvest, so they will be read from the trace when the window closes.",
+		"evidence": "unmeasured",
+		"decision": "open",
+		"source": "docs/agent/optimization-loop.md"
+	},
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-11-10-harvest-baseline-per-model-intervals",
+		"date": "2026-11-10",
+		"title": "28-day harvest baseline: per-model v2 with intervals, sensitivity, task size and version layers",
+		"hypothesis": "The loop reported a v2 rate per model as a single number and a weekly trend that mixed models, so a one-session outlier or a model that only gets small tasks could look like a product-quality change. Before starting the field comparison the window needs a baseline with its uncertainty and its selection bias visible.",
+		"change": "eval",
+		"measurement": "No model calls. `npm --prefix rotom/evals run loop -- harvest --days 28 --experiment default-model` over ~/.pi/agent/sessions: 715 sessions, 1,678 incidents, 240 files outside the window, 706 artifact-store and 59 deep-directory subtrees skipped. Output stays in ~/.rotom/loop/harvest-2026-11-10T08-25-42-714Z.",
+		"result": "Weekly v2 per 100 turns: W42 6.9, W43 7.8, W44 2.9, W45 5.4, W46 8.0. Per model with 95% Poisson bands: gpt-6-astra 5.3 (4–6.5, 1,314 turns), dfmodel 6.7 (5–8.4, 940), gpt-6.1-sol 10.2 (8.1–12.3, 901), gpt-5.6-sol 2.2 (0.9–3.5, 498), claude-opus-5-5 2.1 (239). Sensitivity: dropping the session with the most v2 events moves gpt-6.1-sol from 10.2 to 7.7 and dfmodel from 6.7 to 6.5, so about a quarter of sol's apparent rate is one conversation. Task size: median user turns per session 3–4 for all three main models; median tool calls per user turn 13.3 (astra), 27 (gpt-6.1-sol), 33.7 (dfmodel) — the harder, tool-heavy sessions do go to dfmodel and gpt-6.1-sol, which is the bias the field comparison has to control. Per product version: 0.1.27 4.3 (723 turns), 0.1.27-tps.1 7.5 (549), 0.1.26 6.6 (423), 0.1.27-main.0d90623 16.6 (302), 0.1.27-main.50ccdc87 14.3 (70); 167 of 715 sessions stay `unknown`. Per SoL-Pi version: 670 of 715 sessions are `unknown` because nothing records the loaded SoL-Pi version per session, and the rest resolve through older archive paths only. This is a baseline, not an improvement claim.",
+		"evidence": "unmeasured",
+		"decision": "shipped",
+		"source": "rotom/evals/src/loop/harvest-models.ts"
+	}
+]

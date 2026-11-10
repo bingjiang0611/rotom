@@ -7,6 +7,9 @@ import { FAILURE_KINDS, INTERVENTION_KINDS, type Incident, type IncidentKind, ty
 import { type CompactionObservation, renderCompactionSection } from "./compaction-harvest.ts";
 import { summarizeProviderErrors } from "./harvest-provider.ts";
 import { dayBreakdown, dimensionRates, interruptTables, modelDimensionRates, modelShareWeeks, modelSwitchTables, modelTurnShare, northStarWeeks, poissonRateInterval, toolErrorTables, triageTable } from "./harvest-breakdown.ts";
+import { modelRatesWithoutLargestSession } from "./harvest-models.ts";
+import { experimentSection, modelLayerTables, versionLayerTables } from "./harvest-report-layers.ts";
+import type { DefaultModelExperiment } from "./harvest-models.ts";
 
 /** Why a file under the sessions root did not become a session. The label names the reason,
  * not the path, so a skip count can be audited without exposing where the files live.
@@ -81,7 +84,8 @@ export function triageScore(session: SessionSummary): number {
 	return (Object.entries(session.incidentCounts) as [IncidentKind, number][]).reduce((sum, [kind, count]) => sum + TRIAGE_WEIGHT[kind] * count, 0);
 }
 
-export function renderReport(input: { generatedAt: string; since: string; sessionsDir: string; sessions: readonly SessionSummary[]; incidents: readonly Incident[]; skipped: SkipCounts; compactions?: readonly CompactionObservation[] }): string {
+export function renderReport(input: { generatedAt: string; since: string; sessionsDir: string; sessions: readonly SessionSummary[]; incidents: readonly Incident[]; skipped: SkipCounts; compactions?: readonly CompactionObservation[]; experiment?: { kind: "default-model"; view: DefaultModelExperiment } }): string {
+	const experiment = input.experiment?.kind === "default-model" ? input.experiment.view : undefined;
 	const weeks = weeklyMetrics(input.sessions);
 	const providerRows = summarizeProviderErrors(input.incidents.filter((incident) => incident.kind === "provider_error"));
 	const weekOf = (session: SessionSummary) => isoWeek(session.startedAt);
@@ -94,6 +98,7 @@ export function renderReport(input: { generatedAt: string; since: string; sessio
 	for (const session of input.sessions) startSources.set(session.startedAtSource, (startSources.get(session.startedAtSource) ?? 0) + 1);
 	const releases = input.sessions.filter((session) => session.release).length;
 	const runtimeCoverage = input.sessions.filter((session) => session.runtimeVersion).length;
+	const band = (interval: { low: number; high: number } | null | undefined) => (interval ? `${interval.low}–${interval.high}` : "N/A");
 	const lines = [
 		"# rotom loop harvest",
 		"",
@@ -122,10 +127,14 @@ export function renderReport(input: { generatedAt: string; since: string; sessio
 		"",
 		"A week mixes models, so a week-to-week move can be a model-mix change. Each model's own rate is the comparison that survives it.",
 		"",
-		"| Model | User turns | v1 interventions | v1 per 100 | v2 | v2 per 100 | v2 95% band |",
-		"| --- | ---: | ---: | ---: | ---: | ---: | --- |",
-		...modelDimensionRates(input.sessions).map((row) => `| ${row.key} | ${row.turns} | ${row.interventions} | ${row.turns > 0 ? Math.round((row.interventions / row.turns) * 1000) / 10 : "N/A"} | ${row.northStarV2} | ${row.v2Per100 ?? "N/A"} | ${row.v2Interval ? `${row.v2Interval.low}–${row.v2Interval.high}` : "N/A"} |`),
+		"| Model | User turns | v1 interventions | v1 per 100 | v2 | v2 per 100 | v2 95% band | v2 per 100 without its largest session |",
+		"| --- | ---: | ---: | ---: | ---: | ---: | --- | ---: |",
+		...((rates) => modelDimensionRates(input.sessions).map((row) => {
+			const adjusted = rates.get(row.key);
+			return `| ${row.key} | ${row.turns} | ${row.interventions} | ${row.turns > 0 ? Math.round((row.interventions / row.turns) * 1000) / 10 : "N/A"} | ${row.northStarV2} | ${row.v2Per100 ?? "N/A"} | ${row.v2Interval ? `${row.v2Interval.low}–${row.v2Interval.high}` : "N/A"} | ${adjusted ? (adjusted.droppedSessionId === null ? "same (no v2 events)" : `${adjusted.v2Per100 ?? "N/A"} (\`${adjusted.droppedSessionId.slice(0, 8)}\`)`) : "N/A"} |`;
+		}))(modelRatesWithoutLargestSession(input.sessions)),
 		"",
+		...modelLayerTables(input.sessions),
 		"### The same rate per runtime",
 		"",
 		`Sessions whose trace recorded \`pi.session.runtime\` are grouped by the runtime that served them; ${runtimeCoverage} of ${input.sessions.length} sessions carry one; the rest appear as \`unknown\` rather than being attributed to a version.`,
@@ -134,6 +143,7 @@ export function renderReport(input: { generatedAt: string; since: string; sessio
 		"| --- | ---: | ---: | ---: | --- |",
 		...dimensionRates(input.sessions, (session) => session.runtimeVersion).map((row) => `| ${row.key} | ${row.turns} | ${row.northStarV2} | ${row.v2Per100 ?? "N/A"} | ${row.v2Interval ? `${row.v2Interval.low}–${row.v2Interval.high}` : "N/A"} |`),
 		"",
+		...versionLayerTables(input.sessions),
 		"### Model turn share over the whole window",
 		"",
 		"| Model | Turns | Share |",
@@ -221,7 +231,7 @@ export function renderReport(input: { generatedAt: string; since: string; sessio
 		"",
 		`\`startedAt\` source: ${[...startSources].sort((left, right) => right[1] - left[1]).map(([source, count]) => `${source} ${count}`).join(", ")}. A session whose own timestamps are missing or pre-2000 falls back to the file mtime, so a reconstructed date is visible here instead of becoming 1970-W01.`,
 		"",
-		`Release: ${releases} of ${input.sessions.length} sessions embed a rotom release path, and only in stack traces, so a release split is biased toward failures and is not reported.`,
+		`Release: ${releases} of ${input.sessions.length} sessions embed a rotom release path, and only in stack traces, so a release split is biased toward failures and is not reported. The product-version table above uses the trace instead, which is not biased that way but only covers sessions that ran with observability enabled.`,
 		"",
 		...renderCompactionSection(input.compactions ?? [], input.sessions),
 		"## Triage queue (top sessions)",
@@ -281,6 +291,7 @@ export function renderReport(input: { generatedAt: string; since: string; sessio
 			]),
 		);
 	}
+	if (experiment) lines.push(...experimentSection(experiment));
 	lines.push("", "Next: pick incidents from `incidents.jsonl`, classify them, and turn reproducible ones into replay cases (see docs/agent/optimization-loop.md).", "");
 	return lines.join("\n");
 }

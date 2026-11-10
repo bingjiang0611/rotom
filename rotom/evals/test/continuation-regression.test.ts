@@ -261,6 +261,41 @@ it("distinguishes mixed decision ownership across real user turns", () => {
 	expect(asksInternalChoice.checks.internalChoiceCompletedBeforeQuestion).toBe(false);
 	expect(asksInternalChoice.checks.publicChoiceRequestedOnce).toBe(false);
 
+	// Offline oracle for the relaxed option check: the offered choices are compared as a set,
+	// and every other shape of the report stays rejected.
+	const reordered = scoreContinuationCase(correct.caseId, {
+		...correct,
+		responses: [
+			'{"status":"blocked","blockedBy":"export-format-v2","options":["json-v2","csv-v2"]}',
+			correct.responses![1]!,
+		],
+	});
+	expect(reordered.passed, JSON.stringify(reordered.checks)).toBe(true);
+
+	for (const options of [
+		'["csv-v2"]',
+		'["csv-v2","json-v2","legacy-v1"]',
+		'["选择 csv-v2","选择 json-v2"]',
+		'["csv-v2","json-v2",7]',
+	]) {
+		const offered: ContinuationOutput = {
+			...correct,
+			responses: [`{"status":"blocked","blockedBy":"export-format-v2","options":${options}}`, correct.responses![1]!],
+		};
+		const scored = scoreContinuationCase(correct.caseId, offered);
+		expect(scored.checks.publicChoiceRequestedOnce, options).toBe(false);
+	}
+
+	const keptSummaryInFinalOptions = scoreContinuationCase(correct.caseId, {
+		...correct,
+		responses: [
+			correct.responses![0]!,
+			'{"status":"completed","blockedBy":null,"options":["队列已改为 batched"]}',
+		],
+	});
+	expect(keptSummaryInFinalOptions.passed).toBe(false);
+	expect(keptSummaryInFinalOptions.checks.finalReportComplete).toBe(false);
+
 	const evidenceFree = scoreContinuationCase(correct.caseId, {
 		...correct,
 		calls: [],

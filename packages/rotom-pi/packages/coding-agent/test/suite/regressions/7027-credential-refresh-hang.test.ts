@@ -132,14 +132,16 @@ describe("post-login model discovery", () => {
 		vi.restoreAllMocks();
 	});
 
-	async function startLogin() {
+	async function startLogin(providerId = "radius", authType: "oauth" | "api_key" = "oauth", cachedIds: string[] = []) {
 		harness = await createHarness();
 		vi.useFakeTimers();
 		const session = harness.session;
 		const model = harness.getModel();
 		const unknownModel = { ...model, id: "unknown", provider: "unknown", api: "unknown" };
 		const currentModel = vi.spyOn(session, "model", "get").mockReturnValue(unknownModel);
-		const availableModels = vi.spyOn(session.modelRuntime, "getAvailableSnapshot").mockReturnValue([]);
+		const availableModels = vi
+			.spyOn(session.modelRuntime, "getAvailableSnapshot")
+			.mockReturnValue(cachedIds.map((id) => ({ ...model, provider: providerId, id })));
 		let finishRefresh = () => {};
 		vi.spyOn(session.modelRuntime, "refresh").mockImplementation(
 			(options) =>
@@ -162,7 +164,7 @@ describe("post-login model discovery", () => {
 			maybeWarnAboutAnthropicSubscriptionAuth: vi.fn(),
 			ui: { requestRender: vi.fn() },
 		};
-		await complete.call(context, "radius", "Radius", "oauth", unknownModel);
+		await complete.call(context, providerId, providerId === "radius" ? "Radius" : providerId, authType, unknownModel);
 		expect(context.showStatus).toHaveBeenCalledWith(expect.stringContaining("Credentials saved"));
 		expect(context.showError).not.toHaveBeenCalled();
 		expect(setModel).not.toHaveBeenCalled();
@@ -172,7 +174,7 @@ describe("post-login model discovery", () => {
 			setModel,
 			currentModel,
 			async discover(ids: string[]) {
-				availableModels.mockReturnValue(ids.map((id) => ({ ...model, provider: "radius", id })));
+				availableModels.mockReturnValue(ids.map((id) => ({ ...model, provider: providerId, id })));
 				finishRefresh();
 				await vi.advanceTimersByTimeAsync(0);
 			},
@@ -190,6 +192,28 @@ describe("post-login model discovery", () => {
 			persist: true,
 		});
 		expect(login.showError).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		["qoder", "oauth", ["ultimate"]],
+		["qoder", "oauth", []],
+		["qoder", "api_key", ["ultimate"]],
+		["custom-provider", "oauth", ["custom-model"]],
+	] as const)("guides selection for %s %s without a default (cached: %j)", async (providerId, authType, cachedIds) => {
+		const login = await startLogin(providerId, authType, [...cachedIds]);
+		expect(login.showStatus).toHaveBeenCalledWith(`Use /model to select a model for provider "${providerId}".`);
+		await login.discover(["available-model"]);
+		expect(login.setModel).not.toHaveBeenCalled();
+		expect(login.showError).not.toHaveBeenCalled();
+	});
+
+	it("keeps a default-model selection failure visible", async () => {
+		const login = await startLogin();
+		login.setModel.mockRejectedValue(new Error("selection failed"));
+		await login.discover(["balanced"]);
+		expect(login.showError).toHaveBeenCalledWith(
+			"Logged in to Radius, but selecting its default model failed: selection failed. Use /model to select a model.",
+		);
 	});
 
 	it("reports an empty catalog only after refresh", async () => {

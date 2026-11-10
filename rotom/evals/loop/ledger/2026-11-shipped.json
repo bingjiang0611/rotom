@@ -1,0 +1,41 @@
+[
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-11-10-sol-pi-0-1-1-rotom-7",
+		"date": "2026-11-10",
+		"title": "Record aa8f690: SoL-Pi 0.1.1-rotom.7",
+		"hypothesis": "The SoL-Pi bump shipped four mechanism changes at once with no ledger entry, so the history has a dependency change and no statement of what it is expected to move.",
+		"change": "mechanism",
+		"measurement": "Recorded after the fact from commit aa8f690; no model calls. It three-way merges upstream SoL-Pi 2b791687..2195680 into the .rotom.6 tree, packs sol-pi-0.1.1-rotom.7, and updates product-config integrity, the third-party notices and docs. Offline evidence recorded in the commit: SoL-Pi typecheck plus 324 tests on pinned Pi 1.3.0 (2 known install-guide fixtures fail), the new offload in-place test fails on the old projection, rotom third-party/distribution/coding-policy 76 pass (1 macOS-only skip), compaction-offload and quality evals 102/102, smoke-runtime with deferred tools on and off. Expected harvest metrics, none measured yet: compaction_failed and the compaction rate should fall (Observation Pack edits the context clone in place instead of returning new objects, so the cached prefix survives; OCC cancels Pi's threshold compaction while a boundary compaction is selected); tool_error_streak in the command-failed and syntax classes should fall (then_run reports an explicit status and the Reducer skips exit-state mismatches); user_interrupt triage `quality` should fall for long compaction waits; provider_error is not expected to move.",
+		"result": "Ships in every product release built after aa8f690; the release installed on this machine at the time of writing (0.1.27-main.50ccdc87) still loads sol-pi 0.1.0-rotom.6, so the 28-day harvest cannot attribute anything to .rotom.7 yet. The per-SoL-Pi-version table added in the same round is the layer that will answer it, and it currently reads `unknown` for 670 of 715 sessions.",
+		"evidence": "unmeasured",
+		"decision": "shipped",
+		"source": "rotom/runtime/product-config.mjs"
+	},
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-11-10-ask-2-15-context-view-0-8-3",
+		"date": "2026-11-10",
+		"title": "Record 9cf8cbc: Ask 2.15.0 / pi-context-view 0.8.3",
+		"hypothesis": "Two third-party extensions were upgraded with no ledger entry, so a later change in the invalid-arguments error class or in what a user does after being asked a question could not be traced back to them.",
+		"change": "mechanism",
+		"measurement": "Recorded after the fact from commit 9cf8cbc; no model calls. Both packages are taken unmodified from the npm registry: @juicesharp/rpiv-ask-user-question 2.6.2 -> 2.15.0 (rpiv-config 2.6.4 -> 2.15.0) and pi-context-view 0.7.1 -> 0.8.3, with package.json, the lockfile, product-config integrity, notices and docs updated together. Offline evidence in the commit: third-party index, deferred-tools register and distribution tests 65/65, smoke-runtime with ROTOM_DEFERRED_TOOLS=1 and 0. Expected harvest metrics: tool_error_streak in the invalid-arguments class for ask_user_question should fall (upstream now decodes JSON-string arguments and reports an unanswered question instead of ending a turn silently); bare_continue and user_repeat right after a question should fall for the same reason. pi-context-view only backs the /context command, which writes no session entry the harvest reads, so no v1 or v2 effect is expected from it.",
+		"result": "Unmeasured. The release installed on this machine still carries Ask 2.6.2 and pi-context-view 0.7.1, so the acceptance window has not started; it opens the first day the daily install loads a release built after 9cf8cbc.",
+		"evidence": "unmeasured",
+		"decision": "shipped",
+		"source": "rotom/extensions/third-party/package.json"
+	},
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-11-10-pi-fork-1-4-0-rotom-3",
+		"date": "2026-11-10",
+		"title": "Record 6ae816d: Pi fork 1.4.0-rotom.3",
+		"hypothesis": "The retry-policy fix (L-2026-11-10-retry-after-and-quota-errors) shipped as source only: the runtime archives were never rebuilt, so the product kept loading 1.4.0-rotom.2. Without a fork-version bump nothing in a session could show whether the fix was even loaded.",
+		"change": "mechanism",
+		"measurement": "Recorded from commit 6ae816d; no model calls. It rebuilds the seven runtime archives, re-anchors fork-build.json, the runtime pi manifest and lock, product-config and the notices, so the declared fork version and the vendored bytes agree again. Verification in the commit: a fresh product directory installed from the lockfile reports 1.4.0-rotom.3, the installed pi-ai dist carries the Retry-After and account-limit branches, and an isolated pack:release packages it. Expected harvest metrics: provider_error incidents whose outcome is `user-visible` should fall in the `http` and `429` categories, and no quota/402 error should cost more than one attempt (the retry-budget entry's own acceptance criterion). Trace `pi.runtime.version` now reads 1.4.0-rotom.3, which is what makes the per-runtime table able to separate before from after.",
+		"result": "Unmeasured. The release installed here runs 1.4.0-rotom.2, so the 28-day window still describes the old retry path: the per-runtime table shows 1.4.0-rotom.2 at 5.3 v2 per 100 turns over 2,167 turns while no session carries 1.4.0-rotom.3. The acceptance window opens when the daily install switches to a release built from this commit.",
+		"evidence": "unmeasured",
+		"decision": "shipped",
+		"source": "rotom/runtime/pi/fork-build.json"
+	}
+]

@@ -66,13 +66,8 @@ beforeEach(() => {
 		chmodSync(join(cwd, ".githooks", name), 0o755);
 	}
 	mkdirSync(join(cwd, "scripts"));
-	copyFileSync(checker, join(cwd, "scripts/check-staged-file-size.mjs"));
-	copyFileSync(
-		resolve("scripts/hook-identity.mjs"),
-		join(cwd, "scripts/hook-identity.mjs"),
-	);
-	// .githooks/commit-msg runs this; without it every real commit in the fixture fails.
-	copyFileSync(resolve("scripts/hook-ledger.mjs"), join(cwd, "scripts/hook-ledger.mjs"));
+	// Every hook the installer wires needs its guard beside it, or the commit itself fails.
+	for (const name of ["check-staged-file-size.mjs", "hook-identity.mjs", "hook-ledger.mjs"]) copyFileSync(resolve(join("scripts", name)), join(cwd, "scripts", name));
 });
 
 afterEach(() => rmSync(directory, { recursive: true, force: true }));

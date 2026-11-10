@@ -171,7 +171,7 @@ Browser relay 的后台标签、AX/DOM ref、viewport、document generation 和 
 - 本仓库已明确要求持续同步公开仓库：完成并验证每次任务后，除非用户明确要求不推送，默认将本次相关改动以可读 commit 粒度同步到公开 `origin/main`，不等到 npm 打包或 release 才集中推送；已有 WIP、敏感内容和未验证改动不混入。
 - 本地维护历史与公开历史分叉时，不直接或强制推送私有历史；从最新公开基线创建独立干净副本，以 GitHub noreply 身份重放本次 diff，运行 public audit 后仅作 fast-forward push。报告实际检查、未验证项和远端 commit，不用 L1/L2 冒充 L3。
 - 改动 `rotom/extensions/**`、`rotom/runtime/**`、`rotom/skills/**`、`rotom/bin/**`、`packages/**` 的 commit 必须在消息里带 `Ledger: L-YYYY-MM-DD-slug` 或 `Ledger: none — <理由>` trailer；只改测试、文档或 evals 的 commit 不受这条限制。commit-msg hook 会拦，被拦时补账本条目而不是关 hook：循环之外做的机制或提示改动同样要入账，否则历史里只剩一个说不清归属的 diff。
-- **每次推送前**跑 `python3 scripts/audit-public.py --root . --history`，不能只跑 tree 模式：只扫 tracked tree 看不到提交身份，而身份泄露只能靠改写历史修复。`--history` 只放行 `*@users.noreply.github.com`、提交者为 `noreply@github.com`（GitHub 网页合并）和精确地址 `noreply@anthropic.com`（维护者已同意的历史豁免），同域名其他地址照样拦。pre-push hook 用同一条规则在推送时再拦一次，被拦下时按它打印的命令改写身份，不用 `--no-verify` 绕过。
+- **每次推送前**跑 `python3 scripts/audit-public.py --root . --history-range <base>..<head>`（pre-push hook 已自动执行同一命令）：它扫这次推送新增的 commit、其 blob 和提交身份，只跑 tree 模式看不到提交身份，而身份泄露只能靠改写历史修复。发布独立仓库或改写历史后仍须跑全量 `--history`。历史模式（`--history` 与 `--history-range` 共用同一套规则）只放行 `*@users.noreply.github.com`、提交者为 `noreply@github.com`（GitHub 网页合并）和精确地址 `noreply@anthropic.com`（维护者已同意的历史豁免），同域名其他地址照样拦。pre-push hook 先按这条规则拦身份、再跑范围审计，被拦下时按它打印的命令改写，不用 `--no-verify` 绕过。
 
 ## 代码风格与品味
 

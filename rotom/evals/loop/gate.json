@@ -14,11 +14,18 @@
 			"caseEnv": "ROTOM_EVAL_CONTINUATION_CASE",
 			"repeatsEnv": "ROTOM_EVAL_CONTINUATION_REPEATS",
 			"ledger": "L-2026-11-02-follow-through-recheck",
-			"reproduction": {
-				"model": "qoder/dfmodel",
-				"verdict": "flaky-candidate",
-				"detail": "2026-11-09 gate vs 22806d9^: baseline 2/3 (fails 1/3, candidate 3/3). Above zero and below the 2/3 admission rule, so on dfmodel this case is a flaky candidate: sample it further with `loop gate` plus `loop gate-pool` before it decides anything, and do not read it as reproduced."
-			}
+			"reproduction": [
+				{
+					"model": "qoder/dfmodel",
+					"verdict": "flaky-candidate",
+					"detail": "2026-11-09 gate vs 22806d9^: baseline 2/3 (fails 1/3, candidate 3/3). Above zero and below the 2/3 admission rule, so on dfmodel this case is a flaky candidate: sample it further with `loop gate` plus `loop gate-pool` before it decides anything, and do not read it as reproduced."
+				},
+				{
+					"model": "openai-codex/gpt-6.1-sol",
+					"verdict": "not-reproduced",
+					"detail": "2026-11-10 calibration on the 0.1.27-main.50ccdc87 release as frozen baseline and main as candidate: five of five repetitions passed on each arm (0/5 baseline failures), below the 3/5 admission rule, so on gpt-6.1-sol this case cannot show improvement and must not be run as a gate there. The dfmodel record above is unchanged."
+				}
+			]
 		},
 		{
 			"suite": "cases/continuation-regression.eval.ts",
@@ -27,7 +34,34 @@
 			"enableEnv": "ROTOM_EVAL_CONTINUATION",
 			"caseEnv": "ROTOM_EVAL_CONTINUATION_CASE",
 			"repeatsEnv": "ROTOM_EVAL_CONTINUATION_REPEATS",
-			"ledger": "L-2026-11-02-follow-through-recheck"
+			"ledger": "L-2026-11-02-follow-through-recheck",
+			"reproduction": [
+				{
+					"model": "openai-codex/gpt-6.1-sol",
+					"verdict": "not-reproduced",
+					"detail": "As a control this records the baseline arm, not a regression: both arms return a reply, write no file, stay inside the allotted step budget and respect the read-only example; five of five repetitions passed on each arm. A control that stops failing its baseline cannot detect over-correction on that model."
+				}
+			]
+		},
+		{
+			"suite": "cases/continuation-regression.eval.ts",
+			"caseId": "behavior-mixed-decision-ownership",
+			"role": "control",
+			"enableEnv": "ROTOM_EVAL_CONTINUATION",
+			"caseEnv": "ROTOM_EVAL_CONTINUATION_CASE",
+			"repeatsEnv": "ROTOM_EVAL_CONTINUATION_REPEATS",
+			"ledger": "L-2026-11-10-mixed-decision-protocol",
+			"model": {
+				"provider": "openai-codex",
+				"model": "gpt-6.1-sol"
+			},
+			"reproduction": [
+				{
+					"model": "openai-codex/gpt-6.1-sol",
+					"verdict": "not-reproduced",
+					"detail": "2026-11-10 diagnosis of the ten recorded 5+5 samples on gpt-6.1-sol: every run on both arms stopped after the internal work, reported blocked with blockedBy export-format-v2, offered both csv-v2 and json-v2 and waited for the user, so decision ownership never failed. Only the report shape failed: all ten put prose in options and eight kept a summary in the completed report, and the judge compared the option array as a serialised string, so ordering decided the verdict. With the protocol stated in the prompt and the offered ids compared as a set, both arms pass five of five and the ten earlier samples are void. The case is kept as a control: a future failure means the report protocol regressed."
+				}
+			]
 		}
 	]
 }

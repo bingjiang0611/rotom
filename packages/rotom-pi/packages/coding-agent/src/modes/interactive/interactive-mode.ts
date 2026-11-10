@@ -65,6 +65,7 @@ import {
 	getDocsPath,
 	VERSION,
 } from "../../config.ts";
+import { authenticationCopy } from "../../constants/copy.ts";
 import { type AgentSession, type AgentSessionEvent, parseSkillBlock } from "../../core/agent-session.ts";
 import { type AgentSessionRuntime, SessionImportFileNotFoundError } from "../../core/agent-session-runtime.ts";
 import type { AgentSessionRuntimeDiagnostic } from "../../core/agent-session-services.ts";
@@ -6183,6 +6184,7 @@ export class InteractiveMode {
 		const finishAuthentication = async () => {
 			let selectedModel: Model<any> | undefined;
 			let selectionError: string | undefined;
+			let selectionGuidance: string | undefined;
 			if (isUnknownModel(previousModel)) {
 				const availableModels = this.session.modelRuntime.getAvailableSnapshot();
 				const providerModels = availableModels.filter((model) => model.provider === providerId);
@@ -6190,7 +6192,7 @@ export class InteractiveMode {
 				if (providerId === "llama.cpp") {
 					selectionError = llamaCppPostLoginGuidance(actionLabel, providerModels.length);
 				} else if (!hasDefaultModelProvider(providerId)) {
-					selectionError = `${actionLabel}, but no default model is configured for provider "${providerId}". Use /model to select a model.`;
+					selectionGuidance = authenticationCopy.selectModel(providerId);
 				} else if (providerModels.length === 0) {
 					selectionError = `${actionLabel}, but no models are available for that provider. Use /model to select a model.`;
 				} else {
@@ -6223,6 +6225,8 @@ export class InteractiveMode {
 				this.showStatus(`${actionLabel}. Credentials saved to ${getAuthPath()}`);
 				if (selectionError) {
 					this.showError(selectionError);
+				} else if (selectionGuidance) {
+					this.showStatus(selectionGuidance);
 				} else {
 					void this.maybeWarnAboutAnthropicSubscriptionAuth();
 				}

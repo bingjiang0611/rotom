@@ -3,7 +3,8 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { continuationCaseFor, continuationCases, scoreContinuationCase, unobservedReads } from "../src/continuation-cases.ts";
-import { appendGateHistory, auditSmokeScores, gateHistoryRecords, smokeScoresFromResults, gateVerdict, judgeGateCase, parseGateHistory, parseGateManifest, poolGateHistory, type GateCase, type GateHistoryRecord } from "../src/loop/gate.ts";
+import { auditSmokeScores, effectiveModel, gateVerdict, judgeGateCase, parseGateManifest, smokeScoresFromResults, type GateCase } from "../src/loop/gate.ts";
+import { appendGateHistory, gateHistoryRecords, parseGateHistory, poolGateHistory, type GateHistoryRecord } from "../src/loop/gate-history.ts";
 import { parseLedger, parseLedgerDir, PROMPT_RENT_SINCE, shardFile } from "../src/loop/ledger.ts";
 
 const evalsRoot = resolve(import.meta.dirname, "..");
@@ -50,20 +51,27 @@ describe("loop gate", () => {
 		expect(() => parseGateManifest(JSON.stringify({ ...valid, cases: valid.cases.map((entry: GateCase) => ({ ...entry, role: "control" })) }))).toThrow(/reproduced/u);
 		expect(() => parseGateManifest(JSON.stringify({ ...valid, cases: [{ ...valid.cases[0], enableEnv: "PATH" }] }))).toThrow(/env/u);
 		expect(() => parseGateManifest(JSON.stringify({ ...valid, cases: [valid.cases[0], valid.cases[0]] }))).toThrow(/duplicate/u);
-		expect(() => parseGateManifest(JSON.stringify({ ...valid, cases: [{ ...valid.cases[0], reproduction: { model: "qoder/dfmodel", verdict: "maybe", detail: "x" } }] }))).toThrow(/verdict/u);
-		expect(() => parseGateManifest(JSON.stringify({ ...valid, cases: [{ ...valid.cases[0], reproduction: { model: "qoder/dfmodel", verdict: "not-reproduced", detail: " " } }] }))).toThrow(/detail/u);
-		const flaky = parseGateManifest(JSON.stringify({ ...valid, cases: [{ ...valid.cases[0], reproduction: { model: "qoder/dfmodel", verdict: "flaky-candidate", detail: "fails 1/3" } }] }));
-		expect(flaky.cases[0].reproduction?.verdict).toBe("flaky-candidate");
+		expect(() => parseGateManifest(JSON.stringify({ ...valid, cases: [{ ...valid.cases[0], reproduction: [{ model: "qoder/dfmodel", verdict: "maybe", detail: "x" }] }] }))).toThrow(/verdict/u);
+		expect(() => parseGateManifest(JSON.stringify({ ...valid, cases: [{ ...valid.cases[0], reproduction: [{ model: "qoder/dfmodel", verdict: "not-reproduced", detail: " " }] }] }))).toThrow(/detail/u);
+		// Per model, not one shared verdict: the same case can discriminate on one model and not another.
+		expect(() => parseGateManifest(JSON.stringify({ ...valid, cases: [{ ...valid.cases[0], reproduction: { model: "qoder/dfmodel", verdict: "reproduced", detail: "x" } }] }))).toThrow(/list/u);
+		expect(() => parseGateManifest(JSON.stringify({ ...valid, cases: [{ ...valid.cases[0], reproduction: [{ model: "qoder/dfmodel", verdict: "reproduced", detail: "x" }, { model: "qoder/dfmodel", verdict: "not-reproduced", detail: "y" }] }] }))).toThrow(/twice/u);
+		expect(() => parseGateManifest(JSON.stringify({ ...valid, cases: [{ ...valid.cases[0], model: { provider: "openai-codex" } }] }))).toThrow(/provider and model/u);
+		const flaky = parseGateManifest(JSON.stringify({ ...valid, cases: [{ ...valid.cases[0], model: { provider: "openai-codex", model: "gpt-6.1-sol" }, reproduction: [{ model: "openai-codex/gpt-6.1-sol", verdict: "flaky-candidate", detail: "fails 2/5" }] }] }));
+		expect(flaky.cases[0].reproduction?.[0].verdict).toBe("flaky-candidate");
+		expect(effectiveModel(flaky.cases[0], flaky)).toEqual({ provider: "openai-codex", model: "gpt-6.1-sol" });
+		expect(effectiveModel({ ...valid.cases[0] }, flaky)).toEqual({ provider: "qoder", model: "dfmodel" });
 	});
 
 	it("carries recorded reproduction evidence into the summary", () => {
-		const annotated: GateCase = { ...item, reproduction: { model: "qoder/dfmodel", verdict: "not-reproduced", detail: "baseline fails 1/3" } };
+		const annotated: GateCase = { ...item, reproduction: [{ model: "qoder/dfmodel", verdict: "not-reproduced", detail: "baseline fails 1/3" }] };
 		expect(judgeGateCase(annotated, 3, "/a", report(3, 1 / 3, 1))).toMatchObject({ verdict: "held", reproduction: annotated.reproduction });
 		expect(judgeGateCase(item, 3, "/a", report(3, 1 / 3, 1)).reproduction).toBeUndefined();
 	});
 
 	it("judges from the candidate arm and never turns missing data into held", () => {
-		expect(judgeGateCase(item, 3, "/a", report(3, 0, 1)).verdict).toBe("held");
+		const sol = { provider: "openai-codex", model: "gpt-6.1-sol" };
+		expect(judgeGateCase(item, 3, "/a", report(3, 0, 1), sol)).toMatchObject({ verdict: "held", model: sol });
 		expect(judgeGateCase(item, 3, "/a", report(3, 1, 1)).verdict).toBe("held");
 		expect(judgeGateCase(item, 3, "/a", report(3, 0, 2 / 3)).verdict).toBe("regressed");
 		expect(judgeGateCase(item, 3, "/a", report(2, 0, 1))).toMatchObject({ verdict: "unknown", pairs: 2 });
@@ -75,8 +83,11 @@ describe("loop gate", () => {
 
 describe("loop ledger", () => {
 	it("checked-in ledger is valid and every source exists", () => {
-		expect(parseLedger(ledgerText, repoRoot).length).toBeGreaterThanOrEqual(10);
+		// Read through the loader: shard file names no longer sort in date order once a month has
+		// an overflow shard, and the loader is what the CLI prints.
 		const entries = parseLedgerDir(ledgerDir, repoRoot);
+		expect(entries.length).toBeGreaterThanOrEqual(10);
+		expect(parseLedger(ledgerText, repoRoot)).toHaveLength(entries.length);
 		expect(entries.map((entry) => entry.date)).toEqual([...entries.map((entry) => entry.date)].sort());
 	});
 
@@ -85,12 +96,30 @@ describe("loop ledger", () => {
 		expect(shards.length).toBeGreaterThanOrEqual(2);
 		const entries = parseLedgerDir(ledgerDir, repoRoot);
 		expect(entries.length).toBeGreaterThanOrEqual(20);
-		// A shard holds exactly the entries of the month its file name names.
+		// A shard holds exactly the entries of the month its file name starts with.
 		for (const shard of shards) {
-			const month = shard.slice(0, "YYYY-MM".length);
+			const month = /^(\d{4}-\d{2})/u.exec(shard)?.[1];
 			for (const entry of parseLedger(readFileSync(join(ledgerDir, shard), "utf8"))) expect(entry.date.startsWith(`${month}-`)).toBe(true);
 		}
 		expect(new Set(entries.map((entry) => entry.id)).size).toBe(entries.length);
+	});
+
+	it("accepts an overflow shard for a month too large for one file, and still binds it to that month", () => {
+		const directory = mkdtempSync(join(tmpdir(), "loop-ledger-overflow-"));
+		mkdirSync(directory, { recursive: true });
+		const entry = (id: string, date: string) => ({
+			schema: "rotom-loop-ledger/v1", id, date, title: "t", hypothesis: "h", change: "eval", measurement: "m",
+			result: "r", evidence: "unmeasured", decision: "shipped", source: "docs/agent/optimization-loop.md",
+		});
+		writeFileSync(join(directory, shardFile("2026-11")), JSON.stringify([entry("L-2026-11-01-a", "2026-11-01")]));
+		writeFileSync(join(directory, "2026-11-overflow.json"), JSON.stringify([entry("L-2026-11-02-b", "2026-11-02")]));
+		expect(parseLedgerDir(directory).map((item) => item.id)).toEqual(["L-2026-11-01-a", "L-2026-11-02-b"]);
+		// A file without a month prefix is not a ledger shard at all.
+		writeFileSync(join(directory, "notes.json"), JSON.stringify([entry("L-2026-11-03-c", "2026-11-03")]));
+		expect(parseLedgerDir(directory).map((item) => item.id)).not.toContain("L-2026-11-03-c");
+		// The month prefix, not the rest of the file name, decides which dates it may hold.
+		writeFileSync(join(directory, "2026-11-overflow.json"), JSON.stringify([entry("L-2026-12-02-b", "2026-12-02")]));
+		expect(() => parseLedgerDir(directory)).toThrow(/is dated/u);
 	});
 
 	it("rejects a duplicate id that two different shards each accept on their own", () => {
@@ -108,22 +137,6 @@ describe("loop ledger", () => {
 		expect(() => parseLedgerDir(directory)).toThrow(/duplicate id/u);
 		write("2026-10", [entry("L-2026-09-02-b", "2026-09-02")]);
 		expect(() => parseLedgerDir(directory)).toThrow(/is dated/u);
-	});
-
-	it("reads a named series shard inside its month, in date order, and refuses stray files", () => {
-		const directory = mkdtempSync(join(tmpdir(), "loop-ledger-series-"));
-		const entry = (id: string, date: string) => ({
-			schema: "rotom-loop-ledger/v1", id, date, title: "t", hypothesis: "h", change: "eval", measurement: "m",
-			result: "r", evidence: "unmeasured", decision: "open", source: "docs/agent/optimization-loop.md",
-		});
-		writeFileSync(join(directory, "2026-11.json"), JSON.stringify([entry("L-2026-11-01-a", "2026-11-01"), entry("L-2026-11-12-c", "2026-11-12")]));
-		writeFileSync(join(directory, "2026-11-plan.json"), JSON.stringify([entry("L-2026-11-09-b", "2026-11-09")]));
-		expect(parseLedgerDir(directory).map((item) => item.id)).toEqual(["L-2026-11-01-a", "L-2026-11-09-b", "L-2026-11-12-c"]);
-		writeFileSync(join(directory, "2026-11-plan.json"), JSON.stringify([entry("L-2026-10-09-b", "2026-10-09")]));
-		expect(() => parseLedgerDir(directory)).toThrow(/is dated/u);
-		writeFileSync(join(directory, "2026-11-plan.json"), "[]");
-		writeFileSync(join(directory, "plan.json"), "[]");
-		expect(() => parseLedgerDir(directory)).toThrow(/plan\.json is not named/u);
 	});
 
 	it("requires measured improvement for prompt changes shipped under the new rule", () => {
@@ -181,15 +194,28 @@ describe("loop gate history", () => {
 		const records = gateHistoryRecords({
 			recordedAt: "2026-11-10T10:00:00.000Z",
 			runId: "gate-1",
-			model: { provider: "qoder", model: "dfmodel" },
 			repeats: 5,
 			candidateCommit: "b".repeat(40),
 			baselineProduct: "/tmp/pre-fix/rotom",
 			candidateProduct: "/repo/rotom",
-			results: [judgeGateCase(item, 5, "/a", report(5, 3 / 5, 1))],
+			results: [judgeGateCase(item, 5, "/a", report(5, 3 / 5, 1), { provider: "openai-codex", model: "gpt-6.1-sol" })],
 		});
 		expect(records).toHaveLength(1);
-		expect(records[0]).toMatchObject({ caseId: item.caseId, pairs: 5, baselinePass: 3, candidatePass: 5, verdict: "held" });
+		expect(records[0]).toMatchObject({ caseId: item.caseId, pairs: 5, baselinePass: 3, candidatePass: 5, verdict: "held", model: { provider: "openai-codex", model: "gpt-6.1-sol" } });
+		// Two cases on different models in one run record their own model, so pooling stays honest.
+		const mixed = gateHistoryRecords({
+			recordedAt: "2026-11-10T10:00:00.000Z",
+			runId: "gate-2",
+			repeats: 5,
+			candidateCommit: "b".repeat(40),
+			baselineProduct: "/tmp/pre-fix/rotom",
+			candidateProduct: "/repo/rotom",
+			results: [
+				judgeGateCase(item, 5, "/a", report(5, 0, 1)),
+				judgeGateCase({ ...item, caseId: "behavior-scoped-read" }, 5, "/b", report(5, 0, 1), { provider: "openai-codex", model: "gpt-6.1-sol" }),
+			],
+		});
+		expect(mixed.map((record) => `${record.caseId}:${record.model.provider}`)).toEqual([`${item.caseId}:`, "behavior-scoped-read:openai-codex"]);
 	});
 
 	it("pools re-runs per candidate commit and keeps earlier failures", () => {

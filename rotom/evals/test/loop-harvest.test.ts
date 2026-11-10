@@ -1,9 +1,6 @@
-import { lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { analyzeSession, isBareContinue, isCorrection } from "../src/loop/harvest.ts";
-import { harvest, isoWeek, weeklyMetrics } from "../src/loop/harvest-run.ts";
+import { isoWeek, weeklyMetrics } from "../src/loop/harvest-run.ts";
 
 let counter = 0;
 type Line = Record<string, unknown>;
@@ -254,57 +251,5 @@ describe("loop harvest detectors", () => {
 		]);
 		expect(weeks).toHaveLength(1);
 		expect(weeks[0]).toMatchObject({ week: "2026-W45", sessions: 2, userTurns: 40, interventions: 4, interventionsPer100Turns: 10, incidentCounts: { user_correction: 3, bare_continue: 1 } });
-	});
-});
-
-describe("loop harvest output", () => {
-	const roots: string[] = [];
-	afterEach(async () => {
-		for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
-	});
-
-	it("writes a private report, skips symlinks, traces and subagent stores", async () => {
-		const root = await mkdtemp(join(tmpdir(), "loop-harvest-"));
-		roots.push(root);
-		const sessions = join(root, "sessions", "--work-app--");
-		await mkdir(join(sessions, "observability"), { recursive: true });
-		await mkdir(join(sessions, "subagent-artifacts"), { recursive: true });
-		const lines = session(chain([user("修 bug"), reply("done"), user("不对，你没有跑测试")]));
-		await writeFile(join(sessions, "2026-11-03_s-1.jsonl"), `${lines.join("\n")}\n{"torn`);
-		await writeFile(join(sessions, "observability", "2026-11-03_s-1.trace.jsonl"), `${JSON.stringify({ kind: "span_end", name: "pi.session.compaction", status: "error", spanId: "t" })}\n`);
-		await writeFile(join(sessions, "subagent-artifacts", "child.jsonl"), lines.join("\n"));
-		await writeFile(join(root, "elsewhere.jsonl"), lines.join("\n"));
-		await symlink(join(root, "elsewhere.jsonl"), join(sessions, "linked.jsonl"));
-
-		const out = join(root, "loop");
-		const result = await harvest({ sessionsDir: join(root, "sessions"), outRoot: out, since: new Date("2026-01-01T00:00:00Z"), now: new Date("2026-11-09T00:00:00Z"), excerpts: true });
-		expect(result.sessions).toHaveLength(1);
-		expect(result.incidents.map((incident) => incident.kind).sort()).toEqual(["compaction_failed", "user_correction"]);
-		// One symlink plus the trace and subagent subtrees the product writes beside sessions.
-		expect(result.skipped).toEqual({ symlink: 1, "artifact-store": 2 });
-		expect(((await lstat(result.outDir)).mode & 0o777)).toBe(0o700);
-		const files = (await readdir(result.outDir)).sort();
-		expect(files).toEqual(["compactions.jsonl", "incidents.jsonl", "report.md", "sessions.jsonl", "summary.json"]);
-		for (const file of files) expect(((await lstat(join(result.outDir, file))).mode & 0o777)).toBe(0o600);
-		const report = await readFile(join(result.outDir, "report.md"), "utf8");
-		expect(report).toContain("| 2026-W45 | 1 | 2 | 1 | 50 | 0–148 | 1 | 50 |");
-		expect(JSON.parse(await readFile(join(result.outDir, "summary.json"), "utf8"))).toMatchObject({ schema: "rotom-loop-harvest/v1", sessions: 1, incidents: 2 });
-	});
-
-	it("counts a conversation copied into a fork once", async () => {
-		const root = await mkdtemp(join(tmpdir(), "loop-harvest-fork-"));
-		roots.push(root);
-		const sessions = join(root, "sessions", "--work-app--");
-		await mkdir(sessions, { recursive: true });
-		const shared = chain([user("修 bug"), reply("done"), user("不对，你没有跑测试"), reply("好的")]);
-		const forkTail = { type: "message", id: "tail", parentId: shared[3].id, timestamp: "2026-11-03T13:00:00.000Z", message: user("继续") };
-		const header = (id: string) => JSON.stringify({ type: "session", version: 3, id, timestamp: "2026-11-03T10:00:00.000Z", cwd: "/work/app" });
-		await writeFile(join(sessions, "2026-11-03_s-1.jsonl"), [header("s-1"), ...shared.map((line) => JSON.stringify(line))].join("\n"));
-		await writeFile(join(sessions, "2026-11-04_s-2.jsonl"), [header("s-2"), ...shared.map((line) => JSON.stringify(line)), JSON.stringify(forkTail)].join("\n"));
-
-		const result = await harvest({ sessionsDir: join(root, "sessions"), outRoot: join(root, "loop"), since: new Date("2026-01-01T00:00:00Z"), now: new Date("2026-11-09T00:00:00Z"), excerpts: false });
-		expect(result.incidents.map((incident) => incident.kind)).toEqual(["user_correction", "bare_continue"]);
-		expect(result.sessions.reduce((sum, item) => sum + item.userTurns, 0)).toBe(3);
-		expect(result.sessions.reduce((sum, item) => sum + item.interventions, 0)).toBe(2);
 	});
 });

@@ -9,13 +9,13 @@
 
 import { providerDetail, traceErrorSpans } from "./harvest-provider.ts";
 import { clip, humanText, isBareContinue, isCorrection, isRecord, normalized, similarity, textOf } from "./harvest-text.ts";
-import { interruptActivity, interruptFollowUp, interruptTriage, resolveInterruptCauses, resolveStartedAt, runtimeVersionOf, releaseOf, toolErrorCategory, type StartSource, type InterruptActivity, type InterruptCause, type InterruptFollowUp, type InterruptTriage } from "./harvest-signals.ts";
+import { interruptActivity, interruptFollowUp, interruptTriage, productVersionOf, resolveInterruptCauses, resolveStartedAt, runtimeVersionOf, releaseOf, solPiVersionOf, toolErrorCategory, type StartSource, type InterruptActivity, type InterruptCause, type InterruptFollowUp, type InterruptTriage } from "./harvest-signals.ts";
 import { messageOf, parseLines, paths, type Block, type Entry, type Message } from "./harvest-tree.ts";
 
 // Re-exported so the detectors, the report and the tests keep one import surface.
 export { isBareContinue, isCorrection, similarity } from "./harvest-text.ts";
 export { releaseOf, resolveStartedAt } from "./harvest-signals.ts";
-export { TOOL_ERROR_CATEGORIES, interruptActivity, interruptFollowUp, interruptTriage, runtimeVersionOf, toolErrorCategory, type InterruptActivity, type InterruptFollowUp, type InterruptTriage, type ToolErrorCategory } from "./harvest-signals.ts";
+export { TOOL_ERROR_CATEGORIES, interruptActivity, interruptFollowUp, interruptTriage, productVersionOf, runtimeVersionOf, solPiVersionOf, toolErrorCategory, type InterruptActivity, type InterruptFollowUp, type InterruptTriage, type ToolErrorCategory } from "./harvest-signals.ts";
 
 export const HARVEST_SCHEMA = "rotom-loop-harvest/v1";
 import { INTERVENTION_KINDS, compactionFailuresFromTrace, northStar, type InterventionKind } from "./harvest-north-star.ts";
@@ -73,8 +73,14 @@ export type SessionSummary = {
 	v2Models: Record<string, number>;
 	/** Interrupts by triage class, counted the way v1 counts them (excluded ones are separate). */
 	interruptTriage: Record<InterruptTriage, number>;
-	/** Product runtime that served this session, when its trace recorded one. */
+	/** Pi fork that served this session, when its trace recorded one. */
 	runtimeVersion?: string;
+	/** Installed rotom product version that served this session, when its trace recorded one. */
+	productVersion?: string;
+	/** SoL-Pi version the session proves it ran, from a vendored archive path in its own lines. */
+	solPiVersion?: string;
+	/** Model of the session's first assistant message, before any switch. */
+	firstAssistantModel?: string;
 	failures: number;
 	incidentCounts: Partial<Record<IncidentKind, number>>;
 };
@@ -136,6 +142,7 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 	const toolCallIds = new Set<string>();
 	const toolErrorIds = new Set<string>();
 	const models = new Set<string>();
+	let firstAssistantModel: string | undefined;
 
 	for (const path of paths(entries)) {
 		const aborts: { index: number; incident: Incident; requestText: string }[] = [];
@@ -217,6 +224,7 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 				if (typeof message.provider === "string" && typeof message.model === "string") {
 					models.add(`${message.provider}/${message.model}`);
 					currentModel = `${message.provider}/${message.model}`;
+					firstAssistantModel ??= `${message.provider}/${message.model}`;
 				}
 				// The first assistant message after a user turn is the model that answered it.
 				if (pendingUser && typeof message.provider === "string" && typeof message.model === "string") {
@@ -327,6 +335,8 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 	const started = resolveStartedAt(header.timestamp, entries[0]?.timestamp, options.fileMtimeMs);
 	const release = releaseOf(lines);
 	const runtimeVersion = runtimeVersionOf(options.traceLines);
+	const productVersion = productVersionOf(options.traceLines);
+	const solPiVersion = solPiVersionOf(lines, options.traceLines);
 	const star = northStar(list, intervenedUserEntries.size);
 	const failures = FAILURE_KINDS.reduce((sum, kind) => sum + (incidentCounts[kind] ?? 0), 0);
 
@@ -351,6 +361,9 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 			v2Models: star.v2Models,
 			interruptTriage: star.interruptTriage,
 			...(runtimeVersion ? { runtimeVersion } : {}),
+			...(productVersion ? { productVersion } : {}),
+			...(solPiVersion ? { solPiVersion } : {}),
+			...(firstAssistantModel ? { firstAssistantModel } : {}),
 			failures,
 			incidentCounts,
 		},

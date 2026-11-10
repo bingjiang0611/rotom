@@ -1,0 +1,261 @@
+{
+ "schema": 1,
+ "archives": [
+  {
+   "oid": "a1efc7e67a73cdc02c8391852ac97192c22c7d1b",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-tui-0.85.1-rotom.1.tgz"
+  },
+  {
+   "oid": "a2907bec42e1843ceae544f4d6768cdc91a3e310",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-ai-1.4.0-rotom.2.tgz"
+  },
+  {
+   "oid": "a42be7d7ef6af0e20e1a438774bcb6526a573905",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-agent-core-1.4.0-rotom.2.tgz"
+  },
+  {
+   "oid": "a4a9311461ad3b742c3fce0c964e6da94b7da1ea",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-telemetry-0.85.1-rotom.1.tgz"
+  },
+  {
+   "oid": "a8b40f6a8338455e06b18d7fe883f434d943c270",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-agent-core-0.85.1-rotom.1.tgz"
+  },
+  {
+   "oid": "ae309891f9d6eb24f3863a7432f6bd32371f182f",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-telemetry-0.85.1-rotom.2.tgz"
+  },
+  {
+   "oid": "ae39b0ee84e38039f92fcccce053a79d9c1d27c5",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-agent-core-0.85.1-rotom.1.tgz"
+  },
+  {
+   "oid": "af3cb82a3a04ce8fc6c4595dfa559ebf15b81527",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-ai-1.4.0-rotom.2.tgz"
+  },
+  {
+   "oid": "afc143c9f3a2e6e7d94d91c511551074dd9021ef",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-tui-0.85.1-rotom.1.tgz"
+  },
+  {
+   "oid": "b17316d5caa94acd1a7e107b9eec68f3d2bf5f49",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-agent-core-1.3.0-rotom.2.tgz"
+  },
+  {
+   "oid": "b1e3109732a0d392d46c7b767117619399a46d3d",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-coding-agent-1.4.0-rotom.1.tgz"
+  },
+  {
+   "oid": "b25c7a1411682fec00900200d6c4791c663adba3",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-codemode-1.1.0-rotom.2.tgz"
+  },
+  {
+   "oid": "b2859100862ce63a12d73fccd2bc2b8a48dd4ad0",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-coding-agent-1.4.0-rotom.3.tgz"
+  },
+  {
+   "oid": "b2e5a126fbf122878551778169f012951aebcb21",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-ai-0.85.1-rotom.1.tgz"
+  },
+  {
+   "oid": "b4db798d8238c90b9fc98b8ea1923f02b58a7daa",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-telemetry-1.4.0-rotom.3.tgz"
+  },
+  {
+   "oid": "b646a3dab36efebfa38c679d484f6fe48f8dfe68",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-ai-0.85.1-rotom.1.tgz"
+  },
+  {
+   "oid": "b81edae862ea65ffa9ae3a7d15132b1a72d50061",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-ai-0.85.1-rotom.1.tgz"
+  },
+  {
+   "oid": "b8dc5bbf699686f6d8c34d7ac3b9da6349f0dfa9",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-coding-agent-0.85.1-rotom.1.tgz"
+  },
+  {
+   "oid": "b931079366a2641955427476468f88ca1a10e8bc",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-tui-0.85.1-rotom.1.tgz"
+  },
+  {
+   "oid": "b9c37dd2e5406b4fb687ffe59ba44fed2ea7e32d",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-agent-core-1.1.0-rotom.2.tgz"
+  },
+  {
+   "oid": "bae8f6efa674344e0c62edc12e52e683bbeb1d2e",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-mcp-1.4.0-rotom.3.tgz"
+  },
+  {
+   "oid": "bc02e8b2d6fd61b39baa126bb2d9b07952a6c387",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-coding-agent-1.3.0-rotom.2.tgz"
+  },
+  {
+   "oid": "bd7ee832d20c15fb8a0d0505570a412c627b3bc6",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-ai-1.4.0-rotom.4.tgz"
+  },
+  {
+   "oid": "bdc7cd1e9f5e8c192c3b37efd27fd4633674d039",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-ai-1.4.0-rotom.2.tgz"
+  },
+  {
+   "oid": "be70588822ae43ddf9e1872d51f247060eb07820",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-agent-core-1.4.0-rotom.2.tgz"
+  },
+  {
+   "oid": "bf717028a0de9c3e4a408bc0f1b20747b07da9e0",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-coding-agent-1.3.0-rotom.2.tgz"
+  },
+  {
+   "oid": "bfbb2c0e5cd26c6d4f1e0244ed2ec0a636d01553",
+   "path": "rotom/runtime/pi/vendor/earendil-works-chord-0.85.1-rotom.1.tgz"
+  },
+  {
+   "oid": "c0a0a8d8bdf2ad116e1d2b917ef659b21f19169b",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-codemode-1.4.0-rotom.2.tgz"
+  },
+  {
+   "oid": "c76072b88f2ff95f123dc033b1c5926862b43915",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-telemetry-1.4.0-rotom.3.tgz"
+  },
+  {
+   "oid": "c9274af975dd338b957a5c41c9a639d924a74a71",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-codemode-1.3.0-rotom.2.tgz"
+  },
+  {
+   "oid": "cae8573013cf8f4f85e3f17a2479c78682856f91",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-mcp-1.4.0-rotom.3.tgz"
+  },
+  {
+   "oid": "cb263058dea23218a636eefb95de0673ea32d69a",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-tui-1.4.0-rotom.2.tgz"
+  },
+  {
+   "oid": "cc5ee499ba81274356a8995a0644031398d3be2a",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-codemode-1.4.0-rotom.2.tgz"
+  },
+  {
+   "oid": "ccb33055ad54afb4770be2c3470ba6e8d8a184e9",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-codemode-1.4.0-rotom.2.tgz"
+  },
+  {
+   "oid": "cee33be7b7e2d37d917ebfa8267f348e63e65420",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-mcp-1.4.0-rotom.2.tgz"
+  },
+  {
+   "oid": "d07649c9b95c0d49974d56235697721596391119",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-coding-agent-1.4.0-rotom.2.tgz"
+  },
+  {
+   "oid": "d231c0cd813cba75d233e70fd35583986f7cbb1f",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-coding-agent-0.85.1-rotom.1.tgz"
+  },
+  {
+   "oid": "d45e6b30baa993e276fe14a10c038ca7436e4cfb",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-mcp-1.4.0-rotom.1.tgz"
+  },
+  {
+   "oid": "d50bc0fe1cebaa75cfe8c7a9071d6b2eedec96ba",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-telemetry-0.85.1-rotom.1.tgz"
+  },
+  {
+   "oid": "d6d665a47d0aa621ed36eca9196b743ab43d063f",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-coding-agent-1.3.0-rotom.4.tgz"
+  },
+  {
+   "oid": "d9674978e16578a34a02637a38166e813039f91e",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-telemetry-1.4.0-rotom.2.tgz"
+  },
+  {
+   "oid": "db5b183d837699d17e89f2b9df5cedb2a36d7522",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-mcp-1.3.0-rotom.4.tgz"
+  },
+  {
+   "oid": "dc0564ee09d1265f8fb3ee06d00ed4beb3782216",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-telemetry-1.3.0-rotom.2.tgz"
+  },
+  {
+   "oid": "dfe747ea19816f4904783499a486ac33d33da06a",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-coding-agent-1.3.0-rotom.3.tgz"
+  },
+  {
+   "oid": "e20623fb76aaa1fc6a964f69a2462051f0e1fb40",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-agent-core-1.3.0-rotom.2.tgz"
+  },
+  {
+   "oid": "e3fda7fcd4fee041600681c25d149847a7e6eb73",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-ai-0.85.1-rotom.1.tgz"
+  },
+  {
+   "oid": "e41f3ceb59136de524b83fbf811158d518631182",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-coding-agent-1.1.0-rotom.2.tgz"
+  },
+  {
+   "oid": "e72d7c28ed99861e16e62e6d8c6dc89607e014b1",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-coding-agent-1.4.0-rotom.2.tgz"
+  },
+  {
+   "oid": "e922c2a9c25983d220557b478a051952b2b7a68e",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-tui-0.85.1-rotom.2.tgz"
+  },
+  {
+   "oid": "e92799621ae78ba802f9d7ac8c7291b1e099b8d3",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-mcp-1.3.0-rotom.2.tgz"
+  },
+  {
+   "oid": "e9aebb0039cfc77fe563e6009a3ea08797d11bcc",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-codemode-1.3.0-rotom.2.tgz"
+  },
+  {
+   "oid": "eb822935bded477ab2f4972e329829ae9377ddd0",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-agent-core-1.3.0-rotom.3.tgz"
+  },
+  {
+   "oid": "ebe1c7413fa48186fbb57b9ad0da1571261c3037",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-tui-1.1.0-rotom.2.tgz"
+  },
+  {
+   "oid": "ebfb314bd12b44d619d46283d3cdf2034749b259",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-ai-1.3.0-rotom.3.tgz"
+  },
+  {
+   "oid": "ec2a6d193ae7ff76037bc212e1a0d451d177306e",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-codemode-1.4.0-rotom.2.tgz"
+  },
+  {
+   "oid": "ecf5bd2727f3b2478e34f1cb527d577dd9f64a1a",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-agent-core-1.4.0-rotom.4.tgz"
+  },
+  {
+   "oid": "ed3464032e41f9b8777389a247c7f53d647b9605",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-agent-core-1.3.0-rotom.2.tgz"
+  },
+  {
+   "oid": "ee824de4132f5d7b6c6f872bc423234f8d865da2",
+   "path": "rotom/runtime/pi/vendor/earendil-works-chord-0.85.1-rotom.1.tgz"
+  },
+  {
+   "oid": "f1add4cf027d0d7139ee2feee066f87bcde9c7ee",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-coding-agent-0.85.1-rotom.1.tgz"
+  },
+  {
+   "oid": "f7a2c830a1ef7ab12addf6fcc0854a0f85844f87",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-agent-core-1.4.0-rotom.2.tgz"
+  },
+  {
+   "oid": "f901878a19fafcc32b2572132e9da1a9209adf01",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-coding-agent-1.4.0-rotom.2.tgz"
+  },
+  {
+   "oid": "f95e049516b93dfef415b2b84ea979072bf73c76",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-coding-agent-1.3.0-rotom.2.tgz"
+  },
+  {
+   "oid": "fe70a8e764198a0fa584d891dbb278d93187e541",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-tui-1.3.0-rotom.2.tgz"
+  },
+  {
+   "oid": "ffe54401d1105ed361585f39c45f63338203e487",
+   "path": "rotom/runtime/pi/vendor/earendil-works-pi-agent-core-1.4.0-rotom.1.tgz"
+  }
+ ]
+}
