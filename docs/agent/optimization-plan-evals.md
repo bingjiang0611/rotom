@@ -1,6 +1,6 @@
 # 优化方案的评测入口（2026-11-09 方案 P1）
 
-[优化方案](optimization-plan-2026-11-09.md) P1 新增的评测都在这里；通用的 harvest / 回放 / gate 流程与准入规则见 [Agent 优化循环](optimization-loop.md)，本机执行顺序见 [交接说明](optimization-handoff-2026-11-10.md)。账本条目在 [`rotom/evals/loop/ledger/optimization-plan-2026-11-09.json`](../../rotom/evals/loop/ledger/optimization-plan-2026-11-09.json)。
+[优化方案](optimization-plan-2026-11-09.md) P1 新增的评测都在这里；通用的 harvest / 回放 / gate 流程与准入规则见 [Agent 优化循环](optimization-loop.md)，本机执行顺序见 [交接说明](optimization-handoff-2026-11-10.md)。账本条目在 [`rotom/evals/loop/ledger/2026-11-optimization-plan.json`](../../rotom/evals/loop/ledger/2026-11-optimization-plan.json)。
 
 ## 压缩后续跑（P1-1）
 
@@ -14,6 +14,10 @@ ROTOM_EVAL_CONTINUATION=1 ROTOM_EVAL_CONTINUATION_REPEATS=3 \
   ./bin/eval --provider qoder --model dfmodel cases/continuation-regression.eval.ts
 ```
 
+
+## 压缩后观察（P1-2）
+
+`loop -- harvest` 另写 `compactions.jsonl` 与报告的 “After compaction” 节（只含计数，不含正文）：每次压缩记录压缩前 token、摘要 token、前后各一次请求的 cacheRead；之后 5 条助手消息内重读摘要所列文件的数量与 `context_recall`/`obs_recall` 次数；之后 3 个用户轮内的介入与 Goal 暂停。报告并列“压缩后每 100 用户轮介入”与全局值，用于判断压缩改动（优化方案 P1-2）；它是候选信号，不是质量结论。
 
 ## 同一产品的特性开关对照（P1-3 / P1-5）
 

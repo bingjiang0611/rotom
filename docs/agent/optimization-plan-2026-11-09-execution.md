@@ -7,7 +7,7 @@
 | 项 | 改动 | 证据（本地，无付费调用） |
 |---|---|---|
 | P0-1 | `coding-policy` 写入 `systemPromptOptions.sections.coding_policy`，不再返回 `systemPrompt`；eval 注入镜像同步 | 真实 AgentSession + faux：旧实现在加载新工具后开头 system 消息 13,541→13,627 字节被改写；新实现 13,642 字节逐字节不变，新工具作为第二条 system 消息追加。`request.test.ts` 在旧实现上失败。eval `coding-policy-request` / rule-ablation 9/9 |
-| P0-2 | Pi fork `1.4.0-rotom.3`：摘要序列化工具结果保留头尾、工具参数按 2000 字符截断 | 压缩相关 vitest 61 通过 / 2 跳过（需真实模型）；两个新用例在旧序列化上失败；`build:pi` 定向测试全过 |
+| P0-2 | Pi fork `1.4.0-rotom.3`（2026-11-10 合并 main 后改名 `1.4.0-rotom.4`，因 main 已把 rotom.3 用于重试策略）：摘要序列化工具结果保留头尾、工具参数按 2000 字符截断 | 压缩相关 vitest 61 通过 / 2 跳过（需真实模型）；两个新用例在旧序列化上失败；`build:pi` 定向测试全过 |
 | P0-3 | **未实施**。可行做法是 `context_recall` 的一句 guideline（不改 Pi fork 的摘要前缀：fork 不应知道产品工具名，且 `ROTOM_CONTEXT_LAYERS=0` 时该工具不存在） | 它是未测的提示改动，每次请求固定多 278 guideline 字节；按账本“提示房租”规则不能上线，登记为 `kept-off`，等 P1-1 验证 |
 | P0-4 | Subagent `0.52.1-rotom.15`：屏蔽 `share`、`sessionDir` | 已确认 `share:true` 在 scoped 异步路径会走到 `gh gist create`；新用例覆盖 schema 与参数拒绝 |
 | P0-4 | `scout` 只读：去掉 `write`、默认 `output: context.md`、`defaultProgress` | 显式 `output` 仍由运行时代写（`single-output.ts` 对无写工具的角色改为代写） |

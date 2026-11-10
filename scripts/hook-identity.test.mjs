@@ -158,13 +158,14 @@ describe("pre-push hook over a real push", () => {
 		git("config", "commit.gpgsign", "false");
 		git("remote", "add", "origin", remote);
 		mkdirSync(join(cwd, ".githooks"));
-		for (const name of ["pre-commit", "pre-push"]) {
+		for (const name of ["pre-commit", "commit-msg", "pre-push"]) {
 			writeFileSync(join(cwd, ".githooks", name), readFileSync(resolve(join(".githooks", name)), "utf8"));
 			chmodSync(join(cwd, ".githooks", name), 0o755);
 		}
 		mkdirSync(join(cwd, "scripts"));
 		copyFileSync(guard, join(cwd, "scripts/hook-identity.mjs"));
 		copyFileSync(resolve("scripts/check-staged-file-size.mjs"), join(cwd, "scripts/check-staged-file-size.mjs"));
+		copyFileSync(resolve("scripts/hook-ledger.mjs"), join(cwd, "scripts/hook-ledger.mjs"));
 		assert.equal(run(process.execPath, [installer]).status, 0);
 	});
 

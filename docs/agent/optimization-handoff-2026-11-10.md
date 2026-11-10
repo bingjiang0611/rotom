@@ -18,7 +18,7 @@
 
 | 提交主题 | 内容 | 云端已验证 |
 |---|---|---|
-| fix(pi) keep the tail of tool results | Pi fork `1.4.0-rotom.3`：摘要序列化保留头尾、限制工具参数 | 压缩相关 vitest；构建期定向测试（非 root） |
+| fix(pi) keep the tail of tool results | Pi fork `1.4.0-rotom.3`（2026-11-10 合并 main 后改名 `1.4.0-rotom.4`，因 main 已把 rotom.3 用于重试策略）：摘要序列化保留头尾、限制工具参数 | 压缩相关 vitest；构建期定向测试（非 root） |
 | build(pi) rebuild archives（若有） | 在 rebase 后的源码上重建 rotom.3（含 main 的 Retry-After 修复） | `check:pi` |
 | fix(coding-policy) prompt section | policy 改为 `<coding_policy>` 分段，不再 forced prompt | 真实 AgentSession + faux；旧实现对照失败 |
 | fix(subagents) 0.52.1-rotom.15 | 屏蔽 `share`/`sessionDir`；scout 只读；完成通知 8 KB 上限+私有全文（7 天）；阻塞 wait 默认 10/上限 15 分钟 | 组件 unit/SDK/typecheck；Linux `check-personal` |
@@ -160,7 +160,7 @@ S9 显示题面让模型把布尔字段写成字符串 `"not-run"`；题面已�
 ## 4. 记录与交回
 
 1. 填写 [optimization-results-2026-11.md](optimization-results-2026-11.md) 的每一节；每个数字注明来源（命令、日期、`~/.rotom/loop/...` 目录名，路径写成 `~`）。
-2. 更新 `rotom/evals/loop/ledger/optimization-plan-2026-11-09.json`（本方案的账本分片）中这些条目的 `measurement`/`result`/`evidence`/`decision`：`L-2026-11-09-coding-policy-sections`、`L-2026-11-09-compaction-serialization-head-tail`、`L-2026-11-09-subagent-surface-bounds`、`L-2026-11-09-compaction-continuation-cases`、`L-2026-11-09-post-compaction-harvest`、`L-2026-11-10-same-product-feature-arms`、`L-2026-11-10-subagent-ab-suite`。gate held 时三条机制条目可改为 `decision: shipped`（`evidence` 仍按实测，没有改善证据就保持 `unmeasured`）。`npm --prefix rotom/evals run loop -- ledger` 必须通过。
+2. 更新 `rotom/evals/loop/ledger/2026-11-optimization-plan.json`（本方案的账本分片）中这些条目的 `measurement`/`result`/`evidence`/`decision`：`L-2026-11-09-coding-policy-sections`、`L-2026-11-09-compaction-serialization-head-tail`、`L-2026-11-09-subagent-surface-bounds`、`L-2026-11-09-compaction-continuation-cases`、`L-2026-11-09-post-compaction-harvest`、`L-2026-11-10-same-product-feature-arms`、`L-2026-11-10-subagent-ab-suite`。gate held 时三条机制条目可改为 `decision: shipped`（`evidence` 仍按实测，没有改善证据就保持 `unmeasured`）。`npm --prefix rotom/evals run loop -- ledger` 必须通过。
 3. 提交前：`git diff --check`；`node scripts/check-staged-file-size.mjs`；`python3 scripts/audit-public.py --root .`（tree 扫描，不能有新增发现）。
 4. 按可读粒度提交（修复、gate 清单、结果记录分开），推送到 `claude/rotom-pi-features-adylp5`。提交信息结尾沿用仓库现有的 Co-Authored-By 约定。
 5. 结果文件顶部的“总览”表给出每步状态：`passed` / `failed`（附证据）/ `blocked`（附缺什么）/ `skipped`（附原因）。
