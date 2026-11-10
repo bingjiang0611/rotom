@@ -46,3 +46,20 @@ v2 和 v2.1 的改动都只存在于源码里。
 1. 用户按批准的方案安装测试版，手动跑提示词测试。
 2. 执行方另起一轮做 P1 打包。
 3. 合入 `main` 之前：全库和历史公开审计跑完并通过（REVIEW-14 复核已记录）、H2 和 HANDOFF-5 已完成、L2 的真机问题如实写进根 `CLAUDE.md`。
+
+## 2026-11-10 安装结果：测试 helper 被端点安全终止
+
+- 前置检查、独立 checkout（`c5376b7`）、依赖构建、`ditto` 替换、helper 构建与签名全部成功；`codesign --verify --strict` 通过，
+  证书链为 Apple Development → Apple WWDR → Apple Root CA。
+- 只执行了一次 `open --env`。helper 15 秒内没有创建 socket，进程已退出；系统日志：`termination reported by launchd (27, 1, 9)`。
+  namespace 27 与此前 fixture 那条 `OS_REASON_ENDPOINTSECURITY` 相同，判断为同一端点安全机制。具体产品和规则未确定。
+- 执行方按方案停止：没有重试、没有绕过、没有动现有安装和正在运行的 helper；没有取得 diagnostics，也没有授权任何权限。
+  测试目录 `~/rotom-cu-c5376b7/` 和日志保留。
+- `npm ci` 报告 runtime 依赖 2 个 moderate、1 个 high 告警。这是锁文件里已有的依赖，与本轮无关，单独处理，测试中不升级。
+
+结论：
+
+1. **这台公司 Mac 上无法手动测试新构建的 Computer Use。** 合规路径只有两条：IT 按日志批准例外，或在不受管的机器上测（mac2 或虚拟机）。
+2. **对日常使用的影响（重要）**：用户现在日常用的 helper 能运行。但 P1 打包后更新 rotom，会装上一个新构建的 helper 二进制；
+   按目前的证据（新构建的 fixture 和测试 helper 都被终止），它在这台 Mac 上很可能同样被终止，导致更新后 Computer Use 无法使用。
+   **在这台 Mac 上更新日常安装之前，必须先取得 IT 批准，或先在不受管的机器上确认新版本可用。**
