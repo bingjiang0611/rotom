@@ -89,4 +89,6 @@ macOS checkout 位于 `/tmp` 时先 `cd` 到 `pwd -P` 的 canonical 路径，避
 - 工具调用参数按同样的 2000 字符预算截断，短参数保持原样。
 - 公开的 `serializeConversation()` / `serializeMessagesForSummary()` 签名不变，只是截断方式变化。
 
+rotom.3 的七个归档在 rebase 到公开 `main`（`9798c5a`）后重建，因此同时包含 `main` 上已提交但未重建归档的 Pi 改动 `8204224`（429 时遵守 Retry-After、不重试账号额度类错误）。
+
 验证：`compaction-serialization` 回归覆盖头尾保留、参数截断与短参数原样。这只证明摘要输入更完整，不证明真实模型的摘要质量更好；后者需要优化方案（`docs/agent/optimization-plan-2026-11-09.md`）P1-1 的压缩后续跑基准。
