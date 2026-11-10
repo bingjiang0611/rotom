@@ -83,3 +83,22 @@ v2 和 v2.1 的改动都只存在于源码里。
 4. 全库与历史公开审计、根 `CLAUDE.md` 如实更新，然后按公开同步规则合入 `main`。
 
 测试目录 `~/rotom-cu-c5376b7/` 可以只保留 `logs/` 交 IT；其余按安装方案第 6 步清理（本次未授予任何权限，无需 `tccutil`）。
+
+## 更正（2026-11-10）：被终止的是新身份，不是新构建
+
+审核者回查记录后更正上面“新构建的 helper 很可能被终止、更新后会坏”的判断：
+
+- 11-06 第三次窗口记录：helper 从冻结提交**重新构建并重新签名**（同一 Apple Development 身份、同一 bundle 路径、bundle id 为
+  `build-native.mjs` 默认的 `com.injaneity.pi-computer-use`），之后正常监听；11-07、11-08 的窗口里重建的 helper 也都正常运行。
+  近两天日志中该 id 的端点安全终止记录为 0 条。
+- 被终止的都是**新身份**：每次运行换一个新 bundle id 的 fixture 副本，以及安装方案为隔离权限而改成新 id 的测试 helper
+  （`dev.rotom.cu.test.c5376b7`）。
+- fixture 源码里没有任何 `CGEvent`、`AXUIElement`、事件 tap 或 `SLEventPostToPid` 调用，仍然被终止。所以端点安全的判断依据不是程序
+  的功能，去掉功能不会让它放行。
+
+修正后的判断：用产品原本身份（`com.injaneity.pi-computer-use`，同一证书）构建的新版本，按已有证据能在这台 Mac 上运行；
+是否放行仍由端点安全决定。下一次安装测试版改用产品原本身份（`build-native.mjs` 的默认值，不传 `--sign-identifier`）。
+这是产品正常的运行方式，也是此前所有成功窗口的做法，不是为了规避检查而修改任何参数；如果仍被终止，就停下交给 IT。
+
+改用原本身份后，测试 helper 与日常 helper 共用同一份系统权限记录（同一 bundle id、同一证书），清理时**不得**对
+`com.injaneity.pi-computer-use` 执行 `tccutil reset`，也不得注销日常 helper 的 LaunchServices 记录，否则会清掉日常使用的权限。
