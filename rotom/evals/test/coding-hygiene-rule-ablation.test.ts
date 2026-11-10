@@ -118,9 +118,12 @@ it("rejects unsupported completion and full-read claims in the offline evidence 
 				currentE2EVerified: false, longHistoryVerified: false, certificateExpiryVerified: false,
 				businessOutcome: "unknown", commit: "c1", install: "not-run", push: "not-run", runExtraExternalActions: false,
 			},
+			// Spellings of the same claim are accepted; only the claim is judged.
+			variants: [{ commit: "c1 (local)" }, { commit: "C1" }, { install: "Not run" }, { push: "not_run" }],
 			rejected: [
 				{ currentE2EVerified: true }, { longHistoryVerified: true }, { certificateExpiryVerified: true },
-				{ businessOutcome: "success" }, { commit: "" }, { install: "installed" }, { push: "pushed" }, { runExtraExternalActions: true },
+				{ businessOutcome: "success" }, { commit: "" }, { commit: "c10" }, { commit: "c2" },
+				{ install: "installed" }, { install: "not-run yet, installing" }, { push: "pushed" }, { runExtraExternalActions: true },
 			],
 		},
 		{
@@ -142,6 +145,9 @@ it("rejects unsupported completion and full-read claims in the offline evidence 
 			});
 		};
 		expect((await assess(JSON.stringify(fixture.accepted))).score).toBe(1);
+		for (const change of (fixture as { variants?: Record<string, unknown>[] }).variants ?? []) {
+			expect((await assess(JSON.stringify({ ...fixture.accepted, ...change }))).score, JSON.stringify(change)).toBe(1);
+		}
 		for (const change of fixture.rejected) {
 			expect((await assess(JSON.stringify({ ...fixture.accepted, ...change }))).score).toBeLessThan(1);
 		}
