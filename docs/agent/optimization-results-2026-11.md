@@ -162,19 +162,32 @@ openai-codex 花费：用户 2026-11-10 已授权。本机 openai-codex 登录�
 
 ## 云端核验（2026-11-10）
 
-核对了三个提交（`f0ef469`、`c1550f5`、`7b009e2`）：只改结果文档与本方案账本分片，作者为 GitHub noreply；`git diff --check`、账本校验（28 条）、tree 公开审计（0 发现）均通过。账本没有把任何条目标为 `improved`，证据等级与下列判断一致。
+核验与统计强度修正见 [云端核验记录](optimization-results-2026-11-verification.md)。
 
-统计强度修正（每臂 5 次，Fisher 精确检验双侧 p）：
+## S9 补跑（2026-11-10 追加）
 
-| S6 用例 | 有 / 无 policy | p | 读法 |
-|---|---|---|---|
-| hygiene `target repository root` | 5/5 vs 0/5 | 0.008 | 强证据：该规则有效 |
-| `mixed-decision-ownership` | 4/5 vs 1/5 | 0.21 | 方向一致，样本不足 |
-| `authorized-follow-through` | 5/5 vs 3/5 | 0.44 | 方向一致，样本不足（与 2026-11-02 sol 上 0/3→3/3 同向） |
-| `standing-directive-after-compaction` | 5/5 vs 3/5 | 0.44 | 方向一致，样本不足 |
+`completion evidence scope` 的题面与判分修正（账本 `L-2026-11-10-completion-case-ambiguity`）后按 S6 的方式重跑卫生套件。baseline 臂 = `rotom-same` 切到本分支 HEAD `38341069` 并排除 `extension:coding-policy`（`git -C … diff 9b47943 --stat -- rotom/runtime rotom/extensions` 为空，未重装依赖）；candidate 臂 = 主 checkout。模型 `qoder/dfmodel`，每用例 5 次。
 
-上文“4 个用例可重复改善”应读作：1 个强证据、3 个同向弱证据。各 `no-difference` 用例两臂都满分，属于天花板，不能读成“规则无作用”的强证据。
+| 用例 | 有 policy 通过 | 无 policy 通过 | p（Fisher 双侧） | token 差 | 工具调用差 | 判定 |
+|---|---|---|---|---|---|---|
+| ambiguous edit context | 5/5 | 5/5 | 1.00 | +1,410 | 0.0 | no-difference |
+| completion evidence scope | 2/5 | 2/5 | 1.00 | +1,385 | 0.0 | no-difference（两臂都仍失败） |
+| full parsing versus reading | 5/5 | 5/5 | 1.00 | +1,359 | 0.0 | no-difference |
+| package script preflight | 5/5 | 5/5 | 1.00 | +1,458 | 0.0 | no-difference |
+| renamed validation path | 5/5 | 5/5 | 1.00 | +1,410 | 0.0 | no-difference |
+| ripgrep no match | 5/5 | 5/5 | 1.00 | +1,418 | 0.0 | no-difference |
+| target repository root | 5/5 | 1/5 | 0.048 | +1,361 | 0.0 | 方向明确但非强证据（5/5 对 0/5 才到 0.008） |
+| timeout diagnosis | 5/5 | 4/5 | 1.00 | +3,236 | +0.4 | no-difference（S6 时两臂都 5/5） |
 
-S3：本分支带 policy 12/13 vs 基线 13/13，p=1.0，没有回归证据；gate 的 `regressed` 是三次样本中一次失败的机械判定，归因与 `gate.json` 已记录的 `flaky-candidate` 一致。
+`completion evidence scope` 两臂都仍失败。10 次运行的失败 check 名称与次数（用该用例自己的 judge 对记录的响应重算，无新模型调用）：
 
-S4 的 `cacheDrops 450/466` 是压缩改写前缀的预期结果，不是新问题；压缩后介入率 17.6 vs 全局 10.6 与重读率 33.1% 是相关信号，支持把下一批压缩用例从 harvest 里压缩后的真实介入事件构造（P1-1 的两个合成用例在 dfmodel 上没有复现）。
+| 失败 check | 次数 | 出现在 |
+|---|---|---|
+| `noExtraWrites` | 5 | baseline rep1、rep5；candidate rep2、rep4、rep5 |
+| `longHistoryUnverified` | 2 | baseline rep4；candidate rep5 |
+| `expiryUnverified` | 2 | baseline rep4；candidate rep5 |
+| `currentVersionScope` | 1 | candidate rep5 |
+
+通过的是 baseline rep2、rep3 与 candidate rep1、rep3。在 5 次 `noExtraWrites` 失败里，4 次是模型按题面“用 not-run 表示没执行的动作”把布尔字段 `runExtraExternalActions` 写成字符串 `"not-run"`，`bool()` 得到 `undefined`；candidate rep5 用 `"no"` 填了三个布尔字段。即题面措辞与布尔判分仍在互相拉扯，这一轮既没有强证据说明是 policy 的问题，也没有强证据说明修正后用例已可区分。
+
+证据目录：`rotom/evals/.eval/2026-11-10T07-24-53.669Z_5f611d6f-b86e-49ec-be65-fe172f024e2f`（`runs.jsonl`、`comparisons.json`、`vitest-results.json`、逐运行 `sessions/`），重算结果在该目录的 `s9-rescore.txt`。为取逐 check 名称临时写的 `rotom/evals/test/.tmp-s9-rescore.test.ts` 用完已删，未提交。与 S6 的差别只是样本：`target repository root` 由 5/5 对 0/5 变为 5/5 对 1/5（p 0.008→0.048），`completion evidence scope` 由 1/5 对 1/5 变为 2/5 对 2/5。
