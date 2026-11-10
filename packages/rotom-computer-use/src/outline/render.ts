@@ -1,4 +1,4 @@
-import { nodeByRef } from "./lookup.ts";
+import { displayName, nodeByRef } from "./lookup.ts";
 import type { FoldResult, Outline, OutlineNode } from "./types.ts";
 
 /**

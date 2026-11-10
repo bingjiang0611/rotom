@@ -14,7 +14,7 @@ export function outlineNodeLabel(node: OutlineNode): string {
 	return node.title || node.description || node.value || node.identifier || node.text.map((item) => item.string).join(" ").trim();
 }
 
-function displayName(node: OutlineNode): string {
+export function displayName(node: OutlineNode): string {
 	const label = outlineNodeLabel(node);
 	return `${node.role || "AXUnknown"}${node.subrole ? `/${node.subrole}` : ""}${label ? ` ${JSON.stringify(label)}` : ""}`;
 }
