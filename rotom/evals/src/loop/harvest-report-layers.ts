@@ -5,7 +5,7 @@
  * `harvest-report.ts` so that file stays a renderer rather than a second analysis module.
  */
 import { dimensionRates, type RateInterval } from "./harvest-breakdown.ts";
-import { modelDimensionRatesWithoutPeak, modelTaskSize, type DefaultModelExperiment } from "./harvest-models.ts";
+import { dimensionRatesWithoutLargestSession, modelDimensionRatesWithoutPeak, modelTaskSize, type DefaultModelExperiment } from "./harvest-models.ts";
 import type { SessionSummary } from "./harvest.ts";
 
 const band = (interval: RateInterval | null | undefined) => (interval ? `${interval.low}–${interval.high}` : "N/A");
@@ -37,16 +37,22 @@ export function modelLayerTables(sessions: readonly SessionSummary[]): string[] 
 export function versionLayerTables(sessions: readonly SessionSummary[]): string[] {
 	const productCoverage = sessions.filter((session) => session.productVersion).length;
 	const solPiCoverage = sessions.filter((session) => session.solPiVersion).length;
-	const table = (rows: ReturnType<typeof dimensionRates>) =>
-		rows.map((row) => `| ${row.key} | ${row.turns} | ${row.northStarV2} | ${row.v2Per100 ?? "N/A"} | ${band(row.v2Interval)} |`);
+	const table = (rows: ReturnType<typeof dimensionRates>, adjusted?: ReturnType<typeof dimensionRatesWithoutLargestSession>) =>
+		rows.map((row) => {
+			const cells = `| ${row.key} | ${row.turns} | ${row.northStarV2} | ${row.v2Per100 ?? "N/A"} | ${band(row.v2Interval)} |`;
+			if (!adjusted) return cells;
+			const without = adjusted.get(row.key);
+			const sensitivity = !without ? "N/A" : without.droppedSessionId === null ? "same (no v2 events)" : `${without.v2Per100 ?? "N/A"} (\`${without.droppedSessionId.slice(0, 8)}\`)`;
+			return `${cells} ${sensitivity} |`;
+		});
 	return [
 		"### The same rate per product version",
 		"",
 		`Layered by the installed rotom product version the trace recorded in \`pi.session.runtime\`; ${productCoverage} of ${sessions.length} sessions carry one and the rest stay \`unknown\` rather than being attributed to the release that merely happened to be installed. A mechanism change can only be read here if it shipped in a product version these sessions ran.`,
 		"",
-		"| Product version | User turns | v2 | v2 per 100 | v2 95% band |",
-		"| --- | ---: | ---: | ---: | --- |",
-		...table(dimensionRates(sessions, (session) => session.productVersion)),
+		"| Product version | User turns | v2 | v2 per 100 | v2 95% band | v2 per 100 without its largest session |",
+		"| --- | ---: | ---: | ---: | --- | ---: |",
+		...table(dimensionRates(sessions, (session) => session.productVersion), dimensionRatesWithoutLargestSession(sessions, (session) => session.productVersion)),
 		"",
 		"### The same rate per SoL-Pi version",
 		"",

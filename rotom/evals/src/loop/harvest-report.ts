@@ -6,6 +6,7 @@
 import { FAILURE_KINDS, INTERVENTION_KINDS, type Incident, type IncidentKind, type SessionSummary } from "./harvest.ts";
 import { summarizeProviderErrors } from "./harvest-provider.ts";
 import { dayBreakdown, dimensionRates, interruptTables, modelDimensionRates, modelShareWeeks, modelSwitchTables, modelTurnShare, northStarWeeks, poissonRateInterval, toolErrorTables, triageTable } from "./harvest-breakdown.ts";
+import { modelRatesWithoutLargestSession } from "./harvest-models.ts";
 import { experimentSection, modelLayerTables, versionLayerTables } from "./harvest-report-layers.ts";
 import type { DefaultModelExperiment } from "./harvest-models.ts";
 
@@ -125,9 +126,12 @@ export function renderReport(input: { generatedAt: string; since: string; sessio
 		"",
 		"A week mixes models, so a week-to-week move can be a model-mix change. Each model's own rate is the comparison that survives it.",
 		"",
-		"| Model | User turns | v1 interventions | v1 per 100 | v2 | v2 per 100 | v2 95% band |",
-		"| --- | ---: | ---: | ---: | ---: | ---: | --- |",
-		...modelDimensionRates(input.sessions).map((row) => `| ${row.key} | ${row.turns} | ${row.interventions} | ${row.turns > 0 ? Math.round((row.interventions / row.turns) * 1000) / 10 : "N/A"} | ${row.northStarV2} | ${row.v2Per100 ?? "N/A"} | ${row.v2Interval ? `${row.v2Interval.low}–${row.v2Interval.high}` : "N/A"} |`),
+		"| Model | User turns | v1 interventions | v1 per 100 | v2 | v2 per 100 | v2 95% band | v2 per 100 without its largest session |",
+		"| --- | ---: | ---: | ---: | ---: | ---: | --- | ---: |",
+		...((rates) => modelDimensionRates(input.sessions).map((row) => {
+			const adjusted = rates.get(row.key);
+			return `| ${row.key} | ${row.turns} | ${row.interventions} | ${row.turns > 0 ? Math.round((row.interventions / row.turns) * 1000) / 10 : "N/A"} | ${row.northStarV2} | ${row.v2Per100 ?? "N/A"} | ${row.v2Interval ? `${row.v2Interval.low}–${row.v2Interval.high}` : "N/A"} | ${adjusted ? (adjusted.droppedSessionId === null ? "same (no v2 events)" : `${adjusted.v2Per100 ?? "N/A"} (\`${adjusted.droppedSessionId.slice(0, 8)}\`)`) : "N/A"} |`;
+		}))(modelRatesWithoutLargestSession(input.sessions)),
 		"",
 		...modelLayerTables(input.sessions),
 		"### The same rate per runtime",

@@ -79,8 +79,15 @@ async function main(argv: string[]): Promise<number> {
 		console.log(`sessions=${result.sessions.length} incidents=${result.incidents.length} skipped=${Object.entries(result.skipped).map(([reason, count]) => `${reason}:${count}`).join(",") || "0"}`);
 		console.log(`report: ${join(result.outDir, "report.md")}`);
 		if (values.experiment) {
-			for (const row of defaultModelExperiment(result.sessions).groups) {
-				console.log(`experiment ${row.model}: sessions=${row.sessions} turns=${row.turns} v2=${row.v2} per100=${row.v2Per100 ?? "N/A"}`);
+			const experiment = defaultModelExperiment(result.sessions);
+			const band = (row: (typeof experiment.groups)[number]) => `${row.v2Per100 ?? "N/A"}${row.v2Interval ? ` (${row.v2Interval.low.toFixed(1)}-${row.v2Interval.high.toFixed(1)})` : ""}`;
+			for (const row of experiment.groups) {
+				console.log(`experiment ${row.model}: sessions=${row.sessions} turns=${row.turns} v2=${row.v2} per100=${band(row)}`);
+			}
+			const { compliance, sensitivity } = experiment;
+			console.log(`compliance: ${compliance.onDefault}/${compliance.sessions} sessions opened on that day's default (${compliance.rate === null ? "N/A" : `${Math.round(compliance.rate * 1000) / 10}%`}); switched=${experiment.switched.length} off-default=${experiment.offDefault.length}`);
+			for (const row of sensitivity.groups) {
+				console.log(`sensitivity (dropped ${sensitivity.droppedSessionId ?? "none"}) ${row.model}: turns=${row.turns} v2=${row.v2} per100=${band(row)}`);
 			}
 		}
 		return 0;
