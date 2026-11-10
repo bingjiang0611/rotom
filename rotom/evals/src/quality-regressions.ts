@@ -113,7 +113,7 @@ else if (!JSON.parse(readFileSync(sessionPath, 'utf8')).authenticated) {
 			"with-tool.json": '[{"type":"tool_call","name":"read"},{"type":"result","text":"checked","hook_diagnostics":{}}]\n',
 		},
 		acceptance: `const { spawnSync } = await import('node:child_process');
-const run = (...args) => spawnSync(process.execPath, ['client.mjs', ...args], { encoding: 'utf8', timeout: 3000 });
+const run = (...args) => spawnSync(process.execPath, ['client.mjs', ...args], { encoding: 'utf8', timeout: 15000 });
 assert.equal(run('init').status, 0);
 assert.equal(run('run', 'signed-out.json', 'result.json').status, 2);
 const delivered = run('run', 'signed-in.json', 'result.json');
@@ -186,8 +186,10 @@ export async function inspectQualityTask(task: QualityTask, workspace: string) {
 	}));
 	// Execute the trusted original assertions, not the agent-editable test file.
 	// This resists accidental test weakening; it is not a sandbox for hostile code.
+	// The budgets bound a hang, not speed: one Node child start measured 39 ms to 4.6 s on a
+	// maintainer Mac, and an acceptance script may start several children in sequence.
 	const result = spawnSync(process.execPath, ["--input-type=module", "-e", acceptanceScript(task)], {
-		cwd: workspace, encoding: "utf8", timeout: 10_000,
+		cwd: workspace, encoding: "utf8", timeout: 60_000,
 	});
 	return {
 		acceptancePassed: result.status === 0 && !result.error,

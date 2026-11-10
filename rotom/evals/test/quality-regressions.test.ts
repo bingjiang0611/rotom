@@ -43,7 +43,7 @@ for (const task of qualityRegressionTasks) describe(task.id, () => {
 		await writeFile(join(path, task.editable), repairs[task.id]!);
 		const result = await inspectQualityTask(task, path);
 		expect(result, result.diagnostic).toMatchObject({ scopePreserved: true, acceptancePassed: true, exitCode: 0 });
-	});
+	}, 90_000);
 
 	it("rejects a green but emptied test instead of trusting agent-reported success", async () => {
 		const path = await workspace();
