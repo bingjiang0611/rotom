@@ -67,7 +67,8 @@ export async function stageBuildArchives(source, target) {
 export async function stageRelease(source, target) {
 	const root = await realpath(source);
 	const manifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
-	for (const file of releaseFiles(manifest)) {
+	const files = releaseFiles(manifest);
+	for (const file of files) {
 		// Installed dependencies must come from a new npm ci, never a maintainer's tree.
 		if (embedded.has(file)) continue;
 		const from = resolve(root, file);
@@ -77,7 +78,30 @@ export async function stageRelease(source, target) {
 		await mkdir(dirname(to), { recursive: true });
 		await copyFile(from, to);
 	}
+	await verifyLocalImports(target, files);
 	return manifest;
+}
+
+async function verifyLocalImports(root, files) {
+	const declared = new Set(files);
+	// Check literal local dependencies across all shipped modules, including the
+	// Chrome worker. Computed paths and npm imports need installed-runtime smoke.
+	const patterns = [
+		/^[\t ]*(?:import|export)\s+(?:[^;]*?\bfrom\s*)?["'](\.[^"']+)["']/gm,
+		/\b(?:import|require)\s*\(\s*["'](\.[^"']+)["']\s*\)/g,
+		/new\s+URL\(\s*["'](\.[^"']+)["']\s*,\s*import\.meta\.url\s*\)/g,
+	];
+	for (const file of files.filter((path) => /\.[cm]?[jt]s$/u.test(path))) {
+		const source = await readFile(resolve(root, file), "utf8");
+		for (const pattern of patterns) {
+			for (const [, specifier] of source.matchAll(pattern)) {
+				const dependency = relative(root, resolve(root, dirname(file), specifier)).split(sep).join("/");
+				if (!declared.has(dependency) && ![...embedded].some((directory) => dependency.startsWith(`${directory}/`))) {
+					throw new Error(`Missing release dependency: ${file} -> ${dependency}`);
+				}
+			}
+		}
+	}
 }
 
 async function rejectLinks(directory) {

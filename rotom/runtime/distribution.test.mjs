@@ -261,28 +261,33 @@ test("staging uses an explicit file list and never copies source node_modules or
 	}
 });
 
-test("staged observability contains its static relative import graph", async (t) => {
+test("staging contains the complete product local module graph", async (t) => {
 	const stage = join(temp(t), "package");
 	await stageRelease(SOURCE, stage);
-	const root = join(stage, "extensions/observability");
-	// stageRelease intentionally excludes npm dependencies. Check local source
-	// imports here; installed-package SDK smoke validates actual module loading.
-	function checkImports() {
-		const pending = [join(root, "index.ts")], visited = new Set();
-		while (pending.length) {
-			const path = pending.pop();
-			if (visited.has(path)) continue;
-			visited.add(path);
-			for (const match of readFileSync(path, "utf8").matchAll(/^import\s+[^;]*?from\s+["'](\.[^"']+)["']/gm)) {
-				const target = resolve(dirname(path), match[1]);
-				assert.ok(existsSync(target), `Missing staged import: ${target}`);
-				if (dirname(target) === root) pending.push(target);
-			}
-		}
+	for (const missing of ["extensions/observability/trace-schema.ts", "extensions/qoder/model-catalog.mjs", "extensions/browser/chrome-extension/operation-chrome.js"]) {
+		put(join(stage, "package.json"), { ...manifest, files: manifest.files.filter((file) => file !== missing) });
+		// The omitted file still exists in the source tree: only the package
+		// declaration is broken, matching the installed Qoder failure.
+		await assert.rejects(stageRelease(stage, join(temp(t), "bad")), /Missing release dependency/);
 	}
-	checkImports();
-	rmSync(join(root, "trace-schema.ts"));
-	assert.throws(checkImports, /Missing staged import: .*trace-schema\.ts/);
+});
+
+test("staging checks side-effect imports, re-exports, literal dynamic imports and module-relative assets", async (t) => {
+	const root = temp(t);
+	const source = join(root, "source");
+	put(join(source, "package.json"), { files: ["entry.mjs", EMBEDDED_MODULES] });
+	for (const code of [
+		'import "./missing.mjs";',
+		'  import {\n value\n} from "./missing.mjs";',
+		'export { value } from "./missing.mjs";',
+		'export * from "./missing.mjs";',
+		'const load = () => import("./missing.mjs");',
+		'const load = () => require("./missing.mjs");',
+		'const asset = new URL("./missing.json", import.meta.url);',
+	]) {
+		put(join(source, "entry.mjs"), code);
+		await assert.rejects(stageRelease(source, join(root, "stage")), /Missing release dependency: entry\.mjs -> missing\.(?:mjs|json)/);
+	}
 });
 
 test("packed inventory requires every runtime resource and license and excludes unexpected source artifacts", () => {
