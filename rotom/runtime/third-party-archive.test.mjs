@@ -93,3 +93,16 @@ for (const scenario of ["missing", "bytes", "source", "file-symlink", "directory
 		await assert.rejects(verifyThirdPartyPackageContract(root, { verifyArchives: true }), /archive.*(?:缺失|integrity|source|canonical)/u);
 	});
 }
+
+test("the third-party lock keeps the Pi runtime as a peer instead of vendoring a second copy", async () => {
+	const lock = JSON.parse(await readFile(join(source, "package-lock.json"), "utf8"));
+	// The fork in runtime/pi provides these at launch. If they ever appear here, `npm ci` would
+	// install a second Pi next to the product's own, which pack:release then embeds — that is the
+	// tempting "fix" for a bare `npm ci` failing on the peers' `*` ranges, so it is locked out.
+	const vendored = Object.keys(lock.packages).filter((path) => /^node_modules\/@earendil-works\//u.test(path));
+	assert.deepEqual(vendored, []);
+	const peers = Object.entries(lock.packages)
+		.flatMap(([path, entry]) => Object.keys(entry.peerDependencies ?? {}).filter((name) => name.startsWith("@earendil-works/")))
+		.sort();
+	assert.ok(peers.length > 0, "the vendored packages still declare the runtime as a peer");
+});
