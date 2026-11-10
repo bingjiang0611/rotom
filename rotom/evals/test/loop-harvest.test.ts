@@ -187,13 +187,13 @@ describe("loop harvest detectors", () => {
 		const errorReply = (text: string) => ({ role: "assistant", content: [{ type: "text", text: "" }], stopReason: "error", provider: "qoder", model: "dfmodel", errorMessage: text, timestamp: 0 });
 		const recovered = analyze(chain([user("跑一下"), errorReply("Qoder: stream_failed"), reply("done")]));
 		const first = recovered.incidents[0];
-		expect(first.detail).toMatchObject({ provider: "qoder", model: "dfmodel", category: "qoder:stream_failed", categorySource: "message", final: true, attempts: 1 });
+		expect(first.detail).toMatchObject({ provider: "qoder", model: "dfmodel", category: "qoder:stream_failed", categorySource: "message", code: "qoder:stream_failed", recovered: true, attempts: 1 });
 
 		// A run that ends on the error or on a user turn never reached the user as an answer.
 		const unrecovered = analyze(chain([user("跑一下"), errorReply("Qoder: connection_failed"), user("还在吗")]));
-		expect(unrecovered.incidents[0].detail).toMatchObject({ category: "connect", final: false });
+		expect(unrecovered.incidents[0].detail).toMatchObject({ category: "connect", recovered: false });
 		const aborted = analyze(chain([user("跑一下"), errorReply("fetch failed"), reply("", "aborted")]));
-		expect(aborted.incidents[0].detail).toMatchObject({ category: "connect", final: false });
+		expect(aborted.incidents[0].detail).toMatchObject({ category: "connect", recovered: false });
 	});
 
 	it("prefers the local trace category for a failed request span", () => {

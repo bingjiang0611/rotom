@@ -13,10 +13,10 @@
 		"source": "rotom/runtime/product-config.mjs",
 		"acceptance": {
 			"startedAt": "2026-11-10T13:30:07Z",
-			"metric": "compaction_failed",
+			"metric": "compaction_failed (user-visible only)",
 			"incident": "compaction_failed",
-			"baselinePer100": 0.19,
-			"minimumTurns": 300,
+			"baselinePer100": 0.191,
+			"minimumTurns": 5236,
 			"expect": "lower"
 		}
 	},
@@ -34,14 +34,14 @@
 		"source": "rotom/extensions/third-party/package.json",
 		"acceptance": {
 			"startedAt": "2026-11-10T13:30:07Z",
-			"metric": "tool_error_streak where category=invalid-arguments",
+			"metric": "tool_error_streak where category=invalid-arguments (user-visible only)",
 			"incident": "tool_error_streak",
 			"detail": [
 				"category",
 				"invalid-arguments"
 			],
-			"baselinePer100": 0.17,
-			"minimumTurns": 300,
+			"baselinePer100": 0.168,
+			"minimumTurns": 5953,
 			"expect": "lower"
 		}
 	},
@@ -59,14 +59,14 @@
 		"source": "rotom/runtime/pi/fork-build.json",
 		"acceptance": {
 			"startedAt": "2026-11-10T13:30:07Z",
-			"metric": "provider_error where category=http",
+			"metric": "provider_error where category=http (user-visible only)",
 			"incident": "provider_error",
 			"detail": [
 				"category",
 				"http"
 			],
-			"baselinePer100": 2.29,
-			"minimumTurns": 300,
+			"baselinePer100": 1.484,
+			"minimumTurns": 674,
 			"expect": "lower"
 		}
 	}

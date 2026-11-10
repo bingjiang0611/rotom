@@ -277,7 +277,7 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 							timestamp: entry.timestamp,
 						});
 						errorRun = { entryId: entry.id, attempts: 1 };
-						add({ kind: "provider_error", entryId: entry.id, timestamp: entry.timestamp, detail: { attempts: 1, ...detail, final: false }, ...withExcerpt({ error: clip(errorText) }) });
+						add({ kind: "provider_error", entryId: entry.id, timestamp: entry.timestamp, detail: { attempts: 1, ...detail, recovered: false }, ...withExcerpt({ error: clip(errorText) }) });
 						errorRun.incident = incidents.get(`provider_error:${entry.id}`);
 					}
 				} else if (message.stopReason === "length") {
@@ -285,7 +285,7 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 					add({ kind: "length_stop", entryId: entry.id, timestamp: entry.timestamp, detail: {} });
 				} else {
 					// A usable answer ends the retry run: the provider failure did not reach the user.
-					if (errorRun?.incident) errorRun.incident.detail.final = true;
+					if (errorRun?.incident) errorRun.incident.detail.recovered = true;
 					errorRun = undefined;
 				}
 				continue;

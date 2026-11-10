@@ -113,13 +113,42 @@ describe("weekly report", () => {
 		// A failure in a session that started before the switch stays in the before segment, even
 		// when its own timestamp is later.
 		const incidents = [
-			{ kind: "provider_error", sessionId: "old", timestamp: "2026-11-11T10:00:00+08:00", detail: { provider: "qoder", final: true } },
-			{ kind: "provider_error", sessionId: "old", timestamp: "2026-11-09T11:00:00+08:00", detail: { provider: "qoder", final: false } },
-			{ kind: "provider_error", sessionId: "new", timestamp: "2026-11-11T10:00:00+08:00", detail: { provider: "qoder", final: true } },
+			{ kind: "provider_error", sessionId: "old", timestamp: "2026-11-11T10:00:00+08:00", detail: { provider: "qoder" } },
+			{ kind: "provider_error", sessionId: "old", timestamp: "2026-11-09T11:00:00+08:00", detail: { provider: "qoder", recovered: true } },
+			{ kind: "provider_error", sessionId: "new", timestamp: "2026-11-11T10:00:00+08:00", detail: { provider: "qoder" } },
 		] as unknown as Incident[];
 		const rows = providerSegments(sessions, incidents, CONFIG.switchAt);
 		expect(rows.find((row) => row.segment === "before")).toMatchObject({ provider: "qoder", turns: 100, failures: 1, per100: 1 });
 		expect(rows.find((row) => row.segment === "after")).toMatchObject({ provider: "qoder", turns: 100, failures: 1, per100: 1 });
+	});
+
+	it("counts the same user-visible failures as the harvest provider table", () => {
+		// One fixture, two readers: whatever the harvest calls "reached the user", the weekly
+		// provider segment must count too. This is the round-7 bug: the flag means recovered.
+		const sessions = [
+			session({ sessionId: "a", startedAt: "2026-11-09T09:00:00+08:00", userTurns: 100, modelTurns: { "openai-codex/gpt-6.1-sol": 60, "qoder/dfmodel": 40 } }),
+			session({ sessionId: "b", startedAt: "2026-11-09T10:00:00+08:00", userTurns: 50, modelTurns: { "openai-codex/gpt-6.1-sol": 50 } }),
+		];
+		const detail = (provider: string, category: string, recovered?: boolean) => ({ provider, model: "m", category, attempts: 1, ...(recovered ? { recovered: true } : {}) });
+		const incidents = [
+			{ kind: "provider_error", sessionId: "a", timestamp: "2026-11-09T09:10:00+08:00", detail: detail("openai-codex", "network", true) },
+			{ kind: "provider_error", sessionId: "a", timestamp: "2026-11-09T09:11:00+08:00", detail: detail("openai-codex", "network", true) },
+			{ kind: "provider_error", sessionId: "b", timestamp: "2026-11-09T09:12:00+08:00", detail: detail("openai-codex", "http") },
+			{ kind: "provider_error", sessionId: "a", timestamp: "2026-11-09T09:13:00+08:00", detail: detail("qoder", "timeout") },
+		] as unknown as Incident[];
+		const harvest = summarizeProviderErrors(incidents);
+		const weekly = providerSegments(sessions, incidents, CONFIG.switchAt);
+		const weeklyVisible = weekly.reduce((sum, row) => sum + row.failures, 0);
+		expect(harvest.userVisible).toBe(2);
+		expect(harvest.total - harvest.recovered).toBe(2);
+		expect(weeklyVisible).toBe(harvest.userVisible);
+		expect(weekly.filter((row) => row.provider === "openai-codex").reduce((sum, row) => sum + row.failures, 0)).toBe(1);
+	});
+
+	it("keeps the provider's own code even when a trace supplied the bucket", () => {
+		// The catalog metric filters on the code: the bucket alone would miss every such failure.
+		expect(providerCode("Qoder: catalog_refresh_failed")).toBe("qoder:catalog_refresh_failed");
+		expect(providerCode("connection refused")).toBeUndefined();
 	});
 
 	it("prints the sensitivity column next to every north-star row", () => {

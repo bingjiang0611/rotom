@@ -203,9 +203,10 @@ export type ProviderSegmentRow = {
 };
 
 /**
- * Failures the user actually saw: a `provider_error` incident marked `final`, counted against the
- * turns that provider answered. A turn is attributed through the session's model turns, so a
- * session that switched providers splits between them.
+ * Failures the user actually saw: a `provider_error` incident that no later usable answer closed
+ * (`recovered` unset), counted against the turns that provider answered. A turn is attributed
+ * through the session's model turns, so a session that switched providers splits between them.
+ * This is the same predicate the harvest's provider table uses; a test pins the two together.
  */
 export function providerSegments(sessions: readonly SessionSummary[], incidents: readonly Incident[], switchAt: string): ProviderSegmentRow[] {
 	const switchTime = Date.parse(switchAt);
@@ -226,7 +227,7 @@ export function providerSegments(sessions: readonly SessionSummary[], incidents:
 		}
 	}
 	for (const incident of incidents) {
-		if (incident.kind !== "provider_error" || incident.detail.final !== true) continue;
+		if (incident.kind !== "provider_error" || incident.detail.recovered === true) continue;
 		const segment = segmentOf.get(incident.sessionId);
 		if (!segment) continue;
 		const provider = String(incident.detail.provider ?? "unknown");

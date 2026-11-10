@@ -12,7 +12,12 @@
 export const TRACE_CATEGORIES = ["timeout", "network", "http", "websocket", "provider_error", "overloaded", "unknown"] as const;
 export type ProviderCategory = string;
 
-export type ProviderDetail = { provider: string; model: string; category: ProviderCategory; categorySource: "trace" | "message" };
+/**
+ * `category` is the bucket the report groups by. `code` is the provider's own error code, kept
+ * even when a trace span supplied the bucket: filtering on the bucket would silently miss every
+ * failure whose code is more specific than the bucket name.
+ */
+export type ProviderDetail = { provider: string; model: string; category: ProviderCategory; categorySource: "trace" | "message"; code?: string };
 
 /** One failed `pi.ai.request` span from the local trace. */
 export type TraceErrorSpan = { timestamp: number; category: string };
@@ -44,6 +49,12 @@ export function classifyProviderMessage(message: string): ProviderCategory {
 	if (/timeout|timed_out|deadline/iu.test(code) || TIMEOUT.test(text)) return "timeout";
 	if (code) return `qoder:${code}`;
 	return "other";
+}
+
+/** The provider's own code from its message, e.g. `Qoder: catalog_refresh_failed`. */
+export function providerCode(message: string): string | undefined {
+	const match = QODER_CODE.exec(message.trim());
+	return match?.[1] ? `qoder:${match[1].toLowerCase()}` : undefined;
 }
 
 export function traceErrorSpans(traceLines: readonly string[] | undefined): TraceErrorSpan[] {
@@ -99,32 +110,48 @@ export function providerDetail(input: {
 	timestamp: string;
 }): ProviderDetail {
 	const traced = spanCategoryFor(input.spans, input.timestamp);
+	const code = providerCode(input.errorMessage);
 	return {
 		provider: input.provider,
 		model: input.model,
 		category: traced ?? classifyProviderMessage(input.errorMessage),
 		categorySource: traced ? "trace" : "message",
+		...(code ? { code } : {}),
 	};
 }
 
-/** One attempt's outcome, so the report can separate "hit an error" from "never recovered". */
+/**
+ * One attempt's outcome, so the report can separate "hit an error" from "never recovered".
+ * `recovered` is the harvested flag: true means a later usable answer ended that retry run, so the
+ * failure did not reach the user. A failure without it reached the user.
+ */
+export type ProviderErrorRow = { provider: string; model: string; category: string; code?: string; recovered: boolean; count: number; attempts: number };
+
+export function providerUserVisible(rows: readonly ProviderErrorRow[]): number {
+	return rows.filter((row) => !row.recovered).reduce((sum, row) => sum + row.count, 0);
+}
+
 export function summarizeProviderErrors(incidents: readonly { detail: Record<string, string | number | boolean> }[]): {
 	total: number;
-	final: number;
-	rows: { provider: string; model: string; category: string; final: boolean; count: number; attempts: number }[];
+	recovered: number;
+	userVisible: number;
+	rows: ProviderErrorRow[];
 } {
-	const byKey = new Map<string, { provider: string; model: string; category: string; final: boolean; count: number; attempts: number }>();
+	const byKey = new Map<string, ProviderErrorRow>();
 	for (const incident of incidents) {
 		const provider = String(incident.detail.provider ?? "unknown");
 		const model = String(incident.detail.model ?? "unknown");
 		const category = String(incident.detail.category ?? "other");
-		const final = incident.detail.final === true;
-		const key = `${provider}\u0000${model}\u0000${category}\u0000${final}`;
-		const row = byKey.get(key) ?? { provider, model, category, final, count: 0, attempts: 0 };
+		const code = typeof incident.detail.code === "string" ? incident.detail.code : undefined;
+		const recovered = incident.detail.recovered === true;
+		const key = `${provider}\u0000${model}\u0000${category}\u0000${code ?? ""}\u0000${recovered}`;
+		const row = byKey.get(key) ?? { provider, model, category, ...(code ? { code } : {}), recovered, count: 0, attempts: 0 };
 		row.count++;
 		row.attempts += typeof incident.detail.attempts === "number" ? incident.detail.attempts : 1;
 		byKey.set(key, row);
 	}
 	const rows = [...byKey.values()].sort((left, right) => right.count - left.count || left.category.localeCompare(right.category));
-	return { total: rows.reduce((sum, row) => sum + row.count, 0), final: rows.filter((row) => row.final).reduce((sum, row) => sum + row.count, 0), rows };
+	const total = rows.reduce((sum, row) => sum + row.count, 0);
+	const userVisible = providerUserVisible(rows);
+	return { total, recovered: total - userVisible, userVisible, rows };
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyProviderMessage, providerDetail, spanCategoryFor, summarizeProviderErrors, traceErrorSpans } from "../src/loop/harvest-provider.ts";
+import { classifyProviderMessage, providerDetail, providerUserVisible, spanCategoryFor, summarizeProviderErrors, traceErrorSpans } from "../src/loop/harvest-provider.ts";
 
 describe("provider error categories", () => {
 	it("buckets messages without keeping the text", () => {
@@ -33,19 +33,25 @@ describe("provider error categories", () => {
 		expect(spanCategoryFor([{ timestamp: Date.parse("2026-11-03T10:00:00.000Z"), category: "network" }], "2026-11-03T10:10:00.000Z")).toBeUndefined();
 
 		const detail = providerDetail({ provider: "qoder", model: "dfmodel", errorMessage: "Qoder: stream_failed", spans: [{ timestamp: Date.parse("2026-11-03T10:00:10.000Z"), category: "websocket" }], timestamp: "2026-11-03T10:00:11.000Z" });
-		expect(detail).toEqual({ provider: "qoder", model: "dfmodel", category: "websocket", categorySource: "trace" });
+		// The bucket comes from the trace, the provider's own code is kept from the message.
+		expect(detail).toEqual({ provider: "qoder", model: "dfmodel", category: "websocket", categorySource: "trace", code: "qoder:stream_failed" });
 	});
 
-	it("summarizes incidents into provider x category x final rows", () => {
+	it("summarizes incidents into provider x category x recovered rows", () => {
+		// `recovered: true` means a later usable answer closed the retry run: the failure did not
+		// reach the user. The field was called `final` and read backwards once; the name is now the
+		// fact it records.
 		const summary = summarizeProviderErrors([
-			{ detail: { provider: "qoder", model: "dfmodel", category: "timeout", final: false, attempts: 3 } },
-			{ detail: { provider: "qoder", model: "dfmodel", category: "timeout", final: false, attempts: 1 } },
-			{ detail: { provider: "qoder", model: "dfmodel", category: "timeout", final: true, attempts: 1 } },
-			{ detail: { provider: "qoder", model: "dfmodel", category: "network", final: true, attempts: 2 } },
+			{ detail: { provider: "qoder", model: "dfmodel", category: "timeout", recovered: false, attempts: 3 } },
+			{ detail: { provider: "qoder", model: "dfmodel", category: "timeout", recovered: false, attempts: 1 } },
+			{ detail: { provider: "qoder", model: "dfmodel", category: "timeout", recovered: true, attempts: 1 } },
+			{ detail: { provider: "qoder", model: "dfmodel", category: "network", recovered: true, attempts: 2 } },
 		]);
 		expect(summary.total).toBe(4);
-		expect(summary.final).toBe(2);
-		expect(summary.rows.map((row) => [row.category, row.final, row.count, row.attempts])).toEqual([
+		expect(summary.recovered).toBe(2);
+		expect(summary.userVisible).toBe(2);
+		expect(providerUserVisible(summary.rows)).toBe(2);
+		expect(summary.rows.map((row) => [row.category, row.recovered, row.count, row.attempts])).toEqual([
 			["timeout", false, 2, 4],
 			["network", true, 1, 2],
 			["timeout", true, 1, 1],

@@ -1,0 +1,15 @@
+[
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-11-10-provider-recovered-flag",
+		"date": "2026-11-10",
+		"title": "Read the recovered flag the right way round and pre-register exposure",
+		"hypothesis": "The weekly provider segment and the shipped-record acceptance table both rested on a misread field: a `provider_error` incident carrying `final: true` counted as user-visible, while `final` was set when a usable answer closed the retry run. A second defect let a metric filter on the report bucket, which a trace span overwrites, so the qoder catalog baseline read 0.00 while eleven user-visible failures existed.",
+		"measurement": "Same 28-day harvest as round 7: 715 sessions, 1,678 incidents, 4,178 user turns before the 2026-11-10T13:30:07Z switch. Provider table and weekly segment now share one predicate and one test.",
+		"result": "The flag is renamed to `recovered` (true = a later usable answer closed the run) and both readers use it; openai-codex before the switch is 3.8 user-visible failures per 100 turns (104 events), not 19.8 (539, which were the recovered ones). Provider detail now keeps the provider's own `code` next to the trace bucket, so qoder catalog failures are countable: 11 user-visible events, baseline 0.263 per 100. Each acceptance record now declares the exposure where its baseline predicts ten events, and the parser refuses any other value.",
+		"evidence": "inconclusive",
+		"decision": "shipped",
+		"source": "docs/agent/optimization-loop.md",
+		"change": "eval"
+	}
+]
