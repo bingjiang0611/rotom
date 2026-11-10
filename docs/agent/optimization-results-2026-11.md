@@ -45,7 +45,7 @@ footprint 合同失败在本机基线上同样是 31,448 字节 vs 合同 29,684
 
 - `coding_policy` 分段出现：是。system 消息 `sections` 为 `preamble`、`tools`、`rules`、`docs`、`project_context`、`skills`、`cwd`、`coding_policy`，`coding_policy` 段 7,157 字节。
 - forced 整块 system 文本不存在：是。system 消息 `content` 长度 0，所有内容都在 `sections`；会话里没有整块拼接的 system 文本。
-- 任务结束状态与错误：`stopReason=stop`，assistant 错误 0 条；usage 末条 in 172 / out 248 / cacheRead 17,408；共 26 条条目。
+- 任务结束状态与错误：`stopReason=stop`，assistant 错误 0 条；usage 末条 in 172 / out 248 / cacheRead 17,408；共 26 条条目（第二次任务 30 条，含 3 次 subagent 相关工具结果）。
 - Subagent 委派（如执行）：执行了。第二次任务经 `search_tools` 加载 `subagent` + `subagent_wait`，异步 scout 只读检索 `docs/`（run 状态 complete，无暂存改动），完成通知 3,578 字节（< 8 KB，未截断），正文没有 `share` 或 `sessionDir` 字样，会话落在私有 run 目录的 `session.jsonl`。
 
 ## S3 gate
