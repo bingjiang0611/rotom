@@ -5,7 +5,7 @@ import { DEFAULT_CONFIG, findConfigPath, loadSolPiConfig, type SolPiConfig } fro
  * rotom's default when the user has no SoL-Pi config file. It replaces
  * SoL-Pi's all-off default with the features the maintainer runs daily.
  * Only Online Context Compact stays off. An existing file
- * replaces these defaults; the explicit offload environment override is last.
+ * replaces these defaults; the explicit Reducer and offload environment overrides are last.
  */
 export const ROTOM_SOL_PI_DEFAULT_CONFIG: SolPiConfig = Object.freeze({
 	...DEFAULT_CONFIG,
@@ -18,13 +18,23 @@ export const ROTOM_SOL_PI_DEFAULT_CONFIG: SolPiConfig = Object.freeze({
 const COPY = {
 	requiresObservationPack: "[rotom] ROTOM_COMPACTION_OFFLOAD=1 requires Observation Pack; compaction offload remains disabled",
 	invalidOverride: "[rotom] ROTOM_COMPACTION_OFFLOAD must be 1 or 0; ignoring invalid value",
+	invalidReducerOverride: "[rotom] ROTOM_EVIDENCE_REDUCER must be 1 or 0; ignoring invalid value",
 };
+
+/** `ROTOM_EVIDENCE_REDUCER=0|1` switches only the Reducer, over the default or a config file. */
+function withReducerOverride(config: SolPiConfig): SolPiConfig {
+	const override = process.env.ROTOM_EVIDENCE_REDUCER;
+	if (override === undefined || override === "") return config;
+	if (override === "0" || override === "1") return Object.freeze({ ...config, evidencePreservingReducer: override === "1" });
+	console.error(COPY.invalidReducerOverride);
+	return config;
+}
 
 export function loadRotomSolPiConfig(ctx: ExtensionContext, agentDir = getAgentDir()): SolPiConfig {
 	const allowProjectConfig = ctx.isProjectTrusted();
-	const config = findConfigPath(ctx.cwd, agentDir, allowProjectConfig) === undefined
+	const config = withReducerOverride(findConfigPath(ctx.cwd, agentDir, allowProjectConfig) === undefined
 		? ROTOM_SOL_PI_DEFAULT_CONFIG
-		: loadSolPiConfig(ctx.cwd, agentDir, allowProjectConfig);
+		: loadSolPiConfig(ctx.cwd, agentDir, allowProjectConfig));
 	const override = process.env.ROTOM_COMPACTION_OFFLOAD;
 	if (override === undefined || override === "") return config;
 	if (override === "0") return Object.freeze({ ...config, compactionOffload: false });
