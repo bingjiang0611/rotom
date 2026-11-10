@@ -3,7 +3,8 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { continuationCaseFor, continuationCases, scoreContinuationCase, unobservedReads } from "../src/continuation-cases.ts";
-import { appendGateHistory, auditSmokeScores, effectiveModel, gateHistoryRecords, smokeScoresFromResults, gateVerdict, judgeGateCase, parseGateHistory, parseGateManifest, poolGateHistory, type GateCase, type GateHistoryRecord } from "../src/loop/gate.ts";
+import { auditSmokeScores, effectiveModel, gateVerdict, judgeGateCase, parseGateManifest, smokeScoresFromResults, type GateCase } from "../src/loop/gate.ts";
+import { appendGateHistory, gateHistoryRecords, parseGateHistory, poolGateHistory, type GateHistoryRecord } from "../src/loop/gate-history.ts";
 import { parseLedger, parseLedgerDir, PROMPT_RENT_SINCE, shardFile } from "../src/loop/ledger.ts";
 
 const evalsRoot = resolve(import.meta.dirname, "..");

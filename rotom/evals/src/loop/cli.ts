@@ -2,8 +2,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { appendGateHistory, gateHistoryRecords, parseGateHistory, parseGateManifest, poolGateHistory, runGate } from "./gate.ts";
+import { parseGateManifest, runGate } from "./gate.ts";
+import { appendGateHistory, gateHistoryRecords, parseGateHistory, poolGateHistory } from "./gate-history.ts";
 import { defaultLoopDir, defaultSessionsDir, harvest } from "./harvest-run.ts";
+import { defaultModelExperiment } from "./harvest-breakdown.ts";
 import { parseLedgerDir } from "./ledger.ts";
 
 const evalsRoot = resolve(import.meta.dirname, "../..");
@@ -14,8 +16,11 @@ export const LEDGER = join(evalsRoot, "loop", "ledger");
 const USAGE = `Usage: npm run loop -- <command>
 
   harvest [--sessions DIR] [--out DIR] [--days N | --since YYYY-MM-DD] [--no-excerpts]
+          [--experiment default-model]
       Scan local Pi sessions (default ${defaultSessionsDir()}) into a private incident
       queue and weekly intervention rate under ${defaultLoopDir()}. No model calls.
+      --experiment default-model adds the odd/even default-model comparison: only sessions
+      whose first assistant message used that day's default model enter the rates.
 
   gate --baseline /abs/frozen/rotom [--candidate /abs/rotom] [--case ID] [--repeats N] [--out DIR] [--smoke]
       Re-run reproduced regression cases from loop/gate.json against both products
@@ -56,21 +61,28 @@ async function main(argv: string[]): Promise<number> {
 	if (command === "harvest") {
 		const { values } = parseArgs({
 			args: rest,
-			options: { sessions: { type: "string" }, out: { type: "string" }, days: { type: "string" }, since: { type: "string" }, "no-excerpts": { type: "boolean" } },
+			options: { sessions: { type: "string" }, out: { type: "string" }, days: { type: "string" }, since: { type: "string" }, "no-excerpts": { type: "boolean" }, experiment: { type: "string" } },
 		});
 		if (values.days && values.since) throw new Error("use --days or --since, not both");
 		const days = values.days ? Number(values.days) : 28;
 		if (!Number.isFinite(days) || days <= 0) throw new Error("--days must be a positive number");
 		const since = values.since ? new Date(`${values.since}T00:00:00Z`) : new Date(Date.now() - days * 86_400_000);
 		if (Number.isNaN(since.getTime())) throw new Error("--since must be YYYY-MM-DD");
+		if (values.experiment !== undefined && values.experiment !== "default-model") throw new Error("--experiment must be default-model");
 		const result = await harvest({
 			sessionsDir: values.sessions ?? defaultSessionsDir(),
 			outRoot: values.out ?? defaultLoopDir(),
 			since,
 			excerpts: !values["no-excerpts"],
+			...(values.experiment ? { experiment: "default-model" } : {}),
 		});
 		console.log(`sessions=${result.sessions.length} incidents=${result.incidents.length} skipped=${Object.entries(result.skipped).map(([reason, count]) => `${reason}:${count}`).join(",") || "0"}`);
 		console.log(`report: ${join(result.outDir, "report.md")}`);
+		if (values.experiment) {
+			for (const row of defaultModelExperiment(result.sessions).groups) {
+				console.log(`experiment ${row.model}: sessions=${row.sessions} turns=${row.turns} v2=${row.v2} per100=${row.v2Per100 ?? "N/A"}`);
+			}
+		}
 		return 0;
 	}
 	if (command === "gate") {
@@ -98,7 +110,7 @@ async function main(argv: string[]): Promise<number> {
 		});
 		for (const item of result.results) {
 			const rate = (value: number | null) => (value === null ? "N/A" : `${Math.round(value * 100)}%`);
-			console.log(`${item.verdict.padEnd(9)} ${item.role.padEnd(10)} ${item.caseId}  baseline=${rate(item.baselinePassRate)} candidate=${rate(item.candidatePassRate)} pairs=${item.pairs}/${item.expectedPairs}${item.reason ? `  (${item.reason})` : ""}`);
+			console.log(`${item.verdict.padEnd(9)} ${item.role.padEnd(10)} ${item.caseId}  ${item.model.provider}/${item.model.model}  baseline=${rate(item.baselinePassRate)} candidate=${rate(item.candidatePassRate)} pairs=${item.pairs}/${item.expectedPairs}${item.reason ? `  (${item.reason})` : ""}`);
 		}
 		if (smoke) {
 			console.log(`smoke: ${result.smokeProblems.length === 0 ? "ok" : "failed"}`);
@@ -110,7 +122,6 @@ async function main(argv: string[]): Promise<number> {
 		const records = gateHistoryRecords({
 			recordedAt: new Date().toISOString(),
 			runId: outDir.split("/").at(-1) ?? outDir,
-			model: manifest.model,
 			repeats,
 			candidateCommit: commitOf(candidateProduct),
 			baselineProduct: resolve(values.baseline),

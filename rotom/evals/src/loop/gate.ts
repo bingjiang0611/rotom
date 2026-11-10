@@ -11,10 +11,22 @@
  * observations are `unknown`, never `held`.
  */
 import { spawnSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { isAbsolute, join, resolve } from "node:path";
 
 export const GATE_SCHEMA = "rotom-loop-gate/v1";
+
+export type GateModel = { provider: string; model: string };
+
+/**
+ * Reproduction evidence is recorded per model: whether a case discriminates on `qoder/dfmodel`
+ * says nothing about `openai-codex/gpt-6.1-sol`, and the loop is authorized to run both.
+ * `not-reproduced` means the frozen baseline no longer fails the case on that model, so it
+ * cannot show improvement there and needs a new case; `flaky-candidate` is a case that fails on
+ * the frozen baseline, but below the admission rule, so it may only be pooled with more samples
+ * before it decides anything.
+ */
+export type ReproductionRecord = { model: string; verdict: ReproductionVerdict; detail: string };
 
 export type GateCase = {
 	/** Suite file relative to the evals package. */
@@ -27,13 +39,9 @@ export type GateCase = {
 	repeatsEnv: string;
 	/** Ledger entry that admitted this case. */
 	ledger: string;
-	/**
-	 * Last recorded reproduction evidence. `not-reproduced` means the frozen baseline no longer
-	 * fails the case on that model, so it cannot show improvement there and needs a new case;
-	 * `flaky-candidate` is a case that fails on the frozen baseline, but below the 2-of-3
-	 * admission rule, so it may only be pooled with more samples before it decides anything.
-	 */
-	reproduction?: { model: string; verdict: ReproductionVerdict; detail: string };
+	/** Overrides the manifest model for this case; absent means the manifest default. */
+	model?: GateModel;
+	reproduction?: ReproductionRecord[];
 };
 
 export const REPRODUCTION_VERDICTS = ["reproduced", "not-reproduced", "flaky-candidate"] as const;
@@ -48,10 +56,21 @@ export type GateManifest = {
 
 const ENV_NAME = /^ROTOM_EVAL_[A-Z0-9_]+$/u;
 
+function validModel(value: unknown): value is GateModel {
+	if (typeof value !== "object" || value === null) return false;
+	const { provider, model } = value as { provider?: unknown; model?: unknown };
+	return typeof provider === "string" && provider.trim() !== "" && typeof model === "string" && model.trim() !== "";
+}
+
+/** The model this case runs on: its own override, else the manifest default. */
+export function effectiveModel(item: GateCase, manifest: Pick<GateManifest, "model">): GateModel {
+	return item.model ?? manifest.model;
+}
+
 export function parseGateManifest(text: string): GateManifest {
 	const value = JSON.parse(text) as Partial<GateManifest>;
 	if (value.schema !== GATE_SCHEMA) throw new Error(`gate manifest schema must be ${GATE_SCHEMA}`);
-	if (!value.model || typeof value.model.provider !== "string" || typeof value.model.model !== "string") throw new Error("gate manifest needs model.provider and model.model");
+	if (!validModel(value.model)) throw new Error("gate manifest needs model.provider and model.model");
 	if (!Number.isSafeInteger(value.repeats) || (value.repeats as number) < 1 || (value.repeats as number) > 5) throw new Error("gate repeats must be an integer from 1 to 5");
 	if (!Array.isArray(value.cases) || value.cases.length === 0) throw new Error("gate manifest needs at least one case");
 	const seen = new Set<string>();
@@ -61,13 +80,22 @@ export function parseGateManifest(text: string): GateManifest {
 		if (item.role !== "reproduced" && item.role !== "control") throw new Error(`gate case ${item.caseId} role must be reproduced or control`);
 		for (const name of [item.enableEnv, item.caseEnv, item.repeatsEnv]) if (typeof name !== "string" || !ENV_NAME.test(name)) throw new Error(`gate case ${item.caseId} has an invalid env name`);
 		if (typeof item.ledger !== "string" || !item.ledger) throw new Error(`gate case ${item.caseId} must cite a ledger entry`);
+		if (item.model !== undefined && !validModel(item.model)) throw new Error(`gate case ${item.caseId} model must have provider and model`);
 		if (item.reproduction !== undefined) {
-			const reproduction = item.reproduction as Partial<GateCase["reproduction"]> | null;
-			if (typeof reproduction !== "object" || reproduction === null) throw new Error(`gate case ${item.caseId} reproduction must be an object`);
-			for (const field of ["model", "detail"] as const) {
-				if (typeof reproduction[field] !== "string" || !(reproduction[field] as string).trim()) throw new Error(`gate case ${item.caseId} reproduction.${field} is required`);
+			if (!Array.isArray(item.reproduction)) throw new Error(`gate case ${item.caseId} reproduction must be a list, one record per model`);
+			const models = new Set<string>();
+			for (const reproduction of item.reproduction as Partial<ReproductionRecord>[]) {
+				if (typeof reproduction !== "object" || reproduction === null) throw new Error(`gate case ${item.caseId} reproduction record must be an object`);
+				const record = reproduction as { model?: unknown; detail?: unknown; verdict?: unknown };
+				for (const field of ["model", "detail"] as const) {
+					const value = record[field];
+					if (typeof value !== "string" || !value.trim()) throw new Error(`gate case ${item.caseId} reproduction.${field} is required`);
+				}
+				if (!REPRODUCTION_VERDICTS.includes(record.verdict as ReproductionVerdict)) throw new Error(`gate case ${item.caseId} reproduction.verdict must be ${REPRODUCTION_VERDICTS.join(", ")}`);
+				const model = record.model as string;
+				if (models.has(model)) throw new Error(`gate case ${item.caseId} records reproduction twice for ${model}`);
+				models.add(model);
 			}
-			if (!REPRODUCTION_VERDICTS.includes(reproduction.verdict as ReproductionVerdict)) throw new Error(`gate case ${item.caseId} reproduction.verdict must be ${REPRODUCTION_VERDICTS.join(", ")}`);
 		}
 		const key = `${item.suite}#${item.caseId}`;
 		if (seen.has(key)) throw new Error(`duplicate gate case ${key}`);
@@ -89,6 +117,8 @@ export type GateCaseVerdict = "held" | "regressed" | "unknown";
 export type GateCaseResult = {
 	caseId: string;
 	role: GateCase["role"];
+	/** Model actually used for both arms, so a per-case override stays visible in the artifacts. */
+	model: GateModel;
 	/** Recorded reproduction evidence carried into the summary, if any. */
 	reproduction?: GateCase["reproduction"];
 	verdict: GateCaseVerdict;
@@ -103,8 +133,8 @@ export type GateCaseResult = {
 	reason?: string;
 };
 
-export function judgeGateCase(item: GateCase, repeats: number, artifacts: string, report: ComparisonsReport | undefined): GateCaseResult {
-	const base = { caseId: item.caseId, role: item.role, reproduction: item.reproduction, expectedPairs: repeats, artifacts };
+export function judgeGateCase(item: GateCase, repeats: number, artifacts: string, report: ComparisonsReport | undefined, model: GateModel = { provider: "", model: "" }): GateCaseResult {
+	const base = { caseId: item.caseId, role: item.role, model, reproduction: item.reproduction, expectedPairs: repeats, artifacts };
 	const comparisons = report?.evalSets?.flatMap((set) => set.comparisons) ?? [];
 	if (!report || comparisons.length !== 1) {
 		return { ...base, verdict: "unknown", pairs: 0, baselinePassRate: null, candidatePassRate: null, candidateMeanTokens: null, baselineMeanTokens: null, diagnostics: report?.diagnostics?.length ?? 0, reason: report ? "expected exactly one baseline/candidate comparison" : "comparisons.json missing" };
@@ -199,6 +229,7 @@ export function runGate(options: RunGateOptions): { verdict: GateCaseVerdict; re
 	const results: GateCaseResult[] = [];
 	const smokeProblems: string[] = [];
 	for (const item of cases) {
+		const model = effectiveModel(item, options.manifest);
 		const artifacts = join(options.outDir, item.caseId);
 		const env: NodeJS.ProcessEnv = {
 			...(options.env ?? process.env),
@@ -209,8 +240,8 @@ export function runGate(options: RunGateOptions): { verdict: GateCaseVerdict; re
 			ROTOM_EVAL_CANDIDATE_PRODUCT: options.candidateProduct,
 			ROTOM_EVAL_ARTIFACT_DIR: artifacts,
 		};
-		console.error(`[gate] ${item.caseId} (${item.role}) × ${repeats}${options.smoke ? " (smoke)" : ""} → ${artifacts}`);
-		const run = spawnSync(join(options.evalsRoot, "bin", "eval"), ["--provider", options.manifest.model.provider, "--model", options.manifest.model.model, item.suite], {
+		console.error(`[gate] ${item.caseId} (${item.role}) × ${repeats} on ${model.provider}/${model.model}${options.smoke ? " (smoke)" : ""} → ${artifacts}`);
+		const run = spawnSync(join(options.evalsRoot, "bin", "eval"), ["--provider", model.provider, "--model", model.model, item.suite], {
 			cwd: options.evalsRoot,
 			env,
 			stdio: "inherit",
@@ -223,7 +254,7 @@ export function runGate(options: RunGateOptions): { verdict: GateCaseVerdict; re
 		} catch {
 			report = undefined;
 		}
-		results.push(judgeGateCase(item, repeats, artifacts, report));
+		results.push(judgeGateCase(item, repeats, artifacts, report, model));
 		if (options.smoke) {
 			let recorded: unknown;
 			try {
@@ -244,6 +275,8 @@ export function runGate(options: RunGateOptions): { verdict: GateCaseVerdict; re
 		schema: GATE_SCHEMA,
 		finishedAt: new Date().toISOString(),
 		model: options.manifest.model,
+		// Per-case overrides are listed once, so the summary names every model this run used.
+		models: [...new Set(results.map((result) => `${result.model.provider}/${result.model.model}`))],
 		repeats,
 		...(options.smoke ? { smoke: true, smokeOk: smokeProblems.length === 0, smokeProblems } : {}),
 		baselineProduct: options.baselineProduct,
@@ -253,152 +286,4 @@ export function runGate(options: RunGateOptions): { verdict: GateCaseVerdict; re
 	};
 	writeFileSync(summaryPath, `${JSON.stringify(summary, null, 2)}\n`, { mode: 0o600 });
 	return { verdict, results, summaryPath, smokeProblems };
-}
-
-/**
- * Append-only gate history. One gate run records one line per case, so a re-run adds samples
- * instead of replacing an earlier failure, and `gate-pool` can merge them.
- */
-export const GATE_HISTORY_SCHEMA = "rotom-loop-gate-history/v1";
-
-export type GateHistoryRecord = {
-	schema: typeof GATE_HISTORY_SCHEMA;
-	recordedAt: string;
-	/** Gate run directory basename, so a pooled sample can be traced back to its artifacts. */
-	runId: string;
-	model: GateManifest["model"];
-	repeats: number;
-	candidateCommit: string;
-	baselineProduct: string;
-	candidateProduct: string;
-	caseId: string;
-	role: GateCase["role"];
-	verdict: GateCaseVerdict;
-	/** Scorable pairs in this run; `unknown` runs contribute their scored pairs only. */
-	pairs: number;
-	baselinePass: number;
-	candidatePass: number;
-	artifacts: string;
-};
-
-function passCount(rate: number | null, pairs: number): number {
-	if (rate === null || pairs <= 0) return 0;
-	return Math.round(rate * pairs);
-}
-
-export function gateHistoryRecords(input: {
-	recordedAt: string;
-	runId: string;
-	model: GateManifest["model"];
-	repeats: number;
-	candidateCommit: string;
-	baselineProduct: string;
-	candidateProduct: string;
-	results: readonly GateCaseResult[];
-}): GateHistoryRecord[] {
-	return input.results.map((result) => ({
-		schema: GATE_HISTORY_SCHEMA,
-		recordedAt: input.recordedAt,
-		runId: input.runId,
-		model: input.model,
-		repeats: input.repeats,
-		candidateCommit: input.candidateCommit,
-		baselineProduct: input.baselineProduct,
-		candidateProduct: input.candidateProduct,
-		caseId: result.caseId,
-		role: result.role,
-		verdict: result.verdict,
-		pairs: result.pairs,
-		baselinePass: passCount(result.baselinePassRate, result.pairs),
-		candidatePass: passCount(result.candidatePassRate, result.pairs),
-		artifacts: result.artifacts,
-	}));
-}
-
-/** Append samples under a private directory with a 0600 file; re-runs never rewrite earlier lines. */
-export function appendGateHistory(historyPath: string, records: readonly GateHistoryRecord[]): void {
-	if (records.length === 0) return;
-	mkdirSync(dirname(historyPath), { recursive: true, mode: 0o700 });
-	appendFileSync(historyPath, records.map((record) => `${JSON.stringify(record)}\n`).join(""), { mode: 0o600 });
-}
-
-export function parseGateHistory(text: string): GateHistoryRecord[] {
-	const records: GateHistoryRecord[] = [];
-	text.split("\n").forEach((line, index) => {
-		if (!line.trim()) return;
-		let value: unknown;
-		try {
-			value = JSON.parse(line);
-		} catch {
-			throw new Error(`gate history line ${index + 1} is not JSON`);
-		}
-		const record = value as Partial<GateHistoryRecord>;
-		if (record.schema !== GATE_HISTORY_SCHEMA) throw new Error(`gate history line ${index + 1} schema must be ${GATE_HISTORY_SCHEMA}`);
-		for (const field of ["recordedAt", "runId", "candidateCommit", "baselineProduct", "candidateProduct", "caseId", "artifacts"] as const) {
-			if (typeof record[field] !== "string" || !(record[field] as string)) throw new Error(`gate history line ${index + 1} needs ${field}`);
-		}
-		if (!record.model || typeof record.model.provider !== "string" || typeof record.model.model !== "string") throw new Error(`gate history line ${index + 1} needs model.provider and model.model`);
-		if (!Number.isSafeInteger(record.pairs) || (record.pairs as number) < 0) throw new Error(`gate history line ${index + 1} needs pairs`);
-		if (!Number.isSafeInteger(record.baselinePass) || !Number.isSafeInteger(record.candidatePass)) throw new Error(`gate history line ${index + 1} needs pass counts`);
-		records.push(value as GateHistoryRecord);
-	});
-	return records;
-}
-
-export type GatePoolResult = {
-	candidateCommit: string;
-	baselineProduct: string;
-	candidateProduct: string;
-	model: GateManifest["model"];
-	caseId: string;
-	role: GateCase["role"] | undefined;
-	/** Samples merged, scorable pairs, and runs that could not score every repetition. */
-	runs: number;
-	pairs: number;
-	baselinePass: number;
-	candidatePass: number;
-	unknownRuns: number;
-	verdict: GateCaseVerdict;
-	runIds: string[];
-};
-
-/**
- * Merge every recorded run of the same candidate commit, baseline product, model and case.
- * Failures accumulate: a later passing run never cancels an earlier failed pair.
- */
-export function poolGateHistory(records: readonly GateHistoryRecord[], options: { since?: Date; caseId?: string } = {}): GatePoolResult[] {
-	const groups = new Map<string, GatePoolResult>();
-	for (const record of records) {
-		if (options.since && new Date(record.recordedAt).getTime() < options.since.getTime()) continue;
-		if (options.caseId && record.caseId !== options.caseId) continue;
-		const key = [record.candidateCommit, record.baselineProduct, record.model.provider, record.model.model, record.caseId].join("\u0000");
-		const group = groups.get(key) ?? {
-			candidateCommit: record.candidateCommit,
-			baselineProduct: record.baselineProduct,
-			candidateProduct: record.candidateProduct,
-			model: record.model,
-			caseId: record.caseId,
-			role: record.role,
-			runs: 0,
-			pairs: 0,
-			baselinePass: 0,
-			candidatePass: 0,
-			unknownRuns: 0,
-			verdict: "unknown",
-			runIds: [],
-		};
-		group.runs++;
-		group.pairs += record.pairs;
-		group.baselinePass += record.baselinePass;
-		group.candidatePass += record.candidatePass;
-		if (record.verdict === "unknown") group.unknownRuns++;
-		if (!group.runIds.includes(record.runId)) group.runIds.push(record.runId);
-		groups.set(key, group);
-	}
-	return [...groups.values()]
-		.map((group) => ({
-			...group,
-			verdict: (group.candidatePass < group.pairs ? "regressed" : group.pairs === 0 ? "unknown" : "held") as GateCaseVerdict,
-		}))
-		.sort((left, right) => left.caseId.localeCompare(right.caseId));
 }

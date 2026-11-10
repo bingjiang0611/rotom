@@ -1,0 +1,15 @@
+[
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-11-10-gpt61sol-gate-calibration",
+		"date": "2026-11-10",
+		"title": "Gate calibration on openai-codex/gpt-6.1-sol: one of six cases reproduces",
+		"hypothesis": "The loop has only ever calibrated cases on qoder/dfmodel, where five of six candidates failed to discriminate. A stronger reasoning model may fail where dfmodel does not, and a case that only reproduces on one model must not be run as a gate on the other.",
+		"change": "eval",
+		"measurement": "openai-codex/gpt-6.1-sol, gate repeats 5 per arm, smoke first. Frozen baseline = installed release 0.1.27-main.50ccdc87 (Pi fork 1.4.0-rotom.2, SoL-Pi 0.1.0-rotom.6); candidate = origin/main 35de9563. Per case: `loop gate --case <id> --smoke` (1 pair), then `loop gate --case <id> --repeats 5`. Artifacts under ~/.rotom/loop/gate-2026-11-10T07-40..08-11. Total 2,969,160 tokens across smoke and repeat runs (baseline 1,480,707 / candidate 1,488,453), estimated cost $2.00 by Pi's price table, which is an estimate and not a bill.",
+		"result": "Smoke: 6 of 6 cases passed the score audit (both arms scored, every check boolean, no check read a file the fixture never observed), no run was voided. Baseline failures out of five: behavior-authorized-follow-through 0/5, behavior-status-is-not-authorization 0/5 (control), behavior-mixed-decision-ownership 5/5, behavior-export-symptom 0/5, behavior-scoped-read 0/5, behavior-verification-path 0/5 (conformance control). Admission: only behavior-mixed-decision-ownership reaches the 3/5 rule and enters loop/gate.json on gpt-6.1-sol; the other five are recorded as not-reproduced for this model, and the dfmodel records stay as they were. The admitted case is an open failure, not a fixed one: the candidate arm also fails 5/5, so a gate run on it reports `regressed` until an agent change addresses it. Nothing about the agent changed in this round, so this entry measures reproduction only.",
+		"evidence": "not-reproduced",
+		"decision": "shipped",
+		"source": "rotom/evals/loop/gate.json"
+	}
+]
