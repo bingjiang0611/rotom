@@ -140,6 +140,19 @@ unset ROTOM_EVAL_BASELINE_PRODUCT ROTOM_EVAL_BASELINE_ENV
 
 先确认候选臂确实触发了 Reducer（≥4 KB 诊断输出且有 Reducer 回执）；没有触发就说明这两个套件测不到 Reducer，记为“套件不覆盖”，不要硬凑结论。比较成功率、总 token（含 Reducer 请求）与耗时。
 
+### S9 补跑（2026-11-10 追加）
+
+`completion evidence scope` 用例的题面与判分已修正（账本 `L-2026-11-10-completion-case-ambiguity`），旧的 1/5 vs 1/5 不再可比。按 S6 的方式重跑卫生套件一次：
+
+```sh
+cd rotom/evals
+export ROTOM_EVAL_BASELINE_PRODUCT="$SAME" ROTOM_EVAL_BASELINE_EXCLUDE_RESOURCES=extension:coding-policy
+ROTOM_EVAL_REPEATS=5 ./bin/eval --provider qoder --model dfmodel cases/coding-execution-hygiene.eval.ts
+unset ROTOM_EVAL_BASELINE_PRODUCT ROTOM_EVAL_BASELINE_EXCLUDE_RESOURCES
+```
+
+`$SAME` 要先更新到本分支最新提交（`git -C <rotom-same> checkout <新 HEAD>` 后重装依赖）。只在结果文件追加 S9 小节并更新该账本条目；仍失败时把每个失败 check 的名称记下来，不要再改判分。
+
 ## 4. 记录与交回
 
 1. 填写 [optimization-results-2026-11.md](optimization-results-2026-11.md) 的每一节；每个数字注明来源（命令、日期、`~/.rotom/loop/...` 目录名，路径写成 `~`）。
