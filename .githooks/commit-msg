@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+# Argument 1 is the file holding the message Git is about to create.
+node_command=${ROTOM_NODE:-$(command -v node)}
+exec "$node_command" scripts/hook-ledger.mjs "$1"
