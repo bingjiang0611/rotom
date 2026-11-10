@@ -28,7 +28,27 @@ export type LedgerEntry = {
 	decision: (typeof DECISIONS)[number];
 	/** Repository-relative record backing this entry. */
 	source: string;
+	/**
+	 * The acceptance metric of a shipped-but-unmeasured record, in the one form the weekly report
+	 * can read: an incident kind counted per 100 user turns after `startedAt`, against the baseline
+	 * observed before the change. `metric` is the human name shown in the report and `detail` an
+	 * optional `[field, value]` filter on the incident detail.
+	 */
+	acceptance?: {
+		startedAt: string;
+		metric: string;
+		incident: IncidentKindName;
+		detail?: [string, string];
+		baselinePer100: number;
+		/** Turns needed before a status other than `not-yet-due` may be reported. */
+		minimumTurns: number;
+		expect: "lower" | "higher";
+	};
 };
+
+/** Kept as a string list here so the ledger stays free of the harvest's type graph. */
+const INCIDENT_KINDS = ["user_correction", "user_repeat", "bare_continue", "user_interrupt", "tool_error_streak", "edit_retry_without_read", "provider_error", "length_stop", "goal_pause", "compaction_failed"] as const;
+type IncidentKindName = (typeof INCIDENT_KINDS)[number];
 
 /** Prompt changes ship only with measured improvement from this date on; older entries stay as recorded. */
 export const PROMPT_RENT_SINCE = "2026-11-09";
@@ -42,10 +62,25 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/u;
  */
 const SHARD = /^(\d{4}-\d{2})(?:-[a-z0-9-]+)?\.json$/u;
 
-/** A shard file name is the month its entries must fall in. */
-export function shardFile(month: string): string {
+/** A shard file name is the month its entries must fall in. */export function shardFile(month: string): string {
 	if (!/^\d{4}-\d{2}$/u.test(month)) throw new Error(`ledger: month must look like YYYY-MM, got ${month}`);
 	return `${month}.json`;
+}
+
+/** The acceptance spec is validated here because the weekly report reads it without a second check. */
+function validateAcceptance(where: string, raw: unknown): void {
+	if (typeof raw !== "object" || raw === null) throw new Error(`${where}: acceptance must be an object`);
+	const value = raw as Record<string, unknown>;
+	if (typeof value.startedAt !== "string" || Number.isNaN(Date.parse(value.startedAt))) throw new Error(`${where}: acceptance.startedAt must be an ISO timestamp`);
+	if (typeof value.metric !== "string" || !value.metric.trim()) throw new Error(`${where}: acceptance.metric is required`);
+	if (!INCIDENT_KINDS.includes(value.incident as never)) throw new Error(`${where}: acceptance.incident must be one of ${INCIDENT_KINDS.join(", ")}`);
+	if (value.detail !== undefined) {
+		const detail = value.detail;
+		if (!Array.isArray(detail) || detail.length !== 2 || detail.some((item) => typeof item !== "string")) throw new Error(`${where}: acceptance.detail must be [field, value]`);
+	}
+	if (typeof value.baselinePer100 !== "number" || !Number.isFinite(value.baselinePer100) || value.baselinePer100 < 0) throw new Error(`${where}: acceptance.baselinePer100 must be a non-negative number`);
+	if (!Number.isSafeInteger(value.minimumTurns) || (value.minimumTurns as number) <= 0) throw new Error(`${where}: acceptance.minimumTurns must be a positive integer`);
+	if (value.expect !== "lower" && value.expect !== "higher") throw new Error(`${where}: acceptance.expect must be lower or higher`);
 }
 
 export function parseLedger(text: string, repoRoot?: string): LedgerEntry[] {
@@ -76,6 +111,7 @@ export function parseLedger(text: string, repoRoot?: string): LedgerEntry[] {
 			throw new Error(`${where}: since ${PROMPT_RENT_SINCE} a shipped prompt change needs evidence "improved"`);
 		}
 		if (repoRoot && !existsSync(join(repoRoot, (value.source as string).split("#")[0]))) throw new Error(`${where}: source ${value.source} does not exist`);
+		if (value.acceptance !== undefined) validateAcceptance(where, value.acceptance);
 		ids.add(value.id);
 		entries.push(value as LedgerEntry);
 	}

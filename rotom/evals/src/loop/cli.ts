@@ -7,10 +7,12 @@ import { appendGateHistory, gateHistoryRecords, parseGateHistory, poolGateHistor
 import { defaultLoopDir, defaultSessionsDir, harvest } from "./harvest-run.ts";
 import { defaultModelExperiment } from "./harvest-models.ts";
 import { parseLedgerDir } from "./ledger.ts";
+import { buildWeekly, parseWeeklyConfig, writeWeekly } from "./weekly.ts";
 
 const evalsRoot = resolve(import.meta.dirname, "../..");
 const repoRoot = resolve(evalsRoot, "../..");
 export const GATE_MANIFEST = join(evalsRoot, "loop", "gate.json");
+export const WEEKLY_CONFIG = join(evalsRoot, "loop", "weekly.json");
 export const LEDGER = join(evalsRoot, "loop", "ledger");
 
 const USAGE = `Usage: npm run loop -- <command>
@@ -38,6 +40,14 @@ const USAGE = `Usage: npm run loop -- <command>
 
   ledger
       Validate every loop/ledger/<month>.json shard and print the experiment history.
+
+  weekly [--sessions DIR] [--days N] [--out DIR]
+      Harvest the last N days (default 28) and write ~/.rotom/loop/weekly-<date>/:
+      north star v2 with bands and a sensitivity column, the blinded field
+      comparison (counts and adherence only until the window closes), every
+      shipped-but-unmeasured ledger record against its own acceptance metric,
+      and provider-to-user failures per 100 turns before and after the switch.
+      No model calls; nothing is written to Git.
 `;
 
 function stamp(): string {
@@ -90,6 +100,21 @@ async function main(argv: string[]): Promise<number> {
 				console.log(`sensitivity (dropped ${sensitivity.droppedSessionId ?? "none"}) ${row.model}: turns=${row.turns} v2=${row.v2} per100=${band(row)}`);
 			}
 		}
+		return 0;
+	}
+	if (command === "weekly") {
+		const { values } = parseArgs({ args: rest, options: { sessions: { type: "string" }, days: { type: "string" }, out: { type: "string" } } });
+		const days = values.days ? Number(values.days) : 28;
+		if (!Number.isFinite(days) || days <= 0) throw new Error("--days must be a positive number");
+		const since = new Date(Date.now() - days * 86_400_000);
+		const config = parseWeeklyConfig(readFileSync(WEEKLY_CONFIG, "utf8"));
+		const result = await harvest({ sessionsDir: values.sessions ?? defaultSessionsDir(), outRoot: values.out ?? defaultLoopDir(), since, excerpts: false });
+		const report = buildWeekly({ sessions: result.sessions, incidents: result.incidents, ledger: parseLedgerDir(LEDGER, repoRoot), config, since: since.toISOString() });
+		const directory = await writeWeekly(values.out ?? defaultLoopDir(), report);
+		console.log(`sessions=${result.sessions.length} incidents=${result.incidents.length}`);
+		console.log(`weekly: ${directory}/report.md`);
+		console.log(`experiment: ${report.experiment.state}; arms ${report.experiment.arms.map((arm) => `${arm.arm}=${arm.sessions}`).join(" ")}`);
+		for (const row of report.records) console.log(`record ${row.status.padEnd(12)} ${row.id}  turns=${row.turns} observed=${row.observedPer100 ?? "N/A"} baseline=${row.baselinePer100 ?? "N/A"}`);
 		return 0;
 	}
 	if (command === "gate") {
