@@ -69,7 +69,7 @@ async function main(argv: string[]): Promise<number> {
 			since,
 			excerpts: !values["no-excerpts"],
 		});
-		console.log(`sessions=${result.sessions.length} incidents=${result.incidents.length} skipped=${result.skipped}`);
+		console.log(`sessions=${result.sessions.length} incidents=${result.incidents.length} skipped=${Object.entries(result.skipped).map(([reason, count]) => `${reason}:${count}`).join(",") || "0"}`);
 		console.log(`report: ${join(result.outDir, "report.md")}`);
 		return 0;
 	}

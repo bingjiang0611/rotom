@@ -165,3 +165,122 @@ export function toolErrorTables(incidents: readonly Incident[]): ToolErrorTables
 			.sort((left, right) => left.tool.localeCompare(right.tool) || right.count - left.count),
 	};
 }
+
+/** v1 counts every intervention; v2 drops interrupts that are a self-retract or otherwise unjudged. */
+export type NorthStarRow = { week: string; turns: number; v1: number; v1Per100: number | null; v1Interval?: RateInterval; v2: number; v2Per100: number | null; v2Interval?: RateInterval };
+
+/**
+ * Both north stars per week, in one table. v1 is unchanged so the history stays comparable;
+ * v2 replaces every counted interrupt with only the quality ones.
+ */
+export function northStarWeeks(sessions: readonly SessionSummary[], weekOf: (session: SessionSummary) => string): NorthStarRow[] {
+	const rows = new Map<string, { week: string; turns: number; v1: number; v2: number }>();
+	for (const session of sessions) {
+		const week = weekOf(session);
+		const row = rows.get(week) ?? { week, turns: 0, v1: 0, v2: 0 };
+		row.turns += session.userTurns;
+		row.v1 += session.interventions;
+		row.v2 += session.northStarV2;
+		rows.set(week, row);
+	}
+	return [...rows.values()]
+		.map((row) => ({
+			...row,
+			v1Per100: row.turns > 0 ? Math.round((row.v1 / row.turns) * 1000) / 10 : null,
+			v1Interval: poissonRateInterval(row.v1, row.turns),
+			v2Per100: row.turns > 0 ? Math.round((row.v2 / row.turns) * 1000) / 10 : null,
+			v2Interval: poissonRateInterval(row.v2, row.turns),
+		}))
+		.sort((left, right) => left.week.localeCompare(right.week));
+}
+
+export type DimensionRow = { key: string; turns: number; interventions: number; northStarV2: number; v2Per100: number | null; v2Interval?: RateInterval };
+
+/** Same rate per model, because the model mix changes faster than any week-to-week comparison. */
+export function dimensionRates(sessions: readonly SessionSummary[], keyOf: (session: SessionSummary) => string | undefined): DimensionRow[] {
+	const rows = new Map<string, { key: string; turns: number; interventions: number; northStarV2: number }>();
+	for (const session of sessions) {
+		const key = keyOf(session) ?? "unknown";
+		const row = rows.get(key) ?? { key, turns: 0, interventions: 0, northStarV2: 0 };
+		row.turns += session.userTurns;
+		row.interventions += session.interventions;
+		row.northStarV2 += session.northStarV2;
+		rows.set(key, row);
+	}
+	return [...rows.values()]
+		.map((row) => ({ ...row, v2Per100: row.turns > 0 ? Math.round((row.northStarV2 / row.turns) * 1000) / 10 : null, v2Interval: poissonRateInterval(row.northStarV2, row.turns) }))
+		.sort((left, right) => right.turns - left.turns || left.key.localeCompare(right.key));
+}
+
+/** Turn share per model over the whole window, so a per-model rate has a denominator weight. */
+export function modelTurnShare(sessions: readonly SessionSummary[]): { model: string; turns: number; share: number }[] {
+	const turns = new Map<string, number>();
+	let total = 0;
+	for (const session of sessions) {
+		for (const [model, count] of Object.entries(session.modelTurns)) {
+			turns.set(model, (turns.get(model) ?? 0) + count);
+			total += count;
+		}
+	}
+	return [...turns]
+		.map(([model, count]) => ({ model, turns: count, share: total > 0 ? Math.round((count / total) * 1000) / 10 : 0 }))
+		.sort((left, right) => right.turns - left.turns || left.model.localeCompare(right.model));
+}
+
+/** Interrupts that ended with a different model selected before the next user message. */
+export type ModelSwitchTables = {
+	total: number;
+	byModel: { model: string; count: number }[];
+	byDuration: { duration: string; count: number }[];
+	byModelDuration: { model: string; duration: string; count: number }[];
+};
+
+export function modelSwitchTables(incidents: readonly Incident[]): ModelSwitchTables {
+	const switches = incidents.filter((incident) => incident.kind === "user_interrupt" && typeof incident.detail.modelSwitchAfter === "string");
+	const matrix = new Map<string, number>();
+	for (const incident of switches) {
+		const key = `${String(incident.detail.model ?? "unknown")}\u0000${durationBucket(incident.detail.elapsedMs)}`;
+		matrix.set(key, (matrix.get(key) ?? 0) + 1);
+	}
+	return {
+		total: switches.length,
+		byModel: countBy(switches, (incident) => String(incident.detail.model ?? "unknown")).map((row) => ({ model: row.key, count: row.count })),
+		byDuration: DURATION_BUCKETS.filter((bucket) => switches.some((incident) => durationBucket(incident.detail.elapsedMs) === bucket)).map((bucket) => ({
+			duration: bucket,
+			count: switches.filter((incident) => durationBucket(incident.detail.elapsedMs) === bucket).length,
+		})),
+		byModelDuration: [...matrix]
+			.map(([key, count]) => {
+				const [model, duration] = key.split("\u0000");
+				return { model, duration, count };
+			})
+			.sort((left, right) => right.count - left.count || left.model.localeCompare(right.model)),
+	};
+}
+
+/** Interrupts by triage class, counted the same way v1 counts them. */
+export function triageTable(incidents: readonly Incident[]): { triage: string; count: number }[] {
+	const counted = incidents.filter((incident) => incident.kind === "user_interrupt" && incident.detail.cause !== "injected" && incident.detail.cause !== "compaction");
+	return countBy(counted, (incident) => String(incident.detail.triage ?? "other")).map((row) => ({ triage: row.key, count: row.count }));
+}
+
+/**
+ * Per-model rate from the model that answered each turn, not the session's dominant model: a
+ * session that switched models in the middle would otherwise attribute everything to one.
+ */
+export function modelDimensionRates(sessions: readonly SessionSummary[]): DimensionRow[] {
+	const rows = new Map<string, { key: string; turns: number; interventions: number; northStarV2: number }>();
+	for (const session of sessions) {
+		const models = new Set([...Object.keys(session.modelTurns), ...Object.keys(session.interventionModels), ...Object.keys(session.v2Models)]);
+		for (const model of models) {
+			const row = rows.get(model) ?? { key: model, turns: 0, interventions: 0, northStarV2: 0 };
+			row.turns += session.modelTurns[model] ?? 0;
+			row.interventions += session.interventionModels[model] ?? 0;
+			row.northStarV2 += session.v2Models[model] ?? 0;
+			rows.set(model, row);
+		}
+	}
+	return [...rows.values()]
+		.map((row) => ({ ...row, v2Per100: row.turns > 0 ? Math.round((row.northStarV2 / row.turns) * 1000) / 10 : null, v2Interval: poissonRateInterval(row.northStarV2, row.turns) }))
+		.sort((left, right) => right.turns - left.turns || left.key.localeCompare(right.key));
+}
