@@ -61,11 +61,6 @@ export class ClientLeaseBroker implements LeaseBroker {
 		return await this.client.approveTakeover();
 	}
 
-	/** Report that a real user input ended a foreground takeover (helper-only). */
-	async reportPreempted(targetAgentId: string): Promise<boolean> {
-		return await this.client.reportPreempted(targetAgentId);
-	}
-
 	/** Release every lease this agent still owns, e.g. on session shutdown. */
 	async releaseAll(): Promise<void> {
 		const status = await this.client.status().catch(() => undefined);

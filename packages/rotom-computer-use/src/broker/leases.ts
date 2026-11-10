@@ -1,17 +1,13 @@
 import { randomBytes } from "node:crypto";
 import type { LeaseHolderInfo, LeaseInfo } from "./protocol.ts";
 
-export interface Schedule {
-	/** Returns a cancel function. Injected so tests can drive time deterministically. */
-	schedule(callback: () => void, ms: number): () => void;
-}
+/** Returns a cancel function. Injected so tests can drive time deterministically. */
+export type Schedule = (callback: () => void, ms: number) => () => void;
 
-export const realSchedule: Schedule = {
-	schedule(callback, ms) {
-		const timer = setTimeout(callback, Math.max(0, ms));
-		timer.unref?.();
-		return () => clearTimeout(timer);
-	},
+export const realSchedule: Schedule = (callback, ms) => {
+	const timer = setTimeout(callback, Math.max(0, ms));
+	timer.unref?.();
+	return () => clearTimeout(timer);
 };
 
 export interface LeaseManagerOptions {
