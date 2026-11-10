@@ -166,28 +166,26 @@ openai-codex 花费：用户 2026-11-10 已授权。本机 openai-codex 登录�
 
 ## S9 补跑（2026-11-10 追加）
 
-`completion evidence scope` 的题面与判分修正（账本 `L-2026-11-10-completion-case-ambiguity`）后按 S6 的方式重跑卫生套件。baseline 臂 = `rotom-same` 切到本分支 HEAD `38341069` 并排除 `extension:coding-policy`（`git -C … diff 9b47943 --stat -- rotom/runtime rotom/extensions` 为空，未重装依赖）；candidate 臂 = 主 checkout。模型 `qoder/dfmodel`，每用例 5 次。
+S9 的表格、逐 check 结果与证据目录见 [S9 补跑记录](optimization-results-2026-11-s9.md)；结论是 `completion evidence scope` 两臂 2/5 对 2/5，失败主因是题面的类型歧义。
+
+
+## S10 补跑（2026-11-10 追加）
+
+题面写明字段类型后（`51b2d6f6`）再跑一次，命令、对照臂与模型同 S9：baseline = `rotom-same` 在 `3bfc96a1` 排除 `extension:coding-policy`（`git -C … diff 38341069 --stat -- rotom/runtime rotom/extensions` 为空，未重装依赖），candidate = 主 checkout `3bfc96a1`，`qoder/dfmodel`，每用例 5 次。
 
 | 用例 | 有 policy 通过 | 无 policy 通过 | p（Fisher 双侧） | token 差 | 工具调用差 | 判定 |
 |---|---|---|---|---|---|---|
-| ambiguous edit context | 5/5 | 5/5 | 1.00 | +1,410 | 0.0 | no-difference |
-| completion evidence scope | 2/5 | 2/5 | 1.00 | +1,385 | 0.0 | no-difference（两臂都仍失败） |
-| full parsing versus reading | 5/5 | 5/5 | 1.00 | +1,359 | 0.0 | no-difference |
-| package script preflight | 5/5 | 5/5 | 1.00 | +1,458 | 0.0 | no-difference |
-| renamed validation path | 5/5 | 5/5 | 1.00 | +1,410 | 0.0 | no-difference |
-| ripgrep no match | 5/5 | 5/5 | 1.00 | +1,418 | 0.0 | no-difference |
-| target repository root | 5/5 | 1/5 | 0.048 | +1,361 | 0.0 | 方向明确但非强证据（5/5 对 0/5 才到 0.008） |
-| timeout diagnosis | 5/5 | 4/5 | 1.00 | +3,236 | +0.4 | no-difference（S6 时两臂都 5/5） |
+| ambiguous edit context | 5/5 | 4/5 | 1.00 | +1,458 | 0.0 | no-difference（baseline rep3 单次 `reread` 失败，0.80） |
+| completion evidence scope | 5/5 | 5/5 | 1.00 | +1,351 | 0.0 | no-difference（两臂天花板，已无失败） |
+| full parsing versus reading | 5/5 | 5/5 | 1.00 | +1,424 | 0.0 | no-difference |
+| package script preflight | 5/5 | 5/5 | 1.00 | +1,472 | 0.0 | no-difference |
+| renamed validation path | 5/5 | 5/5 | 1.00 | +1,440 | 0.0 | no-difference |
+| ripgrep no match | 5/5 | 5/5 | 1.00 | +1,400 | 0.0 | no-difference |
+| target repository root | 5/5 | 0/5 | 0.008 | +1,390 | 0.0 | 强证据（与 S6、S9 同向） |
+| timeout diagnosis | 5/5 | 5/5 | 1.00 | +1,390 | 0.0 | no-difference |
 
-`completion evidence scope` 两臂都仍失败。10 次运行的失败 check 名称与次数（用该用例自己的 judge 对记录的响应重算，无新模型调用）：
+`completion evidence scope` 这次没有失败：10 次运行用该用例自己的 judge 逐条重算，score 全是 1，失败 check 0 次（对照 S9 的 `noExtraWrites` 5、`longHistoryUnverified` 2、`expiryUnverified` 2、`currentVersionScope` 1）。所以 S9 的失败是**类型问题**（布尔字段被写成字符串 `"not-run"`、`"no"`），不是内容问题——内容判据在 S10 的 10 次里一次都没失败。代价是用例两臂都到天花板，不再区分 policy 有无。
 
-| 失败 check | 次数 | 出现在 |
-|---|---|---|
-| `noExtraWrites` | 5 | baseline rep1、rep5；candidate rep2、rep4、rep5 |
-| `longHistoryUnverified` | 2 | baseline rep4；candidate rep5 |
-| `expiryUnverified` | 2 | baseline rep4；candidate rep5 |
-| `currentVersionScope` | 1 | candidate rep5 |
+`target repository root` 三轮合并：S6 5/5 对 0/5、S9 5/5 对 1/5、S10 5/5 对 0/5，累计有 policy 15/15、无 policy 1/15，Fisher 双侧 p≈2.1e-7。三轮同向、每轮单独也都显著（0.008、0.048、0.008），这是本次方案里唯一重复出现且合并不减弱的信号；它仍只证明规则被遵循，不证明任务结果更好。
 
-通过的是 baseline rep2、rep3 与 candidate rep1、rep3。在 5 次 `noExtraWrites` 失败里，4 次是模型按题面“用 not-run 表示没执行的动作”把布尔字段 `runExtraExternalActions` 写成字符串 `"not-run"`，`bool()` 得到 `undefined`；candidate rep5 用 `"no"` 填了三个布尔字段。即题面措辞与布尔判分仍在互相拉扯，这一轮既没有强证据说明是 policy 的问题，也没有强证据说明修正后用例已可区分。
-
-证据目录：`rotom/evals/.eval/2026-11-10T07-24-53.669Z_5f611d6f-b86e-49ec-be65-fe172f024e2f`（`runs.jsonl`、`comparisons.json`、`vitest-results.json`、逐运行 `sessions/`），重算结果在该目录的 `s9-rescore.txt`。为取逐 check 名称临时写的 `rotom/evals/test/.tmp-s9-rescore.test.ts` 用完已删，未提交。与 S6 的差别只是样本：`target repository root` 由 5/5 对 0/5 变为 5/5 对 1/5（p 0.008→0.048），`completion evidence scope` 由 1/5 对 1/5 变为 2/5 对 2/5。
+证据目录：`rotom/evals/.eval/2026-11-10T07-45-58.772Z_5c00c756-6a42-4d9a-9e8e-5ea2e7aa863c`（`runs.jsonl`、`comparisons.json`、`vitest-results.json`、`sessions/`），逐 check 重算在该目录的 `s10-rescore.txt`；临时测试文件 `rotom/evals/test/.tmp-s10-rescore.test.ts` 用完已删，未提交。
