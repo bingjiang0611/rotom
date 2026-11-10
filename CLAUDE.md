@@ -71,6 +71,8 @@ Context Layers 是用户明确要求独立实现并默认启用的产品 extensi
 
 - Pi 基线为 `1.4.0-rotom.4`（上游 `v1.4.0` 合并，见 [Pi 1.4.0 对齐](docs/agent/pi-1.4-migration.md)）；Codemode 独立启用。上游分类模型/API、虚拟模型路由 API 与内置 MCP 均保留：产品不自带分类器调用或虚拟模型，只有扩展注册虚拟模型或用户在 `mcp.json` 配置 server 时才生效；`rotom mcp …` 与 Pi 包管理命令一样原样透传。Goal/Ask/Subagent/Browser/Computer Use 使用 `model-only`，不可从 Codemode 嵌套调用；普通文件工具仍可编排。显式工具选择仍优先。
 - Goal 预算计入已报告的 tool-result/model/summary usage；旧 Goal 基线一次迁移、不追收历史辅助用量。reviewer 使用当前选中的普通模型，不进行分类或自动路由；没有选中模型保持 unknown。
+- coding-policy 只写入 `systemPromptOptions.sections.coding_policy`，不返回整块 `systemPrompt`：整块替换会在加载新工具后改写开头 system 消息、打断 provider 前缀缓存；`rotom/extensions/coding-policy/request.test.ts` 锁定开头 system 消息逐字节不变。
+- Subagent `0.52.1-rotom.15` 的产品面不暴露 `share`（会经 `gh gist create` 外传）与 `sessionDir`；内置 `scout` 只读且无默认输出文件；阻塞 `subagent_wait` 默认 10 分钟、上限 15 分钟。完成通知超过 8 KB 只回首 6 KB/尾 2 KB，全文写入执行 store 的 `completion-output/`（0700/0600、`O_EXCL`/`O_NOFOLLOW`、7 天清理）：这是子任务正文落盘，不进 trace，也不得外传。
 - `ROTOM_DEFERRED_TOOLS=0` 必须恢复完整工具面。
 - 用户显式 `--tools`、`--exclude-tools` 或 runtime policy 优先；launcher 仅在没有 tool-selection flag 时授权 loader 收窄 reviewed default，extension/SDK 直载默认保留调用方 active set；用户 extension 新增的非 deferred 工具同样保留。
 - 已加载 specialized tools 在当前 session 内不主动移除；group state 与 active tool 子序列按 product declaration order canonicalize，相同 group 集合不因加载顺序产生不同最终 identity。
