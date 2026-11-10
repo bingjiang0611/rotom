@@ -50,6 +50,6 @@ npm --prefix rotom/evals run loop -- gate --baseline /absolute/frozen/rotom
 npm --prefix rotom/evals run loop -- harvest --days 28
 ```
 
-## P2：未开始
+## P2：按 2026-11-10 结论处理
 
-按第三节，P2 每项以对应 P1 门禁放行；P1 未运行，故 P2 全部未实施。第四节的六项决策仍待用户确认。
+P1 已在本机跑完（[结果](optimization-results-2026-11.md)）。第四节六项决策的结论见方案“2026-11-10 结论”：不删 Offload/`obs_recall`、Reducer 不关而改为补测、`explore` 与进程内运行暂缓、Subagent 不改 opt-in、coding-policy 暂不删规则。唯一落地的改动是修正 `completion evidence scope` 用例的题面歧义与逐字判分。

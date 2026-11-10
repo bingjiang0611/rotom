@@ -120,6 +120,19 @@
 5. 只读角色是否改为父进程内 Pi SDK 子会话：省掉 runner→pi 两层进程与约 1.8 s 启动，但与 Goal reviewer"不创建嵌套 AgentSession"的既有决定冲突。
 6. P2-17 Subagent 改 opt-in。
 
+### 2026-11-10 结论（本机实测后，用户确认）
+
+| 决策 | 结论 | 依据 |
+|---|---|---|
+| 1. P1 授权 | 已执行 | gate 与评测用 `qoder/dfmodel`；P1-5 的 `openai-codex` 花费由用户授权；结果见 [本机验证结果](optimization-results-2026-11.md) |
+| 2. 删 `obs_recall` / Offload（P2-1） | **不做** | Compaction Offload 是账本里仅有的两条 `improved` 之一（原生压缩 12→3、6→3，单次等待 9.2→3.0 s）；harvest 中 466 次压缩只有 14 次之后用了回查，说明换成指针的旧结果很少需要取回。两个回查工具并存的问题以后按合并处理，不靠删除 Offload |
+| 3. Reducer 默认关闭（P2-5） | **不做，改为补测** | 总 token 只占主模型 0.05%，被采用回执把输出中位数 26 KB→1.6 KB、累计省 1.97 MB（`npm-0.1.25.md`）；问题在保真（多处失败常只引一例，22 次失败回执主模型回读 10 次）、阻塞与 openai-codex 依赖。P1-5 两个套件触发不到 Reducer，需要 `npm test` 级输出的 fixture 才能测 |
+| 4. `explore` 便宜模型（P2-14） | **暂缓** | dfmodel 在 Subagent 有/无套件中 0/6 委派，没有可比较的委派数据 |
+| 5. 只读角色进程内运行 | **暂缓** | 依赖 4 与 Subagent 收益证据 |
+| 6. Subagent 改 opt-in（P2-17） | **不做** | 已是按需加载，未用时只多一次 `search_tools` 提示；真实会话 12% 在用（297 次）；套件测不到收益是因为任务诱发不了委派，不是证明无用 |
+
+coding-policy 精简（P2-8）同样**暂不删规则**：卫生套件 8 个用例都是不执行工具的 JSON 计划题，题面给出线索，两臂满分属于天花板，不能作为删除依据（`rotom/evals/docs/coding-evals.md` 已规定计划题不能据此删除）；`target repository root` 的 5/5 vs 0/5 也只证明规则写进提示后会被遵循。下一步把这些规则改写成真实执行的行为用例再按“提示房租”规则处理。`completion evidence scope` 两臂 1/5 主要来自题面歧义与逐字判分，已修正（见账本 `L-2026-11-10-completion-case-ambiguity`），需本机重跑。
+
 ## 五、不做 / 暂缓
 
 - 不重建模型驱动的 Context Fold（L3 已证中性且有弃任务）。
