@@ -142,7 +142,7 @@ npm --prefix rotom/evals run loop -- gate --baseline /absolute/rotom-pre-fix/rot
 - **每周**：`npm --prefix rotom/evals run loop -- weekly`。它自己跑 28 天 harvest，然后写 `~/.rotom/loop/weekly-<YYYY-MM-DD>/`（`report.md` + `summary.json`，0700/0600，不入 Git）。四段内容：
   1. North Star v2 的总计、按模型、按产品版本，每行带 95% Poisson 区间和“去掉该维度最大一次会话后”的敏感度列；
   2. 默认模型对照实验：**只**给每条臂的会话数与遵守率，窗口关闭前不给任何结果指标（类型里就没有字段，不是靠格式化省略），判定只在窗口关闭后按账本预注册规则读；
-  3. 每条 `decision=shipped` + `evidence=unmeasured` 的记录：用它自己的 `acceptance`（指标、事件类型、可选 detail 过滤、基线、最少 turns）只看验收起点之后的数据，给 `improved / no-change / worse / not-yet-due / no-metric`；没声明可测指标的记录直接报 `no-metric`，不猜；
+  3. 每条 `decision=shipped` + `evidence=unmeasured` 的记录：用它自己的 `acceptance`（指标、事件类型、可选 detail 过滤、基线、暴露量）只看验收起点之后的数据，给 `improved / no-change / worse / insufficient-exposure / no-metric`；没声明可测指标的记录直接报 `no-metric`，不猜。暴露量 = 基线速率预测出 10 个事件的 turn 数（`ceil(1000 / baselinePer100)`），预先登记；`loop ledger` 拒绝与基线不符的值，也拒绝基线为 0（暴露量不可达）。没到暴露量时只报 `insufficient-exposure`（暴露不足），不报“改善”或“无变化”。到量后用单侧精确泊松检验（`poisson-test.ts`，阈值固定 alpha 0.05）：观测事件数对 `基线速率 × turn 数` 的期望，方向由 `expect` 决定；`no-change` 只表示没显出差异。报告同时给出每条记录的暴露量、离暴露量还差多少天（按最近 7 天日均 turn 数换算）；
   4. 按 provider 的“用户可见失败/100 turns”，以版本切换时刻分为 before/after 两段；失败归到其会话所在的段。
 
   切换时间与对照窗口写在 `rotom/evals/loop/weekly.json`（`switchAt`、`experiment.start/end`，本地日期含首尾）。看完报告再决定要不要对某条记录做深度分诊；不因为报告出现新数字就改判定规则。

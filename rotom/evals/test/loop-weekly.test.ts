@@ -1,10 +1,24 @@
 import { describe, expect, it } from "vitest";
 import { buildWeekly, blindedExperiment, parseWeeklyConfig, providerSegments, renderWeekly, acceptanceRows } from "../src/loop/weekly.ts";
+import { providerCode, summarizeProviderErrors } from "../src/loop/harvest-provider.ts";
 import { parseLedger, type LedgerEntry } from "../src/loop/ledger.ts";
 import type { Incident, SessionSummary } from "../src/loop/harvest.ts";
 
 const CONFIG = { switchAt: "2026-11-10T13:30:07Z", experiment: { start: "2026-11-11", end: "2026-12-08" } };
 const ASTRA = "openai-codex/gpt-6-astra";
+
+function fakeReport(overrides: Partial<ReturnType<typeof buildWeekly>>) {
+	return {
+		generatedAt: "2026-11-13T00:00:00Z",
+		window: { since: "2026-10-13T00:00:00Z" },
+		config: CONFIG,
+		northStar: { overall: [], models: [], products: [] },
+		experiment: { state: "open" as const, end: CONFIG.experiment.end, arms: [], excluded: { switched: 0, offDefault: 0 } },
+		records: [],
+		providerFailures: [],
+		...overrides,
+	} as ReturnType<typeof buildWeekly>;
+}
 const SOL = "openai-codex/gpt-6.1-sol";
 
 function session(overrides: Partial<SessionSummary> & { startedAt: string }): SessionSummary {
@@ -85,19 +99,50 @@ describe("weekly report", () => {
 	});
 
 	it("reports a record's own metric only from sessions after its acceptance start", () => {
+		// 1.0 per 100 → exposure 1,000 turns (the rate predicts ten events there).
 		const entry = ledgerEntry({
-			acceptance: { startedAt: "2026-11-10T13:30:07Z", metric: "provider_error where category=429", incident: "provider_error", detail: ["category", "429"], baselinePer100: 0.14, minimumTurns: 300, expect: "lower" },
+			acceptance: { startedAt: "2026-11-10T13:30:07Z", metric: "provider_error where category=429", incident: "provider_error", detail: ["category", "429"], baselinePer100: 1, minimumTurns: 1000, expect: "lower" },
 		});
 		const before = [session({ startedAt: "2026-11-09T09:00:00+08:00", userTurns: 1000 })];
 		const incidentsBefore = [{ kind: "provider_error", timestamp: "2026-11-09T10:00:00+08:00", detail: { category: "429" } }] as unknown as Incident[];
-		expect(acceptanceRows([entry], before, incidentsBefore, new Date("2026-11-12T00:00:00Z"))[0]).toMatchObject({ status: "not-yet-due", turns: 0 });
+		expect(acceptanceRows([entry], before, incidentsBefore, new Date("2026-11-12T00:00:00Z"))[0]).toMatchObject({ status: "insufficient-exposure", turns: 0 });
 
-		const after = [session({ startedAt: "2026-11-12T09:00:00+08:00", userTurns: 400 })];
-		const failed = Array.from({ length: 12 }, (_, index) => ({ kind: "provider_error", timestamp: `2026-11-12T1${index % 10}:00:00+08:00`, detail: { category: "429" } })) as unknown as Incident[];
-		// 12 failures over 400 turns = 3.0 per 100, far above the 0.14 baseline.
-		expect(acceptanceRows([entry], after, failed, new Date("2026-11-13T00:00:00Z"))[0]).toMatchObject({ status: "worse", turns: 400, observedPer100: 3 });
-		const clean = after.map((item) => ({ ...item }));
-		expect(acceptanceRows([entry], clean, [], new Date("2026-11-13T00:00:00Z"))[0]).toMatchObject({ status: "improved", observedPer100: 0 });
+		const after = [session({ startedAt: "2026-11-12T09:00:00+08:00", userTurns: 2000 })];
+		const failed = Array.from({ length: 40 }, (_, index) => ({ kind: "provider_error", timestamp: `2026-11-12T1${index % 10}:00:00+08:00`, detail: { category: "429" } })) as unknown as Incident[];
+		// 40 failures over 2,000 turns = 2.0 per 100, above the 1.0 baseline with 20 expected.
+		expect(acceptanceRows([entry], after, failed, new Date("2026-11-13T00:00:00Z"))[0]).toMatchObject({ status: "worse", turns: 2000, observedPer100: 2 });
+		expect(acceptanceRows([entry], after, [], new Date("2026-11-13T00:00:00Z"))[0]).toMatchObject({ status: "improved", observedPer100: 0 });
+	});
+
+	it("refuses a verdict below exposure even when the period has zero events", () => {
+		// The round-7 trap: a 0.19 baseline over 300 turns predicts 0.6 events, so zero events is
+		// what the baseline itself predicts. It must not read as "improved" or "no change".
+		const entry = ledgerEntry({
+			acceptance: { startedAt: "2026-11-10T13:30:07Z", metric: "compaction_failed", incident: "compaction_failed", baselinePer100: 0.19, minimumTurns: 5236, expect: "lower" },
+		});
+		const after = [session({ startedAt: "2026-11-12T09:00:00+08:00", userTurns: 300 })];
+		const rows = acceptanceRows([entry], after, [], new Date("2026-11-13T00:00:00Z"));
+		expect(rows[0]).toMatchObject({ status: "insufficient-exposure", turns: 300, minimumTurns: 5236 });
+		// 300 turns in the last week is 42.9 turns/day, so the missing 4,936 turns is 116 days.
+		expect(rows[0]?.daysToExposure).toBe(116);
+		expect(renderWeekly(fakeReport({ records: rows }))).toContain("insufficient-exposure");
+		expect(renderWeekly(fakeReport({ records: rows }))).not.toContain("| improved |");
+	});
+
+	it("calls a change only when the exact rate test clears alpha", () => {
+		const entry = ledgerEntry({
+			acceptance: { startedAt: "2026-11-10T13:30:07Z", metric: "m", incident: "compaction_failed", baselinePer100: 1, minimumTurns: 1000, expect: "lower" },
+		});
+		const after = [session({ startedAt: "2026-11-12T09:00:00+08:00", userTurns: 3000 })];
+		const events = (count: number) => Array.from({ length: count }, (_, index) => ({ kind: "compaction_failed", timestamp: `2026-11-12T1${index % 10}:00:00+08:00`, detail: {} })) as unknown as Incident[];
+		// 30 events against 30 expected: no difference shown, and the note says only that.
+		const flat = acceptanceRows([entry], after, events(30), new Date("2026-11-13T00:00:00Z"))[0];
+		expect(flat).toMatchObject({ status: "no-change" });
+		expect(flat?.note).toContain("one-sided exact Poisson");
+		// 15 against 30 expected → p ≈ 0.0026, improved.
+		expect(acceptanceRows([entry], after, events(15), new Date("2026-11-13T00:00:00Z"))[0]).toMatchObject({ status: "improved" });
+		// 50 against 30 expected → p ≈ 0.0005 on the other tail, worse.
+		expect(acceptanceRows([entry], after, events(50), new Date("2026-11-13T00:00:00Z"))[0]).toMatchObject({ status: "worse" });
 	});
 
 	it("says so when a shipped record has no harvest-measurable metric", () => {
@@ -173,10 +218,14 @@ describe("weekly report", () => {
 	});
 
 	it("rejects an acceptance spec the weekly report could not read", () => {
-		const base = { startedAt: CONFIG.switchAt, metric: "m", incident: "provider_error", baselinePer100: 1, minimumTurns: 10, expect: "lower" };
+		// baselinePer100 1 implies minimumTurns 1000, so each case below varies one field at a time.
+		const base = { startedAt: CONFIG.switchAt, metric: "m", incident: "provider_error", baselinePer100: 1, minimumTurns: 1000, expect: "lower" };
 		const round = (acceptance: unknown) => JSON.stringify([ledgerEntry({ acceptance: acceptance as LedgerEntry["acceptance"] })]);
 		expect(() => parseLedger(round({ ...base, incident: "not-a-kind" }))).toThrow(/acceptance.incident/u);
 		expect(() => parseLedger(round({ ...base, minimumTurns: 0 }))).toThrow(/minimumTurns/u);
+		// Exposure is pre-registered: a record must declare exactly the turns its baseline implies.
+		expect(() => parseLedger(round({ ...base, minimumTurns: 300 }))).toThrow(/implied by baselinePer100/u);
+		expect(() => parseLedger(round({ ...base, baselinePer100: 0, minimumTurns: 300 }))).toThrow(/positive number/u);
 		expect(() => parseLedger(round({ ...base, expect: "sideways" }))).toThrow(/expect/u);
 		expect(() => parseLedger(round({ ...base, detail: ["category"] }))).toThrow(/detail/u);
 		expect(parseLedger(round(base))[0]?.acceptance?.metric).toBe("m");

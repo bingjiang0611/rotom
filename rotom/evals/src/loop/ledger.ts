@@ -40,7 +40,11 @@ export type LedgerEntry = {
 		incident: IncidentKindName;
 		detail?: [string, string];
 		baselinePer100: number;
-		/** Turns needed before a status other than `not-yet-due` may be reported. */
+		/**
+	 * Turns needed before any verdict may be reported: the exposure at which the baseline rate
+	 * predicts ten events. It is derived from `baselinePer100`, and the parser refuses a record
+	 * that declares anything else, so the exposure is pre-registered rather than chosen later.
+	 */
 		minimumTurns: number;
 		expect: "lower" | "higher";
 	};
@@ -62,6 +66,15 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/u;
  */
 const SHARD = /^(\d{4}-\d{2})(?:-[a-z0-9-]+)?\.json$/u;
 
+/**
+ * Turns at which the baseline rate predicts ten events: `rate/100 × turns = 10`. Below it, a run of
+ * zero events is unremarkable, so reporting "no change" or "improved" would be noise dressed up as
+ * a finding.
+ */
+export function exposureTurns(baselinePer100: number): number {
+	return Math.ceil(1000 / baselinePer100);
+}
+
 /** A shard file name is the month its entries must fall in. */export function shardFile(month: string): string {
 	if (!/^\d{4}-\d{2}$/u.test(month)) throw new Error(`ledger: month must look like YYYY-MM, got ${month}`);
 	return `${month}.json`;
@@ -78,8 +91,12 @@ function validateAcceptance(where: string, raw: unknown): void {
 		const detail = value.detail;
 		if (!Array.isArray(detail) || detail.length !== 2 || detail.some((item) => typeof item !== "string")) throw new Error(`${where}: acceptance.detail must be [field, value]`);
 	}
-	if (typeof value.baselinePer100 !== "number" || !Number.isFinite(value.baselinePer100) || value.baselinePer100 < 0) throw new Error(`${where}: acceptance.baselinePer100 must be a non-negative number`);
-	if (!Number.isSafeInteger(value.minimumTurns) || (value.minimumTurns as number) <= 0) throw new Error(`${where}: acceptance.minimumTurns must be a positive integer`);
+	if (typeof value.baselinePer100 !== "number" || !Number.isFinite(value.baselinePer100) || value.baselinePer100 <= 0) {
+		// A zero baseline can never predict ten events, so no amount of turns would license a verdict.
+		throw new Error(`${where}: acceptance.baselinePer100 must be a positive number (a zero baseline has no reachable exposure)`);
+	}
+	const minimumTurns = exposureTurns(value.baselinePer100);
+	if (value.minimumTurns !== minimumTurns) throw new Error(`${where}: acceptance.minimumTurns must be ${minimumTurns}, the exposure implied by baselinePer100 ${value.baselinePer100}`);
 	if (value.expect !== "lower" && value.expect !== "higher") throw new Error(`${where}: acceptance.expect must be lower or higher`);
 }
 
