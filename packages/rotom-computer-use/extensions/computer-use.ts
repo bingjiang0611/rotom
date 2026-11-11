@@ -32,6 +32,7 @@ const clickByRef = Type.Object({ action: Type.Literal("click"), ref: Type.String
 const clickByPoint = Type.Object({ action: Type.Literal("click"), ...point, button: mouseButton, clickCount: Type.Optional(Type.Number({ minimum: 1, maximum: 3 })) });
 const uiAction = Type.Union([
 	Type.Object({ action: Type.Literal("press"), ref: Type.String({ description: "Actionable outline ref" }) }),
+	Type.Object({ action: Type.Literal("open"), ref: Type.String({ description: "macOS AXOpen only; requires an observed AXOpen capability. Not a retry after unknown. Verify the effect with expect or readback." }) }),
 	clickByRef,
 	clickByPoint,
 	Type.Object({ action: Type.Literal("setText"), ref: Type.String({ description: "Editable outline ref" }), text: Type.String() }),

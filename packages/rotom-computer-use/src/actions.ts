@@ -14,7 +14,7 @@ export type PreparedAction =
 	| { action: "moveMouse"; target: ActionTarget; params: Record<string, never>; establishesFocus: false; usesCurrentFocus: false; needsForeground: false }
 	| { action: "hover"; target: ActionTarget; params: { delivery?: "l2" }; establishesFocus: false; usesCurrentFocus: false; needsForeground: false }
 	| {
-		action: "select" | "setChecked" | "expand" | "collapse" | "scrollTo" | "focus" | "clear" | "setValue" | "showMenu";
+		action: "open" | "select" | "setChecked" | "expand" | "collapse" | "scrollTo" | "focus" | "clear" | "setValue" | "showMenu";
 		target: ActionTarget;
 		params: Record<string, unknown>;
 		establishesFocus: false;
@@ -115,6 +115,9 @@ export function prepareAction(action: UiAction, state: ActionState, env: ActionE
 	const operation = action.action;
 	if (SEMANTIC_ACTION_NAMES.has(operation)) {
 		const target = semanticTarget(action, env);
+		if (operation === "open" && !env.node(action.ref!).actions.includes("AXOpen")) {
+			throw new Error("open requires a freshly observed AXOpen capability; it is not a click fallback.");
+		}
 		const params: Record<string, unknown> = {};
 		if (operation === "select" && action.option?.trim()) params.option = action.option.trim();
 		if (operation === "setChecked") {

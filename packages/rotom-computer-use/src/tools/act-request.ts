@@ -54,6 +54,7 @@ export function buildActRequest(context: ActRequestContext): PlatformActRequest 
 				return { ...base, action: "setChecked", params: { checked: action.params.checked === true, ...delivered } };
 			case "setValue":
 				return { ...base, action: "setValue", params: { value: Number(action.params.value), ...delivered } };
+			case "open":
 			case "expand":
 			case "collapse":
 			case "scrollTo":

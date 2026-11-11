@@ -17,7 +17,7 @@ const env: ActionEnvironment = {
 		canFocus: true,
 		canSetValue: false,
 		isTextInput: false,
-		actions: ["AXPress"],
+		actions: ["AXPress", "AXOpen"],
 		children: [],
 	}) as any,
 	center: () => ({ x: 10, y: 10 }),

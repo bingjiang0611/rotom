@@ -183,13 +183,22 @@ export function computerUseEvidenceResult<T extends { content: Array<{ type: str
 		const codes = [...new Set(executionErrors(details).map((error) => error.code)
 			.filter((code): code is string => typeof code === "string" && /^[a-z_]{1,64}$/u.test(code)))].slice(0, 8);
 		summary = `act_ui evidence: outcome=${outcome}; verification=${check}${codes.length ? `; errors=${codes.join(",")}` : ""}.`;
+		const steps = Array.isArray(execution.steps) ? execution.steps : [execution];
+		for (const [index, step] of steps.slice(0, 20).entries()) {
+			const entry = record(step);
+			const performed = record(entry?.performed);
+			const delivery = entry?.delivery ?? performed?.delivery;
+			if (["ax", "pid", "l2", "hid"].includes(String(delivery))) {
+				summary += ` Step ${index + 1}: delivery=${delivery}${performed?.axAction === "AXOpen" ? "; axAction=AXOpen" : ""}.`;
+			}
+		}
 		if (Number.isInteger(execution.stoppedAt) && Number(execution.stoppedAt) >= 0) {
 			summary += ` Batch stopped at step ${Number(execution.stoppedAt) + 1} (1-based); earlier steps may already have executed. Do not replay the batch.`;
 		}
 		if (check === "preexisting") summary += " The condition was already present before dispatch; it does not prove this action worked.";
 		if (check === "failed") summary += " Check a changed target indicator using exact node text or value; do not concatenate labels split across AX nodes.";
 		if (outcome !== "worked" || check === "failed" || check === "preexisting" || resultNeedsObservation(result)) {
-			summary += " Business effect remains unproven; a failed postcondition is not proof of no effect. Check the successor state or a read-only application side effect before any further write. Do not retry or batch press+click/press+Enter merely because verification failed; do not activate the app as a workaround.";
+			summary += " Business effect remains unproven; a failed postcondition is not proof of no effect. Check the successor state or a read-only application side effect before any further write. Do not retry or switch to open/press/click/Enter merely because verification failed; do not activate the app as a workaround.";
 		} else {
 			summary += " This is tool-level evidence, not proof of the full business task.";
 		}
@@ -213,9 +222,9 @@ function rejectDuplicateActivations(params: unknown): void {
 	const activated = new Set<string>();
 	for (const value of actions) {
 		const action = record(value);
-		if ((action?.action !== "press" && action?.action !== "click") || typeof action.ref !== "string") continue;
+		if ((action?.action !== "press" && action?.action !== "click" && action?.action !== "open") || typeof action.ref !== "string") continue;
 		if (activated.has(action.ref)) {
-			throw new Error("Repeated press/click on the same ref in one act_ui batch is not a safe fallback. No actions were dispatched. Send one activation and check its effect; use clickCount for an intentional double-click.");
+			throw new Error("Repeated press/click/open on the same ref in one act_ui batch is not a safe fallback. No actions were dispatched. Send one activation and check its effect; use clickCount for an intentional double-click.");
 		}
 		activated.add(action.ref);
 	}

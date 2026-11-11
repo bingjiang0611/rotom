@@ -594,7 +594,7 @@ final class UserActivityMonitor {
 final class Bridge {
 	// 9 adds lease-token enforcement: write commands carry a broker-signed token and
 	// this side refuses missing, invalid, expired or revoked ones.
-	private let protocolVersion = 9
+	private let protocolVersion = 10
 	private let refStore = AXRefStore()
 	private let inputSuppressionGuard = InputSuppressionGuard()
 	private let userActivityMonitor = UserActivityMonitor()
@@ -609,7 +609,7 @@ final class Bridge {
 	private let physicalInputLock = NSRecursiveLock()
 	private let supportsAgentCursor = CommandLine.arguments.contains("serve")
 	private let semanticActions: Set<String> = [
-		"select", "setChecked", "expand", "collapse", "scrollTo", "focus", "clear", "setValue", "showMenu", "hover",
+		"open", "select", "setChecked", "expand", "collapse", "scrollTo", "focus", "clear", "setValue", "showMenu", "hover",
 	]
 	private let browserBundleIds: Set<String> = [
 		"com.apple.Safari", "com.google.Chrome", "org.chromium.Chromium", "company.thebrowser.Browser", "com.brave.Browser", "com.microsoft.edgemac", "com.vivaldi.Vivaldi", "net.imput.helium", "org.mozilla.firefox",
@@ -5011,7 +5011,8 @@ extension Bridge {
 extension Bridge {
 	/// One place for the AX actions that are not "press the thing".
 	///
-	/// Every branch writes through AX first, verifies the attribute it wrote, and
+	/// AXOpen has no generic completion attribute: it stays unknown pending caller readback.
+	/// Attribute writes verify the attribute they wrote and
 	/// only reports `worked` when the readback agrees. Roles that do not support
 	/// the attribute return `unsupported_action` with the roles that do, instead of
 	/// silently falling back to a coordinate click that could hit something else.
@@ -5027,6 +5028,23 @@ extension Bridge {
 		refreshElement: () -> AXUIElement?
 	) throws -> [String: Any] {
 		switch action {
+		case "open":
+			guard supportsAction(element, action: "AXOpen" as CFString) else {
+				throw BridgeFailure(message: "This element does not support AXOpen", code: "unsupported_action")
+			}
+			let status = AXUIElementPerformAction(element, "AXOpen" as CFString)
+			performed["delivery"] = "ax"
+			performed["grounding"] = "description"
+			performed["axAction"] = "AXOpen"
+			performed["verification"] = "caller_required"
+			var result: [String: Any] = [
+				"outcome": "unknown", "performed": performed,
+				"evidence": ["axReturnCode": status.rawValue],
+			]
+			if status != .success {
+				result["error"] = ["code": "ax_open_unknown", "message": "AXOpen did not confirm completion; do not retry"]
+			}
+			return result
 		case "select":
 			return try selectElement(element: element, params: params, performed: &performed)
 		case "setChecked":

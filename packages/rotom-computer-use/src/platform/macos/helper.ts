@@ -17,8 +17,9 @@ const COMMAND_TIMEOUT_MS = 15_000;
  * 9 adds lease-token enforcement on the helper side (review I2): write commands
  * carry a broker-signed token and the helper refuses invalid, expired or revoked
  * ones. Old and new sides refuse to pair instead of silently skipping the check.
+ * 10 adds explicit AXOpen; a protocol-9 helper must not be reused for this action.
  */
-export const HELPER_PROTOCOL_VERSION = 9;
+export const HELPER_PROTOCOL_VERSION = 10;
 const HELPER_SETUP_TIMEOUT_MS = 60_000;
 
 export const HELPER_BUNDLE_ID = "com.injaneity.pi-computer-use";

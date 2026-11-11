@@ -26,6 +26,7 @@ export const ACTION_TIERS: Record<string, AppTier> = {
 
 	// Pointer-free control.
 	press: "click",
+	open: "click",
 	click: "click",
 	scroll: "click",
 	moveMouse: "click",

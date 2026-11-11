@@ -102,6 +102,9 @@ export interface HelperActPerformed {
 	grounding?: "description" | "coordinates" | "keyboard-events";
 	/** `ax` means the platform accessibility API (AX on macOS, UIA on Windows). */
 	delivery?: "ax" | NativeInputDelivery;
+	/** Explicit semantic activation, not a mouse-click fallback. */
+	axAction?: "AXOpen";
+	verification?: "caller_required";
 	refound?: boolean;
 	/** Free-form diagnostic naming the platform's delta mechanism. */
 	deltaSource?: string;
@@ -223,7 +226,7 @@ export type PlatformActRequest = PlatformActRequestBase & (
 	| { action: "hover"; params: PlatformActDeliveryParam }
 	| { action: "select"; params: { option?: string } & PlatformActDeliveryParam }
 	| { action: "setChecked"; params: { checked: boolean } & PlatformActDeliveryParam }
-	| { action: "expand" | "collapse"; params: PlatformActDeliveryParam }
+	| { action: "open" | "expand" | "collapse"; params: PlatformActDeliveryParam }
 	| { action: "scrollTo"; params: PlatformActDeliveryParam }
 	| { action: "focus"; params: PlatformActDeliveryParam }
 	| { action: "clear"; params: PlatformActDeliveryParam }

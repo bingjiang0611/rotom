@@ -67,9 +67,9 @@ test("the fake script never consults the operator input source", () => {
 	assert.match(source, /const inputSource = fake \? fake\.inputSource : inputSourceInfo\(\)/);
 });
 
-test("protocol documentation says 9 and retains the cooperative arbitration boundary", () => {
+test("protocol documentation says 10 and retains the cooperative arbitration boundary", () => {
 	const doc = read("../../../CLAUDE.md");
-	assert.match(doc, /helper 协议已升到 9/);
+	assert.match(doc, /helper 协议已升到 10/);
 	assert.match(doc, /协作式/);
 	assert.doesNotMatch(doc, /helper 协议已升到 8/);
 });
