@@ -3,7 +3,7 @@
  * interrupt, the runtime stratification and the per-model rate.
  */
 import { describe, expect, it } from "vitest";
-import { analyzeSession, interruptTriage, productVersionOf, runtimeVersionOf, solPiVersionOf, type SessionSummary } from "../src/loop/harvest.ts";
+import { analyzeSession, entryClassOf, interruptTriage, launcherPathOf, productRootOf, productVersionOf, runtimeVersionOf, solPiVersionOf, type SessionSummary } from "../src/loop/harvest.ts";
 import { dimensionRates, modelDimensionRates, modelSwitchTables, modelTurnShare, northStarWeeks, poissonRateInterval, triageTable } from "../src/loop/harvest-breakdown.ts";
 import { defaultModelExperiment, expectedDefaultModel, median, modelDimensionRatesWithoutPeak, modelTaskSize } from "../src/loop/harvest-models.ts";
 
@@ -137,6 +137,32 @@ describe("model attribution and runtime", () => {
 		expect(analyzed?.session.runtimeVersion).toBe("1.4.0-rotom.3");
 		const sessions = [analyzed!.session, { ...analyzed!.session, sessionId: "s-2", runtimeVersion: undefined, northStarV2: 2 }];
 		expect(dimensionRates(sessions, (session) => session.runtimeVersion).map((row) => [row.key, row.turns, row.northStarV2])).toEqual([["1.4.0-rotom.3", 1, 0], ["unknown", 1, 2]]);
+	});
+
+	it("classifies the entry that started a session from the paths the launcher recorded", () => {
+		const span = (attributes: Record<string, string>) => JSON.stringify({ schema: "rotom-local-trace/v1", kind: "span_start", name: "pi.session.runtime", spanId: "s", timestamp: "2026-11-03T10:00:00.000Z", attributes });
+		const install = ["", "Users", "someone", ".local", "share", "rotom", "releases", "0.1.27-main.e9c3d5d1", "node_modules", "@bingjiang0611", "rotom"].join("/");
+		const checkout = ["", "Users", "someone", "IdeaProjects", "rotom-round12", "rotom"].join("/");
+		const launcher = `${install}/bin/rotom-launcher`;
+		expect(entryClassOf(install)).toBe("install");
+		expect(entryClassOf(checkout)).toBe("dev-checkout");
+		expect(entryClassOf(undefined)).toBe("unknown");
+		expect(productRootOf([span({ "rotom.product.root": checkout }), span({ "rotom.product.root": install })]))
+			.toBe(checkout);
+		expect(launcherPathOf([span({ "rotom.launcher.path": launcher })])).toBe(launcher);
+		expect(entryClassOf(productRootOf([span({ "rotom.product.root": install })]))).toBe("install");
+		expect(entryClassOf(productRootOf(["not json"]))).toBe("unknown");
+		// A session whose trace predates the launcher record stays unknown instead of being guessed.
+		const lines = chain([
+			message({ role: "user", content: "修 bug", timestamp: 0 }, "2026-11-03T10:00:00.000Z"),
+			message({ role: "assistant", content: [{ type: "text", text: "好" }], stopReason: "stop", provider: "qoder", model: "dfmodel", timestamp: 0 }, "2026-11-03T10:00:05.000Z"),
+		]).map((line) => JSON.stringify(line));
+		const traced = analyzeSession([JSON.stringify(sessionHeader), ...lines], { sessionFile: "/s.jsonl", excerpts: false, traceLines: [span({ "rotom.product.root": checkout, "rotom.launcher.path": launcher })] });
+		expect(traced?.session.entry).toBe("dev-checkout");
+		expect(traced?.session.launcher).toBe(launcher);
+		const untraced = analyzeSession([JSON.stringify(sessionHeader), ...lines], { sessionFile: "/s.jsonl", excerpts: false });
+		expect(untraced?.session.entry).toBe("unknown");
+		expect(untraced?.session.launcher).toBeUndefined();
 	});
 });
 

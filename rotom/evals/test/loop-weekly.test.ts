@@ -12,12 +12,26 @@ function fakeReport(overrides: Partial<ReturnType<typeof buildWeekly>>) {
 		generatedAt: "2026-11-13T00:00:00Z",
 		window: { since: "2026-10-13T00:00:00Z" },
 		config: CONFIG,
-		northStar: { overall: [], models: [], products: [] },
+		northStar: { overall: [], models: [], products: [], entries: [] },
 		experiment: { state: "open" as const, end: CONFIG.experiment.end, arms: [], excluded: { switched: 0, offDefault: 0 } },
 		records: [],
 		providerFailures: [],
 		...overrides,
 	} as ReturnType<typeof buildWeekly>;
+
+it("renders the entry dimension next to the product version", () => {
+	const report = fakeReport({
+		northStar: {
+			overall: [],
+			models: [],
+			products: [],
+			entries: [{ key: "dev-checkout", turns: 40, sessions: 4, northStarV2: 2, interventions: 2, per100: 5, interval: { low: 0.6, high: 18 }, withoutLargest: { per100: 5, interval: { low: 0.6, high: 18 } } }],
+		} as ReturnType<typeof buildWeekly>["northStar"],
+	});
+	const text = renderWeekly(report);
+	expect(text).toContain("### Entry");
+	expect(text).toContain("dev-checkout");
+});
 }
 const SOL = "openai-codex/gpt-6.1-sol";
 

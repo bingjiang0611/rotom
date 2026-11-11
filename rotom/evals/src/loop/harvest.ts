@@ -9,12 +9,12 @@
 
 import { providerDetail, traceErrorSpans } from "./harvest-provider.ts";
 import { clip, humanText, isBareContinue, isCorrection, isRecord, normalized, similarity, textOf } from "./harvest-text.ts";
-import { interruptActivity, interruptFollowUp, interruptTriage, productVersionOf, resolveInterruptCauses, resolveStartedAt, runtimeVersionOf, releaseOf, solPiVersionOf, toolErrorCategory, type StartSource, type InterruptActivity, type InterruptCause, type InterruptFollowUp, type InterruptTriage } from "./harvest-signals.ts";
+import { entryClassOf, launcherPathOf, productRootOf, type EntryClass, interruptActivity, interruptFollowUp, interruptTriage, productVersionOf, resolveInterruptCauses, resolveStartedAt, runtimeVersionOf, releaseOf, solPiVersionOf, toolErrorCategory, type StartSource, type InterruptActivity, type InterruptCause, type InterruptFollowUp, type InterruptTriage } from "./harvest-signals.ts";
 import { messageOf, parseLines, paths, type Block, type Entry, type Message } from "./harvest-tree.ts";
 
 // Re-exported so the detectors, the report and the tests keep one import surface.
 export { isBareContinue, isCorrection, similarity } from "./harvest-text.ts";
-export { releaseOf, resolveStartedAt } from "./harvest-signals.ts";
+export { entryClassOf, launcherPathOf, productRootOf, releaseOf, resolveStartedAt, type EntryClass } from "./harvest-signals.ts";
 export { TOOL_ERROR_CATEGORIES, interruptActivity, interruptFollowUp, interruptTriage, productVersionOf, runtimeVersionOf, solPiVersionOf, toolErrorCategory, type InterruptActivity, type InterruptFollowUp, type InterruptTriage, type ToolErrorCategory } from "./harvest-signals.ts";
 
 export const HARVEST_SCHEMA = "rotom-loop-harvest/v1";
@@ -57,6 +57,10 @@ export type SessionSummary = {
 	modelTurns: Record<string, number>;
 	/** Release path this session ran, when a stack trace embedded one. Biased toward errors. */
 	release?: string;
+	/** install, dev-checkout or unknown: which entry started the session. */
+	entry?: EntryClass;
+	/** Launcher real path as recorded by the trace; paths only. */
+	launcher?: string;
 	models: string[];
 	userTurns: number;
 	assistantMessages: number;
@@ -350,6 +354,8 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 	}
 	const started = resolveStartedAt(header.timestamp, entries[0]?.timestamp, options.fileMtimeMs);
 	const release = releaseOf(lines);
+	const productRoot = productRootOf(options.traceLines);
+	const launcher = launcherPathOf(options.traceLines);
 	const runtimeVersion = runtimeVersionOf(options.traceLines);
 	const productVersion = productVersionOf(options.traceLines);
 	const solPiVersion = solPiVersionOf(lines, options.traceLines);
@@ -365,6 +371,8 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 			startedAtSource: started.startedAtSource,
 			modelTurns,
 			...(release ? { release } : {}),
+			entry: entryClassOf(productRoot),
+			...(launcher ? { launcher } : {}),
 			models: [...models].sort(),
 			userTurns: userEntries.size,
 			assistantMessages: assistantEntries.size,

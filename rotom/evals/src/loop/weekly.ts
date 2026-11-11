@@ -79,14 +79,18 @@ function rateRows(rows: ReturnType<typeof dimensionRates>, without: Map<string, 
 }
 
 /** Overall, per model (whole session attributed to its dominant model) and per product version. */
-export function northStarTables(sessions: readonly SessionSummary[]): { overall: RateRow[]; models: RateRow[]; products: RateRow[] } {
+export function northStarTables(sessions: readonly SessionSummary[]): { overall: RateRow[]; models: RateRow[]; products: RateRow[]; entries: RateRow[] } {
 	const all = () => "all";
 	const model = (session: SessionSummary) => dominantModel(session);
 	const product = (session: SessionSummary) => session.productVersion;
+	// Which entry started the session, not which version it happened to print: an install, a
+	// development checkout, or a trace old enough to carry no launcher record.
+	const entry = (session: SessionSummary) => session.entry;
 	return {
 		overall: rateRows(dimensionRates(sessions, all), dimensionRatesWithoutLargestSession(sessions, all)),
 		models: rateRows(dimensionRates(sessions, model), dimensionRatesWithoutLargestSession(sessions, model)),
 		products: rateRows(dimensionRates(sessions, product), dimensionRatesWithoutLargestSession(sessions, product)),
+		entries: rateRows(dimensionRates(sessions, entry), dimensionRatesWithoutLargestSession(sessions, entry)),
 	};
 }
 
@@ -230,6 +234,10 @@ export function renderWeekly(report: WeeklyReport): string {
 		"Only sessions whose trace recorded the product version they ran.",
 		"",
 		...rateTable(report.northStar.products, "Product version"),
+		"",
+		"### Entry",
+		"",
+		...rateTable(report.northStar.entries, "Entry"),
 		"## Field comparison: default model by date parity",
 		"",
 		open

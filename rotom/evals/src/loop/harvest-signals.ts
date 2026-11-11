@@ -89,6 +89,29 @@ export function productVersionOf(traceLines: readonly string[] | undefined): str
 	return runtimeAttribute(traceLines, "rotom.product.version");
 }
 
+/** The entry that started the session, as the launcher recorded it. Paths only. */
+export function launcherPathOf(traceLines: readonly string[] | undefined): string | undefined {
+	return runtimeAttribute(traceLines, "rotom.launcher.path");
+}
+
+/** The product root the session ran from, as the launcher resolved it. */
+export function productRootOf(traceLines: readonly string[] | undefined): string | undefined {
+	return runtimeAttribute(traceLines, "rotom.product.root");
+}
+
+/**
+ * Where a session was launched from. An installed release lives under `<data>/rotom/releases/`;
+ * anything else that carries a product root is a development checkout, and a session whose trace has
+ * no launcher record is unknown rather than assumed to be either.
+ */
+export type EntryClass = "install" | "dev-checkout" | "unknown";
+
+export function entryClassOf(productRoot: string | undefined): EntryClass {
+	if (!productRoot) return "unknown";
+	if (/\/rotom\/releases\/[^/]+\/node_modules\/[^/]+\/rotom$/u.test(productRoot)) return "install";
+	return "dev-checkout";
+}
+
 function runtimeAttribute(traceLines: readonly string[] | undefined, name: string): string | undefined {
 	for (const line of traceLines ?? []) {
 		let record: unknown;
