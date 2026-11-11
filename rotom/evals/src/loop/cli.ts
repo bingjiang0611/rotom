@@ -1,9 +1,11 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { homedir } from "node:os";
 import { parseGateManifest, runGate } from "./gate.ts";
+import { releaseCommit, versionTimeline } from "./release-version.ts";
+import { reportCommand } from "./report-commands.ts";
 import { USAGE } from "./usage.ts";
 import { appendGateHistory, gateHistoryRecords, parseGateHistory, poolGateHistory } from "./gate-history.ts";
 import { defaultLoopDir, defaultSessionsDir, harvest } from "./harvest-run.ts";
@@ -74,21 +76,7 @@ async function main(argv: string[]): Promise<number> {
 		}
 		return 0;
 	}
-	if (command === "weekly") {
-		const { values } = parseArgs({ args: rest, options: { sessions: { type: "string" }, days: { type: "string" }, out: { type: "string" } } });
-		const days = values.days ? Number(values.days) : 28;
-		if (!Number.isFinite(days) || days <= 0) throw new Error("--days must be a positive number");
-		const since = new Date(Date.now() - days * 86_400_000);
-		const config = parseWeeklyConfig(readFileSync(WEEKLY_CONFIG, "utf8"));
-		const result = await harvest({ sessionsDir: values.sessions ?? defaultSessionsDir(), outRoot: values.out ?? defaultLoopDir(), since, excerpts: false });
-		const report = buildWeekly({ sessions: result.sessions, incidents: result.incidents, ledger: parseLedgerDir(LEDGER, repoRoot), config, since: since.toISOString() });
-		const directory = await writeWeekly(values.out ?? defaultLoopDir(), report);
-		console.log(`sessions=${result.sessions.length} incidents=${result.incidents.length}`);
-		console.log(`weekly: ${directory}/report.md`);
-		console.log(`experiment: ${report.experiment.state}; arms ${report.experiment.arms.map((arm) => `${arm.arm}=${arm.sessions}`).join(" ")}`);
-		for (const row of report.records) console.log(`record ${row.status.padEnd(12)} ${row.id}  turns=${row.turns} observed=${row.observedPer100 ?? "N/A"} baseline=${row.baselinePer100 ?? "N/A"}`);
-		return 0;
-	}
+	if (command === "weekly" || command === "versions") return reportCommand(command, rest, { repoRoot, evalsRoot });
 	if (command === "replay") {
 		const { values } = parseArgs({
 			args: rest,
