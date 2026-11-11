@@ -7,8 +7,11 @@ import { fileURLToPath } from "node:url";
 import { RESOURCE_DESCRIPTORS_V1, VERIFIED_THIRD_PARTY_PACKAGES } from "../runtime/product-config.mjs";
 import { PI_MODULES, PI_RUNTIME, resolveInstalledPi, verifyDistributionContract } from "../runtime/resolve-installed-pi.mjs";
 import { verifyForkSource } from "./build-pi-fork.mjs";
+import { BUILD_INFO_FILE, BUILD_INFO_SCHEMA, parseBuildInfo, readBuildInfo } from "../runtime/build-info.mjs";
 
 export const EMBEDDED_MODULES = "extensions/third-party/node_modules";
+/** Written into the staged tree at build time, never kept in the source tree. */
+export const BUILD_INFO = BUILD_INFO_FILE;
 const embedded = new Set([EMBEDDED_MODULES, PI_MODULES]);
 const PROXY_ENVIRONMENT = ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"];
 
@@ -71,6 +74,8 @@ export async function stageRelease(source, target) {
 	for (const file of files) {
 		// Installed dependencies must come from a new npm ci, never a maintainer's tree.
 		if (embedded.has(file)) continue;
+		// Generated during this build: the source tree has no business carrying a commit stamp.
+		if (file === BUILD_INFO) continue;
 		const from = resolve(root, file);
 		const info = await lstat(from);
 		if (!info.isFile() || info.isSymbolicLink() || await realpath(from) !== from) throw new Error(`Untrusted release source: ${file}`);
@@ -109,6 +114,11 @@ export async function verifyLocalImports(root, files) {
  * Load every built-in extension from the unpacked artifact with the product's own loader. This is
  * the check the closure scan cannot do: a module that only fails at import time still ships.
  */
+export async function verifyReleaseClosure(release, files) {
+	readBuildInfo(release);
+	await verifyLocalImports(release, files);
+}
+
 export async function verifyExtensionLoad(release, env) {
 	const output = execFileSync(process.execPath, [resolve(release, "runtime/verify-extension-load.mjs"), "--release", release], {
 		cwd: release, env, encoding: "utf8", timeout: 120_000, maxBuffer: 1024 * 1024,
@@ -149,10 +159,24 @@ export function verifyPackList(manifest, packed) {
 	}
 }
 
+/** The commit this artifact was built from, plus whether the tree it was built from was clean. */
+export function buildInfoFor(commit, dirty, builtAt = new Date().toISOString(), allowDirty = false) {
+	if (!/^[0-9a-f]{40}$/u.test(commit)) throw new Error(`Build commit must be a full SHA: ${commit}`);
+	if (dirty && !allowDirty) throw new Error("Refusing to pack a dirty tree; pass --allow-dirty to stamp it as dirty");
+	return parseBuildInfo(JSON.stringify({ schema: BUILD_INFO_SCHEMA, commit, dirty, allowDirty: dirty && allowDirty, builtAt }));
+}
+
+function gitOutput(source, args) {
+	return execFileSync("git", ["-C", source, ...args], { encoding: "utf8", timeout: 30_000 }).trim();
+}
+
 async function main() {
 	const source = resolve(import.meta.dirname, "..");
-	const output = process.argv[2];
-	if (process.argv.length !== 3 || !isAbsolute(output)) throw new Error("Usage: npm run pack:release -- /absolute/output-directory");
+	const args = process.argv.slice(2).filter((argument) => argument !== "--allow-dirty");
+	const allowDirty = args.length !== process.argv.length - 2;
+	const output = args[0];
+	if (args.length !== 1 || !isAbsolute(output)) throw new Error("Usage: npm run pack:release -- /absolute/output-directory [--allow-dirty]");
+	const build = buildInfoFor(gitOutput(source, ["rev-parse", "HEAD"]), gitOutput(source, ["status", "--porcelain", "--untracked-files=normal"]).length > 0, new Date().toISOString(), allowDirty);
 	const nested = relative(source, resolve(output));
 	if (nested === "" || (!nested.startsWith(`..${sep}`) && nested !== ".." && !isAbsolute(nested))) throw new Error("Output must be outside the product tree");
 	const auditScript = resolve(source, "../scripts/audit-public.py");
@@ -175,6 +199,10 @@ async function main() {
 	try {
 		const stage = resolve(work, "product");
 		const manifest = await stageRelease(source, stage);
+		// Provenance of the artifact itself: what commit it came from, and whether that tree was
+		// clean. A local install carries no commit stamp of its own, so without this a trace can
+		// only name a version string that several builds share.
+		await writeFile(resolve(stage, BUILD_INFO), `${JSON.stringify(build, null, 2)}\n`, { mode: 0o644 });
 		const archives = await stageBuildArchives(source, stage);
 		const home = resolve(work, "home");
 		await mkdir(home);
@@ -208,7 +236,7 @@ async function main() {
 		const unpacked = resolve(work, "artifact");
 		await mkdir(unpacked);
 		execFileSync("tar", ["-xzf", target, "-C", unpacked, "--strip-components", "1"], { encoding: "utf8", timeout: 120_000 });
-		await verifyLocalImports(unpacked, releaseFiles(manifest));
+		await verifyReleaseClosure(unpacked, releaseFiles(manifest));
 		await verifyExtensionLoad(unpacked, { ...env, HOME: home });
 		audit(["--artifact", target]);
 		console.log(JSON.stringify({ artifact: target, integrity: packed.integrity, size: packed.size, fileCount: packed.files.length, piVersion: JSON.parse(await readFile(resolve(stage, PI_RUNTIME, "fork-build.json"), "utf8")).version, published: false }, null, 2));

@@ -1,11 +1,18 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
 import { PI_RUNTIME } from "./resolve-installed-pi.mjs";
 import { verifyExtensionLoad, verifyLocalImports } from "../scripts/pack-release.mjs";
-import { extensionEntries } from "./verify-extension-load.mjs";
+import { extensionEntries, verifyExtensionLoad as smokeExtensionLoad } from "./verify-extension-load.mjs";
+import { BUILD_INFO_SCHEMA, parseBuildInfo } from "./build-info.mjs";
+
+/** A stamp in the shape a real build writes, so only the field under test varies. */
+function stamp(overrides = {}) {
+	return JSON.stringify({ schema: BUILD_INFO_SCHEMA, commit: "0".repeat(40), dirty: false, allowDirty: false, builtAt: "2026-11-11T00:00:00.000Z", ...overrides });
+}
 
 /**
  * The two checks that make the packed artifact self-sufficient, tested against the defect that
@@ -47,6 +54,36 @@ test("the load smoke refuses an artifact whose extension cannot be imported", as
 	}
 });
 
+test("the load smoke refuses an artifact whose build stamp is missing or wrong", async () => {
+	const root = mkdtempSync(join(tmpdir(), "rotom-loadstamp-"));
+	try {
+		brokenQoderTree(root);
+		// Run the product's own smoke against the fake tree, so the stamp gate is the real one.
+		const smoke = () => execFileSync(process.execPath, [join(import.meta.dirname, "verify-extension-load.mjs"), "--release", root], { encoding: "utf8", timeout: 120_000 });
+		// No stamp at all: the artifact cannot say which commit it is, so nothing else it reports
+		// could be attributed to a build.
+		assert.throws(smoke, /build-info\.json/u);
+		writeFileSync(join(root, "build-info.json"), stamp({ commit: "abc" }));
+		assert.throws(smoke, /commit must be a full 40-character SHA/u);
+		writeFileSync(join(root, "build-info.json"), stamp({ schema: "other/v1" }));
+		assert.throws(smoke, /schema must be rotom-build-info\/v1/u);
+		writeFileSync(join(root, "build-info.json"), "{");
+		assert.throws(smoke, /not JSON/u);
+		// A well-formed stamp gets past provenance and fails on the real defect behind it.
+		writeFileSync(join(root, "build-info.json"), stamp());
+		assert.throws(smoke, /Cannot find module|ERR_MODULE_NOT_FOUND|Extension load failed/u);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("a build stamp accepts a dirty tree only when it says so", () => {
+	assert.equal(parseBuildInfo(stamp({ dirty: true, allowDirty: true })).dirty, true);
+	assert.throws(() => parseBuildInfo(stamp({ builtAt: "2026-11-11" })), /builtAt must be an ISO instant/u);
+	assert.throws(() => parseBuildInfo(stamp({ dirty: "no" })), /dirty must be a boolean/u);
+	assert.throws(() => parseBuildInfo("[]"), /not an object/u);
+});
+
 test("the load smoke loads every built-in extension of an installed product tree", async (t) => {
 	const product = resolve(import.meta.dirname, "..");
 	const loader = join(product, PI_RUNTIME, "node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/loader.js");
@@ -56,6 +93,7 @@ test("the load smoke loads every built-in extension of an installed product tree
 	}
 	const entries = await extensionEntries(product);
 	assert.ok(entries.length >= 6, `expected the six built-in extensions, found ${entries.length}`);
-	const result = await verifyExtensionLoad(product, { ...process.env, HOME: mkdtempSync(join(tmpdir(), "rotom-load-home-")) });
+	// A source checkout carries no build stamp on purpose; its identity comes from Git.
+	const result = await smokeExtensionLoad(product, { requireBuildInfo: false });
 	assert.equal(result.loaded, entries.length);
 });

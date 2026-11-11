@@ -10,6 +10,7 @@ import { realpathSync } from "node:fs";
 import { access, readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { readBuildInfo, readBuildInfoIfPresent } from "./build-info.mjs";
 
 /** Every `extensions/<name>/index.ts` the artifact actually carries. */
 export async function extensionEntries(release) {
@@ -28,7 +29,11 @@ export function loaderUrl(release) {
 	return pathToFileURL(join(release, "runtime/pi/node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/loader.js")).href;
 }
 
-export async function verifyExtensionLoad(release) {
+export async function verifyExtensionLoad(release, { requireBuildInfo = true } = {}) {
+	// Provenance first: without a valid stamp the artifact cannot be attributed to a commit, so
+	// every later check would be describing an unknown build. A development checkout has no stamp
+	// on purpose — its identity comes from Git — so it may skip the requirement.
+	const build = requireBuildInfo ? readBuildInfo(release) : await readBuildInfoIfPresent(release);
 	const entries = await extensionEntries(release);
 	if (entries.length === 0) throw new Error(`No extension entry found in ${join(release, "extensions")}`);
 	const { loadExtensions } = await import(loaderUrl(release));
@@ -36,7 +41,7 @@ export async function verifyExtensionLoad(release) {
 	const errors = (result.errors ?? []).map((item) => `${item.path}: ${item.error}`);
 	if (errors.length) throw new Error(`Extension load failed:\n${errors.join("\n")}`);
 	if (result.extensions.length !== entries.length) throw new Error(`Loaded ${result.extensions.length} of ${entries.length} extensions`);
-	return { entries: entries.length, loaded: result.extensions.length };
+	return { entries: entries.length, loaded: result.extensions.length, ...(build ? { commit: build.commit, dirty: build.dirty } : {}) };
 }
 
 /** True when this file is the script node was asked to run, through any symlinked path. */
