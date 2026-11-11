@@ -82,7 +82,8 @@ export async function stageRelease(source, target) {
 	return manifest;
 }
 
-async function verifyLocalImports(root, files) {
+/** Every relative import in the shipped modules must resolve to a file the package also ships. */
+export async function verifyLocalImports(root, files) {
 	const declared = new Set(files);
 	// Check literal local dependencies across all shipped modules, including the
 	// Chrome worker. Computed paths and npm imports need installed-runtime smoke.
@@ -102,6 +103,17 @@ async function verifyLocalImports(root, files) {
 			}
 		}
 	}
+}
+
+/**
+ * Load every built-in extension from the unpacked artifact with the product's own loader. This is
+ * the check the closure scan cannot do: a module that only fails at import time still ships.
+ */
+export async function verifyExtensionLoad(release, env) {
+	const output = execFileSync(process.execPath, [resolve(release, "runtime/verify-extension-load.mjs"), "--release", release], {
+		cwd: release, env, encoding: "utf8", timeout: 120_000, maxBuffer: 1024 * 1024,
+	});
+	return JSON.parse(output);
 }
 
 async function rejectLinks(directory) {
@@ -191,6 +203,13 @@ async function main() {
 		if (await lstat(target).then(() => true, (error) => { if (error.code === "ENOENT") return false; throw error; })) throw new Error(`Refusing to overwrite: ${target}`);
 		const packed = packResult(npm(["pack", "--json", "--ignore-scripts", "--pack-destination", output], stage));
 		verifyPackList(manifest, packed);
+		// The artifact is what installs, so both checks run on its own unpacked bytes: a relative
+		// import that the package never shipped, and an extension entry that cannot be imported.
+		const unpacked = resolve(work, "artifact");
+		await mkdir(unpacked);
+		execFileSync("tar", ["-xzf", target, "-C", unpacked, "--strip-components", "1"], { encoding: "utf8", timeout: 120_000 });
+		await verifyLocalImports(unpacked, releaseFiles(manifest));
+		await verifyExtensionLoad(unpacked, { ...env, HOME: home });
 		audit(["--artifact", target]);
 		console.log(JSON.stringify({ artifact: target, integrity: packed.integrity, size: packed.size, fileCount: packed.files.length, piVersion: JSON.parse(await readFile(resolve(stage, PI_RUNTIME, "fork-build.json"), "utf8")).version, published: false }, null, 2));
 	} finally {
