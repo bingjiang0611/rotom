@@ -1,0 +1,41 @@
+[
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-11-11-replay-path-isolation",
+		"date": "2026-11-11",
+		"title": "A replay can read the incident's code without touching the host",
+		"hypothesis": "Round 10 replays ran bash with absolute host paths, so a replay could read, and in principle write, the machine it was supposed to be isolated from. Two layers fix it: a file-tool guard that resolves every absolute path through its real path, and a sandboxed shell that denies writes outside the run and denies the network.",
+		"change": "mechanism",
+		"measurement": "11 unit tests plus three executed probes on the switched daily product: read of a host file refused in-product, bash write to a host path denied by sandbox-exec with the file absent, and a sandboxed git+write round trip inside the copy still working.",
+		"result": "The guard refuses host reads inside the product (the tool result carries `replay-isolation: refused <path>`), the shell wrapper makes host writes fail with EPERM, and ordinary replay work stays possible. Host repositories were read in earlier replays; verification of their git status, reflog and file mtimes found no replay-caused content change and no other repository touched.",
+		"evidence": "unmeasured",
+		"decision": "shipped",
+		"source": "rotom/evals/src/loop/replay-sandbox.ts"
+	},
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-11-11-release-load-smoke",
+		"date": "2026-11-11",
+		"title": "A packed release must be able to import its own extensions",
+		"hypothesis": "0.1.27-main.2b4ea53b shipped a Qoder provider whose `./model-catalog.mjs` import had no file in the package, because the `files` allowlist was edited without a check that the package still closes over its imports. Closure scan plus a load smoke of the unpacked artifact make that class of defect fail the pack instead of the install.",
+		"change": "mechanism",
+		"measurement": "A copy of the installed release with `extensions/qoder/model-catalog.mjs` removed reproduces the defect: the load smoke reports `Failed to load extension: Cannot find module './model-catalog.mjs'`, and the closure scan reports `Missing release dependency: extensions/qoder/provider.mjs -> extensions/qoder/model-catalog.mjs`. The intact product loads 6 of 6 entries.",
+		"result": "Both checks run on the unpacked tarball inside pack:release, so the artifact that would install is what gets loaded; a broken artifact cannot finish packing.",
+		"evidence": "unmeasured",
+		"decision": "shipped",
+		"source": "rotom/runtime/verify-extension-load.mjs"
+	},
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-11-11-version-gated-acceptance",
+		"date": "2026-11-11",
+		"title": "Acceptance counts only sessions whose build contains the fix",
+		"hypothesis": "A date-based acceptance window credits every turn after a change, including turns on builds that never contained it, so a fix can look unmeasured or measured against the wrong product. The harvest records the release each session ran; a release on the mainline channel names its commit, so ancestry decides whether the fix was present.",
+		"change": "eval",
+		"measurement": "`loop versions` reconstructs the 11-10 onward timeline from 28-day harvest sessions; each mechanism record now names the first commit containing its fix and weekly counts only sessions whose release traces to that commit or a descendant, reporting how many sessions ran a build without it.",
+		"result": "Five shipped records gained their first commit (retry d8df7cf4, qoder catalog 854dd51b, SoL-Pi 001acf94, Ask 0f55af3a, fork 1.4.0-rotom.3 cd4350fb). No harvest session ran 0.1.27-main.2b4ea53b, the build whose Qoder provider could not load, so no Qoder exposure is credited to it. qoder-stream-retry falls from 6 turns to 2 because only the switched build counts.",
+		"evidence": "unmeasured",
+		"decision": "shipped",
+		"source": "rotom/evals/src/loop/release-version.ts"
+	}
+]
