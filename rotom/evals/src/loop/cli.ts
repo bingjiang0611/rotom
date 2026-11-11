@@ -1,15 +1,17 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { homedir } from "node:os";
 import { parseGateManifest, runGate } from "./gate.ts";
+import { USAGE } from "./usage.ts";
 import { appendGateHistory, gateHistoryRecords, parseGateHistory, poolGateHistory } from "./gate-history.ts";
 import { defaultLoopDir, defaultSessionsDir, harvest } from "./harvest-run.ts";
 import { defaultModelExperiment } from "./harvest-models.ts";
 import { parseLedgerDir } from "./ledger.ts";
 import { buildWeekly, parseWeeklyConfig, writeWeekly } from "./weekly.ts";
 import { originCheck, replayIncident } from "./replay-run.ts";
+import { countVerdicts, parseReplayCases, replayCaseSummaries, replayCasesDir, replayGateVerdict, type ReplayGateResult } from "./replay-gate.ts";
 import { readdirSync } from "node:fs";
 
 const evalsRoot = resolve(import.meta.dirname, "../..");
@@ -19,58 +21,6 @@ export const GATE_MANIFEST = join(evalsRoot, "loop", "gate.json");
 export const WEEKLY_CONFIG = join(evalsRoot, "loop", "weekly.json");
 export const LEDGER = join(evalsRoot, "loop", "ledger");
 
-const USAGE = `Usage: npm run loop -- <command>
-
-  harvest [--sessions DIR] [--out DIR] [--days N | --since YYYY-MM-DD] [--no-excerpts]
-          [--experiment default-model]
-      Scan local Pi sessions (default ${defaultSessionsDir()}) into a private incident
-      queue and weekly intervention rate under ${defaultLoopDir()}. No model calls.
-      --experiment default-model adds the odd/even default-model comparison: only sessions
-      whose first assistant message used that day's default model enter the rates.
-
-  gate --baseline /abs/frozen/rotom [--candidate /abs/rotom] [--case ID] [--repeats N] [--out DIR] [--smoke]
-      Re-run reproduced regression cases from loop/gate.json against both products
-      and print held / regressed / unknown. Appends each case to the private gate
-      history. Calls the configured model.
-
-      --smoke runs one pair per case and audits the recorded scores: both arms must
-      score, every check must be a boolean, and no check may read a file the fixture
-      did not observe. It is not a sample, so nothing is appended to the history.
-      Run it before a real gate run.
-
-  gate-pool --since ISO [--case ID] [--history PATH]
-      Merge every recorded gate run of the same candidate commit and baseline for
-      each case since ISO, then judge the pooled pass and fail counts.
-
-  ledger
-      Validate every loop/ledger/<month>.json shard and print the experiment history.
-
-  replay --incident <sessionId:entryId> [--repeats N] [--frozen DIR] [--current DIR]
-         [--model provider/model] [--check COMMAND] [--origin-check [--origin-only]] [--out DIR]
-      Re-run one recorded failure against a frozen product in an isolated copy of the
-      session's own project: a worktree at the last commit before the session, its
-      remotes removed, a scrubbed environment with its own HOME and a shell shim that
-      refuses pushes, publishes and remote writes. Artifacts only under
-      ~/.rotom/loop/replay-<stamp>/. The incident is read from the newest harvest.
-      Product and model default to the frozen release the incident ran and the model
-      that answered it; a replay never switches model. --check runs the event's own
-      deterministic check in the same sandbox after each run (exit 0 pass, 1 the
-      failure, anything else unknown) and admits reproduced (replay) at three of five
-      failing runs. The check runs in the clone with REPLAY_TRANSCRIPT (this run's
-      output) and REPLAY_WORKSPACE set. Tool calls and usage count the replay's new
-      turns only. --origin-check applies the same check to what the original run
-      produced before any model call: a pass means the event was never a failure,
-      so it is skipped and counted as a harvest false positive. --origin-only stops
-      after that verdict and spends no model call.
-
-  weekly [--sessions DIR] [--days N] [--out DIR]
-      Harvest the last N days (default 28) and write ~/.rotom/loop/weekly-<date>/:
-      north star v2 with bands and a sensitivity column, the blinded field
-      comparison (counts and adherence only until the window closes), every
-      shipped-but-unmeasured ledger record against its own acceptance metric,
-      and provider-to-user failures per 100 turns before and after the switch.
-      No model calls; nothing is written to Git.
-`;
 
 function stamp(): string {
 	return new Date().toISOString().replace(/[:.]/gu, "-");
@@ -193,10 +143,68 @@ async function main(argv: string[]): Promise<number> {
 		console.log(`replay: ${outcome.outDir}`);
 		return 0;
 	}
+	if (command === "replay-gate") {
+		const { values } = parseArgs({ args: rest, options: { product: { type: "string" }, candidate: { type: "string" }, case: { type: "string" }, out: { type: "string" } } });
+		const product = values.product ?? values.candidate;
+		if (!product) throw new Error("replay-gate needs --product /absolute/product/rotom");
+		const manifest = parseGateManifest(readFileSync(GATE_MANIFEST, "utf8"));
+		const casesDir = replayCasesDir(defaultLoopDir());
+		const file = join(casesDir, "cases.json");
+		if (!existsSync(file)) throw new Error(`no replay cases at ${file}; the case list is private and never committed`);
+		const cases = parseReplayCases(readFileSync(file, "utf8"), casesDir);
+		const registered = new Set((manifest.replays ?? []).map((item) => item.id));
+		for (const item of cases) if (!registered.has(item.id)) throw new Error(`replay case ${item.id} is not registered in ${GATE_MANIFEST}; add its id and a de-identified mechanism first`);
+		const selected = values.case ? cases.filter((item) => item.id === values.case) : cases;
+		if (selected.length === 0) throw new Error(`no replay case ${values.case}`);
+		const harvests = readdirSync(defaultLoopDir()).filter((name) => name.startsWith("harvest-")).sort();
+		const newest = harvests.at(-1);
+		if (!newest) throw new Error("no harvest artifact; run `loop harvest` first");
+		const incidents = readFileSync(join(defaultLoopDir(), newest, "incidents.jsonl"), "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line) as { kind: string; sessionId: string; sessionFile: string; entryId: string; timestamp: string; detail: Record<string, unknown> });
+		const outRoot = values.out ?? join(defaultLoopDir(), `replay-gate-${stamp()}`);
+		const results: ReplayGateResult[] = [];
+		for (const item of selected) {
+			const [sessionId, entryId] = item.incident.split(":");
+			const incident = incidents.find((entry) => entry.sessionId === sessionId && entry.entryId === entryId);
+			if (!incident) throw new Error(`replay case ${item.id}: no incident ${item.incident} in the newest harvest`);
+			const modelText = item.model ? `${item.model.provider}/${item.model.model}` : String(incident.detail.model ?? "");
+			const [provider, model] = modelText.split("/");
+			if (!provider || !model) throw new Error(`replay case ${item.id} records no model; add one to the case`);
+			const frozen = item.frozen ?? resolve(homeDir(), ".local/share/rotom/releases", "0.1.27-main.50ccdc87/node_modules/rotom");
+			const outcome = await replayIncident({
+				incidentId: item.incident,
+				sessionFile: incident.sessionFile,
+				cwd: (JSON.parse(readFileSync(incident.sessionFile, "utf8").split("\n")[0] ?? "{}") as { cwd?: string }).cwd ?? "",
+				incidentTimestamp: incident.timestamp,
+				entryId: incident.entryId,
+				products: [{ label: "frozen", directory: frozen }, { label: "candidate", directory: resolve(product) }],
+				repeats: item.repeats ?? 1,
+				outRoot,
+				agentSource: join(homeDir(), ".pi", "agent"),
+				model: { provider, model },
+				check: item.check,
+			});
+			const frozenCounts = countVerdicts(outcome.runs.filter((run) => run.label === "frozen"));
+			const candidateRuns = outcome.runs.filter((run) => run.label === "candidate");
+			const candidateCounts = countVerdicts(candidateRuns);
+			const verdict = replayGateVerdict(frozenCounts, candidateCounts);
+			const notStarted = candidateRuns.filter((run) => run.failed).length;
+			const detail = notStarted > 0
+				? `${notStarted} of ${candidateRuns.length} candidate runs did not start`
+				: verdict === "regressed" ? `the failure is back on ${candidateCounts.fail} of ${candidateRuns.length} runs`
+					: verdict === "held" ? `candidate satisfied the check on all ${candidateCounts.pass} runs`
+						: frozenCounts.fail === 0 ? "the frozen product no longer fails this case" : "a run did not produce a verdict";
+			results.push({ id: item.id, verdict, detail, frozen: frozenCounts, candidate: candidateCounts });
+			console.log(`${verdict.padEnd(9)} ${item.id}  frozen ${frozenCounts.pass}/${frozenCounts.fail}/${frozenCounts.unknown} candidate ${candidateCounts.pass}/${candidateCounts.fail}/${candidateCounts.unknown}  ${detail}`);
+		}
+		const outDir = join(outRoot, "replay-gate-summary.json");
+		writeFileSync(outDir, `${JSON.stringify({ product: resolve(product), cases: results, registered: replayCaseSummaries(cases) }, null, "\t")}\n`, { mode: 0o600 });
+		console.log(`replay-gate: ${results.some((item) => item.verdict === "regressed") ? "regressed" : results.some((item) => item.verdict === "unknown") ? "unknown" : "held"} · ${outDir}`);
+		return results.some((item) => item.verdict === "regressed") ? 1 : results.some((item) => item.verdict === "unknown") ? 2 : 0;
+	}
 	if (command === "gate") {
 		const { values } = parseArgs({
 			args: rest,
-			options: { baseline: { type: "string" }, candidate: { type: "string" }, case: { type: "string" }, repeats: { type: "string" }, out: { type: "string" }, smoke: { type: "boolean" } },
+			options: { baseline: { type: "string" }, candidate: { type: "string" }, case: { type: "string" }, repeats: { type: "string" }, out: { type: "string" }, smoke: { type: "boolean" }, model: { type: "string" } },
 			allowNegative: false,
 		});
 		if (!values.baseline) throw new Error("gate needs --baseline /absolute/frozen/rotom");
@@ -207,9 +215,13 @@ async function main(argv: string[]): Promise<number> {
 		const outDir = values.out ?? join(defaultLoopDir(), `gate-${stamp()}`);
 		const smoke = values.smoke === true;
 		if (smoke && values.repeats !== undefined) throw new Error("--smoke always runs one pair per case; drop --repeats");
+		// `--model` overrides the manifest default for every case, so a control can be sampled on a
+		// second model without editing the committed manifest.
+		const modelOverride = values.model === undefined ? undefined : String(values.model).split("/");
+		if (modelOverride && (modelOverride.length !== 2 || !modelOverride[0] || !modelOverride[1])) throw new Error("--model must look like provider/model");
 		const result = runGate({
 			evalsRoot,
-			manifest: { ...manifest, repeats },
+			manifest: { ...manifest, repeats, ...(modelOverride ? { model: { provider: modelOverride[0] as string, model: modelOverride[1] as string } } : {}) },
 			baselineProduct: values.baseline,
 			candidateProduct,
 			only: values.case,

@@ -63,5 +63,12 @@
 				}
 			]
 		}
+	],
+	"replays": [
+		{
+			"id": "replay-wrong-module-first",
+			"kind": "replay",
+			"mechanism": "A question about which package to read first is answered with a reading guide; the package the question is about is never opened, so the answer cannot show what is in it."
+		}
 	]
 }

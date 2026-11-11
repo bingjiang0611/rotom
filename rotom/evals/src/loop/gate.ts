@@ -53,6 +53,12 @@ export type GateManifest = {
 	model: { provider: string; model: string };
 	repeats: number;
 	cases: GateCase[];
+	/**
+	 * Replay cases (`loop replay-gate`) are registered here by id and a de-identified mechanism
+	 * only. The incident, the check and the session branch live in `~/.rotom/loop/replay-cases/`,
+	 * because they quote a real session.
+	 */
+	replays?: { id: string; kind: "replay"; mechanism: string }[];
 };
 
 const ENV_NAME = /^ROTOM_EVAL_[A-Z0-9_]+$/u;
@@ -103,6 +109,18 @@ export function parseGateManifest(text: string): GateManifest {
 		seen.add(key);
 	}
 	if (!value.cases.some((item) => item.role === "reproduced")) throw new Error("gate manifest needs at least one reproduced case");
+	if (value.replays !== undefined) {
+		if (!Array.isArray(value.replays) || value.replays.length === 0) throw new Error("gate manifest replays must be a non-empty list");
+		const ids = new Set<string>();
+		for (const item of value.replays as { id?: unknown; kind?: unknown; mechanism?: unknown }[]) {
+			if (typeof item.id !== "string" || !/^[a-z0-9][a-z0-9-]{2,60}$/u.test(item.id)) throw new Error("gate replay case id must be a slug");
+			if (ids.has(item.id)) throw new Error(`duplicate gate replay case ${item.id}`);
+			ids.add(item.id);
+			if (item.kind !== "replay") throw new Error(`gate replay case ${item.id} kind must be replay`);
+			if (typeof item.mechanism !== "string" || !item.mechanism.trim()) throw new Error(`gate replay case ${item.id} needs a mechanism summary`);
+			if (/\/Users\/|\/home\/|\.rotom/u.test(item.mechanism)) throw new Error(`gate replay case ${item.id} mechanism must not carry a local path`);
+		}
+	}
 	return value as GateManifest;
 }
 
