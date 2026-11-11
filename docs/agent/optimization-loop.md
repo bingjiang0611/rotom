@@ -140,7 +140,7 @@ npm --prefix rotom/evals run loop -- gate --baseline /absolute/rotom-pre-fix/rot
 ### 每周例行检查
 
 1. 跑 `npm --prefix rotom/evals run loop -- weekly`；实验期不读取任何分组结果。
-2. 跑 `loop replay-gate --product <当前日常版本绝对路径>`；候选只选日常版本，不试其他候选。命令仍带冻结对照，需既有模型授权与回放隔离。
+2. 跑 `loop replay-gate --current-only --product <当前日常版本绝对路径>`；只跑日常版本，不跑冻结臂或其他候选。只检查既有 oracle 是否仍满足，不声称相对改善；仍需既有模型授权与全部回放隔离。已知未修复用例的失败不是“新复现”。
 3. 看账本暴露量是否到期；unknown 构建不计入，未到期只报暴露不足。
 4. 仅在预登记时间读遵守率：launchd 生效日为 L，窗口 L+1 至 L+28，第 3 天检查 L+3；尚未确认生效则不检查。窗口内不读任何组的结果指标。
 5. 仅出现新的可复现失败或记录暴露期到期时，才提议开新一轮；否则结束，不顺手修机制。

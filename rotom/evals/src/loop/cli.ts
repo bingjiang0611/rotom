@@ -1,19 +1,17 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { homedir } from "node:os";
 import { parseGateManifest, runGate } from "./gate.ts";
-import { releaseCommit, versionTimeline } from "./release-version.ts";
 import { reportCommand } from "./report-commands.ts";
 import { USAGE } from "./usage.ts";
 import { appendGateHistory, gateHistoryRecords, parseGateHistory, poolGateHistory } from "./gate-history.ts";
 import { defaultLoopDir, defaultSessionsDir, harvest } from "./harvest-run.ts";
 import { defaultModelExperiment } from "./harvest-models.ts";
 import { parseLedgerDir } from "./ledger.ts";
-import { buildWeekly, parseWeeklyConfig, writeWeekly } from "./weekly.ts";
 import { originCheck, replayIncident } from "./replay-run.ts";
-import { countVerdicts, parseReplayCases, replayCaseSummaries, replayCasesDir, replayGateVerdict, validateReplayCase, type ReplayGateResult } from "./replay-gate.ts";
+import { countVerdicts, parseReplayCases, replayCaseSummaries, replayCasesDir, replayGateVerdict, replayGateProducts, validateReplayCase, type ReplayGateResult } from "./replay-gate.ts";
 import { readdirSync } from "node:fs";
 
 const evalsRoot = resolve(import.meta.dirname, "../..");
@@ -132,7 +130,7 @@ async function main(argv: string[]): Promise<number> {
 		return 0;
 	}
 	if (command === "replay-gate") {
-		const { values } = parseArgs({ args: rest, options: { product: { type: "string" }, candidate: { type: "string" }, case: { type: "string" }, out: { type: "string" } } });
+		const { values } = parseArgs({ args: rest, options: { product: { type: "string" }, candidate: { type: "string" }, "current-only": { type: "boolean" }, case: { type: "string" }, out: { type: "string" } } });
 		const product = values.product ?? values.candidate;
 		if (!product) throw new Error("replay-gate needs --product /absolute/product/rotom");
 		const manifest = parseGateManifest(readFileSync(GATE_MANIFEST, "utf8"));
@@ -179,7 +177,7 @@ async function main(argv: string[]): Promise<number> {
 				cwd: (JSON.parse(readFileSync(incident.sessionFile, "utf8").split("\n")[0] ?? "{}") as { cwd?: string }).cwd ?? "",
 				incidentTimestamp: incident.timestamp,
 				entryId: incident.entryId,
-				products: [{ label: "frozen", directory: frozen }, { label: "candidate", directory: resolve(product) }],
+				products: replayGateProducts(resolve(product), frozen, values["current-only"]),
 				repeats: item.repeats ?? 1,
 				outRoot,
 				agentSource: join(homeDir(), ".pi", "agent"),
@@ -189,19 +187,19 @@ async function main(argv: string[]): Promise<number> {
 			const frozenCounts = countVerdicts(outcome.runs.filter((run) => run.label === "frozen"));
 			const candidateRuns = outcome.runs.filter((run) => run.label === "candidate");
 			const candidateCounts = countVerdicts(candidateRuns);
-			const verdict = replayGateVerdict(frozenCounts, candidateCounts);
+			const verdict = replayGateVerdict(frozenCounts, candidateCounts, values["current-only"]);
 			const notStarted = candidateRuns.filter((run) => run.failed).length;
 			const detail = notStarted > 0
 				? `${notStarted} of ${candidateRuns.length} candidate runs did not start`
 				: verdict === "regressed" ? `the failure is back on ${candidateCounts.fail} of ${candidateRuns.length} runs`
 					: verdict === "held" ? `candidate satisfied the check on all ${candidateCounts.pass} runs`
-						: frozenCounts.fail === 0 ? "the frozen product no longer fails this case" : "a run did not produce a verdict";
+						: !values["current-only"] && frozenCounts.fail === 0 ? "the frozen product no longer fails this case" : "a run did not produce a verdict";
 			results.push({ id: item.id, verdict, detail, frozen: frozenCounts, candidate: candidateCounts });
 			console.log(`${verdict.padEnd(9)} ${item.id}  frozen ${frozenCounts.pass}/${frozenCounts.fail}/${frozenCounts.unknown} candidate ${candidateCounts.pass}/${candidateCounts.fail}/${candidateCounts.unknown}  ${detail}`);
 		}
 		const outDir = join(outRoot, "replay-gate-summary.json");
-		writeFileSync(outDir, `${JSON.stringify({ product: resolve(product), cases: results, registered: replayCaseSummaries(cases) }, null, "\t")}\n`, { mode: 0o600 });
-		console.log(`replay-gate: ${results.some((item) => item.verdict === "regressed") ? "regressed" : results.some((item) => item.verdict === "unknown") ? "unknown" : "held"} · ${outDir}`);
+		writeFileSync(outDir, `${JSON.stringify({ product: resolve(product), currentOnly: values["current-only"] ?? false, cases: results, registered: replayCaseSummaries(cases) }, null, "\t")}\n`, { mode: 0o600 });
+		console.log(`replay-gate${values["current-only"] ? " (current-only)" : ""}: ${results.some((item) => item.verdict === "regressed") ? "regressed" : results.some((item) => item.verdict === "unknown") ? "unknown" : "held"} · ${outDir}`);
 		return results.some((item) => item.verdict === "regressed") ? 1 : results.some((item) => item.verdict === "unknown") ? 2 : 0;
 	}
 	if (command === "gate") {

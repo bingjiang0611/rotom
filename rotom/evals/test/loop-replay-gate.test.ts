@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parseGateManifest } from "../src/loop/gate.ts";
-import { countVerdicts, parseReplayCases, replayCaseSummaries, replayGateVerdict, validateReplayCase } from "../src/loop/replay-gate.ts";
+import { countVerdicts, parseReplayCases, replayCaseSummaries, replayGateProducts, replayGateVerdict, validateReplayCase } from "../src/loop/replay-gate.ts";
 
 function casesDir() {
 	const dir = mkdtempSync(join(tmpdir(), "replay-cases-"));
@@ -53,6 +53,21 @@ describe("parseReplayCases", () => {
 		expect(() => parseReplayCases(wrap([{ ...base, incident: "nope" }]), dir)).toThrow(/incident/u);
 		expect(() => parseReplayCases(wrap([base, base]), dir)).toThrow(/duplicate/u);
 		expect(() => parseReplayCases(wrap([{ ...base, mechanism: "  " }]), dir)).toThrow(/mechanism/u);
+	});
+});
+
+describe("current-only weekly replay", () => {
+	it("selects exactly the current product; default comparison mode retains both arms", () => {
+		expect(replayGateProducts("/daily", "/frozen", true)).toEqual([{ label: "candidate", directory: "/daily" }]);
+		expect(replayGateProducts("/daily", "/frozen")).toEqual([{ label: "frozen", directory: "/frozen" }, { label: "candidate", directory: "/daily" }]);
+	});
+	it("checks the existing oracle without crediting an improvement or treating unknown as pass", () => {
+		const absent = { pass: 0, fail: 0, unknown: 0 };
+		expect(replayGateVerdict(absent, { pass: 3, fail: 0, unknown: 0 }, true)).toBe("held");
+		expect(replayGateVerdict(absent, { pass: 2, fail: 1, unknown: 0 }, true)).toBe("regressed");
+		expect(replayGateVerdict(absent, { pass: 2, fail: 0, unknown: 1 }, true)).toBe("unknown");
+		expect(replayGateVerdict(absent, absent, true)).toBe("unknown");
+		expect(replayGateVerdict(absent, { pass: 3, fail: 0, unknown: 0 })).toBe("unknown");
 	});
 });
 

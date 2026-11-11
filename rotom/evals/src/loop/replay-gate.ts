@@ -115,15 +115,17 @@ export interface ReplayGateResult {
 	candidate: { pass: number; fail: number; unknown: number };
 }
 
-/**
- * Classify one case from its per-run check verdicts. `frozen` shows whether the case still
- * reproduces at all: if the frozen arm passes, the candidate cannot be credited with a fix and the
- * case is unknown rather than held.
- */
-export function replayGateVerdict(frozen: { pass: number; fail: number; unknown: number }, candidate: { pass: number; fail: number; unknown: number }): ReplayGateVerdict {
+/** Weekly current-only mode checks the existing oracle, not improvement against a frozen arm. */
+export function replayGateProducts(product: string, frozen: string, currentOnly = false): { label: string; directory: string }[] {
+	const candidate = { label: "candidate", directory: product };
+	return currentOnly ? [candidate] : [{ label: "frozen", directory: frozen }, candidate];
+}
+
+/** Classify checks; comparison mode also requires a reproducing frozen arm. Neither mode credits unknown runs. */
+export function replayGateVerdict(frozen: { pass: number; fail: number; unknown: number }, candidate: { pass: number; fail: number; unknown: number }, currentOnly = false): ReplayGateVerdict {
 	if (candidate.fail > 0) return "regressed";
 	if (candidate.unknown > 0 || candidate.pass === 0) return "unknown";
-	if (frozen.fail === 0) return "unknown";
+	if (!currentOnly && frozen.fail === 0) return "unknown";
 	return "held";
 }
 

@@ -44,7 +44,7 @@ export const USAGE = `Usage: npm run loop -- <command>
       so it is skipped and counted as a harvest false positive. --origin-only stops
       after that verdict and spends no model call.
 
-  replay-gate --product DIR [--case ID] [--out DIR]
+  replay-gate --product DIR [--current-only] [--case ID] [--out DIR]
       Replay every registered replay case against one product and report
       held / regressed / unknown. Cases come from the private
       ~/.rotom/loop/replay-cases/ (0700/0600, not in Git); gate.json only
