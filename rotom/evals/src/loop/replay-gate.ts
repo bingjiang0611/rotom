@@ -23,6 +23,24 @@ export interface ReplayCase {
 	repeats?: number;
 	/** De-identified one-line summary of what the case is about; this part may be committed. */
 	mechanism: string;
+	/**
+	 * Hand-written correct answers the check must accept before the case may run. A check that only
+	 * recognises the wording or the one route the author had in mind would score a correct answer as
+	 * a failure, so every case carries at least two: one written in Chinese and one that reaches the
+	 * same result by a different route.
+	 */
+	answers: ReplayAnswer[];
+}
+
+export interface ReplayAnswer {
+	/** `<name>` for the operator; the check never sees it. */
+	label: string;
+	/** Session-format fixture inside the case directory holding the answer. */
+	session: string;
+	/** Entry id in that fixture the check judges from, exactly as it does for a replay. */
+	cut: string;
+	/** `zh` for a Chinese answer, `alternative` for an equivalent route in any language. */
+	kind: "zh" | "alternative";
 }
 
 /**
@@ -67,6 +85,20 @@ export function parseReplayCases(text: string, casesDir: string): ReplayCase[] {
 			if (typeof model.provider !== "string" || !model.provider.trim() || typeof model.model !== "string" || !model.model.trim()) throw new Error(`${where}: model must be {provider, model}`);
 		}
 		if (item.frozen !== undefined && (typeof item.frozen !== "string" || !isAbsolute(item.frozen))) throw new Error(`${where}: frozen must be an absolute path`);
+		const answers = item.answers;
+		if (!Array.isArray(answers) || answers.length < 2) throw new Error(`${where}: at least two hand-written answers are required, one Chinese and one equivalent route`);
+		const kinds = new Set<string>();
+		for (const [position, answer] of answers.entries()) {
+			const at = `${where} answer ${position + 1}`;
+			const value = answer as Partial<ReplayAnswer>;
+			if (typeof value.label !== "string" || !value.label.trim()) throw new Error(`${at}: label is required`);
+			if (value.kind !== "zh" && value.kind !== "alternative") throw new Error(`${at}: kind must be zh or alternative`);
+			if (typeof value.session !== "string" || !isAbsolute(value.session) || !resolve(value.session).startsWith(`${root}/`)) throw new Error(`${at}: session must be an absolute path inside ${root}`);
+			if (!existsSync(value.session) || !statSync(value.session).isFile()) throw new Error(`${at}: session ${value.session} does not exist`);
+			if (typeof value.cut !== "string" || !/^[0-9a-f]{8}$/u.test(value.cut)) throw new Error(`${at}: cut must be an entry id`);
+			kinds.add(value.kind);
+		}
+		if (kinds.size !== 2) throw new Error(`${where}: answers must include both a zh and an alternative route`);
 		return item as ReplayCase;
 	});
 }
@@ -112,4 +144,37 @@ export function replayCaseSummaries(cases: readonly ReplayCase[]): ReplayCaseSum
 
 export function replayCasesDir(loopDir: string): string {
 	return join(loopDir, "replay-cases");
+}
+
+export type CheckRun = (env: { REPLAY_SESSION: string; REPLAY_CUT: string; VIEW_MODE: "before" | "after" }) => number;
+
+export interface CaseValidation {
+	usable: boolean;
+	/** One line per answer and for the original trajectory, so a refusal says what to fix. */
+	detail: string;
+}
+
+/**
+ * A check is usable when it rejects the recorded failure and accepts every hand-written answer. It
+ * runs against the case's own fixtures and the original session, before any product is spawned: a
+ * check that fails either direction would make every replay of this case meaningless.
+ */
+export function validateReplayCase(item: ReplayCase, original: { session: string; cut: string }, runCheck: CheckRun): CaseValidation {
+	const notes: string[] = [];
+	let usable = true;
+	const verdicts = item.answers.map((answer) => {
+		// An answer is the turn after its user message, exactly like a replay run.
+		const code = runCheck({ REPLAY_SESSION: answer.session, REPLAY_CUT: answer.cut, VIEW_MODE: "after" });
+		const passed = code === 0;
+		if (!passed) usable = false;
+		notes.push(`${answer.kind} answer ${answer.label}: ${passed ? "accepted" : `rejected (check rc=${code})`}`);
+		return passed;
+	});
+	// The recorded failure is the turn the person was reacting to, so the window ends at the cut.
+	const originalCode = runCheck({ REPLAY_SESSION: original.session, REPLAY_CUT: original.cut, VIEW_MODE: "before" });
+	const originalFailed = originalCode === 1;
+	if (!originalFailed) usable = false;
+	notes.push(`original trajectory: ${originalFailed ? "rejected, as the case requires" : `not rejected (check rc=${originalCode})`}`);
+	if (!verdicts.some(Boolean) && originalFailed) usable = false;
+	return { usable, detail: notes.join("; ") };
 }

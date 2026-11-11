@@ -13,7 +13,7 @@ import { defaultModelExperiment } from "./harvest-models.ts";
 import { parseLedgerDir } from "./ledger.ts";
 import { buildWeekly, parseWeeklyConfig, writeWeekly } from "./weekly.ts";
 import { originCheck, replayIncident } from "./replay-run.ts";
-import { countVerdicts, parseReplayCases, replayCaseSummaries, replayCasesDir, replayGateVerdict, type ReplayGateResult } from "./replay-gate.ts";
+import { countVerdicts, parseReplayCases, replayCaseSummaries, replayCasesDir, replayGateVerdict, validateReplayCase, type ReplayGateResult } from "./replay-gate.ts";
 import { readdirSync } from "node:fs";
 
 const evalsRoot = resolve(import.meta.dirname, "../..");
@@ -150,10 +150,25 @@ async function main(argv: string[]): Promise<number> {
 		const incidents = readFileSync(join(defaultLoopDir(), newest, "incidents.jsonl"), "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line) as { kind: string; sessionId: string; sessionFile: string; entryId: string; timestamp: string; detail: Record<string, unknown> });
 		const outRoot = values.out ?? join(defaultLoopDir(), `replay-gate-${stamp()}`);
 		const results: ReplayGateResult[] = [];
+		let selectedCheck = "";
+		const runCheck = ({ REPLAY_SESSION, REPLAY_CUT, VIEW_MODE }: { REPLAY_SESSION: string; REPLAY_CUT: string; VIEW_MODE: "before" | "after" }) => {
+			// The check judges fixtures exactly as it judges a replay: same command, same variables.
+			const probe = spawnSync("bash", [selectedCheck], { env: { ...process.env, REPLAY_SESSION, REPLAY_CUT, VIEW_MODE }, stdio: "ignore" });
+			return probe.status ?? 2;
+		};
 		for (const item of selected) {
 			const [sessionId, entryId] = item.incident.split(":");
 			const incident = incidents.find((entry) => entry.sessionId === sessionId && entry.entryId === entryId);
 			if (!incident) throw new Error(`replay case ${item.id}: no incident ${item.incident} in the newest harvest`);
+			selectedCheck = item.check;
+			const validation = validateReplayCase(item, { session: incident.sessionFile, cut: incident.entryId }, runCheck);
+			if (!validation.usable) {
+				// A check that cannot tell a correct answer from the failure makes every run of this case
+				// meaningless, so the gate refuses the case instead of scoring the product with it.
+				results.push({ id: item.id, verdict: "unknown", detail: `check unusable: ${validation.detail}`, frozen: { pass: 0, fail: 0, unknown: 0 }, candidate: { pass: 0, fail: 0, unknown: 0 } });
+				console.log(`unknown   ${item.id}  check unusable: ${validation.detail}`);
+				continue;
+			}
 			const modelText = item.model ? `${item.model.provider}/${item.model.model}` : String(incident.detail.model ?? "");
 			const [provider, model] = modelText.split("/");
 			if (!provider || !model) throw new Error(`replay case ${item.id} records no model; add one to the case`);

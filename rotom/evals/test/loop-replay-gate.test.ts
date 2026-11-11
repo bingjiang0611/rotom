@@ -3,20 +3,29 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parseGateManifest } from "../src/loop/gate.ts";
-import { countVerdicts, parseReplayCases, replayCaseSummaries, replayGateVerdict } from "../src/loop/replay-gate.ts";
+import { countVerdicts, parseReplayCases, replayCaseSummaries, replayGateVerdict, validateReplayCase } from "../src/loop/replay-gate.ts";
 
 function casesDir() {
 	const dir = mkdtempSync(join(tmpdir(), "replay-cases-"));
 	writeFileSync(join(dir, "check.sh"), "exit 1\n");
+	for (const [name, kind] of [["zh", "zh"], ["alt", "alternative"]]) {
+		writeFileSync(join(dir, `${name}.jsonl`), `${JSON.stringify({ type: "message", id: "aaaaaaaa", message: { role: "assistant", content: [{ type: "text", text: kind }] } })}\n`);
+	}
 	return dir;
 }
+
+/** The two answers every case must carry before its check may be used. */
+const answers = (dir: string) => [
+	{ label: "中文答案", kind: "zh", session: join(dir, "zh.jsonl"), cut: "aaaaaaaa" },
+	{ label: "different route", kind: "alternative", session: join(dir, "alt.jsonl"), cut: "aaaaaaaa" },
+];
 
 /** Built at run time so the repository never carries a personal home path. */
 const HOME_PATH = ["", "Users", "someone"].join("/");
 
 const valid = (dir: string) => JSON.stringify({
 	schema: "rotom-loop-replay-cases/v1",
-	cases: [{ id: "replay-one", incident: "01a13eb3-818e-705e-ba57-2464f351ba33:bdf0b669", check: join(dir, "check.sh"), mechanism: "answers with a reading guide instead of opening the package" }],
+	cases: [{ id: "replay-one", incident: "01a13eb3-818e-705e-ba57-2464f351ba33:bdf0b669", check: join(dir, "check.sh"), mechanism: "answers with a reading guide instead of opening the package", answers: answers(dir) }],
 });
 
 describe("parseReplayCases", () => {
@@ -39,7 +48,7 @@ describe("parseReplayCases", () => {
 
 	it("refuses an unregistered shape: bad incident, duplicate id, missing mechanism", () => {
 		const dir = casesDir();
-		const base = { id: "replay-one", incident: "01a13eb3-818e-705e-ba57-2464f351ba33:bdf0b669", check: join(dir, "check.sh"), mechanism: "m" };
+		const base = { id: "replay-one", incident: "01a13eb3-818e-705e-ba57-2464f351ba33:bdf0b669", check: join(dir, "check.sh"), mechanism: "m", answers: answers(dir) };
 		const wrap = (cases: unknown[]) => JSON.stringify({ schema: "rotom-loop-replay-cases/v1", cases });
 		expect(() => parseReplayCases(wrap([{ ...base, incident: "nope" }]), dir)).toThrow(/incident/u);
 		expect(() => parseReplayCases(wrap([base, base]), dir)).toThrow(/duplicate/u);
@@ -97,5 +106,33 @@ describe("replay cases in the committed gate manifest", () => {
 		expect(replayCaseSummaries(parseReplayCases(valid(dir), dir))).toEqual([
 			{ id: "replay-one", kind: "replay", mechanism: "answers with a reading guide instead of opening the package" },
 		]);
+	});
+});
+
+describe("validateReplayCase", () => {
+	const dir = casesDir();
+	const item = { id: "replay-one", incident: "01a13eb3-818e-705e-ba57-2464f351ba33:bdf0b669", check: join(dir, "check.sh"), mechanism: "m", answers: answers(dir) } as never;
+	writeFileSync(join(dir, "original.jsonl"), "{}\n");
+	const original = { session: join(dir, "original.jsonl"), cut: "aaaaaaaa" };
+
+	it("accepts a check that rejects the failure and accepts both answers", () => {
+		const codes = new Map<string, number>([[join(dir, "zh.jsonl"), 0], [join(dir, "alt.jsonl"), 0]]);
+		const validation = validateReplayCase(item, original, ({ REPLAY_SESSION }) => codes.get(REPLAY_SESSION) ?? 1);
+		expect(codes.get(join(dir, "zh.jsonl"))).toBe(0);
+		expect(validation.usable).toBe(true);
+		expect(validation.detail).toMatch(/zh answer/u);
+	});
+
+	it("refuses a check that rejects a correct answer", () => {
+		const validation = validateReplayCase(item, original, ({ REPLAY_SESSION }) => (REPLAY_SESSION.endsWith("alt.jsonl") ? 1 : 0));
+		expect(validation.usable).toBe(false);
+		expect(validation.detail).toMatch(/alternative answer different route: rejected/u);
+	});
+
+	it("refuses a check that also passes the original trajectory", () => {
+		const runs = new Map<string, number>([[join(dir, "zh.jsonl"), 0], [join(dir, "alt.jsonl"), 0]]);
+		const validation = validateReplayCase(item, original, ({ REPLAY_SESSION }) => (REPLAY_SESSION === original.session ? 0 : (runs.get(REPLAY_SESSION) ?? 1)));
+		expect(validation.usable).toBe(false);
+		expect(validation.detail).toMatch(/original trajectory: not rejected/u);
 	});
 });
