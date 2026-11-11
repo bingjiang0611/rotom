@@ -38,6 +38,7 @@
     "runtime/product-config.mjs",
     "runtime/launch-runtime.mjs",
     "runtime/verify-pi-runtime.mjs",
+    "runtime/verify-extension-load.mjs",
     "runtime/resolve-installed-pi.mjs",
     "runtime/update-product.mjs",
     "runtime/process-tree.ts",

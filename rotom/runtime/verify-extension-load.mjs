@@ -6,9 +6,10 @@
  *
  * Usage: node runtime/verify-extension-load.mjs --release <packed directory>
  */
+import { realpathSync } from "node:fs";
 import { access, readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 /** Every `extensions/<name>/index.ts` the artifact actually carries. */
 export async function extensionEntries(release) {
@@ -38,7 +39,15 @@ export async function verifyExtensionLoad(release) {
 	return { entries: entries.length, loaded: result.extensions.length };
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === resolve(new URL(import.meta.url).pathname)) {
+/** True when this file is the script node was asked to run, through any symlinked path. */
+function isEntryPoint() {
+	if (!process.argv[1]) return false;
+	const here = realpathSync(fileURLToPath(import.meta.url));
+	const invoked = realpathSync(resolve(process.argv[1]));
+	return here === invoked;
+}
+
+if (isEntryPoint()) {
 	const index = process.argv.indexOf("--release");
 	const release = index === -1 ? undefined : process.argv[index + 1];
 	if (!release) {
