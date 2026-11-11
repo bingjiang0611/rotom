@@ -13,7 +13,7 @@
 
 ## 为什么这样设计
 
-2026-09 到 2026-11 的实验见 [账本目录](../../rotom/evals/loop/ledger/)（`npm --prefix rotom/evals run loop -- ledger`）。21 条记录（按月分片存放）里只有 2 条测到改善：一条是机制（Compaction Offload），一条是先在真实失败上复现再修的提示（follow-through）。其余为 inconclusive、no-difference 或成本上升。根因是：
+2026-09 到 2026-11 的实验见 [账本目录](../../rotom/evals/loop/ledger/)（`loop ledger`）。按月分片的记录里只有 2 条测到改善：机制一条（Compaction Offload），先在真实失败上复现再修的提示一条（follow-through）。其余为 inconclusive、no-difference 或成本上升。根因是：
 
 1. **失败来源靠记忆。** 本机会话和 trace 一直在记录，从未被系统挖掘。
 2. **合成题撞天花板。** 14 个失败回归用例只有 1 个在冻结基线上复现；任务收尾/目标保持完整配对基线 26/27。改动无从显示差别。
@@ -28,7 +28,7 @@ npm --prefix rotom/evals run loop -- harvest --days 7 --no-excerpts
 npm --prefix rotom/evals run loop -- harvest --experiment default-model   # 加默认模型对照视图
 ```
 
-读取 `$PI_CODING_AGENT_DIR/sessions` 的会话 JSONL 与同目录 `observability/` trace，**不调用模型**，输出写到 `$ROTOM_LOOP_DIR`（默认 `~/.rotom/loop/harvest-<时间>/`），永不入 Git。检测器清单、北极星 v1/v2 口径、按模型 / runtime / 产品版本 / SoL-Pi 版本的拆分、敏感性检查、任务规模代理与 `--experiment default-model` 视图见 [harvest 契约](loop-harvest.md)。
+读取 `$PI_CODING_AGENT_DIR/sessions` 的会话 JSONL 与同目录 `observability/` trace，**不调用模型**，输出写到 `$ROTOM_LOOP_DIR`（默认 `~/.rotom/loop/harvest-<时间>/`），永不入 Git。检测器清单、北极星 v1/v2 口径、按模型 / runtime / 产品版本 / SoL-Pi 版本的拆分、敏感性检查与 `--experiment default-model` 视图见 [harvest 契约](loop-harvest.md)。
 
 ## ② 分诊
 
@@ -49,7 +49,7 @@ npm --prefix rotom/evals run loop -- harvest --experiment default-model   # 加�
 
 准入顺序不可交换：
 
-1. **oracle**：离线测试证明已观察的错误轨迹被拒绝、至少一个正确控制被接受。只能报告 `oracle-ready`。
+1. **oracle**：离线测试证明已观察的错误轨迹被拒绝、至少两个手写的正确答案被接受——一份用中文表述，一份用等价但不同的做法。检查只认英文关键词或只认一种实现路径时，行为正确也会判失败，所以两份答案必须是"另一种正确"，不是同一份的轻微改写。只能报告 `oracle-ready`。
 2. **baseline**：冻结产品 + 真实模型，运行前声明重复数与晋升规则。3 次时：0/3 失败 `not-reproduced`，1/3 `flaky-candidate`，≥2/3 `reproduced-regression`。
 3. **区分度门槛**：baseline 失败率落在约 30%–70% 才能长期留在 gate；0/3 失败的用例不入集（先检查是否丢了关键区别），3/3 失败可入集但要警惕用例过难或 judge 过严。
 
@@ -60,7 +60,7 @@ skip、超时、provider 错误、identity gate 失败和外部写入 unknown �
 - 先找机制层的修复：工具行为、错误恢复、续跑策略、上下文管理、harness。
 - 只有 `reproduced-regression` 才能改 Agent；不为制造改善放宽 judge、删反例或改阈值。
 - 修复后同条件跑 candidate：同 case、fixture、judge、runner、模型、thinking、输入、重复数，按轮次交替 arm 顺序。baseline fail→candidate pass 才是改善；中途改 fixture/judge/runner 则旧 baseline 作废，两侧重跑。
-- **机制改动只有在进入产品实际加载的 runtime 后才能（继续）标 `shipped`。** 改源码不算发货：Pi fork 里的改动要重建 fork（`npm run build:pi`）、同步 `vendor/*.tgz`、`runtime/pi/fork-build.json`、`runtime/pi` 的 `package.json`/lock 与 `product-config` 的版本和 integrity，直到 `node rotom/scripts/build-pi-fork.mjs --check`（`check:pi`）通过；再按锁在**新的**产品目录安装后，`grep` 到 installed dist 里的新代码。只在源码里改过、`check:pi` 未过或 installed dist 里看不到的改动，账本 `result` 必须写明“仅源码/未重建 fork”，并把验收期起点定在用户日常安装切换到该版本的那天；否则这条修复等于没上线（2026-11-10 的 retry 改动就是这样漏掉的，见账本 `L-2026-11-10-retry-after-and-quota-errors`）。
+- **机制改动只有在进入产品实际加载的 runtime 后才能（继续）标 `shipped`。** 改源码不算发货：Pi fork 里的改动要 `npm run build:pi` 重建、同步 `vendor/*.tgz`、`fork-build.json`、`runtime/pi` 的 `package.json`/lock 与 `product-config` 的版本和 integrity，直到 `check:pi` 通过；再在**新的**产品目录按锁安装，并 `grep` 到 installed dist 里的新代码。只在源码改过、`check:pi` 未过或 installed dist 看不到的改动，`result` 要写明“仅源码/未重建 fork”，验收起点定在日常安装切到该版本那天（2026-11-10 的 retry 改动就这样漏过，见 `L-2026-11-10-retry-after-and-quota-errors`）。
 - **自 2026-11-09 起，纯提示改动只有在账本中 `evidence: improved` 时才能 `shipped`**（`ledger.ts` 强制）。新增规则要同时报告 token 变化。现有 `coding-policy` 规则用 `cases/coding-hygiene-rule-ablation.eval.ts` 逐条消融；测不出作用的规则删除。
 
 ## ⑤ gate：已复现用例的回归门禁
@@ -74,7 +74,7 @@ npm --prefix rotom/evals run loop -- gate --baseline /absolute/frozen/rotom --ca
 
 模型默认用清单顶层的 `model`，单个用例可以用自己的 `model` 覆盖，两侧都按该模型的同一 provider/model 跑。`reproduction` 是**按模型分开的记录列表**：一个用例在 `qoder/dfmodel` 上没复现，不代表在 `openai-codex/gpt-6.1-sol` 上也不会复现，反过来也一样，所以每个模型一条记录，各自带 `reproduced` / `flaky-candidate` / `not-reproduced` 与样本数。
 
-`--candidate` 默认当前仓库的 `rotom/`；两侧必须是不同的绝对产品目录（同一目录那是 A/A 对照，不是 gate）。结果写到 `~/.rotom/loop/gate-<时间>/`。判定只看 candidate：每个用例全部重复通过为 `held`，否则 `regressed`；可评分配对不足为 `unknown`。退出码 0/1/2 对应 held/regressed/unknown；vitest 自身的退出码不作判定。baseline 通过率只用于观察：对照修复前产品时证明用例仍有区分度，对照上一发行版时预期同样通过。`--repeats N` 可在 1–5 之间覆盖清单里的重复数。
+`--candidate` 默认当前仓库的 `rotom/`；两侧必须是不同的绝对产品目录（同一目录是 A/A 对照，不是 gate）。结果写到 `~/.rotom/loop/gate-<时间>/`。判定只看 candidate：全部重复通过为 `held`，否则 `regressed`；可评分配对不足为 `unknown`。退出码 0/1/2 对应 held/regressed/unknown；vitest 自身退出码不作判定。baseline 通过率只用于观察区分度。`--repeats N` 可在 1–5 之间覆盖清单重复数。
 
 ### 正式运行前先 smoke
 
@@ -133,26 +133,26 @@ npm --prefix rotom/evals run loop -- gate --baseline /absolute/rotom-pre-fix/rot
 
 ## ⑥ 账本与节奏
 
-每个实验（包括失败与撤回）在 [`rotom/evals/loop/ledger/<YYYY-MM>.json`](../../rotom/evals/loop/ledger/) 里按月追加一项（分片按月份命名，条目日期必须落在分片月份内，id 跨分片唯一）：假设、改动类型（mechanism/prompt/eval/removal）、测量（模型、用例、N）、结果、证据级别、决定、来源文档。`npm --prefix rotom/evals run loop -- ledger` 校验所有分片的格式、来源文件存在、id 唯一和提示房租规则。单文件超过 20 KB 暂存预算时写成 `<YYYY-MM>-<slug>.json` 溢出分片：前缀月份决定条目日期，加载器按日期合并。不再为每个实验写长篇报告；细节追加在来源文档。
+每个实验（包括失败与撤回）在 [`rotom/evals/loop/ledger/`](../../rotom/evals/loop/ledger/) 里按月追加一项（分片按月份命名，条目日期必须落在分片月份内，id 跨分片唯一）：假设、改动类型（mechanism/prompt/eval/removal）、测量（模型、用例、N）、结果、证据级别、决定、来源文档。`loop ledger` 校验分片格式、来源文件存在、id 唯一和提示房租规则。单文件超过 20 KB 暂存预算时写成 `<YYYY-MM>-<slug>.json` 溢出分片：前缀月份决定条目日期，加载器按日期合并。不再为每个实验写长篇报告；细节追加在来源文档。
 
-改动 `rotom/extensions/**`、`rotom/runtime/**`、`rotom/skills/**`、`rotom/bin/**`、`packages/**` 的 commit 必须带 trailer：`Ledger: L-YYYY-MM-DD-slug` 指向已写入的条目，或 `Ledger: none — <理由>` 说明为什么这次改动不在循环里。只改测试、文档或 evals 的 commit 豁免。`.githooks/commit-msg` 会拦，被拦时补条目而不是绕 hook——循环之外做的机制、依赖和提示升级同样要能回答“它是哪次实验”。
+改动 `rotom/extensions/**`、`rotom/runtime/**`、`rotom/skills/**`、`rotom/bin/**`、`packages/**` 的 commit 必须带 trailer：`Ledger: L-YYYY-MM-DD-slug` 指向已写入的条目，或 `Ledger: none — <理由>` 说明为什么这次改动不在循环里。只改测试、文档或 evals 的 commit 豁免。`.githooks/commit-msg` 会拦；被拦时补条目而不是绕 hook，循环之外的机制、依赖和提示升级同样要能回答“它是哪次实验”。
 
 建议节奏：
 
-- **每周**：`npm --prefix rotom/evals run loop -- weekly`。它自己跑 28 天 harvest，然后写 `~/.rotom/loop/weekly-<YYYY-MM-DD>/`（`report.md` + `summary.json`，0700/0600，不入 Git）。四段内容：
+- **每周**：`loop weekly`。它自己跑 28 天 harvest，写 `~/.rotom/loop/weekly-<YYYY-MM-DD>/`（`report.md` + `summary.json`，0700/0600，不入 Git）。四段内容：
   1. North Star v2 总计、按模型、按产品版本（每行带 95% Poisson 区间和去掉最大一次会话后的敏感度列）；
-  2. 默认模型对照实验：**只**给每条臂的会话数与遵守率，窗口关闭前不给任何结果指标（类型里就没有字段，不是靠格式化省略），判定只在窗口关闭后按账本预注册规则读；
-  3. 每条 `decision=shipped` + `evidence=unmeasured` 的记录：用它自己的 `acceptance` 只看验收起点之后的数据，给 `improved / no-change / worse / insufficient-exposure / no-metric`；没声明指标的记录报 `no-metric`，不猜。暴露量 = 基线速率预测出 10 个事件的 turn 数，预先登记且由 `loop ledger` 校验；没到量只报 `insufficient-exposure`。到量后用单侧精确泊松检验（alpha 0.05），`no-change` 只表示没显出差异，并给出还差多少天（按最近 7 天日均 turn 换算）；
+  2. 默认模型对照实验：**只**给每条臂的会话数与遵守率，窗口关闭前不给结果指标（类型里没有这些字段），判定只在窗口关闭后按预注册规则读；
+  3. 每条 `decision=shipped` + `evidence=unmeasured` 的记录：用它自己的 `acceptance` 只看验收起点之后的数据，给 `improved / no-change / worse / insufficient-exposure / no-metric`；没声明指标报 `no-metric`，不猜。暴露量 = 基线速率预测出 10 个事件的 turn 数，预先登记且由 `loop ledger` 校验；没到量只报 `insufficient-exposure`。到量后用单侧精确泊松检验（alpha 0.05），`no-change` 只表示没显出差异，并给出还差多少天。机制记录还登记“首个包含该修复的提交”（`acceptance.firstCommit`）：只有 release 能追到该提交或其后代的会话才计入 turn，追不到或更早的会话另报条数。`loop versions` 用同一份 harvest 打印产品版本时间线（谁切换的未知）；
   4. 按 provider 的“用户可见失败/100 turns”，以版本切换时刻分为 before/after 两段；失败归到其会话所在的段。
 
   切换时间与对照窗口写在 `rotom/evals/loop/weekly.json`。看完报告再决定要不要深度分诊某条记录；不因为新数字改判定规则。
-- **实验窗口与暴露期内**：默认每周只跑一次 `weekly`，只做一个聚焦修复。窗口开着时不看任何一组的结局指标，暴露期没走完的验收记录只报 `insufficient-exposure`，都不构成开大轮的理由。**大轮只在两种情况下开**：出现新的可复现失败，或某条验收记录的暴露期走完。
+- **实验窗口与暴露期内**：每周只跑一次 `weekly`，只做一个聚焦修复。窗口开着时不看任何一组的结局指标，暴露期没走完的记录只报 `insufficient-exposure`，都不构成开大轮的理由。**大轮只在两种情况下开**：出现新的可复现失败，或某条记录的暴露期走完。
 - **每次相关改动**：`gate`。改 coding-policy、工具描述或续跑/停止逻辑之前先跑 `loop replay-gate --product <候选产品>`：只要有一条用例在候选上仍然失败，这次改动就不该进下一轮。用例与检查只存本机 `~/.rotom/loop/replay-cases/`（0700/0600，不入 Git），`gate.json` 的 `replays` 只登记 id、`kind: "replay"` 与脱敏摘要；产品没启动或没跑完记 `unknown`，不算通过。
 - **每次发版**：`gate` + 记录当周介入率；Terminal-Bench `release-smoke` 接入 Linux 容器后加入发版检查（见 `rotom/evals/README.md`）。
 
 ## ⑦ 回放（可选，需显式授权）
 
-`loop replay --incident <sessionId:entryId> [--repeats N]`：把一次记录在案的失败在隔离副本里重放——切到会话自己的分支、固定到时间点之前的 commit、去掉 remote、清掉凭据、用 shim 拒绝外写，产物只落 `~/.rotom/loop/replay-*`。只在显式授权时执行。规则与评判见 [回放](loop-replay.md)。
+`loop replay --incident <sessionId:entryId> [--repeats N]`：把一次记录在案的失败在隔离副本里重放，只在显式授权时执行，产物只落 `~/.rotom/loop/replay-*`。用法、两层路径隔离、两个前置条件（宿主仓库未被回放改动、隔离已生效）与“不可判”的判法见 [回放](loop-replay.md)；前置条件不成立就不开始。
 
 ## 已退役
 
