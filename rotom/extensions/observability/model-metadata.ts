@@ -38,7 +38,15 @@ export function runtimeVersionAttributes(env: NodeJS.ProcessEnv = process.env): 
 		// an install from a development checkout instead of reading every session as a switch.
 		...(absolutePath(env.ROTOM_LAUNCHER_PATH) ? { "rotom.launcher.path": absolutePath(env.ROTOM_LAUNCHER_PATH) } : {}),
 		...(absolutePath(env.ROTOM_PRODUCT_ROOT) ? { "rotom.product.root": absolutePath(env.ROTOM_PRODUCT_ROOT) } : {}),
+		// Which build, not which version string: several builds share a version, and a checkout
+		// shares it with all of them. Absent when the launcher could not prove it.
+		...(buildCommit(env.ROTOM_BUILD_COMMIT) ? { "rotom.build.commit": buildCommit(env.ROTOM_BUILD_COMMIT) } : {}),
+		...(buildCommit(env.ROTOM_BUILD_COMMIT) && /^(0|1)$/u.test(env.ROTOM_BUILD_DIRTY ?? "") ? { "rotom.build.dirty": env.ROTOM_BUILD_DIRTY === "1" } : {}),
 	};
+}
+
+function buildCommit(value: string | undefined): string | undefined {
+	return typeof value === "string" && /^[0-9a-f]{40}$/u.test(value) ? value : undefined;
 }
 
 function absolutePath(value: string | undefined): string | undefined {

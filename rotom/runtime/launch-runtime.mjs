@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { readBuildIdentity } from "./build-info.mjs";
 import { lstat, readFile, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
@@ -157,6 +158,16 @@ export async function launchRuntime(rawArgs = process.argv.slice(2)) {
 	// timeline in which several product versions appear to be in use at once. The launcher path is
 	// validated rather than trusted: an inherited value would describe some other process.
 	process.env.ROTOM_PRODUCT_ROOT = await realpath(agentDir).catch(() => agentDir);
+	// Which build this is. A packed release carries its own stamp; a development checkout has none,
+	// so its identity is read from Git. Both leave the two variables absent when they cannot prove it.
+	const build = await readBuildIdentity(agentDir);
+	if (build) {
+		process.env.ROTOM_BUILD_COMMIT = build.commit;
+		process.env.ROTOM_BUILD_DIRTY = build.dirty ? "1" : "0";
+	} else {
+		delete process.env.ROTOM_BUILD_COMMIT;
+		delete process.env.ROTOM_BUILD_DIRTY;
+	}
 	const declared = process.env.ROTOM_LAUNCHER_PATH;
 	process.env.ROTOM_LAUNCHER_PATH = isAbsolute(declared ?? "") && await realpath(declared).then((path) => path === declared, () => false)
 		? declared
