@@ -1,0 +1,41 @@
+[
+ {
+  "schema": "rotom-loop-ledger/v1",
+  "id": "L-2026-11-12-entry-provenance",
+  "date": "2026-11-12",
+  "title": "A version timeline needs the entry that started the session, not just its version",
+  "hypothesis": "The daily-version timeline showed the install apparently switching between releases several times on 11-10, and the ledger recorded `switchedBy: unknown` for every segment. The product version cannot answer which entry started a session: every locally packed release and every development checkout carries `version: 0.1.27`, so a checkout, an old release layout and the current install are indistinguishable, and harvest's release label is a dominant-substring match over the session text, which can name a release the session never ran.",
+  "change": "eval",
+  "measurement": "Compared the local trace's `rotom.product.version` for every session in the 11-10..11-11 window against the harvest release label. 32 of 55 sessions had a trace. Three labels were provably wrong: a session labelled 0.1.27-main.5649b3db ran 50ccdc87 (no such release directory exists), 07:21 labelled 655c35f2 ran 50ccdc87, and 11:40 labelled 305b3f9e ran plain 0.1.27. Release directory creation times plus the nvm bin symlink's mtime bound the real install changes to 50ccdc87 (11-09 04:15 local), 2b4ea53b (11-10 05:25), 655c35f2 (11-10 06:30), e9c3d5d1 (11-11 00:40, the round-11 switch). Everything between those instants is a label artefact, and plain `0.1.27` remains ambiguous between three releases and fifteen checkouts.",
+  "result": "The launcher now exports its own resolved path and the product root it runs from; the runtime re-resolves the root and accepts a launcher path only when it is already canonical. The observability `pi.session.runtime` span carries `rotom.launcher.path` and `rotom.product.root`, paths only. Harvest classifies the session as install, dev-checkout or unknown from the product root and keeps the launcher path as evidence; weekly prints an Entry section beside Product version. Sessions whose trace predates the record stay unknown rather than being guessed.",
+  "evidence": "unmeasured",
+  "decision": "shipped",
+  "source": "rotom/runtime/launch-runtime.mjs"
+ },
+ {
+  "schema": "rotom-loop-ledger/v1",
+  "id": "L-2026-11-12-grounding-worth-doing",
+  "date": "2026-11-12",
+  "title": "Answered-without-reading is too rare to build a guard for",
+  "hypothesis": "Round 11 left the read-only grounding mechanism unbuilt for lack of a case set. Before paying for one, count how often a zero-tool round names a workspace path or package it never read, and how often the person then corrects or repeats — if that is rare, the mechanism would chase a class of event that almost never reaches a person.",
+  "change": "eval",
+  "measurement": "Thresholds were fixed before measuring (they are the round-12 task's own decision rule, not derived from the result): the target class must reach 0.5 corrected events per 100 turns and a precision of at least 20% of R12_N. Measured over the 28-day harvest window (801 sessions, 5104 user rounds, 999 zero-tool rounds): loose detection N=116, strict detection (path and scoped package only) N=25, K=1 in both — K/N = 0.9% loose, 4.0% strict; 0.0196 corrected events per 100 turns; K is 1 of 258 v2 interventions (0.39%). Per model: astra 10 of 1795 turns, dfmodel 6 of 1133, opus-5-5 5 of 456, one each for sol, luna, opus-5, kmodel_latest.",
+  "result": "Ten hits were checked against their sessions. One is a true positive and it is the known `wrong-module-first` incident (`01a13eb3:bdf0b669`): asked which package to read first, the answer gave a reading order naming `packages/agent/src/agent.ts` and `src/agent-loop.ts` with zero tool calls and was corrected. Four are detector false positives — a placeholder `@org/package`, the third-party `@openai/codex`, an out-of-workspace `$R/NEXT.md` and a documented `~/.config/...` path. Five name a path but needed no read: a proposal, a greeting that offers to read a doc, and three reports of work the session had already done. Both thresholds miss by more than an order of magnitude, so the read-only guard is recorded as not worth building and no case set was created.",
+  "evidence": "unmeasured",
+  "decision": "kept-off",
+  "source": "rotom/evals/src/loop/harvest-signals.ts"
+ },
+ {
+  "schema": "rotom-loop-ledger/v1",
+  "id": "L-2026-11-12-deletion-hypothesis-stability",
+  "date": "2026-11-12",
+  "title": "The tested-deletion case reproduces on both versions, so it stays a gate case",
+  "hypothesis": "Round 11's re-run gave 1 pass / 1 fail for replay-deletion-hypothesis on the switched product, which is too few repeats to tell a repaired behaviour from a flaky check, and a flaky check must not gate anything.",
+  "change": "eval",
+  "measurement": "Six repeats per arm with the frozen product `0.1.27-main.50ccdc87` and the current daily `0.1.27-main.e9c3d5d1`, model qoder/dfmodel, the case's own e9 check, run under the replay sandbox. Rule fixed before the runs: frozen failing at least 4 of 6 keeps the case; current passing at least 4 of 6 means a recent change fixed the behaviour and the fixing version range must be named; anything else is flaky and leaves the gate.",
+  "result": "Frozen 0 pass / 6 fail; current 1 pass / 5 fail. The failure is stable on both arms, so the case stays registered, and no version range fixed it. The single current pass is the flake rate to expect: treat a 5/6 result as reproducing and never as a pass.",
+  "evidence": "unmeasured",
+  "decision": "kept-off",
+  "source": "rotom/evals/src/loop/replay-gate.ts"
+ }
+]

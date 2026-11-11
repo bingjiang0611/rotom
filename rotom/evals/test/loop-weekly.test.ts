@@ -25,7 +25,7 @@ it("renders the entry dimension next to the product version", () => {
 			overall: [],
 			models: [],
 			products: [],
-			entries: [{ key: "dev-checkout", turns: 40, sessions: 4, northStarV2: 2, interventions: 2, per100: 5, interval: { low: 0.6, high: 18 }, withoutLargest: { per100: 5, interval: { low: 0.6, high: 18 } } }],
+			entries: [{ key: "dev-checkout", turns: 40, v2: 2, v2Per100: 5, interval: { low: 0.6, high: 18 }, sensitivity: { v2Per100: 5, droppedSessionId: null } }],
 		} as ReturnType<typeof buildWeekly>["northStar"],
 	});
 	const text = renderWeekly(report);
