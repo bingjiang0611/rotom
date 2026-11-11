@@ -13,9 +13,11 @@ import { DECLARED_MODELS, MODEL, MODELS, PROVIDER_ID, catalogModel, controlsFor,
 export { MODEL, MODELS, PROVIDER_ID };
 
 export async function createQoderProvider({ piAI, clampMaxTokens, getToken, getCredential, captureBinding, captureMetering, fetchImpl, onDiagnostic, onMetadata, onMetering,
-  authMode = process.env.ROTOM_QODER_AUTH ?? 'browser', oauthOptions = {}, refreshCatalog, onCatalogStaleReuse } = {}) {
+  authMode = process.env.ROTOM_QODER_AUTH ?? 'browser', oauthOptions = {}, deviceIdentity, refreshCatalog, onCatalogStaleReuse } = {}) {
   if (!['browser', 'qodercli'].includes(authMode)) throw new QoderError('invalid_auth_mode');
-  const envelope = authMode === 'browser' ? createOAuthEnvelope() : undefined;
+  const envelope = authMode === 'browser'
+    ? createOAuthEnvelope({ onObserved: deviceIdentity ? c => deviceIdentity.adoptExisting(c.machineId) : undefined })
+    : undefined;
   let browserFingerprint;
   const browserBinding = captureBinding ?? (() => fingerprint => {
     if (browserFingerprint && browserFingerprint !== fingerprint) throw new QoderError('account_changed_start_new_session');
@@ -189,7 +191,7 @@ export async function createQoderProvider({ piAI, clampMaxTokens, getToken, getC
   const provider = piAI.createProvider({
     id: PROVIDER_ID, name: 'Qoder', baseUrl: BASE_URL,
     models: DECLARED_MODELS,
-    auth: envelope ? { oauth: { ...createBrowserOAuth(oauthOptions), toAuth: envelope.toAuth } } : { apiKey: {
+    auth: envelope ? { oauth: { ...createBrowserOAuth({ ...oauthOptions, getDeviceId: deviceIdentity ? () => deviceIdentity.get() : undefined }), toAuth: envelope.toAuth } } : { apiKey: {
       name: 'Read-only Qoder CLI login (no automatic refresh)',
       async resolve({ signal } = {}) {
         const deadline = AbortSignal.timeout(60000);
