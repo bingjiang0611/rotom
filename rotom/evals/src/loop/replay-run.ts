@@ -8,6 +8,7 @@ import { copyFile, lstat, mkdir, readFile, readdir, writeFile } from "node:fs/pr
 import { existsSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { basename, join, resolve } from "node:path";
+import { installReplaySandbox } from "./replay-sandbox.ts";
 import { REPLAY_TOOLS, productEntry, admissionFor, newTurnStats, originalTranscript, refusalFor, readBranch, repositoryCheck, sandboxShim, scrubbedEnvironment, timepoint, type Admission, type CheckVerdict, type NewTurnStats, type ReplayPlan } from "./replay.ts";
 
 /** Files copied into the replay agent dir so the runtime can authenticate without an inherited env. */
@@ -82,11 +83,12 @@ async function runOnce(options: {
 	await writeFile(branchFile, `${plan.branch.lines.join("\n")}\n`, { mode: 0o600 });
 	const shim = join(home, "sandbox.sh");
 	await writeFile(shim, sandboxShim(), { mode: 0o600 });
+	const sandbox = await installReplaySandbox({ base, home, agent, workspace });
 
 	const entry = productEntry(product.directory, existsSync);
 	if ("error" in entry) throw new Error(entry.error);
 	const executable = entry.executable;
-	const env = { ...scrubbedEnvironment(process.env, home), BASH_ENV: shim, PI_CODING_AGENT_DIR: agent };
+	const env = { ...scrubbedEnvironment(process.env, home), ...sandbox.env, BASH_ENV: shim, PI_CODING_AGENT_DIR: agent };
 	const args = [
 		"--print",
 		"--session",
@@ -121,7 +123,8 @@ async function runOnce(options: {
 	let sessionText = "";
 	for (const name of sessionFiles) if (name.endsWith(".jsonl")) sessionText += await readFile(join(sessions, name), "utf8").catch(() => "");
 	if (sessionText) await writeFile(join(base, "session.jsonl"), sessionText, { mode: 0o600 });
-	const refusals = [...output.matchAll(/replay-sandbox: refused ([^\n]+)/gu)].map((match) => match[1] ?? "");
+	// Both layers carry a marker: the shim names an external write, the guard names a refused path.
+	const refusals = [...output.matchAll(/(?:replay-sandbox|replay-isolation): refused ([^\n]+)/gu)].map((match) => match[1] ?? "");
 	// No exit code and no output means the product never started; the session file then holds only
 	// the restored branch, so scoring it would report the original run's tool calls as this run's work.
 	if (exitCode === null && output.length === 0) {
