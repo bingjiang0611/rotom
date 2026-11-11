@@ -1,8 +1,8 @@
 # Agent 优化循环
 
-维护入口：`/skill:agent-loop`。命令：`npm --prefix rotom/evals run loop -- harvest|gate|ledger`。
+维护入口：`/skill:agent-loop`。命令：`npm --prefix rotom/evals run loop -- harvest|gate|replay-gate|ledger`。
 
-目标只有一个：**rotom 在真实使用中越来越少需要人介入**。评测、提示、机制改动都服务于这个目标；不能降低介入率的改动不交付。
+目标只有一个：**rotom 在真实使用中越来越少需要人介入**。评测、提示、机制改动都服务于此；不能降低介入率的改动不交付。
 
 ```text
 真实会话 ─①harvest─▶ 事件队列 ─②分诊─▶ 回放用例 ─③baseline─▶ 复现？
@@ -133,7 +133,7 @@ npm --prefix rotom/evals run loop -- gate --baseline /absolute/rotom-pre-fix/rot
 
 ## ⑥ 账本与节奏
 
-每个实验（包括失败与撤回）在 [`rotom/evals/loop/ledger/<YYYY-MM>.json`](../../rotom/evals/loop/ledger/) 里按月追加一项（分片按月份命名，条目日期必须落在分片月份内，id 跨分片唯一）：假设、改动类型（mechanism/prompt/eval/removal）、测量（模型、用例、N）、结果、证据级别、决定、来源文档。`npm --prefix rotom/evals run loop -- ledger` 校验所有分片的格式、来源文件存在、id 唯一和提示房租规则。一个月超过单文件 20 KB 暂存预算时，写成 `<YYYY-MM>-<slug>.json` 溢出分片：文件名前缀的月份决定这批条目允许的日期，加载器按日期合并排序。不再为每个实验单独写长篇报告；需要细节时在来源文档追加。
+每个实验（包括失败与撤回）在 [`rotom/evals/loop/ledger/<YYYY-MM>.json`](../../rotom/evals/loop/ledger/) 里按月追加一项（分片按月份命名，条目日期必须落在分片月份内，id 跨分片唯一）：假设、改动类型（mechanism/prompt/eval/removal）、测量（模型、用例、N）、结果、证据级别、决定、来源文档。`npm --prefix rotom/evals run loop -- ledger` 校验所有分片的格式、来源文件存在、id 唯一和提示房租规则。单文件超过 20 KB 暂存预算时写成 `<YYYY-MM>-<slug>.json` 溢出分片：前缀月份决定条目日期，加载器按日期合并。不再为每个实验写长篇报告；细节追加在来源文档。
 
 改动 `rotom/extensions/**`、`rotom/runtime/**`、`rotom/skills/**`、`rotom/bin/**`、`packages/**` 的 commit 必须带 trailer：`Ledger: L-YYYY-MM-DD-slug` 指向已写入的条目，或 `Ledger: none — <理由>` 说明为什么这次改动不在循环里。只改测试、文档或 evals 的 commit 豁免。`.githooks/commit-msg` 会拦，被拦时补条目而不是绕 hook——循环之外做的机制、依赖和提示升级同样要能回答“它是哪次实验”。
 
@@ -142,27 +142,27 @@ npm --prefix rotom/evals run loop -- gate --baseline /absolute/rotom-pre-fix/rot
 - **每周**：`npm --prefix rotom/evals run loop -- weekly`。它自己跑 28 天 harvest，然后写 `~/.rotom/loop/weekly-<YYYY-MM-DD>/`（`report.md` + `summary.json`，0700/0600，不入 Git）。四段内容：
   1. North Star v2 总计、按模型、按产品版本（每行带 95% Poisson 区间和去掉最大一次会话后的敏感度列）；
   2. 默认模型对照实验：**只**给每条臂的会话数与遵守率，窗口关闭前不给任何结果指标（类型里就没有字段，不是靠格式化省略），判定只在窗口关闭后按账本预注册规则读；
-  3. 每条 `decision=shipped` + `evidence=unmeasured` 的记录：用它自己的 `acceptance` 只看验收起点之后的数据，给 `improved / no-change / worse / insufficient-exposure / no-metric`；没声明可测指标的记录直接报 `no-metric`，不猜。暴露量 = 基线速率预测出 10 个事件的 turn 数，预先登记且由 `loop ledger` 校验。没到量只报 `insufficient-exposure`，不报“改善”或“无变化”。到量后用单侧精确泊松检验（阈值固定 alpha 0.05），`no-change` 只表示没显出差异。报告同时给出暴露量和还差多少天（按最近 7 天日均 turn 数换算）；
+  3. 每条 `decision=shipped` + `evidence=unmeasured` 的记录：用它自己的 `acceptance` 只看验收起点之后的数据，给 `improved / no-change / worse / insufficient-exposure / no-metric`；没声明指标的记录报 `no-metric`，不猜。暴露量 = 基线速率预测出 10 个事件的 turn 数，预先登记且由 `loop ledger` 校验；没到量只报 `insufficient-exposure`。到量后用单侧精确泊松检验（alpha 0.05），`no-change` 只表示没显出差异，并给出还差多少天（按最近 7 天日均 turn 换算）；
   4. 按 provider 的“用户可见失败/100 turns”，以版本切换时刻分为 before/after 两段；失败归到其会话所在的段。
 
-  切换时间与对照窗口写在 `rotom/evals/loop/weekly.json`（本地日期含首尾）。看完报告再决定要不要对某条记录做深度分诊；不因为报告出现新数字就改判定规则。
+  切换时间与对照窗口写在 `rotom/evals/loop/weekly.json`。看完报告再决定要不要深度分诊某条记录；不因为新数字改判定规则。
 - **实验窗口与暴露期内**：默认每周只跑一次 `weekly`，只做一个聚焦修复。窗口开着时不看任何一组的结局指标，暴露期没走完的验收记录只报 `insufficient-exposure`，都不构成开大轮的理由。**大轮只在两种情况下开**：出现新的可复现失败，或某条验收记录的暴露期走完。
-- **每次相关改动**：`gate`。
+- **每次相关改动**：`gate`。改 coding-policy、工具描述或续跑/停止逻辑之前先跑 `loop replay-gate --product <候选产品>`：只要有一条用例在候选上仍然失败，这次改动就不该进下一轮。用例与检查只存本机 `~/.rotom/loop/replay-cases/`（0700/0600，不入 Git），`gate.json` 的 `replays` 只登记 id、`kind: "replay"` 与脱敏摘要；产品没启动或没跑完记 `unknown`，不算通过。
 - **每次发版**：`gate` + 记录当周介入率；Terminal-Bench `release-smoke` 接入 Linux 容器后加入发版检查（见 `rotom/evals/README.md`）。
 
 ## ⑦ 回放（可选，需显式授权）
 
-`loop replay --incident <sessionId:entryId> [--repeats N]`：把一次记录在案的失败在隔离副本里重放——从事件会话自己的分支切口、固定到会话时间点之前的 commit、去掉全部 remote、清掉凭据环境、用 shell shim 拒绝外写，产物只落 `~/.rotom/loop/replay-*`。只在显式授权真实会话回放时执行，未授权就跳过整块。规则、产物与评判方式见 [回放](loop-replay.md)。
+`loop replay --incident <sessionId:entryId> [--repeats N]`：把一次记录在案的失败在隔离副本里重放——切到会话自己的分支、固定到时间点之前的 commit、去掉 remote、清掉凭据、用 shim 拒绝外写，产物只落 `~/.rotom/loop/replay-*`。只在显式授权时执行。规则与评判见 [回放](loop-replay.md)。
 
 ## 已退役
 
-2026-11-09 删除了基线从未失败的 suite：`session-identity`（6/6）、`task-closure` 与 `goal-scope`（配对基线 26/27）、`workflow-discipline`（mechanism C1/C2 各 3/3，其余为 conformance/harness），以及依赖它们的只读停止审查原型 `end-review`（误拦正确修复、无净收益）。代码只查 Git history，没有新的复现证据不重建。历史结论见 [收尾/目标 A/B](agent-behavior-ab-20261030.md) 与 [只读停止审查](agent-stopping-review-20261030.md)。
+2026-11-09 删除了基线从未失败的 suite：`session-identity`（6/6）、`task-closure` 与 `goal-scope`（配对基线 26/27）、`workflow-discipline`（mechanism C1/C2 各 3/3，其余为 conformance/harness），以及依赖它们的只读停止审查原型 `end-review`。代码只查 Git history，没有新的复现证据不重建；历史结论见 [收尾/目标 A/B](agent-behavior-ab-20261030.md) 与 [只读停止审查](agent-stopping-review-20261030.md)。
 
 ## 报告用语
 
 - 离线测试通过 ≠ Agent 通过；suite skipped ≠ 评测通过；`oracle-ready` ≠ 入集完成。
-- judge 分数不是业务成功；估算费用不是账单；harvest 指标是单人本地趋势，不是产品质量统计。
-- 回放与 gate 只覆盖所跑用例；真实 App、设备与外部业务仍按 [verification.md](verification.md) 单独验收。
+- judge 分数不是业务成功；估算费用不是账单；harvest 是单人本地趋势，不是产品质量统计。
+- 回放与 gate 只覆盖所跑用例；真实 App、设备与外部业务按 [verification.md](verification.md) 验收。
 
 ## 推送前
 
@@ -172,4 +172,4 @@ npm --prefix rotom/evals run loop -- gate --baseline /absolute/rotom-pre-fix/rot
 python3 scripts/audit-public.py --root . --history-range origin/main..HEAD
 ```
 
-`.githooks/pre-push` 已经跑同一条命令（先拦身份，再扫范围），所以手工这一步主要在 hook 不可用时兜底。tree 模式看不到提交身份，而作者/提交者泄露只能在推送前发现——推上去之后再改就要改写公开历史。全量 `--history` 是“这个仓库能不能公开”的问题，只在发布独立仓库或改写历史后跑。两种历史模式放行的身份都只有三类：`*@users.noreply.github.com`、提交者 `noreply@github.com`（GitHub 网页合并自动写入）、精确地址 `noreply@anthropic.com`（维护者已同意的历史豁免，同域名其他地址照样拦）。pre-push hook 用同一规则在推送时兜底，拦下时按它打印的命令 `--reset-author` 改写，不用 `--no-verify`。
+`.githooks/pre-push` 跑同一条命令（先拦身份，再扫范围），手工这一步在 hook 不可用时兜底。tree 模式看不到提交身份，而身份泄露只能在推送前发现。全量 `--history` 是“仓库能不能公开”的问题，只在发布独立仓库或改写历史后跑。两种历史模式放行的身份都只有三类：`*@users.noreply.github.com`、提交者 `noreply@github.com`（GitHub 网页合并自动写入）、精确地址 `noreply@anthropic.com`（维护者已同意的历史豁免，同域名其他地址照样拦）。pre-push hook 用同一规则在推送时兜底，拦下时按它打印的命令 `--reset-author` 改写，不用 `--no-verify`。

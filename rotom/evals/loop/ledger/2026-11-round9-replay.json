@@ -7,8 +7,8 @@
 		"hypothesis": "The person asked for the same change in the source repository and its copy; the answer reported the copy done and left the source untouched, because each step waited for confirmation instead of propagating what was already agreed.",
 		"change": "eval",
 		"measurement": "Event: 13-user-turn branch in a private project, model openai-codex/gpt-6-astra. Frozen product 0.1.27-main.50ccdc87 (the event ran a release label with no corresponding commit, so it cannot be rebuilt). Two sequential runs. Check, written and run on the original trajectory first: the run must edit or write files under two distinct project roots.",
-		"result": "Original trajectory failed the check (one root). Frozen: 2 of 2 runs failed — neither edited anything; both answered with a summary that admitted the copy was done and the source was not, then described the next step. New turns: 1 assistant message, 0 tool calls per run (input 121 · output 277/209 · cacheRead 162,176 · cacheWrite 0). Admission `reproduced (replay)`. Current arm (0.1.27-main.2b4ea53b) run once: killed at the 20-minute limit after 709 tool calls with the branch still in progress, so the current verdict is `unknown`, not 'fixed'.",
-		"evidence": "regressed",
+		"result": "Original trajectory failed the check (one root). Frozen 0.1.27-main.50ccdc87: 2 of 2 runs failed, neither edited anything. Current daily 0.1.27-main.655c35f2, 2 of 2 runs: also fail, but for a different reason — the new turns read the live host repositories (`git -C <host>/trade-telemetry`, `<host>/trade-telemetry-review`) and answered that both already carry the work (41f6b5b, 40 files), which is true on this machine today. The replay refuses pushes and remote writes but does not isolate absolute host paths, and the case needs a second repository that the clone never contains, so nothing in this arm can be judged: evidence inconclusive, not regressed. Needs a fixture that materialises both repositories inside the sandbox before the case can be used again.",
+		"evidence": "inconclusive",
 		"decision": "open",
 		"source": "docs/agent/loop-replay.md"
 	},
@@ -20,7 +20,7 @@
 		"hypothesis": "The person asked whether `main` had uncommitted changes; the answer was about nine unpushed commits on another branch, and it pushed that branch without being asked.",
 		"change": "eval",
 		"measurement": "Event: 4-user-turn branch, model openai-codex/gpt-6.1-sol. Frozen product 0.1.27-main.50ccdc87. Two runs plus three more because the result was split. Check, written and run on the original trajectory first: the answer must report working-tree state (untracked/uncommitted/nothing to commit), not unpushed commits.",
-		"result": "Original trajectory failed the check. Frozen: 1 of 5 runs failed, 4 passed, so `not-reproduced`. The passing runs run `git status --short --branch` and answer that the working tree is clean; the failing run reused the older wording. New turns: 1–3 assistant messages, 1–2 tool calls per run (per-run input 401–1,039 · output 175–272 · cacheRead 15,360–23,424). Caveat: the frozen product is newer than the release the session ran.",
+		"result": "Original trajectory failed the check. Frozen: 1 of 5 runs failed, 4 passed, so `not-reproduced`. The passing runs run `git status --short --branch` and answer that the working tree is clean; the failing run reused the older wording. New turns: 1–3 assistant messages, 1–2 tool calls per run (per-run input 401–1,039 · output 175–272 · cacheRead 15,360–23,424). Caveat: the frozen product is newer than the release the session ran. Control on the current daily 0.1.27-main.655c35f2, 2 of 2 runs: the check passes and neither run records a refusal, so no unrequested push or external write was attempted (the shim would have refused it and counted it).",
 		"evidence": "not-reproduced",
 		"decision": "open",
 		"source": "docs/agent/loop-replay.md"
@@ -46,8 +46,8 @@
 		"hypothesis": "The person had removed many browser extensions and saw no drop; the answer reported one aggregate figure and attributed it broadly, which cannot answer 'which plugin', so the person had to ask again.",
 		"change": "eval",
 		"measurement": "Event: 2-user-turn branch, model openai-codex/gpt-6-astra. Frozen product rebuilt for this event: `pack:release` in a temporary worktree at the event's own commit 0d906237, installed into a temporary prefix, `--frozen` pointing at the installed package (artifact 0.1.26, 48,668,845 bytes, 18,883 files). Two sequential runs. Check, written and run on the original trajectory first: the run must attribute memory per extension (extension process or Extensions directory), not one aggregate.",
-		"result": "Original trajectory failed the check. Frozen at the event-time commit: 2 of 2 runs failed — both report process-level totals and stop there. New turns: 4 assistant messages, 3 tool calls per run (input 8,700–8,980 · output 1,578–1,921 · cacheRead 25,472–26,112). Admission `reproduced (replay)`. Current arm (0.1.27-main.2b4ea53b) run once: killed at the 20-minute limit after 4 assistant messages with the session truncated mid-branch, so the current verdict is `unknown`.",
-		"evidence": "regressed",
+		"result": "Original trajectory failed the check. Frozen, rebuilt at the event commit: 2 of 2 runs failed (process totals only). Current daily 0.1.27-main.655c35f2, 2 of 2 runs: the check still fails, but the transcripts show the behaviour the check asks for — the answer breaks memory down per extension process (8 extension processes / 330 MiB against 31 renderers / 2,999 MiB) and names the remaining gap it cannot close. The check only accepts the English surface (`--type=extension`, `Extension Process`, `Extensions/`), so a correct Chinese answer fails it. Evidence inconclusive: the case cannot separate behaviour until the check accepts the answer the user actually got.",
+		"evidence": "inconclusive",
 		"decision": "open",
 		"source": "docs/agent/loop-replay.md"
 	},
@@ -59,8 +59,8 @@
 		"hypothesis": "The person asked why a config file could not simply be deleted and the defaults used; the answer explained the channel semantics and the supported flag instead of removing the file somewhere disposable and showing what happens.",
 		"change": "eval",
 		"measurement": "Event: 28-user-turn branch, model qoder/dfmodel. Frozen product 0.1.27-main.50ccdc87. Two sequential runs. Check, written and run on the original trajectory first: the run must delete or move that config file inside a scratch scope and observe the result.",
-		"result": "Original trajectory failed the check. Frozen: 2 of 2 runs failed — both re-argue the trade-off. New turns: 2–4 assistant messages, 1–3 tool calls per run (input 2,019–222,732 · output 2,485–4,236 · cacheRead 223,360–895,104). Admission `reproduced (replay)`. No current-version arm was run for this event: the two attempts that did run on the current product both hit the 20-minute limit without finishing, so the arm would only repeat an unknown at large cost.",
-		"evidence": "regressed",
+		"result": "Original trajectory failed the check. Frozen 0.1.27-main.50ccdc87: 2 of 2 runs failed, both re-argued the trade-off. Current daily 0.1.27-main.655c35f2, 2 of 2 runs: the check still fails, but both runs did test the deletion — they built an empty workspace under /tmp and exercised the installed resolver against it, then reported what the missing file does (fail closed, hook exits 0, queue abandons). The check requires a literal `rm`/`mv` of `scry.config` inside the clone, which is narrower than the behaviour it was written for. Evidence inconclusive until the check accepts an equivalent scratch-scope test.",
+		"evidence": "inconclusive",
 		"decision": "open",
 		"source": "docs/agent/loop-replay.md"
 	},
@@ -72,9 +72,35 @@
 		"hypothesis": "The person asked why the answer did not start from the `ai` package; the answer explored the UI and shell surfaces instead of opening that package, so its explanation of the call chain came from the wrong layer.",
 		"change": "eval",
 		"measurement": "Event: 7-user-turn branch, model openai-codex/gpt-6-astra, product 0.1.22. Frozen product 0.1.27-main.50ccdc87. Two sequential runs. Check, written and run on the original trajectory first: the run must read a path inside `packages/ai`.",
-		"result": "Original trajectory failed the check. Frozen: 2 of 2 runs failed — neither opened that package, and the second run made no tool call at all. New turns: 1 assistant message, 0 tool calls per run (input 170–132,010 · output 362/363 · cacheRead 0–131,840). Admission `reproduced (replay)`. Current arm (0.1.27-main.2b4ea53b) run once: killed at the 20-minute limit after 109 tool calls, so the current verdict is `unknown`.",
+		"result": "Original trajectory failed the check. Frozen 0.1.27-main.50ccdc87: 2 of 2 runs failed, 0 tool calls. Current daily 0.1.27-main.655c35f2, 2 of 2 runs: still fails, 1 assistant message and 0 tool calls each — the answer gives a reading guide for the packages and never opens `packages/ai`. This is the one of the four that still reproduces on the current product, so it is the case the round used for the fix. New turns per run: input 93-132113, output 321-393, cacheRead 144384.",
 		"evidence": "regressed",
 		"decision": "open",
 		"source": "docs/agent/loop-replay.md"
+	},
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-11-10-replay-arm-void",
+		"date": "2026-11-10",
+		"title": "Void the current-arm replay column that never ran a product",
+		"hypothesis": "A replay whose product directory has no entry point still exits with a session file, and reading that file back counts the restored branch as the run's own work. Every current-arm number produced that way is an artifact of the harness, not a measurement of the product.",
+		"change": "eval",
+		"measurement": "Four replay records in this shard (two-copies, extension-attribution, deletion-hypothesis, wrong-module-first) plus their control were re-run on the installed daily product 0.1.27-main.655c35f2, two runs each, same incidents, same models, same deterministic checks. The specified version 0.1.27-main.2b4ea53b could not be used: it ships 14 qoder extension files without `model-catalog.mjs` while `provider.mjs` imports it, so `import(<pkg>/extensions/qoder/provider.mjs)` fails with ERR_MODULE_NOT_FOUND, and every replay against it would be unknown.",
+		"result": "Void column replaced. Real current-arm results: two-copies 2/2 fail (contaminated: the run read the live host repositories), extension-attribution 2/2 fail (check accepts only English wording; the answer does the per-extension breakdown), deletion-hypothesis 2/2 fail (the run tested the deletion in a scratch workspace under /tmp, not by removing the watched file), wrong-module-first 2/2 fail (genuine: 0 tool calls, package never opened). Control uncommitted-state 2/2 pass with zero refusals. So three of the four cases do not measure what their checks claim, and one is genuinely still failing.",
+		"evidence": "inconclusive",
+		"decision": "open",
+		"source": "docs/agent/loop-replay.md"
+	},
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-11-10-replay-gate",
+		"date": "2026-11-10",
+		"title": "replay-gate: run the registration of captured failures before touching policy",
+		"hypothesis": "The offline gate cannot see a failure that only exists as a real session, so a change to the coding policy, a tool description or the continuation logic was shipped without any regression check on the captured events. Running those events with their own checks, against a named candidate product, gives held/regressed/unknown before the change lands.",
+		"change": "eval",
+		"measurement": "New `loop replay-gate --product DIR [--case ID]`: reads the private case list at `~/.rotom/loop/replay-cases/cases.json` (0700/0600, never in Git), refuses any check outside that directory, requires each case to be registered in `loop/gate.json` by id with `kind: \"replay\"` and a de-identified mechanism, and runs frozen plus candidate arms with the case's own deterministic check. One registered case (replay-wrong-module-first).",
+		"result": "First run against the switched daily 0.1.27-main.e9c3d5d1: `regressed replay-wrong-module-first` (frozen 0/1/0, candidate 0/1/0 — the failure is back), which is the expected reading for the product without the reverted fix. A product that does not start, or a run with no verdict, is reported unknown and never as held.",
+		"evidence": "unmeasured",
+		"decision": "shipped",
+		"source": "rotom/evals/src/loop/replay-gate.ts"
 	}
 ]
