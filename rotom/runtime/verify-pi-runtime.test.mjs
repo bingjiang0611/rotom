@@ -52,7 +52,7 @@ function fakePi(options = {}) {
 	writeFileSync(join(dist, "cli.js"), `#!/usr/bin/env node
 import { writeFileSync } from "node:fs";
 ${options.emitWarning ? 'process.emitWarning("fixture warning", { code: "ROTOM_TEST_WARNING" });' : ""}
-writeFileSync(process.env.ROTOM_TEST_CAPTURE, JSON.stringify({ cwd: process.cwd(), argv: process.argv.slice(2), nodeExecutable: process.execPath, nodeVersion: process.versions.node, verifiedPiExecutable: process.env.ROTOM_VERIFIED_PI_EXECUTABLE, verifiedPiVersion: process.env.ROTOM_VERIFIED_PI_VERSION, productVersion: process.env.ROTOM_PRODUCT_VERSION, importedProductVersion: process.env.ROTOM_TEST_IMPORTED_PRODUCT_VERSION, maxSubagentSpawnsPerSession: process.env.PI_SUBAGENT_MAX_SPAWNS_PER_SESSION, cacheRetention: process.env.PI_CACHE_RETENTION, deferredDefaultSurface: process.env.ROTOM_DEFERRED_DEFAULT_SURFACE, computerUseHeadless: process.env.PI_COMPUTER_USE_HEADLESS, executionScope: process.env.PI_SUBAGENTS_EXECUTION_SCOPE, subagentTempRoot: process.env.PI_SUBAGENTS_TEMP_ROOT, subagentQoderExtension: process.env.ROTOM_SUBAGENT_QODER_EXTENSION, subagentBrowserExtension: process.env.ROTOM_SUBAGENT_BROWSER_EXTENSION }));
+writeFileSync(process.env.ROTOM_TEST_CAPTURE, JSON.stringify({ cwd: process.cwd(), argv: process.argv.slice(2), nodeExecutable: process.execPath, nodeVersion: process.versions.node, verifiedPiExecutable: process.env.ROTOM_VERIFIED_PI_EXECUTABLE, verifiedPiVersion: process.env.ROTOM_VERIFIED_PI_VERSION, productVersion: process.env.ROTOM_PRODUCT_VERSION, launcherPath: process.env.ROTOM_LAUNCHER_PATH, productRoot: process.env.ROTOM_PRODUCT_ROOT, importedProductVersion: process.env.ROTOM_TEST_IMPORTED_PRODUCT_VERSION, maxSubagentSpawnsPerSession: process.env.PI_SUBAGENT_MAX_SPAWNS_PER_SESSION, cacheRetention: process.env.PI_CACHE_RETENTION, deferredDefaultSurface: process.env.ROTOM_DEFERRED_DEFAULT_SURFACE, computerUseHeadless: process.env.PI_COMPUTER_USE_HEADLESS, executionScope: process.env.PI_SUBAGENTS_EXECUTION_SCOPE, subagentTempRoot: process.env.PI_SUBAGENTS_TEMP_ROOT, subagentQoderExtension: process.env.ROTOM_SUBAGENT_QODER_EXTENSION, subagentBrowserExtension: process.env.ROTOM_SUBAGENT_BROWSER_EXTENSION }));
 `);
 	chmodSync(join(dist, "cli.js"), 0o700);
 	symlinkSync("../lib/node_modules/fake-pi/dist/cli.js", join(bin, "pi"));
@@ -369,6 +369,8 @@ test("launcher 保留业务 cwd 与用户参数，并固定加载 bundled resour
 		assert.equal(invocation.verifiedPiExecutable, realpathSync(join(root, "bin/pi")));
 		assert.equal(invocation.verifiedPiVersion, "0.84.3", "trace Pi version must come from the identity gate, not inherited parent metadata");
 		assert.equal(invocation.productVersion, PRODUCT_VERSION, "startup must use the launched product version, not inherited parent metadata");
+		assert.equal(invocation.productRoot, realpathSync(AGENT_DIR), "the trace must name the product root this launch actually used, so an install is not read as a checkout");
+		assert.equal(invocation.launcherPath, realpathSync(LAUNCHER), "the trace must name the launcher real path, not whatever a parent process exported");
 		assert.equal(invocation.importedProductVersion, PRODUCT_VERSION, "product identity must exist before Pi SDK import so UI branding cannot freeze as pi");
 		assert.equal(invocation.subagentQoderExtension, resolve(AGENT_DIR, "extensions/qoder/index.ts"), "child provider must come from this verified product, not inherited metadata");
 		assert.equal(invocation.subagentBrowserExtension, resolve(AGENT_DIR, "extensions/browser/index.ts"), "child browser extension must come from this verified product, not inherited metadata");
@@ -482,6 +484,22 @@ test("launcher 保留业务 cwd 与用户参数，并固定加载 bundled resour
 	} finally {
 		rmSync(businessCwd, { recursive: true, force: true });
 	}
+}));
+
+test("launcher 通过 PATH 符号链接启动时仍记录被调用的入口", () => withFakePi({}, async ({ root }) => {
+	// The everyday entry is a symlink in a Node prefix, so the recorded launcher has to survive the
+	// link, and must not degrade into the runtime module that exec made argv[1].
+	const prefixBin = join(root, "prefix/bin");
+	mkdirSync(prefixBin, { recursive: true });
+	const linked = join(prefixBin, "rotom");
+	symlinkSync(join(AGENT_DIR, "bin/rotom"), linked);
+	const capture = join(root, "capture-entry.json");
+	execFileSync(linked, ["--print", "hello"], {
+		env: { ...process.env, HOME: join(root, "home"), PATH: `${join(root, "bin")}:${process.env.PATH ?? ""}`, ROTOM_NODE: process.execPath, ROTOM_TEST_CAPTURE: capture },
+	});
+	const invocation = JSON.parse(readFileSync(capture, "utf8"));
+	assert.equal(invocation.launcherPath, realpathSync(LAUNCHER), "a symlinked entry must resolve to the launcher, not to launch-runtime.mjs");
+	assert.equal(invocation.productRoot, realpathSync(AGENT_DIR));
 }));
 
 test("launcher --trace 前台启动 loopback dashboard，不进入 Pi agent runtime", () => withFakePi({}, async ({ root }) => {

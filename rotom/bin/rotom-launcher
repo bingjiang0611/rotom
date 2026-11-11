@@ -253,6 +253,20 @@ for argument in "$@"; do
 done
 ROTOM_DEFERRED_DEFAULT_SURFACE=$deferred_default_surface
 export ROTOM_DEFERRED_DEFAULT_SURFACE
+# Which entry was actually invoked, resolved through any symlink. The runtime cannot recover this
+# after exec: by then argv[1] is the runtime module, and every install, checkout and wrapper looks
+# the same. Path only; the trace never records its content.
+launcher_realpath=
+if [ -n "${realpath_command:-}" ]; then
+	launcher_realpath=$("$realpath_command" "$0" 2>/dev/null) || launcher_realpath=
+fi
+if [ -n "$launcher_realpath" ]; then
+	ROTOM_LAUNCHER_PATH=$launcher_realpath
+	export ROTOM_LAUNCHER_PATH
+else
+	# An inherited value would describe some other process; record nothing instead.
+	unset ROTOM_LAUNCHER_PATH
+fi
 
 # Reuse Claude Code skills without copying or generating a second catalog. Project skills follow
 # Claude Code's startup discovery boundary: cwd and its ancestors through the nearest Git root.

@@ -152,6 +152,16 @@ export async function launchRuntime(rawArgs = process.argv.slice(2)) {
 	// Verification imports the Pi SDK. Set trusted product identity first so
 	// import-time branding (including the exit resume command) cannot freeze as "pi".
 	process.env.ROTOM_PRODUCT_VERSION = await readProductVersion(agentDir);
+	// Which entry started this session, recorded as paths only. A local trace that cannot say whether
+	// a session came from the installed release or from a development checkout cannot explain a
+	// timeline in which several product versions appear to be in use at once. The launcher path is
+	// validated rather than trusted: an inherited value would describe some other process.
+	process.env.ROTOM_PRODUCT_ROOT = await realpath(agentDir).catch(() => agentDir);
+	const declared = process.env.ROTOM_LAUNCHER_PATH;
+	process.env.ROTOM_LAUNCHER_PATH = isAbsolute(declared ?? "") && await realpath(declared).then((path) => path === declared, () => false)
+		? declared
+		: await realpath(process.argv[1] ?? "").catch(() => "");
+	if (!process.env.ROTOM_LAUNCHER_PATH) delete process.env.ROTOM_LAUNCHER_PATH;
 	const verified = await (options.versionMode
 		? verifyPiRuntimeIdentity({ executable, agentDir, resourceDeclarations })
 		: verifyPiRuntime({

@@ -34,7 +34,15 @@ export function runtimeVersionAttributes(env: NodeJS.ProcessEnv = process.env): 
 	return {
 		...(product && EXACT_VERSION.test(product) ? { "rotom.product.version": product } : {}),
 		...(pi && EXACT_VERSION.test(pi) ? { "pi.runtime.version": pi } : {}),
+		// Paths only, never content: which entry started the session, so a version timeline can tell
+		// an install from a development checkout instead of reading every session as a switch.
+		...(absolutePath(env.ROTOM_LAUNCHER_PATH) ? { "rotom.launcher.path": absolutePath(env.ROTOM_LAUNCHER_PATH) } : {}),
+		...(absolutePath(env.ROTOM_PRODUCT_ROOT) ? { "rotom.product.root": absolutePath(env.ROTOM_PRODUCT_ROOT) } : {}),
 	};
+}
+
+function absolutePath(value: string | undefined): string | undefined {
+	return typeof value === "string" && value.startsWith("/") && !value.includes("\0") ? value : undefined;
 }
 
 /** Per-request timing of a built-in compaction, keyed by summary kind. */

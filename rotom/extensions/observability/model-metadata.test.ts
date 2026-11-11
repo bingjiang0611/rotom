@@ -18,6 +18,16 @@ test("runtime span records only launcher-verified exact versions", () => {
 	assert.deepEqual(runtimeVersionAttributes({ ROTOM_PRODUCT_VERSION: "latest", ROTOM_VERIFIED_PI_VERSION: "1.1\n0" }), {});
 });
 
+test("runtime span records the launcher and product paths, never their content", () => {
+	const root = ["", "Users", "someone", ".local", "share", "rotom", "releases", "0.1.27-main.e9c3d5d1", "node_modules", "@bingjiang0611", "rotom"].join("/");
+	assert.deepEqual(
+		runtimeVersionAttributes({ ROTOM_LAUNCHER_PATH: `${root}/bin/rotom-launcher`, ROTOM_PRODUCT_ROOT: root }),
+		{ "rotom.launcher.path": `${root}/bin/rotom-launcher`, "rotom.product.root": root },
+	);
+	assert.deepEqual(runtimeVersionAttributes({ ROTOM_LAUNCHER_PATH: "bin/rotom", ROTOM_PRODUCT_ROOT: "./rotom" }), {}, "relative paths are not evidence");
+	assert.deepEqual(runtimeVersionAttributes({ ROTOM_LAUNCHER_PATH: "", ROTOM_PRODUCT_ROOT: undefined }), {});
+});
+
 test("failed provider errors map to a bounded category from real error texts", () => {
 	const cases: Array<[string, number | undefined, Record<string, string | number>]> = [
 		["fetch failed", undefined, { "pi.ai.error.category": "network" }],
