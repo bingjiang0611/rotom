@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { MacosHelperClient } from "../src/platform/macos/helper.ts";
+import { HELPER_PROTOCOL_VERSION, MacosHelperClient } from "../src/platform/macos/helper.ts";
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 
@@ -67,9 +67,9 @@ test("the fake script never consults the operator input source", () => {
 	assert.match(source, /const inputSource = fake \? fake\.inputSource : inputSourceInfo\(\)/);
 });
 
-test("protocol documentation says 10 and retains the cooperative arbitration boundary", () => {
+test("protocol documentation matches the helper and retains the cooperative arbitration boundary", () => {
 	const doc = read("../../../CLAUDE.md");
-	assert.match(doc, /helper 协议已升到 10/);
+	assert.match(doc, new RegExp(`helper 协议已升到 ${HELPER_PROTOCOL_VERSION}`));
 	assert.match(doc, /协作式/);
 	assert.doesNotMatch(doc, /helper 协议已升到 8/);
 });

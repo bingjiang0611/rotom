@@ -36,9 +36,10 @@ test("explicit open requires the observed AXOpen capability and a semantic wire 
 	assert.equal(canRetryInForeground(action, "unknown", false, { ROTOM_CU_SPECULATIVE_FOREGROUND_RETRY: "1" }), false);
 });
 
-test("open preserves policy and lease in the helper request without becoming click", () => {
+test("open preserves preflight, approval, policy and lease through JSON without becoming click", () => {
 	const action = prepareAction({ action: "open", ref: "@e1" }, environment());
 	assert.ok(action.action === "open");
+	action.params = { openTarget: { kind: "directory", fingerprint: "fixture" }, openApproved: false };
 	const request = buildActRequest({
 		action, lookId: "open-test", pid: 4242, policy: "background_text",
 		delivery: "pid", cursorAgentId: "session:open-test",
@@ -48,7 +49,9 @@ test("open preserves policy and lease in the helper request without becoming cli
 	assert.deepEqual(request.target, { ref: "e1" });
 	assert.deepEqual(request.lease, { token: "test-token", resourceKey: "desktop-pid:4242" });
 	assert.equal("delivery" in request, false);
-	assert.equal(request.params.delivery, "pid");
+	assert.deepEqual(JSON.parse(JSON.stringify(request)).params, {
+		openTarget: { kind: "directory", fingerprint: "fixture" }, openApproved: false, delivery: "pid",
+	});
 	assert.equal(request.policy, "background_text");
 	assert.equal(request.pid, 4242);
 	assert.equal(outcomeAfterCheck("unknown", "preexisting"), "unknown");
@@ -69,9 +72,23 @@ test("native AXOpen control flow dispatches once and never equates AX acceptance
 	// helper or a live App. Full native typechecking separately checks SDK types.
 	const body = source.split('\t\tcase "open":')[1]?.split('\t\tcase "select":')[0];
 	assert.ok(body, "native open implementation must exist");
+	const fixtures = [];
+	for (const kind of ["directory", "file", "package", "unknown"]) {
+		for (const approved of [false, true]) {
+			const action = prepareAction({ action: "open", ref: "@e1" }, environment());
+			assert.ok(action.action === "open");
+			action.params = { openTarget: { kind, fingerprint: "fixture" }, openApproved: approved };
+			fixtures.push({ kind, approved, request: buildActRequest({
+				action, lookId: "open-test", pid: 4242, policy: "background_text",
+				delivery: "pid", cursorAgentId: "session:open-test",
+			}) });
+		}
+	}
 	const directory = mkdtempSync(path.join(tmpdir(), "cu-semantic-open-"));
 	try {
 		const file = path.join(directory, "main.swift");
+		const requests = path.join(directory, "requests.json");
+		writeFileSync(requests, JSON.stringify(fixtures), { mode: 0o600 });
 		writeFileSync(file, `import Foundation
 
 typealias CFString = String
@@ -82,21 +99,28 @@ var calls = 0
 var response = AXError.success
 func supportsAction(_ element: Int, action: String) -> Bool { precondition(action == "AXOpen"); return supported }
 func AXUIElementPerformAction(_ element: Int, _ action: String) -> AXError { precondition(action == "AXOpen"); calls += 1; return response }
-struct TestOpenTarget { let kind = "directory"; let fingerprint = "fixture" }
-func describeOpenTarget(_ element: Int) -> TestOpenTarget { TestOpenTarget() }
-func open(_ element: Int) throws -> [String: Any] {
- let params: [String: Any] = ["openTarget": ["kind": "directory", "fingerprint": "fixture"]]
+struct TestOpenTarget { let kind: String; let fingerprint = "fixture" }
+var currentKind = "directory"
+func describeOpenTarget(_ element: Int) -> TestOpenTarget { TestOpenTarget(kind: currentKind) }
+func open(_ element: Int, _ params: [String: Any]) throws -> [String: Any] {
  var performed: [String: Any] = ["delivery": "pid", "grounding": "coordinates"]
 ${body}
 }
-do { _ = try open(1); fatalError("unsupported action dispatched") }
+let fixtures = try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1]))) as! [[String: Any]]
+let firstParams = (fixtures[0]["request"] as! [String: Any])["params"] as! [String: Any]
+do { _ = try open(1, firstParams); fatalError("unsupported action dispatched") }
 catch let error as BridgeFailure { precondition(error.code == "unsupported_action") }
 precondition(calls == 0)
 supported = true
-for status in [AXError.success, AXError.cannotComplete] {
+for fixture in fixtures {
+ currentKind = fixture["kind"] as! String
+ let allowed = currentKind == "directory" || fixture["approved"] as? Bool == true
+ let params = (fixture["request"] as! [String: Any])["params"] as! [String: Any]
+ for status in [AXError.success, AXError.cannotComplete] {
  calls = 0; response = status
- let result = try open(1)
- precondition(calls == 1)
+ do {
+ let result = try open(1, params)
+ precondition(allowed && calls == 1)
  precondition(result["outcome"] as? String == "unknown")
  let performed = result["performed"] as! [String: Any]
  precondition(performed["delivery"] as? String == "ax")
@@ -105,10 +129,17 @@ for status in [AXError.success, AXError.cannotComplete] {
  precondition(performed["verification"] as? String == "caller_required")
  precondition((result["evidence"] as! [String: Int32])["axReturnCode"] == status.rawValue)
  precondition((result["error"] != nil) == (status != .success))
+ } catch let error as BridgeFailure {
+  if allowed || error.code != "open_confirmation_required" {
+   print("Unexpected native refusal after request serialization: \\(error.code)"); exit(1)
+  }
+  precondition(calls == 0)
+ }
+ }
 }
-print("semantic-open: unsupported=0 dispatches; success/error=1 dispatch each; both unknown")
+print("semantic-open: 8 serialized target/approval cases; unsupported/unapproved=0 dispatches; success/error=1 dispatch each; both unknown")
 `, { mode: 0o600 });
-		const result = spawnSync("xcrun", ["swift", "-module-cache-path", path.join(directory, "module-cache"), file], { encoding: "utf8", timeout: 60_000 });
+		const result = spawnSync("xcrun", ["swift", "-module-cache-path", path.join(directory, "module-cache"), file, requests], { encoding: "utf8", timeout: 60_000 });
 		assert.ifError(result.error);
 		assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
 		assert.match(result.stdout, /success\/error=1 dispatch each; both unknown/);

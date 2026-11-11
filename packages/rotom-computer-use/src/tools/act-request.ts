@@ -5,6 +5,7 @@
  * the caller pins, and whether the transport must actually be used - can be
  * asserted in a test without a live look or backend.
  */
+import type { OpenTarget } from "../open-target.ts";
 import type { NativeInputDelivery, PlatformActRequest, PlatformDeliveryPolicy } from "../platform/types.ts";
 
 /** What `helperActRequest` needs from the runtime, passed in so this stays pure. */
@@ -55,6 +56,11 @@ export function buildActRequest(context: ActRequestContext): PlatformActRequest 
 			case "setValue":
 				return { ...base, action: "setValue", params: { value: Number(action.params.value), ...delivered } };
 			case "open":
+				return { ...base, action: "open", params: {
+					openTarget: action.params.openTarget as OpenTarget | undefined,
+					openApproved: action.params.openApproved as boolean | undefined,
+					...delivered,
+				} };
 			case "expand":
 			case "collapse":
 			case "scrollTo":

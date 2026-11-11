@@ -227,7 +227,8 @@ export type PlatformActRequest = PlatformActRequestBase & (
 	| { action: "hover"; params: PlatformActDeliveryParam }
 	| { action: "select"; params: { option?: string } & PlatformActDeliveryParam }
 	| { action: "setChecked"; params: { checked: boolean } & PlatformActDeliveryParam }
-	| { action: "open" | "expand" | "collapse"; params: PlatformActDeliveryParam }
+	| { action: "open"; params: { openTarget?: OpenTarget; openApproved?: boolean } & PlatformActDeliveryParam }
+	| { action: "expand" | "collapse"; params: PlatformActDeliveryParam }
 	| { action: "scrollTo"; params: PlatformActDeliveryParam }
 	| { action: "focus"; params: PlatformActDeliveryParam }
 	| { action: "clear"; params: PlatformActDeliveryParam }
