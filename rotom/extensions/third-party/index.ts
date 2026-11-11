@@ -8,6 +8,7 @@ import { createSolPiExtension } from "./node_modules/sol-pi/src/sol-pi/index.ts"
 import { ASK_AUTO_CONTINUATION_MESSAGE, ASK_CONTINUATION_GUIDELINE, createAskContinuationController, selectedOptionsRequireContinuation, stripAskContinuationMetadata } from "./ask/continuation.ts";
 import { askContinuationParameters, UnsupportedAskSchemaError } from "./ask/schema.ts";
 import { computerUseRecoveryApi } from "./computer-use/recovery.ts";
+import { computerUseApprovalApi } from "./computer-use/approval.ts";
 import { isDeferredByDefault, registerDeferredTools } from "./deferred-tools/register.ts";
 import { loadRotomSolPiConfig } from "./sol-pi.ts";
 import { subagentPolicyApi } from "./subagent/policy.ts";
@@ -77,7 +78,7 @@ export default function thirdPartyRuntime(pi: ExtensionAPI): void {
 		},
 	});
 	createCodemodeExtension()(controlApi);
-	computerUse(computerUseRecoveryApi(controlApi));
+	computerUse(computerUseRecoveryApi(computerUseApprovalApi(controlApi)));
 	subagents(subagentPolicyApi(controlApi), { surface: "ephemeral" });
 	goal(controlApi);
 	const askContinuation = createAskContinuationController();
