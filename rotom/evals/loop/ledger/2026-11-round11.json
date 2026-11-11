@@ -37,5 +37,18 @@
 		"evidence": "unmeasured",
 		"decision": "shipped",
 		"source": "rotom/evals/src/loop/release-version.ts"
+	},
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-11-11-replay-check-oracle",
+		"date": "2026-11-11",
+		"title": "A replay check must prove it separates a correct answer from the failure",
+		"hypothesis": "Two of round 10's four replay cases failed because the check only accepted English keywords or the one route the author had in mind, not because the answer was wrong, so a passing behaviour was scored as a regression. Requiring the check to reject the recorded trajectory and accept two hand-written correct answers, one Chinese and one equivalent route, removes that class of false case.",
+		"change": "eval",
+		"measurement": "Gate runs each case's check against its fixtures before any product starts. Re-judging the round-10 set under the rule: replay-extension-attribution is dropped because the recorded answer already broke memory down per extension (16 extension processes, 1.1 GiB) and only the English keyword made it look wrong; replay-two-copies is unjudgeable because the replay reads the live host repositories the case needs and cannot be reproduced from one clone; replay-wrong-module-first and replay-deletion-hypothesis are re-run two times per arm against the frozen 0.1.27-main.50ccdc87 product.",
+		"result": "Both re-run cases validate: the Chinese and the alternative answer are accepted and the original trajectory is rejected. Frozen 0/2 pass for both. On the switched product wrong-module-first still fails 2/2 (no fix shipped), and deletion-hypothesis is 1 pass / 1 fail, so the repaired check no longer decides that case deterministically and it needs more repeats before it may gate anything.",
+		"evidence": "unmeasured",
+		"decision": "shipped",
+		"source": "rotom/evals/src/loop/replay-gate.ts"
 	}
 ]
