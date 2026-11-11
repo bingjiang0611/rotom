@@ -6,7 +6,9 @@ describe("provider error categories", () => {
 		expect(classifyProviderMessage("Qoder: stream_failed")).toBe("qoder:stream_failed");
 		expect(classifyProviderMessage("Qoder: connection_failed")).toBe("connect");
 		expect(classifyProviderMessage("connect ECONNREFUSED 127.0.0.1:443")).toBe("connect");
-		expect(classifyProviderMessage("fetch failed")).toBe("connect");
+		// Opaque: the request may have been sent, so this is not a connect-phase failure.
+		expect(classifyProviderMessage("fetch failed")).toBe("network");
+		expect(classifyProviderMessage("socket hang up")).toBe("network");
 		expect(classifyProviderMessage("429 Too Many Requests")).toBe("429");
 		expect(classifyProviderMessage("503 Service Unavailable")).toBe("5xx");
 		expect(classifyProviderMessage("Qoder: request_timeout")).toBe("timeout");
@@ -35,6 +37,17 @@ describe("provider error categories", () => {
 		const detail = providerDetail({ provider: "qoder", model: "dfmodel", errorMessage: "Qoder: stream_failed", spans: [{ timestamp: Date.parse("2026-11-03T10:00:10.000Z"), category: "websocket" }], timestamp: "2026-11-03T10:00:11.000Z" });
 		// The bucket comes from the trace, the provider's own code is kept from the message.
 		expect(detail).toEqual({ provider: "qoder", model: "dfmodel", category: "websocket", categorySource: "trace", code: "qoder:stream_failed" });
+	});
+
+	it("ignores a traced category this build does not write", () => {
+		// Releases before the rename wrote `connect` for an opaque `fetch failed`. Keeping that label
+		// would report a bounded-retry failure as a provable connect-phase one.
+		const detail = providerDetail({ provider: "openai-codex", model: "gpt-6-astra", errorMessage: "fetch failed", spans: [{ timestamp: Date.parse("2026-11-03T10:00:10.000Z"), category: "connect" }], timestamp: "2026-11-03T10:00:11.000Z" });
+		expect(detail.categorySource).toBe("message");
+		expect(detail.category).toBe("network");
+		const current = providerDetail({ provider: "openai-codex", model: "gpt-6-astra", errorMessage: "fetch failed", spans: [{ timestamp: Date.parse("2026-11-03T10:00:10.000Z"), category: "network" }], timestamp: "2026-11-03T10:00:11.000Z" });
+		expect(current.categorySource).toBe("trace");
+		expect(current.category).toBe("network");
 	});
 
 	it("summarizes incidents into provider x category x recovered rows", () => {

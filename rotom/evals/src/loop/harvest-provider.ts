@@ -26,12 +26,19 @@ const QODER_CODE = /\bqoder:\s*([a-z][a-z0-9_]*)/iu;
 const STATUS_429 = /\b(?:429|rate[ _-]?limit|too many requests)\b/iu;
 const STATUS_5XX = /\b(?:50[0234]|5xx|service unavailable|bad gateway|gateway time-?out|internal server error|overloaded|server_error)\b/iu;
 const TIMEOUT = /\b(?:timeout|timed out|etimedout|deadline exceeded)\b/iu;
-const CONNECT = /\b(?:econnrefused|enotfound|econnreset|ehostunreach|enetunreach|fetch failed|socket hang up|tls|certificate|proxy|connect(?:ion)?[_ ]?(?:failed|timeout|error|refused))\b/iu;
+/**
+ * A connect-phase failure is one where the request provably never left: the socket was refused,
+ * the name did not resolve, or the transport says the connection was never established. `fetch
+ * failed` alone, a reset or a socket hang up can equally mean a request that was sent and possibly
+ * billed, so those stay in `network` — the runtime keeps its bounded budget for them.
+ */
+const CONNECT = /\b(?:econnrefused|enotfound|eai_again|ehostunreach|enetunreach|eaddrnotavail|und_err_connect_timeout|tls|certificate|proxy|connect(?:ion)?[_ ]?(?:failed|timeout|error|refused))\b|before secure tls connection was established|when http tunneling/iu;
+const NETWORK = /\b(?:fetch failed|econnreset|socket hang up|network error|other side closed|terminated)\b/iu;
 
 /**
- * Bucket an error message. Ordered as documented: connection failures first (a refused
- * socket is not the server rejecting us), then explicit HTTP status, then timeouts, then
- * a provider code such as `Qoder: stream_failed`, then `other`.
+ * Bucket an error message. Ordered as documented: provable connect failures first (a refused
+ * socket is not the server rejecting us), then opaque network failures, then explicit HTTP status,
+ * then timeouts, then a provider code such as `Qoder: stream_failed`, then `other`.
  */
 export function classifyProviderMessage(message: string): ProviderCategory {
 	const text = message.trim();
@@ -43,7 +50,8 @@ export function classifyProviderMessage(message: string): ProviderCategory {
 	if (status === "429") return "429";
 	if (status && /^5/u.test(status)) return "5xx";
 	// `Qoder: connection_failed` / `Qoder: request_timeout` are transport facts, not server replies.
-	if (/connect|tls|socket|dns|proxy/iu.test(code) || CONNECT.test(text)) return "connect";
+	if (/connect|tls|dns|proxy/iu.test(code) || CONNECT.test(text)) return "connect";
+	if (/socket/iu.test(code) || NETWORK.test(text)) return "network";
 	if (STATUS_429.test(text)) return "429";
 	if (STATUS_5XX.test(text)) return "5xx";
 	if (/timeout|timed_out|deadline/iu.test(code) || TIMEOUT.test(text)) return "timeout";
@@ -109,7 +117,11 @@ export function providerDetail(input: {
 	spans: TraceErrorSpan[];
 	timestamp: string;
 }): ProviderDetail {
-	const traced = spanCategoryFor(input.spans, input.timestamp);
+	// A category this build does not write (older releases wrote e.g. `connect`) is a historical
+	// label, not a bucket: trusting it would report 24 opaque `fetch failed` failures as provable
+	// connect-phase failures, which the runtime never claimed.
+	const raw = spanCategoryFor(input.spans, input.timestamp);
+	const traced = raw && TRACE_CATEGORIES.includes(raw as (typeof TRACE_CATEGORIES)[number]) ? raw : undefined;
 	const code = providerCode(input.errorMessage);
 	return {
 		provider: input.provider,

@@ -193,8 +193,9 @@ describe("loop harvest detectors", () => {
 		// A run that ends on the error or on a user turn never reached the user as an answer.
 		const unrecovered = analyze(chain([user("跑一下"), errorReply("Qoder: connection_failed"), user("还在吗")]));
 		expect(unrecovered.incidents[0].detail).toMatchObject({ category: "connect", recovered: false });
+		// An opaque `fetch failed` may have been sent, so it is a network failure, not a connect one.
 		const aborted = analyze(chain([user("跑一下"), errorReply("fetch failed"), reply("", "aborted")]));
-		expect(aborted.incidents[0].detail).toMatchObject({ category: "connect", recovered: false });
+		expect(aborted.incidents[0].detail).toMatchObject({ category: "network", recovered: false });
 	});
 
 	it("prefers the local trace category for a failed request span", () => {
