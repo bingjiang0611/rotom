@@ -3,7 +3,7 @@ import { BROKEN_QODER_RELEASES, containsCommit, qoderUnavailable, releaseCommit,
 import type { LedgerEntry } from "../src/loop/ledger.ts";
 import { acceptanceRows } from "../src/loop/weekly.ts";
 
-const session = (startedAt: string, release: string | undefined, userTurns = 10) => ({ sessionId: startedAt, sessionFile: "", cwd: "", startedAt, modelTurns: {}, models: [], userTurns, assistantMessages: 0, toolCalls: 0, toolErrors: 0, interventions: 0, interruptExcluded: 0, ...(release ? { release } : {}) });
+const session = (startedAt: string, release: string | undefined, userTurns = 10, buildCommit?: string) => ({ sessionId: startedAt, sessionFile: "", cwd: "", startedAt, modelTurns: {}, models: [], userTurns, assistantMessages: 0, toolCalls: 0, toolErrors: 0, interventions: 0, interruptExcluded: 0, ...(release ? { release } : {}), ...(buildCommit ? { buildCommit } : {}) });
 
 function entry(firstCommit: string): LedgerEntry {
 	return {
@@ -55,26 +55,37 @@ describe("acceptance exposure follows the product version", () => {
 		{ kind: "provider_error", sessionId: "s", sessionFile: "", entryId: "e", timestamp: "2026-11-11T10:00:00Z", detail: {} },
 	];
 
-	it("counts only turns whose build contains the fix", () => {
-		const sessions = [session("2026-11-11T01:00:00Z", "0.1.27-main.50ccdc87", 100), session("2026-11-11T02:00:00Z", "0.1.27-main.e9c3d5d1", 100)];
-		const ranWithFix = (s: { release?: string }) => s.release === "0.1.27-main.e9c3d5d1";
+	it("counts only turns whose build commit contains the fix, whatever the release label says", () => {
+		// Both sessions carry the same release string; only the build commit separates them, which is
+		// the whole point of the change.
+		const sessions = [
+			session("2026-11-11T01:00:00Z", "0.1.27", 100, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+			session("2026-11-11T02:00:00Z", "0.1.27", 100, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+		];
+		const ranWithFix = (s: { buildCommit?: string }) => s.buildCommit?.startsWith("b");
 		const [row] = acceptanceRows([entry("d8df7cf4")], sessions as never, incidents as never, new Date("2026-11-11T12:00:00Z"), ranWithFix as never);
 		expect(row.turns).toBe(100);
+		// A release label that looks like the fix does not count on its own.
+		const [labelled] = acceptanceRows([entry("d8df7cf4")], sessions.map((item) => ({ ...item, buildCommit: undefined, release: "0.1.27-main.d8df7cf4" })) as never, incidents as never, new Date("2026-11-11T12:00:00Z"), ranWithFix as never);
+		expect(labelled.turns).toBe(0);
+		expect(labelled.buildUnknown).toBe(2);
 	});
 
-	it("counts nothing when the build cannot be traced, and says so", () => {
+	it("counts nothing when the build cannot be traced, and says how many sessions are unknown", () => {
 		const sessions = [session("2026-11-11T02:00:00Z", "0.1.27-local.5d0fcd56", 400)];
 		const [row] = acceptanceRows([entry("d8df7cf4")], sessions as never, incidents as never, new Date("2026-11-11T12:00:00Z"), () => false);
 		expect(row.turns).toBe(0);
 		expect(row.status).toBe("insufficient-exposure");
-		expect(row.note).toMatch(/without the fix/u);
+		expect(row.buildUnknown).toBe(1);
+		expect(row.note).toMatch(/1 sessions have no build commit and count as unknown/u);
 	});
 
-	it("keeps counting every turn for a record that names no commit", () => {
+	it("does not count exposure for a record that names no first commit", () => {
 		const sessions = [session("2026-11-11T02:00:00Z", "0.1.27-local.5d0fcd56", 400)];
 		const without = entry("d8df7cf4");
 		delete (without.acceptance as { firstCommit?: string }).firstCommit;
 		const [row] = acceptanceRows([without], sessions as never, incidents as never, new Date("2026-11-11T12:00:00Z"), () => false);
-		expect(row.turns).toBe(400);
+		expect(row.turns).toBe(0);
+		expect(row.note).toContain("record has no firstCommit");
 	});
 });

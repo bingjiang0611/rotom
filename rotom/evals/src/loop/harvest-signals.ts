@@ -94,6 +94,29 @@ export function launcherPathOf(traceLines: readonly string[] | undefined): strin
 	return runtimeAttribute(traceLines, "rotom.launcher.path");
 }
 
+/** The commit this session's product was built from, when the launcher could prove it. */
+export function buildCommitOf(traceLines: readonly string[] | undefined): string | undefined {
+	const value = runtimeAttribute(traceLines, "rotom.build.commit");
+	return typeof value === "string" && /^[0-9a-f]{40}$/u.test(value) ? value : undefined;
+}
+
+/** Whether the tree that build came from had uncommitted changes. */
+export function buildDirtyOf(traceLines: readonly string[] | undefined): boolean | undefined {
+	for (const line of traceLines ?? []) {
+		let record: unknown;
+		try {
+			record = JSON.parse(line);
+		} catch {
+			continue;
+		}
+		if (!isRecord(record) || record.name !== "pi.session.runtime" || record.kind !== "span_start") continue;
+		const attributes = isRecord(record.attributes) ? record.attributes : {};
+		const value = attributes["rotom.build.dirty"];
+		if (typeof value === "boolean") return value;
+	}
+	return undefined;
+}
+
 /** The product root the session ran from, as the launcher resolved it. */
 export function productRootOf(traceLines: readonly string[] | undefined): string | undefined {
 	return runtimeAttribute(traceLines, "rotom.product.root");

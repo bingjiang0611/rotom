@@ -23,6 +23,8 @@ export type AcceptanceRow = {
 	minimumTurns: number | null;
 	/** Days of recent traffic that exposure still needs, at the last seven days' average. */
 	daysToExposure: number | null;
+	/** Sessions in the window whose build commit could not be proven; unknown, never counted. */
+	buildUnknown?: number;
 	note: string;
 };
 
@@ -66,32 +68,37 @@ export function acceptanceRows(ledger: readonly LedgerEntry[], sessions: readonl
 			const firstCommit = acceptance.firstCommit;
 			// Without a way to tell which sessions ran the fix, the honest count is none: calling
 			// every turn after a date "exposure to this change" is what this field exists to stop.
-			const ranFix = (session: SessionSummary) => firstCommit === undefined || (ranWithFix?.(session, firstCommit) ?? false);
-			const counted = sessions.filter((session) => Date.parse(session.startedAt) >= since && ranFix(session));
-			const withoutFix = firstCommit === undefined ? 0 : sessions.filter((session) => Date.parse(session.startedAt) >= since && !ranFix(session)).length;
+			const ranFix = (session: SessionSummary) => Boolean(firstCommit && session.buildCommit && (ranWithFix?.(session, firstCommit) ?? false));
+			const inWindow = sessions.filter((session) => Date.parse(session.startedAt) >= since);
+			const counted = inWindow.filter(ranFix);
+			const withoutFix = firstCommit === undefined ? 0 : inWindow.filter((session) => session.buildCommit && !ranFix(session)).length;
+			const countedIds = new Set(counted.map((session) => session.sessionId));
+			// A session with no provable build commit tells us nothing about exposure either way, so
+			// it is counted on its own line instead of being folded into the unexposed group.
+			const buildUnknown = inWindow.filter((session) => !session.buildCommit).length;
+			const exclusions = `${firstCommit ? "" : "; record has no firstCommit; exposure is unknown"}${withoutFix ? `; ${withoutFix} known builds without the fix are not counted` : ""}${buildUnknown ? `; ${buildUnknown} sessions have no build commit and count as unknown` : ""}`;
 			const turns = counted.reduce((sum, session) => sum + session.userTurns, 0);
 			// Both sides of the rate must come from the same period: an incident recorded before the
 			// fix shipped belongs to the baseline, not to the observed rate.
 			const matching = incidents.filter((incident) => {
-				if (incident.kind !== acceptance.incident) return false;
+				if (!countedIds.has(incident.sessionId) || incident.kind !== acceptance.incident) return false;
 				if (Date.parse(incident.timestamp) < since) return false;
 				const [key, value] = acceptance.detail ?? [];
 				return key === undefined || String(incident.detail[key]) === value;
 			});
 			const observed = ratePer100(matching.length, turns);
 			const interval = poissonBand(matching.length, turns);
-			const base = { id: entry.id, title: entry.title, metric: acceptance.metric, turns, observedPer100: observed, baselinePer100: acceptance.baselinePer100, minimumTurns: acceptance.minimumTurns, daysToExposure: daysFor(acceptance.minimumTurns, turns), ...(interval ? { interval } : {}) };
+			const base = { id: entry.id, title: entry.title, metric: acceptance.metric, buildUnknown, turns, observedPer100: observed, baselinePer100: acceptance.baselinePer100, minimumTurns: acceptance.minimumTurns, daysToExposure: daysFor(acceptance.minimumTurns, turns), ...(interval ? { interval } : {}) };
 			if (turns < acceptance.minimumTurns) {
 				const days = base.daysToExposure;
-				const skipped = withoutFix > 0 ? `; ${withoutFix} sessions since then ran a build without the fix and are not counted` : "";
-				return { ...base, status: "insufficient-exposure" as const, note: `${turns} of ${acceptance.minimumTurns} turns since ${acceptance.startedAt}${days === null ? "" : `, about ${days} more days at the last week's rate`}${skipped}` };
+				return { ...base, status: "insufficient-exposure" as const, note: `${turns} of ${acceptance.minimumTurns} turns since ${acceptance.startedAt}${days === null ? "" : `, about ${days} more days at the last week's rate`}${exclusions}` };
 			}
 			const test = rateTest({ observed: matching.length, turns, baselinePer100: acceptance.baselinePer100, expect: acceptance.expect });
 			const exposure = `${matching.length} events against ${Number(test.expectedEvents.toFixed(1))} expected`;
 			return {
 				...base,
 				status: test.verdict,
-				note: `${exposure}; one-sided exact Poisson p=${Number(test.pValue.toFixed(4))} (alpha ${RATE_TEST_ALPHA}) → ${test.verdict}`,
+				note: `${exposure}; one-sided exact Poisson p=${Number(test.pValue.toFixed(4))} (alpha ${RATE_TEST_ALPHA}) → ${test.verdict}${exclusions}`,
 			};
 		})
 		.sort((left, right) => left.id.localeCompare(right.id));

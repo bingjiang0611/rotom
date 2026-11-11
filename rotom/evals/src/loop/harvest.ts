@@ -9,12 +9,12 @@
 
 import { providerDetail, traceErrorSpans } from "./harvest-provider.ts";
 import { clip, humanText, isBareContinue, isCorrection, isRecord, normalized, similarity, textOf } from "./harvest-text.ts";
-import { entryClassOf, launcherPathOf, productRootOf, type EntryClass, interruptActivity, interruptFollowUp, interruptTriage, productVersionOf, resolveInterruptCauses, resolveStartedAt, runtimeVersionOf, releaseOf, solPiVersionOf, toolErrorCategory, type StartSource, type InterruptActivity, type InterruptCause, type InterruptFollowUp, type InterruptTriage } from "./harvest-signals.ts";
+import { buildCommitOf, buildDirtyOf, entryClassOf, launcherPathOf, productRootOf, type EntryClass, interruptActivity, interruptFollowUp, interruptTriage, productVersionOf, resolveInterruptCauses, resolveStartedAt, runtimeVersionOf, releaseOf, solPiVersionOf, toolErrorCategory, type InterruptActivity, type InterruptCause, type InterruptFollowUp, type InterruptTriage } from "./harvest-signals.ts";
 import { messageOf, parseLines, paths, type Block, type Entry, type Message } from "./harvest-tree.ts";
 
 // Re-exported so the detectors, the report and the tests keep one import surface.
 export { isBareContinue, isCorrection, similarity } from "./harvest-text.ts";
-export { entryClassOf, launcherPathOf, productRootOf, releaseOf, resolveStartedAt, type EntryClass } from "./harvest-signals.ts";
+export { buildCommitOf, buildDirtyOf, entryClassOf, launcherPathOf, productRootOf, releaseOf, resolveStartedAt, type EntryClass } from "./harvest-signals.ts";
 export { TOOL_ERROR_CATEGORIES, interruptActivity, interruptFollowUp, interruptTriage, productVersionOf, runtimeVersionOf, solPiVersionOf, toolErrorCategory, type InterruptActivity, type InterruptFollowUp, type InterruptTriage, type ToolErrorCategory } from "./harvest-signals.ts";
 
 export const HARVEST_SCHEMA = "rotom-loop-harvest/v1";
@@ -45,49 +45,8 @@ export type Incident = {
 	excerpt?: { user?: string; assistant?: string; error?: string };
 };
 
-/** Where `startedAt` came from, so a reconstructed date is never mistaken for a measured one. */
-
-export type SessionSummary = {
-	sessionId: string;
-	sessionFile: string;
-	cwd: string;
-	startedAt: string;
-	startedAtSource: StartSource;
-	/** User turns attributed to the model that answered them, `provider/model` → count. */
-	modelTurns: Record<string, number>;
-	/** Release path this session ran, when a stack trace embedded one. Biased toward errors. */
-	release?: string;
-	/** install, dev-checkout or unknown: which entry started the session. */
-	entry?: EntryClass;
-	/** Launcher real path as recorded by the trace; paths only. */
-	launcher?: string;
-	models: string[];
-	userTurns: number;
-	assistantMessages: number;
-	toolCalls: number;
-	toolErrors: number;
-	interventions: number;
-	/** Interrupts the structure proved non-human (injected message, compaction) and therefore excluded. */
-	interruptExcluded: number;
-	/** Interventions per model, so a rate can be read per model instead of per week. */
-	interventionModels: Record<string, number>;
-	/** North-star v2 numerator: corrections, repeats, bare continues and quality interrupts. */
-	northStarV2: number;
-	/** The v2 numerator per model, so a rate can be read per model rather than per week. */
-	v2Models: Record<string, number>;
-	/** Interrupts by triage class, counted the way v1 counts them (excluded ones are separate). */
-	interruptTriage: Record<InterruptTriage, number>;
-	/** Pi fork that served this session, when its trace recorded one. */
-	runtimeVersion?: string;
-	/** Installed rotom product version that served this session, when its trace recorded one. */
-	productVersion?: string;
-	/** SoL-Pi version the session proves it ran, from a vendored archive path in its own lines. */
-	solPiVersion?: string;
-	/** Model of the session's first assistant message, before any switch. */
-	firstAssistantModel?: string;
-	failures: number;
-	incidentCounts: Partial<Record<IncidentKind, number>>;
-};
+import type { SessionSummary } from "./session-summary.ts";
+export type { SessionSummary } from "./session-summary.ts";
 
 const READ_TOOLS = new Set(["read", "obs_recall"]);
 const EDIT_TOOLS = new Set(["edit", "write", "multi_edit", "apply_patch"]);
@@ -356,6 +315,8 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 	const release = releaseOf(lines);
 	const productRoot = productRootOf(options.traceLines);
 	const launcher = launcherPathOf(options.traceLines);
+	const buildCommit = buildCommitOf(options.traceLines);
+	const buildDirty = buildDirtyOf(options.traceLines);
 	const runtimeVersion = runtimeVersionOf(options.traceLines);
 	const productVersion = productVersionOf(options.traceLines);
 	const solPiVersion = solPiVersionOf(lines, options.traceLines);
@@ -373,6 +334,8 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 			...(release ? { release } : {}),
 			entry: entryClassOf(productRoot),
 			...(launcher ? { launcher } : {}),
+			...(buildCommit ? { buildCommit } : {}),
+			...(buildDirty !== undefined ? { buildDirty } : {}),
 			models: [...models].sort(),
 			userTurns: userEntries.size,
 			assistantMessages: assistantEntries.size,

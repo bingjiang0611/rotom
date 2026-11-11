@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { defaultLoopDir, defaultSessionsDir, harvest } from "./harvest-run.ts";
 import { parseLedgerDir } from "./ledger.ts";
-import { releaseCommit, versionTimeline } from "./release-version.ts";
+import { versionTimeline } from "./release-version.ts";
 import { buildWeekly, parseWeeklyConfig, writeWeekly } from "./weekly.ts";
 
 export const WEEKLY_CONFIG = (evalsRoot: string) => `${evalsRoot}/loop/weekly.json`;
@@ -31,9 +31,10 @@ export async function reportCommand(command: string, rest: string[], deps: { rep
 		const config = parseWeeklyConfig(readFileSync(WEEKLY_CONFIG(deps.evalsRoot), "utf8"));
 		const result = await harvest({ sessionsDir: values.sessions ?? defaultSessionsDir(), outRoot: values.out ?? defaultLoopDir(), since, excerpts: false });
 		const report = buildWeekly({ sessions: result.sessions, incidents: result.incidents, ledger: parseLedgerDir(LEDGER(deps.evalsRoot), deps.repoRoot), config, since: since.toISOString(), ranWithFix: (session, firstCommit) => {
-			// A session only counts as exposure when the build it ran is the fix or a descendant of
-			// it; a build the harvest cannot trace is not counted either way.
-			const commit = releaseCommit(session.release);
+			// A session only counts as exposure when the build it actually ran is the fix or a
+			// descendant of it. The build commit comes from the launcher's own stamp; a release
+			// label guessed from session text is not attribution and is no longer consulted.
+			const commit = session.buildCommit;
 			if (!commit) return false;
 			try {
 				execFileSync("git", ["-C", deps.repoRoot, "merge-base", "--is-ancestor", firstCommit, commit], { stdio: "ignore" });
