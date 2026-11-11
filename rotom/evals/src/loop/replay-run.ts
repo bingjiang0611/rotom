@@ -8,7 +8,7 @@ import { copyFile, lstat, mkdir, readFile, readdir, writeFile } from "node:fs/pr
 import { existsSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { basename, join, resolve } from "node:path";
-import { REPLAY_TOOLS, admissionFor, newTurnStats, originalTranscript, refusalFor, readBranch, repositoryCheck, sandboxShim, scrubbedEnvironment, timepoint, type Admission, type CheckVerdict, type NewTurnStats, type ReplayPlan } from "./replay.ts";
+import { REPLAY_TOOLS, productEntry, admissionFor, newTurnStats, originalTranscript, refusalFor, readBranch, repositoryCheck, sandboxShim, scrubbedEnvironment, timepoint, type Admission, type CheckVerdict, type NewTurnStats, type ReplayPlan } from "./replay.ts";
 
 /** Files copied into the replay agent dir so the runtime can authenticate without an inherited env. */
 const CREDENTIAL_FILES = ["auth.json", "models.json", "models-store.json"];
@@ -83,7 +83,9 @@ async function runOnce(options: {
 	const shim = join(home, "sandbox.sh");
 	await writeFile(shim, sandboxShim(), { mode: 0o600 });
 
-	const executable = join(product.directory, "bin", "rotom");
+	const entry = productEntry(product.directory, existsSync);
+	if ("error" in entry) throw new Error(entry.error);
+	const executable = entry.executable;
 	const env = { ...scrubbedEnvironment(process.env, home), BASH_ENV: shim, PI_CODING_AGENT_DIR: agent };
 	const args = [
 		"--print",
@@ -120,6 +122,11 @@ async function runOnce(options: {
 	for (const name of sessionFiles) if (name.endsWith(".jsonl")) sessionText += await readFile(join(sessions, name), "utf8").catch(() => "");
 	if (sessionText) await writeFile(join(base, "session.jsonl"), sessionText, { mode: 0o600 });
 	const refusals = [...output.matchAll(/replay-sandbox: refused ([^\n]+)/gu)].map((match) => match[1] ?? "");
+	// No exit code and no output means the product never started; the session file then holds only
+	// the restored branch, so scoring it would report the original run's tool calls as this run's work.
+	if (exitCode === null && output.length === 0) {
+		return { label: product.label, product: product.directory, repeat, exitCode, transcript: output, refusals, stats: newTurnStats("", plan.branch.entryId), check: "unknown", checkOutput: "the product did not start", failed: true };
+	}
 	const stats = newTurnStats(sessionText, plan.branch.entryId, plan.branch.message);
 	const session = join(base, "session.jsonl");
 	const judged = await runCheck({ outDir: base, workspace, env, shim, transcript: join(base, "transcript.txt"), ...(existsSync(session) ? { session, cut: plan.branch.entryId, cutText: plan.branch.message, mode: "after" as const } : {}), check: options.check });

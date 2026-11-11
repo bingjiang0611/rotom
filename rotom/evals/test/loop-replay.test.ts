@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { admissionFor, cutBranch, forbiddenCopies, newTurnStats, originalTranscript, refusalFor, repositoryCheck, sandboxShim, scrubbedEnvironment, timepoint } from "../src/loop/replay.ts";
+import { admissionFor, cutBranch, forbiddenCopies, newTurnStats, originalTranscript, productEntry, refusalFor, repositoryCheck, sandboxShim, scrubbedEnvironment, timepoint } from "../src/loop/replay.ts";
 
 const header = JSON.stringify({ type: "session", version: 1, id: "session-1", timestamp: "2026-11-01T00:00:00Z", cwd: "/repo" });
 const user = (id: string, text: string) => JSON.stringify({ type: "message", id, parentId: null, timestamp: "2026-11-01T00:01:00Z", message: { role: "user", content: [{ type: "text", text }] } });
@@ -191,5 +191,16 @@ describe("original-trace gate", () => {
 		expect(transcript).not.toContain("/secret");
 		expect(transcript).not.toContain("file contents");
 		expect(transcript).not.toContain("history answer");
+	});
+});
+
+describe("product entry", () => {
+	it("names the missing entry point instead of reporting a silent empty run", () => {
+		const exists = (path: string) => path === "/ok/bin/rotom";
+		expect(productEntry("/ok", exists)).toEqual({ executable: "/ok/bin/rotom" });
+		const missing = productEntry("/opt/rotom/releases/0.1.27-main.example/node_modules/rotom", exists);
+		expect("error" in missing && missing.error).toContain("no bin/rotom");
+		// The hint names the layout that actually exists, because this is how the wrong path got chosen.
+		expect("error" in missing && missing.error).toContain("node_modules/@bingjiang0611/rotom");
 	});
 });

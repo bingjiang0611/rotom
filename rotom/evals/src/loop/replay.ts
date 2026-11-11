@@ -16,7 +16,7 @@
  * lives in `replay-run.ts`.
  */
 import { existsSync, readFileSync } from "node:fs";
-import { relative, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 
 export const REPLAY_TOOLS = ["read", "edit", "bash"] as const;
 
@@ -298,4 +298,15 @@ export function originalTranscript(sessionText: string, entryId: string): string
 		}
 	}
 	return parts.join("\n");
+}
+
+/**
+ * A product directory is the installed package root, not the release directory: the entry point is
+ * `<dir>/bin/rotom`. Resolving through the wrong level silently produced a run with no output at
+ * all, which then looked like a hung product instead of a typo.
+ */
+export function productEntry(directory: string, exists: (path: string) => boolean): { executable: string } | { error: string } {
+	const executable = join(directory, "bin", "rotom");
+	if (exists(executable)) return { executable };
+	return { error: `${directory} has no bin/rotom; pass the installed package root (for a release directory that is node_modules/@bingjiang0611/rotom)` };
 }
