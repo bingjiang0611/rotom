@@ -1,0 +1,28 @@
+[
+ {
+  "schema": "rotom-loop-ledger/v1",
+  "id": "L-2026-11-11-build-identity",
+  "date": "2026-11-11",
+  "title": "Acceptance counts the build that ran, not a release label guessed from session text",
+  "hypothesis": "Round 12 showed that a session's release label is a dominant-substring match over its own text, and that three of thirty-two labelled sessions in one window were labelled with a release they never ran. Three local releases and every development checkout share the version string `0.1.27`, so the label cannot attribute a session to a build. Acceptance windows and the version timeline were both built on that label.",
+  "change": "mechanism",
+  "measurement": "pack:release stamps `build-info.json` into the artifact with the full build commit, whether the worktree was clean, and the build time; a dirty tree refuses to pack unless `--allow-dirty` is passed, and then the file says so. The launcher reads the stamp, and for a development checkout with no stamp reads `git rev-parse HEAD` plus `git status --porcelain` instead, exporting `ROTOM_BUILD_COMMIT`/`ROTOM_BUILD_DIRTY`. The trace records `rotom.build.commit` and `rotom.build.dirty` on `pi.session.runtime`. `loop weekly` gates acceptance on `git merge-base --is-ancestor <firstCommit> <sessionBuildCommit>` and reports the count of sessions with no build commit as unknown instead of folding them into the unexposed group; the release label is no longer consulted.",
+  "result": "Both artifact gates validate build-info.json: closure and extension load fail on absent or malformed stamps before succeeding on a valid one. Isolated tests create clean, tracked-dirty, staged-dirty and untracked-dirty checkouts, and test an unstamped installation both outside Git and inside a consumer repo (unknown, never the consumer's commit). Malformed or symlink artifact stamps fail instead of silently becoming a checkout. A real --version launch captures the exported identity without a model request. Acceptance now filters both events and turns by the same build-qualified session IDs; missing build commits remain a separately counted unknown even after exposure is met, and a record with no firstCommit cannot claim exposure. Former test assumptions that every checkout is dirty were removed, not accommodated in production. The daily install remains unchanged: old sessions have no build commit and cannot be used as measured exposure.",
+  "evidence": "unmeasured",
+  "decision": "shipped",
+  "source": "rotom/runtime/build-info.mjs"
+ },
+ {
+  "schema": "rotom-loop-ledger/v1",
+  "id": "L-2026-11-11-proposal-followthrough-worth-doing",
+  "date": "2026-11-11",
+  "title": "Argued-instead-of-experimenting does not happen often enough to build a mechanism for",
+  "hypothesis": "The `replay-deletion-hypothesis` case — asked to delete a config and see what happens, the answer argues about the default instead of trying it — reproduces 6 of 6 on the frozen product and 5 of 6 on the current one, so it is a real failure mode. Before building something for it, count how often the person proposes a cheap local experiment and the agent only explains.",
+  "change": "eval",
+  "measurement": "The initial 5632-round/8-miss count is void: the script used file creation dates rather than turn dates, flattened branches, counted injected task blocks and empty assistant responses, and joined corrections against a stale harvest. It was also measured before the rule was written into this ledger; the rule came from the task, but that did not satisfy the requested pre-registration sequence. Corrected run pre-registration, written before rerunning: freeze one 28-day cutoff; use the existing harvest's fork/branch deduplication and intervention definitions; N requires a direct local-experiment proposal, no tool action before the next real user message, and a nonempty explanatory assistant response. Empty/error responses, injected goal/skill text, and requests for advice about an experiment the person will run themselves do not qualify. K requires the immediate next user entry to be user_correction or user_repeat in that same harvest. Review up to ten candidates, K and non-K balanced where available; state a shortfall rather than fabricate examples. Thresholds unchanged: K/turns*100 >= 0.5 AND K/N >= 20% are both necessary before proposing a mechanism next round. Otherwise retain deletion-hypothesis as a regression case and keep the mechanism off.",
+  "result": "Corrected deterministic screen: 2026-10-14T15:51:23Z..2026-11-11T15:51:23Z, 743 harvest sessions, 4028 unique real-user entries in the date window (branches/fork prefixes deduplicated). Of 68 keyword-matched requests, 65 had tool calls; 3 had none, including 1 empty/error response excluded by definition. Both remaining candidates were reviewed in the original trajectories and were false positives: the person was asking for advice on SQL they intended to run themselves in a remote environment, not asking the agent for a local experiment. Validated N=0, K=0, K per 100 turns=0; K/N is undefined at N=0, not 0%. The raw screen was N=2, K=0, K/N=0%. Ten trajectories were checked: both candidate replies plus eight acted keyword controls selected by SHA-256 ordering with seed round13-review-20261111. No K examples existed, so a five/five split and ten true hits were impossible. This is a keyword-based, precision-first screen, not an exhaustive semantic census of every possible paraphrase. It supplies no evidence to clear either threshold, so the mechanism stays off and deletion-hypothesis remains registered as a regression case. Zero model calls.",
+  "evidence": "unmeasured",
+  "decision": "kept-off",
+  "source": "rotom/evals/src/loop/replay-gate.ts"
+ }
+]
