@@ -10,6 +10,8 @@ export interface PolicyCheckInput {
 }
 
 export interface PolicyDecision {
+	/** This approval is never cached or persisted as an app-wide grant. */
+	requiresFreshApproval?: boolean;
 	tier: AppTier;
 	/** Shown on the approval card; present for high-risk app categories. */
 	warning?: string;

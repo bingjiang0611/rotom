@@ -30,6 +30,14 @@ export const brokerCopy = {
 export const approvalCopy = {
 	action: (name?: string) => `Action: ${name ?? "unknown"}`,
 	allowSession: "Allow for this session",
+	allowOnce: "Allow this action",
+	externalOpenWarning: "会用其他程序打开，可能切到前台。",
+	openWarning(warning?: string): string {
+		if (!warning) return approvalCopy.externalOpenWarning;
+		if (warning.includes(approvalCopy.externalOpenWarning)) return warning;
+		return `${warning}\n${approvalCopy.externalOpenWarning}`;
+	},
+	openBatch: (actions: Array<{ name: string; label?: string }>) => JSON.stringify(actions),
 	allowAlways: "Always allow this app",
 	deny: "Deny",
 	options(): [string, string, string] {

@@ -82,7 +82,10 @@ var calls = 0
 var response = AXError.success
 func supportsAction(_ element: Int, action: String) -> Bool { precondition(action == "AXOpen"); return supported }
 func AXUIElementPerformAction(_ element: Int, _ action: String) -> AXError { precondition(action == "AXOpen"); calls += 1; return response }
+struct TestOpenTarget { let kind = "directory"; let fingerprint = "fixture" }
+func describeOpenTarget(_ element: Int) -> TestOpenTarget { TestOpenTarget() }
 func open(_ element: Int) throws -> [String: Any] {
+ let params: [String: Any] = ["openTarget": ["kind": "directory", "fingerprint": "fixture"]]
  var performed: [String: Any] = ["delivery": "pid", "grounding": "coordinates"]
 ${body}
 }

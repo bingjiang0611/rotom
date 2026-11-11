@@ -1,5 +1,7 @@
 # Computer Use v2.1：T1 类型检查恢复
 
+> 本页保留该轮历史记录。后续 Finder 验收状态、O1/S2 实现与当前验证见 [打开目标确认与测试闸门](STATUS-2-open-target-guard.md)。
+
 ## 范围与环境
 
 - 基于 `cbfac06`（含 `024d058` 的 observe_ui 修复），按 REVIEW-16 执行。

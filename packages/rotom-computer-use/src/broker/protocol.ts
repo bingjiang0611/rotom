@@ -6,7 +6,10 @@
  * matching request. Both sides ignore unknown fields so that a newer peer can
  * add metadata without breaking an older one.
  */
-export const BROKER_PROTOCOL_VERSION = 1;
+import type { OpenTargetKind } from "../open-target.ts";
+
+// Version 2 requires per-action approval for external/unknown AXOpen targets.
+export const BROKER_PROTOCOL_VERSION = 2;
 
 /** App write lease lifetime. Renewed by every action the holder dispatches. */
 export const DEFAULT_LEASE_TTL_MS = 60_000;
@@ -93,6 +96,8 @@ export interface ActionIntent {
 	name: string;
 	/** Text of the resolved element, used for sensitive-action matching only. */
 	label?: string;
+	/** Native type preflight; on batches, the most sensitive open target. */
+	openTarget?: OpenTargetKind;
 }
 
 export interface HelloRequest {
@@ -253,7 +258,7 @@ export interface PolicyRequest {
 }
 
 export type AppTier = "view" | "click" | "full";
-export type ApprovalDecision = "allow_session" | "always" | "deny";
+export type ApprovalDecision = "allow_once" | "allow_session" | "always" | "deny";
 
 /** Local diagnostic metadata only; never includes app, label, UI text or errors. */
 export interface ApprovalDiagnostic {

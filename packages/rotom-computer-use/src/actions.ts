@@ -15,7 +15,7 @@ export type PreparedAction =
 	| { action: "hover"; target: ActionTarget; params: { delivery?: "l2" }; establishesFocus: false; usesCurrentFocus: false; needsForeground: false }
 	| {
 		action: "open" | "select" | "setChecked" | "expand" | "collapse" | "scrollTo" | "focus" | "clear" | "setValue" | "showMenu";
-		target: ActionTarget;
+		target: { ref: string };
 		params: Record<string, unknown>;
 		establishesFocus: false;
 		usesCurrentFocus: false;
@@ -94,7 +94,7 @@ function nativeTarget(action: UiAction, operation: PreparedAction["action"], env
  * ref, not a point. Refusing a coordinate here keeps "press where I guessed"
  * from being silently substituted for "check the box".
  */
-function semanticTarget(action: UiAction, env: ActionEnvironment): ActionTarget {
+function semanticTarget(action: UiAction, env: ActionEnvironment): { ref: string } {
 	if (!action.ref?.trim()) throw new Error(`${action.action} requires an element ref; coordinates cannot express a semantic action.`);
 	const node = env.node(action.ref.trim());
 	if (!node.wireRef || node.pictureOnly) throw new Error(`${action.action} needs an element exposed through the accessibility tree; ${action.ref} is picture-only or unmapped.`);

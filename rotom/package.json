@@ -93,6 +93,8 @@
     "extensions/third-party/ask/continuation.ts",
     "extensions/third-party/ask/schema.ts",
     "extensions/third-party/computer-use/recovery.ts",
+    "extensions/third-party/computer-use/approval.ts",
+    "extensions/third-party/computer-use/constants/copy.ts",
     "extensions/third-party/deferred-tools/register.ts",
     "extensions/third-party/subagent/policy.ts",
     "extensions/third-party/sol-pi.ts",

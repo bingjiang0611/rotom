@@ -4,6 +4,8 @@ import { appPolicyKey, catalogueTierOf, classifyApp, type AppIdentity, type AppT
 import { defaultPolicyPath, defaultProjectPolicyPath, PolicyStore } from "./policy-store.ts";
 import { matchSensitiveAction } from "./sensitive.ts";
 import { tierAllows, tierRefusal } from "./tiers.ts";
+import { requiresOpenConfirmation } from "../open-target.ts";
+import { approvalCopy } from "../constants/copy.ts";
 
 export interface GateOptions {
 	/** Fixed store (tests, single-project callers). */
@@ -60,11 +62,13 @@ export function createPolicyGate(options: GateOptions): PolicyGate {
 			// A card authorizes an app by identity. Without one (e.g. a browser CDP
 			// resource) there is nothing to persist, so the tier check stands alone.
 			const identified = Boolean(app?.bundleId?.trim() || app?.appName?.trim());
-			const requiresApproval = Boolean(sensitive) || (identified && configured === undefined);
+			const externalOpen = requiresOpenConfirmation(input.action);
+			const requiresApproval = externalOpen || Boolean(sensitive) || (identified && configured === undefined);
 			return {
 				tier,
 				requiresApproval,
-				warning: category.warning,
+				requiresFreshApproval: externalOpen,
+				warning: externalOpen ? approvalCopy.openWarning(category.warning) : category.warning,
 				cacheKey: sensitive ? `${appKey}#sensitive:${sensitive.rule.id}` : `${appKey}#tier`,
 			};
 		},

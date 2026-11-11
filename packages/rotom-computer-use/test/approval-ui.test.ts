@@ -61,3 +61,18 @@ test("late and cancelled choices cannot become approvals; UI errors are metadata
 		assert.doesNotMatch(JSON.stringify(entries), /private-error-body|always/);
 	}
 });
+
+test("external and unknown opens warn about foreground activation and offer only one-action approval", async () => {
+	for (const openTarget of ["file", "package", "unknown", undefined] as const) {
+		for (const choice of [approvalCopy.allowOnce, approvalCopy.allowSession, approvalCopy.allowAlways, undefined]) {
+			const request = { ...event(), action: { name: "open", openTarget }, warning: "Existing high-risk warning" };
+			const handler = createBrokerApprovalHandler({ hasUI: true, ui: { async select(title, options) {
+				assert.ok(title.includes(approvalCopy.externalOpenWarning));
+				assert.ok(title.includes("Existing high-risk warning"));
+				assert.deepEqual(options, [approvalCopy.allowOnce, approvalCopy.deny]);
+				return choice;
+			} } }, () => undefined);
+			assert.equal(await handler(request, new AbortController().signal), choice === approvalCopy.allowOnce ? "allow_once" : "deny");
+		}
+	}
+});

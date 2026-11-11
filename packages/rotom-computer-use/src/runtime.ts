@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { ActionIntent } from "./broker/protocol.ts";
 
 export interface StoredState<T> {
 	stateId: string;
@@ -76,7 +77,7 @@ export interface LeaseAcquireRequest {
 	resourceKey: string;
 	/** Observation epoch the caller acts on; omitted when it has no state to invalidate. */
 	baseEpoch?: number;
-	action?: { name: string; label?: string };
+	action?: ActionIntent;
 	app?: { appName?: string; bundleId?: string };
 }
 

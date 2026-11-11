@@ -346,16 +346,18 @@ export class BrokerCore {
 		if (decision.denied) return failure("denied", decision.denied, { tier: decision.tier });
 		if (decision.requiresApproval) {
 			const cached = this.sessionApprovals.get(`${agentId}:${decision.cacheKey}`);
-			const reusable = cached === decision.tier;
+			const reusable = !decision.requiresFreshApproval && cached === decision.tier;
 			if (!reusable) {
 				const outcome = await this.requestApproval(agent, request, decision);
-				if (outcome !== "allow_session" && outcome !== "always") {
+				if (outcome !== "allow_once" && outcome !== "allow_session" && outcome !== "always") {
 					if (outcome === "unavailable") return failure("approval_unavailable", "No UI-capable ancestor session can approve this action.", { tier: decision.tier });
 					if (outcome === "timeout") return failure("approval_denied", "The approval request timed out.", { tier: decision.tier });
 					return failure("approval_denied", "The user denied this action.", { tier: decision.tier });
 				}
-				if (outcome === "always") this.policy.allowApp(request.app, decision.tier);
-				this.sessionApprovals.set(`${agentId}:${decision.cacheKey}`, decision.tier);
+				if (!decision.requiresFreshApproval && outcome !== "allow_once") {
+					if (outcome === "always") this.policy.allowApp(request.app, decision.tier);
+					this.sessionApprovals.set(`${agentId}:${decision.cacheKey}`, decision.tier);
+				}
 			}
 		}
 

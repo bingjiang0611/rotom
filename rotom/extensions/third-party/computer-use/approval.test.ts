@@ -208,8 +208,12 @@ test("context UI lifetime checks and replacement remain authoritative", () => {
 	assert.throws(() => wrapped.ui, /inactive context/);
 });
 
-test("the existing broker handler uses the shared dialog and preserves decision and diagnostic contracts", async () => {
-	for (const [index, expected] of [[0, "allow_session"], [1, "always"], [2, "deny"]] as const) {
+test("the broker handler preserves ordinary approvals and makes external opens one-shot in the shared dialog", async () => {
+	for (const [openTarget, index, expected] of [
+		["directory", 0, "allow_session"], ["directory", 1, "always"], ["directory", 2, "deny"],
+		["file", 0, "allow_once"], ["file", 1, "deny"], ["package", 0, "allow_once"], ["package", 1, "deny"],
+		["unknown", 0, "allow_once"], ["unknown", 1, "deny"], [undefined, 0, "allow_once"], [undefined, 1, "deny"],
+	] as const) {
 		const f = fixture(); let context: any;
 		const api = computerUseApprovalApi({ on(_name: string, handler: any) { handler({}, f.ctx); } });
 		api.on("session_start", (_event: unknown, ctx: unknown) => { context = ctx; });
@@ -217,10 +221,16 @@ test("the existing broker handler uses the shared dialog and preserves decision 
 		const handler = createBrokerApprovalHandler(context, (entry: unknown) => phases.push(entry));
 		const request = {
 			event: "approval", requestId: "fixture-approval", agentId: "fixture-agent", resourceKey: "desktop-pid:1",
-			deadline: Date.now() + 10000, app: { appName: "fixture-app" }, action: { name: "open" }, tier: "click",
+			deadline: Date.now() + 10000, app: { appName: "fixture-app" }, action: { name: "open", openTarget }, tier: "click",
 		} satisfies ApprovalRequestEvent;
 		const pending = handler(request, new AbortController().signal);
 		await f.mounted;
+		if (openTarget !== "directory") {
+			const text = f.component.render(100).join("\n");
+			assert.ok(text.includes("会用其他程序打开，可能切到前台。"));
+			assert.ok(text.includes("Allow this action"));
+			assert.doesNotMatch(text, /Allow for this session|Always allow this app/);
+		}
 		for (let i = 0; i < index; i++) f.component.handleInput("\x1b[B");
 		f.component.handleInput("\r");
 		assert.equal(await pending, expected);

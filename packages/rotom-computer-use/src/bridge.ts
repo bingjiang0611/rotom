@@ -27,7 +27,9 @@ import { toolProblem, unsupportedToolResult } from "./tools/results.ts";
 import { createCuSessionTool } from "./tools/session-admin.ts";
 import { createWindowTool } from "./tools/windows-admin.ts";
 import type { ListWindowsDetails, WindowRow } from "./tools/window-types.ts";
-import type { ApprovalDiagnostic, BrokerEvent } from "./broker/protocol.ts";
+import type { ActionIntent, ApprovalDiagnostic, BrokerEvent } from "./broker/protocol.ts";
+import { requiresOpenConfirmation, type OpenTarget } from "./open-target.ts";
+import { approvalCopy } from "./constants/copy.ts";
 import { createBrokerApprovalHandler } from "./broker/approval-ui.ts";
 import { processAncestry } from "./broker/identity.ts";
 import { leaseConflictResult } from "./broker/lease-result.ts";
@@ -442,7 +444,7 @@ async function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 interface LeaseContext {
-	action?: { name: string; label?: string };
+	action?: ActionIntent;
 }
 
 function leaseApp(target: ResolvedTarget | CurrentTarget) {
@@ -1981,8 +1983,9 @@ function prepareUiAction(action: UiAction, state: ActionState, look: LookRespons
 	});
 }
 
-async function dispatchUiAction(action: UiAction, target: ResolvedTarget, look: LookResponse, headless: boolean, state: ActionState, signal?: AbortSignal, lease?: HelperLease): Promise<ExecutionTrace> {
+async function dispatchUiAction(action: UiAction, target: ResolvedTarget, look: LookResponse, headless: boolean, state: ActionState, signal?: AbortSignal, lease?: HelperLease, openTarget?: OpenTarget): Promise<ExecutionTrace> {
 	const prepared = prepareUiAction(action, state, look, headless);
+	if (prepared.action === "open" && openTarget) prepared.params = { ...prepared.params, openTarget, openApproved: openTarget.kind !== "directory" };
 	if (prepared.action === "wait") {
 		await sleep(prepared.params.ms, signal);
 		return executionTrace("wait", "stealth", { outcome: "worked" });
@@ -1994,14 +1997,19 @@ async function dispatchUiAction(action: UiAction, target: ResolvedTarget, look: 
 	return trace;
 }
 
-async function dispatchUiTransaction(actions: UiAction[], target: ResolvedTarget, look: LookResponse, headless: boolean, signal?: AbortSignal, lease?: HelperLease): Promise<ExecutionTrace> {
+async function dispatchUiTransaction(actions: UiAction[], target: ResolvedTarget, look: LookResponse, headless: boolean, signal?: AbortSignal, lease?: HelperLease, openTargets: Array<OpenTarget | undefined> = []): Promise<ExecutionTrace> {
 	// Strict-headless batches have one immutable delivery class. When foreground
 	// fallback is permitted, decide independently per action so a completed
 	// background prefix is never replayed as part of a foreground batch.
 	if (headless && currentPlatformBackend.actBatch) {
 		const actionState: ActionState = { currentFocus: false };
 		const policy = currentDeliveryPolicy();
-		const requests = actions.map((action) => helperActRequest(target, prepareUiAction(action, actionState, look, true) as NativePreparedAction, policy, lease));
+		const requests = actions.map((action, index) => {
+			const prepared = prepareUiAction(action, actionState, look, true) as NativePreparedAction;
+			const openTarget = openTargets[index];
+			if (prepared.action === "open" && openTarget) prepared.params = { ...prepared.params, openTarget, openApproved: openTarget.kind !== "directory" };
+			return helperActRequest(target, prepared, policy, lease);
+		});
 		const textLength = actions.reduce((sum, action) => sum + (action.text?.length ?? 0), 0);
 		const result = await currentPlatformBackend.actBatch(requests, { signal, timeoutMs: Math.max(COMMAND_TIMEOUT_MS, textLength * 25 + 6_000) });
 		if (!result.steps || result.steps.length === 0) throw new Error("Native action transaction returned no checked steps.");
@@ -2015,8 +2023,8 @@ async function dispatchUiTransaction(actions: UiAction[], target: ResolvedTarget
 	}
 	const steps: ExecutionTrace[] = [];
 	const actionState: ActionState = { currentFocus: false };
-	for (const action of actions) {
-		const step = await dispatchUiAction(action, target, look, headless, actionState, signal, lease);
+	for (const [index, action] of actions.entries()) {
+		const step = await dispatchUiAction(action, target, look, headless, actionState, signal, lease, openTargets[index]);
 		steps.push(step);
 		if (step.outcome !== "worked") break;
 	}
@@ -2144,10 +2152,22 @@ async function performDesktopTransaction(params: ActParams, actions: UiAction[],
 	const scopeNode = condition ? conditionScopeNode(look.parsedOutline!, condition) : undefined;
 	const target = await ensureTargetWindowId(await resolveCurrentTarget(signal), signal);
 	const noteBefore = state.currentNote;
-	const lease = transactionLeaseContext(actions, look.parsedOutline);
+	const headless = getComputerUseConfig().headless;
+	const openTargets: Array<OpenTarget | undefined> = [];
+	for (const [index, action] of actions.entries()) {
+		if (action.action !== "open") continue;
+		const prepared = prepareUiAction(action, { currentFocus: false }, look, headless);
+		if (prepared.action === "open") {
+			if (!currentPlatformBackend.inspectOpenTarget) throw new Error("This platform cannot inspect an AXOpen target.");
+			openTargets[index] = await currentPlatformBackend.inspectOpenTarget({ lookId: look.lookId, pid: target.pid, ref: prepared.target.ref }, { signal });
+		}
+	}
+	const lease = transactionLeaseContext(actions, look.parsedOutline, openTargets);
+	if (requiresOpenConfirmation(lease.action) && !brokerSession) {
+		throw new LeaseUnavailableError("approval_unavailable", "External or unknown AXOpen targets require a broker approval; no action was dispatched.");
+	}
 	return await withWindowWriteLock(target, async (lease) => {
-		const headless = getComputerUseConfig().headless;
-		const execution = await dispatchUiTransaction(actions, target, look, headless, signal, lease);
+		const execution = await dispatchUiTransaction(actions, target, look, headless, signal, lease, openTargets);
 		const executedActions = actions.slice(0, execution.actionCount ?? actions.length);
 		try {
 			if (condition) {
@@ -2204,11 +2224,18 @@ async function performDesktopTransaction(params: ActParams, actions: UiAction[],
  * resolved element text for sensitive-action matching. The label is a summary,
  * not the full extracted text the model already sees.
  */
-function transactionLeaseContext(actions: UiAction[], outline: Outline | undefined): LeaseContext {
+function transactionLeaseContext(actions: UiAction[], outline: Outline | undefined, openTargets: Array<OpenTarget | undefined> = []): LeaseContext {
 	const names = [...new Set(actions.map((action) => action.action))];
-	const refAction = actions.length === 1 ? actions[0] : undefined;
-	const node = refAction?.ref && outline ? nodeByRef(outline, refAction.ref) : undefined;
-	return { action: { name: names.join("+"), label: trimOrUndefined(node ? outlineNodeLabel(node) : undefined) } };
+	const intents: ActionIntent[] = actions.map((action, index) => {
+		const node = action.ref && outline ? nodeByRef(outline, action.ref) : undefined;
+		return { name: action.action, label: trimOrUndefined(node ? outlineNodeLabel(node) : undefined),
+			...(action.action === "open" ? { openTarget: openTargets[index]?.kind ?? "unknown" } : {}) };
+	});
+	const opens = intents.filter((intent) => intent.name === "open");
+	const target = opens.find(requiresOpenConfirmation) ?? opens[0];
+	return { action: { name: names.join("+"),
+		label: actions.length === 1 ? intents[0].label : target && requiresOpenConfirmation(target) ? approvalCopy.openBatch(intents) : undefined,
+		...(target ? { openTarget: target.openTarget } : {}) } };
 }
 
 async function performBrowserTransaction(params: ActParams, actions: UiAction[], signal?: AbortSignal): Promise<AgentToolResult<BrowserObservationDetails>> {

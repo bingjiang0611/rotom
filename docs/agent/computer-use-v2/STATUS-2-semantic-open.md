@@ -1,5 +1,7 @@
 # STATUS-2：显式 AXOpen 与投递证据
 
+> 本页保留该轮历史记录。后续 Finder 验收状态、O1/S2 实现与当前验证见 [打开目标确认与测试闸门](STATUS-2-open-target-guard.md)。
+
 ## 范围和状态
 
 基于已审核的 `8b55ca0`。用户批准本轮只改独立开发 checkout、做离线验证、推送送审；不覆盖或停止活跃安装/helper，不做真机操作，不重放此前 unknown，不改 S2。

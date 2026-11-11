@@ -56,7 +56,8 @@
 	"scripts": {
 		"postinstall": "node scripts/setup-helper.mjs --postinstall",
 		"typecheck": "tsc -p tsconfig.json",
-		"pretest": "npm run typecheck",
+		"typecheck:fatal": "node scripts/typecheck-fatal.mjs",
+		"pretest": "npm run typecheck:fatal",
 		"test:schema": "node scripts/check-tool-schemas.mjs",
 		"test:invariants": "node scripts/check-invariants.mjs",
 		"test:lifecycle": "tsx scripts/check-session-lifecycle.mjs",
@@ -69,7 +70,7 @@
 		"test:signing": "node scripts/check-local-signing.mjs",
 		"test:macos-path": "node scripts/check-macos-helper-path.mjs",
 		"test:macos-native-self-tests": "node scripts/check-macos-native-self-tests.mjs",
-		"test": "node --test --experimental-strip-types \"test/*.test.ts\"",
+		"test": "node --test --test-concurrency=1 --experimental-strip-types \"test/*.test.ts\"",
 		"build:native": "node scripts/build-native.mjs",
 		"build:windows": "node scripts/build-native.mjs --platform windows",
 		"build:linux": "node scripts/build-native.mjs --platform linux",

@@ -295,5 +295,7 @@ test("packed inventory requires every runtime resource and license and excludes 
 	for (const path of [".pi/tasks/state.json", "extensions/third-party/subagent-results.json", "evals/trajectory.json"]) {
 		assert.throws(() => verifyPackList(manifest, { files: [...packed.files, { path }] }));
 	}
-	assert.throws(() => verifyPackList(manifest, { files: packed.files.filter((f) => !f.path.endsWith("native-host.mjs")) }), /Missing packed/);
+	for (const required of ["native-host.mjs", "@juicesharp/rpiv-ask-user-question/ask-user-question.ts"]) {
+		assert.throws(() => verifyPackList(manifest, { files: packed.files.filter((f) => !f.path.endsWith(required)) }), /Missing packed/);
+	}
 });

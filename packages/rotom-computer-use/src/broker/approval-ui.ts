@@ -1,5 +1,6 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { approvalCopy } from "../constants/copy.ts";
+import { requiresOpenConfirmation } from "../open-target.ts";
 import { describeSensitiveMatch, matchSensitiveAction } from "../policy/sensitive.ts";
 import type { ApprovalDecision, ApprovalDiagnostic, ApprovalRequestEvent } from "./protocol.ts";
 
@@ -21,6 +22,7 @@ export function createBrokerApprovalHandler(
 			return "deny";
 		}
 		const sensitive = matchSensitiveAction(event.action);
+		const oneShot = requiresOpenConfirmation(event.action);
 		// This proves the UI API was called, not that a person saw the card.
 		trace("prompt_requested");
 		let choice: string | undefined;
@@ -31,8 +33,8 @@ export function createBrokerApprovalHandler(
 				action: approvalCopy.action(event.action?.name),
 				label: event.action?.label,
 				sensitive: sensitive ? describeSensitiveMatch(sensitive) : undefined,
-				warning: event.warning,
-			}), [...approvalCopy.options()], { timeout: Math.max(1, event.deadline - Date.now()), signal });
+				warning: oneShot ? approvalCopy.openWarning(event.warning) : event.warning,
+			}), oneShot ? [approvalCopy.allowOnce, approvalCopy.deny] : [...approvalCopy.options()], { timeout: Math.max(1, event.deadline - Date.now()), signal });
 		} catch {
 			trace("ui_error");
 			return "deny";
@@ -41,7 +43,8 @@ export function createBrokerApprovalHandler(
 			trace(Date.now() >= event.deadline ? "expired" : "cancelled");
 			return "deny";
 		}
-		const decision = choice === approvalCopy.allowAlways ? "always"
+		const decision = oneShot ? (choice === approvalCopy.allowOnce ? "allow_once" : "deny")
+			: choice === approvalCopy.allowAlways ? "always"
 			: choice === approvalCopy.allowSession ? "allow_session" : "deny";
 		trace("decision", decision);
 		return decision;

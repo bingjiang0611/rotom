@@ -14,7 +14,7 @@
  */
 import type { ApprovalDiagnostic } from "../broker/protocol.ts";
 import { createHash } from "node:crypto";
-import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, statSync, writeSync } from "node:fs";
+import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, statSync, writeSync, type Stats } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 
@@ -371,7 +371,7 @@ function readDirSafe(dir: string): string[] {
 	}
 }
 
-function statSafe(target: string): ReturnType<typeof statSync> | undefined {
+function statSafe(target: string): Stats | undefined {
 	try {
 		return statSync(target);
 	} catch {

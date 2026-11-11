@@ -1,6 +1,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { LookResponse } from "../outline.ts";
 import type { PermissionStatus } from "../permissions.ts";
+import type { OpenTarget } from "../open-target.ts";
 
 export type PlatformName = "macos" | "windows" | "linux";
 /**
@@ -358,6 +359,8 @@ export interface ComputerUsePlatformBackend {
 	 */
 	focusWindow(target: PlatformTarget, signal: AbortSignal | undefined, lease: HelperLease): Promise<PlatformFocusWindowResult>;
 	observe(request: PlatformObserveRequest, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<LookResponse>;
+	/** Read the fresh AXOpen target type without dispatching an action. */
+	inspectOpenTarget?(request: { lookId: string; pid: number; ref: string }, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<OpenTarget>;
 	act(request: PlatformActRequest, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<HelperActResult>;
 	/** Execute one-resource actions with one root baseline and one final settle. */
 	actBatch?(requests: PlatformActRequest[], options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<HelperActResult>;

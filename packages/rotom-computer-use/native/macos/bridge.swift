@@ -12,6 +12,28 @@ struct BridgeFailure: Error {
 	let code: String
 }
 
+/// Only a verified, non-package file-system directory is navigation.
+private struct OpenTarget {
+	let kind: String
+	let fingerprint: String
+	var json: [String: Any] { ["kind": kind, "fingerprint": fingerprint] }
+
+	static func inspect(_ url: URL?) -> OpenTarget {
+		let resolved = url?.isFileURL == true ? url?.resolvingSymlinksInPath() : url
+		var kind = "unknown"
+		if let url, let resolved, resolved.isFileURL,
+			let original = try? url.resourceValues(forKeys: [.isPackageKey]),
+			let values = try? resolved.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey, .isPackageKey]) {
+			if original.isPackage == true || values.isPackage == true || url.pathExtension.lowercased() == "app" || resolved.pathExtension.lowercased() == "app" { kind = "package" }
+			else if values.isDirectory == true && original.isPackage == false && values.isPackage == false { kind = "directory" }
+			else if values.isRegularFile == true { kind = "file" }
+		}
+		let identity = "\(url?.absoluteString ?? "")\n\(resolved?.absoluteString ?? "")\n\(kind)"
+		let digest = SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined()
+		return OpenTarget(kind: kind, fingerprint: digest)
+	}
+}
+
 final class AXRefStore {
 	struct Snapshot {
 		let role: String
@@ -594,7 +616,7 @@ final class UserActivityMonitor {
 final class Bridge {
 	// 9 adds lease-token enforcement: write commands carry a broker-signed token and
 	// this side refuses missing, invalid, expired or revoked ones.
-	private let protocolVersion = 10
+	private let protocolVersion = 11
 	private let refStore = AXRefStore()
 	private let inputSuppressionGuard = InputSuppressionGuard()
 	private let userActivityMonitor = UserActivityMonitor()
@@ -930,6 +952,8 @@ final class Bridge {
 			return try setWindowFrame(request)
 		case "look":
 			return try look(request)
+		case "openTarget":
+			return try inspectOpenTarget(request)
 		case "act":
 			return try act(request)
 		case "actBatch":
@@ -2180,6 +2204,28 @@ final class Bridge {
 		return payloadNode(element: element)
 	}
 
+	private func describeOpenTarget(_ element: AXUIElement) -> OpenTarget {
+		OpenTarget.inspect(copyAttribute(element, attribute: kAXURLAttribute as CFString) as? URL)
+	}
+
+	private func inspectOpenTarget(_ request: [String: Any]) throws -> [String: Any] {
+		let lookId = try stringArg(request, "lookId")
+		guard lookRecord(for: lookId) != nil else {
+			throw BridgeFailure(message: "Open target observation expired", code: "stale_look")
+		}
+		let ref = try stringArg(request, "ref")
+		let pid = Int32(try intArg(request, "pid"))
+		guard let element = refStore.element(for: ref) else {
+			throw BridgeFailure(message: "Open target is stale", code: "stale_ref")
+		}
+		var owner: pid_t = 0
+		guard AXUIElementGetPid(element, &owner) == .success, owner == pid,
+			supportsAction(element, action: "AXOpen" as CFString) else {
+			throw BridgeFailure(message: "Open target is not an AXOpen element of this app", code: "stale_ref")
+		}
+		return describeOpenTarget(element).json
+	}
+
 	private func act(_ request: [String: Any]) throws -> [String: Any] {
 		let previousAgent = Thread.current.threadDictionary["rotom-request-agent"]
 		if let agent = try leaseGuard.check(request, command: "act") { Thread.current.threadDictionary["rotom-request-agent"] = agent }
@@ -2279,6 +2325,7 @@ final class Bridge {
 			if cachedIsLive {
 				resolved = cached
 			} else {
+				if action == "open" { throw BridgeFailure(message: "Open target is stale; observe again", code: "stale_ref") }
 				refound = true
 				resolved = refindElement(ref: ref, pid: pid, windowId: record.windowId)
 			}
@@ -5032,6 +5079,15 @@ extension Bridge {
 			guard supportsAction(element, action: "AXOpen" as CFString) else {
 				throw BridgeFailure(message: "This element does not support AXOpen", code: "unsupported_action")
 			}
+			let current = describeOpenTarget(element)
+			guard let expected = params["openTarget"] as? [String: Any],
+				expected["kind"] as? String == current.kind,
+				expected["fingerprint"] as? String == current.fingerprint else {
+				throw BridgeFailure(message: "Open target changed or preflight is missing; no AXOpen dispatched", code: "open_target_changed")
+			}
+			guard current.kind == "directory" || params["openApproved"] as? Bool == true else {
+				throw BridgeFailure(message: "External or unknown open target requires sensitive confirmation; no AXOpen dispatched", code: "open_confirmation_required")
+			}
 			let status = AXUIElementPerformAction(element, "AXOpen" as CFString)
 			performed["delivery"] = "ax"
 			performed["grounding"] = "description"
@@ -5665,7 +5721,7 @@ final class BrokerLink {
 		guard let reply = request([
 			"id": "hello-\(getpid())",
 			"type": "hello",
-			"protocolVersion": 1,
+			"protocolVersion": 2,
 			"agent": [
 				"agentId": "helper:\(getpid())",
 				"hasUI": true,
