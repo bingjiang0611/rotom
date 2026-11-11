@@ -47,6 +47,10 @@ export function eventTypeName(raw) {
  * `processName` is injected so the grouping is testable without spawning `ps`; the live
  * scripts pass `resolveProcessNames`.
  */
+/** @typedef {{at: number, type: number, pid: number, stateId: number, agent: boolean}} EventRecord */
+/** @typedef {{processName?: (pid: number) => string | undefined, runPids?: number[], helperPid?: number}} AttributionOptions */
+/** @param {EventRecord[]} [events]
+ * @param {AttributionOptions} [options] */
 export function groupEventSources(events = [], { processName = () => undefined } = {}) {
 	const groups = new Map();
 	for (const event of events) {
@@ -96,6 +100,8 @@ export function resolveProcessNames(pids, { exec = execFileSync } = {}) {
  * agent-marked HID, run-owned/helper focus, and cursor-warp behavior. The helper's own pid
  * counts as ours for attribution because it posts directed L2 events.
  */
+/** @param {ReturnType<typeof groupEventSources>} [groups]
+ * @param {AttributionOptions} [options] */
 export function summarizeAttribution(groups = [], { runPids = [], helperPid } = {}) {
 	const ours = new Set([...runPids, helperPid].filter((pid) => Number.isFinite(pid)));
 	let fromThisRun = 0;
@@ -109,6 +115,8 @@ export function summarizeAttribution(groups = [], { runPids = [], helperPid } = 
 }
 
 /** Archive rows for one run's source records: one row per source, plus a summary. */
+/** @param {EventRecord[]} [events]
+ * @param {AttributionOptions} [options] */
 export function attributionRows(events = [], { processName = () => undefined, runPids = [], helperPid } = {}) {
 	const groups = groupEventSources(events, { processName });
 	const rows = groups

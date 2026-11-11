@@ -1,6 +1,6 @@
 # Computer Use v2.1：T1 类型检查恢复
 
-> 本页保留该轮历史记录。后续 Finder 验收状态、O1/S2 实现与当前验证见 [打开目标确认与测试闸门](STATUS-2-open-target-guard.md)。
+> 本页保留该轮历史记录。当前 S2 已恢复完整类型门禁，见 [HANDOFF-6 阶段 1](STATUS-3-typecheck.md)；此前 O1/S2 的分段实现见 [打开目标确认与测试闸门](STATUS-2-open-target-guard.md)。
 
 ## 范围与环境
 

@@ -68,7 +68,7 @@ export function scheduleClipboardRestore(options: {
 	if (!options.restore || !options.snapshot) return false;
 	clearClipboardRestoreTimer();
 	const delay = options.delayMs ?? CLIPBOARD_RESTORE_MS;
-	const setTimer = options.setTimer ?? setTimeout;
+	const setTimer: NonNullable<typeof options.setTimer> = options.setTimer ?? setTimeout;
 	clipboardRestoreTimer = setTimer(() => {
 		clipboardRestoreTimer = undefined;
 		void (async () => {

@@ -83,7 +83,7 @@ test("cleanup refuses an already-running or otherwise foreign pid", async () => 
 	const calls: unknown[] = [];
 	const rows: unknown[] = [];
 	const result = await quitRunOwnedApp({
-		backend: { manageApps: async (request: unknown) => { calls.push(request); } },
+		backend: { manageApps: async (request: unknown) => { calls.push(request); return { terminated: false }; } },
 		ownedPids: owned,
 		pid: 42,
 		record: (...row: unknown[]) => rows.push(row),

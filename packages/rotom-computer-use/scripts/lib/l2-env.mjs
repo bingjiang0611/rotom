@@ -58,6 +58,8 @@ export function signatureOf(appPath, { exec = codesignReport } = {}) {
  * that launches and then has no window - which is what one window spent its time on. The
  * identity has to be in the environment, because `codesign -s -` is the silent default.
  */
+/** @param {{appPath: string, identity?: string, willCopy?: boolean}} options
+ * @returns {{ok: boolean, reason?: string, authority?: string}} */
 export function checkFixtureSignature({ appPath, identity, willCopy }) {
 	if (!willCopy) return { ok: true };
 	if (!identity) {
@@ -71,6 +73,8 @@ export function checkFixtureSignature({ appPath, identity, willCopy }) {
 }
 
 /** Refuse to drive a fixture built from other source than the checkout under test. */
+/** @param {{appPath: string, rootDir: string, identity?: string, willCopy?: boolean}} options
+ * @returns {{ok: boolean, reason?: string, authority?: string, digest?: string}} */
 export function checkFixture({ appPath, rootDir, identity, willCopy }) {
 	const actual = fixtureSourceDigest(appPath);
 	if (!actual) {

@@ -20,6 +20,7 @@
  * unchanged means the click did not land, and a jump of two means something else
  * clicked while we were watching.
  */
+/** @param {{survived: boolean, delivery: string, outcome: string, before?: number, after?: number, activated?: boolean, expectedDelivery?: string}} options */
 export function judgeDirectedClick({ survived, delivery, outcome, before, after, activated = false, expectedDelivery = "l2" }) {
 	if (!survived) return { result: "fail", reason: "helper did not survive the directed post" };
 	if (delivery !== expectedDelivery) return { result: "fail", reason: `expected delivery=${expectedDelivery}, got ${delivery}` };

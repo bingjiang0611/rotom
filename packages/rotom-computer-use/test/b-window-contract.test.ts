@@ -125,12 +125,12 @@ test("every scripted step declares the rows it cannot pass without", () => {
 	for (const [step, contract] of Object.entries(STEP_CONTRACT)) assert.ok(contract.length > 0, `${step} needs a contract`);
 	for (const step of ["B0", "B1", "B2", "B3-live", "B3-acceptance", "B4"] as const) {
 		for (const action of ["agent HID events", "focus taken", "cursor warped"]) {
-			assert.ok(STEP_CONTRACT[step].some((row) => row.action === action), `${step} must require ${action}`);
+			assert.ok(STEP_CONTRACT[step].some((row) => "action" in row && row.action === action), `${step} must require ${action}`);
 		}
-		assert.ok(!STEP_CONTRACT[step].some((row) => row.action === "real user input"), `${step} must not gate on user activity`);
-		assert.ok(!STEP_CONTRACT[step].some((row) => row.action === "operator app"), `${step} must not require restore`);
+		assert.ok(!STEP_CONTRACT[step].some((row) => "action" in row && row.action === "real user input"), `${step} must not gate on user activity`);
+		assert.ok(!STEP_CONTRACT[step].some((row) => "action" in row && row.action === "operator app"), `${step} must not require restore`);
 	}
-	assert.ok(STEP_CONTRACT.B1.some((row) => row.note instanceof RegExp), "B1 must demand the directed transport");
+	assert.ok(STEP_CONTRACT.B1.some((row) => "note" in row && row.note instanceof RegExp), "B1 must demand the directed transport");
 });
 
 test("K3: B3-live and B3-acceptance judge different rows", () => {

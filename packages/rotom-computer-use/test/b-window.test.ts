@@ -39,8 +39,8 @@ const HEAD = "1111111111111111111111111111111111111111";
 const OTHER = "2222222222222222222222222222222222222222";
 
 /** A `git` that answers from canned output, so the rules run without a repository. */
-function fakeGit({ head = HEAD, status = "", toplevel = "/repo", resolve = (sha) => (HEAD.startsWith(sha) ? HEAD : OTHER.startsWith(sha) ? OTHER : undefined) } = {}) {
-	return (command, args) => {
+function fakeGit({ head = HEAD, status = "", toplevel = "/repo", resolve = (sha: string) => (HEAD.startsWith(sha) ? HEAD : OTHER.startsWith(sha) ? OTHER : undefined) } = {}) {
+	return (command: string, args: readonly string[]) => {
 		if (args[0] === "rev-parse" && args[1] === "HEAD") return `${head}\n`;
 		if (args[0] === "status") return status;
 		if (args[0] === "rev-parse" && args[1] === "--show-toplevel") return `${toplevel}\n`;
@@ -57,14 +57,14 @@ function makeDir(prefix = "cu-v2-b-window-") {
 	return mkdtempSync(path.join(tmpdir(), prefix));
 }
 
-function archive(runsDir, name, { step, commit, verdict }) {
+function archive(runsDir: string, name: string, { step, commit, verdict }: { step: string; commit: string; verdict: string }) {
 	writeFileSync(path.join(runsDir, name), `# run\n\nStep: ${step}\nCommit: ${commit}\nVerdict: ${verdict}\n`);
 }
 
 /** A git repository with one commit, for the checks that must not run on a fake git. */
 function realRepo() {
 	const repo = makeDir("cu-v2-real-repo-");
-	const git = (...args) => execFileSync("git", args, { cwd: repo, encoding: "utf8" }).trim();
+	const git = (...args: string[]) => execFileSync("git", args, { cwd: repo, encoding: "utf8" }).trim();
 	git("init", "-q");
 	git("config", "user.email", "test@example.com");
 	git("config", "user.name", "test");
@@ -145,7 +145,7 @@ test("K1: a real repository - B2 is allowed after a passing B1", () => {
 		assert.deepEqual(gitState({ cwd: repo }).dirtyPaths, []);
 		const b2 = beginStep({ step: "B2", expectCommit: head, runsDir, cwd: repo });
 		assert.equal(b2.step, "B2");
-		assert.equal(findPassingRun({ step: "B1", commit: head, runsDir }).name, "b1.md");
+		assert.equal(findPassingRun({ step: "B1", commit: head, runsDir })?.name, "b1.md");
 
 		// And the old failure mode is still a refusal: an archive written into the worktree
 		// makes every later step see a dirty tree.
@@ -164,7 +164,7 @@ test("searching commits for a passing step", () => {
 		archive(runsDir, "b1-2.md", { step: "B1", commit: HEAD, verdict: "pass" });
 		archive(runsDir, "b2.md", { step: "B2", commit: HEAD, verdict: "fail" });
 		// Newest by name: the archive names start with the run stamp.
-		assert.equal(findPassingRun({ step: "B1", commit: HEAD, runsDir }).name, "b1-2.md");
+		assert.equal(findPassingRun({ step: "B1", commit: HEAD, runsDir })?.name, "b1-2.md");
 		assert.equal(findPassingRun({ step: "B2", commit: HEAD, runsDir }), undefined);
 		// A pass under a different commit does not authorize this one.
 		assert.equal(findPassingRun({ step: "B1", commit: OTHER, runsDir }), undefined);
@@ -279,17 +279,17 @@ test("one failing row writes the stop marker, and only the operator removes it",
 test("beginStep runs its checks in order: runs dir, marker, freeze, predecessor", () => {
 	const runsDir = makeDir();
 	try {
-		assert.throws(() => beginStep({ step: "B2", expectCommit: HEAD, exec: fakeGit() }), (error) => /--runs-dir/.test(error.message));
-		assert.throws(() => beginStep({ step: "B2", expectCommit: undefined, runsDir, exec: fakeGit() }), (error) => /--expect-commit/.test(error.message));
-		assert.throws(() => beginStep({ step: "B2", expectCommit: HEAD, runsDir, exec: fakeGit() }), (error) => /B1 passed/.test(error.message));
+		assert.throws(() => beginStep({ step: "B2", expectCommit: HEAD, exec: fakeGit() }), (error) => error instanceof Error && /--runs-dir/.test(error.message));
+		assert.throws(() => beginStep({ step: "B2", expectCommit: undefined, runsDir, exec: fakeGit() }), (error) => error instanceof Error && /--expect-commit/.test(error.message));
+		assert.throws(() => beginStep({ step: "B2", expectCommit: HEAD, runsDir, exec: fakeGit() }), (error) => error instanceof Error && /B1 passed/.test(error.message));
 		archive(runsDir, "b1.md", { step: "B1", commit: HEAD, verdict: "pass" });
 		const started = beginStep({ step: "B2", expectCommit: HEAD, runsDir, exec: fakeGit() });
 		assert.deepEqual(started, { step: "B2", commit: HEAD, runsDir, reportOnly: false });
-		const warned = [];
+		const warned: string[] = [];
 		beginStep({ step: "B2", expectCommit: HEAD, runsDir, exec: fakeGit(), warn: (message) => warned.push(message) });
-		assert.match(warned.at(-1), /previous steps passed/);
+		assert.match(warned.at(-1)!, /previous steps passed/);
 		writeStopMarker({ runsDir, step: "B2", commit: HEAD, reason: "manual" });
-		assert.throws(() => beginStep({ step: "B2", expectCommit: HEAD, runsDir, exec: fakeGit() }), (error) => /B-STOPPED/.test(error.message));
+		assert.throws(() => beginStep({ step: "B2", expectCommit: HEAD, runsDir, exec: fakeGit() }), (error) => error instanceof Error && /B-STOPPED/.test(error.message));
 	} finally {
 		rmSync(runsDir, { recursive: true, force: true });
 	}

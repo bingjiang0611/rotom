@@ -1,8 +1,17 @@
-import { SEMANTIC_ACTION_NAMES, type MouseButtonName, type UiAction } from "./contract.ts";
+import { SEMANTIC_ACTION_NAMES, type MouseButtonName, type SemanticActionName, type UiAction } from "./contract.ts";
+import type { OpenTarget } from "./open-target.ts";
 import type { OutlineNode } from "./outline.ts";
 import { toFiniteNumber } from "./platform/coerce.ts";
 
 export type ActionTarget = { ref: string } | { x: number; y: number } | { focus: { x: number; y: number } };
+
+type SemanticActionParams = {
+	option?: string;
+	checked?: boolean;
+	value?: number;
+	openTarget?: OpenTarget;
+	openApproved?: boolean;
+};
 
 export type PreparedAction =
 	| { action: "press" | "click"; target: ActionTarget; params: { button?: MouseButtonName; clickCount?: number }; establishesFocus: boolean; usesCurrentFocus: false; needsForeground: boolean }
@@ -14,9 +23,9 @@ export type PreparedAction =
 	| { action: "moveMouse"; target: ActionTarget; params: Record<string, never>; establishesFocus: false; usesCurrentFocus: false; needsForeground: false }
 	| { action: "hover"; target: ActionTarget; params: { delivery?: "l2" }; establishesFocus: false; usesCurrentFocus: false; needsForeground: false }
 	| {
-		action: "open" | "select" | "setChecked" | "expand" | "collapse" | "scrollTo" | "focus" | "clear" | "setValue" | "showMenu";
+		action: SemanticActionName;
 		target: { ref: string };
-		params: Record<string, unknown>;
+		params: SemanticActionParams;
 		establishesFocus: false;
 		usesCurrentFocus: false;
 		needsForeground: false;
@@ -118,7 +127,7 @@ export function prepareAction(action: UiAction, state: ActionState, env: ActionE
 		if (operation === "open" && !env.node(action.ref!).actions.includes("AXOpen")) {
 			throw new Error("open requires a freshly observed AXOpen capability; it is not a click fallback.");
 		}
-		const params: Record<string, unknown> = {};
+		const params: SemanticActionParams = {};
 		if (operation === "select" && action.option?.trim()) params.option = action.option.trim();
 		if (operation === "setChecked") {
 			if (typeof action.checked !== "boolean") throw new Error("setChecked requires checked: true or false.");

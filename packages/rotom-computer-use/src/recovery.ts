@@ -165,7 +165,7 @@ function resultNeedsObservation(result: unknown): boolean {
  * Surface bounded protocol evidence without throwing away the successor state,
  * images or execution trace. A failed observation must not authorize a replay.
  */
-export function computerUseEvidenceResult<T extends { content: Array<{ type: string; text?: string }>; details?: unknown }>(toolName: string, result: T): T {
+export function computerUseEvidenceResult<T extends { content: Array<{ type: string; text?: string }>; details?: unknown }>(toolName: string, result: T): Omit<T, "content"> & { content: Array<T["content"][number] | { type: "text"; text: string }> } {
 	const details = record(result.details);
 	if (!details) return result;
 	let summary: string;

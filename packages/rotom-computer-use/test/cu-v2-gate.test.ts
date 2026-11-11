@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-// @ts-expect-error - the gate is a script-library module outside the TS program
 import { GateHold, evaluateGate, holdReason, readGate, requireGate } from "../scripts/lib/gate.mjs";
 
 const at = (minutesFromWindowStart: number) => Date.parse("2026-11-06T05:00:00-08:00") + minutesFromWindowStart * 60_000;

@@ -337,6 +337,11 @@ export interface BrokerFailure {
 	tier?: AppTier;
 }
 
+/** Preserve each request variant when callers supply the correlation id separately. */
+export type BrokerRequestInput = {
+	[Kind in BrokerRequest["type"]]: Omit<Extract<BrokerRequest, { type: Kind }>, "id">;
+}[BrokerRequest["type"]];
+
 export interface HelloResponse {
 	ok: true;
 	type: "hello";
@@ -445,7 +450,7 @@ export interface TakeoverStateResponse {
 }
 
 export type BrokerResponse =
-	| { ok: true; type: "release_on_yield" }
+	| { ok: true; type: "release_on_yield"; id?: string }
 	| TakeoverStateResponse
 	| HelloResponse
 	| PongResponse

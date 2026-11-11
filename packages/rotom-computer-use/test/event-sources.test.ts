@@ -98,7 +98,7 @@ test("the record schema is metadata only", () => {
 });
 
 /** A run whose counters say `counted` events happened but whose ring holds `records`. */
-function ringCase({ records, counted, limit = 512 }) {
+function ringCase({ records, counted, limit = 512 }: { records?: Parameters<typeof groupEventSources>[0]; counted: number; limit?: number }) {
 	const collected: { area: string; action: string; result: string; note: string }[] = [];
 	const activity = {
 		userEventCount: counted,

@@ -93,7 +93,7 @@ function parseClipboard(result: any): PlatformClipboardRead {
 	};
 }
 
-export const macosBackend: Pick<ComputerUsePlatformBackend, "listApps" | "listRoots" | "getFrontmost" | "focusWindow" | "observe" | "inspectOpenTarget" | "act" | "actBatch" | "readText" | "waitFor" | "userActivity" | "clipboardGet" | "clipboardSet" | "clipboardClear" | "clipboardSnapshot" | "clipboardRestore" | "manageApps" | "manageWindow" | "systemSurfaces"> = {
+export const macosBackend: Pick<ComputerUsePlatformBackend, "listApps" | "listRoots" | "getFrontmost" | "focusWindow" | "observe" | "inspectOpenTarget" | "act" | "actBatch" | "readText" | "waitFor" | "userActivity" | "clipboardGet" | "clipboardSet" | "clipboardClear" | "clipboardSnapshot" | "clipboardRestore" | "manageApps" | "manageWindow" | "systemSurfaces" | "takeoverBegin" | "takeoverEnd"> = {
 	async listApps(signal?: AbortSignal): Promise<PlatformApp[]> {
 		return parseApps(await macosHelper.command<unknown>("listApps", {}, { signal }));
 	},

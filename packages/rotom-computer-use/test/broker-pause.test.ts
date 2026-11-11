@@ -15,6 +15,7 @@ import {
 	type AgentRegistration,
 	type BrokerEvent,
 	type BrokerReply,
+	type BrokerRequestInput,
 	type BrokerRequest,
 } from "../src/broker/protocol.ts";
 
@@ -48,7 +49,7 @@ async function hello(core: BrokerCore, agent: AgentRegistration): Promise<Broker
 	return await core.handle(undefined, { id: `hello-${counter}`, type: "hello", protocolVersion: BROKER_PROTOCOL_VERSION, agent });
 }
 
-async function call(core: BrokerCore, agentId: string | undefined, request: Omit<BrokerRequest, "id">): Promise<BrokerReply> {
+async function call(core: BrokerCore, agentId: string | undefined, request: BrokerRequestInput): Promise<BrokerReply> {
 	counter += 1;
 	return await core.handle(agentId, { ...request, id: `${request.type}-${counter}` } as BrokerRequest);
 }

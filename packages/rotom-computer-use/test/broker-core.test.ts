@@ -7,6 +7,7 @@ import {
 	type AgentRegistration,
 	type BrokerEvent,
 	type BrokerReply,
+	type BrokerRequestInput,
 	type BrokerRequest,
 } from "../src/broker/protocol.ts";
 
@@ -49,12 +50,12 @@ async function hello(core: BrokerCore, agent: AgentRegistration): Promise<Broker
 	});
 }
 
-async function call(core: BrokerCore, agentId: string | undefined, request: Omit<BrokerRequest, "id">): Promise<BrokerReply> {
+async function call(core: BrokerCore, agentId: string | undefined, request: BrokerRequestInput): Promise<BrokerReply> {
 	return await core.handle(agentId, { ...request, id: nextId(request.type) } as BrokerRequest);
 }
 
 async function acquire(core: BrokerCore, agentId: string, resourceKey: string, extra: Record<string, unknown> = {}): Promise<BrokerReply> {
-	return await call(core, agentId, { type: "acquire", resourceKey, ...extra } as Omit<BrokerRequest, "id">);
+	return await call(core, agentId, { type: "acquire", resourceKey, ...extra });
 }
 
 test("broker protocol version mismatch is refused instead of silently degrading", async () => {

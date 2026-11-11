@@ -12,7 +12,7 @@ import test from "node:test";
 import { BrokerCore } from "../src/broker/core.ts";
 import { leasePidOf, signLeaseToken, verifyLeaseToken } from "../src/broker/lease-token.ts";
 import { createFakeClock } from "./helpers/fake-clock.ts";
-import { BROKER_PROTOCOL_VERSION, type AgentRegistration, type BrokerReply, type BrokerRequest } from "../src/broker/protocol.ts";
+import { BROKER_PROTOCOL_VERSION, type AgentRegistration, type BrokerReply, type BrokerRequestInput, type BrokerRequest } from "../src/broker/protocol.ts";
 
 const SECRET = Buffer.alloc(32, 7);
 
@@ -33,7 +33,7 @@ async function hello(core: BrokerCore, agent: AgentRegistration): Promise<Broker
 	return await core.handle(undefined, { id: `hello-${counter}`, type: "hello", protocolVersion: BROKER_PROTOCOL_VERSION, agent });
 }
 
-async function call(core: BrokerCore, agentId: string, request: Omit<BrokerRequest, "id">): Promise<BrokerReply> {
+async function call(core: BrokerCore, agentId: string, request: BrokerRequestInput): Promise<BrokerReply> {
 	counter += 1;
 	return await core.handle(agentId, { ...request, id: `${request.type}-${counter}` } as BrokerRequest);
 }

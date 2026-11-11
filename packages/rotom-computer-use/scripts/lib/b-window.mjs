@@ -25,6 +25,9 @@
  * can clear its own stop marker has no stop rule.
  */
 import { execFileSync } from "node:child_process";
+
+/** @typedef {{area: string, action: string, result: string, note?: string}} CheckRow */
+/** @typedef {(command: string, args: readonly string[], options: import("node:child_process").ExecFileSyncOptionsWithStringEncoding) => string} TextExec */
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
@@ -126,6 +129,7 @@ export class StepRefused extends Error {
 }
 
 /** `git` in the repository, with the executor injectable so the rules can be tested. */
+/** @param {{cwd?: string, exec?: TextExec}} [options] */
 export function gitState({ cwd = process.cwd(), exec = execFileSync } = {}) {
 	const head = String(exec("git", ["rev-parse", "HEAD"], { cwd, encoding: "utf8" })).trim();
 	const porcelain = String(exec("git", ["status", "--porcelain", "--untracked-files=all"], { cwd, encoding: "utf8" }));
@@ -140,6 +144,7 @@ export function gitState({ cwd = process.cwd(), exec = execFileSync } = {}) {
  * commit: "a commit that is an ancestor" would let a window run on code the reviewer
  * never saw.
  */
+/** @param {{expectCommit?: string, cwd?: string, exec?: TextExec}} [options] */
 export function requireFrozenCommit({ expectCommit, cwd = process.cwd(), exec = execFileSync } = {}) {
 	if (!expectCommit) {
 		throw new StepRefused("--expect-commit <sha> is required: the reviewer freezes one commit before the window opens, and a run on any other tree is not evidence");
@@ -168,6 +173,8 @@ export function requireFrozenCommit({ expectCommit, cwd = process.cwd(), exec = 
  * require a commit (moving HEAD off the frozen commit), which is how B1 used to close the
  * window after itself.
  */
+/** @param {string | undefined} value
+ * @param {{cwd?: string, exec?: TextExec}} [options] */
 export function requireRunsDir(value, { cwd = process.cwd(), exec = execFileSync } = {}) {
 	if (!value) {
 		throw new StepRefused("--runs-dir <absolute path outside the repository> is required: window output may not touch the worktree");
@@ -216,6 +223,7 @@ export function requireNoStopMarker(runsDir) {
 }
 
 /** Stop the phase. Called by `finishStep`, never by an agent command. */
+/** @param {{runsDir: string, step: string, commit: string, reason: string, run?: string, at?: string}} options */
 export function writeStopMarker({ runsDir, step, commit, reason, run, at = new Date().toISOString() }) {
 	mkdirSync(runsDir, { recursive: true });
 	const file = stopMarkerPath(runsDir);
@@ -259,6 +267,7 @@ export function findPassingRun({ step, commit, runsDir } = {}) {
 }
 
 /** Refuse unless every step before `step` passed on `commit`. */
+/** @param {{step?: string, commit?: string, runsDir?: string, warn?: (message: string) => void}} [options] */
 export function requirePreviousStepsPassed({ step, commit, runsDir, warn = () => {} } = {}) {
 	const index = B_STEPS.indexOf(step);
 	if (index < 0) throw new StepRefused(`${step} is not one of ${B_STEPS.join("/")}`);
@@ -279,6 +288,7 @@ export function requirePreviousStepsPassed({ step, commit, runsDir, warn = () =>
  * Stop marker first: a stopped phase must not even read the gate, because a gate pass
  * would look like permission.
  */
+/** @param {{step?: string, expectCommit?: string, runsDir?: string, cwd?: string, exec?: TextExec, warn?: (message: string) => void}} [options] */
 export function beginStep({ step, expectCommit, runsDir, cwd = process.cwd(), exec = execFileSync, warn = () => {} } = {}) {
 	const dir = requireRunsDir(runsDir, { cwd, exec });
 	requireNoStopMarker(dir);
@@ -295,6 +305,7 @@ export function beginStep({ step, expectCommit, runsDir, cwd = process.cwd(), ex
  * that is `inconclusive` or `skipped`. The last one is the hole the re-review found -
  * B1's directed click reported `inconclusive` on its way to `Verdict: pass`.
  */
+/** @param {{step?: string, rows?: CheckRow[]}} [options] */
 export function evaluateStep({ step, rows = [] } = {}) {
 	const contract = STEP_CONTRACT[step];
 	if (!contract) throw new StepRefused(`${step} has no row contract; a step without required rows cannot pass`);
@@ -327,6 +338,7 @@ export function evaluateStep({ step, rows = [] } = {}) {
 }
 
 /** Record the verdict and stop the phase on a failure. */
+/** @param {{step: string, commit: string, runsDir: string, rows?: CheckRow[], run?: string, reason?: string}} options */
 export function finishStep({ step, commit, runsDir, rows = [], run, reason }) {
 	const { verdict, blockers } = evaluateStep({ step, rows });
 	if (verdict === "fail") {
@@ -340,6 +352,21 @@ export function finishStep({ step, commit, runsDir, rows = [], run, reason }) {
  *
  * The archive keeps `Step:`, `Commit:` and `Verdict:` machine-readable; `Blockers:` names
  * what stopped a failing run instead of leaving the reader to scan the table.
+ */
+/**
+ * @param {{
+ *   runsDir: string,
+ *   runName: string,
+ *   title: string,
+ *   step: string,
+ *   commit: string,
+ *   rows?: CheckRow[],
+ *   table?: string[],
+ *   log?: string[],
+ *   intro?: string[],
+ *   notes?: string[],
+ *   reportOnly?: boolean
+ * }} options
  */
 export function writeRunArchive({ runsDir, runName, title, step, commit, rows = [], table, log = [], intro = [], notes = [], reportOnly = false }) {
 	// A report-only archive is not evidence about a step: it neither finishes one nor
@@ -374,6 +401,7 @@ export function writeRunArchive({ runsDir, runName, title, step, commit, rows = 
 	return { path: target, verdict, blockers };
 }
 
+/** @param {CheckRow[]} rows */
 export function renderTable(rows) {
 	return [
 		"| Area | Action | Result | Note |",

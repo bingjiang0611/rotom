@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { BrokerCore, type PolicyGate } from "../src/broker/core.ts";
-import { BROKER_PROTOCOL_VERSION, TAKEOVER_RESOURCE, type AgentRegistration, type BrokerReply, type BrokerRequest } from "../src/broker/protocol.ts";
+import { BROKER_PROTOCOL_VERSION, TAKEOVER_RESOURCE, type AgentRegistration, type BrokerReply, type BrokerRequestInput, type BrokerRequest } from "../src/broker/protocol.ts";
 import { TakeoverController } from "../src/takeover.ts";
 import type { BrokerSession } from "../src/tools/desktop-deps.ts";
 import { createFakeClock } from "./helpers/fake-clock.ts";
@@ -54,7 +54,7 @@ async function hello(core: BrokerCore, agent: AgentRegistration): Promise<Broker
 	return await core.handle(undefined, { id: `hello-${counter}`, type: "hello", protocolVersion: BROKER_PROTOCOL_VERSION, agent });
 }
 
-async function call(core: BrokerCore, agentId: string | undefined, request: Omit<BrokerRequest, "id">): Promise<BrokerReply> {
+async function call(core: BrokerCore, agentId: string | undefined, request: BrokerRequestInput): Promise<BrokerReply> {
 	counter += 1;
 	return await core.handle(agentId, { ...request, id: `${request.type}-${counter}` } as BrokerRequest);
 }
@@ -171,7 +171,7 @@ test("real input pauses without surrendering the lease, and paused renewal conti
 	await hello(core, HELPER); await hello(core, AGENT_A); await hello(core, AGENT_B);
 	await reportActivity(core, clock.now() - 30_000);
 	const taken = await takeover(core, AGENT_A.agentId) as { ok: true; lease: { leaseId: string } };
-	const lifecycle = (phase: string) => call(core, HELPER.agentId, { type: "takeover_state", takeoverId: "one", targetAgentId: AGENT_A.agentId, leaseId: taken.lease.leaseId, phase, app: APP, sequence: 1 });
+	const lifecycle = (phase: Extract<BrokerRequest, { type: "takeover_state" }>["phase"]) => call(core, HELPER.agentId, { type: "takeover_state", takeoverId: "one", targetAgentId: AGENT_A.agentId, leaseId: taken.lease.leaseId, phase, app: APP, sequence: 1 });
 	assert.equal((await lifecycle("begin")).ok, true);
 	assert.equal((await lifecycle("pause")).ok, true);
 	assert.ok(delivered.some((entry) => entry.event === "takeover_state"));

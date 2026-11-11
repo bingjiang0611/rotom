@@ -24,6 +24,7 @@ export interface PolicyDecision {
 }
 
 export interface PolicyGate {
+	allowForeground?(app: TargetAppInfo | undefined): void;
 	check(input: PolicyCheckInput): PolicyDecision;
 	/** Persist a permanent grant ("始终允许"). */
 	allowApp(app: TargetAppInfo | undefined, tier: AppTier): void;

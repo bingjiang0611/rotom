@@ -25,6 +25,7 @@ export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * check that types ASCII must know this *before* it runs, otherwise the text line says
  * nothing about the product.
  */
+/** @param {import("./b-window.mjs").TextExec} [exec] */
 export function inputSourceInfo(exec = execFileSync) {
 	try {
 		const out = exec("defaults", ["read", "com.apple.HIToolbox", "AppleSelectedInputSources"], { encoding: "utf8" });
@@ -136,6 +137,19 @@ export function withoutHome(text) {
  * Report the operator's real input. Background steps deliberately do not judge it:
  * B0-B4 must remain safe while the operator continues using the Mac.
  */
+/**
+ * @param {{
+ *   helper: {command: (method: string, params: object) => Promise<{userEventCount?: number}>},
+ *   backend: {getFrontmost: () => Promise<{pid: number, appName?: string}>},
+ *   record: (area: string, action: string, result: string, note: string) => void,
+ *   activityBefore?: {userEventCount?: number},
+ *   operatorPid?: number,
+ *   runPids?: number[],
+ *   expectedEvents?: number,
+ *   expectedNote?: string,
+ *   judged?: boolean
+ * }} options
+ */
 export async function recordRealUserInput({ helper, backend, record, activityBefore, operatorPid, runPids = [], expectedEvents = 0, expectedNote = "", judged = true }) {
 	let after;
 	try {
@@ -222,6 +236,13 @@ export function classifyActFailure(error) {
  * unsigned call is refused. Without one the helper enforces nothing, and the honest
  * label is "unverified" - not "passed".
  */
+/**
+ * @param {{
+ *   pid?: number,
+ *   brokerEnabled?: boolean,
+ *   acquire?: (resourceKey: string) => Promise<{token?: string, leaseId?: string}>
+ * }} [options]
+ */
 export async function leaseForRestore({ pid, brokerEnabled = process.env.ROTOM_CU_BROKER === "1", acquire } = {}) {
 	if (!brokerEnabled) return { lease: undefined, state: "unverified", note: "no broker: the helper enforces no token, so this write is unverified" };
 	let lease;
@@ -272,6 +293,20 @@ export function restoreOutcome({ original, after }) {
  * re-activate a running app (its `launchApp` documents that activation would steal
  * focus), so the restore never had a chance; and `inconclusive` let B6 "pass" while the
  * user's app stayed in the background.
+ */
+/**
+ * @param {{
+ *   backend: {
+ *     listRoots: (query: {pid: number}) => Promise<Array<{kind: string, windowId?: number, rootRef?: string}>>,
+ *     focusWindow: (target: {windowId?: number, rootRef?: string}, signal?: AbortSignal, lease?: {token?: string, leaseId?: string})
+ *       => Promise<{focused?: boolean, alreadyFocused?: boolean, reason?: string}>,
+ *     getFrontmost: () => Promise<{pid: number, appName: string}>
+ *   },
+ *   original: {pid: number, appName: string},
+ *   record: (area: string, action: string, result: string, note: string) => void,
+ *   brokerEnabled?: boolean,
+ *   acquire?: (resourceKey: string) => Promise<{token?: string, leaseId?: string}>
+ * }} options
  */
 export async function restoreOperatorApp({ backend, original, record, brokerEnabled, acquire }) {
 	if (!original) {

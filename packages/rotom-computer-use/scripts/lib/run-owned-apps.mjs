@@ -44,6 +44,16 @@ export function rememberRunCopiedFixture(ownedPids, { bundleId, beforePids, app 
  * Quit only a pid proven to have been created by this run. B-stage cleanup never
  * escalates to force: an app that does not terminate is evidence, not permission to kill it.
  */
+/**
+ * @param {{
+ *   backend: {manageApps: (request: {mode: "quit", pid: number, force: false}) => Promise<{terminated?: boolean}>},
+ *   ownedPids: Set<number>,
+ *   pid: number,
+ *   record?: (area: string, action: string, result: string, note: string) => void,
+ *   area?: string,
+ *   action?: string
+ * }} options
+ */
 export async function quitRunOwnedApp({ backend, ownedPids, pid, record, area = "cleanup", action = "owned app" }) {
 	const numericPid = Number(pid);
 	if (!Number.isInteger(numericPid) || !ownedPids.has(numericPid)) {

@@ -58,6 +58,7 @@ test("semantic action parameters are validated, not silently defaulted", () => {
 	const select = prepareAction({ action: "select", ref: "@e1", option: " Fast " }, { currentFocus: false }, env);
 	assert.deepEqual(select.params, { option: "Fast" });
 	const checked = prepareAction({ action: "setChecked", ref: "@e1", checked: false }, { currentFocus: false }, env);
+	assert.ok(checked.action === "setChecked");
 	assert.equal(checked.params.checked, false);
 });
 

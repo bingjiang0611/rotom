@@ -73,7 +73,7 @@ test("native AXOpen control flow dispatches once and never equates AX acceptance
 	const body = source.split('\t\tcase "open":')[1]?.split('\t\tcase "select":')[0];
 	assert.ok(body, "native open implementation must exist");
 	const fixtures = [];
-	for (const kind of ["directory", "file", "package", "unknown"]) {
+	for (const kind of ["directory", "file", "package", "unknown"] as const) {
 		for (const approved of [false, true]) {
 			const action = prepareAction({ action: "open", ref: "@e1" }, environment());
 			assert.ok(action.action === "open");

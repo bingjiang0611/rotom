@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-// @ts-expect-error - script-library module outside the TS program
 import { inputSourceInfo } from "../scripts/lib/live-helpers.mjs";
 
 /** Exactly what `defaults read com.apple.HIToolbox AppleSelectedInputSources` prints. */

@@ -16,6 +16,7 @@ import {
 	type BrokerEvent,
 	type BrokerFailure,
 	type BrokerReply,
+	type BrokerRequestInput,
 	type BrokerRequest,
 	type EpochResponse,
 	type HelloResponse,
@@ -205,7 +206,7 @@ export class BrokerClient {
 
 	/** Report that this agent's own action disturbed the user; the broker pauses it. */
 	async approveTakeover(): Promise<boolean> {
-		const reply = await this.request({ type: "takeover_approval" } as Omit<BrokerRequest, "id">);
+		const reply = await this.request({ type: "takeover_approval" });
 		return reply.ok === true;
 	}
 
@@ -223,7 +224,7 @@ export class BrokerClient {
 	}
 
 	/** Raw reply; never throws for a structured broker failure. */
-	async request(request: Omit<BrokerRequest, "id"> & { id?: string }): Promise<BrokerReply> {
+	async request(request: BrokerRequestInput & { id?: string }): Promise<BrokerReply> {
 		const id = request.id ?? this.nextId();
 		const payload = { ...request, id } as BrokerRequest;
 		return await this.send(payload);
@@ -242,7 +243,7 @@ export class BrokerClient {
 		this.socket.destroy();
 	}
 
-	private async expect(request: Omit<BrokerRequest, "id">): Promise<BrokerReply> {
+	private async expect(request: BrokerRequestInput): Promise<BrokerReply> {
 		const reply = await this.request(request);
 		if (reply.ok === false) throw new BrokerRequestError(reply.code, reply.message, reply);
 		return reply;
@@ -305,7 +306,7 @@ export class BrokerClient {
 		const finish = (decision: ApprovalDecision) => {
 			// A late choice must not be sent over a reconnected socket or reused.
 			if (signal.aborted || Date.now() >= event.deadline) return;
-			void this.expect({ type: "approval_response", requestId: event.requestId, decision } as Omit<BrokerRequest, "id">).then(
+			void this.expect({ type: "approval_response", requestId: event.requestId, decision }).then(
 				() => this.onApprovalDiagnostic?.({ requestId: event.requestId, phase: "response_ack" }),
 				() => this.onApprovalDiagnostic?.({ requestId: event.requestId, phase: "response_error" }),
 			);
@@ -336,7 +337,7 @@ export class BrokerClient {
 	}
 
 	private async handshake(): Promise<HelloResponse> {
-		const reply = await this.request({ type: "hello", protocolVersion: BROKER_PROTOCOL_VERSION, agent: this.agent } as Omit<BrokerRequest, "id">);
+		const reply = await this.request({ type: "hello", protocolVersion: BROKER_PROTOCOL_VERSION, agent: this.agent });
 		if (reply.ok === false) throw new BrokerRequestError(reply.code, reply.message, reply);
 		return reply as HelloResponse;
 	}
@@ -345,7 +346,7 @@ export class BrokerClient {
 		if (this.heartbeatMs <= 0) return;
 		this.heartbeatTimer = setInterval(() => {
 			if (this.socket.destroyed) return;
-			void this.request({ type: "ping" } as Omit<BrokerRequest, "id">).catch(() => undefined);
+			void this.request({ type: "ping" }).catch(() => undefined);
 		}, this.heartbeatMs);
 		this.heartbeatTimer.unref?.();
 	}
