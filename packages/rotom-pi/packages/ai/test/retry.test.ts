@@ -73,12 +73,27 @@ describe("provider retry classification", () => {
 		},
 	);
 
-	it.each(["Qoder: request_failed", "Qoder: stream_failed", "Qoder: catalog_refresh_required", "Qoder: catalog_refresh_failed_x"])(
-		"keeps Qoder failures after output or with other codes non-retryable: %s",
+	// A stream that dies after text or a tool call ended the message with an error, so its tool
+	// calls are never executed (agent-loop ends the turn) and the whole message can be retried
+	// inside the same bounded budget every other provider's mid-stream failure already uses.
+	it.each(["Qoder: request_failed", "Qoder: stream_failed", "Qoder: truncated_tool_call"])(
+		"retries a Qoder stream that died after output: %s",
 		(errorMessage) => {
-			expect(isRetryableAssistantError(fauxAssistantMessage("", { stopReason: "error", errorMessage }))).toBe(false);
+			expect(isRetryableAssistantError(fauxAssistantMessage("", { stopReason: "error", errorMessage }))).toBe(true);
 		},
 	);
+
+	it.each([
+		// Protocol defects cannot be fixed by resending the same request.
+		"Qoder: invalid_tool_arguments",
+		"Qoder: invalid_tool_call",
+		"Qoder: invalid_tool_id",
+		"Qoder: invalid_choices",
+		"Qoder: catalog_refresh_required",
+		"Qoder: catalog_refresh_failed_x",
+	])("keeps a Qoder protocol defect non-retryable: %s", (errorMessage) => {
+		expect(isRetryableAssistantError(fauxAssistantMessage("", { stopReason: "error", errorMessage }))).toBe(false);
+	});
 
 	it("matches Qoder's sanitized upstream SSE error frame", () => {
 		expect(
