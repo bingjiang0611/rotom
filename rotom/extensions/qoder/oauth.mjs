@@ -38,11 +38,14 @@ function validate(c, now, requireFresh = true) {
 // Request auth is a process-local sealed envelope, not a mutable "current user"
 // cache. Pi owns persisted OAuth credentials; hooks/overrides cannot substitute
 // a token or account fingerprint, and only the transport receives the real token.
-export function createOAuthEnvelope({ now = Date.now } = {}) {
+export function createOAuthEnvelope({ now = Date.now, onObserved } = {}) {
   const key = randomBytes(32);
   return {
     async toAuth(credential) {
       const c = validate(credential, now());
+      // Adopt the device id of a credential that is already in use, so a fresh
+      // login keeps the binding of sessions created under that installation id.
+      if (onObserved) await onObserved(c);
       const iv = randomBytes(12), cipher = createCipheriv('aes-256-gcm', key, iv);
       const encrypted = Buffer.concat([cipher.update(JSON.stringify({ accessToken: c.access, fingerprint: c.fingerprint, expiresAt: c.expires, uid: c.uid, org: c.org, machineId: c.machineId })), cipher.final()]);
       return { apiKey: 'rotom-qoder-v1.' + Buffer.concat([iv, cipher.getAuthTag(), encrypted]).toString('base64url') };
@@ -64,7 +67,7 @@ export function createOAuthEnvelope({ now = Date.now } = {}) {
   };
 }
 
-export function createBrowserOAuth({ fetchImpl = globalThis.fetch, now = Date.now, sleep = delay, claimRefresh } = {}) {
+export function createBrowserOAuth({ fetchImpl = globalThis.fetch, now = Date.now, sleep = delay, claimRefresh, getDeviceId } = {}) {
   async function request(path, { signal, body, token, pending = false } = {}) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15000);
@@ -140,9 +143,13 @@ export function createBrowserOAuth({ fetchImpl = globalThis.fetch, now = Date.no
         signal.throwIfAborted();
         const verifier = randomBytes(32).toString('base64url');
         const challenge = createHash('sha256').update(verifier).digest('base64url');
-        const nonce = randomUUID(), machineId = randomUUID();
+        // The device id is the installation identity, not a per-login nonce: the
+        // account binding digest is keyed by it, so rotating it on every fresh
+        // login refuses every existing session of the same account.
+        const nonce = randomUUID(), machineId = getDeviceId ? await getDeviceId() : randomUUID();
+        if (!uuid(machineId)) throw new QoderError('oauth_device_id_unavailable');
         const query = new URLSearchParams({ challenge, challenge_method: 'S256', nonce, machine_id: machineId, client_id: DEVICE_CLIENT_ID });
-        interaction.notify({ type: 'info', message: 'Qoder browser login credentials are stored by rotom/Pi, never in Qoder CLI. A fresh login requires a new Qoder session; refresh preserves binding.' });
+        interaction.notify({ type: 'info', message: 'Qoder browser login credentials are stored by rotom/Pi, never in Qoder CLI. A fresh login keeps this installation\'s Qoder device identity, so the same account keeps its session binding; changing account or organization still requires a new session.' });
         interaction.notify({ type: 'auth_url', url: `${LOGIN_URL}?${query}`, instructions: 'Complete Qoder account authorization in your browser. This link expires in five minutes.' });
         const poll = '/api/v1/deviceToken/poll?' + new URLSearchParams({ nonce, verifier, challenge_method: 'S256' });
         for (;;) {

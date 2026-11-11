@@ -1,6 +1,7 @@
 import * as piAI from '@earendil-works/pi-ai/compat';
 import { getAgentDir, type ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import { createRefreshGuard } from './refresh-guard.mjs';
+import { createQoderDeviceIdentity } from './device-id.mjs';
 import { installQoderExtension, qoderEnabled } from './session-policy.mjs';
 
 // Pi's extension loader explicitly aliases this public compatibility export.
@@ -11,5 +12,8 @@ export default async function qoderProvider(pi: ExtensionAPI) {
   await installQoderExtension(pi, {
     piAI,
     oauthOptions: { claimRefresh: createRefreshGuard(getAgentDir()) },
+    // One Qoder device identity per installation, so a fresh login of the same
+    // account keeps the account binding of every existing session.
+    deviceIdentity: createQoderDeviceIdentity(getAgentDir()),
   });
 }

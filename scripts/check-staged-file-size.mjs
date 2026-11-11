@@ -25,6 +25,10 @@ const binaryExtensions = new Set([".png", ".jpg", ".tgz", ".node", ".wasm"]);
 // Exempt here means "already decided", not "too big to split".
 const oversizedByDecision = new Set([
 	"CLAUDE.md",
+	// 2026-11-11: the user-facing usage guide is one continuous document; splitting
+	// it would scatter one provider walkthrough across files. It only grew past the
+	// budget long after the hook existed, so it joins the decided exemptions.
+	"docs/usage.md",
 	"packages/rotom-computer-use/src/bridge.ts",
 	"packages/rotom-computer-use/native/macos/bridge.swift",
 	// 2026-11-10: the ai type surface and the faux provider mirror upstream shapes

@@ -72,6 +72,7 @@ export function installSessionPolicy(pi) {
       oauth_login_required: 'Qoder browser login expired. Use /login qoder, then start a new session.',
       oauth_refresh_unproven_login_required: 'Qoder refresh outcome is unproven. It will not be replayed. Use /login qoder, then start a new session.',
       oauth_refresh_already_attempted_login_required: 'This Qoder refresh token was already attempted. Re-login and start a new session; do not delete refresh-attempt guards to retry.',
+      oauth_device_id_unavailable: 'Qoder 安装设备 ID 不可读写（$agentDir/qoder-device-id），本次未发送或存储凭据。检查该路径的权限后重试；删除它等于换一台新设备，会让已绑定会话需要新会话。',
       account_changed_start_new_session: 'Qoder account changed. Restore the original account or start a new session; existing history was not dispatched.',
     };
     if (!help[code]) return;

@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { createBrowserOAuth, createOAuthEnvelope, AUTH_ORIGIN, LOGIN_URL, DEVICE_CLIENT_ID } from './oauth.mjs';
+import { createQoderDeviceIdentity } from './device-id.mjs';
 import { createRefreshGuard } from './refresh-guard.mjs';
 import { createQoderProvider, MODEL } from './provider.mjs';
 
@@ -54,7 +55,23 @@ test('browser login uses independent PKCE, verifies account, stores only allowli
   assert.equal(h.calls[2].init.headers.Authorization, 'Bearer fixture-access');
   const another = await harness().login();
   assert.notEqual(another.machineId, c.machineId);
-  assert.notEqual(another.fingerprint, c.fingerprint, 'fresh login does not silently migrate a session');
+  assert.notEqual(another.fingerprint, c.fingerprint, 'without an installation identity a fresh login cannot claim the same account binding');
+});
+
+test('fresh login keeps the installation device id and therefore the account binding', async t => {
+  const dir = await temp(t);
+  const identity = createQoderDeviceIdentity(dir);
+  const login = () => harness({ replies: [tokens(), user()], getDeviceId: () => identity.get() }).login();
+  const first = await login(), second = await login();
+  // A re-login of the same account must stay usable in existing sessions.
+  assert.equal(second.machineId, first.machineId);
+  assert.equal(second.fingerprint, first.fingerprint);
+  assert.equal(second.uid, first.uid);
+  assert.equal((await readFile(join(dir, 'qoder-device-id'), 'utf8')).trim(), first.machineId);
+  // A different account on the same installation is still a different binding.
+  const moved = await harness({ replies: [tokens({ user_id: 'other-user' }), user({ id: 'other-user' })], getDeviceId: () => identity.get() }).login();
+  assert.equal(moved.machineId, first.machineId);
+  assert.notEqual(moved.fingerprint, first.fingerprint);
 });
 
 test('request envelope seals legacy identity with the token before caller mutation',async()=>{
@@ -155,6 +172,28 @@ test('refresh fail-closed on nonrotation, account change, expiry or missing dura
   await assert.rejects(h.oauth.refresh({ ...c, refreshExpires: NOW }), /login_required/);
   await assert.rejects(h.oauth.refresh(c, AbortSignal.abort()), /oauth_aborted/);
   assert.equal(h.calls.length, 0);
+});
+
+test('browser provider adopts the in-use device id so a re-login keeps the account binding', async t => {
+  const dir = await temp(t);
+  const identity = createQoderDeviceIdentity(dir);
+  const stored = await harness().login();
+  await assert.rejects(readFile(join(dir, 'qoder-device-id'), 'utf8'), { code: 'ENOENT' });
+  const replies = [tokens(), user()];
+  const provider = await createQoderProvider({ authMode: 'browser', deviceIdentity: identity, clampMaxTokens: (_m, _c, cap) => cap,
+    piAI: { ...transcript, createProvider: p => p, lazyStream: (_m, setup) => setup() },
+    captureBinding: () => () => {},
+    oauthOptions: { now: () => NOW, sleep: async () => {}, fetchImpl: async url => {
+      assert.equal(new URL(url).origin, AUTH_ORIGIN);
+      return response(replies.shift());
+    } },
+  });
+  // Resolving the stored credential marks this installation's device identity.
+  await provider.auth.oauth.toAuth(stored);
+  assert.equal((await readFile(join(dir, 'qoder-device-id'), 'utf8')).trim(), stored.machineId);
+  const relogin = await provider.auth.oauth.login({ notify: () => {} });
+  assert.equal(relogin.machineId, stored.machineId);
+  assert.equal(relogin.fingerprint, stored.fingerprint);
 });
 
 test('sealed request auth rejects override, mutation, cross-instance replay and expiry', async () => {

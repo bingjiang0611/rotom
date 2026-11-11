@@ -1,0 +1,15 @@
+[
+  {
+    "schema": "rotom-loop-ledger/v1",
+    "id": "L-2026-11-11-qoder-device-id-binding",
+    "date": "2026-11-11",
+    "title": "Persist the Qoder device id so a same-account re-login keeps the binding",
+    "hypothesis": "A fresh browser login for the same account must not orphan every existing session: the account digest may key on installation identity, not on a random device id minted per login.",
+    "change": "mechanism",
+    "measurement": "Offline: rotom/extensions/qoder unit suite, 278 passing including new device-id lifecycle and re-login fingerprint cases, plus runtime/distribution 29. Live: the seeded ~/.pi/agent/qoder-device-id (0600) reproduces the stored credential fingerprint, so the two local sessions bound to it stay valid; no live re-login was performed.",
+    "result": "One Qoder installation id is reused across fresh logins, so the same account keeps its sessions while a different account or organization still changes the binding. 254 local sessions bound to the previous per-login id stay unbound by design; they need a new session.",
+    "evidence": "unmeasured",
+    "decision": "shipped",
+    "source": "docs/usage.md"
+  }
+]
