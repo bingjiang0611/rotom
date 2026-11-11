@@ -36,6 +36,12 @@ export type LedgerEntry = {
 	 */
 	acceptance?: {
 		startedAt: string;
+		/**
+		 * The first commit that contains the fix. Exposure only counts sessions whose own release
+		 * traces to that commit or a descendant, so turns spent on a build without the change are
+		 * not read as evidence about it.
+		 */
+		firstCommit?: string;
 		metric: string;
 		incident: IncidentKindName;
 		detail?: [string, string];
@@ -86,6 +92,7 @@ function validateAcceptance(where: string, raw: unknown): void {
 	const value = raw as Record<string, unknown>;
 	if (typeof value.startedAt !== "string" || Number.isNaN(Date.parse(value.startedAt))) throw new Error(`${where}: acceptance.startedAt must be an ISO timestamp`);
 	if (typeof value.metric !== "string" || !value.metric.trim()) throw new Error(`${where}: acceptance.metric is required`);
+	if (value.firstCommit !== undefined && !/^[0-9a-f]{7,40}$/u.test(String(value.firstCommit))) throw new Error(`${where}: acceptance.firstCommit must be a commit sha`);
 	if (!INCIDENT_KINDS.includes(value.incident as never)) throw new Error(`${where}: acceptance.incident must be one of ${INCIDENT_KINDS.join(", ")}`);
 	if (value.detail !== undefined) {
 		const detail = value.detail;
