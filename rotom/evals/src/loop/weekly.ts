@@ -30,7 +30,7 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/u;
 export type WeeklyConfig = {
 	/** ISO instant the daily install switched product builds; splits the provider table. */
 	switchAt: string;
-	experiment: { /** First local day inside the field comparison, inclusive. */ start: string; /** Last local day, inclusive. */ end: string };
+	experiment: { /** First local day inside the field comparison, inclusive. */ start: string; /** Last local day, inclusive. */ end: string; /** Old dates are void until launchd activation is confirmed. */ restartPending?: boolean };
 };
 
 /** The window is written as local dates: a session records its own local start, not UTC. */
@@ -49,7 +49,8 @@ export function parseWeeklyConfig(text: string): WeeklyConfig {
 	}
 	if (experiment.end < experiment.start) throw new Error("weekly config: experiment.end is before experiment.start");
 	// The arms are the parity defaults themselves, so the config cannot disagree with the metric.
-	return { switchAt: value.switchAt, experiment: { start: experiment.start, end: experiment.end } };
+	if (experiment.restartPending !== undefined && typeof experiment.restartPending !== "boolean") throw new Error("weekly config: experiment.restartPending must be boolean");
+	return { switchAt: value.switchAt, experiment: { start: experiment.start, end: experiment.end, ...(experiment.restartPending === undefined ? {} : { restartPending: experiment.restartPending }) } };
 }
 
 export type RateRow = {
@@ -96,9 +97,10 @@ export function northStarTables(sessions: readonly SessionSummary[]): { overall:
 
 /** Counts and adherence only: the shape itself is the blinding, not a formatting choice. */
 export type BlindedArm = { arm: string; sessions: number; adherence: number | null };
-export type BlindedExperiment = { state: "open" | "closed"; start: string; end: string; arms: BlindedArm[]; excluded: { switched: number; offDefault: number } };
+export type BlindedExperiment = { state: "pending" | "open" | "closed"; start: string; end: string; arms: BlindedArm[]; excluded: { switched: number; offDefault: number } };
 
 export function blindedExperiment(sessions: readonly SessionSummary[], experiment: WeeklyConfig["experiment"], today = new Date()): BlindedExperiment {
+	if (experiment.restartPending) return { state: "pending", start: experiment.start, end: experiment.end, arms: [], excluded: { switched: 0, offDefault: 0 } };
 	const arms = [DEFAULT_MODEL_BY_PARITY.odd, DEFAULT_MODEL_BY_PARITY.even].map((arm) => ({ arm, sessions: 0, eligible: 0 }));
 	const excluded = { switched: 0, offDefault: 0 };
 	for (const session of sessions) {
@@ -240,7 +242,9 @@ export function renderWeekly(report: WeeklyReport): string {
 		...rateTable(report.northStar.entries, "Entry"),
 		"## Field comparison: default model by date parity",
 		"",
-		open
+		report.experiment.state === "pending"
+			? "Protocol restart pending: old dates are void. Confirm launchd activation, then register the next local day as day 1, 28 inclusive days, and the day-3 adherence check. No arm data is counted."
+			: open
 			? `Blinded until ${report.experiment.end}: this section shows how many sessions each arm got and how often the day's default actually applied. Outcome metrics stay out of the report until the window closes, so nothing here can be read as a result.`
 			: `The window closed after ${report.experiment.end}. The verdict is read from \`L-2026-11-10-default-model-field-comparison\` with the pre-registered rule, not from this section.`,
 		"",

@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { buildWeekly, blindedExperiment, parseWeeklyConfig, providerSegments, renderWeekly, acceptanceRows } from "../src/loop/weekly.ts";
+import { buildWeekly, blindedExperiment, parseWeeklyConfig, providerSegments, renderWeekly, acceptanceRows as productionAcceptanceRows } from "../src/loop/weekly.ts";
 import { providerCode, summarizeProviderErrors } from "../src/loop/harvest-provider.ts";
 import { parseLedger, type LedgerEntry } from "../src/loop/ledger.ts";
 import type { Incident, SessionSummary } from "../src/loop/harvest.ts";
 
 const CONFIG = { switchAt: "2026-11-10T13:30:07Z", experiment: { start: "2026-11-11", end: "2026-12-08" } };
 const ASTRA = "openai-codex/gpt-6-astra";
+// These rate-test fixtures all run the same known build; ancestry boundaries have their own tests.
+const acceptanceRows: typeof productionAcceptanceRows = (ledger, sessions, incidents, now) =>
+	productionAcceptanceRows(ledger, sessions, incidents, now, (session, firstCommit) => session.buildCommit === firstCommit);
 
 function fakeReport(overrides: Partial<ReturnType<typeof buildWeekly>>) {
 	return {
@@ -41,6 +44,7 @@ function session(overrides: Partial<SessionSummary> & { startedAt: string }): Se
 		sessionFile: `/sessions/${overrides.startedAt}.jsonl`,
 		cwd: "/repo",
 		startedAtSource: "header",
+		buildCommit: "a".repeat(40),
 		modelTurns: {},
 		models: [],
 		userTurns: 10,
@@ -72,6 +76,7 @@ const ledgerEntry = (overrides: Partial<LedgerEntry>): LedgerEntry => ({
 	decision: "shipped",
 	source: "rotom/evals/src/loop/weekly.ts",
 	...overrides,
+	...(overrides.acceptance ? { acceptance: { firstCommit: "a".repeat(40), ...overrides.acceptance } } : {}),
 });
 
 describe("weekly report", () => {
@@ -122,7 +127,7 @@ describe("weekly report", () => {
 		expect(acceptanceRows([entry], before, incidentsBefore, new Date("2026-11-12T00:00:00Z"))[0]).toMatchObject({ status: "insufficient-exposure", turns: 0 });
 
 		const after = [session({ startedAt: "2026-11-12T09:00:00+08:00", userTurns: 2000 })];
-		const failed = Array.from({ length: 40 }, (_, index) => ({ kind: "provider_error", timestamp: `2026-11-12T1${index % 10}:00:00+08:00`, detail: { category: "429" } })) as unknown as Incident[];
+		const failed = Array.from({ length: 40 }, (_, index) => ({ kind: "provider_error", sessionId: after[0].sessionId, timestamp: `2026-11-12T1${index % 10}:00:00+08:00`, detail: { category: "429" } })) as unknown as Incident[];
 		// 40 failures over 2,000 turns = 2.0 per 100, above the 1.0 baseline with 20 expected.
 		expect(acceptanceRows([entry], after, failed, new Date("2026-11-13T00:00:00Z"))[0]).toMatchObject({ status: "worse", turns: 2000, observedPer100: 2 });
 		expect(acceptanceRows([entry], after, [], new Date("2026-11-13T00:00:00Z"))[0]).toMatchObject({ status: "improved", observedPer100: 0 });
@@ -148,7 +153,7 @@ describe("weekly report", () => {
 			acceptance: { startedAt: "2026-11-10T13:30:07Z", metric: "m", incident: "compaction_failed", baselinePer100: 1, minimumTurns: 1000, expect: "lower" },
 		});
 		const after = [session({ startedAt: "2026-11-12T09:00:00+08:00", userTurns: 3000 })];
-		const events = (count: number) => Array.from({ length: count }, (_, index) => ({ kind: "compaction_failed", timestamp: `2026-11-12T1${index % 10}:00:00+08:00`, detail: {} })) as unknown as Incident[];
+		const events = (count: number) => Array.from({ length: count }, (_, index) => ({ kind: "compaction_failed", sessionId: after[0].sessionId, timestamp: `2026-11-12T1${index % 10}:00:00+08:00`, detail: {} })) as unknown as Incident[];
 		// 30 events against 30 expected: no difference shown, and the note says only that.
 		const flat = acceptanceRows([entry], after, events(30), new Date("2026-11-13T00:00:00Z"))[0];
 		expect(flat).toMatchObject({ status: "no-change" });
