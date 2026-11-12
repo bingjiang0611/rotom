@@ -82,6 +82,21 @@ describe("loop gate", () => {
 });
 
 describe("loop ledger", () => {
+	it("closes the cancelled comparison and records every mechanism's daily-build provenance", () => {
+		const entries = parseLedgerDir(ledgerDir, repoRoot);
+		const comparison = entries.find((entry) => entry.id === "L-2026-11-10-default-model-field-comparison");
+		expect(comparison?.decision).toBe("closed");
+		expect(comparison?.result).toContain("用户决定自行选择模型，实验取消；从未产生有效的实验期数据。");
+		// This switch annotates existing history, not mechanisms introduced after it.
+		const mechanisms = entries.filter((entry) => entry.change === "mechanism" && entry.date <= "2026-11-11");
+		expect(mechanisms.length).toBeGreaterThan(0);
+		for (const entry of mechanisms) {
+			expect(entry.result, entry.id).toContain("2026-11-12T02:47:28Z");
+			expect(entry.result, entry.id).toContain("6a7e2b0848acf870ec73ba3a5fd3a720c0b83d74");
+			expect(entry.result, entry.id).toContain("not proof this mechanism shipped or improved");
+		}
+	});
+
 	it("checked-in ledger is valid and every source exists", () => {
 		// Read through the loader: shard file names no longer sort in date order once a month has
 		// an overflow shard, and the loader is what the CLI prints.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { analyzeSession, buildCommitOf, buildDirtyOf, type Incident, type SessionSummary } from "../src/loop/harvest.ts";
-import { acceptanceRows, parseWeeklyConfig, type WeeklyConfig } from "../src/loop/weekly.ts";
+import { acceptanceRows } from "../src/loop/weekly.ts";
 import type { LedgerEntry } from "../src/loop/ledger.ts";
 
 const FIX = "a".repeat(40);

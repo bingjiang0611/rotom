@@ -7,7 +7,7 @@
     "hypothesis": "A fresh browser login for the same account must not orphan every existing session: the account digest may key on installation identity, not on a random device id minted per login.",
     "change": "mechanism",
     "measurement": "Offline: rotom/extensions/qoder unit suite, 278 passing including new device-id lifecycle and re-login fingerprint cases, plus runtime/distribution 29. Live: the seeded ~/.pi/agent/qoder-device-id (0600) reproduces the stored credential fingerprint, so the two local sessions bound to it stay valid; no live re-login was performed.",
-    "result": "One Qoder installation id is reused across fresh logins, so the same account keeps its sessions while a different account or organization still changes the binding. 254 local sessions bound to the previous per-login id stay unbound by design; they need a new session. Daily install switched to build 6a7e2b08 (dirty=false, launcher-stamped) at 2026-11-12T02:47:28Z (2026-11-11 18:47:28 -08:00); sessions that ran this build or a later descendant are the acceptance start for this record.",
+    "result": "One Qoder installation id is reused across fresh logins, so the same account keeps its sessions while a different account or organization still changes the binding. 254 local sessions bound to the previous per-login id stay unbound by design; they need a new session. Daily-install acceptance provenance: switched at 2026-11-12T02:47:28Z to build 6a7e2b0848acf870ec73ba3a5fd3a720c0b83d74, dirty=false. This is a provenance start, not proof this mechanism shipped or improved; existing acceptance rules and historical evidence remain unchanged.",
     "evidence": "unmeasured",
     "decision": "shipped",
     "source": "docs/usage.md"

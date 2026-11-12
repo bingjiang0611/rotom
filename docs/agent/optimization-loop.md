@@ -138,6 +138,8 @@ npm --prefix rotom/evals run loop -- gate --baseline /absolute/rotom-pre-fix/rot
 
 ### 每周例行检查
 
+默认模型实地对照已取消：用户自行选择模型，从未产生有效的实验期数据。按模型拆分仅是观察数据，不能排除选择偏差。
+
 1. 跑 `npm --prefix rotom/evals run loop -- weekly`；报告里只有按模型的观察拆分，不做默认模型对照。
 2. 跑 `loop replay-gate --current-only --product <当前日常版本绝对路径>`；只跑日常版本，不跑冻结臂或其他候选。只检查既有 oracle 是否仍满足，不声称相对改善；仍需既有模型授权与全部回放隔离。已知未修复用例的失败不是“新复现”。
 3. 看账本暴露量是否到期；unknown 构建不计入，未到期只报暴露不足。

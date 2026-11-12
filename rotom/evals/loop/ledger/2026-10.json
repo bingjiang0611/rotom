@@ -7,7 +7,7 @@
 		"hypothesis": "Model-driven layered summaries with recall keep long sessions working at lower cost.",
 		"change": "mechanism",
 		"measurement": "Qoder dfmodel: recall fixtures, two image round-trips, one paired 32-turn long session.",
-		"result": "Recall PASS; fixture credits 1.502× control; long session credits +30.2% vs native compaction.",
+		"result": "Recall PASS; fixture credits 1.502× control; long session credits +30.2% vs native compaction. Daily-install acceptance provenance: switched at 2026-11-12T02:47:28Z to build 6a7e2b0848acf870ec73ba3a5fd3a720c0b83d74, dirty=false. This is a provenance start, not proof this mechanism shipped or improved; existing acceptance rules and historical evidence remain unchanged.",
 		"evidence": "regressed",
 		"decision": "shipped",
 		"source": "docs/agent/context-layers-history.md"
@@ -20,7 +20,7 @@
 		"hypothesis": "Compact bash output and edit repair hints reduce tokens without losing evidence.",
 		"change": "mechanism",
 		"measurement": "tool-efficiency eval, 5 natural tasks × 2 arms × 2 reps plus 6 targeted candidate runs.",
-		"result": "Correctness passed in both arms; candidate did not reduce overall output or model tokens.",
+		"result": "Correctness passed in both arms; candidate did not reduce overall output or model tokens. Daily-install acceptance provenance: switched at 2026-11-12T02:47:28Z to build 6a7e2b0848acf870ec73ba3a5fd3a720c0b83d74, dirty=false. This is a provenance start, not proof this mechanism shipped or improved; existing acceptance rules and historical evidence remain unchanged.",
 		"evidence": "no-difference",
 		"decision": "shipped",
 		"source": "docs/agent/tool-efficiency.md"
@@ -46,7 +46,7 @@
 		"hypothesis": "Offloading medium tool results defers native compaction and cuts compaction wait without hurting correctness.",
 		"change": "mechanism",
 		"measurement": "openai-codex/gpt-5.6-luna low, two replays, 9 valid pairs, 64K threshold.",
-		"result": "Correct 6/6 and 3/3 both arms; native compactions 12→3 and 6→3; mean compaction wait 9.2 s→3.0 s and 9.4 s→5.6 s.",
+		"result": "Correct 6/6 and 3/3 both arms; native compactions 12→3 and 6→3; mean compaction wait 9.2 s→3.0 s and 9.4 s→5.6 s. Daily-install acceptance provenance: switched at 2026-11-12T02:47:28Z to build 6a7e2b0848acf870ec73ba3a5fd3a720c0b83d74, dirty=false. This is a provenance start, not proof this mechanism shipped or improved; existing acceptance rules and historical evidence remain unchanged.",
 		"evidence": "improved",
 		"decision": "shipped",
 		"source": "docs/agent/compaction-offload.md"
@@ -72,7 +72,7 @@
 		"hypothesis": "A read-only reviewer catches unfinished work before the agent stops.",
 		"change": "mechanism",
 		"measurement": "24 fixed-state calibration samples; 24 live shadow samples on task-closure/goal-scope.",
-		"result": "Calibration 24/24; live 11/12 vs 11/12 with one false block of a correct fix; ~21 s added per review.",
+		"result": "Calibration 24/24; live 11/12 vs 11/12 with one false block of a correct fix; ~21 s added per review. Daily-install acceptance provenance: switched at 2026-11-12T02:47:28Z to build 6a7e2b0848acf870ec73ba3a5fd3a720c0b83d74, dirty=false. This is a provenance start, not proof this mechanism shipped or improved; existing acceptance rules and historical evidence remain unchanged.",
 		"evidence": "no-difference",
 		"decision": "kept-off",
 		"source": "docs/agent/agent-stopping-review-20261030.md"
