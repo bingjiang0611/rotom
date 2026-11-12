@@ -290,11 +290,14 @@ async function setup() {
 
 	if (args.has("--update")) {
 		if (!prebuiltAppExists) throw new Error(helperUpdateCopy.missingBundle);
+		const automatic = args.has("--automatic");
+		// Explicit app overrides belong to the caller, not product-managed deployment.
+		if (automatic && process.env.PI_COMPUTER_USE_HELPER_APP_PATH?.trim()) return;
 		const identity = process.env.PI_COMPUTER_USE_CODESIGN_IDENTITY;
-		if (identity && process.env.PI_COMPUTER_USE_NO_SIGN === "1") throw new Error(helperUpdateCopy.noSign);
-		const target = path.join(await fs.realpath(os.homedir()), "Applications", "pi-computer-use.app");
-		await updateHelperApp({ source: prebuiltAppPath, target, identity, allowAdhoc: allowAdhocUpdate });
-		console.log(helperUpdateCopy.complete(target));
+		if ((identity || automatic) && process.env.PI_COMPUTER_USE_NO_SIGN === "1") throw new Error(helperUpdateCopy.noSign);
+		const target = automatic ? helperAppPath : path.join(await fs.realpath(os.homedir()), "Applications", "pi-computer-use.app");
+		const result = await updateHelperApp({ source: prebuiltAppPath, target, identity, automatic, allowAdhoc: allowAdhocUpdate });
+		if (result.updated) console.log(automatic ? helperUpdateCopy.automaticComplete(target) : helperUpdateCopy.complete(target));
 		return;
 	}
 

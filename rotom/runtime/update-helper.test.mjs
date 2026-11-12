@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { updateHelper } from "./update-helper.mjs";
+import { updateHelper, synchronizeHelper } from "./update-helper.mjs";
 
 test("public helper command routes without starting Pi and inherits the signing identity", async () => {
 	const root = await realpath(await mkdtemp(join(tmpdir(), "rotom-helper-routing-")));
@@ -45,6 +45,15 @@ test("helper update verifies the installed contract and dispatches only the expl
 		};
 		assert.equal(await updateHelper(root, ["update"], deps), 0);
 		assert.equal(dispatches, 1);
+		let synchronized = 0;
+		const automaticDeps = { ...deps, platform: "darwin", run: (_executable, args) => {
+			assert.deepEqual(args, [join(pkg, "scripts/setup-helper.mjs"), "--update", "--automatic"]);
+			synchronized++; return { status: 0 };
+		} };
+		await synchronizeHelper(root, automaticDeps);
+		assert.equal(synchronized, 1);
+		await synchronizeHelper(root, { ...automaticDeps, platform: "linux", verify: () => assert.fail("non-Mac must not inspect helper"), run: () => assert.fail("non-Mac must not dispatch") });
+		await assert.rejects(synchronizeHelper(root, { ...automaticDeps, run: () => ({ status: 1 }) }), /synchronization was not verified/);
 		await assert.rejects(updateHelper(root, ["update", "--force"], deps), /Usage:[\s\S]*询问是否停止旧 helper.*默认否/);
 		await assert.rejects(updateHelper(root, ["update"], { ...deps, verify: async () => { throw new Error("bad identity"); } }), /bad identity/);
 		for (const name of ["scripts/helper-update.mjs", "scripts/setup-helper-common.mjs", "scripts/setup-helper-signing.mjs", "scripts/setup-helper-release.mjs", "src/platform/macos/helper-path.mjs"]) {

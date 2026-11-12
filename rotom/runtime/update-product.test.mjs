@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, readdir, readFile, readlink, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -18,7 +18,7 @@ import {
 } from "./update-product.mjs";
 
 async function fixture(version = "0.1.2") {
-	const root = await mkdtemp(join(tmpdir(), "rotom-update-test-"));
+	const root = await realpath(await mkdtemp(join(tmpdir(), "rotom-update-test-")));
 	const npmRoot = join(root, "lib/node_modules");
 	const packageRoot = join(npmRoot, ROTOM_PACKAGE_NAME);
 	const npmCommand = join(root, "bin/npm");
@@ -71,6 +71,11 @@ test("updates a global npm install using the exact checked version and online me
 		},
 		runCommand: (command, args, options) => {
 			calls.push({ command, args, options });
+			if (command === process.execPath) {
+				assert.deepEqual(args, [join(value.packageRoot, "runtime/update-helper.mjs"), "update", "--automatic"]);
+				assert.equal(JSON.parse(readFileSync(join(value.packageRoot, "package.json"), "utf8")).version, "0.1.3");
+				return { status: 0 };
+			}
 			if (args[0] === "root") return { status: 0, stdout: `${value.npmRoot}\n`, stderr: "" };
 			assert.deepEqual(args, [
 				"install",
@@ -88,19 +93,20 @@ test("updates a global npm install using the exact checked version and online me
 		confirm: async () => true,
 	});
 	assert.deepEqual(result, { currentVersion: "0.1.2", latestVersion: "0.1.3", updated: true });
-	assert.equal(calls.length, 2);
+	assert.equal(calls.length, process.platform === "darwin" ? 3 : 2);
 	assert.match(output.join("\n"), /Updated rotom to 0\.1\.3/u);
 });
 
-test("does not reinstall an up-to-date release", async (t) => {
+test("does not reinstall an up-to-date release but synchronizes its helper", async (t) => {
 	const value = await fixture();
 	t.after(() => rm(value.root, { recursive: true, force: true }));
-	let installCalls = 0;
+	let installCalls = 0, helperCalls = 0;
 	const result = await updateRotom({
 		packageRoot: value.packageRoot,
 		npmCommand: value.npmCommand,
 		fetchImpl: async () => registryResponse("0.1.2"),
-		runCommand: (_command, args) => {
+		runCommand: (command, args) => {
+			if (command === process.execPath) { helperCalls++; return { status: 0 }; }
 			if (args[0] === "root") return { status: 0, stdout: `${value.npmRoot}\n`, stderr: "" };
 			installCalls++;
 			return { status: 0 };
@@ -109,6 +115,28 @@ test("does not reinstall an up-to-date release", async (t) => {
 	});
 	assert.equal(result.updated, false);
 	assert.equal(installCalls, 0);
+	assert.equal(helperCalls, process.platform === "darwin" ? 1 : 0);
+});
+
+test("helper failure reports partial installation instead of claiming upgrade success", { skip: process.platform !== "darwin" }, async (t) => {
+	const value = await fixture();
+	t.after(() => rm(value.root, { recursive: true, force: true }));
+	const output = [];
+	let helperCalls = 0;
+	await assert.rejects(updateRotom({
+		packageRoot: value.packageRoot, npmCommand: value.npmCommand,
+		fetchImpl: async () => registryResponse("0.1.3"), confirm: async () => true,
+		output: message => output.push(message),
+		runCommand: (command, args) => {
+			if (args[0] === "root") return { status: 0, stdout: value.npmRoot };
+			if (command === process.execPath) { helperCalls++; return { status: 1 }; }
+			writeFileSync(join(value.packageRoot, "package.json"), JSON.stringify({ name: ROTOM_PACKAGE_NAME, version: "0.1.3" }));
+			return { status: 0 };
+		},
+	}), /rotom is installed.*synchronization was not verified/);
+	assert.equal(helperCalls, 1);
+	assert.equal(output.some(message => message.startsWith("Updated rotom")), false);
+	assert.equal(JSON.parse(await readFile(join(value.packageRoot, "package.json"), "utf8")).version, "0.1.3");
 });
 
 test("does not write when the user declines the live-install replacement warning", async (t) => {
@@ -213,6 +241,7 @@ function releaseRegistry(version, tarball, integrity = `sha512-${createHash("sha
 function stagedInstall(version, calls) {
 	return (command, args, options) => {
 		calls.push({ command, args, options });
+		if (command === process.execPath) return { status: 0 };
 		const installed = join(options.cwd, "node_modules/rotom");
 		spawnSync("mkdir", ["-p", join(installed, "bin")]);
 		writeFileSync(join(installed, "package.json"), JSON.stringify({ name: ROTOM_PACKAGE_NAME, version }));
@@ -241,7 +270,8 @@ test("updates the per-version release layout and switches only the PATH command 
 	assert.deepEqual(result, { currentVersion: "0.1.2", latestVersion: "0.1.3", updated: true });
 	const destination = join(value.releasesRoot, "0.1.3");
 	assert.equal(await readlink(value.commandPath), join(destination, "node_modules/rotom/bin/rotom"));
-	assert.equal(calls.length, 1, "no npm root --global or global install");
+	assert.equal(calls.length, process.platform === "darwin" ? 2 : 1, "one install and macOS helper sync");
+	if (process.platform === "darwin") assert.deepEqual(calls[1].args, [join(destination, "node_modules/rotom/runtime/update-helper.mjs"), "update", "--automatic"]);
 	assert.deepEqual(calls[0].args, ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--registry=https://registry.npmjs.org"]);
 	assert.deepEqual(JSON.parse(await readFile(join(destination, "package.json"), "utf8")), { name: "rotom-release-0.1.3", private: true, dependencies: { rotom: "file:rotom-0.1.3.tgz" } });
 	assert.deepEqual(await readFile(join(destination, "rotom-0.1.3.tgz")), tarball);

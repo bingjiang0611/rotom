@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { readBuildIdentity } from "./build-info.mjs";
+import { synchronizeHelper } from "./update-helper.mjs";
 import { lstat, readFile, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
@@ -199,6 +200,10 @@ export async function launchRuntime(rawArgs = process.argv.slice(2)) {
 		if (options.versionMode === 1) process.stdout.write(`${process.env.ROTOM_PRODUCT_VERSION}\n`);
 		else process.stdout.write(`rotom ${process.env.ROTOM_PRODUCT_VERSION}\nPi fork ${verified.version}\nUpdate source https://registry.npmjs.org/@bingjiang0611/rotom\n`);
 		return;
+	}
+	// npm --ignore-scripts upgrades are reconciled before the next normal session.
+	if (!options.userArgs.some(arg => ["--help", "-h", "--list-models"].includes(arg))) {
+		await synchronizeHelper(agentDir);
 	}
 	// Child Pi processes bypass this launcher and do not inherit loaded providers.
 	// Forward only the verified product provider path, never ambient extensions.

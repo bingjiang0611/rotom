@@ -4,7 +4,7 @@
 
 ## 合入与发布边界
 
-- main 已合入组件：`@injaneity/pi-computer-use@0.5.1-rotom.4`；helper 协议 **11**，broker 协议 **2**。
+- main 源码组件：`@injaneity/pi-computer-use@0.5.1-rotom.5`；helper 协议 **11**，broker 协议 **2**。已接入 [helper 随产品自动同步](STATUS-8-auto-upgrade.md)，不再需要独立 helper 命令或签名变量；这是尚未发布的后续改动，不属于 npm 0.2.0。
 - 用户已授权发布 **0.2.0 / latest**；[REVIEW-27](https://github.com/bingjiang0611/rotom/blob/4936306eaee2e6bcf8d1abf530a3c7309f5871b0/docs/agent/computer-use-v2/REVIEW-27.md) 接受的功能提交 `4c7f7bb3f81843532b4d3b9adb4483cbc0056b43` 已快进到 main。
 - **0.2.0 / latest 已发布并核验**，见 [发布记录](../npm-0.2.0.md)。维护者前台完成 npm 认证与发布；另行授权 Agent 全局安装，19,049 个文件与最终 tgz 匹配。旧会话未关闭、旧发行目录保留，日常 helper 未修改。
 - [升级说明](../../releases/computer-use-v2-draft.md) 最前面列出必要升级步骤。**旧 helper 未更新时会报协议不匹配；仅升级 rotom 不够。**
@@ -33,7 +33,7 @@
 - 历史阶段 2 结果见 [类型检查](STATUS-3-typecheck.md)、[只读签名调查](STATUS-3-signing.md)、[阶段 2 归档](STATUS-3-archive.md)。其中归档摘要属于审核分支当时的产物；main 候选合并后重新打包的摘要以 [vendor 清单](../../../rotom/extensions/third-party/vendor/README.md) 为准。
 - clean-main replay 的原始检查见 [main 候选报告](STATUS-4-main-candidate.md)；REVIEW-26 M1 升级修复和审计范围澄清见 [后续修复报告](STATUS-5-upgrade-m1.md)。
 
-## 更新 helper
+## npm 0.2.0 的手动更新方式（历史发布版本）
 
 1. 退出所有所属 rotom 会话，在整个更新期间保持会话关闭；无需另找 helper 的退出入口。
 2. 受管 Mac 先把 `PI_COMPUTER_USE_CODESIGN_IDENTITY` 设置为已有、获准的签名身份；没有身份或策略不允许时停止。

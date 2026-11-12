@@ -26,17 +26,17 @@ The `.rotom.5` baseline also included the terminal-projection fix: projection fa
 
 ## Locked Computer Use distribution
 
-The default product selects **`@injaneity/pi-computer-use@0.5.1-rotom.4`**, independently maintained in `packages/rotom-computer-use/`. This is a Computer Use fork, not a Pi fork.
+The default source product selects **`@injaneity/pi-computer-use@0.5.1-rotom.5`**, independently maintained in `packages/rotom-computer-use/`. This is a Computer Use fork, not a Pi fork.
 
-- Archive: `injaneity-pi-computer-use-0.5.1-rotom.4.tgz` (the old `.rotom.2` and `.rotom.3` archives are retained unchanged).
-- SHA256: `75bc044da5c9c211fc05825e2441a4ab6ba5bbf81ccb0e2bc9579b8f2645ee9f`
-- SHA512 SRI: `sha512-K26Kt2JfBLq9vjCEAUGX1/y2v6Em1hey40Qx5E5ZjkkS7wmX1KVDT/VoWpEFRxvBPZGIuLxK/1gwnvBmrPon7w==`
-- This unpublished main-candidate `.rotom.4` repacks the merged source, retaining main's protocol and permission-readiness fixes, with REVIEW-26 M1 changing restart consent into stop-only consent. All 8 prebuilt files remain byte-identical to the reviewed `.rotom.4`; 136 non-prebuilt files match the merged checkout. The candidate's digest above replaces the review-branch digest, not a published npm version.
-- `.rotom.4` packages the reviewed v2 source, a shared complete Swift list, and `rotom helper update`. Explicit updates can sign only the install copy with an existing identity; a busy target or unknown process state blocks replacement. For a running target it offers an interactive, default-no stop prompt; explicit consent sends one socket shutdown and requires unoccupied-executable readback before replacement. Noninteractive use or refusal leaves it running. The command never force-kills or starts a helper; unknown shutdown is not replayed. The daily helper was not replaced during this packaging stage.
+- Archive: `injaneity-pi-computer-use-0.5.1-rotom.5.tgz` (the old `.rotom.2`, `.rotom.3` and published `.rotom.4` archives are retained unchanged).
+- SHA256: `9cb1882a2fffd6e612dbb8c19e69cbfd52cacc71dd6ac9953104f44128b5ef4b`
+- SHA512 SRI: `sha512-KrOlRG29OIQxg9kTIWFFYnFuBm17rqQF8sNv+83oFm9fpSHqMeuvPBhXehOwy5cLq7e96IfXr88RqRWNYpHhNg==`
+- `.rotom.5` adds automatic product/helper synchronization. All 8 native prebuilt files remain byte-identical to the published `.rotom.4`; only the installer/source layer changes. This is not a replacement of the published rotom 0.2.0 artifact.
+- The automatic path reuses the installed signing Authority's unique valid identity and seals a source-binary stamp. It prepares and verifies before stopping an identity-matched old process without another prompt, waits for unoccupied-executable readback, and never force-kills. Unknown shutdown or replacement retains its lock to prevent replay. Current native bytes plus matching Info.plist are a no-op. Manual repair retains the stop prompt. See [current evidence and limits](../../../../docs/agent/computer-use-v2/STATUS-8-auto-upgrade.md).
 - Historical `.rotom.2` moves schema descriptions, recovery and result evidence into the component. Relay-first browser fallback stays product-specific. This TS-only rebuild retains all prior native helper bytes and signatures; no helper is installed or launched.
 - Upstream: `@injaneity/pi-computer-use`, License MIT (original notice retained in `package/LICENSE`; provenance in `package/UPSTREAM.md`).
 - Adds bounded IDEA background text via exact window/ref binding, synthetic internal focus and per-character full readback. Accepted AX writes without matching readback are unknown, never a reason to replay. Batches stop on unknown as well as refusal. Legacy speculative foreground retry remains off by default and unavailable in headless mode.
-- macOS arm64/x64/universal artifacts are rebuilt and **ad-hoc signed**; Windows/Linux artifacts are unchanged. Replacing an existing helper with the ad-hoc bundle needs explicit authorization. Protocol 11 mismatch no longer restarts another session's daemon. No personal certificate signatures are shipped.
+- The retained macOS arm64/x64/universal prebuilt artifacts are ad-hoc signed; automatic synchronization preserves existing ad-hoc trust but never silently downgrades a certificate-signed installation. No personal certificate signatures are shipped. Windows/Linux behavior and protocol 11 mismatch handling inside old sessions are unchanged.
 - Earlier arm64 code passed bounded real-plugin input checks using an isolated, separately signed helper; this is not real-device evidence for the `.rotom.4` archive. Installed upgrade, final-version concurrent input, x64 execution and Swift deterministic assertions remain unverified. See [verification and limits](../../../../docs/agent/computer-use-background-text.md).
 
 ## Locked Goal distribution

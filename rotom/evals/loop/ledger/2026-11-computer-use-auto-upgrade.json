@@ -1,0 +1,15 @@
+[
+  {
+    "schema": "rotom-loop-ledger/v1",
+    "id": "L-2026-11-12-computer-use-auto-upgrade",
+    "date": "2026-11-12",
+    "title": "Synchronize the managed helper with product updates without an extra user command",
+    "hypothesis": "Product-update and normal-startup integration can remove the separate helper command and signing-variable step while preserving signer identity, prepare-before-stop ordering and no replay after unknown writes.",
+    "change": "mechanism",
+    "measurement": "Run full component typecheck/tests, product updater/archive gates, an isolated-HOME real launcher/RPC regression, its single-point negative control, and system codesign against an isolated copy using the existing identity without passing a signing variable. Keep native startup acceptance separate from socket fixtures and preserve failed launch evidence.",
+    "result": "Component npm test including TypeScript pretest passes 332/332; product regressions pass 56/56. Normal startup updates an old sealed source stamp, preserves JSON-only RPC stdout, and does not update again; version/help do not synchronize. Removing just the launcher synchronization makes the old-stamp assertion fail. System codesign identity reuse, signature verification, sealed source-stamp readback and repeat no-op pass on an isolated copy without changing the daily helper. Socket fixtures cover automatic shutdown without a prompt, failure-before-stop, target mismatch, unknown-write lock retention and no replay. All eight native prebuilt files remain byte-identical. A separate native launch created a process but no socket and later exited; the cause and full native automatic stop/replace/start cycle remain unverified. No agent-task benefit, live-provider result or new GUI capability is claimed. Source integration is complete but not npm-published.",
+    "evidence": "unmeasured",
+    "decision": "open",
+    "source": "docs/agent/computer-use-v2/STATUS-8-auto-upgrade.md"
+  }
+]

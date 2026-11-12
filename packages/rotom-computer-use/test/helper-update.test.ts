@@ -5,8 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import net from "node:net";
-import { PassThrough } from "node:stream";
-import { updateHelperApp, confirmHelperStop } from "../scripts/helper-update.mjs";
+import { updateHelperApp } from "../scripts/helper-update.mjs";
 import { macosSourceFiles } from "../scripts/macos-sources.mjs";
 import { helperMismatchMessage } from "../src/constants/copy.ts";
 
@@ -19,9 +18,11 @@ async function fixture() {
 		await mkdir(path.join(app, "Contents/MacOS"), { recursive: true });
 		await writeFile(path.join(app, "Contents/MacOS/bridge"), contents);
 		await writeFile(path.join(app, "Contents/Info.plist"), identifier);
+		await mkdir(path.join(app, "Contents/Resources"));
+		await writeFile(path.join(app, "Contents/Resources/source.sha256"), contents);
 	}
 	const calls: Array<{ command: string; args: string[] }> = [];
-	const state = { running: false, busyAt: 0, checks: 0, signed: "", adhoc: true, failSign: false, failVerify: false, processUnknown: false };
+	const state = { running: false, busyAt: 0, checks: 0, signed: "", adhoc: true, failSign: false, failVerify: false, processUnknown: false, identities: `1) ${"A".repeat(40)} "Fixture Identity"` };
 	const exec = async (command: string, args: string[]) => {
 		calls.push({ command, args });
 		if (command.endsWith("lsof")) {
@@ -31,6 +32,7 @@ async function fixture() {
 			throw Object.assign(new Error("no selection"), { code: 1, stdout: "", stderr: "" });
 		}
 		if (command.endsWith("plutil")) return { stdout: identifier, stderr: "" };
+		if (command.endsWith("security")) return { stdout: state.identities, stderr: "" };
 		if (command.endsWith("ditto")) await cp(args[0], args[1], { recursive: true });
 		else if (command.endsWith("codesign")) {
 			if (args.includes("--sign")) {
@@ -41,7 +43,7 @@ async function fixture() {
 				state.signed = args[args.indexOf("--sign") + 1];
 			}
 			if (args.includes("--verify") && args.at(-1) !== source && state.failVerify) throw new Error("invalid sealed bundle");
-			if (args.includes("-dv")) return { stdout: "", stderr: `Identifier=${identifier}\n${state.adhoc && !state.signed ? "Signature=adhoc" : "Authority=Fixture Identity"}\n` };
+			if (args.includes("-dv")) return { stdout: "", stderr: `Identifier=${identifier}\n${state.signed === "-" || (state.adhoc && !state.signed) ? "Signature=adhoc" : "Authority=Fixture Identity"}\n` };
 		} else assert.fail(`Unexpected command: ${command}`);
 		return { stdout: "", stderr: "" };
 	};
@@ -75,18 +77,6 @@ async function helperSocket(f: Awaited<ReturnType<typeof fixture>>, mode: "stop"
 	return { socketPath, commands, close: () => new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())) };
 }
 
-for (const answer of ["", "n", "yes"]) test(`terminal stop confirmation defaults to no: ${JSON.stringify(answer)}`, async () => {
-	const input = new PassThrough(), output = new PassThrough();
-	let prompt = "";
-	output.once("data", (data) => {
-		prompt = data.toString();
-		queueMicrotask(() => input.write(answer + "\n"));
-	});
-	assert.equal(await confirmHelperStop({ input, output }), answer === "yes");
-	assert.match(prompt, /其他 rotom 会话会失去 Computer Use.*\[y\/N\]/);
-	input.destroy(); output.destroy();
-});
-
 for (const interactive of [true, false]) test(`busy refusal leaves files and socket untouched (interactive=${interactive})`, async () => {
 	const f = await fixture();
 	f.state.running = true;
@@ -103,7 +93,7 @@ for (const interactive of [true, false]) test(`busy refusal leaves files and soc
 	} finally { await socket.close(); await rm(f.root, { recursive: true, force: true }); }
 });
 
-test("consent sends one shutdown, waits for occupancy readback, then signs and updates", async () => {
+test("consent prepares and signs first, then shuts down once and waits before replacement", async () => {
 	const f = await fixture();
 	f.state.running = true;
 	const socket = await helperSocket(f, "stop");
@@ -111,9 +101,8 @@ test("consent sends one shutdown, waits for occupancy readback, then signs and u
 	const exec = async (command: string, args: string[]) => {
 		if (command.endsWith("lsof") && socket.commands.includes("shutdown") && holdProbes-- > 0) return { stdout: "12345\n", stderr: "" };
 		if (command.endsWith("ditto")) {
-			assert.deepEqual(socket.commands, ["diagnostics", "shutdown"]);
-			assert.equal(f.state.running, false);
-			assert.ok(holdProbes < 0, "must observe an unoccupied executable, not just a shutdown ack");
+			assert.deepEqual(socket.commands, []);
+			assert.equal(f.state.running, true, "prepare before interrupting the old helper");
 		}
 		return await f.exec(command, args);
 	};
@@ -121,6 +110,7 @@ test("consent sends one shutdown, waits for occupancy readback, then signs and u
 		await updateHelperApp({ ...f, exec, identity: "Approved Identity", interactive: true, socketPath: socket.socketPath,
 			confirmStop: async () => { asked++; assert.deepEqual(socket.commands, []); return true; } });
 		assert.equal(asked, 1);
+		assert.ok(holdProbes < 0, "must observe an unoccupied executable, not just a shutdown ack");
 		assert.deepEqual(socket.commands, ["diagnostics", "shutdown"]);
 		assert.equal(await readFile(path.join(f.target, "Contents/MacOS/bridge"), "utf8"), "new");
 		assert.equal(await readFile(path.join(f.source, "Contents/MacOS/bridge"), "utf8"), "new");
@@ -136,7 +126,11 @@ for (const mode of ["wrong-target", "lost-ack", "still-busy"] as const) test(`sh
 			socketPath: socket.socketPath, confirmStop: async () => true }),
 			mode === "wrong-target" ? /does not identify/ : mode === "lost-ack" ? /unknown/ : /still in use/);
 		assert.deepEqual(socket.commands, mode === "wrong-target" ? ["diagnostics"] : ["diagnostics", "shutdown"]);
-		assert.equal(f.calls.some(c => c.command.endsWith("ditto") || c.args.includes("--sign")), false);
+		assert.ok(f.calls.some(c => c.args.includes("--sign")), "candidate is prepared before shutdown");
+		if (mode !== "wrong-target") {
+			await assert.rejects(updateHelperApp({ ...f, automatic: true }), /another update|lock/i);
+			assert.deepEqual(socket.commands, ["diagnostics", "shutdown"], "unknown shutdown is never replayed");
+		}
 		assert.equal(await readFile(path.join(f.target, "Contents/MacOS/bridge"), "utf8"), "old");
 	} finally { await socket.close(); await rm(f.root, { recursive: true, force: true }); }
 });
@@ -258,6 +252,78 @@ test("packaged updater signs and installs only in an isolated HOME, without laun
 		assert.equal(unchanged.status, 1);
 		assert.match(unchanged.stderr, /ad-hoc bundle/);
 		assert.deepEqual(await readFile(path.join(target, binary)), installed);
+	} finally { await rm(f.root, { recursive: true, force: true }); }
+});
+
+test("automatic upgrade reuses the installed signer and stops without a terminal prompt", async () => {
+	const f = await fixture();
+	f.state.adhoc = false;
+	f.state.running = true;
+	const socket = await helperSocket(f, "stop");
+	try {
+		const result = await updateHelperApp({ ...f, automatic: true, interactive: false,
+			socketPath: socket.socketPath, confirmStop: async () => assert.fail("must not ask") });
+		assert.equal(result.updated, true);
+		assert.equal(f.state.signed, "A".repeat(40));
+		assert.deepEqual(socket.commands, ["diagnostics", "shutdown"]);
+		assert.equal(await readFile(path.join(f.target, "Contents/MacOS/bridge"), "utf8"), "new");
+		const calls = f.calls.length;
+		assert.equal((await updateHelperApp({ ...f, automatic: true })).updated, false);
+		assert.deepEqual(f.calls.slice(calls).map(c => path.basename(c.command)), ["codesign", "codesign"]);
+		assert.deepEqual(socket.commands, ["diagnostics", "shutdown"], "current helper is never stopped again");
+	} finally { await socket.close(); await rm(f.root, { recursive: true, force: true }); }
+});
+
+for (const failure of ["missing", "ambiguous", "signing"] as const) test(`automatic ${failure} signing failure leaves old helper running`, async () => {
+	const f = await fixture();
+	f.state.adhoc = false; f.state.running = true;
+	if (failure === "missing") f.state.identities = "";
+	if (failure === "ambiguous") f.state.identities += `\n2) ${"B".repeat(40)} "Fixture Identity"`;
+	if (failure === "signing") f.state.failSign = true;
+	const socket = await helperSocket(f, "stop");
+	try {
+		await assert.rejects(updateHelperApp({ ...f, automatic: true, socketPath: socket.socketPath }), /identity|signing rejected/);
+		assert.deepEqual(socket.commands, []);
+		assert.equal(f.state.running, true);
+		assert.equal(await readFile(path.join(f.target, "Contents/MacOS/bridge"), "utf8"), "old");
+	} finally { await socket.close(); await rm(f.root, { recursive: true, force: true }); }
+});
+
+test("automatic synchronization preserves ad-hoc trust and does not provision an unused helper", async () => {
+	const f = await fixture();
+	try {
+		assert.equal((await updateHelperApp({ ...f, automatic: true })).updated, true);
+		assert.equal(f.calls.some(c => c.command.endsWith("security")), false);
+		assert.equal(f.state.signed, "-", "the source stamp is sealed without elevating ad-hoc trust");
+		await rm(f.target, { recursive: true });
+		f.calls.length = 0;
+		assert.equal((await updateHelperApp({ ...f, automatic: true })).updated, false);
+		assert.deepEqual(f.calls, []);
+	} finally { await rm(f.root, { recursive: true, force: true }); }
+});
+
+test("automatic synchronization cannot downgrade a certificate-signed helper, even with a legacy ad-hoc opt-in", async () => {
+	const f = await fixture();
+	f.state.adhoc = false; f.state.running = true;
+	const socket = await helperSocket(f, "stop");
+	try {
+		await assert.rejects(updateHelperApp({ ...f, automatic: true, identity: "-", allowAdhoc: true, socketPath: socket.socketPath }), /will not replace a certificate-signed helper/);
+		assert.deepEqual(socket.commands, []);
+		assert.equal(f.state.running, true);
+		assert.equal(await readFile(path.join(f.target, "Contents/MacOS/bridge"), "utf8"), "old");
+	} finally { await socket.close(); await rm(f.root, { recursive: true, force: true }); }
+});
+
+test("automatic synchronization checks bundle metadata even when native bytes match", async () => {
+	const f = await fixture();
+	try {
+		await updateHelperApp({ ...f, automatic: true });
+		await writeFile(path.join(f.source, "Contents/Info.plist"), `${identifier}\nchanged metadata`);
+		assert.equal((await updateHelperApp({ ...f, automatic: true })).updated, true);
+		assert.equal(await readFile(path.join(f.target, "Contents/Info.plist"), "utf8"), `${identifier}\nchanged metadata`);
+		const exec = async (command: string, args: string[]) => args.includes("-dv")
+			? { stdout: "", stderr: "Identifier=unexpected.app\nSignature=adhoc\n" } : await f.exec(command, args);
+		await assert.rejects(updateHelperApp({ ...f, exec, automatic: true }), /unexpected bundle/);
 	} finally { await rm(f.root, { recursive: true, force: true }); }
 });
 

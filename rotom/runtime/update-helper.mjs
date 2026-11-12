@@ -5,8 +5,10 @@ import { fileURLToPath } from "node:url";
 import { verifyThirdPartyPackageContract } from "./verify-pi-runtime.mjs";
 import { helperUpdateCopy as copy } from "./helper-update-copy.mjs";
 
-export async function updateHelper(agentDir, args, { verify = verifyThirdPartyPackageContract, run = spawnSync } = {}) {
-	if (args.length !== 1 || args[0] !== "update") throw new Error(copy.usage);
+export async function updateHelper(agentDir, args, { verify = verifyThirdPartyPackageContract, run = spawnSync, platform = process.platform } = {}) {
+	const automatic = args.length === 2 && args[0] === "update" && args[1] === "--automatic";
+	if (!automatic && (args.length !== 1 || args[0] !== "update")) throw new Error(copy.usage);
+	if (automatic && platform !== "darwin") return 0;
 	await verify(agentDir);
 	const root = resolve(agentDir, "extensions/third-party/node_modules/@injaneity/pi-computer-use");
 	for (const name of ["scripts/setup-helper.mjs", "scripts/setup-helper-common.mjs", "scripts/setup-helper-signing.mjs", "scripts/setup-helper-release.mjs", "scripts/helper-update.mjs", "scripts/macos-sources.mjs", "src/constants/helper-update.mjs", "src/platform/macos/helper-path.mjs"]) {
@@ -14,10 +16,15 @@ export async function updateHelper(agentDir, args, { verify = verifyThirdPartyPa
 		const info = await lstat(file);
 		if (!info.isFile() || info.isSymbolicLink() || await realpath(file) !== file) throw new Error(copy.untrusted);
 	}
-	const result = run(process.execPath, [resolve(root, "scripts/setup-helper.mjs"), "--update"], { stdio: "inherit" });
+	const result = run(process.execPath, [resolve(root, "scripts/setup-helper.mjs"), "--update", ...(automatic ? ["--automatic"] : [])], { stdio: automatic ? ["ignore", 2, 2] : "inherit" });
 	if (result.error) throw result.error;
 	if (result.signal || result.status === null) throw new Error(copy.interrupted);
 	return result.status;
+}
+
+export async function synchronizeHelper(agentDir, options) {
+	const code = await updateHelper(agentDir, ["update", "--automatic"], options);
+	if (code !== 0) throw new Error(copy.automaticFailed);
 }
 
 if (process.argv[1] && await realpath(process.argv[1]) === fileURLToPath(import.meta.url)) {

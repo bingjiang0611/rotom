@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
+import { helperUpdateCopy } from "./helper-update-copy.mjs";
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { access, lstat, mkdtemp, readFile, readlink, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
@@ -176,6 +177,13 @@ async function downloadVerifiedTarball(fetchImpl, url, integrity, userAgent) {
 	return bytes;
 }
 
+function synchronizeInstalledHelper(packageRoot, runCommand) {
+	if (process.platform !== "darwin") return;
+	// Load the updater from the newly installed product, never this old process's package.
+	const result = runCommand(process.execPath, [join(packageRoot, "runtime/update-helper.mjs"), "update", "--automatic"], { capture: false });
+	if (result.status !== 0) throw new Error(helperUpdateCopy.automaticFailed);
+}
+
 async function updateReleaseLayout({ layout, metadata, latest, current, packageRoot, npmCommand, runCommand, fetchImpl, output }) {
 	const expectedTarball = `${ROTOM_REGISTRY}/${ROTOM_PACKAGE_NAME}/-/rotom-${latest}.tgz`;
 	const integrity = metadata.dist?.integrity;
@@ -223,6 +231,7 @@ async function updateReleaseLayout({ layout, metadata, latest, current, packageR
 	if (await readlink(layout.commandPath) !== launcher) {
 		throw new Error(`switch status unknown: ${layout.commandPath} does not read back as ${launcher}; run rotom --version`);
 	}
+	synchronizeInstalledHelper(join(destination, "node_modules/rotom"), runCommand);
 	output(`Updated rotom to ${latest}: ${layout.commandPath} -> ${launcher}`);
 	output(`The previous release stays at ${dirname(dirname(packageRoot))}; running sessions keep using it. Start a new session to use ${latest}.`);
 	return { currentVersion: current.version, latestVersion: latest, updated: true };
@@ -260,6 +269,7 @@ export async function updateRotom(options = {}) {
 		const { metadata, latest } = await fetchLatest(fetchImpl, current.version);
 		const order = compareSemver(latest, current.version);
 		if (order === 0) {
+			synchronizeInstalledHelper(packageRoot, runCommand);
 			output(`rotom is already up to date (${current.version}).`);
 			return { currentVersion: current.version, latestVersion: latest, updated: false };
 		}
@@ -292,6 +302,7 @@ export async function updateRotom(options = {}) {
 	const { latest } = await fetchLatest(fetchImpl, current.version);
 	const order = compareSemver(latest, current.version);
 	if (!options.force && order <= 0) {
+		synchronizeInstalledHelper(packageRoot, runCommand);
 		output(`rotom is already up to date (${current.version}).`);
 		return { currentVersion: current.version, latestVersion: latest, updated: false };
 	}
@@ -320,6 +331,7 @@ export async function updateRotom(options = {}) {
 	if (installed.version !== latest) {
 		throw new Error(`npm exited successfully but installed ${installed.version}, expected ${latest}`);
 	}
+	synchronizeInstalledHelper(installedRoot, runCommand);
 	output(`Updated rotom to ${latest}. Exit every other rotom session, then start a new one; running sessions do not hot-reload.`);
 	return { currentVersion: current.version, latestVersion: latest, updated: true };
 }
