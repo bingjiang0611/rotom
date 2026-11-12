@@ -2,13 +2,12 @@ import { spawn } from "node:child_process";
 import { constants as fsConstants } from "node:fs";
 import { access, mkdir, realpath } from "node:fs/promises";
 import net from "node:net";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { toBoolean, toFiniteNumber, toOptionalString } from "../coerce.ts";
 import type { PlatformDiagnostics } from "../types.ts";
-import { resolveMacosHelperAppPath } from "./helper-path.mjs";
-import { helperMismatchMessage } from "../../constants/copy.ts";
+import { resolveMacosHelperAppPath, resolveMacosHelperSocketPath } from "./helper-path.mjs";
+import { helperMismatchMessage, helperStopCopy } from "../../constants/copy.ts";
 
 const COMMAND_TIMEOUT_MS = 15_000;
 // Protocol 8 adds user activity, clipboard, app/window management, system
@@ -26,8 +25,8 @@ const HELPER_SETUP_TIMEOUT_MS = 60_000;
 export const HELPER_BUNDLE_ID = "com.injaneity.pi-computer-use";
 export const HELPER_APP_PATH = resolveMacosHelperAppPath();
 export const HELPER_APP_EXECUTABLE_PATH = path.join(HELPER_APP_PATH, "Contents", "MacOS", "bridge");
-const DEFAULT_HELPER_SOCKET_PATH = path.join(os.homedir(), "Library", "Caches", "pi-computer-use", "bridge.sock");
-export const HELPER_SOCKET_PATH = process.env.PI_CU_SOCKET_PATH ?? DEFAULT_HELPER_SOCKET_PATH;
+const DEFAULT_HELPER_SOCKET_PATH = resolveMacosHelperSocketPath({ env: {} });
+export const HELPER_SOCKET_PATH = resolveMacosHelperSocketPath();
 const usingExternalHelperSocket = HELPER_SOCKET_PATH !== DEFAULT_HELPER_SOCKET_PATH;
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -159,8 +158,8 @@ export class MacosHelperClient {
 	private daemonAvailable = false;
 	private requestSequence = 0;
 	private diagnosticsCache?: PlatformDiagnostics;
-	/** Set once the person declined (or could not be asked) to restart a mismatched helper. */
-	private restartDeclined = false;
+	/** A mismatched session never launches the same old executable again. */
+	private protocolMismatch?: HelperMismatchError;
 
 	get diagnostics(): PlatformDiagnostics | undefined {
 		return this.diagnosticsCache;
@@ -225,6 +224,7 @@ export class MacosHelperClient {
 	}
 
 	async ensureDaemon(signal?: AbortSignal): Promise<boolean> {
+		if (this.protocolMismatch) throw this.protocolMismatch;
 		if (this.daemonAvailable) return true;
 		try {
 			await this.daemonCommand("diagnostics", {}, 1_000, signal);
@@ -300,32 +300,29 @@ export class MacosHelperClient {
 		);
 	}
 
-	/**
-	 * Like ensureProtocol, but on a mismatch asks the person once per session
-	 * whether to restart the helper. Only an explicit yes stops the running
-	 * helper; a no (or no UI) keeps it and makes later calls fail fast with the
-	 * same guidance instead of asking again.
-	 */
+	/** Ask once to stop an old helper; only a separate updater and new session can repair it. */
 	async ensureProtocolWithConsent(
-		confirmRestart: ((diagnostics: PlatformDiagnostics) => Promise<boolean>) | undefined,
+		confirmStop: ((diagnostics: PlatformDiagnostics) => Promise<boolean>) | undefined,
 		signal?: AbortSignal,
 	): Promise<PlatformDiagnostics> {
+		if (this.protocolMismatch) throw this.protocolMismatch;
 		try {
 			return await this.ensureProtocol(signal);
 		} catch (error) {
 			if (!(error instanceof HelperMismatchError)) throw error;
-			if (this.restartDeclined || !confirmRestart || !(await confirmRestart(error.diagnostics))) {
-				this.restartDeclined = true;
-				throw error;
+			this.protocolMismatch = error;
+			if (confirmStop && await confirmStop(error.diagnostics)) {
+				throwIfAborted(signal);
+				try {
+					// Do not use command(): shutdown must never launch a missing daemon.
+					await this.daemonCommand("shutdown", {}, 2_000, signal);
+					this.daemonAvailable = false;
+				} catch (cause) {
+					this.protocolMismatch = new HelperMismatchError(`${error.message} ${helperStopCopy.unconfirmed}`, error.diagnostics);
+					this.protocolMismatch.cause = cause;
+				}
 			}
-		}
-		await this.restart(signal);
-		try {
-			return await this.ensureProtocol(signal);
-		} catch (error) {
-			// Asked once; the person already answered for this session.
-			if (error instanceof HelperMismatchError) this.restartDeclined = true;
-			throw error;
+			throw this.protocolMismatch;
 		}
 	}
 }

@@ -8,19 +8,19 @@
 
 安装最终 rotom 版本后，按以下顺序操作：
 
-1. **退出所有使用该 helper 的 rotom 会话。** 保存工作，不要只关闭授权弹层。
-2. **退出旧 helper。** 它是独立进程；关闭终端不一定退出 helper。更新期间保持会话和旧 helper 关闭，不让其他进程重新启动它。
-3. **受管 Mac：先设置已有且获准使用的签名身份。** 例如在自己的终端设置：
+1. **退出所有使用该 helper 的 rotom 会话。** 保存工作，不要只关闭授权弹层。更新期间不要让其他进程重新启动 helper。受管 Mac 先在自己的终端设置已有、获准使用的签名身份：
    ```sh
    export PI_COMPUTER_USE_CODESIGN_IDENTITY='<已有、获准的签名身份>'
    ```
    没有合适身份或系统拒绝签名时，停止并联系管理员。不要创建临时证书、导出私钥、关闭安全软件或重置系统权限来绕过策略。
-4. **由用户显式运行更新命令：**
+2. **运行 `rotom helper update`（它会询问是否停止旧 helper）。**
    ```sh
    rotom helper update
    ```
-   它安装到 `~/Applications/pi-computer-use.app`，保持 bundle id `com.injaneity.pi-computer-use`，只签署安装副本。发现目标被进程占用或无法确认占用状态时会拒绝；不会杀进程、启动 helper 或重启会话。只有命令明确成功才进入下一步；失败或结果未知时先检查报告路径，不盲目重跑。
-5. **再开新会话**，检查 Computer Use 的协议和权限。自定义 helper 路径/socket 不会自动迁移；新会话应选择本次更新的路径，或者由用户另行维护那个独立安装。
+   发现目标 helper 在运行时，交互终端会询问是否停止，**默认否**，并提醒使用它的其他 rotom 会话会失去 Computer Use。同意后通过 socket 发送一次 `shutdown`，确认可执行文件不再被占用，再继续更新；不强杀进程。拒绝或非交互环境不会停止 helper，也不会替换安装。
+
+   它安装到 `~/Applications/pi-computer-use.app`，保持 bundle id `com.injaneity.pi-computer-use`，只签署安装副本，不启动 helper、不重启会话。无法确认占用状态、关闭结果未知或目标仍被占用时停止更新。只有命令明确成功才进入下一步；失败或结果未知时先检查报告路径和占用状态，不盲目重跑。
+3. **再开新会话**，检查 Computer Use 的协议和权限。自定义 helper 路径/socket 不会自动迁移；新会话应选择本次更新的路径，或者由用户另行维护那个独立安装。
 
 未设置签名身份时，更新器保留归档签名，**不会自动生成本地证书**。发行归档的 macOS helper 为 ad-hoc 签名，覆盖已有 helper 默认仍会被保护规则拒绝。只有系统策略允许、且用户明确接受 ad-hoc 替换时，才可自行设置 `PI_COMPUTER_USE_ALLOW_ADHOC_UPDATE=1` 后更新；这不是受管 Mac 策略的替代方案，也不保证程序能启动。
 
@@ -36,7 +36,7 @@ ScreenCaptureKit 的屏幕录制授权可能按 macOS 的系统策略出现**每
 - Computer Use 授权使用 Ask 的实际问卷与弹层，等待完整授权期限。超时、拒绝和取消不会被当成授权，也不会触发模型续跑。
 - 新增 `rotom helper update`。首参 `helper` 由 rotom launcher 处理，不透传 Pi，不启动 AgentSession。
 - 两个 macOS 构建入口共用完整 Swift 源文件列表；测试前恢复完整 TypeScript 检查，不再用过渡性的 fatal-only 检查代替它。
-- 组件候选为 `@injaneity/pi-computer-use@0.5.1-rotom.4`，取代 main 的 `.rotom.3`。保留 main 的显式重启确认、错误提示和协议回归修复；重启确认不会安装新二进制，不能代替上述升级步骤。
+- 组件候选为 `@injaneity/pi-computer-use@0.5.1-rotom.4`，取代 main 的 `.rotom.3`。保留 main 的错误提示、协议和权限修复；协议不匹配的确认改为“停止旧 helper，以便运行 rotom helper update”。同意后只停止，不再重启旧二进制；无论是否同意，都须更新后新开会话。
 
 ## 行为变化摘要
 

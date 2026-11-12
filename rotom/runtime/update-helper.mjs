@@ -9,7 +9,7 @@ export async function updateHelper(agentDir, args, { verify = verifyThirdPartyPa
 	if (args.length !== 1 || args[0] !== "update") throw new Error(copy.usage);
 	await verify(agentDir);
 	const root = resolve(agentDir, "extensions/third-party/node_modules/@injaneity/pi-computer-use");
-	for (const name of ["scripts/setup-helper.mjs", "scripts/setup-helper-common.mjs", "scripts/setup-helper-signing.mjs", "scripts/setup-helper-release.mjs", "scripts/helper-update.mjs", "scripts/macos-sources.mjs", "src/constants/helper-update.mjs"]) {
+	for (const name of ["scripts/setup-helper.mjs", "scripts/setup-helper-common.mjs", "scripts/setup-helper-signing.mjs", "scripts/setup-helper-release.mjs", "scripts/helper-update.mjs", "scripts/macos-sources.mjs", "src/constants/helper-update.mjs", "src/platform/macos/helper-path.mjs"]) {
 		const file = resolve(root, name);
 		const info = await lstat(file);
 		if (!info.isFile() || info.isSymbolicLink() || await realpath(file) !== file) throw new Error(copy.untrusted);

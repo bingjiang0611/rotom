@@ -3,17 +3,18 @@ export const helperMismatchMessage = (
 	expectedExecutable: string,
 	actualProtocol: number,
 	actualExecutable: string | undefined,
-): string => `pi-computer-use helper mismatch: expected protocol ${expectedProtocol} and executable ${expectedExecutable}; got protocol ${actualProtocol} and executable ${actualExecutable ?? "unknown"}. The running helper was not restarted. Close its owning sessions and quit the old helper, then run rotom helper update explicitly. On managed Macs, set PI_COMPUTER_USE_CODESIGN_IDENTITY to an existing approved signing identity before that command. It installs to ~/Applications/pi-computer-use.app without starting it; use that path in the new session, or explicitly maintain your separate helper app and socket. ${helperUnavailableGuidance}`;
+): string => `pi-computer-use helper mismatch: expected protocol ${expectedProtocol} and executable ${expectedExecutable}; got protocol ${actualProtocol} and executable ${actualExecutable ?? "unknown"}. The running helper was not restarted. On managed Macs, set PI_COMPUTER_USE_CODESIGN_IDENTITY to an existing approved signing identity before updating. It installs to ~/Applications/pi-computer-use.app without starting it; use that path in the new session, or explicitly maintain your separate helper app and socket. ${helperUnavailableGuidance}`;
 
 /** Model-facing next step: the mismatch does not change until a person acts. */
 export const helperUnavailableGuidance =
-	"Computer Use is unavailable in this session until a person restarts the helper. Do not call Computer Use tools again for this; use the browser tools for web pages, or report the blocker to the user.";
+	"Computer Use is unavailable in this session. 运行 rotom helper update（它会询问是否停止旧 helper），完成后新开 rotom 会话。 Do not call Computer Use tools again for this; use the browser tools for web pages, or report the blocker to the user.";
 
 /** Asked once per session before stopping a helper that other sessions may own. */
-export const helperRestartCopy = {
+export const helperStopCopy = {
+	unconfirmed: "Helper shutdown was not confirmed. No restart or shutdown retry was attempted.",
 	title: "Computer Use helper is out of date",
 	message: (actualProtocol: number, expectedProtocol: number): string =>
-		`A Computer Use helper speaking protocol ${actualProtocol} is still running; this rotom needs protocol ${expectedProtocol}. Restarting it stops the old helper, and any other rotom session using Computer Use loses it until that session reconnects. Restart it now? If you decline, Computer Use stays unavailable in this session.`,
+		`旧 helper 的协议是 ${actualProtocol}，此 rotom 需要 ${expectedProtocol}。停止旧 helper，以便运行 rotom helper update？使用它的其他 rotom 会话会失去 Computer Use。无论是否停止，都请运行 rotom helper update（它会询问是否停止旧 helper），完成后新开 rotom 会话；此处不会重启或安装 helper。`,
 };
 
 export const takeoverCopy = {

@@ -1,5 +1,7 @@
 # 阶段 3 / 4：文档与 clean-main 候选
 
+> 本文记录 `c2922e7` 的阶段 3–4 快照，不代表后续 M1 修复产物。原“完整公开历史”表述过宽：当时只审计该 clone 的 main/tags 可达历史，不含所有 origin 分支。升级修复、精确审计范围与新产物见 [REVIEW-26 M1 报告](STATUS-5-upgrade-m1.md)。
+
 ## 来源与范围
 
 - 阶段 2 审核：`claude/dazzling-mccarthy-lf6mz2` 的 `f06cbb6` / REVIEW-25。
@@ -91,7 +93,7 @@ main 有源码修复，不能把旧归档当作合并源码。当前未发布的
 | 章程与 ledger hook 测试 | 14/14；完整 ledger schema/source 校验 77 条通过 |
 | 原生签名 | arm64、x64、universal 三个产物 `codesign --verify --strict` 通过；与已审核归档逐字节相同 |
 | 内容保留 | 212 个不与 main 重叠的已批准源文件逐字节保留；11 个差异均为本文说明的文档、Ask、职责拆分、归档和 updater 检查；main-only 只改两个领域合同、统一测试入口和 footprint current 值 |
-| 隐私扫描 | 当前树 8,977 文件 / 0 findings；实际组件 tgz 145 扫描项 / 0 findings；提交前完整公开历史 543 commits / 0 findings |
+| 隐私扫描 | 当前树 8,977 文件 / 0 findings；实际组件 tgz 145 扫描项 / 0 findings；提交前本 clone refs 可达历史 543 commits / 0 findings（main/tags，非全部 origin 分支） |
 | 日常 helper 只读回验 | 可执行文件 SHA、PID、启动时间与本轮开始时完全一致 |
 
 命令：`python3 scripts/audit-public.py --root .`、同命令加 `--artifact <component-tgz>`、加 `--history`。归档检查项包括 tgz 自身与 144 个成员。历史扫描在提交后还要再跑；最终 SHA、提交后审计数和远端确认在交付报告中给出。扫描是启发式文本检查，不证明任意秘密、OCR 内容或代码所有权。

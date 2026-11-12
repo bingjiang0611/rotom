@@ -4,7 +4,9 @@ import { cp, mkdir, mkdtemp, open, readFile, readdir, realpath, rm, symlink, wri
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { updateHelperApp } from "../scripts/helper-update.mjs";
+import net from "node:net";
+import { PassThrough } from "node:stream";
+import { updateHelperApp, confirmHelperStop } from "../scripts/helper-update.mjs";
 import { macosSourceFiles } from "../scripts/macos-sources.mjs";
 import { helperMismatchMessage } from "../src/constants/copy.ts";
 
@@ -19,13 +21,13 @@ async function fixture() {
 		await writeFile(path.join(app, "Contents/Info.plist"), identifier);
 	}
 	const calls: Array<{ command: string; args: string[] }> = [];
-	const state = { busyAt: 0, checks: 0, signed: "", adhoc: true, failSign: false, failVerify: false, processUnknown: false };
+	const state = { running: false, busyAt: 0, checks: 0, signed: "", adhoc: true, failSign: false, failVerify: false, processUnknown: false };
 	const exec = async (command: string, args: string[]) => {
 		calls.push({ command, args });
 		if (command.endsWith("lsof")) {
 			state.checks++;
 			if (state.processUnknown) throw Object.assign(new Error("probe failed"), { code: 1, stderr: "permission denied" });
-			if (state.checks === state.busyAt) return { stdout: "12345\n", stderr: "" };
+			if (state.running || state.checks === state.busyAt) return { stdout: "12345\n", stderr: "" };
 			throw Object.assign(new Error("no selection"), { code: 1, stdout: "", stderr: "" });
 		}
 		if (command.endsWith("plutil")) return { stdout: identifier, stderr: "" };
@@ -45,6 +47,99 @@ async function fixture() {
 	};
 	return { root, source, target, state, calls, exec };
 }
+
+// Real socket framing, but a disposable fake helper: never a daily helper socket.
+async function helperSocket(f: Awaited<ReturnType<typeof fixture>>, mode: "stop" | "wrong-target" | "lost-ack" | "still-busy") {
+	const socketPath = path.join(f.root, "helper.sock");
+	const commands: string[] = [];
+	const server = net.createServer((socket) => {
+		socket.setEncoding("utf8");
+		let buffer = "";
+		socket.on("data", (chunk) => {
+			buffer += chunk;
+			if (!buffer.includes("\n")) return;
+			const request = JSON.parse(buffer.split("\n")[0]);
+			commands.push(request.cmd);
+			if (request.cmd === "diagnostics") {
+				socket.end(JSON.stringify({ id: request.id, ok: true, result: { pid: 12345,
+					executablePath: path.join(mode === "wrong-target" ? f.source : f.target, "Contents/MacOS/bridge") } }) + "\n");
+			} else {
+				assert.equal(request.cmd, "shutdown");
+				if (mode === "lost-ack") { socket.end(); return; }
+				if (mode === "stop") f.state.running = false;
+				socket.end(JSON.stringify({ id: request.id, ok: true, result: { shuttingDown: true } }) + "\n");
+			}
+		});
+	});
+	await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(socketPath, resolve); });
+	return { socketPath, commands, close: () => new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())) };
+}
+
+for (const answer of ["", "n", "yes"]) test(`terminal stop confirmation defaults to no: ${JSON.stringify(answer)}`, async () => {
+	const input = new PassThrough(), output = new PassThrough();
+	let prompt = "";
+	output.once("data", (data) => {
+		prompt = data.toString();
+		queueMicrotask(() => input.write(answer + "\n"));
+	});
+	assert.equal(await confirmHelperStop({ input, output }), answer === "yes");
+	assert.match(prompt, /其他 rotom 会话会失去 Computer Use.*\[y\/N\]/);
+	input.destroy(); output.destroy();
+});
+
+for (const interactive of [true, false]) test(`busy refusal leaves files and socket untouched (interactive=${interactive})`, async () => {
+	const f = await fixture();
+	f.state.running = true;
+	const socket = await helperSocket(f, "stop");
+	let asked = 0;
+	try {
+		await assert.rejects(updateHelperApp({ ...f, socketPath: socket.socketPath, interactive,
+			confirmStop: async () => { asked++; return false; } }), /still in use/);
+		assert.equal(asked, interactive ? 1 : 0);
+		assert.deepEqual(socket.commands, []);
+		assert.deepEqual(f.calls.map(c => path.basename(c.command)), ["lsof"]);
+		assert.equal(await readFile(path.join(f.target, "Contents/MacOS/bridge"), "utf8"), "old");
+		assert.deepEqual(await readdir(path.dirname(f.target)), ["pi-computer-use.app"]);
+	} finally { await socket.close(); await rm(f.root, { recursive: true, force: true }); }
+});
+
+test("consent sends one shutdown, waits for occupancy readback, then signs and updates", async () => {
+	const f = await fixture();
+	f.state.running = true;
+	const socket = await helperSocket(f, "stop");
+	let holdProbes = 2, asked = 0;
+	const exec = async (command: string, args: string[]) => {
+		if (command.endsWith("lsof") && socket.commands.includes("shutdown") && holdProbes-- > 0) return { stdout: "12345\n", stderr: "" };
+		if (command.endsWith("ditto")) {
+			assert.deepEqual(socket.commands, ["diagnostics", "shutdown"]);
+			assert.equal(f.state.running, false);
+			assert.ok(holdProbes < 0, "must observe an unoccupied executable, not just a shutdown ack");
+		}
+		return await f.exec(command, args);
+	};
+	try {
+		await updateHelperApp({ ...f, exec, identity: "Approved Identity", interactive: true, socketPath: socket.socketPath,
+			confirmStop: async () => { asked++; assert.deepEqual(socket.commands, []); return true; } });
+		assert.equal(asked, 1);
+		assert.deepEqual(socket.commands, ["diagnostics", "shutdown"]);
+		assert.equal(await readFile(path.join(f.target, "Contents/MacOS/bridge"), "utf8"), "new");
+		assert.equal(await readFile(path.join(f.source, "Contents/MacOS/bridge"), "utf8"), "new");
+	} finally { await socket.close(); await rm(f.root, { recursive: true, force: true }); }
+});
+
+for (const mode of ["wrong-target", "lost-ack", "still-busy"] as const) test(`shutdown gate refuses ${mode} without replacement or replay`, async () => {
+	const f = await fixture();
+	f.state.running = true;
+	const socket = await helperSocket(f, mode);
+	try {
+		await assert.rejects(updateHelperApp({ ...f, identity: "Approved Identity", interactive: true,
+			socketPath: socket.socketPath, confirmStop: async () => true }),
+			mode === "wrong-target" ? /does not identify/ : mode === "lost-ack" ? /unknown/ : /still in use/);
+		assert.deepEqual(socket.commands, mode === "wrong-target" ? ["diagnostics"] : ["diagnostics", "shutdown"]);
+		assert.equal(f.calls.some(c => c.command.endsWith("ditto") || c.args.includes("--sign")), false);
+		assert.equal(await readFile(path.join(f.target, "Contents/MacOS/bridge"), "utf8"), "old");
+	} finally { await socket.close(); await rm(f.root, { recursive: true, force: true }); }
+});
 
 for (const busyAt of [1, 2]) test(`update refuses a busy helper at process check ${busyAt}`, async () => {
 	const f = await fixture();

@@ -7,3 +7,4 @@ export interface MacosHelperPathOptions {
 }
 
 export function resolveMacosHelperAppPath(options?: MacosHelperPathOptions): string;
+export function resolveMacosHelperSocketPath(options?: Pick<MacosHelperPathOptions, "env" | "homeDir">): string;

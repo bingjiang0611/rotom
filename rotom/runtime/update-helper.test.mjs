@@ -25,7 +25,7 @@ test("helper update verifies the installed contract and dispatches only the expl
 	const root = await realpath(await mkdtemp(join(tmpdir(), "rotom-helper-command-")));
 	const pkg = join(root, "extensions/third-party/node_modules/@injaneity/pi-computer-use");
 	try {
-		for (const file of ["scripts/setup-helper.mjs", "scripts/setup-helper-common.mjs", "scripts/setup-helper-signing.mjs", "scripts/setup-helper-release.mjs", "scripts/helper-update.mjs", "scripts/macos-sources.mjs", "src/constants/helper-update.mjs"]) {
+		for (const file of ["scripts/setup-helper.mjs", "scripts/setup-helper-common.mjs", "scripts/setup-helper-signing.mjs", "scripts/setup-helper-release.mjs", "scripts/helper-update.mjs", "scripts/macos-sources.mjs", "src/constants/helper-update.mjs", "src/platform/macos/helper-path.mjs"]) {
 			const full = join(pkg, file);
 			await mkdir(join(full, ".."), { recursive: true });
 			await writeFile(full, "// fixture, never executed\n");
@@ -45,10 +45,10 @@ test("helper update verifies the installed contract and dispatches only the expl
 		};
 		assert.equal(await updateHelper(root, ["update"], deps), 0);
 		assert.equal(dispatches, 1);
-		await assert.rejects(updateHelper(root, ["update", "--force"], deps), /Usage:/);
+		await assert.rejects(updateHelper(root, ["update", "--force"], deps), /Usage:[\s\S]*询问是否停止旧 helper.*默认否/);
 		await assert.rejects(updateHelper(root, ["update"], { ...deps, verify: async () => { throw new Error("bad identity"); } }), /bad identity/);
-		for (const name of ["helper-update.mjs", "setup-helper-common.mjs", "setup-helper-signing.mjs", "setup-helper-release.mjs"]) {
-			const file = join(pkg, "scripts", name);
+		for (const name of ["scripts/helper-update.mjs", "scripts/setup-helper-common.mjs", "scripts/setup-helper-signing.mjs", "scripts/setup-helper-release.mjs", "src/platform/macos/helper-path.mjs"]) {
+			const file = join(pkg, name);
 			await rm(file);
 			await symlink(join(pkg, "scripts/setup-helper.mjs"), file);
 			await assert.rejects(updateHelper(root, ["update"], deps), /trusted regular file/);

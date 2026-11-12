@@ -12,61 +12,60 @@ for (const [protocolVersion, executablePath] of [
 		let restarts = 0;
 		helper.diagnosticsCommand = async () => ({ protocolVersion, executablePath }) as PlatformDiagnostics;
 		helper.restart = async () => { restarts++; };
-		await assert.rejects(helper.ensureProtocol(), /running helper was not restarted/);
+		await assert.rejects(helper.ensureProtocol(), /rotom helper update.*新开 rotom 会话/);
 		assert.equal(restarts, 0);
 	});
 }
 
-test("the matching background-text helper is accepted without restart", async () => {
+test("the matching helper is accepted without confirmation or restart", async () => {
 	const helper = new MacosHelperClient();
-	let restarts = 0;
 	const diagnostics = { protocolVersion: HELPER_PROTOCOL_VERSION, executablePath: HELPER_APP_EXECUTABLE_PATH } as PlatformDiagnostics;
 	helper.diagnosticsCommand = async () => diagnostics;
-	helper.restart = async () => { restarts++; };
-	assert.equal(await helper.ensureProtocol(), diagnostics);
-	assert.equal(restarts, 0);
+	helper.restart = async () => assert.fail("must not restart");
+	assert.equal(await helper.ensureProtocolWithConsent(async () => assert.fail("must not ask")), diagnostics);
 });
 
 const mismatched = { protocolVersion: HELPER_PROTOCOL_VERSION - 1, executablePath: HELPER_APP_EXECUTABLE_PATH } as PlatformDiagnostics;
-const current = { protocolVersion: HELPER_PROTOCOL_VERSION, executablePath: HELPER_APP_EXECUTABLE_PATH } as PlatformDiagnostics;
 
-test("a mismatched helper is restarted only after the person says yes, then rechecked", async () => {
+for (const decision of [true, false, undefined]) test(`mismatch decision ${decision}: stop only on consent, never restart or retry in this session`, async () => {
 	const helper = new MacosHelperClient();
-	let running = mismatched, restarts = 0, asked = 0;
-	helper.diagnosticsCommand = async () => running;
-	helper.restart = async () => { restarts++; running = current; };
-	const result = await helper.ensureProtocolWithConsent(async (seen) => { asked++; assert.equal(seen.protocolVersion, HELPER_PROTOCOL_VERSION - 1); return true; });
-	assert.equal(result, current);
-	assert.deepEqual({ asked, restarts }, { asked: 1, restarts: 1 });
+	let asked = 0, probes = 0;
+	const commands: string[] = [];
+	helper.diagnosticsCommand = async () => { probes++; return mismatched; };
+	helper.restart = async () => assert.fail("must not restart old binary");
+	helper.launchDaemon = async () => assert.fail("must not launch old binary");
+	helper.daemonCommand = async <T>(cmd: string) => { commands.push(cmd); return { shuttingDown: true } as T; };
+	const confirm = decision === undefined ? undefined : async (seen: PlatformDiagnostics) => {
+		asked++;
+		assert.equal(seen, mismatched);
+		assert.deepEqual(commands, []);
+		return decision;
+	};
+	await assert.rejects(helper.ensureProtocolWithConsent(confirm), /rotom helper update.*新开 rotom 会话/);
+	await assert.rejects(helper.ensureProtocolWithConsent(confirm), /Do not call Computer Use tools again/);
+	await assert.rejects(helper.command("diagnostics"), /rotom helper update/);
+	assert.equal(asked, decision === undefined ? 0 : 1);
+	assert.equal(probes, 1);
+	assert.deepEqual(commands, decision === true ? ["shutdown"] : []);
 });
 
-test("declining keeps the helper, says Computer Use is unavailable, and is not asked again", async () => {
+test("cancellation during confirmation never dispatches shutdown", async () => {
 	const helper = new MacosHelperClient();
-	let restarts = 0, asked = 0;
+	const controller = new AbortController();
 	helper.diagnosticsCommand = async () => mismatched;
-	helper.restart = async () => { restarts++; };
-	const confirm = async () => { asked++; return false; };
-	await assert.rejects(helper.ensureProtocolWithConsent(confirm), /unavailable in this session.*Do not call Computer Use tools again/);
-	await assert.rejects(helper.ensureProtocolWithConsent(confirm), /running helper was not restarted/);
-	assert.deepEqual({ asked, restarts }, { asked: 1, restarts: 0 });
+	helper.daemonCommand = async () => assert.fail("must not dispatch after cancellation");
+	helper.launchDaemon = async () => assert.fail("must not launch after cancellation");
+	await assert.rejects(helper.ensureProtocolWithConsent(async () => { controller.abort(); return true; }, controller.signal), /Operation aborted/);
 });
 
-test("without a UI the mismatched helper is never restarted", async () => {
+test("unacknowledged shutdown stays unknown and is neither retried nor followed by a launch", async () => {
 	const helper = new MacosHelperClient();
-	let restarts = 0;
+	let stops = 0;
 	helper.diagnosticsCommand = async () => mismatched;
-	helper.restart = async () => { restarts++; };
-	await assert.rejects(helper.ensureProtocolWithConsent(undefined), /running helper was not restarted/);
-	assert.equal(restarts, 0);
-});
-
-test("a restart that still leaves a mismatch reports it and does not ask again", async () => {
-	const helper = new MacosHelperClient();
-	let restarts = 0, asked = 0;
-	helper.diagnosticsCommand = async () => mismatched;
-	helper.restart = async () => { restarts++; };
-	const confirm = async () => { asked++; return true; };
-	await assert.rejects(helper.ensureProtocolWithConsent(confirm), /running helper was not restarted/);
-	await assert.rejects(helper.ensureProtocolWithConsent(confirm), /running helper was not restarted/);
-	assert.deepEqual({ asked, restarts }, { asked: 1, restarts: 1 });
+	helper.daemonCommand = async () => { stops++; throw new Error("ack lost"); };
+	helper.launchDaemon = async () => assert.fail("must not launch");
+	await assert.rejects(helper.ensureProtocolWithConsent(async () => true), /rotom helper update.*shutdown was not confirmed/);
+	await assert.rejects(helper.ensureProtocolWithConsent(async () => assert.fail("must not ask again")), /shutdown was not confirmed/);
+	await assert.rejects(helper.command("diagnostics"), /shutdown was not confirmed/);
+	assert.equal(stops, 1);
 });

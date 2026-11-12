@@ -2,6 +2,11 @@ import { accessSync, constants as fsConstants, existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+export function resolveMacosHelperSocketPath(options = {}) {
+	const env = options.env ?? process.env;
+	return env.PI_CU_SOCKET_PATH ?? path.join(options.homeDir ?? os.homedir(), "Library", "Caches", "pi-computer-use", "bridge.sock");
+}
+
 const HELPER_APP_NAME = "pi-computer-use.app";
 const SYSTEM_HELPER_APP_PATH = path.join("/Applications", HELPER_APP_NAME);
 

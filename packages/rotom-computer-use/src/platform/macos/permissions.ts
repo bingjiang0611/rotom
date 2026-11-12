@@ -2,7 +2,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { ensurePermissions, type PermissionKind, type PermissionStatus } from "../../permissions.ts";
 import { toBoolean, toFiniteNumber, toOptionalString } from "../coerce.ts";
 import type { PlatformReadyState } from "../types.ts";
-import { helperRestartCopy } from "../../constants/copy.ts";
+import { helperStopCopy } from "../../constants/copy.ts";
 import { HELPER_APP_PATH, HELPER_PROTOCOL_VERSION, macosHelper } from "./helper.ts";
 import { assertPlatformArchitecture } from "../architecture.ts";
 
@@ -98,7 +98,7 @@ export async function ensureMacosReady(
 	}
 	const helperDiagnostics = await macosHelper.ensureProtocolWithConsent(
 		ctx.hasUI
-			? async (running) => await ctx.ui.confirm(helperRestartCopy.title, helperRestartCopy.message(running.protocolVersion, HELPER_PROTOCOL_VERSION), { signal })
+			? async (running) => await ctx.ui.confirm(helperStopCopy.title, helperStopCopy.message(running.protocolVersion, HELPER_PROTOCOL_VERSION), { signal })
 			: undefined,
 		signal,
 	);

@@ -1,0 +1,15 @@
+[
+  {
+    "schema": "rotom-loop-ledger/v1",
+    "id": "L-2026-11-12-computer-use-upgrade-m1",
+    "date": "2026-11-12",
+    "title": "Stop the old helper only with consent, then update instead of restarting the old binary",
+    "hypothesis": "A default-no interactive updater and a stop-only mismatch path can remove the restart/update dead end without implicit shutdown, forced termination, replay of unknown writes or replacement of an occupied executable.",
+    "change": "mechanism",
+    "measurement": "Run source typecheck and component regressions, the product check-personal entry, isolated real CLI/PTY cases backed by a disposable Unix socket fixture and real lsof, and two single-point negative controls. Repack the unpublished component, compare every source member and all prebuilt bytes, and distinguish candidate/main-only history audits from an all-remote-branch control. Do not connect to the daily helper or run native input.",
+    "result": "Component tests pass 325/325, including 29 focused updater/protocol checks. The actual CLI accepts explicit terminal consent, sends diagnostics and one shutdown, observes the released executable and installs the packaged bytes. Enter defaults to refusal; noninteractive use also refuses, with zero socket commands and unchanged fixture files. Socket mismatch, missing acknowledgement, persistent occupancy, cancellation and same-instance relaunch prevention have regressions. Restoring busy-target refusal or a mismatch restart call makes the corresponding new positive test fail. check-personal exits zero with 597 product tests, 99 Goal tests, provider offline checks and the default runtime/context contract passing. The component archive has 136 source members matching checkout and eight native members unchanged from c2922e7. The original 544-commit audit's zero findings are reproduced only for that clone's main/tags refs; a separate all-18-branch audit reports 107 findings across 1067 commits, all outside main's reachable objects. The reviewer's 482/244 requires its refs and rule versions for exact reconciliation. No audit rule, exception, archive ledger or existing history was changed. CLI fixtures are not real native-helper upgrade acceptance or measured agent-task improvement; the candidate still awaits review.",
+    "evidence": "unmeasured",
+    "decision": "open",
+    "source": "docs/agent/computer-use-v2/STATUS-5-upgrade-m1.md"
+  }
+]
