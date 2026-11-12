@@ -1,6 +1,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { LookResponse } from "../outline.ts";
 import type { PermissionStatus } from "../permissions.ts";
+import type { OpenTarget } from "../open-target.ts";
 
 export type PlatformName = "macos" | "windows" | "linux";
 /**
@@ -102,6 +103,9 @@ export interface HelperActPerformed {
 	grounding?: "description" | "coordinates" | "keyboard-events";
 	/** `ax` means the platform accessibility API (AX on macOS, UIA on Windows). */
 	delivery?: "ax" | NativeInputDelivery;
+	/** Explicit semantic activation, not a mouse-click fallback. */
+	axAction?: "AXOpen";
+	verification?: "caller_required";
 	refound?: boolean;
 	/** Free-form diagnostic naming the platform's delta mechanism. */
 	deltaSource?: string;
@@ -167,12 +171,47 @@ export interface PlatformClipboardRestore {
 
 export type PlatformDeliveryPolicy = "ax_only" | "background_text" | "background" | "default" | "foreground";
 type PlatformMouseButton = "left" | "right" | "middle";
-type PlatformActDeliveryParam = { delivery?: NativeInputDelivery };
+type PlatformActDeliveryParam = {
+	delivery?: NativeInputDelivery;
+	/**
+	 * Use `delivery` instead of an equivalent AX write.
+	 *
+	 * The product always names a delivery, so this cannot be inferred from `delivery`
+	 * being present: without it, text may legitimately be inserted through AX.
+	 * Only the direct-L2 check sets it, to observe the transport itself.
+	 */
+	requireTransport?: boolean;
+};
 export type PlatformPoint = { x: number; y: number };
+
+/**
+ * Proof that the broker granted this write, checked by the native helper.
+ *
+ * Absent when there is no broker (`ROTOM_CU_BROKER=0`): the helper then has no
+ * key and cannot check anything, which is the documented old behavior.
+ */
+export interface PlatformTakeoverInput {
+	pid: number;
+	/** App name shown on the border and in the trace; never user content. */
+	label: string;
+	/** Agent holding the foreground; the helper reports pause/resume for it. */
+	agentId: string;
+	leaseId: string;
+	lease?: HelperLease;
+}
+
+export interface HelperLease {
+	token: string;
+	/** Resource the token was issued for; the helper compares it with the target. */
+	resourceKey: string;
+}
 
 export interface PlatformActRequestBase {
 	lookId: string;
+	lease?: HelperLease;
 	pid?: number;
+	/** Agent whose cursor should move; each agent gets its own cursor (F4). */
+	cursorAgentId?: string;
 	target: PlatformActTarget;
 	policy: PlatformDeliveryPolicy;
 }
@@ -188,6 +227,7 @@ export type PlatformActRequest = PlatformActRequestBase & (
 	| { action: "hover"; params: PlatformActDeliveryParam }
 	| { action: "select"; params: { option?: string } & PlatformActDeliveryParam }
 	| { action: "setChecked"; params: { checked: boolean } & PlatformActDeliveryParam }
+	| { action: "open"; params: { openTarget?: OpenTarget; openApproved?: boolean } & PlatformActDeliveryParam }
 	| { action: "expand" | "collapse"; params: PlatformActDeliveryParam }
 	| { action: "scrollTo"; params: PlatformActDeliveryParam }
 	| { action: "focus"; params: PlatformActDeliveryParam }
@@ -232,12 +272,17 @@ export interface PlatformWaitForResponse {
 
 /** Real user input seen by the helper's listen-only tap. */
 export interface PlatformUserActivity {
+	/** Milliseconds since the epoch, the same clock the broker compares against. */
 	lastUserInputAt: number;
 	/** Seconds since the last real user input, or -1 when none was seen yet. */
 	idleSeconds: number;
+	/** Seconds for which the helper's listen-only tap has continuously observed input. */
+	listeningSeconds: number;
 	listening: boolean;
 	userEventCount: number;
 	agentEventCount: number;
+	/** Session HID posts plus all surrender ups (conservatively including targeted ups). */
+	agentHidEventCount: number;
 }
 
 export interface PlatformClipboardRead {
@@ -308,8 +353,15 @@ export interface ComputerUsePlatformBackend {
 	listApps(signal?: AbortSignal): Promise<PlatformApp[]>;
 	listRoots(query: PlatformRootQuery, signal?: AbortSignal): Promise<PlatformRoot[]>;
 	getFrontmost(signal?: AbortSignal): Promise<PlatformFrontmostResult>;
-	focusWindow(target: PlatformTarget, signal?: AbortSignal): Promise<PlatformFocusWindowResult>;
+	/**
+	 * Raise a window. This changes what the user sees, so it takes the
+	 * `desktop-pid:<pid>` lease: the helper refuses the command without a token
+	 * (review Q5). The lease is required, not optional, so a caller cannot forget it.
+	 */
+	focusWindow(target: PlatformTarget, signal: AbortSignal | undefined, lease: HelperLease): Promise<PlatformFocusWindowResult>;
 	observe(request: PlatformObserveRequest, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<LookResponse>;
+	/** Read the fresh AXOpen target type without dispatching an action. */
+	inspectOpenTarget?(request: { lookId: string; pid: number; ref: string }, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<OpenTarget>;
 	act(request: PlatformActRequest, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<HelperActResult>;
 	/** Execute one-resource actions with one root baseline and one final settle. */
 	actBatch?(requests: PlatformActRequest[], options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<HelperActResult>;
@@ -320,13 +372,17 @@ export interface ComputerUsePlatformBackend {
 	openBrowserLocation(target: { appName: string; bundleId?: string }, url: string, signal?: AbortSignal): Promise<boolean>;
 	/** Listen-only user input telemetry; absent when the platform cannot provide it. */
 	userActivity?(signal?: AbortSignal): Promise<PlatformUserActivity>;
+	/** Show the takeover border and swallow Escape for the duration (L4). */
+	takeoverBegin?(input: PlatformTakeoverInput, signal?: AbortSignal): Promise<void>;
+	takeoverEnd?(input: { agentId: string; leaseId: string }, signal?: AbortSignal): Promise<void>;
 	clipboardGet?(signal?: AbortSignal): Promise<PlatformClipboardRead>;
-	clipboardSet?(text: string, signal?: AbortSignal): Promise<PlatformClipboardWrite>;
-	clipboardClear?(signal?: AbortSignal): Promise<PlatformClipboardWrite>;
+	clipboardSet?(text: string, signal?: AbortSignal, lease?: HelperLease): Promise<PlatformClipboardWrite>;
+	clipboardClear?(signal?: AbortSignal, lease?: HelperLease): Promise<PlatformClipboardWrite>;
 	/** Capture every item and type, so a write can be undone exactly. */
 	clipboardSnapshot?(signal?: AbortSignal): Promise<PlatformClipboardSnapshot>;
-	clipboardRestore?(snapshot: PlatformClipboardSnapshot, signal?: AbortSignal): Promise<PlatformClipboardRestore>;
-	manageApps?(request: { mode: "launch"; bundleId?: string; path?: string; activates?: boolean } | { mode: "quit"; pid?: number; bundleId?: string; force?: boolean; timeoutMs?: number }, signal?: AbortSignal): Promise<PlatformAppLaunchResult | PlatformAppQuitResult>;
-	manageWindow?(request: { mode: PlatformWindowMode; pid?: number; windowId?: number; x?: number; y?: number; w?: number; h?: number; title?: string }, signal?: AbortSignal): Promise<PlatformWindowMutationResult | PlatformRoot[] | PlatformDisplay[]>;
+	/** Overwrites the clipboard, so it is a write: the lease is required (review Q5). */
+	clipboardRestore?(snapshot: PlatformClipboardSnapshot, signal: AbortSignal | undefined, lease: HelperLease): Promise<PlatformClipboardRestore>;
+	manageApps?(request: ({ mode: "launch"; bundleId?: string; path?: string; activates?: boolean } | { mode: "quit"; pid?: number; bundleId?: string; force?: boolean; timeoutMs?: number }) & { lease?: HelperLease }, signal?: AbortSignal): Promise<PlatformAppLaunchResult | PlatformAppQuitResult>;
+	manageWindow?(request: { mode: PlatformWindowMode; pid?: number; windowId?: number; x?: number; y?: number; w?: number; h?: number; title?: string; lease?: HelperLease }, signal?: AbortSignal): Promise<PlatformWindowMutationResult | PlatformRoot[] | PlatformDisplay[]>;
 	systemSurfaces?(surface: PlatformSystemSurfaceName | "all", signal?: AbortSignal): Promise<Record<string, PlatformSystemSurface>>;
 }

@@ -247,7 +247,7 @@ test("Computer Use 拦截批内重复 activation，但允许 clickCount 和焦�
 	const { api, run } = computerUseFixture();
 	let calls = 0;
 	api.registerTool({ name: "act_ui", async execute() { calls += 1; return desktopActionResult("unknown", "preexisting"); } } as any);
-	for (const pair of [["press", "click"], ["click", "press"], ["press", "press"]]) {
+	for (const pair of [["press", "click"], ["click", "press"], ["press", "press"], ["click", "open"], ["open", "click"], ["open", "open"]]) {
 		await assert.rejects(() => run("act_ui", { actions: pair.map((action) => ({ action, ref: "@e1" })) }), /No actions were dispatched/u);
 	}
 	assert.equal(calls, 0);
@@ -257,6 +257,24 @@ test("Computer Use 拦截批内重复 activation，但允许 clickCount 和焦�
 		[{ action: "click", ref: "@e1" }, { action: "typeText", text: "fixture" }, { action: "keypress", ref: "@e1", keys: ["Enter"] }],
 	]) await run("act_ui", { actions });
 	assert.equal(calls, 3);
+});
+
+test("Computer Use exposes only allowlisted per-step transport evidence to the model", () => {
+	const result = {
+		content: [{ type: "text", text: "Existing successor state" }],
+		details: { execution: { outcome: "unknown", steps: [
+			{ delivery: "pid", deliveryLevel: "L2" },
+			{ performed: { delivery: "ax", axAction: "AXOpen", verification: "caller_required" } },
+			{ delivery: "private-app-label", performed: { axAction: "private-action-label" } },
+		] } },
+	};
+	const annotated = computerUseEvidenceResult("act_ui", result);
+	assert.match(annotated.content[0].text!, /Step 1: delivery=pid/);
+	assert.match(annotated.content[0].text!, /Step 2: delivery=ax; axAction=AXOpen/);
+	assert.match(annotated.content[0].text!, /outcome=unknown/);
+	assert.match(annotated.content[0].text!, /Do not retry or switch to open/);
+	assert.doesNotMatch(annotated.content[0].text!, /private-|delivery=L2/);
+	assert.equal(annotated.details, result.details);
 });
 
 test("Computer Use 零尺寸 inspect 给出 targeting 诊断，不伪造可见性或改变后台配置", () => {

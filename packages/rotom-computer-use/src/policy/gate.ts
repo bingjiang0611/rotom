@@ -1,9 +1,11 @@
-import type { PolicyCheckInput, PolicyDecision, PolicyGate } from "../broker/core.ts";
+import type { PolicyCheckInput, PolicyDecision, PolicyGate } from "../broker/policy.ts";
 import type { TargetAppInfo } from "../broker/protocol.ts";
 import { appPolicyKey, catalogueTierOf, classifyApp, type AppIdentity, type AppTier } from "./catalog.ts";
 import { defaultPolicyPath, defaultProjectPolicyPath, PolicyStore } from "./policy-store.ts";
 import { matchSensitiveAction } from "./sensitive.ts";
 import { tierAllows, tierRefusal } from "./tiers.ts";
+import { requiresOpenConfirmation } from "../open-target.ts";
+import { approvalCopy } from "../constants/copy.ts";
 
 export interface GateOptions {
 	/** Fixed store (tests, single-project callers). */
@@ -60,13 +62,27 @@ export function createPolicyGate(options: GateOptions): PolicyGate {
 			// A card authorizes an app by identity. Without one (e.g. a browser CDP
 			// resource) there is nothing to persist, so the tier check stands alone.
 			const identified = Boolean(app?.bundleId?.trim() || app?.appName?.trim());
-			const requiresApproval = Boolean(sensitive) || (identified && configured === undefined);
+			const externalOpen = requiresOpenConfirmation(input.action);
+			const requiresApproval = externalOpen || Boolean(sensitive) || (identified && configured === undefined);
 			return {
 				tier,
 				requiresApproval,
-				warning: category.warning,
+				requiresFreshApproval: externalOpen,
+				warning: externalOpen ? approvalCopy.openWarning(category.warning) : category.warning,
 				cacheKey: sensitive ? `${appKey}#sensitive:${sensitive.rule.id}` : `${appKey}#tier`,
 			};
+		},
+		foregroundGranted(app: TargetAppInfo | undefined, fallbackKey?: string, cwd?: string): boolean {
+			const store = storeFor(cwd);
+			// A paused takeover must not resume on a cached, subsequently withdrawn
+			// grant. Project policy can revoke it, but never grant it.
+			store.invalidate();
+			if (store.effective().error) return false;
+			return store.hasForeground(app, fallbackKey);
+		},
+		/** Persist the user's explicit foreground (L4) grant. */
+		allowForeground(app: TargetAppInfo | undefined): void {
+			(staticStore ?? storeFor(undefined)).allowForeground(app);
 		},
 		allowApp(app: TargetAppInfo | undefined, tier: AppTier): void {
 			// "always" is a global grant; a project file may still tighten it later.

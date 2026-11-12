@@ -1,8 +1,11 @@
+import { takeoverCopy } from "../../constants/copy.ts";
 import { getComputerUseConfig } from "../../config.ts";
 import { parseLookResponse, type LookResponse } from "../../outline.ts";
+import { cursorColorFor } from "../../cursor-colors.ts";
 import { toBoolean, toFiniteNumber, toOptionalString } from "../coerce.ts";
-import type { ComputerUsePlatformBackend, FramePoints, HelperActResult, PlatformActRequest, PlatformApp, PlatformAppLaunchResult, PlatformAppQuitResult, PlatformClipboardRead, PlatformClipboardRestore, PlatformClipboardSnapshot, PlatformClipboardWrite, PlatformDisplay, PlatformFocusWindowResult, PlatformFrontmostResult, PlatformObserveRequest, PlatformReadTextRequest, PlatformReadTextResponse, PlatformRoot, PlatformRootKind, PlatformRootQuery, PlatformSystemSurface, PlatformSystemSurfaceName, PlatformTarget, PlatformUserActivity, PlatformWaitForRequest, PlatformWaitForResponse, PlatformWindowMutationResult } from "../types.ts";
+import type { HelperLease, ComputerUsePlatformBackend, FramePoints, HelperActResult, PlatformActRequest, PlatformApp, PlatformAppLaunchResult, PlatformAppQuitResult, PlatformClipboardRead, PlatformClipboardRestore, PlatformClipboardSnapshot, PlatformClipboardWrite, PlatformDisplay, PlatformDiagnostics, PlatformFocusWindowResult, PlatformFrontmostResult, PlatformObserveRequest, PlatformReadTextRequest, PlatformReadTextResponse, PlatformRoot, PlatformRootKind, PlatformRootQuery, PlatformSystemSurface, PlatformSystemSurfaceName, PlatformTakeoverInput, PlatformTarget, PlatformUserActivity, PlatformWaitForRequest, PlatformWaitForResponse, PlatformWindowMutationResult } from "../types.ts";
 import { macosHelper } from "./helper.ts";
+import type { OpenTarget } from "../../open-target.ts";
 
 function parseApps(result: unknown): PlatformApp[] {
 	const array = Array.isArray(result) ? result : (result as any)?.apps;
@@ -73,9 +76,11 @@ function parseUserActivity(result: any): PlatformUserActivity {
 	return {
 		lastUserInputAt: toFiniteNumber(result?.lastUserInputAt, 0),
 		idleSeconds: toFiniteNumber(result?.idleSeconds, -1),
+		listeningSeconds: toFiniteNumber(result?.listeningSeconds, 0),
 		listening: toBoolean(result?.listening),
 		userEventCount: Math.trunc(toFiniteNumber(result?.userEventCount, 0)),
 		agentEventCount: Math.trunc(toFiniteNumber(result?.agentEventCount, 0)),
+		agentHidEventCount: Math.trunc(toFiniteNumber(result?.agentHidEventCount, 0)),
 	};
 }
 
@@ -88,7 +93,7 @@ function parseClipboard(result: any): PlatformClipboardRead {
 	};
 }
 
-export const macosBackend: Pick<ComputerUsePlatformBackend, "listApps" | "listRoots" | "getFrontmost" | "focusWindow" | "observe" | "act" | "actBatch" | "readText" | "waitFor" | "userActivity" | "clipboardGet" | "clipboardSet" | "clipboardClear" | "clipboardSnapshot" | "clipboardRestore" | "manageApps" | "manageWindow" | "systemSurfaces"> = {
+export const macosBackend: Pick<ComputerUsePlatformBackend, "listApps" | "listRoots" | "getFrontmost" | "focusWindow" | "observe" | "inspectOpenTarget" | "act" | "actBatch" | "readText" | "waitFor" | "userActivity" | "clipboardGet" | "clipboardSet" | "clipboardClear" | "clipboardSnapshot" | "clipboardRestore" | "manageApps" | "manageWindow" | "systemSurfaces" | "takeoverBegin" | "takeoverEnd"> = {
 	async listApps(signal?: AbortSignal): Promise<PlatformApp[]> {
 		return parseApps(await macosHelper.command<unknown>("listApps", {}, { signal }));
 	},
@@ -115,8 +120,8 @@ export const macosBackend: Pick<ComputerUsePlatformBackend, "listApps" | "listRo
 		};
 	},
 
-	async focusWindow(target: PlatformTarget, signal?: AbortSignal): Promise<PlatformFocusWindowResult> {
-		return await macosHelper.command<PlatformFocusWindowResult>("focusWindow", { ...target }, { signal });
+	async focusWindow(target: PlatformTarget, signal: AbortSignal | undefined, lease: HelperLease): Promise<PlatformFocusWindowResult> {
+		return await macosHelper.command<PlatformFocusWindowResult>("focusWindow", { ...target, lease }, { signal });
 	},
 
 	async observe(request: PlatformObserveRequest, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<LookResponse> {
@@ -131,8 +136,20 @@ export const macosBackend: Pick<ComputerUsePlatformBackend, "listApps" | "listRo
 		}, options));
 	},
 
+	async inspectOpenTarget(request: { lookId: string; pid: number; ref: string }, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<OpenTarget> {
+		return await macosHelper.command<OpenTarget>("openTarget", request, options);
+	},
+
 	async act(request: PlatformActRequest, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<HelperActResult> {
-		return await macosHelper.command<HelperActResult>("act", { ...helperAction(request), cursorOverlay: getComputerUseConfig().cursor_overlay }, options);
+		return await macosHelper.command<HelperActResult>(
+			"act",
+			{
+				...helperAction(request),
+				cursorOverlay: getComputerUseConfig().cursor_overlay,
+				...(request.cursorAgentId ? { agentId: request.cursorAgentId, cursorColor: cursorColorFor(request.cursorAgentId) } : {}),
+			},
+			options,
+		);
 	},
 
 	async actBatch(requests: PlatformActRequest[], options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<HelperActResult> {
@@ -152,12 +169,28 @@ export const macosBackend: Pick<ComputerUsePlatformBackend, "listApps" | "listRo
 		return parseUserActivity(await macosHelper.command<any>("userActivity", {}, { signal }));
 	},
 
+	async takeoverBegin(input: PlatformTakeoverInput, signal?: AbortSignal): Promise<void> {
+		const diagnostics = await macosHelper.command<PlatformDiagnostics>("diagnostics", {}, { signal });
+		if (!diagnostics.invariants?.includes("takeover-pause-resume-30s")) throw new Error(takeoverCopy.unsupportedHelper);
+		await macosHelper.command<any>("takeoverBegin", {
+			pid: input.pid,
+			label: input.label,
+			agentId: input.agentId,
+			leaseId: input.leaseId,
+			...(input.lease ? { lease: input.lease } : {}),
+		}, { signal });
+	},
+
+	async takeoverEnd(input: { agentId: string; leaseId: string }, signal?: AbortSignal): Promise<void> {
+		await macosHelper.command<any>("takeoverEnd", input, { signal });
+	},
+
 	async clipboardGet(signal?: AbortSignal): Promise<PlatformClipboardRead> {
 		return parseClipboard(await macosHelper.command<any>("clipboardGet", {}, { signal }));
 	},
 
-	async clipboardSet(text: string, signal?: AbortSignal): Promise<PlatformClipboardWrite> {
-		const result = await macosHelper.command<any>("clipboardSet", { text }, { signal });
+	async clipboardSet(text: string, signal?: AbortSignal, lease?: HelperLease): Promise<PlatformClipboardWrite> {
+		const result = await macosHelper.command<any>("clipboardSet", { text, ...(lease ? { lease } : {}) }, { signal });
 		return {
 			changed: toBoolean(result?.changed),
 			changeCount: Math.trunc(toFiniteNumber(result?.changeCount, 0)),
@@ -175,8 +208,8 @@ export const macosBackend: Pick<ComputerUsePlatformBackend, "listApps" | "listRo
 		return { changeCount: Math.trunc(toFiniteNumber(result?.changeCount, 0)), totalBytes: Math.trunc(toFiniteNumber(result?.totalBytes, 0)), items };
 	},
 
-	async clipboardRestore(snapshot: PlatformClipboardSnapshot, signal?: AbortSignal): Promise<PlatformClipboardRestore> {
-		const result = await macosHelper.command<any>("clipboardRestore", { items: snapshot.items }, { signal });
+	async clipboardRestore(snapshot: PlatformClipboardSnapshot, signal: AbortSignal | undefined, lease: HelperLease): Promise<PlatformClipboardRestore> {
+		const result = await macosHelper.command<any>("clipboardRestore", { items: snapshot.items, lease }, { signal });
 		return {
 			restored: toBoolean(result?.restored),
 			changeCount: Math.trunc(toFiniteNumber(result?.changeCount, 0)),
@@ -184,8 +217,8 @@ export const macosBackend: Pick<ComputerUsePlatformBackend, "listApps" | "listRo
 		};
 	},
 
-	async clipboardClear(signal?: AbortSignal): Promise<PlatformClipboardWrite> {
-		const result = await macosHelper.command<any>("clipboardClear", {}, { signal });
+	async clipboardClear(signal?: AbortSignal, lease?: HelperLease): Promise<PlatformClipboardWrite> {
+		const result = await macosHelper.command<any>("clipboardClear", { ...(lease ? { lease } : {}) }, { signal });
 		return { cleared: toBoolean(result?.cleared), changeCount: Math.trunc(toFiniteNumber(result?.changeCount, 0)) };
 	},
 

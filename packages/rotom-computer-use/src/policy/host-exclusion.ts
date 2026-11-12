@@ -52,6 +52,19 @@ export function excludeHostRoots<T extends RootCandidate>(roots: readonly T[], h
 	return roots.filter((root) => !isHostRoot(root, host));
 }
 
+/**
+ * Drop windows owned by processes that are part of the tool itself.
+ *
+ * The helper owns the agent cursor overlay and the takeover border, and the Pi
+ * process may own a window of its own. Offering or photographing those would make
+ * the agent observe its own drawing instead of the user's screen.
+ */
+export function excludeInternalRoots<T extends RootCandidate>(roots: readonly T[], internalPids: readonly number[]): T[] {
+	const pids = new Set(internalPids.filter((pid) => Number.isFinite(pid) && pid > 0));
+	if (pids.size === 0) return [...roots];
+	return roots.filter((root) => !(typeof root.pid === "number" && pids.has(root.pid)));
+}
+
 /** Refusal message for an explicit attempt to target the host app. */
 export function hostTargetRefusal(host: HostAppInfo): string {
 	return `${host.appName} is the application hosting this session and is excluded from Computer Use. Choose a different root.`;

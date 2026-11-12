@@ -3,8 +3,9 @@
 This is a rotom-maintained fork, not an upstream release.
 
 - Upstream baseline: `@injaneity/pi-computer-use` **0.5.1** (MIT; original `LICENSE` retained).
-- Fork version: **0.5.1-rotom.3**.
-- `.rotom.3`: refresh the vendored source and ad-hoc macOS artifacts for protocol 8 and the v2 tool registrations, broker, policy and trace implementation. Windows/Linux artifacts remain unchanged. This rebuild does not replace or restart an installed helper.
+- Fork version: **0.5.1-rotom.4**.
+- Main-candidate replay retains main's one-attempt, explicit protocol-restart consent, transport-error guidance, permission-check fix and broker cleanup regression. The un-released `.rotom.4` candidate archive is repacked from this merged source; its new digest supersedes the review-branch artifact only in this candidate. No main change to another component is reverted. Main's 20 KB staged-file gate also requires a behavior-preserving split: installer I/O, release download and signing are separate modules, and helper-only activity handling moves into the existing broker user-control module. Installer exports and signing policy are retained; this is not authorization to create a certificate or update a live helper.
+- `.rotom.4`: packages the reviewed v2 work (helper protocol 11, broker protocol 2), shares the complete Swift source list between both build paths, and adds an explicit, copy-signing helper updater. Public main already used `.rotom.3`; this archive does not reuse that version.
 - `.rotom.2`: tool schemas, focus/condition guidance, recovery state and result evidence now live in the native component. Product composition retains only Relay-first browser fallback. Native helper bytes/signatures are unchanged from `.rotom.1`.
 - Windows and Linux native artifacts remain byte-for-byte from upstream 0.5.1.
 - macOS arm64, x64 and universal helper artifacts are now rebuilt from this source tree and **ad-hoc signed**, not Developer ID signed or notarized.
@@ -33,7 +34,19 @@ This is not a guarantee that an application can never activate itself. Foregroun
 
 ### Helper lifecycle and signing
 
-The macOS native protocol is now 8. A protocol/executable mismatch no longer automatically stops and relaunches a daemon potentially owned by another session. Close the owning sessions and explicitly update/restart the helper, or use a separate helper app and socket.
+The macOS native protocol is now 11 (broker protocol 2). A protocol/executable mismatch does not automatically stop, replace or relaunch a daemon potentially owned by another session.
+
+After closing the owning sessions **and quitting the old helper**, the user can explicitly run:
+
+```sh
+PI_COMPUTER_USE_CODESIGN_IDENTITY='<existing approved identity>' rotom helper update
+```
+
+This installs to `~/Applications/pi-computer-use.app`, retaining `com.injaneity.pi-computer-use`. It verifies the packaged app, copies it to a sibling staging directory, signs only that copy when an identity is supplied, and verifies the resulting signature before replacement. It does not create/import certificates, export keys, restart sessions or start a helper. A missing packaged app is an error, not an implicit source build. Ordinary setup's source fallback now shares `scripts/macos-sources.mjs` with the release builder.
+
+Without an identity, the prebuilt signature is preserved and the existing ad-hoc replacement guard remains in force. Ordinary postinstall/runtime setup is unchanged; the identity now also applies to the **explicit update command**, not to ordinary prebuilt-app copying.
+
+The updater refuses any process holding the target executable open, including an idle helper, and refuses inconclusive process checks. It checks before staging and immediately before replacement. An update-directory lock serializes updater commands; it is not an OS launch lock. Keep owning sessions closed throughout the update: legacy launchers or external processes can race the final check. A failed second rename retains the previous app at the reported backup path for inspection, without automatic replay. Custom/system-wide helper paths and sockets are not migrated; select the per-user path explicitly for the new session, or maintain the separate install yourself.
 
 The installer refuses to replace an existing helper with the bundled ad-hoc app unless `PI_COMPUTER_USE_ALLOW_ADHOC_UPDATE=1` is explicitly supplied. This can require macOS permission review and does not override system execution policy. No personal development-certificate signatures are included in the public archive. Local live tests used a separately signed copy, without changing the installed helper.
 
@@ -48,11 +61,11 @@ node scripts/build-native.mjs --arch all --sign-identity -
 npm pack --ignore-scripts
 ```
 
-`--arch all` also rebuilds the universal app preferred by the installer. Do not retain an older signed universal app beside new per-arch executables. Update the vendored tgz, third-party lock and product integrity pin together. `pack:release` never repacks this source automatically.
+`--arch all` also rebuilds the universal app preferred by the installer. Do not retain an older signed universal app beside new per-arch executables. Keep the old archive. Update the new vendored tgz, third-party manifest/lock and product integrity pin together. `scripts/macos-sources.mjs` is the single Swift file list for release builds and the installer source fallback. `pack:release` never repacks this source automatically.
 
 ## Verification and remaining limits
 
-The live checks below describe the earlier background-text artifacts, not the rebuilt `.rotom.3` helpers. The `.rotom.3` packaging and tool-registration checks do not establish live app/window management, clipboard, system-surface or L2 event delivery. Active helpers are not replaced or restarted by this rebuild.
+The bullets below are **historical background-text evidence**, not a claim that the `.rotom.4` artifact passed real-device startup or all v2 interactions. This packaging stage does not replace the daily helper. Current stage evidence is recorded in [stage-2 archive status](https://github.com/bingjiang0611/rotom/blob/claude/computer-use-v2.1/docs/agent/computer-use-v2/STATUS-3-archive.md).
 
 - Node focused regressions cover no implicit foreground retry and accepting the matching helper/rejecting mismatches without restarting another session's daemon.
 - Current native source compiled for arm64 and x64; universal app signature and architecture checks passed. x64 was not run on hardware.

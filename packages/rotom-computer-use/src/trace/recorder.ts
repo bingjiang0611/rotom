@@ -12,8 +12,9 @@
  *   - Files are private (`0700` dirs, `0600` files), symlinks are refused,
  *     retained for `retentionMs` and capped per session, and never uploaded.
  */
+import type { ApprovalDiagnostic } from "../broker/protocol.ts";
 import { createHash } from "node:crypto";
-import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, statSync, writeSync } from "node:fs";
+import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, statSync, writeSync, type Stats } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 
@@ -99,23 +100,36 @@ export interface TraceTargetSummary {
 }
 
 export interface TraceEntry {
+	/** Approval lifecycle only: correlation id, phase and decision enum. */
+	approval?: ApprovalDiagnostic;
 	/** Tool that produced this entry. */
 	tool: string;
 	/** Resolved target summary (never the full outline). */
 	target?: TraceTargetSummary;
 	/** L1 / L2 / L4 delivery level when the platform reports it. */
 	deliveryLevel?: string;
-	status: "ok" | "error" | "unknown" | "lease_conflict" | "stopped";
+	status: "ok" | "error" | "unknown" | "lease_conflict" | "stopped" | "paused" | "resumed";
 	durationMs?: number;
 	/** Lease/epoch evidence for writes. */
 	lease?: { agentId?: string; epoch?: number; holder?: string };
+	/**
+	 * Administrative handover of a lease to another agent.
+	 *
+	 * `cu_session transfer` moves a write lease between agents, and this is the only
+	 * record of who moved it: ids and resource keys, no content (review Q2).
+	 */
+	transfer?: { action: "transfer"; toAgentId: string; resourceKey: string; oldLeaseId: string; newLeaseId?: string };
 	/** Short evidence line (state id, ref count, error code) — never a payload. */
 	evidence?: string;
 	screenshots?: string[];
 	/** Redacted text-input evidence. */
 	text?: { length: number; sha256: string };
+	/** One surrender release, never text, pointer coordinates or event payloads. */
+	releaseOnYield?: { kind: "key" | "modifier" | "button"; code: number };
 	/** Why an agent clipboard write was not undone (reason code only, no content). */
-	clipboardRestoreSkipped?: "user_changed_clipboard" | "no_snapshot" | "restore_failed";
+	clipboardRestoreSkipped?: "user_changed_clipboard" | "no_snapshot" | "restore_failed" | "lease_unavailable";
+	/** Set when the broker paused this agent because an action disturbed the user. */
+	paused?: { reason: "interfered_with_user"; at: number };
 }
 
 export interface TraceOptions {
@@ -357,7 +371,7 @@ function readDirSafe(dir: string): string[] {
 	}
 }
 
-function statSafe(target: string): ReturnType<typeof statSync> | undefined {
+function statSafe(target: string): Stats | undefined {
 	try {
 		return statSync(target);
 	} catch {

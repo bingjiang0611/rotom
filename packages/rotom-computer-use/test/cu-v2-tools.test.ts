@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { prepareAction, type ActionEnvironment } from "../src/actions.ts";
 import type { PlatformClipboardSnapshot } from "../src/platform/types.ts";
-import { scheduleClipboardRestore } from "../src/bridge.ts";
+import { scheduleClipboardRestore } from "../src/tools/clipboard.ts";
 import { SEMANTIC_ACTION_NAMES, type UiAction } from "../src/contract.ts";
 
 const env: ActionEnvironment = {
@@ -17,7 +17,7 @@ const env: ActionEnvironment = {
 		canFocus: true,
 		canSetValue: false,
 		isTextInput: false,
-		actions: ["AXPress"],
+		actions: ["AXPress", "AXOpen"],
 		children: [],
 	}) as any,
 	center: () => ({ x: 10, y: 10 }),
@@ -58,6 +58,7 @@ test("semantic action parameters are validated, not silently defaulted", () => {
 	const select = prepareAction({ action: "select", ref: "@e1", option: " Fast " }, { currentFocus: false }, env);
 	assert.deepEqual(select.params, { option: "Fast" });
 	const checked = prepareAction({ action: "setChecked", ref: "@e1", checked: false }, { currentFocus: false }, env);
+	assert.ok(checked.action === "setChecked");
 	assert.equal(checked.params.checked, false);
 });
 
@@ -180,8 +181,15 @@ test("every mutating administration tool routes through the broker scheduler", a
 	// Review B2 wired these executors into the scheduler. The arbitration behaviour is
 	// covered by `cu-v2-authority.test.ts` against a real broker; this one only keeps
 	// the remaining invariant that no path calls the backend without a lease.
+	//
+	// The executors moved to `src/tools/` (v2.1 A1), so the invariant now follows them
+	// there instead of pinning them to `bridge.ts`.
 	const { readFileSync } = await import("node:fs");
-	const source = readFileSync(new URL("../src/bridge.ts", import.meta.url), "utf8");
+	const source = [
+		"../src/tools/clipboard.ts",
+		"../src/tools/apps.ts",
+		"../src/tools/windows-admin.ts",
+	].map((file) => readFileSync(new URL(file, import.meta.url), "utf8")).join("\n");
 	for (const [tool, needle] of [
 		["clipboard", "clipboardIntent(action)"],
 		["manage_app quit", 'appIntent("quit"'],

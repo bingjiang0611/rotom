@@ -1,6 +1,6 @@
 {
 	"name": "@injaneity/pi-computer-use",
-	"version": "0.5.1-rotom.3",
+	"version": "0.5.1-rotom.4",
 	"description": "rotom-maintained Computer Use fork with bounded IDEA background text input and no implicit foreground replay.",
 	"type": "module",
 	"keywords": [
@@ -29,7 +29,14 @@
 		"extensions",
 		"src",
 		"scripts/build-native.mjs",
+		"scripts/macos-sources.mjs",
+		"scripts/helper-update.mjs",
+		"scripts/check-macos-native-self-tests.mjs",
 		"scripts/setup-helper.mjs",
+		"scripts/setup-helper-common.mjs",
+		"scripts/setup-helper-release.mjs",
+		"scripts/setup-helper-signing.mjs",
+		"scripts/check-lease-guard.mjs",
 		"native/macos/*.swift",
 		"native/windows/bridge-rs/Cargo.lock",
 		"native/windows/bridge-rs/Cargo.toml",
@@ -54,6 +61,8 @@
 	"scripts": {
 		"postinstall": "node scripts/setup-helper.mjs --postinstall",
 		"typecheck": "tsc -p tsconfig.json",
+		"typecheck:fatal": "node scripts/typecheck-fatal.mjs",
+		"pretest": "npm run typecheck",
 		"test:schema": "node scripts/check-tool-schemas.mjs",
 		"test:invariants": "node scripts/check-invariants.mjs",
 		"test:lifecycle": "tsx scripts/check-session-lifecycle.mjs",
@@ -65,13 +74,15 @@
 		"test:package-assets": "node scripts/check-package-assets.mjs",
 		"test:signing": "node scripts/check-local-signing.mjs",
 		"test:macos-path": "node scripts/check-macos-helper-path.mjs",
-		"test": "node --test --experimental-strip-types \"test/*.test.ts\"",
+		"test:macos-native-self-tests": "node scripts/check-macos-native-self-tests.mjs",
+		"test": "node --test --test-concurrency=1 --experimental-strip-types \"test/*.test.ts\"",
 		"build:native": "node scripts/build-native.mjs",
 		"build:windows": "node scripts/build-native.mjs --platform windows",
 		"build:linux": "node scripts/build-native.mjs --platform linux",
 		"test:linux": "tsx scripts/check-platform-linux.mjs",
 		"test:linux-scripts": "node scripts/check-linux-build-scripts.mjs",
-		"test:linux-live": "PI_CU_LIVE=1 tsx scripts/check-linux-live.mjs"
+		"test:linux-live": "PI_CU_LIVE=1 tsx scripts/check-linux-live.mjs",
+		"test:lease-guard": "node --experimental-strip-types scripts/check-lease-guard.mjs"
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-ai": "*",

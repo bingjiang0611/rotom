@@ -73,6 +73,7 @@ export type UiActionName =
 	| "drag"
 	| "moveMouse"
 	| "hover"
+	| "open"
 	| "select"
 	| "setChecked"
 	| "expand"
@@ -84,7 +85,10 @@ export type UiActionName =
 	| "showMenu";
 
 /** Actions that only exist as accessibility operations on a resolved element. */
-export const SEMANTIC_ACTION_NAMES = new Set<UiActionName>(["select", "setChecked", "expand", "collapse", "scrollTo", "focus", "clear", "setValue", "showMenu"]);
+export type SemanticActionName = "open" | "select" | "setChecked" | "expand" | "collapse" | "scrollTo" | "focus" | "clear" | "setValue" | "showMenu";
+export const SEMANTIC_ACTION_NAMES = new Set<UiActionName>(["open", "select", "setChecked", "expand", "collapse", "scrollTo", "focus", "clear", "setValue", "showMenu"]) as {
+	has(action: UiActionName): action is SemanticActionName;
+} & Set<UiActionName>;
 
 export interface UiAction {
 	action: UiActionName;

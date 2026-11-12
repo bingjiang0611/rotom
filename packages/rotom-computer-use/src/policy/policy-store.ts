@@ -9,6 +9,13 @@ export type PolicyGrant = AppTier | "deny";
 export interface ParsedPolicy {
 	/** Keyed by bundle id or app name. */
 	apps: Record<string, PolicyGrant>;
+	/**
+	 * Apps whose foreground mode the user allowed (PLAN §7, L4).
+	 *
+	 * Written only by the user's own `policy.json`: a project file can revoke a
+	 * foreground grant but never add one, and no agent can grant it to itself.
+	 */
+	foreground: string[];
 	sensitive: boolean;
 	error?: string;
 	path?: string;
@@ -35,23 +42,25 @@ export function readPolicyFile(filePath: string): ParsedPolicy | undefined {
 	try {
 		raw = readFileSync(filePath, "utf8");
 	} catch (error) {
-		return { apps: {}, sensitive: true, error: `Cannot read ${filePath}: ${error instanceof Error ? error.message : String(error)}`, path: filePath };
+		return { apps: {}, foreground: [], sensitive: true, error: `Cannot read ${filePath}: ${error instanceof Error ? error.message : String(error)}`, path: filePath };
 	}
 	try {
 		const parsed = JSON.parse(raw) as { v?: number; apps?: Record<string, unknown>; sensitive?: unknown };
 		const apps: Record<string, PolicyGrant> = {};
+		const foreground: string[] = [];
 		for (const [key, value] of Object.entries(parsed.apps ?? {})) {
 			if (value === "deny") apps[key] = "deny";
 			else if (isAppTier(value)) apps[key] = value;
 			else if (value && typeof value === "object") {
-				const tier = (value as { tier?: unknown }).tier;
-				if (isAppTier(tier)) apps[key] = tier;
+				const entry = value as { tier?: unknown; foreground?: unknown };
+				if (isAppTier(entry.tier)) apps[key] = entry.tier;
+				if (entry.foreground === true) foreground.push(key);
 			}
 		}
-		return { apps, sensitive: parsed.sensitive !== false, path: filePath };
+		return { apps, foreground, sensitive: parsed.sensitive !== false, path: filePath };
 	} catch (error) {
 		// An unreadable policy must not silently widen access.
-		return { apps: {}, sensitive: true, error: `Cannot parse ${filePath}: ${error instanceof Error ? error.message : String(error)}`, path: filePath };
+		return { apps: {}, foreground: [], sensitive: true, error: `Cannot parse ${filePath}: ${error instanceof Error ? error.message : String(error)}`, path: filePath };
 	}
 }
 
@@ -81,8 +90,12 @@ export function mergePolicies(base: ParsedPolicy | undefined, overlay: ParsedPol
 		const merged = tighten(globalGrant, projectGrant);
 		if (merged) apps[key] = merged;
 	}
+	// Foreground grants come from the global file only, and a project entry for the
+	// same key may take one away: tightening, never widening.
+	const foreground = (base?.foreground ?? []).filter((key) => overlay?.apps[key] !== "deny");
 	return {
 		apps,
+		foreground,
 		sensitive: (base?.sensitive ?? true) && (overlay?.sensitive ?? true),
 		error: [base?.error, overlay?.error].filter(Boolean).join("; ") || undefined,
 	};
@@ -121,6 +134,13 @@ export class PolicyStore {
 		this.cached = undefined;
 	}
 
+	/** True when the user allowed this app to take the foreground. */
+	hasForeground(app: AppIdentity | undefined, fallback?: string): boolean {
+		const policy = this.effective();
+		const keys = [app?.bundleId?.trim(), app?.appName?.trim(), fallback].filter((key): key is string => Boolean(key));
+		return keys.some((key) => policy.foreground.includes(key));
+	}
+
 	/** Configured grant for an app, if any; project entries already merged. */
 	lookup(app: AppIdentity | undefined, fallback: string): PolicyGrant | undefined {
 		const policy = this.effective();
@@ -139,7 +159,7 @@ export class PolicyStore {
 	allowApp(app: AppIdentity | undefined, tier: AppTier): void {
 		const key = app?.bundleId?.trim() || app?.appName?.trim();
 		if (!key) throw new Error("Cannot persist a grant without a bundle id or app name.");
-		const existing = readPolicyFile(this.globalPath) ?? { apps: {}, sensitive: true };
+		const existing = readPolicyFile(this.globalPath) ?? { apps: {}, foreground: [], sensitive: true };
 		const current = existing.apps[key];
 		if (current === "deny") throw new Error(`${key} is denied by policy; remove that entry before granting it.`);
 		if (current === undefined || TIER_RANK[tier] < TIER_RANK[current]) existing.apps[key] = tier;
@@ -147,9 +167,23 @@ export class PolicyStore {
 		this.cached = undefined;
 	}
 
+	/**
+	 * Persist a foreground (L4) grant. The user makes this decision explicitly; no
+	 * agent path calls it, and a denied app cannot be granted foreground either.
+	 */
+	allowForeground(app: AppIdentity | undefined): void {
+		const key = app?.bundleId?.trim() || app?.appName?.trim();
+		if (!key) throw new Error("Cannot persist a foreground grant without a bundle id or app name.");
+		const existing = readPolicyFile(this.globalPath) ?? { apps: {}, foreground: [], sensitive: true };
+		if (existing.apps[key] === "deny") throw new Error(`${key} is denied by policy; remove that entry before granting its foreground.`);
+		if (!existing.foreground.includes(key)) existing.foreground.push(key);
+		this.writeGlobal(existing);
+		this.cached = undefined;
+	}
+
 	describe(): Record<string, unknown> {
 		const policy = this.effective();
-		return { path: this.globalPath, projectPath: this.projectPath, apps: policy.apps, sensitive: policy.sensitive, error: policy.error };
+		return { path: this.globalPath, projectPath: this.projectPath, apps: policy.apps, foreground: policy.foreground, sensitive: policy.sensitive, error: policy.error };
 	}
 
 	private writeGlobal(policy: ParsedPolicy): void {
@@ -159,7 +193,16 @@ export class PolicyStore {
 			if (lstatSync(this.globalPath).isSymbolicLink()) throw new UnsafePathError(`${this.globalPath} is a symlink; refusing to write policy through it.`);
 			chmodSync(this.globalPath, 0o600);
 		}
-		const payload = JSON.stringify({ v: POLICY_VERSION, sensitive: policy.sensitive, apps: sortRecord(policy.apps) }, null, 2);
+		// Foreground grants live inside each app entry, so a hand-edited file stays
+		// readable: `{"apps": {"com.example.App": {"tier": "full", "foreground": true}}}`.
+		const apps: Record<string, PolicyGrant | { tier?: PolicyGrant; foreground: true }> = {};
+		for (const [key, grant] of Object.entries(sortRecord(policy.apps))) {
+			apps[key] = policy.foreground.includes(key) && grant !== "deny" ? { tier: grant, foreground: true } : grant;
+		}
+		for (const key of policy.foreground) {
+			if (apps[key] === undefined) apps[key] = { foreground: true };
+		}
+		const payload = JSON.stringify({ v: POLICY_VERSION, sensitive: policy.sensitive, apps }, null, 2);
 		const temporary = `${this.globalPath}.${process.pid}.tmp`;
 		writeFileSync(temporary, `${payload}\n`, { mode: 0o600 });
 		renameSync(temporary, this.globalPath);

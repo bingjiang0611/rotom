@@ -1,24 +1,25 @@
+import AppKit
 import CoreGraphics
 import Foundation
 import Observation
 
-/// Main-actor Dubins-path animation state consumed by the SwiftUI overlay.
-@Observable
-@MainActor
-final class AgentCursorRenderer {
-    static let shared = AgentCursorRenderer()
+/// Per-agent cursor state: position, heading and the Dubins path it is following.
+///
+/// One value per agent, stored in `AgentCursorRenderer.cursors`, so several agents
+/// driving at once each get their own cursor instead of fighting over one.
+struct AgentCursorState {
+    var position = CGPoint(x: -200, y: -200)
+    var heading: Double = .pi / 4
+    var isAnimating = false
+    var color: (red: Double, green: Double, blue: Double) = (1, 0x78 / 255, 0x18 / 255)
 
-    private(set) var position = CGPoint(x: -200, y: -200)
-    private(set) var heading: Double = .pi / 4
-    private(set) var isAnimating = false
+    fileprivate var path: PlannedPath?
+    fileprivate var spring: Spring?
+    fileprivate var distanceSoFar: Double = 0
+    fileprivate var lastFrameTime: CFTimeInterval?
+    fileprivate var springTarget: (point: CGPoint, heading: Double)?
 
-    private var path: PlannedPath?
-    private var spring: Spring?
-    private var distanceSoFar: Double = 0
-    private var lastFrameTime: CFTimeInterval?
-    private var springTarget: (point: CGPoint, heading: Double)?
-
-    func moveTo(point clickPoint: CGPoint) {
+    mutating func moveTo(point clickPoint: CGPoint) {
         let endAngle = Double.pi / 4
         let targetPoint = CGPoint(
             x: clickPoint.x + CGFloat(cos(endAngle) * 16),
@@ -35,12 +36,12 @@ final class AgentCursorRenderer {
         isAnimating = true
     }
 
-    func setInitialPosition(_ point: CGPoint) {
+    mutating func setInitialPosition(_ point: CGPoint) {
         position = point
         cancelAnimation()
     }
 
-    func cancelAnimation() {
+    mutating func cancelAnimation() {
         path = nil
         spring = nil
         springTarget = nil
@@ -49,7 +50,7 @@ final class AgentCursorRenderer {
         isAnimating = false
     }
 
-    func tick(now: CFTimeInterval) {
+    mutating func tick(now: CFTimeInterval) {
         guard isAnimating else { return }
         let previous = lastFrameTime ?? now
         let dt = min(0.05, now - previous)
@@ -107,6 +108,61 @@ final class AgentCursorRenderer {
         while difference > .pi { difference -= 2 * .pi }
         while difference < -.pi { difference += 2 * .pi }
         return current + max(-maxStep, min(maxStep, difference))
+    }
+}
+
+/// Every agent's cursor, keyed by agent id (F4).
+///
+/// The colour comes from the client (`cursorColorFor(agentId)` in TypeScript), so
+/// the same agent keeps the same colour across sessions and two agents never share
+/// one by accident. The overlay itself is click-through and helper-owned: it never
+/// receives mouse events, and the helper refuses to capture its own windows.
+@Observable
+@MainActor
+final class AgentCursorRenderer {
+    static let shared = AgentCursorRenderer()
+
+    private(set) var cursors: [String: AgentCursorState] = [:]
+
+    /// True while any cursor is still moving; the view stops redrawing otherwise.
+    var isAnimating: Bool {
+        cursors.values.contains { $0.isAnimating }
+    }
+
+    /// True while any cursor is on screen (or about to be), used to keep the window.
+    var isActive: Bool {
+        cursors.values.contains { $0.position.x > -100 || $0.isAnimating }
+    }
+
+    func animate(agentId: String, to point: CGPoint, color: (red: Double, green: Double, blue: Double)?) {
+        var state = cursors[agentId] ?? AgentCursorState()
+        if let color { state.color = color }
+        if state.position.x < -100 {
+            let frame = NSScreen.main?.frame ?? .zero
+            state.setInitialPosition(CGPoint(
+                x: min(max(point.x - 140, frame.minX + 2), frame.maxX - 2),
+                y: min(max(point.y - 140, frame.minY + 2), frame.maxY - 2)
+            ))
+        }
+        state.moveTo(point: point)
+        cursors[agentId] = state
+    }
+
+    func tick(now: CFTimeInterval) {
+        for (agentId, state) in cursors {
+            guard state.isAnimating else { continue }
+            var next = state
+            next.tick(now: now)
+            cursors[agentId] = next
+        }
+    }
+
+    func remove(agentId: String) {
+        cursors.removeValue(forKey: agentId)
+    }
+
+    func removeAll() {
+        cursors.removeAll()
     }
 }
 

@@ -15,8 +15,14 @@ export interface WriteIntent {
 	app?: TargetAppInfo;
 }
 
-/** The clipboard is one shared resource, independent of the app in focus. */
-export function clipboardIntent(action: "get" | "set" | "clear"): WriteIntent {
+/**
+ * The clipboard is one shared resource, independent of the app in focus.
+ *
+ * `restore` is a separate action from `set` because it is the agent undoing its own
+ * write 30 seconds later: the trace and the tier table should be able to tell them
+ * apart even though both write `clipboard:system`.
+ */
+export function clipboardIntent(action: "get" | "set" | "clear" | "restore"): WriteIntent {
 	return {
 		resourceKey: "clipboard:system",
 		action: { name: `clipboard_${action}`, label: "System clipboard" },

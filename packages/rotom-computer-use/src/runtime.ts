@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { ActionIntent } from "./broker/protocol.ts";
 
 export interface StoredState<T> {
 	stateId: string;
@@ -68,13 +69,15 @@ interface ResourceRecord {
 export interface LeaseGrant {
 	leaseId: string;
 	epoch: number;
+	/** Helper-checkable proof of this lease; absent without a broker. */
+	token?: string;
 }
 
 export interface LeaseAcquireRequest {
 	resourceKey: string;
 	/** Observation epoch the caller acts on; omitted when it has no state to invalidate. */
 	baseEpoch?: number;
-	action?: { name: string; label?: string };
+	action?: ActionIntent;
 	app?: { appName?: string; bundleId?: string };
 }
 
@@ -95,7 +98,16 @@ export interface LeaseBroker {
 
 /** A write that the broker refused for a reason the caller must report, not retry blindly. */
 export class LeaseUnavailableError extends Error {
-	readonly code: "resource_busy" | "denied" | "approval_unavailable" | "approval_denied" | "stopped_by_user" | "broker_unavailable";
+	readonly code:
+		| "resource_busy"
+		| "denied"
+		| "approval_unavailable"
+		| "approval_denied"
+		| "stopped_by_user"
+		| "paused_interfered"
+		| "preempted_by_user"
+		| "takeover_conditions"
+		| "broker_unavailable";
 	readonly holder?: { agentId: string; remainingMs: number; expiresAt?: number; leaseId?: string };
 	readonly detail?: string;
 
@@ -172,7 +184,7 @@ export class ResourceScheduler {
 	async write<T>(
 		resourceKey: string,
 		baseEpoch: number,
-		work: (nextEpoch: number) => Promise<T>,
+		work: (nextEpoch: number, grant: LeaseGrant) => Promise<T>,
 		leaseContext?: Omit<LeaseAcquireRequest, "resourceKey" | "baseEpoch">,
 	): Promise<{ value: T; epoch: number }> {
 		return await this.enqueue(resourceKey, async (record) => {
@@ -182,14 +194,14 @@ export class ResourceScheduler {
 				const grant = await this.broker.acquire({ resourceKey, baseEpoch, ...leaseContext });
 				this.brokerEpochs.set(resourceKey, grant.epoch);
 				record.epoch = grant.epoch;
-				return { value: await work(grant.epoch), epoch: grant.epoch };
+				return { value: await work(grant.epoch, grant), epoch: grant.epoch };
 			}
 			if (record.epoch !== baseEpoch) throw new StaleResourceStateError(resourceKey, baseEpoch, record.epoch);
 			const nextEpoch = record.epoch + 1;
 			// Invalidate the base state before dispatch. If native execution becomes
 			// uncertain or throws after a partial effect, later writes still fail safe.
 			record.epoch = nextEpoch;
-			return { value: await work(nextEpoch), epoch: nextEpoch };
+			return { value: await work(nextEpoch, { leaseId: "", epoch: nextEpoch }), epoch: nextEpoch };
 		});
 	}
 

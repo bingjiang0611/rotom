@@ -1,0 +1,7 @@
+{
+  "step": "B1",
+  "commit": "f60cb0e7d56870dd15c30c04383a38d22527f896",
+  "reason": "direct L2 | click effect = fail (before={\"value\":\"clicked\",\"label\":null,\"title\":\"\",\"description\":\"\"} after={\"value\":\"clicked\",\"label\":null,\"title\":\"\",\"description\":\"\"} outcome=unknown)",
+  "run": "2026-11-07T07-36-22-719Z-l2-check.md",
+  "at": "2026-11-07T07:36:22.720Z"
+}

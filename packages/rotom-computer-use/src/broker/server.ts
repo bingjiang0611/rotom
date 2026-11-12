@@ -200,7 +200,7 @@ export async function startBrokerServer(options: BrokerServerOptions = {}): Prom
 						idleSince = now();
 					}
 				}).catch((error: unknown) => {
-					write({ ok: false, code: "invalid_request", message: error instanceof Error ? error.message : String(error) });
+					write({ id: request.id, ok: false, code: "invalid_request", message: error instanceof Error ? error.message : String(error) } as BrokerReply);
 				});
 			}
 		});

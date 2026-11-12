@@ -48,6 +48,8 @@ test("distribution is public-scoped, owns its Pi fork, has no installation hooks
 	assert.equal(manifest.dependencies, undefined);
 	assert.ok(manifest.files.includes(PI_MODULES));
 	assert.ok(manifest.files.includes("runtime/update-product.mjs"));
+	assert.ok(manifest.files.includes("runtime/update-helper.mjs"));
+	assert.ok(manifest.files.includes("runtime/helper-update-copy.mjs"));
 	assert.deepEqual(manifest.bin, { rotom: "bin/rotom" });
 	for (const hook of ["preinstall", "install", "postinstall", "prepare"]) assert.equal(manifest.scripts[hook], undefined);
 	await verifyDistributionContract(SOURCE);
@@ -300,5 +302,7 @@ test("packed inventory requires every runtime resource and license and excludes 
 	for (const path of [".pi/tasks/state.json", "extensions/third-party/subagent-results.json", "evals/trajectory.json"]) {
 		assert.throws(() => verifyPackList(manifest, { files: [...packed.files, { path }] }));
 	}
-	assert.throws(() => verifyPackList(manifest, { files: packed.files.filter((f) => !f.path.endsWith("native-host.mjs")) }), /Missing packed/);
+	for (const required of ["native-host.mjs", "@juicesharp/rpiv-ask-user-question/ask-user-question.ts"]) {
+		assert.throws(() => verifyPackList(manifest, { files: packed.files.filter((f) => !f.path.endsWith(required)) }), /Missing packed/);
+	}
 });

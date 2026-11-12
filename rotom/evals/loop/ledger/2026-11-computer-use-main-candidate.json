@@ -1,0 +1,15 @@
+[
+  {
+    "schema": "rotom-loop-ledger/v1",
+    "id": "L-2026-11-12-computer-use-main-candidate",
+    "date": "2026-11-12",
+    "title": "Replay reviewed Computer Use v2.1 onto public main without its private branch history",
+    "hypothesis": "A clean main candidate can retain current dependencies and protocol fixes while carrying the reviewed v2.1 approval, lease, helper-update and typing work. Main's newer Ask constructor must be checked with the actual pinned questionnaire rather than assumed compatible.",
+    "change": "mechanism",
+    "measurement": "Replay the reviewed file diff into an independent public-main clone; retain unrelated main changes. Compare all archive members to the merged source and all prebuilt bytes to the reviewed artifact. Run the full component tests, dry run, product/check-personal and default/full runtime smoke without live native input, plus tracked-tree, actual archive and committed-history privacy audits. The public charter and the release draft preserve HANDOFF-6's evidence levels rather than treating offline tests as device acceptance.",
+    "result": "The initial Ask 2.15 questionnaire regression exposed three rendering failures: the legacy caller omitted required rowBudget and notesKey. The adapter now supplies the native fullRowBudget, DEFAULT_NOTES_KEY and canReopenWhileHidden=false; all eleven focused approval regressions pass, including the unchanged abort/deadline/one-shot behavior and a new row-budget assertion. The un-released component archive is repacked with main's protocol/permission fixes; 136 source files match the merged checkout and all eight prebuilt files match the approved artifact. Main's stale current footprint contracts are recalibrated against an unchanged main control and the actual candidate SDK loads; CU adds only 272 resident schema bytes and 813 full-surface bytes. The immutable historical reference and one-byte regression gate are retained. Main's file-size gate requires a responsibility split of installer utilities and broker activity handling; the three installer modules are explicitly packed and verified, with a missing-module archive-import negative control. Final component tests pass 315/315; check-personal exits zero with 597 product tests, 99 Goal tests, 282 Qoder and 98 Pi AI tests plus seven offline provider smokes. Default/full/owned footprint gates pass; dry run has 38 passes and three explicit real-device skips. Tree and actual component archive privacy scans have zero findings. Full commands and delivery evidence are recorded in the stage report. No daily installation, helper, certificate, real input, publishing or main push is part of this experiment. This is an open review candidate, not measured user-task improvement or fresh live-device evidence.",
+    "evidence": "unmeasured",
+    "decision": "open",
+    "source": "docs/agent/computer-use-v2/STATUS-4-main-candidate.md"
+  }
+]

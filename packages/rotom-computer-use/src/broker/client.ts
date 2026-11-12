@@ -4,6 +4,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
 	BROKER_PROTOCOL_VERSION,
+	DEFAULT_APPROVAL_TIMEOUT_MS,
+	DEFAULT_WAIT_TIMEOUT_MS,
+	type ApprovalDiagnostic,
 	type AcquireRequest,
 	type AcquireResponse,
 	type AgentRegistration,
@@ -13,11 +16,14 @@ import {
 	type BrokerEvent,
 	type BrokerFailure,
 	type BrokerReply,
+	type BrokerRequestInput,
 	type BrokerRequest,
 	type EpochResponse,
 	type HelloResponse,
 	type LeaseInfo,
+	type InterferenceResponse,
 	type PolicyResponse,
+	type ResumeResponse,
 	type StatusResponse,
 	type StopResponse,
 	type TargetAppInfo,
@@ -55,7 +61,8 @@ export interface BrokerClientOptions {
 	heartbeatMs?: number;
 	requestTimeoutMs?: number;
 	onEvent?: (event: BrokerEvent) => void;
-	onApproval?: (event: ApprovalRequestEvent) => Promise<ApprovalDecision>;
+	onApproval?: (event: ApprovalRequestEvent, signal: AbortSignal) => Promise<ApprovalDecision>;
+	onApprovalDiagnostic?: (entry: ApprovalDiagnostic) => void;
 }
 
 interface PendingRequest {
@@ -123,7 +130,9 @@ export class BrokerClient {
 	private heartbeatTimer: NodeJS.Timeout | undefined;
 	private closedIntentionally = false;
 	private onEvent: ((event: BrokerEvent) => void) | undefined;
-	private onApproval: ((event: ApprovalRequestEvent) => Promise<ApprovalDecision>) | undefined;
+	private onApproval: BrokerClientOptions["onApproval"];
+	private readonly onApprovalDiagnostic: BrokerClientOptions["onApprovalDiagnostic"];
+	private connectionAbort = new AbortController();
 	private reconnectAttempts = 0;
 
 	private constructor(options: BrokerClientOptions, socket: net.Socket) {
@@ -134,6 +143,7 @@ export class BrokerClient {
 		this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
 		this.onEvent = options.onEvent;
 		this.onApproval = options.onApproval;
+		this.onApprovalDiagnostic = options.onApprovalDiagnostic;
 		this.attach();
 	}
 
@@ -154,7 +164,7 @@ export class BrokerClient {
 		return client;
 	}
 
-	setHandlers(handlers: { onEvent?: (event: BrokerEvent) => void; onApproval?: (event: ApprovalRequestEvent) => Promise<ApprovalDecision> }): void {
+	setHandlers(handlers: Pick<BrokerClientOptions, "onEvent" | "onApproval">): void {
 		this.onEvent = handlers.onEvent;
 		this.onApproval = handlers.onApproval;
 	}
@@ -194,12 +204,27 @@ export class BrokerClient {
 		return ((await this.expect({ type: "stop", targetAgentId })) as StopResponse).stopped;
 	}
 
+	/** Report that this agent's own action disturbed the user; the broker pauses it. */
+	async approveTakeover(): Promise<boolean> {
+		const reply = await this.request({ type: "takeover_approval" });
+		return reply.ok === true;
+	}
+
+	async reportInterference(evidence?: string): Promise<boolean> {
+		return ((await this.expect({ type: "interference", evidence })) as InterferenceResponse).paused;
+	}
+
+	/** Ask the broker to lift a pause. The broker refuses unless this is the helper. */
+	async resume(targetAgentId: string): Promise<string[]> {
+		return ((await this.expect({ type: "resume", targetAgentId })) as ResumeResponse).resumed;
+	}
+
 	async policy(op: "get" | "allow_app", app?: TargetAppInfo, tier?: AppTier): Promise<PolicyResponse["policy"]> {
 		return ((await this.expect({ type: "policy", op, app, tier })) as PolicyResponse).policy;
 	}
 
 	/** Raw reply; never throws for a structured broker failure. */
-	async request(request: Omit<BrokerRequest, "id"> & { id?: string }): Promise<BrokerReply> {
+	async request(request: BrokerRequestInput & { id?: string }): Promise<BrokerReply> {
 		const id = request.id ?? this.nextId();
 		const payload = { ...request, id } as BrokerRequest;
 		return await this.send(payload);
@@ -207,6 +232,7 @@ export class BrokerClient {
 
 	close(): void {
 		this.closedIntentionally = true;
+		this.connectionAbort.abort();
 		clearInterval(this.heartbeatTimer);
 		this.heartbeatTimer = undefined;
 		for (const pending of this.pending.values()) {
@@ -217,13 +243,14 @@ export class BrokerClient {
 		this.socket.destroy();
 	}
 
-	private async expect(request: Omit<BrokerRequest, "id">): Promise<BrokerReply> {
+	private async expect(request: BrokerRequestInput): Promise<BrokerReply> {
 		const reply = await this.request(request);
 		if (reply.ok === false) throw new BrokerRequestError(reply.code, reply.message, reply);
 		return reply;
 	}
 
 	private attach(): void {
+		const connectionAbort = this.connectionAbort = new AbortController();
 		this.socket.setEncoding("utf8");
 		this.socket.on("data", (chunk: string) => {
 			this.buffer += chunk;
@@ -237,6 +264,7 @@ export class BrokerClient {
 		});
 		this.socket.on("error", () => undefined);
 		this.socket.on("close", () => {
+			connectionAbort.abort();
 			for (const pending of this.pending.values()) {
 				clearTimeout(pending.timer);
 				pending.reject(new BrokerUnavailableError("Broker connection closed."));
@@ -271,23 +299,37 @@ export class BrokerClient {
 		this.onEvent?.(event);
 		if (event.event !== "approval") return;
 		const handler = this.onApproval;
+		const signal = AbortSignal.any([
+			this.connectionAbort.signal,
+			AbortSignal.timeout(Math.max(0, event.deadline - Date.now())),
+		]);
 		const finish = (decision: ApprovalDecision) => {
-			void this.request({ type: "approval_response", requestId: event.requestId, decision } as Omit<BrokerRequest, "id">).catch(() => undefined);
+			// A late choice must not be sent over a reconnected socket or reused.
+			if (signal.aborted || Date.now() >= event.deadline) return;
+			void this.expect({ type: "approval_response", requestId: event.requestId, decision }).then(
+				() => this.onApprovalDiagnostic?.({ requestId: event.requestId, phase: "response_ack" }),
+				() => this.onApprovalDiagnostic?.({ requestId: event.requestId, phase: "response_error" }),
+			);
 		};
 		if (!handler) {
 			finish("deny");
 			return;
 		}
-		void handler(event).then(finish, () => finish("deny"));
+		void handler(event, signal).then(finish, () => finish("deny"));
 	}
 
 	private send(request: BrokerRequest): Promise<BrokerReply> {
 		if (this.socket.destroyed) return Promise.reject(new BrokerUnavailableError("Broker connection is closed."));
+		// acquire includes one approval and, when requested, one bounded lease wait.
+		// Keep the ordinary request budget as the transport margin after both.
+		const timeoutMs = this.requestTimeoutMs + (request.type === "acquire"
+			? DEFAULT_APPROVAL_TIMEOUT_MS + (request.wait ? DEFAULT_WAIT_TIMEOUT_MS : 0)
+			: 0);
 		return new Promise<BrokerReply>((resolve, reject) => {
 			const timer = setTimeout(() => {
 				this.pending.delete(request.id);
 				reject(new BrokerUnavailableError(`Broker request ${request.type} timed out.`));
-			}, this.requestTimeoutMs);
+			}, timeoutMs);
 			timer.unref?.();
 			this.pending.set(request.id, { resolve, reject, timer });
 			this.socket.write(`${JSON.stringify(request)}\n`);
@@ -295,7 +337,7 @@ export class BrokerClient {
 	}
 
 	private async handshake(): Promise<HelloResponse> {
-		const reply = await this.request({ type: "hello", protocolVersion: BROKER_PROTOCOL_VERSION, agent: this.agent } as Omit<BrokerRequest, "id">);
+		const reply = await this.request({ type: "hello", protocolVersion: BROKER_PROTOCOL_VERSION, agent: this.agent });
 		if (reply.ok === false) throw new BrokerRequestError(reply.code, reply.message, reply);
 		return reply as HelloResponse;
 	}
@@ -304,7 +346,7 @@ export class BrokerClient {
 		if (this.heartbeatMs <= 0) return;
 		this.heartbeatTimer = setInterval(() => {
 			if (this.socket.destroyed) return;
-			void this.request({ type: "ping" } as Omit<BrokerRequest, "id">).catch(() => undefined);
+			void this.request({ type: "ping" }).catch(() => undefined);
 		}, this.heartbeatMs);
 		this.heartbeatTimer.unref?.();
 	}

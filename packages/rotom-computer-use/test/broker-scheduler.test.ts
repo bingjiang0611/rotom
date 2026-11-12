@@ -126,7 +126,7 @@ test("an unreachable broker fails writes closed with an actionable code", async 
 		(error: unknown) => {
 			assert.ok(error instanceof LeaseUnavailableError);
 			assert.equal(error.code, "broker_unavailable");
-			assert.match(error.message, /ROTOM_CU_BROKER=0/);
+			assert.doesNotMatch(error.message, /ROTOM_CU_BROKER=0/);
 			return true;
 		},
 	);

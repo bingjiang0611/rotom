@@ -28,7 +28,7 @@ const brokerDir = import.meta.dirname;
 const srcRoot = path.dirname(brokerDir);
 
 /** Only the daemon's own dependency closure; keep this list in sync with daemon.ts. */
-const ENTRIES = ["broker", "policy", "trace", "config.ts", "runtime.ts"];
+const ENTRIES = ["broker", "policy", "trace", "config.ts", "runtime.ts", "open-target.ts", "constants/copy.ts"];
 
 function collect(target, found = []) {
 	const stats = statSync(target);

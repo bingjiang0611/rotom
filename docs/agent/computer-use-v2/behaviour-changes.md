@@ -3,6 +3,8 @@
 合入 Computer Use v2 后，macOS 上跨进程 Broker 默认启用。这是**行为变化**，不是纯内部重构：
 以前能跑的无人值守流程，在没有任何授权记录时会直接失败。本文说明变了什么、怎么保持原样。
 
+以下描述实现合同，不等于整套真机验收。当前候选为 helper 协议 11 / broker 协议 2；证据分级见 [STATUS](STATUS.md)，0.2.0 的升级警告见 [发布说明草稿](../../releases/computer-use-v2-draft.md)。B1–B6 未通过，租约校验和前台接管等仍只有 L1 证据。
+
 ## 变了什么
 
 1. **每个 App 的第一次写入会弹授权卡。** 授权按 App 身份（bundle id 优先）生效，级别分为
@@ -19,6 +21,55 @@
    但等待者可能拿到 `resource_busy`。
 5. **强制退出单独确认。** `manage_app quit` 且 `force: true` 时，即使这个 App 已经拿到 `full`，
    也会再弹一次确认卡（动作名 `manage_app_force_quit`），因为强制退出不给 App 保存或询问的机会。
+6. **动作打扰到用户时，该 agent 会被暂停（第二期 A3）。** 判定仍然由 helper 做：动作之后前台
+   App 变了，并且用户在 2 秒内有过真实输入。被暂停的 agent 后续写请求一律返回
+   `paused_interfered`，它持有的租约同时被撤销（所以要释放给用户和其他 agent），读请求不受影响。
+   恢复只能由用户做：helper 菜单栏对被暂停的 agent 显示 “Resume …”，Broker 只接受
+   `role=helper` 连接发起的 `resume`。模型没有任何工具可以恢复自己。
+
+7. **写入由 helper 自己校验，不再只靠 broker（第二期 A5）。** broker 给每份租约签一个 token
+   （HMAC-SHA256），签名密钥只在 broker 内存里生成，只交给 `role=helper` 的连接，不落盘、不经过
+   任何 agent。helper 在执行写动作前检查签名、有效期、目标 pid 与已撤销列表，任一不满足就返回
+   `lease_invalid`／`lease_expired`，动作不会发生。这意味着**绕过 broker 直连 helper socket 已经
+   不能写**：这正是“别人直接调 AX/HID”这条缺口被堵掉的部分。
+   该机制引入时 helper 协议升到 **9**，当前候选已为 **11**（broker **2**）；旧 helper 不会被静默重启，协议不匹配时客户端提示显式更新。
+   关掉 broker（见做法二）时 helper 拿不到密钥，于是不做校验——仍是旧行为，不是静默绕过。
+   **这条边界要说清（第二期 E4）：helper 的角色是自报的。** 任何进程在 hello 里写
+   `role: "helper"` 都可能被当成 helper，所以这里防的是“我们自己的客户端出 bug 或不走 broker”，
+   不是“同一用户下的恶意进程”——后者在本机属于同一信任边界，拦不住也不该在文档里假装拦得住。
+   能做的两件实事已经做了：同一时间只接受一个 helper 连接（第二个 hello 得到 `not_permitted`，
+   原 helper 断开后才接受新的），以及密钥只在 hello 成功后交给这一个连接。
+   **哪几条命令算写入，是穷举而不是推断的（第二期 Q5）：** `act`、`clipboardSet`、`clipboardClear`、
+   `clipboardRestore`、`focusWindow`、`manageApps`、`manageWindow`、`takeoverBegin`。其中
+   `clipboardRestore`（30 秒后把剪贴板还原）与 `focusWindow`（把窗口提到前面）原先漏在网络之外，
+   现在也要租约：还原走 `clipboard:system` 租约，窗口前置要 `desktop-pid:<pid>` 租约。
+   **拿不到租约的还原直接放弃，不写也不重试**，trace 里记 `restore_skipped:lease_unavailable`——
+   用户会看到“剪贴板没被还原”，而不是别人写的内容被悄悄覆盖。
+
+8. **前台接管（L4）是一个独立的、默认没有授予的许可（第二期 A6）。** `cu_session` 新增
+   `takeover`／`release_takeover`：拿不到这个许可就一个字节也不会写。三个条件同时成立才发放
+   “整个桌面”的全局租约——用户在这个 App 上允许过前台模式（`policy.json` 里
+   `{"apps": {"<bundle id>": {"tier": "full", "foreground": true}}}`，只有用户自己写的文件算数，
+   项目文件只能撤销不能新增）、用户已经 10 秒没有真实输入（或刚在菜单栏点过“让它接管”，
+   60 秒内有效）、没有别的 agent 持有前台。helper 开始前再检查连续观察到的 30 秒安静期。接管期间显示全屏边框；未标记输入立刻暂停，
+   只补发本 agent 尚未释放的 up，随后零派发，许可与租约保留并续租。安静满 30 秒且原窗口、授权、租约均有效才自动恢复。
+   单次暂停上限 120 秒、最多准入恢复 3 次、总预算 600 秒；超限硬结束。`Esc`（只吞这一个键）、菜单停止与显式 release
+   都硬结束，不自动恢复。中断动作返回 `unknown`，未完成文本不续打、旧批次不重放；已执行步骤不回滚。
+   本轮仅离线测试，B5 尚未验证这些新语义。无 UI 的 headless 会话永远不进入 L4。
+   没有 broker 时 `cu_session takeover` 直接不可用（前台必须有人仲裁）。
+
+9. **IntelliJ 的后台投递从实际 `pid` 变成 `l2`（第二期 REVIEW-5 G4；后续真机 0 次成功、5 次失败）。**
+   TS 侧一直按兼容清单给 `com.jetbrains.intellij*` 发 `delivery: "l2"`，但 helper 先判
+   `policy: "background"` 再判显式投递，所以这块实际一直走 pid 投递。修好优先级后，这批动作
+   第一次真的走 `SLEventPostToPid`。若某个 macOS 版本没有这个私有符号，helper 报
+   `l2_unavailable`，客户端**用同一个后台策略、改 pid 投递重试一次**，不升级前台、不移动光标。
+   B1 还没有 l2 的正例；用户决定保持默认 L2，但它可能不生效。这里只记录行为变化，不作为真机能力通过的声明。
+
+10. **仅当前输入源为输入法时，`typeText` 优先 AX 插入（H2 方案一，2026-11-09 用户决定）。**
+    helper 用 `TISCopyCurrentKeyboardInputSource` 和输入源类型判断。中文等输入法启用时，若目标
+    `AXSelectedText` 可写，先在光标处插入文本，避免输入法改写。纯键盘布局（例如 ABC）保持原来的按键路径。
+    `params.requireTransport` 仍优先；元素不可写时使用原按键路径。AX 写入一旦被接受但读回不确定，
+    返回 `unknown`，不重发按键。`setText` 的语义不变。本轮只做代码和离线测试；这一分流尚未真机验证。
 
 ## 保持原来行为的两种做法
 
@@ -66,6 +117,19 @@ broker trace。适合“这台机器只有我一个人用、且我确定不会�
   仍然报 `foreground_required`，与本文的授权是两道独立的门。
 
 ## 已验证的行为
+
+第二期的补充见 [`test/broker-pause.test.ts`](../../../packages/rotom-computer-use/test/broker-pause.test.ts)（A3 暂停）
+与 [`test/lease-token.test.ts`](../../../packages/rotom-computer-use/test/lease-token.test.ts)（A5 租约 token）。
+A6（前台接管）见 [`test/takeover.test.ts`](../../../packages/rotom-computer-use/test/takeover.test.ts)：
+三个条件、第二个 agent 抢到时 `resource_busy`、真实输入触发 `preempted_by_user`、headless 拒绝、
+边框与续租用假 backend 覆盖。
+
+A5 的 native 侧用 `npm run test:lease-guard` 验证：helper 自检 22 项（合法／签名错／过期／秒级过期／
+pid 不符／已撤销／过期撤销被遗忘／换 key 清空撤销／读命令免租约／无 pid 的写命令被拒／
+`manageApps` 只认自己的 App／`focusWindow` 与 `clipboardRestore` 无 token 被拒／无 broker 密钥），
+再用**真实 `BrokerCore` 签出的 token** 跑 18 步（合法、过期、错 pid、无 token、转交后的新旧 id、
+重启换 key、App 级租约、读命令、两种新写入的租约与“App 租约不能拿来还原剪贴板”），不再由脚本
+自己构造 claim。
 
 - `packages/rotom-computer-use/test/cu-v2-authority.test.ts`：
   - 预先授权为 `full` 的 App 在无 UI 会话里可以写入；同一个无 UI 会话写入未授权 App 得到

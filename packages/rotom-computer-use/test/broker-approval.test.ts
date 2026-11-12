@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { BrokerCore } from "../src/broker/core.ts";
-import { BROKER_PROTOCOL_VERSION, type AgentRegistration, type ApprovalRequestEvent, type BrokerEvent, type BrokerRequest, type BrokerReply } from "../src/broker/protocol.ts";
+import { BROKER_PROTOCOL_VERSION, type AgentRegistration, type ApprovalRequestEvent, type BrokerEvent, type BrokerRequestInput, type BrokerRequest, type BrokerReply } from "../src/broker/protocol.ts";
 import { createPolicyGate } from "../src/policy/gate.ts";
 import { PolicyStore } from "../src/policy/policy-store.ts";
 import { createFakeClock } from "./helpers/fake-clock.ts";
@@ -42,12 +42,12 @@ async function hello(core: BrokerCore, agent: AgentRegistration): Promise<void> 
 	assert.equal(reply.ok, true);
 }
 
-async function call(core: BrokerCore, agentId: string, request: Omit<BrokerRequest, "id">): Promise<BrokerReply> {
+async function call(core: BrokerCore, agentId: string, request: BrokerRequestInput): Promise<BrokerReply> {
 	return await core.handle(agentId, { ...request, id: `${request.type}-${Math.random()}` } as BrokerRequest);
 }
 
 function acquire(core: BrokerCore, agentId: string, extra: Record<string, unknown> = {}): Promise<BrokerReply> {
-	return call(core, agentId, { type: "acquire", resourceKey: "desktop-pid:900", app: { appName: "TextEdit", bundleId: "com.apple.TextEdit" }, action: { name: "press" }, ...extra } as Omit<BrokerRequest, "id">);
+	return call(core, agentId, { type: "acquire", resourceKey: "desktop-pid:900", app: { appName: "TextEdit", bundleId: "com.apple.TextEdit" }, action: { name: "press" }, ...extra });
 }
 
 test("a subagent's card goes to the nearest UI-capable ancestor, and that answer gates the write", async () => {

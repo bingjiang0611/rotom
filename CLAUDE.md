@@ -26,6 +26,7 @@ Browser relay 的协议 kind、native host id 与显示品牌已统一为 rotom�
 - 通过仓内 `packages/rotom-pi/` 的 Pi fork 接入；默认只从产品 `runtime/pi/node_modules/` 解析固定 fork，不回退 PATH、global 或旁路 Pi。`ROTOM_PI`、`ROTOM_NODE` 是显式维护覆盖，仍须通过 identity/capability gate。
 - 允许按任务需要修改或 fork Pi、使用私有 Extension API；相关改动要说明兼容性影响并完成对应验证。Pi 源码或构建器改动后必须 `npm run build:pi`，`check:pi` 通过才算可交付。
 - launcher 保留业务 cwd 和用户 argv；仓库根不能冒充用户项目。
+- `rotom helper update` 是 rotom 自有子命令：首参 `helper` 由 launcher 处理，不透传 Pi、不启动会话。
 - **npm publish 是不可逆外部写入**：只有用户明确授权精确 version 与 dist-tag 才进入发布流程，缺任一项就停下询问；npm 认证与 publish 命令由用户在自己的前台终端执行，Agent 不接触密码、OTP 或 token。完整顺序见 [npm 发布顺序](docs/agent/contracts/npm-release.md)。
 
 ### 2. 运行时资源必须可证明 — [完整合同](docs/agent/contracts/runtime-resources.md)
@@ -46,6 +47,17 @@ Browser relay 的协议 kind、native host id 与显示品牌已统一为 rotom�
 - Pi 原生工具、Browser 和 Computer Use 都以本机用户权限运行；Computer Use 的确认面只是同意层，不是隔离层。
 - 外部写执行一次，随后按同坐标 readback；失败、超时或无法证明时返回 `unknown`，不盲目重试或自动回滚。
 - 环境、发布阶段和 scope 必须来自当前请求或权威 preflight；`.pi/tasks/`、`.pi/delegate/`、`.pi/fusion/` 可能属于存活会话，不能当临时垃圾删除。
+
+Computer Use：helper 协议已升到 11，broker 协议 2；仲裁仍为协作式。证据不外推到新归档，详见[状态](docs/agent/computer-use-v2/STATUS.md)。
+
+| 路径 | 当前证据 |
+|---|---|
+| Finder 后台读取、AXOpen 文件夹、Ask 弹层与授权等待 | 真机，用户报告不打扰 |
+| 文件/App 确认（O1） | 用户报告真机通过，细节未留存 |
+| L2 | 真机 0 成功 / 5 失败；用户保留 IntelliJ 默认 L2，可能无效 |
+| pid | 无真机成功记录 |
+| 后台打字、H2、剪贴板恢复、接管暂停/恢复、租约校验 | 仅离线/原生自测（L1） |
+| B1–B6 | 未通过；端点安全终止新 bundle id 的 fixture 副本 |
 
 ### 5. Observability 只记录必要 metadata
 

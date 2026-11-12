@@ -5,6 +5,7 @@ import type {
 	ComputerUsePlatformBackend,
 	FramePoints,
 	HelperActResult,
+	HelperLease,
 	PlatformActRequest,
 	PlatformApp,
 	PlatformFocusWindowResult,
@@ -148,8 +149,8 @@ export const linuxBackend: ComputerUsePlatformBackend = {
 			rootRef: focused.rootRef,
 		};
 	},
-	async focusWindow(target: PlatformTarget, signal?: AbortSignal): Promise<PlatformFocusWindowResult> {
-		return await linuxHelper.command("focusWindow", { ...target }, { signal });
+	async focusWindow(target: PlatformTarget, signal: AbortSignal | undefined, lease: HelperLease): Promise<PlatformFocusWindowResult> {
+		return await linuxHelper.command("focusWindow", { ...target, lease }, { signal });
 	},
 	async observe(request: PlatformObserveRequest, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<LookResponse> {
 		return parseLookResponse(await linuxHelper.command("look", {

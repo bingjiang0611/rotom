@@ -1,16 +1,13 @@
+import { randomBytes } from "node:crypto";
 import type { LeaseHolderInfo, LeaseInfo } from "./protocol.ts";
 
-export interface Schedule {
-	/** Returns a cancel function. Injected so tests can drive time deterministically. */
-	schedule(callback: () => void, ms: number): () => void;
-}
+/** Returns a cancel function. Injected so tests can drive time deterministically. */
+export type Schedule = (callback: () => void, ms: number) => () => void;
 
-export const realSchedule: Schedule = {
-	schedule(callback, ms) {
-		const timer = setTimeout(callback, Math.max(0, ms));
-		timer.unref?.();
-		return () => clearTimeout(timer);
-	},
+export const realSchedule: Schedule = (callback, ms) => {
+	const timer = setTimeout(callback, Math.max(0, ms));
+	timer.unref?.();
+	return () => clearTimeout(timer);
 };
 
 export interface LeaseManagerOptions {
@@ -18,6 +15,12 @@ export interface LeaseManagerOptions {
 	schedule?: Schedule;
 	ttlMs: number;
 	waitTimeoutMs: number;
+	/**
+	 * Prefix for lease ids. Random per manager by default, because the helper keeps
+	 * revocations by id: a restarted broker handing out `lease-1` again would collide
+	 * with the previous process's ids (review E2). Tests pass a fixed value.
+	 */
+	idPrefix?: string;
 }
 
 export interface Lease {
@@ -27,6 +30,8 @@ export interface Lease {
 	epoch: number;
 	expiresAt: number;
 	ttlMs: number;
+	/** When the lease was granted, used to report how long a takeover has been held. */
+	createdAt: number;
 }
 
 export interface AcquireOptions {
@@ -41,12 +46,20 @@ export type AcquireResult =
 	| { ok: false; code: "resource_busy"; holder: LeaseHolderInfo }
 	| { ok: false; code: "stale"; currentEpoch: number; expectedEpoch: number };
 
-export type RevokedReason = "stopped_by_user" | "owner_disconnected" | "expired" | "transferred";
+export type RevokedReason = "stopped_by_user" | "owner_disconnected" | "expired" | "transferred" | "paused_interfered" | "preempted_by_user" | "released_by_user" | "takeover_ended";
 
 export interface Revocation {
 	agentId: string;
 	leaseIds: string[];
 	reason: RevokedReason;
+	/**
+	 * Latest expiry among the revoked leases, in milliseconds.
+	 *
+	 * The helper keeps rejected ids only until this moment and then forgets them, so
+	 * the set stays bounded without the helper having to know the broker's TTL policy
+	 * (review E2).
+	 */
+	expiresAt: number;
 }
 
 export function toLeaseInfo(lease: Lease): LeaseInfo {
@@ -99,6 +112,7 @@ export class LeaseManager {
 	private readonly schedule: Schedule;
 	private readonly ttlMs: number;
 	private readonly waitTimeoutMs: number;
+	private readonly idPrefix: string;
 	private counter = 0;
 	/** Called when a lease is revoked without the holder asking for it. */
 	onRevoke: ((revocation: Revocation) => void) | undefined;
@@ -111,6 +125,7 @@ export class LeaseManager {
 		this.schedule = options.schedule ?? realSchedule;
 		this.ttlMs = options.ttlMs;
 		this.waitTimeoutMs = options.waitTimeoutMs;
+		this.idPrefix = options.idPrefix ?? randomBytes(4).toString("hex");
 	}
 
 	holder(resourceKey: string): Lease | undefined {
@@ -206,24 +221,41 @@ export class LeaseManager {
 		return true;
 	}
 
-	/** Hand a lease to a child agent, e.g. when the parent spawns a subagent. */
+	/**
+	 * Hand a lease to a child agent, e.g. when the parent spawns a subagent.
+	 *
+	 * The receiver gets a new lease id and the old one is revoked: the helper keeps
+	 * revocations by id, so reusing the id would make the receiver's very first write
+	 * fail as `lease_invalid` (review E2).
+	 */
 	transfer(agentId: string, leaseId: string, toAgentId: string): Lease | undefined {
 		const lease = this.get(leaseId);
 		if (!lease || lease.agentId !== agentId) return undefined;
-		lease.agentId = toAgentId;
-		lease.expiresAt = this.now() + lease.ttlMs;
-		this.onRevoke?.({ agentId, leaseIds: [leaseId], reason: "transferred" });
-		return lease;
+		const next = this.reissue(lease, toAgentId);
+		this.notifyRevoked(agentId, [lease], "transferred");
+		return next;
+	}
+
+	/**
+	 * Hand every lease an agent holds to another agent.
+	 *
+	 * Used when a parent hands an app to its subagent and when that subagent exits:
+	 * a crashed child must not keep the app locked until the TTL expires, and the
+	 * parent already earned the authorization.
+	 */
+	transferAll(agentId: string, toAgentId: string): Lease[] {
+		const held = [...this.leases.values()].filter((lease) => lease.agentId === agentId);
+		const renewed = held.map((lease) => this.reissue(lease, toAgentId));
+		this.notifyRevoked(agentId, held, "transferred");
+		return renewed;
 	}
 
 	/** Drop every lease an agent holds. Returns the revoked ids. */
 	revokeAgent(agentId: string, reason: RevokedReason): string[] {
-		const revoked = [...this.leases.values()].filter((lease) => lease.agentId === agentId).map((lease) => lease.leaseId);
-		for (const leaseId of revoked) {
-			const lease = this.leases.get(leaseId);
-			if (lease) this.drop(lease, reason, false);
-		}
-		if (revoked.length > 0) this.onRevoke?.({ agentId, leaseIds: revoked, reason });
+		const held = [...this.leases.values()].filter((lease) => lease.agentId === agentId);
+		const revoked = held.map((lease) => lease.leaseId);
+		for (const lease of held) this.drop(lease, reason, false);
+		this.notifyRevoked(agentId, held, reason);
 		return revoked;
 	}
 
@@ -261,6 +293,7 @@ export class LeaseManager {
 			epoch: 0,
 			expiresAt: 0,
 			ttlMs,
+			createdAt: this.now(),
 		};
 		lease.agentId = agentId;
 		lease.ttlMs = ttlMs;
@@ -295,8 +328,41 @@ export class LeaseManager {
 	private drop(lease: Lease, reason?: RevokedReason, notify = true): void {
 		this.leases.delete(lease.leaseId);
 		if (this.byResource.get(lease.resourceKey) === lease.leaseId) this.byResource.delete(lease.resourceKey);
-		if (reason && notify) this.onRevoke?.({ agentId: lease.agentId, leaseIds: [lease.leaseId], reason });
+		if (reason && notify) this.notifyRevoked(lease.agentId, [lease], reason);
 		this.grantWaiters();
+	}
+
+	/** One revocation event, carrying the moment after which the ids can be forgotten. */
+	private notifyRevoked(agentId: string, leases: Lease[], reason: RevokedReason): void {
+		if (leases.length === 0) return;
+		this.onRevoke?.({
+			agentId,
+			leaseIds: leases.map((lease) => lease.leaseId),
+			reason,
+			expiresAt: Math.max(...leases.map((lease) => lease.expiresAt)),
+		});
+	}
+
+	/**
+	 * Give the same resource to another agent under a new id.
+	 *
+	 * The epoch is bumped like a fresh grant: an observation taken under the previous
+	 * holder is not valid for the new one.
+	 */
+	private reissue(lease: Lease, toAgentId: string): Lease {
+		const next: Lease = {
+			leaseId: this.nextLeaseId(),
+			resourceKey: lease.resourceKey,
+			agentId: toAgentId,
+			epoch: this.epochs.bump(lease.resourceKey),
+			expiresAt: this.now() + lease.ttlMs,
+			ttlMs: lease.ttlMs,
+			createdAt: this.now(),
+		};
+		this.leases.delete(lease.leaseId);
+		this.leases.set(next.leaseId, next);
+		this.byResource.set(next.resourceKey, next.leaseId);
+		return next;
 	}
 
 	private dropWaiter(waiter: Waiter): boolean {
@@ -309,6 +375,6 @@ export class LeaseManager {
 
 	private nextLeaseId(): string {
 		this.counter += 1;
-		return `lease-${this.counter}`;
+		return `lease-${this.idPrefix}-${this.counter}`;
 	}
 }

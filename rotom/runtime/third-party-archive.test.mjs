@@ -30,7 +30,7 @@ test("selected Subagent archive includes current closure projection, runner drai
 
 test("Computer Use archive carries the current native, routing, installer and package sources", async () => {
 	const archive = join(source, VERIFIED_THIRD_PARTY_PACKAGES["@injaneity/pi-computer-use"].archive);
-	for (const file of ["package.json", "UPSTREAM.md", "extensions/computer-use.ts", "src/recovery.ts", "native/macos/agent_cursor.swift", "native/macos/agent_cursor_motion.swift", "native/macos/background_text.swift", "native/macos/bridge.swift", "src/bridge.ts", "src/constants/copy.ts", "src/platform/types.ts", "src/platform/macos/helper.ts", "scripts/build-native.mjs", "scripts/setup-helper.mjs"]) {
+	for (const file of ["package.json", "UPSTREAM.md", "extensions/computer-use.ts", "src/recovery.ts", "native/macos/agent_cursor.swift", "native/macos/agent_cursor_motion.swift", "native/macos/background_text.swift", "native/macos/bridge.swift", "src/bridge.ts", "src/constants/copy.ts", "src/platform/types.ts", "src/platform/macos/helper.ts", "scripts/build-native.mjs", "scripts/setup-helper.mjs", "scripts/macos-sources.mjs", "scripts/helper-update.mjs", "src/constants/helper-update.mjs", "src/broker/daemon-entry.mjs"]) {
 		const tracked = resolve(import.meta.dirname, "../../packages/rotom-computer-use", file);
 		assert.deepEqual(execFileSync("tar", ["-xOf", archive, `package/${file}`], { maxBuffer: 1_000_000 }), await readFile(tracked), file);
 	}

@@ -26,6 +26,7 @@ export const ACTION_TIERS: Record<string, AppTier> = {
 
 	// Pointer-free control.
 	press: "click",
+	open: "click",
 	click: "click",
 	scroll: "click",
 	moveMouse: "click",
@@ -47,6 +48,8 @@ export const ACTION_TIERS: Record<string, AppTier> = {
 	manage_window_maximize: "click",
 	manage_window_focus: "click",
 	release: "click",
+	// Taking the foreground (L4) is a write to the whole desktop, never a read.
+	takeover: "full",
 
 	// Text, keys, clipboard, destructive or numeric writes.
 	setText: "full",
@@ -57,6 +60,7 @@ export const ACTION_TIERS: Record<string, AppTier> = {
 	setValue: "full",
 	clipboard_set: "full",
 	clipboard_clear: "full",
+	clipboard_restore: "full",
 	manage_app_quit: "full",
 	manage_app_force_quit: "full",
 };

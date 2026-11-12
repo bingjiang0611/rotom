@@ -13,7 +13,14 @@ import { helperMismatchMessage } from "../../constants/copy.ts";
 const COMMAND_TIMEOUT_MS = 15_000;
 // Protocol 8 adds user activity, clipboard, app/window management, system
 // surfaces, targeted (L2) delivery and the semantic AX actions.
-export const HELPER_PROTOCOL_VERSION = 8;
+/**
+ * 9 adds lease-token enforcement on the helper side (review I2): write commands
+ * carry a broker-signed token and the helper refuses invalid, expired or revoked
+ * ones. Old and new sides refuse to pair instead of silently skipping the check.
+ * 10 adds explicit AXOpen; 11 binds dispatch to fresh target-type preflight and
+ * requires sensitive approval for non-directory/unknown targets.
+ */
+export const HELPER_PROTOCOL_VERSION = 11;
 const HELPER_SETUP_TIMEOUT_MS = 60_000;
 
 export const HELPER_BUNDLE_ID = "com.injaneity.pi-computer-use";
@@ -181,7 +188,7 @@ export class MacosHelperClient {
 	}
 
 	async launchDaemon(signal?: AbortSignal): Promise<void> {
-		if (usingExternalHelperSocket) throw new HelperTransportError(`External helper socket is unavailable at ${HELPER_SOCKET_PATH}.`);
+		if (usingExternalHelperSocket) throw new HelperTransportError(`No helper is listening on the external socket; start it with serve --socket ${HELPER_SOCKET_PATH}.`);
 		await mkdir(path.dirname(HELPER_SOCKET_PATH), { recursive: true });
 		// Open the resolved bundle directly so a legacy system-wide copy with the
 		// same bundle id cannot win LaunchServices resolution.
@@ -224,7 +231,7 @@ export class MacosHelperClient {
 			this.daemonAvailable = true;
 			return true;
 		} catch {}
-		await this.launchDaemon(signal).catch(() => undefined);
+		await this.launchDaemon(signal);
 		for (let index = 0; index < 30; index += 1) {
 			try {
 				await this.daemonCommand("diagnostics", {}, 1_000, signal);

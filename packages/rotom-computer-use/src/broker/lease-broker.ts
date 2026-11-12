@@ -1,5 +1,5 @@
-import { BrokerClient, BrokerRequestError, BrokerUnavailableError } from "./client.ts";
-import type { ApprovalDecision, ApprovalRequestEvent, BrokerEvent, TargetAppInfo } from "./protocol.ts";
+import { BrokerClient, BrokerRequestError, BrokerUnavailableError, type BrokerClientOptions } from "./client.ts";
+import type { BrokerEvent, TargetAppInfo } from "./protocol.ts";
 import { StaleResourceStateError, LeaseUnavailableError, type LeaseAcquireRequest, type LeaseBroker, type LeaseGrant } from "../runtime.ts";
 
 /**
@@ -30,7 +30,7 @@ export class ClientLeaseBroker implements LeaseBroker {
 				action: request.action,
 			});
 			this.holders.delete(request.resourceKey);
-			return { leaseId: reply.lease.leaseId, epoch: reply.lease.epoch };
+			return { leaseId: reply.lease.leaseId, epoch: reply.lease.epoch, ...(reply.lease.token ? { token: reply.lease.token } : {}) };
 		} catch (error) {
 			throw this.translate(request, error);
 		}
@@ -46,6 +46,19 @@ export class ClientLeaseBroker implements LeaseBroker {
 
 	holderOf(resourceKey: string): { agentId: string; remainingMs: number } | undefined {
 		return this.holders.get(resourceKey);
+	}
+
+	/**
+	 * Tell the broker that one of this agent's actions changed the frontmost app
+	 * while the user was typing. The broker pauses the agent and revokes its leases.
+	 */
+	async reportInterference(evidence?: string): Promise<boolean> {
+		return await this.client.reportInterference(evidence);
+	}
+
+	/** Record that the user allowed the next foreground takeover (helper-only). */
+	async approveTakeover(): Promise<boolean> {
+		return await this.client.approveTakeover();
 	}
 
 	/** Release every lease this agent still owns, e.g. on session shutdown. */
@@ -81,12 +94,18 @@ export class ClientLeaseBroker implements LeaseBroker {
 					return new LeaseUnavailableError("approval_denied", reply.message);
 				case "stopped_by_user":
 					return new LeaseUnavailableError("stopped_by_user", reply.message);
+				case "paused_interfered":
+					return new LeaseUnavailableError("paused_interfered", reply.message);
+				case "preempted_by_user":
+					return new LeaseUnavailableError("preempted_by_user", reply.message);
+				case "takeover_conditions":
+					return new LeaseUnavailableError("takeover_conditions", reply.message);
 				default:
 					return new LeaseUnavailableError("broker_unavailable", `${error.code}: ${reply.message}`);
 			}
 		}
 		if (error instanceof BrokerUnavailableError) {
-			return new LeaseUnavailableError("broker_unavailable", `${error.message} Set ROTOM_CU_BROKER=0 to run without cross-process arbitration.`);
+			return new LeaseUnavailableError("broker_unavailable", error.message);
 		}
 		return error instanceof Error ? error : new Error(String(error));
 	}
@@ -101,7 +120,7 @@ export class UnavailableLeaseBroker implements LeaseBroker {
 	}
 
 	async acquire(): Promise<LeaseGrant> {
-		throw new LeaseUnavailableError("broker_unavailable", `${this.reason} Set ROTOM_CU_BROKER=0 to run without cross-process arbitration.`);
+		throw new LeaseUnavailableError("broker_unavailable", this.reason);
 	}
 
 	async release(): Promise<void> {}
@@ -125,7 +144,8 @@ export interface ConnectLeaseBrokerOptions {
 	pidChain?: number[];
 	heartbeatMs?: number;
 	onEvent?: (event: BrokerEvent) => void;
-	onApproval?: (event: ApprovalRequestEvent) => Promise<ApprovalDecision>;
+	onApproval?: BrokerClientOptions["onApproval"];
+	onApprovalDiagnostic?: BrokerClientOptions["onApprovalDiagnostic"];
 }
 
 export interface ConnectedLeaseBroker {
@@ -147,6 +167,7 @@ export async function connectLeaseBroker(options: ConnectLeaseBrokerOptions): Pr
 		heartbeatMs: options.heartbeatMs,
 		onEvent: options.onEvent,
 		onApproval: options.onApproval,
+		onApprovalDiagnostic: options.onApprovalDiagnostic,
 	});
 	return { broker: new ClientLeaseBroker(client), client };
 }

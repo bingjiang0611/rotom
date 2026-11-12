@@ -10,23 +10,34 @@ import { canRetryInForeground, outcomeAfterCheck, outcomeAfterObservedValues, pr
 import { cdpClickForContext, cdpDragForContext, cdpEvaluateForContext, cdpKeypressForContext, cdpMouseForContext, cdpNavigateContext, cdpScrollForContext, cdpSnapshotForContext, cdpTabForWindow, cdpTypeFocusedForContext, cdpTypeForContext, disconnectCdp, listCdpPageContexts, type CdpConsoleEntry, type CdpPageSnapshot } from "./cdp.ts";
 import { getComputerUseConfig, isBrowserUseEnabled, isHeadlessMode, loadComputerUseConfig } from "./config.ts";
 import { noteAfterAct, noteFromLook, noteRegionKeyForRef, renderNote, type WindowNote } from "./note.ts";
-import { foldToBudget, graftScopedOutline, nodeByRef, outlineNodeLabel, outlineNodePath, rankedTextMatch, restoreOutline, searchOutline, searchOutlineRanked, serializeOutline, serializeOutlineNodeShallow, serializeOutlineSearchMatch, type LookResponse, type Outline, type OutlineChange, type OutlineNode, type OutlineSearchMatch, type SerializedOutline, type SerializedOutlineNode, type SerializedOutlineSearchMatch } from "./outline.ts";
+import { foldToBudget, graftScopedOutline, nodeByRef, outlineHasSecureField, outlineNodeLabel, outlineNodePath, rankedTextMatch, restoreOutline, searchOutline, searchOutlineRanked, serializeOutline, serializeOutlineNodeShallow, serializeOutlineSearchMatch, type LookResponse, type Outline, type OutlineChange, type OutlineNode, type OutlineSearchMatch, type SerializedOutline, type SerializedOutlineNode, type SerializedOutlineSearchMatch } from "./outline.ts";
 import { applyOutputEnvelope, boundToolError, clearStoredOutputs, readStoredOutput, UI_TEXT_PAGE_CHARS } from "./output.ts";
 import { AGENT_TOOL_NAMES, type ActParams, type EvaluateBrowserParams, type ExpandUiParams, type ImageMode, type InspectUiParams, type LaunchBrowserParams, type FindParams, type NavigateBrowserParams, type ObserveParams, type ObserveTargetParams, type ReadTextParams, type RootSelector, type SearchUiParams, type UiAction, type WaitForParams } from "./contract.ts";
 import { toFiniteNumber } from "./platform/coerce.ts";
 import { currentPlatformBackend } from "./platform/index.ts";
-import type { FramePoints, HelperActPerformed, HelperActResult, NativeInputDelivery, PlatformActRequest, PlatformDeliveryPolicy as DeliveryPolicy, PlatformApp as HelperApp, PlatformDiagnostics, PlatformFrontmostResult as FrontmostResult, PlatformRoot as HelperWindow } from "./platform/types.ts";
+import type { FramePoints, HelperLease, HelperActPerformed, HelperActResult, NativeInputDelivery, PlatformActRequest, PlatformDeliveryPolicy as DeliveryPolicy, PlatformApp as HelperApp, PlatformDiagnostics, PlatformFrontmostResult as FrontmostResult, PlatformRoot as HelperWindow } from "./platform/types.ts";
 import type { PermissionStatus } from "./permissions.ts";
 import { LeaseUnavailableError, ResourceScheduler, StaleResourceStateError } from "./runtime.ts";
 import { agentRegistrationFor } from "./broker/identity.ts";
 import { ClientLeaseBroker, UnavailableLeaseBroker, connectLeaseBroker, shouldUseBroker } from "./broker/lease-broker.ts";
-import type { BrokerClient } from "./broker/client.ts";
-import type { ApprovalRequestEvent, BrokerEvent } from "./broker/protocol.ts";
-import { processAncestry } from "./broker/identity.ts";
+import { createAppTool } from "./tools/apps.ts";
+import { createClipboardTool } from "./tools/clipboard.ts";
+import type { BrokerSession, DesktopToolDeps } from "./tools/desktop-deps.ts";
+import { toolProblem, unsupportedToolResult } from "./tools/results.ts";
+import { createCuSessionTool } from "./tools/session-admin.ts";
+import { createWindowTool } from "./tools/windows-admin.ts";
+import type { ListWindowsDetails, WindowRow } from "./tools/window-types.ts";
+import type { ActionIntent, ApprovalDiagnostic, BrokerEvent } from "./broker/protocol.ts";
+import { requiresOpenConfirmation, type OpenTarget } from "./open-target.ts";
 import { approvalCopy } from "./constants/copy.ts";
-import { describeSensitiveMatch, matchSensitiveAction } from "./policy/sensitive.ts";
-import { excludeHostRoots, hostTargetRefusal, resolveHostApp, type HostAppInfo } from "./policy/host-exclusion.ts";
+import { createBrokerApprovalHandler } from "./broker/approval-ui.ts";
+import { processAncestry } from "./broker/identity.ts";
+import { leaseConflictResult } from "./broker/lease-result.ts";
+import { excludeHostRoots, excludeInternalRoots, hostTargetRefusal, resolveHostApp, type HostAppInfo } from "./policy/host-exclusion.ts";
+import { TakeoverController, type TakeoverBackend } from "./takeover.ts";
 import { backgroundDelivery } from "./policy/l2-compat.ts";
+import { buildActRequest } from "./tools/act-request.ts";
+import { attemptWithDeliveryFallback } from "./tools/act-delivery.ts";
 import { appIntent, clipboardIntent, windowIntent } from "./tools/intents.ts";
 import { scoreWindow, shouldPreferForegroundModalWindow } from "./root-selection.ts";
 import { SavedStates, type CurrentCapture, type CurrentTarget, type OperationState } from "./state.ts";
@@ -68,6 +79,8 @@ interface ExecutionTrace {
 	backgroundFirst?: boolean;
 	escalatedToForeground?: boolean;
 	escalationReason?: string;
+	/** The pinned transport was unavailable, so the action was repeated over pid posting. */
+	deliveryFallback?: "l2_unavailable";
 	backgroundAttempt?: { outcome: "foreground_required" | "didnt"; reason: string };
 	/** L1 = accessibility API, L2 = window-targeted events, L4 = foreground input. */
 	deliveryLevel?: "L1" | "L2" | "L4";
@@ -137,16 +150,6 @@ interface ComputerUseDetails {
 		| "duplicated_ax_labels"
 		| "browser_wait_verification";
 }
-/** Structured refusal from the cross-process write arbiter. */
-interface LeaseConflictDetails {
-	tool: string;
-	status: "lease_conflict";
-	code: "resource_busy" | "denied" | "approval_unavailable" | "approval_denied" | "stopped_by_user" | "broker_unavailable";
-	message: string;
-	leaseHolder?: { agentId: string; remainingMs: number };
-	retry: "safe" | "unsafe" | "never";
-}
-
 interface TerminalDesktopActionDetails {
 	tool: "act_ui";
 	status: "target_closed" | "post_action_observation_failed";
@@ -164,43 +167,6 @@ interface TerminalDesktopActionDetails {
 	error: { code: string; message: string };
 }
 
-
-interface ListWindowsDetails {
-	tool: "find_roots";
-	query: FindParams;
-	totalMatches?: number;
-	returned?: number;
-	hasMore?: boolean;
-	windows: Array<{
-		app: string;
-		bundleId?: string;
-		pid: number;
-		kind: string;
-		windowTitle: string;
-		windowId?: number;
-		windowRef: string;
-		nativeWindowRef?: string;
-		framePoints: FramePoints;
-		scaleFactor: number;
-		isMinimized: boolean;
-		isOnscreen: boolean;
-		isMain: boolean;
-		isFocused: boolean;
-		isModal: boolean;
-		sheetCount?: number;
-		role?: string;
-		subrole?: string;
-		pairing?: { confidence: "exact" | "high" | "low"; score: number };
-		zOrder: number;
-		browserUseAllowed: boolean;
-		score: number;
-		url?: string;
-	}>;
-	config: {
-		browser_use: boolean;
-		headless: boolean;
-	};
-}
 
 interface BrowserObservationDetails {
 	tool: string;
@@ -337,7 +303,7 @@ const runtimeState: RuntimeState = {
 
 const savedStates = new SavedStates();
 let resourceScheduler = new ResourceScheduler();
-let brokerSession: { broker: ClientLeaseBroker; client: BrokerClient } | undefined;
+let brokerSession: BrokerSession | undefined;
 /** Set when the user stops this agent from the helper status item or broker. */
 let brokerStopRequested = false;
 /** Recent revocations, so a batch can report why its write authority disappeared. */
@@ -368,6 +334,8 @@ export async function shutdownComputerUseSession(): Promise<void> {
 	}
 	brokerStopRequested = false;
 	brokerRevocations.length = 0;
+	await takeoverController?.end().catch(() => undefined);
+	takeoverController = undefined;
 	resourceScheduler = new ResourceScheduler();
 	disconnectCdp();
 
@@ -410,8 +378,8 @@ function currentDeliveryPolicy(): DeliveryPolicy {
 function nativeInputDelivery(policy = currentDeliveryPolicy(), target?: Pick<ResolvedTarget, "bundleId" | "appName">): NativeInputDelivery {
 	if (policy === "foreground") return "hid";
 	// Whitelisted apps get the window-targeted channel; everything else keeps
-	// pid-targeted posting. L2 fails closed with `foreground_required` when the
-	// platform build lacks the delivery symbol.
+	// pid-targeted posting. L2 fails with `l2_unavailable` when the platform build lacks
+	// the delivery symbol, which the act path answers by repeating over pid posting.
 	if (policy === "background" && target) return backgroundDelivery(target.bundleId, target.appName);
 	return "pid";
 }
@@ -476,21 +444,31 @@ async function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 interface LeaseContext {
-	action?: { name: string; label?: string };
+	action?: ActionIntent;
 }
 
 function leaseApp(target: ResolvedTarget | CurrentTarget) {
 	return { appName: target.appName, bundleId: target.bundleId };
 }
 
-async function withWindowWriteLock<T>(target: ResolvedTarget | CurrentTarget, work: () => Promise<T>, lease?: LeaseContext): Promise<T> {
+/**
+ * Helper-checkable proof of a write.
+ *
+ * Without a broker there is no key in the helper either, so there is nothing to
+ * prove; with one, the helper refuses a write that carries no valid token.
+ */
+function helperLeaseOf(resourceKey: string, grant: { token?: string }): HelperLease | undefined {
+	return grant.token ? { token: grant.token, resourceKey } : undefined;
+}
+
+async function withWindowWriteLock<T>(target: ResolvedTarget | CurrentTarget, work: (lease: HelperLease | undefined) => Promise<T>, lease?: LeaseContext): Promise<T> {
 	const state = operationState();
 	const key = desktopResourceKey(target);
 	const baseEpoch = state.epoch ?? await resourceScheduler.syncEpoch(key);
-	const result = await resourceScheduler.write(key, baseEpoch, async (nextEpoch) => {
+	const result = await resourceScheduler.write(key, baseEpoch, async (nextEpoch, grant) => {
 		state.resourceKey = key;
 		state.epoch = nextEpoch;
-		return await work();
+		return await work(helperLeaseOf(key, grant));
 	}, { action: lease?.action, app: leaseApp(target) });
 	return result.value;
 }
@@ -601,7 +579,7 @@ function emptyActivation(): ActivationFlags {
 }
 
 async function ensureReady(ctx: ExtensionContext, signal?: AbortSignal): Promise<void> {
-	loadComputerUseConfig(ctx.cwd);
+	await loadComputerUseConfig(ctx.cwd);
 
 	throwIfAborted(signal);
 	const ready = await currentPlatformBackend.ensureReady(
@@ -640,18 +618,49 @@ export async function ensureComputerUseBroker(ctx: ExtensionContext): Promise<vo
 	});
 	agentPidChain = registration.pidChain;
 	runtimeState.agentId = registration.agentId;
+	// Bind diagnostics to this session, not a later session reusing the bridge.
+	const approvalRecorder = sessionTrace(ctx);
+	const recordApproval = (approval: ApprovalDiagnostic) => {
+		approvalRecorder?.record({
+			tool: "cu_approval",
+			status: approval.phase.endsWith("_error") ? "error"
+				: ["expired", "cancelled", "unavailable"].includes(approval.phase) ? "stopped" : "ok",
+			approval,
+		});
+	};
 	brokerStopRequested = false;
 	try {
 		brokerSession = await connectLeaseBroker({
 			...registration,
 			onEvent: (event: BrokerEvent) => {
 				if (event.event === "stopped") brokerStopRequested = true;
+				if (event.event === "paused") {
+					activeTraceRecorder()?.record({
+						tool: "act_ui",
+						status: "stopped",
+						evidence: `paused_interfered:${event.evidence ?? "frontmost_changed_with_user_input"}`,
+						paused: { reason: event.reason, at: event.at },
+					});
+				}
+				if (event.event === "release_on_yield") {
+					for (const release of event.releases) activeTraceRecorder()?.record({
+						tool: "cu_session", status: release.posted ? "ok" : "unknown", evidence: "release_on_yield",
+						releaseOnYield: { kind: release.kind, code: release.code },
+					});
+				}
+				if (event.event === "takeover_state" && event.leaseId === takeoverController?.state?.leaseId) {
+					if (event.state === "paused") takeoverController?.markPaused();
+					if (event.state === "resumed") takeoverController?.markResumed();
+					if (event.state === "ended") takeoverController?.markPreempted(event.at);
+					activeTraceRecorder()?.record({ tool: "cu_session", status: event.state === "ended" ? "stopped" : event.state, evidence: event.reason });
+				}
 				if (event.event === "revoked") {
 					brokerRevocations.push({ reason: event.reason, leaseIds: event.leaseIds, at: Date.now() });
 					while (brokerRevocations.length > 8) brokerRevocations.shift();
 				}
 			},
-			onApproval: createBrokerApprovalHandler(ctx, registration.cwd),
+			onApproval: createBrokerApprovalHandler(ctx, recordApproval),
+			onApprovalDiagnostic: recordApproval,
 		});
 		resourceScheduler.setBroker(brokerSession.broker);
 	} catch (error) {
@@ -662,29 +671,28 @@ export async function ensureComputerUseBroker(ctx: ExtensionContext): Promise<vo
 }
 
 /**
- * Turn a broker approval request into the user's three-way decision.
+ * Foreground takeover (L4): created once per session, after the broker is attached.
  *
- * This runs only in the UI-capable session the broker routed to; the model never
- * sees the card and has no tool that can answer it.
+ * `headless()` reads the loaded config every call, so a session that starts
+ * headless can never ask for the foreground.
  */
-function createBrokerApprovalHandler(ctx: ExtensionContext, cwd: string | undefined) {
-	void cwd;
-	const options = approvalCopy.options();
-	return async (event: ApprovalRequestEvent): Promise<"allow_session" | "always" | "deny"> => {
-		if (!ctx.hasUI) return "deny";
-		const sensitive = matchSensitiveAction(event.action);
-		const choice = await ctx.ui.select(approvalCopy.title({
-			app: event.app?.appName ?? event.app?.bundleId ?? event.resourceKey,
-			tier: event.tier,
-			action: `Action: ${event.action?.name ?? "unknown"}`,
-			label: event.action?.label,
-			sensitive: sensitive ? describeSensitiveMatch(sensitive) : undefined,
-			warning: event.warning,
-		}), [...options]);
-		if (choice === approvalCopy.allowAlways) return "always";
-		if (choice === approvalCopy.allowSession) return "allow_session";
-		return "deny";
-	};
+let takeoverController: TakeoverController | undefined;
+
+function currentTakeoverController(): TakeoverController {
+	if (!takeoverController) {
+		takeoverController = new TakeoverController({
+			broker: () => brokerSession,
+			backend: () => currentPlatformBackend as unknown as TakeoverBackend,
+			listApps: (signal) => listApps(signal),
+			headless: () => isHeadlessMode(),
+		});
+	}
+	return takeoverController;
+}
+
+/** True when this platform can show the takeover border. */
+function takeoverAvailable(): boolean {
+	return typeof currentPlatformBackend.takeoverBegin === "function" && typeof currentPlatformBackend.takeoverEnd === "function";
 }
 
 /** True once the user stopped this agent; a batch must end at its next step boundary. */
@@ -697,7 +705,7 @@ let traceRecorder: TraceRecorder | undefined;
 let traceRecorderKey: string | undefined;
 
 /**
- * Trace recorder for this session, created on first tool call.
+ * Trace recorder for this session's tool and approval diagnostics.
  *
  * Disabled by config (`trace: false`) or `ROTOM_CU_TRACE=0`. Never throws: a
  * trace that cannot be written must not change what the agent did.
@@ -766,7 +774,7 @@ function platformRootPairing(window: Pick<HelperWindow, "metadata">): { confiden
 	return { confidence: pairing.confidence, score: typeof pairing.score === "number" && Number.isFinite(pairing.score) ? pairing.score : Number.NEGATIVE_INFINITY };
 }
 
-function formatWindowLine(window: ListWindowsDetails["windows"][number]): string {
+function formatWindowLine(window: WindowRow): string {
 	if (window.kind === "browser_page") return `- ${window.windowRef} browser_page ${JSON.stringify(window.windowTitle)}${window.url ? ` — ${window.url}` : ""}`;
 	const flags = [
 		window.isFocused ? "focused" : undefined,
@@ -1343,6 +1351,7 @@ async function helperAct(
 	action: NativePreparedAction,
 	headless: boolean,
 	signal?: AbortSignal,
+	lease?: HelperLease,
 ): Promise<ExecutionTrace> {
 	const checked = (candidate: HelperActResult): HelperActResult => {
 		if (!candidate || !["worked", "didnt", "unknown"].includes(candidate.outcome)) {
@@ -1353,16 +1362,21 @@ async function helperAct(
 	const textTimeout = "text" in action.params ? action.params.text.length * 25 + 4_000 : COMMAND_TIMEOUT_MS;
 	const timeoutMs = Math.max(COMMAND_TIMEOUT_MS, textTimeout);
 	if ((action.usesCurrentFocus || action.needsForeground) && !headless) {
-		const foreground = checked(await currentPlatformBackend.act(helperActRequest(target, action, "foreground"), { signal, timeoutMs }));
+		const foreground = checked(await currentPlatformBackend.act(helperActRequest(target, action, "foreground", lease), { signal, timeoutMs }));
 		const trace = executionTraceFromAct(foreground, "foreground");
 		trace.backgroundFirst = false;
 		return trace;
 	}
 	try {
 		const initialPolicy = headless ? currentDeliveryPolicy() : "background";
-		const result = checked(await currentPlatformBackend.act(helperActRequest(target, action, initialPolicy), { signal, timeoutMs }));
+		const attempt = await attemptWithDeliveryFallback({
+			mayFallBack: !headless,
+			request: (deliveryOverride) => helperActRequest(target, action, initialPolicy, lease, deliveryOverride),
+			act: (request) => currentPlatformBackend.act(request, { signal, timeoutMs }),
+		});
+		const result = checked(attempt.result);
 		if (canRetryInForeground(action, result.outcome, headless)) {
-			const foreground = checked(await currentPlatformBackend.act(helperActRequest(target, action, "foreground"), { signal, timeoutMs }));
+			const foreground = checked(await currentPlatformBackend.act(helperActRequest(target, action, "foreground", lease), { signal, timeoutMs }));
 			const trace = executionTraceFromAct(foreground, "foreground");
 			trace.backgroundFirst = true;
 			trace.escalatedToForeground = true;
@@ -1372,11 +1386,12 @@ async function helperAct(
 		}
 		const trace = executionTraceFromAct(result, "background");
 		trace.backgroundFirst = true;
+		if (attempt.pidFallback) trace.deliveryFallback = attempt.pidFallback;
 		return trace;
 	} catch (error) {
 		const code = (error as Error & { code?: string })?.code;
 		if (code !== "foreground_required" || headless) throw error;
-		const foreground = checked(await currentPlatformBackend.act(helperActRequest(target, action, "foreground"), { signal, timeoutMs }));
+		const foreground = checked(await currentPlatformBackend.act(helperActRequest(target, action, "foreground", lease), { signal, timeoutMs }));
 		const trace = executionTraceFromAct(foreground, "foreground");
 		trace.backgroundFirst = true;
 		trace.escalatedToForeground = true;
@@ -1386,36 +1401,19 @@ async function helperAct(
 	}
 }
 
-function helperActRequest(target: ResolvedTarget, action: NativePreparedAction, policy = currentDeliveryPolicy()): PlatformActRequest {
+function helperActRequest(target: ResolvedTarget, action: NativePreparedAction, policy = currentDeliveryPolicy(), lease?: HelperLease, deliveryOverride?: NativeInputDelivery): PlatformActRequest {
 	const look = currentLookOrThrow();
-	const delivery = nativeInputDelivery(policy, target);
-	const base = { lookId: look.lookId, pid: target.pid, target: action.target, policy };
-	return (() => {
-		switch (action.action) {
-			case "press":
-			case "click": return { ...base, action: action.action, params: { ...action.params, delivery } };
-			case "setText": return { ...base, action: action.action, params: { text: action.params.text, delivery } };
-			case "typeText": return { ...base, action: action.action, params: { text: action.params.text, delivery } };
-			case "keypress": return { ...base, action: action.action, params: { keys: action.params.keys, delivery } };
-			case "scroll": return { ...base, action: action.action, params: { scrollX: action.params.scrollX, scrollY: action.params.scrollY, delivery } };
-			case "drag": return { ...base, action: action.action, params: { path: action.params.path, delivery } };
-			case "moveMouse": return { ...base, action: action.action, params: { delivery } };
-			case "hover": return { ...base, action: action.action, params: { delivery } };
-			case "select":
-				return { ...base, action: "select", params: { ...(typeof action.params.option === "string" ? { option: action.params.option } : {}), delivery } };
-			case "setChecked":
-				return { ...base, action: "setChecked", params: { checked: action.params.checked === true, delivery } };
-			case "setValue":
-				return { ...base, action: "setValue", params: { value: Number(action.params.value), delivery } };
-			case "expand":
-			case "collapse":
-			case "scrollTo":
-			case "focus":
-			case "clear":
-			case "showMenu":
-				return { ...base, action: action.action, params: { delivery } };
-		}
-	})();
+	// Each agent's cursor is separate (F4): the id is what keeps two agents' cursors
+	// apart, and the colour is derived from it deterministically.
+	return buildActRequest({
+		lookId: look.lookId,
+		pid: target.pid,
+		cursorAgentId: runtimeState.agentId ?? `session:${process.pid}`,
+		action: action as { action: string; params: Record<string, unknown>; target: unknown },
+		policy,
+		delivery: deliveryOverride ?? nativeInputDelivery(policy, target),
+		...(lease ? { lease } : {}),
+	});
 }
 
 function rootDeltaLines(execution: ExecutionTrace): string[] {
@@ -1431,7 +1429,7 @@ function rootDeltaLines(execution: ExecutionTrace): string[] {
 	});
 }
 
-function windowDetails(app: HelperApp, window: HelperWindow, config: ReturnType<typeof getComputerUseConfig>): ListWindowsDetails["windows"][number] {
+function windowDetails(app: HelperApp, window: HelperWindow, config: ReturnType<typeof getComputerUseConfig>): WindowRow {
 	const storedRef = storeWindowRefForAppWindow(app, window);
 	return {
 		app: app.appName,
@@ -1459,35 +1457,44 @@ function windowDetails(app: HelperApp, window: HelperWindow, config: ReturnType<
 	};
 }
 
-function sortWindowDetails(windows: ListWindowsDetails["windows"]): ListWindowsDetails["windows"] {
+function sortWindowDetails(windows: WindowRow[]): WindowRow[] {
 	return windows.sort((a, b) => b.score - a.score || a.app.localeCompare(b.app) || a.windowTitle.localeCompare(b.windowTitle));
 }
 
 // Side effect: stores stable @r refs for discovered windows in runtimeState.
-async function collectWindowDetails(apps: HelperApp[], config: ReturnType<typeof getComputerUseConfig>, signal?: AbortSignal): Promise<ListWindowsDetails["windows"]> {
+async function collectWindowDetails(apps: HelperApp[], config: ReturnType<typeof getComputerUseConfig>, signal?: AbortSignal): Promise<WindowRow[]> {
 	const perApp = await Promise.all(apps.map(async (app) => ({ app, windows: await listWindows(app.pid, signal) })));
 	return sortWindowDetails(perApp.flatMap(({ app, windows }) => windows.map((window) => windowDetails(app, window, config))));
 }
 
-function collectBroadWindowDetails(roots: HelperWindow[], config: ReturnType<typeof getComputerUseConfig>): ListWindowsDetails["windows"] {
-	const windows: ListWindowsDetails["windows"] = [];
-	for (const window of roots) {
+/** Pids whose windows are the tool itself: this process and the native helper (overlay). */
+function internalWindowPids(): number[] {
+	const helperPid = runtimeState.helperDiagnostics?.pid;
+	return helperPid ? [process.pid, helperPid] : [process.pid];
+}
+
+function collectBroadWindowDetails(roots: HelperWindow[], config: ReturnType<typeof getComputerUseConfig>): WindowRow[] {
+	const windows: WindowRow[] = [];
+	for (const window of excludeInternalRoots(roots, internalWindowPids())) {
 		if (!window.pid) continue;
 		windows.push(windowDetails({ appName: window.appName ?? "Unknown App", bundleId: window.bundleId, pid: window.pid }, window, config));
 	}
 	return sortWindowDetails(windows);
 }
 
-async function windowDetailsForFind(query: FindParams, config: ReturnType<typeof getComputerUseConfig>, signal?: AbortSignal): Promise<ListWindowsDetails["windows"]> {
+async function windowDetailsForFind(query: FindParams, config: ReturnType<typeof getComputerUseConfig>, signal?: AbortSignal): Promise<WindowRow[]> {
 	const host = await hostApplication(signal);
 	if (!query.app && !query.bundleId && !Number.isFinite(query.pid)) {
 		const roots = excludeHostRoots(await currentPlatformBackend.listRoots({}, signal), host);
 		return collectBroadWindowDetails(roots, config);
+
 	}
 	// The host terminal/IDE is never offered as a root, even when asked for by name.
+	const internal = new Set(internalWindowPids());
 	const apps = (await listApps(signal))
 		.filter((app) => appMatchesWindowQuery(app, query))
-		.filter((app) => !host || app.pid !== host.pid);
+		.filter((app) => !host || app.pid !== host.pid)
+		.filter((app) => !internal.has(app.pid));
 	return await collectWindowDetails(apps, config, signal);
 }
 
@@ -1503,7 +1510,7 @@ async function performListWindows(params: FindParams, signal?: AbortSignal): Pro
 	const config = getComputerUseConfig();
 	const desktopForest = await windowDetailsForFind(query, config, signal);
 	const includeBrowserPages = !query.pid && !query.bundleId && (!query.app || normalizeText(query.app) === "browser") && config.browser_use;
-	const browserForest: ListWindowsDetails["windows"] = !includeBrowserPages ? [] : (await listCdpPageContexts().catch(() => []))
+	const browserForest: WindowRow[] = !includeBrowserPages ? [] : (await listCdpPageContexts().catch(() => []))
 		.map((page) => ({
 			app: "Browser",
 			pid: 0,
@@ -1976,27 +1983,33 @@ function prepareUiAction(action: UiAction, state: ActionState, look: LookRespons
 	});
 }
 
-async function dispatchUiAction(action: UiAction, target: ResolvedTarget, look: LookResponse, headless: boolean, state: ActionState, signal?: AbortSignal): Promise<ExecutionTrace> {
+async function dispatchUiAction(action: UiAction, target: ResolvedTarget, look: LookResponse, headless: boolean, state: ActionState, signal?: AbortSignal, lease?: HelperLease, openTarget?: OpenTarget): Promise<ExecutionTrace> {
 	const prepared = prepareUiAction(action, state, look, headless);
+	if (prepared.action === "open" && openTarget) prepared.params = { ...prepared.params, openTarget, openApproved: openTarget.kind !== "directory" };
 	if (prepared.action === "wait") {
 		await sleep(prepared.params.ms, signal);
 		return executionTrace("wait", "stealth", { outcome: "worked" });
 	}
-	const trace = await helperAct(target, prepared, headless, signal);
+	const trace = await helperAct(target, prepared, headless, signal, lease);
 	if (!headless && (prepared.establishesFocus || (prepared.action === "click" && "x" in prepared.target))) {
 		state.currentFocus = true;
 	}
 	return trace;
 }
 
-async function dispatchUiTransaction(actions: UiAction[], target: ResolvedTarget, look: LookResponse, headless: boolean, signal?: AbortSignal): Promise<ExecutionTrace> {
+async function dispatchUiTransaction(actions: UiAction[], target: ResolvedTarget, look: LookResponse, headless: boolean, signal?: AbortSignal, lease?: HelperLease, openTargets: Array<OpenTarget | undefined> = []): Promise<ExecutionTrace> {
 	// Strict-headless batches have one immutable delivery class. When foreground
 	// fallback is permitted, decide independently per action so a completed
 	// background prefix is never replayed as part of a foreground batch.
 	if (headless && currentPlatformBackend.actBatch) {
 		const actionState: ActionState = { currentFocus: false };
 		const policy = currentDeliveryPolicy();
-		const requests = actions.map((action) => helperActRequest(target, prepareUiAction(action, actionState, look, true) as NativePreparedAction, policy));
+		const requests = actions.map((action, index) => {
+			const prepared = prepareUiAction(action, actionState, look, true) as NativePreparedAction;
+			const openTarget = openTargets[index];
+			if (prepared.action === "open" && openTarget) prepared.params = { ...prepared.params, openTarget, openApproved: openTarget.kind !== "directory" };
+			return helperActRequest(target, prepared, policy, lease);
+		});
 		const textLength = actions.reduce((sum, action) => sum + (action.text?.length ?? 0), 0);
 		const result = await currentPlatformBackend.actBatch(requests, { signal, timeoutMs: Math.max(COMMAND_TIMEOUT_MS, textLength * 25 + 6_000) });
 		if (!result.steps || result.steps.length === 0) throw new Error("Native action transaction returned no checked steps.");
@@ -2010,8 +2023,8 @@ async function dispatchUiTransaction(actions: UiAction[], target: ResolvedTarget
 	}
 	const steps: ExecutionTrace[] = [];
 	const actionState: ActionState = { currentFocus: false };
-	for (const action of actions) {
-		const step = await dispatchUiAction(action, target, look, headless, actionState, signal);
+	for (const [index, action] of actions.entries()) {
+		const step = await dispatchUiAction(action, target, look, headless, actionState, signal, lease, openTargets[index]);
 		steps.push(step);
 		if (step.outcome !== "worked") break;
 	}
@@ -2139,10 +2152,22 @@ async function performDesktopTransaction(params: ActParams, actions: UiAction[],
 	const scopeNode = condition ? conditionScopeNode(look.parsedOutline!, condition) : undefined;
 	const target = await ensureTargetWindowId(await resolveCurrentTarget(signal), signal);
 	const noteBefore = state.currentNote;
-	const lease = transactionLeaseContext(actions, look.parsedOutline);
-	return await withWindowWriteLock(target, async () => {
-		const headless = getComputerUseConfig().headless;
-		const execution = await dispatchUiTransaction(actions, target, look, headless, signal);
+	const headless = getComputerUseConfig().headless;
+	const openTargets: Array<OpenTarget | undefined> = [];
+	for (const [index, action] of actions.entries()) {
+		if (action.action !== "open") continue;
+		const prepared = prepareUiAction(action, { currentFocus: false }, look, headless);
+		if (prepared.action === "open") {
+			if (!currentPlatformBackend.inspectOpenTarget) throw new Error("This platform cannot inspect an AXOpen target.");
+			openTargets[index] = await currentPlatformBackend.inspectOpenTarget({ lookId: look.lookId, pid: target.pid, ref: prepared.target.ref }, { signal });
+		}
+	}
+	const lease = transactionLeaseContext(actions, look.parsedOutline, openTargets);
+	if (requiresOpenConfirmation(lease.action) && !brokerSession) {
+		throw new LeaseUnavailableError("approval_unavailable", "External or unknown AXOpen targets require a broker approval; no action was dispatched.");
+	}
+	return await withWindowWriteLock(target, async (lease) => {
+		const execution = await dispatchUiTransaction(actions, target, look, headless, signal, lease, openTargets);
 		const executedActions = actions.slice(0, execution.actionCount ?? actions.length);
 		try {
 			if (condition) {
@@ -2199,11 +2224,18 @@ async function performDesktopTransaction(params: ActParams, actions: UiAction[],
  * resolved element text for sensitive-action matching. The label is a summary,
  * not the full extracted text the model already sees.
  */
-function transactionLeaseContext(actions: UiAction[], outline: Outline | undefined): LeaseContext {
+function transactionLeaseContext(actions: UiAction[], outline: Outline | undefined, openTargets: Array<OpenTarget | undefined> = []): LeaseContext {
 	const names = [...new Set(actions.map((action) => action.action))];
-	const refAction = actions.length === 1 ? actions[0] : undefined;
-	const node = refAction?.ref && outline ? nodeByRef(outline, refAction.ref) : undefined;
-	return { action: { name: names.join("+"), label: trimOrUndefined(node ? outlineNodeLabel(node) : undefined) } };
+	const intents: ActionIntent[] = actions.map((action, index) => {
+		const node = action.ref && outline ? nodeByRef(outline, action.ref) : undefined;
+		return { name: action.action, label: trimOrUndefined(node ? outlineNodeLabel(node) : undefined),
+			...(action.action === "open" ? { openTarget: openTargets[index]?.kind ?? "unknown" } : {}) };
+	});
+	const opens = intents.filter((intent) => intent.name === "open");
+	const target = opens.find(requiresOpenConfirmation) ?? opens[0];
+	return { action: { name: names.join("+"),
+		label: actions.length === 1 ? intents[0].label : target && requiresOpenConfirmation(target) ? approvalCopy.openBatch(intents) : undefined,
+		...(target ? { openTarget: target.openTarget } : {}) } };
 }
 
 async function performBrowserTransaction(params: ActParams, actions: UiAction[], signal?: AbortSignal): Promise<AgentToolResult<BrowserObservationDetails>> {
@@ -2484,27 +2516,6 @@ async function executeTool<P, T>(ctx: ExtensionContext, params: P, signal: Abort
 	});
 }
 
-function leaseConflictResult(tool: string, error: LeaseUnavailableError): AgentToolResult<LeaseConflictDetails> {
-	const retry: LeaseConflictDetails["retry"] = error.code === "resource_busy" || error.code === "broker_unavailable" ? "safe" : "never";
-	const holder = error.holder
-		? ` Held by agent ${error.holder.agentId} (${Math.ceil(error.holder.remainingMs / 1000)}s remaining).`
-		: "";
-	const next = retry === "safe"
-		? " Nothing was delivered. Retry after that agent releases the app, or ask the user to stop it from the menu bar or with Ctrl+Option+Cmd+."
-		: " Nothing was delivered.";
-	return {
-		content: [{ type: "text", text: `${tool} did not run: ${error.message}${holder}${next}` }],
-		details: {
-			tool,
-			status: "lease_conflict",
-			code: error.code,
-			message: error.message,
-			leaseHolder: error.holder ? { agentId: error.holder.agentId, remainingMs: error.holder.remainingMs } : undefined,
-			retry,
-		},
-	};
-}
-
 /**
  * Write one trace line for a finished tool call.
  *
@@ -2528,10 +2539,11 @@ function recordToolTrace(
 	const details = result?.details;
 	const execution = details?.execution ?? details?.capture?.execution;
 	const shots: string[] = [];
-	// A secure text field must not be photographed, even for our own trace (review
-	// I1). The native helper has no secure-field marker yet, so the role in the
-	// result is the only signal; when the outline says secure, the image is dropped.
-	const secure = /AXSecureTextField/.test(JSON.stringify(details?.outline ?? details?.capture?.outline ?? details?.target ?? ""));
+	// A secure text field must not be photographed, even for our own trace (review I1).
+	// Only the helper's native marker decides that now (review Q3): the role-based
+	// guess is gone, so a node that merely names itself `AXSecureTextField` cannot
+	// suppress a screenshot and a real secure field cannot be missed.
+	const secure = outlineHasSecureField(details?.outline ?? details?.capture?.outline);
 	if (getComputerUseConfig().trace_screenshots && !secure) {
 		for (const item of result?.content ?? []) {
 			if (item.type !== "image" || !item.data) continue;
@@ -2548,6 +2560,7 @@ function recordToolTrace(
 			window: details?.target?.windowTitle,
 		}
 		: undefined;
+	if (execution?.interferedWithUser === true) reportUserInterference();
 	const status: TraceEntry["status"] = outcome.status ?? (outcome.error ? "error" : traceStatusOf(details));
 	recorder.record({
 		tool,
@@ -2557,9 +2570,16 @@ function recordToolTrace(
 		deliveryLevel: typeof execution?.deliveryLevel === "string" ? execution.deliveryLevel : (typeof execution?.delivery === "string" ? execution.delivery : undefined),
 		text: typed,
 		screenshots: shots.length ? shots : undefined,
-		evidence: traceEvidenceOf(details, outcome.error),
+		evidence: withDeliveryFallback(traceEvidenceOf(details, outcome.error), execution?.deliveryFallback),
 		lease: details?.leaseHolder?.agentId ? { holder: details.leaseHolder.agentId } : undefined,
 	});
+}
+
+/** Trace evidence is one short line; a delivery fallback is part of it. */
+function withDeliveryFallback(evidence: string | undefined, fallback?: "l2_unavailable"): string | undefined {
+	if (!fallback) return evidence;
+	const suffix = `delivery_fallback:${fallback}`;
+	return evidence ? `${evidence} ${suffix}` : suffix;
 }
 
 function firstRedactedText(params: Record<string, unknown> | undefined): TraceEntry["text"] | undefined {
@@ -2588,6 +2608,26 @@ function traceEvidenceOf(details: any, error: unknown): string | undefined {
 	if (typeof details?.changedNodeCount === "number") parts.push(`${details.changedNodeCount} nodes changed`);
 	if (typeof details?.status === "string") parts.push(details.status);
 	return parts.length ? parts.join("; ") : undefined;
+}
+
+/** Recorder of the current session, for wiring that runs outside a tool call. */
+function activeTraceRecorder(): TraceRecorder | undefined {
+	return traceRecorder;
+}
+
+/**
+ * PLAN §6 / F3: an action that changed the frontmost app while the user was
+ * typing pauses this agent.
+ *
+ * The observation is native (the helper compares the frontmost app and the user's
+ * input within 2 seconds); the consequence is the broker's. Reporting is best
+ * effort on purpose: if the broker is unreachable the write path already fails
+ * closed, so a lost report cannot widen what the agent may do.
+ */
+function reportUserInterference(): void {
+	const session = brokerSession;
+	if (!session) return;
+	void session.broker.reportInterference("frontmost_changed_with_user_input").catch(() => undefined);
 }
 
 function makeToolExecutor<P, D>(tool: string, perform: (params: P, signal?: AbortSignal) => Promise<AgentToolResult<D>>) {
@@ -2627,240 +2667,6 @@ export const executeInspectUi = makeToolExecutor("inspect_ui", performInspectUi)
 export const executeAct = makeToolExecutor<ActParams, ComputerUseDetails | TerminalDesktopActionDetails | BrowserObservationDetails>("act_ui", performAct);
 export const executeNavigateBrowser = makeToolExecutor("navigate_browser", performNavigateBrowser);
 export const executeEvaluateBrowser = makeToolExecutor("evaluate_browser", performEvaluateBrowser);
-// MARK: - Computer Use v2 administration tools
-
-const CLIPBOARD_RESTORE_MS = 30_000;
-
-/**
- * Record why a clipboard restore was skipped. The trace is the only place that can
- * answer "did the agent touch my clipboard and leave it alone afterwards?", and it
- * stores a reason code only — never clipboard content.
- */
-function recordClipboardRestoreSkip(reason: "user_changed_clipboard" | "no_snapshot" | "restore_failed"): void {
-	const recorder = activeTraceRecorder();
-	recorder?.record({ tool: "clipboard", status: "unknown", evidence: `restore_skipped:${reason}`, clipboardRestoreSkipped: reason });
-}
-let clipboardRestoreTimer: ReturnType<typeof setTimeout> | undefined;
-
-function clearClipboardRestoreTimer(): void {
-	if (clipboardRestoreTimer) clearTimeout(clipboardRestoreTimer);
-	clipboardRestoreTimer = undefined;
-}
-
-/**
- * Restore the user's clipboard after a write.
- *
- * Writing the clipboard is a visible side effect on the user's own machine, so a
- * `set` puts the previous text back after 30 seconds unless the user turned
- * restoration off.
- */
-/**
- * Put the user's clipboard back after an agent write.
- *
- * Two rules, both learned from review B4:
- *  1. Restore only while the clipboard still holds exactly what the agent wrote.
- *     If the user copied something in the meantime, overwriting it would be the
- *     very interference this feature exists to avoid, so we leave it alone.
- *  2. The snapshot covers every item and type, so images and file promises come
- *     back too. A clipboard we cannot capture is refused before the write, never
- *     silently dropped afterwards.
- */
-export function scheduleClipboardRestore(options: {
-	snapshot: PlatformClipboardSnapshot | undefined;
-	/** changeCount observed right after the agent's write. */
-	writtenChangeCount: number;
-	restore: boolean;
-	snapshotNow?: () => Promise<PlatformClipboardSnapshot>;
-	write: (snapshot: PlatformClipboardSnapshot) => Promise<unknown>;
-	onSkip?: (reason: "user_changed_clipboard" | "no_snapshot" | "restore_failed") => void;
-	delayMs?: number;
-	setTimer?: (callback: () => void, ms: number) => ReturnType<typeof setTimeout>;
-}): boolean {
-	if (!options.restore || !options.snapshot) return false;
-	clearClipboardRestoreTimer();
-	const delay = options.delayMs ?? CLIPBOARD_RESTORE_MS;
-	const setTimer = options.setTimer ?? setTimeout;
-	clipboardRestoreTimer = setTimer(() => {
-		clipboardRestoreTimer = undefined;
-		void (async () => {
-			const current = await options.snapshotNow?.().catch(() => undefined);
-			if (!current || current.changeCount !== options.writtenChangeCount) {
-				options.onSkip?.("user_changed_clipboard");
-				return;
-			}
-			await options.write(options.snapshot as PlatformClipboardSnapshot).catch(() => options.onSkip?.("restore_failed"));
-		})();
-	}, delay);
-	clipboardRestoreTimer.unref?.();
-	return true;
-}
-
-async function performClipboard(params: { action: "get" | "set" | "clear"; text?: string }, _signal?: AbortSignal): Promise<AgentToolResult<Record<string, unknown>>> {
-	const backend = currentPlatformBackend;
-	// Clipboard reads and writes are authorized per level and serialized through one
-	// lease: an approval card or a running peer must both be respected (review B2).
-	const clipboardLease = async <T>(action: "get" | "set" | "clear", work: () => Promise<T>): Promise<T> => {
-		const intent = clipboardIntent(action);
-		const baseEpoch = resourceScheduler.epoch(intent.resourceKey);
-		const result = await resourceScheduler.write(intent.resourceKey, baseEpoch, async () => await work(), {
-			action: intent.action,
-			...(intent.app ? { app: intent.app } : {}),
-		});
-		return result.value;
-	};
-	if (params.action === "get") {
-		if (!backend.clipboardGet) return unsupportedToolResult("clipboard", "get", "This platform cannot read the clipboard.");
-		const read = await clipboardLease("get", async () => await backend.clipboardGet!());
-		return {
-			content: [{ type: "text", text: read.available ? `Clipboard contains ${read.text.length} characters${read.truncated ? " (truncated)" : ""}.` : "Clipboard is empty." }],
-			details: { tool: "clipboard", action: "get", status: "ok", ...read },
-		};
-	}
-	if (params.action === "clear") {
-		if (!backend.clipboardClear) return unsupportedToolResult("clipboard", "clear", "This platform cannot clear the clipboard.");
-		const cleared = await clipboardLease("clear", async () => await backend.clipboardClear!());
-		return {
-			content: [{ type: "text", text: "Cleared the clipboard." }],
-			details: { tool: "clipboard", action: "clear", status: "ok", ...cleared },
-		};
-	}
-	if (!backend.clipboardSet) return unsupportedToolResult("clipboard", "set", "This platform cannot write the clipboard.");
-	const text = params.text ?? "";
-	// Capture before writing: a clipboard whose types cannot be copied exactly is
-	// refused, because a partial restore would destroy the user's content.
-	const snapshot = await backend.clipboardSnapshot?.().catch(() => undefined);
-	const written = await clipboardLease("set", async () => await backend.clipboardSet!(text));
-	const restore = scheduleClipboardRestore({
-		snapshot,
-		writtenChangeCount: written.changeCount,
-		restore: getComputerUseConfig().clipboard_restore,
-		snapshotNow: async () => await backend.clipboardSnapshot?.() as PlatformClipboardSnapshot,
-		write: async (value) => await backend.clipboardRestore?.(value),
-		onSkip: (reason) => recordClipboardRestoreSkip(reason),
-	});
-	return {
-		content: [{
-			type: "text",
-			text: written.changed === false
-				? "The clipboard refused the new text."
-				: `Wrote ${[...text].length} characters to the clipboard${restore ? "; the previous clipboard content is restored in 30 seconds unless you copy something else first" : ""}.`,
-		}],
-		details: { tool: "clipboard", action: "set", status: written.changed === false ? "didnt" : "ok", ...written, restores: restore },
-	};
-}
-
-/**
- * Resolve the app identity the policy layer needs. Without it the broker can only
- * apply the anonymous-resource rule, which is a deliberate relaxation for
- * headless targets that have no identity at all.
- */
-async function describeApp(pid?: number, bundleId?: string): Promise<{ appName: string; bundleId?: string } | undefined> {
-	try {
-		const apps = await listApps();
-		const match = apps.find((app) => (pid !== undefined ? app.pid === pid : false) || (bundleId ? app.bundleId === bundleId : false));
-		if (!match) return bundleId ? { appName: bundleId, bundleId } : undefined;
-		return { appName: match.appName, ...(match.bundleId ? { bundleId: match.bundleId } : {}) };
-	} catch {
-		return bundleId ? { appName: bundleId, bundleId } : undefined;
-	}
-}
-
-async function performManageApp(params: { action: "list" | "launch" | "quit"; bundleId?: string; path?: string; pid?: number; force?: boolean }, _signal?: AbortSignal): Promise<AgentToolResult<Record<string, unknown>>> {
-	const backend = currentPlatformBackend;
-	if (params.action === "list") {
-		const apps = await listApps();
-		const lines = apps.map((app) => `${app.appName}${app.bundleId ? ` (${app.bundleId})` : ""} pid=${app.pid}${app.isFrontmost ? " frontmost" : ""}`);
-		return {
-			content: [{ type: "text", text: lines.length ? lines.join("\n") : "No applications are running." }],
-			details: { tool: "manage_app", action: "list", status: "ok", apps },
-		};
-	}
-	if (!backend.manageApps) return unsupportedToolResult("manage_app", params.action, "This platform cannot manage applications.");
-	if (params.action === "quit") {
-		if (params.pid === undefined && !params.bundleId) return toolProblem("manage_app", "quit requires pid or bundleId.");
-		const appInfo = await describeApp(params.pid, params.bundleId);
-		const intent = appIntent("quit", appInfo, params.pid, params.force === true);
-		const result = await resourceScheduler.write(intent.resourceKey, resourceScheduler.epoch(intent.resourceKey), async () =>
-			await backend.manageApps!({ mode: "quit", pid: params.pid, bundleId: params.bundleId, force: params.force === true }), {
-			action: intent.action,
-			...(intent.app ? { app: intent.app } : {}),
-		}).then((outcome) => outcome.value);
-		const quit = result as { terminated?: boolean; quitRequested?: boolean; unsavedChangesMayBlock?: boolean };
-		const status = quit.terminated ? "worked" : quit.unsavedChangesMayBlock ? "unknown" : "didnt";
-		return {
-			content: [{
-				type: "text",
-				text: quit.terminated
-					? "The application quit."
-					: quit.quitRequested
-						? "The quit request was accepted but the application is still running; it may be waiting on unsaved changes."
-						: "The application refused to quit.",
-			}],
-			details: { tool: "manage_app", action: "quit", status, ...quit },
-		};
-	}
-	if (!params.bundleId && !params.path) return toolProblem("manage_app", "launch requires bundleId or path.");
-	const launchIntent = appIntent("launch", await describeApp(params.pid, params.bundleId), params.pid);
-	const launched = await resourceScheduler.write(launchIntent.resourceKey, resourceScheduler.epoch(launchIntent.resourceKey), async () =>
-		await backend.manageApps!({ mode: "launch", bundleId: params.bundleId, path: params.path, activates: false }), {
-		action: launchIntent.action,
-		...(launchIntent.app ? { app: launchIntent.app } : {}),
-	}).then((outcome) => outcome.value);
-	const launch = launched as { launched?: boolean; alreadyRunning?: boolean; pending?: boolean; pid?: number };
-	return {
-		content: [{
-			type: "text",
-			text: launch.launched
-				? `Launched the application${launch.alreadyRunning ? " (it was already running)" : ""} without activating it${launch.pid ? `, pid ${launch.pid}` : ""}.`
-				: launch.pending
-					? "The launch is still in progress; nothing is active yet."
-					: "The application did not launch.",
-		}],
-		details: { tool: "manage_app", action: "launch", status: launch.launched ? "ok" : launch.pending ? "unknown" : "didnt", ...launch },
-	};
-}
-
-async function performManageWindow(params: { action: "list" | "move" | "resize" | "minimize" | "restore" | "maximize" | "list_displays"; pid?: number; windowId?: number; x?: number; y?: number; w?: number; h?: number; title?: string }, _signal?: AbortSignal): Promise<AgentToolResult<Record<string, unknown>>> {
-	const backend = currentPlatformBackend;
-	if (!backend.manageWindow) return unsupportedToolResult("manage_window", params.action, "This platform cannot manage windows.");
-	if (params.action === "list" || params.action === "list_displays") {
-		const result = await backend.manageWindow(params.action === "list"
-			? { mode: "list", pid: params.pid, title: params.title }
-			: { mode: "list_displays" });
-		if (params.action === "list_displays") {
-			const displays = result as Array<{ name: string; frame: { x: number; y: number; w: number; h: number }; isMain: boolean; scaleFactor: number }>;
-			const lines = displays.map((display) => `${display.name}${display.isMain ? " (main)" : ""} ${Math.round(display.frame.w)}x${Math.round(display.frame.h)} @${display.scaleFactor}x at ${Math.round(display.frame.x)},${Math.round(display.frame.y)}`);
-			return {
-				content: [{ type: "text", text: lines.length ? lines.join("\n") : "No displays were reported." }],
-				details: { tool: "manage_window", action: "list_displays", status: "ok", displays },
-			};
-		}
-		const roots = result as HelperWindow[];
-		const windows = collectBroadWindowDetails(roots, getComputerUseConfig());
-		return {
-			content: [{ type: "text", text: windows.length ? windows.map(formatWindowLine).join("\n") : "No windows matched." }],
-			details: { tool: "manage_window", action: "list", status: "ok", windows },
-		};
-	}
-	if (params.windowId === undefined || params.pid === undefined) return toolProblem("manage_window", `${params.action} requires pid and windowId.`);
-	const mutationIntent = windowIntent(params.action, params.pid, params.windowId, await describeApp(params.pid));
-	const result = await resourceScheduler.write(mutationIntent.resourceKey, resourceScheduler.epoch(mutationIntent.resourceKey), async () =>
-		await backend.manageWindow!({ mode: params.action, pid: params.pid, windowId: params.windowId, x: params.x, y: params.y, w: params.w, h: params.h }), {
-		action: mutationIntent.action,
-		...(mutationIntent.app ? { app: mutationIntent.app } : {}),
-	}).then((outcome) => outcome.value);
-	const mutation = result as { outcome?: string; before?: unknown; after?: unknown };
-	return {
-		content: [{
-			type: "text",
-			text: mutation.outcome === "worked"
-				? `Window ${params.windowId}: ${params.action} applied. Never activated or raised.`
-				: `Window ${params.windowId}: ${params.action} did not change the window (${mutation.outcome ?? "unknown"}).`,
-		}],
-		details: { tool: "manage_window", action: params.action, status: mutation.outcome === "worked" ? "ok" : mutation.outcome === "didnt" ? "didnt" : "unknown", ...mutation },
-	};
-}
-
 async function performSystemSurface(params: { surface: "notifications" | "menu_bar_extras" | "control_center" | "dock" | "all" }, _signal?: AbortSignal): Promise<AgentToolResult<Record<string, unknown>>> {
 	const backend = currentPlatformBackend;
 	if (!backend.systemSurfaces) return unsupportedToolResult("system_surface", params.surface, "This platform does not expose system surfaces.");
@@ -2882,56 +2688,23 @@ async function performSystemSurface(params: { surface: "notifications" | "menu_b
 	};
 }
 
-async function performCuSession(params: { action: "status" | "release" | "trace_export" }, _signal?: AbortSignal): Promise<AgentToolResult<Record<string, unknown>>> {
-	if (params.action === "trace_export") {
-		const recorder = activeTraceRecorder();
-		if (!recorder) return unsupportedToolResult("cu_session", "trace_export", "Tracing is disabled for this session.");
-		const markdown = exportTraceMarkdown(recorder.sessionDir, path.basename(recorder.filePath));
-		return {
-			content: [{ type: "text", text: markdown }],
-			details: { tool: "cu_session", action: "trace_export", status: "ok", path: recorder.filePath },
-		};
-	}
-	const session = brokerSession;
-	if (!session) return unsupportedToolResult("cu_session", params.action, "The Desktop Broker is not attached to this session.");
-	if (params.action === "status") {
-		const status = await session.client.status();
-		const lines = (status.agents ?? []).map((agent) => {
-			const held = agent.leases.map((lease) => lease.resourceKey).join(", ");
-			return `${agent.agentId}${agent.agentId === session.client.agentId ? " (this session)" : ""}${held ? ` holds ${held}` : " holds nothing"}`;
-		});
-		return {
-			content: [{ type: "text", text: lines.length ? lines.join("\n") : "No agents are attached to the broker." }],
-			details: { tool: "cu_session", action: "status", status: "ok", broker: status },
-		};
-	}
-	const status = await session.client.status().catch(() => undefined);
-	const held = status?.agents.find((agent) => agent.agentId === session.client.agentId)?.leases ?? [];
-	await session.broker.releaseAll();
-	return {
-		content: [{ type: "text", text: held.length ? `Released ${held.length} lease(s): ${held.map((lease) => lease.resourceKey).join(", ")}.` : "This session held no leases." }],
-		details: { tool: "cu_session", action: "release", status: "ok", released: held.map((lease) => lease.resourceKey) },
-	};
-}
-
-function unsupportedToolResult(tool: string, action: string, message: string): AgentToolResult<Record<string, unknown>> {
-	return { content: [{ type: "text", text: `${tool} ${action} is unavailable: ${message}` }], details: { tool, action, status: "unsupported" } };
-}
-
-function toolProblem(tool: string, message: string): AgentToolResult<Record<string, unknown>> {
-	return { content: [{ type: "text", text: `${tool}: ${message}` }], details: { tool, status: "invalid_args", message } };
-}
-
-function activeTraceRecorder(): TraceRecorder | undefined {
-	return traceRecorder;
-}
+// Administration tools live in `src/tools/`; this file only wires them to the
+// session that owns the scheduler, the broker connection and the trace.
+const desktopDeps: DesktopToolDeps = {
+	scheduler: () => resourceScheduler,
+	trace: () => traceRecorder,
+	broker: () => brokerSession,
+	takeover: () => (takeoverAvailable() ? currentTakeoverController() : undefined),
+	collectWindows: collectBroadWindowDetails,
+	formatWindowLine,
+};
 
 export const executeLaunchBrowser = makeToolExecutor("launch_browser", performLaunchBrowser);
-export const executeManageApp = makeToolExecutor<{ action: "list" | "launch" | "quit"; bundleId?: string; path?: string; pid?: number; force?: boolean }, Record<string, unknown>>("manage_app", performManageApp);
-export const executeManageWindow = makeToolExecutor<{ action: "list" | "move" | "resize" | "minimize" | "restore" | "maximize" | "list_displays"; pid?: number; windowId?: number; x?: number; y?: number; w?: number; h?: number; title?: string }, Record<string, unknown>>("manage_window", performManageWindow);
-export const executeClipboard = makeToolExecutor<{ action: "get" | "set" | "clear"; text?: string }, Record<string, unknown>>("clipboard", performClipboard);
+export const executeManageApp = makeToolExecutor<{ action: "list" | "launch" | "quit"; bundleId?: string; path?: string; pid?: number; force?: boolean }, Record<string, unknown>>("manage_app", createAppTool(desktopDeps));
+export const executeManageWindow = makeToolExecutor<{ action: "list" | "move" | "resize" | "minimize" | "restore" | "maximize" | "list_displays"; pid?: number; windowId?: number; x?: number; y?: number; w?: number; h?: number; title?: string }, Record<string, unknown>>("manage_window", createWindowTool(desktopDeps));
+export const executeClipboard = makeToolExecutor<{ action: "get" | "set" | "clear"; text?: string }, Record<string, unknown>>("clipboard", createClipboardTool(desktopDeps));
 export const executeSystemSurface = makeToolExecutor<{ surface: "notifications" | "menu_bar_extras" | "control_center" | "dock" | "all" }, Record<string, unknown>>("system_surface", performSystemSurface);
-export const executeCuSession = makeToolExecutor<{ action: "status" | "release" | "trace_export" }, Record<string, unknown>>("cu_session", performCuSession);
+export const executeCuSession = makeToolExecutor<{ action: "status" | "release" | "transfer" | "trace_export" | "takeover" | "release_takeover"; toAgentId?: string; resourceKey?: string; pid?: number }, Record<string, unknown>>("cu_session", createCuSessionTool(desktopDeps));
 
 export function reconstructStateFromBranch(ctx: ExtensionContext): void {
 	savedStates.clear();

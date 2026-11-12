@@ -5,14 +5,10 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { macosSourceFiles } from "./macos-sources.mjs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const macosSourcePaths = [
-	"agent_cursor.swift",
-	"agent_cursor_motion.swift",
-	"background_text.swift",
-	"bridge.swift",
-].map((file) => path.join(rootDir, "native", "macos", file));
+const macosSourcePaths = macosSourceFiles.map((file) => path.join(rootDir, "native", "macos", file));
 const windowsCrateDir = path.join(rootDir, "native", "windows", "bridge-rs");
 const linuxCrateDir = path.join(rootDir, "native", "linux", "bridge-rs");
 const linuxTargets = { x64: "x86_64-unknown-linux-gnu", arm64: "aarch64-unknown-linux-gnu" };

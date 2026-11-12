@@ -34,6 +34,7 @@ PI_SUBAGENTS_EXECUTION_SCOPE= PI_SUBAGENTS_TEMP_ROOT= ROTOM_PI="$pi_command" ROT
 	rotom/scripts/check-providers.test.mjs \
 	rotom/runtime/process-tree.test.ts \
 	rotom/runtime/update-product.test.mjs \
+	rotom/runtime/update-helper.test.mjs \
 	rotom/runtime/distribution.test.mjs \
 	rotom/runtime/quality-boundaries.test.mjs \
 	rotom/scripts/build-pi-fork.test.mjs \
@@ -106,6 +107,7 @@ PI_SUBAGENTS_EXECUTION_SCOPE= PI_SUBAGENTS_TEMP_ROOT= ROTOM_PI="$pi_command" ROT
 	rotom/extensions/third-party/deferred-tools/register.test.ts \
 	rotom/extensions/third-party/subagent/skill.test.ts \
 	rotom/extensions/third-party/index.test.ts \
+	rotom/extensions/third-party/computer-use/approval.test.ts \
 	rotom/extensions/third-party/sol-pi.test.ts \
 	rotom/extensions/third-party/ask/schema.test.ts \
 	packages/rotom-computer-use/test/recovery.test.ts \

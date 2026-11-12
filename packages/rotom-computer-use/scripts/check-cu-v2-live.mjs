@@ -6,7 +6,13 @@
  * helper, and it types into a real application. It only touches the fixture app
  * and deliberately read-only system surfaces, never user documents.
  *
- *   PI_CU_LIVE=1 node scripts/check-cu-v2-live.mjs --fixture ~/cu-v2-test/Fixture.app
+ *   PI_CU_LIVE=1 node scripts/check-cu-v2-live.mjs --fixture ~/cu-v2-test/Fixture.app \
+ *     --sign-identity "Apple Development: ... (TEAMID)" \
+ *     --runs-dir ~/cu-v2-runs --expect-commit <frozen sha> \
+ *     --window-start 2026-11-06T19:53:21-0800 --window-minutes 60
+ *
+ * This is `B3-live`; with `--with-hid` it is the only script that owns B6 (review 6 K4).
+ * Everything it writes goes to `--runs-dir`, outside the worktree (K1).
  *
  * Point it at an isolated helper so a running session keeps its own daemon:
  *
@@ -15,23 +21,37 @@
  *   PI_CU_LIVE=1 node scripts/check-cu-v2-live.mjs --fixture ~/cu-v2-test/Fixture.app
  *
  * What it proves when it passes:
- *   - the helper answers as protocol 8 and reports user activity
+ *   - the helper answers the current helper protocol and reports user activity
  *   - each semantic action reaches a real control and reports a verified outcome
  *   - window, clipboard and system-surface commands answer with real data
- *   - a background action leaves the frontmost app and the system cursor
- *     untouched and is counted as an agent event, not a user event
+ *   - B3 background actions post no HID events, never make the run-owned fixture/helper
+ *     frontmost, and use no cursor-warp path
  *
  * What it cannot prove: that no other app on this machine is affected, or that
  * L2 delivery works in apps outside the compatibility list.
  */
-import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { existsSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
+/** `--name value` on the command line, or the fallback. */
+function argument(name, fallback) {
+	const index = process.argv.indexOf(name);
+	return index >= 0 && index + 1 < process.argv.length ? process.argv[index + 1] : fallback;
+}
+
 import process from "node:process";
 
-import { runStamp } from "./lib/live-helpers.mjs";
+import { createBackgroundEvidence } from "./lib/background-evidence.mjs";
+import { runHidClick } from "./lib/hid-click.mjs";
+import { recordRealUserInput, restoreOperatorApp, runStamp, withoutHome } from "./lib/live-helpers.mjs";
+import { StepRefused, beginStep, writeRunArchive } from "./lib/b-window.mjs";
+import { bringUpFixture, disposeFixtureRun, ensureFixtureWindow } from "./lib/fixture.mjs";
+import { GateHold, requireGate } from "./lib/gate.mjs";
 
-const EVIDENCE_DIR = path.resolve(import.meta.dirname, "..", "..", "..", "docs", "agent", "computer-use-v2", "evidence");
+/** `scripts/` -> `packages/rotom-computer-use` -> `packages` -> repository root. */
+const REPO_ROOT = path.resolve(import.meta.dirname, "..", "..", "..");
+/** Set by `beginStep`: the frozen commit and the step this run is evidence about. */
+let frozen;
 const rows = [];
 const log = [];
 
@@ -49,46 +69,88 @@ function disabled(reason) {
 if (process.platform !== "darwin") disabled("not macOS");
 if ((process.env.PI_CU_LIVE ?? "") !== "1") disabled("PI_CU_LIVE is not 1");
 
-const { macosHelper } = await import("../src/platform/macos/helper.ts");
-const { macosBackend } = await import("../src/platform/macos/backend.ts");
+const { macosHelper: rawHelper } = await import("../src/platform/macos/helper.ts");
+const { macosBackend: rawBackend } = await import("../src/platform/macos/backend.ts");
+const runOwnedPids = new Set();
+const background = createBackgroundEvidence({ backend: rawBackend, helper: rawHelper, record, ownedPids: runOwnedPids });
+const macosHelper = background.helper;
+const macosBackend = background.backend;
 
-const fixturePath = process.argv[process.argv.indexOf("--fixture") + 1];
+const fixturePath = argument("--fixture");
+let fixtureRun;
+/**
+ * The gate runs here too, not in an operator loop (review G6): no declared window is a
+ * refusal, and a hold stops before anything touches the desktop.
+ */
+async function refuseUnlessGatePasses() {
+	try {
+		return await requireGate({
+			windowStart: argument("--window-start"),
+			windowMinutes: argument("--window-minutes"),
+		});
+	} catch (error) {
+		console.error(`[cu-v2 live] gate: ${error instanceof Error ? error.message : String(error)}`);
+		process.exit(error instanceof GateHold ? 1 : 2);
+	}
+}
+
 
 async function main() {
+	// Review 6 P1/K3/K4: `--with-hid` is B6; the plain run is `B3-live`, and the
+	// acceptance script's `B3-acceptance` must pass too before B4. The step is declared
+	// before anything touches the desktop, and a stopped phase never reaches the gate.
+	const withHid = process.argv.includes("--with-hid");
+	const step = withHid ? "B6" : "B3-live";
+	try {
+		frozen = beginStep({ step, expectCommit: argument("--expect-commit"), runsDir: argument("--runs-dir"), cwd: REPO_ROOT });
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		record("run", "constraints", "refused", message);
+		await writeEvidence();
+		console.error(`[cu-v2 live] ${message}`);
+		process.exit(error instanceof StepRefused ? 2 : 1);
+	}
+	record("run", "frozen commit", "pass", `${frozen.commit} step=${frozen.step}`);
+	await refuseUnlessGatePasses();
 	const diagnostics = await macosHelper.diagnosticsCommand();
-	record("helper", "diagnostics", diagnostics.protocolVersion === 8 ? "pass" : "fail", `protocol=${diagnostics.protocolVersion}`);
-	if (diagnostics.protocolVersion !== 8) throw new Error("helper must report protocol 8; install/restart the v2 helper in its own socket");
+	// Read the constant instead of repeating the number: the A-phase bump to 9 left this
+	// check refusing a correct helper, which reads exactly like a broken install.
+	const { HELPER_PROTOCOL_VERSION } = await import("../src/platform/macos/helper.ts");
+	record("helper", "diagnostics", diagnostics.protocolVersion === HELPER_PROTOCOL_VERSION ? "pass" : "fail", `protocol=${diagnostics.protocolVersion} expected=${HELPER_PROTOCOL_VERSION}`);
+	if (diagnostics.protocolVersion !== HELPER_PROTOCOL_VERSION) throw new Error(`helper must report protocol ${HELPER_PROTOCOL_VERSION}; install/restart the v2 helper in its own socket`);
 	if (!diagnostics.accessibility) throw new Error("Accessibility is not granted to the helper");
 	record("helper", "permissions", diagnostics.screenRecording ? "pass" : "fail", `accessibility=${diagnostics.accessibility} screenRecording=${diagnostics.screenRecording} executable=${diagnostics.executablePath}`);
+	if (!withHid) {
+		background.setHelperPid(diagnostics.pid, diagnostics.invariants);
+		await background.start();
+	}
 
 	const activityBefore = await macosBackend.userActivity();
 	record("helper", "userActivity", activityBefore.listening ? "pass" : "fail", `idle=${activityBefore.idleSeconds.toFixed(1)}s userEvents=${activityBefore.userEventCount} agentEvents=${activityBefore.agentEventCount}`);
 
 	if (!fixturePath || !existsSync(fixturePath)) throw new Error("pass --fixture <path to the built fixture app>");
-	const findFixture = (list) => list.find((app) => /fixture/i.test(app.appName) || /fixture/i.test(app.bundleId ?? ""));
-	let fixture = findFixture(await macosBackend.listApps());
-	if (fixture) {
-		record("app", "launch", "pass", `already running, pid=${fixture.pid} bundle=${fixture.bundleId ?? "?"}`);
-	} else {
-		try {
-			await macosBackend.manageApps({ mode: "launch", path: fixturePath, activates: false });
-			record("app", "manageApps launch", "pass", fixturePath);
-		} catch (error) {
-			// LaunchServices refuses unsigned-for-Gatekeeper bundles on this machine; the
-			// fixture can still be started directly. Record the refusal, keep going.
-			record("app", "manageApps launch", "blocked", error instanceof Error ? error.message : String(error));
-		}
-		await new Promise((resolve) => setTimeout(resolve, 2500));
-		fixture = findFixture(await macosBackend.listApps());
-		if (!fixture) throw new Error("the fixture app is not running and could not be launched; start it directly, then re-run");
-	}
-	record("app", "present", "pass", `pid=${fixture.pid} bundle=${fixture.bundleId ?? "?"}`);
+	const identity = argument("--sign-identity") ?? process.env.PI_CU_FIXTURE_SIGN_IDENTITY;
+	if (!identity) throw new Error("pass --sign-identity or set PI_CU_FIXTURE_SIGN_IDENTITY so the run can create its own fixture copy");
+	const beforeRun = new Set((await macosBackend.listApps()).map((app) => app.pid));
+	const runRoot = mkdtempSync(path.join(tmpdir(), "cu-v2-live-fixture-"));
+	const broughtUp = await bringUpFixture({
+		backend: macosBackend,
+		fixturePath,
+		runRoot,
+		sign: true,
+		identity,
+		startedByThisRun: (app) => !beforeRun.has(app.pid),
+		record,
+	});
+	const fixture = broughtUp.fixture;
+	fixtureRun = broughtUp.run;
+	if (!fixture) throw new Error("the run-owned fixture copy did not launch");
+	if (!withHid) background.own(fixture.pid);
 
 	const frontmostBefore = await macosBackend.getFrontmost();
-	const cursorBefore = await macosHelper.command("getMousePosition", {});
 
-	const roots = await macosBackend.listRoots({ pid: fixture.pid });
-	const root = roots.find((candidate) => candidate.kind === "window");
+	// The fixture orders its window behind the user's windows without activating the application.
+	const root = await ensureFixtureWindow(macosBackend, { pid: fixture.pid, bundleId: fixture.bundleId });
 	if (!root) throw new Error("the fixture window is not in listRoots");
 	record("root", "listRoots", root.windowId > 0 ? "pass" : "fail", `windowId=${root.windowId} frame=${JSON.stringify(root.framePoints)}`);
 
@@ -150,64 +212,28 @@ async function main() {
 		}
 	}
 
-	// The background invariant: everything above was delivered without touching the
-	// user's session. Judge it here, before any opt-in HID step, because HID
-	// delivery is allowed to move the cursor and raise the target window.
-	const frontmostAfter = await macosBackend.getFrontmost();
-	const cursorAfter = await macosHelper.command("getMousePosition", {});
-	const cursorDelta = Math.hypot(Number(cursorAfter.x) - Number(cursorBefore.x), Number(cursorAfter.y) - Number(cursorBefore.y));
-	const withHid = process.argv.includes("--with-hid");
-	if (withHid) {
-		record("background", "cursor unchanged", "skipped", "not judged in a --with-hid run: HID delivery moves the session cursor by design");
-		record("background", "frontmost app unchanged", "skipped", "not judged in a --with-hid run: HID delivery raises the target window by design");
-	} else {
-		record("background", "cursor unchanged", cursorDelta < 1 ? "pass" : "fail", `(${cursorBefore.x},${cursorBefore.y}) → (${cursorAfter.x},${cursorAfter.y}) delta=${cursorDelta.toFixed(1)}pt`);
-		record("background", "frontmost app unchanged", frontmostAfter.pid === frontmostBefore.pid ? "pass" : "fail", `${frontmostBefore.appName} (${frontmostBefore.pid}) → ${frontmostAfter.appName} (${frontmostAfter.pid})`);
-	}
-
 	// HID delivery posts real events through the session tap, so it can move the
 	// cursor and raise the target window. Keep it opt-in, and restore the app that
 	// was frontmost before the run.
 	if (withHid) {
-		const before = await macosBackend.userActivity();
-		if (!look.image) {
-			// A coordinate click needs a window image, which needs the window to be
-			// on screen. Do not pretend the marker was exercised when it was not.
-			record("background", "agent events marked", "skipped", "no window image for coordinate targeting; bring the fixture window on screen and re-run");
-		} else {
-			try {
-				const point = { x: Math.round((root.framePoints?.w ?? 400) * 0.5), y: Math.round((root.framePoints?.h ?? 400) * 0.92) };
-				const result = await macosBackend.act({ lookId: look.lookId, pid: fixture.pid, target: { x: point.x, y: point.y, rootRef: root.rootRef }, action: "click", params: {}, policy: "default" }, { timeoutMs: 20_000 });
-				const after = await macosBackend.userActivity();
-				record("background", "agent events marked", after.agentEventCount > before.agentEventCount ? "pass" : "fail", `agentEvents ${before.agentEventCount} → ${after.agentEventCount}`);
-				record("background", "user events exclude agent input", after.userEventCount === before.userEventCount ? "pass" : "inconclusive", `userEvents ${before.userEventCount} → ${after.userEventCount} (human input during the run)`);
-				record("act", "click (HID delivery)", result?.performed?.delivery === "hid" ? "pass" : "fail", `outcome=${result?.outcome ?? "?"} delivery=${result?.performed?.delivery ?? "?"}`);
-			} catch (error) {
-				record("act", "click (HID delivery)", "fail", error instanceof Error ? error.message : String(error));
-			}
+		const hid = await runHidClick({ backend: macosBackend, helper: macosHelper, look, root, fixture, record });
+		if (!hid.stopped) {
+			// Put the user back where they were, through `focusWindow` with a lease (review 6
+			// P2). The previous version re-launched the app - which does nothing for a running
+			// app - swallowed the error and called the result `inconclusive`, so B6 could pass
+			// while the operator's app stayed behind the fixture.
+			await restoreOperatorApp({ backend: macosBackend, original: frontmostBefore, record });
 		}
-		// Put the user back where they were: focus the window that was frontmost
-		// before the run instead of relaunching an app that is already running.
-		const previousRoots = await macosBackend.listRoots({ pid: frontmostBefore.pid }).catch(() => []);
-		const previousWindow = previousRoots.find((candidate) => candidate.kind === "window");
-		if (previousWindow) {
-			// focusWindow raises the window and activates its app; without the
-			// activation the previous app would stay behind the HID click target.
-			await macosBackend.focusWindow({ windowId: previousWindow.windowId, windowRef: previousWindow.rootRef, pid: frontmostBefore.pid }).catch(() => undefined);
-			if (frontmostBefore.appName) await macosHelper.command("manageApps", { mode: "launch", bundleId: frontmostBefore.bundleId, path: frontmostBefore.appPath, activates: true }).catch(() => undefined);
-			await new Promise((resolve) => setTimeout(resolve, 800));
-			const restored = await macosBackend.getFrontmost();
-			// Restoring the previous app is operator hygiene, not product behavior: the
-			// HID click legitimately raised the fixture. Report it, but do not fail.
-			record("background", "frontmost restored", restored.pid === frontmostBefore.pid ? "pass" : "inconclusive", `${frontmostBefore.appName} → ${restored.appName}; bring your app back manually`);
-		}
-	} else {
-		record("background", "agent events marked", "skipped", "run with --with-hid to post real input events");
 	}
 
-	await writeEvidence();
+	if (fixtureRun) await disposeFixtureRun(fixtureRun, macosBackend, { record });
+	fixtureRun = undefined;
+	await recordRealUserInput({ helper: macosHelper, backend: macosBackend, record, activityBefore, operatorPid: frontmostBefore.pid, runPids: [fixture.pid], judged: withHid });
+	if (!withHid) await background.finish();
+
 	const failures = rows.filter((row) => row.result === "fail").length;
-	console.log(`[cu-v2 live] ${rows.length} rows, ${failures} failing; log written to ${EVIDENCE_DIR}`);
+	const written = await writeEvidence();
+	console.log(`[cu-v2 live] ${rows.length} rows, ${failures} failing; ${frozen.step} ${written.verdict}; archive ${written.path}`);
 }
 
 async function actOn(look, pid, action) {
@@ -219,9 +245,9 @@ async function runAction(name, run) {
 		const result = await run();
 		const outcome = result?.outcome ?? "unknown";
 		const interfered = result?.performed?.interferedWithUser === true;
-		// `interferedWithUser` means real user input overlapped the action, which makes
-		// the click ambiguous. That is a signal about the machine, not a defect.
-		const result_status = result?.ok === false || outcome !== "worked" ? "fail" : interfered ? "inconclusive" : "pass";
+		// Operator activity may overlap a background action; its own readback decides
+		// success, not whether the operator happened to use the Mac at the same time.
+		const result_status = result?.ok === false || outcome !== "worked" ? "fail" : "pass";
 		record("act", name, result_status, `outcome=${outcome} delivery=${result?.performed?.delivery ?? "?"} mechanism=${result?.performed?.mechanism ?? "-"}${interfered ? " user input overlapped" : ""}`);
 	} catch (error) {
 		record("act", name, "fail", error instanceof Error ? error.message : String(error));
@@ -262,40 +288,38 @@ function walk(outline, visit) {
 }
 
 async function writeEvidence() {
-	await mkdir(EVIDENCE_DIR, { recursive: true });
-	await mkdir(path.join(EVIDENCE_DIR, "runs"), { recursive: true });
-	const table = ["| Area | Action | Result | Note |", "| --- | --- | --- | --- |", ...rows.map((row) => `| ${row.area} | ${row.action} | ${row.result} | ${row.note.replace(/\|/g, "\\|")} |`)];
-	const failures = rows.filter((row) => row.result === "fail").length;
 	const runName = `${runStamp()}-live-check.md`;
-	const body = [
-		`# Computer Use v2 live check (${new Date().toISOString()})`,
-		"",
-		`Rows: ${rows.length} · Failures: ${failures}`,
-		"",
-		`本次运行存档：\`runs/${runName}\``,
-		"",
-		...table,
-		"",
-		"## Log",
-		"",
-		"```",
-		...log,
-		"```",
-		"",
-	].join("\n");
-	await writeFile(path.join(EVIDENCE_DIR, "live-check.md"), body);
-	// The summary above is overwritten by the next run; the archived copy is what a
-	// document cites, so an earlier result cannot silently disappear.
-	await writeFile(path.join(EVIDENCE_DIR, "runs", runName), body);
-	await writeFile(path.join(EVIDENCE_DIR, `live-check-${Date.now()}.log`), log.join("\n"));
-	if (failures > 0) process.exitCode = 1;
+	// Without `beginStep` there is no runs directory, so a refusal cannot leave an archive
+	// that a later step would read as permission.
+	const written = frozen
+		? writeRunArchive({
+			runsDir: frozen.runsDir,
+			runName,
+			title: "Computer Use v2 live check",
+			step: frozen.step,
+			commit: frozen.commit,
+			rows: rows.map((row) => ({ ...row, note: withoutHome(row.note) })),
+			log: log.map(withoutHome),
+			intro: ["One real helper, one real fixture window, only processes this run started."],
+		})
+		: { verdict: "refused", blockers: [], path: undefined, runName };
+	if (written.verdict === "fail") {
+		process.exitCode = 1;
+		console.error(`[cu-v2 live] ${frozen.step} FAILED: ${written.blockers.join("; ")}`);
+	}
+	return written;
 }
 
 try {
 	await main();
 } catch (error) {
 	record("run", "abort", "fail", error instanceof Error ? error.message : String(error));
-	await writeEvidence();
+	if (fixtureRun) {
+		await disposeFixtureRun(fixtureRun, macosBackend, { record }).catch((cleanupError) => record("cleanup", "fixture copy", "fail", String(cleanupError)));
+		fixtureRun = undefined;
+	}
+	const written = await writeEvidence();
 	console.error(`[cu-v2 live] ${error instanceof Error ? error.message : String(error)}`);
+	if (written.path) console.error(`[cu-v2 live] ${frozen?.step ?? "run"} ${written.verdict}; archive ${written.path}`);
 	process.exitCode = 1;
 }

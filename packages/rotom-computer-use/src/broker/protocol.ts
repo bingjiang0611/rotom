@@ -6,7 +6,10 @@
  * matching request. Both sides ignore unknown fields so that a newer peer can
  * add metadata without breaking an older one.
  */
-export const BROKER_PROTOCOL_VERSION = 1;
+import type { OpenTargetKind } from "../open-target.ts";
+
+// Version 2 requires per-action approval for external/unknown AXOpen targets.
+export const BROKER_PROTOCOL_VERSION = 2;
 
 /** App write lease lifetime. Renewed by every action the holder dispatches. */
 export const DEFAULT_LEASE_TTL_MS = 60_000;
@@ -18,6 +21,19 @@ export const DEFAULT_HEARTBEAT_TIMEOUT_MS = 10_000;
 export const DEFAULT_IDLE_SHUTDOWN_MS = 600_000;
 /** How long an approval request may stay unanswered before it is refused. */
 export const DEFAULT_APPROVAL_TIMEOUT_MS = 120_000;
+
+/**
+ * The global foreground resource (PLAN §7, L4).
+ *
+ * Taking it converts the machine into "the agent is driving": physical input goes
+ * to one app, the rest of the desktop is not the agent's. It is a single global
+ * resource on purpose, so two agents can never both believe they own the screen.
+ */
+export const TAKEOVER_RESOURCE = "desktop-foreground";
+/** The user must be idle this long before an agent may take the foreground. */
+export const TAKEOVER_IDLE_MS = 10_000;
+/** Window in which the user's explicit "let it take over" click counts as consent. */
+export const TAKEOVER_APPROVAL_WINDOW_MS = 60_000;
 
 export type BrokerErrorCode =
 	| "invalid_request"
@@ -32,6 +48,11 @@ export type BrokerErrorCode =
 	| "approval_unavailable"
 	| "approval_denied"
 	| "stopped_by_user"
+	| "not_permitted"
+	| "paused_interfered"
+	| "preempted_by_user"
+	| "takeover_conditions"
+	| "lease_invalid"
 	| "unsupported";
 
 /** Who currently holds a resource and how long the hold lasts. */
@@ -75,6 +96,8 @@ export interface ActionIntent {
 	name: string;
 	/** Text of the resolved element, used for sensitive-action matching only. */
 	label?: string;
+	/** Native type preflight; on batches, the most sensitive open target. */
+	openTarget?: OpenTargetKind;
 }
 
 export interface HelloRequest {
@@ -87,7 +110,13 @@ export interface HelloRequest {
 export interface PingRequest {
 	id: string;
 	type: "ping";
-	/** Broker-visible user activity, forwarded by the helper listener. */
+	/**
+	 * Broker-visible user activity, forwarded by the helper listener.
+	 *
+	 * Milliseconds since the epoch. A seconds value is refused rather than stored:
+	 * the takeover check subtracts it from `Date.now()`, so a unit mismatch would
+	 * make the user look idle for 50,000 years (review E1).
+	 */
 	lastUserInputAt?: number;
 }
 
@@ -141,6 +170,76 @@ export interface StopRequest {
 	targetAgentId?: string;
 }
 
+/**
+ * An agent reporting that its own action disturbed the user.
+ *
+ * The helper is the only component that can see "the frontmost app changed while
+ * the user was typing within 2 seconds" (PLAN §6), so it measures and the broker
+ * enforces: the agent is paused and loses its write leases. Reads stay allowed.
+ */
+export interface InterferenceRequest {
+	id: string;
+	type: "interference";
+	/** Short reason code from the observing surface; never user content. */
+	evidence?: string;
+}
+
+/**
+ * The user let an agent take the foreground ("让它接管").
+ *
+ * Only the helper may say so: it is a click in the menu bar, which no model can
+ * press. The broker remembers it for `TAKEOVER_APPROVAL_WINDOW_MS` so the agent's
+ * next takeover request does not have to wait for 10 s of idle.
+ */
+export interface TakeoverApprovalRequest {
+	id: string;
+	type: "takeover_approval";
+}
+
+/**
+ * A real user input arrived while an agent held the foreground.
+ *
+ * Reported by the helper (it is the only process that can see the event tap), and
+ * the broker retains the lease while the helper pauses delivery. Resume needs
+ * fresh helper evidence; a model cannot resume itself or replay interrupted input.
+ */
+export const TAKEOVER_END_REASONS = ["released_by_user", "authorization_lost", "target_lost", "resume_timeout", "resume_limit", "takeover_duration_limit", "release_failed"] as const;
+export type TakeoverEndReason = typeof TAKEOVER_END_REASONS[number];
+
+export interface YieldRelease {
+	kind: "key" | "modifier" | "button";
+	code: number;
+	posted: boolean;
+}
+
+export interface ReleaseOnYieldRequest {
+	id: string;
+	type: "release_on_yield";
+	targetAgentId: string;
+	releases: YieldRelease[];
+}
+
+export interface TakeoverStateRequest {
+	id: string;
+	type: "takeover_state";
+	phase: "begin" | "pause" | "prepare_resume" | "commit_resume" | "resumed" | "end";
+	targetAgentId: string;
+	leaseId: string;
+	takeoverId: string;
+	sequence?: number;
+	app?: TargetAppInfo;
+	targetValid?: boolean;
+	activity?: { observedAt: number; listening: boolean; listeningSeconds: number; lastUserInputAt: number; idleSeconds: number };
+	reason?: TakeoverEndReason;
+}
+
+/** Resume a paused agent. User control only: the helper connection may ask. */
+export interface ResumeRequest {
+	id: string;
+	type: "resume";
+	targetAgentId: string;
+}
+
 export interface ApprovalResponseRequest {
 	id: string;
 	type: "approval_response";
@@ -159,7 +258,14 @@ export interface PolicyRequest {
 }
 
 export type AppTier = "view" | "click" | "full";
-export type ApprovalDecision = "allow_session" | "always" | "deny";
+export type ApprovalDecision = "allow_once" | "allow_session" | "always" | "deny";
+
+/** Local diagnostic metadata only; never includes app, label, UI text or errors. */
+export interface ApprovalDiagnostic {
+	requestId: string;
+	phase: "received" | "prompt_requested" | "decision" | "unavailable" | "expired" | "cancelled" | "ui_error" | "response_ack" | "response_error";
+	decision?: ApprovalDecision;
+}
 
 export type BrokerRequest =
 	| HelloRequest
@@ -171,11 +277,23 @@ export type BrokerRequest =
 	| EpochRequest
 	| StatusRequest
 	| StopRequest
+	| InterferenceRequest
+	| TakeoverApprovalRequest
+	| TakeoverStateRequest
+	| ReleaseOnYieldRequest
+	| ResumeRequest
 	| ApprovalResponseRequest
 	| PolicyRequest;
 
 export interface LeaseInfo {
 	leaseId: string;
+	/**
+	 * Signed proof of this lease for the native helper.
+	 *
+	 * Only the broker and the helper know the key, so a helper that has one can
+	 * refuse writes from an agent without a valid, unrevoked, unexpired lease.
+	 */
+	token?: string;
 	resourceKey: string;
 	agentId: string;
 	/** Epoch granted to this write; the caller stores it in its observation state. */
@@ -191,6 +309,8 @@ export interface AgentStatus {
 	pid: number;
 	lastSeenAt: number;
 	leases: Array<{ resourceKey: string; leaseId: string; expiresAt: number }>;
+	/** Present while the agent is paused after interfering with the user. */
+	paused?: { reason: "interfered_with_user"; at: number };
 }
 
 export interface BrokerStatus {
@@ -201,6 +321,8 @@ export interface BrokerStatus {
 	resources: Array<{ resourceKey: string; epoch: number; holder?: LeaseHolderInfo }>;
 	waiters: Array<{ agentId: string; resourceKey: string; deadline: number }>;
 	lastUserInputAt?: number;
+	/** Who currently holds the foreground, if anyone. */
+	takeover?: { agentId: string; since: number; paused: boolean; resumes: number; leaseId: string };
 }
 
 export type BrokerFailureCode = BrokerErrorCode;
@@ -215,12 +337,19 @@ export interface BrokerFailure {
 	tier?: AppTier;
 }
 
+/** Preserve each request variant when callers supply the correlation id separately. */
+export type BrokerRequestInput = {
+	[Kind in BrokerRequest["type"]]: Omit<Extract<BrokerRequest, { type: Kind }>, "id">;
+}[BrokerRequest["type"]];
+
 export interface HelloResponse {
 	ok: true;
 	type: "hello";
 	protocolVersion: number;
 	brokerPid: number;
 	startedAt: number;
+	/** Base64 lease-signing key; present only for `role=helper` registrations. */
+	leaseKey?: string;
 }
 
 export interface PongResponse {
@@ -275,6 +404,26 @@ export interface StopResponse {
 	stopped: string[];
 }
 
+export interface InterferenceResponse {
+	ok: true;
+	type: "interference";
+	/** False when the report did not meet the pause rule. */
+	paused: boolean;
+}
+
+export interface ResumeResponse {
+	ok: true;
+	type: "resume";
+	resumed: string[];
+}
+
+export interface TakeoverApprovalResponse {
+	ok: true;
+	type: "takeover_approval";
+	/** Timestamp the consent is valid from; the broker's clock. */
+	approvedAt: number;
+}
+
 export interface ApprovalResponseAck {
 	ok: true;
 	type: "approval_response";
@@ -288,11 +437,21 @@ export interface PolicyResponse {
 		path: string;
 		projectPath: string;
 		apps: Record<string, AppTier>;
+		/** Apps the user allowed to take the foreground (L4). */
+		foreground?: string[];
 		sensitive: boolean;
 	};
 }
 
+export interface TakeoverStateResponse {
+	ok: true;
+	type: "takeover_state";
+	allowed: boolean;
+}
+
 export type BrokerResponse =
+	| { ok: true; type: "release_on_yield"; id?: string }
+	| TakeoverStateResponse
 	| HelloResponse
 	| PongResponse
 	| AcquireResponse
@@ -302,6 +461,9 @@ export type BrokerResponse =
 	| EpochResponse
 	| StatusResponse
 	| StopResponse
+	| InterferenceResponse
+	| TakeoverApprovalResponse
+	| ResumeResponse
 	| ApprovalResponseAck
 	| PolicyResponse;
 
@@ -322,7 +484,29 @@ export interface RevokedEvent {
 	event: "revoked";
 	agentId: string;
 	leaseIds: string[];
-	reason: "stopped_by_user" | "owner_disconnected" | "expired" | "transferred";
+	reason: "stopped_by_user" | "owner_disconnected" | "expired" | "transferred" | "paused_interfered" | "preempted_by_user" | "released_by_user" | "takeover_ended";
+	/**
+	 * Milliseconds after which the helper may forget these ids (the latest expiry among
+	 * them). Without it the helper's revoked set would only ever grow, and a restarted
+	 * broker's reused ids would be refused (review E2).
+	 */
+	expiresAt: number;
+}
+
+/** The agent was paused because one of its actions disturbed the user (PLAN §6). */
+export interface PausedEvent {
+	event: "paused";
+	agentId: string;
+	reason: "interfered_with_user";
+	at: number;
+	/** Constant reason code from the observing surface; never user content. */
+	evidence?: string;
+}
+
+/** A user action lifted a pause; the model cannot resume itself. */
+export interface ResumedEvent {
+	event: "resumed";
+	agentId: string;
 }
 
 export interface StoppedEvent {
@@ -330,12 +514,34 @@ export interface StoppedEvent {
 	agentId: string;
 }
 
-export type BrokerEvent = ApprovalRequestEvent | RevokedEvent | StoppedEvent;
+export interface TakeoverStateEvent {
+	event: "takeover_state";
+	agentId: string;
+	state: "paused" | "resumed" | "ended";
+	takeoverId: string;
+	leaseId: string;
+	reason: string;
+	at: number;
+}
+
+export interface ReleaseOnYieldEvent {
+	event: "release_on_yield";
+	agentId: string;
+	releases: YieldRelease[];
+}
+
+export type BrokerEvent = ReleaseOnYieldEvent | TakeoverStateEvent | ApprovalRequestEvent | RevokedEvent | StoppedEvent | PausedEvent | ResumedEvent;
+
+export interface BrokerTransport {
+	/** Deliver an unsolicited event to one agent; false when it is not connected. */
+	send(agentId: string, event: BrokerEvent): boolean;
+	connectedAgents(): number;
+}
 
 export function isBrokerEvent(value: unknown): value is BrokerEvent {
 	if (!value || typeof value !== "object") return false;
 	const event = (value as { event?: unknown }).event;
-	return event === "approval" || event === "revoked" || event === "stopped";
+	return event === "release_on_yield" || event === "takeover_state" || event === "approval" || event === "revoked" || event === "stopped" || event === "paused" || event === "resumed";
 }
 
 /** Response envelope: either a typed success or a structured failure. */
