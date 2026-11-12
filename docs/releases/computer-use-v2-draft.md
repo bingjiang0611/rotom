@@ -1,10 +1,10 @@
-# rotom 0.2.0 发布说明（草稿，目标 dist-tag：latest）
+# rotom 0.2.0 发布说明（待发布，dist-tag：latest）
 
 ## 升级前必读：必须显式更新 Computer Use helper
 
 > **本版计划发布到 `latest`。旧 helper 与本版协议不兼容：不完成下面的 helper 更新，Computer Use 会报协议不匹配，不能正常使用。仅升级 rotom 或重开旧 helper 不够。**
 >
-> 本文是草稿，不表示已经发布。用户已明确授权 `0.2.0` / `latest`；当前产品 manifest 仍为 `0.1.27`。须先将功能合入 main，再单独提交并冻结发布元数据，之后才构建、验证最终产品 tgz。当前候选不执行发布或切换日常安装。
+> 本文不表示已经发布。[REVIEW-27](https://github.com/bingjiang0611/rotom/blob/4936306eaee2e6bcf8d1abf530a3c7309f5871b0/docs/agent/computer-use-v2/REVIEW-27.md) 已接受功能提交 `4c7f7bb3f81843532b4d3b9adb4483cbc0056b43`，该提交已快进合入 main。本次独立冻结产品 manifest 的 `0.2.0`、`publishConfig.tag=latest`、`access=public` 和 `UNLICENSED`；审核此冻结提交后才执行一次 `pack:release`。当前尚无最终产品 tgz，不执行发布或切换日常安装；验收和前台交接边界见 [冻结记录](0.2.0-freeze.md)。
 
 安装最终 rotom 版本后，按以下顺序操作：
 
@@ -36,7 +36,7 @@ ScreenCaptureKit 的屏幕录制授权可能按 macOS 的系统策略出现**每
 - Computer Use 授权使用 Ask 的实际问卷与弹层，等待完整授权期限。超时、拒绝和取消不会被当成授权，也不会触发模型续跑。
 - 新增 `rotom helper update`。首参 `helper` 由 rotom launcher 处理，不透传 Pi，不启动 AgentSession。
 - 两个 macOS 构建入口共用完整 Swift 源文件列表；测试前恢复完整 TypeScript 检查，不再用过渡性的 fatal-only 检查代替它。
-- 组件候选为 `@injaneity/pi-computer-use@0.5.1-rotom.4`，取代 main 的 `.rotom.3`。保留 main 的错误提示、协议和权限修复；协议不匹配的确认改为“停止旧 helper，以便运行 rotom helper update”。同意后只停止，不再重启旧二进制；无论是否同意，都须更新后新开会话。
+- 本版锁定 `@injaneity/pi-computer-use@0.5.1-rotom.4`，相对合入前 main 的 `.rotom.3` 升级。保留 main 的错误提示、协议和权限修复；协议不匹配的确认改为“停止旧 helper，以便运行 rotom helper update”。同意后只停止，不再重启旧二进制；无论是否同意，都须更新后新开会话。
 
 ## 行为变化摘要
 
@@ -71,7 +71,7 @@ ScreenCaptureKit 的屏幕录制授权可能按 macOS 的系统策略出现**每
 - Computer Use 使用本机用户权限。同意层、App 分级、租约和暂停机制不是 OS 沙箱。
 - updater 的目录锁只串行化 updater，不能阻止旧 launcher 或外部进程在最后占用检查之后启动 helper。整个更新期间必须保持所属会话关闭。
 - 签名严格校验通过不等于公证、企业策略批准或实际启动成功。日常 helper、用户证书和真实升级本轮均未操作。
-- 最终 `0.2.0` 产品 tgz 发布前，仍须在独立 HOME/prefix 验证实际 helper 启动和 diagnostics；受管 Mac 阻止启动时必须停止发布，不能拿离线测试替代。
-- 本候选只等待审核，不推 main；之后须另行完成合入、发布元数据冻结、最终 artifact 验证和用户前台 npm 发布交接。
+- 最终 `0.2.0` 产品 tgz 发布前，必须在隔离 HOME/prefix 安装，用 `rotom helper update` 和用户已有的 Apple Development 身份把 helper 装到隔离路径；显式隔离 app/socket，验证实际启动及 diagnostics 的协议 **11**、PID 和可执行文件归属。端点安全终止启动时立即停止发布并报告，不换路径、身份或降低门禁绕过；不能拿源码或离线测试替代。
+- 当前等待发布元数据审核，尚未打包或执行真实升级验收。npm login、npm whoami、npm publish 只通过 `scripts/npm-release-handoff.mjs` 生成命令，由用户在前台终端执行；Agent 不执行认证或发布。日常 helper 的停止再升级仍需另行授权。
 
 当前状态与历史记录入口：[Computer Use 状态](../agent/computer-use-v2/STATUS.md)。

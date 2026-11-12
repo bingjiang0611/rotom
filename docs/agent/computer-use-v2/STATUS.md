@@ -1,13 +1,13 @@
 # Computer Use v2.1 当前状态
 
-本页按 HANDOFF-6 与阶段 2 审核 REVIEW-25（`f06cbb6`）收敛。它替代旧版协议 8 的笼统结论；历史记录保留在各 STATUS / evidence 文档和 Git history 中，不据此扩大本候选的真机证据。
+本页保留 HANDOFF-6 与阶段 2 审核 REVIEW-25（`f06cbb6`）的证据分级，发布进度更新至 REVIEW-27 接受后的阶段 5。它替代旧版协议 8 的笼统结论；历史记录保留在各 STATUS / evidence 文档和 Git history 中，不据此扩大本候选的真机证据。
 
-## 候选与发布边界
+## 合入与发布边界
 
-- main 候选组件：`@injaneity/pi-computer-use@0.5.1-rotom.4`；helper 协议 **11**，broker 协议 **2**。
-- 用户已授权将来发布 **0.2.0 / latest**（HANDOFF-6 的 `d6c17a6` 补充）。产品版本目前仍为 **0.1.27**；等功能合入 main 后，再用独立提交冻结发布元数据。
-- 本轮只交付 `claude/computer-use-v2.1-main-candidate`，不推 main、不发布、不登录 npm，不改变日常安装或 helper。
-- [发布说明草稿](../../releases/computer-use-v2-draft.md) 最前面列出必要升级步骤。**旧 helper 未更新时会报协议不匹配；仅升级 rotom 不够。**
+- main 已合入组件：`@injaneity/pi-computer-use@0.5.1-rotom.4`；helper 协议 **11**，broker 协议 **2**。
+- 用户已授权发布 **0.2.0 / latest**；[REVIEW-27](https://github.com/bingjiang0611/rotom/blob/4936306eaee2e6bcf8d1abf530a3c7309f5871b0/docs/agent/computer-use-v2/REVIEW-27.md) 接受的功能提交 `4c7f7bb3f81843532b4d3b9adb4483cbc0056b43` 已快进到 main。
+- 独立提交冻结产品版本 **0.2.0**、tag/access/license 和发布说明；见 [冻结记录](../../releases/0.2.0-freeze.md)。审核通过前不执行 `pack:release`，当前未发布、未登录 npm，未改变日常安装或 helper。
+- [待发布说明](../../releases/computer-use-v2-draft.md) 最前面列出必要升级步骤。**旧 helper 未更新时会报协议不匹配；仅升级 rotom 不够。**
 
 ## 保留的证据等级
 
