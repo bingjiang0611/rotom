@@ -1,0 +1,61 @@
+{
+  "state": "published",
+  "package": "@bingjiang0611/rotom",
+  "version": "0.2.0",
+  "tag": "latest",
+  "sourceCommit": "8e1fe0c50273f50926709324c38d1c7dadbdfd25",
+  "maintenanceTestCommit": "8e1fe0c50273f50926709324c38d1c7dadbdfd25",
+  "verificationReportCommit": "a884a27f6281a1c734a6080242de68b857273288",
+  "sha256": "636dc80bd2466d6823d5efdd7ac0a34897adebf9b31c61bb9bdbdbedac980d9e",
+  "shasum": "128c9febea7fa3c812839c37dc5c93122d5d904b",
+  "integrity": "sha512-BgoZK+ITxR2C3hwxTS512udGddvfWdYQzI1JTR1i1ehQb6Icqp5fJkXFnx26TZkzC+L9A/wXYTkjEnF+e6hGMg==",
+  "tarball": "https://registry.npmjs.org/@bingjiang0611/rotom/-/rotom-0.2.0.tgz",
+  "fileCount": 19049,
+  "compressedBytes": 34088284,
+  "unpackedBytes": 147162933,
+  "buildToolchain": {
+    "node": "24.18.0",
+    "npm": "12.2.0",
+    "successfulFinalPacks": 1
+  },
+  "checks": {
+    "installedFilesByteIdentical": 19049,
+    "productTests": "597 passed, zero failed/skipped",
+    "goalTests": "99 passed, zero failed/skipped",
+    "offlineProviders": "9 groups PASS; 282 Qoder and 98 Pi AI source tests, plus seven offline fixture/smoke groups",
+    "installedDefaultAndFullSmoke": "PASS; 26/33 active tools, zero lifecycle errors",
+    "artifactPrivacy": "PASS; zero findings",
+    "preReleaseHistory": "Review-clone local refs: 551 commits, zero findings",
+    "upgradeAndUninstall": "PASS; isolated 0.1.27 to unique final 0.2.0 tgz, version and byte verification, uninstall",
+    "currentFootprintGates": "deterministicGate PASS"
+  },
+  "nativeHelper": {
+    "state": "verified",
+    "protocolVersion": 11,
+    "osExecutableVerified": true,
+    "signing": "Existing Apple Development identity; explicit user-approved two-step install then direct system codesign",
+    "integratedUpdaterSigningInIsolatedHome": "not verified",
+    "launches": 1,
+    "shutdownRequests": 1,
+    "createdProcessExited": true,
+    "isolatedHomeRemoved": true,
+    "dailyHelperUnchanged": true
+  },
+  "registryVerified": true,
+  "publishedBy": "Maintainer in a foreground terminal; agent verified registry metadata, integrity and downloaded bytes.",
+  "globalInstall": {
+    "state": "verified",
+    "productVersion": "0.2.0",
+    "piVersion": "1.4.0-rotom.4",
+    "installedFilesByteIdentical": 19049,
+    "note": "After seeing exact commands, the maintainer explicitly authorized agent installation without closing other sessions. Installed into the Node 24.18.0 npm global prefix; backed up the previous command symlink and retained its independent release directory. No active release files were overwritten.",
+    "dailyHelperHashPidAndStartTimeUnchanged": true
+  },
+  "limitations": [
+    "User-approved native acceptance was two-step installation and signing, not the updater's integrated signing branch under isolated HOME.",
+    "L2 remains 0 successes / 5 failures; pid-directed input has no real success; B1-B6 remain unpassed.",
+    "No new live-model, real browser/phone or cross-platform validation. Permission booleans do not prove GUI task success.",
+    "Historical timeouts are retained without claiming a single proven cause; missing maintenance dependencies were installed from lockfiles and the complete current gate then passed.",
+    "Active sessions do not hot-reload; newly started commands use 0.2.0. Built-in rotom update was not exercised."
+  ]
+}

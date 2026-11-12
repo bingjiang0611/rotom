@@ -1,8 +1,8 @@
 # rotom · npm 分发合同
 
-发行包身份和源码版本以 [`rotom/package.json`](../../rotom/package.json) 为准；维护源码版本不等于当前 PATH 安装或 registry `latest`。不要从旧实验的测试计数、临时路径或 dist-tag 快照推断现在的状态。旧发布流水可从 Git 历史追溯；最新已核验发布见 [npm-0.1.27.md](npm-0.1.27.md)，上一版记录见 [npm-0.1.26.md](npm-0.1.26.md)。
+发行包身份和源码版本以 [`rotom/package.json`](../../rotom/package.json) 为准；维护源码版本不等于当前 PATH 安装或 registry `latest`。不要从旧实验的测试计数、临时路径或 dist-tag 快照推断现在的状态。旧发布流水可从 Git 历史追溯；最新已核验发布见 [npm-0.2.0.md](npm-0.2.0.md)，上一版记录见 [npm-0.1.27.md](npm-0.1.27.md)。
 
-当前维护源码已准备 **0.2.0 / latest** 的独立发布元数据冻结，见 [冻结记录](../releases/0.2.0-freeze.md) 与 [待发布说明](../releases/computer-use-v2-draft.md)。尚未构建或发布，不能把源码版本视为 registry 或日常安装已升级。
+**0.2.0 / latest** 已通过公开 registry 和下载字节核验；本次维护者全局安装也已回验。见 [发布记录](npm-0.2.0.md)；[冻结记录](../releases/0.2.0-freeze.md)保留当时的历史状态。已有会话不会热升级，helper 仍需独立显式更新，不能把本机结果外推到其他安装。
 
 ## 包与源码边界
 
