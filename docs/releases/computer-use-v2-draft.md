@@ -4,7 +4,7 @@
 
 > **本版计划发布到 `latest`。旧 helper 与本版协议不兼容：不完成下面的 helper 更新，Computer Use 会报协议不匹配，不能正常使用。仅升级 rotom 或重开旧 helper 不够。**
 >
-> 本文不表示已经发布。[REVIEW-27](https://github.com/bingjiang0611/rotom/blob/4936306eaee2e6bcf8d1abf530a3c7309f5871b0/docs/agent/computer-use-v2/REVIEW-27.md) 已接受功能提交 `4c7f7bb3f81843532b4d3b9adb4483cbc0056b43`，该提交已快进合入 main。本次独立冻结产品 manifest 的 `0.2.0`、`publishConfig.tag=latest`、`access=public` 和 `UNLICENSED`；审核此冻结提交后才执行一次 `pack:release`。当前尚无最终产品 tgz，不执行发布或切换日常安装；验收和前台交接边界见 [冻结记录](0.2.0-freeze.md)。
+> 本文不表示已经发布。[REVIEW-27](https://github.com/bingjiang0611/rotom/blob/4936306eaee2e6bcf8d1abf530a3c7309f5871b0/docs/agent/computer-use-v2/REVIEW-27.md) 已接受功能提交 `4c7f7bb3f81843532b4d3b9adb4483cbc0056b43`，该提交已快进合入 main。原冻结提交 `ab7d49a` 因 REVIEW-28 F1 作废，删除 `publishConfig.tag` 的新修复提交才是唯一待审构建源。产品 manifest 保留 `0.2.0`、`access=public` 和 `UNLICENSED`；dist-tag `latest` 由交接命令的 `--tag latest` 指定，并由 `verify` 回读。审核新提交后才执行一次 `pack:release`。当前尚无最终产品 tgz，不执行发布或切换日常安装；验收和前台交接边界见 [冻结记录](0.2.0-freeze.md)。
 
 安装最终 rotom 版本后，按以下顺序操作：
 
