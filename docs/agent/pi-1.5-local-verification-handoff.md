@@ -10,7 +10,7 @@
 - 用公开仓库 [bingjiang0611/rotom](https://github.com/bingjiang0611/rotom) 的**全新 clone**，不在本地维护仓 `dev-agent` 里做，避免私有历史进入推送。
 - 不发布 npm，不运行 `install-release.sh`，不改动或覆盖正在使用的 rotom 安装和存活会话；安装验证只用隔离的 HOME 与 prefix。
 - 不改这次合并的两个默认值：`cacheWarming: "streaming"` 与 Anthropic message threads 需显式开启。不放宽门禁、阈值或审计规则，不删除、跳过或弱化测试。
-- 真实模型调用只在 S6，且仅当用户在本次会话里给了授权时执行。
+- 真实模型调用只在 S6 进行，范围以 S6 写明的用户授权为准；只发合成 fixture 和产品提示，不发会话正文。
 - 结果文件只写聚合数字和命令，不写会话正文、密钥或带用户名的绝对路径（用 `~` 或 `$TMPDIR` 代替）。
 
 ## 1. 分支内容
@@ -90,9 +90,18 @@ ROTOM_DEFERRED_TOOLS=0 node rotom/runtime/report-context-footprint.mjs "$PI" "$P
 
 只记录观察结论；截图若含私人信息就不要提交。PTY 收尾超时记为 INCONCLUSIVE，不记为 PASS。
 
-### S6 真实 Provider 冒烟（仅当用户授权）
+### S6 真实 Provider 冒烟
 
-只有用户在本次会话里明确给出 provider、模型和预算时才执行，否则整步记为“未授权，未执行”，不打断用户，继续往下做。授权后，用 S4 的隔离安装，在一个只含合成文件的临时项目里，以 print 模式完成：一次带工具调用的往返、一次 `/compact`、一次 `/tree` 分支摘要。记录 stopReason、usage 是否写入、Qoder 时 credits 是否记录或为 unknown。不重放 unknown 结果。
+**授权（用户 2026-11-12）**：模型只用 `qoder/dfmodel`（DeepSeek-V4-Flash），不设预算上限。不扩展到其他模型或 provider；Qoder 未登录时把本步记为阻塞并继续后续步骤（登录要由用户自己完成）。
+
+用 S4 的隔离安装，并让它使用用户已有的 Qoder 登录（只读，不重新登录、不改凭据），在一个只含合成文件的临时 git 项目里完成：
+
+1. print 模式下一次带工具调用的往返（例如读一个合成文件再回答）；
+2. 交互或 RPC 模式下的一段多轮对话，执行一次 `/compact`，再执行一次 `/tree` 分支摘要；
+3. 压缩后再跑一轮，确认续跑正常；
+4. 用 dfmodel 的 low / high / max 三个 thinking 档位各跑一轮短对话。
+
+记录每次运行的 stopReason、usage 是否写入、credits 的已记录值或 unknown、有无 provider 重试，以及本地 trace（`ROTOM_OBSERVABILITY` 默认开启）里的错误类计数。unknown 结果不重放。同一组操作在基线 `8e1fe0c` 的隔离安装上也跑一遍做对照：两边都失败的记为既有问题，只在 1.5.2 上失败的按第 4 节处理。
 
 ### S7 既有失败（单独提交，低优先级）
 
@@ -117,7 +126,7 @@ ROTOM_DEFERRED_TOOLS=0 node rotom/runtime/report-context-footprint.mjs "$PI" "$P
 - 公开审计报出疑似真实凭据；
 - 需要覆盖正在使用的安装、发布 npm 或改写已推送的历史。
 
-其余情况自行处理并记录。S6 没有授权不算阻塞。
+其余情况自行处理并记录。Qoder 未登录只阻塞 S6，不阻塞其他步骤。
 
 ## 6. 记录与交回
 
