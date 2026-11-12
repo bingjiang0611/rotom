@@ -21,10 +21,10 @@ const generatedFiles = new Set([
 ]);
 const binaryExtensions = new Set([".png", ".jpg", ".tgz", ".node", ".wasm"]);
 // Files the maintainer decided to keep oversized (2026-11-04): the two native and
-// bridge sources that carry the whole bridge surface, and the root operating rules.
+// bridge sources that carry the whole bridge surface. The root CLAUDE.md left this
+// list on 2026-11-12 once its domain contracts moved to docs/agent/contracts/.
 // Exempt here means "already decided", not "too big to split".
 const oversizedByDecision = new Set([
-	"CLAUDE.md",
 	// 2026-11-11: the user-facing usage guide is one continuous document; splitting
 	// it would scatter one provider walkthrough across files. It only grew past the
 	// budget long after the hook existed, so it joins the decided exemptions.

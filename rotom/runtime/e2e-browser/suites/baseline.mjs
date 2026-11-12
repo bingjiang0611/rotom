@@ -96,7 +96,7 @@ export async function run({ harness, fixtures, recorder }) {
 
 	await recorder.check("screenshot 返回有界的 JPEG", async () => {
 		if (linux) {
-			// Known limit (usage / CLAUDE.md §6): a Linux background tab is not guaranteed to
+			// Known limit (usage / docs/agent/contracts/browser.md): a Linux background tab is not guaranteed to
 			// composite frames, so the capture can time out. The timeout has to be reported as
 			// a timeout and must leave no lock behind; a success is held to the same standard.
 			let screenshot;

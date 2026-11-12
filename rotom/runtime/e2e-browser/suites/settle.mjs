@@ -14,7 +14,7 @@ export const description = "读完标记、慢渲染列表、延迟回滚都不�
 // concatenated without a separator to rebuild what the page actually said.
 const textOf = (read) => (read.nodes ?? []).filter((node) => node.role === "document-text").map((node) => node.name).join("");
 
-// Known limit (usage / CLAUDE.md §6): a Linux background tab is not guaranteed to composite
+// Known limit (usage / docs/agent/contracts/browser.md): a Linux background tab is not guaranteed to composite
 // frames, so a read that depends on painted frames can stay incomplete or hit the operation
 // deadline. What must never change is the honesty of the answer: incomplete reads must not be
 // reported as complete, and lost rows must not coexist with `contentComplete: true`.

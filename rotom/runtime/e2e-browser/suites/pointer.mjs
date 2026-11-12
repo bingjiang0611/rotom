@@ -25,7 +25,7 @@ export async function run({ harness, fixtures, recorder }) {
 		assert.ok(match, `页面必须自证指针状态：${JSON.stringify(text.slice(0, 240))}`);
 		return { dbl: Number(match[1]), ctx: Number(match[2]), starts: Number(match[3]), drops: Number(match[4]), pointer: match[5], native: match[6] };
 	};
-	// Known limit (usage / CLAUDE.md §6): a Linux background tab is not guaranteed to composite
+	// Known limit (usage / docs/agent/contracts/browser.md): a Linux background tab is not guaranteed to composite
 	// frames, and every held-mouse `mouseMoved` waits for a frame acknowledgement, so a drag can
 	// run into the dispatch deadline. A timeout may only surface as the honest `unknown`, and the
 	// tab has to stay usable afterwards; success stays on the strict path below.
