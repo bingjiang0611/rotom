@@ -54,3 +54,11 @@
 - **最终 tgz 的验证必须包含本机 helper 启动**：在隔离的 HOME 和 prefix 里安装最终 tgz，确认 Computer Use 的 helper 能在这台受管 Mac 上启动、
   `diagnostics` 正常。如果被端点安全终止，就停在这里：发布会让用户升级后无法使用 Computer Use，必须先解决签名方式。
 - `npm login`、`npm whoami`、`npm publish` 和本机安装切换都由用户在自己的前台终端执行；Agent 只用 `scripts/npm-release-handoff.mjs` 生成命令，并只读核验 registry。
+
+## 用户决定（2026-11-12）：版本与 dist-tag
+
+用户明确授权：发布版本 **`0.2.0`**，dist-tag **`latest`**（审核者原建议 `next`，用户选择 `latest`）。这满足根 `CLAUDE.md` 对“精确 version 与 dist-tag”的授权要求；
+发布前仍按发布顺序第 6 步，再次核对公开 commit、`0.2.0` 在 registry 中尚不存在、dist-tag 为 `latest`、最终 tgz 的 SHA-256 和 SRI。
+
+因为发布到 `latest`，所有安装或升级的用户都会拿到这一版，而升级后必须先退出会话和旧 helper、运行 `rotom helper update`（受管 Mac 先设置
+`PI_COMPUTER_USE_CODESIGN_IDENTITY`），否则 Computer Use 会因协议不匹配报错。发布说明必须把升级步骤放在最前面，并如实列出未经真机验证的能力。
