@@ -19,6 +19,8 @@ const [mode='--offline',id='ultimate']=process.argv.slice(2),live=mode!=='--offl
 assert(['--offline','--research','--product'].includes(mode)&&['ultimate','kmodel_latest','dfmodel'].includes(id));
 const pi=process.env.ROTOM_PI;assert(pi&&isAbsolute(pi)&&lstatSync(pi).isFile()&&realpathSync(pi)===pi&&process.execArgv.includes('--experimental-import-meta-resolve'));
 const piURL=pathToFileURL(pi).href,ai=await import(import.meta.resolve('@earendil-works/pi-ai',piURL)),openAI=await import(import.meta.resolve('@earendil-works/pi-ai/api/openai-completions',piURL)),sdk=await import(import.meta.resolve('@earendil-works/pi-coding-agent',piURL));
+// Pi 1.5 dropped pi-ai's TypeBox re-export; resolve TypeBox from the same Pi install.
+const { Type } = await import(import.meta.resolve('typebox', piURL));
 const ledger=process.env.ROTOM_QODER_PROBE_LEDGER,count=()=>live?Number(readFileSync(ledger,'utf8')):0,before=count();if(live)assert(process.execArgv.some(x=>x.endsWith('live-budget.mjs')));
 const hash=()=>live?createHash('sha256').update(readFileSync(process.env.ROTOM_QODER_PROBE_AUTH_FILE)).digest('hex'):null,authBefore=hash();
 const credential=live?await readProbeCredential():{accessToken:'fixture',uid:'fixture',org:'',machineId:'fixture'};
@@ -44,8 +46,8 @@ for(const mime of ['png','jpeg','webp','png']){
  const bytes=execFileSync('python3',['-c',convert,mime==='jpeg'?'JPEG':mime.toUpperCase(),noisy?'1':'0'],{input:g.png,maxBuffer:4*1024*1024,timeout:30000});pictures.push({block:{type:'image',data:bytes.toString('base64'),mimeType:'image/'+mime},expected:g.expected,bytes:bytes.length});
 }
 const nonce=randomUUID(),marker='VISION_RESULT_'+randomUUID();
-const coords=ai.Type.Array(ai.Type.Integer({minimum:1,maximum:5}),{minItems:2,maxItems:2}),location=ai.Type.Object({red:coords,blue:coords},{additionalProperties:false});
-const tool={name:'vision_lookup',description:'Record both initial image coordinates; returns a DIFFERENT third image and a marker.',parameters:ai.Type.Object({nonce:ai.Type.String(),first:location,second:location},{additionalProperties:false})};
+const coords=Type.Array(Type.Integer({minimum:1,maximum:5}),{minItems:2,maxItems:2}),location=Type.Object({red:coords,blue:coords},{additionalProperties:false});
+const tool={name:'vision_lookup',description:'Record both initial image coordinates; returns a DIFFERENT third image and a marker.',parameters:Type.Object({nonce:Type.String(),first:location,second:location},{additionalProperties:false})};
 const context={tools:[tool],messages:[{role:'user',timestamp:Date.now(),content:[{type:'text',text:`Two ordered 5x5 grid images follow. Call vision_lookup once with nonce ${nonce}, first and second image red/blue [row,column] coordinates (1-based). After its result inspect the NEW tool image, not the first two, and reply only JSON {"marker":"the tool marker","third":{"red":[row,column],"blue":[row,column]}}.`},pictures[0].block,...padding?[{type:'text',text:padding}]:[],pictures[1].block]}]};
 const summary={pass:false,mode,id,noisy,paddingRows,minimumInput,directory:dir,imageBytes:pictures.map(p=>p.bytes),formats:pictures.map(p=>p.block.mimeType),rounds:[],wire:[],piEntry:pi,piEntrySha256:createHash('sha256').update(readFileSync(pi)).digest('hex')};const save=()=>writeFileSync(join(dir,'result.json'),JSON.stringify(summary,null,2),{mode:0o600});save();console.error('Evidence: '+dir);
 let calls=0,dispatches=0,catalogCalls=0;const priorOpaque=new Map();

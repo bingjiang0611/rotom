@@ -147,6 +147,12 @@ describe("provider retry classification", () => {
 		expect(isRetryableAssistantError(fauxAssistantMessage("", { stopReason: "error", errorMessage }))).toBe(true);
 	});
 
+	it("matches gateway wording for a stream cut short mid-reply", () => {
+		// Regression for #11879.
+		const errorMessage = "Claude Code's stream from Anthropic was cut short after the reply had begun";
+		expect(isRetryableAssistantError(fauxAssistantMessage("", { stopReason: "error", errorMessage }))).toBe(true);
+	});
+
 	it("matches OpenAI Responses streams that end before terminal events", () => {
 		expect(
 			isRetryableAssistantError(
@@ -221,6 +227,9 @@ describe("connection failure classification", () => {
 	it.each([
 		"fetch failed (caused by: getaddrinfo ENOTFOUND chatgpt.com)",
 		"Connection error. (caused by: connect ECONNREFUSED 127.0.0.1:10808)",
+		// Upstream 1.5 cause-detail wording for the same failures.
+		"fetch failed: connect ECONNREFUSED 127.0.0.1:10808",
+		"Connection error.: getaddrinfo ENOTFOUND chatgpt.com",
 		"fetch failed (caused by: Client network socket disconnected before secure TLS connection was established)",
 		"fetch failed (caused by: Proxy response (502) !== 200 when HTTP Tunneling)",
 		"Qoder: connection_failed",
@@ -233,6 +242,7 @@ describe("connection failure classification", () => {
 		"fetch failed",
 		"Connection error.",
 		"fetch failed (caused by: read ECONNRESET)",
+		"fetch failed: read ECONNRESET",
 		"terminated",
 		"WebSocket error",
 		"Request timed out.",
@@ -255,15 +265,17 @@ describe("connect-phase cause enrichment", () => {
 	const socketError = (code: string, message: string) => Object.assign(new Error(message), { code });
 	it("appends a connect-phase cause from fetch and SDK cause chains", () => {
 		const fetchError = new TypeError("fetch failed", { cause: socketError("ECONNREFUSED", "connect ECONNREFUSED 127.0.0.1:10808") });
-		expect(normalizeProviderError(fetchError).message).toBe("fetch failed (caused by: connect ECONNREFUSED 127.0.0.1:10808)");
+		// Upstream 1.5 appends the deepest cause itself; the connect tag is only added when that leaves it out.
+		expect(normalizeProviderError(fetchError).message).toBe("fetch failed: connect ECONNREFUSED 127.0.0.1:10808");
 		const sdkError = new Error("Connection error.", { cause: fetchError });
 		expect(withConnectFailureCause(sdkError.message, sdkError)).toBe("Connection error. (caused by: connect ECONNREFUSED 127.0.0.1:10808)");
 		const multiAddress = new TypeError("fetch failed", { cause: new AggregateError([socketError("ENETUNREACH", "connect ENETUNREACH 2001:db8::1:443")]) });
 		expect(connectFailureCause(multiAddress)).toBe("connect ENETUNREACH 2001:db8::1:443");
 	});
-	it("leaves post-send failures opaque", () => {
+	it("does not tag post-send failures as connect failures", () => {
 		const reset = new TypeError("fetch failed", { cause: socketError("ECONNRESET", "read ECONNRESET") });
-		expect(normalizeProviderError(reset).message).toBe("fetch failed");
+		expect(connectFailureCause(reset)).toBeUndefined();
+		expect(normalizeProviderError(reset).message).toBe("fetch failed: read ECONNRESET");
 		expect(normalizeProviderError(new TypeError("fetch failed")).message).toBe("fetch failed");
 	});
 });

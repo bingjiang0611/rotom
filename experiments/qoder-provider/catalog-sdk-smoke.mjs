@@ -23,6 +23,8 @@ const entry = process.env.ROTOM_PI;
 assert(entry && isAbsolute(entry) && lstatSync(entry).isFile() && realpathSync(entry) === entry);
 assert(process.execArgv.includes('--experimental-import-meta-resolve'));
 const piAI = await import(import.meta.resolve('@earendil-works/pi-ai', pathToFileURL(entry).href));
+// Pi 1.5 dropped pi-ai's TypeBox re-export; resolve TypeBox from the same Pi install.
+const { Type } = await import(import.meta.resolve('typebox', pathToFileURL(entry).href));
 const openAI = await import(import.meta.resolve('@earendil-works/pi-ai/api/openai-completions', pathToFileURL(entry).href));
 const ledger = process.env.ROTOM_QODER_PROBE_LEDGER;
 if (live) assert(ledger && process.execArgv.some(a => a.endsWith('live-budget.mjs')));
@@ -36,7 +38,7 @@ const credential = live ? (await readProbeCredential()).oauthCredential : {
 };
 const snapshot = discover ? undefined : live ? JSON.parse(readFileSync(process.env.ROTOM_QODER_PROBE_CATALOG_FILE,'utf8')).scenes.assistant : [{key:id,display_name:'Synthetic',source:'system',enable:true,format:'openai',max_input_tokens:200000,is_reasoning:true,is_vl:false}];
 const nonce = randomUUID(), marker = `THINKING_TOOL_RESULT_${randomUUID()}`;
-const tool = {name:'reasoning_probe',description:'Synthetic nonce check; no side effects. Returns a fresh result string to use verbatim, not an echo of the nonce.',parameters:piAI.Type.Object({nonce:piAI.Type.String()},{additionalProperties:false})};
+const tool = {name:'reasoning_probe',description:'Synthetic nonce check; no side effects. Returns a fresh result string to use verbatim, not an echo of the nonce.',parameters:Type.Object({nonce:Type.String()},{additionalProperties:false})};
 let calls = 0, catalogReads = 0, replayObserved = false, expectedReplay, sessionDir, persistedCatalog;
 const summary = {mode,model:id,pass:false,rounds:[],nativeMetering:[],catalogSource:discover?'live account directory':'injected directory snapshot (no directory network request)'};
 const event = chunk => `data: ${JSON.stringify(chunk)}\n\n`;

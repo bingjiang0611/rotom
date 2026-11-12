@@ -15,6 +15,8 @@ if (process.argv.slice(2).some(arg => !['--live', '--extended'].includes(arg))) 
 const extended = process.argv.includes('--extended');
 const parent = pathToFileURL(entry).href;
 const piAI = await import(import.meta.resolve('@earendil-works/pi-ai', parent));
+// Pi 1.5 dropped pi-ai's TypeBox re-export; resolve TypeBox from the same Pi install.
+const { Type } = await import(import.meta.resolve('typebox', parent));
 const openAI = await import(import.meta.resolve('@earendil-works/pi-ai/api/openai-completions', parent));
 const sdk = await import(import.meta.resolve('@earendil-works/pi-coding-agent', parent));
 const live = process.argv.includes('--live');
@@ -54,7 +56,7 @@ const resourceLoader = new sdk.DefaultResourceLoader({ cwd: dir, agentDir: dir, 
 });
 const tool = {
   name: 'rotom_probe_echo', label: 'Synthetic echo', description: 'Pure test function returning a host-only marker. No side effects.',
-  parameters: piAI.Type.Object({ nonce: piAI.Type.String() }, { additionalProperties: false }),
+  parameters: Type.Object({ nonce: Type.String() }, { additionalProperties: false }),
   async execute(_id, args) {
     assert.deepEqual(args, { nonce }); assert.equal(++summary.toolExecutions, 1);
     return { content: [{ type: 'text', text: marker }], details: {} };

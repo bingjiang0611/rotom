@@ -19,6 +19,8 @@ const count=()=>Number(readFileSync(ledger,'utf8')),before=count(),hash=()=>crea
 const dir=realpathSync(mkdtempSync(join(dirname(ledger),'qoder-efforts-')));chmodSync(dir,0o700);
 const summary={pass:false,model:id,adapter:product?'product provider':'research, not product',cases:[],directory:dir};const save=()=>writeFileSync(join(dir,'result.json'),JSON.stringify(summary,null,2),{mode:0o600});save();console.error('Evidence: '+dir);
 const entryURL=pathToFileURL(process.env.ROTOM_PI).href,piAI=await import(import.meta.resolve('@earendil-works/pi-ai',entryURL)),openAI=await import(import.meta.resolve('@earendil-works/pi-ai/api/openai-completions',entryURL)),sdk=await import(import.meta.resolve('@earendil-works/pi-coding-agent',entryURL));
+// Pi 1.5 dropped pi-ai's TypeBox re-export; resolve TypeBox from the same Pi install.
+const { Type } = await import(import.meta.resolve('typebox', entryURL));
 try{
  const credential=await readProbeCredential(),r=await fetch(CATALOG_URL,{headers:catalogHeaders(credential),redirect:'error',signal:AbortSignal.timeout(15000)});assert(r.ok);let n=0;const chunks=[];for await(const b of r.body){n+=b.length;assert(n<=512*1024);chunks.push(b);}const catalog=JSON.parse(Buffer.concat(chunks).toString('utf8'));
  const e=catalog.assistant.find(x=>x.key===id&&x.source==='system'&&x.enable&&x.format==='openai');assert(e?.thinking_config?.enabled?.efforts);
@@ -51,7 +53,7 @@ try{
   const c={level,pass:false,rounds:[],wire:[]};summary.cases.push(c);const enabled=level!=='off',nonce=randomUUID(),marker='EFFORT_RESULT_'+randomUUID();
   currentCase=c;currentLevel=level;expectedOpaque=undefined;expectedPlain=undefined;expectedToolId=undefined;expectedMarker=undefined;
   const model=productModel??{...MODEL,id,reasoning:true,compat:{...MODEL.compat,supportsReasoningEffort:true},thinkingLevelMap:{off:'none',minimal:null,low:'low',medium:'medium',high:'high',xhigh:'xhigh',max:'max'}};
-  const tool={name:'effort_probe',description:'Synthetic check with no external effects. Returns a fresh marker.',parameters:piAI.Type.Object({nonce:piAI.Type.String()},{additionalProperties:false})};
+  const tool={name:'effort_probe',description:'Synthetic check with no external effects. Returns a fresh marker.',parameters:Type.Object({nonce:Type.String()},{additionalProperties:false})};
   const context={systemPrompt:'Synthetic reasoning protocol test. Use the requested tool then return its exact marker.',messages:[{role:'user',content:`Call effort_probe exactly once with nonce ${nonce}. After its result, reply with exactly the returned text. Do not answer before the tool result.`,timestamp:Date.now()}],tools:[tool]};
   try{
    for(let round=0;round<2;round++){

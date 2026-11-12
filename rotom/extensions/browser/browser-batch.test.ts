@@ -16,7 +16,8 @@ test("browser batch：逐步派发、单步 audit、原地停下且不重放", a
 	]);
 	const { createJiti } = await import(pathToFileURL(findPiDependency(piDist, "jiti/lib/jiti.mjs")).href);
 	const jiti = createJiti(loaderUrl, { moduleCache: false, alias: {
-		"@earendil-works/pi-ai": findPiDependency(piDist, "@earendil-works/pi-ai/dist/index.js"),
+		// Same view Pi's extension loader gives extensions: pi-ai plus the TypeBox builders (Pi 1.5+).
+		"@earendil-works/pi-ai": join(piDist, "core/extensions/pi-ai-extension-view.js"),
 		"@earendil-works/pi-coding-agent": join(piDist, "index.js"),
 	} });
 	const { createBrowserRelayExtensionV1 } = await jiti.import(join(process.cwd(), "rotom/extensions/browser/index.ts")) as any;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { getAiGatewayCost } from "../scripts/ai-gateway-pricing.ts";
-import { buildOpenRouterCatalog, type OpenRouterModelListItem } from "../scripts/openrouter-catalog.ts";
+import { buildOpenRouterCatalog, type OpenRouterModelListItem } from "../catalog/sources/openrouter.ts";
+import { getAiGatewayCost } from "../catalog/sources/vercel-ai-gateway.ts";
 import { getModel } from "../src/compat.ts";
 import { calculateCost } from "../src/models.ts";
 import type { Usage } from "../src/types.ts";

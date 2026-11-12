@@ -5,6 +5,7 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { contentText, type Message } from "@earendil-works/pi-ai";
 import { convertToLlm } from "../messages.ts";
+import { sliceHead, sliceTail } from "../tools/truncate.ts";
 
 // ============================================================================
 // File Operation Tracking
@@ -107,8 +108,9 @@ function truncateForSummary(text: string, maxChars: number): string {
 	const headChars = Math.ceil(maxChars / 2);
 	const tailChars = maxChars - headChars;
 	const truncatedChars = text.length - maxChars;
-	const head = text.slice(0, headChars);
-	const tail = tailChars > 0 ? text.slice(text.length - tailChars) : "";
+	// sliceHead/sliceTail never cut a surrogate pair in half.
+	const head = sliceHead(text, headChars);
+	const tail = tailChars > 0 ? sliceTail(text, tailChars) : "";
 	return `${head}\n\n[... ${truncatedChars} characters truncated ...]\n\n${tail}`;
 }
 
