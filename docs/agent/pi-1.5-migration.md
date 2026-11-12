@@ -82,3 +82,5 @@
 文件大小门禁：本次提交含 316 个超过 20,000 bytes 的上游文件，另有 `docs/agent/architecture.md`（20,652 bytes，本来就超限，这次只改一个字）。用户明确批准仅本次同步一次性豁免，与 1.4 同步相同；不修改门禁规则，不豁免构建、行为测试或公开审计。
 
 未做：真实 Provider/付费调用、真实 Chrome、桌面 TUI 验收、macOS 上的构建与测试、`npm publish`、替换存活安装。message threads 与 Context Layers 的交互、`cacheWarming` 的真实费用、pi-schema 对第三方 vendored 包（pi-subagents、pi-goal、sol-pi、pi-computer-use）工具 schema 的强转影响，只有离线证据。
+
+macOS 上的补充验证交给本机 Agent，任务与边界见 [本机验证交接](pi-1.5-local-verification-handoff.md)，结果回传到同一分支的 `pi-1.5-local-verification-results.md`。
