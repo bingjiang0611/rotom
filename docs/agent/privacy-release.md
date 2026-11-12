@@ -86,3 +86,9 @@ Pi 1.1.0 fork 追加记录：`1.1.0-rotom.2` 的新 fork 归档提交后，完�
 保留的失败：最初的工具面断言多列了一个不属于产品的 supervisor，已按实际 declaration 修正；一次 eval fixture 因外层 `umask 077` 把预期宽权限目录变成私有目录而失败，恢复测试预期 umask 后通过，未削弱生产权限；首次 tgz 审计被公开上游路由示例阻断，核对精确行后补充有界例外并成功重新构建。独立仓库首次检查误带 `ROTOM_OBSERVABILITY=0`，导致 8 个要求启用 trace 的 fixture 失败；移除测试环境中的该开关后 123 项通过，未修改产品禁用语义。原始日志保持私有，失败未当作无效尝试抹除。
 
 未执行模型评测、真实业务操作、Chrome 重载、推送或公开发布。仅本机 Mac 验证，产品仍为私有 alpha；许可证、名称/IP 与第三方完整分发审查不由本轮隐私检查替代。
+
+## 推送前身份与范围审计
+
+以下原文自根 `CLAUDE.md`“最小验证与完成条件”搬来（2026-11-12）：
+
+- **每次推送前**跑 `python3 scripts/audit-public.py --root . --history-range <base>..<head>`（pre-push hook 已自动执行同一命令）：它扫这次推送新增的 commit、其 blob 和提交身份，只跑 tree 模式看不到提交身份，而身份泄露只能靠改写历史修复。发布独立仓库或改写历史后仍须跑全量 `--history`。历史模式（`--history` 与 `--history-range` 共用同一套规则）只放行 `*@users.noreply.github.com`、提交者为 `noreply@github.com`（GitHub 网页合并）和精确地址 `noreply@anthropic.com`（维护者已同意的历史豁免），同域名其他地址照样拦。pre-push hook 先按这条规则拦身份、再跑范围审计，被拦下时按它打印的命令改写，不用 `--no-verify` 绕过。
