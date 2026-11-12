@@ -1,11 +1,11 @@
 /**
  * Report sections that read one dimension layer at a time: how large each model's work was,
- * what its rate looks like without the noisiest session, the product and SoL-Pi versions that
- * served the sessions, and the planned default-model field comparison. They are kept out of
- * `harvest-report.ts` so that file stays a renderer rather than a second analysis module.
+ * what its rate looks like without the noisiest session, and the product and SoL-Pi versions
+ * that served the sessions. They are kept out of `harvest-report.ts` so that file stays a
+ * renderer rather than a second analysis module.
  */
 import { dimensionRates, type RateInterval } from "./harvest-breakdown.ts";
-import { dimensionRatesWithoutLargestSession, modelDimensionRatesWithoutPeak, modelTaskSize, type DefaultModelExperiment } from "./harvest-models.ts";
+import { dimensionRatesWithoutLargestSession, modelDimensionRatesWithoutPeak, modelTaskSize } from "./harvest-models.ts";
 import type { SessionSummary } from "./harvest.ts";
 
 const band = (interval: RateInterval | null | undefined) => (interval ? `${interval.low}–${interval.high}` : "N/A");
@@ -62,36 +62,5 @@ export function versionLayerTables(sessions: readonly SessionSummary[]): string[
 		"| --- | ---: | ---: | ---: | --- |",
 		...table(dimensionRates(sessions, (session) => session.solPiVersion)),
 		"",
-	];
-}
-
-/** The default-model comparison: the two groups, then what was excluded and why. */
-export function experimentSection(experiment: DefaultModelExperiment): string[] {
-	return [
-		"",
-		"## Experiment: default model by date parity",
-		"",
-		"The planned field comparison runs odd days on `openai-codex/gpt-6-astra` and even days on `openai-codex/gpt-6.1-sol`. A session counts only when its first assistant message already used that day's default model; a session that started on the default and then switched is listed separately and stays out of the rates.",
-		"",
-		"| Default model | Sessions | User turns | v2 | v2 per 100 | v2 95% band |",
-		"| --- | ---: | ---: | ---: | ---: | --- |",
-		...experiment.groups.map((row) => `| ${row.model} | ${row.sessions} | ${row.turns} | ${row.v2} | ${row.v2Per100 ?? "N/A"} | ${band(row.v2Interval)} |`),
-		"",
-		`Switched after starting on the default (${experiment.switched.length}), excluded:`,
-		"",
-		...(experiment.switched.length === 0 ? ["None in this window.", ""] : [
-			"| Session | Started | Default | Models used |",
-			"| --- | --- | --- | --- |",
-			...experiment.switched.map((row) => `| ${row.sessionId.slice(0, 8)} | ${row.startedAt.slice(0, 16)} | ${row.expected} | ${row.models.join(", ")} |`),
-			"",
-		]),
-		`Never used the day's default model or recorded no first assistant model (${experiment.offDefault.length}), excluded:`,
-		"",
-		...(experiment.offDefault.length === 0 ? ["None in this window.", ""] : [
-			"| Session | Started | Day default | First assistant model |",
-			"| --- | --- | --- | --- |",
-			...experiment.offDefault.slice(0, 40).map((row) => `| ${row.sessionId.slice(0, 8)} | ${row.startedAt.slice(0, 16)} | ${row.expected ?? "unknown"} | ${row.firstAssistantModel ?? "unknown"} |`),
-			"",
-		]),
 	];
 }

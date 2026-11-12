@@ -79,21 +79,17 @@ describe("loop harvest output", () => {
 		await writeFile(join(sessions, "observability", "2026-11-11_s-1.trace.jsonl"), `${trace.join("\n")}\n`);
 
 		const analyzed = analyzeSession(lines, { sessionFile: "/s.jsonl", excerpts: false, traceLines: trace });
-		expect(analyzed?.session).toMatchObject({ productVersion: "0.1.27", runtimeVersion: "1.4.0-rotom.3", firstAssistantModel: "qoder/dfmodel" });
+		expect(analyzed?.session).toMatchObject({ productVersion: "0.1.27", runtimeVersion: "1.4.0-rotom.3" });
 		// No SoL-Pi archive path and no product attribute means unknown, never inferred.
 		expect(analyzed?.session.solPiVersion).toBeUndefined();
 
-		const result = await harvest({ sessionsDir: join(root, "sessions"), outRoot: join(root, "loop"), since: new Date("2026-01-01T00:00:00Z"), now: new Date("2026-11-11T12:00:00Z"), excerpts: false, experiment: "default-model" });
+		const result = await harvest({ sessionsDir: join(root, "sessions"), outRoot: join(root, "loop"), since: new Date("2026-01-01T00:00:00Z"), now: new Date("2026-11-11T12:00:00Z"), excerpts: false });
 		const report = await readFile(join(result.outDir, "report.md"), "utf8");
 		expect(report).toContain("### Task size per model");
 		expect(report).toContain("### The same rate per model without its largest session");
 		expect(report).toContain("### The same rate per product version");
 		expect(report).toContain("| 0.1.27 | 2 |");
 		expect(report).toContain("### The same rate per SoL-Pi version");
-		expect(report).toContain("## Experiment: default model by date parity");
-		// Neither default model was used, so both groups are empty and the session is listed instead.
-		expect(report).toContain("| openai-codex/gpt-6-astra | 0 | 0 | 0 | N/A | N/A |");
-		expect(report).toContain("Never used the day's default model");
 	});
 
 	it("counts a conversation copied into a fork once", async () => {

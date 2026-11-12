@@ -20,7 +20,7 @@
 		"hypothesis": "Long /goal runs stop less often when continuing is the default and pauses need a reason.",
 		"change": "mechanism",
 		"measurement": "Offline tests only; no live model evaluation (user feedback triggered the change).",
-		"result": "Shipped on user feedback; effect on stop frequency not measured.",
+		"result": "Shipped on user feedback; effect on stop frequency not measured. Daily install switched to build 6a7e2b08 (dirty=false, launcher-stamped) at 2026-11-12T02:47:28Z (2026-11-11 18:47:28 -08:00); sessions that ran this build or a later descendant are the acceptance start for this record.",
 		"evidence": "unmeasured",
 		"decision": "shipped",
 		"source": "docs/agent/goal-auto-continue.md"
@@ -137,7 +137,7 @@
 		"hypothesis": "The pi-goal bump shipped in 50ccdc8 with no ledger entry, so the history has a dependency change and no acceptance criterion.",
 		"change": "mechanism",
 		"measurement": "Recorded after the fact from the commit; no model calls. Verified by the install identity gate (`npm test` in an isolated clone: 295 passed, 1 skipped) and by the extension's own 270 offline tests.",
-		"result": "Raises @narumitw/pi-goal to 0.54.4-rotom.11 in package.json, package-lock.json and the third-party vendor archive, with the install identity gate updated, so a mismatch now fails loudly instead of loading .10 behaviour under a .11 declaration. Effect on Goal continuation is unmeasured; the 28-day window still shows goal_pause 4.",
+		"result": "Raises @narumitw/pi-goal to 0.54.4-rotom.11 in package.json, package-lock.json and the third-party vendor archive, with the install identity gate updated, so a mismatch now fails loudly instead of loading .10 behaviour under a .11 declaration. Effect on Goal continuation is unmeasured; the 28-day window still shows goal_pause 4. Daily install switched to build 6a7e2b08 (dirty=false, launcher-stamped) at 2026-11-12T02:47:28Z (2026-11-11 18:47:28 -08:00); sessions that ran this build or a later descendant are the acceptance start for this record.",
 		"evidence": "unmeasured",
 		"decision": "shipped",
 		"source": "rotom/package.json"

@@ -1,9 +1,9 @@
 /**
- * Per-model analysis that the harvest report reads: how large the work was, what survives
- * dropping the single noisiest session, and the default-model field comparison. Aggregations
- * that only group by a dimension stay in `harvest-breakdown.ts`.
+ * Per-model analysis that the harvest report reads: how large the work was, and what survives
+ * dropping the single noisiest session. Aggregations that only group by a dimension stay in
+ * `harvest-breakdown.ts`.
  */
-import { modelDimensionRates, poissonRateInterval, type DimensionRow, type RateInterval } from "./harvest-breakdown.ts";
+import { modelDimensionRates, type DimensionRow } from "./harvest-breakdown.ts";
 import type { SessionSummary } from "./harvest.ts";
 
 /** Median of the given values, or `null` for an empty set; even counts average the middle pair. */
@@ -122,104 +122,4 @@ export function modelDimensionRatesWithoutPeak(sessions: readonly SessionSummary
 	if (dropped && dropped.northStarV2 === 0) dropped = undefined;
 	const kept = dropped ? sessions.filter((session) => session !== dropped) : sessions;
 	return { dropped, rows: modelDimensionRates(kept) };
-}
-
-/**
- * The planned default-model comparison: odd days default to `gpt-6-astra`, even days to
- * `gpt-6.1-sol`. A session counts only when its first assistant message already used the model
- * its day defaults to; a session that started on the default and switched later is listed
- * separately, because the switch is the user reacting to the model rather than the default.
- */
-export const DEFAULT_MODEL_BY_PARITY = { odd: "openai-codex/gpt-6-astra", even: "openai-codex/gpt-6.1-sol" } as const;
-
-export function expectedDefaultModel(startedAt: string): string | undefined {
-	const day = Number(startedAt.slice(8, 10));
-	if (!Number.isSafeInteger(day) || day < 1 || day > 31) return undefined;
-	return day % 2 === 1 ? DEFAULT_MODEL_BY_PARITY.odd : DEFAULT_MODEL_BY_PARITY.even;
-}
-
-export type ExperimentGroup = { model: string; sessions: number; turns: number; v2: number; v2Per100: number | null; v2Interval?: RateInterval };
-
-export type DefaultModelExperiment = {
-	groups: ExperimentGroup[];
-	/**
-	 * Whether the day's default actually applied: of the sessions with a known day default, how
-	 * many opened on that model. A low rate means the comparison is about the person's habits,
-	 * not the default, and the groups cannot answer the question on their own.
-	 */
-	compliance: { sessions: number; onDefault: number; rate: number | null };
-	/** The groups recomputed without the single counted session that holds the most v2 events. */
-	sensitivity: { droppedSessionId: string | null; groups: ExperimentGroup[] };
-	/** Started on the day's default model, then switched: excluded from the groups. */
-	switched: { sessionId: string; startedAt: string; expected: string; models: string[] }[];
-	/** Never used the day's default model, or recorded no first assistant model. */
-	offDefault: { sessionId: string; startedAt: string; expected: string | undefined; firstAssistantModel: string | undefined }[];
-};
-
-/** Group rows for a set of counted sessions, one row per arm even when an arm is empty. */
-function experimentGroups(sessions: readonly SessionSummary[]): ExperimentGroup[] {
-	const rows = new Map<string, { turns: number; v2: number; sessions: number }>();
-	for (const session of sessions) {
-		const model = expectedDefaultModel(session.startedAt);
-		if (!model) continue;
-		const row = rows.get(model) ?? { turns: 0, v2: 0, sessions: 0 };
-		row.turns += session.userTurns;
-		row.v2 += session.northStarV2;
-		row.sessions += 1;
-		rows.set(model, row);
-	}
-	return [DEFAULT_MODEL_BY_PARITY.odd, DEFAULT_MODEL_BY_PARITY.even].map((model) => {
-		const row = rows.get(model) ?? { turns: 0, v2: 0, sessions: 0 };
-		return {
-			model,
-			...row,
-			v2Per100: row.turns > 0 ? Math.round((row.v2 / row.turns) * 1000) / 10 : null,
-			v2Interval: poissonRateInterval(row.v2, row.turns),
-		};
-	});
-}
-
-export function defaultModelExperiment(sessions: readonly SessionSummary[]): DefaultModelExperiment {
-	const counted: SessionSummary[] = [];
-	const switched: DefaultModelExperiment["switched"] = [];
-	const offDefault: DefaultModelExperiment["offDefault"] = [];
-	// The ratio counts every session whose day default is known, including the ones that opened on
-	// another model and the ones that recorded no first assistant model: a session that did not
-	// demonstrably open on the default is not evidence that the default applied.
-	let measured = 0;
-	let onDefault = 0;
-	for (const session of sessions) {
-		const expected = expectedDefaultModel(session.startedAt);
-		if (!expected) {
-			// Listed for visibility, but not in the ratio: there is no day default to compare to.
-			offDefault.push({ sessionId: session.sessionId, startedAt: session.startedAt, expected, firstAssistantModel: session.firstAssistantModel });
-			continue;
-		}
-		measured += 1;
-		if (!session.firstAssistantModel || session.firstAssistantModel !== expected) {
-			offDefault.push({ sessionId: session.sessionId, startedAt: session.startedAt, expected, firstAssistantModel: session.firstAssistantModel });
-			continue;
-		}
-		onDefault += 1;
-		if (session.models.length > 1) {
-			switched.push({ sessionId: session.sessionId, startedAt: session.startedAt, expected, models: [...session.models] });
-			continue;
-		}
-		counted.push(session);
-	}
-	let peak: SessionSummary | undefined;
-	for (const session of counted) {
-		if (!peak || session.northStarV2 > peak.northStarV2) peak = session;
-	}
-	const dropped = peak && peak.northStarV2 > 0 ? peak : undefined;
-	return {
-		groups: experimentGroups(counted),
-		compliance: { sessions: measured, onDefault, rate: measured > 0 ? Math.round((onDefault / measured) * 1000) / 1000 : null },
-		sensitivity: {
-			droppedSessionId: dropped?.sessionId ?? null,
-			groups: experimentGroups(dropped ? counted.filter((session) => session !== dropped) : counted),
-		},
-		switched: switched.sort((left, right) => left.startedAt.localeCompare(right.startedAt)),
-		offDefault: offDefault.sort((left, right) => left.startedAt.localeCompare(right.startedAt)),
-	};
 }

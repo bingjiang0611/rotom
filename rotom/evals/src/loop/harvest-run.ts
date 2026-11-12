@@ -9,7 +9,6 @@ import { type CompactionObservation, analyzeCompactions, compactionMetrics } fro
 import { HARVEST_SCHEMA, type Incident, type SessionSummary, analyzeSession, createHarvestShared } from "./harvest.ts";
 import { applyRoutineRepeats, markRoutineRepeats } from "./harvest-repeat.ts";
 import { renderReport, type SkipCounts, type SkipReason } from "./harvest-report.ts";
-import { defaultModelExperiment } from "./harvest-models.ts";
 import { weeklyMetrics } from "./harvest-report.ts";
 
 export { isoWeek, renderReport, triageScore, weeklyMetrics, type SkipCounts, type SkipReason, type WeekMetric } from "./harvest-report.ts";
@@ -83,9 +82,7 @@ export function defaultLoopDir(env: NodeJS.ProcessEnv = process.env): string {
 	return env.ROTOM_LOOP_DIR || join(env.HOME ?? "", ".rotom", "loop");
 }
 
-export type HarvestExperiment = "default-model";
-
-export type HarvestOptions = { sessionsDir: string; outRoot: string; since: Date; now?: Date; excerpts: boolean; experiment?: HarvestExperiment };
+export type HarvestOptions = { sessionsDir: string; outRoot: string; since: Date; now?: Date; excerpts: boolean };
 
 export async function harvest(options: HarvestOptions): Promise<{ outDir: string; sessions: SessionSummary[]; incidents: Incident[]; compactions: CompactionObservation[]; skipped: SkipCounts }> {
 	const now = options.now ?? new Date();
@@ -150,7 +147,6 @@ export async function harvest(options: HarvestOptions): Promise<{ outDir: string
 			incidents,
 			skipped,
 			compactions,
-			...(options.experiment === "default-model" ? { experiment: { kind: "default-model" as const, view: defaultModelExperiment(sessions) } } : {}),
 		}),
 	);
 	return { outDir, sessions, incidents, compactions, skipped };

@@ -8,8 +8,7 @@ import { type CompactionObservation, renderCompactionSection } from "./compactio
 import { summarizeProviderErrors } from "./harvest-provider.ts";
 import { dayBreakdown, dimensionRates, interruptTables, modelDimensionRates, modelShareWeeks, modelSwitchTables, modelTurnShare, northStarWeeks, poissonRateInterval, toolErrorTables, triageTable } from "./harvest-breakdown.ts";
 import { modelRatesWithoutLargestSession } from "./harvest-models.ts";
-import { experimentSection, modelLayerTables, versionLayerTables } from "./harvest-report-layers.ts";
-import type { DefaultModelExperiment } from "./harvest-models.ts";
+import { modelLayerTables, versionLayerTables } from "./harvest-report-layers.ts";
 
 /** Why a file under the sessions root did not become a session. The label names the reason,
  * not the path, so a skip count can be audited without exposing where the files live.
@@ -84,8 +83,7 @@ export function triageScore(session: SessionSummary): number {
 	return (Object.entries(session.incidentCounts) as [IncidentKind, number][]).reduce((sum, [kind, count]) => sum + TRIAGE_WEIGHT[kind] * count, 0);
 }
 
-export function renderReport(input: { generatedAt: string; since: string; sessionsDir: string; sessions: readonly SessionSummary[]; incidents: readonly Incident[]; skipped: SkipCounts; compactions?: readonly CompactionObservation[]; experiment?: { kind: "default-model"; view: DefaultModelExperiment } }): string {
-	const experiment = input.experiment?.kind === "default-model" ? input.experiment.view : undefined;
+export function renderReport(input: { generatedAt: string; since: string; sessionsDir: string; sessions: readonly SessionSummary[]; incidents: readonly Incident[]; skipped: SkipCounts; compactions?: readonly CompactionObservation[] }): string {
 	const weeks = weeklyMetrics(input.sessions);
 	const providerRows = summarizeProviderErrors(input.incidents.filter((incident) => incident.kind === "provider_error"));
 	const weekOf = (session: SessionSummary) => isoWeek(session.startedAt);
@@ -291,7 +289,6 @@ export function renderReport(input: { generatedAt: string; since: string; sessio
 			]),
 		);
 	}
-	if (experiment) lines.push(...experimentSection(experiment));
 	lines.push("", "Next: pick incidents from `incidents.jsonl`, classify them, and turn reproducible ones into replay cases (see docs/agent/optimization-loop.md).", "");
 	return lines.join("\n");
 }

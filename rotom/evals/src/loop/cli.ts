@@ -8,7 +8,6 @@ import { reportCommand } from "./report-commands.ts";
 import { USAGE } from "./usage.ts";
 import { appendGateHistory, gateHistoryRecords, parseGateHistory, poolGateHistory } from "./gate-history.ts";
 import { defaultLoopDir, defaultSessionsDir, harvest } from "./harvest-run.ts";
-import { defaultModelExperiment } from "./harvest-models.ts";
 import { parseLedgerDir } from "./ledger.ts";
 import { originCheck, replayIncident } from "./replay-run.ts";
 import { countVerdicts, parseReplayCases, replayCaseSummaries, replayCasesDir, replayGateVerdict, replayGateProducts, validateReplayCase, type ReplayGateResult } from "./replay-gate.ts";
@@ -43,35 +42,21 @@ async function main(argv: string[]): Promise<number> {
 	if (command === "harvest") {
 		const { values } = parseArgs({
 			args: rest,
-			options: { sessions: { type: "string" }, out: { type: "string" }, days: { type: "string" }, since: { type: "string" }, "no-excerpts": { type: "boolean" }, experiment: { type: "string" } },
+			options: { sessions: { type: "string" }, out: { type: "string" }, days: { type: "string" }, since: { type: "string" }, "no-excerpts": { type: "boolean" } },
 		});
 		if (values.days && values.since) throw new Error("use --days or --since, not both");
 		const days = values.days ? Number(values.days) : 28;
 		if (!Number.isFinite(days) || days <= 0) throw new Error("--days must be a positive number");
 		const since = values.since ? new Date(`${values.since}T00:00:00Z`) : new Date(Date.now() - days * 86_400_000);
 		if (Number.isNaN(since.getTime())) throw new Error("--since must be YYYY-MM-DD");
-		if (values.experiment !== undefined && values.experiment !== "default-model") throw new Error("--experiment must be default-model");
 		const result = await harvest({
 			sessionsDir: values.sessions ?? defaultSessionsDir(),
 			outRoot: values.out ?? defaultLoopDir(),
 			since,
 			excerpts: !values["no-excerpts"],
-			...(values.experiment ? { experiment: "default-model" } : {}),
 		});
 		console.log(`sessions=${result.sessions.length} incidents=${result.incidents.length} skipped=${Object.entries(result.skipped).map(([reason, count]) => `${reason}:${count}`).join(",") || "0"}`);
 		console.log(`report: ${join(result.outDir, "report.md")}`);
-		if (values.experiment) {
-			const experiment = defaultModelExperiment(result.sessions);
-			const band = (row: (typeof experiment.groups)[number]) => `${row.v2Per100 ?? "N/A"}${row.v2Interval ? ` (${row.v2Interval.low.toFixed(1)}-${row.v2Interval.high.toFixed(1)})` : ""}`;
-			for (const row of experiment.groups) {
-				console.log(`experiment ${row.model}: sessions=${row.sessions} turns=${row.turns} v2=${row.v2} per100=${band(row)}`);
-			}
-			const { compliance, sensitivity } = experiment;
-			console.log(`compliance: ${compliance.onDefault}/${compliance.sessions} sessions opened on that day's default (${compliance.rate === null ? "N/A" : `${Math.round(compliance.rate * 1000) / 10}%`}); switched=${experiment.switched.length} off-default=${experiment.offDefault.length}`);
-			for (const row of sensitivity.groups) {
-				console.log(`sensitivity (dropped ${sensitivity.droppedSessionId ?? "none"}) ${row.model}: turns=${row.turns} v2=${row.v2} per100=${band(row)}`);
-			}
-		}
 		return 0;
 	}
 	if (command === "weekly" || command === "versions") return reportCommand(command, rest, { repoRoot, evalsRoot });

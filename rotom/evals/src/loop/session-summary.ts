@@ -42,8 +42,6 @@ export type SessionSummary = {
 	productVersion?: string;
 	/** SoL-Pi version the session proves it ran, from a vendored archive path in its own lines. */
 	solPiVersion?: string;
-	/** Model of the session's first assistant message, before any switch. */
-	firstAssistantModel?: string;
 	failures: number;
 	incidentCounts: Partial<Record<IncidentKind, number>>;
 };

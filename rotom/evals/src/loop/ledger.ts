@@ -11,7 +11,7 @@ import { join } from "node:path";
 export const LEDGER_SCHEMA = "rotom-loop-ledger/v1";
 
 export const CHANGE_KINDS = ["mechanism", "prompt", "eval", "removal"] as const;
-export const DECISIONS = ["shipped", "reverted", "kept-off", "removed", "open"] as const;
+export const DECISIONS = ["shipped", "reverted", "kept-off", "removed", "open", "closed"] as const;
 export const EVIDENCE_LEVELS = ["improved", "no-difference", "regressed", "inconclusive", "unmeasured", "not-reproduced"] as const;
 
 export type LedgerEntry = {

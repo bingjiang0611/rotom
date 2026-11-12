@@ -1,22 +1,19 @@
 /**
  * Weekly report: one command that answers "what does the metric say this week" without hand
- * assembling the harvest artifacts. Four sections, each with its own rule about what may be
+ * assembling the harvest artifacts. Three sections, each with its own rule about what may be
  * printed:
  *
  * 1. North star v2 overall, per model and per product version, each with a 95% Poisson band and
  *    the same rate recomputed without the single session that carried the most v2 events.
- * 2. The default-model field comparison, counted only: session counts and adherence per arm. The
- *    blinded section deliberately has no field for an outcome metric, so an in-window report
- *    cannot leak one; the verdict is read after the window closes.
- * 3. Every shipped-but-unmeasured ledger record, against the acceptance metric it declared and
+ * 2. Every shipped-but-unmeasured ledger record, against the acceptance metric it declared and
  *    the baseline it recorded, using only sessions that started after its acceptance start.
- * 4. Provider-to-user failures per 100 turns per provider, split before and after the version
+ * 3. Provider-to-user failures per 100 turns per provider, split before and after the version
  *    switch, because a new runtime mid-week changes the failure profile.
  */
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { dimensionRates, type RateInterval } from "./harvest-breakdown.ts";
-import { DEFAULT_MODEL_BY_PARITY, dimensionRatesWithoutLargestSession, dominantModel, type PeakAdjustedRate } from "./harvest-models.ts";
+import { dimensionRatesWithoutLargestSession, dominantModel, type PeakAdjustedRate } from "./harvest-models.ts";
 import type { Incident, SessionSummary } from "./harvest.ts";
 import type { LedgerEntry } from "./ledger.ts";
 import { acceptanceRows, poissonBand, type AcceptanceRow } from "./weekly-acceptance.ts";
@@ -25,15 +22,12 @@ export { acceptanceRows, recentTurnsPerDay, type AcceptanceRow, type AcceptanceS
 
 export const WEEKLY_SCHEMA = "rotom-loop-weekly/v1";
 
-const DATE = /^\d{4}-\d{2}-\d{2}$/u;
-
 export type WeeklyConfig = {
 	/** ISO instant the daily install switched product builds; splits the provider table. */
 	switchAt: string;
-	experiment: { /** First local day inside the field comparison, inclusive. */ start: string; /** Last local day, inclusive. */ end: string; /** Old dates are void until launchd activation is confirmed. */ restartPending?: boolean };
 };
 
-/** The window is written as local dates: a session records its own local start, not UTC. */
+/** Only the build switch is configured; the report reads no window or arm state. */
 export function parseWeeklyConfig(text: string): WeeklyConfig {
 	let parsed: unknown;
 	try {
@@ -43,14 +37,7 @@ export function parseWeeklyConfig(text: string): WeeklyConfig {
 	}
 	const value = parsed as Partial<WeeklyConfig>;
 	if (typeof value.switchAt !== "string" || Number.isNaN(Date.parse(value.switchAt))) throw new Error("weekly config: switchAt must be an ISO timestamp");
-	const experiment = value.experiment as Partial<WeeklyConfig["experiment"]> | undefined;
-	if (!experiment || typeof experiment.start !== "string" || typeof experiment.end !== "string" || !DATE.test(experiment.start) || !DATE.test(experiment.end)) {
-		throw new Error("weekly config: experiment.start and experiment.end must be YYYY-MM-DD");
-	}
-	if (experiment.end < experiment.start) throw new Error("weekly config: experiment.end is before experiment.start");
-	// The arms are the parity defaults themselves, so the config cannot disagree with the metric.
-	if (experiment.restartPending !== undefined && typeof experiment.restartPending !== "boolean") throw new Error("weekly config: experiment.restartPending must be boolean");
-	return { switchAt: value.switchAt, experiment: { start: experiment.start, end: experiment.end, ...(experiment.restartPending === undefined ? {} : { restartPending: experiment.restartPending }) } };
+	return { switchAt: value.switchAt };
 }
 
 export type RateRow = {
@@ -94,43 +81,6 @@ export function northStarTables(sessions: readonly SessionSummary[]): { overall:
 		entries: rateRows(dimensionRates(sessions, entry), dimensionRatesWithoutLargestSession(sessions, entry)),
 	};
 }
-
-/** Counts and adherence only: the shape itself is the blinding, not a formatting choice. */
-export type BlindedArm = { arm: string; sessions: number; adherence: number | null };
-export type BlindedExperiment = { state: "pending" | "open" | "closed"; start: string; end: string; arms: BlindedArm[]; excluded: { switched: number; offDefault: number } };
-
-export function blindedExperiment(sessions: readonly SessionSummary[], experiment: WeeklyConfig["experiment"], today = new Date()): BlindedExperiment {
-	if (experiment.restartPending) return { state: "pending", start: experiment.start, end: experiment.end, arms: [], excluded: { switched: 0, offDefault: 0 } };
-	const arms = [DEFAULT_MODEL_BY_PARITY.odd, DEFAULT_MODEL_BY_PARITY.even].map((arm) => ({ arm, sessions: 0, eligible: 0 }));
-	const excluded = { switched: 0, offDefault: 0 };
-	for (const session of sessions) {
-		const day = session.startedAt.slice(0, 10);
-		if (day < experiment.start || day > experiment.end) continue;
-		// Odd local days default to one arm and even days to the other, as the experiment defines it.
-		const dayNumber = Number(day.slice(8, 10));
-		const arm = arms[dayNumber % 2 === 1 ? 0 : 1];
-		if (!arm) continue;
-		arm.eligible += 1;
-		if (!session.firstAssistantModel) {
-			excluded.offDefault += 1;
-			continue;
-		}
-		if (session.firstAssistantModel !== arm.arm) {
-			excluded.offDefault += 1;
-			continue;
-		}
-		arm.sessions += 1;
-		if (session.models.length > 1) excluded.switched += 1;
-	}
-	return {
-		state: today.toISOString().slice(0, 10) > experiment.end ? "closed" : "open",
-		start: experiment.start,
-		end: experiment.end,
-		arms: arms.map(({ arm, sessions: counted, eligible }) => ({ arm, sessions: counted, adherence: eligible > 0 ? Math.round((counted / eligible) * 1000) / 1000 : null })),
-		excluded,
-	};
-}
-
 
 export type ProviderSegmentRow = {
 	segment: "before" | "after";
@@ -187,7 +137,6 @@ export type WeeklyReport = {
 	window: { since: string };
 	config: WeeklyConfig;
 	northStar: ReturnType<typeof northStarTables>;
-	experiment: BlindedExperiment;
 	records: AcceptanceRow[];
 	providerFailures: ProviderSegmentRow[];
 };
@@ -199,7 +148,6 @@ export function buildWeekly(input: { sessions: readonly SessionSummary[]; incide
 		window: { since: input.since },
 		config: input.config,
 		northStar: northStarTables(input.sessions),
-		experiment: blindedExperiment(input.sessions, input.config.experiment, now),
 		records: acceptanceRows(input.ledger, input.sessions, input.incidents, now, input.ranWithFix),
 		providerFailures: providerSegments(input.sessions, input.incidents, input.config.switchAt),
 	};
@@ -213,7 +161,6 @@ const rateTable = (rows: readonly RateRow[], dimension: string) => [
 ];
 
 export function renderWeekly(report: WeeklyReport): string {
-	const open = report.experiment.state === "open";
 	return [
 		"# rotom weekly report",
 		"",
@@ -228,7 +175,7 @@ export function renderWeekly(report: WeeklyReport): string {
 		...rateTable(report.northStar.overall, "Scope"),
 		"### Per model",
 		"",
-		"Each session is attributed to the model that answered most of its turns.",
+		"Observed data, not a comparison: each session is attributed to the model that answered most of its turns, and the work each model was asked to do differs. Selection bias is not excluded.",
 		"",
 		...rateTable(report.northStar.models, "Model"),
 		"### Per product version",
@@ -240,20 +187,6 @@ export function renderWeekly(report: WeeklyReport): string {
 		"### Entry",
 		"",
 		...rateTable(report.northStar.entries, "Entry"),
-		"## Field comparison: default model by date parity",
-		"",
-		report.experiment.state === "pending"
-			? "Protocol restart pending: old dates are void. Confirm launchd activation, then register the next local day as day 1, 28 inclusive days, and the day-3 adherence check. No arm data is counted."
-			: open
-			? `Blinded until ${report.experiment.end}: this section shows how many sessions each arm got and how often the day's default actually applied. Outcome metrics stay out of the report until the window closes, so nothing here can be read as a result.`
-			: `The window closed after ${report.experiment.end}. The verdict is read from \`L-2026-11-10-default-model-field-comparison\` with the pre-registered rule, not from this section.`,
-		"",
-		"| Arm | Sessions | Adherence |",
-		"| --- | ---: | ---: |",
-		...report.experiment.arms.map((arm) => `| ${arm.arm} | ${arm.sessions} | ${arm.adherence === null ? "N/A" : `${Math.round(arm.adherence * 1000) / 10}%`} |`),
-		"",
-		`Excluded inside the window: ${report.experiment.excluded.switched} started on the default and switched model, ${report.experiment.excluded.offDefault} never used it.`,
-		"",
 		"## Shipped records still waiting for evidence",
 		"",
 		"`decision=shipped` with `evidence=unmeasured`. Status uses only sessions that started after the record's own acceptance start. Below the record's exposure (the turns where its baseline predicts ten events) the status is `insufficient-exposure` and no verdict is offered; at or above it the verdict is an exact one-sided Poisson rate test at alpha 0.05, and `no-change` means only that no difference was shown.",

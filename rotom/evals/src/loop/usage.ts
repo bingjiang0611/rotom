@@ -3,11 +3,8 @@ import { defaultLoopDir, defaultSessionsDir } from "./harvest-run.ts";
 export const USAGE = `Usage: npm run loop -- <command>
 
   harvest [--sessions DIR] [--out DIR] [--days N | --since YYYY-MM-DD] [--no-excerpts]
-          [--experiment default-model]
       Scan local Pi sessions (default ${defaultSessionsDir()}) into a private incident
       queue and weekly intervention rate under ${defaultLoopDir()}. No model calls.
-      --experiment default-model adds the odd/even default-model comparison: only sessions
-      whose first assistant message used that day's default model enter the rates.
 
   gate --baseline /abs/frozen/rotom [--candidate /abs/rotom] [--case ID] [--repeats N] [--out DIR] [--smoke]
       Re-run reproduced regression cases from loop/gate.json against both products
@@ -55,9 +52,8 @@ export const USAGE = `Usage: npm run loop -- <command>
 
   weekly [--sessions DIR] [--days N] [--out DIR]
       Harvest the last N days (default 28) and write ~/.rotom/loop/weekly-<date>/:
-      north star v2 with bands and a sensitivity column, the blinded field
-      comparison (counts and adherence only until the window closes), every
-      shipped-but-unmeasured ledger record against its own acceptance metric,
+      north star v2 with bands and a sensitivity column, the observed per-model split,
+      every shipped-but-unmeasured ledger record against its own acceptance metric,
       and provider-to-user failures per 100 turns before and after the switch.
       No model calls; nothing is written to Git.
 `;

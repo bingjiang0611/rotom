@@ -25,10 +25,9 @@
 ```sh
 npm --prefix rotom/evals run loop -- harvest            # 默认最近 28 天
 npm --prefix rotom/evals run loop -- harvest --days 7 --no-excerpts
-npm --prefix rotom/evals run loop -- harvest --experiment default-model   # 加默认模型对照视图
 ```
 
-读取 `$PI_CODING_AGENT_DIR/sessions` 的会话 JSONL 与同目录 `observability/` trace，**不调用模型**，输出写到 `$ROTOM_LOOP_DIR`（默认 `~/.rotom/loop/harvest-<时间>/`），永不入 Git。检测器清单、北极星 v1/v2 口径、按模型 / runtime / 产品版本 / SoL-Pi 版本的拆分、敏感性检查与 `--experiment default-model` 视图见 [harvest 契约](loop-harvest.md)。
+读取 `$PI_CODING_AGENT_DIR/sessions` 的会话 JSONL 与同目录 `observability/` trace，**不调用模型**，输出写到 `$ROTOM_LOOP_DIR`（默认 `~/.rotom/loop/harvest-<时间>/`），永不入 Git。检测器清单、北极星 v1/v2 口径、按模型 / runtime / 产品版本 / SoL-Pi 版本的拆分与敏感性检查见 [harvest 契约](loop-harvest.md)。
 
 ## ② 分诊
 
@@ -97,7 +96,7 @@ npm --prefix rotom/evals run loop -- gate-pool --since 2026-11-10T00:00:00Z --ca
 
 **何时必须跑**：改 `coding-policy`、工具描述/行为、Goal 续跑、上下文/压缩、Subagent 默认策略。
 
-授权（2026-11-09 用户）：gate 和回放 baseline/candidate 可使用 `qoder/dfmodel`，**不设预算上限**；发送范围限于脱敏派生 fixture 与产品提示。2026-11-10 追加授权 `openai-codex/gpt-6.1-sol`（`openai-codex/gpt-6-astra` 用于默认模型实地对照），同样不设预算。其他模型或发送原始会话正文仍需另行授权。
+授权（2026-11-09 用户）：gate 和回放 baseline/candidate 可使用 `qoder/dfmodel`，**不设预算上限**；发送范围限于脱敏派生 fixture 与产品提示。2026-11-10 追加授权 `openai-codex/gpt-6.1-sol`，同样不设预算。其他模型或发送原始会话正文仍需另行授权。
 
 ### 当前 gate 用例
 
@@ -139,11 +138,10 @@ npm --prefix rotom/evals run loop -- gate --baseline /absolute/rotom-pre-fix/rot
 
 ### 每周例行检查
 
-1. 跑 `npm --prefix rotom/evals run loop -- weekly`；实验期不读取任何分组结果。
+1. 跑 `npm --prefix rotom/evals run loop -- weekly`；报告里只有按模型的观察拆分，不做默认模型对照。
 2. 跑 `loop replay-gate --current-only --product <当前日常版本绝对路径>`；只跑日常版本，不跑冻结臂或其他候选。只检查既有 oracle 是否仍满足，不声称相对改善；仍需既有模型授权与全部回放隔离。已知未修复用例的失败不是“新复现”。
 3. 看账本暴露量是否到期；unknown 构建不计入，未到期只报暴露不足。
-4. 仅在预登记时间读遵守率：launchd 生效日为 L，窗口 L+1 至 L+28，第 3 天检查 L+3；尚未确认生效则不检查。窗口内不读任何组的结果指标。
-5. 仅出现新的可复现失败或记录暴露期到期时，才提议开新一轮；否则结束，不顺手修机制。
+4. 仅出现新的可复现失败或记录暴露期到期时，才提议开新一轮；否则结束，不顺手修机制。
 
 报告字段、验收统计与相关改动门禁见 [每周检查合同](loop-weekly.md)。
 

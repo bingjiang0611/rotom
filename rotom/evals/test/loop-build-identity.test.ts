@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { analyzeSession, buildCommitOf, buildDirtyOf, type Incident, type SessionSummary } from "../src/loop/harvest.ts";
-import { acceptanceRows, parseWeeklyConfig, blindedExperiment, type WeeklyConfig } from "../src/loop/weekly.ts";
+import { acceptanceRows, parseWeeklyConfig, type WeeklyConfig } from "../src/loop/weekly.ts";
 import type { LedgerEntry } from "../src/loop/ledger.ts";
 
 const FIX = "a".repeat(40);
@@ -43,14 +43,4 @@ describe("build attribution", () => {
 		expect(row.turns).toBe(0);
 		expect(row.buildUnknown).toBe(1);
 	});
-});
-
-it("void experiment dates remain pending without looking at session data", () => {
-	const config: WeeklyConfig = { switchAt: "2026-11-10T00:00:00Z", experiment: { start: "2026-11-11", end: "2026-12-08", restartPending: true } };
-	const parsed = parseWeeklyConfig(JSON.stringify(config));
-	expect(parsed.experiment.restartPending).toBe(true);
-	const sessions = new Proxy([] as SessionSummary[], { get() { throw new Error("pending experiment must not inspect sessions"); } });
-	expect(blindedExperiment(sessions, parsed.experiment).state).toBe("pending");
-	expect(blindedExperiment(sessions, parsed.experiment).arms).toEqual([]);
-	expect(() => parseWeeklyConfig(JSON.stringify({ ...config, experiment: { ...config.experiment, restartPending: "yes" } }))).toThrow(/must be boolean/);
 });

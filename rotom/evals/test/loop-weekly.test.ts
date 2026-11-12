@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildWeekly, blindedExperiment, parseWeeklyConfig, providerSegments, renderWeekly, acceptanceRows as productionAcceptanceRows } from "../src/loop/weekly.ts";
+import { buildWeekly, parseWeeklyConfig, providerSegments, renderWeekly, acceptanceRows as productionAcceptanceRows } from "../src/loop/weekly.ts";
 import { providerCode, summarizeProviderErrors } from "../src/loop/harvest-provider.ts";
 import { parseLedger, type LedgerEntry } from "../src/loop/ledger.ts";
 import type { Incident, SessionSummary } from "../src/loop/harvest.ts";
 
-const CONFIG = { switchAt: "2026-11-10T13:30:07Z", experiment: { start: "2026-11-11", end: "2026-12-08" } };
+const CONFIG = { switchAt: "2026-11-10T13:30:07Z" };
 const ASTRA = "openai-codex/gpt-6-astra";
 // These rate-test fixtures all run the same known build; ancestry boundaries have their own tests.
 const acceptanceRows: typeof productionAcceptanceRows = (ledger, sessions, incidents, now) =>
@@ -16,11 +16,11 @@ function fakeReport(overrides: Partial<ReturnType<typeof buildWeekly>>) {
 		window: { since: "2026-10-13T00:00:00Z" },
 		config: CONFIG,
 		northStar: { overall: [], models: [], products: [], entries: [] },
-		experiment: { state: "open" as const, end: CONFIG.experiment.end, arms: [], excluded: { switched: 0, offDefault: 0 } },
 		records: [],
 		providerFailures: [],
 		...overrides,
 	} as ReturnType<typeof buildWeekly>;
+}
 
 it("renders the entry dimension next to the product version", () => {
 	const report = fakeReport({
@@ -35,7 +35,23 @@ it("renders the entry dimension next to the product version", () => {
 	expect(text).toContain("### Entry");
 	expect(text).toContain("dev-checkout");
 });
-}
+
+it("labels the per-model split as observed data, not a comparison", () => {
+	const report = fakeReport({
+		northStar: {
+			overall: [],
+			models: [{ key: ASTRA, turns: 40, v2: 2, v2Per100: 5, sensitivity: { v2Per100: null, droppedSessionId: null } }],
+			products: [],
+			entries: [],
+		} as ReturnType<typeof buildWeekly>["northStar"],
+	});
+	const text = renderWeekly(report);
+	const section = text.slice(text.indexOf("### Per model"), text.indexOf("### Per product version"));
+	expect(section).toContain("Selection bias is not excluded");
+	expect(section).toContain(`| ${ASTRA} |`);
+	// The field comparison is cancelled: no section may claim a default-model verdict.
+	expect(text).not.toContain("Field comparison");
+});
 const SOL = "openai-codex/gpt-6.1-sol";
 
 function session(overrides: Partial<SessionSummary> & { startedAt: string }): SessionSummary {
@@ -80,43 +96,6 @@ const ledgerEntry = (overrides: Partial<LedgerEntry>): LedgerEntry => ({
 });
 
 describe("weekly report", () => {
-	it("keeps outcome metrics out of an in-window report", () => {
-		// Each arm carries a distinctive v2 count; neither may appear in the blinded section.
-		const sessions = [
-			session({ startedAt: "2026-11-12T09:00:00+08:00", firstAssistantModel: SOL, models: [SOL], modelTurns: { [SOL]: 10 }, userTurns: 10, northStarV2: 7 }),
-			session({ startedAt: "2026-11-13T09:00:00+08:00", firstAssistantModel: ASTRA, models: [ASTRA], modelTurns: { [ASTRA]: 10 }, userTurns: 10, northStarV2: 3 }),
-		];
-		const report = buildWeekly({ sessions, incidents: [], ledger: [], config: CONFIG, since: "2026-10-13T00:00:00Z", now: new Date("2026-11-14T00:00:00Z") });
-		expect(report.experiment.state).toBe("open");
-		const text = renderWeekly(report);
-		const blinded = text.slice(text.indexOf("## Field comparison"), text.indexOf("## Shipped records"));
-		expect(blinded).toContain(SOL);
-		expect(blinded).toContain(ASTRA);
-		expect(blinded).not.toContain("v2");
-		expect(blinded).not.toMatch(/per 100/u);
-		// The counts are the only numbers per arm: one session each, adherence 100% and 100%.
-		expect(report.experiment.arms.map((arm) => [arm.arm, arm.sessions, arm.adherence])).toEqual([[ASTRA, 1, 1], [SOL, 1, 1]]);
-	});
-
-	it("counts adherence against the sessions whose day default is known, not against all sessions", () => {
-		const sessions = [
-			session({ startedAt: "2026-11-12T09:00:00+08:00", firstAssistantModel: SOL, models: [SOL] }),
-			session({ startedAt: "2026-11-13T09:00:00+08:00", firstAssistantModel: SOL, models: [SOL] }),
-			session({ startedAt: "2026-11-14T09:00:00+08:00" }),
-		];
-		const experiment = blindedExperiment(sessions, CONFIG.experiment, new Date("2026-11-15T00:00:00Z"));
-		expect(experiment.arms.find((arm) => arm.arm === ASTRA)).toMatchObject({ sessions: 0, adherence: 0 });
-		// The third session fell on an even day but recorded no first model, so it counts as eligible and off-default.
-		expect(experiment.arms.find((arm) => arm.arm === SOL)).toMatchObject({ sessions: 1, adherence: 0.5 });
-		expect(experiment.excluded.offDefault).toBe(2);
-	});
-
-	it("closes the window after its last day and says the verdict comes from the ledger", () => {
-		const report = buildWeekly({ sessions: [], incidents: [], ledger: [], config: CONFIG, since: "2026-10-13T00:00:00Z", now: new Date("2026-12-09T00:00:00Z") });
-		expect(report.experiment.state).toBe("closed");
-		expect(renderWeekly(report)).toContain("The window closed");
-	});
-
 	it("reports a record's own metric only from sessions after its acceptance start", () => {
 		// 1.0 per 100 → exposure 1,000 turns (the rate predicts ten events there).
 		const entry = ledgerEntry({
@@ -231,8 +210,7 @@ describe("weekly report", () => {
 
 	it("validates the committed window config", () => {
 		expect(() => parseWeeklyConfig("{}")).toThrow(/switchAt/u);
-		expect(() => parseWeeklyConfig(JSON.stringify({ switchAt: "x", experiment: CONFIG.experiment }))).toThrow(/switchAt/u);
-		expect(() => parseWeeklyConfig(JSON.stringify({ switchAt: CONFIG.switchAt, experiment: { start: "2026-12-09", end: "2026-12-08" } }))).toThrow(/before/u);
+		expect(() => parseWeeklyConfig(JSON.stringify({ switchAt: "x" }))).toThrow(/switchAt/u);
 		expect(parseWeeklyConfig(JSON.stringify(CONFIG))).toEqual(CONFIG);
 	});
 

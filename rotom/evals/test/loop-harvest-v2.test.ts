@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 import { analyzeSession, entryClassOf, interruptTriage, launcherPathOf, productRootOf, productVersionOf, runtimeVersionOf, solPiVersionOf, type SessionSummary } from "../src/loop/harvest.ts";
 import { dimensionRates, modelDimensionRates, modelSwitchTables, modelTurnShare, northStarWeeks, poissonRateInterval, triageTable } from "../src/loop/harvest-breakdown.ts";
-import { defaultModelExperiment, expectedDefaultModel, median, modelDimensionRatesWithoutPeak, modelTaskSize } from "../src/loop/harvest-models.ts";
+import { median, modelDimensionRatesWithoutPeak, modelTaskSize } from "../src/loop/harvest-models.ts";
 
 let counter = 0;
 type Line = Record<string, unknown>;
@@ -248,44 +248,6 @@ describe("product version, SoL-Pi version and task size", () => {
 		expect(result.rows.map((row) => [row.key, row.northStarV2, row.v2Per100])).toEqual([["openai-codex/gpt-6.1-sol", 2, 20], ["qoder/dfmodel", 1, 10]]);
 		// Nothing to drop is reported as nothing, not as a synthetic exclusion.
 		expect(modelDimensionRatesWithoutPeak([summary({})]).dropped).toBeUndefined();
-	});
-});
-
-describe("default-model experiment view", () => {
-	const session = (overrides: Partial<SessionSummary>): SessionSummary => ({
-		sessionId: "s", sessionFile: "", cwd: "", startedAt: "2026-11-03T10:00:00.000Z", startedAtSource: "header",
-		modelTurns: {}, interventionModels: {}, v2Models: {}, northStarV2: 0,
-		interruptTriage: { "self-retract": 0, quality: 0, other: 0 }, interruptExcluded: 0,
-		models: [], userTurns: 0, assistantMessages: 0, toolCalls: 0, toolErrors: 0, interventions: 0, failures: 0, incidentCounts: {},
-		...overrides,
-	});
-	const astra = "openai-codex/gpt-6-astra";
-	const sol = "openai-codex/gpt-6.1-sol";
-
-	it("assigns the default model by the day of month", () => {
-		expect(expectedDefaultModel("2026-11-11T09:00:00Z")).toBe(astra);
-		expect(expectedDefaultModel("2026-11-12T09:00:00Z")).toBe(sol);
-		expect(expectedDefaultModel("2026-11-01T23:59:00Z")).toBe(astra);
-		expect(expectedDefaultModel("")).toBeUndefined();
-	});
-
-	it("counts only sessions that started on that day's default and never switched", () => {
-		const view = defaultModelExperiment([
-			session({ sessionId: "odd-astra", startedAt: "2026-11-11T09:00:00Z", firstAssistantModel: astra, models: [astra], userTurns: 4, northStarV2: 1 }),
-			session({ sessionId: "even-sol", startedAt: "2026-11-12T09:00:00Z", firstAssistantModel: sol, models: [sol], userTurns: 6, northStarV2: 0 }),
-			// Started on the default, then the person switched: listed, not counted.
-			session({ sessionId: "switched", startedAt: "2026-11-13T09:00:00Z", firstAssistantModel: astra, models: [astra, sol], userTurns: 5, northStarV2: 4 }),
-			// Never used the day's default: listed, not counted.
-			session({ sessionId: "off-default", startedAt: "2026-11-13T10:00:00Z", firstAssistantModel: "qoder/dfmodel", models: ["qoder/dfmodel"], userTurns: 5, northStarV2: 3 }),
-			// No first assistant message recorded: unknown, never inferred into a group.
-			session({ sessionId: "no-model", startedAt: "2026-11-12T10:00:00Z", userTurns: 5, northStarV2: 2 }),
-		]);
-		expect(view.groups.map((group) => [group.model, group.sessions, group.turns, group.v2, group.v2Per100])).toEqual([
-			[astra, 1, 4, 1, 25],
-			[sol, 1, 6, 0, 0],
-		]);
-		expect(view.switched.map((row) => row.sessionId)).toEqual(["switched"]);
-		expect(view.offDefault.map((row) => row.sessionId)).toEqual(["no-model", "off-default"]);
 	});
 });
 

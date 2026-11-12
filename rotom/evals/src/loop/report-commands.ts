@@ -46,7 +46,6 @@ export async function reportCommand(command: string, rest: string[], deps: { rep
 		const directory = await writeWeekly(values.out ?? defaultLoopDir(), report);
 		console.log(`sessions=${result.sessions.length} incidents=${result.incidents.length}`);
 		console.log(`weekly: ${directory}/report.md`);
-		console.log(`experiment: ${report.experiment.state}; arms ${report.experiment.arms.map((arm) => `${arm.arm}=${arm.sessions}`).join(" ")}`);
 		for (const row of report.records) console.log(`record ${row.status.padEnd(12)} ${row.id}  turns=${row.turns} observed=${row.observedPer100 ?? "N/A"} baseline=${row.baselinePer100 ?? "N/A"}`);
 		return 0;
 	}

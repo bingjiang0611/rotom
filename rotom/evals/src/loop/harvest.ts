@@ -118,7 +118,6 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 	const toolCallIds = new Set<string>();
 	const toolErrorIds = new Set<string>();
 	const models = new Set<string>();
-	let firstAssistantModel: string | undefined;
 
 	for (const path of paths(entries)) {
 		const aborts: { index: number; incident: Incident; requestText: string }[] = [];
@@ -203,7 +202,6 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 				if (typeof message.provider === "string" && typeof message.model === "string") {
 					models.add(`${message.provider}/${message.model}`);
 					currentModel = `${message.provider}/${message.model}`;
-					firstAssistantModel ??= `${message.provider}/${message.model}`;
 				}
 				// The first assistant message after a user turn is the model that answered it.
 				if (pendingUser && typeof message.provider === "string" && typeof message.model === "string") {
@@ -350,7 +348,6 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 			...(runtimeVersion ? { runtimeVersion } : {}),
 			...(productVersion ? { productVersion } : {}),
 			...(solPiVersion ? { solPiVersion } : {}),
-			...(firstAssistantModel ? { firstAssistantModel } : {}),
 			failures,
 			incidentCounts,
 		},

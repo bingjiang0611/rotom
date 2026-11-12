@@ -32,7 +32,6 @@
 - **敏感性**：把 v2 事件最多的那个会话剔除后重算每模型比率。只有包含它才成立的比率描述的是一次对话，不是一个模型。模型表与产品版本表各有一列“去掉本行最大会话后”的比率：模型行只减掉该模型自己在这条会话里的 turn 与 v2 事件，产品版本行减掉整条会话；行内没有 v2 事件时写 `same (no v2 events)`，并在后面标出被去掉的会话 id。
 - **任务规模**：每模型附每会话 turn 数中位数与每 turn 工具调用数中位数（会话归给回答 turn 最多的模型），用来判断“难任务是否专挑某个模型”，避免把任务难度读成模型质量。
 
-`--experiment default-model` 追加默认模型对照视图：按会话日期的日数奇偶分组（奇数日 `openai-codex/gpt-6-astra`、偶数日 `openai-codex/gpt-6.1-sol`），只统计第一条 assistant 消息就用了当天默认模型的会话；中途手动换过模型的会话单独列表，不进主指标；从未用过当天默认模型或没有记录首条 assistant 模型的会话也只计数、不推断。视图另给三件事：每组会话数与 95% 泊松区间；**遵守率**——窗口内所有能读出日期的会话里，首条 assistant 消息就是当天默认模型的比例（没记录首条 assistant 模型的会话留在分母里，因为“看不出它用了默认模型”不等于“它用了”）；**敏感性**——去掉计数会话里 v2 事件最多的那一条后重算两组。日期读不出的会话仍列在排除表里，但不进遵守率分母。中断后在下一条用户消息之前出现 `model_change` 的，单独统计“换掉的 provider/model”与“中断前已等待时长”。只计**换成不同模型**的：Pi 在中断后即使模型没变也会写一条 `model_change`（2026-11 窗口里 258 条有 241 条写的是同一个模型），把这些当成换模型会把结论读反。
 
 `user_interrupt` 另记 `activity`（`waiting-first-byte` / `streaming-text` / `streaming-thinking` / `streaming-tool-call` / `tool-executing` 及工具名）、`elapsedMs` 与 `nextUser`（下一条用户消息的类别），并在结构上区分来源：助手被中断后若第一个非控制 entry 是注入的 goal 合同、压缩标记或系统消息，记 `injected` / `compaction` / `system` 并从介入计数里排除（`interruptExcluded`），剩余算 `human`；中断后没有下一条 turn 记 `no-following-turn`。`tool_error_streak` 同时记工具名与错误类别（timeout / command-failed / not-found / ambiguous-match / stale / other），所以“哪个工具在什么错误上重复”可以直接读出来。模型占比按 turn 计，逐周列出领先的 provider/model。会话自身时间戳缺失或早于 2000 年时回退到会话文件 mtime，并在 Provenance 一节写明有多少条来自回退，不生成 1970 周。
 
