@@ -1,6 +1,6 @@
 # pi-computer-use
 
-> rotom-maintained private fork (`0.5.1-rotom.2`), not an upstream release. See [provenance and changes](UPSTREAM.md). Project: [bingjiang0611/rotom](https://github.com/bingjiang0611/rotom). For the integrated product, follow the [rotom installation guide](../../docs/usage.md); do not overlay an upstream install onto its pinned dependencies. Platform descriptions below describe the component, not a rotom Windows support claim.
+> rotom-maintained private fork (`0.5.1-rotom.4`), not an upstream release. See [provenance and changes](UPSTREAM.md). Project: [bingjiang0611/rotom](https://github.com/bingjiang0611/rotom). For the integrated product, follow the [rotom installation guide](../../docs/usage.md); do not overlay an upstream install onto its pinned dependencies. Platform descriptions below describe the component, not a rotom Windows support claim.
 
 `pi-computer-use` lets AI agents use desktop apps on macOS, Windows, and Linux.
 
@@ -28,6 +28,10 @@ In short: it gives an agent a controlled way to operate desktop software.
 `pi-computer-use` is not a replacement for app APIs or MCP servers. If an app has a reliable direct integration, use that first.
 
 Computer use is most helpful when the only available interface is the app on screen.
+
+## Update the rotom macOS helper
+
+After closing its owning sessions and quitting the old helper, explicitly run `rotom helper update`. On a managed Mac, set `PI_COMPUTER_USE_CODESIGN_IDENTITY` to an existing approved identity first. The command signs only the install copy at `~/Applications/pi-computer-use.app`; it does not modify certificates or start/restart a helper. A running helper or inconclusive process check blocks replacement. Without an identity, the packaged signature and existing ad-hoc update guard are preserved. Keep sessions closed during the update; the updater lock does not prevent external launches. See [lifecycle, custom paths and signing limits](UPSTREAM.md#helper-lifecycle-and-signing).
 
 ## Install upstream (not this fork)
 

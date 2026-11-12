@@ -24,16 +24,17 @@ The `.rotom.5` baseline also included the terminal-projection fix: projection fa
 
 ## Locked Computer Use distribution
 
-The default product selects **`@injaneity/pi-computer-use@0.5.1-rotom.2`**, independently maintained in `packages/rotom-computer-use/`. This is a Computer Use fork, not a Pi fork.
+The default product selects **`@injaneity/pi-computer-use@0.5.1-rotom.4`**, independently maintained in `packages/rotom-computer-use/`. This is a Computer Use fork, not a Pi fork.
 
-- Archive: `injaneity-pi-computer-use-0.5.1-rotom.2.tgz`
-- SHA256: `6c401991d1854180954663621ba85cde978608b14abe7297c993f1de1fded9b8`
-- SHA512 SRI: `sha512-dcJn+H5u9jwvrrDPeAC38NsyaZzJ17cNxqxFtaaW41DzHh+pxmh0p6r497L5DFNp+0+iKkmPD9Kpcc7wFo9QfQ==`
-- `.rotom.2` moves schema descriptions, recovery and result evidence into the component. Relay-first browser fallback stays product-specific. This TS-only rebuild retains all prior native helper bytes and signatures; no helper is installed or launched.
+- Archive: `injaneity-pi-computer-use-0.5.1-rotom.4.tgz` (the old `.rotom.2` archive is retained unchanged).
+- SHA256: `d3afc8b3e1a2006b66418507178d1426b2fbc047dc1d7bd07ed8ba06ad4fb15a`
+- SHA512 SRI: `sha512-2gfoCRk6DnycZRLJSr8WS4UISQgZpYblJEjz3ScSchxrtgdlIbt/ygVvFxdATTdUkZnj/FhZ2hzKxiJBht1+WQ==`
+- `.rotom.4` packages the reviewed v2 source, a shared complete Swift list, and `rotom helper update`. Explicit updates can sign only the install copy with an existing identity; a busy target or unknown process state blocks replacement. The command does not start or stop a helper. The daily helper was not replaced during this packaging stage.
+- Historical `.rotom.2` moves schema descriptions, recovery and result evidence into the component. Relay-first browser fallback stays product-specific. This TS-only rebuild retains all prior native helper bytes and signatures; no helper is installed or launched.
 - Upstream: `@injaneity/pi-computer-use`, License MIT (original notice retained in `package/LICENSE`; provenance in `package/UPSTREAM.md`).
 - Adds bounded IDEA background text via exact window/ref binding, synthetic internal focus and per-character full readback. Accepted AX writes without matching readback are unknown, never a reason to replay. Batches stop on unknown as well as refusal. Legacy speculative foreground retry remains off by default and unavailable in headless mode.
-- macOS arm64/x64/universal artifacts are rebuilt and **ad-hoc signed**; Windows/Linux artifacts are unchanged. Replacing an existing helper with the ad-hoc bundle needs explicit authorization. Protocol 7 mismatch no longer restarts another session's daemon. No personal certificate signatures are shipped.
-- Rebuilt arm64 code passed bounded real-plugin input checks using an isolated, separately signed helper. Installed upgrade, final-version concurrent input, x64 execution and Swift deterministic assertions remain unverified. See [verification and limits](../../../../docs/agent/computer-use-background-text.md).
+- macOS arm64/x64/universal artifacts are rebuilt and **ad-hoc signed**; Windows/Linux artifacts are unchanged. Replacing an existing helper with the ad-hoc bundle needs explicit authorization. Protocol 11 mismatch no longer restarts another session's daemon. No personal certificate signatures are shipped.
+- Earlier arm64 code passed bounded real-plugin input checks using an isolated, separately signed helper; this is not real-device evidence for the `.rotom.4` archive. Installed upgrade, final-version concurrent input, x64 execution and Swift deterministic assertions remain unverified. See [verification and limits](../../../../docs/agent/computer-use-background-text.md).
 
 ## Locked Goal distribution
 

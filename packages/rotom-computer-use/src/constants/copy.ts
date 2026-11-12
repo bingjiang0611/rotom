@@ -3,7 +3,7 @@ export const helperMismatchMessage = (
 	expectedExecutable: string,
 	actualProtocol: number,
 	actualExecutable: string | undefined,
-): string => `pi-computer-use helper mismatch: expected protocol ${expectedProtocol} and executable ${expectedExecutable}; got protocol ${actualProtocol} and executable ${actualExecutable ?? "unknown"}. The running helper was not restarted. Close its owning sessions and explicitly install/restart the updated helper, or use a separate helper app and socket.`;
+): string => `pi-computer-use helper mismatch: expected protocol ${expectedProtocol} and executable ${expectedExecutable}; got protocol ${actualProtocol} and executable ${actualExecutable ?? "unknown"}. The running helper was not restarted. Close its owning sessions and quit the old helper, then run rotom helper update explicitly. On managed Macs, set PI_COMPUTER_USE_CODESIGN_IDENTITY to an existing approved signing identity before that command. It installs to ~/Applications/pi-computer-use.app without starting it; use that path in the new session, or explicitly maintain your separate helper app and socket.`;
 
 export const takeoverCopy = {
 	unsupportedHelper: "The helper does not support safe pause/resume. Use a separately built helper; the running helper was not changed.",

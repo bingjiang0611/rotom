@@ -40,6 +40,8 @@
     "runtime/verify-pi-runtime.mjs",
     "runtime/resolve-installed-pi.mjs",
     "runtime/update-product.mjs",
+    "runtime/update-helper.mjs",
+    "runtime/helper-update-copy.mjs",
     "runtime/process-tree.ts",
     "extensions/observability/index.ts",
     "extensions/observability/trace-schema.ts",

@@ -17,6 +17,7 @@ fi
 
 version_probe=0
 product_update=0
+helper_update=0
 product_update_force=0
 if [ "$#" -eq 1 ] && [ "$1" = "--version" ]; then
 	version_probe=1
@@ -31,6 +32,10 @@ fi
 # rotom release.
 package_management_command=0
 case "${1-}" in
+	helper)
+		helper_update=1
+		shift
+		;;
 	install|remove|uninstall|list|config|mcp)
 		package_management_command=1
 		;;
@@ -172,6 +177,16 @@ fi
 require_supported_node() {
 	"$node_command" -e 'const [major] = process.versions.node.split(".").map(Number); if (major < 24) { console.error(`rotom: Node runtime ${process.versions.node} 不受支持；要求 >=24.0.0`); process.exit(1); }'
 }
+
+if [ "$helper_update" -eq 1 ]; then
+	require_supported_node
+	helper_updater="$agent_dir/runtime/update-helper.mjs"
+	if [ ! -f "$helper_updater" ] || [ -L "$helper_updater" ]; then
+		echo "rotom: helper updater is missing or untrusted" >&2
+		exit 1
+	fi
+	exec "$node_command" "$helper_updater" "$@"
+fi
 
 if [ "$product_update" -eq 1 ]; then
 	require_supported_node

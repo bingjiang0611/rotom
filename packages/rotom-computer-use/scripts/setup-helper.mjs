@@ -10,6 +10,9 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveMacosHelperAppPath } from "../src/platform/macos/helper-path.mjs";
+import { macosSourceFiles } from "./macos-sources.mjs";
+import { updateHelperApp } from "./helper-update.mjs";
+import { helperUpdateCopy } from "../src/constants/helper-update.mjs";
 
 const execFile = promisify(execFileCallback);
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -21,7 +24,7 @@ const windowsCrateDir = path.join(rootDir, "native", "windows", "bridge-rs");
 const windowsHelperDestPath = process.env.PI_COMPUTER_USE_WINDOWS_HELPER_PATH || path.join(os.homedir(), ".pi", "agent", "helpers", "pi-computer-use", "windows-bridge.exe");
 const linuxCrateDir = path.join(rootDir, "native", "linux", "bridge-rs");
 const linuxHelperDestPath = process.env.PI_COMPUTER_USE_LINUX_HELPER_PATH || path.join(os.homedir(), ".pi", "agent", "helpers", "pi-computer-use", "linux-bridge");
-const helperSourcePaths = ["agent_cursor.swift", "agent_cursor_motion.swift", "background_text.swift", "bridge.swift"]
+const helperSourcePaths = macosSourceFiles
 	.map((file) => path.join(rootDir, "native", "macos", file));
 const packageJsonPath = path.join(rootDir, "package.json");
 const releaseRepo = "injaneity/pi-computer-use";
@@ -520,6 +523,7 @@ async function setupLinuxHelper() {
 }
 
 async function setup() {
+	if (args.has("--update") && process.platform !== "darwin") throw new Error(helperUpdateCopy.macOnly);
 	const explicitPlatform = getArg("--platform");
 	if (explicitPlatform === "windows" || (!explicitPlatform && process.platform === "win32")) {
 		await setupWindowsHelper();
@@ -548,6 +552,16 @@ async function setup() {
 	const prebuiltPath = prebuiltPathForArch(arch);
 	const prebuiltAppExists = await exists(prebuiltAppPath);
 	const prebuiltExists = await exists(prebuiltPath);
+
+	if (args.has("--update")) {
+		if (!prebuiltAppExists) throw new Error(helperUpdateCopy.missingBundle);
+		const identity = process.env.PI_COMPUTER_USE_CODESIGN_IDENTITY;
+		if (identity && process.env.PI_COMPUTER_USE_NO_SIGN === "1") throw new Error(helperUpdateCopy.noSign);
+		const target = path.join(await fs.realpath(os.homedir()), "Applications", "pi-computer-use.app");
+		await updateHelperApp({ source: prebuiltAppPath, target, identity, allowAdhoc: allowAdhocUpdate });
+		console.log(helperUpdateCopy.complete(target));
+		return;
+	}
 
 	if (prebuiltAppExists) {
 		const installed = await installPrebuiltHelperApp(prebuiltAppPath);

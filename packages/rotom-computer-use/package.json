@@ -1,6 +1,6 @@
 {
 	"name": "@injaneity/pi-computer-use",
-	"version": "0.5.1-rotom.2",
+	"version": "0.5.1-rotom.4",
 	"description": "rotom-maintained Computer Use fork with bounded IDEA background text input and no implicit foreground replay.",
 	"type": "module",
 	"keywords": [
@@ -29,6 +29,8 @@
 		"extensions",
 		"src",
 		"scripts/build-native.mjs",
+		"scripts/macos-sources.mjs",
+		"scripts/helper-update.mjs",
 		"scripts/check-macos-native-self-tests.mjs",
 		"scripts/setup-helper.mjs",
 		"scripts/check-lease-guard.mjs",
