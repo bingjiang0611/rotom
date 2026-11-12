@@ -18,6 +18,8 @@ assert(entry && isAbsolute(entry) && (await lstat(entry)).isFile() && await real
 assert(process.execArgv.includes('--experimental-import-meta-resolve'));
 const parent = pathToFileURL(entry).href;
 const piAI = await import(import.meta.resolve('@earendil-works/pi-ai', parent));
+// Pi 1.5 dropped pi-ai's TypeBox re-export; resolve TypeBox from the same Pi install.
+const { Type } = await import(import.meta.resolve('typebox', parent));
 const sdk = await import(import.meta.resolve('@earendil-works/pi-coding-agent', parent));
 const dir = await realpath(await mkdtemp(join(tmpdir(), 'rotom-qoder-catalog-refresh-')));
 const summary = { mode: 'offline', checks: [], pass: false };
@@ -55,7 +57,7 @@ try {
         },
       }); }],
     });
-    const tool = { name: 'expire_catalog', label: 'Expire fixture catalog', description: 'Synthetic clock advancement only.', parameters: piAI.Type.Object({}),
+    const tool = { name: 'expire_catalog', label: 'Expire fixture catalog', description: 'Synthetic clock advancement only.', parameters: Type.Object({}),
       async execute() { toolExecutions++; expire(); return { content: [{ type: 'text', text: 'OK' }], details: {} }; },
     };
     await resourceLoader.reload();

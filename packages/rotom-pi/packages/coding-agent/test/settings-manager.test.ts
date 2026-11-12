@@ -411,6 +411,7 @@ describe("SettingsManager", () => {
 	});
 
 	describe("cacheWarming", () => {
+		// Rotom keeps the pre-1.5.1 default: no warming between runs unless the user opts in.
 		it("defaults to streaming and ignores project settings", () => {
 			expect(SettingsManager.create(projectDir, agentDir).getCacheWarmingMode()).toBe("streaming");
 

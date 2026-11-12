@@ -69,7 +69,7 @@ export async function piIdentity(executable) {
   if (!isAbsolute(executable) || !(await lstat(executable)).isFile() || await realpath(executable) !== executable) throw new Error('Canonical Pi executable required');
   await probePiVersion({ executable });
   const packages = [];
-  for (const name of ['pi-telemetry', 'pi-ai', 'pi-tui', 'pi-agent-core', 'pi-codemode', 'pi-mcp', 'pi-coding-agent']) {
+  for (const name of ['pi-telemetry', 'pi-schema', 'pi-ai', 'pi-tui', 'pi-agent-core', 'pi-codemode', 'pi-mcp', 'pi-coding-agent']) {
     const metadata = findPackageJSON(`@earendil-works/${name}`, pathToFileURL(executable));
     const root = dirname(metadata), pkg = JSON.parse(await readFile(metadata, 'utf8'));
     if (pkg.name !== `@earendil-works/${name}`) throw new Error('Pi dependency identity mismatch');

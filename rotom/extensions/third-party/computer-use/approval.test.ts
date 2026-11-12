@@ -90,6 +90,10 @@ test("actual Pi custom UI removes only the approval overlay on deadline", async 
 	t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1000 });
 	const f = fixture();
 	const host = Object.create(InteractiveMode.prototype);
+	// Constructor-initialized fields showExtensionCustom reads since Pi 1.5 (overlay registry, blocked status).
+	host.extensionOverlays = new Map();
+	host.nextBlockingOverlayId = 0;
+	host.programStatus = { setBlocked() {} };
 	const background = { name: "existing-overlay" };
 	const overlays: any[] = [background];
 	let mounted!: () => void;

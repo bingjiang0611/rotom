@@ -58,6 +58,7 @@ export const SETTINGS_DEFAULTS = {
 		mode: "on",
 		inlineBudget: 3000,
 	},
+	// Rotom keeps the pre-1.5.1 default: warming between runs spends provider credits while idle.
 	cacheWarming: "streaming",
 	tuiMode: "fullscreen",
 	fullscreenExitOutput: "transcript",

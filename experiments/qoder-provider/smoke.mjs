@@ -15,11 +15,13 @@ if (!entry || !isAbsolute(entry) || !(await lstat(entry)).isFile() || await real
 if (!process.execArgv.includes('--experimental-import-meta-resolve')) throw new Error('Use node --experimental-import-meta-resolve');
 const parent = pathToFileURL(entry).href;
 const piAI = await import(import.meta.resolve('@earendil-works/pi-ai', parent));
+// Pi 1.5 dropped pi-ai's TypeBox re-export; resolve TypeBox from the same Pi install.
+const { Type } = await import(import.meta.resolve('typebox', parent));
 const openAI = await import(import.meta.resolve('@earendil-works/pi-ai/api/openai-completions', parent));
 const live = process.argv.includes('--live');
 if (process.argv.slice(2).some(a => a !== '--live' && a !== `--model=${modelArg}`)) throw new Error('Only --live and --model are supported');
 const nonce = randomUUID(), marker = `HOST_RESULT_${randomUUID()}`;
-const parameters = piAI.Type.Object({ nonce: piAI.Type.String() }, { additionalProperties: false });
+const parameters = Type.Object({ nonce: Type.String() }, { additionalProperties: false });
 const tools = [{ name: 'rotom_probe_echo', description: 'Pure protocol-test tool. Returns a host-only marker; no side effects.', parameters }];
 const context = {
   systemPrompt: 'You are a protocol test assistant. Use the provided test tool exactly as requested. Reply concisely.',

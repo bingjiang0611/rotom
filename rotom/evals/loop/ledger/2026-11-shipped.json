@@ -72,5 +72,18 @@
 			"expect": "lower",
 			"firstCommit": "cd4350fb"
 		}
+	},
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-11-12-pi-1-5-2-merge",
+		"date": "2026-11-12",
+		"title": "Merge upstream Pi 1.5.2 into the fork as 1.5.2-rotom.1",
+		"hypothesis": "Upstream 1.5.0-1.5.2 carries fixes for failure classes the harvest already counts (dropped provider streams that were not retried, session entries kept in memory after a failed write, RPC shutdown cut short, whole-file reads in read/grep/edit, quadratic re-parsing of streamed tool-call arguments), so taking the release should lower provider_error and tool_error_streak without a Rotom-side change. Two upstream defaults are not taken: idle cache warming would spend provider credits while the user is idle, and Anthropic message threads are unverified together with context projection.",
+		"change": "mechanism",
+		"measurement": "No model calls. Three-way merge of v1.5.2 over the 1.4.0-rotom.4 tree with base v1.4.0: 51 overlapping files, 20 with conflicts resolved by hand. Offline evidence only: the fork builder's locked offline build and focused regressions, the runtime packages' own suites in a Linux container, and Rotom's distribution and product checks. Counts and the environment-caused failures are in the source document.",
+		"result": "Source, the eight runtime archives, fork-build.json, the runtime lock and product-config are rebuilt together and check:pi passes. Not in any daily install yet, so the harvest cannot attribute anything to it; no acceptance window is open. cacheWarming stays \"streaming\" and message threads stay opt-in.",
+		"evidence": "unmeasured",
+		"decision": "open",
+		"source": "docs/agent/pi-1.5-migration.md"
 	}
 ]

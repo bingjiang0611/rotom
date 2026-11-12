@@ -11,7 +11,8 @@ test("/browser: explicit commands, local-only diagnostics, cancellation and owne
 	const loaderUrl = pathToFileURL(join(piDist, "core/extensions/loader.js")).href;
 	const { createJiti } = await import(pathToFileURL(findPiDependency(piDist, "jiti/lib/jiti.mjs")).href);
 	const jiti = createJiti(loaderUrl, { alias: {
-		"@earendil-works/pi-ai": findPiDependency(piDist, "@earendil-works/pi-ai/dist/index.js"),
+		// Same view Pi's extension loader gives extensions: pi-ai plus the TypeBox builders (Pi 1.5+).
+		"@earendil-works/pi-ai": join(piDist, "core/extensions/pi-ai-extension-view.js"),
 		"@earendil-works/pi-coding-agent": join(piDist, "index.js"),
 	} });
 	const { createBrowserRelayExtensionV1 } = await jiti.import(join(process.cwd(), "rotom/extensions/browser/index.ts")) as any;

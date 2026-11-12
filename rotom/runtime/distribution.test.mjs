@@ -63,7 +63,7 @@ test("archives are build-only inputs; installed-code identity is not a file chec
 	await resolveInstalledPi(root); // Explicitly document the narrowed promise.
 	await assert.rejects(verifyDistributionContract(root, { verifyArchives: true }), /ENOENT/u);
 	const archives = await stageBuildArchives(SOURCE, root);
-	assert.equal(archives.length, 11);
+	assert.equal(archives.length, 12);
 	await verifyDistributionContract(root, { verifyArchives: true });
 	put(join(root, archives.find((path) => path.startsWith(PI_RUNTIME))), "corrupt");
 	await assert.rejects(verifyDistributionContract(root, { verifyArchives: true }), /archive integrity/u);
@@ -86,7 +86,7 @@ test("current notices and maintenance guides agree with selected component versi
 
 test("fork current baseline exactly matches the selected version, not a historical mention", () => {
 	const document = readFileSync(join(SOURCE, "../packages/rotom-pi/ROTOM-FORK.md"), "utf8");
-	const expected = `- 当前基线：Pi 1.4.0，fork \`${DISTRIBUTION_PI_VERSION}\`。`;
+	const expected = `- 当前基线：Pi 1.5.2，fork \`${DISTRIBUTION_PI_VERSION}\`。`;
 	const check = (text) => assert.deepEqual(text.split("\n").filter(line => line.startsWith("- 当前基线：")), [expected]);
 	check(document);
 	assert.throws(() => check(document.replace(expected, expected.replace(DISTRIBUTION_PI_VERSION, "0.0.0-obsolete")) + `\n历史记录：${DISTRIBUTION_PI_VERSION}\n`));
@@ -294,7 +294,7 @@ test("staging checks side-effect imports, re-exports, literal dynamic imports an
 
 test("packed inventory requires every runtime resource and license and excludes unexpected source artifacts", () => {
 	const paths = new Set(releaseFiles(manifest).filter((file) => file !== EMBEDDED_MODULES && file !== PI_MODULES));
-	for (const name of ["pi-telemetry", "pi-ai", "pi-tui", "pi-agent-core", "pi-codemode", "pi-mcp", "pi-coding-agent"]) for (const file of ["LICENSE", "package.json"]) paths.add(`${PI_MODULES}/@earendil-works/${name}/${file}`);
+	for (const name of ["pi-telemetry", "pi-schema", "pi-ai", "pi-tui", "pi-agent-core", "pi-codemode", "pi-mcp", "pi-coding-agent"]) for (const file of ["LICENSE", "package.json"]) paths.add(`${PI_MODULES}/@earendil-works/${name}/${file}`);
 	for (const r of RESOURCE_DESCRIPTORS_V1) for (const file of r.requiredFiles) paths.add(`${r.path}/${file}`);
 	for (const name of Object.keys(VERIFIED_THIRD_PARTY_PACKAGES)) paths.add(`${EMBEDDED_MODULES}/${name}/LICENSE`);
 	const packed = { files: [...paths].map((path) => ({ path })) };

@@ -50,7 +50,8 @@ export async function loadBrowserTools({ socketPath, workspace }) {
 	]);
 	const { createJiti } = await import(pathToFileURL(findPiDependency(piDist, "jiti/lib/jiti.mjs")).href);
 	const jiti = createJiti(pathToFileURL(join(piDist, "core/extensions/loader.js")).href, { moduleCache: false, alias: {
-		"@earendil-works/pi-ai": findPiDependency(piDist, "@earendil-works/pi-ai/dist/index.js"),
+		// Same view Pi's extension loader gives extensions: pi-ai plus the TypeBox builders (Pi 1.5+).
+		"@earendil-works/pi-ai": join(piDist, "core/extensions/pi-ai-extension-view.js"),
 		"@earendil-works/pi-coding-agent": join(piDist, "index.js"),
 	} });
 	const extensionDir = resolve(here, "../../extensions/browser");

@@ -15,6 +15,8 @@ assert(entry && isAbsolute(entry) && (await lstat(entry)).isFile() && await real
 assert(process.execArgv.includes('--experimental-import-meta-resolve'));
 const parent = pathToFileURL(entry).href;
 const piAI = await import(import.meta.resolve('@earendil-works/pi-ai', parent));
+// Pi 1.5 dropped pi-ai's TypeBox re-export; resolve TypeBox from the same Pi install.
+const { Type } = await import(import.meta.resolve('typebox', parent));
 const sdk = await import(import.meta.resolve('@earendil-works/pi-coding-agent', parent));
 const dir = await realpath(await mkdtemp(join(tmpdir(), 'rotom-qoder-handoff-')));
 const summary = { mode: 'offline', pass: false, dispatches: 0, toolExecutions: 0, checks: [] };
@@ -54,7 +56,7 @@ try {
       },
     }); }],
   });
-  const tool = { name: 'handoff_probe', label: 'Handoff probe', description: 'Synthetic result only.', parameters: piAI.Type.Object({}),
+  const tool = { name: 'handoff_probe', label: 'Handoff probe', description: 'Synthetic result only.', parameters: Type.Object({}),
     async execute() { assert.equal(++summary.toolExecutions, 1); return { content: [{ type: 'text', text: 'Current result' }], details: {} }; },
   };
   const manager = sdk.SessionManager.create(dir, dir);

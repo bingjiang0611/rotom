@@ -11,6 +11,8 @@ if (!process.execArgv.includes('--experimental-import-meta-resolve')) throw new 
 if (process.argv.slice(2).some(arg => arg !== '--live')) throw new Error('Only --live is supported');
 const parent = pathToFileURL(entry).href;
 const piAI = await import(import.meta.resolve('@earendil-works/pi-ai', parent));
+// Pi 1.5 dropped pi-ai's TypeBox re-export; resolve TypeBox from the same Pi install.
+const { Type } = await import(import.meta.resolve('typebox', parent));
 const openAI = await import(import.meta.resolve('@earendil-works/pi-ai/api/openai-completions', parent));
 const live = process.argv.includes('--live'), marker = `REPLAY_${randomUUID()}`;
 const summary = { mode: live ? 'live' : 'offline', requests: 0, checks: {}, rounds: [], cost: 'unknown' };
@@ -55,7 +57,7 @@ try {
   };
   answer(await run({ messages: [user('Call synthetic_echo and reply with exactly its result.'), assistant,
     { role: 'toolResult', toolCallId: 'foreign|call:1', toolName: 'synthetic_echo', content: [{ type: 'text', text: marker }], isError: false, timestamp: Date.now() }],
-    tools: [{ name: 'synthetic_echo', description: 'Pure synthetic protocol fixture.', parameters: piAI.Type.Object({}) }],
+    tools: [{ name: 'synthetic_echo', description: 'Pure synthetic protocol fixture.', parameters: Type.Object({}) }],
   }));
   summary.checks.syntheticForeignToolHistory = 'pass';
   summary.pass = true;

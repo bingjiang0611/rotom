@@ -17,9 +17,9 @@
       "integrity": "sha512-buewHzMvYL29jdeQTVILecSaZKnt/RJWjoZCF5OW60Z67/GmSLBkOFM7qh1PI3zFNtJbaZL5eQu1vLfazOwj4g=="
     },
     "undici": {
-      "version": "8.10.2",
-      "resolved": "https://registry.npmjs.org/undici/-/undici-8.10.2.tgz",
-      "integrity": "sha512-/y4/bH9YNU5hi9NIrpOuvGXFcxrj3CMrV+/AYpowAYTpHn8gX/XPFjNy766FPoYY0miQhdW977JFWKGNhBdwyQ=="
+      "version": "8.12.3",
+      "resolved": "https://registry.npmjs.org/undici/-/undici-8.12.3.tgz",
+      "integrity": "sha512-+fdndUTwBP86cVjihTp21hZHo7d6oj1c/47XPA3lL8mM0XHs+C4EkcjmgRsFnFk2f/UONGDy9ItBItmXsLOQHw=="
     },
     "@aws-sdk/nested-clients": {
       "version": "3.997.45",
@@ -145,6 +145,163 @@
     ],
     "0f8132ac55d2a73561faeb80aeab9ba76e7096bea4d2838f1c48b32772781dbf": [
       "/runtime/pi/node_modules/@types/node/process.d.ts"
+    ],
+    "e21f6a39c673cc904cdc706b456cdf7cc69afee270213b3232d05ccbe24222d6": [
+      "packages/rotom-pi/packages/ai/test/radius-oauth.test.ts"
+    ],
+    "37c588f1a592ed3094789634cc8d4b0e3c856a5a42edb7277cdd0eb475f4cb24": [
+      "packages/rotom-pi/packages/ai/test/radius-oauth.test.ts"
+    ],
+    "54843d0c3fac47e92ba8b813780ae534af5310cb55473cbd94d1f2bea6eaa819": [
+      "packages/rotom-pi/packages/chord/docs/benchmarks.md"
+    ],
+    "e7ebf0e3f78d2e6045a15f84e0b2a9f1862cd063087d434c4c1a5cb0bcbcea7f": [
+      "packages/rotom-pi/packages/chord/docs/benchmarks.md"
+    ],
+    "77805a8584b8b446fc18c3068399ff29e6ef882ed06b91dd40fb7eed21c1c35a": [
+      "packages/rotom-pi/packages/chord/docs/benchmarks.md"
+    ],
+    "66b4690d54e77c182a867694210b2b7c588fc46cfb9390e0529e503c2a867173": [
+      "packages/rotom-pi/packages/chord/docs/benchmarks.md"
+    ],
+    "2c67897fb01a0786d5516e27f3cfa354448e2b5a3d7fd0c75a4f93306466929c": [
+      "packages/rotom-pi/packages/chord/docs/benchmarks.md"
+    ],
+    "d04c94e754f769823c2d2791752422f8081359bad418ffeb6cdbe530d94e4d2c": [
+      "packages/rotom-pi/packages/chord/docs/benchmarks.md"
+    ],
+    "5a8e9cf0f10ad8442c4d8b56acb043842aeb15dc3721b0fcfdac336d76acdb37": [
+      "packages/rotom-pi/packages/chord/docs/benchmarks.md"
+    ],
+    "fe2553e03e39c73caeaa48ad5041cf542445c76a2811df0d4e4e1df818a4a2a7": [
+      "packages/rotom-pi/packages/chord/docs/decisions.md"
+    ],
+    "5fb5afb41f3036f933cb070c5864aeb25fefb58690648e836589392a3821ad6d": [
+      "packages/rotom-pi/packages/chord/docs/decisions.md"
+    ],
+    "3e2c608c03ceb3d625f34091da33c9be6a41326d20d725619a893342e4f3f18e": [
+      "packages/rotom-pi/packages/chord/docs/decisions.md"
+    ],
+    "45493b5dbd927d8951960dbf95f4e52002bf90637d67b51e83855f5e213b9365": [
+      "packages/rotom-pi/packages/chord/docs/durable-observers/book.md"
+    ],
+    "81f0e69b76d1be4eee8577af0a8bbc1b889d537d4e36508c66e4102f4e319061": [
+      "packages/rotom-pi/packages/chord/docs/durable-observers/book.md"
+    ],
+    "54824f62a5405f60cfbf922631cc66f2cd6f01409414fedd98d8630203752ab4": [
+      "packages/rotom-pi/packages/chord/docs/durable-observers/index.html"
+    ],
+    "a64c99d46bb2e75d438a8442168e9d5d955cebd93210e098614f3bffc5fe2559": [
+      "packages/rotom-pi/packages/chord/docs/durable-observers/index.html"
+    ],
+    "6ea3ceb1a48a83416527dfb520f5f74827770f8a622451d35c1de7bc28e67fcb": [
+      "packages/rotom-pi/packages/chord/docs/p3-features/book.md"
+    ],
+    "09dc9acb9b68fb85099df8ed81e2312a2b704e48d2509b66440bd03e42043b16": [
+      "packages/rotom-pi/packages/chord/test/node/http/admission.test.ts"
+    ],
+    "17c48c6fcccbaec57d2e75cd024cebc22bcfbcc7a511fe2f250f08fafe0edc31": [
+      "packages/rotom-pi/packages/chord/test/node/tui/actions.test.ts"
+    ],
+    "1086f58daeef732621e9ba69787537524e757b78bc03c4613ca9f5e14bcc96d8": [
+      "packages/rotom-pi/packages/chord/test/node/workers/workers.test.ts"
+    ],
+    "00c00a700be5a8304cb30608a9355a1ba15bda7b944bb554d999a923b7f90d88": [
+      "packages/rotom-pi/packages/coding-agent/CHANGELOG.md",
+      "::package/CHANGELOG.md",
+      "/node_modules/@earendil-works/pi-coding-agent/CHANGELOG.md"
+    ],
+    "60a9ae0fa77e458343f71de7a76643b6b99d4c0e288a55a8285c33543d58305a": [
+      "packages/rotom-pi/packages/coding-agent/test/login-dialog-device-code.test.ts"
+    ],
+    "9df5ece3a06396e3d61e54b5f404e2edcc609d789ffdd1e07acc3c430f448805": [
+      "packages/rotom-pi/packages/coding-agent/test/mcp-conformance/README.md"
+    ],
+    "a3fbd66fbf1658b8c8ada1da811b52e91c8e20f1b75bb563733fe4b2a48467c0": [
+      "packages/rotom-pi/packages/coding-agent/test/paths.test.ts"
+    ],
+    "363ca1e9c05c17d3ed8326adc73ae4e443515da240d6ab66897b2dab7bdce38b": [
+      "packages/rotom-pi/packages/coding-agent/test/paths.test.ts"
+    ],
+    "7900c8879cd4ae6c7863d4fdb1a8dd55b91d980ffb7495d07f9e4dfb7a0c6707": [
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft2020-12/additionalProperties.json"
+    ],
+    "7db6b59004d16972a502bdbd7e6534b3881dbe5760a49bdccde79b4e05af679a": [
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft2020-12/additionalProperties.json"
+    ],
+    "052404074777da471a069551e5f9443196fae2224c668f91ee5dbba04c0de301": [
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft2020-12/additionalProperties.json"
+    ],
+    "d41c38c2a85dbc132ec0b09280cf283bcca54009cadcb3e1a87f6d5e29c07a1c": [
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft2020-12/additionalProperties.json"
+    ],
+    "92f3750f461a7eca19f371cdc007af394568c770a75e4727157efa92acedfb85": [
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft2020-12/additionalProperties.json"
+    ],
+    "e76a4587fd787f2ce71ca19345c8cea44e85236bf361301b7263d55e04e1de92": [
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft2020-12/additionalProperties.json"
+    ],
+    "d85286e5cd48b5bac71a6c041a23e6f6f9bc23897eb11c8ffc506e51673c947c": [
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft2020-12/optional/format/ipv4.json",
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft7/optional/format/ipv4.json"
+    ],
+    "6211e42c9fd9012f36a9a89cf5c92e8850e39db4031be530827b9d0ec23f7909": [
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft2020-12/optional/format/ipv4.json",
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft7/optional/format/ipv4.json"
+    ],
+    "661109ac8729f94ee71c5f1e77c724ab56027406dfe6f81d760258c1e77f90f8": [
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft2020-12/optional/format/ipv4.json",
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft7/optional/format/ipv4.json"
+    ],
+    "0dd923826aeb1e90c91f3b7abadc4353ecd31b403a1b9ad78ea754a94e3cb106": [
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft2020-12/optional/format/ipv4.json",
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft7/optional/format/ipv4.json"
+    ],
+    "99d6f50a8a94799b7bce7cd7f7c5cf847f62643f6d69a60a4e4b2b1b6028f142": [
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft2020-12/optional/format/ipv4.json",
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft7/optional/format/ipv4.json"
+    ],
+    "7b1db47236ceedd0cdd7c08babd60b988bdaf42c73075ac14a81722bc7a1cf19": [
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft2020-12/optional/format/ipv4.json",
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft7/optional/format/ipv4.json"
+    ],
+    "3af89a554a05c82fd03151b417ac63c77865acfbf524a5b354259df43d31fc56": [
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft2020-12/optional/format/ipv4.json",
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft7/optional/format/ipv4.json"
+    ],
+    "9e1a97185bfe719285d71dc9f01720797e3860ddaf46ea6bad0c78a4b4603493": [
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft2020-12/optional/format/ipv4.json",
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft7/optional/format/ipv4.json"
+    ],
+    "062b3046a738136001fbd41d7a44886cd8e09dcce9a255aa1415eda06a43fd73": [
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft2020-12/optional/format/ipv4.json",
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft7/optional/format/ipv4.json"
+    ],
+    "0e6fe7be21e8b18d240d40371b2e8b012e05a59ec933e9b3590938e7fa7d5d3a": [
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft2020-12/optional/format/ipv4.json",
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft7/optional/format/ipv4.json"
+    ],
+    "e05f897adf0c7f1cb06734cb4f6858b38b3dcc88487e257b0c939f9c4669cd74": [
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft2020-12/optional/format/ipv4.json",
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft7/optional/format/ipv4.json"
+    ],
+    "383677d387146826f59ee252e7d0ed8d889e57b64d8f20568b4966ac138a43b7": [
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft2020-12/optional/format/ipv4.json",
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft2020-12/optional/format/ipv6.json",
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft7/optional/format/ipv4.json",
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft7/optional/format/ipv6.json"
+    ],
+    "96d8625a65fc440c117b4bc6456f2dde3de13086e524ae4dd3533e72dd41a3ca": [
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft2020-12/optional/format/ipv6.json",
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft7/optional/format/ipv6.json"
+    ],
+    "e71454ac3bfa02d04e25abb13096b489fc2dcfa6c84fa847754669c835af3723": [
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft2020-12/optional/format/ipv6.json",
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft7/optional/format/ipv6.json"
+    ],
+    "bae894d2902c3edde71d74a13aedfcfd415a465d03226261c324c6f575ce6d11": [
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft2020-12/optional/format/iri.json",
+      "packages/rotom-pi/packages/schema/test/fixtures/json-schema-test-suite/tests/draft7/optional/format/iri.json"
     ]
   },
   "credentialExamples": {
@@ -154,7 +311,8 @@
     ]
   },
   "sourceRevisions": {
-    "pi@1.0.4": "7c10bd4337495ee613f2224843ecdf349b80d1df (bug-report/crash-log synthetic regression fixtures, byte-verified against tag)"
+    "pi@1.0.4": "7c10bd4337495ee613f2224843ecdf349b80d1df (bug-report/crash-log synthetic regression fixtures, byte-verified against tag)",
+    "pi@1.5.2": "b4afdddf44e059c67ccf5097e5317d913521b470 (chord docs/tests, pi-schema JSON-Schema-Test-Suite vectors, coding-agent/ai test and changelog examples; every line byte-verified against the tag at the same path)"
   },
   "historicalPackages": {
     "openai@6.40.0": {
@@ -176,6 +334,11 @@
       "version": "22.20.2",
       "resolved": "https://registry.npmjs.org/@types/node/-/node-22.20.2.tgz",
       "integrity": "sha512-xlvWf4Vs9n1PEVYwP1n4vvG07M6y8WgvJ2t0vbrWTmijsIHp1cS+uJ2kMIRdY3nHZK0nCYKrPeD171+SzF4/zw=="
+    },
+    "undici@8.10.2": {
+      "version": "8.10.2",
+      "resolved": "https://registry.npmjs.org/undici/-/undici-8.10.2.tgz",
+      "integrity": "sha512-/y4/bH9YNU5hi9NIrpOuvGXFcxrj3CMrV+/AYpowAYTpHn8gX/XPFjNy766FPoYY0miQhdW977JFWKGNhBdwyQ=="
     }
   }
 }
