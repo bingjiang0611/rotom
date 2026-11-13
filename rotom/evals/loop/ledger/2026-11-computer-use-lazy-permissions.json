@@ -1,0 +1,15 @@
+[
+  {
+    "schema": "rotom-loop-ledger/v1",
+    "id": "L-2026-11-12-computer-use-lazy-permissions",
+    "date": "2026-11-12",
+    "title": "Defer Computer Use permission setup until the first desktop tool",
+    "hypothesis": "Interactive startup should not ask for Screen Recording when no desktop tool was used, especially with a fresh isolated HOME that installs a new ad-hoc helper identity.",
+    "change": "mechanism",
+    "measurement": "Local diagnosis: the canonical signed helper returned accessibility=true, screenRecordingPreflight=true and screenRecordingCapturable=true; tccd attributed a 23:07:49 prompt to an isolated ad-hoc helper under /private/tmp/rotom-s6b-home. A focused regression failed before the change and passed after it. Isolated installed-package startup and archive checks were run separately.",
+    "result": "The extension no longer initializes desktop permissions on session_start. Its tool executor still checks permissions before a desktop tool runs. Already-running old isolated sessions can still prompt until they exit.",
+    "evidence": "unmeasured",
+    "decision": "shipped",
+    "source": "packages/rotom-computer-use/docs/troubleshooting.md"
+  }
+]

@@ -596,10 +596,6 @@ async function ensureReady(ctx: ExtensionContext, signal?: AbortSignal): Promise
 	runtimeState.helperDiagnostics = ready.helperDiagnostics;
 }
 
-export async function ensureComputerUseSetup(ctx: ExtensionContext, signal?: AbortSignal): Promise<void> {
-	await ensureReady(ctx, signal);
-}
-
 /**
  * Attach this Pi process to the Desktop Broker.
  *

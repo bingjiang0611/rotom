@@ -46,13 +46,19 @@ Grant these permissions to the resolved `pi-computer-use.app`, normally `~/Appli
 - Accessibility
 - Screen Recording, shown as Screen and System Audio Recording on newer macOS versions
 
-The setup flow registers the helper with TCC before opening System
-Settings, so `pi-computer-use.app` is already listed in both panes — enable
-its toggle and choose **Recheck**. Recheck restarts the helper on purpose:
+The first Computer Use tool call checks permissions and, if needed, registers
+the helper with TCC before opening System Settings. Starting rotom alone does
+not request desktop permissions. Enable the helper's toggle and choose
+**Recheck**. Recheck restarts the helper on purpose:
 macOS caches permission answers per process, so a helper that started
 before the grant would keep reporting "missing" forever.
 
 Older versions used other helper identities such as `bridge`, Terminal, Ghostty, node, Codex, or `PiComputerUseBridge.app`. Those are not current. Grant access to `pi-computer-use.app`.
+
+An isolated HOME can install a temporary helper (for example, under
+`/private/tmp/`) with a separate signing identity. Granting access to
+`~/Applications/pi-computer-use.app` does not authorize that throwaway copy.
+Do not grant a smoke-test helper permissions just to start rotom.
 
 To see exactly which identity macOS is charging for a permission check:
 

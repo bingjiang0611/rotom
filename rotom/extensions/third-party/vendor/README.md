@@ -26,11 +26,12 @@ The `.rotom.5` baseline also included the terminal-projection fix: projection fa
 
 ## Locked Computer Use distribution
 
-The default source product selects **`@injaneity/pi-computer-use@0.5.1-rotom.5`**, independently maintained in `packages/rotom-computer-use/`. This is a Computer Use fork, not a Pi fork.
+The default source product selects **`@injaneity/pi-computer-use@0.5.1-rotom.6`**, independently maintained in `packages/rotom-computer-use/`. This is a Computer Use fork, not a Pi fork.
 
-- Archive: `injaneity-pi-computer-use-0.5.1-rotom.5.tgz` (the old `.rotom.2`, `.rotom.3` and published `.rotom.4` archives are retained unchanged).
-- SHA256: `9cb1882a2fffd6e612dbb8c19e69cbfd52cacc71dd6ac9953104f44128b5ef4b`
-- SHA512 SRI: `sha512-KrOlRG29OIQxg9kTIWFFYnFuBm17rqQF8sNv+83oFm9fpSHqMeuvPBhXehOwy5cLq7e96IfXr88RqRWNYpHhNg==`
+- Archive: `injaneity-pi-computer-use-0.5.1-rotom.6.tgz` (earlier archives are retained unchanged).
+- SHA256: `8f5197668b538bcf77529156f334d9c6e6cd9f2102d71617f52d9ff24e4aec07`
+- SHA512 SRI: `sha512-US5ypZZskKtN5nUNdU2A5eft9laJgzdbKySpnZ7UCVGU5ngCOHFkAkNoyguRhOGsSc7AGAbk7YOqAk1QGTIOpQ==`
+- `.rotom.6` defers desktop permission setup to the first Computer Use tool call. Starting an interactive session no longer asks for Screen Recording; native helper bytes and the `.rotom.5` managed-update policy are unchanged.
 - `.rotom.5` adds automatic product/helper synchronization. All 8 native prebuilt files remain byte-identical to the published `.rotom.4`; only the installer/source layer changes. This is not a replacement of the published rotom 0.2.0 artifact.
 - The automatic path reuses the installed signing Authority's unique valid identity and seals a source-binary stamp. It prepares and verifies before stopping an identity-matched old process without another prompt, waits for unoccupied-executable readback, and never force-kills. Unknown shutdown or replacement retains its lock to prevent replay. Current native bytes plus matching Info.plist are a no-op. Manual repair retains the stop prompt. See [current evidence and limits](../../../../docs/agent/computer-use-v2/STATUS-8-auto-upgrade.md).
 - Historical `.rotom.2` moves schema descriptions, recovery and result evidence into the component. Relay-first browser fallback stays product-specific. This TS-only rebuild retains all prior native helper bytes and signatures; no helper is installed or launched.
