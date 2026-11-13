@@ -27,6 +27,7 @@ const jiti = createJiti(import.meta.url, {
   alias: {'@earendil-works/pi-tui': path.join(repo, 'rotom/runtime/pi/node_modules/@earendil-works/pi-tui/dist/index.js')},
 });
 const {resolvePiLaunchToolPlan, projectLaunchResolvedChildExtensions, buildPiArgs} = await jiti.import('../src/runs/shared/pi-args.ts');
+const {OWNER_LIFELINE_ENV} = await jiti.import('../src/runs/shared/owner-lifeline.ts');
 const reviewer = {model: 'qoder/ultimate:high', tools: ['read', 'grep', 'find', 'ls'], extensions: [], agentName: 'reviewer'};
 
 test('isolated reviewer inherits only its selected product provider and records it in launch identity', () => {
@@ -102,11 +103,14 @@ test('real child Pi loads the product Qoder provider with ambient extensions dis
   const guard = path.join(root, 'no-network.mjs');
   fs.writeFileSync(guard, "globalThis.fetch = () => { throw new Error('Network forbidden in provider launch regression'); };\n");
   const input = {...reviewer, baseArgs: ['--list-models', 'qoder'], task: '', deferTask: true, sessionEnabled: false, inheritProjectContext: false, inheritSkills: false};
-  const run = (built, input) => {
+  // Pi 1.5 shuts a managed child down during session_start when PI_SUBAGENT_CHILD=1
+  // arrives without the fd 3 owner lifeline; a real launch always hands one over.
+  const run = (built, input, env = {}) => {
     try {
       return spawnSync(process.execPath, ['--import', guard, cli, ...built.args], {
         cwd: root, encoding: 'utf8', timeout: 30000, input,
-        env: {PATH: process.env.PATH, HOME: root, PI_CODING_AGENT_DIR: process.env.PI_CODING_AGENT_DIR, ...built.env},
+        ...(env[OWNER_LIFELINE_ENV] ? {stdio: ['pipe', 'pipe', 'pipe', 'pipe']} : {}),
+        env: {PATH: process.env.PATH, HOME: root, PI_CODING_AGENT_DIR: process.env.PI_CODING_AGENT_DIR, ...built.env, ...env},
       });
     } finally { fs.rmSync(built.tempDir, {recursive: true, force: true}); }
   };
@@ -126,7 +130,11 @@ test('real child Pi loads the product Qoder provider with ambient extensions dis
   assert.match(result.stdout, /qoder\s+performance/);
   assert.doesNotMatch(result.stderr, /Network forbidden|Failed to load extension/);
   // Resolve the screenshot's exact model without sending any inference request.
-  const rpc = run(buildPiArgs({...input, baseArgs: ['--mode', 'rpc']}), '{"id":"probe","type":"get_state"}\n');
+  const rpc = run(
+    buildPiArgs({...input, baseArgs: ['--mode', 'rpc']}),
+    '{"id":"probe","type":"get_state"}\n',
+    {[OWNER_LIFELINE_ENV]: '3'},
+  );
   assert.ifError(rpc.error);
   assert.equal(rpc.status, 0, rpc.stderr);
   const state = rpc.stdout.trim().split('\n').map(line => JSON.parse(line)).find(event => event.id === 'probe');
