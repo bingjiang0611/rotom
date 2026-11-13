@@ -85,7 +85,7 @@ test("real launcher version probe overwrites inherited build metadata without ca
 		encoding: "utf8",
 		env: { ...process.env, HOME: root, ROTOM_NODE: process.execPath, ROTOM_BUILD_COMMIT: "f".repeat(40), ROTOM_BUILD_DIRTY: "1", CAPTURE: capture, NODE_OPTIONS: `--import=${pathToFileURL(preload).href}` },
 	});
-	assert.match(result, /^0\.1\./);
+	assert.equal(result.trim(), JSON.parse(readFileSync(join(product, "package.json"), "utf8")).version);
 	const identity = readBuildIdentity(product);
 	assert.deepEqual(JSON.parse(readFileSync(capture, "utf8")), { commit: identity.commit, dirty: identity.dirty ? "1" : "0" });
 }));
