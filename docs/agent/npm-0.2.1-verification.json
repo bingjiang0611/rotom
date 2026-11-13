@@ -1,0 +1,65 @@
+{
+  "state": "published",
+  "package": "@bingjiang0611/rotom",
+  "version": "0.2.1",
+  "tag": "latest",
+  "sourceCommit": "296b1c19db0546e95caf4d3529e0ca8f6d6168fe",
+  "sha256": "f7beccbbfc513353493b4c97275b3d2cf29770bfc59191d5d74ea4dc71d46a64",
+  "shasum": "f26c02ecd6701bb7e67083aac75d1f14d6362edc",
+  "integrity": "sha512-P3RVqgEqZt3iJxk69meASaHYURYzsIBnMH7EN3f+QpZ1HmzFBYcrOw1nXCnlZzcBEIOGMDoYWfaX1UmRhBo3yw==",
+  "tarball": "https://registry.npmjs.org/@bingjiang0611/rotom/-/rotom-0.2.1.tgz",
+  "fileCount": 19049,
+  "compressedBytes": 34089702,
+  "unpackedBytes": 147168261,
+  "successfulFinalPacks": 1,
+  "registryVerified": true,
+  "publishedBy": "Maintainer in foreground terminal; agent verified registry metadata and downloaded bytes.",
+  "checks": {
+    "component": "332/332; confirmation run exit 0",
+    "product": "598/598, zero failed/skipped",
+    "goal": "99/99, zero failed/skipped",
+    "completeCheckPersonal": "exit 0; installed Pi executable with frozen maintenance driver",
+    "installedDefaultFullSmoke": "26/33 active tools, zero lifecycle errors",
+    "installedFilesByteIdentical": 19049,
+    "artifactPrivacy": "zero findings",
+    "installedStartup": "Real installed launcher/RPC and codesign; automatic synchronization, repeat no-op, version/help excluded; no skipped tests",
+    "upgradeUninstall": "Isolated npm 0.2.0 to unique 0.2.1 tgz; version and uninstall readback passed"
+  },
+  "nativeHelper": {
+    "state": "verified",
+    "protocolVersion": 11,
+    "oldArtifact": "0.2.0",
+    "updaterArtifact": "0.2.1",
+    "scope": "Installed updater API, normal HOME keychain, separately located native fixture",
+    "automaticSignerReuse": true,
+    "explicitUpgradeIdentityProvided": false,
+    "strictSignature": true,
+    "stoppedReplacedAndStarted": true,
+    "repeatNoop": true,
+    "osExecutableVerified": true,
+    "dailyHelperUnchangedDuringNativeTest": true,
+    "fixtureStoppedAndRemoved": true
+  },
+  "globalInstall": {
+    "state": "verified",
+    "productVersion": "0.2.1",
+    "piVersion": "1.4.0-rotom.4",
+    "installedFilesByteIdentical": 19049,
+    "method": "Explicitly user-authorized standard npm global install of the verified tgz, ignore-scripts; no sessions explicitly stopped.",
+    "helperBinaryUnchangedDuringInstall": true,
+    "automaticHelperSync": "Pending next normal startup; version query does not trigger it."
+  },
+  "preservedFailures": [
+    "Initial smoke invoked a maintenance driver that is not shipped; corrected to frozen driver targeting actual installed resources.",
+    "Initial component caller wait expired at 240 seconds; log later completed 332/332. Confirmation run captured exit 0 without changing tests or product timeouts.",
+    "Helper exit left a stale socket entry; removed only after both owned PIDs and listeners were confirmed absent.",
+    "Earlier source-stage copied-helper launch did not form a socket. Its cause remains undetermined; final native acceptance used a freshly signed legacy-artifact fixture."
+  ],
+  "limitations": [
+    "No GUI-task, live-provider, real browser/phone or cross-platform acceptance added.",
+    "L2 remains 0 successes / 5 failures; pid input has no real success; B1-B6 remain unpassed.",
+    "Built-in rotom update command not exercised end-to-end; actual npm upgrade/startup and installed updater API were verified separately.",
+    "Certificate reuse was not verified under isolated HOME; normal HOME keychain was used for native acceptance.",
+    "Active sessions do not hot-reload. Daily helper synchronization was not forced during global installation."
+  ]
+}
