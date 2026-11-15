@@ -1,0 +1,15 @@
+[
+  {
+    "schema": "rotom-loop-ledger/v1",
+    "id": "L-2026-11-15-computer-use-broker-cold-start",
+    "date": "2026-11-15",
+    "title": "Create the private broker directory before spawning its daemon",
+    "hypothesis": "A fresh cache causes spawn node ENOENT because the client chooses a nonexistent socket parent as the daemon working directory; validating and creating that directory before spawn removes the first-use failure without relaxing the private-path boundary.",
+    "change": "mechanism",
+    "measurement": "No model calls or desktop writes. The new regression fails with ENOENT on baseline 9bb7bf6. Candidate: component typecheck passes; broker socket/packaged tests 12 pass; compiler/pretest controls 5 pass; product archive/distribution tests 40 pass. Actual clean-installed .7 archive successfully starts a daemon with a missing directory and completes handshake and lease acquire/release with 0700/0600 modes. Full suite exceeded 300 seconds and is not reported as passed.",
+    "result": "Reuse ensurePrivateDir before spawn; reject symlinked directories before starting a child. Component 0.5.1-rotom.7, locked archive and integrity pins carry the fix. All 8 native files remain byte-identical to .6. No active helper replacement, product installation or npm publication; effect on subsequent real sessions remains unmeasured.",
+    "evidence": "unmeasured",
+    "decision": "shipped",
+    "source": "docs/agent/computer-use-broker-cold-start.md"
+  }
+]

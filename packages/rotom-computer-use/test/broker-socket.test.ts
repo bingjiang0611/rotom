@@ -4,7 +4,7 @@ import { chmodSync, lstatSync, mkdirSync, mkdtempSync, rmSync, statSync, symlink
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { BrokerClient, BrokerRequestError } from "../src/broker/client.ts";
+import { BrokerClient, BrokerRequestError, spawnBrokerDaemon } from "../src/broker/client.ts";
 import { startBrokerServer, BrokerAlreadyRunningError } from "../src/broker/server.ts";
 import { UnsafePathError } from "../src/broker/paths.ts";
 import type { AgentRegistration } from "../src/broker/protocol.ts";
@@ -89,6 +89,21 @@ test("a symlinked state directory is refused instead of followed", async () => {
 	}
 });
 
+test("daemon spawning rejects a symlinked working directory before starting a child", () => {
+	const root = tempRoot();
+	const real = path.join(root, "real");
+	const link = path.join(root, "linked");
+	mkdirSync(real, { mode: 0o700 });
+	symlinkSync(real, link);
+	try {
+		assert.throws(() => spawnBrokerDaemon(path.join(link, "broker.sock")), UnsafePathError);
+		assert.equal(existsSync(path.join(real, "stage")), false);
+		assert.equal(existsSync(path.join(real, "broker.sock")), false);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
 test("a second start on a live socket is refused, not silently duplicated", async () => {
 	const root = tempRoot();
 	const socketPath = path.join(root, "broker.sock");
@@ -104,9 +119,11 @@ test("a second start on a live socket is refused, not silently duplicated", asyn
 	}
 });
 
-test("two clients spawning at once converge on one broker and share arbitration", async () => {
+test("two clients cold-start in a missing private directory and share one broker", async () => {
 	const root = tempRoot();
-	const socketPath = path.join(root, "broker.sock");
+	const directory = path.join(root, "cache", "broker");
+	const socketPath = path.join(directory, "broker.sock");
+	assert.equal(existsSync(directory), false);
 	let first: BrokerClient | undefined;
 	let second: BrokerClient | undefined;
 	let brokerPid: number | undefined;
@@ -117,6 +134,8 @@ test("two clients spawning at once converge on one broker and share arbitration"
 		]);
 		const [statusA, statusB] = await Promise.all([first.status(), second.status()]);
 		assert.equal(statusA.pid, statusB.pid);
+		assert.equal(statSync(directory).mode & 0o777, 0o700);
+		assert.equal(statSync(socketPath).mode & 0o777, 0o600);
 		brokerPid = statusA.pid;
 		assert.notEqual(statusA.pid, process.pid, "the broker runs in its own detached process");
 

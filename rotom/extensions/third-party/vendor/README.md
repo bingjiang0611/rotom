@@ -26,11 +26,12 @@ The `.rotom.5` baseline also included the terminal-projection fix: projection fa
 
 ## Locked Computer Use distribution
 
-The default source product selects **`@injaneity/pi-computer-use@0.5.1-rotom.6`**, independently maintained in `packages/rotom-computer-use/`. This is a Computer Use fork, not a Pi fork.
+The default source product selects **`@injaneity/pi-computer-use@0.5.1-rotom.7`**, independently maintained in `packages/rotom-computer-use/`. This is a Computer Use fork, not a Pi fork.
 
-- Archive: `injaneity-pi-computer-use-0.5.1-rotom.6.tgz` (earlier archives are retained unchanged).
-- SHA256: `8f5197668b538bcf77529156f334d9c6e6cd9f2102d71617f52d9ff24e4aec07`
-- SHA512 SRI: `sha512-US5ypZZskKtN5nUNdU2A5eft9laJgzdbKySpnZ7UCVGU5ngCOHFkAkNoyguRhOGsSc7AGAbk7YOqAk1QGTIOpQ==`
+- Archive: `injaneity-pi-computer-use-0.5.1-rotom.7.tgz` (earlier archives are retained unchanged).
+- SHA256: `954e2a5b2307890fbb72f87159980878979622dd6673b0c6539026ceb7394b67`
+- SHA512 SRI: `sha512-LPAR1IW6EmSzY0BB7WXvGuU6hJWH1DIyI56pO6G/D985mK9bM+nq1VMnO3PUv8kGGkigtLGa3grYhuhWM0b10g==`
+- `.rotom.7` creates and validates the private broker socket directory before spawning its daemon, fixing first-use `spawn node ENOENT`. All 8 native prebuilt files are byte-identical to `.rotom.6`; no installed helper is replaced or restarted by this source-only fix.
 - `.rotom.6` defers desktop permission setup to the first Computer Use tool call. Starting an interactive session no longer asks for Screen Recording; native helper bytes and the `.rotom.5` managed-update policy are unchanged.
 - `.rotom.5` adds automatic product/helper synchronization. All 8 native prebuilt files remain byte-identical to the published `.rotom.4`; only the installer/source layer changes. This is not a replacement of the published rotom 0.2.0 artifact.
 - The automatic path reuses the installed signing Authority's unique valid identity and seals a source-binary stamp. It prepares and verifies before stopping an identity-matched old process without another prompt, waits for unoccupied-executable readback, and never force-kills. Unknown shutdown or replacement retains its lock to prevent replay. Current native bytes plus matching Info.plist are a no-op. Manual repair retains the stop prompt. See [current evidence and limits](../../../../docs/agent/computer-use-v2/STATUS-8-auto-upgrade.md).

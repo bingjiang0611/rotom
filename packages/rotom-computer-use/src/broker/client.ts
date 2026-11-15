@@ -29,7 +29,7 @@ import {
 	type TargetAppInfo,
 	type AppTier,
 } from "./protocol.ts";
-import { resolveBrokerSocketPath } from "./paths.ts";
+import { ensurePrivateDir, resolveBrokerSocketPath } from "./paths.ts";
 
 const DEFAULT_HEARTBEAT_MS = 3_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 45_000;
@@ -91,6 +91,7 @@ interface DaemonHandle {
  * process to exit would always block for the lifetime of a *winning* daemon.
  */
 export function spawnBrokerDaemon(socketPath: string): DaemonHandle {
+	ensurePrivateDir(path.dirname(socketPath));
 	const handle: DaemonHandle = { child: undefined as unknown as DaemonHandle["child"], exitCode: undefined };
 	const child = spawn(process.execPath, ["--experimental-strip-types", daemonPath()], {
 		detached: true,

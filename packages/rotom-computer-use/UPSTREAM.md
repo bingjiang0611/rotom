@@ -3,7 +3,8 @@
 This is a rotom-maintained fork, not an upstream release.
 
 - Upstream baseline: `@injaneity/pi-computer-use` **0.5.1** (MIT; original `LICENSE` retained).
-- Fork version: **0.5.1-rotom.6**.
+- Fork version: **0.5.1-rotom.7**.
+- `.rotom.7`: create and validate the private broker socket directory before spawning the daemon, fixing `spawn node ENOENT` on first use. All native artifacts are retained byte-for-byte from `.rotom.6`; no installed helper is replaced or restarted.
 - `.rotom.6`: defer desktop permission setup until the first Computer Use tool call. Interactive startup, including a fresh isolated HOME, no longer requests Screen Recording just because the extension loaded. The native helper binaries are unchanged from `.rotom.5`.
 - Main-candidate replay retains main's one-attempt, explicit protocol-restart consent, transport-error guidance, permission-check fix and broker cleanup regression. The un-released `.rotom.4` candidate archive is repacked from this merged source; its new digest supersedes the review-branch artifact only in this candidate. No main change to another component is reverted. Main's 20 KB staged-file gate also requires a behavior-preserving split: installer I/O, release download and signing are separate modules, and helper-only activity handling moves into the existing broker user-control module. Installer exports and signing policy are retained; this is not authorization to create a certificate or update a live helper.
 - `.rotom.4`: packages the reviewed v2 work (helper protocol 11, broker protocol 2), shares the complete Swift source list between both build paths, and adds an explicit, copy-signing helper updater. Public main already used `.rotom.3`; this archive does not reuse that version.
