@@ -83,4 +83,22 @@
 
 未做：真实 Provider/付费调用、真实 Chrome、桌面 TUI 验收、macOS 上的构建与测试、`npm publish`、替换存活安装。message threads 与 Context Layers 的交互、`cacheWarming` 的真实费用、pi-schema 对第三方 vendored 包（pi-subagents、pi-goal、sol-pi、pi-computer-use）工具 schema 的强转影响，只有离线证据。
 
-macOS 上的补充验证交给本机 Agent，任务与边界见 [本机验证交接](pi-1.5-local-verification-handoff.md)，结果回传到同一分支的 `pi-1.5-local-verification-results.md`。
+## macOS 本机补充验证（2026-11-13）
+
+本机 Agent 按 [本机验证交接](pi-1.5-local-verification-handoff.md) 完成，命令、数字与限制见 [本机验证结果](pi-1.5-local-verification-results.md)。环境：macOS 27.3 arm64、Node 24.18.0 / npm 12.2.0。云端会话复核了它的两个修复提交（Linux 上旧代码失败、新代码通过），以及推送范围的身份检查与公开审计（0 findings）。
+
+| 检查 | 结果 |
+|---|---|
+| fork 可复现 | 另一份 clone 重跑 `build:pi`，8 个归档 integrity 与已提交值一致，vendor tgz 字节相同 |
+| fork 各包测试 | 云端 25 个容器条件失败无一复现；剩余失败都在基线上同样失败，或只在高负载下超时、单独重跑通过 |
+| `check-personal`、providers、Goal、evals、footprint 三个工具面 | 全部通过；`index.test.ts` 不退出的问题在 Mac 上不出现 |
+| 打包与隔离安装 | tgz 19,436 文件 / 34,946,978 bytes，归档审计 0 findings；安装后 default/full smoke 与 footprint 合同 PASS，dist 中两个默认值正确，卸载干净 |
+| 真实 TUI（PTY，零模型调用） | 名称优先的模型列表、cache warming = streaming、`/login` 列表、退出时终端恢复均正常 |
+| 真实 `qoder/dfmodel` | 工具往返、`/compact`（tokensBefore 62,507）、压缩后续跑、`/tree` 分支摘要、low/high/max 三档全部成功；无 provider 重试，trace 无错误；压缩与分支摘要的 credits 为 unknown |
+| pi-schema 对工具入参 | full 工具面 33/33 schema 编译通过，0 个未解析 `$ref`；与 1.4 导出的 schema 逐字段一致 |
+
+两个修复：
+- `rotom-subagents` 的 RPC 模型探针补上 fd 3 owner lifeline。原因是上游 #11746 让 RPC 模式在空闲时也执行 `ctx.shutdown()`，lifeline 扩展发现受管子进程缺少 fd 3 就会请求关闭；真实启动在 POSIX 上总会传 fd 3。
+- `build-info.test.mjs` 的版本断言改为读取 `rotom/package.json`。
+
+仍未覆盖：真实 Chrome 与 Computer Use 桌面交互、Linux/Windows 上的安装、message threads 开启后的真实行为、`cacheWarming` 的长期费用。待决问题（`catalog-refresh-smoke` 的既有失败、sol-pi 测试依赖私有维护文件、TUI 的 `/exit` 会被当成提示词发出）见结果文档。
