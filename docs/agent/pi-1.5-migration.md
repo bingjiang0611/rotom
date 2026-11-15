@@ -102,3 +102,21 @@
 - `build-info.test.mjs` 的版本断言改为读取 `rotom/package.json`。
 
 仍未覆盖：真实 Chrome 与 Computer Use 桌面交互、Linux/Windows 上的安装、message threads 开启后的真实行为、`cacheWarming` 的长期费用。待决问题（`catalog-refresh-smoke` 的既有失败、sol-pi 测试依赖私有维护文件、TUI 的 `/exit` 会被当成提示词发出）见结果文档。
+
+## 同步到 main（2026-11-15）
+
+经用户明确授权，把本分支 rebase 到 `origin/main` 的 `9bb7bf6`（含已发布的 0.2.1 与 Computer Use `0.5.1-rotom.6`），再快进推送到 `main`，并用 `--force-with-lease` 更新 `claude/fervent-wright-jdsxy1`。这是一次已推送提交的改写，范围只限本分支的 7 个提交，`main` 自身没有改写。唯一的冲突在 `rotom/THIRD_PARTY_NOTICES.md`：Pi 一行取本分支，Computer Use 一行取 main 的 `rotom.6`。
+
+| 改写前 | 改写后 | 提交 |
+|---|---|---|
+| `3bdad05f` | `576ad918` | feat(pi): merge upstream Pi 1.5.2 |
+| `24fcd7d7` | `e4993562` | docs(pi): hand off macOS verification |
+| `418ffedd` | `06ed8b90` | docs(pi): record the S6 authorization |
+| `b0805313` | `4639fe7c` | test(subagents): fd 3 owner lifeline |
+| `c3b0dc46` | `3a04b897` | test(distribution): version from package.json |
+| `f584a644` | `fea7cfc5` | docs(pi): local macOS verification results |
+| `1b2d56d2` | `2d15bd33` | docs(pi): fold the macOS verification into the record |
+
+rebase 后在合并树上重跑：`check:pi` 通过；`test:distribution` 39/39；footprint default/full/scoped 均 PASS；providers 9/9；Goal 99/99；Computer Use 328 通过 / 5 跳过；subagents 的 provider-extension 5/5；`check-personal` 的子测试 595 通过 / 3 跳过（`index.test.ts` 在本容器里跑完不退出，被手动结束，Mac 上不复现）。
+
+审计：`--history-range origin/main..HEAD` PASS，0 findings。全量 `--history` 覆盖全部 remote refs（1,097 个提交），结果 BLOCKED、107 条，全部来自本次之前就存在的历史：34 条非 noreply 提交者都在 `origin/eval/system` 分支上，其余是旧 blob 里的 HOME 路径和 3 条 credential 形状；本分支没有引入任何一条。
