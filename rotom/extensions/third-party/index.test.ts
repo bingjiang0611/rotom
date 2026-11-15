@@ -431,7 +431,11 @@ for (const parameters of [
 	const { session, extensionsResult } = await pi.createAgentSession({ cwd: workspace, agentDir: workspace,
 		resourceLoader: loader, modelRuntime, settingsManager, sessionManager: pi.SessionManager.inMemory(workspace),
 	});
-	t.after(() => session.dispose());
+	t.after(async () => {
+		const { emitSessionShutdownEvent } = await import(pathToFileURL(join(piDist, "core/extensions/runner.js")).href);
+		await emitSessionShutdownEvent(session.extensionRunner, { type: "session_shutdown", reason: "quit" });
+		session.dispose();
+	});
 	const errors: unknown[] = [];
 	await session.bindExtensions({ mode: "print", onError: (error: unknown) => errors.push(error) });
 	assert.deepEqual(errors, []);
