@@ -1,0 +1,65 @@
+{
+  "state": "published",
+  "package": "@bingjiang0611/rotom",
+  "version": "0.2.2",
+  "tag": "latest",
+  "sourceCommit": "4318866ec8510e8a96b161cac126d58d1e6cc8c0",
+  "sha256": "7bbabf1b5c5dd4ae813d91ab32a31cd4126b97de4f192eaa6ba85842e9d5cbea",
+  "shasum": "7082662c77e23ff5bc61ad52754d4390db699d9d",
+  "integrity": "sha512-xGiESL6Yzu9TGtwiaoWFPpSUzfhKpReb5TR9AtyonpncdCr3zWf+LgPsYLNAwIBAOkNspRiRa/PA9nsuRBWwhw==",
+  "tarball": "https://registry.npmjs.org/@bingjiang0611/rotom/-/rotom-0.2.2.tgz",
+  "fileCount": 19436,
+  "compressedBytes": 34948384,
+  "unpackedBytes": 150155144,
+  "successfulFinalPacks": 1,
+  "registryVerified": true,
+  "publishedBy": "Maintainer in foreground terminal; agent verified registry metadata and downloaded bytes.",
+  "checks": {
+    "actualArtifactCheckPersonal": {
+      "main": 598,
+      "goal": 99,
+      "offlineProviders": "pass",
+      "exit": 0
+    },
+    "componentTypecheck": "pass",
+    "componentTests": 334,
+    "smokes": {
+      "default": {
+        "activeTools": 26,
+        "lifecycleErrors": 0
+      },
+      "full": {
+        "activeTools": 33,
+        "lifecycleErrors": 0
+      }
+    },
+    "installedFiles": "all byte-identical after checks",
+    "upgrade": "verified registry 0.2.1 tgz to final 0.2.2 tgz",
+    "uninstall": "pass",
+    "installedAutomaticHelperStartup": {
+      "pass": 1,
+      "skipped": 0
+    },
+    "publicHistoryAudit": "pass",
+    "artifactAudit": "pass"
+  },
+  "globalInstall": {
+    "state": "verified",
+    "productVersion": "0.2.2",
+    "piVersion": "1.5.2-rotom.1",
+    "installedFilesByteIdentical": 19436,
+    "method": "Explicit user request: npm global install of the verified tgz into a new managed prefix, ignore-scripts; atomically switched existing global rotom symlink; retained old installations and sessions.",
+    "automaticHelperSync": "Not forced; version query does not trigger synchronization."
+  },
+  "preservedFailures": [
+    "First candidate withdrawn after SDK test teardown correction; not publishable.",
+    "Installed missing locked test dependencies and set canonical TMPDIR; assertions and deadlines unchanged.",
+    "One cascade readiness deadline failed; focused checks and final complete gate passed with original deadline."
+  ],
+  "limitations": [
+    "No GUI task, live Provider, browser/phone or cross-platform acceptance.",
+    "Installed automatic-helper startup used an isolated fixture; daily native-helper upgrade and signing identity reuse were not reverified.",
+    "Active sessions do not hot-reload; no existing installation directory was overwritten.",
+    "The older standard npm prefix package directory remains; current PATH entry targets the new managed prefix."
+  ]
+}

@@ -1,8 +1,8 @@
 # rotom · npm 分发合同
 
-发行包身份和源码版本以 [`rotom/package.json`](../../rotom/package.json) 为准；维护源码版本不等于当前 PATH 安装或 registry `latest`。不要从旧实验的测试计数、临时路径或 dist-tag 快照推断现在的状态。旧发布流水可从 Git 历史追溯；最新已核验发布见 [npm-0.2.1.md](npm-0.2.1.md)，上一版记录见 [npm-0.2.0.md](npm-0.2.0.md)。
+发行包身份和源码版本以 [`rotom/package.json`](../../rotom/package.json) 为准；维护源码版本不等于当前 PATH 安装或 registry `latest`。不要从旧实验的测试计数、临时路径或 dist-tag 快照推断现在的状态。旧发布流水可从 Git 历史追溯；最新已核验发布见 [npm-0.2.2.md](npm-0.2.2.md)，上一版记录见 [npm-0.2.1.md](npm-0.2.1.md)。
 
-**0.2.1 / latest** 已通过公开 registry、下载字节及维护者授权的全局安装核验。见 [发布记录](npm-0.2.1.md)和[冻结说明](../releases/0.2.1.md)。[helper 自动同步](computer-use-v2/STATUS-8-auto-upgrade.md)已随该版本发布：npm 安装后在下一次正常启动时同步，版本查询不触发；从旧 0.2.0 升级也由新版本启动补齐，不需要独立 helper 命令。已有会话不会热升级，原生 fixture 验收不外推为 GUI 任务通过。
+**0.2.2 / latest** 已通过公开 registry、下载字节及维护者授权的全局安装核验。见 [发布记录](npm-0.2.2.md)和[冻结说明](../releases/0.2.2.md)。[helper 自动同步](computer-use-v2/STATUS-8-auto-upgrade.md)自 0.2.1 起发布：npm 安装后在下一次正常启动时同步，版本查询不触发；从旧 0.2.0 升级也由新版本启动补齐，不需要独立 helper 命令。已有会话不会热升级，原生 fixture 验收不外推为 GUI 任务通过。
 
 ## 包与源码边界
 
