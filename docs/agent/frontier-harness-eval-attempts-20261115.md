@@ -17,7 +17,7 @@
 
 两次 attempt 有两个 trial 被 Harbor 记为异常、但 verifier 仍判 1 分（`polyglot-c-py`、`sqlite-with-gcov`）。表里按「Harbor 判了分就计」处理，所以池化口径是 141/243；把异常一律算 0 就是最严的 56.9%。
 
-A1–A4 四次尝试：`1` 通过、`0` 判 0、`异常` 是 trial 级异常（`超时` 全部是 `AgentTimeoutError`）。`rstan-to-pystan` 的 A1 取 8 vCPU/16 GB 规格复跑（`fh62-spec8c16g`），`mteb-leaderboard` 的 A1 取崩溃修复后的复跑（`fh62-cufix-verify`）。
+A1–A4 四次尝试：`1` 通过、`0` 判 0、`异常` 是 trial 级异常。A1 一律是第一次 run 的原始结果；`fh62-spec8c16g`（8 vCPU/16 GB 规格复跑）与 `fh62-cufix-verify`（崩溃修复后复跑）不计入这四次，所以 `rstan-to-pystan` 的 A1 是超时、`mteb-leaderboard` 的 A1 是崩溃，而运行报告「结果」表里记的是补跑后能通过。
 
 | 题目 | A1 | A2 | A3 | A4 | 通过/有分 | 成本 $ | 步数 |
 |---|---|---|---|---|---|---|---|

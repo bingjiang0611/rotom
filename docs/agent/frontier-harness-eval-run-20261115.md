@@ -93,7 +93,7 @@ gcode-to-text、make-doom-for-mips、rstan-to-pystan、video-processing 都在 1
 | 指标 | 值 |
 |---|---|
 | 4 次合计 trials | 248（62 × 4） |
-| Harbor 判了分 | 243（24 个异常里 21 个仍拿到 verifier 分数） |
+| Harbor 判了分 | 243（24 个异常里 19 个仍拿到 verifier 分数，5 个完全没分） |
 | 通过 | 141 |
 | 池化通过率（有分数） | **58.0%** |
 | 严格口径（异常计 0，全部 248） | 56.9% |
