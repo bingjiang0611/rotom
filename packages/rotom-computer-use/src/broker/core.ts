@@ -324,7 +324,7 @@ export class BrokerCore {
 		if (pause) {
 			return failure(
 				"paused_interfered",
-				`Agent ${agentId} is paused: its action changed the frontmost app while the user was typing. The user resumes it from the menu bar or the approval card; reads are unaffected.`,
+				`Agent ${agentId} is paused: its action changed the frontmost app while the user was typing. The user resumes it from the menu bar; reads are unaffected.`,
 			);
 		}
 
@@ -377,7 +377,7 @@ export class BrokerCore {
 	}
 
 	private onTransfer(agentId: string, leaseId: string, toAgentId: string): BrokerReply {
-		if (this.leases.holder(TAKEOVER_RESOURCE)?.leaseId === leaseId) return failure("not_permitted", "Foreground takeover cannot transfer; release it and request a new authorization.");
+		if (this.leases.holder(TAKEOVER_RESOURCE)?.leaseId === leaseId) return failure("not_permitted", "Foreground takeover cannot transfer; release it and request a new lease.");
 		if (!this.registry.get(toAgentId)) return failure("unknown_agent", `Unknown agent ${toAgentId}.`);
 		// Handing an app to a stranger would widen the parent's authorization to a
 		// process the user never approved: only own descendants may receive it.

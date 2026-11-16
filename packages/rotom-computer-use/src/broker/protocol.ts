@@ -94,7 +94,7 @@ export interface TargetAppInfo {
 export interface ActionIntent {
 	/** `act_ui` action name, new `act_ui` action, or tool name (`clipboard`, ...). */
 	name: string;
-	/** Text of the resolved element, used for sensitive-action matching only. */
+	/** Text of the resolved element; metadata, never an authorization instruction. */
 	label?: string;
 	/** Native type preflight; on batches, the most sensitive open target. */
 	openTarget?: OpenTargetKind;

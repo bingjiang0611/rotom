@@ -9,7 +9,6 @@ import { classifyApp, HIGH_RISK_WARNING } from "../src/policy/catalog.ts";
 import { createPolicyGate } from "../src/policy/gate.ts";
 import { excludeHostRoots, isHostRoot, resolveHostApp } from "../src/policy/host-exclusion.ts";
 import { PolicyStore } from "../src/policy/policy-store.ts";
-import { matchSensitiveAction } from "../src/policy/sensitive.ts";
 import { ACTION_TIERS, requiredTier, tierAllows } from "../src/policy/tiers.ts";
 
 function tempRoot(): string {
@@ -69,16 +68,6 @@ test("app catalogue maps the categories PLAN §7 names", () => {
 	assert.equal(classifyApp({ bundleId: "com.apple.Stocks" }).tier, "view", "trading stays observe-only");
 	assert.equal(classifyApp({ appName: "招商银行" }).tier, "view");
 	assert.equal(classifyApp({ appName: "TextEdit" }).tier, "full", "unknown apps keep the default tier");
-});
-
-test("sensitive action rules match both language families and ignore neutral labels", () => {
-	for (const label of ["Delete", "Remove item", "Discard", "Send", "Submit order", "Pay now", "Place order", "Change Password", "删除", "发送", "提交订单", "支付", "修改密码", "登录"]) {
-		assert.ok(matchSensitiveAction({ name: "press", label }), `expected sensitive match for ${label}`);
-	}
-	for (const label of ["Cancel", "取消", "Settings", "New document", "Close", ""]) {
-		assert.equal(matchSensitiveAction({ name: "press", label }), undefined, `expected no match for ${JSON.stringify(label)}`);
-	}
-	assert.equal(matchSensitiveAction({ name: "press" }), undefined);
 });
 
 test("policy file is private, refuses symlinks, and project files can only tighten", () => {
@@ -153,7 +142,7 @@ test("host application is resolved from the pid chain and excluded from roots", 
 	assert.equal(isHostRoot({ pid: 100, appName: "iTerm2" }, host), false, "pid-only match against the resolved host");
 });
 
-test("the policy gate refuses by tier, allows ordinary apps, and forces a card for sensitive labels", () => {
+test("the policy gate defaults to full access without confirmation and retains explicit tier/deny limits", () => {
 	const root = tempRoot();
 	try {
 		const policy = store(root, { apps: { "com.apple.Stocks": "deny" } });
@@ -164,10 +153,13 @@ test("the policy gate refuses by tier, allows ordinary apps, and forces a card f
 		assert.equal(unknownApp.requiresApproval, false, "ordinary App access needs no standing grant");
 
 		const ide = gate.check({ agentId: "a", resourceKey: "desktop-pid:2", app: { bundleId: "com.jetbrains.intellij" }, action: { name: "press" } });
-		assert.equal(ide.tier, "click");
+		assert.equal(ide.tier, "full");
 		assert.equal(ide.warning, HIGH_RISK_WARNING);
 		const ideTyping = gate.check({ agentId: "a", resourceKey: "desktop-pid:2", app: { bundleId: "com.jetbrains.intellij" }, action: { name: "typeText" } });
-		assert.ok(ideTyping.denied, "click tier refuses text input");
+		assert.equal(ideTyping.denied, undefined, "catalogue categories are warnings, not implicit restrictions");
+		policy.allowApp({ bundleId: "com.jetbrains.intellij" }, "click");
+		const restricted = gate.check({ agentId: "a", resourceKey: "desktop-pid:2", app: { bundleId: "com.jetbrains.intellij" }, action: { name: "typeText" } });
+		assert.ok(restricted.denied, "an explicit click tier still refuses text input");
 
 		const deniedApp = gate.check({ agentId: "a", resourceKey: "desktop-pid:3", app: { bundleId: "com.apple.Stocks" }, action: { name: "observe_ui" } });
 		assert.ok(deniedApp.denied);
@@ -176,8 +168,9 @@ test("the policy gate refuses by tier, allows ordinary apps, and forces a card f
 		const granted = gate.check({ agentId: "a", resourceKey: "desktop-pid:1", app: { bundleId: "com.apple.TextEdit" }, action: { name: "press" } });
 		assert.equal(granted.requiresApproval, false, "a standing grant needs no card");
 		const sensitive = gate.check({ agentId: "a", resourceKey: "desktop-pid:1", app: { bundleId: "com.apple.TextEdit" }, action: { name: "press", label: "删除" } });
-		assert.equal(sensitive.requiresApproval, true, "sensitive labels always ask");
-		assert.notEqual(sensitive.cacheKey, granted.cacheKey, "a sensitive approval does not cache the plain grant");
+		assert.equal(sensitive.requiresApproval, false, "sensitive labels do not require user authorization");
+		assert.equal(gate.tierForApp({ bundleId: "com.apple.Stocks" }, "stocks"), "view");
+		assert.equal(gate.tierForApp({ bundleId: "com.apple.finder" }, "finder"), "full");
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}

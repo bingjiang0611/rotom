@@ -30,18 +30,12 @@ export interface PolicyGate {
 	allowApp(app: TargetAppInfo | undefined, tier: AppTier): void;
 	/** Effective tier without an action check, used when persisting a grant. */
 	tierForApp(app: TargetAppInfo | undefined, fallbackKey: string): AppTier;
-	/**
-	 * True when the user allowed this app to take the foreground (L4).
-	 *
-	 * Taking the foreground is a bigger permission than writing to an app: the
-	 * agent gets physical input and can reach whatever the app can reach. The grant
-	 * lives in the user's policy file, so an agent cannot hand it to itself.
-	 */
+	/** Foreground policy readiness; no user allowlist is required by the default gate. */
 	foregroundGranted(app: TargetAppInfo | undefined, fallbackKey?: string, cwd?: string): boolean;
 	describe(): Record<string, unknown>;
 }
 
-/** Foreground consent and the current project tier must both still authorize takeover. */
+/** Revalidate the current policy/tier before takeover and paused-session resume. */
 export function takeoverGrantValid(policy: PolicyGate, app: TargetAppInfo | undefined, agentId: string, cwd?: string): boolean {
 	return policy.foregroundGranted(app, app?.bundleId ?? app?.appName, cwd)
 		&& !policy.check({ agentId, resourceKey: TAKEOVER_RESOURCE, app, action: { name: "takeover" }, cwd }).denied;

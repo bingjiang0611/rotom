@@ -30,7 +30,7 @@ export interface UserControlContext {
 	transport(): BrokerTransport | undefined;
 	/** Agents paused after interfering with the user (PLAN §6 / F3). */
 	paused: Map<string, { reason: "interfered_with_user"; at: number }>;
-	/** True when the user allowed this app to take the foreground (L4). */
+	/** Current policy allows foreground access; no user allowlist is required. */
 	foregroundGranted(app: TargetAppInfo | undefined, agentId: string): boolean;
 }
 
@@ -106,7 +106,7 @@ export function handleTakeoverApproval(ctx: UserControlContext, agentId: string 
 /**
  * PLAN §7 conditions for L4, all three of which must hold.
  *
- * 1. the user allowed this app's foreground mode,
+ * 1. the current policy allows foreground access,
  * 2. the user is idle for 10s, or just clicked "let it take over",
  * 3. nobody else holds the foreground (enforced by the lease, in core).
  */
@@ -122,7 +122,7 @@ export function takeoverRefusal(
 	if (!ctx.foregroundGranted(app, agentId)) {
 		return failure(
 			"takeover_conditions",
-			`The user has not allowed ${name} to take the foreground. Add it to the foreground list in the Computer Use policy, or ask the user to allow it.`,
+			`The Computer Use policy does not permit ${name} to take the foreground.`,
 		);
 	}
 	const approved = approvedAt !== undefined && ctx.now() - approvedAt <= TAKEOVER_APPROVAL_WINDOW_MS;
@@ -132,7 +132,7 @@ export function takeoverRefusal(
 		if (lastUserInputAt === undefined) {
 			return failure(
 				"takeover_conditions",
-				'The helper has not reported any user activity yet, so the broker cannot tell whether the user is idle. The foreground is only offered after 10s without real input, or when the user clicks "let it take over".',
+				'The helper has not reported any user activity yet, so the broker cannot tell whether the user is idle. The foreground is only offered after 10s without real input.',
 			);
 		}
 		const idleMs = ctx.now() - lastUserInputAt;
@@ -140,7 +140,7 @@ export function takeoverRefusal(
 			const remaining = Math.max(0, Math.ceil((TAKEOVER_IDLE_MS - idleMs) / 1000));
 			return failure(
 				"takeover_conditions",
-				`The user was active ${Math.round(idleMs / 1000)}s ago; the foreground is only offered after ${TAKEOVER_IDLE_MS / 1000}s without real input (about ${remaining}s more), or when the user clicks "let it take over".`,
+				`The user was active ${Math.round(idleMs / 1000)}s ago; the foreground is only offered after ${TAKEOVER_IDLE_MS / 1000}s without real input (about ${remaining}s more).`,
 			);
 		}
 	}

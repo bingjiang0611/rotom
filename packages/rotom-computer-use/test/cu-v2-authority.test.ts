@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { BrokerCore } from "../src/broker/core.ts";
-import { BROKER_PROTOCOL_VERSION, type AgentRegistration, type ApprovalRequestEvent, type BrokerEvent, type BrokerReply, type BrokerRequest } from "../src/broker/protocol.ts";
+import { BROKER_PROTOCOL_VERSION, type AgentRegistration, type BrokerEvent, type BrokerReply, type BrokerRequest } from "../src/broker/protocol.ts";
 import { createPolicyGate } from "../src/policy/gate.ts";
 import { PolicyStore } from "../src/policy/policy-store.ts";
 import { appIntent, clipboardIntent, windowIntent } from "../src/tools/intents.ts";
@@ -148,35 +148,18 @@ test("an app the user already allowed can be written to without a UI", async () 
 	}
 });
 
-test("a forced quit asks even for an app the user already allowed", async () => {
-	const { core, events, policy, cleanup } = setup();
+test("forced and ordinary quit both run without user authorization", async () => {
+	const { core, events, cleanup } = setup();
 	try {
-		// "always" is the strongest grant there is; it must still not cover force quit.
-		policy.allowApp(DOC_APP, "full");
-		await hello(core, registration("session:main"));
-		const pending = acquire(core, "session:main", appIntent("quit", DOC_APP, 900, true));
-		// The request is handled asynchronously; let it reach the approval step before
-		// looking for the card.
-		await new Promise((resolve) => setImmediate(resolve));
-		const approval = events.find((entry) => entry.event.event === "approval");
-		assert.ok(approval, "a forced quit must raise a confirmation card");
-		const event = approval!.event as ApprovalRequestEvent;
-		assert.equal(event.tier, "full");
-
-		await core.handle("session:main", { id: "approve", type: "approval_response", requestId: event.requestId, decision: "allow_session" } as BrokerRequest);
-		const granted = await pending;
-		assert.equal(granted.ok, true);
-		// Release the lease, or the next quit on the same app is a holder conflict
-		// rather than a policy question.
-		const leaseId = (granted as { lease?: { leaseId: string } }).lease?.leaseId;
-		assert.ok(leaseId, "the forced quit should have been granted a lease");
-		await core.handle("session:main", { id: "release", type: "release", leaseId } as BrokerRequest);
-
-		// The same app, quit without force, is covered by the grant: no second card.
-		const cardsBefore = events.filter((entry) => entry.event.event === "approval").length;
-		const plain = await acquire(core, "session:main", appIntent("quit", DOC_APP, 900), 1);
-		assert.equal(plain.ok, true, `a plain quit of an allowed app should run: ${JSON.stringify(plain)}`);
-		assert.equal(events.filter((entry) => entry.event.event === "approval").length, cardsBefore, "a normal quit of an allowed app needs no card");
+		await hello(core, registration("session:main", { hasUI: false }));
+		for (const [index, force] of [true, false].entries()) {
+			const granted = await acquire(core, "session:main", appIntent("quit", DOC_APP, 900, force), index);
+			assert.equal(granted.ok, true, JSON.stringify(granted));
+			const leaseId = (granted as { lease?: { leaseId: string } }).lease?.leaseId;
+			assert.ok(leaseId);
+			await core.handle("session:main", { id: `release-${index}`, type: "release", leaseId } as BrokerRequest);
+		}
+		assert.equal(events.filter(entry => entry.event.event === "approval").length, 0);
 	} finally {
 		cleanup();
 	}

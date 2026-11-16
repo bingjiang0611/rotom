@@ -16,7 +16,7 @@ import { createFakeClock } from "./helpers/fake-clock.ts";
 
 const APP = { appName: "Fixture", bundleId: "com.example.fixture" };
 
-/** Policy double: only the foreground grant matters here. */
+/** Policy double: foreground readiness is explicit test policy, not a user grant. */
 function gateWithForeground(granted: boolean): PolicyGate {
 	return {
 		check: () => ({ tier: "full", requiresApproval: false, cacheKey: "fixture" }),
@@ -90,7 +90,7 @@ test("a user-activity report in seconds is refused instead of making the user lo
 	assert.equal(inMilliseconds.ok, true);
 });
 
-test("an app without a foreground grant is refused even when the user is idle", async () => {
+test("an explicit foreground policy denial is enforced even when the user is idle", async () => {
 	const { core } = setup({ foreground: false });
 	await hello(core, HELPER);
 	await hello(core, AGENT_A);
@@ -137,7 +137,7 @@ test("the user's own click allows a takeover without waiting for idleness", asyn
 	assert.equal(stale.ok, false, "a click from more than a minute ago must not authorize a takeover");
 });
 
-test("only the helper may grant the foreground, and agents cannot fake user activity", async () => {
+test("only the helper may report the user takeover shortcut, and agents cannot fake user activity", async () => {
 	const { core, clock } = setup();
 	await hello(core, HELPER);
 	await hello(core, AGENT_A);

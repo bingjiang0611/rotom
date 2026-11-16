@@ -2,9 +2,13 @@
 
 本页保留 HANDOFF-6 与阶段 2 审核 REVIEW-25（`f06cbb6`）的证据分级，发布进度已更新至 0.2.1 实际产物、原生自动升级与 registry 核验完成。它替代旧版协议 8 的笼统结论；历史记录保留在各 STATUS / evidence 文档和 Git history 中，不据此扩大本候选的真机证据。
 
+## 当前源码行为（2026-11-16）
+
+Computer Use `0.5.1-rotom.9` 已取消全部操作授权，包括敏感操作、强退、外部打开和前台接管；未配置 App 默认 full。显式策略、系统权限、空闲检测、租约和用户停止仍保留。12 个新用例在 `.rotom.8` 全失败，修复后全通过；真实桌面免授权重放未验证，当前日常安装未修改。该源码变更不等于 npm 发布。下表的 Ask/O1 是历史行为证据，不能外推到当前版本。
+
 ## 合入与发布边界
 
-- main 源码组件：`@injaneity/pi-computer-use@0.5.1-rotom.5`；helper 协议 **11**，broker 协议 **2**。已接入 [helper 随产品自动同步](STATUS-8-auto-upgrade.md)，不再需要独立 helper 命令或签名变量；已随 npm 0.2.1 发布，不属于 npm 0.2.0。
+- main 源码组件：`@injaneity/pi-computer-use@0.5.1-rotom.9`；helper 协议 **11**，broker 协议 **2**。`.rotom.5` 接入的 [helper 随产品自动同步](STATUS-8-auto-upgrade.md) 已随 npm 0.2.1 发布，不属于 npm 0.2.0；后续 `.rotom.9` 免授权源码改动尚未据此发布。
 - 用户已授权发布 **0.2.0 / latest**；[REVIEW-27](https://github.com/bingjiang0611/rotom/blob/4936306eaee2e6bcf8d1abf530a3c7309f5871b0/docs/agent/computer-use-v2/REVIEW-27.md) 接受的功能提交 `4c7f7bb3f81843532b4d3b9adb4483cbc0056b43` 已快进到 main。
 - **0.2.1 / latest 已发布并核验**，见 [发布记录](../npm-0.2.1.md)。维护者前台发布，另行授权 Agent 全局安装；19,049 个文件与固定 tgz 匹配。日常 helper 在本次 npm 安装中未修改，下次正常启动自动同步；旧会话不热升级。
 - 0.2.0 记录见 [历史发布记录](../npm-0.2.0.md)；旧版本的手动步骤见下文和[历史升级说明](../../releases/computer-use-v2-draft.md)，不再作为 0.2.1 的常规操作要求。
@@ -22,7 +26,7 @@
 
 表中 GUI 能力证据未因发布而扩大。0.2.1 的实际 tgz 原生门禁新增了自动签名复用、停止/替换/再启动、协议 11 与隔离 PID/可执行路径验证，不证明 GUI 任务或 B1–B6 通过。旧文档的测试行数、截图相似、源码构建成功和 isolated fixture 结果不能替代对应真机验收。
 
-仲裁仍按**协作式**描述：helper 已有 token/HMAC、过期和撤销校验实现，但 B4 未通过真机验收，角色自报也没有变成本机同一用户下的身份隔离。Computer Use 是同意层，不是 OS 沙箱。
+仲裁仍按**协作式**描述：helper 已有 token/HMAC、过期和撤销校验实现，但 B4 未通过真机验收，角色自报也没有变成本机同一用户下的身份隔离。Computer Use 默认免操作授权；仲裁和用户停止不是 OS 沙箱。
 
 ## 已完成的代码与离线工作
 

@@ -44,7 +44,7 @@ Browser relay 的协议 kind、native host id 与显示品牌已统一为 rotom�
 
 ### 4. 本机执行不等于安全隔离 — [完整合同](docs/agent/contracts/local-execution.md)
 
-- Pi 原生工具、Browser 和 Computer Use 都以本机用户权限运行；Computer Use 的确认面只是同意层，不是隔离层。
+- Pi 原生工具、Browser 和 Computer Use 都以本机用户权限运行；Computer Use 操作默认免授权；显式策略、Broker 仲裁与用户停止不是隔离层。
 - 外部写执行一次，随后按同坐标 readback；失败、超时或无法证明时返回 `unknown`，不盲目重试或自动回滚。
 - 环境、发布阶段和 scope 必须来自当前请求或权威 preflight；`.pi/tasks/`、`.pi/delegate/`、`.pi/fusion/` 可能属于存活会话，不能当临时垃圾删除。
 

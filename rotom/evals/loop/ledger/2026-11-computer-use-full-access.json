@@ -1,0 +1,15 @@
+[
+  {
+    "schema": "rotom-loop-ledger/v1",
+    "id": "L-2026-11-16-computer-use-full-access",
+    "date": "2026-11-16",
+    "title": "Remove all Computer Use operation authorization, not just first-use App approval",
+    "hypothesis": "The user's explicit full-access policy should eliminate all operation authorization interruptions, while keeping configured restrictions, OS readiness, observation-bound dispatch, arbitration and user stop.",
+    "change": "mechanism",
+    "measurement": "No model/provider calls. Twelve real-broker cases all fail on baseline ba4d720 with approval_unavailable or missing foreground grant, then all pass: delete/send/pay/credential/permission labels, forced quit, file/package/unknown opens, batched external open and takeover. Real socket/scheduler tests execute all ten open callbacks without UI or persisted grants, and explicit tier/deny still produces zero additional dispatches. Full component typecheck passes. The final-source component run passes 340/342; the two failures are missing newly versioned archive fixtures before packing, not behavior failures. After packing .rotom.9, all 42 focused access/protocol/install/update cases pass, including both previously missing archive cases. After the final diagnostic-copy cleanup/repack, 34 focused cases, both final-archive install/update cases, product dialog adapter 11/11, archive/identity/signature checks 11/11, extracted final-archive behavior cases 17/17 and default/full public-runtime smoke pass. All eight native prebuilt files are byte-identical to .rotom.8.",
+    "result": "All operation categories now avoid authorization cards. Unconfigured Apps default to full; existing explicit deny/tier policy is still enforced. No foreground allowlist is required; legacy sensitive/foreground fields are preserved for file compatibility but do not gate authorization. Old broker events are accepted once without UI or fabricated persistent grants. Removed the obsolete label matcher, card copy and normal-readiness helper-stop dialog; protocol/path mismatch stays blocked without shutting down or restarting another session's helper. OS permissions, explicit headless limits, activity/idle evidence, leases, stale/unknown handling and user stop remain. Component source/archive/lock/product identity now select 0.5.1-rotom.9. No live product/helper was replaced, no real desktop action was sent, and real desktop replay remains unverified. Manual installation/repair is outside operation authorization. This implements an explicit user policy change, not a model-quality/cost optimization; no model gates or cost claim. Expected harvest impact is fewer unnecessary approval interruptions; aggregate impact is unmeasured.",
+    "evidence": "improved",
+    "decision": "shipped",
+    "source": "packages/rotom-computer-use/test/full-access.test.ts"
+  }
+]

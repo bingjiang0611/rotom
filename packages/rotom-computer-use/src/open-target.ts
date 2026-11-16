@@ -7,6 +7,6 @@ export interface OpenTarget {
 }
 
 /** Also covers a batch whose highest-tier action carries an external-open target. */
-export function requiresOpenConfirmation(action?: { name: string; openTarget?: OpenTargetKind }): boolean {
+export function isExternalOpen(action?: { name: string; openTarget?: OpenTargetKind }): boolean {
 	return (action?.name.split("+").includes("open") || action?.openTarget !== undefined) && action?.openTarget !== "directory";
 }

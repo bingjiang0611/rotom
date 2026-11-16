@@ -17,11 +17,16 @@ function setup(root: string) {
 	const clock = createFakeClock();
 	const events: Array<{ agentId: string; event: BrokerEvent }> = [];
 	const policy = new PolicyStore({ globalPath: path.join(root, "home", "policy.json"), projectPath: path.join(root, "none.json") });
+	// Exercise the legacy approval protocol explicitly; the product gate never asks.
+	const gate = createPolicyGate({ store: policy });
 	const core = new BrokerCore({
 		now: clock.now,
 		schedule: clock.schedule,
 		heartbeatTimeoutMs: 600_000,
-		policy: createPolicyGate({ store: policy }),
+		policy: { ...gate, check(input) {
+			const decision = gate.check(input);
+			return { ...decision, requiresApproval: !decision.denied, cacheKey: input.action?.label ?? decision.cacheKey };
+		} },
 	});
 	core.attachTransport({
 		send(agentId, event) {
@@ -153,8 +158,9 @@ test("sensitive allow_session is cached per agent, always is persisted, and a di
 
 test("a view-tier app refuses text input before any card is shown", async () => {
 	const root = tempRoot();
-	const { core, events } = setup(root);
+	const { core, events, policy } = setup(root);
 	try {
+		policy.allowApp({ bundleId: "com.apple.Stocks" }, "view");
 		await hello(core, registration("session:ui", { hasUI: true, pid: 50 }));
 		const reply = await call(core, "session:ui", {
 			type: "acquire",

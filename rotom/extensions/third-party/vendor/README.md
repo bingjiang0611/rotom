@@ -26,11 +26,12 @@ The `.rotom.5` baseline also included the terminal-projection fix: projection fa
 
 ## Locked Computer Use distribution
 
-The default source product selects **`@injaneity/pi-computer-use@0.5.1-rotom.8`**, independently maintained in `packages/rotom-computer-use/`. This is a Computer Use fork, not a Pi fork.
+The default source product selects **`@injaneity/pi-computer-use@0.5.1-rotom.9`**, independently maintained in `packages/rotom-computer-use/`. This is a Computer Use fork, not a Pi fork.
 
-- Archive: `injaneity-pi-computer-use-0.5.1-rotom.8.tgz` (earlier archives are retained unchanged).
-- SHA256: `b0124ccb4cc4c1b870b5b4b41f32f6de69890ca9e358a11c201d530b7b63a987`
-- SHA512 SRI: `sha512-lvju3nDQxfHQ83+4RLEgUR3hZmqKvMxi7oyJWyIfHH0MJjoP0V2FYcZ1wSxQE/ws/9yqHXdgHgSNs/2BVIooQg==`
+- Archive: `injaneity-pi-computer-use-0.5.1-rotom.9.tgz` (earlier archives are retained unchanged).
+- SHA256: `806a95bef1e53e346695e4db67045d13c3e434e618c4d72f9844d3d7a389a50f`
+- SHA512 SRI: `sha512-EOKKwtYy732ImF00uUchL9P1LwJCIlInpgPCoueT3dC5GDYNDDucesZCO+dTAnUlTlb2tYVqXS6PM3DuLxVB0Q==`
+- `.rotom.9` removes all operation authorization, superseding `.rotom.8`: sensitive controls, forced quit, external file/App opens and foreground takeover need no user approval. Unconfigured Apps default to full; explicit deny/tier settings, OS permissions, activity/idle checks, leases, headless limits and user stop remain. Old broker events are accepted once without UI or persisted grants. Helper protocol/path mismatch now fails without asking to stop or touching the helper. All 8 native prebuilt files are byte-identical to `.rotom.8`; no live helper is replaced. Twelve real-broker cases fail on baseline and pass after the change. Real desktop replay is not claimed.
 - `.rotom.8` removes first-use App approval for ordinary operations, including child/headless sessions, without persisting fabricated grants. Explicit deny/tier policies, sensitive-action/external-open confirmation, foreground takeover and user stop are unchanged. All 8 native prebuilt files are byte-identical to `.rotom.7`; no live helper is replaced. The two new broker cases fail on baseline with `approval_unavailable` and pass after the change. Component checks cover 336 tests (334 passed initially; the two compiler-dependent cases passed after installing the declared compiler) and full TypeScript checking. Real Preview interaction remains unverified.
 - `.rotom.7` creates and validates the private broker socket directory before spawning its daemon, fixing first-use `spawn node ENOENT`. All 8 native prebuilt files are byte-identical to `.rotom.6`; no installed helper is replaced or restarted by this source-only fix.
 - `.rotom.6` defers desktop permission setup to the first Computer Use tool call. Starting an interactive session no longer asks for Screen Recording; native helper bytes and the `.rotom.5` managed-update policy are unchanged.

@@ -52,6 +52,10 @@ Automatic synchronization authorizes stopping the shared helper without another 
 
 Manual installation retains the explicit `PI_COMPUTER_USE_ALLOW_ADHOC_UPDATE=1` override. Automatic synchronization only preserves ad-hoc trust when the existing app is already ad-hoc; it does not bypass system execution policy or permission prompts. No personal development-certificate signatures are included in the public archive. The `.rotom.5` change is JavaScript-only and reuses `.rotom.4` native prebuilt bytes without rebuilding Swift.
 
+## All operations without authorization cards (.rotom.9)
+
+Supersedes `.rotom.8`'s limited first-use change: sensitive labels, forced quit, external file/App opens and foreground takeover also need no user authorization. The default tier is `full`; explicit user/project deny/tier restrictions, OS permissions, headless mode, activity/idle detection, arbitration and user stop remain intact. Old broker events are automatically accepted once, without UI or persisted grants. Legacy policy fields round-trip but no longer gate approval. Removed the unused sensitive-label matcher and authorization-card copy. Normal readiness now reports protocol/path mismatch without a stop dialog or shutdown; the mismatch stays blocked for the session, and a separate updater/new session is still required. All eight native prebuilt files and both protocols remain byte-identical to `.rotom.8`; no live helper is changed.
+
 ## Ordinary App access without a first-use card (.rotom.8)
 
 Ordinary operations now use the broker's effective App tier without requesting a first-use App grant, including headless and child sessions. Existing user/project denials and tier restrictions still apply. Sensitive labels, external file/App opens and explicit foreground takeover retain their separate confirmation. No fabricated user grant is persisted. The change is TypeScript-only; all native prebuilt bytes and both protocol versions are unchanged from `.rotom.7`. No live installation or helper is replaced by this source change.

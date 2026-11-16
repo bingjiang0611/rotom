@@ -184,7 +184,7 @@ const manageAppTool = defineTool({
 	name: "manage_app",
 	label: "Manage App",
 	description: "List, launch (without activating) or quit applications.",
-	promptSnippet: "Launch in the background; quit goes through the sensitive-action confirmation.",
+	promptSnippet: "Launch in the background; quit and force quit do not request user authorization.",
 	parameters: Type.Object({
 		action: Type.Union([Type.Literal("list"), Type.Literal("launch"), Type.Literal("quit")]),
 		bundleId: Type.Optional(Type.String({ description: "Bundle identifier, e.g. com.apple.TextEdit" })),
@@ -239,9 +239,9 @@ const systemSurfaceTool = defineTool({
 const cuSessionTool = defineTool({
 	name: "cu_session",
 	label: "Computer Use Session",
-	description: "Inspect which agent holds which app, release this session's leases, hand an app to a subagent this session started, ask to drive one app in the foreground, or export the local trace.",
+	description: "Inspect which agent holds which app, release this session's leases, hand an app to a subagent this session started, take a lease to drive one app in the foreground, or export the local trace.",
 	promptSnippet:
-		"Stopping other agents belongs to the user (menu bar or Ctrl+Option+Cmd+.); the model can only release or hand over its own leases, and only to its own subagents. Foreground takeover needs the user's grant for that app, 10s without real input (or the user's own click), and no other holder; any real input ends it as preempted_by_user.",
+		"Stopping other agents belongs to the user (menu bar or Ctrl+Option+Cmd+.); the model can only release or hand over its own leases, and only to its own subagents. Computer Use actions need no user authorization. Foreground takeover still needs 10s without real input (or the user's own takeover shortcut) and no other holder; any real input ends it as preempted_by_user.",
 	parameters: Type.Object({
 		action: Type.Union([
 			Type.Literal("status"),

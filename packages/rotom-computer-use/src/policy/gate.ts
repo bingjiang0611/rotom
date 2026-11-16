@@ -1,11 +1,8 @@
 import type { PolicyCheckInput, PolicyDecision, PolicyGate } from "../broker/policy.ts";
 import type { TargetAppInfo } from "../broker/protocol.ts";
-import { appPolicyKey, catalogueTierOf, classifyApp, type AppIdentity, type AppTier } from "./catalog.ts";
+import { appPolicyKey, classifyApp, type AppIdentity, type AppTier } from "./catalog.ts";
 import { defaultPolicyPath, defaultProjectPolicyPath, PolicyStore } from "./policy-store.ts";
-import { matchSensitiveAction } from "./sensitive.ts";
 import { tierAllows, tierRefusal } from "./tiers.ts";
-import { requiresOpenConfirmation } from "../open-target.ts";
-import { approvalCopy } from "../constants/copy.ts";
 
 export interface GateOptions {
 	/** Fixed store (tests, single-project callers). */
@@ -20,8 +17,8 @@ export interface GateOptions {
  * Decisions are made in the broker, not in the model's process, so every agent
  * (main session, subagent, another Pi) gets the same answer for the same app.
  * Project files are applied per agent cwd and can only tighten the global file.
- * The model cannot answer its own card: approval requests travel to the nearest
- * UI-capable ancestor session.
+ * Actions never need an authorization card. Explicit deny/tier restrictions
+ * still apply; automatic access does not persist a fabricated user grant.
  */
 export function createPolicyGate(options: GateOptions): PolicyGate {
 	const stores = new Map<string, PolicyStore>();
@@ -45,7 +42,7 @@ export function createPolicyGate(options: GateOptions): PolicyGate {
 			const store = storeFor(input.cwd);
 			const app = input.app;
 			const configured = store.lookup(app, input.resourceKey);
-			const tier: AppTier | "deny" = configured === "deny" ? "deny" : configured ?? catalogueTierOf(app);
+			const tier: AppTier | "deny" = configured ?? "full";
 			const appKey = appPolicyKey(app, input.resourceKey);
 			const actionName = input.action?.name;
 
@@ -56,28 +53,19 @@ export function createPolicyGate(options: GateOptions): PolicyGate {
 				return { tier, requiresApproval: false, cacheKey: `${appKey}#tier`, denied: tierRefusal(tier, actionName ?? "(unknown action)") };
 			}
 
-			const effective = store.effective();
-			const sensitive = effective.sensitive ? matchSensitiveAction(input.action) : undefined;
-			const category = classifyApp(app);
-			// Ordinary App access uses the effective tier without a first-use grant.
-			// Sensitive actions and external opens retain their separate confirmation.
-			const externalOpen = requiresOpenConfirmation(input.action);
-			const requiresApproval = externalOpen || Boolean(sensitive);
 			return {
 				tier,
-				requiresApproval,
-				requiresFreshApproval: externalOpen,
-				warning: externalOpen ? approvalCopy.openWarning(category.warning) : category.warning,
-				cacheKey: sensitive ? `${appKey}#sensitive:${sensitive.rule.id}` : `${appKey}#tier`,
+				requiresApproval: false,
+				warning: classifyApp(app).warning,
+				cacheKey: `${appKey}#tier`,
 			};
 		},
 		foregroundGranted(app: TargetAppInfo | undefined, fallbackKey?: string, cwd?: string): boolean {
 			const store = storeFor(cwd);
-			// A paused takeover must not resume on a cached, subsequently withdrawn
-			// grant. Project policy can revoke it, but never grant it.
+			// No foreground allowlist is required. Re-read policy so a paused
+			// takeover cannot resume through a newly invalid policy file.
 			store.invalidate();
-			if (store.effective().error) return false;
-			return store.hasForeground(app, fallbackKey);
+			return !store.effective().error;
 		},
 		/** Persist the user's explicit foreground (L4) grant. */
 		allowForeground(app: TargetAppInfo | undefined): void {
@@ -90,7 +78,7 @@ export function createPolicyGate(options: GateOptions): PolicyGate {
 		tierForApp(app: TargetAppInfo | undefined, fallbackKey: string): AppTier {
 			const configured = (staticStore ?? storeFor(undefined)).lookup(app, fallbackKey);
 			if (configured === "deny") return "view";
-			return configured ?? catalogueTierOf(app);
+			return configured ?? "full";
 		},
 		describe(): Record<string, unknown> {
 			return (staticStore ?? storeFor(undefined)).describe();

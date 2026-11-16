@@ -28,8 +28,7 @@ import { createCuSessionTool } from "./tools/session-admin.ts";
 import { createWindowTool } from "./tools/windows-admin.ts";
 import type { ListWindowsDetails, WindowRow } from "./tools/window-types.ts";
 import type { ActionIntent, ApprovalDiagnostic, BrokerEvent } from "./broker/protocol.ts";
-import { requiresOpenConfirmation, type OpenTarget } from "./open-target.ts";
-import { approvalCopy } from "./constants/copy.ts";
+import { isExternalOpen, type OpenTarget } from "./open-target.ts";
 import { createBrokerApprovalHandler } from "./broker/approval-ui.ts";
 import { processAncestry } from "./broker/identity.ts";
 import { leaseConflictResult } from "./broker/lease-result.ts";
@@ -655,7 +654,7 @@ export async function ensureComputerUseBroker(ctx: ExtensionContext): Promise<vo
 					while (brokerRevocations.length > 8) brokerRevocations.shift();
 				}
 			},
-			onApproval: createBrokerApprovalHandler(ctx, recordApproval),
+			onApproval: createBrokerApprovalHandler(recordApproval),
 			onApprovalDiagnostic: recordApproval,
 		});
 		resourceScheduler.setBroker(brokerSession.broker);
@@ -2159,9 +2158,6 @@ async function performDesktopTransaction(params: ActParams, actions: UiAction[],
 		}
 	}
 	const lease = transactionLeaseContext(actions, look.parsedOutline, openTargets);
-	if (requiresOpenConfirmation(lease.action) && !brokerSession) {
-		throw new LeaseUnavailableError("approval_unavailable", "External or unknown AXOpen targets require a broker approval; no action was dispatched.");
-	}
 	return await withWindowWriteLock(target, async (lease) => {
 		const execution = await dispatchUiTransaction(actions, target, look, headless, signal, lease, openTargets);
 		const executedActions = actions.slice(0, execution.actionCount ?? actions.length);
@@ -2217,7 +2213,7 @@ async function performDesktopTransaction(params: ActParams, actions: UiAction[],
 
 /**
  * Describe the transaction to the policy layer: action names for tiering and the
- * resolved element text for sensitive-action matching. The label is a summary,
+ * resolved element text and external-open metadata. The label is a summary,
  * not the full extracted text the model already sees.
  */
 function transactionLeaseContext(actions: UiAction[], outline: Outline | undefined, openTargets: Array<OpenTarget | undefined> = []): LeaseContext {
@@ -2228,9 +2224,9 @@ function transactionLeaseContext(actions: UiAction[], outline: Outline | undefin
 			...(action.action === "open" ? { openTarget: openTargets[index]?.kind ?? "unknown" } : {}) };
 	});
 	const opens = intents.filter((intent) => intent.name === "open");
-	const target = opens.find(requiresOpenConfirmation) ?? opens[0];
+	const target = opens.find(isExternalOpen) ?? opens[0];
 	return { action: { name: names.join("+"),
-		label: actions.length === 1 ? intents[0].label : target && requiresOpenConfirmation(target) ? approvalCopy.openBatch(intents) : undefined,
+		label: actions.length === 1 ? intents[0].label : target && isExternalOpen(target) ? JSON.stringify(intents) : undefined,
 		...(target ? { openTarget: target.openTarget } : {}) } };
 }
 

@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { toBoolean, toFiniteNumber, toOptionalString } from "../coerce.ts";
 import type { PlatformDiagnostics } from "../types.ts";
 import { resolveMacosHelperAppPath, resolveMacosHelperSocketPath } from "./helper-path.mjs";
-import { helperMismatchMessage, helperStopCopy } from "../../constants/copy.ts";
+import { helperMismatchMessage } from "../../constants/copy.ts";
 
 const COMMAND_TIMEOUT_MS = 15_000;
 // Protocol 8 adds user activity, clipboard, app/window management, system
@@ -288,42 +288,18 @@ export class MacosHelperClient {
 	}
 
 	async ensureProtocol(signal?: AbortSignal): Promise<PlatformDiagnostics> {
+		if (this.protocolMismatch) throw this.protocolMismatch;
 		const diagnostics = await this.diagnosticsCommand(signal);
 		const executableMatches = await isResolvedHelperExecutable(diagnostics.executablePath);
 		if (diagnostics.protocolVersion === HELPER_PROTOCOL_VERSION && executableMatches) return diagnostics;
 
 		// A different session may own this daemon. Never stop/relaunch it merely
 		// because this package needs the new background-text protocol.
-		throw new HelperMismatchError(
+		this.protocolMismatch = new HelperMismatchError(
 			helperMismatchMessage(HELPER_PROTOCOL_VERSION, HELPER_APP_EXECUTABLE_PATH, diagnostics.protocolVersion, diagnostics.executablePath),
 			diagnostics,
 		);
-	}
-
-	/** Ask once to stop an old helper; only a separate updater and new session can repair it. */
-	async ensureProtocolWithConsent(
-		confirmStop: ((diagnostics: PlatformDiagnostics) => Promise<boolean>) | undefined,
-		signal?: AbortSignal,
-	): Promise<PlatformDiagnostics> {
-		if (this.protocolMismatch) throw this.protocolMismatch;
-		try {
-			return await this.ensureProtocol(signal);
-		} catch (error) {
-			if (!(error instanceof HelperMismatchError)) throw error;
-			this.protocolMismatch = error;
-			if (confirmStop && await confirmStop(error.diagnostics)) {
-				throwIfAborted(signal);
-				try {
-					// Do not use command(): shutdown must never launch a missing daemon.
-					await this.daemonCommand("shutdown", {}, 2_000, signal);
-					this.daemonAvailable = false;
-				} catch (cause) {
-					this.protocolMismatch = new HelperMismatchError(`${error.message} ${helperStopCopy.unconfirmed}`, error.diagnostics);
-					this.protocolMismatch.cause = cause;
-				}
-			}
-			throw this.protocolMismatch;
-		}
+		throw this.protocolMismatch;
 	}
 }
 

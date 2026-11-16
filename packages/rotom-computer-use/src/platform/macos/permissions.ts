@@ -2,8 +2,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { ensurePermissions, type PermissionKind, type PermissionStatus } from "../../permissions.ts";
 import { toBoolean, toFiniteNumber, toOptionalString } from "../coerce.ts";
 import type { PlatformReadyState } from "../types.ts";
-import { helperStopCopy } from "../../constants/copy.ts";
-import { HELPER_APP_PATH, HELPER_PROTOCOL_VERSION, macosHelper } from "./helper.ts";
+import { HELPER_APP_PATH, macosHelper } from "./helper.ts";
 import { assertPlatformArchitecture } from "../architecture.ts";
 
 const GRANT_INSTRUCTIONS =
@@ -96,12 +95,7 @@ export async function ensureMacosReady(
 	if (!(await macosHelper.ensureDaemon(signal))) {
 		throw new Error(`pi-computer-use helper app daemon did not start. Helper app: ${HELPER_APP_PATH}`);
 	}
-	const helperDiagnostics = await macosHelper.ensureProtocolWithConsent(
-		ctx.hasUI
-			? async (running) => await ctx.ui.confirm(helperStopCopy.title, helperStopCopy.message(running.protocolVersion, HELPER_PROTOCOL_VERSION), { signal })
-			: undefined,
-		signal,
-	);
+	const helperDiagnostics = await macosHelper.ensureProtocol(signal);
 	assertPlatformArchitecture("macOS", helperDiagnostics);
 
 	const now = Date.now();

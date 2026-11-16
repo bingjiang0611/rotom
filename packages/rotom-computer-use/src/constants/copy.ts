@@ -9,18 +9,10 @@ export const helperMismatchMessage = (
 export const helperUnavailableGuidance =
 	"Computer Use is unavailable in this session. 运行 rotom helper update（它会询问是否停止旧 helper），完成后新开 rotom 会话。 Do not call Computer Use tools again for this; use the browser tools for web pages, or report the blocker to the user.";
 
-/** Asked once per session before stopping a helper that other sessions may own. */
-export const helperStopCopy = {
-	unconfirmed: "Helper shutdown was not confirmed. No restart or shutdown retry was attempted.",
-	title: "Computer Use helper is out of date",
-	message: (actualProtocol: number, expectedProtocol: number): string =>
-		`旧 helper 的协议是 ${actualProtocol}，此 rotom 需要 ${expectedProtocol}。停止旧 helper，以便运行 rotom helper update？使用它的其他 rotom 会话会失去 Computer Use。无论是否停止，都请运行 rotom helper update（它会询问是否停止旧 helper），完成后新开 rotom 会话；此处不会重启或安装 helper。`,
-};
-
 export const takeoverCopy = {
 	unsupportedHelper: "The helper does not support safe pause/resume. Use a separately built helper; the running helper was not changed.",
 	started(app: string, pid: number, expiresAt: string): string {
-		return `Foreground taken for ${app} (pid ${pid}) until ${expiresAt}. Real input pauses the takeover; it resumes after 30 quiet seconds if authorization and the original window remain valid. Esc or the stop menu ends it permanently.`;
+		return `Foreground taken for ${app} (pid ${pid}) until ${expiresAt}. Real input pauses the takeover; it resumes after 30 quiet seconds if policy and the original window remain valid. Esc or the stop menu ends it permanently.`;
 	},
 };
 
@@ -36,31 +28,4 @@ export const brokerCopy = {
 		return `${tool} was blocked before native input: ${message}${held}${next}`;
 	},
 	notDispatched: "act_ui evidence: dispatch=not_started; verification=not_reported. The lease failed before native input; this does not verify the current application state.",
-};
-
-/** Three-way app authorization card shown to the human, never to the model. */
-export const approvalCopy = {
-	action: (name?: string) => `Action: ${name ?? "unknown"}`,
-	allowSession: "Allow for this session",
-	allowOnce: "Allow this action",
-	externalOpenWarning: "会用其他程序打开，可能切到前台。",
-	openWarning(warning?: string): string {
-		if (!warning) return approvalCopy.externalOpenWarning;
-		if (warning.includes(approvalCopy.externalOpenWarning)) return warning;
-		return `${warning}\n${approvalCopy.externalOpenWarning}`;
-	},
-	openBatch: (actions: Array<{ name: string; label?: string }>) => JSON.stringify(actions),
-	allowAlways: "Always allow this app",
-	deny: "Deny",
-	options(): [string, string, string] {
-		return [approvalCopy.allowSession, approvalCopy.allowAlways, approvalCopy.deny];
-	},
-	title(input: { app: string; tier: string; action: string; label?: string; sensitive?: string; warning?: string }): string {
-		const lines = [`Computer Use: allow an agent to control ${input.app}? (tier: ${input.tier})`];
-		lines.push(input.action);
-		if (input.label) lines.push(`Target: ${JSON.stringify(input.label)}`);
-		if (input.sensitive) lines.push(input.sensitive);
-		if (input.warning) lines.push(input.warning);
-		return lines.join("\n");
-	},
 };

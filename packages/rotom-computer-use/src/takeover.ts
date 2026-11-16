@@ -7,8 +7,8 @@ import type { PlatformApp } from "./platform/types.ts";
 /**
  * Foreground takeover (PLAN §7, L4).
  *
- * The broker owns the decision: it checks the user's foreground grant, the 10s of
- * idleness (or a fresh "let it take over" click) and that nobody else holds the
+ * The broker owns the decision: it checks the effective policy, the 10s of
+ * idleness (or a fresh user takeover shortcut) and that nobody else holds the
  * foreground. This class is the client half: it acquires the global lease, asks
  * the helper to show the border, keeps the lease alive, and stops using it the
  * moment the helper reports a pause. The lease keeps renewing while paused.
@@ -145,7 +145,7 @@ export class TakeoverController {
 			return { ok: false, code: "denied", message: `The takeover border could not be shown: ${error instanceof Error ? error.message : String(error)}` };
 		}
 
-		if (this.active?.leaseId !== reply.lease.leaseId) return { ok: false, code: "denied", message: "The takeover ended while it was being admitted. Request a new authorization." };
+		if (this.active?.leaseId !== reply.lease.leaseId) return { ok: false, code: "denied", message: "The takeover ended while it was being admitted. Re-check its state before requesting a new lease." };
 		this.active.pending = false;
 		return { ok: true, pid, app, leaseId: reply.lease.leaseId, expiresAt: reply.lease.expiresAt };
 	}

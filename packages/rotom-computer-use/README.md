@@ -29,6 +29,10 @@ In short: it gives an agent a controlled way to operate desktop software.
 
 Computer use is most helpful when the only available interface is the app on screen.
 
+## Operation access in this fork
+
+Computer Use actions do not ask for user authorization, including sensitive controls, forced quit, external file/App opens and foreground takeover. Unconfigured Apps default to `full`; explicit user/project deny/tier restrictions remain authoritative. Foreground takeover still respects headless mode, helper activity evidence, idle detection, concurrent leases and user stop. Existing policy `sensitive` and foreground allowlist fields no longer require action approval; they are retained for file compatibility, not written as fabricated grants. Older broker approval events are accepted once without displaying a dialog. OS Accessibility/Screen Recording permissions still require normal system setup. A helper protocol/path mismatch fails without a stop prompt or touching that helper; update separately and open a new session.
+
 ## Update the rotom macOS helper
 
 rotom synchronizes an existing managed macOS helper after `rotom update` and before normal session startup (including npm upgrades with `--ignore-scripts`). No separate helper command, stop prompt or signing variable is needed. An unchanged native source hash is a no-op. Updates reuse the unique valid signing identity matching the installed helper's Authority; an already ad-hoc helper stays ad-hoc, but a certificate-signed helper is never silently downgraded. The candidate is prepared and verified before an identity-checked socket shutdown and occupancy readback. Unknown shutdown/replacement retains the update lock and blocks automatic replay. The next Computer Use call starts the installed helper. First-use installation and OS permission prompts remain unchanged. Explicit custom app paths are caller-managed. `rotom helper update` remains available as a manual repair command with its existing stop confirmation. See [lifecycle and signing limits](UPSTREAM.md#helper-lifecycle-and-signing).
