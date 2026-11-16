@@ -59,11 +59,10 @@ export function createPolicyGate(options: GateOptions): PolicyGate {
 			const effective = store.effective();
 			const sensitive = effective.sensitive ? matchSensitiveAction(input.action) : undefined;
 			const category = classifyApp(app);
-			// A card authorizes an app by identity. Without one (e.g. a browser CDP
-			// resource) there is nothing to persist, so the tier check stands alone.
-			const identified = Boolean(app?.bundleId?.trim() || app?.appName?.trim());
+			// Ordinary App access uses the effective tier without a first-use grant.
+			// Sensitive actions and external opens retain their separate confirmation.
 			const externalOpen = requiresOpenConfirmation(input.action);
-			const requiresApproval = externalOpen || Boolean(sensitive) || (identified && configured === undefined);
+			const requiresApproval = externalOpen || Boolean(sensitive);
 			return {
 				tier,
 				requiresApproval,

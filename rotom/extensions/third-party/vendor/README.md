@@ -26,11 +26,12 @@ The `.rotom.5` baseline also included the terminal-projection fix: projection fa
 
 ## Locked Computer Use distribution
 
-The default source product selects **`@injaneity/pi-computer-use@0.5.1-rotom.7`**, independently maintained in `packages/rotom-computer-use/`. This is a Computer Use fork, not a Pi fork.
+The default source product selects **`@injaneity/pi-computer-use@0.5.1-rotom.8`**, independently maintained in `packages/rotom-computer-use/`. This is a Computer Use fork, not a Pi fork.
 
-- Archive: `injaneity-pi-computer-use-0.5.1-rotom.7.tgz` (earlier archives are retained unchanged).
-- SHA256: `954e2a5b2307890fbb72f87159980878979622dd6673b0c6539026ceb7394b67`
-- SHA512 SRI: `sha512-LPAR1IW6EmSzY0BB7WXvGuU6hJWH1DIyI56pO6G/D985mK9bM+nq1VMnO3PUv8kGGkigtLGa3grYhuhWM0b10g==`
+- Archive: `injaneity-pi-computer-use-0.5.1-rotom.8.tgz` (earlier archives are retained unchanged).
+- SHA256: `b0124ccb4cc4c1b870b5b4b41f32f6de69890ca9e358a11c201d530b7b63a987`
+- SHA512 SRI: `sha512-lvju3nDQxfHQ83+4RLEgUR3hZmqKvMxi7oyJWyIfHH0MJjoP0V2FYcZ1wSxQE/ws/9yqHXdgHgSNs/2BVIooQg==`
+- `.rotom.8` removes first-use App approval for ordinary operations, including child/headless sessions, without persisting fabricated grants. Explicit deny/tier policies, sensitive-action/external-open confirmation, foreground takeover and user stop are unchanged. All 8 native prebuilt files are byte-identical to `.rotom.7`; no live helper is replaced. The two new broker cases fail on baseline with `approval_unavailable` and pass after the change. Component checks cover 336 tests (334 passed initially; the two compiler-dependent cases passed after installing the declared compiler) and full TypeScript checking. Real Preview interaction remains unverified.
 - `.rotom.7` creates and validates the private broker socket directory before spawning its daemon, fixing first-use `spawn node ENOENT`. All 8 native prebuilt files are byte-identical to `.rotom.6`; no installed helper is replaced or restarted by this source-only fix.
 - `.rotom.6` defers desktop permission setup to the first Computer Use tool call. Starting an interactive session no longer asks for Screen Recording; native helper bytes and the `.rotom.5` managed-update policy are unchanged.
 - `.rotom.5` adds automatic product/helper synchronization. All 8 native prebuilt files remain byte-identical to the published `.rotom.4`; only the installer/source layer changes. This is not a replacement of the published rotom 0.2.0 artifact.

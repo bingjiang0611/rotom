@@ -52,6 +52,10 @@ Automatic synchronization authorizes stopping the shared helper without another 
 
 Manual installation retains the explicit `PI_COMPUTER_USE_ALLOW_ADHOC_UPDATE=1` override. Automatic synchronization only preserves ad-hoc trust when the existing app is already ad-hoc; it does not bypass system execution policy or permission prompts. No personal development-certificate signatures are included in the public archive. The `.rotom.5` change is JavaScript-only and reuses `.rotom.4` native prebuilt bytes without rebuilding Swift.
 
+## Ordinary App access without a first-use card (.rotom.8)
+
+Ordinary operations now use the broker's effective App tier without requesting a first-use App grant, including headless and child sessions. Existing user/project denials and tier restrictions still apply. Sensitive labels, external file/App opens and explicit foreground takeover retain their separate confirmation. No fabricated user grant is persisted. The change is TypeScript-only; all native prebuilt bytes and both protocol versions are unchanged from `.rotom.7`. No live installation or helper is replaced by this source change.
+
 ## Rebuilding the archive
 
 From this package directory, restore only the unchanged Windows/Linux artifacts from the pinned archive, then rebuild every macOS artifact:

@@ -1,0 +1,15 @@
+[
+  {
+    "schema": "rotom-loop-ledger/v1",
+    "id": "L-2026-11-16-computer-use-default-app-access",
+    "date": "2026-11-16",
+    "title": "Remove first-use Computer Use App authorization for ordinary actions",
+    "hypothesis": "An explicit user-requested default-access policy removes unnecessary App authorization interruptions without bypassing effective tiers, explicit denials, sensitive-action confirmation or foreground takeover consent.",
+    "change": "mechanism",
+    "measurement": "No model/provider calls. Two new real BrokerCore cases for headless root/child sessions fail on public baseline cc733385 with approval_unavailable, then pass with the change, granting a lease without an approval event or persisted user grant. The complete component run passes 334/336 before dev dependencies are installed; the two compiler-dependent failures are missing compiler infrastructure, and both pass on rerun with the declared TypeScript 7 dependency (all five compiler controls pass). Full component typecheck passes. Focused policy/approval/authority/external-open cases pass, archive/identity/signature checks pass 11/11, and default/full public-runtime smoke exits 0. The new cases also pass 2/2 against the actual extracted .rotom.8 archive. All eight native prebuilt files are byte-identical to .rotom.7.",
+    "result": "Shipped source default: ordinary App access does not ask for a first-use App grant, including child/headless sessions. Existing explicit deny/tier limits, sensitive labels, external file/App opens, foreground takeover confirmation, broker arbitration and user stop remain intact. Product component version/integrity/archive pins are synchronized to 0.5.1-rotom.8. No live installation/helper was overwritten, no desktop write was performed, and real Preview interaction remains unverified. This is a deterministic implementation of a user-requested policy change, not a model-quality or token/cost optimization; model-driven gates were not run. Expected harvest impact is fewer unnecessary user-decision interruptions; aggregate impact remains unmeasured.",
+    "evidence": "improved",
+    "decision": "shipped",
+    "source": "packages/rotom-computer-use/test/default-app-access.test.ts"
+  }
+]

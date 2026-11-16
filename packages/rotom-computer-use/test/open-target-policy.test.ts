@@ -27,7 +27,7 @@ test("only positively classified non-package directories avoid external-open con
 	assert.equal(typeof macosBackend.inspectOpenTarget, "function");
 });
 
-for (const standing of ["session", "always"] as const) test(`real broker transport and scheduler: ${standing} grants cannot bypass a denied external open; zero dispatches`, async () => {
+for (const standing of ["default", "always"] as const) test(`real broker transport and scheduler: ${standing} App access cannot bypass a denied external open; zero dispatches`, async () => {
 	const root = mkdtempSync(path.join(tmpdir(), "cu-open-policy-"));
 	const globalPath = path.join(root, "policy.json");
 	// Disabling ordinary sensitive-label rules must not disable O1.
@@ -50,7 +50,7 @@ for (const standing of ["session", "always"] as const) test(`real broker transpo
 			app: { appName: "Finder", bundleId: "com.apple.finder" }, action,
 		});
 		await write({ name: "open", openTarget: "directory", label: "Downloads" });
-		assert.equal(cards.length, standing === "session" ? 1 : 0);
+		assert.equal(cards.length, 0, "ordinary folder navigation needs no first-use App grant");
 		cards.length = 0;
 		dispatches = 0;
 		decision = "deny";

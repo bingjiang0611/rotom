@@ -47,7 +47,7 @@ async function call(core: BrokerCore, agentId: string, request: BrokerRequestInp
 }
 
 function acquire(core: BrokerCore, agentId: string, extra: Record<string, unknown> = {}): Promise<BrokerReply> {
-	return call(core, agentId, { type: "acquire", resourceKey: "desktop-pid:900", app: { appName: "TextEdit", bundleId: "com.apple.TextEdit" }, action: { name: "press" }, ...extra });
+	return call(core, agentId, { type: "acquire", resourceKey: "desktop-pid:900", app: { appName: "TextEdit", bundleId: "com.apple.TextEdit" }, action: { name: "press", label: "Send" }, ...extra });
 }
 
 test("a subagent's card goes to the nearest UI-capable ancestor, and that answer gates the write", async () => {
@@ -118,7 +118,7 @@ test("a denial and a timeout both refuse the write, and nothing is dispatched", 
 	}
 });
 
-test("allow_session is cached per agent, always is persisted, and a sensitive label asks again", async () => {
+test("sensitive allow_session is cached per agent, always is persisted, and a different sensitive label asks again", async () => {
 	const root = tempRoot();
 	const { core, events, policy } = setup(root);
 	try {

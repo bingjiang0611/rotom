@@ -93,15 +93,14 @@ test("manage_app quit is refused for an app the user set to view tier", async ()
 	}
 });
 
-test("an agent without a UI ancestor cannot read the clipboard", async () => {
+test("an agent without a UI ancestor can read the clipboard without an App grant", async () => {
 	const { core, events, cleanup } = setup();
 	try {
-		// No parent session, no UI: there is nobody to show a card to.
 		await hello(core, registration("session:headless", { hasUI: false }));
 		const reply = await acquire(core, "session:headless", clipboardIntent("get"));
-		assert.equal(reply.ok, false);
-		assert.equal((reply as { code?: string }).code, "approval_unavailable");
-		assert.equal(events.filter((entry) => entry.event.event === "approval").length, 0, "no card can be delivered, so none is queued");
+		assert.equal(reply.ok, true);
+		assert.equal(core.leases.all().length, 1);
+		assert.equal(events.filter((entry) => entry.event.event === "approval").length, 0);
 	} finally {
 		cleanup();
 	}
@@ -132,8 +131,8 @@ test("manage_window resize on an app another agent holds is resource_busy", asyn
 });
 
 test("an app the user already allowed can be written to without a UI", async () => {
-	// The documented way to keep unattended runs working: grant the app in
-	// `policy.json` first. Without a grant the same agent gets approval_unavailable.
+	// Existing standing grants remain compatible; ordinary access no longer
+	// requires creating one for every new app.
 	const { core, policy, cleanup } = setup();
 	try {
 		policy.allowApp(DOC_APP, "full");
@@ -142,9 +141,8 @@ test("an app the user already allowed can be written to without a UI", async () 
 		assert.equal(allowed.ok, true, `a pre-authorized app must be writable headlessly: ${JSON.stringify(allowed)}`);
 
 		const other = { appName: "Notes", bundleId: "com.apple.Notes" };
-		const refused = await acquire(core, "session:headless", windowIntent("resize", 901, 13, other));
-		assert.equal(refused.ok, false, "an app with no grant still needs a card");
-		assert.equal((refused as { code?: string }).code, "approval_unavailable");
+		const unconfigured = await acquire(core, "session:headless", windowIntent("resize", 901, 13, other));
+		assert.equal(unconfigured.ok, true, "ordinary App access also works without a standing grant");
 	} finally {
 		cleanup();
 	}

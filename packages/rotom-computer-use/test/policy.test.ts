@@ -153,7 +153,7 @@ test("host application is resolved from the pid chain and excluded from roots", 
 	assert.equal(isHostRoot({ pid: 100, appName: "iTerm2" }, host), false, "pid-only match against the resolved host");
 });
 
-test("the policy gate refuses by tier, asks for unknown apps, and forces a card for sensitive labels", () => {
+test("the policy gate refuses by tier, allows ordinary apps, and forces a card for sensitive labels", () => {
 	const root = tempRoot();
 	try {
 		const policy = store(root, { apps: { "com.apple.Stocks": "deny" } });
@@ -161,7 +161,7 @@ test("the policy gate refuses by tier, asks for unknown apps, and forces a card 
 
 		const unknownApp = gate.check({ agentId: "a", resourceKey: "desktop-pid:1", app: { appName: "TextEdit", bundleId: "com.apple.TextEdit" }, action: { name: "press" } });
 		assert.equal(unknownApp.tier, "full");
-		assert.equal(unknownApp.requiresApproval, true, "an app without a standing grant needs a decision");
+		assert.equal(unknownApp.requiresApproval, false, "ordinary App access needs no standing grant");
 
 		const ide = gate.check({ agentId: "a", resourceKey: "desktop-pid:2", app: { bundleId: "com.jetbrains.intellij" }, action: { name: "press" } });
 		assert.equal(ide.tier, "click");
