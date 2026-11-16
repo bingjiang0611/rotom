@@ -1,8 +1,8 @@
 import { isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const SUPPORTED_HARBOR_VERSION = "0.22.0";
-export const DEV_AGENT_PI_VERSION = "0.84.3";
+export const SUPPORTED_HARBOR_VERSION = "0.26.0";
+export const DEV_AGENT_PI_VERSION = "1.4.0";
 export const SWE_BENCH_MULTILINGUAL_DATASET = "swebench_multilingual@1.0";
 export const SWE_BENCH_MULTILINGUAL_REGISTRY =
 	"https://raw.githubusercontent.com/harbor-framework/harbor/b37833221e27435a18d7acdd41d875cdc2831893/registry.json";
@@ -10,15 +10,22 @@ export const TERMINAL_BENCH_2_DATASET = "terminal-bench/terminal-bench-2";
 export const TERMINAL_BENCH_21_DATASET = "terminal-bench@2.1";
 export const TERMINAL_BENCH_21_REVISION = "d49e28f1e4ddd13d289e85a5f312a66750951932";
 export const TERMINAL_BENCH_21_REGISTRY = fileURLToPath(new URL("../profiles/terminal-bench-2.1.registry.json", import.meta.url));
+// Pinned to the digest behind FrontierHarness Eval v1.1 (62 tasks); @latest resolved to the same set on 2026-11-15.
+export const FRONTIER_HARNESS_EVAL_DATASET =
+	"frontier-harness-eval/frontier-harness-eval@sha256:9236400fc1a6619eb72a663445c580417be9bbbab32f816c7dff76d0a96ab24a";
 export const NATIVE_PI_HARBOR_AGENT = "benchmark_adapters.dev_agent_pi:NativePi";
 export const DEV_AGENT_HARBOR_AGENT = "benchmark_adapters.dev_agent_pi:DevAgentPi";
 export const AMD64_APPLE_CONTAINER_ENVIRONMENT =
 	"benchmark_adapters.harbor_environment:Amd64AppleContainerEnvironment";
 
-export type BenchmarkName = "swe-bench-multilingual" | "terminal-bench-2" | "terminal-bench-2.1";
-const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
+export type BenchmarkName =
+	| "swe-bench-multilingual"
+	| "terminal-bench-2"
+	| "terminal-bench-2.1"
+	| "frontier-harness-eval";
+const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 export type BenchmarkArm = "dev-agent" | "native-pi";
-export type BenchmarkEnvironment = "apple-container-amd64" | "apple-container-native" | "docker";
+export type BenchmarkEnvironment = "apple-container-amd64" | "apple-container-native" | "docker" | "runta";
 
 export type BenchmarkRunnerOptions = {
 	benchmark: BenchmarkName;
@@ -50,6 +57,7 @@ function parseBenchmarkName(value: string): BenchmarkName {
 	if (value === "swe-bench-multilingual" || value === "swe") return "swe-bench-multilingual";
 	if (value === "terminal-bench-2" || value === "terminal") return "terminal-bench-2";
 	if (value === "terminal-bench-2.1") return "terminal-bench-2.1";
+	if (value === "frontier-harness-eval" || value === "frontier") return "frontier-harness-eval";
 	throw new TypeError(`Unknown benchmark: ${value}`);
 }
 
@@ -99,11 +107,16 @@ function nonEmpty(name: string, value: string): string {
 	return trimmed;
 }
 
-function parseEnvironment(value: string): BenchmarkEnvironment {
-	if (value === "apple-container-amd64" || value === "apple-container-native" || value === "docker") {
+export function parseEnvironment(value: string): BenchmarkEnvironment {
+	if (
+		value === "apple-container-amd64" ||
+		value === "apple-container-native" ||
+		value === "docker" ||
+		value === "runta"
+	) {
 		return value;
 	}
-	throw new TypeError("Environment must be apple-container-amd64, apple-container-native, or docker.");
+	throw new TypeError("Environment must be apple-container-amd64, apple-container-native, docker, or runta.");
 }
 
 const protectedPassthroughOptions = [
@@ -158,7 +171,8 @@ export function parseBenchmarkRunnerArgs(
 	defaults: ParseDefaults,
 	environment: NodeJS.ProcessEnv = process.env,
 ): BenchmarkRunnerOptions {
-	if (args.length === 0) throw new TypeError("Select swe-bench-multilingual, terminal-bench-2 or terminal-bench-2.1.");
+	if (args.length === 0)
+		throw new TypeError("Select swe-bench-multilingual, terminal-bench-2, terminal-bench-2.1 or frontier-harness-eval.");
 	const benchmark = parseBenchmarkName(args[0]);
 	let arm: BenchmarkArm = "dev-agent";
 	let piVersion = DEV_AGENT_PI_VERSION;
@@ -194,7 +208,7 @@ export function parseBenchmarkRunnerArgs(
 		}],
 		["--thinking", (value) => {
 			thinking = THINKING_LEVELS.find((level) => level === value);
-			if (thinking === undefined) throw new TypeError("Thinking must be off/minimal/low/medium/high/xhigh.");
+			if (thinking === undefined) throw new TypeError("Thinking must be off/minimal/low/medium/high/xhigh/max.");
 		}],
 		["--provider", (value) => (provider = nonEmpty("Provider", value))],
 		["--model", (value) => (model = nonEmpty("Model", value))],
@@ -310,6 +324,8 @@ export function buildHarborBenchmarkArgs(options: BenchmarkRunnerOptions, genera
 		args.push("--env", AMD64_APPLE_CONTAINER_ENVIRONMENT);
 	} else if (options.environment === "apple-container-native") {
 		args.push("--env", "apple-container");
+	} else if (options.environment === "runta") {
+		args.push("--env", "runta");
 	} else {
 		args.push("--env", "docker");
 	}
@@ -323,6 +339,8 @@ export function buildHarborBenchmarkArgs(options: BenchmarkRunnerOptions, genera
 		);
 	} else if (options.benchmark === "terminal-bench-2.1") {
 		args.push("--dataset", TERMINAL_BENCH_21_DATASET, "--registry-path", TERMINAL_BENCH_21_REGISTRY);
+	} else if (options.benchmark === "frontier-harness-eval") {
+		args.push("--dataset", FRONTIER_HARNESS_EVAL_DATASET);
 	} else {
 		args.push("--dataset", TERMINAL_BENCH_2_DATASET);
 	}
@@ -334,19 +352,21 @@ export function buildHarborBenchmarkArgs(options: BenchmarkRunnerOptions, genera
 }
 
 export const benchmarkUsage = `Usage:
-  npm run benchmark -- doctor [--live]
+  npm run benchmark -- doctor [--environment=<id>] [--live]
   npm run benchmark -- swe-bench-multilingual --provider=<id> --model=<id> [options]
   npm run benchmark -- terminal-bench-2 --provider=<id> --model=<id> [options]
   npm run benchmark -- terminal-bench-2.1 --provider=<id> --model=<id> [options]
+  npm run benchmark -- frontier-harness-eval --provider=<id> --model=<id> [options]
 
 Runner options:
   --arm=dev-agent|native-pi               Default: dev-agent; same Node 24/Pi installer
-  --pi-version=X.Y.Z                     Exact Pi version; default: 0.84.3
-  --thinking=high                        Explicit Pi thinking level for both arms
+  --pi-version=X.Y.Z                     Exact Pi version; default: 1.4.0
+  --thinking=high                        Explicit Pi thinking level for both arms (max included)
   --product=/absolute/path/to/rotom    Product worktree or snapshot to evaluate
   --environment=apple-container-amd64    Default; Harbor + Apple container + Rosetta
   --environment=apple-container-native   Native arm64 images only
   --environment=docker                   Official Docker backend
+  --environment=runta                    Harbor + Runta sandboxes; needs harbor[runta]
   --n-tasks=N                            Default: 1
   --all                                  Run the complete dataset
   --task=NAME                            Repeatable task-name filter
