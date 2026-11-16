@@ -1,0 +1,66 @@
+{
+  "state": "published",
+  "package": "@bingjiang0611/rotom",
+  "version": "0.2.3",
+  "tag": "latest",
+  "sourceCommit": "c7fcdde8a4935ac870a0973a432e5613ea39360e",
+  "sha256": "5a20c3c4ced53fe2e68fed57dfa9a41778906be95a265717342cb02ff4569f23",
+  "shasum": "5773f3c6050f9193f1e9b6046311d25d13161631",
+  "integrity": "sha512-pjrir1u79FZdp8ZRRKe2JgkCY0m8rm4WVd0LD7GoPWrv2rz0R8UztmMCpEmHOhl8Wsx5Kz9igBQP0UPbSh+mvw==",
+  "fileCount": 19435,
+  "compressedBytes": 34947692,
+  "unpackedBytes": 150150878,
+  "tarball": "https://registry.npmjs.org/@bingjiang0611/rotom/-/rotom-0.2.3.tgz",
+  "successfulFinalPacks": 1,
+  "registryVerified": true,
+  "publishedBy": "Maintainer in foreground terminal; agent verified registry metadata and downloaded bytes.",
+  "checks": {
+    "actualArtifactCheckPersonal": {
+      "main": 598,
+      "goal": 99,
+      "offlineProviders": "pass",
+      "exit": 0
+    },
+    "installedOperationCases": 12,
+    "smokes": {
+      "default": {
+        "activeTools": 26,
+        "lifecycleErrors": 0
+      },
+      "full": {
+        "activeTools": 33,
+        "lifecycleErrors": 0
+      }
+    },
+    "installedFiles": "all 19435 byte-identical; no extra files at daily installation",
+    "componentArchiveComparison": "Only package.json, README.md and UPSTREAM.md differ between .rotom.9 and .rotom.10; implementation and all 8 native files are byte-identical.",
+    "upgrade": "verified registry 0.2.2 tgz to final 0.2.3 tgz; all 19435 files match; user sentinel preserved",
+    "uninstall": "package/bin removed; user sentinel preserved",
+    "publicHistoryAudit": "pass before atomic release push",
+    "artifactAudit": "pass"
+  },
+  "globalInstall": {
+    "state": "verified",
+    "productVersion": "0.2.3",
+    "piVersion": "1.5.2-rotom.1",
+    "computerUseVersion": "0.5.1-rotom.10",
+    "installedFilesByteIdentical": 19435,
+    "method": "Explicit user request: relocated the completed, final-artifact-validated npm global prefix to a new managed version directory on the same filesystem, ignore-scripts; rechecked files and both smokes before atomically switching the global rotom symlink.",
+    "oldInstallationsPreserved": true,
+    "sharedBrokerRestarted": false,
+    "nativeHelperRestarted": false
+  },
+  "preservedFailures": [
+    "Before freeze, distribution gate exposed stale Computer Use README/notices. Separate .rotom.10 documentation/metadata repack corrected identity without rewriting .rotom.9.",
+    "Initial clean-clone gate lacked locked maintenance dependencies and inherited an explicit trace-disable flag. Installed dependencies and removed only the conflicting validation flags; assertions/deadlines unchanged.",
+    "One SDK cascade readiness deadline failed; focused prerequisites and final complete gate passed with the original deadline.",
+    "Daily-prefix npm extraction timed out; no installation process remained and global entry was unchanged. Quarantined partial prefix and relocated the previously completed npm installation, then reran verification at its final path."
+  ],
+  "limitations": [
+    "No real desktop GUI task, live Provider, browser/phone or cross-platform acceptance.",
+    "No daily native-helper synchronization or signing identity reuse acceptance; protocols remain helper 11 / broker 2.",
+    "Active sessions do not hot-reload; no existing installation directory or shared broker was overwritten or restarted.",
+    "Older standard npm-prefix package directory remains; current PATH entry targets the new managed prefix.",
+    "Temporary npm authentication cleanup is a maintainer foreground-terminal handoff; no credentials were read by the agent."
+  ]
+}
