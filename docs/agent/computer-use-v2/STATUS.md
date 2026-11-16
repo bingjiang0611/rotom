@@ -8,7 +8,7 @@ Computer Use `0.5.1-rotom.9` 已取消全部操作授权，包括敏感操作、
 
 ## 合入与发布边界
 
-- main 源码组件：`@injaneity/pi-computer-use@0.5.1-rotom.9`；helper 协议 **11**，broker 协议 **2**。`.rotom.5` 接入的 [helper 随产品自动同步](STATUS-8-auto-upgrade.md) 已随 npm 0.2.1 发布，不属于 npm 0.2.0；后续 `.rotom.9` 免授权源码改动尚未据此发布。
+- main 源码组件：`@injaneity/pi-computer-use@0.5.1-rotom.10`；helper 协议 **11**，broker 协议 **2**。`.rotom.5` 接入的 [helper 随产品自动同步](STATUS-8-auto-upgrade.md) 已随 npm 0.2.1 发布，不属于 npm 0.2.0；后续 `.rotom.9` 免授权源码改动尚未据此发布。
 - 用户已授权发布 **0.2.0 / latest**；[REVIEW-27](https://github.com/bingjiang0611/rotom/blob/4936306eaee2e6bcf8d1abf530a3c7309f5871b0/docs/agent/computer-use-v2/REVIEW-27.md) 接受的功能提交 `4c7f7bb3f81843532b4d3b9adb4483cbc0056b43` 已快进到 main。
 - **0.2.1 / latest 已发布并核验**，见 [发布记录](../npm-0.2.1.md)。维护者前台发布，另行授权 Agent 全局安装；19,049 个文件与固定 tgz 匹配。日常 helper 在本次 npm 安装中未修改，下次正常启动自动同步；旧会话不热升级。
 - 0.2.0 记录见 [历史发布记录](../npm-0.2.0.md)；旧版本的手动步骤见下文和[历史升级说明](../../releases/computer-use-v2-draft.md)，不再作为 0.2.1 的常规操作要求。

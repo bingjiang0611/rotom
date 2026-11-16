@@ -1,0 +1,15 @@
+[
+  {
+    "schema": "rotom-loop-ledger/v1",
+    "id": "L-2026-11-16-computer-use-doc-identity",
+    "date": "2026-11-16",
+    "title": "Align the selected Computer Use archive, README and third-party notices before release",
+    "hypothesis": "Release metadata must identify the selected component accurately; a passing behavior test cannot excuse stale notices or a README naming a different fork version.",
+    "change": "mechanism",
+    "measurement": "No model/provider calls. The distribution identity gate fails on public d31902c because the selected .rotom.9 component still has .rotom.7 notices/README. The first clean-clone run also lacks installed Pi dependencies; after installing the existing locked dependencies and correcting metadata, distribution tests pass 39/39 and archive/identity/signature tests pass 11/11. Tar member comparison proves that .rotom.10 differs from locked .rotom.9 only in package.json, README.md and UPSTREAM.md; all implementation files and all eight native prebuilt files are byte-identical. Pi check passes without rebuilding.",
+    "result": "Selected component is 0.5.1-rotom.10, with synchronized source version, archive, lock, product identity, README, notices and current maintenance references. The old .rotom.9 archive is not rewritten. Operation authorization policy, tools, protocols, native helper, runtime implementation and active installation remain unchanged. This is a release-preparation metadata correction committed separately from the product 0.2.3 freeze. No model-quality, token/cost or harvest-interruption improvement is claimed; expected user-intervention impact is neutral.",
+    "evidence": "improved",
+    "decision": "shipped",
+    "source": "rotom/runtime/distribution.test.mjs"
+  }
+]
