@@ -1,0 +1,15 @@
+[
+ {
+  "schema": "rotom-loop-ledger/v1",
+  "id": "L-2026-11-15-cu-linux-helper-epipe",
+  "date": "2026-11-15",
+  "title": "A dead Linux helper fails one command, not the Pi process",
+  "hypothesis": "launch_browser wrote to the Linux helper's stdin with no error listener; an unstartable bridge raised EPIPE unhandled and killed the whole trial.",
+  "change": "mechanism",
+  "measurement": "3 component tests; removing the listeners reproduces the production 'Error: write EPIPE'. Archive contract 11/11, 16 benchmark-runner tests and 11 adapter tests pass on the rebased branch. Sandbox rerun: the tool returns isError and the trial is scored.",
+  "result": "child stdin/stdout/stderr get error listeners that reject pending commands. Shipped as @injaneity/pi-computer-use 0.5.1-rotom.11; only that file and the version differ from .rotom.10, native prebuilt bytes reused.",
+  "evidence": "improved",
+  "decision": "shipped",
+  "source": "docs/agent/frontier-harness-eval-run-20261115.md"
+ }
+]
