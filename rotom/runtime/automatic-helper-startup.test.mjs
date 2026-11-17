@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
@@ -48,6 +48,42 @@ test("npm-style upgrades synchronize the helper on normal startup, not version/h
 		assert.equal(again.status, 0, again.stderr);
 		assert.doesNotMatch(again.stderr, /Updated helper automatically/);
 		assert.deepEqual(await readFile(join(target, "Contents/MacOS/bridge")), installed);
+	} finally {
+		const occupancy = spawnSync("/usr/sbin/lsof", ["-t", "--", join(target, "Contents/MacOS/bridge")], { encoding: "utf8" });
+		assert.equal(occupancy.status, 1, `Fixture may still be in use; retained at ${home}`);
+		assert.equal(occupancy.stderr, "");
+		await rm(home, { recursive: true, force: true });
+	}
+});
+
+// A stale or refused helper upgrade must not decide whether the product starts.
+test("a failed helper synchronization warns and still starts the session", { skip: process.platform !== "darwin" }, async (t) => {
+	const home = await realpath(await mkdtemp(join(tmpdir(), "rotom-auto-helper-lock-")));
+	const product = resolve(import.meta.dirname, "..");
+	const source = join(product, "extensions/third-party/node_modules/@injaneity/pi-computer-use/prebuilt/macos/universal/pi-computer-use.app");
+	const target = join(home, "Applications/pi-computer-use.app");
+	if (resolveMacosHelperAppPath({ homeDir: home, env: {} }) !== target) {
+		await rm(home, { recursive: true });
+		t.skip("A system-wide helper prevents isolated-HOME startup acceptance.");
+		return;
+	}
+	const env = { ...process.env, HOME: home, PI_CODING_AGENT_DIR: join(home, ".pi/agent"), ROTOM_QODER: "0",
+		PI_COMPUTER_USE_HELPER_APP_PATH: "", PI_CU_SOCKET_PATH: join(home, "fixture.sock"),
+		PI_COMPUTER_USE_CODESIGN_IDENTITY: "", PI_COMPUTER_USE_ALLOW_ADHOC_UPDATE: "0", PI_COMPUTER_USE_NO_SIGN: "0" };
+	try {
+		// An interrupted update leaves this lock; the updater refuses and reports it.
+		await mkdir(join(home, "Applications"), { recursive: true });
+		await cp(source, target, { recursive: true });
+		const installed = await readFile(join(target, "Contents/MacOS/bridge"));
+		const lock = `${target}.update-lock`;
+		await mkdir(lock);
+		const result = spawnSync(join(product, "bin/rotom"), ["--mode", "rpc", "--no-session"], { cwd: home, env, input: '{"id":"state","type":"get_state"}\n', encoding: "utf8", timeout: 60_000 });
+		assert.equal(result.status, 0, `${result.error ?? ""}\n${result.stdout}\n${result.stderr}`);
+		assert.match(result.stdout, /"command":"get_state"/);
+		assert.match(result.stderr, /synchronization was not verified/);
+		assert.match(result.stderr, /rotom helper update/);
+		assert.deepEqual(await readFile(join(target, "Contents/MacOS/bridge")), installed);
+		assert.ok((await stat(lock)).isDirectory(), "the updater must leave the foreign lock in place");
 	} finally {
 		const occupancy = spawnSync("/usr/sbin/lsof", ["-t", "--", join(target, "Contents/MacOS/bridge")], { encoding: "utf8" });
 		assert.equal(occupancy.status, 1, `Fixture may still be in use; retained at ${home}`);

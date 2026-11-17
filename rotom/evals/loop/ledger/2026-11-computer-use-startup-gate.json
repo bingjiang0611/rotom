@@ -1,0 +1,15 @@
+[
+  {
+    "schema": "rotom-loop-ledger/v1",
+    "id": "L-2026-11-17-computer-use-startup-gate",
+    "date": "2026-11-17",
+    "title": "A refused helper upgrade warns instead of blocking rotom startup",
+    "hypothesis": "Computer Use is an optional capability, so a helper that cannot be re-signed must not decide whether the CLI starts; the refusal itself stays intact.",
+    "change": "mechanism",
+    "measurement": "Isolated-HOME real launcher with a foreign update lock forces automatic synchronization to fail: RPC get_state must still succeed with exit 0, stdout JSON-only, stderr carrying both the helper error and the guidance, and the installed helper bytes unchanged. Single-point negative control removes only the launcher change. Product distribution and updater suites plus the component helper-update suite must stay green.",
+    "result": "New regression passes and fails with the launcher change removed (exit 1 before the fix); product distribution 39/39, update-helper/update-product 15/15, component helper-update 25/25 including the existing 'automatic synchronization cannot downgrade a certificate-signed helper' rule. Real machine (macOS 26.3.2, 0.2.2): root cause was a helper signed by a self-signed certificate absent from the keychain (0 valid identities); 'PI_COMPUTER_USE_ALLOW_ADHOC_UPDATE=1 rotom helper update' replaced it with the bundled ad-hoc helper (exit 0), the next automatic synchronization re-stamped source.sha256 and became a no-op, and the RPC session started. Explicit ad-hoc opt-in is intentionally still ignored by automatic synchronization. Not verified: the same startup gate on a release newer than 0.2.2, and a working Developer ID re-sign path.",
+    "evidence": "unmeasured",
+    "decision": "open",
+    "source": "docs/agent/computer-use-v2/STATUS-9-helper-startup-gate.md"
+  }
+]

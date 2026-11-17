@@ -2,6 +2,7 @@
 
 import { readBuildIdentity } from "./build-info.mjs";
 import { synchronizeHelper } from "./update-helper.mjs";
+import { helperUpdateCopy } from "./helper-update-copy.mjs";
 import { lstat, readFile, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
@@ -202,8 +203,15 @@ export async function launchRuntime(rawArgs = process.argv.slice(2)) {
 		return;
 	}
 	// npm --ignore-scripts upgrades are reconciled before the next normal session.
+	// Computer Use is an optional capability: a refused or failed helper upgrade is
+	// reported once and never blocks the session, which keeps a stale helper from
+	// making the whole product unstartable.
 	if (!options.userArgs.some(arg => ["--help", "-h", "--list-models"].includes(arg))) {
-		await synchronizeHelper(agentDir);
+		try { await synchronizeHelper(agentDir); }
+		catch (error) {
+			process.stderr.write(`rotom: ${error instanceof Error ? error.message : String(error)}\n`);
+			process.stderr.write(`rotom: ${helperUpdateCopy.startupSyncFailed}\n`);
+		}
 	}
 	// Child Pi processes bypass this launcher and do not inherit loaded providers.
 	// Forward only the verified product provider path, never ambient extensions.
