@@ -1,0 +1,53 @@
+{
+  "state": "published",
+  "package": "@bingjiang0611/rotom",
+  "version": "0.2.4",
+  "tag": "latest",
+  "sourceCommit": "95777adbfcdca2987eb927007b974361d3247544",
+  "sha256": "ec6fcd95dc05581f668009b27c61bf53a7694662cc12cc3d22f92e46d4303118",
+  "shasum": "eb5c02bbcac76a4245aef28ea9f96a24ad054cd5",
+  "integrity": "sha512-zaVC+6+tlSsaxX55DDIzS1tcePcUTzMrD7ewUuVu5Mw+CYIPoFoyEltrs2lPpSJz1ZeK/5BpFVSNctmKsdVDgQ==",
+  "fileCount": 19435,
+  "compressedBytes": 34948177,
+  "unpackedBytes": 150151886,
+  "tarball": "https://registry.npmjs.org/@bingjiang0611/rotom/-/rotom-0.2.4.tgz",
+  "successfulFinalPacks": 1,
+  "registryVerified": true,
+  "publishedBy": "Maintainer in foreground terminal; agent preflighted, verified registry metadata and downloaded bytes, then installed globally on explicit request.",
+  "artifactBuildInfo": {
+    "schema": "rotom-build-info/v1",
+    "commit": "95777adbfcdca2987eb927007b974361d3247544",
+    "dirty": false,
+    "allowDirty": false
+  },
+  "checks": {
+    "actualArtifactCheckPersonal": {
+      "main": 598,
+      "goal": 99,
+      "piExecutable": "artifact runtime/pi, resolved through resolve-installed-pi.mjs",
+      "exit": 0
+    },
+    "artifactAudit": "pass (19436 entries, 0 findings)",
+    "isolatedInstall": "clean HOME and prefix, PATH without any global Pi: 19435 files installed",
+    "launchOnIsolatedInstall": {
+      "version": "0.2.4",
+      "piFork": "1.5.2-rotom.1",
+      "rpcGetState": "exit 0, JSON-only stdout, empty stderr"
+    },
+    "smokes": {
+      "isolatedInstall": { "default": { "activeTools": 26, "lifecycleErrors": 0 }, "full": { "activeTools": 33, "lifecycleErrors": 0 } },
+      "dailyInstall": { "default": { "activeTools": 26, "lifecycleErrors": 0 }, "full": { "activeTools": 33, "lifecycleErrors": 0 } }
+    },
+    "upgrade": "registry 0.2.3 to this artifact: 19435 files byte-identical to the fresh install",
+    "uninstall": "package and bin removed; user sentinel preserved",
+    "dailyInstall": "npm global prefix switched 0.2.1 to 0.2.4; 19435 files byte-identical to the isolated install; build-info commit 95777adb, dirty=false",
+    "helperSynchronizationAtDailyInstall": "Apple Development identity present: helper re-signed and source.sha256 stamped; startup exit 0 with no helper warning",
+    "maintenanceEnvironmentGaps": "Clean clone needed locked dependencies that the maintenance tree does not carry: packages/rotom-pi (vitest), packages/rotom-subagents (jiti), extensions/third-party (npm ci requires --legacy-peer-deps --omit=optional), runtime/pi. Two check-personal failures before those installs were missing-dependency errors, not code failures.",
+    "publicHistoryAudit": "pass before the freeze push (origin/main..HEAD, 1 commit)"
+  },
+  "notVerified": [
+    "No real desktop GUI task, real Provider request, browser, phone or cross-platform acceptance in this release.",
+    "The 0.2.4 startup behaviour was not reproduced on a machine whose helper signing identity is gone; that path is covered only by the isolated-HOME regression (foreign update lock) and its negative control.",
+    "Existing sessions do not hot-reload; sessions started before the install keep running 0.2.3."
+  ]
+}
