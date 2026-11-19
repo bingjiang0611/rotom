@@ -1,0 +1,9 @@
+task,run,reason,reward,exception,cost_usd,agent_steps,agent_seconds,started_at
+gcode-to-text,fh62-spec8c16g,规格复跑 8 vCPU/16 GB,0.0,,0.023746,16,299,2026-11-16T03:01:30.552695Z
+make-doom-for-mips,fh62-spec8c16g,规格复跑 8 vCPU/16 GB,,ExecutionError,0.000000,,,2026-11-16T03:01:30.456887Z
+mteb-leaderboard,fh62-fixups,首轮修复后复跑,0.0,NonZeroAgentExitCodeError,0.001664,3,53,2026-11-15T21:48:55.788163Z
+mteb-leaderboard,fh62-cufix-verify,崩溃修复后复跑,0.0,,0.070220,46,823,2026-11-16T03:36:41.888644Z
+mvcc-lsm-compaction,fh62-fixups,首轮修复后复跑,,ExecutionError,0.026911,14,490,2026-11-15T21:48:55.887633Z
+pytorch-model-recovery,fh62-fixups,首轮修复后复跑,1.0,,0.011113,8,217,2026-11-15T21:48:55.853553Z
+rstan-to-pystan,fh62-spec8c16g,规格复跑 8 vCPU/16 GB,1.0,,0.025314,23,843,2026-11-16T03:01:30.582072Z
+video-processing,fh62-spec8c16g,规格复跑 8 vCPU/16 GB,0.0,,0.064761,32,2484,2026-11-16T03:01:30.564253Z

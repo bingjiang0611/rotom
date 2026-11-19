@@ -4,22 +4,23 @@
 
 ## 结论
 
-- **37/62 = 59.7%**（严格口径：异常按 0 计，含两次补跑）。只看 verifier 正常出分的 58 题是 **63.8%**。
+- **首轮 35/62 = 56.5%**（严格口径：异常按 0 计，不补任何一题）。只看 verifier 正常出分的 55 题是 **63.6%**。补跑结果单独列在下一节，不计入这个数。
+- **这一臂跑在上游公开 Pi 1.4.0 上**：适配器把全局 `pi` 换成 shim，用 `ROTOM_PI` 指回那个上游二进制，rotom 只提供扩展和 coding policy，`runtime/pi` 里的 fork 没有加载。所以它衡量的是「rotom 扩展 + 上游 Pi」，**不代表发布版 rotom 的成绩**；fork 臂要另跑（见后续同条件实验）。
 - 成本 **$2.9443**（$0.048/题），壁钟 4 小时 56 分（08:36–13:32，并发 4），加两轮共约 1 小时补跑。
 - 与榜上 `Pi` 行（同 62 题，Kimi K3，57.7%）**量级一致**，但模型不同、attempts 不同，**不能当成同配置对照**，也不能据此说 rotom 与 Pi 谁强。
-- 这次跑出 3 个真实发现：Harbor 的 positional prompt bug（已修，补跑 `reward=1` 验证）、`launch_browser` 在沙箱里崩掉整个进程（已修，沙箱复跑验证）、4 个 1200s 超时（8 vCPU/16 GB 复跑后 1 题翻成通过，2 题变成真实失败，1 题 Runta 执行状态 unknown）。
+- 这次跑出 3 个真实发现：Harbor 的 positional prompt bug（已修，补跑 `reward=1` 验证）、`launch_browser` 在沙箱里崩掉整个进程（已修，沙箱复跑验证）、4 个超时（各用自己的预算 900/900/1800/3600s；8 vCPU/16 GB 复跑后 1 题翻成通过，2 题变成真实失败，1 题 Runta 执行状态 unknown）。
 
 ## 补跑与修正（同一天）
 
 | 题目 | 原结果 | 补跑条件 | 补跑结果 |
 |---|---|---|---|
-| pytorch-model-recovery | 异常（`-` 指令被当选项） | 修 `prompt_argument` 后重跑 | **1** |
+| pytorch-model-recovery | 异常（`-` 指令被当选项，agent 未启动） | 修 `prompt_argument` 后重跑 | **1** |
 | mteb-leaderboard | 异常（`launch_browser` EPIPE 崩进程） | 修 Linux helper 流错误后重跑 | 0（正常判分，不再崩） |
 | mvcc-lsm-compaction | 异常（verifier 崩） | verifier 超时 ×2 | 仍异常（EOFError/ExecutionError） |
-| gcode-to-text | 异常（1200s 超时） | 8 vCPU/16 GB，超时 ×2 | 0（真实失败） |
-| make-doom-for-mips | 异常（1200s 超时） | 同上 | 仍异常（Runta `ExecutionError`，执行状态 unknown） |
-| rstan-to-pystan | 异常（1200s 超时） | 同上 | **1**（**超时属规格不足**） |
-| video-processing | 异常（1200s 超时） | 同上 | 0（真实失败） |
+| gcode-to-text | 异常（900s 超时） | 8 vCPU/16 GB，超时 ×2 | 0（真实失败） |
+| make-doom-for-mips | 异常（900s 超时） | 同上 | 仍异常（Runta `ExecutionError`，执行状态 unknown） |
+| rstan-to-pystan | 异常（1800s 超时） | 同上 | **1**（**超时属规格不足**） |
+| video-processing | 异常（3600s 超时） | 同上 | 0（真实失败） |
 
 因此 4 个超时里有 1 个确认是规格问题、2 个在更大规格下变成真实失败、1 个落到 Runta 侧 unknown。
 
@@ -28,19 +29,19 @@
 | 项 | 值 |
 |---|---|
 | 题集 | `frontier-harness-eval/frontier-harness-eval@sha256:9236400f…`（62 题；`@latest` 与它内容逐字节相同） |
-| 臂 | dev-agent（rotom 产品 bundle） |
+| 臂 | dev-agent = rotom 产品 bundle（扩展 + policy）+ **上游公开 Pi 1.4.0**（`ROTOM_PI` shim），未加载 `runtime/pi` 的 fork |
 | 模型 | `openai/gpt-6-luna`，thinking **max**，`openai-responses` |
 | 环境 | Harbor 0.26 + Runta，4 vCPU / 8192 MiB / 32768 MiB 磁盘，并发 4 |
-| 次数 | 每题 1 attempt（他们发榜用 4 attempts、取 first valid attempt） |
+| 次数 | 本节是首轮 1 attempt；另加 3 次 attempt 与补跑的逐题数据见 [明细](frontier-harness-eval-attempts-20261115.md) |
 | 结果目录 | `rotom/evals/.eval/benchmarks/fh62-gpt6luna-max`、`fh62-fixups`（私有，不入库） |
 
 ## 结果
 
-通过 36：adaptive-rejection-sampler、caffe-cifar-10、cancel-async-tasks、circuit-fibsqrt、code-from-image、constraints-scheduling、feal-linear-cryptanalysis、fix-code-vulnerability、fix-git、fix-ocaml-gc、hf-model-inference、install-windows-3.11、kv-store-grpc、large-scale-text-editing、log-summary-date-ranges、mailman、merge-diff-arc-agi-task、model-extraction-relu-logits、nginx-request-logging、openssl-selfsigned-cert、path-tracing-reverse、polyglot-c-py、polyglot-rust-c、portfolio-optimization、prove-plus-comm、pypi-server、pytorch-model-cli、pytorch-model-recovery、regex-log、sam-cell-seg、schemelike-metacircular-eval、sparql-university、sqlite-db-truncate、sqlite-with-gcov、tune-mjcf、vulnerable-secret
+通过 35（首轮，无补跑）：adaptive-rejection-sampler、caffe-cifar-10、cancel-async-tasks、circuit-fibsqrt、code-from-image、constraints-scheduling、feal-linear-cryptanalysis、fix-code-vulnerability、fix-git、fix-ocaml-gc、hf-model-inference、install-windows-3.11、kv-store-grpc、large-scale-text-editing、log-summary-date-ranges、mailman、merge-diff-arc-agi-task、model-extraction-relu-logits、nginx-request-logging、openssl-selfsigned-cert、path-tracing-reverse、polyglot-c-py、polyglot-rust-c、portfolio-optimization、prove-plus-comm、pypi-server、pytorch-model-cli、regex-log、sam-cell-seg、schemelike-metacircular-eval、sparql-university、sqlite-db-truncate、sqlite-with-gcov、tune-mjcf、vulnerable-secret
 
 失败 20（verifier 正常判 0）：batched-eval-parity、bun-sourcemap-leak、cargo-flight-dispatch、chess-best-move、dna-assembly、dna-insert、embedding-drift-monitor、filter-js-from-html、foodstuff-beta-activity、freecad-impeller、glycan-ms2-elucidation、gsea-proteomics、html-js-filter、intrastat-meldung、music-harmony、ontology-kg-querying、roy-polymorph-cn、session-window-debug、vpp-loss-divergence、wal-recovery-ordering
 
-异常 6（严格口径计 0）：gcode-to-text、make-doom-for-mips、rstan-to-pystan、video-processing（AgentTimeoutError 1200s）、mvcc-lsm-compaction（verifier 崩，EOFError/ExecutionError）、mteb-leaderboard（`launch_browser` 崩溃）
+异常 7（严格口径计 0）：gcode-to-text、make-doom-for-mips、rstan-to-pystan、video-processing（`AgentTimeoutError`，各自的预算 900/900/1800/3600s）、mvcc-lsm-compaction（verifier 超时，无分）、mteb-leaderboard 与 pytorch-model-recovery（`NonZeroAgentExitCodeError`，前者 `launch_browser` 崩溃、后者 `-` 指令未启动）
 
 ## 三个发现
 
@@ -92,25 +93,28 @@ gcode-to-text、make-doom-for-mips、rstan-to-pystan、video-processing 都在 1
 
 | 指标 | 值 |
 |---|---|
-| 4 次合计 trials | 248（62 × 4） |
-| Harbor 判了分 | 243（24 个异常里 19 个仍拿到 verifier 分数，5 个完全没分） |
-| 通过 | 141 |
-| 池化通过率（有分数） | **58.0%** |
-| 严格口径（异常计 0，全部 248） | 56.9% |
-| 只看没有异常的 trial | 139/224 = 62.1% |
+| 4 次合计 trials | 248（62 × 4，不含补跑） |
+| 通过 | 139 |
+| 判 0（含 `AgentTimeoutError`） | 98 |
+| 基础设施 unknown（Runta/环境异常、无分） | 11 |
+| 严格口径（unknown 计 0，全部 248） | 56.0% |
+| 排除 unknown（237 个有效） | 58.6% |
+| **首轮（无补跑）** | **35/62 = 56.5%** |
 | pass@4（至少过 1 次） | 42/62 = **67.7%** |
-| pass^4（4 次全过） | 30/62 = **48.4%** |
+| pass^4（4 次全过） | 28/62 = **45.2%** |
 
-逐题 4 次序列、成本与步数见 [FrontierHarness 62 题 × 4 次明细](frontier-harness-eval-attempts-20261115.md)（同名 CSV 可机读）。`polyglot-c-py` 与 `sqlite-with-gcov` 各有一个 trial 被判异常但 verifier 仍给 1 分，池化口径按「判了分就计」处理；把它们当失败则是最严的 56.9%。
+逐题 4 次序列、成本与步数见 [FrontierHarness 62 题 × 4 次明细](frontier-harness-eval-attempts-20261115.md)（同名 CSV 可机读）。`polyglot-c-py` 与 `sqlite-with-gcov` 各有一个 trial 被判异常但 verifier 仍给 1 分；按本文件口径（基础设施异常记 unknown、其余按分数算）池化是 58.6%，异常一律算失败则是 56.0%。
 
-**单次样本会误报具体题目。** 12 题不是四次全过也不是四次全败：
+**单次样本会误报具体题目。** 14 题不是四次全过也不是四次全败：
 
-| 题目 | 通过/有分 | 序列（attempt 1–4） |
+| 题目 | 通过/有效 | 序列（A1–A4） |
 |---|---|---|
 | code-from-image | 3/3 | 1, 异常, 1, 1 |
 | polyglot-c-py | 3/4 | 1, 1, 0, 异常 |
+| pytorch-model-recovery | 3/4 | 异常, 1, 1, 1 |
+| sqlite-with-gcov | 3/3 | 1, 异常, 1, 1 |
 | adaptive-rejection-sampler | 2/4 | 1, 0, 1, 异常 |
-| install-windows-3.11 | 2/4 | 1, 异常, 1, 0 |
+| install-windows-3.11 | 2/3 | 1, 异常, 1, 0 |
 | model-extraction-relu-logits | 2/4 | 1, 1, 0, 0 |
 | pytorch-model-cli | 2/4 | 1, 1, 异常, 0 |
 | rstan-to-pystan | 2/4 | 异常, 1, 异常, 1 |
@@ -120,8 +124,7 @@ gcode-to-text、make-doom-for-mips、rstan-to-pystan、video-processing 都在 1
 | mvcc-lsm-compaction | 1/2 | 异常, 异常, 1, 0 |
 | session-window-debug | 1/4 | 0, 1, 0, 0 |
 
-`mteb-leaderboard` 崩溃修好后有一次真的通过（模型改用 bash 取数），所以它的失败不是产品缺陷。
-20 题 4 次全败：batched-eval-parity、bun-sourcemap-leak、cargo-flight-dispatch、dna-assembly、dna-insert、embedding-drift-monitor、filter-js-from-html、foodstuff-beta-activity、freecad-impeller、glycan-ms2-elucidation、gsea-proteomics、html-js-filter、intrastat-meldung、make-doom-for-mips、music-harmony、ontology-kg-querying、roy-polymorph-cn、video-processing、vpp-loss-divergence、wal-recovery-ordering。
+20 题四次全败：batched-eval-parity、bun-sourcemap-leak、cargo-flight-dispatch、dna-assembly、dna-insert、embedding-drift-monitor、filter-js-from-html、foodstuff-beta-activity、freecad-impeller、glycan-ms2-elucidation、gsea-proteomics、html-js-filter、intrastat-meldung、make-doom-for-mips、music-harmony、ontology-kg-querying、roy-polymorph-cn、video-processing、vpp-loss-divergence、wal-recovery-ordering。
 
 第二轮 18 个异常没有一个是产品崩溃：`AgentTimeoutError` 9（make-doom-for-mips 3 次全超时）、`runta.ExecutionError` 6、`EnvironmentStartTimeoutError` 3、`runta.ApiError` 1。
 
@@ -133,7 +136,7 @@ gcode-to-text、make-doom-for-mips、rstan-to-pystan、video-processing 都在 1
 | 模型 | gpt-6-luna, max | Kimi K3 |
 | attempts | 1 | 4（取 first valid） |
 | 环境 | 我们的 Harbor+Runta 4vCPU/8GB，无 egress allowlist / 隔离协议 | 他们自己的 runta + 隔离协议 |
-| 通过率 | 59.7%（单次）；4 次池化 58.0%，pass@4 67.7% | 57.7% |
+| 通过率 | 首轮 56.5%；4 次池化 58.6%，pass@4 67.7% | 57.7% |
 | 成本 | $0.048/题（模型便宜） | $0.563/题 |
 
 数字接近，但模型和协议都不同，只能说明「这个量级下我们的 harness 不掉队」，不能作为排名依据。

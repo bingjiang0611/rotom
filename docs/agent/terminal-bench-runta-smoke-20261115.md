@@ -6,6 +6,7 @@
 
 - **链路：PASS。** 两臂各 10 题全部完成产出，0 retry；产品 bundle、agent 安装、verifier 和 Runta 沙箱回收都走通。
 - **分数：rotom 7/10，native-pi 5/10。** rotom mean 0.700、$1.588、40 分 35 秒；native-pi mean 0.500（含 1 个 AgentTimeoutError）、$1.296、54 分 30 秒。
+- **手臂限制：dev-agent 臂跑在上游公开 Pi 1.4.0 上。** 适配器把全局 `pi` 换成 shim、用 `ROTOM_PI` 指回上游二进制，rotom 只提供扩展与 coding policy，`runtime/pi` 的 fork 没有加载。所以两臂的差异只反映「rotom 扩展 + policy」，**不代表发布版 rotom 的成绩**；fork 臂见后续同条件实验。
 - **这不是代表性分数。** 10 题是 `profiles/release-smoke.txt` 的事先选题，单模型（`openai/gpt-5`）、单样本、单后端（Runta），不能和其他榜单数字拼接或对外宣称"优于原生 Pi"。差异只落在 2 题上，样本不足以支持质量结论。
 - **一个看起来像 rotom 短板的失败与 rotom 无关。** `configure-git-webserver` 两臂完全相同：2 步、0 次工具调用、直接输出操作步骤。
 
@@ -15,7 +16,7 @@
 |---|---|
 | 数据集 | Terminal-Bench 2.1，固定 commit `d49e28f1`，本地 registry |
 | 环境 | Harbor 0.26.0 + `runta` backend，4 vCPU / 8192 MiB / 32768 MiB 磁盘，并发 4 |
-| Agent 版本 | 两臂同为 `@earendil-works/pi-coding-agent@1.4.0`；dev-agent 臂额外加载该 worktree 的产品 bundle |
+| Agent 版本 | 两臂同为 `@earendil-works/pi-coding-agent@1.4.0`（上游公开版）；dev-agent 臂通过 `ROTOM_PI` shim 加载该 worktree 的产品 bundle，未加载 `runtime/pi` 的 fork |
 | 模型 | `openai/gpt-5`，thinking 用 Pi 默认（未显式指定） |
 | 轮次 | 每题 1 次，`n-attempts=1`，`max-retries=0` |
 | 产品源码 | `e2303c77`（含未提交的 evals 适配改动），bundle 368 文件，sha256 `cca07980…` |
