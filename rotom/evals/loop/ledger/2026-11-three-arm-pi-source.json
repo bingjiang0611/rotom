@@ -1,0 +1,15 @@
+[
+  {
+    "schema": "rotom-loop-ledger/v1",
+    "id": "L-2026-11-19-three-arm-pi-source-ab",
+    "date": "2026-11-19",
+    "title": "Same-condition three-arm comparison: does the Pi fork change pass rate?",
+    "hypothesis": "Every rotom benchmark score so far ran the dev-agent arm on upstream public Pi 1.4.0 through the ROTOM_PI shim, so it never measured the Pi fork a release actually ships. Running native-pi, dev-agent and rotom-fork on the same task set, model and thinking level separates the extension/policy effect from the fork effect, and shows whether either is distinguishable from noise at 62 tasks.",
+    "change": "eval",
+    "measurement": "FrontierHarness Eval 62 tasks pinned at sha256:9236400f (same digest as the earlier runs), 3 arms x 4 attempts = 744 planned trials, custom/bailian/deepseek-v4.1-flash at thinking max, Runta sandbox at 4 vCPU / 8192 MiB / 32768 MiB, fixed concurrency. Smoke first: 3 fast tasks x 3 arms, then extrapolate cost and wall clock before the full run.",
+    "result": "Pre-registered before any arm was run, and not modified afterwards. Arming: the same bundle for dev-agent and rotom-fork; only the Pi binary differs, and each rotom-fork trial records agent/pi-runtime.json to prove the fork loaded. Scheduling: all three arms run their attempt 1 before any arm runs attempt 2, so time-of-day and load affect arms equally. Primary metric: per-task paired difference in pass rate (k of 4 per task) between rotom-fork and native-pi, with a 62-task bootstrap 95% interval; a difference counts only if the interval excludes 0. dev-agent vs native-pi is reported as a decomposition of the extension/policy contribution, not as the headline. Secondary: pass@4, pass^4, cost, steps, agent timeouts per arm. Scoring: ExecutionError, EnvironmentStartTimeoutError and ApiError are infrastructure unknown, excluded from the primary metric and counted per arm; AgentTimeoutError counts as a failure because the budget comes from each task's own task.toml. Any verdict is limited to this one model and task set with no Kimi K3 arm, so it cannot be read as a leaderboard comparison.",
+    "evidence": "unmeasured",
+    "decision": "open",
+    "source": "docs/agent/frontier-harness-eval-three-arm-20261119.md"
+  }
+]
