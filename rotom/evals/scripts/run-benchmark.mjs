@@ -182,9 +182,9 @@ const generatedRunName = `${options.benchmark}_${new Date().toISOString().replac
 const harborArgs = buildHarborBenchmarkArgs(options, generatedRunName);
 console.error(`[benchmark] suite=${options.benchmark}`);
 console.error(`[benchmark] arm=${options.arm} pi=${options.piVersion} thinking=${options.thinking ?? "native-default"}`);
-console.error(`[benchmark] product=${options.arm === "dev-agent" ? options.productAgentDir : "none (native Pi)"}`);
+console.error(`[benchmark] product=${options.arm === "native-pi" ? "none (native Pi)" : options.productAgentDir}`);
 console.error(`[benchmark] environment=${options.environment}`);
-console.error(`[benchmark] model=${options.provider}/${options.model}`);
+console.error(`[benchmark] model=${options.model.includes("/") ? options.model : `${options.provider}/${options.model}`}`);
 console.error(`[benchmark] tasks=${options.tasks.join(",") || (options.nTasks === undefined ? "all" : `first-${options.nTasks}`)}`);
 console.error(`[benchmark] jobs=${options.jobsDir}`);
 if (options.dryRun) {

@@ -153,8 +153,16 @@ npm run benchmark -- terminal-bench-2.1 \
 `--task` 要写 registry 里的裸任务名（如 `make-mips-interpreter`）。Harbor 0.26 + 本地 registry 不会把 dataset
 名当命名空间；写成 `terminal-bench/make-mips-interpreter` 会报 `No tasks matched the filter(s)`。
 
+Runta 现在要求 `disk_gib` 在 32–256 之间，而 Harbor 0.26 的内置下限仍是 16，并且只有在传
+`--override-storage-mb` 时才会把 `resources` 一起发出去。所以 `--override-storage-mb 32768` 不是可选项：
+不传会直接拿到 `HTTP 422: resources.requests.disk_gib must be between 32 and 256`，只传 CPU/内存不传磁盘也一样。
+沙箱起不来时先用 `runta run --cpus 4 --memory 8192 --disk-size-gib 32` 加 `runta inspect <name> --json` 看
+`error_code`：`balance_exhausted` 是账号余额不足，与本仓库配置无关。
+
 沙箱内的 rotom 只能用 key 型 provider（`--provider/--model` 加对应 API key 环境变量）；Qoder 的浏览器登录态
-和宿主 Pi 凭据都不会进沙箱。
+和宿主 Pi 凭据都不会进沙箱。Anthropic 协议的自建网关走 `--model-api-format`（或 `--api-format`）显式声明，
+provider 名只用于本地路由：`--provider=custom --model=custom/bailian/deepseek-v4.1-flash` 会把
+`bailian/deepseek-v4.1-flash` 原样作为 API 的 model 发出去。
 
 实测记录（单题 `make-mips-interpreter`、`openai/gpt-5`、dev-agent 臂）：一条 30 步、0.42 USD 的 trial 从
 安装、bundle、agent 到 verifier 完整结束，无 exception，verifier 2 passed / 1 failed，reward 0.0。失败项
