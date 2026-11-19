@@ -26,11 +26,12 @@ The `.rotom.5` baseline also included the terminal-projection fix: projection fa
 
 ## Locked Computer Use distribution
 
-The default source product selects **`@injaneity/pi-computer-use@0.5.1-rotom.11`**, independently maintained in `packages/rotom-computer-use/`. This is a Computer Use fork, not a Pi fork.
+The default source product selects **`@injaneity/pi-computer-use@0.5.1-rotom.12`**, independently maintained in `packages/rotom-computer-use/`. This is a Computer Use fork, not a Pi fork.
 
-- Archive: `injaneity-pi-computer-use-0.5.1-rotom.11.tgz` (earlier archives are retained unchanged).
-- SHA256: `0bab2fff41e95062cfc77a8ee2a800397d76d39fce4ba452d8a03fddac585a99`
-- SHA512 SRI: `sha512-pyycIPbTikhHe5wDh45dd4av5C04dciFMxF9HeaIKycptNKRNymP5LmPupwsC0rD5hLVD4DBiWSg8ANj+p8S0w==`
+- Archive: `injaneity-pi-computer-use-0.5.1-rotom.12.tgz` (earlier archives are retained unchanged).
+- SHA256: `1e7b27b5ea8383ea580e6fb2a455a0bfb3852f03d17c3a273ed1894d3d05f000`
+- SHA512 SRI: `sha512-NoamJf608AZ9YLuZ1PEsPYQ9EjLC7qg8YpujIiE9OnPDYQMp9PptnyfbTU9IZ4I/62QZVFybkEi0tRpXdxUvTQ==`
+- `.rotom.12` also SIGTERMs the Linux helper when one of its streams errors: the pipes are gone, so a live helper could never answer again and would only linger as an orphan.
 - `.rotom.11` fails one Computer Use command instead of the whole Pi process when the Linux helper cannot run: the client now listens for `error` on the child's stdin/stdout/stderr, so a bridge that cannot exec returns `write EPIPE` as a tool error instead of an unhandled event that killed a benchmark trial. Only `src/platform/linux/helper.ts` and the package version differ from `.rotom.10`; every native prebuilt file is reused byte-identical.
 - `.rotom.10` corrects the component README's stale version and synchronizes the product notices. Only package metadata, README and provenance differ from `.rotom.9`; every implementation file and all 8 native prebuilt files are byte-identical. The locked `.rotom.9` archive is unchanged. This is a documentation-identity correction, not a policy or helper upgrade.
 - `.rotom.9` removes all operation authorization, superseding `.rotom.8`: sensitive controls, forced quit, external file/App opens and foreground takeover need no user approval. Unconfigured Apps default to full; explicit deny/tier settings, OS permissions, activity/idle checks, leases, headless limits and user stop remain. Old broker events are accepted once without UI or persisted grants. Helper protocol/path mismatch now fails without asking to stop or touching the helper. All 8 native prebuilt files are byte-identical to `.rotom.8`; no live helper is replaced. Twelve real-broker cases fail on baseline and pass after the change. Real desktop replay is not claimed.

@@ -43,6 +43,28 @@ test("a dying helper stdin rejects the in-flight command instead of killing the 
 	helper.dispose();
 });
 
+test("a dead helper stream also terminates the child so no orphan is left", async () => {
+	const helper = new LinuxHelperClient({
+		helperPath: await dyingHelper("sleep 5"),
+		setupHelperScript: await noopSetup(),
+	});
+	const inFlight = helper.command("diagnostics", {}, { timeoutMs: 5_000 });
+	const client = helper as unknown as {
+		child?: { stdin: { destroy(error?: Error): void }; exitCode: number | null; signalCode: NodeJS.Signals | null };
+	};
+	for (let attempt = 0; attempt < 1_000 && !client.child; attempt++) await new Promise((resolve) => setTimeout(resolve, 10));
+	const child = client.child;
+	assert.ok(child, "the helper process was spawned");
+	child.stdin.destroy(new Error("write EPIPE"));
+	await assert.rejects(inFlight, isError);
+	// Without the kill the `sleep 5` helper outlives the failed command.
+	for (let attempt = 0; attempt < 500 && child.exitCode === null && child.signalCode === null; attempt++) {
+		await new Promise((resolve) => setTimeout(resolve, 10));
+	}
+	assert.ok(child.exitCode !== null || child.signalCode !== null, "the child was terminated after the stream error");
+	helper.dispose();
+});
+
 test("a helper that exits before reading stdin rejects instead of crashing", async () => {
 	const helper = new LinuxHelperClient({ helperPath: await dyingHelper("exit 1"), setupHelperScript: await noopSetup() });
 	await assert.rejects(helper.command("diagnostics", {}, { timeoutMs: 5_000 }), isError);

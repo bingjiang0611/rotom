@@ -167,6 +167,9 @@ export class LinuxHelperClient {
 			if (this.child !== child) return;
 			this.child = undefined;
 			this.rejectPending(error);
+			// The pipes are gone, so a helper that is still alive can never answer again; leaving
+			// it running would turn a failed command into an orphan process holding the session.
+			child.kill("SIGTERM");
 		};
 		child.stdin.on("error", onStreamError);
 		child.stdout.on("error", onStreamError);
