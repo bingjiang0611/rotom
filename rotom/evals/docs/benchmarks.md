@@ -120,11 +120,53 @@ registry、task selection、model、environment、verifier 和结果路径。
 --environment=apple-container-amd64   # 默认，Apple Silicon + Rosetta
 --environment=apple-container-native  # 只适合明确提供 arm64 的题
 --environment=docker                  # 官方 Docker backend，需要运行中的 daemon
+--environment=runta                   # Runta 远端沙箱，需要 harbor[runta] 且已 runta login
 ```
 
 Rosetta 解决的是 CPU 架构，不会把 GPU、嵌套虚拟化、多容器 Compose 或 Windows 特性变出来。遇到这类题时，
 Harbor 的 exception 必须按基础设施失败单列，不能算成 Agent 得 0 分。若要提交官方 leaderboard，仍应在官方
 推荐的 Docker/云环境上复跑；Apple container 结果用于本项目内部同环境 A/B 回归。
+
+### Runta 远端沙箱
+
+本机没有可用的 Apple container 服务或 Docker daemon 时，`--environment=runta` 把 task 容器、agent 安装和
+verifier 全部放到 Runta 沙箱里跑，runner 只传 `--env runta`，不要求本地 daemon。前置条件:
+
+```sh
+uv tool install 'harbor[runta]==0.26.0'   # 0.22.0 没有 runta extra
+runta login && runta ps                   # MISSING_TOKEN 就是没登录
+export RUNTA_CONFIG="$HOME/.config/runta/config.toml"   # 或用 RUNTA_TOKEN；否则报 Runta requires RUNTA_TOKEN or RUNTA_CONFIG
+npm run benchmark -- doctor --environment=runta
+```
+
+`doctor --environment=runta` 只检查 Harbor 版本、product 文件、adapter 与 `harbor.environments.runta` 可导入，
+不检查本机 container/docker。沙箱磁盘仍用 Harbor 自己的参数调整:
+
+```sh
+export RUNTA_CONFIG="$HOME/.config/runta/config.toml"
+npm run benchmark -- terminal-bench-2.1 \
+  --provider=openai --model=model-id --environment=runta \
+  --product=/absolute/path/to/rotom --task=make-mips-interpreter \
+  -- --override-storage-mb 32768
+```
+
+`--task` 要写 registry 里的裸任务名（如 `make-mips-interpreter`）。Harbor 0.26 + 本地 registry 不会把 dataset
+名当命名空间；写成 `terminal-bench/make-mips-interpreter` 会报 `No tasks matched the filter(s)`。
+
+沙箱内的 rotom 只能用 key 型 provider（`--provider/--model` 加对应 API key 环境变量）；Qoder 的浏览器登录态
+和宿主 Pi 凭据都不会进沙箱。
+
+实测记录（单题 `make-mips-interpreter`、`openai/gpt-5`、dev-agent 臂）：一条 30 步、0.42 USD 的 trial 从
+安装、bundle、agent 到 verifier 完整结束，无 exception，verifier 2 passed / 1 failed，reward 0.0。失败项
+是 verifier 拿不到 stdout（它等到已有的 `frame.bmp` 就把进程终止了），不是 rotom 没启动；同题的有效重跑
+需要先确认工作区没有遗留 `frame.bmp`。
+
+两臂 10 题 smoke 的完整数据与限制见
+[Terminal-Bench 2.1 Runta 两臂 smoke](../../../docs/agent/terminal-bench-runta-smoke-20261115.md)。
+
+资源规格直接影响结论：默认 1 vCPU / 2048 MiB 下同题 verifier 报 `test_vm_execution` TimeoutError，换成
+`-- --override-cpus 4 --override-memory-mb 8192` 后才变成普通的断言失败。慢题在默认规格上的超时应按
+环境限制单列，不能直接算成 Agent 失败。
 
 ### baseline / candidate 对比
 

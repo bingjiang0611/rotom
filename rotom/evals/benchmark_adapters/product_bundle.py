@@ -11,6 +11,7 @@ from typing import Any
 
 
 BUNDLE_ROOTS = (
+    "package.json",
     "bin",
     "runtime",
     "skills",
@@ -18,10 +19,13 @@ BUNDLE_ROOTS = (
     "extensions/browser",
     "extensions/coding-policy",
     "extensions/context-layers",
+    "extensions/qoder",
     "extensions/third-party",
 )
 
 REQUIRED_PRODUCT_FILES = (
+    "package.json",
+    "bin/rotom",
     "bin/rotom-launcher",
     "runtime/product-config.mjs",
     "runtime/verify-pi-runtime.mjs",
@@ -30,11 +34,12 @@ REQUIRED_PRODUCT_FILES = (
     "extensions/browser/index.ts",
     "extensions/coding-policy/index.ts",
     "extensions/context-layers/index.ts",
+    "extensions/qoder/index.ts",
     "extensions/third-party/index.ts",
     "skills/pi-subagents/SKILL.md",
     "extensions/third-party/package.json",
     "extensions/third-party/package-lock.json",
-    "extensions/third-party/vendor/pi-subagents-0.52.1-dev-agent-followthrough.2.tgz",
+    "extensions/third-party/vendor/pi-subagents-0.52.1-rotom.15.tgz",
 )
 
 

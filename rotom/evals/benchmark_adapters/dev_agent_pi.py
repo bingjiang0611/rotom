@@ -8,14 +8,36 @@ from pathlib import Path
 from typing import override
 
 from harbor.agents.installed.node_install import nvm_node_install_snippet
-from harbor.agents.installed.pi import Pi
+from harbor.agents.installed.pi import Pi, PiOptions
 from harbor.environments.base import BaseEnvironment
+from harbor.models.agent.context import AgentContext
 
 from benchmark_adapters.product_bundle import stage_product_bundle
 
 
 REMOTE_PRODUCT_DIR = "/opt/dev-agent"
-DEFAULT_PI_VERSION = "0.84.3"
+# rotom's launcher gates Pi on @earendil-works/pi-coding-agent plus the
+# createCodemodeExtension and ModelRuntime capabilities; 0.84.3 fails that gate.
+# The product pins its own fork (1.4.0-rotom.X), so this is the closest published version.
+DEFAULT_PI_VERSION = "1.4.0"
+
+
+class DevAgentPiOptions(PiOptions):
+    """Pi options plus the product bundle this adapter uploads into the task."""
+
+    product_agent_dir: str | None = None
+
+
+def prompt_argument(instruction: str) -> str:
+    """Make an instruction safe as Harbor's bare positional argument.
+
+    Harbor's Pi agent appends the instruction to `pi --print ...` without an option
+    terminator, so an instruction starting with "-" parses as an unknown option and the
+    trial dies before the model reads it (FrontierHarness `pytorch-model-recovery`).
+    Leading whitespace is insignificant to the model and keeps the text intact.
+    """
+
+    return f" {instruction}" if instruction.startswith("-") else instruction
 
 
 class NativePi(Pi):
@@ -30,6 +52,15 @@ class NativePi(Pi):
     @override
     def name() -> str:
         return "native-pi"
+
+    @override
+    async def run(
+        self,
+        instruction: str,
+        environment: BaseEnvironment,
+        context: AgentContext,
+    ) -> None:
+        await super().run(prompt_argument(instruction), environment, context)
 
     @override
     async def install(self, environment: BaseEnvironment) -> None:
@@ -47,6 +78,8 @@ class NativePi(Pi):
 
 class DevAgentPi(NativePi):
     """Harbor's Pi agent with the selected dev-agent product bundle loaded."""
+
+    options_model = DevAgentPiOptions
 
     def __init__(
         self,

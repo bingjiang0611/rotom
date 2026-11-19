@@ -159,6 +159,21 @@ export class LinuxHelperClient {
 		child.stderr.setEncoding("utf8");
 		child.stdin.setDefaultEncoding("utf8");
 		child.stdout.on("data", (chunk: string) => this.onStdout(chunk));
+		// A helper that cannot exec or dies immediately leaves live pipes behind. Without
+		// these listeners the next write raises EPIPE as an unhandled 'error' event and takes
+		// the whole Pi process down (observed on a sandbox Linux host with no runnable helper),
+		// turning a reportable tool failure into a dead trial.
+		const onStreamError = (error: Error) => {
+			if (this.child !== child) return;
+			this.child = undefined;
+			this.rejectPending(error);
+			// The pipes are gone, so a helper that is still alive can never answer again; leaving
+			// it running would turn a failed command into an orphan process holding the session.
+			child.kill("SIGTERM");
+		};
+		child.stdin.on("error", onStreamError);
+		child.stdout.on("error", onStreamError);
+		child.stderr.on("error", onStreamError);
 		child.on("exit", (code, signalName) => {
 			if (this.child !== child) return;
 			this.child = undefined;

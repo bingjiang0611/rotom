@@ -4,6 +4,7 @@ import { parseBenchmarkProfileV1 } from "../src/benchmark-profile.ts";
 import {
 	AMD64_APPLE_CONTAINER_ENVIRONMENT,
 	DEV_AGENT_HARBOR_AGENT,
+	FRONTIER_HARNESS_EVAL_DATASET,
 	SWE_BENCH_MULTILINGUAL_DATASET,
 	SWE_BENCH_MULTILINGUAL_REGISTRY,
 	TERMINAL_BENCH_2_DATASET,
@@ -67,8 +68,25 @@ describe("benchmark runner", () => {
 		expect(args.includes("product_agent_dir=/repo/rotom")).toBe(arm === "dev-agent");
 	});
 
-	it.each(["--arm=oracle", "--pi-version=latest", "--pi-version=^0.85.1", "--pi-version=0.85.1;touch /tmp/bad", "--thinking=max"])("rejects an unfrozen/unsupported release option %s", (argument) => {
+	it.each(["--arm=oracle", "--pi-version=latest", "--pi-version=^0.85.1", "--pi-version=0.85.1;touch /tmp/bad", "--thinking=ultra"])("rejects an unfrozen/unsupported release option %s", (argument) => {
 		expect(() => parseBenchmarkRunnerArgs(["terminal-bench-2.1", "--provider=unresolved", "--model=luna", argument], defaults, {})).toThrow();
+	});
+
+	it("builds a digest-pinned FrontierHarness Eval run and forwards max thinking", () => {
+		const options = parseBenchmarkRunnerArgs(
+			["frontier-harness-eval", "--provider=openai", "--model=gpt-6-luna", "--thinking=max", "--task=wal-recovery-ordering"],
+			defaults,
+			{},
+		);
+		const args = buildHarborBenchmarkArgs(options, "fixture-run");
+
+		expect(options.benchmark).toBe("frontier-harness-eval");
+		expect(options.thinking).toBe("max");
+		expect(args).toContain(FRONTIER_HARNESS_EVAL_DATASET);
+		expect(FRONTIER_HARNESS_EVAL_DATASET).toContain("@sha256:");
+		expect(args).toContain("thinking=max");
+		expect(args).toContain("wal-recovery-ordering");
+		expect(args.includes("--registry-path")).toBe(false);
 	});
 
 	it("builds a pinned SWE-bench Multilingual Harbor run", () => {
@@ -122,6 +140,19 @@ describe("benchmark runner", () => {
 		expect(args).toContain(TERMINAL_BENCH_2_DATASET);
 		expect(args).toContain("docker");
 		expect(args).not.toContain("--n-tasks");
+	});
+
+	it("targets Runta sandboxes when requested", () => {
+		const options = parseBenchmarkRunnerArgs(
+			["terminal-bench-2.1", "--provider=openai", "--model=gpt", "--environment=runta"],
+			defaults,
+			{},
+		);
+		const args = buildHarborBenchmarkArgs(options, "fixture-run");
+
+		expect(options.environment).toBe("runta");
+		expect(args).toEqual(expect.arrayContaining(["--env", "runta"]));
+		expect(args).not.toContain(AMD64_APPLE_CONTAINER_ENVIRONMENT);
 	});
 
 	it("uses eval model environment defaults and preserves non-owned Harbor controls", () => {

@@ -11,6 +11,7 @@ import {
 	benchmarkUsage,
 	buildHarborBenchmarkArgs,
 	parseBenchmarkRunnerArgs,
+	parseEnvironment,
 } from "../src/benchmark-runner.ts";
 
 const execFileAsync = promisify(execFile);
@@ -55,13 +56,17 @@ function adapterEnvironment() {
 	};
 }
 
-async function verifyHarborImport(harborCli) {
+async function harborPython(harborCli) {
 	const launcher = await readFile(harborCli, "utf8");
 	const shebang = launcher.split(/\r?\n/u, 1)[0];
 	if (!shebang.startsWith("#!/")) {
 		throw new Error("Harbor launcher is not a Python script; cannot verify local adapters.");
 	}
-	const python = shebang.slice(2).trim();
+	return shebang.slice(2).trim();
+}
+
+async function verifyHarborImport(harborCli) {
+	const python = await harborPython(harborCli);
 	await execFileAsync(
 		python,
 		[
@@ -72,37 +77,57 @@ async function verifyHarborImport(harborCli) {
 	);
 }
 
-async function doctor(live) {
+async function verifyHarborEnvironmentImport(harborCli, moduleName) {
+	const python = await harborPython(harborCli);
+	await execFileAsync(python, ["-c", `import ${moduleName}`], {
+		cwd: packageRoot,
+		env: adapterEnvironment(),
+		encoding: "utf8",
+		maxBuffer: 1024 * 1024,
+	});
+}
+
+async function doctor(environment, live) {
 	const harborCli = await resolveExecutable(process.env.ROTOM_HARBOR?.trim() || "harbor", "Harbor CLI");
-	const containerCli = await resolveExecutable(process.env.ROTOM_CONTAINER_CLI?.trim() || "container", "Apple container CLI");
 	const { stdout: harborVersionOutput } = await execFileAsync(harborCli, ["--version"], { encoding: "utf8" });
 	const harborVersion = harborVersionOutput.trim();
 	if (harborVersion !== SUPPORTED_HARBOR_VERSION) {
 		throw new Error(`Harbor ${SUPPORTED_HARBOR_VERSION} is required; found ${harborVersion || "unknown"}.`);
 	}
-	const { stdout: containerVersionOutput } = await execFileAsync(containerCli, ["--version"], { encoding: "utf8" });
-	const { stdout: statusOutput } = await execFileAsync(containerCli, ["system", "status"], {
-		encoding: "utf8",
-		maxBuffer: 4 * 1024 * 1024,
-	});
-	if (!/^status\s+running$/mu.test(statusOutput)) throw new Error("Apple container service is not running.");
-	await Promise.all([
+	const checks = [
 		access(resolve(defaultProductAgentDir, "bin/rotom-launcher"), constants.X_OK),
 		access(resolve(defaultProductAgentDir, "runtime/verify-pi-runtime.mjs"), constants.R_OK),
 		verifyHarborImport(harborCli),
-	]);
+	];
+	let containerVersion = null;
+	if (environment === "runta") {
+		checks.push(verifyHarborEnvironmentImport(harborCli, "harbor.environments.runta"));
+	} else if (environment === null || environment.startsWith("apple-container")) {
+		const containerCli = await resolveExecutable(process.env.ROTOM_CONTAINER_CLI?.trim() || "container", "Apple container CLI");
+		const { stdout: containerVersionOutput } = await execFileAsync(containerCli, ["--version"], { encoding: "utf8" });
+		containerVersion = containerVersionOutput.trim();
+		const { stdout: statusOutput } = await execFileAsync(containerCli, ["system", "status"], {
+			encoding: "utf8",
+			maxBuffer: 4 * 1024 * 1024,
+		});
+		if (!/^status\s+running$/mu.test(statusOutput)) throw new Error("Apple container service is not running.");
+	}
+	await Promise.all(checks);
 	console.error(`[benchmark-doctor] harbor=${harborVersion}`);
-	console.error(`[benchmark-doctor] container=${containerVersionOutput.trim()}`);
+	console.error(`[benchmark-doctor] environment=${environment ?? "apple-container-amd64 (default)"}`);
+	if (containerVersion !== null) console.error(`[benchmark-doctor] container=${containerVersion}`);
 	console.error(`[benchmark-doctor] adapters=importable`);
 	console.error(`[benchmark-doctor] product=${defaultProductAgentDir}`);
-	if (live) {
-		console.error("[benchmark-doctor] probing linux/amd64 with Rosetta...");
-		const status = await runStreaming(
-			containerCli,
-			["run", "--rm", "--platform", "linux/amd64", "--rosetta", "alpine:3.22", "uname", "-m"],
-		);
-		if (status !== 0) process.exit(status);
+	if (!live) return;
+	if (environment !== null && !environment.startsWith("apple-container")) {
+		throw new TypeError("--live probes linux/amd64 with Rosetta and requires an Apple container environment.");
 	}
+	console.error("[benchmark-doctor] probing linux/amd64 with Rosetta...");
+	const status = await runStreaming(
+		await resolveExecutable(process.env.ROTOM_CONTAINER_CLI?.trim() || "container", "Apple container CLI"),
+		["run", "--rm", "--platform", "linux/amd64", "--rosetta", "alpine:3.22", "uname", "-m"],
+	);
+	if (status !== 0) process.exit(status);
 }
 
 const args = process.argv.slice(2);
@@ -111,9 +136,29 @@ if (args.length === 0 || args[0] === "--help" || args[0] === "-h") {
 	process.exit(args.length === 0 ? 1 : 0);
 }
 if (args[0] === "doctor") {
-	const unknown = args.slice(1).filter((argument) => argument !== "--live");
-	if (unknown.length > 0) throw new TypeError(`Unknown doctor option: ${unknown[0]}`);
-	await doctor(args.includes("--live"));
+	let live = false;
+	let doctorEnvironment = null;
+	const rest = args.slice(1);
+	for (let index = 0; index < rest.length; index += 1) {
+		const argument = rest[index];
+		if (argument === "--live") {
+			live = true;
+			continue;
+		}
+		if (argument === "--environment") {
+			const value = rest[index + 1];
+			if (!value || value.startsWith("--")) throw new TypeError("Missing value for --environment.");
+			doctorEnvironment = parseEnvironment(value);
+			index += 1;
+			continue;
+		}
+		if (argument.startsWith("--environment=")) {
+			doctorEnvironment = parseEnvironment(argument.slice("--environment=".length));
+			continue;
+		}
+		throw new TypeError(`Unknown doctor option: ${argument}`);
+	}
+	await doctor(doctorEnvironment, live);
 	process.exit(0);
 }
 

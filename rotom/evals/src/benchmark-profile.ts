@@ -1,6 +1,6 @@
 export const BENCHMARK_PROFILE_SCHEMA_V1 = "dev-agent-benchmark-profile/v1";
 
-export const SUPPORTED_BENCHMARKS = ["swe-bench-multilingual", "terminal-bench-2", "terminal-bench-2.1"] as const;
+export const SUPPORTED_BENCHMARKS = ["swe-bench-multilingual", "terminal-bench-2", "terminal-bench-2.1", "frontier-harness-eval"] as const;
 export type SupportedBenchmark = (typeof SUPPORTED_BENCHMARKS)[number];
 
 export type BenchmarkProfileEntryV1 = {

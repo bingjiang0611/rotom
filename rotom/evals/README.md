@@ -25,7 +25,12 @@
 
 - `profiles/terminal-bench-2.1.registry.json`：官方 commit 的全部 89 个任务引用；Maka 的 [实验配置](https://github.com/apache/maka/blob/main/packages/eval/experiments/terminal-bench-2.1-deepseek-v4-flash-eight-arm.json) 提供 repository/revision，已通过该仓库 Git tree API 核对。只共享任务版本，不声称 Harbor 版本、模型、网络和资源限制与 Maka 完全相同。
 - `profiles/release-smoke.txt`：10 个预选链路任务，覆盖构建、异步、服务、调试、恢复、安全修复、Git、大编辑、跨语言和查询。未根据本产品成绩选题；不是代表性发布分数，也不保证 $20 内能跑完。
-- 明确传 `--pi-version=0.85.1 --thinking=high`；旧命令仍默认 Pi 0.84.3，不静默更改既有实验。Node 安装器当前固定 major 24，正式 run 还需锁定实际 patch/image identity。
+- 明确传 `--pi-version=1.4.0 --thinking=high`；旧命令改默认为 Pi 1.4.0。默认值从 `0.84.3` 上调的原因是可验证的：
+  `0.84.3` 缺 `createCodemodeExtension`，会被 rotom launcher 的 identity/capability gate 直接拒绝
+  （`rotom: Pi 公开入口缺少关键能力：createCodemodeExtension`），dev-agent 臂无法启动。产品自身固定的是
+  fork `1.4.0-rotom.4`，不在 npm；两臂都用 npm 上同版本的 `1.4.0`，所以对照公平，但不等于发行版 fork。
+  已记录过显式 `--pi-version=0.85.1` 的实验不受影响。Node 安装器当前固定 major 24，正式 run 还需锁定实际
+  patch/image identity。
 - 最终冻结应记录两臂源码/包/镜像指纹、模型/provider、任务/verifier、thinking、预算、顺序和重试口径。超时计入失败；基础设施重试保留证据，不挑选最佳尝试。
 
 只打印一个任务的两组命令（不会执行模型、拉取任务镜像或启动容器）：
@@ -57,17 +62,19 @@ ROTOM_NODE=/absolute/path/to/node npm test
 ROTOM_NODE=/absolute/path/to/node npm run typecheck
 ```
 
-外部 benchmark adapter 依赖官方 Harbor `0.22.0`，单独验证：
+外部 benchmark adapter 依赖官方 Harbor `0.26.0`（含 `runta` extra），单独验证：
 
 ```sh
-uv tool install 'harbor==0.22.0'
+uv tool install 'harbor[runta]==0.26.0'
 npm run test:benchmark-adapters
 npm run benchmark:doctor
+npm run benchmark -- doctor --environment=runta
 npm run benchmark -- doctor --live
 ```
 
-`doctor --live` 会用一个很小的 Alpine 镜像实际验证 `linux/amd64 + Rosetta`；普通 `doctor` 只检查
-Harbor、Apple container、adapter import 和 product 文件。
+`doctor` 默认检查 Apple container（默认 amd64 环境的依赖）；`doctor --environment=runta` 改为检查 Harbor 的
+Runta backend 是否可导入，不要求本机运行 Apple container 或 Docker。`doctor --live` 会用一个很小的 Alpine
+镜像实际验证 `linux/amd64 + Rosetta`，只适用于 Apple container 环境。
 
 ## 专题指南
 

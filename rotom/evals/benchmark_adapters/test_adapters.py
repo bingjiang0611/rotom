@@ -5,12 +5,12 @@ import json
 import tempfile
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 from pathlib import Path
 
 from harbor.agents.installed.pi import Pi
 
-from benchmark_adapters.dev_agent_pi import DevAgentPi, NativePi
+from benchmark_adapters.dev_agent_pi import DevAgentPi, NativePi, prompt_argument
 from benchmark_adapters.harbor_environment import with_amd64_rosetta_args
 from benchmark_adapters.product_bundle import (
     REQUIRED_PRODUCT_FILES,
@@ -48,11 +48,15 @@ class ProductBundleTest(unittest.TestCase):
             self.assertTrue((destination / "extensions/observability/index.ts").is_file())
             self.assertTrue((destination / "extensions/coding-policy/index.ts").is_file())
             self.assertTrue((destination / "skills/pi-subagents/SKILL.md").is_file())
-            archive = "extensions/third-party/vendor/pi-subagents-0.52.1-dev-agent-followthrough.2.tgz"
+            # The launcher reads these from the staged root; a missing package.json
+            # makes every in-sandbox run fail with "Untrusted rotom package manifest".
+            self.assertTrue((destination / "package.json").is_file())
+            self.assertTrue((destination / "bin/rotom").is_file())
+            archive = "extensions/third-party/vendor/pi-subagents-0.52.1-rotom.15.tgz"
             self.assertEqual((destination / archive).read_bytes(), (product / archive).read_bytes())
             self.assertEqual(
                 {path.name for path in (destination / "extensions").iterdir()},
-                {"observability", "browser", "coding-policy", "context-layers", "third-party"},
+                {"observability", "browser", "coding-policy", "context-layers", "qoder", "third-party"},
             )
             persisted = json.loads((destination / "dev-agent-benchmark-manifest.json").read_text())
             self.assertEqual(persisted["bundleSha256"], manifest["bundleSha256"])
@@ -81,8 +85,10 @@ class HarborAdapterTest(unittest.TestCase):
     def test_native_arm_uses_pi_behavior_and_both_arms_share_installation(self):
         self.assertTrue(issubclass(DevAgentPi, NativePi))
         self.assertEqual(NativePi.name(), "native-pi")
-        self.assertIs(NativePi.run, Pi.run)
-        self.assertIs(DevAgentPi.run, Pi.run)
+        # Both arms route the instruction through the same leading-dash guard; the
+        # deviation from upstream Pi is only that guard (see prompt_argument tests).
+        self.assertIs(DevAgentPi.run, NativePi.run)
+        self.assertIsNot(NativePi.run, Pi.run)
         fake = SimpleNamespace(
             _version="0.85.1",
             _package_name=lambda: "@earendil-works/pi-coding-agent",
@@ -118,6 +124,26 @@ class HarborAdapterTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             agent = NativePi(logs_dir=Path(temp_dir), model_name="unresolved/luna", version="0.85.1", thinking="high")
             self.assertEqual(agent.build_cli_flags(), "--thinking high")
+
+    def test_instruction_starting_with_a_dash_stays_a_message_not_an_option(self):
+        # FrontierHarness `pytorch-model-recovery` opens with "- You are given ..."; Harbor
+        # appends the instruction without `--`, so Pi parsed it as an unknown option.
+        self.assertEqual(prompt_argument("- you are given"), " - you are given")
+        self.assertEqual(prompt_argument("--model x"), " --model x")
+        self.assertEqual(prompt_argument("you are given"), "you are given")
+        self.assertEqual(prompt_argument("\n- nested list"), "\n- nested list")
+
+    def test_native_pi_run_forwards_the_sanitized_instruction(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            agent = NativePi(logs_dir=Path(temp_dir), model_name="openai/gpt-6-luna", version="1.4.0")
+            seen: list[str] = []
+
+            async def fake_super_run(self, instruction, environment, context):
+                seen.append(instruction)
+
+            with patch.object(Pi, "run", fake_super_run):
+                asyncio.run(agent.run("- hello", SimpleNamespace(), None))
+            self.assertEqual(seen, [" - hello"])
 
     def test_dev_agent_is_a_harbor_pi_agent(self):
         self.assertTrue(issubclass(DevAgentPi, Pi))
