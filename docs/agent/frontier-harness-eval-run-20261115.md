@@ -1,4 +1,4 @@
-# FrontierHarness Eval 62 题自跑（gpt-6-luna / max）
+# FrontierHarness Eval 62 题自跑（gpt-6-luna / max）：首轮 35/62
 
 日期：2026-11-15。这是**我们自己的 runner 在 FrontierHarness 的题集上自跑**，不是他们榜上的成绩。
 
