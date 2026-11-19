@@ -12,6 +12,7 @@ import {
 	TERMINAL_BENCH_21_REGISTRY,
 	TERMINAL_BENCH_21_REVISION,
 	NATIVE_PI_HARBOR_AGENT,
+	ROTOM_FORK_HARBOR_AGENT,
 	buildHarborBenchmarkArgs,
 	parseBenchmarkRunnerArgs,
 } from "../src/benchmark-runner.ts";
@@ -59,13 +60,15 @@ describe("benchmark runner", () => {
 		}
 	});
 
-	it.each(["native-pi", "dev-agent"])("prepares %s with the same explicit Pi/model/thinking contract", (arm) => {
+	it.each(["native-pi", "dev-agent", "rotom-fork"])("prepares %s with the same explicit Pi/model/thinking contract", (arm) => {
 		const options = parseBenchmarkRunnerArgs(["terminal-bench-2.1", `--arm=${arm}`, "--pi-version=0.85.1", "--provider=unresolved", "--model=luna", "--thinking=high", "--task=build-cython-ext", "--dry-run"], defaults, {});
 		const args = buildHarborBenchmarkArgs(options, "preparation-only");
 		expect(options.dryRun).toBe(true);
 		expect(args).toEqual(expect.arrayContaining(["--dataset", TERMINAL_BENCH_21_DATASET, "--registry-path", TERMINAL_BENCH_21_REGISTRY, "version=0.85.1", "thinking=high", "unresolved/luna"]));
-		expect(args).toContain(arm === "native-pi" ? NATIVE_PI_HARBOR_AGENT : DEV_AGENT_HARBOR_AGENT);
-		expect(args.includes("product_agent_dir=/repo/rotom")).toBe(arm === "dev-agent");
+		const expectedAgent = arm === "native-pi" ? NATIVE_PI_HARBOR_AGENT : arm === "rotom-fork" ? ROTOM_FORK_HARBOR_AGENT : DEV_AGENT_HARBOR_AGENT;
+		expect(args).toContain(expectedAgent);
+		// The fork arm runs the same bundle; only the Pi binary differs.
+		expect(args.includes("product_agent_dir=/repo/rotom")).toBe(arm !== "native-pi");
 	});
 
 	it.each(["--arm=oracle", "--pi-version=latest", "--pi-version=^0.85.1", "--pi-version=0.85.1;touch /tmp/bad", "--thinking=ultra"])("rejects an unfrozen/unsupported release option %s", (argument) => {

@@ -188,6 +188,21 @@ npm run benchmark -- terminal-bench-2 \
 
 结果默认写入 `.eval/benchmarks/<run-name>/`。Harbor 的 `lock.json` 固化本次实际 task digest；每个 trial 的
 agent logs 还包含 `dev-agent-manifest.json`，记录 product Git HEAD、dirty 状态和实际上传 bundle 的 SHA-256。
+
+### 三臂对照（Pi 来源不同）
+
+`--arm` 有三个值，`--product` 相同也可以跑出不同的 Pi：
+
+| arm | 沙箱里的 `pi` | 量的是什么 |
+|---|---|---|
+| `native-pi` | 官方 `@earendil-works/pi-coding-agent` | 上游 Pi 原始行为 |
+| `dev-agent` | shim 导出 `ROTOM_PI` 指回那个官方二进制 | rotom 扩展与 policy，跑在上游 Pi 上 |
+| `rotom-fork` | shim 不导出 `ROTOM_PI`，launcher 按默认路径加载 `runtime/pi` | 发布版 rotom 实际加载的 Pi fork |
+
+`rotom-fork` 会在沙箱里对 `runtime/pi` 按锁文件执行 `npm ci`（vendor tgz 随 bundle 上传），随后回读三样写入
+`agent/pi-runtime.json`：`rotom --version` 报的版本、`resolve-installed-pi.mjs` 解析出的实际可执行路径、
+`build-info.json`（源码 bundle 没有这个文件时为 `null`，此时以 bundle manifest 的 Git HEAD 为溯源）。任一臂如果
+落回另一个 Pi，`pi-runtime.json` 会显示出来，而不是只留下一个可疑分数。
 查看与比较结果：
 
 ```sh

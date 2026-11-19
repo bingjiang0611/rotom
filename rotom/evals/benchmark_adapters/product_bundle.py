@@ -103,10 +103,19 @@ def hash_bundle(directory: Path) -> tuple[str, int]:
 
 
 def build_pi_shim() -> str:
+    """`pi` shim for the upstream-Pi arm: the launcher is told where Pi is."""
     return """#!/bin/sh
 set -eu
 ROTOM_PI="${0}.upstream"
 export ROTOM_PI
+exec /opt/dev-agent/bin/rotom-launcher "$@"
+"""
+
+
+def build_fork_pi_shim() -> str:
+    """`pi` shim for the fork arm: no ROTOM_PI, so the launcher resolves its own fork."""
+    return """#!/bin/sh
+set -eu
 exec /opt/dev-agent/bin/rotom-launcher "$@"
 """
 
@@ -140,6 +149,9 @@ def stage_product_bundle(product_agent_dir: str | Path, destination: str | Path)
     shim = target / "bin" / "harbor-pi-shim"
     shim.write_text(build_pi_shim(), encoding="utf-8")
     shim.chmod(0o755)
+    fork_shim = target / "bin" / "harbor-rotom-shim"
+    fork_shim.write_text(build_fork_pi_shim(), encoding="utf-8")
+    fork_shim.chmod(0o755)
     (target / "bin" / "rotom").chmod(0o755)
     bundle_digest, file_count = hash_bundle(target)
     manifest = {

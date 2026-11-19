@@ -10,10 +10,11 @@ from pathlib import Path
 
 from harbor.agents.installed.pi import Pi
 
-from benchmark_adapters.dev_agent_pi import DevAgentPi, NativePi, prompt_argument
+from benchmark_adapters.dev_agent_pi import DevAgentPi, NativePi, RotomForkPi, prompt_argument
 from benchmark_adapters.harbor_environment import with_amd64_rosetta_args
 from benchmark_adapters.product_bundle import (
     REQUIRED_PRODUCT_FILES,
+    build_fork_pi_shim,
     build_pi_shim,
     stage_product_bundle,
 )
@@ -75,6 +76,24 @@ class ProductBundleTest(unittest.TestCase):
         self.assertIn("ROTOM_PI", shim)
         self.assertNotIn("ROTOM_COMPACT_POLICY", shim)
 
+    def test_fork_shim_lets_the_launcher_resolve_its_own_pi(self):
+        # Setting ROTOM_PI would override default resolution and reinstall the arm
+        # as an upstream-Pi arm, which is exactly what the fork comparison must avoid.
+        shim = build_fork_pi_shim()
+        self.assertNotIn("ROTOM_PI", shim)
+        self.assertIn("/opt/dev-agent/bin/rotom-launcher", shim)
+
+    def test_both_shims_are_staged_for_the_uploaded_bundle(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            product = self.create_product(root)
+            destination = root / "bundle"
+            stage_product_bundle(product, destination)
+            shims = {path.name: path.read_text() for path in (destination / "bin").glob("harbor-*shim")}
+            self.assertEqual(set(shims), {"harbor-pi-shim", "harbor-rotom-shim"})
+            self.assertIn("ROTOM_PI", shims["harbor-pi-shim"])
+            self.assertNotIn("ROTOM_PI", shims["harbor-rotom-shim"])
+
 
 class HarborAdapterTest(unittest.TestCase):
     def test_native_arm_rejects_unpinned_versions_before_installation(self):
@@ -114,10 +133,13 @@ class HarborAdapterTest(unittest.TestCase):
             environment = SimpleNamespace(default_user=None, upload_dir=AsyncMock())
             asyncio.run(agent.install(environment))
             commands = [call.kwargs["command"] for call in agent.exec_as_agent.call_args_list]
-            self.assertEqual(len(commands), 2)
+            self.assertEqual(len(commands), 3)
             self.assertIn("@earendil-works/pi-coding-agent@0.85.1", commands[0])
             self.assertIn("npm ci --ignore-scripts --omit=optional --legacy-peer-deps --replace-registry-host=never", commands[1])
             self.assertNotIn("--replace-registry-host=always", commands[1])
+            # The upstream arm pins the registry Pi; the fork arm must not inherit this.
+            self.assertIn("harbor-pi-shim", commands[2])
+            self.assertNotIn("runtime/pi", commands[1])
             environment.upload_dir.assert_awaited_once()
 
     def test_native_thinking_flag_is_forwarded_without_model_calls(self):
@@ -148,6 +170,29 @@ class HarborAdapterTest(unittest.TestCase):
     def test_dev_agent_is_a_harbor_pi_agent(self):
         self.assertTrue(issubclass(DevAgentPi, Pi))
         self.assertEqual(DevAgentPi.name(), "dev-agent-pi")
+
+    def test_fork_arm_installs_the_checked_in_fork_and_records_what_ran(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            product = ProductBundleTest().create_product(root)
+            agent = RotomForkPi(product_agent_dir=str(product), logs_dir=root / "logs", model_name="unresolved/luna", version="1.4.0")
+            agent.ensure_system_dependencies = AsyncMock()
+            agent.exec_as_agent = AsyncMock()
+            environment = SimpleNamespace(default_user=None, upload_dir=AsyncMock())
+            asyncio.run(agent.install(environment))
+            commands = [call.kwargs["command"] for call in agent.exec_as_agent.call_args_list]
+            joined = "\n".join(commands)
+            self.assertEqual(RotomForkPi.name(), "rotom-fork-pi")
+            self.assertTrue(issubclass(RotomForkPi, DevAgentPi))
+            # Upstream Pi is still installed, because Harbor's own installer owns Node;
+            # the fork then replaces it before any trial runs.
+            self.assertIn("@earendil-works/pi-coding-agent@1.4.0", commands[0])
+            self.assertIn("cd /opt/dev-agent/runtime/pi; npm ci --ignore-scripts", joined)
+            self.assertIn("harbor-rotom-shim", joined)
+            self.assertNotIn("ROTOM_PI", joined)
+            self.assertIn("resolve-installed-pi.mjs", joined)
+            self.assertIn("/logs/agent/pi-runtime.json", joined)
+            self.assertNotIn("harbor-pi-shim", joined)
 
     def test_adds_amd64_rosetta_only_to_relevant_container_commands(self):
         self.assertEqual(

@@ -15,6 +15,7 @@ export const FRONTIER_HARNESS_EVAL_DATASET =
 	"frontier-harness-eval/frontier-harness-eval@sha256:9236400fc1a6619eb72a663445c580417be9bbbab32f816c7dff76d0a96ab24a";
 export const NATIVE_PI_HARBOR_AGENT = "benchmark_adapters.dev_agent_pi:NativePi";
 export const DEV_AGENT_HARBOR_AGENT = "benchmark_adapters.dev_agent_pi:DevAgentPi";
+export const ROTOM_FORK_HARBOR_AGENT = "benchmark_adapters.dev_agent_pi:RotomForkPi";
 export const AMD64_APPLE_CONTAINER_ENVIRONMENT =
 	"benchmark_adapters.harbor_environment:Amd64AppleContainerEnvironment";
 
@@ -24,7 +25,7 @@ export type BenchmarkName =
 	| "terminal-bench-2.1"
 	| "frontier-harness-eval";
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
-export type BenchmarkArm = "dev-agent" | "native-pi";
+export type BenchmarkArm = "dev-agent" | "native-pi" | "rotom-fork";
 export type BenchmarkEnvironment = "apple-container-amd64" | "apple-container-native" | "docker" | "runta";
 
 export type BenchmarkRunnerOptions = {
@@ -199,7 +200,7 @@ export function parseBenchmarkRunnerArgs(
 		(value: string) => void,
 	]> = [
 		["--arm", (value) => {
-			if (value !== "dev-agent" && value !== "native-pi") throw new TypeError("Arm must be dev-agent or native-pi.");
+			if (value !== "dev-agent" && value !== "native-pi" && value !== "rotom-fork") throw new TypeError("Arm must be dev-agent, native-pi or rotom-fork.");
 			arm = value;
 		}],
 		["--pi-version", (value) => {
@@ -304,7 +305,7 @@ export function buildHarborBenchmarkArgs(options: BenchmarkRunnerOptions, genera
 		"--jobs-dir",
 		options.jobsDir,
 		"--agent",
-		options.arm === "native-pi" ? NATIVE_PI_HARBOR_AGENT : DEV_AGENT_HARBOR_AGENT,
+		options.arm === "native-pi" ? NATIVE_PI_HARBOR_AGENT : options.arm === "rotom-fork" ? ROTOM_FORK_HARBOR_AGENT : DEV_AGENT_HARBOR_AGENT,
 		"--model",
 		harborModelName(options),
 		"--agent-kwarg",
@@ -317,7 +318,7 @@ export function buildHarborBenchmarkArgs(options: BenchmarkRunnerOptions, genera
 		String(options.setupTimeoutMultiplier),
 	];
 
-	if (options.arm === "dev-agent") args.push("--agent-kwarg", `product_agent_dir=${options.productAgentDir}`);
+	if (options.arm !== "native-pi") args.push("--agent-kwarg", `product_agent_dir=${options.productAgentDir}`);
 	if (options.thinking !== undefined) args.push("--agent-kwarg", `thinking=${options.thinking}`);
 
 	if (options.environment === "apple-container-amd64") {
@@ -359,7 +360,8 @@ export const benchmarkUsage = `Usage:
   npm run benchmark -- frontier-harness-eval --provider=<id> --model=<id> [options]
 
 Runner options:
-  --arm=dev-agent|native-pi               Default: dev-agent; same Node 24/Pi installer
+  --arm=dev-agent|native-pi|rotom-fork    Default: dev-agent; same Node 24/Pi installer
+                                          rotom-fork installs runtime/pi from its lockfile
   --pi-version=X.Y.Z                     Exact Pi version; default: 1.4.0
   --thinking=high                        Explicit Pi thinking level for both arms (max included)
   --product=/absolute/path/to/rotom    Product worktree or snapshot to evaluate
