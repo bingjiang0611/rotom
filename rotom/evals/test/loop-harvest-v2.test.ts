@@ -146,6 +146,7 @@ describe("model attribution and runtime", () => {
 		const launcher = `${install}/bin/rotom-launcher`;
 		expect(entryClassOf(install)).toBe("install");
 		expect(entryClassOf(checkout)).toBe("dev-checkout");
+		expect(entryClassOf(undefined, "/tmp/prefix/lib/node_modules/@scope/rotom/bin/rotom-launcher")).toBe("install");
 		expect(entryClassOf(undefined)).toBe("unknown");
 		expect(productRootOf([span({ "rotom.product.root": checkout }), span({ "rotom.product.root": install })]))
 			.toBe(checkout);
@@ -158,7 +159,8 @@ describe("model attribution and runtime", () => {
 			message({ role: "assistant", content: [{ type: "text", text: "好" }], stopReason: "stop", provider: "qoder", model: "dfmodel", timestamp: 0 }, "2026-11-03T10:00:05.000Z"),
 		]).map((line) => JSON.stringify(line));
 		const traced = analyzeSession([JSON.stringify(sessionHeader), ...lines], { sessionFile: "/s.jsonl", excerpts: false, traceLines: [span({ "rotom.product.root": checkout, "rotom.launcher.path": launcher })] });
-		expect(traced?.session.entry).toBe("dev-checkout");
+		// The recorded launcher is the entry even when the product root points at a checkout.
+		expect(traced?.session.entry).toBe("install");
 		expect(traced?.session.launcher).toBe(launcher);
 		const untraced = analyzeSession([JSON.stringify(sessionHeader), ...lines], { sessionFile: "/s.jsonl", excerpts: false });
 		expect(untraced?.session.entry).toBe("unknown");

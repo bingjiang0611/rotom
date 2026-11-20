@@ -330,7 +330,7 @@ export function analyzeSession(lines: readonly string[], options: AnalyzeOptions
 			startedAtSource: started.startedAtSource,
 			modelTurns,
 			...(release ? { release } : {}),
-			entry: entryClassOf(productRoot),
+			entry: entryClassOf(productRoot, launcher),
 			...(launcher ? { launcher } : {}),
 			...(buildCommit ? { buildCommit } : {}),
 			...(buildDirty !== undefined ? { buildDirty } : {}),

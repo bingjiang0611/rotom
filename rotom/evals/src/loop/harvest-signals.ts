@@ -129,9 +129,10 @@ export function productRootOf(traceLines: readonly string[] | undefined): string
  */
 export type EntryClass = "install" | "dev-checkout" | "unknown";
 
-export function entryClassOf(productRoot: string | undefined): EntryClass {
-	if (!productRoot) return "unknown";
-	if (/\/rotom\/releases\/[^/]+\/node_modules\/[^/]+\/rotom$/u.test(productRoot)) return "install";
+export function entryClassOf(productRoot: string | undefined, launcher?: string): EntryClass {
+	const root = launcher?.replace(/\/bin\/rotom(?:-launcher)?$/u, "") ?? productRoot;
+	if (!root) return "unknown";
+	if (/\/node_modules\/(?:@[^/]+\/)?rotom$/u.test(root)) return "install";
 	return "dev-checkout";
 }
 
