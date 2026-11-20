@@ -42,9 +42,15 @@ export function sandboxProfile(base: string, privateRoots: readonly string[] = [
 	].join("\n");
 }
 
+// Only connection settings, never blanket NODE_OPTIONS, credentials, or TLS verification overrides.
+const NETWORK_ENV = ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy", "NODE_USE_ENV_PROXY", "NODE_EXTRA_CA_CERTS"];
+export function runtimeNetworkEnv(parent: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+	return Object.fromEntries(NETWORK_ENV.filter(name => parent[name] !== undefined).map(name => [name, parent[name]]));
+}
+
 /** The shell Pi runs tool commands with: the same bash, behind the sandbox. */
 export function sandboxShell(profilePath: string): string {
-	return ["#!/bin/bash", `unset PI_CODING_AGENT_DIR; exec /usr/bin/sandbox-exec -f "${profilePath}" /bin/bash "$@"`, ""].join("\n");
+	return ["#!/bin/bash", `unset PI_CODING_AGENT_DIR ${NETWORK_ENV.join(" ")}; exec /usr/bin/sandbox-exec -f "${profilePath}" /bin/bash "$@"`, ""].join("\n");
 }
 
 /** The generated guard extension: inline roots, one imported decision. */

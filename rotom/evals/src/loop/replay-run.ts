@@ -9,7 +9,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
-import { installReplaySandbox } from "./replay-sandbox.ts";
+import { installReplaySandbox, runtimeNetworkEnv } from "./replay-sandbox.ts";
 import { REPLAY_TOOLS, productEntry, admissionFor, newTurnStats, originalTranscript, refusalFor, readBranch, repositoryCheck, sandboxShim, scrubbedEnvironment, timepoint, type Admission, type CheckVerdict, type NewTurnStats, type ReplayPlan } from "./replay.ts";
 
 /** Files copied into the replay agent dir so the runtime can authenticate without an inherited env. */
@@ -116,7 +116,8 @@ async function runOnce(options: {
 		plan.branch.message,
 	];
 	// The public bin is a shell entry that resolves its own symlink and then execs node.
-	const run = spawn(executable, args, { cwd: workspace, env, stdio: ["ignore", "pipe", "pipe"] });
+	const runtimeEnv = { ...env, ...runtimeNetworkEnv(process.env) };
+	const run = spawn(executable, args, { cwd: workspace, env: runtimeEnv, stdio: ["ignore", "pipe", "pipe"] });
 	let output = "";
 	const collect = (chunk: Buffer) => {
 		output += chunk.toString();

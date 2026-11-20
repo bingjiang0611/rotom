@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { GUARD_MARKER, decideFileAccess, guardExtensionSource, installReplaySandbox, sandboxProfile } from "../src/loop/replay-sandbox.ts";
+import { GUARD_MARKER, decideFileAccess, guardExtensionSource, installReplaySandbox, runtimeNetworkEnv, sandboxProfile } from "../src/loop/replay-sandbox.ts";
 
 const made: string[] = [];
 
@@ -101,6 +101,9 @@ describe("shell commands run under sandbox-exec", () => {
 		const shell = join(home, "sandbox-shell");
 		expect(readFileSync(join(home, "sandbox.sbpl"), "utf8")).toContain("(deny network*)");
 		expect(installed.env.TMPDIR).toBe(join(base, "tmp"));
+		const network = runtimeNetworkEnv({ HTTPS_PROXY: "fixture", https_proxy: "fixture", NODE_EXTRA_CA_CERTS: "fixture", NODE_OPTIONS: "excluded" });
+		expect(Object.keys(network).sort()).toEqual(["HTTPS_PROXY", "NODE_EXTRA_CA_CERTS", "https_proxy"]);
+		expect(spawnSync(shell, ["-c", 'test -z "$HTTPS_PROXY$https_proxy$NODE_EXTRA_CA_CERTS"'], { env: { HOME: home, ...network } }).status).toBe(0);
 		const device = join(agent, "qoder-device-id");
 		writeFileSync(device, "fixture-only", { mode: 0o600 });
 		expect(spawnSync(shell, ["-c", 'test -z "$PI_CODING_AGENT_DIR" && ! /bin/cat "$1"', "--", device], { env: { HOME: home, PI_CODING_AGENT_DIR: agent } }).status).toBe(0);
