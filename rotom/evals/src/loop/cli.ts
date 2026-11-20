@@ -115,7 +115,7 @@ async function main(argv: string[]): Promise<number> {
 		return 0;
 	}
 	if (command === "replay-gate") {
-		const { values } = parseArgs({ args: rest, options: { product: { type: "string" }, candidate: { type: "string" }, "current-only": { type: "boolean" }, case: { type: "string" }, out: { type: "string" } } });
+		const { values } = parseArgs({ args: rest, options: { product: { type: "string" }, candidate: { type: "string" }, "current-only": { type: "boolean" }, smoke: { type: "boolean" }, case: { type: "string" }, out: { type: "string" } } });
 		const product = values.product ?? values.candidate;
 		if (!product) throw new Error("replay-gate needs --product /absolute/product/rotom");
 		const manifest = parseGateManifest(readFileSync(GATE_MANIFEST, "utf8"));
@@ -163,7 +163,7 @@ async function main(argv: string[]): Promise<number> {
 				incidentTimestamp: incident.timestamp,
 				entryId: incident.entryId,
 				products: replayGateProducts(resolve(product), frozen, values["current-only"]),
-				repeats: item.repeats ?? 1,
+				repeats: values.smoke ? 1 : item.repeats ?? 1,
 				outRoot,
 				agentSource: join(homeDir(), ".pi", "agent"),
 				model: { provider, model },

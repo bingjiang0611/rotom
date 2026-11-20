@@ -178,6 +178,7 @@ export type TurnUsage = { input: number; output: number; cacheRead: number; cach
 export type NewTurnStats = {
 	/** Assistant messages after the cut, i.e. the turns this replay produced. */
 	assistantMessages: number;
+	usableMessages: number;
 	toolCalls: number;
 	toolCallNames: Record<string, number>;
 	/** Summed over the new assistant messages only. */
@@ -220,9 +221,10 @@ function boundaryIndex(lines: readonly string[], entryId: string, failingMessage
 export function newTurnStats(sessionText: string, entryId: string, failingMessage?: string): NewTurnStats {
 	const lines = sessionText.split("\n").filter(Boolean);
 	const cut = boundaryIndex(lines, entryId, failingMessage);
-	const stats: NewTurnStats = { assistantMessages: 0, toolCalls: 0, toolCallNames: {}, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 } };
+	const stats: NewTurnStats = { assistantMessages: 0, usableMessages: 0, toolCalls: 0, toolCallNames: {}, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 } };
+	if (cut < 0) return stats;
 	for (const line of lines.slice(cut + 1)) {
-		let entry: { message?: { role?: string; content?: unknown; usage?: Partial<TurnUsage> } };
+		let entry: { message?: { role?: string; stopReason?: string; content?: unknown; usage?: Partial<TurnUsage> } };
 		try {
 			entry = JSON.parse(line) as typeof entry;
 		} catch {
@@ -231,6 +233,9 @@ export function newTurnStats(sessionText: string, entryId: string, failingMessag
 		const message = entry.message;
 		if (message?.role !== "assistant") continue;
 		stats.assistantMessages += 1;
+		const parts = message.content;
+		const usable = typeof parts === "string" ? parts.trim() : Array.isArray(parts) && parts.some((p) => (p?.type === "toolCall" && p.name) || (p?.type === "text" && typeof p.text === "string" && p.text.trim()));
+		if (usable && message.stopReason !== "error" && message.stopReason !== "aborted") stats.usableMessages++;
 		if (Array.isArray(message.content)) {
 			for (const part of message.content) {
 				if ((part as { type?: string }).type !== "toolCall") continue;

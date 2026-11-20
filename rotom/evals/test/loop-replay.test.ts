@@ -160,6 +160,9 @@ describe("replay scoring", () => {
 			line("e6", "assistant", { content: [tool("bash"), tool("bash")], usage: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, totalTokens: 10 } }),
 		].join("\n");
 		const stats = newTurnStats(sessionText, "cut");
+		const failure = JSON.stringify({ message: { role: "assistant", stopReason: "error", errorMessage: "provider unavailable", content: [] } });
+		expect(newTurnStats('{"id":"cut"}\n' + failure, "cut").usableMessages).toBe(0);
+		expect(newTurnStats(sessionText, "missing").usableMessages).toBe(0);
 		expect(stats.assistantMessages).toBe(2);
 		expect(stats.toolCalls).toBe(3);
 		expect(stats.toolCallNames).toEqual({ edit: 1, bash: 2 });

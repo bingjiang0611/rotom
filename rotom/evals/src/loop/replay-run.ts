@@ -4,9 +4,10 @@
  * incident's own repository, and no case file is written to Git.
  */
 import { spawn } from "node:child_process";
-import { copyFile, lstat, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdtemp, realpath, rm, lstat, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { installReplaySandbox } from "./replay-sandbox.ts";
 import { REPLAY_TOOLS, productEntry, admissionFor, newTurnStats, originalTranscript, refusalFor, readBranch, repositoryCheck, sandboxShim, scrubbedEnvironment, timepoint, type Admission, type CheckVerdict, type NewTurnStats, type ReplayPlan } from "./replay.ts";
@@ -59,14 +60,24 @@ async function runOnce(options: {
 	const base = join(options.outDir, product.label, `run-${repeat}`);
 	await privateDir(base);
 	const home = join(base, "home");
-	const agent = join(home, "agent");
+	const agent = await realpath(await mkdtemp(join(tmpdir(), "rotom-replay-runtime-")));
+	try {
+		return await runIsolated(agent);
+	} finally {
+		await rm(agent, { recursive: true, force: true });
+	}
+
+	async function runIsolated(agent: string): Promise<ReplayRun> {
 	const workspace = join(base, "worktree");
 	await privateDir(home);
 	await privateDir(agent);
-	for (const name of CREDENTIAL_FILES) {
+	for (const name of [...CREDENTIAL_FILES, ...(plan.model.provider === "qoder" ? ["qoder-device-id"] : [])]) {
 		try {
-			await copyFile(join(options.agentSource, name), join(agent, name));
-		} catch {
+			const source = join(options.agentSource, name);
+			if (!(await lstat(source)).isFile()) throw new Error("replay: expected regular credential file");
+			await writeFile(join(agent, name), await readFile(source), { flag: "wx", mode: 0o600 });
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
 			// A missing credential file is a real answer: that provider is simply not available here.
 		}
 	}
@@ -83,7 +94,7 @@ async function runOnce(options: {
 	await writeFile(branchFile, `${plan.branch.lines.join("\n")}\n`, { mode: 0o600 });
 	const shim = join(home, "sandbox.sh");
 	await writeFile(shim, sandboxShim(), { mode: 0o600 });
-	const sandbox = await installReplaySandbox({ base, home, agent, workspace });
+	const sandbox = await installReplaySandbox({ base, home, agent, workspace, agentSource: options.agentSource });
 
 	const entry = productEntry(product.directory, existsSync);
 	if ("error" in entry) throw new Error(entry.error);
@@ -91,6 +102,7 @@ async function runOnce(options: {
 	const env = { ...scrubbedEnvironment(process.env, home), ...sandbox.env, BASH_ENV: shim, PI_CODING_AGENT_DIR: agent };
 	const args = [
 		"--print",
+		"--extension", join(agent, "extensions/replay-isolation.ts"),
 		"--session",
 		branchFile,
 		"--session-dir",
@@ -131,9 +143,11 @@ async function runOnce(options: {
 		return { label: product.label, product: product.directory, repeat, exitCode, transcript: output, refusals, stats: newTurnStats("", plan.branch.entryId), check: "unknown", checkOutput: "the product did not start", failed: true };
 	}
 	const stats = newTurnStats(sessionText, plan.branch.entryId, plan.branch.message);
+	if (!stats.usableMessages) return { label: product.label, product: product.directory, repeat, exitCode, transcript: output, refusals, stats, check: "unknown", checkOutput: "no usable model output after replay cut", failed: true };
 	const session = join(base, "session.jsonl");
 	const judged = await runCheck({ outDir: base, workspace, env, shim, transcript: join(base, "transcript.txt"), ...(existsSync(session) ? { session, cut: plan.branch.entryId, cutText: plan.branch.message, mode: "after" as const } : {}), check: options.check });
 	return { label: product.label, product: product.directory, repeat, exitCode, transcript: output, refusals, stats, check: judged.verdict, checkOutput: judged.output, failed: exitCode !== 0 };
+	}
 }
 
 /**

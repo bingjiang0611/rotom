@@ -101,6 +101,9 @@ describe("shell commands run under sandbox-exec", () => {
 		const shell = join(home, "sandbox-shell");
 		expect(readFileSync(join(home, "sandbox.sbpl"), "utf8")).toContain("(deny network*)");
 		expect(installed.env.TMPDIR).toBe(join(base, "tmp"));
+		const device = join(agent, "qoder-device-id");
+		writeFileSync(device, "fixture-only", { mode: 0o600 });
+		expect(spawnSync(shell, ["-c", 'test -z "$PI_CODING_AGENT_DIR" && ! /bin/cat "$1"', "--", device], { env: { HOME: home, PI_CODING_AGENT_DIR: agent } }).status).toBe(0);
 		const outside = join(host.dir, "written-by-agent.txt");
 		const outsideRun = spawnSync(shell, ["-c", `printf x > ${outside}`], { encoding: "utf8" });
 		expect(outsideRun.status).not.toBe(0);
