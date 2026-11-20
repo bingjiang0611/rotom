@@ -27,6 +27,7 @@ const GUARDS = [
 	"hook-identity.mjs",
 	"hook-ledger.mjs",
 	"hook-audit.mjs",
+	"hook-push-ledger.mjs",
 	"check-staged-file-size.mjs",
 	"audit-public.py",
 	"audit_rules.py",
@@ -175,11 +176,25 @@ describe("pre-push hook over a real push", () => {
 			chmodSync(join(cwd, ".githooks", name), 0o755);
 		}
 		mkdirSync(join(cwd, "scripts"));
+		for (const dir of ["rotom/evals/src/loop", "rotom/evals/loop/ledger"]) mkdirSync(join(cwd, dir), { recursive: true });
+		copyFileSync(resolve("rotom/evals/src/loop/ledger.ts"), join(cwd, "rotom/evals/src/loop/ledger.ts"));
+		writeFileSync(join(cwd, "rotom/evals/loop/ledger/2026-11.json"), "[]");
 		for (const name of GUARDS) copyFileSync(resolve(join("scripts", name)), join(cwd, "scripts", name));
 		assert.equal(run(process.execPath, [installer]).status, 0);
 	});
 
 	afterEach(() => rmSync(directory, { recursive: true, force: true }));
+
+	it("rejects a missing ledger source in the push tip even if it exists locally", () => {
+		const entry = { schema: "rotom-loop-ledger/v1", id: "L-2026-11-01-case", date: "2026-11-01", title: "case", change: "eval", hypothesis: "h", measurement: "m", result: "r", decision: "open", evidence: "unmeasured", source: "pending.md" };
+		writeFileSync(join(cwd, "rotom/evals/loop/ledger/2026-11.json"), JSON.stringify([entry]));
+		commit("missing-source");
+		writeFileSync(join(cwd, entry.source), "registered design");
+		const pushed = run("git", ["push", "origin", "HEAD:refs/heads/main"]);
+		assert.notEqual(pushed.status, 0);
+		assert.match(pushed.stderr, /missing source in push tip/);
+		assert.notEqual(remoteMain(), 0);
+	});
 
 	it("blocks a push that would publish a private domain and names the fix", () => {
 		const sha = commit("leaky", "someone@alibaba-inc.com");

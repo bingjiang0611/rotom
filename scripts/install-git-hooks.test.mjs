@@ -111,7 +111,7 @@ describe("git hook installation", () => {
 		// what each one received, so the wiring is checked without running the real scans.
 		const log = join(directory, "received.log");
 		mkdirSync(join(cwd, "scripts"), { recursive: true });
-		for (const name of ["hook-identity", "hook-audit"]) {
+		for (const name of ["hook-identity", "hook-push-ledger", "hook-audit"]) {
 			writeFileSync(join(cwd, "scripts", `${name}.mjs`), `import { appendFileSync, readFileSync } from "node:fs";\nappendFileSync(${JSON.stringify(log)}, ${JSON.stringify(`${name} `)} + JSON.stringify(readFileSync(0, "utf8")) + "\\n");\n`);
 		}
 		assert.equal(install().status, 0);
@@ -119,9 +119,10 @@ describe("git hook installation", () => {
 		const pushed = spawnSync("sh", [installed("pre-push"), "origin", "git@example.invalid:x.git"], { cwd, env, input: refs, encoding: "utf8" });
 		assert.equal(pushed.status, 0, pushed.stderr);
 		const received = readFileSync(log, "utf8").trim().split("\n");
-		assert.equal(received.length, 2, received.join("\n"));
+		assert.equal(received.length, 3, received.join("\n"));
 		assert.ok(received[0].startsWith("hook-identity "), received[0]);
-		assert.ok(received[1].startsWith("hook-audit "), received[1]);
+		assert.ok(received[1].startsWith("hook-push-ledger "), received[1]);
+		assert.ok(received[2].startsWith("hook-audit "), received[2]);
 		for (const line of received) assert.ok(line.includes("1111111111111111111111111111111111111111"), line);
 	});
 

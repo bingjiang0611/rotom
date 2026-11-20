@@ -153,13 +153,17 @@ export function parseLedger(text: string, repoRoot?: string): LedgerEntry[] {
  * across two shards is rejected here, because each shard only guards itself.
  */
 export function parseLedgerDir(directory: string, repoRoot?: string): LedgerEntry[] {
-	const shards = readdirSync(directory).filter((name) => SHARD.test(name)).sort();
-	if (shards.length === 0) throw new Error(`ledger: no shards in ${directory}`);
+	return parseLedgerShards(readdirSync(directory), name => parseLedger(readFileSync(join(directory, name), "utf8"), repoRoot));
+}
+
+export function parseLedgerShards(names: string[], readShard: (name: string) => LedgerEntry[]): LedgerEntry[] {
+	const shards = names.filter(name => SHARD.test(name)).sort();
+	if (shards.length === 0) throw new Error("ledger: no shards in ledger directory");
 	const entries: LedgerEntry[] = [];
 	const seen = new Map<string, string>();
 	for (const shard of shards) {
 		const month = SHARD.exec(shard)?.[1];
-		const parsed = parseLedger(readFileSync(join(directory, shard), "utf8"), repoRoot);
+		const parsed = readShard(shard);
 		for (const entry of parsed) {
 			// Duplicate first: one id in two shards is the more precise diagnosis, and a shard
 			// holding a foreign month would otherwise report the date rule instead.
