@@ -62,14 +62,16 @@
 		"result": "`^Qoder: (?:request|stream)_failed(?:_before_output)?$` and `^Qoder: truncated_tool_call$` are now retryable; `invalid_tool_arguments`/`invalid_tool_call`/`invalid_tool_id`/`invalid_choices`/`catalog_refresh*` stay non-retryable. Safety rests on the agent loop, not on hope: `agent-loop.ts` ends the turn when `stopReason` is `error` or `aborted` before any tool call is dispatched (proved by the new test), so a whole-message retry cannot replay tool effects. Each retry may be billed again — the maintainer accepted that over a manual resend. Fork rebuilt (`build:pi`, 1.4.0-rotom.4) and `check:pi` green. Minimum exposure for the acceptance metric (qoder user-visible stream failures, baseline 3.97 per 100 turns) is 252 turns. Live from 2026-11-11T08:41:26Z: the daily install points at 0.1.27-main.e9c3d5d1 (fork 1.4.0-rotom.4, digest ce42c753a7ad2d9b), which ships the retry pattern; the rollback target is 0.1.27-main.655c35f2, whose fork has no Qoder stream retry.  Acceptance now counts only sessions whose release traces to d8df7cf4 or a descendant; 0.1.27-main.2b4ea53b windows do not count because its Qoder provider could not load, so no Qoder turn in them reached the transport. Daily-install acceptance provenance: switched at 2026-11-12T02:47:28Z to build 6a7e2b0848acf870ec73ba3a5fd3a720c0b83d74, dirty=false. This is a provenance start, not proof this mechanism shipped or improved; existing acceptance rules and historical evidence remain unchanged.",
 		"acceptance": {
 			"startedAt": "2026-11-11T08:41:26Z",
-			"metric": "providerUserVisible",
+			"metric": "user-visible qoder:stream_failed / 100 Qoder turns (pre-switch 19/1108; affected sessions 14/164)",
 			"incident": "provider_error",
 			"detail": [
 				"code",
 				"qoder:stream_failed"
 			],
-			"baselinePer100": 1.71,
-			"minimumTurns": 585,
+			"provider": "qoder",
+			"sessionBaselinePer100": 8.536585,
+			"baselinePer100": 1.714801,
+			"minimumTurns": 584,
 			"expect": "lower",
 			"firstCommit": "d8df7cf4"
 		},

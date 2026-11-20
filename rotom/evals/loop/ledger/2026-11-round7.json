@@ -13,14 +13,16 @@
 		"source": "rotom/extensions/qoder/provider.mjs",
 		"acceptance": {
 			"startedAt": "2026-11-10T13:30:07Z",
-			"metric": "provider_error where code=qoder:catalog_refresh_failed (user-visible only)",
+			"metric": "user-visible qoder:catalog_refresh_failed / 100 Qoder turns (pre-switch 11/1098; affected sessions 8/164)",
 			"incident": "provider_error",
 			"detail": [
 				"code",
 				"qoder:catalog_refresh_failed"
 			],
-			"baselinePer100": 0.263,
-			"minimumTurns": 3803,
+			"provider": "qoder",
+			"sessionBaselinePer100": 4.878049,
+			"baselinePer100": 1.001821,
+			"minimumTurns": 999,
 			"expect": "lower",
 			"firstCommit": "854dd51b"
 		}
@@ -39,15 +41,9 @@
 		"source": "packages/rotom-pi/packages/ai/src/utils/retry.ts",
 		"acceptance": {
 			"startedAt": "2026-11-10T13:30:07Z",
-			"metric": "provider_error where category=429 (user-visible only)",
-			"incident": "provider_error",
-			"detail": [
-				"category",
-				"429"
-			],
-			"baselinePer100": 0.144,
-			"minimumTurns": 6945,
-			"expect": "lower"
+			"unit": "attempts-per-quota-error",
+			"metric": "observed assistant attempts per quota error (budget: one)",
+			"firstCommit": "39215343a384a3d3ffb5071eeb9aa0c8d932061f"
 		}
 	},
 	{

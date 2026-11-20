@@ -9,6 +9,8 @@
   2. 每条 `decision=shipped` + `evidence=unmeasured` 的记录：用它自己的 `acceptance` 只看验收起点之后的数据，给 `improved / no-change / worse / insufficient-exposure / no-metric`；没声明指标报 `no-metric`，不猜。暴露量 = 基线速率预测出 10 个事件的 turn 数，预先登记且由 `loop ledger` 校验；没到量只报 `insufficient-exposure`。到量后用单侧精确泊松检验（alpha 0.05），`no-change` 只表示没显出差异，并给出还差多少天。机制记录还登记“首个包含该修复的提交”（`acceptance.firstCommit`）：只有会话自己记录的 build commit 是该提交或其后代（`git merge-base --is-ancestor`）时才计入 turn；没有 build commit 的会话一律 unknown，另报条数。release 标签是从会话文本里匹配出来的，不再参与验收。`loop versions` 用同一份 harvest 打印产品版本时间线（谁切换的未知）；
   3. 按 provider 的“用户可见失败/100 turns”，以版本切换时刻分为 before/after 两段；失败归到其会话所在的段。
 
+  验收分母与基线同口径：单 provider 记录只计该 provider 回答的 turn；provider 错误只计未恢复的事件。到量后并列三项单侧精确泊松检验：原计数、去掉事件最多会话的事件和 turn、发生事件的会话数 / 暴露会话数（与同口径历史会话基线比）。三项不一致或缺一项记 `uncertain`，不宣称改善或变差。额度重试另看每个错误的可见 assistant 尝试数与上限 1，不把缺少观测当成零次。
+
   版本切换时间写在 `rotom/evals/loop/weekly.json`。看完报告再决定要不要深度分诊某条记录；不因为新数字改判定规则。
 - **暴露期内**：每周只跑一次 `weekly`，只做一个聚焦修复。暴露期没走完的记录只报 `insufficient-exposure`，不构成开大轮的理由。**大轮只在两种情况下开**：出现新的可复现失败，或某条记录的暴露期走完。
 - **每次相关改动**：`gate`。改 coding-policy、工具描述或续跑/停止逻辑之前先跑 `loop replay-gate --product <候选产品>`：只要有一条用例在候选上仍然失败，这次改动就不该进下一轮。用例与检查只存本机 `~/.rotom/loop/replay-cases/`（0700/0600，不入 Git），`gate.json` 的 `replays` 只登记 id、`kind: "replay"` 与脱敏摘要；产品没启动或没跑完记 `unknown`，不算通过。

@@ -17,7 +17,7 @@ export type ProviderCategory = string;
  * even when a trace span supplied the bucket: filtering on the bucket would silently miss every
  * failure whose code is more specific than the bucket name.
  */
-export type ProviderDetail = { provider: string; model: string; category: ProviderCategory; categorySource: "trace" | "message"; code?: string };
+export type ProviderDetail = { provider: string; model: string; category: ProviderCategory; categorySource: "trace" | "message"; quota?: true; code?: string };
 
 /** One failed `pi.ai.request` span from the local trace. */
 export type TraceErrorSpan = { timestamp: number; category: string };
@@ -128,6 +128,7 @@ export function providerDetail(input: {
 		model: input.model,
 		category: traced ?? classifyProviderMessage(input.errorMessage),
 		categorySource: traced ? "trace" : "message",
+		...(/\b402\b|insufficient_quota|(?:allocated )?quota exceeded|exceeded your current quota|payment required|insufficient (?:balance|credits?|funds)|balance is insufficient|out of credits|no credits remaining/iu.test(input.errorMessage) ? { quota: true as const } : {}),
 		...(code ? { code } : {}),
 	};
 }

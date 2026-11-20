@@ -108,8 +108,8 @@ describe("weekly report", () => {
 		const after = [session({ startedAt: "2026-11-12T09:00:00+08:00", userTurns: 2000 })];
 		const failed = Array.from({ length: 40 }, (_, index) => ({ kind: "provider_error", sessionId: after[0].sessionId, timestamp: `2026-11-12T1${index % 10}:00:00+08:00`, detail: { category: "429" } })) as unknown as Incident[];
 		// 40 failures over 2,000 turns = 2.0 per 100, above the 1.0 baseline with 20 expected.
-		expect(acceptanceRows([entry], after, failed, new Date("2026-11-13T00:00:00Z"))[0]).toMatchObject({ status: "worse", turns: 2000, observedPer100: 2 });
-		expect(acceptanceRows([entry], after, [], new Date("2026-11-13T00:00:00Z"))[0]).toMatchObject({ status: "improved", observedPer100: 0 });
+		expect(acceptanceRows([entry], after, failed, new Date("2026-11-13T00:00:00Z"))[0]).toMatchObject({ status: "uncertain", turns: 2000, observedPer100: 2 });
+		expect(acceptanceRows([entry], after, [], new Date("2026-11-13T00:00:00Z"))[0]).toMatchObject({ status: "uncertain", observedPer100: 0 });
 	});
 
 	it("refuses a verdict below exposure even when the period has zero events", () => {
@@ -129,10 +129,10 @@ describe("weekly report", () => {
 
 	it("calls a change only when the exact rate test clears alpha", () => {
 		const entry = ledgerEntry({
-			acceptance: { startedAt: "2026-11-10T13:30:07Z", metric: "m", incident: "compaction_failed", baselinePer100: 1, minimumTurns: 1000, expect: "lower" },
+			acceptance: { startedAt: "2026-11-10T13:30:07Z", metric: "m", incident: "compaction_failed", sessionBaselinePer100: 30, baselinePer100: 1, minimumTurns: 1000, expect: "lower" },
 		});
-		const after = [session({ startedAt: "2026-11-12T09:00:00+08:00", userTurns: 3000 })];
-		const events = (count: number) => Array.from({ length: count }, (_, index) => ({ kind: "compaction_failed", sessionId: after[0].sessionId, timestamp: `2026-11-12T1${index % 10}:00:00+08:00`, detail: {} })) as unknown as Incident[];
+		const after = Array.from({ length: 100 }, (_, n) => session({ sessionId: String(n), startedAt: "2026-11-12T09:00:00+08:00", userTurns: 30 }));
+		const events = (count: number) => Array.from({ length: count }, (_, index) => ({ kind: "compaction_failed", sessionId: after[index % after.length].sessionId, timestamp: `2026-11-12T1${index % 10}:00:00+08:00`, detail: {} })) as unknown as Incident[];
 		// 30 events against 30 expected: no difference shown, and the note says only that.
 		const flat = acceptanceRows([entry], after, events(30), new Date("2026-11-13T00:00:00Z"))[0];
 		expect(flat).toMatchObject({ status: "no-change" });
@@ -141,6 +141,13 @@ describe("weekly report", () => {
 		expect(acceptanceRows([entry], after, events(15), new Date("2026-11-13T00:00:00Z"))[0]).toMatchObject({ status: "improved" });
 		// 50 against 30 expected → p ≈ 0.0005 on the other tail, worse.
 		expect(acceptanceRows([entry], after, events(50), new Date("2026-11-13T00:00:00Z"))[0]).toMatchObject({ status: "worse" });
+	});
+
+	it("counts only exposed provider turns and user-visible matching errors", () => {
+		const entry = ledgerEntry({ acceptance: { startedAt: CONFIG.switchAt, provider: "qoder", incident: "provider_error", metric: "visible", baselinePer100: 1, minimumTurns: 1000, expect: "lower" } });
+		const s = session({ startedAt: "2026-11-12T00:00:00Z", modelTurns: { "qoder/m": 10, [ASTRA]: 90 }, userTurns: 100 });
+		const errors = [{ provider: "qoder", recovered: true }, { provider: "qoder" }, { provider: "elsewhere" }].map(detail => ({ sessionId: s.sessionId, timestamp: s.startedAt, kind: "provider_error", detail })) as unknown as Incident[];
+		expect(acceptanceRows([entry], [s], errors)[0]).toMatchObject({ turns: 10, observedPer100: 10, status: "insufficient-exposure" });
 	});
 
 	it("says so when a shipped record has no harvest-measurable metric", () => {

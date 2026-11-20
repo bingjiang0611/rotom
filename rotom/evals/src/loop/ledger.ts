@@ -45,6 +45,8 @@ export type LedgerEntry = {
 		metric: string;
 		incident: IncidentKindName;
 		detail?: [string, string];
+		provider?: string;
+		sessionBaselinePer100?: number;
 		baselinePer100: number;
 		/**
 	 * Turns needed before any verdict may be reported: the exposure at which the baseline rate
@@ -53,7 +55,7 @@ export type LedgerEntry = {
 	 */
 		minimumTurns: number;
 		expect: "lower" | "higher";
-	};
+	} | { unit: "attempts-per-quota-error"; startedAt: string; firstCommit: string; metric: string };
 };
 
 /** Kept as a string list here so the ledger stays free of the harvest's type graph. */
@@ -93,11 +95,15 @@ function validateAcceptance(where: string, raw: unknown): void {
 	if (typeof value.startedAt !== "string" || Number.isNaN(Date.parse(value.startedAt))) throw new Error(`${where}: acceptance.startedAt must be an ISO timestamp`);
 	if (typeof value.metric !== "string" || !value.metric.trim()) throw new Error(`${where}: acceptance.metric is required`);
 	if (value.firstCommit !== undefined && !/^[0-9a-f]{7,40}$/u.test(String(value.firstCommit))) throw new Error(`${where}: acceptance.firstCommit must be a commit sha`);
+	if (value.unit === "attempts-per-quota-error" && value.firstCommit) return;
+	if (value.unit !== undefined) throw new Error(`${where}: invalid acceptance unit or missing firstCommit`);
 	if (!INCIDENT_KINDS.includes(value.incident as never)) throw new Error(`${where}: acceptance.incident must be one of ${INCIDENT_KINDS.join(", ")}`);
 	if (value.detail !== undefined) {
 		const detail = value.detail;
 		if (!Array.isArray(detail) || detail.length !== 2 || detail.some((item) => typeof item !== "string")) throw new Error(`${where}: acceptance.detail must be [field, value]`);
 	}
+	if (value.provider !== undefined && (typeof value.provider !== "string" || !value.provider.trim())) throw new Error(`${where}: invalid provider denominator`);
+	if (value.sessionBaselinePer100 !== undefined && !(typeof value.sessionBaselinePer100 === "number" && value.sessionBaselinePer100 > 0 && value.sessionBaselinePer100 <= 100)) throw new Error(`${where}: invalid session baseline`);
 	if (typeof value.baselinePer100 !== "number" || !Number.isFinite(value.baselinePer100) || value.baselinePer100 <= 0) {
 		// A zero baseline can never predict ten events, so no amount of turns would license a verdict.
 		throw new Error(`${where}: acceptance.baselinePer100 must be a positive number (a zero baseline has no reachable exposure)`);
