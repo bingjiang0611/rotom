@@ -261,6 +261,37 @@ describe("read tool streaming", () => {
 		);
 	});
 
+	it("survives cancellation while the local file stat is pending", () => {
+		const path = join(tempDir, "abort-during-stat.txt");
+		writeFileSync(path, "line\n");
+		const sourceResolverUrl = pathToFileURL(resolve(__dirname, "../src/experimental/source-resolver.ts")).href;
+		const readToolUrl = pathToFileURL(resolve(__dirname, "../src/core/tools/read.ts")).href;
+		const script = `
+			import assert from "node:assert/strict";
+			import { open } from "node:fs/promises";
+			import { createReadToolDefinition } from ${JSON.stringify(readToolUrl)};
+			const path = ${JSON.stringify(path)};
+			const controller = new AbortController();
+			const handle = await open(path, "r");
+			const prototype = Object.getPrototypeOf(handle);
+			await handle.close();
+			const stat = prototype.stat;
+			prototype.stat = async function (...args) {
+				const pending = stat.apply(this, args);
+				controller.abort();
+				return pending;
+			};
+			const tool = createReadToolDefinition(${JSON.stringify(tempDir)});
+			await assert.rejects(tool.execute("call", { path }, controller.signal), /Operation aborted/);
+			assert.equal(controller.signal.aborted, true);
+		`;
+		// Let the child exit naturally so a late, unhandled stream error fails this test.
+		execFileSync(process.execPath, ["--import", sourceResolverUrl, "--input-type=module", "--eval", script], {
+			stdio: ["ignore", "pipe", "pipe"],
+			timeout: 5000,
+		});
+	});
+
 	it("stops consuming the stream when aborted", async () => {
 		const controller = new AbortController();
 		let chunksRead = 0;
