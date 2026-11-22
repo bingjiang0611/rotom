@@ -58,3 +58,35 @@ Reproduced locally: `--self-test` passes, `loop ledger` validates the entry as `
 6. **Classification gap.** `fixture-tool.ts` marks any non-zero test exit as infrastructure, which aborts the run. Before adding fixtures with a genuinely failing check, count a failing check separately from infrastructure.
 
 A next step that could change the decision: run on the full rotom prompt with caching and three arms — no hint, the command as one line in AGENTS.md, and the learned hint. Use fixed real tasks from `loop harvest` with observed repeated discovery or command failures, plus documented and drift cases where an injected stale hint is actually tested. Run several attempts per arm.
+
+## Round two (pre-registered, awaiting live-run approval)
+
+`loop harvest --days 28 --no-excerpts` produced 695 session summaries and 1,791 incident rows locally. A deterministic check for test-command patterns in the 60 harvested sessions from the public rotom checkout identified verification sequences for manual inspection. The two incident tasks are different recorded targets with the same wrong-config failure family. Their code and executable commands are frozen from the public `01b087c7` tree; only the task descriptions, allowed command aliases, and exposed file subset are eval code. No session transcripts, private paths, or log excerpts are published or supplied to the model. This round tests the **delivery** of manually extracted, locally verified repo notes, not a production history learner.
+
+| Task | Basis | Expected control |
+| --- | --- | --- |
+| `benchmark-runner` | Recorded repeated attempts at the focused Vitest suite, including bare Vitest finding no tests; explicit unit config passed. | Bare Vitest runs but does not execute the requested tests. |
+| `loop-gate-ledger` | Recorded search for the ledger suite followed by bare Vitest finding no tests. | Same wrong-config trap on a different real test target. |
+| `public-audit` | The exact command is already in the pinned `docs/agent/verification.md`. | Documentation is available in all arms; B/C repeat information already in the repo. |
+| `continuation-drift` | The old behavioral-regression unit command appears in historical successful verification. [`ef2b490a`](https://github.com/bingjiang0611/rotom/commit/ef2b490a) removed that unit file, moved the continuation eval, and kept its successor unit check. | B and C both **receive** the same old command on today's snapshot. Count attempts to run it, plus recovery, failure, and cost. |
+
+### Arms and isolation
+
+A has no note; B exposes the note as a single line in local `AGENTS.md`; C passes the identical line via `--append-system-prompt`. Context-file discovery is **on in all three**. No arm uses `--system-prompt` or a cache override. Runs use installed rotom and are sequential (`ABC`, `BCA`, `CAB` per task), with a stable working directory within the round. Each arm visits each position once. Provider cache hits are measured, not forced. Multiple arms may share a provider cache prefix; note from B and note from C are not assumed to have the same cache placement.
+
+- `--no-extensions` opts out of extension discovery and Pi builtins to avoid user hooks, background calls, and automatic changes to the tool list. Only the explicit eval extension is requested. The harness fails closed if a different tool surface is presented.
+- `--no-skills` keeps machine or bundled skill text and skill workflows out of the prompts. `--no-mcp` prevents connection to real tools/services. `--no-builtin-tools --tools workspace` limits the model to public fixture reads and fixed offline test commands; no model-selected shell, filesystem path, or subprocess arguments are used.
+- The fresh agent directory excludes personal settings and context. The installed CLI handles existing authentication; the live runner links to the existing auth file rather than reading, copying, or logging it. With `--no-session` and observability off, only structured tool outcomes and usage are retained. This is rotom's default prompt **renderer** and unmodified cache policy on a scoped tool surface, not the full daily-use extension/skill stack.
+
+The verifier requires a successful execution of the requested tests plus a final `PASS`. A normal nonzero exit, runner returning zero with no tests, or unavailable command counts as a failed command; spawn, timeout, and signal failures count as infrastructure. The runner preserves attempted rows and stops on infrastructure, not on test failure. Redundant calls are all workspace calls except the first successful target run; a failed attempt has no successful call to subtract. Report `input`, `output`, `cacheRead`, `cacheWrite`, and the counts of true/false/missing `usage.cost.totalFromProvider`. Include cost for every issued attempt, and distinguish catalog estimate from billing. Cost and usage missingness prevent a positive verdict.
+
+**Decision rule.** C must use fewer redundant calls and cost no more than B in each of the three repeat blocks, with no lower pass count in any block or any task across repeats. Any incomplete comparison or failure of this bar means `kept-off`. Clearing the bar allows discussion, not enablement. Report per-task data and inspect the documented and drift controls separately; four fixed tasks with two same-family incidents do not establish a general product gain.
+
+```sh
+node rotom/evals/micro-skills/round2.mjs --self-test
+# Only after explicit approval of 4 tasks × 3 arms × 3 attempts = 36 live attempts:
+node rotom/evals/micro-skills/round2.mjs --live /tmp/micro-skills-round2.json
+node rotom/evals/micro-skills/round2-summary.mjs /tmp/micro-skills-round2.json
+```
+
+The self-test needs an installed rotom, Node 24+, Python 3, and the pinned npm dependencies in the local npm cache. It uses `npm ci --offline --ignore-scripts` in a temporary archive of the pinned tree. Its offline rotom prompt probe uses a loopback-only dummy provider and aborts before inference. `ROTOM_EVAL_BIN` can select another installed rotom path. Proposed model: `openai-codex/gpt-6.2-sol`, thinking `off`. A planning estimate is **$0.36–$1.22 equivalent** (36 attempts at 4–12k uncached input and 0.2–1k output tokens each, priced using the round-one catalog rates of $2/$10 per 1M input/output tokens, without assuming cache savings). This is neither a bill nor a cap. No round-two live results yet.
