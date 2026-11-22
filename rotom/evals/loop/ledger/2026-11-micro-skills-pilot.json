@@ -1,0 +1,15 @@
+[
+  {
+    "schema": "rotom-loop-ledger/v1",
+    "id": "L-2026-11-22-micro-skills-pilot",
+    "date": "2026-11-22",
+    "title": "Micro-skills pilot: remember a verified test command",
+    "hypothesis": "A command note confirmed by multiple sessions pays for its prompt by reducing discovery and failed commands without sacrificing verification success.",
+    "change": "eval",
+    "measurement": "Four fixed synthetic fixtures, one baseline and one candidate attempt each, rotom 0.2.4, openai-codex/gpt-6.2-sol at thinking off. Local history replay tested confirmation threshold and contradiction; live verification required a successful Python check and an exact answer.",
+    "result": "4/4 passed per arm; no infrastructure failures. Tool calls 18 to 8, failed commands 0 to 0, reported tokens 8997 to 4605. The contradicted note was withheld. This is evidence of less discovery in these fixtures, not field savings or fewer repeated failures. No product or default prompt change.",
+    "evidence": "inconclusive",
+    "decision": "kept-off",
+    "source": "rotom/evals/micro-skills/README.md"
+  }
+]
