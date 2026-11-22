@@ -45,3 +45,16 @@ The three injected notes skipped 10 `list`/`read` calls; every attempt ran exact
 1. Are the outcome verifier and the `slate` no-hint control doing what we think? Note that the same configuration can give different model outputs in separate runs.
 2. Does the single-command fixture give the hint too much of an advantage compared with a good README or cheap agent discovery? The pilot deliberately does not measure file edits, real historical extraction, injection hygiene on user-authored logs, or long-run prompt/cache overhead.
 3. Before considering a product feature, pick fixed real tasks with observed repeat discovery failures and include documented/no-benefit and drift cases. Compare with an improved README, not just with no hint. Keep the hint off by default until multiple repeats show fewer redundant calls without lower verifier success or higher net cost on that workload.
+
+## Review (2026-11-22)
+
+Reproduced locally: `--self-test` passes, `loop ledger` validates the entry as `inconclusive / kept-off`, `git diff --check` is clean, and the table matches `results.json`. The decision stands. The evidence is narrower than the hypothesis:
+
+1. **Failed commands were not exercised.** Every baseline ran 0 failed commands because `pyproject.toml` names `test-dir`, so discovery is trivial. The run action accepts only the exact spelling, so the hint arm is the baseline given the answer, and the saving is only the skipped `list`/`read` calls. Excluding `slate`, tokens fell 6,485 → 2,093 for that reason alone.
+2. **The prompt size is not rotom's.** `--system-prompt` replaces the default prompt, and context files, extensions and skills are off, so each turn sends about 280 input tokens. In rotom, each turn resends a large cached prefix, so neither the 48.8% figure nor the "extra prompt input" accounting transfers.
+3. **The relevant comparator is missing.** rotom loads AGENTS.md by default, and this pilot disables it with `--no-context-files`. A learned hint has to beat the same command written as one line in a context file, not just beat no hint.
+4. **`slate` is a repeat measurement, not a drift test.** Neither arm gets a hint, and both runs produced identical calls and 2,512 tokens. That shows near-deterministic trajectories at thinking `off`. It does not show whether a stale hint misleads the model.
+5. **Learning is synthetic.** The harness generates the histories, and `learn()` is eval code, so the threshold and contradiction rules are covered only by unit checks.
+6. **Classification gap.** `fixture-tool.ts` marks any non-zero test exit as infrastructure, which aborts the run. Before adding fixtures with a genuinely failing check, count a failing check separately from infrastructure.
+
+A next step that could change the decision: run on the full rotom prompt with caching and three arms — no hint, the command as one line in AGENTS.md, and the learned hint. Use fixed real tasks from `loop harvest` with observed repeated discovery or command failures, plus documented and drift cases where an injected stale hint is actually tested. Run several attempts per arm.
