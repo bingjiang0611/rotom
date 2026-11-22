@@ -108,7 +108,7 @@ python3 scripts/audit-public.py --root . --history
 - Browser：追加 browser relay tests/smoke；只有用户明确要求才做真实 Chrome L2/L3。
 - 第三方 package/deferred/context：追加 package identity、完整/deferred 两套 footprint 和 public loader smoke。
 - Skill：产品 Subagent 指南运行 `node --experimental-strip-types --test rotom/extensions/third-party/subagent/skill.test.ts`，涉及发现/打包时追加 launcher resource contract；其他 skill 只运行其实际存在的校验入口，不假定仓库提供 `quick_validate.py`。
-- eval harness：运行 `rotom/evals` typecheck/test；container、host model、付费 A/B 不是普通提交门禁。
+- eval harness：运行 `rotom/evals` typecheck/test；container、host model、付费 A/B 不是普通提交门禁。单个单元测试用 `npm --prefix rotom/evals test -- test/<name>.test.ts`（`bin/test` 带 `--config vitest.test.config.ts`）；在 `rotom/evals` 里直接 `npx vitest run test/<name>.test.ts` 会走默认 `vitest.config.ts`，它只收 `cases/**/*.eval.ts` 且 `passWithNoTests`，结果是 0 个测试也返回成功。
 
 测试失败不得静默忽略；先判断是本次改动、既有缺陷还是本机环境/ignored artifact 污染，并说明实际验证范围。
 
