@@ -25,6 +25,12 @@ const agent = join(home, ".pi/agent");
 const env = { HOME: home, TMPDIR: scratch, PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, NO_COLOR: "1" };
 const cliEnv = { ...env, PATH: `${dirname(binary)}:${env.PATH}`, PI_CODING_AGENT_DIR: agent, ROTOM_OBSERVABILITY: "0",
 	ROTOM_MICRO_SKILLS_FIXTURE: join(scratch, "spec.json") };
+// Preserve the operator's existing network route only for the authenticated CLI.
+// The fixture subprocesses and loopback-only prompt probe retain the minimal env.
+const networkKeys = ["HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "NO_PROXY", "https_proxy", "http_proxy",
+	"all_proxy", "no_proxy", "NODE_EXTRA_CA_CERTS", "NODE_USE_ENV_PROXY"];
+const liveEnv = { ...cliEnv, ...Object.fromEntries(networkKeys.filter(key => process.env[key] !== undefined)
+	.map(key => [key, process.env[key]])) };
 
 function findExecutable(name) {
 	const result = spawnSync("/bin/sh", ["-c", `command -v ${name}`], { encoding: "utf8", timeout: 3000 });
@@ -65,7 +71,7 @@ function attempt(fixture, arm, dryPrompt) {
 	if (arm === "C") args.push("--append-system-prompt", fixture.note);
 	const start = performance.now();
 	const result = spawnSync(binary, [...args, fixture.prompt], {
-		cwd: fixtureRoot, env: cliEnv, encoding: "utf8", timeout: 360_000, killSignal: "SIGKILL", maxBuffer: 4 * 1024 * 1024,
+		cwd: fixtureRoot, env: dryPrompt ? cliEnv : liveEnv, encoding: "utf8", timeout: 360_000, killSignal: "SIGKILL", maxBuffer: 4 * 1024 * 1024,
 	});
 	const ms = Math.round(performance.now() - start);
 	const trace = existsSync(traceFile) ? JSON.parse(readFileSync(traceFile, "utf8")) : { calls: [], messages: [] };
