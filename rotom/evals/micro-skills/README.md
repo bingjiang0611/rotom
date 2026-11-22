@@ -59,7 +59,7 @@ Reproduced locally: `--self-test` passes, `loop ledger` validates the entry as `
 
 A next step that could change the decision: run on the full rotom prompt with caching and three arms — no hint, the command as one line in AGENTS.md, and the learned hint. Use fixed real tasks from `loop harvest` with observed repeated discovery or command failures, plus documented and drift cases where an injected stale hint is actually tested. Run several attempts per arm.
 
-## Round two (pre-registered, awaiting live-run approval)
+## Round two
 
 `loop harvest --days 28 --no-excerpts` produced 695 session summaries and 1,791 incident rows locally. A deterministic check for test-command patterns in the 60 harvested sessions from the public rotom checkout identified verification sequences for manual inspection. The two incident tasks are different recorded targets with the same wrong-config failure family. Their code and executable commands are frozen from the public `01b087c7` tree; only the task descriptions, allowed command aliases, and exposed file subset are eval code. No session transcripts, private paths, or log excerpts are published or supplied to the model. This round tests the **delivery** of manually extracted, locally verified repo notes, not a production history learner.
 
@@ -89,4 +89,36 @@ node rotom/evals/micro-skills/round2.mjs --live /tmp/micro-skills-round2.json
 node rotom/evals/micro-skills/round2-summary.mjs /tmp/micro-skills-round2.json
 ```
 
-The self-test needs an installed rotom, Node 24+, Python 3, and the pinned npm dependencies in the local npm cache. It uses `npm ci --offline --ignore-scripts` in a temporary archive of the pinned tree. Its offline rotom prompt probe uses a loopback-only dummy provider and aborts before inference. `ROTOM_EVAL_BIN` can select another installed rotom path. Proposed model: `openai-codex/gpt-6.2-sol`, thinking `off`. A planning estimate is **$0.36–$1.22 equivalent** (36 attempts at 4–12k uncached input and 0.2–1k output tokens each, priced using the round-one catalog rates of $2/$10 per 1M input/output tokens, without assuming cache savings). This is neither a bill nor a cap. No round-two live results yet.
+The self-test needs an installed rotom, Node 24+, Python 3, and the pinned npm dependencies in the local npm cache. It uses `npm ci --offline --ignore-scripts` in a temporary archive of the pinned tree. Its offline rotom prompt probe uses a loopback-only dummy provider and aborts before inference. `ROTOM_EVAL_BIN` can select another installed rotom path. Only the live CLI receives the operator's configured proxy/CA environment; fixture subprocesses and the offline probe do not.
+
+### Results (2026-11-22 UTC)
+
+**INCONCLUSIVE / kept-off.** The real test-command notes prevented discovery and command retries versus A. C did not save any redundant calls over B on tasks anyone passed. Its overall savings came from giving up sooner on the stale command in the drift task, which no arm passed. One infrastructure failure also leaves the comparison incomplete. No product code or default prompt changed.
+
+Installed rotom `0.2.4` (build `95777adbfcdca2987eb927007b974361d3247544`), `openai-codex/gpt-6.2-sol`, thinking `off`, Node `24.18.0`, macOS. The preregistered run is `f25e1194`; the CLI network env was fixed in `022d5b17` before collecting the reported samples. An initial startup attempt without that env had no tool calls or reported tokens and is excluded from the scheduled comparison. In the scored run, `continuation-drift` A/2 stopped with CLI/provider errors before tool execution (zero reported tokens, no provider price). The final three unissued slots ran in a fresh scratch directory after that stop; no earlier slot was rerun. The directory change may change provider cache keys for the resumed attempts. Thus there are 36 scheduled attempts, 35 scored outcomes, and one missing outcome, plus the excluded startup failure.
+
+| Task | Passes A / B / C | Redundant calls A / B / C | Failed commands A / B / C |
+| --- | --- | --- | --- |
+| `benchmark-runner` | 3/3 · 3/3 · 3/3 | 11 · 0 · 0 | 2 · 0 · 0 |
+| `loop-gate-ledger` | 3/3 · 3/3 · 3/3 | 10 · 0 · 0 | 2 · 0 · 0 |
+| `public-audit` | 3/3 · 3/3 · 3/3 | 6 · 4 · 4 | 0 · 0 · 0 |
+| `continuation-drift` | 0/2 · 0/3 · 0/3 | 20 · 25 · 5 | 10 · 11 · 3 |
+| **Total** | **9/11 · 9/12 · 9/12** | **47 · 29 · 9** | **14 · 11 · 3** |
+
+In the drift control, C attempted the stale command and failed all three times. B attempted it twice and hit the tool limit on its third try. Neither A nor either hinted arm reached the correct check. A's two scored attempts also hit the tool limit. The offline verifier proves the target is executable, but the live fixture requires an exact command spelling (including a name filter), which may have made recovery artificially hard. These results show that both hints were followed at times, not that a stale hint lowered the success rate relative to A.
+
+| Arm | Input | Output | Cache read | Cache write | `totalFromProvider` true / false / missing | CLI cost estimate |
+| --- | ---: | ---: | ---: | ---: | --- | ---: |
+| A | 116,192 | 1,903 | 12,288 | 0 | 0 / 65 / 6 | $0.2526428 |
+| B | 80,702 | 1,550 | 25,600 | 0 | 0 / 50 / 1 | $0.1794640 |
+| C | 38,780 | 669 | 8,192 | 0 | 0 / 30 / 0 | $0.0850692 |
+
+Token categories and source flags are reported per assistant message, then summed or counted by arm. The $0.517176 total is the CLI's usage-based estimate, not billed charges; zero-usage failure placeholders do not establish there was no provider charge. B → C reduced redundant calls in all three blocks (8 → 5, 11 → 1, 10 → 3) without lower block pass counts or higher block cost estimates. But excluding the all-fail drift task, B and C each spent four redundant calls; C cost **more** ($0.0618896 vs $0.0568352), including more on the already documented control. Together with the missing outcome, this does not support product work. Before another live comparison, make the drift fixture accept equivalent safe spellings and confirm unhinted agents can recover to the target; otherwise a fast failure still looks like an efficiency gain.
+
+[Per-attempt JSON shards](round2-results/) preserve the tool outcome bits and usage, including the unscored provider error. To regenerate the tables from the published inputs:
+
+```sh
+node rotom/evals/micro-skills/round2-summary.mjs rotom/evals/micro-skills/round2-results/*.json
+```
+
+To continue a stopped run without rerunning any already-issued slot, pass the previous result path after the new output path. The runner requires a matching configuration and exact prefix of the original schedule. The comparison gate stays incomplete when that prefix contains an infrastructure failure.

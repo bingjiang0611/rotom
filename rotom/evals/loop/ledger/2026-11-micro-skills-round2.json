@@ -1,0 +1,15 @@
+[
+  {
+    "schema": "rotom-loop-ledger/v1",
+    "id": "L-2026-11-22-micro-skills-round2",
+    "date": "2026-11-22",
+    "title": "Compare harvested test-command notes in AGENTS.md versus a prompt append",
+    "hypothesis": "A verified command appended to the system prompt reduces redundant calls compared with the same line in AGENTS.md, without worse verification or higher cost across repeats.",
+    "change": "eval",
+    "measurement": "Default rotom prompt renderer and cache policy on a scoped tool surface, rotom 0.2.4, openai-codex/gpt-6.2-sol thinking off. Two harvested validation incidents, one documented control, and one historical command drift. Three arms, three repeats, 36 scheduled attempts.",
+    "result": "35 scored and one CLI/provider error; a separate initial network setup failure excluded. A/B/C passed 9/11, 9/12, 9/12. Redundant calls 47/29/9; failed commands 14/11/3. C's reduction versus B came entirely from ending the all-fail drift task sooner. On the other tasks B and C both had four redundant calls, and C cost more by the CLI catalog estimate. No production change.",
+    "evidence": "inconclusive",
+    "decision": "kept-off",
+    "source": "rotom/evals/micro-skills/README.md#results-2026-11-22-utc"
+  }
+]

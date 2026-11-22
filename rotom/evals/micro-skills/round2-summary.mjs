@@ -50,7 +50,15 @@ export function summarize(rows) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-	const data = JSON.parse(readFileSync(process.argv[2], "utf8"));
-	assert.equal(data.schema, "rotom-micro-skills-round2/v1");
-	console.log(JSON.stringify(summarize(data.rows), null, 2));
+	const paths = process.argv.slice(2);
+	assert(paths.length, "Provide a result JSON file or its per-task shards");
+	const [{ rows, ...metadata }, ...shards] = paths.map(path => JSON.parse(readFileSync(path, "utf8")));
+	assert.equal(metadata.schema, "rotom-micro-skills-round2/v1");
+	for (const { rows: part, ...header } of shards) {
+		assert.deepEqual(header, metadata, "Cannot combine results from different configurations");
+		rows.push(...part);
+	}
+	const keys = rows.map(row => `${row.task}/${row.repeat}/${row.arm}`);
+	assert.equal(new Set(keys).size, keys.length, "Duplicate attempt in result shards");
+	console.log(JSON.stringify(summarize(rows), null, 2));
 }

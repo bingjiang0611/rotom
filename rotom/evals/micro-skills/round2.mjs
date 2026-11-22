@@ -14,9 +14,9 @@ const binary = realpathSync(process.env.ROTOM_EVAL_BIN ?? findExecutable("rotom"
 const python = realpathSync(findExecutable("python3"));
 const provider = "openai-codex";
 const model = "gpt-6.2-sol";
-const [mode, output] = process.argv.slice(2);
+const [mode, output, previous] = process.argv.slice(2);
 assert((mode === "--self-test" && !output) || (mode === "--live" && output),
-	"Usage: round2.mjs --self-test | --live NEW_OUTPUT_JSON (live requires explicit approval)");
+	"Usage: round2.mjs --self-test | --live NEW_OUTPUT_JSON [PREVIOUS_RESULT_JSON] (live requires explicit approval)");
 const scratch = realpathSync(mkdtempSync(join(tmpdir(), "micro-skills-round2-")));
 const checkout = join(scratch, "snapshot");
 const fixtureRoot = join(scratch, "workspace");
@@ -127,18 +127,31 @@ try {
 		symlinkSync(realpathSync(auth), join(agent, "auth.json"));
 		const version = local(binary, ["--version"], fixtureRoot, { env: cliEnv });
 		const dest = resolve(output);
-		const rows = [];
 		const metadata = { schema: "rotom-micro-skills-round2/v1", snapshot, version, provider, model, thinking: "off", schedule };
+		const plan = fixtures.flatMap(([task, fixture]) => schedule.flatMap((order, round) =>
+			[...order].map(arm => ({ task: task.id, fixture, repeat: round + 1, arm }))));
+		const rows = previous ? resumeRows(previous, metadata, plan) : [];
 		const save = flag => writeFileSync(dest, JSON.stringify({ ...metadata, rows }) + "\n", { mode: 0o600, flag });
 		save("wx");
-		for (const [task, fixture] of fixtures) for (const [round, order] of schedule.entries()) for (const arm of order) {
+		for (const { task, fixture, repeat, arm } of plan.slice(rows.length)) {
 			const run = attempt(fixture, arm, false);
-			rows.push({ task: task.id, repeat: round + 1, ...run });
+			rows.push({ task, repeat, ...run });
 			save("w");
-			console.log(task.id, round + 1, arm, run.infrastructure ?? (run.pass ? "PASS" : "FAIL"));
-			if (run.infrastructure) throw new Error(`Stopped at ${task.id}/${round + 1}/${arm}: ${run.infrastructure}`);
+			console.log(task, repeat, arm, run.infrastructure ?? (run.pass ? "PASS" : "FAIL"));
+			if (run.infrastructure) throw new Error(`Stopped at ${task}/${repeat}/${arm}: ${run.infrastructure}`);
 		}
 	}
 } finally {
 	rmSync(scratch, { recursive: true, force: true });
+}
+
+function resumeRows(path, metadata, plan) {
+	const { rows, ...recorded } = JSON.parse(readFileSync(path, "utf8"));
+	assert.deepEqual(recorded, metadata, "Cannot resume with different run configuration");
+	assert(rows.length > 0 && rows.length < plan.length && rows.at(-1).infrastructure,
+		"Resume requires an incomplete run that stopped on infrastructure");
+	for (const [i, row] of rows.entries()) {
+		assert.deepEqual([row.task, row.repeat, row.arm], [plan[i].task, plan[i].repeat, plan[i].arm], "Not a prefix of the fixed plan");
+	}
+	return rows;
 }
