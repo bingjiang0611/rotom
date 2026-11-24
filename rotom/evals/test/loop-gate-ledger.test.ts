@@ -209,7 +209,6 @@ describe("loop gate history", () => {
 		const records = gateHistoryRecords({
 			recordedAt: "2026-11-10T10:00:00.000Z",
 			runId: "gate-1",
-			repeats: 5,
 			candidateCommit: "b".repeat(40),
 			baselineProduct: "/tmp/pre-fix/rotom",
 			candidateProduct: "/repo/rotom",
@@ -221,7 +220,6 @@ describe("loop gate history", () => {
 		const mixed = gateHistoryRecords({
 			recordedAt: "2026-11-10T10:00:00.000Z",
 			runId: "gate-2",
-			repeats: 5,
 			candidateCommit: "b".repeat(40),
 			baselineProduct: "/tmp/pre-fix/rotom",
 			candidateProduct: "/repo/rotom",

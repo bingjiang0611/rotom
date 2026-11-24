@@ -16,6 +16,7 @@ import { dimensionRates, type RateInterval } from "./harvest-breakdown.ts";
 import { dimensionRatesWithoutLargestSession, dominantModel, type PeakAdjustedRate } from "./harvest-models.ts";
 import type { Incident, SessionSummary } from "./harvest.ts";
 import type { LedgerEntry } from "./ledger.ts";
+import { WEEKDAYS, type Weekday } from "./status.ts";
 import { acceptanceRows, poissonBand, type AcceptanceRow } from "./weekly-acceptance.ts";
 
 export { acceptanceRows, recentTurnsPerDay, type AcceptanceRow, type AcceptanceStatus } from "./weekly-acceptance.ts";
@@ -25,9 +26,11 @@ export const WEEKLY_SCHEMA = "rotom-loop-weekly/v1";
 export type WeeklyConfig = {
 	/** ISO instant the daily install switched product builds; splits the provider table. */
 	switchAt: string;
+	/** The weekday the loop is run on. Shown by `loop status`; the report itself does not read it. */
+	day?: Weekday;
 };
 
-/** Only the build switch is configured; the report reads no window or arm state. */
+/** The build switch and the weekly day are configured; the report reads no window or arm state. */
 export function parseWeeklyConfig(text: string): WeeklyConfig {
 	let parsed: unknown;
 	try {
@@ -37,7 +40,8 @@ export function parseWeeklyConfig(text: string): WeeklyConfig {
 	}
 	const value = parsed as Partial<WeeklyConfig>;
 	if (typeof value.switchAt !== "string" || Number.isNaN(Date.parse(value.switchAt))) throw new Error("weekly config: switchAt must be an ISO timestamp");
-	return { switchAt: value.switchAt };
+	if (value.day !== undefined && !WEEKDAYS.includes(value.day)) throw new Error(`weekly config: day must be one of ${WEEKDAYS.join(", ")}`);
+	return { switchAt: value.switchAt, ...(value.day ? { day: value.day } : {}) };
 }
 
 export type RateRow = {

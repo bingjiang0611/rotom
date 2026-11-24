@@ -3,10 +3,10 @@ import { spawnSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { homedir } from "node:os";
-import { parseGateManifest, runGate } from "./gate.ts";
+import { parseGateManifest } from "./gate.ts";
+import { gateCommand } from "./gate-commands.ts";
 import { reportCommand } from "./report-commands.ts";
 import { USAGE } from "./usage.ts";
-import { appendGateHistory, gateHistoryRecords, parseGateHistory, poolGateHistory } from "./gate-history.ts";
 import { defaultLoopDir, defaultSessionsDir, harvest } from "./harvest-run.ts";
 import { parseLedgerDir } from "./ledger.ts";
 import { originCheck, replayIncident } from "./replay-run.ts";
@@ -23,18 +23,6 @@ export const LEDGER = join(evalsRoot, "loop", "ledger");
 
 function stamp(): string {
 	return new Date().toISOString().replace(/[:.]/gu, "-");
-}
-
-/** History lives next to the other private loop artifacts, never in Git. */
-function gateHistoryPath(env: NodeJS.ProcessEnv = process.env): string {
-	return join(defaultLoopDir(env), "gate-history.jsonl");
-}
-
-/** Candidate commit of the product under test; `unknown` when it is not a Git checkout. */
-function commitOf(product: string): string {
-	const run = spawnSync("git", ["-C", product, "rev-parse", "HEAD"], { encoding: "utf8" });
-	const commit = run.status === 0 ? run.stdout.trim() : "";
-	return /^[0-9a-f]{40}$/u.test(commit) ? commit : "unknown";
 }
 
 async function main(argv: string[]): Promise<number> {
@@ -187,75 +175,7 @@ async function main(argv: string[]): Promise<number> {
 		console.log(`replay-gate${values["current-only"] ? " (current-only)" : ""}: ${results.some((item) => item.verdict === "regressed") ? "regressed" : results.some((item) => item.verdict === "unknown") ? "unknown" : "held"} · ${outDir}`);
 		return results.some((item) => item.verdict === "regressed") ? 1 : results.some((item) => item.verdict === "unknown") ? 2 : 0;
 	}
-	if (command === "gate") {
-		const { values } = parseArgs({
-			args: rest,
-			options: { baseline: { type: "string" }, candidate: { type: "string" }, case: { type: "string" }, repeats: { type: "string" }, out: { type: "string" }, smoke: { type: "boolean" }, model: { type: "string" } },
-			allowNegative: false,
-		});
-		if (!values.baseline) throw new Error("gate needs --baseline /absolute/frozen/rotom");
-		const manifest = parseGateManifest(readFileSync(GATE_MANIFEST, "utf8"));
-		const repeats = values.repeats === undefined ? manifest.repeats : Number(values.repeats);
-		if (!Number.isSafeInteger(repeats) || repeats < 1 || repeats > 5) throw new Error("--repeats must be an integer from 1 to 5");
-		const candidateProduct = values.candidate ?? resolve(evalsRoot, "..");
-		const outDir = values.out ?? join(defaultLoopDir(), `gate-${stamp()}`);
-		const smoke = values.smoke === true;
-		if (smoke && values.repeats !== undefined) throw new Error("--smoke always runs one pair per case; drop --repeats");
-		// `--model` overrides the manifest default for every case, so a control can be sampled on a
-		// second model without editing the committed manifest.
-		const modelOverride = values.model === undefined ? undefined : String(values.model).split("/");
-		if (modelOverride && (modelOverride.length !== 2 || !modelOverride[0] || !modelOverride[1])) throw new Error("--model must look like provider/model");
-		const result = runGate({
-			evalsRoot,
-			manifest: { ...manifest, repeats, ...(modelOverride ? { model: { provider: modelOverride[0] as string, model: modelOverride[1] as string } } : {}) },
-			baselineProduct: values.baseline,
-			candidateProduct,
-			only: values.case,
-			outDir,
-			smoke,
-		});
-		for (const item of result.results) {
-			const rate = (value: number | null) => (value === null ? "N/A" : `${Math.round(value * 100)}%`);
-			console.log(`${item.verdict.padEnd(9)} ${item.role.padEnd(10)} ${item.caseId}  ${item.model.provider}/${item.model.model}  baseline=${rate(item.baselinePassRate)} candidate=${rate(item.candidatePassRate)} pairs=${item.pairs}/${item.expectedPairs}${item.reason ? `  (${item.reason})` : ""}`);
-		}
-		if (smoke) {
-			console.log(`smoke: ${result.smokeProblems.length === 0 ? "ok" : "failed"}`);
-			for (const problem of result.smokeProblems) console.log(`  - ${problem}`);
-			console.log(`summary: ${result.summaryPath}`);
-			return result.smokeProblems.length === 0 ? 0 : 1;
-		}
-		const historyPath = gateHistoryPath();
-		const records = gateHistoryRecords({
-			recordedAt: new Date().toISOString(),
-			runId: outDir.split("/").at(-1) ?? outDir,
-			repeats,
-			candidateCommit: commitOf(candidateProduct),
-			baselineProduct: resolve(values.baseline),
-			candidateProduct: resolve(candidateProduct),
-			results: result.results,
-		});
-		appendGateHistory(historyPath, records);
-		console.log(`gate: ${result.verdict} · ${result.summaryPath}`);
-		console.log(`history: ${historyPath} (+${records.length} samples)`);
-		return result.verdict === "held" ? 0 : result.verdict === "regressed" ? 1 : 2;
-	}
-	if (command === "gate-pool") {
-		const { values } = parseArgs({ args: rest, options: { since: { type: "string" }, case: { type: "string" }, history: { type: "string" } } });
-		if (!values.since) throw new Error("gate-pool needs --since <ISO time>");
-		const since = new Date(values.since);
-		if (Number.isNaN(since.getTime())) throw new Error("--since must be an ISO timestamp");
-		const historyPath = values.history ?? gateHistoryPath();
-		if (!existsSync(historyPath)) throw new Error(`no gate history at ${historyPath}`);
-		const pooled = poolGateHistory(parseGateHistory(readFileSync(historyPath, "utf8")), { since, caseId: values.case });
-		if (pooled.length === 0) throw new Error(`no gate samples since ${since.toISOString()}`);
-		for (const group of pooled) {
-			const failures = (total: number, pass: number) => total - pass;
-			console.log(`${group.verdict.padEnd(9)} ${(group.role ?? "?").padEnd(10)} ${group.caseId}`);
-			console.log(`          runs=${group.runs} pairs=${group.pairs} baselineFail=${failures(group.pairs, group.baselinePass)} candidateFail=${failures(group.pairs, group.candidatePass)} unknownRuns=${group.unknownRuns}`);
-			console.log(`          candidate=${group.candidateCommit} baseline=${group.baselineProduct} model=${group.model.provider}/${group.model.model}`);
-		}
-		return pooled.some((group) => group.verdict === "regressed") ? 1 : pooled.some((group) => group.verdict === "unknown") ? 2 : 0;
-	}
+	if (command === "gate" || command === "gate-pool" || command === "freeze" || command === "status") return gateCommand(command, rest, { repoRoot, evalsRoot });
 	if (command === "ledger") {
 		const entries = parseLedgerDir(LEDGER, repoRoot);
 		for (const entry of entries) console.log(`${entry.date}  ${entry.change.padEnd(9)} ${entry.evidence.padEnd(15)} ${entry.decision.padEnd(8)} ${entry.title}`);

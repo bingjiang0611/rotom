@@ -14,6 +14,9 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { describeProducts, preflightFailure, preflightGate } from "./gate-preflight.ts";
+import { auditSmokeScores, smokeScoresFromResults } from "./gate-smoke.ts";
+
+export { auditSmokeScores, smokeScoresFromResults, type SmokeScore } from "./gate-smoke.ts";
 
 export const GATE_SCHEMA = "rotom-loop-gate/v1";
 
@@ -42,6 +45,16 @@ export type GateCase = {
 	ledger: string;
 	/** Overrides the manifest model for this case; absent means the manifest default. */
 	model?: GateModel;
+	/** Overrides the manifest repeats for this case; `--repeats` still overrides every case. */
+	repeats?: number;
+	/**
+	 * A holdout case restates another case's mechanism in different words and fixtures. It is
+	 * never run while a fix is being tuned, only with `--holdout` at the judging round, and it
+	 * is reported next to the verdict instead of deciding it.
+	 */
+	split?: "holdout";
+	/** The tuned case a holdout restates. Required for a holdout, refused otherwise. */
+	variantOf?: string;
 	reproduction?: ReproductionRecord[];
 };
 
@@ -88,6 +101,9 @@ export function parseGateManifest(text: string): GateManifest {
 		for (const name of [item.enableEnv, item.caseEnv, item.repeatsEnv]) if (typeof name !== "string" || !ENV_NAME.test(name)) throw new Error(`gate case ${item.caseId} has an invalid env name`);
 		if (typeof item.ledger !== "string" || !item.ledger) throw new Error(`gate case ${item.caseId} must cite a ledger entry`);
 		if (item.model !== undefined && !validModel(item.model)) throw new Error(`gate case ${item.caseId} model must have provider and model`);
+		if (item.repeats !== undefined && (!Number.isSafeInteger(item.repeats) || item.repeats < 1 || item.repeats > 5)) throw new Error(`gate case ${item.caseId} repeats must be an integer from 1 to 5`);
+		if (item.split !== undefined && item.split !== "holdout") throw new Error(`gate case ${item.caseId} split must be holdout or absent`);
+		if ((item.split === "holdout") !== (typeof item.variantOf === "string" && item.variantOf !== "")) throw new Error(`gate case ${item.caseId}: a holdout names the case it restates in variantOf, and only a holdout does`);
 		if (item.reproduction !== undefined) {
 			if (!Array.isArray(item.reproduction)) throw new Error(`gate case ${item.caseId} reproduction must be a list, one record per model`);
 			const models = new Set<string>();
@@ -108,7 +124,11 @@ export function parseGateManifest(text: string): GateManifest {
 		if (seen.has(key)) throw new Error(`duplicate gate case ${key}`);
 		seen.add(key);
 	}
-	if (!value.cases.some((item) => item.role === "reproduced")) throw new Error("gate manifest needs at least one reproduced case");
+	// A holdout cannot stand in for the tuned case: it is skipped by default, so a manifest
+	// holding only holdouts would gate nothing.
+	const tuned = value.cases.filter((item) => item.split !== "holdout");
+	if (!tuned.some((item) => item.role === "reproduced")) throw new Error("gate manifest needs at least one reproduced case");
+	for (const item of value.cases) if (item.split === "holdout" && !tuned.some((other) => other.caseId === item.variantOf)) throw new Error(`gate case ${item.caseId} variantOf must name a case that is not itself a holdout`);
 	if (value.replays !== undefined) {
 		if (!Array.isArray(value.replays) || value.replays.length === 0) throw new Error("gate manifest replays must be a non-empty list");
 		const ids = new Set<string>();
@@ -136,6 +156,7 @@ export type GateCaseVerdict = "held" | "regressed" | "unknown";
 export type GateCaseResult = {
 	caseId: string;
 	role: GateCase["role"];
+	split?: GateCase["split"];
 	/** Model actually used for both arms, so a per-case override stays visible in the artifacts. */
 	model: GateModel;
 	/** Recorded reproduction evidence carried into the summary, if any. */
@@ -153,7 +174,7 @@ export type GateCaseResult = {
 };
 
 export function judgeGateCase(item: GateCase, repeats: number, artifacts: string, report: ComparisonsReport | undefined, model: GateModel = { provider: "", model: "" }): GateCaseResult {
-	const base = { caseId: item.caseId, role: item.role, model, reproduction: item.reproduction, expectedPairs: repeats, artifacts };
+	const base = { caseId: item.caseId, role: item.role, ...(item.split ? { split: item.split } : {}), model, reproduction: item.reproduction, expectedPairs: repeats, artifacts };
 	const comparisons = report?.evalSets?.flatMap((set) => set.comparisons) ?? [];
 	if (!report || comparisons.length !== 1) {
 		return { ...base, verdict: "unknown", pairs: 0, baselinePassRate: null, candidatePassRate: null, candidateMeanTokens: null, baselineMeanTokens: null, diagnostics: report?.diagnostics?.length ?? 0, reason: report ? "expected exactly one baseline/candidate comparison" : "comparisons.json missing" };
@@ -176,6 +197,7 @@ export function judgeGateCase(item: GateCase, repeats: number, artifacts: string
 	return { ...base, ...metrics, verdict };
 }
 
+/** Holdout results are reported beside the verdict, so callers pass them separately. */
 export function gateVerdict(results: readonly GateCaseResult[]): GateCaseVerdict {
 	if (results.some((result) => result.verdict === "regressed")) return "regressed";
 	if (results.some((result) => result.verdict === "unknown")) return "unknown";
@@ -189,54 +211,30 @@ export type RunGateOptions = {
 	candidateProduct: string;
 	outDir: string;
 	only?: string;
+	/** `--repeats`: one count for every case, ahead of a case's own and the manifest's. */
+	repeats?: number;
+	/** Also run holdout cases. Off by default so tuning a fix never looks at them. */
+	holdout?: boolean;
 	env?: NodeJS.ProcessEnv;
 	/** One pair per case plus a judge audit; not a sample, so it is never recorded as one. */
 	smoke?: boolean;
 };
 
-/** One scored run as the artifact side records it. */
-export type SmokeScore = { checks?: Record<string, unknown>; missingObservation?: unknown };
-
-/**
- * A smoke run proves the recorded output can be scored before spending a full run on it:
- * every arm produced a score, every check resolved to a boolean, and no check read a file
- * the fixture never observed. The last one is the failure this audit exists for: a judge
- * reading an unobserved path silently scored `false` and voided a whole batch.
- */
-export function auditSmokeScores(scores: readonly SmokeScore[]): { ok: boolean; problems: string[] } {
-	const problems: string[] = [];
-	if (scores.length === 0) problems.push("no score was recorded for this case");
-	for (const [index, score] of scores.entries()) {
-		const checks = score.checks;
-		if (!checks || typeof checks !== "object") {
-			problems.push(`score ${index + 1} has no checks`);
-			continue;
-		}
-		for (const [name, value] of Object.entries(checks)) if (typeof value !== "boolean") problems.push(`check ${name} is ${value === undefined ? "missing" : typeof value}, not a boolean`);
-		const missing = score.missingObservation;
-		if (Array.isArray(missing) && missing.length > 0) problems.push(`checks read unobserved path(s): ${missing.map(String).join(", ")}`);
-		if (missing !== undefined && !Array.isArray(missing)) problems.push("missingObservation is not a list");
-	}
-	return { ok: problems.length === 0, problems };
+/** Cases one run covers: the selection by id, minus holdouts unless they were asked for. */
+export function selectGateCases(manifest: GateManifest, options: { only?: string; holdout?: boolean }): GateCase[] {
+	const named = manifest.cases.filter((item) => !options.only || item.caseId === options.only);
+	if (named.length === 0) throw new Error(`no gate case matches ${options.only}`);
+	const cases = named.filter((item) => options.holdout || item.split !== "holdout");
+	if (cases.length === 0) throw new Error(`${options.only} is a holdout case; pass --holdout to run it`);
+	return cases;
 }
 
-/** Reads the judge verdicts the eval artifacts recorded for one case. */
-export function smokeScoresFromResults(report: unknown): SmokeScore[] {
-	const results = (report as { testResults?: { assertionResults?: unknown[] }[] } | undefined)?.testResults ?? [];
-	const scores: SmokeScore[] = [];
-	for (const file of results) {
-		for (const assertion of file.assertionResults ?? []) {
-			const item = assertion as { meta?: { eval?: { scores?: { metadata?: { output?: unknown } }[] } } };
-			for (const score of item.meta?.eval?.scores ?? []) {
-				const output = score.metadata?.output as { checks?: Record<string, unknown>; missingObservation?: unknown } | undefined;
-				if (output) scores.push({ checks: output.checks, missingObservation: output.missingObservation });
-			}
-		}
-	}
-	return scores;
+/** Repetitions for one case: smoke is always one pair, then `--repeats`, the case, the manifest. */
+export function repeatsFor(item: GateCase, options: { manifest: Pick<GateManifest, "repeats">; repeats?: number; smoke?: boolean }): number {
+	return options.smoke ? 1 : options.repeats ?? item.repeats ?? options.manifest.repeats;
 }
 
-export function runGate(options: RunGateOptions): { verdict: GateCaseVerdict; results: GateCaseResult[]; summaryPath: string; smokeProblems: string[] } {
+export function runGate(options: RunGateOptions): { verdict: GateCaseVerdict; holdoutVerdict?: GateCaseVerdict; results: GateCaseResult[]; summaryPath: string; smokeProblems: string[] } {
 	for (const [label, path] of [["baseline", options.baselineProduct], ["candidate", options.candidateProduct]] as const) {
 		if (!isAbsolute(path) || !existsSync(join(path, "runtime", "resolve-installed-pi.mjs"))) throw new Error(`${label} product must be an absolute rotom product directory: ${path}`);
 	}
@@ -247,14 +245,13 @@ export function runGate(options: RunGateOptions): { verdict: GateCaseVerdict; re
 	const preflight = preflightGate([{ product: options.baselineProduct, label: "baseline" }, { product: options.candidateProduct, label: "candidate" }]);
 	if (preflight.problems.length > 0) throw new Error(preflightFailure(preflight.problems));
 	for (const line of describeProducts(preflight.products)) console.error(line);
-	const cases = options.manifest.cases.filter((item) => !options.only || item.caseId === options.only);
-	if (cases.length === 0) throw new Error(`no gate case matches ${options.only}`);
-	const repeats = options.smoke ? 1 : options.manifest.repeats;
+	const cases = selectGateCases(options.manifest, options);
 	mkdirSync(options.outDir, { recursive: true, mode: 0o700 });
 	const results: GateCaseResult[] = [];
 	const smokeProblems: string[] = [];
 	for (const item of cases) {
 		const model = effectiveModel(item, options.manifest);
+		const repeats = repeatsFor(item, options);
 		const artifacts = join(options.outDir, item.caseId);
 		const env: NodeJS.ProcessEnv = {
 			...(options.env ?? process.env),
@@ -294,7 +291,9 @@ export function runGate(options: RunGateOptions): { verdict: GateCaseVerdict; re
 			for (const problem of auditSmokeScores(scores).problems) smokeProblems.push(`${item.caseId}: ${problem}`);
 		}
 	}
-	const verdict = gateVerdict(results);
+	const verdict = gateVerdict(results.filter((result) => result.split !== "holdout"));
+	const holdouts = results.filter((result) => result.split === "holdout");
+	const holdoutVerdict = holdouts.length > 0 ? gateVerdict(holdouts) : undefined;
 	const summaryPath = join(options.outDir, "gate-summary.json");
 	const summary = {
 		schema: GATE_SCHEMA,
@@ -302,14 +301,16 @@ export function runGate(options: RunGateOptions): { verdict: GateCaseVerdict; re
 		model: options.manifest.model,
 		// Per-case overrides are listed once, so the summary names every model this run used.
 		models: [...new Set(results.map((result) => `${result.model.provider}/${result.model.model}`))],
-		repeats,
+		// The run-wide default; a case with its own count records it in `expectedPairs`.
+		repeats: options.smoke ? 1 : options.repeats ?? options.manifest.repeats,
 		...(options.smoke ? { smoke: true, smokeOk: smokeProblems.length === 0, smokeProblems } : {}),
 		baselineProduct: options.baselineProduct,
 		candidateProduct: options.candidateProduct,
 		products: preflight.products,
 		verdict,
+		...(holdoutVerdict ? { holdoutVerdict } : {}),
 		results,
 	};
 	writeFileSync(summaryPath, `${JSON.stringify(summary, null, 2)}\n`, { mode: 0o600 });
-	return { verdict, results, summaryPath, smokeProblems };
+	return { verdict, ...(holdoutVerdict ? { holdoutVerdict } : {}), results, summaryPath, smokeProblems };
 }

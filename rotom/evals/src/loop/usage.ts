@@ -6,10 +6,28 @@ export const USAGE = `Usage: npm run loop -- <command>
       Scan local Pi sessions (default ${defaultSessionsDir()}) into a private incident
       queue and weekly intervention rate under ${defaultLoopDir()}. No model calls.
 
-  gate --baseline /abs/frozen/rotom [--candidate /abs/rotom] [--case ID] [--repeats N] [--out DIR] [--smoke]
-      Re-run reproduced regression cases from loop/gate.json against both products
-      and print held / regressed / unknown. Appends each case to the private gate
-      history. Calls the configured model.
+  status
+      One screen from files that already exist: intervention rate from the newest weekly
+      report, how many climb cases discriminate, shipped mechanism records not yet
+      verified, days since the last gate and weekly run, each case's last and pooled
+      results, and what is due next. No model calls; "no record" is never printed as 0.
+
+  freeze <ref>
+      Check out <ref> as a detached worktree under ${defaultLoopDir()}/frozen/<sha>/,
+      install its two dependency sets from its own locks and run the gate preflight.
+      Freezing the same commit again reinstalls nothing. \`gate\` without --baseline
+      uses the last frozen commit and prints which one.
+
+  gate [--baseline /abs/frozen/rotom] [--candidate /abs/rotom] [--case ID] [--repeats N]
+       [--holdout] [--out DIR] [--smoke]
+      Re-run the cases in loop/gate.json against both products and print
+      held / regressed / unknown. Appends each case to the private gate history.
+      Calls the configured model.
+
+      A case may carry its own repeats; --repeats overrides every case. Holdout
+      cases (split: holdout) are skipped unless --holdout is passed, and their
+      result is printed beside the verdict without deciding it: run them at the
+      judging round, never while tuning a fix.
 
       --smoke runs one pair per case and audits the recorded scores: both arms must
       score, every check must be a boolean, and no check may read a file the fixture

@@ -25,6 +25,8 @@ export type GateHistoryRecord = {
 	candidateProduct: string;
 	caseId: string;
 	role: GateCase["role"];
+	/** Present on holdout samples only, so pooling can keep them out of the tuned verdict. */
+	split?: GateCase["split"];
 	verdict: GateCaseVerdict;
 	/** Scorable pairs in this run; `unknown` runs contribute their scored pairs only. */
 	pairs: number;
@@ -41,7 +43,6 @@ function passCount(rate: number | null, pairs: number): number {
 export function gateHistoryRecords(input: {
 	recordedAt: string;
 	runId: string;
-	repeats: number;
 	candidateCommit: string;
 	baselineProduct: string;
 	candidateProduct: string;
@@ -53,12 +54,14 @@ export function gateHistoryRecords(input: {
 		runId: input.runId,
 		// The model that actually ran, so a per-case override is not recorded as the default.
 		model: result.model,
-		repeats: input.repeats,
+		// Per case, because a case may carry its own repeat count.
+		repeats: result.expectedPairs,
 		candidateCommit: input.candidateCommit,
 		baselineProduct: input.baselineProduct,
 		candidateProduct: input.candidateProduct,
 		caseId: result.caseId,
 		role: result.role,
+		...(result.split ? { split: result.split } : {}),
 		verdict: result.verdict,
 		pairs: result.pairs,
 		baselinePass: passCount(result.baselinePassRate, result.pairs),
@@ -104,6 +107,7 @@ export type GatePoolResult = {
 	model: GateManifest["model"];
 	caseId: string;
 	role: GateCase["role"] | undefined;
+	split?: GateCase["split"];
 	/** Samples merged, scorable pairs, and runs that could not score every repetition. */
 	runs: number;
 	pairs: number;
@@ -131,6 +135,7 @@ export function poolGateHistory(records: readonly GateHistoryRecord[], options: 
 			model: record.model,
 			caseId: record.caseId,
 			role: record.role,
+			...(record.split ? { split: record.split } : {}),
 			runs: 0,
 			pairs: 0,
 			baselinePass: 0,
