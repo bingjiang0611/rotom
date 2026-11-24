@@ -43,4 +43,4 @@
 
 ## CI 的范围
 
-workflow 不配置密钥、不调模型，只证明离线测试、类型和账本格式；它通过不代表任何模型行为，也不替代 gate。用 macOS runner 是因为 `test/loop-replay-sandbox.test.ts` 依赖 `/usr/bin/sandbox-exec`，在 Linux 上有 3 个用例失败。
+workflow 不配置密钥、不调模型，只证明离线测试、类型和账本格式；它通过不代表任何模型行为，也不替代 gate。2026-11-24 首次运行：离线测试 437 通过、1 跳过，job 约 3.5 分钟。用 macOS runner 是因为 `test/loop-replay-sandbox.test.ts` 依赖 `/usr/bin/sandbox-exec`，在 Linux 上有 3 个用例失败。

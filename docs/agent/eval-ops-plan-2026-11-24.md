@@ -135,4 +135,4 @@ A 档在 Linux 上的实测结果见 [§8](#8-起草时的验证)。
 | 账本校验 | `npm --prefix rotom/evals run loop -- ledger` | 88 条，12 条 `improved`，无报错 |
 | 离线测试 | `npm --prefix rotom/evals test` | 45 个文件：418 通过、3 失败、1 跳过，106 秒 |
 
-3 个失败都在 `test/loop-replay-sandbox.test.ts`，原因是 Linux 没有 `/usr/bin/sandbox-exec`，与本方案无关，未修。未验证：GitHub 的 macOS runner 上这套命令的实际结果与耗时（本机 2026-11-10 的记录是 343 通过、1 失败，404 秒，测试集此后有增加）。
+3 个失败都在 `test/loop-replay-sandbox.test.ts`，原因是 Linux 没有 `/usr/bin/sandbox-exec`，与本方案无关，未修。实现后在 GitHub Actions（`macos-latest`，提交 `21520a2`）首次运行：安装、类型检查、账本校验通过，离线测试 437 通过、1 跳过、0 失败，测试 164 秒，整个 job 约 3.5 分钟（不含排队）。
