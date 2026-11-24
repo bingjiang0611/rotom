@@ -1,0 +1,15 @@
+[
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-11-24-eval-ops-keep-and-holdout",
+		"date": "2026-11-24",
+		"title": "Operate the loop with a keep set, a holdout split, a frozen baseline and a status screen",
+		"hypothesis": "The loop's rules are strict enough; what keeps it from turning is supply and operating cost. One reproduced case with no proven discrimination on an authorized model gates nothing, sixteen shipped mechanism records wait for verification, and each gate run needs a hand-built baseline. Cases whose baseline passes can guard against regressions even though they cannot show improvement, a restated variant that is never tuned against can tell a fix that learned the mechanism from one that learned the case, and one command each for the baseline and for the loop's standing numbers makes the weekly routine cheap enough to keep.",
+		"change": "eval",
+		"measurement": "No model call. Offline only: unit tests for manifest validation, case selection, per-case repeats, history and pooling, the frozen-baseline command against a recording fake, the status screen, and an oracle for the holdout variant that runs the fixture's own script. `loop freeze HEAD`, `loop status` and the gate's baseline resolution were run for real on Linux in a scratch loop directory.",
+		"result": "Registered behavior-export-symptom and behavior-scoped-read as keep cases (role control, one repetition per run) on the strength of their 2026-11-10 five-of-five baseline on qoder/dfmodel; registered behavior-authorized-follow-through-variant as a holdout of behavior-authorized-follow-through, oracle-ready and never run against a product. Added `loop freeze`, `loop status`, `gate --holdout`, per-case repeats and the weekly day (thursday). Whether the keep cases still pass on the current release, whether the holdout fails on any frozen baseline, and whether the routine is actually followed are all unmeasured; the user decided on 2026-11-24 to restore a keep set (reversing the 2026-11-09 removal of never-failing suites for these two cases only) and set no extra budget cap.",
+		"evidence": "unmeasured",
+		"decision": "shipped",
+		"source": "docs/agent/eval-ops-plan-2026-11-24.md"
+	}
+]

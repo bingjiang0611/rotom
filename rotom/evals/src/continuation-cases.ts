@@ -3,6 +3,7 @@ import { createJudge } from "vitest-evals";
 import type { JsonValue } from "vitest-evals/harness";
 import type { PiCodingAgentInput } from "./pi-harness.ts";
 import { compactionContinuationCases } from "./compaction-continuation-cases.ts";
+import { holdoutContinuationCases } from "./continuation-holdout-cases.ts";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { beta, exportSymptomExpected, exportSymptomFixture, fixture, internalChoiceFixture, mixedChoiceFixture, observe, scopedReadFixture, userChoiceFixture, verificationPathExpected, verificationPathFixture } from "./continuation-fixtures.ts";
@@ -230,7 +231,12 @@ const baseContinuationCases: ContinuationCase[] = [
 	},
 ];
 
-export const continuationCases: ContinuationCase[] = [...baseContinuationCases, ...compactionContinuationCases];
+export const continuationCases: ContinuationCase[] = [...baseContinuationCases, ...compactionContinuationCases, ...holdoutContinuationCases];
+
+/** Cases one suite run covers: the named one, else every mechanism case that is not a holdout. */
+export function selectContinuationCases(selected?: string): ContinuationCase[] {
+	return continuationCases.filter((item) => (selected ? item.id === selected : item.level === "mechanism-reproduction" && !item.holdout));
+}
 
 /** One executed tool call, as recorded in the session transcript. */
 export type ToolCallRecord = { name: string; args: Record<string, unknown> };
@@ -252,8 +258,10 @@ export type ContinuationOutput = { caseId: string; response: string; responses?:
 
 export type ContinuationCase = {
 	id: "behavior-authorized-follow-through" | "behavior-status-is-not-authorization" | "behavior-verification-path" | "behavior-export-symptom" | "behavior-scoped-read" | "behavior-agent-owned-choice" | "behavior-user-owned-choice" | "behavior-mixed-decision-ownership"
-		| "behavior-standing-directive-after-compaction" | "behavior-exact-detail-after-compaction";
+		| "behavior-standing-directive-after-compaction" | "behavior-exact-detail-after-compaction" | "behavior-authorized-follow-through-variant";
 	level: "conformance" | "mechanism-reproduction";
+	/** Runs only when named, so a whole-suite run while tuning a fix never sees it. */
+	holdout?: boolean;
 	label: string;
 	/** Tool allowlist; every case needs at least one workspace tool. */
 	tools: string[];

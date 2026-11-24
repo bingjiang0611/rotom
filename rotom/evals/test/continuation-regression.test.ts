@@ -24,6 +24,7 @@ it("separates mixed ownership mechanisms from direct conformance prompts", () =>
 		"behavior-mixed-decision-ownership",
 		"behavior-standing-directive-after-compaction",
 		"behavior-exact-detail-after-compaction",
+		"behavior-authorized-follow-through-variant",
 	]);
 	expect(continuationCases.filter((item) => item.level === "conformance").map((item) => item.id)).toEqual([
 		"behavior-verification-path",

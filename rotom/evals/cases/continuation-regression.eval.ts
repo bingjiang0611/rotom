@@ -7,6 +7,7 @@ import type { JsonValue } from "vitest-evals/harness";
 import {
 	continuationCases,
 	continuationJudge,
+	selectContinuationCases,
 	type ContinuationCase,
 	type ContinuationOutput,
 	type ToolCallRecord,
@@ -171,7 +172,7 @@ if (!enabled || !provider || !model || !baselineProduct) {
 	describe.skip("behavioural regression requires ROTOM_EVAL_CONTINUATION=1, provider, model, and ROTOM_EVAL_BASELINE_PRODUCT", () => {});
 } else {
 	const baselineProductPath = baselineProduct;
-	const selectedCases = continuationCases.filter((item) => selected ? item.id === selected : item.level === "mechanism-reproduction");
+	const selectedCases = selectContinuationCases(selected);
 	for (const caseDefinition of selectedCases) {
 		// One user turn per prompt entry: several cases reproduce a failure that
 		// only happens after earlier work in the same session.

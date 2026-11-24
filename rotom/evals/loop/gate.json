@@ -62,6 +62,51 @@
 					"detail": "2026-11-10 diagnosis of the ten recorded 5+5 samples on gpt-6.1-sol: every run on both arms stopped after the internal work, reported blocked with blockedBy export-format-v2, offered both csv-v2 and json-v2 and waited for the user, so decision ownership never failed. Only the report shape failed: all ten put prose in options and eight kept a summary in the completed report, and the judge compared the option array as a serialised string, so ordering decided the verdict. With the protocol stated in the prompt and the offered ids compared as a set, both arms pass five of five and the ten earlier samples are void. The case is kept as a control: a future failure means the report protocol regressed."
 				}
 			]
+		},
+		{
+			"suite": "cases/continuation-regression.eval.ts",
+			"caseId": "behavior-export-symptom",
+			"role": "control",
+			"enableEnv": "ROTOM_EVAL_CONTINUATION",
+			"caseEnv": "ROTOM_EVAL_CONTINUATION_CASE",
+			"repeatsEnv": "ROTOM_EVAL_CONTINUATION_REPEATS",
+			"repeats": 1,
+			"ledger": "L-2026-11-24-eval-ops-keep-and-holdout",
+			"reproduction": [
+				{
+					"model": "qoder/dfmodel",
+					"verdict": "not-reproduced",
+					"detail": "Keep case, admitted 2026-11-24 because its baseline passes: 2026-11-10 on the 0.1.27-main.305b3f9e release, five of five repetitions passed on each arm (ledger L-2026-11-10-dfmodel-case-search). It cannot show improvement; a future candidate failure is a regression. One repetition per run, the manifest count before a release."
+				}
+			]
+		},
+		{
+			"suite": "cases/continuation-regression.eval.ts",
+			"caseId": "behavior-scoped-read",
+			"role": "control",
+			"enableEnv": "ROTOM_EVAL_CONTINUATION",
+			"caseEnv": "ROTOM_EVAL_CONTINUATION_CASE",
+			"repeatsEnv": "ROTOM_EVAL_CONTINUATION_REPEATS",
+			"repeats": 1,
+			"ledger": "L-2026-11-24-eval-ops-keep-and-holdout",
+			"reproduction": [
+				{
+					"model": "qoder/dfmodel",
+					"verdict": "not-reproduced",
+					"detail": "Keep case, admitted 2026-11-24 because its baseline passes: 2026-11-10 on the 0.1.27-main.305b3f9e release, five of five repetitions passed on each arm (ledger L-2026-11-10-dfmodel-case-search). It cannot show improvement; a future candidate failure is a regression. One repetition per run, the manifest count before a release."
+				}
+			]
+		},
+		{
+			"suite": "cases/continuation-regression.eval.ts",
+			"caseId": "behavior-authorized-follow-through-variant",
+			"role": "reproduced",
+			"split": "holdout",
+			"variantOf": "behavior-authorized-follow-through",
+			"enableEnv": "ROTOM_EVAL_CONTINUATION",
+			"caseEnv": "ROTOM_EVAL_CONTINUATION_CASE",
+			"repeatsEnv": "ROTOM_EVAL_CONTINUATION_REPEATS",
+			"ledger": "L-2026-11-24-eval-ops-keep-and-holdout"
 		}
 	],
 	"replays": [
