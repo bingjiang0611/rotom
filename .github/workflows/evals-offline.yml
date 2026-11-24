@@ -1,0 +1,35 @@
+# Offline checks for the evaluation loop: no model call, no secret, no network beyond npm.
+# macOS because test/loop-replay-sandbox.test.ts drives /usr/bin/sandbox-exec, which Linux lacks.
+name: evals-offline
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: evals-offline-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install the product runtime, its extensions and the eval tooling from their locks
+        run: |
+          npm --prefix rotom/runtime/pi ci --ignore-scripts
+          npm --prefix rotom/extensions/third-party ci --ignore-scripts --omit=optional --legacy-peer-deps
+          npm --prefix rotom/evals ci --ignore-scripts
+      - name: Typecheck
+        run: npm --prefix rotom/evals run typecheck
+      - name: Validate the experiment ledger
+        run: npm --prefix rotom/evals run loop -- ledger
+      - name: Offline tests
+        run: npm --prefix rotom/evals test
