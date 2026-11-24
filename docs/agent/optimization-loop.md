@@ -1,6 +1,6 @@
 # Agent 优化循环
 
-维护入口：`/skill:agent-loop`。命令：`npm --prefix rotom/evals run loop -- harvest|gate|replay-gate|ledger`。
+维护入口：`/skill:agent-loop`。命令：`npm --prefix rotom/evals run loop -- harvest|gate|replay-gate|ledger|freeze|status`。什么时候跑哪一条、保持集与留出集的规则见 [循环运营合同](loop-ops.md)。
 
 目标只有一个：**rotom 在真实使用中越来越少需要人介入**。评测、提示、机制改动都服务于此；不能降低介入率的改动不交付。
 
@@ -73,7 +73,7 @@ npm --prefix rotom/evals run loop -- gate --baseline /absolute/frozen/rotom --ca
 
 模型默认用清单顶层的 `model`，单个用例可以用自己的 `model` 覆盖，两侧都按该模型的同一 provider/model 跑。`reproduction` 是**按模型分开的记录列表**：一个用例在 `qoder/dfmodel` 上没复现，不代表在 `openai-codex/gpt-6.1-sol` 上也不会复现，反过来也一样，所以每个模型一条记录，各自带 `reproduced` / `flaky-candidate` / `not-reproduced` 与样本数。
 
-`--candidate` 默认当前仓库的 `rotom/`；两侧必须是不同的绝对产品目录（同一目录是 A/A 对照，不是 gate）。结果写到 `~/.rotom/loop/gate-<时间>/`。判定只看 candidate：全部重复通过为 `held`，否则 `regressed`；可评分配对不足为 `unknown`。退出码 0/1/2 对应 held/regressed/unknown；vitest 自身退出码不作判定。baseline 通过率只用于观察区分度。`--repeats N` 可在 1–5 之间覆盖清单重复数。
+`--baseline` 可省略：先 `loop freeze <ref>` 一次，之后 gate 用最近一次冻结的产品并打印其 SHA。`--candidate` 默认当前仓库的 `rotom/`；两侧必须是不同的绝对产品目录（同一目录是 A/A 对照，不是 gate）。结果写到 `~/.rotom/loop/gate-<时间>/`。判定只看 candidate：全部重复通过为 `held`，否则 `regressed`；可评分配对不足为 `unknown`。退出码 0/1/2 对应 held/regressed/unknown；vitest 自身退出码不作判定。baseline 通过率只用于观察区分度。`--repeats N` 可在 1–5 之间覆盖清单重复数。
 
 ### 正式运行前先 smoke
 
@@ -105,6 +105,9 @@ npm --prefix rotom/evals run loop -- gate-pool --since 2026-11-10T00:00:00Z --ca
 | `behavior-authorized-follow-through` | reproduced（sol） / `flaky-candidate`（dfmodel） | `openai-codex/gpt-5.6-sol`（continuation suite 固定 thinking=low；旧记录写作 high），冻结基线 0/3、修复后 3/3（`22806d9`，coding-policy 增加“状态询问时用已有授权重检可变阻塞”）；candidate 平均多约 7k tokens、1.3 次工具调用。`qoder/dfmodel` 上 baseline 2/3、candidate 3/3：有失败但低于 2/3 门槛，记 `flaky-candidate`，要靠 `gate-pool` 继续加样本才能判断（见 `gate.json` 的 `reproduction`） |
 | `behavior-mixed-decision-ownership` | control（**仅 gpt-6.1-sol**） | `openai-codex/gpt-6.1-sol`，2026-11-10 两次标定。第一次（发行版 `0.1.27-main.50ccdc87` 作冻结 baseline、main 作 candidate，每侧 5 次）两侧各失败 5/5，据此入集；诊断发现十次运行的决策归属都对（停下、`blockedBy: export-format-v2`、给出 `csv-v2` 与 `json-v2`、等用户选），失败只在报告形状：`options` 带解释文字、完成报告把摘要留在 `options` 里，而 judge 把选项数组按序列化字符串比较，顺序也能决定结论。提示补上协议（只放选项 id、顺序不限、完成时为空数组）并把选项按集合比较后，两侧各 5/5 通过，旧样本全部作废，因此该用例降为 control：将来再失败说明报告协议退化了。不回归对照在 `qoder/dfmodel`（80% vs 100%、100% vs 100%）与 `openai-codex/gpt-6-astra`（100% vs 100% 两次）上均 held |
 | `behavior-status-is-not-authorization` | control | sol 同批 3/3 通过；防止修复把状态询问当成新授权。dfmodel 两轮共 6 对：baseline 6/6，candidate 5/6（第一轮整体判 `regressed`，其中一轮在状态询问后执行了 `node pipeline.mjs`；第二轮重跑 3/3）。第一轮结果已按原样记入账本，不因重跑通过而改写 |
+
+| `behavior-export-symptom`、`behavior-scoped-read` | 保持集（control，每轮 1 次） | 2026-11-24 入集：dfmodel 上 2026-11-10 baseline 5/5，测不出改善，将来失败即回归；入集后尚未重跑 |
+| `behavior-authorized-follow-through-variant` | 留出（holdout） | `behavior-authorized-follow-through` 的英文改写，只有离线 oracle，未在任何产品上跑过；只随 `gate --holdout` 运行，不计入主判定 |
 
 `behavior-mixed-decision-ownership` 在 dfmodel 上此前的 2/3 记录是 `flaky-candidate`，不因 gpt-6.1-sol 的诊断结果改写；它现在作为 control 在 gpt-6.1-sol 上运行。
 

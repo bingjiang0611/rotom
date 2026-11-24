@@ -2,9 +2,9 @@
 
 固定步骤见 [优化循环 §⑥](optimization-loop.md#⑥-账本与节奏)。本节保留报告字段与验收统计细节。
 
-建议节奏：
+节奏（四档总表见 [循环运营合同](loop-ops.md)）：
 
-- **每周**：`loop weekly`。它自己跑 28 天 harvest，写 `~/.rotom/loop/weekly-<YYYY-MM-DD>/`（`report.md` + `summary.json`，0700/0600，不入 Git）。三段内容：
+- **每周四**：`loop weekly`，随后 `loop status` 看四个运营数字与待办。它自己跑 28 天 harvest，写 `~/.rotom/loop/weekly-<YYYY-MM-DD>/`（`report.md` + `summary.json`，0700/0600，不入 Git）。三段内容：
   1. North Star v2 总计、按模型、按产品版本（每行带 95% Poisson 区间和去掉最大一次会话后的敏感度列）；按模型的拆分只是观察数据：每段会话归给回答 turn 最多的模型，各模型承担的任务不同，**不能排除选择偏差**；
   2. 每条 `decision=shipped` + `evidence=unmeasured` 的记录：用它自己的 `acceptance` 只看验收起点之后的数据，给 `improved / no-change / worse / insufficient-exposure / no-metric`；没声明指标报 `no-metric`，不猜。暴露量 = 基线速率预测出 10 个事件的 turn 数，预先登记且由 `loop ledger` 校验；没到量只报 `insufficient-exposure`。到量后用单侧精确泊松检验（alpha 0.05），`no-change` 只表示没显出差异，并给出还差多少天。机制记录还登记“首个包含该修复的提交”（`acceptance.firstCommit`）：只有会话自己记录的 build commit 是该提交或其后代（`git merge-base --is-ancestor`）时才计入 turn；没有 build commit 的会话一律 unknown，另报条数。release 标签是从会话文本里匹配出来的，不再参与验收。`loop versions` 用同一份 harvest 打印产品版本时间线（谁切换的未知）；
   3. 按 provider 的“用户可见失败/100 turns”，以版本切换时刻分为 before/after 两段；失败归到其会话所在的段。

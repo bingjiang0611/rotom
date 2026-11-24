@@ -10,8 +10,9 @@ description: "运行 rotom 的 Agent 优化循环：从本机会话挖掘失败�
 ## 按意图选入口
 
 - **找问题**：`npm --prefix rotom/evals run loop -- harvest`。读 `report.md` 的周介入率和分诊队列，再读 `incidents.jsonl` 前列事件对应的原始会话。周表之外还要看按模型、runtime、产品版本、SoL-Pi 版本的 v2 与区间，以及敏感性（去掉 v2 最多的会话后重算）和任务规模（每会话 turn、每 turn 工具调用中位数）——先排除“难任务挑了那个模型”再谈模型质量。只在本机读取；输出不入 Git。
+- **看循环现状**：`npm --prefix rotom/evals run loop -- status`。一屏给出介入率、有区分度的用例数、未验收条目数、距上次 gate/weekly 的天数和待办；不调模型。每周四的固定流程见 [循环运营合同](../../../docs/agent/loop-ops.md)。
 - **新失败入集**：分类 → oracle → baseline → 修复 → candidate，顺序不可交换（见合同 ②–④）。
-- **改了 Agent 行为**：改动涉及 coding-policy、工具、Goal 续跑、上下文/压缩或 Subagent 默认时，先 `gate --baseline <冻结产品> --smoke` 用一对样本审分数（两侧都出分、check 都是布尔、没有 check 读 `observe` 外的文件），再跑 `npm --prefix rotom/evals run loop -- gate --baseline <冻结产品>`。smoke 不算样本、不写 gate 历史。样本不足就加轮次，再用 `gate-pool --since <起跑时间> [--case ID]` 合并判定：合并只看 pass/fail 累加，后一轮通过不会抵消前一轮失败。
+- **改了 Agent 行为**：改动涉及 coding-policy、工具、Goal 续跑、上下文/压缩或 Subagent 默认时，先 `loop freeze <上一个发行 commit>` 冻结一次基线（之后 `--baseline` 可省略），再 `gate --smoke` 用一对样本审分数（两侧都出分、check 都是布尔、没有 check 读 `observe` 外的文件），再跑 `npm --prefix rotom/evals run loop -- gate`；判定那一轮加 `--holdout`，留出用例在调修复时不跑、不看，结果单列不计入主判定。smoke 不算样本、不写 gate 历史。样本不足就加轮次，再用 `gate-pool --since <起跑时间> [--case ID]` 合并判定：合并只看 pass/fail 累加，后一轮通过不会抵消前一轮失败。
 - **收尾**：每个实验（含撤回和未复现）在 `rotom/evals/loop/ledger/<YYYY-MM>.json` 对应月份分片追加一项，并跑 `npm --prefix rotom/evals run loop -- ledger`。
 - **改动必须入账**：改 `rotom/extensions/**`、`rotom/runtime/**`、`rotom/skills/**`、`rotom/bin/**`、`packages/**` 的 commit 要带 `Ledger: L-YYYY-MM-DD-slug`（该条目已写入分片）或 `Ledger: none — <理由>` trailer，commit-msg hook 会拦。只改测试、文档、evals 的提交豁免。循环之外做的机制、依赖或提示升级同样要记账；`evidence: unmeasured` 也要写清它预期影响哪个 harvest 指标。
 
