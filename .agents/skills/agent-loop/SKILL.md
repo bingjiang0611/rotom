@@ -24,7 +24,7 @@ description: "运行 rotom 的 Agent 优化循环：从本机会话挖掘失败�
 - 优先改机制；纯提示改动没有 `evidence: improved` 不得 shipped，并报告 token 变化。
 - baseline 与 candidate 同 case、fixture、judge、runner、模型、thinking、输入和重复数；中途改评测则两侧重跑。
 - skip、超时、provider 错误、identity gate 失败和 unknown 单列，不算通过；gate 的 `unknown` 不是 `held`。
-- 已授权：只用 `qoder/dfmodel`，不设预算，用于 gate、回放与分诊（2026-11-25 用户决定不再使用任何 `openai-codex` 模型；`gate --model` 也不换到 codex，codex 回答的事件不回放）；发送范围为脱敏 fixture、产品提示和分诊所需会话摘录。换到其他模型或发送完整会话正文需另行询问。
+- 已授权：只用 `qoder/dfmodel`，不设预算，用于 gate、回放与分诊（2026-11-25 用户决定不再使用任何 `openai-codex` 模型；`gate --model` 也不换到 codex，codex 回答的事件不回放）；发送范围为脱敏 fixture、产品提示和分诊所需会话摘录。2026-11-25 起授权真实会话回放（`loop replay` / `replay-gate`，只回放 dfmodel 回答的事件，范围见 [回放](../../../docs/agent/loop-replay.md)）；换到其他模型或把会话正文用于回放以外的用途需另行询问。
 - gate 清单可给单个用例指定 `model`；`reproduction` 是按模型分开的记录列表，一个模型上的 `not-reproduced` 不能外推到另一个模型。
 - 真实会话、截图、凭据与运行产物不入 Git；公开用例必须重新虚构名称、路径与 ID。
 - 推送前必须 `python3 scripts/audit-public.py --root . --history-range <base>..<head>`（pre-push hook 自动跑同一条），不能只跑 tree 模式：只扫树看不到提交身份。全量 `--history` 只在发布独立仓库或改写历史后跑，字节预算按全量设定。pre-push 会先拦非 noreply 身份；被拦就按提示 `--reset-author`，不绕 hook。

@@ -1,5 +1,7 @@
 # 回放：在隔离副本里重跑一次记录的失败
 
+**授权（2026-11-25 用户）**：允许真实会话回放。范围：只用 `qoder/dfmodel`，因此只回放由 dfmodel 回答的事件（回放不换模型）；会话分支原文会作为上下文发给 dfmodel；只在本页规定的隔离副本里运行，前置条件不成立就不开始；产物只落 `~/.rotom/loop/replay-*`，用例、检查与会话标识都不入 Git，`gate.json` 只登记 id 与脱敏机制摘要。不设额外预算上限。其他模型或把原文用于回放以外的用途仍需另行授权。
+
 只在用户显式授权真实会话回放时执行；未授权就整块跳过。用法与边界都记在这里，节奏入口见 [Agent 优化循环](optimization-loop.md#⑦-回放可选需显式授权)。
 
 `npm --prefix rotom/evals run loop -- replay --incident <sessionId:entryId> [--repeats N] [--frozen DIR] [--current DIR] [--model provider/model] [--check COMMAND] [--origin-check [--origin-only]]`：把一次记录在案的失败在隔离副本里重放。只在用户显式授权真实会话回放时执行；未授权就整块跳过。

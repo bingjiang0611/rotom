@@ -40,7 +40,7 @@ npm --prefix rotom/evals run loop -- harvest --days 7 --no-excerpts
 | `harness-regression`：runner/fixture/judge 问题 | 先修评测，不归因 Agent |
 | 外部因素（余额、网络、上游故障） | 记一笔，不建用例 |
 
-授权（2026-11-09 用户）：可把会话摘录发给 `qoder/dfmodel` 辅助分类；分类结果只是建议，入集仍需人工确认。
+授权（2026-11-09 用户）：可把会话摘录发给 `qoder/dfmodel` 辅助分类；分类结果只是建议，入集仍需人工确认。2026-11-25 起另授权真实会话回放，范围见 ⑦。
 
 ## ③ 回放用例与 baseline
 
@@ -152,7 +152,9 @@ npm --prefix rotom/evals run loop -- gate --baseline /absolute/rotom-pre-fix/rot
 
 报告字段、验收统计与相关改动门禁见 [每周检查合同](loop-weekly.md)。
 
-## ⑦ 回放（可选，需显式授权）
+## ⑦ 回放（2026-11-25 起已授权）
+
+**授权（2026-11-25 用户）**：允许真实会话回放。范围：只用 `qoder/dfmodel`，因此只回放由 dfmodel 回答的事件（回放不换模型）；会话分支原文会作为上下文发给 dfmodel；只在本页规定的隔离副本里运行，前置条件不成立就不开始；产物只落 `~/.rotom/loop/replay-*`，用例、检查与会话标识都不入 Git，`gate.json` 只登记 id 与脱敏机制摘要。不设额外预算上限。其他模型或把原文用于回放以外的用途仍需另行授权。
 
 `loop replay --incident <sessionId:entryId> [--repeats N]`：把一次记录在案的失败在隔离副本里重放，只在显式授权时执行，产物只落 `~/.rotom/loop/replay-*`。用法、两层路径隔离、两个前置条件（宿主仓库未被回放改动、隔离已生效）与“不可判”的判法见 [回放](loop-replay.md)；前置条件不成立就不开始。
 
