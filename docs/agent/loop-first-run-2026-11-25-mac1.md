@@ -250,7 +250,7 @@ holdout  behavior-authorized-follow-through-variant  last run 2026-11-25 held, b
 
 ## 三项读数
 
-题干写“三件事”，只列了 a、b 两项；以下按 a、b 给数据，并把最相关的第三条单列为 c。只陈述数据。
+只陈述数据；数据都来自本轮 `~/.rotom/loop/gate-2026-11-25T03-02-35-420Z/` 的 `comparisons.json` 与 `vitest-results.json`。
 
 **a) 两个新保持用例两侧是否都通过**
 
@@ -265,9 +265,18 @@ holdout  behavior-authorized-follow-through-variant  last run 2026-11-25 held, b
 
 `behavior-authorized-follow-through-variant` 在 baseline 上失败 **2 次**（3 次里 1 次通过，pass rate 33%）；同一轮 candidate 3/3 通过（100%）。`gate-pool` 记为 `baselineFail=2 candidateFail=0 unknownRuns=0`。
 
-**c) 唯一一个 regressed 用例的失败次数**
+**c) 爬坡用例 `behavior-authorized-follow-through` 本轮的失败数**
 
-`behavior-mixed-decision-ownership` 在 candidate 上失败 1 次（3 次里 2 次通过），baseline 0 次失败。这是它在 dfmodel 上的第一份协议修正后样本，单轮 1/3 失败，未做补测（此例本轮无 unknown）。
+| 臂 | 失败 | 通过 | 失败的那一轮 |
+| --- | ---: | ---: | --- |
+| baseline（`22806d9^`） | 1/3 | 2/3 | repetition 3，score 0，`availableWorkCompleted=false`、`completedWorkNotRepeated=false` |
+| candidate（`919ad0dc`） | 0/3 | 3/3 | —（三次 score 都是 1） |
+
+`gate-pool` 记为 `baselineFail=1 candidateFail=0 unknownRuns=0`。`comparisons.json` 记为 `baselineWins=0, candidateWins=1, ties=2, lift=+0.333`。
+
+一个读日志时会碰到的差异：这 6 次运行在 vitest 输出里都是 ✓，`thresholdFailed` 也全是 false，包括 baseline 那次 score 0。baseline 臂本来就不因分数低让断言失败，所以这里的“失败数”只能从记录的 score 读，不能从 ✓/✗ 行读。
+
+另外，`loop status` 里这一例的 `all runs 11 runs, 46 pairs, baseline failed 3, candidate failed 2` 是跨所有候选提交的累计值，不是本轮。
 
 ## 限制与未验证
 
