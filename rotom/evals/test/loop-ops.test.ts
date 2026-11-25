@@ -226,6 +226,15 @@ describe("status", () => {
 		expect(text).toContain("baseline cccccccccccc (v0.2.4)");
 	});
 
+	it("shows each machine's weekly rate and asks to commit this machine's unrecorded runs", () => {
+		const report = buildStatus({ manifest: manifest([tuned]), history: [], ledger: [], weekly: undefined, machines: [{ machine: "mac1", per100: 5.6, turns: 4011, reportDate: "2026-11-25" }, { machine: "mac3", per100: 12.1, turns: 463, reportDate: "2026-11-25" }], unrecordedRuns: 2, frozen: { sha: "c".repeat(40), ref: "main" }, now });
+		const text = renderStatus(report);
+		expect(text).toMatch(/mac1\s+5\.6 \(4011 turns, 2026-11-25\)/u);
+		expect(text).toMatch(/mac3\s+12\.1 \(463 turns, 2026-11-25\)/u);
+		expect(report.next).toContain("commit 2 gate run(s) of this machine: run `loop records import`, then commit loop/results/");
+		expect(buildStatus({ manifest: manifest([tuned]), history: [], ledger: [], weekly: undefined, now }).unrecordedRuns).toBeNull();
+	});
+
 	it("asks for a weekly run once the last one is a week old and treats an unreadable summary as no record", () => {
 		const weekly = parseWeeklySnapshot(JSON.stringify({ generatedAt: "2026-11-17T09:00:00.000Z" }));
 		expect(weekly).toEqual({ generatedAt: "2026-11-17T09:00:00.000Z", turns: null, per100: null, records: [] });

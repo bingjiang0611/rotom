@@ -9,6 +9,7 @@ import { defaultLoopDir, defaultSessionsDir, harvest } from "./harvest-run.ts";
 import { parseLedgerDir } from "./ledger.ts";
 import { versionTimeline } from "./release-version.ts";
 import { buildWeekly, parseWeeklyConfig, writeWeekly } from "./weekly.ts";
+import { machineName, weeklyRecord, writeWeeklyRecord } from "./records.ts";
 
 export const WEEKLY_CONFIG = (evalsRoot: string) => `${evalsRoot}/loop/weekly.json`;
 const LEDGER = (evalsRoot: string) => `${evalsRoot}/loop/ledger`;
@@ -46,6 +47,10 @@ export async function reportCommand(command: string, rest: string[], deps: { rep
 		const directory = await writeWeekly(values.out ?? defaultLoopDir(), report);
 		console.log(`sessions=${result.sessions.length} incidents=${result.incidents.length}`);
 		console.log(`weekly: ${directory}/report.md`);
+		// The aggregate goes to Git so machines can be read side by side; without a label it stays local.
+		const machine = machineName(defaultLoopDir());
+		if (machine) console.log(`record: ${writeWeeklyRecord(deps.evalsRoot, weeklyRecord(machine, report))} — commit it`);
+		else console.log("not recorded to Git: set this machine's label with `loop machine <name>`");
 		for (const row of report.records) console.log(`record ${row.status.padEnd(12)} ${row.id}  turns=${row.turns} observed=${row.observedPer100 ?? "N/A"} baseline=${row.baselinePer100 ?? "N/A"}`);
 		return 0;
 	}

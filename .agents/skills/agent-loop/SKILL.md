@@ -10,6 +10,7 @@ description: "运行 rotom 的 Agent 优化循环：从本机会话挖掘失败�
 ## 按意图选入口
 
 - **找问题**：`npm --prefix rotom/evals run loop -- harvest`。读 `report.md` 的周介入率和分诊队列，再读 `incidents.jsonl` 前列事件对应的原始会话。周表之外还要看按模型、runtime、产品版本、SoL-Pi 版本的 v2 与区间，以及敏感性（去掉 v2 最多的会话后重算）和任务规模（每会话 turn、每 turn 工具调用中位数）——先排除“难任务挑了那个模型”再谈模型质量。只在本机读取；输出不入 Git。
+- **多台机器**：每台先 `loop machine <名字>` 设一次标签；`gate` 和 `weekly` 会把聚合结果写到 `rotom/evals/loop/results/`，跑完提交推送，`gate-pool`/`status` 读所有机器的已提交记录（见 [循环运营合同](../../../docs/agent/loop-ops.md#多台机器)）。
 - **看循环现状**：`npm --prefix rotom/evals run loop -- status`。一屏给出介入率、有区分度的用例数、未验收条目数、距上次 gate/weekly 的天数和待办；不调模型。每周四的固定流程见 [循环运营合同](../../../docs/agent/loop-ops.md)。
 - **新失败入集**：分类 → oracle → baseline → 修复 → candidate，顺序不可交换（见合同 ②–④）。
 - **改了 Agent 行为**：改动涉及 coding-policy、工具、Goal 续跑、上下文/压缩或 Subagent 默认时，先 `loop freeze <上一个发行 commit>` 冻结一次基线（之后 `--baseline` 可省略），再 `gate --smoke` 用一对样本审分数（两侧都出分、check 都是布尔、没有 check 读 `observe` 外的文件），再跑 `npm --prefix rotom/evals run loop -- gate`；判定那一轮加 `--holdout`，留出用例在调修复时不跑、不看，结果单列不计入主判定。smoke 不算样本、不写 gate 历史。样本不足就加轮次，再用 `gate-pool --since <起跑时间> [--case ID]` 合并判定：合并只看 pass/fail 累加，后一轮通过不会抵消前一轮失败。

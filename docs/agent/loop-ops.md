@@ -31,6 +31,22 @@
 - 留出用例在调修复期间不跑、不看：`gate` 默认跳过，整套件运行（不指定 `ROTOM_EVAL_CONTINUATION_CASE`）也跳过。爬坡用例通过而它的留出变体没有跟着通过，记为过拟合，不标 `improved`。
 - 用例可带自己的 `repeats`；`--repeats N` 覆盖所有用例，`--smoke` 恒为一对。
 
+## 多台机器
+
+结果统一放在 Git 里：`rotom/evals/loop/results/`。每台机器各写自己的子目录，一次运行一个文件，互不冲突。
+
+| 内容 | 位置 | 进 Git |
+|---|---|---|
+| 每次正式 gate 的逐用例计数、判定、模型、两侧提交与产品指纹 | `loop/results/gate/<机器>/<runId>.json`（`gate` 自动写） | 是 |
+| 每次 weekly 的总体与按模型介入率、验收状态 | `loop/results/weekly/<机器>/<日期>.json`（`weekly` 自动写） | 是 |
+| 会话、摘录、session id、harvest 事件队列、回放用例、gate 运行产物、冻结 worktree、本机路径、主机名 | `~/.rotom/loop/` | 否 |
+
+- 每台机器先设一次标签：`loop machine mac1`。没有标签时正式 gate 拒绝运行（smoke 不受限）。
+- 跑完 `gate` / `weekly` 后，把 `rotom/evals/loop/results/` 下新增的文件提交并推送；功能分支合入 `main` 后，所有机器拉取即可看到。
+- `gate-pool` 默认合并所有机器的已提交记录，按**产品指纹**分组：指纹是 `rotom/` 目录树去掉 `evals/` 后的哈希，所以只改了评测或文档的不同提交、在不同机器上跑的同一产品会合在一起；产品有未提交改动时记为 `dirty-…`，不与任何样本合并。`--local` 只看本机私有历史。
+- `loop status` 读已提交记录：按机器列出各自最新的介入率，并提示本机还有几次 gate 未提交（用 `loop records import` 补录旧运行）。
+- 记录文件只含聚合数字；CI 的离线测试会拒绝格式错误或带本机路径的记录。
+
 ## `loop freeze <ref>`
 
 把 `<ref>` 检出为 `~/.rotom/loop/frozen/<sha>/` 下的 detached worktree，按它自己的 lock 装 `runtime/pi` 与 `extensions/third-party`，再跑 gate 的 preflight。同一提交再次 freeze 不重装；preflight 指出的目录会重装一次，仍不一致就拒绝并给出目录。它不删除任何东西：目录存在但不是 rotom 产品时报错，由维护者自己检查后处理。

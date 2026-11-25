@@ -6,6 +6,17 @@ export const USAGE = `Usage: npm run loop -- <command>
       Scan local Pi sessions (default ${defaultSessionsDir()}) into a private incident
       queue and weekly intervention rate under ${defaultLoopDir()}. No model calls.
 
+  machine [name]
+      Print or set this machine's label (stored privately in machine.json, or taken from
+      ROTOM_LOOP_MACHINE). A scored gate run refuses to start without one, because every
+      run is committed under it.
+
+  records import
+      Turn this machine's private gate history into committed records under
+      loop/results/gate/<machine>/<runId>.json, one per run not yet recorded. Records hold
+      case ids, pass counts, verdicts, models, commits and a product fingerprint; never a
+      session, a host name or a local path.
+
   status
       One screen from files that already exist: intervention rate from the newest weekly
       report, how many climb cases discriminate, shipped mechanism records not yet
@@ -35,9 +46,10 @@ export const USAGE = `Usage: npm run loop -- <command>
       did not observe. It is not a sample, so nothing is appended to the history.
       Run it before a real gate run.
 
-  gate-pool --since ISO [--case ID] [--history PATH]
-      Merge every recorded gate run of the same candidate commit and baseline for
-      each case since ISO, then judge the pooled pass and fail counts.
+  gate-pool --since ISO [--case ID] [--local | --history PATH]
+      Merge the committed gate records of every machine for each case since ISO, grouped
+      by product fingerprint (the product tree without evals), model and case, then judge
+      the pooled pass and fail counts. --local reads this machine's private history instead.
 
   ledger
       Validate every loop/ledger/<month>.json shard and print the experiment history.

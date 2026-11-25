@@ -175,7 +175,7 @@ async function main(argv: string[]): Promise<number> {
 		console.log(`replay-gate${values["current-only"] ? " (current-only)" : ""}: ${results.some((item) => item.verdict === "regressed") ? "regressed" : results.some((item) => item.verdict === "unknown") ? "unknown" : "held"} · ${outDir}`);
 		return results.some((item) => item.verdict === "regressed") ? 1 : results.some((item) => item.verdict === "unknown") ? 2 : 0;
 	}
-	if (command === "gate" || command === "gate-pool" || command === "freeze" || command === "status") return gateCommand(command, rest, { repoRoot, evalsRoot });
+	if (command === "gate" || command === "gate-pool" || command === "freeze" || command === "status" || command === "machine" || command === "records") return gateCommand(command, rest, { repoRoot, evalsRoot });
 	if (command === "ledger") {
 		const entries = parseLedgerDir(LEDGER, repoRoot);
 		for (const entry of entries) console.log(`${entry.date}  ${entry.change.padEnd(9)} ${entry.evidence.padEnd(15)} ${entry.decision.padEnd(8)} ${entry.title}`);

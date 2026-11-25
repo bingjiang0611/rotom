@@ -54,6 +54,10 @@ export type StatusReport = {
 	date: string;
 	weeklyDay: Weekday | null;
 	intervention: { per100: number | null; turns: number | null; reportDate: string } | null;
+	/** Newest committed weekly aggregate of each machine, so several machines read side by side. */
+	machines: { machine: string; per100: number | null; turns: number; reportDate: string }[];
+	/** Gate runs in this machine's private history that are not committed yet; null when unknown. */
+	unrecordedRuns: number | null;
 	climb: { total: number; proven: number; flaky: number };
 	keep: number;
 	holdout: number;
@@ -81,6 +85,8 @@ export function buildStatus(input: {
 	history: readonly GateHistoryRecord[] | undefined;
 	ledger: readonly LedgerEntry[];
 	weekly: WeeklySnapshot | undefined;
+	machines?: StatusReport["machines"];
+	unrecordedRuns?: number;
 	weeklyDay?: Weekday;
 	frozen?: Pick<FrozenBaseline, "sha" | "ref">;
 	now: Date;
@@ -123,6 +129,7 @@ export function buildStatus(input: {
 	const next: string[] = [];
 	if (daysSinceWeekly === null) next.push("run `loop weekly`: no weekly report has been written on this machine");
 	else if (daysSinceWeekly >= 7) next.push(`run \`loop weekly\`: the last report is ${daysSinceWeekly} days old`);
+	if (input.unrecordedRuns) next.push(`commit ${input.unrecordedRuns} gate run(s) of this machine: run \`loop records import\`, then commit loop/results/`);
 	if (ready.length > 0) next.push(`update the ledger for ${ready.length} record(s) the weekly report reached a verdict on`);
 	if (proven === 0) next.push("no climb case discriminates on the model it runs on: triage the harvest queue for one reproducible failure");
 	if (!input.frozen) next.push("run `loop freeze <release commit>` so `loop gate` has a baseline");
@@ -133,6 +140,8 @@ export function buildStatus(input: {
 		date: now.toISOString().slice(0, 10),
 		weeklyDay: input.weeklyDay ?? null,
 		intervention: weekly ? { per100: weekly.per100, turns: weekly.turns, reportDate: weekly.generatedAt.slice(0, 10) } : null,
+		machines: input.machines ?? [],
+		unrecordedRuns: input.unrecordedRuns ?? null,
 		climb: { total: climbCases.length, proven, flaky },
 		keep: cases.filter((row) => row.kind === "keep").length,
 		holdout: cases.filter((row) => row.kind === "holdout").length,
@@ -158,6 +167,7 @@ export function renderStatus(report: StatusReport): string {
 		`rotom loop status · ${report.date}${report.weeklyDay ? ` · weekly day ${report.weeklyDay}` : ""}`,
 		"",
 		`  interventions per 100 user turns            ${intervention}`,
+		...report.machines.map((row) => `      ${row.machine.padEnd(40)} ${row.per100 ?? "N/A"} (${row.turns} turns, ${row.reportDate})`),
 		`  climb cases that discriminate (own model)   ${report.climb.proven} of ${report.climb.total}${report.climb.flaky ? ` (${report.climb.flaky} flaky-candidate)` : ""}`,
 		`  shipped mechanism records not yet verified  ${report.unverified.total} (${report.unverified.withoutMetric} declare no acceptance metric)`,
 		`  days since last gate / weekly               ${days(report.daysSinceGate)} / ${days(report.daysSinceWeekly)}`,

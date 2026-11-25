@@ -12,7 +12,8 @@ import { holdoutReading, parseGateManifest, runGate } from "./gate.ts";
 import { appendGateHistory, gateHistoryRecords, parseGateHistory, poolGateHistory } from "./gate-history.ts";
 import { defaultLoopDir } from "./harvest-run.ts";
 import { parseLedgerDir } from "./ledger.ts";
-import { buildStatus, parseWeeklySnapshot, renderStatus } from "./status.ts";
+import { gateRecord, importLocalHistory, latestWeeklyRecords, machineName, productIdentity, readGateRecords, recordSamples, setMachineName, writeGateRecord, type Git } from "./records.ts";
+import { buildStatus, parseWeeklySnapshot, renderStatus, type WeeklySnapshot } from "./status.ts";
 import { parseWeeklyConfig } from "./weekly.ts";
 
 type Deps = { repoRoot: string; evalsRoot: string };
@@ -33,6 +34,18 @@ const run: Run = (command, args) => {
 	return { status: result.status, stdout: result.stdout ?? "" };
 };
 
+/** git in a directory, stdout captured, stderr shown; the result shape `records.ts` expects. */
+const gitIn = (directory: string): Git => (args) => {
+	const result = spawnSync("git", ["-C", directory, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+	return { status: result.status, stdout: result.stdout ?? "" };
+};
+
+/** Commit of a frozen baseline: its worktree HEAD, else the `frozen/<sha>/` directory it sat in. */
+function baselineCommit(path: string): string {
+	const commit = commitOf(path);
+	return commit !== "unknown" ? commit : /\/frozen\/([0-9a-f]{40})\//u.exec(path)?.[1] ?? "unknown";
+}
+
 /** The newest `weekly-<date>/summary.json`, or nothing when no weekly report was ever written. */
 function newestWeekly(loopDir: string): string | undefined {
 	if (!existsSync(loopDir)) return undefined;
@@ -52,14 +65,47 @@ export async function gateCommand(command: string, rest: string[], deps: Deps): 
 		console.log(`baseline: ${frozen.product}`);
 		return 0;
 	}
-	if (command === "status") {
+	if (command === "machine") {
+		const { positionals } = parseArgs({ args: rest, options: {}, allowPositionals: true });
+		if (positionals.length > 1) throw new Error("machine takes at most one label: loop machine [name]");
+		if (positionals[0]) setMachineName(loopDir, positionals[0]);
+		console.log(machineName(loopDir) ?? "no machine label: run `loop machine <name>` once on this machine");
+		return 0;
+	}
+	if (command === "records") {
+		const { positionals } = parseArgs({ args: rest, options: {}, allowPositionals: true });
+		if (positionals[0] !== "import" || positionals.length !== 1) throw new Error("usage: loop records import");
+		const machine = machineName(loopDir);
+		if (!machine) throw new Error("set this machine's label first: loop machine <name>");
 		const historyPath = gateHistoryPath();
-		const weekly = newestWeekly(loopDir);
+		const history = existsSync(historyPath) ? parseGateHistory(readFileSync(historyPath, "utf8")) : [];
+		const records = importLocalHistory({ history, machine, committed: readGateRecords(deps.evalsRoot), git: gitIn(deps.repoRoot), baselineCommit });
+		for (const record of records) console.log(`recorded ${writeGateRecord(deps.evalsRoot, record)} (${record.cases.length} case(s); candidate fingerprinted from commit ${record.candidate.commit.slice(0, 12)}, uncommitted changes at run time are not visible)`);
+		console.log(records.length === 0 ? "nothing to import: every local gate run is already in loop/results/" : `imported ${records.length} run(s); commit rotom/evals/loop/results/`);
+		return 0;
+	}
+	if (command === "status") {
+		// Committed records are the shared view across machines; this machine's private history only
+		// tells how many of its runs are not committed yet.
+		const committed = readGateRecords(deps.evalsRoot);
+		const machine = machineName(loopDir);
+		const historyPath = gateHistoryPath();
+		const local = existsSync(historyPath) ? parseGateHistory(readFileSync(historyPath, "utf8")) : [];
+		const recordedHere = new Set(committed.filter((record) => record.machine === machine).map((record) => record.runId));
+		const unrecorded = new Set(local.map((sample) => sample.runId).filter((runId) => !recordedHere.has(runId))).size;
+		const shared = latestWeeklyRecords(deps.evalsRoot);
+		const newestShared = [...shared].sort((left, right) => left.generatedAt.localeCompare(right.generatedAt)).at(-1);
+		const localWeekly = newestWeekly(loopDir);
+		const weekly: WeeklySnapshot | undefined = newestShared
+			? { generatedAt: newestShared.generatedAt, turns: newestShared.overall.turns, per100: newestShared.overall.per100, records: newestShared.acceptance }
+			: localWeekly === undefined ? undefined : parseWeeklySnapshot(localWeekly);
 		const report = buildStatus({
 			manifest: parseGateManifest(readFileSync(manifestPath, "utf8")),
-			history: existsSync(historyPath) ? parseGateHistory(readFileSync(historyPath, "utf8")) : undefined,
+			history: committed.length > 0 ? recordSamples(committed) : undefined,
 			ledger: parseLedgerDir(join(deps.evalsRoot, "loop", "ledger"), deps.repoRoot),
-			weekly: weekly === undefined ? undefined : parseWeeklySnapshot(weekly),
+			weekly,
+			machines: shared.map((record) => ({ machine: record.machine, per100: record.overall.per100, turns: record.overall.turns, reportDate: record.generatedAt.slice(0, 10) })),
+			...(machine ? { unrecordedRuns: unrecorded } : {}),
 			weeklyDay: parseWeeklyConfig(readFileSync(join(deps.evalsRoot, "loop", "weekly.json"), "utf8")).day,
 			frozen: latestFrozen(loopDir),
 			now: new Date(),
@@ -75,6 +121,10 @@ export async function gateCommand(command: string, rest: string[], deps: Deps): 
 		});
 		// Without --baseline the gate compares against the last frozen commit and says which one,
 		// so a run is never judged against a baseline nobody named.
+		// Every scored run is committed to loop/results/ under this machine's label, so the label is
+		// checked before anything is spent. A smoke run is not a sample and needs none.
+		const machine = machineName(loopDir);
+		if (!machine && values.smoke !== true) throw new Error("set this machine's label once before a gate run: loop machine <name> (for example mac1)");
 		const frozen = values.baseline ? undefined : latestFrozen(loopDir);
 		const baseline = values.baseline ?? frozen?.product;
 		if (!baseline) throw new Error("gate needs --baseline /absolute/frozen/rotom, or run `loop freeze <ref>` once first");
@@ -123,21 +173,36 @@ export async function gateCommand(command: string, rest: string[], deps: Deps): 
 			results: result.results,
 		});
 		appendGateHistory(historyPath, records);
+		const shared = gateRecord({
+			machine: machine as string,
+			runId: outDir.split("/").at(-1) ?? outDir,
+			recordedAt: records[0]?.recordedAt ?? new Date().toISOString(),
+			baseline: productIdentity(gitIn(deps.repoRoot), gitIn(resolve(baseline))),
+			candidate: productIdentity(gitIn(deps.repoRoot), gitIn(resolve(candidateProduct))),
+			results: result.results,
+		});
 		console.log(`gate: ${result.verdict} · ${result.summaryPath}`);
 		// Reported, not folded in: a tuned case that improves while its holdout shows no difference
 		// means the fix fits the case rather than the mechanism, a finding about the fix.
 		if (result.holdoutReading) console.log(`holdout: ${result.holdoutReading} (candidate against baseline on the restated cases; not part of the verdict)`);
 		console.log(`history: ${historyPath} (+${records.length} samples)`);
+		console.log(`record: ${writeGateRecord(deps.evalsRoot, shared)} — commit it so other machines pool this run`);
 		return result.verdict === "held" ? 0 : result.verdict === "regressed" ? 1 : 2;
 	}
 	if (command === "gate-pool") {
-		const { values } = parseArgs({ args: rest, options: { since: { type: "string" }, case: { type: "string" }, history: { type: "string" } } });
+		const { values } = parseArgs({ args: rest, options: { since: { type: "string" }, case: { type: "string" }, history: { type: "string" }, local: { type: "boolean" } } });
 		if (!values.since) throw new Error("gate-pool needs --since <ISO time>");
 		const since = new Date(values.since);
 		if (Number.isNaN(since.getTime())) throw new Error("--since must be an ISO timestamp");
-		const historyPath = values.history ?? gateHistoryPath();
-		if (!existsSync(historyPath)) throw new Error(`no gate history at ${historyPath}`);
-		const pooled = poolGateHistory(parseGateHistory(readFileSync(historyPath, "utf8")), { since, caseId: values.case });
+		// Default: committed records of every machine, pooled by product fingerprint. --local (or
+		// --history) reads this machine's private history, pooled by commit and baseline path.
+		let samples;
+		if (values.local || values.history) {
+			const historyPath = values.history ?? gateHistoryPath();
+			if (!existsSync(historyPath)) throw new Error(`no gate history at ${historyPath}`);
+			samples = parseGateHistory(readFileSync(historyPath, "utf8"));
+		} else samples = recordSamples(readGateRecords(deps.evalsRoot));
+		const pooled = poolGateHistory(samples, { since, caseId: values.case });
 		if (pooled.length === 0) throw new Error(`no gate samples since ${since.toISOString()}`);
 		for (const group of pooled) {
 			const failures = (total: number, pass: number) => total - pass;
@@ -146,7 +211,7 @@ export async function gateCommand(command: string, rest: string[], deps: Deps): 
 				: group.verdict;
 			console.log(`${label.padEnd(13)} ${(group.split ?? group.role ?? "?").padEnd(10)} ${group.caseId}`);
 			console.log(`          runs=${group.runs} pairs=${group.pairs} baselineFail=${failures(group.pairs, group.baselinePass)} candidateFail=${failures(group.pairs, group.candidatePass)} unknownRuns=${group.unknownRuns}`);
-			console.log(`          candidate=${group.candidateCommit} baseline=${group.baselineProduct} model=${group.model.provider}/${group.model.model}`);
+			console.log(`          candidate=${group.candidateCommit} baseline=${group.baselineProduct} model=${group.model.provider}/${group.model.model} runs: ${group.runIds.join(", ")}`);
 		}
 		// Holdout groups are printed above but do not decide the exit code, as in a single run.
 		const tuned = pooled.filter((group) => group.split !== "holdout");
