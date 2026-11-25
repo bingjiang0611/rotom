@@ -1,0 +1,26 @@
+{
+	"schema": "rotom-loop-gate-record/v1",
+	"machine": "mac1",
+	"runId": "gate-2026-11-10T05-22-51-040Z",
+	"recordedAt": "2026-11-10T05:27:28.134Z",
+	"baseline": {
+		"commit": "9798c5acd1198d49153942f0a5f6fc15e4421143",
+		"productId": "4cd0379c3ad6f74e"
+	},
+	"candidate": {
+		"commit": "9b47943eaf89c2c231030c072b649e23e362ecb7",
+		"productId": "3339a5c301bfe1b5"
+	},
+	"cases": [
+		{
+			"caseId": "behavior-authorized-follow-through",
+			"role": "reproduced",
+			"model": "qoder/dfmodel",
+			"verdict": "held",
+			"pairs": 5,
+			"expectedPairs": 5,
+			"baselinePass": 5,
+			"candidatePass": 5
+		}
+	]
+}

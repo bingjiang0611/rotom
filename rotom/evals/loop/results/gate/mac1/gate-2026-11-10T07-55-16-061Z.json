@@ -1,0 +1,26 @@
+{
+	"schema": "rotom-loop-gate-record/v1",
+	"machine": "mac1",
+	"runId": "gate-2026-11-10T07-55-16-061Z",
+	"recordedAt": "2026-11-10T08:01:44.310Z",
+	"baseline": {
+		"commit": "unknown",
+		"productId": "unknown"
+	},
+	"candidate": {
+		"commit": "0be61d9ebd92422f11223eebfecfc6df9eb5478e",
+		"productId": "unknown"
+	},
+	"cases": [
+		{
+			"caseId": "behavior-mixed-decision-ownership",
+			"role": "reproduced",
+			"model": "openai-codex/gpt-6.1-sol",
+			"verdict": "regressed",
+			"pairs": 5,
+			"expectedPairs": 5,
+			"baselinePass": 0,
+			"candidatePass": 0
+		}
+	]
+}

@@ -1,0 +1,26 @@
+{
+	"schema": "rotom-loop-gate-record/v1",
+	"machine": "mac1",
+	"runId": "gate-2026-11-11T08-28-06-695Z",
+	"recordedAt": "2026-11-11T08:32:39.348Z",
+	"baseline": {
+		"commit": "unknown",
+		"productId": "unknown"
+	},
+	"candidate": {
+		"commit": "unknown",
+		"productId": "unknown"
+	},
+	"cases": [
+		{
+			"caseId": "behavior-status-is-not-authorization",
+			"role": "control",
+			"model": "qoder/dfmodel",
+			"verdict": "regressed",
+			"pairs": 5,
+			"expectedPairs": 5,
+			"baselinePass": 5,
+			"candidatePass": 4
+		}
+	]
+}

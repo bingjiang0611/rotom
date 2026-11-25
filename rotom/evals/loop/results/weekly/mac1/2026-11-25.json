@@ -1,0 +1,240 @@
+{
+	"schema": "rotom-loop-weekly-record/v1",
+	"machine": "mac1",
+	"generatedAt": "2026-11-25T08:37:26.739Z",
+	"since": "2026-10-28T08:36:53.804Z",
+	"overall": {
+		"turns": 3993,
+		"events": 222,
+		"per100": 5.6,
+		"band": [
+			4.8,
+			6.3
+		],
+		"withoutLargestPer100": 4.9
+	},
+	"models": [
+		{
+			"model": "qoder/dfmodel",
+			"turns": 1444,
+			"per100": 6.2
+		},
+		{
+			"model": "openai-codex/gpt-6-astra",
+			"turns": 1118,
+			"per100": 3
+		},
+		{
+			"model": "openai-codex/gpt-6.1-sol",
+			"turns": 508,
+			"per100": 10.2
+		},
+		{
+			"model": "openai-codex/gpt-5.6-sol",
+			"turns": 467,
+			"per100": 2.8
+		},
+		{
+			"model": "openai-codex/gpt-6.2-sol",
+			"turns": 193,
+			"per100": 11.9
+		},
+		{
+			"model": "qoder/kmodel_latest",
+			"turns": 52,
+			"per100": 9.6
+		},
+		{
+			"model": "openai-codex/gpt-6.2-astra",
+			"turns": 49,
+			"per100": 6.1
+		},
+		{
+			"model": "faux/faux-1",
+			"turns": 48,
+			"per100": 0
+		},
+		{
+			"model": "openai-codex/gpt-6-sol",
+			"turns": 47,
+			"per100": 8.5
+		},
+		{
+			"model": "cc-switch/bailian/deepseek-v4.1-flash",
+			"turns": 17,
+			"per100": 0
+		},
+		{
+			"model": "qoder/ultimate",
+			"turns": 16,
+			"per100": 0
+		},
+		{
+			"model": "cc-switch/claude-opus-5-5",
+			"turns": 11,
+			"per100": 0
+		},
+		{
+			"model": "cc-switch/claude-opus-5",
+			"turns": 7,
+			"per100": 0
+		},
+		{
+			"model": "openai-codex/gpt-5.6-luna",
+			"turns": 5,
+			"per100": 0
+		},
+		{
+			"model": "radius/recursive/flint",
+			"turns": 3,
+			"per100": 0
+		},
+		{
+			"model": "unknown",
+			"turns": 3,
+			"per100": 0
+		},
+		{
+			"model": "faux/faux-2",
+			"turns": 2,
+			"per100": 0
+		},
+		{
+			"model": "cc-switch/bedrock/claude-opus-5-5",
+			"turns": 1,
+			"per100": 0
+		},
+		{
+			"model": "qoder/__no_such_model__",
+			"turns": 1,
+			"per100": 0
+		},
+		{
+			"model": "qoder/__probe__",
+			"turns": 1,
+			"per100": 0
+		}
+	],
+	"acceptance": [
+		{
+			"id": "L-2026-11-02-goal-auto-continue",
+			"status": "no-metric"
+		},
+		{
+			"id": "L-2026-11-09-post-compaction-harvest",
+			"status": "no-metric"
+		},
+		{
+			"id": "L-2026-11-10-ask-2-15-context-view-0-8-3",
+			"status": "insufficient-exposure"
+		},
+		{
+			"id": "L-2026-11-10-audit-archive-ledger-shards",
+			"status": "no-metric"
+		},
+		{
+			"id": "L-2026-11-10-gate-smoke-before-run",
+			"status": "no-metric"
+		},
+		{
+			"id": "L-2026-11-10-harvest-baseline-per-model-intervals",
+			"status": "no-metric"
+		},
+		{
+			"id": "L-2026-11-10-harvest-measurement-completion",
+			"status": "no-metric"
+		},
+		{
+			"id": "L-2026-11-10-north-star-v2-baseline",
+			"status": "no-metric"
+		},
+		{
+			"id": "L-2026-11-10-pi-fork-1-4-0-rotom-3",
+			"status": "uncertain"
+		},
+		{
+			"id": "L-2026-11-10-pi-goal-bump-50ccdc8",
+			"status": "no-metric"
+		},
+		{
+			"id": "L-2026-11-10-provider-error-split",
+			"status": "no-metric"
+		},
+		{
+			"id": "L-2026-11-10-push-range-audit",
+			"status": "no-metric"
+		},
+		{
+			"id": "L-2026-11-10-qoder-catalog-stale-reuse",
+			"status": "insufficient-exposure"
+		},
+		{
+			"id": "L-2026-11-10-qoder-stream-retry",
+			"status": "insufficient-exposure"
+		},
+		{
+			"id": "L-2026-11-10-replay-gate",
+			"status": "no-metric"
+		},
+		{
+			"id": "L-2026-11-10-replay-isolated-worktree",
+			"status": "no-metric"
+		},
+		{
+			"id": "L-2026-11-10-retry-after-and-quota-errors",
+			"status": "budget-met"
+		},
+		{
+			"id": "L-2026-11-10-sol-pi-0-1-1-rotom-7",
+			"status": "insufficient-exposure"
+		},
+		{
+			"id": "L-2026-11-10-third-party-peer-contract",
+			"status": "no-metric"
+		},
+		{
+			"id": "L-2026-11-10-weekly-report-blinded-experiment",
+			"status": "no-metric"
+		},
+		{
+			"id": "L-2026-11-11-build-identity",
+			"status": "no-metric"
+		},
+		{
+			"id": "L-2026-11-11-qoder-device-id-binding",
+			"status": "no-metric"
+		},
+		{
+			"id": "L-2026-11-11-release-load-smoke",
+			"status": "no-metric"
+		},
+		{
+			"id": "L-2026-11-11-replay-check-oracle",
+			"status": "no-metric"
+		},
+		{
+			"id": "L-2026-11-11-replay-path-isolation",
+			"status": "no-metric"
+		},
+		{
+			"id": "L-2026-11-11-version-gated-acceptance",
+			"status": "no-metric"
+		},
+		{
+			"id": "L-2026-11-12-computer-use-lazy-permissions",
+			"status": "no-metric"
+		},
+		{
+			"id": "L-2026-11-12-entry-provenance",
+			"status": "no-metric"
+		},
+		{
+			"id": "L-2026-11-15-computer-use-broker-cold-start",
+			"status": "no-metric"
+		},
+		{
+			"id": "L-2026-11-24-eval-ops-keep-and-holdout",
+			"status": "no-metric"
+		}
+	]
+}
