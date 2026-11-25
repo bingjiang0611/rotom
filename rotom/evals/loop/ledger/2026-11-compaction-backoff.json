@@ -1,0 +1,23 @@
+[
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-11-25-compaction-failure-backoff",
+		"date": "2026-11-25",
+		"title": "Back off automatic compaction after a failure instead of retrying on every message",
+		"hypothesis": "A failed compaction leaves the history unchanged, so the next assistant message crosses the threshold again and starts another summary request seconds later. On mac1 this produced 135 compaction_failed events in 9 sessions over 28 days, clusters of up to 33 attempts in 47.6 minutes, each blocking the user for about 48 seconds. Deferring threshold compaction after a failure (1, 2, 4, 8, then at most 15 minutes; any success resets; overflow recovery unaffected) removes most of those attempts without hiding the failure.",
+		"change": "mechanism",
+		"measurement": "Deterministic: a Pi fork regression test drives the real AgentSession with a summarizer that fails, then succeeds. On the old code it fails (a summary request on every threshold check); on the new code ten checks within a minute send no request, attempts follow the 1/2/4-minute schedule, overflow recovery still runs, a cancelled compaction starts no wait, and a success resumes immediate compaction. Fork rebuild: npm run build:pi as a non-root user with Node 24 and npm 12, all built-in regression batches passed; check:pi passes; reinstalling rotom/runtime/pi from the lock puts auto-compaction-backoff in the installed dist. The cause of the summary failures themselves (no response headers within about 48 seconds from one gateway model) is not addressed.",
+		"result": "Pi fork rebuilt in place as 1.5.2-rotom.1. The eval characterization of the shared request fuse now counts one threshold compaction instead of two, because the second attempt after the fuse-failed one is deferred; its safety assertions (five requests, no summary call) are unchanged. Delivered only once the daily install moves to a build containing this commit; until then the acceptance below has no exposure.",
+		"evidence": "unmeasured",
+		"decision": "shipped",
+		"source": "docs/agent/compaction-failures-2026-11-25.md",
+		"acceptance": {
+			"startedAt": "2026-11-25T12:00:00Z",
+			"metric": "compaction_failed per 100 user turns",
+			"incident": "compaction_failed",
+			"baselinePer100": 3.4,
+			"minimumTurns": 295,
+			"expect": "lower"
+		}
+	}
+]

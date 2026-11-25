@@ -36,6 +36,10 @@ const oversizedByDecision = new Set([
 	// caller instead of separating a responsibility.
 	"packages/rotom-pi/packages/ai/src/types.ts",
 	"packages/rotom-pi/packages/ai/src/providers/faux.ts",
+	// 2026-11-25: the upstream AgentSession (about 174 KB) owns every compaction trigger; the
+	// failed-compaction backoff lives in its own module and only hooks in here. Splitting the
+	// upstream class would fork it from Pi for every future merge. The user asked for this fix.
+	"packages/rotom-pi/packages/coding-agent/src/core/agent-session.ts",
 ]);
 
 function git(args, input) {

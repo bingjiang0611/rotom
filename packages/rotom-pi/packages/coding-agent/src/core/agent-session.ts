@@ -72,6 +72,7 @@ import { formatNoApiKeyFoundMessage, formatNoModelSelectedMessage } from "./auth
 import { type BashResult, executeBashWithOperations } from "./bash-executor.ts";
 import { generateBugReportSummary } from "./bug-report.ts";
 import type { CacheWarmer, CacheWarmingStatus } from "./cache-warmer.ts";
+import { AutoCompactionBackoff } from "./compaction/auto-compaction-backoff.ts";
 import {
 	type CompactionPreparation,
 	type CompactionResult,
@@ -456,6 +457,8 @@ export class AgentSession {
 	private _manualCompactionPending = false;
 	private _compactionAbortController: AbortController | undefined = undefined;
 	private _autoCompactionAbortController: AbortController | undefined = undefined;
+	/** Defers threshold compaction after a failure instead of retrying on every message. */
+	private readonly _autoCompactionBackoff = new AutoCompactionBackoff();
 	private _overflowRecoveryAttempted = false;
 
 	// Branch summarization state
@@ -3123,6 +3126,7 @@ export class AgentSession {
 				usage,
 				details,
 			};
+			this._autoCompactionBackoff.recordSuccess();
 			// compaction_end listeners may submit queued prompts, so expose idle state before notifying them.
 			this._clearManualCompactionState();
 			this._emit({
@@ -3353,6 +3357,9 @@ export class AgentSession {
 			if (!model) {
 				return false;
 			}
+			if (reason === "threshold" && !this._autoCompactionBackoff.allowsThreshold()) {
+				return false;
+			}
 
 			const pathEntries = this.sessionManager.getBranch();
 			const preparation = prepareCompaction(pathEntries, settings);
@@ -3452,6 +3459,7 @@ export class AgentSession {
 				usage,
 				details,
 			};
+			this._autoCompactionBackoff.recordSuccess();
 			this._emit({ type: "compaction_end", reason, result, aborted: false, willRetry });
 
 			if (willRetry) return true;
@@ -3462,6 +3470,7 @@ export class AgentSession {
 		} catch (error) {
 			const message = error instanceof Error ? error.message : "compaction failed";
 			const aborted = abortController?.signal.aborted === true || cancelledByExtension;
+			if (started && !aborted) this._autoCompactionBackoff.recordFailure();
 			if (started) {
 				const errorMessage = aborted
 					? undefined
