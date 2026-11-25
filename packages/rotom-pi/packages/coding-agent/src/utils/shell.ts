@@ -1,6 +1,6 @@
 import { accessSync, constants } from "node:fs";
 import { delimiter, join, win32 } from "node:path";
-import { spawn, spawnSync } from "child_process";
+import { execFile, spawn, spawnSync } from "child_process";
 import { getBinDir } from "../config.ts";
 
 export interface ShellConfig {
@@ -217,6 +217,80 @@ export function killTrackedDetachedChildren(): void {
 /**
  * Kill a process and all its children (cross-platform)
  */
+export interface ProcessTreeEntry {
+	pid: number;
+	/** Executable basename as reported by ps; display metadata only. */
+	name: string;
+}
+
+const PROCESS_LIST_TIMEOUT_MS = 2_000;
+const PROCESS_LIST_MAX_BUFFER = 4 * 1024 * 1024;
+
+/**
+ * Parses `ps -A -o pid=,ppid=,pgid=,comm=` and returns `rootPid` followed by its descendants in breadth-first
+ * order. The root is included because `bash -c` execs a lone command in place of the shell.
+ */
+export function parseProcessTree(psOutput: string, rootPid: number): ProcessTreeEntry[] {
+	const rows: Array<{ pid: number; ppid: number; pgid: number; name: string }> = [];
+	for (const line of psOutput.split("\n")) {
+		const match = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.+?)\s*$/.exec(line);
+		if (!match) continue;
+		const command = match[4];
+		rows.push({
+			pid: Number(match[1]),
+			ppid: Number(match[2]),
+			pgid: Number(match[3]),
+			name: command.slice(command.lastIndexOf("/") + 1) || command,
+		});
+	}
+	const children = new Map<number, typeof rows>();
+	for (const row of rows) {
+		const siblings = children.get(row.ppid);
+		if (siblings) siblings.push(row);
+		else children.set(row.ppid, [row]);
+	}
+	// Descendants by parent link, plus group members re-parented to init after an intermediate parent exited.
+	const seen = new Set<number>([rootPid]);
+	const root = rows.find((row) => row.pid === rootPid);
+	const result: ProcessTreeEntry[] = root ? [{ pid: root.pid, name: root.name }] : [];
+	const queue = [rootPid];
+	while (queue.length > 0) {
+		for (const child of children.get(queue.shift()!) ?? []) {
+			if (seen.has(child.pid)) continue;
+			seen.add(child.pid);
+			result.push({ pid: child.pid, name: child.name });
+			queue.push(child.pid);
+		}
+	}
+	for (const row of rows) {
+		if (row.pgid === rootPid && !seen.has(row.pid)) {
+			seen.add(row.pid);
+			result.push({ pid: row.pid, name: row.name });
+		}
+	}
+	return result;
+}
+
+/**
+ * Best-effort list of processes started under a detached shell. Returns an empty list on Windows or
+ * when ps is unavailable; callers must treat it as display information, not as proof of termination.
+ */
+export function listProcessTree(rootPid: number): Promise<ProcessTreeEntry[]> {
+	if (process.platform === "win32") return Promise.resolve([]);
+	return new Promise((resolve) => {
+		try {
+			execFile(
+				"/bin/ps",
+				["-A", "-o", "pid=,ppid=,pgid=,comm="],
+				{ timeout: PROCESS_LIST_TIMEOUT_MS, maxBuffer: PROCESS_LIST_MAX_BUFFER, windowsHide: true },
+				(error, stdout) => resolve(error ? [] : parseProcessTree(String(stdout), rootPid)),
+			);
+		} catch {
+			resolve([]);
+		}
+	});
+}
+
 export function killProcessTree(pid: number): void {
 	if (process.platform === "win32") {
 		// Use the trusted System32 executable so cleanup does not depend on PATH.

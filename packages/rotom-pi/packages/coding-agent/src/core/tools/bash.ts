@@ -13,6 +13,8 @@ import {
 	untrackDetachedChildPid,
 } from "../../utils/shell.ts";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
+import { type BashIdleNotice, startIdleWatch } from "./bash-idle-notice.ts";
+import { commandEnvironment } from "./bash-internal-env.ts";
 import { OutputAccumulator } from "./output-accumulator.ts";
 import { BASH_UPDATE_THROTTLE_MS, createShellRenderers } from "./renderers/bash.ts";
 import { type TypeBoxAgentTool, wrapToolDefinition } from "./tool-definition-wrapper.ts";
@@ -79,6 +81,8 @@ export interface BashToolDetails {
 	/** Set when the command ran and exited with a non-zero status. */
 	code?: "nonzero_exit";
 	exitCode?: number;
+	/** Partial updates only. */
+	idle?: BashIdleNotice;
 }
 
 /** Error codes the bash tool attaches to the errors it throws; the agent loop copies them to details.code. */
@@ -109,22 +113,10 @@ export interface BashOperations {
 			signal?: AbortSignal;
 			timeout?: number;
 			env?: NodeJS.ProcessEnv;
+			/** Reports the shell pid (a process group leader on Unix). */
+			onSpawn?: (pid: number) => void;
 		},
 	) => Promise<{ exitCode: number | null }>;
-}
-
-// These configure the agent host and deliberately spawned child Pi processes,
-// not arbitrary user commands. Sanitize at dispatch, including spawn-hook envs.
-const INTERNAL_AGENT_ENV = [
-	"PI_SUBAGENTS_EXECUTION_SCOPE", "PI_SUBAGENTS_TEMP_ROOT", "PI_SUBAGENT_MAX_SPAWNS_PER_SESSION",
-	"ROTOM_VERIFIED_PI_EXECUTABLE", "ROTOM_VERIFIED_PI_VERSION", "ROTOM_DEFERRED_DEFAULT_SURFACE",
-	"ROTOM_SUBAGENT_QODER_EXTENSION", "ROTOM_PRODUCT_VERSION",
-];
-
-function commandEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-	const result = { ...env };
-	for (const name of INTERNAL_AGENT_ENV) delete result[name];
-	return result;
 }
 
 /**
@@ -144,7 +136,7 @@ class ShellTimeoutError extends Error {
 /** Shared process execution used by the built-in shell tools. */
 export function createLocalShellOperations(shellName: string, resolveShellConfig: () => ShellConfig): BashOperations {
 	return {
-		exec: async (command, cwd, { onData, signal, timeout, env }) => {
+		exec: async (command, cwd, { onData, signal, timeout, env, onSpawn }) => {
 			const timeoutMs = resolveTimeoutMs(timeout);
 			if (signal?.aborted) {
 				throw new Error("aborted");
@@ -171,7 +163,10 @@ export function createLocalShellOperations(shellName: string, resolveShellConfig
 				child.stdin?.on("error", () => {});
 				child.stdin?.end(command);
 			}
-			if (child.pid) trackDetachedChildPid(child.pid);
+			if (child.pid) {
+				trackDetachedChildPid(child.pid);
+				onSpawn?.(child.pid);
+			}
 			const startedAt = performance.now();
 			let shellExitedAfterMs: number | undefined;
 			child.once("exit", () => {
@@ -288,6 +283,8 @@ export interface BashToolOptions {
 	exposeSessionEnvironment?: boolean;
 	/** Hook to adjust command, cwd, or env before execution */
 	spawnHook?: BashSpawnHook;
+	/** Seconds of silence before the UI lists running processes. 0 disables. Default: 60 */
+	idleNoticeSeconds?: number;
 }
 
 export type BashRenderState = {
@@ -353,14 +350,23 @@ export function createShellToolDefinition(
 				updateDirty = false;
 				lastUpdateAt = Date.now();
 				const snapshot = output.snapshot({ persistIfTruncated: true });
+				const idle = idleWatch?.current();
 				onUpdate({
 					content: [{ type: "text", text: snapshot.content || "" }],
 					details: {
 						truncation: snapshot.truncation.truncated ? snapshot.truncation : undefined,
 						fullOutputPath: snapshot.fullOutputPath,
+						...(idle ? { idle } : {}),
 					},
 				});
 			};
+
+			const idleWatch = onUpdate
+				? startIdleWatch(options?.idleNoticeSeconds, () => {
+						updateDirty = true;
+						emitOutputUpdate();
+					})
+				: undefined;
 
 			const clearUpdateTimer = () => {
 				if (updateTimer) {
@@ -390,12 +396,14 @@ export function createShellToolDefinition(
 
 			const handleData = (data: Buffer) => {
 				if (!acceptingOutput) return;
+				idleWatch?.outputArrived();
 				output.append(data);
 				scheduleOutputUpdate();
 			};
 
 			const finishOutput = async () => {
 				acceptingOutput = false;
+				idleWatch?.stop();
 				output.finish();
 				clearUpdateTimer();
 				emitOutputUpdate();
@@ -435,6 +443,7 @@ export function createShellToolDefinition(
 						signal,
 						timeout,
 						env: spawnContext.env,
+						onSpawn: (pid) => idleWatch?.setShellPid(pid),
 					});
 					exitCode = result.exitCode;
 				} catch (err) {
@@ -484,6 +493,7 @@ export function createShellToolDefinition(
 				}
 				return { content: [{ type: "text", text: outputText }], details, structuredContent };
 			} finally {
+				idleWatch?.stop();
 				clearUpdateTimer();
 			}
 		},
