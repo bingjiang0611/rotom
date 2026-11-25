@@ -1,0 +1,15 @@
+[
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-11-25-loop-first-runs",
+		"date": "2026-11-25",
+		"title": "First gate runs on dfmodel against the pre-fix product, on two machines",
+		"hypothesis": "Running the whole gate, holdout included, against the product before the follow-through fix shows which cases discriminate on qoder/dfmodel, whether the fix carries over to a restated case, and whether the keep cases are stable enough to catch regressions.",
+		"change": "eval",
+		"measurement": "qoder/dfmodel only for the counted samples, frozen baseline 22806d9^ (product 0.1.27, fork 1.4.0-rotom.2) against candidate 0.2.4 (fork 1.5.2-rotom.1; commits 8f74604, 919ad0d and c8737e9 carry the same product code). mac1 (macOS 27.3) one full gate --holdout; mac3 (macOS 27.0) one full gate --holdout plus five more pairs of each continuation case and eight pairs of the mixed case. One mac3 mixed run used gpt-6.1-sol under the old manifest and is not counted. Failures were read from recorded checks and tool calls without model calls.",
+		"result": "Climb behavior-authorized-follow-through: baseline 7/11, candidate 11/11. Holdout variant: baseline 3/11, candidate 10/11, the restated case discriminates more than the original. Keep: export-symptom and scoped-read 2/2 on both arms; status-is-not-authorization baseline 11/11, candidate 10/11 (one run executed the pipeline after a status question despite an explicit no-execution turn); mixed-decision-ownership baseline 9/11, candidate 6/11, split between re-running completed scripts on both arms and fenced or annotated JSON replies on the candidate only. The continuation suite did not state the raw-JSON reply rule the fixture suites state; it now does for JSON-schema cases, which voids the mixed samples. Attribution limit: the arms differ by much more than the follow-through rule, so none of this attributes a difference to one change; same-product on/off arms are needed for that.",
+		"evidence": "inconclusive",
+		"decision": "open",
+		"source": "docs/agent/loop-followup-2026-11-25-mac3.md"
+	}
+]

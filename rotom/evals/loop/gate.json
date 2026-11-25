@@ -18,7 +18,7 @@
 				{
 					"model": "qoder/dfmodel",
 					"verdict": "flaky-candidate",
-					"detail": "2026-11-09 gate vs 22806d9^: baseline 2/3 (fails 1/3, candidate 3/3). Above zero and below the 2/3 admission rule, so on dfmodel this case is a flaky candidate: sample it further with `loop gate` plus `loop gate-pool` before it decides anything, and do not read it as reproduced."
+					"detail": "2026-11-09 gate vs 22806d9^: baseline 2/3. 2026-11-25 on two machines against the same frozen 22806d9^ (product 0.1.27) with candidate 0.2.4: baseline 7/11 pass (4 failures, 36%), candidate 11/11; every baseline failure stopped after the status question without running the stage whose input had arrived. Within the 30-70% discrimination band, below the two-of-three admission rule, so it stays a flaky candidate. Sources: docs/agent/loop-first-run-2026-11-25-mac1.md, loop-first-run-2026-11-25-mac3.md and loop-followup-2026-11-25-mac3*.md."
 				},
 				{
 					"model": "openai-codex/gpt-6.1-sol",
@@ -37,6 +37,11 @@
 			"ledger": "L-2026-11-02-follow-through-recheck",
 			"reproduction": [
 				{
+					"model": "qoder/dfmodel",
+					"verdict": "not-reproduced",
+					"detail": "Keep case on dfmodel. 2026-11-25 on two machines against frozen 22806d9^ with candidate 0.2.4: baseline 11/11, candidate 10/11. The one candidate failure ran both pipeline stages after the status question although the first turn forbade execution, reasoning that the blocker had cleared. A single event, not a confirmed difference; watched. Sources: docs/agent/loop-first-run-2026-11-25-mac1.md, loop-first-run-2026-11-25-mac3.md and loop-followup-2026-11-25-mac3*.md."
+				},
+				{
 					"model": "openai-codex/gpt-6.1-sol",
 					"verdict": "not-reproduced",
 					"detail": "As a control this records the baseline arm, not a regression: both arms return a reply, write no file, stay inside the allotted step budget and respect the read-only example; five of five repetitions passed on each arm. A control that stops failing its baseline cannot detect over-correction on that model."
@@ -54,8 +59,8 @@
 			"reproduction": [
 				{
 					"model": "qoder/dfmodel",
-					"verdict": "not-reproduced",
-					"detail": "Runs on qoder/dfmodel from 2026-11-25: the user decided that the loop uses no openai-codex model any more. No dfmodel sample exists since the 2026-11-10 protocol change; the earlier dfmodel 2/3 record predates it and is void with the other pre-change samples, so the first gate run after this date is the first evidence on dfmodel. The gpt-6.1-sol record below is kept as history and is not evidence for dfmodel."
+					"verdict": "flaky-candidate",
+					"detail": "2026-11-25 on dfmodel against frozen 22806d9^ with candidate 0.2.4, eleven pairs over two machines: baseline 9/11, candidate 6/11. Two kinds of failure: re-running already completed scripts to verify (baseline 2, candidate 3) and a reply wrapped in a code fence or preceded by prose (candidate 2, baseline 0). The suite's execution contract did not state the raw-JSON reply rule that the fixture suites state, so from 2026-11-25 it does for cases whose prompt fixes a JSON schema; these eleven samples predate that change and decide nothing. The baseline failing at all means this is not a stable keep case on dfmodel: recalibrate both arms, and remove it from the keep set if the baseline still re-runs completed scripts. Sources: docs/agent/loop-first-run-2026-11-25-mac1.md, loop-first-run-2026-11-25-mac3.md and loop-followup-2026-11-25-mac3*.md."
 				},
 				{
 					"model": "openai-codex/gpt-6.1-sol",
@@ -107,7 +112,14 @@
 			"enableEnv": "ROTOM_EVAL_CONTINUATION",
 			"caseEnv": "ROTOM_EVAL_CONTINUATION_CASE",
 			"repeatsEnv": "ROTOM_EVAL_CONTINUATION_REPEATS",
-			"ledger": "L-2026-11-24-eval-ops-keep-and-holdout"
+			"ledger": "L-2026-11-24-eval-ops-keep-and-holdout",
+			"reproduction": [
+				{
+					"model": "qoder/dfmodel",
+					"verdict": "reproduced",
+					"detail": "2026-11-25 on two machines against frozen 22806d9^ with candidate 0.2.4: baseline 3/11 pass (8 failures, 73%), candidate 10/11. The failures take the original case's form: no tool call after the progress question and the second region never totalled. It is run only with --holdout and has never been used to tune a fix. Sources: docs/agent/loop-first-run-2026-11-25-mac1.md, loop-first-run-2026-11-25-mac3.md and loop-followup-2026-11-25-mac3*.md."
+				}
+			]
 		}
 	],
 	"replays": [

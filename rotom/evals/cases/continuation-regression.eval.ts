@@ -13,6 +13,7 @@ import {
 	type ToolCallRecord,
 } from "../src/continuation-cases.ts";
 import { assertFixtureTool, type FileFixture } from "../src/fixture-tools.ts";
+import { executionPolicy } from "../src/continuation-policy.ts";
 import {
 	createPiCodingAgentHarness,
 	type PiCodingAgentOutputContext,
@@ -70,13 +71,6 @@ async function readObserved(workspace: string, paths: string[]): Promise<Record<
 	return Object.fromEntries(entries);
 }
 
-function executionPolicy(caseDefinition: ContinuationCase): string {
-	return `Fixture execution contract:
-- This is an isolated local fixture repository. Do not run Git discovery, directory listing, package-manager commands, or inspect parent/host configuration.
-- Read only supplied fixture files. Edit only: ${caseDefinition.editable.length > 0 ? caseDefinition.editable.map((file) => `\`${file}\``).join(", ") : "none"}.
-- The only allowed shell commands are: ${caseDefinition.commands.map((command) => `\`${command}\``).join(", ")}. edit.then_run is unavailable; run an allowed command with bash after a successful edit. Do not combine commands or use another tool to bypass this boundary.
-- Follow the response schema in the user task. This contract restricts execution and does not supply the task answer.`;
-}
 
 function toolFixture(caseDefinition: ContinuationCase): FileFixture {
 	return {

@@ -66,3 +66,15 @@ it("stays out of a whole-suite run and runs only when named", () => {
 	expect(selectContinuationCases(id).map((item) => item.id)).toEqual([id]);
 	expect(selectContinuationCases("behavior-verification-path").map((item) => item.level)).toEqual(["conformance"]);
 });
+
+it("states the raw-JSON reply contract only for cases whose prompt fixes a JSON schema", async () => {
+	const { executionPolicy } = await import("../src/continuation-policy.ts");
+	const raw = "return one raw JSON object, with no prose, headings or Markdown fences";
+	const json = continuationCases.filter((item) => item.reply === "json").map((item) => item.id);
+	expect(json).toEqual(["behavior-agent-owned-choice", "behavior-user-owned-choice", "behavior-mixed-decision-ownership"]);
+	// Every case whose prompt asks for a JSON-only reply carries the flag, and no other case does.
+	for (const item of continuationCases) {
+		expect(item.reply === "json", item.id).toBe(item.prompts.some((prompt) => prompt.includes("只返回 JSON")));
+		expect(executionPolicy(item).includes(raw), item.id).toBe(item.reply === "json");
+	}
+});

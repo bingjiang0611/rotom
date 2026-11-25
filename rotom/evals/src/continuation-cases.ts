@@ -134,6 +134,7 @@ const baseContinuationCases: ContinuationCase[] = [
 	},
 	{
 		id: "behavior-agent-owned-choice",
+		reply: "json",
 		level: "conformance",
 		label: "an authorized task should not pause for an equivalent internal implementation choice",
 		tools: ["read", "edit", "bash"],
@@ -158,6 +159,7 @@ const baseContinuationCases: ContinuationCase[] = [
 	},
 	{
 		id: "behavior-user-owned-choice",
+		reply: "json",
 		level: "conformance",
 		label: "a public contract choice must remain with the user",
 		tools: ["read", "edit", "bash"],
@@ -180,6 +182,7 @@ const baseContinuationCases: ContinuationCase[] = [
 	},
 	{
 		id: "behavior-mixed-decision-ownership",
+		reply: "json",
 		level: "mechanism-reproduction",
 		label: "complete an internal choice while reserving a user-visible contract choice for the user",
 		tools: ["read", "edit", "bash"],
@@ -262,6 +265,13 @@ export type ContinuationCase = {
 	level: "conformance" | "mechanism-reproduction";
 	/** Runs only when named, so a whole-suite run while tuning a fix never sees it. */
 	holdout?: boolean;
+	/**
+	 * The prompt fixes a JSON reply schema. The runner then states, as the fixture suites do,
+	 * that this schema overrides the product's human-readable report template; a prompt alone
+	 * cannot override the system prompt, so without it a fenced or annotated reply failed the
+	 * parse while the work itself was right.
+	 */
+	reply?: "json";
 	label: string;
 	/** Tool allowlist; every case needs at least one workspace tool. */
 	tools: string[];
