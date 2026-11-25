@@ -2,6 +2,8 @@
 
 本机第一次从头跑完 `rotom/evals` 的 loop 流程：status → weekly → 读 incident 队列 → freeze → smoke → gate --holdout → gate-pool → status → ledger。
 
+运行机器：**mac1**。另一台机器 mac3 的独立运行见 `loop-first-run-2026-11-25-mac3.md`（会话数据与 gate 历史各在本机，不跨机器合并）。
+
 只运行、只记录。本次没有修复任何东西，也没有改 judge、用例、fixture、阈值或 `gate.json`。
 
 ## 总览
