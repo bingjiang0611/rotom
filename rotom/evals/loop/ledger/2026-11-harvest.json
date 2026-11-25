@@ -1,0 +1,15 @@
+[
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-11-25-harvest-generated-file-real-bytes",
+		"date": "2026-11-25",
+		"title": "harvest case: a generated one-line config edited from remembered text",
+		"hypothesis": "The 2026-11-25 triage counted 144 `edit_retry_without_read` incidents across 68 local sessions on one machine and 10 across 7 on the other: the first edit is built from the shape the model remembers, the tool rejects it, and the retry repeats the guess instead of rereading. A case that keeps the precondition observable (the first edit must target text that exists exactly once) should fail on a product that guesses.",
+		"change": "eval",
+		"measurement": "qoder/dfmodel, mac3, frozen baseline 95777adb (installed product 0.2.4) against candidate 69e47f0 plus the case; case behavior-generated-file-real-bytes in cases/continuation-regression.eval.ts; one smoke pair, then 3 pairs with ROTOM_EVAL_CONTINUATION_REPEATS=3.",
+		"result": "Not reproduced: 0/3 baseline failures and 0/3 candidate failures; the smoke pair also passed on both arms. Every recorded run read conf/release.json before editing and used an oldText occuring exactly once in the generated line; one run tried `bash cat` first, which the fixture command allowlist rejects. The case is kept with a passing baseline, so it can only show a future regression, and it is not a gate candidate now.",
+		"evidence": "not-reproduced",
+		"decision": "open",
+		"source": "docs/agent/harvest-cases-2026-11-25.md"
+	}
+]

@@ -4,6 +4,7 @@ import type { JsonValue } from "vitest-evals/harness";
 import type { PiCodingAgentInput } from "./pi-harness.ts";
 import { compactionContinuationCases } from "./compaction-continuation-cases.ts";
 import { holdoutContinuationCases } from "./continuation-holdout-cases.ts";
+import { harvestedContinuationCases } from "./harvested-cases.ts";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { beta, exportSymptomExpected, exportSymptomFixture, fixture, internalChoiceFixture, mixedChoiceFixture, observe, scopedReadFixture, userChoiceFixture, verificationPathExpected, verificationPathFixture } from "./continuation-fixtures.ts";
@@ -234,7 +235,7 @@ const baseContinuationCases: ContinuationCase[] = [
 	},
 ];
 
-export const continuationCases: ContinuationCase[] = [...baseContinuationCases, ...compactionContinuationCases, ...holdoutContinuationCases];
+export const continuationCases: ContinuationCase[] = [...baseContinuationCases, ...compactionContinuationCases, ...holdoutContinuationCases, ...harvestedContinuationCases];
 
 /** Cases one suite run covers: the named one, else every mechanism case that is not a holdout. */
 export function selectContinuationCases(selected?: string): ContinuationCase[] {
@@ -261,7 +262,8 @@ export type ContinuationOutput = { caseId: string; response: string; responses?:
 
 export type ContinuationCase = {
 	id: "behavior-authorized-follow-through" | "behavior-status-is-not-authorization" | "behavior-verification-path" | "behavior-export-symptom" | "behavior-scoped-read" | "behavior-agent-owned-choice" | "behavior-user-owned-choice" | "behavior-mixed-decision-ownership"
-		| "behavior-standing-directive-after-compaction" | "behavior-exact-detail-after-compaction" | "behavior-authorized-follow-through-variant";
+		| "behavior-standing-directive-after-compaction" | "behavior-exact-detail-after-compaction" | "behavior-authorized-follow-through-variant"
+		| "behavior-generated-file-real-bytes";
 	level: "conformance" | "mechanism-reproduction";
 	/** Runs only when named, so a whole-suite run while tuning a fix never sees it. */
 	holdout?: boolean;
