@@ -50,27 +50,6 @@
 		},
 		{
 			"suite": "cases/continuation-regression.eval.ts",
-			"caseId": "behavior-mixed-decision-ownership",
-			"role": "control",
-			"enableEnv": "ROTOM_EVAL_CONTINUATION",
-			"caseEnv": "ROTOM_EVAL_CONTINUATION_CASE",
-			"repeatsEnv": "ROTOM_EVAL_CONTINUATION_REPEATS",
-			"ledger": "L-2026-11-10-mixed-decision-protocol",
-			"reproduction": [
-				{
-					"model": "qoder/dfmodel",
-					"verdict": "flaky-candidate",
-					"detail": "2026-11-25 on dfmodel against frozen 22806d9^ with candidate 0.2.4, eleven pairs over two machines: baseline 9/11, candidate 6/11. Two kinds of failure: re-running already completed scripts to verify (baseline 2, candidate 3) and a reply wrapped in a code fence or preceded by prose (candidate 2, baseline 0). The suite's execution contract did not state the raw-JSON reply rule that the fixture suites state, so from 2026-11-25 it does for cases whose prompt fixes a JSON schema; these eleven samples predate that change and decide nothing. The baseline failing at all means this is not a stable keep case on dfmodel: recalibrate both arms, and remove it from the keep set if the baseline still re-runs completed scripts. Sources: docs/agent/loop-first-run-2026-11-25-mac1.md, loop-first-run-2026-11-25-mac3.md and loop-followup-2026-11-25-mac3*.md."
-				},
-				{
-					"model": "openai-codex/gpt-6.1-sol",
-					"verdict": "not-reproduced",
-					"detail": "2026-11-10 diagnosis of the ten recorded 5+5 samples on gpt-6.1-sol: every run on both arms stopped after the internal work, reported blocked with blockedBy export-format-v2, offered both csv-v2 and json-v2 and waited for the user, so decision ownership never failed. Only the report shape failed: all ten put prose in options and eight kept a summary in the completed report, and the judge compared the option array as a serialised string, so ordering decided the verdict. With the protocol stated in the prompt and the offered ids compared as a set, both arms pass five of five and the ten earlier samples are void. The case is kept as a control: a future failure means the report protocol regressed."
-				}
-			]
-		},
-		{
-			"suite": "cases/continuation-regression.eval.ts",
 			"caseId": "behavior-export-symptom",
 			"role": "control",
 			"enableEnv": "ROTOM_EVAL_CONTINUATION",

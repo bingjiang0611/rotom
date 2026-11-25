@@ -11,5 +11,18 @@
 		"evidence": "inconclusive",
 		"decision": "open",
 		"source": "docs/agent/loop-followup-2026-11-25-mac3.md"
+	},
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-11-25-mixed-leaves-keep-set",
+		"date": "2026-11-25",
+		"title": "Remove behavior-mixed-decision-ownership from the gate: its baseline is not stable on dfmodel",
+		"hypothesis": "With the raw-JSON reply rule stated, the mixed case's remaining failures on qoder/dfmodel would disappear and it could stay a keep case; if the frozen baseline still fails, it cannot tell a regression from the model's own habit and leaves the keep set, as decided before the recalibration run.",
+		"change": "eval",
+		"measurement": "qoder/dfmodel, mac3, frozen 22806d9^ (product 0.1.27) against candidate main 5572363 (0.2.4 with the bb8ddba6 fork rebuild), five pairs.",
+		"result": "Baseline 4/5, candidate 4/5. Both failures are the same: after migrate.mjs the model ran apply-internal.mjs a second time as a check, so runs.log had three lines and secondPhaseActionsBound and internalChoiceNotRepeated were false. All ten replies were raw JSON. Re-running a logging command to verify happened on both arms in every dfmodel round (11 pairs earlier: baseline 2, candidate 3), so it is the model's habit rather than a product difference, and a keep case whose baseline fails cannot flag a regression. Removed from loop/gate.json; the case and its oracle remain in the continuation suite. Whether verifying by re-running a side-effecting command is wrong is left open: it would need its own case with a judge that says so explicitly.",
+		"evidence": "no-difference",
+		"decision": "removed",
+		"source": "docs/agent/loop-mixed-recalibrate-2026-11-25-mac3.md"
 	}
 ]
