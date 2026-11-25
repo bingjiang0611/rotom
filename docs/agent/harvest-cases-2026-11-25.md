@@ -96,7 +96,7 @@ mac3 的 12.1 几乎全部来自一个会话：那 46 条 `user_repeat` 是 Goal
 - checks：`channelChanged`、`generatedLayoutPreserved`（除通道值外与生成器写出的字节完全一致）、`firstEditTargetsRealBytes`（第一次编辑的每个 oldText 在原文中恰好出现一次）、`reportedCheckPasses`（`verify.log` 末行是 PASS）、`fixturePreserved`。
 - 工具面：`read`、`edit`、`bash`，bash 只允许 `node verify.mjs`；可编辑文件只有 `conf/release.json`。这一点决定了「写整个文件」不是合法路径，所以两份手写正确答案都用编辑，只是换了一种仍然精确的切法。
 
-用例写在 `rotom/evals/src/harvested-cases.ts`；`continuation-cases.ts` 只加了三处：import、展开数组、id 联合类型。
+用例写在 `rotom/evals/src/harvested-cases.ts`；`continuation-cases.ts` 只加了三处：import、展开数组、id 联合类型。另外 `test/continuation-regression.test.ts` 里那条固定枚举 mechanism-reproduction 用例 id 的断言多了一个 id——它是防止用例集惄悄变化的守卫，不是改判分口径。
 
 ### 离线 oracle（实测）
 
@@ -126,7 +126,9 @@ mac3 的 12.1 几乎全部来自一个会话：那 46 条 `user_repeat` 是 Goal
 | 轮次 | 冻结臂 | 候选臂 | 两臂检查 |
 | --- | --- | --- | --- |
 | 冒烟 | 1.00 | 1.00 | 全布尔，无缺观察 |
-| 3 次 | 3/3 通过 | 3/3 通过 | 同上 |
+| 3 次 | 3/3 通过 | 3/3 通过 | 全布尔，无缺观察 |
+
+六个计分项（3 对 × 2 臂）的 `checks` 都是布尔，`missingObservation` 全为空，从这次运行的 `vitest-results.json` 里读出来核对过。
 
 判定：冻结臂 0/3 失败，按规则是 **not-reproduced**。读运行记录确认不是 fixture 或判分坏了——每个 run 都是先 `read` 再 `edit`，oldText 恰好出现一次，最后跑 `node verify.mjs`；有一次先试了 `bash cat`，被 fixture 的命令白名单拒掉，随后仍然读文件成功。也就是说：机制没有在这个产品版本上出现，不是用例写坏了。
 
