@@ -8,7 +8,7 @@
  * "measured nothing" call for different next steps.
  */
 import type { FrozenBaseline } from "./freeze.ts";
-import type { GateCase, GateManifest } from "./gate.ts";
+import { effectiveModel, type GateCase, type GateManifest } from "./gate.ts";
 import type { GateHistoryRecord } from "./gate-history.ts";
 import type { LedgerEntry } from "./ledger.ts";
 
@@ -102,7 +102,12 @@ export function buildStatus(input: {
 		};
 	});
 	const climbCases = manifest.cases.filter((item) => kindOf(item) === "climb");
-	const has = (item: GateCase, verdict: string) => (item.reproduction ?? []).some((record) => record.verdict === verdict);
+	// Only the record for the model the case actually runs on counts: a case reproduced on a model
+	// the loop no longer uses discriminates nothing in today's gate.
+	const has = (item: GateCase, verdict: string) => {
+		const model = effectiveModel(item, manifest);
+		return (item.reproduction ?? []).some((record) => record.model === `${model.provider}/${model.model}` && record.verdict === verdict);
+	};
 	const proven = climbCases.filter((item) => has(item, "reproduced")).length;
 	const flaky = climbCases.filter((item) => !has(item, "reproduced") && has(item, "flaky-candidate")).length;
 	const unverified = ledger.filter((entry) => entry.change === "mechanism" && entry.decision === "shipped" && entry.evidence === "unmeasured");
@@ -114,7 +119,7 @@ export function buildStatus(input: {
 	if (daysSinceWeekly === null) next.push("run `loop weekly`: no weekly report has been written on this machine");
 	else if (daysSinceWeekly >= 7) next.push(`run \`loop weekly\`: the last report is ${daysSinceWeekly} days old`);
 	if (ready.length > 0) next.push(`update the ledger for ${ready.length} record(s) the weekly report reached a verdict on`);
-	if (proven === 0) next.push("no climb case discriminates on an authorized model: triage the harvest queue for one reproducible failure");
+	if (proven === 0) next.push("no climb case discriminates on the model it runs on: triage the harvest queue for one reproducible failure");
 	if (!input.frozen) next.push("run `loop freeze <release commit>` so `loop gate` has a baseline");
 	for (const row of cases) if (row.kind === "holdout" && !row.pooled) next.push(`holdout ${row.caseId} has never run: pass \`--holdout\` at the next judging round`);
 	if (next.length === 0) next.push("nothing is due");
@@ -148,7 +153,7 @@ export function renderStatus(report: StatusReport): string {
 		`rotom loop status · ${report.date}${report.weeklyDay ? ` · weekly day ${report.weeklyDay}` : ""}`,
 		"",
 		`  interventions per 100 user turns            ${intervention}`,
-		`  climb cases that discriminate               ${report.climb.proven} of ${report.climb.total}${report.climb.flaky ? ` (${report.climb.flaky} flaky-candidate)` : ""}`,
+		`  climb cases that discriminate (own model)   ${report.climb.proven} of ${report.climb.total}${report.climb.flaky ? ` (${report.climb.flaky} flaky-candidate)` : ""}`,
 		`  shipped mechanism records not yet verified  ${report.unverified.total} (${report.unverified.withoutMetric} declare no acceptance metric)`,
 		`  days since last gate / weekly               ${days(report.daysSinceGate)} / ${days(report.daysSinceWeekly)}`,
 		"",

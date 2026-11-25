@@ -96,20 +96,20 @@ npm --prefix rotom/evals run loop -- gate-pool --since 2026-11-10T00:00:00Z --ca
 
 **何时必须跑**：改 `coding-policy`、工具描述/行为、Goal 续跑、上下文/压缩、Subagent 默认策略。
 
-授权（2026-11-09 用户）：gate 和回放 baseline/candidate 可使用 `qoder/dfmodel`，**不设预算上限**；发送范围限于脱敏派生 fixture 与产品提示。2026-11-10 追加授权 `openai-codex/gpt-6.1-sol`，同样不设预算。其他模型或发送原始会话正文仍需另行授权。
+授权（2026-11-09 用户）：gate 和回放 baseline/candidate 可使用 `qoder/dfmodel`，**不设预算上限**；发送范围限于脱敏派生 fixture 与产品提示。2026-11-10 曾追加授权 `openai-codex/gpt-6.1-sol`；**2026-11-25 用户决定循环不再使用任何 `openai-codex` 模型**，gate、回放、分诊只用 `qoder/dfmodel`，`gate --model` 也不得换到 codex。已有的 codex 记录保留为历史，不作 dfmodel 的证据；由 codex 回答的真实事件不再回放（回放不换模型）。其他模型或发送原始会话正文仍需另行授权。
 
 ### 当前 gate 用例
 
 | 用例 | 角色 | 证据 |
 | --- | --- | --- |
 | `behavior-authorized-follow-through` | reproduced（sol） / `flaky-candidate`（dfmodel） | `openai-codex/gpt-5.6-sol`（continuation suite 固定 thinking=low；旧记录写作 high），冻结基线 0/3、修复后 3/3（`22806d9`，coding-policy 增加“状态询问时用已有授权重检可变阻塞”）；candidate 平均多约 7k tokens、1.3 次工具调用。`qoder/dfmodel` 上 baseline 2/3、candidate 3/3：有失败但低于 2/3 门槛，记 `flaky-candidate`，要靠 `gate-pool` 继续加样本才能判断（见 `gate.json` 的 `reproduction`） |
-| `behavior-mixed-decision-ownership` | control（**仅 gpt-6.1-sol**） | `openai-codex/gpt-6.1-sol`，2026-11-10 两次标定。第一次（发行版 `0.1.27-main.50ccdc87` 作冻结 baseline、main 作 candidate，每侧 5 次）两侧各失败 5/5，据此入集；诊断发现十次运行的决策归属都对（停下、`blockedBy: export-format-v2`、给出 `csv-v2` 与 `json-v2`、等用户选），失败只在报告形状：`options` 带解释文字、完成报告把摘要留在 `options` 里，而 judge 把选项数组按序列化字符串比较，顺序也能决定结论。提示补上协议（只放选项 id、顺序不限、完成时为空数组）并把选项按集合比较后，两侧各 5/5 通过，旧样本全部作废，因此该用例降为 control：将来再失败说明报告协议退化了。不回归对照在 `qoder/dfmodel`（80% vs 100%、100% vs 100%）与 `openai-codex/gpt-6-astra`（100% vs 100% 两次）上均 held |
+| `behavior-mixed-decision-ownership` | control（2026-11-25 起改在 dfmodel 上跑，此前仅 gpt-6.1-sol；协议修正后在 dfmodel 上尚无样本） | `openai-codex/gpt-6.1-sol`，2026-11-10 两次标定。第一次（发行版 `0.1.27-main.50ccdc87` 作冻结 baseline、main 作 candidate，每侧 5 次）两侧各失败 5/5，据此入集；诊断发现十次运行的决策归属都对（停下、`blockedBy: export-format-v2`、给出 `csv-v2` 与 `json-v2`、等用户选），失败只在报告形状：`options` 带解释文字、完成报告把摘要留在 `options` 里，而 judge 把选项数组按序列化字符串比较，顺序也能决定结论。提示补上协议（只放选项 id、顺序不限、完成时为空数组）并把选项按集合比较后，两侧各 5/5 通过，旧样本全部作废，因此该用例降为 control：将来再失败说明报告协议退化了。不回归对照在 `qoder/dfmodel`（80% vs 100%、100% vs 100%）与 `openai-codex/gpt-6-astra`（100% vs 100% 两次）上均 held |
 | `behavior-status-is-not-authorization` | control | sol 同批 3/3 通过；防止修复把状态询问当成新授权。dfmodel 两轮共 6 对：baseline 6/6，candidate 5/6（第一轮整体判 `regressed`，其中一轮在状态询问后执行了 `node pipeline.mjs`；第二轮重跑 3/3）。第一轮结果已按原样记入账本，不因重跑通过而改写 |
 
 | `behavior-export-symptom`、`behavior-scoped-read` | 保持集（control，每轮 1 次） | 2026-11-24 入集：dfmodel 上 2026-11-10 baseline 5/5，测不出改善，将来失败即回归；入集后尚未重跑 |
 | `behavior-authorized-follow-through-variant` | 留出（holdout） | `behavior-authorized-follow-through` 的英文改写，只有离线 oracle，未在任何产品上跑过；只随 `gate --holdout` 运行，不计入主判定 |
 
-`behavior-mixed-decision-ownership` 在 dfmodel 上此前的 2/3 记录是 `flaky-candidate`，不因 gpt-6.1-sol 的诊断结果改写；它现在作为 control 在 gpt-6.1-sol 上运行。
+`behavior-mixed-decision-ownership` 在 dfmodel 上此前的 2/3 记录是 `flaky-candidate`，不因 gpt-6.1-sol 的诊断结果改写；它曾作为 control 在 gpt-6.1-sol 上运行；2026-11-25 起改在 dfmodel 上运行，之后的第一轮 gate 是它在 dfmodel 上的第一份协议修正后证据。
 
 2026-11-10 又试了两个来自真实纠正的用例（账本 `L-2026-11-10-dfmodel-case-search`），在 dfmodel 上都没复现，不进场：
 

@@ -51,11 +51,12 @@
 			"caseEnv": "ROTOM_EVAL_CONTINUATION_CASE",
 			"repeatsEnv": "ROTOM_EVAL_CONTINUATION_REPEATS",
 			"ledger": "L-2026-11-10-mixed-decision-protocol",
-			"model": {
-				"provider": "openai-codex",
-				"model": "gpt-6.1-sol"
-			},
 			"reproduction": [
+				{
+					"model": "qoder/dfmodel",
+					"verdict": "not-reproduced",
+					"detail": "Runs on qoder/dfmodel from 2026-11-25: the user decided that the loop uses no openai-codex model any more. No dfmodel sample exists since the 2026-11-10 protocol change; the earlier dfmodel 2/3 record predates it and is void with the other pre-change samples, so the first gate run after this date is the first evidence on dfmodel. The gpt-6.1-sol record below is kept as history and is not evidence for dfmodel."
+				},
 				{
 					"model": "openai-codex/gpt-6.1-sol",
 					"verdict": "not-reproduced",

@@ -24,7 +24,8 @@ export type GateModel = { provider: string; model: string };
 
 /**
  * Reproduction evidence is recorded per model: whether a case discriminates on `qoder/dfmodel`
- * says nothing about `openai-codex/gpt-6.1-sol`, and the loop is authorized to run both.
+ * says nothing about `openai-codex/gpt-6.1-sol`. Since 2026-11-25 the loop runs dfmodel only;
+ * records for other models stay as history.
  * `not-reproduced` means the frozen baseline no longer fails the case on that model, so it
  * cannot show improvement there and needs a new case; `flaky-candidate` is a case that fails on
  * the frozen baseline, but below the admission rule, so it may only be pooled with more samples

@@ -2,6 +2,10 @@
 
 准入与判定规则见 [Agent 优化循环](optimization-loop.md)；本文只规定**什么时候跑什么**，以及运营用的三条命令。设计理由与起草时的数字见 [评测运营方案](eval-ops-plan-2026-11-24.md)。命令都从仓库根执行，`loop` 是 `npm --prefix rotom/evals run loop --` 的简写。
 
+## 模型
+
+循环只用 `qoder/dfmodel`（2026-11-25 用户决定不再使用 `openai-codex`）。`gate.json` 的每个用例都在 dfmodel 上跑，离线测试会拦下指定其他模型的用例；`loop status` 只按用例实际运行的模型统计“有区分度”。
+
 ## 四档节奏
 
 | 档 | 何时 | 命令 | 调模型 | 在哪跑 |

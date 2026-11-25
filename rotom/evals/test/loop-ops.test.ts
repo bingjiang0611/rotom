@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { freezeBaseline, latestFrozen, type Run } from "../src/loop/freeze.ts";
-import { gateVerdict, judgeGateCase, parseGateManifest, repeatsFor, selectGateCases, type GateCase, type GateManifest } from "../src/loop/gate.ts";
+import { effectiveModel, gateVerdict, judgeGateCase, parseGateManifest, repeatsFor, selectGateCases, type GateCase, type GateManifest } from "../src/loop/gate.ts";
 import { gateHistoryRecords, poolGateHistory, type GateHistoryRecord } from "../src/loop/gate-history.ts";
 import type { PreflightProblem } from "../src/loop/gate-preflight.ts";
 import type { LedgerEntry } from "../src/loop/ledger.ts";
@@ -40,6 +40,11 @@ describe("holdout cases", () => {
 		expect(() => selectGateCases(value, { only: "tuned-case-variant" })).toThrow(/pass --holdout/u);
 		expect(selectGateCases(value, { only: "tuned-case-variant", holdout: true })).toHaveLength(1);
 		expect(() => selectGateCases(value, { only: "missing" })).toThrow(/no gate case matches/u);
+	});
+
+	it("runs every checked-in case on qoder/dfmodel, the only model the loop uses since 2026-11-25", () => {
+		const value = parseGateManifest(JSON.stringify(checkedIn));
+		expect(value.cases.map((item) => effectiveModel(item, value))).toEqual(value.cases.map(() => ({ provider: "qoder", model: "dfmodel" })));
 	});
 
 	it("leaves the default run of the checked-in manifest free of holdouts", () => {
@@ -176,7 +181,7 @@ describe("status", () => {
 		expect(text).toContain("baseline none frozen");
 		expect(report.next).toEqual([
 			"run `loop weekly`: no weekly report has been written on this machine",
-			"no climb case discriminates on an authorized model: triage the harvest queue for one reproducible failure",
+			"no climb case discriminates on the model it runs on: triage the harvest queue for one reproducible failure",
 			"run `loop freeze <release commit>` so `loop gate` has a baseline",
 			"holdout tuned-case-variant has never run: pass `--holdout` at the next judging round",
 		]);
@@ -201,7 +206,10 @@ describe("status", () => {
 		expect(report.next).toEqual(["update the ledger for 1 record(s) the weekly report reached a verdict on"]);
 		const text = renderStatus(report);
 		expect(text).toContain("weekly day thursday");
-		expect(text).toContain("climb cases that discriminate               1 of 2 (1 flaky-candidate)");
+		expect(text).toContain("climb cases that discriminate (own model)   1 of 2 (1 flaky-candidate)");
+		// A reproduction on another model does not make the case discriminate where it runs.
+		const elsewhere: GateCase = { ...tuned, reproduction: [{ model: "openai-codex/gpt-6.1-sol", verdict: "reproduced", detail: "fails 3/3" }] };
+		expect(buildStatus({ manifest: manifest([elsewhere]), history: [], ledger: [], weekly, now }).climb).toEqual({ total: 1, proven: 0, flaky: 0 });
 		expect(text).toContain("baseline cccccccccccc (v0.2.4)");
 	});
 
