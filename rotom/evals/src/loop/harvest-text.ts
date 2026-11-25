@@ -25,8 +25,14 @@ const BARE_CONTINUE = new Set([
 
 /** `/skill:<name>` expands into this block; only the text after it is what the user typed. */
 const SKILL_BLOCK = /^<skill name="[^"]*" location="[^"]*">\n[\s\S]*?\n<\/skill>(?:\n\n([\s\S]+))?$/u;
-/** `/goal resume` delivers the goal contract as a user message; the text is injected, not typed. */
-const GOAL_RESUME_BLOCK = /^The user explicitly resumed the paused \/goal\.[\s\S]*$/u;
+/**
+ * Goal text delivered as a user message but written by the Goal runtime, not typed: a resume of
+ * any stopped state (paused, blocked, usage- or budget-limited, waiting) and every automatic
+ * continuation, which carries a `pi-goal-continuation` marker. A run of continuations once showed
+ * up as dozens of user repeats on one machine. `/goal <objective>` and an objective update stay
+ * human text: the person typed that objective.
+ */
+const GOAL_INJECTED_BLOCK = /^(?:The user explicitly resumed the [\w-]+ \/goal\.|The active \/goal was waiting for an external event, and the user explicitly resumed it\.|Continue the active \/goal until it is complete:)|<!--\s*pi-goal-continuation:/u;
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -45,7 +51,7 @@ export function textOf(content: unknown): string {
 export function humanText(text: string): string {
 	const match = text.match(SKILL_BLOCK);
 	if (match) return (match[1] ?? "").trim();
-	return GOAL_RESUME_BLOCK.test(text) ? "" : text;
+	return GOAL_INJECTED_BLOCK.test(text) ? "" : text;
 }
 
 export function clip(text: string, fromEnd = false): string {

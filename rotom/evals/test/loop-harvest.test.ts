@@ -225,6 +225,21 @@ describe("loop harvest detectors", () => {
 		const resumed = analyze(chain([user(resume), reply("收到"), user(resume), reply("继续")]));
 		expect(resumed.incidents.map((incident) => incident.kind)).toEqual([]);
 		expect(resumed.session.userTurns).toBe(2);
+		// Automatic continuations differ only in their iteration and marker, which made them read
+		// as the user repeating a request; resumes from other stopped states are injected too.
+		const continuation = (iteration: number) => `Continue the active /goal until it is complete:\n\n<goal_objective>完成 M1 到 M6</goal_objective>\n\nThis is automatic continuation #${iteration}.\n\n<!-- pi-goal-continuation:g1-${iteration} -->`;
+		const continued = analyze(chain([user(continuation(1)), reply("继续中"), user(continuation(2)), reply("继续中"), user(continuation(3)), reply("完成")]));
+		expect(continued.incidents.map((incident) => incident.kind)).toEqual([]);
+		expect(continued.session.userTurns).toBe(3);
+		const markerOnly = "Keep going on the objective.\n\n<!-- pi-goal-continuation:g1-9 -->";
+		expect(analyze(chain([user(markerOnly), reply("好"), user(markerOnly), reply("好")])).incidents).toEqual([]);
+		for (const state of ["blocked", "usage-limited", "budget-limited"]) {
+			const text = `The user explicitly resumed the ${state} /goal. Continue working toward this goal: <goal_objective>完成 M1 到 M6 并给我验收报告</goal_objective>`;
+			expect(analyze(chain([user(text), reply("收到"), user(text), reply("继续")])).incidents, state).toEqual([]);
+		}
+		// A person typing the same objective twice is still a repeat.
+		const typed = "/goal 完成 M1 到 M6 并给我验收报告，每一步都要有验证记录";
+		expect(analyze(chain([user(typed), reply("收到"), user(typed), reply("好")])).incidents.map((incident) => incident.kind)).toEqual(["user_repeat"]);
 
 		const templateOnly = analyze(chain([
 			user(`<skill name="impeccable" location="/skills/impeccable/SKILL.md">\nYou did not run the build.\n</skill>`),

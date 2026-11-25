@@ -1,0 +1,15 @@
+[
+	{
+		"schema": "rotom-loop-ledger/v1",
+		"id": "L-2026-11-25-harvest-goal-continuations",
+		"date": "2026-11-25",
+		"title": "Harvest no longer counts Goal's automatic continuations as user repeats",
+		"hypothesis": "Goal delivers its automatic continuations, and resumes from every stopped state, as user messages. They are written by the runtime, so a run of them is not a person repeating a request, and counting them inflates the intervention rate of any machine that uses Goal heavily.",
+		"change": "eval",
+		"measurement": "Offline only. mac3's triage on 2026-11-25 found 46 user_repeat events in one session that were the same Goal continuation text; its 28-day rate was 12.1 per 100 turns and 3.3 without that session. Unit tests cover continuations by template and by marker, resumes from blocked, usage-limited and budget-limited goals, and a person typing the same /goal objective twice, which still counts.",
+		"result": "humanText now blanks text that starts with a Goal resume or continuation template or carries a pi-goal-continuation marker, extending the earlier rule that covered only a paused resume. The turn still counts as a user turn; only the incidents derived from its text disappear. Rates computed before this change are not comparable for Goal-heavy sessions: acceptance baselines registered earlier were measured with the old detector, so a drop in user_repeat on those records is partly this change. Not yet re-run on either machine's sessions.",
+		"evidence": "unmeasured",
+		"decision": "shipped",
+		"source": "docs/agent/harvest-cases-2026-11-25.md"
+	}
+]
