@@ -7,16 +7,37 @@
  */
 
 import { Container, Spacer, Text } from "@earendil-works/pi-tui";
-import { keyHint } from "../../../modes/interactive/components/keybinding-hints.ts";
+import { keyHint, keyText } from "../../../modes/interactive/components/keybinding-hints.ts";
 import { VisualLinePreview } from "../../../modes/interactive/components/visual-truncate.ts";
 import { theme } from "../../../modes/interactive/theme/theme.ts";
 import type { ToolDefinition, ToolRenderResultOptions } from "../../extensions/types.ts";
 import type { BashToolDetails } from "../bash.ts";
-import { getTextOutput, invalidArgText, startToolTimer, str, toolTimerText } from "../render-utils.ts";
+import type { BashIdleNotice } from "../bash-idle-notice.ts";
+import {
+	formatToolDuration,
+	getTextOutput,
+	invalidArgText,
+	startToolTimer,
+	str,
+	toolTimerText,
+} from "../render-utils.ts";
 import { DEFAULT_MAX_BYTES, formatSize } from "../truncate.ts";
 
 const BASH_PREVIEW_LINES = 5;
 export const BASH_UPDATE_THROTTLE_MS = 100;
+const IDLE_NOTICE_MAX_PROCESSES = 4;
+
+/** The deepest processes come last and are the likeliest to be the one waiting, so keep the tail. */
+export function formatIdleNotice(idle: BashIdleNotice, interruptKey: string): string {
+	let text = `No output for ${formatToolDuration(idle.seconds * 1000)}.`;
+	const processes = idle.processes ?? [];
+	if (processes.length > 0) {
+		const shown = processes.slice(-IDLE_NOTICE_MAX_PROCESSES).map((entry) => `${entry.name} (${entry.pid})`);
+		const hidden = processes.length - shown.length;
+		text += ` Still running: ${hidden > 0 ? `+${hidden} more, ` : ""}${shown.join(", ")}.`;
+	}
+	return `${text} If it waits for a dialog or input this terminal cannot show, ${interruptKey} interrupts it.`;
+}
 function formatShellCall(args: { command?: string; timeout?: number } | undefined, prompt: string): string {
 	const command = str(args?.command);
 	const timeout = args?.timeout as number | undefined;
@@ -84,6 +105,11 @@ function rebuildBashResultRenderComponent(
 			}
 		}
 		component.addChild(new Text(`\n${theme.fg("warning", `[${warnings.join(". ")}]`)}`, 0, 0));
+	}
+
+	const idle = result.details?.idle;
+	if (options.isPartial && idle) {
+		component.addChild(new Text(`\n${theme.fg("warning", formatIdleNotice(idle, keyText("app.interrupt")))}`, 0, 0));
 	}
 
 	if (timerText) component.addChild(new Text(`\n${theme.fg("muted", timerText)}`, 0, 0));
