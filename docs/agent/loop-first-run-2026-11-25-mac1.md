@@ -278,6 +278,10 @@ holdout  behavior-authorized-follow-through-variant  last run 2026-11-25 held, b
 
 另外，`loop status` 里这一例的 `all runs 11 runs, 46 pairs, baseline failed 3, candidate failed 2` 是跨所有候选提交的累计值，不是本轮。
 
+## 问题与处理
+
+本轮碰到的 7 个问题（默认 Node 版本、openai-codex 覆盖冲突、HTTPS 推送失败、pre-push 审计拦截、跨机 SSH 被拒、退出码 1 的含义、✓ 与分数不一致）连同报错原文、做了什么、没做什么，单列在 [loop-first-run-2026-11-25-mac1-problems.md](loop-first-run-2026-11-25-mac1-problems.md)。
+
 ## 限制与未验证
 
 - 每个 keep 用例只有 1 对（`repeats: 1`），holdout 与 climb 各 3 对，没有更多重复；这一轮的通过率不能当作长期通过率。
