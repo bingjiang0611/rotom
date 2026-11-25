@@ -2,7 +2,7 @@
 
 本文只记录一次真实的循环运行结果：命令、退出码、耗时、关键输出。没有修改 judge、用例、fixture、阈值或 `gate.json`，没有为了结果好看而重跑或删样本，也没有修任何产品缺陷。
 
-同一任务在另一台机器上另有一次独立运行，记录在 [loop-first-run-2026-11-25.md](loop-first-run-2026-11-25.md)；那份数据来自不同的会话库和不同的 macOS 版本，两轮的通过率不同，不能混读。
+同一任务在另一台机器上另有一次独立运行，记录在 [loop-first-run-2026-11-25-mac3.md](loop-first-run-2026-11-25-mac3.md)（mac3）；那份数据来自不同的会话库和不同的 macOS 版本，两轮的通过率不同，不能混读。
 
 一句话结论：11 步全部跑完，无 unknown，无 preflight 拒绝，无 smoke 失败。gate 判定 `regressed`，holdout 判定 `held`。
 
