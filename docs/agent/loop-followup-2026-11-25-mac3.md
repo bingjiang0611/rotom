@@ -172,3 +172,5 @@ Next
 - `gate-pool` 两组候选的产品代码相同，`evals` 与文档不同（`499041e6` 改了留出用例读法与 `gate.json` 模型）；手工合并只加通过数，未做配对检验，也未验证两组差异对判定规则的影响。
 - 第一轮留出用例的 verdict 在本轮输出里重算为 `no-difference`；这是读法变化，不是新样本。
 - `--repeats` 仅验证到 5（用例文件硬上限 5），更大的重复数没有验证。
+
+第二轮的补充样本与失败原因读数，见 [loop-followup-2026-11-25-mac3-failures.md](loop-followup-2026-11-25-mac3-failures.md)。
