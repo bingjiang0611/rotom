@@ -17,7 +17,8 @@
 			"incident": "compaction_failed",
 			"baselinePer100": 3.4,
 			"minimumTurns": 295,
-			"expect": "lower"
+			"expect": "lower",
+			"firstCommit": "cc87c3eea87512969af550b424b00153610dde81"
 		}
 	}
 ]
