@@ -8,7 +8,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { freezeBaseline, latestFrozen, type Run } from "./freeze.ts";
-import { parseGateManifest, runGate } from "./gate.ts";
+import { holdoutReading, parseGateManifest, runGate } from "./gate.ts";
 import { appendGateHistory, gateHistoryRecords, parseGateHistory, poolGateHistory } from "./gate-history.ts";
 import { defaultLoopDir } from "./harvest-run.ts";
 import { parseLedgerDir } from "./ledger.ts";
@@ -103,7 +103,9 @@ export async function gateCommand(command: string, rest: string[], deps: Deps): 
 		});
 		for (const item of result.results) {
 			const rate = (value: number | null) => (value === null ? "N/A" : `${Math.round(value * 100)}%`);
-			console.log(`${item.verdict.padEnd(9)} ${(item.split ?? item.role).padEnd(10)} ${item.caseId}  ${item.model.provider}/${item.model.model}  baseline=${rate(item.baselinePassRate)} candidate=${rate(item.candidatePassRate)} pairs=${item.pairs}/${item.expectedPairs}${item.reason ? `  (${item.reason})` : ""}`);
+			// A holdout prints its reading, not held/regressed: it is expected to fail on the baseline.
+			const label = item.split === "holdout" ? holdoutReading([item]) : item.verdict;
+			console.log(`${label.padEnd(13)} ${(item.split ?? item.role).padEnd(10)} ${item.caseId}  ${item.model.provider}/${item.model.model}  baseline=${rate(item.baselinePassRate)} candidate=${rate(item.candidatePassRate)} pairs=${item.pairs}/${item.expectedPairs}${item.reason ? `  (${item.reason})` : ""}`);
 		}
 		if (smoke) {
 			console.log(`smoke: ${result.smokeProblems.length === 0 ? "ok" : "failed"}`);
@@ -122,9 +124,9 @@ export async function gateCommand(command: string, rest: string[], deps: Deps): 
 		});
 		appendGateHistory(historyPath, records);
 		console.log(`gate: ${result.verdict} · ${result.summaryPath}`);
-		// Reported, not folded in: a holdout that fails while the tuned case passes means the fix
-		// fits the case rather than the mechanism, which is a finding about the fix, not a regression.
-		if (result.holdoutVerdict) console.log(`holdout: ${result.holdoutVerdict} (reported beside the verdict, not part of it)`);
+		// Reported, not folded in: a tuned case that improves while its holdout shows no difference
+		// means the fix fits the case rather than the mechanism, a finding about the fix.
+		if (result.holdoutReading) console.log(`holdout: ${result.holdoutReading} (candidate against baseline on the restated cases; not part of the verdict)`);
 		console.log(`history: ${historyPath} (+${records.length} samples)`);
 		return result.verdict === "held" ? 0 : result.verdict === "regressed" ? 1 : 2;
 	}
@@ -139,7 +141,10 @@ export async function gateCommand(command: string, rest: string[], deps: Deps): 
 		if (pooled.length === 0) throw new Error(`no gate samples since ${since.toISOString()}`);
 		for (const group of pooled) {
 			const failures = (total: number, pass: number) => total - pass;
-			console.log(`${group.verdict.padEnd(9)} ${(group.split ?? group.role ?? "?").padEnd(10)} ${group.caseId}`);
+			const label = group.split === "holdout"
+				? holdoutReading([{ verdict: group.verdict, pairs: group.pairs, expectedPairs: group.pairs, baselinePassRate: group.pairs ? group.baselinePass / group.pairs : null, candidatePassRate: group.pairs ? group.candidatePass / group.pairs : null }])
+				: group.verdict;
+			console.log(`${label.padEnd(13)} ${(group.split ?? group.role ?? "?").padEnd(10)} ${group.caseId}`);
 			console.log(`          runs=${group.runs} pairs=${group.pairs} baselineFail=${failures(group.pairs, group.baselinePass)} candidateFail=${failures(group.pairs, group.candidatePass)} unknownRuns=${group.unknownRuns}`);
 			console.log(`          candidate=${group.candidateCommit} baseline=${group.baselineProduct} model=${group.model.provider}/${group.model.model}`);
 		}

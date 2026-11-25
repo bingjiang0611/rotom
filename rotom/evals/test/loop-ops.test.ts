@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { freezeBaseline, latestFrozen, type Run } from "../src/loop/freeze.ts";
-import { effectiveModel, gateVerdict, judgeGateCase, parseGateManifest, repeatsFor, selectGateCases, type GateCase, type GateManifest } from "../src/loop/gate.ts";
+import { effectiveModel, gateVerdict, holdoutReading, judgeGateCase, parseGateManifest, repeatsFor, selectGateCases, type GateCase, type GateManifest } from "../src/loop/gate.ts";
 import { gateHistoryRecords, poolGateHistory, type GateHistoryRecord } from "../src/loop/gate-history.ts";
 import type { PreflightProblem } from "../src/loop/gate-preflight.ts";
 import type { LedgerEntry } from "../src/loop/ledger.ts";
@@ -68,6 +68,13 @@ describe("holdout cases", () => {
 		expect(results[1]).toMatchObject({ split: "holdout", verdict: "regressed" });
 		expect(results[0]?.split).toBeUndefined();
 		expect(gateVerdict(results.filter((result) => result.split !== "holdout"))).toBe("held");
+		// Read against the baseline, not on its own: the frozen product is expected to fail a holdout.
+		expect(holdoutReading([results[1]!])).toBe("generalizes");
+		expect(holdoutReading([judgeGateCase(holdout, 3, "/b", report(3, 1, 2 / 3))])).toBe("worse");
+		expect(holdoutReading([judgeGateCase(holdout, 3, "/b", report(3, 2 / 3, 2 / 3))])).toBe("no-difference");
+		expect(holdoutReading([judgeGateCase(holdout, 3, "/b", report(3, 1 / 3, 1))])).toBe("generalizes");
+		expect(holdoutReading([judgeGateCase(holdout, 3, "/b", report(2, 1 / 3, 1))])).toBe("unknown");
+		expect(holdoutReading([])).toBe("unknown");
 		const records = gateHistoryRecords({ recordedAt: "2026-11-24T10:00:00.000Z", runId: "gate-1", candidateCommit: "b".repeat(40), baselineProduct: "/base/rotom", candidateProduct: "/repo/rotom", results });
 		expect(records.map((record) => record.split)).toEqual([undefined, "holdout"]);
 		expect(poolGateHistory(records).map((group) => [group.caseId, group.split, group.verdict])).toEqual([["tuned-case", undefined, "held"], ["tuned-case-variant", "holdout", "regressed"]]);
@@ -203,6 +210,8 @@ describe("status", () => {
 		expect(report).toMatchObject({ climb: { total: 2, proven: 1, flaky: 1 }, daysSinceGate: 2, daysSinceWeekly: 5, intervention: { per100: 10.6, turns: 4132, reportDate: "2026-11-19" }, ready: [{ id: "L-2026-11-01-with-metric", status: "improved" }] });
 		expect(report.cases[0]).toMatchObject({ last: { date: "2026-11-22", verdict: "regressed", candidatePass: 2 }, pooled: { runs: 2, pairs: 6, baselineFail: 4, candidateFail: 1 } });
 		expect(report.cases[1]).toMatchObject({ last: null, pooled: null });
+		const restated = buildStatus({ manifest: manifest([tuned, holdout]), history: [sample({ caseId: "tuned-case-variant", split: "holdout", verdict: "regressed", baselinePass: 2, candidatePass: 2 })], ledger: [], weekly, now });
+		expect(renderStatus(restated)).toContain("last run  2026-11-20 no-difference, baseline 2/3, candidate 2/3");
 		expect(report.next).toEqual(["update the ledger for 1 record(s) the weekly report reached a verdict on"]);
 		const text = renderStatus(report);
 		expect(text).toContain("weekly day thursday");

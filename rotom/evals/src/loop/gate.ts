@@ -198,6 +198,23 @@ export function judgeGateCase(item: GateCase, repeats: number, artifacts: string
 	return { ...base, ...metrics, verdict };
 }
 
+/**
+ * What a holdout says about the fix. A holdout restates a mechanism the frozen baseline already
+ * fails, so a candidate failure there is expected and "regressed" would misread it: the question
+ * is whether the fix carried over, i.e. whether the candidate fails less than the baseline on
+ * the same pairs. Equal failures mean the fix did not show on the restatement; with three pairs
+ * that is a reason to add samples, not a conclusion.
+ */
+export type HoldoutReading = "generalizes" | "no-difference" | "worse" | "unknown";
+
+export function holdoutReading(results: readonly Pick<GateCaseResult, "verdict" | "pairs" | "expectedPairs" | "baselinePassRate" | "candidatePassRate">[]): HoldoutReading {
+	if (results.length === 0 || results.some((result) => result.pairs < result.expectedPairs || result.baselinePassRate === null || result.candidatePassRate === null)) return "unknown";
+	const passes = (rate: number | null, pairs: number) => Math.round((rate ?? 0) * pairs);
+	const baseline = results.reduce((sum, result) => sum + passes(result.baselinePassRate, result.pairs), 0);
+	const candidate = results.reduce((sum, result) => sum + passes(result.candidatePassRate, result.pairs), 0);
+	return candidate > baseline ? "generalizes" : candidate === baseline ? "no-difference" : "worse";
+}
+
 /** Holdout results are reported beside the verdict, so callers pass them separately. */
 export function gateVerdict(results: readonly GateCaseResult[]): GateCaseVerdict {
 	if (results.some((result) => result.verdict === "regressed")) return "regressed";
@@ -235,7 +252,7 @@ export function repeatsFor(item: GateCase, options: { manifest: Pick<GateManifes
 	return options.smoke ? 1 : options.repeats ?? item.repeats ?? options.manifest.repeats;
 }
 
-export function runGate(options: RunGateOptions): { verdict: GateCaseVerdict; holdoutVerdict?: GateCaseVerdict; results: GateCaseResult[]; summaryPath: string; smokeProblems: string[] } {
+export function runGate(options: RunGateOptions): { verdict: GateCaseVerdict; holdoutReading?: HoldoutReading; results: GateCaseResult[]; summaryPath: string; smokeProblems: string[] } {
 	for (const [label, path] of [["baseline", options.baselineProduct], ["candidate", options.candidateProduct]] as const) {
 		if (!isAbsolute(path) || !existsSync(join(path, "runtime", "resolve-installed-pi.mjs"))) throw new Error(`${label} product must be an absolute rotom product directory: ${path}`);
 	}
@@ -294,7 +311,7 @@ export function runGate(options: RunGateOptions): { verdict: GateCaseVerdict; ho
 	}
 	const verdict = gateVerdict(results.filter((result) => result.split !== "holdout"));
 	const holdouts = results.filter((result) => result.split === "holdout");
-	const holdoutVerdict = holdouts.length > 0 ? gateVerdict(holdouts) : undefined;
+	const reading = holdouts.length > 0 ? holdoutReading(holdouts) : undefined;
 	const summaryPath = join(options.outDir, "gate-summary.json");
 	const summary = {
 		schema: GATE_SCHEMA,
@@ -309,9 +326,9 @@ export function runGate(options: RunGateOptions): { verdict: GateCaseVerdict; ho
 		candidateProduct: options.candidateProduct,
 		products: preflight.products,
 		verdict,
-		...(holdoutVerdict ? { holdoutVerdict } : {}),
+		...(reading ? { holdoutReading: reading } : {}),
 		results,
 	};
 	writeFileSync(summaryPath, `${JSON.stringify(summary, null, 2)}\n`, { mode: 0o600 });
-	return { verdict, ...(holdoutVerdict ? { holdoutVerdict } : {}), results, summaryPath, smokeProblems };
+	return { verdict, ...(reading ? { holdoutReading: reading } : {}), results, summaryPath, smokeProblems };
 }

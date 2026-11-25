@@ -26,8 +26,9 @@ export const USAGE = `Usage: npm run loop -- <command>
 
       A case may carry its own repeats; --repeats overrides every case. Holdout
       cases (split: holdout) are skipped unless --holdout is passed, and their
-      result is printed beside the verdict without deciding it: run them at the
-      judging round, never while tuning a fix.
+      result is printed beside the verdict without deciding it, as candidate
+      against baseline: generalizes, no-difference, worse or unknown. Run them at
+      the judging round, never while tuning a fix.
 
       --smoke runs one pair per case and audits the recorded scores: both arms must
       score, every check must be a boolean, and no check may read a file the fixture

@@ -160,9 +160,11 @@ export function renderStatus(report: StatusReport): string {
 		`Case set: climb ${report.climb.total} · keep ${report.keep} · holdout ${report.holdout} · private replays ${report.replays} · baseline ${report.baseline ? `${report.baseline.sha.slice(0, 12)} (${report.baseline.ref})` : "none frozen"}`,
 	];
 	for (const row of report.cases) {
+		// A holdout's last run is read as candidate against baseline, the way `gate` prints it.
+		const verdict = (last: NonNullable<CaseRow["last"]>) => (row.kind === "holdout" ? (last.candidatePass > last.baselinePass ? "generalizes" : last.candidatePass === last.baselinePass ? "no-difference" : "worse") : last.verdict);
 		lines.push(`  ${row.kind.padEnd(8)} ${row.caseId}${row.variantOf ? ` (restates ${row.variantOf})` : ""}`);
 		lines.push(`           recorded  ${row.recorded.join(" ") || NONE}`);
-		lines.push(`           last run  ${row.last ? `${row.last.date} ${row.last.verdict}, baseline ${row.last.baselinePass}/${row.last.pairs}, candidate ${row.last.candidatePass}/${row.last.pairs}` : NONE}`);
+		lines.push(`           last run  ${row.last ? `${row.last.date} ${verdict(row.last)}, baseline ${row.last.baselinePass}/${row.last.pairs}, candidate ${row.last.candidatePass}/${row.last.pairs}` : NONE}`);
 		if (row.pooled) lines.push(`           all runs  ${row.pooled.runs} runs, ${row.pooled.pairs} pairs, baseline failed ${row.pooled.baselineFail}, candidate failed ${row.pooled.candidateFail}`);
 	}
 	if (report.ready.length > 0) {

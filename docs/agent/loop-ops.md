@@ -25,7 +25,7 @@
 |---|---|---|---|
 | 爬坡（climb） | `role: "reproduced"` | 优化循环 ③ 的准入顺序不变 | 决定 `held` / `regressed` |
 | 保持（keep） | `role: "control"`，通常带 `"repeats": 1` | oracle 完整，且 baseline 稳定通过（≥5/5） | 同上；失败即回归 |
-| 留出（holdout） | 加 `"split": "holdout"` 与 `"variantOf": "<被改写的用例>"` | 同一机制换措辞、语言和 fixture 名称；有离线 oracle | 只在 `--holdout` 时跑，结果单列，**不计入主判定** |
+| 留出（holdout） | 加 `"split": "holdout"` 与 `"variantOf": "<被改写的用例>"` | 同一机制换措辞、语言和 fixture 名称；有离线 oracle | 只在 `--holdout` 时跑，结果单列，**不计入主判定**；读法是 candidate 对比 baseline：`generalizes`（candidate 失败更少）、`no-difference`、`worse`、`unknown`（配对不全） |
 
 - 保持集上限 10 个；只复用已存在且 oracle 完整的用例，不重建 2026-11-09 删除的 suite（用户 2026-11-24 决定）。
 - 留出用例在调修复期间不跑、不看：`gate` 默认跳过，整套件运行（不指定 `ROTOM_EVAL_CONTINUATION_CASE`）也跳过。爬坡用例通过而它的留出变体没有跟着通过，记为过拟合，不标 `improved`。
