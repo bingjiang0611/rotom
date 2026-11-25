@@ -82,7 +82,7 @@ describe("gate records", () => {
 		const good = readFileSync(path, "utf8");
 		writeFileSync(path, good.replace('"baselinePass": 2', '"baselinePass": 4'));
 		expect(() => readGateRecords(evalsRoot)).toThrow(/exceed pairs/u);
-		writeFileSync(path, good.replace('"caseId": "tuned-case"', '"caseId": "tuned-case", "note": "/Users/someone/x"'));
+		writeFileSync(path, good.replace('"caseId": "tuned-case"', '"caseId": "tuned-case", "note": "/Users/example/x"'));
 		expect(() => readGateRecords(evalsRoot)).toThrow(/local paths/u);
 		writeFileSync(path, good.replace('"machine": "mac1"', '"machine": "mac3"'));
 		expect(() => readGateRecords(evalsRoot)).toThrow(/gate\/<machine>\/<runId>/u);
@@ -92,7 +92,7 @@ describe("gate records", () => {
 
 describe("import and machine label", () => {
 	it("turns each local run not yet committed into one record, reading the baseline commit from its path", () => {
-		const sample = (runId: string, caseId: string): GateHistoryRecord => ({ schema: "rotom-loop-gate-history/v1", recordedAt: "2026-11-25T02:59:45.000Z", runId, model: dfmodel, repeats: 3, candidateCommit: A, baselineProduct: `/Users/x/.rotom/loop/frozen/${C}/rotom`, candidateProduct: "/Users/x/rotom/rotom", caseId, role: "reproduced", verdict: "held", pairs: 3, baselinePass: 1, candidatePass: 3, artifacts: "/Users/x/.rotom/loop/gate-1" });
+		const sample = (runId: string, caseId: string): GateHistoryRecord => ({ schema: "rotom-loop-gate-history/v1", recordedAt: "2026-11-25T02:59:45.000Z", runId, model: dfmodel, repeats: 3, candidateCommit: A, baselineProduct: `/Users/example/.rotom/loop/frozen/${C}/rotom`, candidateProduct: "/Users/example/rotom/rotom", caseId, role: "reproduced", verdict: "held", pairs: 3, baselinePass: 1, candidatePass: 3, artifacts: "/Users/example/.rotom/loop/gate-1" });
 		const history = [sample("gate-2026-11-25T02-49-06-998Z", "tuned-case"), sample("gate-2026-11-25T02-49-06-998Z", "other-case"), sample("gate-2026-11-25T03-22-59-213Z", "tuned-case")];
 		const committed = [gateRecord({ machine: "mac3", runId: "gate-2026-11-25T03-22-59-213Z", recordedAt: "2026-11-25T03:22:59.000Z", baseline: { commit: C, productId: "x" }, candidate: { commit: A, productId: "y" }, results: [judgeGateCase(tuned, 3, "/a", report(3, 1, 1), dfmodel)] })];
 		const baselineCommit = (path: string) => /\/frozen\/([0-9a-f]{40})\//u.exec(path)?.[1] ?? "unknown";
