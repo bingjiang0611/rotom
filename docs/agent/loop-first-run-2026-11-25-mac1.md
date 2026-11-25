@@ -282,11 +282,35 @@ holdout  behavior-authorized-follow-through-variant  last run 2026-11-25 held, b
 
 本轮碰到的 7 个问题（默认 Node 版本、openai-codex 覆盖冲突、HTTPS 推送失败、pre-push 审计拦截、跨机 SSH 被拒、退出码 1 的含义、✓ 与分数不一致）连同报错原文、做了什么、没做什么，单列在 [loop-first-run-2026-11-25-mac1-problems.md](loop-first-run-2026-11-25-mac1-problems.md)。
 
-## 限制与未验证
+## 未完成或未验证的项
 
-- 每个 keep 用例只有 1 对（`repeats: 1`），holdout 与 climb 各 3 对，没有更多重复；这一轮的通过率不能当作长期通过率。
+分三类。每条只写“为什么没做”或“缺什么证据”，不写“以后会做”。
+
+### 本轮范围外、没有做的
+
+- `loop replay-gate` 没跑（本次任务步骤里没有它）。
+- 没有做任何修复。任务边界是只跑只记，本轮发现的东西（含那个 regressed 用例）一个都没动。
+- 没有新建用例、没写 ledger 条目、没改 `gate.json` / judge / fixture / 阈值。
+- 没有对 1644 条 incident 做整体分诊或排序，只按文件顺序读了队列前 5 条。
+- 没有补测轮。规则是只有 unknown 才补一轮，本轮 6 例全部有判定、unknown 为 0，所以不存在补测数据。
+
+### 跑完了但证据不够
+
+- 每个 keep 用例只有 1 对（`repeats: 1`），holdout 与 climb 各 3 对。这一轮的通过率不能当作长期通过率。
 - 本轮只有一次 gate，`gate-pool` 池化后每例仍只有 1 次 run，没有跨轮证据。
-- 介入率是 28 天窗口的比率，且带一个明显的离群会话（去掉最大会话后 4.9），不是长期趋势。
-- 第 5 步只按文件顺序读了队列前 5 条，没有对 1644 条 incident 做整体分诊或排序。
-- 没有跑 `loop replay-gate`（不在本次任务范围内）。
-- 本机 `~/.local` 的 rotom 安装和 `~/.pi/agent/sessions` 下的会话都只读；`~/.rotom/loop/` 的产物（weekly、harvest、gate、frozen）没有进入本仓库。本文只有聚合数字和脱敏描述，没有会话正文、摘录、session id 或绝对路径。
+- `behavior-mixed-decision-ownership` 的 `regressed` 没有复现第二次。它在 dfmodel 上没有任何更早的协议修正后样本，单轮 3 次里失败 1 次，无法区分是波动还是回归。
+- holdout 只有 3 对（baseline 1/3、candidate 3/3）。作为“没有过拟合”的证据，这个样本量很薄。
+- 介入率是 28 天窗口，且带一个明显的离群会话（去掉最大会话后 4.9），不是趋势。
+- weekly 的 30 条记录里，24 条 `no-metric` 永远不会有 harvest 证据，4 条 `insufficient-exposure` 本轮没有判定；剩下 2 条是 `uncertain` 和 `budget-met`。
+- 本轮所有运行都显示 `Est. cost unavailable`，没有美元成本数字，只有 token 数。
+- judge 的判定没有人工复核。`loop-ops.md` 要求每月从 gate 产物里抽 10 次人工复核一致性，那是月度动作，不在本轮。
+- 结果文档的数字没有第二人核对；我只做了机械检查（无 home 路径、无 session id、diff 只含预期文件、文件未超 20,000 字节）。
+
+### 环境与外部阻塞
+
+- HTTPS 推送在本机仍然不通（`remote helper 'https' aborted session`）。本轮靠 SSH wrapper 推送，没有修这个问题。
+- mac2 / mac3 的 SSH 报 `Permission denied (publickey,password,keyboard-interactive)`，各探测一次就停了，没有排查身份或密钥。因此 `74c52ed6` 具体来自哪台机器没有确认，只知道不是本机（macOS 27.0 build 26A428 ≠ 本机 27.3 build 26C5047e）。
+- 两轮记录不可比：会话库规模（670 vs 77 会话）、macOS 版本、gate 清单（`919ad0dc` vs `8f74604`）都不同，无法判断谁的通过率更“对”。
+- 没有验证 v22 下 `loop` 会怎么坏（全程 v24，没试 v22）。
+- 远端 `main` 在本轮结束后前进到 `392e3525`，本分支基于 `919ad0dc`，没有同步也没有合并它。
+- 本机 `~/.local` 的 rotom 安装和 `~/.pi/agent/sessions` 下的会话全程只读；`~/.rotom/loop/` 的产物（weekly、harvest、gate、frozen）没有进入本仓库。本文只有聚合数字和脱敏描述，没有会话正文、摘录、session id 或绝对路径。
