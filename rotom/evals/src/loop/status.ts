@@ -87,7 +87,12 @@ export function buildStatus(input: {
 }): StatusReport {
 	const { manifest, history, ledger, weekly, now } = input;
 	const cases: CaseRow[] = manifest.cases.map((item) => {
-		const samples = (history ?? []).filter((record) => record.caseId === item.caseId).sort((left, right) => left.recordedAt.localeCompare(right.recordedAt));
+		// Samples from another model are not evidence about the model this case runs on now, so
+		// a case that switched model starts its "last run" and "all runs" again.
+		const model = effectiveModel(item, manifest);
+		const samples = (history ?? [])
+			.filter((record) => record.caseId === item.caseId && record.model.provider === model.provider && record.model.model === model.model)
+			.sort((left, right) => left.recordedAt.localeCompare(right.recordedAt));
 		const last = samples.at(-1);
 		const pairs = samples.reduce((sum, record) => sum + record.pairs, 0);
 		return {

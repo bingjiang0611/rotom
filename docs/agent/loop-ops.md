@@ -42,6 +42,7 @@
 只读已有文件，不调模型、不写 Git：`gate.json`、`~/.rotom/loop/gate-history.jsonl`、账本、最新的 `weekly-<日期>/summary.json` 与 freeze 指针。打印四个数字（介入率、有区分度的爬坡用例数、已上线未验收的机制条目数、距上次 gate / weekly 的天数）、每个用例登记的复现结论与最近一次及累计结果、weekly 已给出结论的验收条目，以及 “Next”。
 
 - 没有数据时打印 `no record`，不打印 0。
+- 每个用例的 “last run” 与 “all runs” 只计该用例当前运行模型上的样本；换过模型的用例从新模型重新累计，旧模型样本仍在 gate 历史里，可用 `gate-pool` 查看。
 - 后三个数字是过程指标，“all runs” 跨所有 candidate commit 累加，不是判定；判定仍以 `loop gate` / `gate-pool` 为准。
 - “有区分度” 指 `gate.json` 里该用例至少有一条 `verdict: "reproduced"` 的按模型记录。
 

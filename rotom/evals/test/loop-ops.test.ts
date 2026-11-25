@@ -210,6 +210,10 @@ describe("status", () => {
 		expect(report).toMatchObject({ climb: { total: 2, proven: 1, flaky: 1 }, daysSinceGate: 2, daysSinceWeekly: 5, intervention: { per100: 10.6, turns: 4132, reportDate: "2026-11-19" }, ready: [{ id: "L-2026-11-01-with-metric", status: "improved" }] });
 		expect(report.cases[0]).toMatchObject({ last: { date: "2026-11-22", verdict: "regressed", candidatePass: 2 }, pooled: { runs: 2, pairs: 6, baselineFail: 4, candidateFail: 1 } });
 		expect(report.cases[1]).toMatchObject({ last: null, pooled: null });
+		// A sample recorded on another model is left out of the case's last and pooled runs.
+		const switched = buildStatus({ manifest: manifest([tuned]), history: [sample({}), sample({ recordedAt: "2026-11-23T10:00:00.000Z", runId: "gate-3", model: { provider: "openai-codex", model: "gpt-6.1-sol" }, candidatePass: 0 })], ledger: [], weekly, now });
+		expect(switched.cases[0]).toMatchObject({ last: { date: "2026-11-20" }, pooled: { runs: 1, pairs: 3, candidateFail: 0 } });
+		expect(switched.daysSinceGate).toBe(1);
 		const restated = buildStatus({ manifest: manifest([tuned, holdout]), history: [sample({ caseId: "tuned-case-variant", split: "holdout", verdict: "regressed", baselinePass: 2, candidatePass: 2 })], ledger: [], weekly, now });
 		expect(renderStatus(restated)).toContain("last run  2026-11-20 no-difference, baseline 2/3, candidate 2/3");
 		expect(report.next).toEqual(["update the ledger for 1 record(s) the weekly report reached a verdict on"]);
